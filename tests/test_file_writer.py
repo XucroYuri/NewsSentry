@@ -45,7 +45,7 @@ def sample_event() -> NewsEvent:
         pipeline_stage=PipelineStage.COLLECTED,
         news_value_score=85,
         china_relevance=70,
-        sentiment_score=0,
+        sentiment_score=0.0,
         processing_history=[
             ProcessingHistoryEntry(
                 stage="collected",
@@ -211,3 +211,38 @@ def test_move_event_chain_through_all_stages(
     for stage, expected_dir in stages[1:]:
         path = writer.move_event(path, stage)
         assert path.parent == base_dir / expected_dir
+
+
+# ------------------------------------------------------------------
+# _parse_frontmatter 边界情况
+# ------------------------------------------------------------------
+
+def test_parse_frontmatter_no_leading_dashes_raises(writer: FileWriter) -> None:
+    """文件不以 --- 开头时抛出 ValueError。"""
+    with pytest.raises(ValueError, match="文件不以 YAML frontmatter 开头"):
+        writer._parse_frontmatter("plain text\nno frontmatter")
+
+
+def test_parse_frontmatter_no_closing_dashes_raises(writer: FileWriter) -> None:
+    """找不到 frontmatter 结束标记时抛出 ValueError。"""
+    with pytest.raises(ValueError, match="找不到 frontmatter 结束标记"):
+        writer._parse_frontmatter("---\nkey: value\nnever ends here")
+
+
+# ------------------------------------------------------------------
+# _atomic_write 边界
+# ------------------------------------------------------------------
+
+def test_atomic_write_cleans_up_tmp_on_failure(writer: FileWriter, base_dir: Path) -> None:
+    """写入过程中若 os.replace 失败，finally 仍清理 tmp 文件。"""
+    target = base_dir / "raw" / "test_target.md"
+    target.parent.mkdir(parents=True)
+    # 目标路径故意设为目录，os.replace 到目录会失败
+    target.mkdir(exist_ok=True)
+    try:
+        writer._atomic_write(target, "content")
+    except (OSError, IsADirectoryError, PermissionError):
+        pass
+    # tmp 文件应已被 finally 清理
+    tmp_files = list(target.parent.glob("*.tmp"))
+    assert len(tmp_files) == 0

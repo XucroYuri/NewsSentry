@@ -477,6 +477,60 @@ class TestExtractPublished:
         # 不应抛异常
         assert isinstance(result, str)
 
+    def test_bad_published_string_falls_back_to_updated_parsed(self):
+        """published 字符串解析失败时，应退回 updated_parsed。"""
+        config = _make_minimal_config()
+        collector = RSSCollector(config, None)
+
+        updated_ts = time.strptime("2026-05-09 18:00:00", "%Y-%m-%d %H:%M:%S")
+        entry = feedparser.FeedParserDict({
+            "title": "Bad Published",
+            "link": "https://example.com/bad-pub",
+            "summary": "Content.",
+            "published": "Not a valid date at all",
+            "updated_parsed": updated_ts,
+            "id": "bad-pub-1",
+        })
+
+        result = collector._extract_published(entry)
+        assert "2026-05-09" in result
+        assert "18:00" in result
+
+    def test_bad_published_and_no_updated_parsed_falls_to_updated_str(self):
+        """published 字符串失败且无 updated_parsed 时，退回 updated 字符串。"""
+        config = _make_minimal_config()
+        collector = RSSCollector(config, None)
+
+        entry = feedparser.FeedParserDict({
+            "title": "Bad Both",
+            "link": "https://example.com/bad-both",
+            "summary": "Content.",
+            "published": "garbage data",
+            "updated": "Mon, 09 May 2026 20:00:00 GMT",
+            "id": "bad-both-1",
+        })
+
+        result = collector._extract_published(entry)
+        assert "2026-05-09" in result
+        assert "20:00" in result
+
+    def test_bad_updated_string_returns_current_time(self):
+        """updated 字符串也解析失败时，退回当前 UTC 时间。"""
+        config = _make_minimal_config()
+        collector = RSSCollector(config, None)
+
+        entry = feedparser.FeedParserDict({
+            "title": "All Bad",
+            "link": "https://example.com/all-bad",
+            "summary": "Content.",
+            "updated": "garbage date",
+            "id": "all-bad-1",
+        })
+
+        result = collector._extract_published(entry)
+        assert "T" in result
+        assert isinstance(result, str)
+
 
 # ── _extract_content ─────────────────────────────────────────────────
 

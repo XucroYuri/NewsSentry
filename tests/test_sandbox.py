@@ -291,6 +291,25 @@ class TestEnforce:
             enforcer.enforce("rm", {"command": "rm -rf /"})
         assert exc_info.value.detail == {"tool": "rm", "command": "rm -rf /"}
 
+    def test_malformed_url_host_extraction(self, enforcer: SandboxEnforcer, tmp_root: Path) -> None:
+        """畸形 URL 不导致 enforce 崩溃：_extract_host 容错返回 None。"""
+        f = tmp_root / "data.txt"
+        f.write_text("ok")
+        # 畸形 url 导致 _extract_host 异常，host 为 None，跳过 host 检查
+        enforcer.enforce(
+            "curl",
+            {"command": "curl", "url": "://bogus[MALFORMED]url", "output": str(f)},
+        )
+
+
+class TestExtractHost:
+    """_extract_host 辅助方法测试。"""
+
+    def test_malformed_url_returns_none(self):
+        """畸形 URL 应返回 None，不抛异常。"""
+        result = SandboxEnforcer._extract_host("not-a-valid-url-%%%")
+        assert result is None
+
 
 class TestEmptyPolicyDenyAll:
     """空策略（默认构造）全拒绝测试。"""

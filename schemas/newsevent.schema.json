@@ -159,10 +159,10 @@
       "maximum": 100
     },
     "sentiment_score": {
-      "type": ["integer", "null"],
-      "minimum": -100,
-      "maximum": 100,
-      "description": "Exception to 0-100 scale; -100 to 100 per contracts-canonical §4"
+      "type": ["number", "null"],
+      "minimum": -1.0,
+      "maximum": 1.0,
+      "description": "Sentiment polarity: -1.0 (negative) to 1.0 (positive). Exception to the 0-100 score system per contracts-canonical.md §4"
     },
     "processing_history": {
       "type": "array",

@@ -23,7 +23,7 @@ class RunLog:
         self.log_dir = log_dir
         self.run_id = run_id
         # target_id 从 run_id 后缀解析；datetime 段不含下划线，从右侧分割安全
-        self.target_id = run_id.rsplit("_", 1)[0] if "_" in run_id else run_id
+        self.target_id = run_id.split("_", 1)[0] if "_" in run_id else run_id
         self.started_at = datetime.now(UTC).isoformat()
         self._phases: dict[str, dict[str, Any]] = {}
         self._written: bool = False

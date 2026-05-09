@@ -5,6 +5,7 @@ Storage: {target}/memory/ directory (YAML files).
 """
 from __future__ import annotations
 
+import os
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
@@ -73,7 +74,7 @@ class Memory:
         tmp = target.with_suffix(".tmp")
         with open(tmp, "w", encoding="utf-8") as f:
             yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
-        tmp.rename(target)
+        os.replace(tmp, target)
 
     # ------------------------------------------------------------------
     # Known IDs（去重）
