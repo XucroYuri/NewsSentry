@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://news-sentry.local/schemas/sandboxpolicy.schema.json",
   "title": "SandboxPolicy",
-  "description": "Implements: docs/contracts-canonical.md §8; docs/brainstorming/SandboxPolicy与执行权限规格.md; execution permission profile",
+  "description": "Implements: docs/contracts-canonical.md §6; docs/brainstorming/SandboxPolicy与执行权限规格.md; execution permission profile",
   "type": "object",
   "required": [
     "profile_id",

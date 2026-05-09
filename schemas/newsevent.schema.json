@@ -49,7 +49,7 @@
       "properties": {
         "status": {
           "type": "string",
-          "enum": ["pending", "done", "skipped"]
+          "enum": ["completed", "partial", "skipped"]
         },
         "confidence": {
           "type": ["integer", "null"],
