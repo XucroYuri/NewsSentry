@@ -4,8 +4,12 @@ NewsEvent is the core data exchange object — defined in docs/contracts-canonic
 and docs/newsevent-schema.md. Schema: schemas/newsevent.schema.json
 """
 from __future__ import annotations
+
+import hashlib
+from datetime import datetime
 from enum import Enum
 from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -70,5 +74,16 @@ class NewsEvent(BaseModel):
 
     @classmethod
     def make_id(cls, source_id: str, url: str, published_at_iso: str) -> str:
-        """Generate deterministic NewsEvent.id per ADR-0001."""
-        raise NotImplementedError("Phase 1: deterministic sha256 id generation")
+        """生成确定性 NewsEvent.id。
+
+        格式: ``ne-{source_id}-{yyyymmdd}-{hash8}``（参见 contracts-canonical.md §3）。
+        hash8 由 SHA-256(source_id + url + published_at_iso) 截取前 8 位十六进制生成。
+        """
+        try:
+            dt = datetime.fromisoformat(published_at_iso)
+        except (ValueError, TypeError):
+            dt = datetime.utcnow()
+        date_str = dt.strftime("%Y%m%d")
+        hash_input = f"{source_id}{url}{published_at_iso}"
+        hash8 = hashlib.sha256(hash_input.encode("utf-8")).hexdigest()[:8]
+        return f"ne-{source_id}-{date_str}-{hash8}"
