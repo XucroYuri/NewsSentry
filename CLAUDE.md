@@ -1,7 +1,137 @@
-@AGENTS.md
+# News Sentry — CLAUDE.md
 
-## Claude Code Notes
+> 行为基线源自 [andrej-karpathy-skills](https://github.com/forrestchang/andrej-karpathy-skills) （Karpathy 四原则，中文版）。
+> 项目架构与领域规范见 `AGENTS.md`（跨 Agent 共用基准）。
 
-Use this file as the Claude Code project memory entrypoint. The canonical cross-agent project guidance lives in `AGENTS.md`; keep durable project rules there so Codex, opencode, Cursor, and Claude Code stay aligned.
+---
 
-Do not write personal preferences, local sandbox paths, API keys, browser profile details, or temporary session notes into this file. Put private machine-local notes in `CLAUDE.local.md`, which is ignored by Git.
+## 行为基线：Karpathy 四原则
+
+### 1. 先思考再编码
+
+**不要假设。不要隐藏困惑。呈现权衡。**
+
+实现之前：
+- 明确陈述你的假设。如果不确定，**先问清楚**再动手。
+- 当一个需求存在多种解读时，把它们列出来——不要默默选一个。
+- 如果存在更简单的方案，**直接说出来**。该提出异议时就提出。
+- 如果某件事不清楚，**停下来**。指出困惑所在，然后问。
+
+### 2. 简洁优先
+
+**用最少代码解决问题。不做多余的事。**
+
+- 不添加需求之外的功能。
+- 不为一次性调用创建抽象层。
+- 不添加未被要求的"灵活性"或"可配置性"。
+- 不为不可能发生的场景做错误处理。
+- 如果 200 行能写成 50 行，**重写它**。
+
+**检验标准：** 一个资深工程师会认为这段代码过度复杂吗？如果会，简化它。
+
+### 3. 精准修改
+
+**只碰必须碰的。只清理自己造成的混乱。**
+
+编辑已有代码时：
+- 不要"顺手优化"相邻的代码、注释或格式。
+- 不要重构没有坏的东西。
+- 匹配现有代码风格，即使你更倾向不同写法。
+- 如果注意到无关的死代码，**提一句即可**——不要删。
+
+当你的修改产生了孤儿代码（因你的改动而不再使用的 import/变量/函数）：
+- 清理掉。
+- 但不要删除预先存在的死代码（除非明确被要求）。
+
+**检验标准：** 每一行修改都应该直接追溯到用户的需求。
+
+### 4. 目标驱动执行
+
+**定义成功标准。循环验证直到达成。**
+
+把指令式任务转化为可验证目标：
+- "加个验证" → "先为非法输入写测试，再让测试通过"
+- "修这个 bug" → "先写一个能复现的测试，再让它通过"
+- "重构 X" → "确保重构前和重构后测试都通过"
+
+对多步骤任务，给出简洁计划：
+```
+1. [步骤] → 验证: [检查项]
+2. [步骤] → 验证: [检查项]
+3. [步骤] → 验证: [检查项]
+```
+
+---
+
+## 项目特定指引
+
+以下规则是对 Karpathy 基线的项目级补充，同样具有约束力。
+
+### 沟通语言
+
+- **默认使用简体中文**进行开发讨论、commit message、代码注释
+- 英文用于技术术语、API 命名、schema 字段名
+- 意大利语（Italiano）可作为辅助语言，用于意大利新闻源相关的注释和文档
+- commit message 优先使用简体中文
+
+### 架构权威来源
+
+修改架构、schema、pipeline 行为、权限、provider 路由或工具执行前，必读：
+- `docs/contracts-canonical.md` — 口径规范唯一权威
+- `docs/adr/` — ADR-0001 至 ADR-0016
+- `schemas/` — 12 份 JSON Schema 2020-12（与 contracts-canonical.md 双向绑定）
+- `config/` — 运行时配置骨架
+
+### 核心决策（不可违反）
+
+- **框架中立**：Hermes/OpenClaw 集成放 runtime adapters，不进领域契约
+- **v1 不自动对外发布**：停在 drafts → reviewed → published/
+- **NewsEvent 为唯一数据对象**：不引入竞争 schema
+- **0-100 分值**（除 sentiment_score: -1.0~1.0 和 ValueDimension.weight 外）
+- **外部项目只 install 不 vendor**：不 fork、不 submodule
+- **永不做专用前端**：可视化走 Obsidian Markdown + 飞书/邮件/推送
+- **新闻分类走 metadata.classification**：不进 schema 顶层
+- **Python 3.11+ / Pydantic v2**：`src/news_sentry/` 全栈
+- **配置走 config/**：禁止硬编码意大利参数到 src/
+- **CLI 入口固定**：`news-sentry run --target {id} --stage {collect|filter|judge|output|all}`
+- **JSON Schema 是契约校验载体**：所有 config YAML 头部 `# Schema:` 指向对应 schema
+
+### Phase 执行顺序
+
+1. Contract Stabilization ✅
+2. Runtime Carrier Alignment
+3. **Kernel MVP ← 当前**
+4. Tool/Skill Registry + OpenCLI
+5. AI Provider Routing
+6. Sandbox Hardening + Social/KOL
+7. Multi-target Expansion
+
+### 目录协议与文件事件
+
+- `raw/` → collected events
+- `evaluated/` → filtered and judged events
+- `drafts/` → editorial drafts
+- `reviewed/` → human/internal-review candidates
+- `published/` → approved archive
+- `archive/` → rejected/duplicate/low-value
+- `memory/` → known IDs, source health, cursors
+- `logs/` → run logs, audit logs
+
+保留 `NewsEvent.pipeline_stage` 和 `processing_history`。精确映射见 `docs/contracts-canonical.md §5`。
+
+### 验证预期
+
+提交实现代码前，运行最窄但最有意义的检查。禁止提交 `.DS_Store`、`.env*`、token、cookie、日志文件。
+
+### Git 提交规范
+
+- 所有 commit message 默认使用**简体中文**
+- 格式：`<阶段/模块>: <简要描述>`
+- 示例：`Phase 3 Kernel: 实现 ConfigLoader 配置加载与 schema 校验`
+- 每个独立模块完成后立即提交，保持 commit 粒度细、可回溯
+
+---
+
+## 附：CLAUDE.local.md
+
+个人机器级配置（sandbox 路径、API key、浏览器 profile 等）写入 `CLAUDE.local.md`，该文件被 .gitignore 忽略。
