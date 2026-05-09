@@ -1,7 +1,10 @@
 .DS_Store
 **/.DS_Store
 .claude/
+CLAUDE.local.md
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
 .env
 .env.*
 *.log
-

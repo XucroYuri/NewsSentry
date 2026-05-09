@@ -1,0 +1,12 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    "docs/development/agent-tooling-readiness.md",
+    ".cursor/rules/news-sentry-core.mdc"
+  ],
+  "permission": {
+    "bash": "ask",
+    "edit": "allow",
+    "webfetch": "allow"
+  }
+}
