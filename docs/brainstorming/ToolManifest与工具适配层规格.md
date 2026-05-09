@@ -3,6 +3,13 @@
 > 版本: v0.1-draft | 日期: 2026-05-09
 > 状态: 工程承接规格
 > 上级文档: [通用内核与平台化架构 PRD](./通用内核与平台化架构PRD.md)
+>
+> **📌 外部依赖决策** — 本文涉及 OpenCLI 集成部分受以下 ADR 约束：
+> - [ADR-0008](../adr/0008-external-deps-install-not-vendor.md)：OpenCLI 等外部项目只 install 不 vendor；三原则（install-not-vendor / wrap-not-rewrite / document-the-version）
+> - [ADR-0011](../adr/0011-opencli-baseline-toolmanifest.md)：OpenCLI baseline ToolManifest 12 条命令骨架（Phase 4 实现基线）；退出码映射、session_profile 规则、rate_limit 设计
+> - [ADR-0010](../adr/0010-no-dedicated-frontend.md)：News Sentry 不引入专用前端框架；ToolManifest 中不应包含任何 Web 服务启动命令
+>
+> OpenCLI 接入完整策略见 [`docs/external-integration-strategy.md`](../external-integration-strategy.md)。
 
 ---
 

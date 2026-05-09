@@ -6,6 +6,8 @@
 
 > **📌 路线图主权说明** — 本文档的"阶段 0.5–3"路线图编号体系（与 AGENTS.md 的 Phase 1–7 不同）是历史探索稿；**当前有效开发计划以 `docs/development-plan.md` 为主权文档**。本文档保留作为设计原意与背景说明，其中 §7 各阶段交付内容与 AGENTS.md Phase Order 的映射关系如下：
 >
+> **📌 关键决策更新（ADR-0010）** — 本文任何提及"前端界面"、"管理后台"、"可视化 Dashboard" 或类似概念的段落，均已被 [ADR-0010](../adr/0010-no-dedicated-frontend.md) 约束：News Sentry 永不引入专用前端框架（React/Vue/Tauri）；可视化终态是 Obsidian Markdown + 推送。如有前端相关讨论，请重定向到 Obsidian Dataview 或推送 Skill 方向。
+>
 > | 本文编号 | 对应 AGENTS Phase | 简述 |
 > |---------|------------------|------|
 > | 阶段 0.5 | Phase 2 Runtime Carrier Alignment | Hermes/OpenClaw 运行载体对齐 |

@@ -218,6 +218,34 @@ metadata:
                                   # 低于阈值时 judge 可将 recommendation 降为 "monitor"
 ```
 
+### 场景C: 新闻分类（L0–L3 taxonomy）
+
+本场景遵循 [ADR-0009](./adr/0009-four-layer-classification-framework.md)。分类结果写入 `metadata.classification`，**不进 schema 顶层**。完整 L0–L3 枚举和 Italy 子轴定义见 [`docs/news-classification-framework.md`](./news-classification-framework.md)；字段 schema 约定见 [`docs/contracts-canonical.md §9`](./contracts-canonical.md)。
+
+```yaml
+metadata:
+  classification:
+    l0: "politics"         # string，必填（classify Skill 存在时）；12 类 L0 枚举之一
+    l1:                    # string[]，必填；至少 1 项
+      - "election"
+      - "coalition"
+    l2:                    # string[]，可空；实体角色类型
+      - "actor"
+      - "institution"
+    l3: "announced"        # string，推荐；12 类 L3 动作状态之一
+    country_axes:          # array，可空；Italy 子轴，其他国家按需新增
+      - axis: "region"
+        value: "IT-62"     # Lazio（Roma 所在大区）
+      - axis: "coalition"
+        value: "centro-destra"
+      - axis: "scope"
+        value: "domestic-only"
+    confidence: 82         # 0–100（同 contracts-canonical.md §4.1）；规则引擎时为 null
+    classifier_version: "rules-v1"  # 格式: {type}-v{n}
+```
+
+**Phase 标注：** Phase 3 Kernel MVP 中分类器可缺失；`metadata.classification` 整体可为 `null`，不影响 `pipeline_stage` 和文件写入。Phase 3 规则引擎分类器实现后开始填充。
+
 ### 场景W: 编辑工作流状态
 
 本场景遵循 [ADR-0005](./adr/0005-pipeline-stage-vs-workflow-state.md)。`workflow_state` 与 `pipeline_stage` 正交，不进 NewsEvent 顶层。

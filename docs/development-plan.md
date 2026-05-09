@@ -215,6 +215,9 @@
 - [ ] `ToolManifest` 注册失败（tool_not_found）写入标准 error.type
 - [ ] source health 追踪工具失败率和最近健康状态
 - [ ] adapter health check 可在 bounded run 前验证工具可用性
+- [ ] 依据 ADR-0011 落地 OpenCLI baseline ToolManifest 12 条（`config/toolmanifest/opencli-baseline.yaml`）
+- [ ] 所有 OpenCLI 工具退出码按 ADR-0011 §退出码映射对齐 `ToolRunResult.error.type`
+- [ ] 无任何 `SourceChannel` 配置包含 fork/vendor/submodule 引用（符合 ADR-0008）
 
 **风险与回退：**
 - 风险：OpenCLI adapter 与意大利网站结构频繁变化
@@ -314,22 +317,43 @@
 - [ ] 第二国家 `TargetConfig` 配置创建后，bounded run 成功产出 `raw/` 事件，不需要修改任何核心代码
 - [ ] 意大利特有的关键词/实体/人名配置全部在 `TargetConfig` 或 `SourceChannel` 中，不在核心代码里
 - [ ] 第二国家 `it-{lang}-bilingual-sop.md` 或双语 SOP 扩展文档可选创建
+- [ ] 用 `docs/news-classification-framework.md` 中的 L0–L3 taxonomy 评估第二国家可复用度：是否需要新增 L1 子主题？是否需要新增 `country_axes` 子轴文件？
+- [ ] `metadata.classification.country_axes[]` 中意大利特定轴（`region`/`coalition`）不被第二国家配置引用（验证子轴隔离）
 
 ---
 
 ## §9. Workstream 矩阵（横切七个 Phase）
 
-| Workstream | W1 契约与口径治理 | W2 运行载体 | W3 内核 MVP | W4 工具/Skill Registry | W5 AI Provider 路由 | W6 沙箱硬化 | W7 多 target | W8 双语 SOP | W9 文档治理 |
-|-----------|----------|-----------|-----------|---------------------|---------------------|-----------|------------|-----------|-----------|
-| **Phase 1** | ★ 核心 | — | — | — | — | — | — | ★ 核心 | ★ 核心 |
-| **Phase 2** | ◎ 引用 | ★ 核心 | — | — | — | — | — | — | ◎ 更新 |
-| **Phase 3** | ◎ 引用 | ◎ 适配 | ★ 核心 | — | — | ◎ 最小 | — | ◎ 基础 | ◎ 更新 |
-| **Phase 4** | ◎ 引用 | ◎ 适配 | ◎ 扩展 | ★ 核心 | — | ◎ 扩展 | — | — | ◎ 更新 |
-| **Phase 5** | ◎ 引用 | — | ◎ 适配 | ◎ 适配 | ★ 核心 | ◎ 审计 | — | ★ 翻译路由 | ◎ 更新 |
-| **Phase 6** | ◎ 引用 | — | — | ◎ 扩展 | ◎ 适配 | ★ 核心 | — | ◎ 社媒合规 | ◎ 更新 |
-| **Phase 7** | ◎ 引用 | ◎ 适配 | ◎ 验证 | ◎ 验证 | ◎ 适配 | ◎ 适配 | ★ 核心 | ◎ 扩展 | ◎ 更新 |
+| Workstream | W1 契约与口径治理 | W2 运行载体 | W3 内核 MVP | W4 工具/Skill Registry | W5 AI Provider 路由 | W6 沙箱硬化 | W7 多 target | W8 双语 SOP | W9 文档治理 | W10 外部集成 | W11 分类框架 |
+|-----------|----------|-----------|-----------|---------------------|---------------------|-----------|------------|-----------|-----------|-----------|-----------|
+| **Phase 1** | ★ 核心 | — | — | — | — | — | — | ★ 核心 | ★ 核心 | ◎ 策略文档 | ◎ 框架文档 |
+| **Phase 2** | ◎ 引用 | ★ 核心 | — | — | — | — | — | — | ◎ 更新 | — | — |
+| **Phase 3** | ◎ 引用 | ◎ 适配 | ★ 核心 | — | — | ◎ 最小 | — | ◎ 基础 | ◎ 更新 | ◎ 数据集接入 | ◎ 规则引擎 |
+| **Phase 4** | ◎ 引用 | ◎ 适配 | ◎ 扩展 | ★ 核心 | — | ◎ 扩展 | — | — | ◎ 更新 | ★ 核心 | ◎ 分类测试 |
+| **Phase 5** | ◎ 引用 | — | ◎ 适配 | ◎ 适配 | ★ 核心 | ◎ 审计 | — | ★ 翻译路由 | ◎ 更新 | ◎ MCP形态 | ★ LLM分类器 |
+| **Phase 6** | ◎ 引用 | — | — | ◎ 扩展 | ◎ 适配 | ★ 核心 | — | ◎ 社媒合规 | ◎ 更新 | ◎ 社媒适配 | ◎ 扩展 |
+| **Phase 7** | ◎ 引用 | ◎ 适配 | ◎ 验证 | ◎ 验证 | ◎ 适配 | ◎ 适配 | ★ 核心 | ◎ 扩展 | ◎ 更新 | ◎ 新目标适配 | ★ 新子轴设计 |
 
 图例：`★ 核心` = 此 Phase 中 workstream 的主要工作量 | `◎ 适配/引用` = 关联工作但非主角 | `—` = 本 Phase 不涉及
+
+### W10 — 外部集成工作流（跨 Phase 1–4）
+
+| Phase | 主要产出物 |
+|---|---|
+| Phase 1 | `docs/external-integration-strategy.md`（策略定稿）、`docs/reference-projects-insights.md`（参考项目提取）、ADR-0008、ADR-0011 |
+| Phase 3 | `docs/datasets-catalog-italy.md` 中 Phase 3 标注数据集（ISTAT/Eurostat/GDELT）离线接入 |
+| Phase 4 | `config/toolmanifest/opencli-baseline.yaml`（12 条 ADR-0011 骨架实现）；OpenCLI Tool Adapter 集成测试 |
+| Phase 5+ | TrendRadar MCP server 形态（可选）；worldmonitor 数据源接入（Phase 7 候选） |
+
+### W11 — 分类框架工作流（跨 Phase 3–7）
+
+| Phase | 主要产出物 |
+|---|---|
+| Phase 1 | `docs/news-classification-framework.md`（框架定稿）、ADR-0009；`contracts-canonical.md §9` 新增 |
+| Phase 3 | 规则引擎分类器（`config/classification-rules.yaml`）；`metadata.classification` 写入 collect/filter Skill |
+| Phase 5 | LLM 分类器（route_id: `classify.primary`）；fallback 降级到规则引擎 |
+| Phase 6 | 社媒内容分类适配（社媒文本的 L0/L1 识别率验证） |
+| Phase 7 | 第二国家 `country_axes` 子轴文件设计；L1 子主题可复用度评估 |
 
 ---
 
@@ -370,6 +394,10 @@
 | [ADR-0005](./adr/0005-pipeline-stage-vs-workflow-state.md) | `pipeline_stage` 与 `workflow_state` 正交分离 | Phase 1 |
 | [ADR-0006](./adr/0006-cli-entry-deferred.md) | CLI 入口命名暂缓到 Phase 3 前决策 | 治理 backlog |
 | [ADR-0007](./adr/0007-prd-open-questions-resolved.md) | PRD Open Questions 批量关闭 | Phase 1 |
+| [ADR-0008](./adr/0008-external-deps-install-not-vendor.md) | 外部项目只 install 不 vendor；三原则：install-not-vendor、wrap-not-rewrite、document-the-version | Phase 1 / Phase 4 |
+| [ADR-0009](./adr/0009-four-layer-classification-framework.md) | 四层新闻分类框架（L0–L3）与 `metadata.classification` 字段契约 | Phase 1 / Phase 3 |
+| [ADR-0010](./adr/0010-no-dedicated-frontend.md) | 永不做专用前端；终态是 Obsidian + 推送 | Phase 1 |
+| [ADR-0011](./adr/0011-opencli-baseline-toolmanifest.md) | OpenCLI baseline ToolManifest 12 条命令骨架；退出码映射 | Phase 4 |
 
 ---
 
