@@ -13,8 +13,8 @@
       "properties": {
         "code": {
           "type": "string",
-          "pattern": "^[A-Z][A-Z0-9_]*$",
-          "description": "Uppercase code, e.g. 'POLITICS', 'ECONOMICS'"
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+          "description": "Code identifier, e.g. 'politics', 'POLITICS'"
         },
         "label_zh": { "type": "string" },
         "label_it": { "type": "string" },
@@ -43,7 +43,7 @@
       "properties": {
         "code": {
           "type": "string",
-          "pattern": "^[A-Z][A-Z0-9_]*$"
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
         },
         "l0_domain": { "type": "string" },
         "label_zh": { "type": "string" },
