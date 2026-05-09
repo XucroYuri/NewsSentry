@@ -3,12 +3,14 @@
 APICollector — fetches JSON API endpoints using httpx.
 """
 from __future__ import annotations
+
 from typing import Any
+
 from news_sentry.models.newsevent import NewsEvent
 
 
 class APICollector:
-    def __init__(self, config: dict[str, Any], sandbox_enforcer: Any) -> None:
+    def __init__(self, config: dict[str, Any], sandbox_enforcer: Any) -> None:  # noqa: ANN401
         raise NotImplementedError("Phase 3: APICollector.__init__")
 
     def collect(self, run_id: str) -> list[NewsEvent]:

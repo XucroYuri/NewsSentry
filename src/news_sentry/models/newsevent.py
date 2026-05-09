@@ -7,27 +7,27 @@ from __future__ import annotations
 
 import hashlib
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class PipelineStage(str, Enum):
+class PipelineStage(StrEnum):
     COLLECTED = "collected"
     FILTERED = "filtered"
     JUDGED = "judged"
     OUTPUTTED = "outputted"
 
 
-class Language(str, Enum):
+class Language(StrEnum):
     IT = "it"
     EN = "en"
     ZH = "zh"
     MIXED = "mixed"
 
 
-class JudgeRecommendation(str, Enum):
+class JudgeRecommendation(StrEnum):
     PUBLISH = "publish"
     REVIEW = "review"
     ARCHIVE = "archive"

@@ -4,24 +4,26 @@ SkillManifest and ToolManifest data models.
 Schemas: schemas/skillmanifest.schema.json, schemas/toolmanifest.schema.json
 """
 from __future__ import annotations
-from enum import Enum
+
+from enum import StrEnum
 from typing import Any
+
 from pydantic import BaseModel, Field
 
 
-class RuntimeCompatibility(str, Enum):
+class RuntimeCompatibility(StrEnum):
     HERMES = "hermes"
     OPENCLAW = "openclaw"
     CLI = "cli"
 
 
-class RiskLevel(str, Enum):
+class RiskLevel(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
 
 
-class ExecutionType(str, Enum):
+class ExecutionType(StrEnum):
     SUBPROCESS = "subprocess"
     HTTP = "http"
     PYTHON = "python"

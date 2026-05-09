@@ -3,6 +3,7 @@
 OpenClawAdapter — stub for OpenClaw/ClawHub runtime integration (ADR-0006).
 """
 from __future__ import annotations
+
 from typing import Any
 
 
