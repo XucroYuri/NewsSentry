@@ -2,7 +2,9 @@
 
 > 版本: v0.1-draft | 日期: 2026-05-09
 > 状态: 开发前子规格
+> **实现阶段: Phase 3 Kernel MVP（v1 主线）** — 本规格是 Kernel MVP 的核心采集基线，优先实现
 > 上级文档: [Agent Skill Pack 开发总纲与多 Agent 生产线路线图](./AgentSkillPack开发总纲与多Agent生产线路线图.md)
+> 字段口径基准: [contracts-canonical.md](../contracts-canonical.md)
 
 ---
 

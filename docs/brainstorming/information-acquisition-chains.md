@@ -4,6 +4,8 @@
 > 状态: 深入研究与方案讨论稿
 > 前置文档: [架构总览](../architecture-overview.md) | [NewsEvent Schema](../newsevent-schema.md) | [Integration Protocol](../integration-protocol.md) | [开源参考研究](./开源舆情监控参考项目深度研究.md) | [初始架构分析](./意大利突发新闻监控系统架构分析.md)
 
+> **⚠️ 超 v1 范围蓄水池** — 本文档涵盖 L1/L2/L3 全链路设计、邮件/Telegram/微信等多渠道、多账号 KOL 追踪、多源交叉验证等内容，**整体超出 v1 Kernel MVP 范围**。v1 主线只实现 L1（RSS/API collect + filter）和最基础的 L2（judge）。L3 多源交叉、邮件/社媒深度通道属于 Phase 4–6。读者应以本文档为灵感和设计蓄水池，而非即时执行计划。P0/P1 信源优先级表（§5）仍有参考价值，可作为 RSS-API 采集子 Skill 的信源配置依据。
+
 ---
 
 ## 0. 核心问题

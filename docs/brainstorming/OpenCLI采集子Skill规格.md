@@ -2,7 +2,9 @@
 
 > 版本: v0.1-draft | 日期: 2026-05-09
 > 状态: 开发前子规格
+> **实现阶段: Phase 4 Tool/Skill Registry + OpenCLI（v1+）** — 本规格在内核 MVP 完成后实现；Kernel MVP 阶段不引入 OpenCLI
 > 上级文档: [Agent Skill Pack 开发总纲与多 Agent 生产线路线图](./AgentSkillPack开发总纲与多Agent生产线路线图.md)
+> 字段口径基准: [contracts-canonical.md](../contracts-canonical.md)
 
 ---
 

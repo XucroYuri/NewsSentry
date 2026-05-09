@@ -4,6 +4,7 @@
 > 状态: 中长期产品与架构规划
 > 使用方法: 本文档用于统一 News Sentry 的宏观概念、平台边界、工程路线和成功标准。它不替代具体子 Skill 规格，而是为后续内核、配置、工具、Skill、sandbox、AI Provider 等模块的实现提供产品级 source of truth。
 > 前置文档: [架构总览](../architecture-overview.md) | [Integration Protocol](../integration-protocol.md) | [NewsEvent Schema](../newsevent-schema.md) | [Agent Skill Pack 总纲](./AgentSkillPack开发总纲与多Agent生产线路线图.md)
+> 字段口径基准: [contracts-canonical.md](../contracts-canonical.md) — Open Questions 处置记录见 [ADR-0007](../adr/0007-prd-open-questions-resolved.md)
 
 ---
 
@@ -371,13 +372,28 @@ v1 不包含：
 
 ## 10. Open Questions
 
+> 以下各条均已处置，详见 [ADR-0007](../adr/0007-prd-open-questions-resolved.md)。
+
 1. `ToolManifest` 是否单独成文，还是并入 `SkillManifest` 作为一种 capability 类型？
+   **[RESOLVED → `ToolManifest与工具适配层规格.md`]** ToolManifest 独立成文，与 SkillManifest 分工明确。
+
 2. sandbox v1 是配置约束还是需要实际执行隔离，例如容器、工作目录沙箱、profile 沙箱？
+   **[RESOLVED → `SandboxPolicy与执行权限规格.md §0`]** v1 做最小 enforcer（命令白名单、文件边界、网络预校验、预算限制、审计日志），不做容器隔离。
+
 3. AI Provider 是否需要统一 prompt registry，以便 Provider 切换时保持输出结构一致？
+   **[RESOLVED → `AIProvider与模型路由规格.md`]** 通过 `route_id + output_schema_id + prompt_template_id` 绑定；版本治理进入治理 backlog SCHEMA-VERSION-001。
+
 4. 文件事件协议在并发 Agent 下是否需要 lock 文件或 lease 机制？
+   **[DEFERRED → 治理 backlog LOCK-001，Phase 4+]** v1 单进程 bounded run 不涉及并发写冲突，Phase 4+ 再讨论。
+
 5. 长期 memory 是继续使用 Markdown/YAML 文件，还是在 v2 引入 SQLite？
+   **[RESOLVED: v1 使用文件 memory，SQLite 推迟到 v2+]** `AGENTS.md` Core Decisions 与 PRD §8 Out of Scope 均明确 v1 不引入数据库。
+
 6. Skill Pack 的最小 CLI 入口如何命名，是否需要统一为 `news-sentry run --target italy --stage collect`？
+   **[DEFERRED → ADR-0006，治理 backlog CLI-001]** 暂定形式：`news-sentry run --target <target_id> [--stage <stage>]`，Phase 3 前正式定稿。
+
 7. Provider 成本和质量如何评估，是否需要离线 eval 集？
+   **[DEFERRED → 治理 backlog EVAL-001，Phase 5]** Phase 5 AI Provider 路由阶段再设计 eval 体系。
 
 ---
 
