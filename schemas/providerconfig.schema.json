@@ -13,7 +13,7 @@
       "properties": {
         "route_id": {
           "type": "string",
-          "pattern": "^[a-z][a-z0-9_-]*$"
+          "pattern": "^[a-z][a-z0-9_.-]*$"
         },
         "task_type": {
           "type": "string",
@@ -39,6 +39,10 @@
           "type": "boolean",
           "default": true,
           "description": "Whether calls on this route are written to provider usage logs"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Human-readable documentation note; not consumed at runtime"
         }
       }
     }
