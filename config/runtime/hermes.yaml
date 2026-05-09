@@ -1,0 +1,45 @@
+# Hermes 运行时适配器配置
+# 契约: docs/contracts-canonical.md §5
+# ADR: ADR-0006
+#
+# Hermes 作为主调度器，负责 cron 触发和 bounded run 生命周期管理
+# News Sentry Skill Pack 本身不实现无界 daemon，由 Hermes 控制启停
+# 详见 docs/brainstorming/Hermes与OpenClaw运行载体规格.md
+
+runtime_id: hermes
+enabled: true
+trigger_mode: cron
+
+# 各阶段 cron 时间表（UTC+1 Rome 标准时，Hermes 内部用 UTC）
+# 采集 → 过滤 → 判断 → 输出 每 2 小时一个完整周期
+cron_expressions:
+  - "0 */2 * * *"     # 每 2 小时整点：collect 阶段
+  - "15 */2 * * *"    # collect 后 15 分钟：filter 阶段
+  - "30 */2 * * *"    # collect 后 30 分钟：judge 阶段
+  - "45 */2 * * *"    # collect 后 45 分钟：output 阶段
+
+# Hermes 调用的 CLI 命令模板，{target_id} 和 {stage} 由 Hermes 注入
+command: "news-sentry run --target {target_id} --stage {stage}"
+
+# 本 runtime 覆盖的目标列表
+targets: [italy]
+
+# 各阶段与 cron 的显式对应关系（便于 Hermes 解析）
+stages_per_trigger:
+  - stage: collect
+    cron: "0 */2 * * *"
+  - stage: filter
+    cron: "15 */2 * * *"
+  - stage: judge
+    cron: "30 */2 * * *"
+  - stage: output
+    cron: "45 */2 * * *"
+
+# 单次运行超时（须小于相邻 cron 间隔 15 分钟）
+timeout_minutes: 12
+
+# 失败策略：记录日志后继续下一轮，不中断后续阶段
+on_failure: log_and_continue
+
+# 运行标识注入：Hermes 在启动命令时会附加 --run-id，由 CLI 写入 run_id 字段
+inject_run_id: true

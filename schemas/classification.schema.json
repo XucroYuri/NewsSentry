@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://news-sentry.local/schemas/classification.schema.json",
+  "title": "ClassificationRules",
+  "description": "Implements: docs/contracts-canonical.md §9; docs/news-classification-framework.md; ADR-0009",
+  "type": "object",
+  "$defs": {
+    "L0Domain": {
+      "type": "object",
+      "title": "L0Domain",
+      "required": ["code", "label_zh", "label_it"],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "description": "Uppercase code, e.g. 'POLITICS', 'ECONOMICS'"
+        },
+        "label_zh": { "type": "string" },
+        "label_it": { "type": "string" },
+        "keywords_it": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "keywords_en": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "keywords_zh": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        }
+      }
+    },
+    "L1Topic": {
+      "type": "object",
+      "title": "L1Topic",
+      "required": ["code", "l0_domain", "label_zh"],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "l0_domain": { "type": "string" },
+        "label_zh": { "type": "string" },
+        "label_it": { "type": ["string", "null"] },
+        "keywords_it": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "keywords_en": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        }
+      }
+    }
+  },
+  "required": ["rules_version", "l0_domains"],
+  "additionalProperties": false,
+  "properties": {
+    "rules_version": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$"
+    },
+    "l0_domains": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/L0Domain" },
+      "minItems": 1
+    },
+    "l1_topics": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/L1Topic" },
+      "default": []
+    },
+    "country_axes": {
+      "type": "object",
+      "description": "Italy-specific sub-axes with enable flags: politics, economics, crime, sports, culture",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  }
+}

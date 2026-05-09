@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://news-sentry.local/schemas/pipelinecontext.schema.json",
+  "title": "PipelineContext",
+  "description": "Implements: docs/contracts-canonical.md §5; bounded run lifecycle context object",
+  "type": "object",
+  "required": [
+    "run_id",
+    "target_id",
+    "stage",
+    "started_at",
+    "config_snapshot"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "UUID4 unique per bounded run"
+    },
+    "target_id": {
+      "type": "string",
+      "description": "Slug of the monitoring target, e.g. 'italy'"
+    },
+    "stage": {
+      "type": "string",
+      "enum": ["collected", "filtered", "judged", "outputted"]
+    },
+    "started_at": { "type": "string", "format": "date-time" },
+    "config_snapshot": {
+      "type": "object",
+      "description": "Snapshot of resolved TargetConfig at run start; allows replay",
+      "additionalProperties": true
+    },
+    "events_collected": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0
+    },
+    "events_filtered": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0
+    },
+    "events_judged": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0
+    },
+    "events_output": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0
+    }
+  }
+}

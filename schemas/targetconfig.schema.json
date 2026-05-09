@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://news-sentry.local/schemas/targetconfig.schema.json",
+  "title": "TargetConfig",
+  "description": "Implements: docs/contracts-canonical.md §6; per-target monitoring configuration; ADR-0015",
+  "type": "object",
+  "required": [
+    "target_id",
+    "display_name",
+    "language_scope",
+    "timezone",
+    "source_channel_refs",
+    "filter_rules_ref",
+    "classification_rules_ref",
+    "sandbox_profile_ref",
+    "provider_routes_ref",
+    "output_destinations_ref"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "target_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "Lowercase slug, e.g. 'italy'"
+    },
+    "display_name": { "type": "string" },
+    "language_scope": {
+      "type": "object",
+      "required": ["primary", "output"],
+      "additionalProperties": false,
+      "properties": {
+        "primary": {
+          "type": "string",
+          "description": "BCP-47 language code, e.g. 'it'"
+        },
+        "secondary": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "output": {
+          "type": "string",
+          "description": "Output language code, e.g. 'zh'"
+        }
+      }
+    },
+    "timezone": {
+      "type": "string",
+      "description": "IANA timezone identifier, e.g. 'Europe/Rome'"
+    },
+    "source_channel_refs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "File refs under config/sources/{target_id}/"
+    },
+    "filter_rules_ref": { "type": "string" },
+    "classification_rules_ref": { "type": "string" },
+    "sandbox_profile_ref": { "type": "string" },
+    "provider_routes_ref": { "type": "string" },
+    "output_destinations_ref": { "type": "string" },
+    "classification": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "country_axes": {
+          "type": "object",
+          "description": "Enable flags for Italy-specific sub-axes (politics, economics, crime, sports, culture)",
+          "additionalProperties": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

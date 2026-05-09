@@ -1,0 +1,42 @@
+# Schema: ../../schemas/targetconfig.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015, ADR-0016
+target_id: italy
+display_name: "意大利新闻监控"
+
+language_scope:
+  primary: it
+  secondary: [en]
+  output: zh
+
+timezone: Europe/Rome
+
+# 引用的源渠道 ID，对应 config/sources/italy/{id}.yaml
+source_channel_refs:
+  - ansa
+  - repubblica
+  - corriere
+  - agi
+  - fao-rss
+
+# 各子系统规则/路由配置的相对路径（相对于项目根目录）
+filter_rules_ref: config/filters/italy/default.yaml
+classification_rules_ref: config/classification/rules-v1.yaml
+sandbox_profile_ref: config/sandbox/default.yaml
+provider_routes_ref: config/provider/routes.yaml
+output_destinations_ref: config/output/destinations.yaml
+
+# 意大利子轴开关，控制 classification 阶段哪些 country_axes 参与打分
+# 详见 docs/news-classification-framework.md 和 docs/contracts-canonical.md §9
+classification:
+  country_axes:
+    politics: true
+    economics: true
+    crime: true
+    sports: false
+    culture: true
+    eu_relations: true
+    china_italy_relations: true
+    immigration: true
+    energy: true
+    judicial: true

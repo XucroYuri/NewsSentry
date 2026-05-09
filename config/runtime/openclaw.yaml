@@ -1,0 +1,31 @@
+# OpenClaw 运行时适配器配置
+# 契约: docs/contracts-canonical.md §5
+# ADR: ADR-0006
+#
+# OpenClaw 作为主 Skill 运行时和 ClawHub 生态兼容层
+# v1 阶段 enabled: false，Phase 2 Runtime Carrier Alignment 后启用
+# 详见 docs/brainstorming/Hermes与OpenClaw运行载体规格.md
+
+runtime_id: openclaw
+enabled: false
+
+# ClawHub 上的 Skill Pack 标识
+skill_pack_id: news-sentry-italy
+
+# 本 Skill Pack 包含的 Skill 列表（对应 Phase 3 Kernel MVP 实现的功能）
+skill_refs:
+  - collect_rss       # RSS/API 采集
+  - collect_api       # 结构化 API 采集
+  - filter_rules      # 规则过滤
+  - judge_primary     # AI 价值判断
+  - output_markdown   # Obsidian Markdown 输出
+
+# ClawHub 接入端点（Phase 2 对接后填入）
+claw_hub_endpoint: "<placeholder>"
+
+# Skill Pack 元数据，用于 ClawHub 注册
+metadata:
+  version: "0.1.0"
+  description: "意大利新闻监控 Skill Pack"
+  author: "news-sentry"
+  tags: [news, italy, monitoring, rss]

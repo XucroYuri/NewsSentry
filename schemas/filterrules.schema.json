@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://news-sentry.local/schemas/filterrules.schema.json",
+  "title": "FilterRules",
+  "description": "Implements: docs/contracts-canonical.md §7; keyword and threshold rules for the filter stage",
+  "type": "object",
+  "$defs": {
+    "KeywordRule": {
+      "type": "object",
+      "title": "KeywordRule",
+      "required": ["keyword", "weight", "language"],
+      "additionalProperties": false,
+      "properties": {
+        "keyword": { "type": "string", "minLength": 1 },
+        "weight": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 10.0
+        },
+        "language": {
+          "type": "string",
+          "description": "BCP-47 language code this keyword applies to, e.g. 'it', 'en', 'zh', or '*' for all"
+        }
+      }
+    }
+  },
+  "required": [
+    "rules_version",
+    "target_id",
+    "score_threshold",
+    "max_age_hours",
+    "dedup_window_hours"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "rules_version": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$",
+      "description": "Semver string, e.g. '1.0.0'"
+    },
+    "target_id": { "type": "string" },
+    "keyword_rules": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/KeywordRule" },
+      "default": []
+    },
+    "score_threshold": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Minimum news_value_score to pass filter stage"
+    },
+    "max_age_hours": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Reject events older than this many hours relative to collected_at"
+    },
+    "dedup_window_hours": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Deduplication window in hours; 0 disables dedup"
+    }
+  }
+}

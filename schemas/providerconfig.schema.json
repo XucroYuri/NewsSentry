@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://news-sentry.local/schemas/providerconfig.schema.json",
+  "title": "ProviderConfig",
+  "description": "Implements: docs/contracts-canonical.md §8; docs/brainstorming/AIProvider与模型路由规格.md; AI provider route table",
+  "type": "object",
+  "$defs": {
+    "ProviderRoute": {
+      "type": "object",
+      "title": "ProviderRoute",
+      "required": ["route_id", "task_type", "provider", "model", "timeout_seconds", "max_cost_usd_per_call"],
+      "additionalProperties": false,
+      "properties": {
+        "route_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$"
+        },
+        "task_type": {
+          "type": "string",
+          "enum": ["translate", "judge", "classify", "summarize"]
+        },
+        "provider": { "type": "string" },
+        "model": { "type": "string" },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 600
+        },
+        "max_cost_usd_per_call": {
+          "type": "number",
+          "minimum": 0.0,
+          "description": "Hard budget ceiling per individual AI call; 0 means unlimited"
+        },
+        "output_schema_ref": {
+          "type": ["string", "null"],
+          "description": "$id URI of expected output JSON Schema for structured output enforcement"
+        },
+        "audit": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether calls on this route are written to provider usage logs"
+        }
+      }
+    }
+  },
+  "required": ["routes_version", "routes", "fallback_route_id"],
+  "additionalProperties": false,
+  "properties": {
+    "routes_version": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$"
+    },
+    "routes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ProviderRoute" },
+      "minItems": 1
+    },
+    "fallback_route_id": {
+      "type": "string",
+      "description": "route_id used when primary route fails or exceeds budget"
+    }
+  }
+}

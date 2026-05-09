@@ -1,0 +1,73 @@
+# Schema: ../../schemas/providerconfig.schema.json
+# 契约: docs/contracts-canonical.md §7
+# ADR: ADR-0005
+#
+# AI Provider 路由配置（Phase 5 实现前，provider/model 均为 placeholder）
+# 详见 docs/brainstorming/AIProvider与模型路由规格.md
+routes_version: "1.0.0"
+
+routes:
+
+  # ── 翻译任务 ──────────────────────────────────────────
+
+  - route_id: translate.fast
+    task_type: translate
+    # Phase 5 填入实际 provider（如 openai / anthropic / gemini）
+    provider: "<placeholder>"
+    model: "<placeholder>"
+    timeout_seconds: 30
+    max_cost_usd_per_call: 0.01
+    output_schema_ref: null
+    audit: false
+    notes: "用于 collect 阶段快速预翻译（仅填 metadata.translation.title_pre）"
+
+  - route_id: translate.high
+    task_type: translate
+    provider: "<placeholder>"
+    model: "<placeholder>"
+    timeout_seconds: 60
+    max_cost_usd_per_call: 0.05
+    output_schema_ref: null
+    audit: true
+    notes: "用于 judge 阶段高质量翻译（填 title_translated / content_translated）"
+
+  # ── 判断任务 ──────────────────────────────────────────
+
+  - route_id: judge.primary
+    task_type: judge
+    provider: "<placeholder>"
+    model: "<placeholder>"
+    timeout_seconds: 60
+    max_cost_usd_per_call: 0.10
+    # 输出须符合此 schema，保证 judge_result 结构合法
+    output_schema_ref: "schemas/toolrunresult.schema.json"
+    audit: true
+    notes: "主判断路由：计算 news_value_score / china_relevance / recommendation"
+
+  # ── 分类任务 ──────────────────────────────────────────
+
+  - route_id: classify.primary
+    task_type: classify
+    provider: "<placeholder>"
+    model: "<placeholder>"
+    timeout_seconds: 30
+    max_cost_usd_per_call: 0.02
+    output_schema_ref: "schemas/classification.schema.json"
+    audit: true
+    notes: "填写 metadata.classification L0–L3 结果"
+
+  # ── 本地回退路由 ──────────────────────────────────────
+
+  - route_id: fallback.local
+    task_type: judge
+    provider: local
+    # 本地 LLM（如 Ollama）model 名称，Phase 5 配置
+    model: "<placeholder-local-llm>"
+    timeout_seconds: 120
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: false
+    notes: "当主路由失败时降级使用本地 LLM，输出质量较低，仅用于保底"
+
+# 所有路由失败时的最终回退
+fallback_route_id: fallback.local
