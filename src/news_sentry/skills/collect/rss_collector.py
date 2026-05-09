@@ -21,7 +21,8 @@ class RSSCollector:
     """从 RSS/Atom feed 采集新闻事件。
 
     使用 httpx 发起 HTTP 请求，feedparser 解析 feed。
-    采集阶段容错：任何网络错误、解析错误均返回空列表，不抛异常。
+    网络错误、解析错误均向上抛 RuntimeError，由调用方通过 RunLog.log_error() 记录。
+    沙箱策略拦截时返回空列表（属预期行为，不记录错误）。
     """
 
     def __init__(self, config: dict[str, Any], sandbox_enforcer: Any) -> None:  # noqa: ANN401
@@ -47,7 +48,10 @@ class RSSCollector:
 
         Returns:
             解析出的 NewsEvent 列表，pipeline_stage=COLLECTED。
-            网络错误、超时、解析失败时返回空列表。
+            沙箱策略拦截时返回空列表。
+
+        Raises:
+            RuntimeError: 网络错误、超时或解析失败时抛出。
         """
         if not self._url:
             return []
@@ -62,13 +66,17 @@ class RSSCollector:
             response = httpx.get(self._url, timeout=self._timeout, follow_redirects=True)
             response.raise_for_status()
             feed_content = response.text
-        except Exception:  # noqa: S110
-            return []
+        except Exception as e:
+            raise RuntimeError(
+                f"RSS fetch failed for {self._source_id}: {e}"
+            ) from e
 
         try:
             feed = feedparser.parse(feed_content)
-        except Exception:  # noqa: S110
-            return []
+        except Exception as e:
+            raise RuntimeError(
+                f"RSS parse failed for {self._source_id}: {e}"
+            ) from e
 
         if feed.get("bozo", 0) and not feed.get("entries"):
             return []

@@ -8,6 +8,7 @@ import time
 from unittest import mock
 
 import feedparser
+import pytest
 
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
 from news_sentry.skills.collect.rss_collector import RSSCollector
@@ -117,15 +118,15 @@ class TestCollect:
         result = collector.collect("run-001")
         assert result == []
 
-    def test_http_error_returns_empty_list(self):
+    def test_http_error_raises_runtime_error(self):
         config = _make_minimal_config(url="https://error.example.com/feed")
         collector = RSSCollector(config, None)
 
         with mock.patch("httpx.get", side_effect=Exception("Connection refused")):
-            result = collector.collect("run-001")
-            assert result == []
+            with pytest.raises(RuntimeError, match="RSS fetch failed"):
+                collector.collect("run-001")
 
-    def test_timeout_returns_empty_list(self):
+    def test_timeout_raises_runtime_error(self):
         config = _make_minimal_config(url="https://slow.example.com/feed")
         collector = RSSCollector(config, None)
 
@@ -133,20 +134,20 @@ class TestCollect:
             pass
 
         with mock.patch("httpx.get", side_effect=TimeoutError("Read timed out")):
-            result = collector.collect("run-001")
-            assert result == []
+            with pytest.raises(RuntimeError, match="RSS fetch failed"):
+                collector.collect("run-001")
 
-    def test_http_status_error_returns_empty_list(self):
+    def test_http_status_error_raises_runtime_error(self):
         config = _make_minimal_config(url="https://example.com/404")
         collector = RSSCollector(config, None)
 
         mock_response = mock.MagicMock()
         mock_response.raise_for_status.side_effect = Exception("HTTP 404")
         with mock.patch("httpx.get", return_value=mock_response):
-            result = collector.collect("run-001")
-            assert result == []
+            with pytest.raises(RuntimeError, match="RSS fetch failed"):
+                collector.collect("run-001")
 
-    def test_parse_error_returns_empty_list(self):
+    def test_parse_error_raises_runtime_error(self):
         config = _make_minimal_config(url="https://example.com/feed")
         collector = RSSCollector(config, None)
 
@@ -155,8 +156,8 @@ class TestCollect:
                 mock_response = mock.MagicMock()
                 mock_response.text = "<not-valid-xml>"
                 mock_get.return_value = mock_response
-                result = collector.collect("run-001")
-                assert result == []
+                with pytest.raises(RuntimeError, match="RSS parse failed"):
+                    collector.collect("run-001")
 
     def test_bozo_feed_with_no_entries_returns_empty_list(self):
         config = _make_minimal_config(url="https://example.com/bad-feed")
