@@ -1,6 +1,6 @@
 # ADR-0006 — CLI 入口命名暂缓决策
 
-> 状态: **Accepted**
+> 状态: **Superseded by ADR-0016**
 > 日期: 2026-05-09
 > 决策者: News Sentry 项目团队
 > 覆盖文档: `docs/brainstorming/通用内核与平台化架构PRD.md §10 Open Questions 第 6 条`
