@@ -4,7 +4,7 @@
 
 News Sentry is a framework-neutral Agent Skill Pack platform for continuous news monitoring. The first reference target is Italy, but core code and contracts must stay reusable for other countries, regions, and domains.
 
-The system is intended to run inside heartbeat-capable agent frameworks such as Codex, opencode, Claude Code, OpenClaw, Hermes Agent, and similar hosts. A host should trigger bounded runs; the Skill Pack itself must not implement an unbounded daemon loop.
+The production runtime priority is Hermes Agent first, OpenClaw/OpenClaw Skills/ClawHub second as the main Skill runtime and ecosystem compatibility layer. Codex Automations and Claude Desktop Cowork Scheduled Tasks are fallback automation surfaces for project maintenance, research reports, and human-reviewable summaries, not the 24-hour production monitoring backbone. A host should trigger bounded runs; the Skill Pack itself must not implement an unbounded daemon loop.
 
 ## Architecture Source Of Truth
 
@@ -17,10 +17,13 @@ Read these files before changing architecture, schemas, pipeline behavior, permi
 - `docs/brainstorming/ToolManifest与工具适配层规格.md`
 - `docs/brainstorming/AIProvider与模型路由规格.md`
 - `docs/brainstorming/SandboxPolicy与执行权限规格.md`
+- `docs/brainstorming/Hermes与OpenClaw运行载体规格.md`
 
 ## Core Decisions
 
-- Keep the kernel framework-neutral. Codex, opencode, Claude Code, Cursor, OpenClaw, and Hermes integrations belong in thin adapters or developer tooling, not in domain contracts.
+- Keep the kernel framework-neutral. Hermes and OpenClaw integrations belong in runtime adapters or Skill wrappers, not in domain contracts; Codex, Claude Cowork, opencode, and Cursor belong to fallback automation or developer tooling.
+- Treat Hermes as the primary orchestrator for long-running cron/gateway monitoring. Treat OpenClaw as the primary Skill runtime and ClawHub ecosystem compatibility surface.
+- Do not treat Codex Automations or Claude Cowork Scheduled Tasks as production schedulers for 24-hour news monitoring.
 - Use Obsidian/Git-friendly Markdown files with YAML frontmatter as the v1 storage surface.
 - Use `NewsEvent` as the cross-agent data object. Do not introduce competing event schemas.
 - Use deterministic `NewsEvent.id` for item identity and `run_id` for bounded execution identity. Use `cluster_id` or `story_id` for cross-source aggregation.
@@ -35,13 +38,14 @@ Read these files before changing architecture, schemas, pipeline behavior, permi
 Follow this implementation order unless the user explicitly changes the roadmap:
 
 1. Contract Stabilization
-2. Kernel MVP
-3. Tool/Skill Registry + OpenCLI
-4. AI Provider Routing
-5. Sandbox Hardening + Social/KOL Experiment
-6. Multi-target Expansion
+2. Runtime Carrier Alignment
+3. Kernel MVP
+4. Tool/Skill Registry + OpenCLI
+5. AI Provider Routing
+6. Sandbox Hardening + Social/KOL Experiment
+7. Multi-target Expansion
 
-Phase 1 should focus on RSS/API baseline, bounded run lifecycle, config loading, file event writing, run logs, memory, source health, and a minimal sandbox enforcer. Do not pull OpenCLI, social login state, dynamic registry, or complex provider routing into Phase 1.
+Kernel MVP should focus on RSS/API baseline, bounded run lifecycle, config loading, file event writing, run logs, memory, source health, and a minimal sandbox enforcer. Do not pull OpenCLI, social login state, dynamic registry, or complex provider routing into Kernel MVP.
 
 ## File Event Protocol
 
