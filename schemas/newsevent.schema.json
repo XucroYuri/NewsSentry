@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://news-sentry.local/schemas/newsevent.schema.json",
+  "title": "NewsEvent",
+  "description": "Implements: docs/contracts-canonical.md §2–§4; docs/newsevent-schema.md; ADR-0009",
+  "type": "object",
+  "$defs": {
+    "ProcessingHistoryEntry": {
+      "type": "object",
+      "title": "ProcessingHistoryEntry",
+      "required": ["stage", "run_id", "timestamp"],
+      "additionalProperties": false,
+      "properties": {
+        "stage": { "type": "string" },
+        "run_id": { "type": "string", "format": "uuid" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "agent_id": { "type": ["string", "null"] },
+        "summary": { "type": ["string", "null"] }
+      }
+    },
+    "JudgeResult": {
+      "type": "object",
+      "title": "JudgeResult",
+      "required": ["recommendation", "rationale", "confidence"],
+      "additionalProperties": false,
+      "properties": {
+        "recommendation": {
+          "type": "string",
+          "enum": ["publish", "review", "archive", "discard"]
+        },
+        "rationale": { "type": "string" },
+        "confidence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "flags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        }
+      }
+    },
+    "MetadataTranslation": {
+      "type": "object",
+      "title": "MetadataTranslation",
+      "required": ["status"],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["pending", "done", "skipped"]
+        },
+        "confidence": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "tool_id": { "type": ["string", "null"] },
+        "glossary_version": { "type": ["string", "null"] },
+        "title_pre": { "type": ["string", "null"] }
+      }
+    },
+    "MetadataClassification": {
+      "type": "object",
+      "title": "MetadataClassification",
+      "required": ["l0_domain"],
+      "additionalProperties": true,
+      "properties": {
+        "l0_domain": { "type": "string" },
+        "l1_topic": { "type": ["string", "null"] },
+        "l2_entities": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "l3_action": { "type": ["string", "null"] },
+        "country_axes": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "rules_version": { "type": ["string", "null"] },
+        "classifier_version": { "type": ["string", "null"] }
+      }
+    },
+    "MetadataWorkflow": {
+      "type": "object",
+      "title": "MetadataWorkflow",
+      "additionalProperties": false,
+      "properties": {
+        "draft_path": { "type": ["string", "null"] },
+        "review_path": { "type": ["string", "null"] },
+        "published_path": { "type": ["string", "null"] }
+      }
+    },
+    "MetadataAcquisition": {
+      "type": "object",
+      "title": "MetadataAcquisition",
+      "additionalProperties": false,
+      "properties": {
+        "tool_id": { "type": ["string", "null"] },
+        "exit_code": { "type": ["integer", "null"] },
+        "fetch_duration_ms": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    }
+  },
+  "required": [
+    "id",
+    "run_id",
+    "source_id",
+    "url",
+    "title_original",
+    "content_original",
+    "language",
+    "published_at",
+    "collected_at",
+    "pipeline_stage"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Deterministic sha256 hash of '{source_id}|{url}|{published_at_iso}'"
+    },
+    "run_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "UUID4 of the bounded run that collected this event"
+    },
+    "source_id": { "type": "string" },
+    "url": { "type": "string", "format": "uri" },
+    "title_original": {
+      "type": "string",
+      "description": "Original Italian or English title"
+    },
+    "title_translated": {
+      "type": ["string", "null"],
+      "description": "Chinese translation; filled at judge stage only"
+    },
+    "content_original": { "type": "string" },
+    "content_translated": { "type": ["string", "null"] },
+    "language": {
+      "type": "string",
+      "enum": ["it", "en", "zh", "mixed"]
+    },
+    "published_at": { "type": "string", "format": "date-time" },
+    "collected_at": { "type": "string", "format": "date-time" },
+    "pipeline_stage": {
+      "type": "string",
+      "enum": ["collected", "filtered", "judged", "outputted"]
+    },
+    "news_value_score": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 100
+    },
+    "china_relevance": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 100
+    },
+    "sentiment_score": {
+      "type": ["integer", "null"],
+      "minimum": -100,
+      "maximum": 100,
+      "description": "Exception to 0-100 scale; -100 to 100 per contracts-canonical §4"
+    },
+    "processing_history": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ProcessingHistoryEntry" },
+      "default": []
+    },
+    "judge_result": {
+      "oneOf": [
+        { "$ref": "#/$defs/JudgeResult" },
+        { "type": "null" }
+      ]
+    },
+    "cluster_id": { "type": ["string", "null"] },
+    "story_id": { "type": ["string", "null"] },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "translation": { "$ref": "#/$defs/MetadataTranslation" },
+        "classification": { "$ref": "#/$defs/MetadataClassification" },
+        "workflow": { "$ref": "#/$defs/MetadataWorkflow" },
+        "acquisition": { "$ref": "#/$defs/MetadataAcquisition" }
+      }
+    }
+  }
+}

@@ -11,8 +11,12 @@ The production runtime priority is Hermes Agent first, OpenClaw/OpenClaw Skills/
 Read these files before changing architecture, schemas, pipeline behavior, permissions, provider routing, or tool execution:
 
 - `docs/contracts-canonical.md` — **口径规范基准**：字段命名、分值量纲、目录映射、pipeline_stage 枚举、产品命名、classification metadata schema 的唯一权威来源
-- `docs/adr/` — 架构决策记录（ADR-0001 至 ADR-0011）
+- `docs/adr/` — 架构决策记录（ADR-0001 至 ADR-0016）
+- `docs/spec/README.md` — **7 份 Phase SPEC 索引**：横切组件矩阵 + 演进图，每份 SPEC 是对应阶段实现的规格基准
 - `docs/development-plan.md` — 七阶段开发计划与 TODO 矩阵（含 W10/W11 工作流）
+- `schemas/` — **12 份 JSON Schema 2020-12**：机器可读契约，与 contracts-canonical.md 双向绑定（ADR-0014）
+- `config/` — **运行时配置骨架**：意大利参数封装在 config/targets/italy.yaml，其他国家复制 _template.yaml（ADR-0015）
+- `src/news_sentry/` — **Python 3.11+ stub 骨架**（ADR-0012、ADR-0013）
 - `docs/external-integration-strategy.md` — **外部项目接入策略**：OpenCLI 接入原则、三原则、12 条 ToolManifest 骨架意图、舍弃清单
 - `docs/reference-projects-insights.md` — **参考项目价值提取**：8 个外部项目的启发点与落地指针
 - `docs/news-classification-framework.md` — **新闻分类框架**：L0–L3 taxonomy、Italy 子轴、metadata.classification 完整 schema
@@ -43,6 +47,10 @@ Read these files before changing architecture, schemas, pipeline behavior, permi
 - **外部项目只 install 不 vendor**：OpenCLI 及所有外部项目通过系统包管理器安装，不 fork、不 vendor、不 Git submodule 引入本仓库。详见 `docs/external-integration-strategy.md` 和 ADR-0008。
 - **永不做专用前端**：News Sentry 终态是 CLI / Skill Pack；可视化通过 Obsidian Markdown 渲染 + 飞书/邮件/推送承担。禁止引入 React/Vue/Tauri/FastAPI。详见 ADR-0010。
 - **新闻分类走 metadata.classification，不做顶层字段**：L0–L3 taxonomy 结果写入 `NewsEvent.metadata.classification`，不进 schema 顶层。详见 `docs/news-classification-framework.md` 和 ADR-0009。
+- **实现语言是 Python 3.11+**：`src/news_sentry/` 目录下所有模块使用 Python 3.11+，pydantic v2 作为数据模型层。详见 ADR-0012。
+- **任务配置走 config/，禁止硬编码意大利参数到 src/**：所有与意大利相关的参数（语言、时区、源列表、关键词）封装在 `config/targets/italy.yaml`，切换国家只需复制 `config/targets/_template.yaml`，不改代码。详见 ADR-0015。
+- **CLI 入口格式固定**：`news-sentry run --target {id} --stage {collect|filter|judge|output|all}`。详见 ADR-0016。ADR-0006 的 CLI backlog（CLI-001）已关闭。
+- **JSON Schema 是契约校验载体**：`schemas/` 下 12 份 JSON Schema 2020-12 与 `docs/contracts-canonical.md` 双向绑定，config YAML 文件头部注释 `# Schema:` 指向对应 schema。详见 ADR-0014。
 
 ## Phase Order
 

@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://news-sentry.local/schemas/sandboxpolicy.schema.json",
+  "title": "SandboxPolicy",
+  "description": "Implements: docs/contracts-canonical.md §8; docs/brainstorming/SandboxPolicy与执行权限规格.md; execution permission profile",
+  "type": "object",
+  "required": [
+    "profile_id",
+    "default_action",
+    "command_policy",
+    "filesystem_policy",
+    "network_policy",
+    "budget_policy",
+    "audit"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "profile_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "default_action": {
+      "type": "string",
+      "enum": ["deny", "allow"],
+      "description": "Default policy when no specific rule matches; prefer 'deny' for production"
+    },
+    "command_policy": {
+      "type": "object",
+      "required": ["allowed_commands", "blocked_patterns"],
+      "additionalProperties": false,
+      "properties": {
+        "allowed_commands": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Explicit allowlist of command names (no args); must match ToolManifest command_template prefix"
+        },
+        "blocked_patterns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Regex patterns of commands that are always denied"
+        }
+      }
+    },
+    "filesystem_policy": {
+      "type": "object",
+      "required": ["read_roots", "write_roots"],
+      "additionalProperties": false,
+      "properties": {
+        "read_roots": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "write_roots": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "network_policy": {
+      "type": "object",
+      "required": ["allowed_hosts"],
+      "additionalProperties": false,
+      "properties": {
+        "allowed_hosts": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "blocked_hosts": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        }
+      }
+    },
+    "browser_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "session_profiles_allowed": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Allowed browser session profile IDs; empty means browser is disallowed"
+        }
+      }
+    },
+    "budget_policy": {
+      "type": "object",
+      "required": ["max_run_duration_seconds", "max_events_per_run", "max_ai_calls_per_run"],
+      "additionalProperties": false,
+      "properties": {
+        "max_run_duration_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_events_per_run": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_ai_calls_per_run": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "audit": {
+      "type": "object",
+      "required": ["log_all_tool_calls", "log_path"],
+      "additionalProperties": false,
+      "properties": {
+        "log_all_tool_calls": { "type": "boolean" },
+        "log_path": {
+          "type": "string",
+          "description": "Relative path under the file event protocol logs/ directory"
+        }
+      }
+    }
+  }
+}

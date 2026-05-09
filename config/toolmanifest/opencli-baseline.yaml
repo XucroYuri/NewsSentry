@@ -1,0 +1,341 @@
+# Schema: ../../schemas/toolmanifest.schema.json
+# 契约: docs/contracts-canonical.md §5
+# ADR: ADR-0011, ADR-0008
+#
+# ToolManifest 骨架：12 条 OpenCLI 命令封装
+# 所有工具调用须经 sandbox_profile 沙箱决策后执行
+# 详见 docs/brainstorming/ToolManifest与工具适配层规格.md
+
+tools:
+
+  # ── 网络采集类 ────────────────────────────────────────
+
+  - tool_id: opencli.fetch
+    display_name: "OpenCLI Fetch URL"
+    version: "1.0.0"
+    execution_type: subprocess
+    command_template: "opencli fetch --url {url} --output {output_path}"
+    parameters_schema:
+      type: object
+      required: [url, output_path]
+      properties:
+        url: { type: string, format: uri }
+        output_path: { type: string }
+    exit_codes:
+      "0": success
+      "1": fetch_failed
+      "2": timeout
+      "3": permission_denied
+    permissions:
+      risk_level: medium
+      network:
+        allowed_hosts: ["*"]
+      filesystem:
+        read_roots: []
+        write_roots: ["./italy/raw/"]
+      browser:
+        session_profile_required: false
+      credentials:
+        required: []
+
+  - tool_id: opencli.search
+    display_name: "OpenCLI Web Search"
+    version: "1.0.0"
+    execution_type: subprocess
+    command_template: "opencli search --query {query} --limit {limit} --output {output_path}"
+    parameters_schema:
+      type: object
+      required: [query, output_path]
+      properties:
+        query: { type: string }
+        limit: { type: integer, default: 10, minimum: 1, maximum: 50 }
+        output_path: { type: string }
+    exit_codes:
+      "0": success
+      "1": search_failed
+      "2": timeout
+      "3": permission_denied
+    permissions:
+      risk_level: medium
+      network:
+        allowed_hosts: ["*"]
+      filesystem:
+        read_roots: []
+        write_roots: ["./italy/raw/"]
+      browser:
+        session_profile_required: false
+      credentials:
+        required: []
+
+  - tool_id: opencli.extract
+    display_name: "OpenCLI Extract Structured Data"
+    version: "1.0.0"
+    execution_type: subprocess
+    # 从已下载的 HTML/文本文件中提取结构化字段
+    command_template: "opencli extract --input {input_path} --schema {schema_path} --output {output_path}"
+    parameters_schema:
+      type: object
+      required: [input_path, output_path]
+      properties:
+        input_path: { type: string }
+        schema_path: { type: string }
+        output_path: { type: string }
+    exit_codes:
+      "0": success
+      "1": parse_failed
+      "2": schema_mismatch
+    permissions:
+      risk_level: low
+      network:
+        allowed_hosts: []
+      filesystem:
+        read_roots: ["./italy/raw/", "./schemas/"]
+        write_roots: ["./italy/raw/"]
+      browser:
+        session_profile_required: false
+      credentials:
+        required: []
+
+  # ── 浏览器自动化类（需 session_profile） ──────────────
+
+  - tool_id: opencli.screenshot
+    display_name: "OpenCLI Take Screenshot"
+    version: "1.0.0"
+    execution_type: subprocess
+    command_template: "opencli screenshot --url {url} --output {output_path}"
+    parameters_schema:
+      type: object
+      required: [url, output_path]
+      properties:
+        url: { type: string, format: uri }
+        output_path: { type: string }
+    exit_codes:
+      "0": success
+      "1": render_failed
+      "2": timeout
+    permissions:
+      risk_level: high              # 浏览器渲染需较高权限
+      network:
+        allowed_hosts: ["*"]
+      filesystem:
+        read_roots: []
+        write_roots: ["./italy/raw/"]
+      browser:
+        session_profile_required: true
+      credentials:
+        required: []
+
+  - tool_id: opencli.wait
+    display_name: "OpenCLI Wait for Condition"
+    version: "1.0.0"
+    execution_type: subprocess
+    # 等待页面元素或网络条件满足后继续
+    command_template: "opencli wait --selector {selector} --timeout {timeout_seconds}"
+    parameters_schema:
+      type: object
+      required: [selector]
+      properties:
+        selector: { type: string }
+        timeout_seconds: { type: integer, default: 10, maximum: 60 }
+    exit_codes:
+      "0": condition_met
+      "1": timeout
+      "2": element_not_found
+    permissions:
+      risk_level: medium
+      network:
+        allowed_hosts: []
+      filesystem:
+        read_roots: []
+        write_roots: []
+      browser:
+        session_profile_required: true
+      credentials:
+        required: []
+
+  - tool_id: opencli.click
+    display_name: "OpenCLI Click Element"
+    version: "1.0.0"
+    execution_type: subprocess
+    command_template: "opencli click --selector {selector}"
+    parameters_schema:
+      type: object
+      required: [selector]
+      properties:
+        selector: { type: string }
+    exit_codes:
+      "0": success
+      "1": element_not_found
+      "2": click_intercepted
+    permissions:
+      risk_level: high
+      network:
+        allowed_hosts: ["*"]
+      filesystem:
+        read_roots: []
+        write_roots: []
+      browser:
+        session_profile_required: true
+      credentials:
+        required: []
+
+  - tool_id: opencli.type
+    display_name: "OpenCLI Type Text"
+    version: "1.0.0"
+    execution_type: subprocess
+    command_template: "opencli type --selector {selector} --text {text}"
+    parameters_schema:
+      type: object
+      required: [selector, text]
+      properties:
+        selector: { type: string }
+        text: { type: string }
+    exit_codes:
+      "0": success
+      "1": element_not_found
+    permissions:
+      risk_level: high
+      network:
+        allowed_hosts: ["*"]
+      filesystem:
+        read_roots: []
+        write_roots: []
+      browser:
+        session_profile_required: true
+      credentials:
+        required: []
+
+  - tool_id: opencli.navigate
+    display_name: "OpenCLI Navigate to URL"
+    version: "1.0.0"
+    execution_type: subprocess
+    command_template: "opencli navigate --url {url}"
+    parameters_schema:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string, format: uri }
+    exit_codes:
+      "0": success
+      "1": navigation_failed
+      "2": timeout
+    permissions:
+      risk_level: medium
+      network:
+        allowed_hosts: ["*"]
+      filesystem:
+        read_roots: []
+        write_roots: []
+      browser:
+        session_profile_required: true
+      credentials:
+        required: []
+
+  - tool_id: opencli.scroll
+    display_name: "OpenCLI Scroll Page"
+    version: "1.0.0"
+    execution_type: subprocess
+    command_template: "opencli scroll --direction {direction} --amount {amount}"
+    parameters_schema:
+      type: object
+      required: [direction]
+      properties:
+        direction:
+          type: string
+          enum: [up, down, left, right]
+        amount: { type: integer, default: 300, minimum: 0 }
+    exit_codes:
+      "0": success
+      "1": scroll_failed
+    permissions:
+      risk_level: low
+      network:
+        allowed_hosts: []
+      filesystem:
+        read_roots: []
+        write_roots: []
+      browser:
+        session_profile_required: true
+      credentials:
+        required: []
+
+  # ── 数据提取类 ────────────────────────────────────────
+
+  - tool_id: opencli.get_text
+    display_name: "OpenCLI Get Element Text"
+    version: "1.0.0"
+    execution_type: subprocess
+    command_template: "opencli get_text --selector {selector} --output {output_path}"
+    parameters_schema:
+      type: object
+      required: [selector, output_path]
+      properties:
+        selector: { type: string }
+        output_path: { type: string }
+    exit_codes:
+      "0": success
+      "1": element_not_found
+    permissions:
+      risk_level: low
+      network:
+        allowed_hosts: []
+      filesystem:
+        read_roots: []
+        write_roots: ["./italy/raw/"]
+      browser:
+        session_profile_required: true
+      credentials:
+        required: []
+
+  - tool_id: opencli.list_links
+    display_name: "OpenCLI List Page Links"
+    version: "1.0.0"
+    execution_type: subprocess
+    command_template: "opencli list_links --filter {filter_pattern} --output {output_path}"
+    parameters_schema:
+      type: object
+      required: [output_path]
+      properties:
+        filter_pattern: { type: string, default: "*" }
+        output_path: { type: string }
+    exit_codes:
+      "0": success
+      "1": page_not_loaded
+    permissions:
+      risk_level: low
+      network:
+        allowed_hosts: []
+      filesystem:
+        read_roots: []
+        write_roots: ["./italy/raw/"]
+      browser:
+        session_profile_required: true
+      credentials:
+        required: []
+
+  - tool_id: opencli.submit_form
+    display_name: "OpenCLI Submit Form"
+    version: "1.0.0"
+    execution_type: subprocess
+    # 仅用于无需登录凭据的公开搜索表单；禁止用于含账号/密码的登录表单
+    command_template: "opencli submit_form --selector {selector}"
+    parameters_schema:
+      type: object
+      required: [selector]
+      properties:
+        selector: { type: string }
+    exit_codes:
+      "0": success
+      "1": form_not_found
+      "2": submission_failed
+    permissions:
+      risk_level: high              # 表单提交有副作用，需显式审批
+      network:
+        allowed_hosts: ["*"]
+      filesystem:
+        read_roots: []
+        write_roots: []
+      browser:
+        session_profile_required: true
+      credentials:
+        required: []               # 严禁注入凭据，见 ADR-0003

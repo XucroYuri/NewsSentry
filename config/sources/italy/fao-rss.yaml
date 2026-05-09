@@ -1,0 +1,19 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015
+source_id: fao-rss
+display_name: "FAO - Food and Agriculture Organization (Rome HQ)"
+type: rss
+url: "https://www.fao.org/news/rss-feed/it/"
+
+# FAO 作为联合国专门机构，总部设罗马，提供意大利相关国际新闻背景
+credibility_base: 0.92
+
+fetch_interval_minutes: 60
+max_items_per_run: 20
+timeout_seconds: 30
+enabled: true
+
+health:
+  last_success_at: null
+  consecutive_failures: 0

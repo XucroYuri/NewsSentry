@@ -1,0 +1,72 @@
+# Schema: ../../schemas/sandboxpolicy.schema.json
+# 契约: docs/contracts-canonical.md §6
+# ADR: ADR-0003
+#
+# Cloud VPS 沙箱策略：适用于无人值守服务器部署
+# 相比 default.yaml：放宽了网络白名单、增加 /tmp 写权限、允许浏览器 session
+profile_id: cloud-vps
+default_action: deny
+
+command_policy:
+  allowed_commands:
+    - opencli
+    - curl
+    - wget
+    - python3
+    - news-sentry
+  blocked_patterns:
+    - "rm -rf"
+    - "sudo"
+    - "chmod"
+    - "dd if="
+    - "> /dev/"
+
+filesystem_policy:
+  read_roots:
+    - "./config/"
+    - "./schemas/"
+    - "./docs/"
+    - "./src/"
+  write_roots:
+    - "./italy/raw/"
+    - "./italy/evaluated/"
+    - "./italy/drafts/"
+    - "./italy/reviewed/"
+    - "./italy/logs/"
+    - "./italy/memory/"
+    - "/tmp/news-sentry-work/"    # 临时工作目录，用于大文件中转
+
+network_policy:
+  # VPS 环境允许访问更广泛的意大利/欧盟新闻源
+  allowed_hosts:
+    - "*.ansa.it"
+    - "*.repubblica.it"
+    - "*.corriere.it"
+    - "*.agi.it"
+    - "*.fao.org"
+    - "*.ilsole24ore.com"
+    - "*.lastampa.it"
+    - "*.tgcom24.it"
+    - "*.rainews.it"
+    - "feeds.bbci.co.uk"
+    - "rss.reuters.com"
+    - "*.euronews.com"
+  blocked_hosts:
+    - "169.254.169.254"
+    - "metadata.google.internal"
+    - "169.254.170.2"
+
+browser_policy:
+  # 服务器环境可使用无头浏览器 session（用于 opencli.screenshot 等）
+  # 禁止包含登录凭据的 profile
+  session_profiles_allowed:
+    - headless-default
+
+budget_policy:
+  max_run_duration_seconds: 3600   # VPS 单次运行最长 60 分钟
+  max_events_per_run: 1000
+  max_ai_calls_per_run: 300
+
+audit:
+  log_all_tool_calls: true
+  log_path: "./italy/logs/"

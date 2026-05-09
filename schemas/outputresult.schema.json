@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://news-sentry.local/schemas/outputresult.schema.json",
+  "title": "OutputResult",
+  "description": "Implements: docs/contracts-canonical.md §5; result object written after output stage completes; v1 stops at drafts/reviewed/publish-ready archives",
+  "type": "object",
+  "$defs": {
+    "DestinationResult": {
+      "type": "object",
+      "title": "DestinationResult",
+      "required": ["destination_id", "type", "events_written", "success"],
+      "additionalProperties": false,
+      "properties": {
+        "destination_id": { "type": "string" },
+        "type": {
+          "type": "string",
+          "enum": ["obsidian_markdown", "feishu_webhook", "file"],
+          "description": "v1 output destinations only; no external publishing without explicit new decision"
+        },
+        "path": {
+          "type": ["string", "null"],
+          "description": "Filesystem path for obsidian_markdown/file types"
+        },
+        "url": {
+          "type": ["string", "null"],
+          "format": "uri",
+          "description": "Webhook URL for feishu_webhook type"
+        },
+        "events_written": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "success": { "type": "boolean" },
+        "error": { "type": ["string", "null"] }
+      }
+    }
+  },
+  "required": ["run_id", "target_id", "destinations", "written_at"],
+  "additionalProperties": false,
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "target_id": { "type": "string" },
+    "destinations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/DestinationResult" },
+      "minItems": 1
+    },
+    "written_at": { "type": "string", "format": "date-time" }
+  }
+}

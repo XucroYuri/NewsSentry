@@ -1,0 +1,59 @@
+# Schema: ../../schemas/sandboxpolicy.schema.json
+# 契约: docs/contracts-canonical.md §6
+# ADR: ADR-0003
+#
+# 本地开发工作站沙箱策略：宽松权限 + 低预算限制，便于快速迭代调试
+# 警告：请勿在生产/CI 环境中使用此 profile
+profile_id: local-workstation
+default_action: deny
+
+command_policy:
+  allowed_commands:
+    - opencli
+    - curl
+    - wget
+    - python3
+    - python
+    - news-sentry
+    - rg               # ripgrep，用于本地日志搜索
+    - cat
+    - less
+  blocked_patterns:
+    - "rm -rf /"        # 仅阻止破坏性 rm，允许局部清理
+    - "sudo"
+    - "dd if="
+    - "> /dev/"
+
+filesystem_policy:
+  # 开发环境允许读取整个项目目录
+  read_roots:
+    - "./"
+  write_roots:
+    - "./italy/"
+    - "./tests/"
+    - "/tmp/news-sentry-dev/"   # 开发用临时目录
+
+network_policy:
+  # 开发环境允许访问所有外部 URL，方便测试新源
+  allowed_hosts:
+    - "*"
+  blocked_hosts:
+    - "169.254.169.254"    # 仍阻止元数据接口
+
+browser_policy:
+  # 开发环境允许本地 Chrome/Firefox profile（用于调试 opencli 浏览器工具）
+  session_profiles_allowed:
+    - headless-default
+    - local-chrome-debug
+
+budget_policy:
+  # 开发调试时限制较低，避免意外大规模 AI 调用
+  max_run_duration_seconds: 600
+  max_events_per_run: 50
+  max_ai_calls_per_run: 20
+
+audit:
+  log_all_tool_calls: true
+  log_path: "./italy/logs/"
+  # 开发环境额外输出到 stdout，方便实时查看
+  debug_stdout: true

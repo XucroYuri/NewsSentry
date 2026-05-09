@@ -1,0 +1,124 @@
+# Schema: ../../schemas/filterrules.schema.json
+# 契约: docs/contracts-canonical.md §3
+# ADR: ADR-0009
+rules_version: "1.0.0"
+target_id: italy
+
+# 进入 evaluated/ 阶段所需的最低 news_value_score（0-100）
+score_threshold: 40
+
+# 超过此时间窗口的事件直接归档，不进入 judge 阶段
+max_age_hours: 48
+
+# 去重时间窗口：同 URL 或同 id 在此窗口内只保留一条
+dedup_window_hours: 24
+
+# 关键词规则：weight 为增益因子（与基础分相乘），language 指明关键词所属语言
+keyword_rules:
+
+  # ── 政治 ─────────────────────────────────────────────
+  - keyword: "governo"
+    weight: 0.8
+    language: it
+  - keyword: "parlamento"
+    weight: 0.8
+    language: it
+  - keyword: "Meloni"
+    weight: 0.9
+    language: it
+  - keyword: "Draghi"
+    weight: 0.85
+    language: it
+  - keyword: "elezioni"
+    weight: 0.85
+    language: it
+  - keyword: "premier"
+    weight: 0.8
+    language: it
+
+  # ── 经济 ─────────────────────────────────────────────
+  - keyword: "economia"
+    weight: 0.7
+    language: it
+  - keyword: "PIL"
+    weight: 0.8
+    language: it
+  - keyword: "inflazione"
+    weight: 0.75
+    language: it
+  - keyword: "debito"
+    weight: 0.75
+    language: it
+  - keyword: "spread"
+    weight: 0.8
+    language: it
+
+  # ── 中意关系（高权重） ────────────────────────────────
+  - keyword: "Cina"
+    weight: 1.0
+    language: it
+  - keyword: "China"
+    weight: 1.0
+    language: en
+  - keyword: "cinese"
+    weight: 0.9
+    language: it
+  - keyword: "Chinese"
+    weight: 0.9
+    language: en
+  - keyword: "Via della Seta"
+    weight: 1.0
+    language: it
+  - keyword: "Belt and Road"
+    weight: 1.0
+    language: en
+  - keyword: "Pechino"
+    weight: 0.9
+    language: it
+
+  # ── 欧盟 ─────────────────────────────────────────────
+  - keyword: "Unione Europea"
+    weight: 0.7
+    language: it
+  - keyword: "Bruxelles"
+    weight: 0.65
+    language: it
+  - keyword: "commissione europea"
+    weight: 0.7
+    language: it
+  - keyword: "eurozona"
+    weight: 0.7
+    language: it
+
+  # ── 安全与司法 ────────────────────────────────────────
+  - keyword: "mafia"
+    weight: 0.85
+    language: it
+  - keyword: "corruzione"
+    weight: 0.8
+    language: it
+  - keyword: "arresto"
+    weight: 0.7
+    language: it
+
+  # ── 移民 ─────────────────────────────────────────────
+  - keyword: "migranti"
+    weight: 0.75
+    language: it
+  - keyword: "immigrazione"
+    weight: 0.7
+    language: it
+  - keyword: "Lampedusa"
+    weight: 0.85
+    language: it
+
+  # ── 能源 ─────────────────────────────────────────────
+  - keyword: "energia"
+    weight: 0.7
+    language: it
+  - keyword: "gas"
+    weight: 0.7
+    language: it
+  - keyword: "rinnovabili"
+    weight: 0.65
+    language: it

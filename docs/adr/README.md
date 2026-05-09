@@ -29,12 +29,17 @@
 | [ADR-0003](./0003-sandbox-write-roots-and-error-enum.md) | SandboxPolicy write_roots 补全与 error 枚举对齐 | Accepted | 2026-05-09 |
 | [ADR-0004](./0004-bilingual-translation-timing.md) | 双语翻译时机：collect 预览机译 vs judge 高保真 canonical | Accepted | 2026-05-09 |
 | [ADR-0005](./0005-pipeline-stage-vs-workflow-state.md) | pipeline_stage 与 workflow_state 正交分离 | Accepted | 2026-05-09 |
-| [ADR-0006](./0006-cli-entry-deferred.md) | CLI 入口命名暂缓决策（治理 backlog） | Accepted | 2026-05-09 |
+| [ADR-0006](./0006-cli-entry-deferred.md) | CLI 入口命名暂缓决策（治理 backlog）→ 已被 ADR-0016 关闭 | Accepted | 2026-05-09 |
 | [ADR-0007](./0007-prd-open-questions-resolved.md) | PRD Open Questions 关闭记录 | Accepted | 2026-05-09 |
 | [ADR-0008](./0008-external-deps-install-not-vendor.md) | 外部项目作为系统级依赖：install-not-vendor | Accepted | 2026-05-09 |
 | [ADR-0009](./0009-four-layer-classification-framework.md) | 四层新闻分类框架与 metadata.classification 字段契约 | Accepted | 2026-05-09 |
 | [ADR-0010](./0010-no-dedicated-frontend.md) | 不做专用前端：Obsidian + 推送即终态 | Accepted | 2026-05-09 |
 | [ADR-0011](./0011-opencli-baseline-toolmanifest.md) | OpenCLI baseline ToolManifest 12 条命令骨架 | Accepted | 2026-05-09 |
+| [ADR-0012](./0012-python-implementation-language.md) | 实现语言锁定：Python 3.11+，pydantic v2 | Accepted | 2026-05-09 |
+| [ADR-0013](./0013-src-layout-package-structure.md) | src layout 与三分包结构：core/skills/adapters 单向导入 | Accepted | 2026-05-09 |
+| [ADR-0014](./0014-json-schema-contract-validation.md) | JSON Schema 2020-12 作为契约校验载体，存放于 schemas/ | Accepted | 2026-05-09 |
+| [ADR-0015](./0015-config-merge-priority.md) | 配置覆盖优先级：target → source → sandbox 三层 deep merge | Accepted | 2026-05-09 |
+| [ADR-0016](./0016-cli-entry-point.md) | CLI 入口正式锁定：news-sentry run --target --stage（关闭 ADR-0006 backlog） | Accepted | 2026-05-09 |
 
 ## 引用方式
 

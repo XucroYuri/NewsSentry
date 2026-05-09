@@ -1,0 +1,60 @@
+# Schema: ../../schemas/sandboxpolicy.schema.json
+# 契约: docs/contracts-canonical.md §6
+# ADR: ADR-0003
+#
+# 默认沙箱策略：适用于受控生产/CI 环境
+# 遵循最小权限原则：默认拒绝，显式白名单放行
+profile_id: default
+default_action: deny
+
+command_policy:
+  allowed_commands:
+    - opencli
+    - curl
+    - wget
+  # 匹配任何子字符串即拒绝，防止误操作
+  blocked_patterns:
+    - "rm -rf"
+    - "sudo"
+    - "chmod"
+    - "dd if="
+    - "> /dev/"
+
+filesystem_policy:
+  read_roots:
+    - "./config/"
+    - "./schemas/"
+    - "./docs/"
+  write_roots:
+    - "./italy/raw/"
+    - "./italy/evaluated/"
+    - "./italy/drafts/"
+    - "./italy/logs/"
+    - "./italy/memory/"
+
+network_policy:
+  allowed_hosts:
+    - "*.ansa.it"
+    - "*.repubblica.it"
+    - "*.corriere.it"
+    - "*.agi.it"
+    - "*.fao.org"
+  blocked_hosts:
+    # 阻止云元数据接口，防止 SSRF
+    - "169.254.169.254"
+    - "metadata.google.internal"
+    - "169.254.170.2"
+
+browser_policy:
+  # 生产环境不允许使用浏览器 session（避免泄露 cookie）
+  # 需要浏览器时须在 cloud-vps.yaml 中显式配置
+  session_profiles_allowed: []
+
+budget_policy:
+  max_run_duration_seconds: 1800   # 单次运行最长 30 分钟
+  max_events_per_run: 500
+  max_ai_calls_per_run: 100
+
+audit:
+  log_all_tool_calls: true
+  log_path: "./italy/logs/"

@@ -175,9 +175,13 @@ Tool Adapter（sandbox 校验 → validated_args → 执行）
 
 ## 相关文档
 
+- **[Phase SPEC 索引](./spec/README.md)** — 7 份 Phase SPEC + 横切组件矩阵（ADR-0012/0013/0014/0015/0016 落地）
+- **[JSON Schema 契约目录](../schemas/)** — 12 份 JSON Schema 2020-12，与 contracts-canonical.md 双向绑定（ADR-0014）
+- **[运行时配置骨架](../config/)** — 意大利参数封装在 config/targets/italy.yaml（ADR-0015）
+- **[Python 包骨架](../src/news_sentry/)** — Python 3.11+ stub（ADR-0012、ADR-0013、ADR-0016）
 - **[契约规范基准](./contracts-canonical.md)** — 字段口径、分值量纲、目录映射、命名规范、classification metadata schema 的唯一权威
 - **[开发计划](./development-plan.md)** — 七阶段开发计划与 TODO 矩阵（含 W10/W11 工作流）
-- **[ADR 目录](./adr/README.md)** — 架构决策记录（ADR-0001 至 ADR-0011）
+- **[ADR 目录](./adr/README.md)** — 架构决策记录（ADR-0001 至 ADR-0016）
 - **[外部集成策略](./external-integration-strategy.md)** — OpenCLI 接入原则、参考项目取舍、12 条 ToolManifest 骨架意图
 - **[参考项目价值提取](./reference-projects-insights.md)** — 8 个外部项目的启发点与落地指针
 - **[新闻分类框架](./news-classification-framework.md)** — L0–L3 taxonomy、Italy 子轴、metadata.classification schema

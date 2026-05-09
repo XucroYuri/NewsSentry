@@ -1,0 +1,55 @@
+# Schema: ../../schemas/outputresult.schema.json
+# 契约: docs/contracts-canonical.md §8
+# ADR: ADR-0002, ADR-0010
+#
+# v1 仅支持本地文件输出（Obsidian Markdown）
+# 外部推送（飞书/邮件）默认禁用，需显式开启
+# 禁止在此配置自动向外部平台发布，见 ADR-0010
+
+destinations:
+
+  - destination_id: obsidian_italy_drafts
+    type: obsidian_markdown
+    enabled: true
+    path: "./italy/drafts/"
+    # 文件名模板：日期-来源-ID 短码
+    # {published_at_date} 格式 YYYY-MM-DD
+    # {id_short} 为 NewsEvent.id 前 8 位
+    filename_template: "{published_at_date}-{source_id}-{id_short}.md"
+    # YAML frontmatter 字段映射（Jinja2 风格模板）
+    frontmatter:
+      pipeline_stage: "{{ pipeline_stage }}"
+      news_value_score: "{{ news_value_score }}"
+      china_relevance: "{{ china_relevance }}"
+      sentiment_score: "{{ sentiment_score }}"
+      l0_domain: "{{ metadata.classification.l0_domain }}"
+      l1_topic: "{{ metadata.classification.l1_topic }}"
+      source_id: "{{ source_id }}"
+      cluster_id: "{{ cluster_id }}"
+      run_id: "{{ run_id }}"
+
+  - destination_id: obsidian_italy_evaluated
+    type: obsidian_markdown
+    enabled: true
+    path: "./italy/evaluated/"
+    filename_template: "{published_at_date}-{source_id}-{id_short}.md"
+    # 仅写入高价值事件（judge 阶段 recommendation 为 publish 或 review）
+    filter:
+      min_news_value_score: 60
+      recommendation: ["publish", "review"]
+    frontmatter:
+      pipeline_stage: "{{ pipeline_stage }}"
+      news_value_score: "{{ news_value_score }}"
+      china_relevance: "{{ china_relevance }}"
+      recommendation: "{{ judge_result.recommendation }}"
+      l0_domain: "{{ metadata.classification.l0_domain }}"
+      l1_topic: "{{ metadata.classification.l1_topic }}"
+
+  - destination_id: feishu_webhook_high_value
+    type: feishu_webhook
+    enabled: false                        # 需配置 FEISHU_WEBHOOK_URL 后手动启用
+    url: "${FEISHU_WEBHOOK_URL}"          # 从环境变量读取，禁止硬编码 URL
+    filter:
+      min_news_value_score: 80
+      recommendation: ["publish"]
+    notes: "Phase 6 社交/KOL 推送实验阶段启用，v1 保持 false"

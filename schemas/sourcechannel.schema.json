@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://news-sentry.local/schemas/sourcechannel.schema.json",
+  "title": "SourceChannel",
+  "description": "Implements: docs/contracts-canonical.md §6; individual news source configuration",
+  "type": "object",
+  "required": [
+    "source_id",
+    "display_name",
+    "type",
+    "credibility_base",
+    "fetch_interval_minutes",
+    "max_items_per_run",
+    "timeout_seconds",
+    "enabled"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "source_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "display_name": { "type": "string" },
+    "type": {
+      "type": "string",
+      "enum": ["rss", "api", "opencli"]
+    },
+    "url": {
+      "type": ["string", "null"],
+      "format": "uri",
+      "description": "Feed or API endpoint URL; null for opencli type"
+    },
+    "opencli_command": {
+      "type": ["string", "null"],
+      "description": "OpenCLI tool_id reference; null for rss/api types. Must match a ToolManifest tool_id."
+    },
+    "credibility_base": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Source credibility baseline; contributes to news_value_score"
+    },
+    "fetch_interval_minutes": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "max_items_per_run": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "timeout_seconds": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 300
+    },
+    "enabled": { "type": "boolean" },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "last_success_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "consecutive_failures": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        }
+      }
+    }
+  }
+}

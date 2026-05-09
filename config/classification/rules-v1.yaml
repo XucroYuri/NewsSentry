@@ -1,0 +1,161 @@
+# Schema: ../../schemas/classification.schema.json
+# 契约: docs/contracts-canonical.md §9
+# ADR: ADR-0009
+#
+# 分类结果写入 NewsEvent.metadata.classification，不进 schema 顶层
+# 详见 docs/news-classification-framework.md
+rules_version: "1.0.0"
+
+# L0 一级领域定义
+l0_domains:
+  - code: politics
+    label_zh: "政治"
+    label_it: "Politica"
+    keywords_it: [governo, parlamento, elezioni, partito, ministro, premier, senato, camera, coalizione, opposizione]
+    keywords_en: [government, parliament, election, party, minister, senate, coalition, opposition]
+    keywords_zh: [政府, 议会, 选举, 政党, 部长, 联合政府]
+
+  - code: economics
+    label_zh: "经济"
+    label_it: "Economia"
+    keywords_it: [economia, PIL, inflazione, banca, mercato, lavoro, occupazione, export, spread, debito, bilancio]
+    keywords_en: [economy, GDP, inflation, bank, market, employment, trade, deficit, budget]
+    keywords_zh: [经济, GDP, 通胀, 银行, 市场, 就业, 贸易, 预算]
+
+  - code: security
+    label_zh: "安全与司法"
+    label_it: "Sicurezza e Giustizia"
+    keywords_it: [criminalità, mafia, polizia, carabinieri, tribunale, arresto, indagine, corruzione, magistratura]
+    keywords_en: [crime, police, court, arrest, investigation, mafia, corruption, judiciary]
+    keywords_zh: [犯罪, 警察, 法院, 逮捕, 调查, 黑手党, 腐败, 司法]
+
+  - code: international
+    label_zh: "国际关系"
+    label_it: "Relazioni Internazionali"
+    keywords_it: [esteri, diplomatici, ambasciata, accordo, trattato, NATO, UE, Cina, Russia, USA]
+    keywords_en: [foreign, diplomatic, embassy, agreement, treaty, NATO, EU, China, Russia]
+    keywords_zh: [外交, 大使馆, 协议, 条约, 北约, 欧盟, 中国, 俄罗斯]
+
+  - code: culture_society
+    label_zh: "文化与社会"
+    label_it: "Cultura e Società"
+    keywords_it: [cultura, arte, università, istruzione, sanità, immigrazione, religione, chiesa]
+    keywords_en: [culture, art, university, education, health, immigration, religion, church]
+    keywords_zh: [文化, 艺术, 教育, 医疗, 移民, 宗教]
+
+  - code: environment_energy
+    label_zh: "环境与能源"
+    label_it: "Ambiente ed Energia"
+    keywords_it: [ambiente, clima, energia, rinnovabili, gas, petrolio, transizione, emissioni]
+    keywords_en: [environment, climate, energy, renewable, gas, oil, transition, emissions]
+    keywords_zh: [环境, 气候, 能源, 可再生, 天然气, 石油, 转型, 排放]
+
+# L1 子议题定义，归属 l0_domain
+l1_topics:
+  - code: govt_coalition
+    l0_domain: politics
+    label_zh: "执政联盟动态"
+    keywords_it: [coalizione, governo, maggioranza, opposizione, fiducia, crisi di governo]
+
+  - code: eu_policy
+    l0_domain: politics
+    label_zh: "欧盟政策"
+    keywords_it: [Bruxelles, regolamento, direttiva, commissione europea, consiglio europeo, Von der Leyen]
+    keywords_en: [Brussels, regulation, directive, European Commission, European Council]
+
+  - code: regional_elections
+    l0_domain: politics
+    label_zh: "地方选举"
+    keywords_it: [regionali, comunali, sindaco, presidente di regione, voto locale]
+
+  - code: fiscal_policy
+    l0_domain: economics
+    label_zh: "财政政策"
+    keywords_it: [manovra, legge di bilancio, deficit, debito pubblico, Fitch, Moody, S&P]
+    keywords_en: [budget law, deficit, public debt, fiscal policy]
+
+  - code: labor_market
+    l0_domain: economics
+    label_zh: "劳动力市场"
+    keywords_it: [occupazione, disoccupazione, lavoro, contratto, sciopero, sindacato]
+    keywords_en: [employment, unemployment, labor, strike, union]
+
+  - code: energy_transition
+    l0_domain: environment_energy
+    label_zh: "能源与绿色转型"
+    keywords_it: [energia, rinnovabili, gas, petrolio, transizione ecologica, PNRR]
+    keywords_en: [energy, renewable, gas, oil, green transition, PNRR]
+
+  - code: china_italy_bilateral
+    l0_domain: international
+    label_zh: "中意双边关系"
+    keywords_it: [Cina, cinese, Belt and Road, Via della Seta, Pechino, accordo Cina-Italia]
+    keywords_en: [China, Chinese, BRI, Belt Road, Beijing, China-Italy]
+
+  - code: bri_italy
+    l0_domain: international
+    label_zh: "一带一路与意大利"
+    keywords_it: [Via della Seta, memorandum, BRI, infrastrutture Cina]
+    keywords_en: [Belt and Road, BRI, memorandum, China infrastructure]
+
+  - code: trade_china_italy
+    l0_domain: economics
+    label_zh: "中意贸易"
+    keywords_it: [commercio Cina, export Cina, import Cina, dazi, made in China]
+    keywords_en: [China trade, exports to China, imports from China, tariffs]
+
+  - code: immigration_policy
+    l0_domain: culture_society
+    label_zh: "移民政策"
+    keywords_it: [migranti, immigrazione, sbarchi, Lampedusa, asilo, rimpatri, decreto flussi]
+    keywords_en: [migrants, immigration, landings, asylum, deportation]
+
+  - code: eu_migration
+    l0_domain: culture_society
+    label_zh: "欧盟移民协调"
+    keywords_it: [patto migrazione, ricollocamento, frontiere UE, Dublino]
+    keywords_en: [migration pact, relocation, EU borders, Dublin regulation]
+
+  - code: organized_crime
+    l0_domain: security
+    label_zh: "有组织犯罪"
+    keywords_it: [mafia, camorra, ndrangheta, cosa nostra, boss, clan, latitante]
+    keywords_en: [mafia, organized crime, boss, clan, fugitive]
+
+  - code: corruption
+    l0_domain: security
+    label_zh: "腐败与反腐"
+    keywords_it: [corruzione, tangenti, mazzette, ANAC, concussione]
+    keywords_en: [corruption, bribery, anti-corruption]
+
+  - code: judicial_reform
+    l0_domain: security
+    label_zh: "司法改革"
+    keywords_it: [riforma della giustizia, magistratura, CSM, prescrizione]
+    keywords_en: [judicial reform, magistracy, prescription]
+
+# country_axes 与 l1_topics 的映射关系
+# enabled: true 时 classify 阶段会激活对应子轴
+# 子轴必须在 l1_topics 中有对应 code
+country_axes:
+  politics:
+    enabled: true
+    sub_axes: [govt_coalition, eu_policy, regional_elections]
+  economics:
+    enabled: true
+    sub_axes: [fiscal_policy, labor_market, energy_transition]
+  china_italy_relations:
+    enabled: true
+    sub_axes: [china_italy_bilateral, bri_italy, trade_china_italy]
+  eu_relations:
+    enabled: true
+    sub_axes: [eu_policy, eu_migration]
+  immigration:
+    enabled: true
+    sub_axes: [immigration_policy, eu_migration]
+  judicial:
+    enabled: true
+    sub_axes: [corruption, organized_crime, judicial_reform]
+  energy:
+    enabled: true
+    sub_axes: [energy_transition]

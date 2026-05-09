@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://news-sentry.local/schemas/skillmanifest.schema.json",
+  "title": "SkillManifest",
+  "description": "Implements: docs/contracts-canonical.md §8; docs/brainstorming/ToolManifest与工具适配层规格.md; Skill Pack registration contract",
+  "type": "object",
+  "required": [
+    "skill_id",
+    "display_name",
+    "version",
+    "stage",
+    "entry_point",
+    "runtime_compatibility"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "skill_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "display_name": { "type": "string" },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$",
+      "description": "Semver"
+    },
+    "stage": {
+      "type": "string",
+      "enum": ["collect", "filter", "judge", "output"]
+    },
+    "entry_point": {
+      "type": "string",
+      "description": "Python module path, e.g. 'news_sentry.skills.rss_collector'"
+    },
+    "input_schema_ref": {
+      "type": ["string", "null"],
+      "description": "$id URI of the input JSON Schema"
+    },
+    "output_schema_ref": {
+      "type": ["string", "null"],
+      "description": "$id URI of the output JSON Schema"
+    },
+    "tool_refs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "tool_ids this skill requires; must resolve via ToolManifest"
+    },
+    "runtime_compatibility": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["hermes", "openclaw", "cli"]
+      },
+      "minItems": 1,
+      "description": "Runtimes this skill is compatible with; Hermes is primary, OpenClaw secondary"
+    }
+  }
+}

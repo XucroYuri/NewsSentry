@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://news-sentry.local/schemas/toolrunresult.schema.json",
+  "title": "ToolRunResult",
+  "description": "Implements: docs/contracts-canonical.md §8; result object written to tool audit logs after each tool execution",
+  "type": "object",
+  "$defs": {
+    "ToolRunError": {
+      "type": "object",
+      "title": "ToolRunError",
+      "required": ["type", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "timeout",
+            "permission_denied",
+            "command_not_found",
+            "network_blocked",
+            "budget_exceeded",
+            "schema_validation_failed",
+            "unknown"
+          ]
+        },
+        "message": { "type": "string" }
+      }
+    }
+  },
+  "required": ["tool_id", "run_id", "success", "duration_ms"],
+  "additionalProperties": false,
+  "properties": {
+    "tool_id": { "type": "string" },
+    "run_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "PipelineContext run_id this tool call belongs to"
+    },
+    "success": { "type": "boolean" },
+    "exit_code": {
+      "type": ["integer", "null"],
+      "description": "Process exit code; null for http/python execution types"
+    },
+    "stdout": {
+      "type": ["string", "null"],
+      "description": "Captured stdout; null if not captured or empty"
+    },
+    "stderr": {
+      "type": ["string", "null"],
+      "description": "Captured stderr; null if not captured or empty"
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "error": {
+      "oneOf": [
+        { "$ref": "#/$defs/ToolRunError" },
+        { "type": "null" }
+      ]
+    }
+  }
+}

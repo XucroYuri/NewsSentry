@@ -257,3 +257,67 @@ cancelled | ongoing | concluded
 | 版本 | 修改 | ADR |
 |---|---|---|
 | v1.0 (2026-05-09) | 新增本节，定稿 L0–L3 枚举与字段位置 | ADR-0009 |
+
+---
+
+## §10. JSON Schema 引用规则
+
+> 决策来源: [ADR-0014](./adr/0014-json-schema-contract-validation.md)
+> Schema 目录: [`schemas/`](../schemas/)
+
+### 10.1 双向绑定规则
+
+本文档与 `schemas/` 目录中的 JSON Schema 文件形成双向绑定关系：
+
+| 方向 | 规则 |
+|---|---|
+| 本文档 → schemas/ | 每个章节顶部加 `> Schema: schemas/{name}.schema.json` 引用注释 |
+| schemas/ → 本文档 | 每个 schema 的 `description` 字段引用 `contracts-canonical.md §N` |
+| config/ → schemas/ | 每个 config YAML 头部注释 `# Schema: ../schemas/{name}.schema.json` |
+
+任何单边修改（只改文档不改 schema，或只改 schema 不改文档）视为草稿状态，不应合并。
+
+### 10.2 Schema 清单（12 份）
+
+| Schema 文件 | 覆盖契约章节 | 状态 |
+|---|---|---|
+| `schemas/newsevent.schema.json` | §1–§8 + metadata 扩展 | Phase 1 完成 |
+| `schemas/pipelinecontext.schema.json` | §2（PipelineContext） | Phase 1 完成 |
+| `schemas/targetconfig.schema.json` | config/targets/ 配置结构（ADR-0015） | Phase 1 完成 |
+| `schemas/sourcechannel.schema.json` | §4（采集层） | Phase 1 完成 |
+| `schemas/filterrules.schema.json` | Phase 3 Filter 规则集合 | Phase 1 完成 |
+| `schemas/classification.schema.json` | §9（ADR-0009） | Phase 1 完成 |
+| `schemas/skillmanifest.schema.json` | §3（SkillManifest） | Phase 1 完成 |
+| `schemas/toolmanifest.schema.json` | §5（ADR-0011） | Phase 1 完成 |
+| `schemas/sandboxpolicy.schema.json` | §6（ADR-0003） | Phase 1 完成 |
+| `schemas/providerconfig.schema.json` | §7（AI Provider，ADR-0005） | Phase 1 完成 |
+| `schemas/toolrunresult.schema.json` | §5（ToolRunResult） | Phase 1 完成 |
+| `schemas/outputresult.schema.json` | §8（ADR-0002） | Phase 1 完成 |
+
+### 10.3 Schema $id 规范
+
+所有 schema 的 `$id` 使用以下格式：
+
+```
+https://news-sentry.local/schemas/{name}.schema.json
+```
+
+`$schema` 固定为：
+
+```
+https://json-schema.org/draft/2020-12/schema
+```
+
+### 10.4 校验时机
+
+| 阶段 | 校验位置 | 校验内容 |
+|---|---|---|
+| Phase 1（当前） | 人工审查 | 目测 schema 与文档一致 |
+| Phase 3（Kernel MVP） | `core/config.py::ConfigLoader` | 加载 YAML 后调用 `jsonschema.validate()` |
+| Phase 4+（Registry） | Skill/Tool 注册时 | SkillManifest / ToolManifest 校验 |
+
+### 10.5 修正记录
+
+| 版本 | 修改 | ADR |
+|---|---|---|
+| v1.0 (2026-05-09) | 新增本节，定稿 schema 双向绑定规则与清单 | ADR-0014 |

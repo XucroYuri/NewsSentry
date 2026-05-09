@@ -63,6 +63,8 @@
 
 ## §2. Phase 1 — Contract Stabilization
 
+> → 详细 SPEC: [docs/spec/phase-1-contract-stabilization.md](spec/phase-1-contract-stabilization.md)
+
 **目标：** 定稿所有核心契约、消除跨文档口径漂移、关闭已答 Open Questions。
 
 **入口标准：** 项目存在设计文档但多处口径不一致，需在实现前统一。
@@ -104,6 +106,8 @@
 
 ## §3. Phase 2 — Runtime Carrier Alignment
 
+> → 详细 SPEC: [docs/spec/phase-2-runtime-carrier-alignment.md](spec/phase-2-runtime-carrier-alignment.md)
+
 **目标：** 定稿生产运行载体优先级和部署 profile，避免实现阶段把开发工具和生产运行框架混为一谈。
 
 **入口标准：** Phase 1 完成，核心契约已定稿。
@@ -135,6 +139,8 @@
 ---
 
 ## §4. Phase 3 — Kernel MVP
+
+> → 详细 SPEC: [docs/spec/phase-3-kernel-mvp.md](spec/phase-3-kernel-mvp.md)
 
 **目标：** 跑通文件事件闭环和 bounded run，产出意大利样板的 `raw/` 和 `evaluated/` 事件。
 
@@ -185,6 +191,8 @@
 
 ## §5. Phase 4 — Tool/Skill Registry + OpenCLI
 
+> → 详细 SPEC: [docs/spec/phase-4-tool-skill-registry-opencli.md](spec/phase-4-tool-skill-registry-opencli.md)
+
 **目标：** 工具和子 Skill 可注册、可选择、可降级；OpenCLI 通过统一接入接入 pipeline。
 
 **入口标准：** Phase 3 完成，RSS/API baseline 稳定运行。
@@ -227,6 +235,8 @@
 
 ## §6. Phase 5 — AI Provider Routing
 
+> → 详细 SPEC: [docs/spec/phase-5-ai-provider-routing.md](spec/phase-5-ai-provider-routing.md)
+
 **目标：** 研判、翻译、摘要和草稿生成不绑定单一 Provider，按任务路由，有成本预算和 fallback。
 
 **入口标准：** Phase 4 完成，Skill registry 稳定。
@@ -262,6 +272,8 @@
 
 ## §7. Phase 6 — Sandbox Hardening + Social/KOL Experiment
 
+> → 详细 SPEC: [docs/spec/phase-6-sandbox-hardening-social-kol.md](spec/phase-6-sandbox-hardening-social-kol.md)
+
 **目标：** 在 Phase 3 最小 enforcer 基础上强化高风险工具治理，小规模接入社媒/KOL 实验通道。
 
 **入口标准：** Phase 5 完成，AI Provider 路由稳定；或 Phase 3 完成后可优先做 sandbox 强化。
@@ -294,6 +306,8 @@
 ---
 
 ## §8. Phase 7 — Multi-target Expansion
+
+> → 详细 SPEC: [docs/spec/phase-7-multi-target-expansion.md](spec/phase-7-multi-target-expansion.md)
 
 **目标：** 增加第二国家 reference package，证明核心内核不含意大利硬编码。
 
