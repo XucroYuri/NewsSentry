@@ -65,7 +65,7 @@ class NewsEvent(BaseModel):
     pipeline_stage: PipelineStage = PipelineStage.COLLECTED
     news_value_score: int | None = Field(default=None, ge=0, le=100)
     china_relevance: int | None = Field(default=None, ge=0, le=100)
-    sentiment_score: int | None = Field(default=None, ge=-100, le=100)
+    sentiment_score: float | None = Field(default=None, ge=-1.0, le=1.0)
     processing_history: list[ProcessingHistoryEntry] = Field(default_factory=list)
     judge_result: JudgeResult | None = None
     cluster_id: str | None = None

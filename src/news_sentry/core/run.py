@@ -294,10 +294,10 @@ def _load_events_from_dir(directory: Path) -> list[NewsEvent]:
 
 
 def _find_project_root() -> Path:
-    """查找项目根目录（从当前工作目录向上搜索 AGENTS.md）。"""
+    """查找项目根目录（从当前工作目录向上搜索 pyproject.toml）。"""
     cwd = Path.cwd()
     for parent in [cwd, *cwd.parents]:
-        if (parent / "AGENTS.md").is_file():
+        if (parent / "pyproject.toml").is_file():
             return parent
     return cwd
 

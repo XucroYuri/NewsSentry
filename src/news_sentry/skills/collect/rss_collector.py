@@ -9,6 +9,7 @@ import calendar
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import feedparser
 import httpx
@@ -49,6 +50,12 @@ class RSSCollector:
             网络错误、超时、解析失败时返回空列表。
         """
         if not self._url:
+            return []
+
+        parsed = urlparse(self._url)
+        host = parsed.hostname
+        if self._sandbox is not None and host and not self._sandbox.check_network_host(host):
+            # 主机未通过沙箱策略校验 — 跳过此源
             return []
 
         try:

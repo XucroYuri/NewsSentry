@@ -54,7 +54,7 @@ def judged_event() -> NewsEvent:
         pipeline_stage=PipelineStage.JUDGED,
         news_value_score=85,
         china_relevance=70,
-        sentiment_score=0,
+        sentiment_score=0.0,
         processing_history=[
             ProcessingHistoryEntry(
                 stage="collected",
@@ -220,7 +220,7 @@ def test_frontmatter_contains_scores(
     fm = _parse_frontmatter(path)
     assert fm["news_value_score"] == 85
     assert fm["china_relevance"] == 70
-    assert fm["sentiment_score"] == 0
+    assert fm["sentiment_score"] == 0.0
 
 
 def test_frontmatter_omits_null_scores(
@@ -466,3 +466,46 @@ def test_body_escapes_leading_breaks(
     body = text.split("---\n", 2)[-1]  # 跳过 frontmatter
     # 正文中以 --- 开头的内容应被转义
     assert "\\---\nThis starts with a break" in body
+
+
+def test_body_escapes_trailing_breaks(
+    writer: MarkdownWriter, base_dir: Path,
+) -> None:
+    """正文以 --- 结尾时也应被转义。"""
+    event = NewsEvent(
+        id="ne-italy-ansa-20260509-escaped03",
+        run_id="run-escape3",
+        source_id="ansa",
+        url="https://example.com/escape3",
+        title_original="Trailing break test",
+        content_original="Line one\n\n---",
+        language=Language.IT,
+        published_at="2026-05-09T09:00:00+02:00",
+        collected_at="2026-05-09T10:00:00+02:00",
+        pipeline_stage=PipelineStage.JUDGED,
+    )
+    path = writer.write(event)
+    text = path.read_text(encoding="utf-8")
+    # 正文末尾的 --- 应被转义为 \---
+    assert "\n\\---" in text
+
+
+# ------------------------------------------------------------------
+# _atomic_write 边界
+# ------------------------------------------------------------------
+
+def test_atomic_write_cleans_up_tmp_on_failure(
+    writer: MarkdownWriter, base_dir: Path,
+) -> None:
+    """写入过程中若 os.replace 失败，finally 仍清理 tmp 文件。"""
+    target = base_dir / "italy" / "drafts" / "test_target.md"
+    target.parent.mkdir(parents=True)
+    # 目标路径故意设为目录，os.replace 到目录会失败
+    target.mkdir(exist_ok=True)
+    try:
+        writer._atomic_write(target, "content")
+    except (OSError, IsADirectoryError, PermissionError):
+        pass
+    # tmp 文件应已被 finally 清理
+    tmp_files = list(target.parent.glob("*.tmp"))
+    assert len(tmp_files) == 0
