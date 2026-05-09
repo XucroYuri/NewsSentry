@@ -95,9 +95,10 @@ class FileWriter:
         # content 字段放入正文，不进 frontmatter
         body_fields = {"content_original", "content_translated"}
         fm_data = {k: v for k, v in data.items() if k not in body_fields}
-        return yaml.dump(
+        result: str = yaml.dump(
             fm_data, allow_unicode=True, default_flow_style=False, sort_keys=False,
         ).rstrip("\n")
+        return result
 
     def _render_body(self, event: NewsEvent) -> str:
         """渲染 Markdown 正文（标题 + 原文 + 可选的译文）。"""

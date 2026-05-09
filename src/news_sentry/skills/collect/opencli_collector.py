@@ -4,12 +4,14 @@ OpenCLICollector — wraps OpenCLI tool calls to collect web page content.
 Uses ToolManifest entries from config/toolmanifest/opencli-baseline.yaml (ADR-0011).
 """
 from __future__ import annotations
+
 from typing import Any
+
 from news_sentry.models.newsevent import NewsEvent
 
 
 class OpenCLICollector:
-    def __init__(self, config: dict[str, Any], sandbox_enforcer: Any, tool_registry: Any) -> None:
+    def __init__(self, config: dict[str, Any], sandbox_enforcer: Any, tool_registry: Any) -> None:  # noqa: ANN401
         raise NotImplementedError("Phase 4: OpenCLICollector.__init__")
 
     def collect(self, run_id: str) -> list[NewsEvent]:
