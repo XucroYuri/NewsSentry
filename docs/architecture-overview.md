@@ -6,18 +6,32 @@
 
 **整合而非自建** — 优先整合社区Skill和外部CLI工具，只在领域特化需求无法被现有能力覆盖时才自主开发。
 
-## 架构：开放插件架构 + 适配改造层
+## 架构：Hermes 主编排 + OpenClaw Skill Runtime + 适配改造层
 
 ```
-news-sentry (核心编排器)
+Runtime Host Layer
 │
-├── heartbeat engine         — 心跳触发，周期可配（1h/6h/24h）
+├── Hermes Agent Primary        — 生产主编排、cron/gateway、memory、长期运行
+├── OpenClaw Skill Runtime      — AgentSkills-compatible SKILL.md、workspace skills、ClawHub生态
+└── Fallback Automation         — Codex Automations / Claude Cowork，仅用于维护、研究、简报
+      │
+      v
+news-sentry (框架无关核心内核)
+│
+├── runtime host adapter     — Hermes/OpenClaw/fallback automation 薄适配
+├── run lifecycle            — bounded run，完成后退出，由宿主再次触发
 ├── pipeline builder         — 组装 collect → filter → judge → output 工作流
 ├── skill registry           — 能力注册表（direct / adapted / purpose-built）
 ├── adaptation layer         — evaluate → adapt → develop → register
 ├── integration protocol     — NewsEvent / PipelineContext / SkillManifest
 └── fallback engine          — 每环节内置最小实现，空registry时系统仍可运行
 ```
+
+运行载体优先级：
+
+1. **Hermes Agent** 是第一主编排运行载体，承接长期心跳、cron/gateway 触发、上下文记忆和自主决策。
+2. **OpenClaw / OpenClaw Skills / ClawHub** 是主要 Skill 生态与兼容运行载体，承接 `SKILL.md` 包装、workspace skill 分发和社区 Skill 发现。
+3. **Codex Automations** 与 **Claude Desktop Cowork Scheduled Tasks** 只作为备用自动化方案，用于项目维护、研究报告、状态汇总和人工可审阅简报，不承担 24 小时生产监控主链路。
 
 ## Skill Registry 三类来源
 
@@ -98,14 +112,15 @@ news-sentry (核心编排器)
 
 ## 开发阶段顺序
 
-当前开发路线按“契约先行、内核收束、工具渐进接入”推进：
+当前开发路线按“契约先行、运行载体对齐、内核收束、工具渐进接入”推进：
 
 1. **Contract Stabilization** — 定稿 `NewsEvent`、`PipelineContext`、`TargetConfig`、`SourceChannel`、文件事件协议、分数量纲和 provenance 规则。
-2. **Kernel MVP** — 实现框架无关 bounded run、配置加载、RSS/API baseline、规则过滤、文件事件写入、run log、memory、source health 和最小 sandbox enforcer。
-3. **Tool/Skill Registry + OpenCLI** — 建立 `SkillManifest` / `ToolManifest` registry，OpenCLI 通过 `tool_ref + binding_id + validated_args` 接入，不允许 `SourceChannel` 直接持有任意 shell 命令。
-4. **AI Provider Routing** — 以任务路由方式接入翻译、研判、草稿生成和 fallback，不让 Skill 直接绑定具体模型供应商。
-5. **Sandbox Hardening + Social/KOL Experiment** — 强化 command/network/browser/profile 权限模型，小规模接入公开、授权、可审计的社媒/KOL 实验通道。
-6. **Multi-target Expansion** — 增加第二国家 reference package，验证核心内核不含意大利硬编码。
+2. **Runtime Carrier Alignment** — 定稿 Hermes 主编排、OpenClaw Skill runtime、`cloud-vps` / `local-workstation` profile、fallback automation 边界。
+3. **Kernel MVP** — 实现框架无关 bounded run、配置加载、RSS/API baseline、规则过滤、文件事件写入、run log、memory、source health 和最小 sandbox enforcer。
+4. **Tool/Skill Registry + OpenCLI** — 建立 `SkillManifest` / `ToolManifest` registry，OpenCLI 通过 `tool_ref + binding_id + validated_args` 接入，不允许 `SourceChannel` 直接持有任意 shell 命令。
+5. **AI Provider Routing** — 以任务路由方式接入翻译、研判、草稿生成和 fallback，不让 Skill 直接绑定具体模型供应商。
+6. **Sandbox Hardening + Social/KOL Experiment** — 强化 command/network/browser/profile 权限模型，小规模接入公开、授权、可审计的社媒/KOL 实验通道。
+7. **Multi-target Expansion** — 增加第二国家 reference package，验证核心内核不含意大利硬编码。
 
 ## 相关文档
 
@@ -115,6 +130,7 @@ news-sentry (核心编排器)
 - [全维度信息获取链条与自动化机制](./brainstorming/information-acquisition-chains.md)
 - [全量KOL追踪与信源动态管理机制](./brainstorming/kol-tracking-and-source-management.md)
 - [通用内核与平台化架构 PRD](./brainstorming/通用内核与平台化架构PRD.md)
+- [Hermes 与 OpenClaw 运行载体规格](./brainstorming/Hermes与OpenClaw运行载体规格.md)
 - [ToolManifest 与工具适配层规格](./brainstorming/ToolManifest与工具适配层规格.md)
 - [AI Provider 与模型路由规格](./brainstorming/AIProvider与模型路由规格.md)
 - [SandboxPolicy 与执行权限规格](./brainstorming/SandboxPolicy与执行权限规格.md)

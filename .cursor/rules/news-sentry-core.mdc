@@ -5,12 +5,13 @@ alwaysApply: true
 
 Use `AGENTS.md` as the canonical shared instruction source for this repository.
 
-When working on News Sentry, preserve the framework-neutral kernel boundary, the `NewsEvent` contract, the file event protocol, and the Phase 0/1 priority described in:
+When working on News Sentry, preserve the framework-neutral kernel boundary, the `NewsEvent` contract, the file event protocol, and the Hermes/OpenClaw runtime priority described in:
 
 - @AGENTS.md
 - @docs/architecture-overview.md
 - @docs/integration-protocol.md
 - @docs/newsevent-schema.md
 - @docs/brainstorming/通用内核与平台化架构PRD.md
+- @docs/brainstorming/Hermes与OpenClaw运行载体规格.md
 
-Cursor-specific behavior: prefer small, reviewable edits; keep generated code aligned with the documented contracts; do not add provider SDKs, OpenCLI execution, social login flows, or database queues before the relevant roadmap phase.
+Cursor-specific behavior: prefer small, reviewable edits; keep generated code aligned with the documented contracts; do not treat Codex, Claude Cowork, Cursor, or opencode as the production monitoring runtime; do not add provider SDKs, OpenCLI execution, social login flows, or database queues before the relevant roadmap phase.
