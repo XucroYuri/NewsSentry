@@ -10,6 +10,9 @@ The production runtime priority is Hermes Agent first, OpenClaw/OpenClaw Skills/
 
 Read these files before changing architecture, schemas, pipeline behavior, permissions, provider routing, or tool execution:
 
+- `docs/contracts-canonical.md` — **口径规范基准**：字段命名、分值量纲、目录映射、pipeline_stage 枚举、产品命名的唯一权威来源
+- `docs/adr/` — 架构决策记录（ADR-0001 至 ADR-0007）
+- `docs/development-plan.md` — 七阶段开发计划与 TODO 矩阵
 - `docs/architecture-overview.md`
 - `docs/integration-protocol.md`
 - `docs/newsevent-schema.md`
@@ -27,11 +30,12 @@ Read these files before changing architecture, schemas, pipeline behavior, permi
 - Use Obsidian/Git-friendly Markdown files with YAML frontmatter as the v1 storage surface.
 - Use `NewsEvent` as the cross-agent data object. Do not introduce competing event schemas.
 - Use deterministic `NewsEvent.id` for item identity and `run_id` for bounded execution identity. Use `cluster_id` or `story_id` for cross-source aggregation.
-- Use 0-100 scores for `news_value_score`, `china_relevance`, confidence, source credibility, and value dimensions unless a documented field explicitly says otherwise.
+- Use 0-100 scores for `news_value_score`, `china_relevance`, confidence, source credibility, and value dimensions unless a documented field explicitly says otherwise. Note: `sentiment_score` is an explicit exception (-1.0 to 1.0); `ValueDimension.weight` is a percentage weight, not a score. See `docs/contracts-canonical.md §4`.
 - Keep `judge_result.recommendation` inside `judge_result`; do not duplicate it as a top-level field.
 - Keep static source configuration free of arbitrary shell commands. CLI/OpenCLI execution must go through `ToolManifest`, `tool_ref`, `binding_id`, `validated_args`, and sandbox checks.
 - Do not store cookies, tokens, passwords, browser profile internals, API keys, or private-message content in `NewsEvent`, frontmatter, logs, or docs.
 - v1 stops at drafts, reviewed files, and publish-ready archives. Do not implement automatic external publishing without an explicit new decision.
+- For Italian-Chinese bilingual processing (意大利语→中文 SOP), see `docs/it-zh-bilingual-sop.md` and `docs/it-zh-glossary.md`. Canonical translated fields (`title_translated`, `content_translated`) are filled only at the judge stage; collect-stage pre-translations go into `metadata.translation.title_pre` only.
 
 ## Phase Order
 
@@ -60,7 +64,7 @@ Use the v1 directory protocol consistently:
 - `memory/`: known IDs, source health, cursors, provider stats, KOL state
 - `logs/`: bounded run logs, tool audit logs, provider usage logs
 
-Directory state does not replace `NewsEvent.pipeline_stage`. Preserve `processing_history` when moving or enriching events.
+Directory state does not replace `NewsEvent.pipeline_stage`. Preserve `processing_history` when moving or enriching events. For the precise directory ↔ `pipeline_stage` mapping and the separation of `pipeline_stage` from `workflow_state` (editorial review flow), see `docs/contracts-canonical.md §5`.
 
 ## Development Workflow
 

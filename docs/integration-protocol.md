@@ -2,6 +2,7 @@
 
 > news-sentry 系统中所有 Skill/CLI/Agent 之间的协作协议
 > 状态：设计讨论稿 | 2026-05-09
+> 字段口径基准：[`docs/contracts-canonical.md`](./contracts-canonical.md) — 遇到字段名、分值量纲、id 格式歧义时以该文件为准
 
 ---
 
@@ -216,10 +217,10 @@ collect → filter → judge → output
 
 | 阶段 | 新增/修改字段 | 示例值 |
 |------|-------------|--------|
-| **collect产出** | `id`, `title_original`, `source_url`, `source_name`, `published_at`, `content_original`, `language`, `target_id`, `source_country`, `involved_countries` | `ne-italy-ansa-20260509-a1b2c3d4`, "Meloni: cooperation with China..." |
+| **collect产出** | `id`, `title_original`, `source_url`, `source_name`, `published_at`, `content_original`, `language`, `target_id`, `source_country`, `involved_countries` | `ne-italy-ansa-20260509-a1b2c3d4`（格式：`ne-{target_id}-{source_id}-{yyyymmdd}-{hash8}`，见 contracts-canonical.md §3）, "Meloni: cooperation with China..." |
 | **filter补充** | `filter_result`, `relevance_tags`, `matched_rules`, `is_urgent`, `source_credibility` | `passed=true`, `["china_related"]`, `false`, `85` |
 | **judge补充** | `judge_result`, `news_value_score`, `breaking_news_level`, `china_relevance`, `sentiment_score`, `entities`, `title_translated` | `82`, `significant`, `90`, `15`, ["Meloni","China"], "梅洛尼强调中意合作..." |
-| **output补充** | `output_channels`, `output_timestamp`, `obsidian_path` | ["feishu","obsidian"], "2026-05-09T14:12:00Z", "Italy/2026-05/meloni-china-coop.md" |
+| **output补充** | `output_result`（含 `destinations[].target`、`output_result.output_timestamp`）, `obsidian_path`, `notification_sent` | destinations=[{target:"feishu"},{target:"obsidian"}], "2026-05-09T14:12:00Z", "Italy/2026-05/meloni-china-coop.md" |
 
 ### 5.3 降级与容错
 
@@ -285,7 +286,8 @@ RAW_OUTPUT=$(tool-runner exec "$TOOL_REF" "$BINDING_JSON")
 jq -n \
   --argjson raw "$RAW_OUTPUT" \
   '[$raw | to_entries[] | {
-    id: ("ne-" + (.value.target_id // "unknown") + "-" + (.value.source_id // "tool") + "-" + (.key | tostring)),
+    id: ("ne-" + (.value.target_id // "unknown") + "-" + (.value.source_id // "tool") + "-" + (.value.date // "00000000" | gsub("-"; "")) + "-" + (.value.url // .value.title | @base64 | .[0:8])),
+    # 格式: ne-{target_id}-{source_id}-{yyyymmdd}-{hash8}，见 contracts-canonical.md §3
     source_id: .value.source_id,
     source_url: .value.url,
     source_name: .value.source_name,

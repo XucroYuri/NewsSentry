@@ -3,6 +3,7 @@
 > 版本: v0.1-draft | 日期: 2026-05-09
 > 状态: 工程承接规格
 > 上级文档: [通用内核与平台化架构 PRD](./通用内核与平台化架构PRD.md)
+> 关联 ADR: [ADR-0003](../adr/0003-sandbox-write-roots-and-error-enum.md) — write_roots 补全与 error 枚举对齐
 
 ---
 
@@ -40,10 +41,14 @@ filesystem_policy:
     - "memory"
     - "raw"
     - "evaluated"
+    - "drafts"
+    - "reviewed"
   write_roots:
     - "raw"
     - "evaluated"
     - "drafts"
+    - "reviewed"       # 见 ADR-0003：补充 reviewed/
+    - "published"      # 见 ADR-0003：补充 published/（v1 不自动发布，但需目录写入权限）
     - "archive"
     - "memory"
     - "logs"
@@ -187,6 +192,29 @@ risk_level: medium
 3. auth expired。
 4. permission denied。
 5. unusual activity warning。
+
+---
+
+## 6.5 工具执行结果标准错误类型
+
+`ToolRunResult.error.type` 枚举与 `ToolManifest与工具适配层规格.md §5` 标准错误类型表一致（见 ADR-0003）：
+
+```yaml
+error:
+  type: enum
+    # permission_denied    — sandbox 权限拒绝
+    # tool_not_found       — tool_ref 未在 Tool Registry 注册
+    # args_invalid         — validated_args 不通过 parameters_schema 校验（见 ADR-0003）
+    # timeout              — 超出 budget_policy.max_run_seconds 或工具超时
+    # rate_limited         — 超出 rate_limit 约定
+    # network_blocked      — 目标 host 不在 allowed_hosts 中
+    # auth_required        — 需要认证凭据（不自动提供）
+    # captcha_or_blocked   — 遇到验证码或平台封禁
+    # output_schema_invalid — 工具输出不符合 output_schema
+    # unknown              — 未分类错误
+  message:          string    # 人类可读的错误描述
+  suggested_action: string?   # 建议操作（如 "check_manifest" | "stop_retry" | "manual_gate"）
+```
 
 ---
 

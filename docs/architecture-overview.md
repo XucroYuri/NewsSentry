@@ -122,19 +122,40 @@ news-sentry (框架无关核心内核)
 6. **Sandbox Hardening + Social/KOL Experiment** — 强化 command/network/browser/profile 权限模型，小规模接入公开、授权、可审计的社媒/KOL 实验通道。
 7. **Multi-target Expansion** — 增加第二国家 reference package，验证核心内核不含意大利硬编码。
 
+## 横向能力：意大利语→中文双语处理
+
+双语处理是一项**横向能力**，贯穿 pipeline 四个环节，不是 judge 环节的副产品：
+
+- **collect 阶段**：语种检测（`NewsEvent.language`），标题轻量机译写入 `metadata.translation.title_pre`（非 canonical）
+- **filter 阶段**：可选读取 `title_pre` 辅助中文关键词匹配
+- **judge 阶段**：高保真翻译写入 `title_translated`/`content_translated`，填充 `metadata.translation.confidence` 和 `metadata.translation.engine_route`
+- **output 阶段**：输出面向中文母语者的草稿，包含术语对照注释和来源水印
+
+相关资源：
+- **SOP 规范**：[意大利语→中文双语处理 SOP](./it-zh-bilingual-sop.md)
+- **术语表**：[意中术语种子表](./it-zh-glossary.md)
+- **字段规范**：`docs/contracts-canonical.md §6`（`metadata.translation` 字段）
+
+现有 Skill 中与双语处理相关的能力（`multilingual-semantic-bridge`、`sentiment-analyzer-zh`）在 Skill Registry 中声明为横向依赖，而非仅属于某一 pipeline 环节。
+
+---
+
 ## 相关文档
 
+- **[契约规范基准](./contracts-canonical.md)** — 字段口径、分值量纲、目录映射、命名规范的唯一权威
+- **[开发计划](./development-plan.md)** — 七阶段开发计划与 TODO 矩阵
+- **[ADR 目录](./adr/README.md)** — 架构决策记录
 - [Integration Protocol 详细设计](./integration-protocol.md)
 - [NewsEvent 数据结构设计](./newsevent-schema.md)
 - [开源舆情监控参考项目深度研究](./brainstorming/开源舆情监控参考项目深度研究.md)
-- [全维度信息获取链条与自动化机制](./brainstorming/information-acquisition-chains.md)
-- [全量KOL追踪与信源动态管理机制](./brainstorming/kol-tracking-and-source-management.md)
+- [全维度信息获取链条与自动化机制](./brainstorming/information-acquisition-chains.md)（超 v1 范围蓄水池，见文件头说明）
+- [全量KOL追踪与信源动态管理机制](./brainstorming/kol-tracking-and-source-management.md)（超 v1 范围蓄水池，见文件头说明）
 - [通用内核与平台化架构 PRD](./brainstorming/通用内核与平台化架构PRD.md)
 - [Hermes 与 OpenClaw 运行载体规格](./brainstorming/Hermes与OpenClaw运行载体规格.md)
 - [ToolManifest 与工具适配层规格](./brainstorming/ToolManifest与工具适配层规格.md)
 - [AI Provider 与模型路由规格](./brainstorming/AIProvider与模型路由规格.md)
 - [SandboxPolicy 与执行权限规格](./brainstorming/SandboxPolicy与执行权限规格.md)
 - [Agent Skill生态调研（ClawHub及可信站点）](./brainstorming/agent-skill-ecosystem-survey.md)
-- [初始架构分析（对话记录）](./brainstorming/意大利突发新闻监控系统架构分析.md)
-- [Skill Registry 规范](./skill-registry-spec.md)（待写）
-- [Adaptation Layer 工作流](./adaptation-workflow.md)（待写）
+- [初始架构分析（对话记录）](./brainstorming/意大利突发新闻监控系统架构分析.md)（超 v1 范围，见文件头说明）
+- [Skill Registry 规范](./skill-registry-spec.md)（待写，Phase 4）
+- [Adaptation Layer 工作流](./adaptation-workflow.md)（待写，Phase 4）

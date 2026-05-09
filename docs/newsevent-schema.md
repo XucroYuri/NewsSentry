@@ -2,6 +2,7 @@
 
 > 版本: v0.1-draft | 日期: 2026-05-09
 > 状态: 开发讨论稿，待评审确认
+> 字段口径基准：[`docs/contracts-canonical.md`](./contracts-canonical.md) — 字段命名、分值量纲、id 格式、pipeline_stage 枚举的唯一权威来源
 
 ## 设计原则
 
@@ -17,7 +18,7 @@
 ```yaml
 NewsEvent:
   # ── 身份标识（采集时必填）──
-  id:                  string    # 确定性条目ID，格式建议: ne-{target_id}-{source_id}-{date}-{hash8}
+  id:                  string    # 确定性条目ID，唯一规范格式: ne-{target_id}-{source_id}-{yyyymmdd}-{hash8}（见 contracts-canonical.md §3）
   cluster_id:          string?   # 跨源同一事实/议题的聚合ID，filter/judge阶段填充
   story_id:            string?   # 长周期追踪故事线ID，L3追踪溯源阶段填充
   source_id:           string    # 来源标识（如 "ansa-it", "fao-rss", "weibo-cn"）
@@ -55,7 +56,7 @@ NewsEvent:
   # ── LLM深度研判结果（judge环节追加）──
   judge_result:        JudgeResult?     # 见下方子结构
   news_value_score:    float?     # 新闻价值综合评分 0-100
-  sentiment_score:     float?     # 情感倾向 -1(负面) 到 1(正面)，中立约0
+  sentiment_score:     float?     # 情感倾向 -1(负面) 到 1(正面)，中立约0（⚠️ 量纲为 -1.0 ～ 1.0，非 0–100；为全局 0–100 体系的明确例外，见 contracts-canonical.md §4.2）
   sentiment_label:     enum?      # positive | neutral | negative | mixed
   entities:            Entity[]?  # 提取的关键实体列表
   topic_cluster:       string?    # 主题聚类标签
@@ -202,6 +203,44 @@ outputted:
 
 metadata 字段是自由dict，用于存放不属于核心schema但特定场景需要的属性。
 
+### 场景T: 双语翻译质量追踪（意大利语→中文）
+
+本场景遵循 [ADR-0004](./adr/0004-bilingual-translation-timing.md) 的翻译时机决策。
+
+```yaml
+metadata:
+  translation:
+    title_pre:          string?   # collect 阶段低成本机译标题（非 canonical，仅供参考）
+    confidence:         float     # 0–100，judge 阶段高保真译后填充（见 contracts-canonical.md §4.1）
+    engine_route:       string    # route_id，如 "translate.fast" | "translate.high"
+    status:             enum      # "completed" | "skipped" | "partial"
+    glossary_hit_rate:  float?    # 0–100，命名实体命中 it-zh-glossary.md 的比率；
+                                  # 低于阈值时 judge 可将 recommendation 降为 "monitor"
+```
+
+### 场景W: 编辑工作流状态
+
+本场景遵循 [ADR-0005](./adr/0005-pipeline-stage-vs-workflow-state.md)。`workflow_state` 与 `pipeline_stage` 正交，不进 NewsEvent 顶层。
+
+```yaml
+metadata:
+  workflow:
+    state:    enum    # draft | under_review | approved | rejected | archived
+    reviewer: string? # 审阅者标识（人工或内审 Agent）
+    reviewed_at: datetime?
+    reason:   string? # 退回或归档原因
+```
+
+在 Obsidian frontmatter 中直接展平为顶级字段：
+
+```yaml
+---
+id: ne-italy-ansa-20260509-a1b2c3d4
+pipeline_stage: judged
+workflow_state: draft
+---
+```
+
 ### 场景0: 采集溯源
 
 所有采集器、工具适配器和外部Skill的 provenance 统一写入 `metadata.acquisition`，不再新增采集方法、采集工具、改造来源等顶层字段。
@@ -262,7 +301,7 @@ NewsEvent 支持两种序列化格式：
 
 ```json
 {
-  "id": "ne-2026-05-09-ansa-001",
+  "id": "ne-italy-ansa-20260509-a1b2c3d4",
   "source_id": "ansa-it",
   "source_url": "https://www.ansa.it/sito/notizie/...",
   "collected_at": "2026-05-09T14:30:00Z",
@@ -284,7 +323,7 @@ NewsEvent 支持两种序列化格式：
 
 ```markdown
 ---
-id: ne-2026-05-09-ansa-001
+id: ne-italy-ansa-20260509-a1b2c3d4
 source_id: ansa-it
 source_url: https://www.ansa.it/sito/notizie/...
 collected_at: 2026-05-09T14:30:00Z
@@ -340,5 +379,5 @@ Meloni incontra il presidente cinese...
 1. **跨源故事线聚合** — `cluster_id/story_id` 的生成和关联逻辑需要进一步设计
 2. **淘汰NewsEvent的保留策略** — 被filter/judge淘汰的NewsEvent保留多久？是否需要定期清理？
 3. **metadata字段规范化** — 是否需要对常见扩展场景预定义schema，还是完全自由dict？
-4. **多语言翻译时机** — 翻译是在judge环节统一做，还是在collect环节就做（成本更高）？
-5. **文件工作流状态** — `workflow_state/review_status` 如何与 `pipeline_stage` 严格分离并投影到frontmatter？
+4. **多语言翻译时机** — ~~翻译是在judge环节统一做，还是在collect环节就做（成本更高）？~~ **[RESOLVED: 见 ADR-0004]** 采用分阶段翻译：collect 阶段做标题轻量机译（写入 `metadata.translation.title_pre`，非 canonical），judge 阶段做高保真 canonical 翻译（`title_translated` / `content_translated`）。详见 `docs/it-zh-bilingual-sop.md` 和 `docs/adr/0004-bilingual-translation-timing.md`。
+5. **文件工作流状态** — ~~`workflow_state/review_status` 如何与 `pipeline_stage` 严格分离并投影到frontmatter？~~ **[RESOLVED: 见 ADR-0005]** 二者正交：`pipeline_stage` 记录数据处理进展（自动化），`workflow_state` 记录编辑/人审流转（写入 Obsidian frontmatter 或 `metadata.workflow.state`，不进 NewsEvent 顶层）。详见 `docs/adr/0005-pipeline-stage-vs-workflow-state.md` 和 `docs/contracts-canonical.md §5.3`。

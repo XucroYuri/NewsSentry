@@ -1,8 +1,19 @@
 # News Sentry Agent Skill Pack 开发总纲与多 Agent 生产线路线图
 
 > 版本: v0.1-draft | 日期: 2026-05-09
-> 状态: 开发前规格与决策路线图
+> 状态: 开发前规格与决策路线图（历史脉络文档）
 > 前置文档: [架构总览](../architecture-overview.md) | [NewsEvent Schema](../newsevent-schema.md) | [Integration Protocol](../integration-protocol.md) | [信息获取链条与自动化机制](./information-acquisition-chains.md) | [KOL追踪与信源动态管理](./kol-tracking-and-source-management.md)
+
+> **📌 路线图主权说明** — 本文档的"阶段 0.5–3"路线图编号体系（与 AGENTS.md 的 Phase 1–7 不同）是历史探索稿；**当前有效开发计划以 `docs/development-plan.md` 为主权文档**。本文档保留作为设计原意与背景说明，其中 §7 各阶段交付内容与 AGENTS.md Phase Order 的映射关系如下：
+>
+> | 本文编号 | 对应 AGENTS Phase | 简述 |
+> |---------|------------------|------|
+> | 阶段 0.5 | Phase 2 Runtime Carrier Alignment | Hermes/OpenClaw 运行载体对齐 |
+> | 阶段 1 | Phase 3 Kernel MVP | Skill Pack 骨架 + 文件闭环 + RSS/API 基线 + 基础 filter/judge |
+> | 阶段 2 | Phase 4 Tool/Skill Registry + OpenCLI | OpenCLI 与全文/网页增强 |
+> | 阶段 3 | Phase 6 Sandbox Hardening + Social/KOL Experiment | 社媒登录态与 KOL 实验通道 |
+>
+> 注：AGENTS.md Phase 1（Contract Stabilization）、Phase 5（AI Provider Routing）、Phase 7（Multi-target Expansion）在本文中未单独成段，详见 `docs/development-plan.md`。
 
 ---
 
@@ -380,9 +391,15 @@ Agent 不可以自主执行：
 
 ## 10. 后续文档
 
-本总纲下挂三份子规格：
+本总纲下挂三份子规格（各自标注了实现阶段）：
 
-1. [RSS/API采集子Skill规格](./RSS-API采集子Skill规格.md)
-2. [OpenCLI采集子Skill规格](./OpenCLI采集子Skill规格.md)
-3. [社媒登录态KOL追踪子Skill规格](./社媒登录态KOL追踪子Skill规格.md)
+1. [RSS/API采集子Skill规格](./RSS-API采集子Skill规格.md) — **Phase 3 v1 主线**
+2. [OpenCLI采集子Skill规格](./OpenCLI采集子Skill规格.md) — **Phase 4 v1+**
+3. [社媒登录态KOL追踪子Skill规格](./社媒登录态KOL追踪子Skill规格.md) — **Phase 6 实验通道**
 4. [Hermes与OpenClaw运行载体规格](./Hermes与OpenClaw运行载体规格.md)
+
+**当前有效开发计划**（路线图主权文档）：
+
+- [docs/development-plan.md](../development-plan.md) — 七阶段 × 九 workstream 开发计划与 TODO 矩阵
+- [docs/contracts-canonical.md](../contracts-canonical.md) — 字段口径基准
+- [docs/adr/README.md](../adr/README.md) — 架构决策记录

@@ -4,6 +4,8 @@
 > 状态: 方案讨论稿
 > 前置文档: [信息获取链条与自动化机制](./information-acquisition-chains.md) | [Integration Protocol](../integration-protocol.md) | [开源参考研究](./开源舆情监控参考项目深度研究.md)
 
+> **⚠️ 超 v1 范围蓄水池** — 本文档覆盖全量 KOL 矩阵、多账号 session 池、微信/邮件等反向信源、L3 多源交叉等能力，**大部分内容属于 Phase 6（Sandbox Hardening + Social/KOL Experiment）及以后**。读者不应将本文档视为下一步实现清单；v1 内核 MVP 阶段只做 RSS/API 基线和最小 sandbox enforcer。已确定实现的 KOL 相关内容以 `docs/brainstorming/社媒登录态KOL追踪子Skill规格.md`（Phase 6 实验通道）为准。
+
 ---
 
 ## 0. 核心命题
