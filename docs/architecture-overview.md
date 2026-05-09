@@ -117,10 +117,43 @@ news-sentry (框架无关核心内核)
 1. **Contract Stabilization** — 定稿 `NewsEvent`、`PipelineContext`、`TargetConfig`、`SourceChannel`、文件事件协议、分数量纲和 provenance 规则。
 2. **Runtime Carrier Alignment** — 定稿 Hermes 主编排、OpenClaw Skill runtime、`cloud-vps` / `local-workstation` profile、fallback automation 边界。
 3. **Kernel MVP** — 实现框架无关 bounded run、配置加载、RSS/API baseline、规则过滤、文件事件写入、run log、memory、source health 和最小 sandbox enforcer。
-4. **Tool/Skill Registry + OpenCLI** — 建立 `SkillManifest` / `ToolManifest` registry，OpenCLI 通过 `tool_ref + binding_id + validated_args` 接入，不允许 `SourceChannel` 直接持有任意 shell 命令。
+4. **Tool/Skill Registry + OpenCLI** — 建立 `SkillManifest` / `ToolManifest` registry，OpenCLI 通过 `tool_ref + binding_id + validated_args` 接入，不允许 `SourceChannel` 直接持有任意 shell 命令。OpenCLI 作为**系统级依赖**通过 `npm install -g @jackwener/opencli` 安装（ADR-0008），不 fork、不 vendor；Phase 4 按 ADR-0011 实现 12 条命令骨架 ToolManifest（`config/toolmanifest/opencli-baseline.yaml`）。
 5. **AI Provider Routing** — 以任务路由方式接入翻译、研判、草稿生成和 fallback，不让 Skill 直接绑定具体模型供应商。
 6. **Sandbox Hardening + Social/KOL Experiment** — 强化 command/network/browser/profile 权限模型，小规模接入公开、授权、可审计的社媒/KOL 实验通道。
 7. **Multi-target Expansion** — 增加第二国家 reference package，验证核心内核不含意大利硬编码。
+
+## OpenCLI 系统级依赖路径
+
+OpenCLI 是 Skill & Tool Layer 中的核心系统级依赖，接入路径如下：
+
+```
+用户环境
+  └── npm install -g @jackwener/opencli@>=1.7.14
+        │
+        ▼
+ToolManifest Registry（config/toolmanifest/opencli-baseline.yaml）
+  ├── opencli.hackernews.top
+  ├── opencli.twitter.trending  ← 需要 session_profile_required
+  ├── opencli.reddit.hot
+  ├── opencli.gov-policy.recent
+  └── ...（共 12 条，见 ADR-0011）
+        │
+        ▼
+Tool Adapter（sandbox 校验 → validated_args → 执行）
+  ├── 退出码映射：66=result_empty / 69=browser_unavailable / 77=auth_required
+  └── 产出：ToolRunResult → NewsEvent(pipeline_stage=collected)
+```
+
+**关键规则（ADR-0008 / ADR-0011）：**
+- News Sentry 仓库不包含 OpenCLI 源码（禁止 vendor/fork/submodule）
+- `SourceChannel` 配置不允许直接持有任意 shell 命令，只允许引用 `tool_ref`
+- session_profile_required=true 的工具（Twitter、微信）必须通过 `OPENCLI_PROFILE` 环境变量路由，Chrome profile 路径不写入 NewsEvent 或日志
+
+相关资源：
+- **接入策略**：[外部集成策略](./external-integration-strategy.md) §2
+- **ADR 决策**：[ADR-0008](./adr/0008-external-deps-install-not-vendor.md)、[ADR-0011](./adr/0011-opencli-baseline-toolmanifest.md)
+
+---
 
 ## 横向能力：意大利语→中文双语处理
 
@@ -142,9 +175,13 @@ news-sentry (框架无关核心内核)
 
 ## 相关文档
 
-- **[契约规范基准](./contracts-canonical.md)** — 字段口径、分值量纲、目录映射、命名规范的唯一权威
-- **[开发计划](./development-plan.md)** — 七阶段开发计划与 TODO 矩阵
-- **[ADR 目录](./adr/README.md)** — 架构决策记录
+- **[契约规范基准](./contracts-canonical.md)** — 字段口径、分值量纲、目录映射、命名规范、classification metadata schema 的唯一权威
+- **[开发计划](./development-plan.md)** — 七阶段开发计划与 TODO 矩阵（含 W10/W11 工作流）
+- **[ADR 目录](./adr/README.md)** — 架构决策记录（ADR-0001 至 ADR-0011）
+- **[外部集成策略](./external-integration-strategy.md)** — OpenCLI 接入原则、参考项目取舍、12 条 ToolManifest 骨架意图
+- **[参考项目价值提取](./reference-projects-insights.md)** — 8 个外部项目的启发点与落地指针
+- **[新闻分类框架](./news-classification-framework.md)** — L0–L3 taxonomy、Italy 子轴、metadata.classification schema
+- **[意大利数据集目录](./datasets-catalog-italy.md)** — ISTAT/Eurostat/GDELT 等公开数据集接入建议
 - [Integration Protocol 详细设计](./integration-protocol.md)
 - [NewsEvent 数据结构设计](./newsevent-schema.md)
 - [开源舆情监控参考项目深度研究](./brainstorming/开源舆情监控参考项目深度研究.md)

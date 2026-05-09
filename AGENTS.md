@@ -10,9 +10,13 @@ The production runtime priority is Hermes Agent first, OpenClaw/OpenClaw Skills/
 
 Read these files before changing architecture, schemas, pipeline behavior, permissions, provider routing, or tool execution:
 
-- `docs/contracts-canonical.md` — **口径规范基准**：字段命名、分值量纲、目录映射、pipeline_stage 枚举、产品命名的唯一权威来源
-- `docs/adr/` — 架构决策记录（ADR-0001 至 ADR-0007）
-- `docs/development-plan.md` — 七阶段开发计划与 TODO 矩阵
+- `docs/contracts-canonical.md` — **口径规范基准**：字段命名、分值量纲、目录映射、pipeline_stage 枚举、产品命名、classification metadata schema 的唯一权威来源
+- `docs/adr/` — 架构决策记录（ADR-0001 至 ADR-0011）
+- `docs/development-plan.md` — 七阶段开发计划与 TODO 矩阵（含 W10/W11 工作流）
+- `docs/external-integration-strategy.md` — **外部项目接入策略**：OpenCLI 接入原则、三原则、12 条 ToolManifest 骨架意图、舍弃清单
+- `docs/reference-projects-insights.md` — **参考项目价值提取**：8 个外部项目的启发点与落地指针
+- `docs/news-classification-framework.md` — **新闻分类框架**：L0–L3 taxonomy、Italy 子轴、metadata.classification 完整 schema
+- `docs/datasets-catalog-italy.md` — **意大利数据集目录**：ISTAT/Eurostat/GDELT 等公开数据集的接入建议
 - `docs/architecture-overview.md`
 - `docs/integration-protocol.md`
 - `docs/newsevent-schema.md`
@@ -36,6 +40,9 @@ Read these files before changing architecture, schemas, pipeline behavior, permi
 - Do not store cookies, tokens, passwords, browser profile internals, API keys, or private-message content in `NewsEvent`, frontmatter, logs, or docs.
 - v1 stops at drafts, reviewed files, and publish-ready archives. Do not implement automatic external publishing without an explicit new decision.
 - For Italian-Chinese bilingual processing (意大利语→中文 SOP), see `docs/it-zh-bilingual-sop.md` and `docs/it-zh-glossary.md`. Canonical translated fields (`title_translated`, `content_translated`) are filled only at the judge stage; collect-stage pre-translations go into `metadata.translation.title_pre` only.
+- **外部项目只 install 不 vendor**：OpenCLI 及所有外部项目通过系统包管理器安装，不 fork、不 vendor、不 Git submodule 引入本仓库。详见 `docs/external-integration-strategy.md` 和 ADR-0008。
+- **永不做专用前端**：News Sentry 终态是 CLI / Skill Pack；可视化通过 Obsidian Markdown 渲染 + 飞书/邮件/推送承担。禁止引入 React/Vue/Tauri/FastAPI。详见 ADR-0010。
+- **新闻分类走 metadata.classification，不做顶层字段**：L0–L3 taxonomy 结果写入 `NewsEvent.metadata.classification`，不进 schema 顶层。详见 `docs/news-classification-framework.md` 和 ADR-0009。
 
 ## Phase Order
 

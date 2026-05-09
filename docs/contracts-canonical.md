@@ -200,3 +200,60 @@ metadata:
 在争议出现时，用如下句式裁定：
 
 > 依据 `contracts-canonical.md §{节号}`，正确写法为 `{正确形式}`。
+
+---
+
+## §9. Classification Metadata Schema
+
+> 决策来源: [ADR-0009](./adr/0009-four-layer-classification-framework.md)
+> 详细 taxonomy 定义: [`docs/news-classification-framework.md`](./news-classification-framework.md)
+
+### 9.1 字段位置与结构
+
+`metadata.classification` 写入 `NewsEvent.metadata.classification`，**不作为顶层字段**。
+
+```yaml
+metadata:
+  classification:
+    l0: string          # 必填（classify Skill 输出时）；L0 枚举值（12 类）
+    l1: string[]        # 必填；至少 1 项；取值见 news-classification-framework.md §2
+    l2: string[]        # 可空；枚举: actor|institution|location|instrument|event-trigger
+    l3: string          # 推荐；枚举见 news-classification-framework.md §4
+    country_axes:       # 可空；Italy 子轴，其他国家按需新增
+      - axis: string    # 轴名: region|coalition|scope|china-italy-rel
+        value: string   # 轴值，见 news-classification-framework.md §5
+    confidence: integer|null  # 0–100（量纲同 §4.1）；规则引擎输出时为 null
+    classifier_version: string  # 格式: {type}-v{n}，如 "rules-v1"、"llm-v1"
+```
+
+### 9.2 L0 枚举（固定，修改需新 ADR）
+
+```
+politics | economy | society | tech | culture | sports |
+disaster | public-safety | health | environment |
+international-relations | china-related
+```
+
+### 9.3 L3 枚举（固定，修改需新 ADR）
+
+```
+announced | proposed | passed | rejected | implemented |
+suspended | leaked | under-investigation | scheduled |
+cancelled | ongoing | concluded
+```
+
+### 9.4 字段规则摘要
+
+| 规则 | 说明 |
+|---|---|
+| `l0` + `l1` 在 classify Skill 存在时为必填 | Phase 3 Kernel MVP 中 classify 可缺失，`metadata.classification` 整体可为 `null` |
+| `confidence` 量纲 | 0–100 整数（与 `§4.1` 对齐），规则引擎时为 `null`（非 0） |
+| `l0` 不允许多值 | 多域交叉时，`l0` 选主要域，`l1[]` 可包含跨域子主题 |
+| `country_axes` 隔离 | 意大利子轴（`region`、`coalition`）不被第二国家配置引用 |
+| `classifier_version` 迭代 | 分类器升级时更新 version，不回写历史事件（防止分类结果不一致） |
+
+### 9.5 修正记录
+
+| 版本 | 修改 | ADR |
+|---|---|---|
+| v1.0 (2026-05-09) | 新增本节，定稿 L0–L3 枚举与字段位置 | ADR-0009 |
