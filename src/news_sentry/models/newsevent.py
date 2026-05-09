@@ -6,7 +6,7 @@ and docs/newsevent-schema.md. Schema: schemas/newsevent.schema.json
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -82,7 +82,7 @@ class NewsEvent(BaseModel):
         try:
             dt = datetime.fromisoformat(published_at_iso)
         except (ValueError, TypeError):
-            dt = datetime.utcnow()
+            dt = datetime.now(UTC)
         date_str = dt.strftime("%Y%m%d")
         hash_input = f"{source_id}{url}{published_at_iso}"
         hash8 = hashlib.sha256(hash_input.encode("utf-8")).hexdigest()[:8]
