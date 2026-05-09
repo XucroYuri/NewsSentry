@@ -1,4 +1,82 @@
 """CLI entry point — news-sentry run --target <id> --stage <stage> (ADR-0016)."""
-from news_sentry.cli.__main__ import main
+from __future__ import annotations
+
+import sys
+
+import click
+
+
+@click.group()
+@click.version_option()
+def main() -> None:
+    """News Sentry — continuous news monitoring Agent Skill Pack."""
+
+
+@main.command()
+@click.option(
+    "--target", required=True,
+    help="Target ID (e.g., italy). Maps to config/targets/{id}.yaml",
+)
+@click.option(
+    "--stage",
+    required=True,
+    type=click.Choice(["collect", "filter", "judge", "output", "all"]),
+    help="Pipeline stage to execute.",
+)
+@click.option("--run-id", default=None, help="Specify run_id. Auto-generated if not provided.")
+@click.option("--dry-run", is_flag=True, default=False, help="Print plan without executing.")
+@click.option("--log-level", default="INFO", type=click.Choice(["DEBUG", "INFO", "WARNING"]))
+@click.option("--config-dir", default=None, help="Override default config/ directory path.")
+def run(target: str, stage: str, run_id: str | None, dry_run: bool,
+        log_level: str, config_dir: str | None) -> None:
+    """Execute a bounded run for a monitoring target.
+
+    Exit codes: 0=success, 1=partial failure, 2=config error, 3=sandbox blocked.
+    """
+    from news_sentry.core.run import ConfigError, bounded_run
+
+    try:
+        ctx = bounded_run(
+            target_id=target,
+            stage=stage,
+            run_id=run_id,
+            dry_run=dry_run,
+            config_dir=config_dir,
+        )
+        if dry_run:
+            click.echo(f"target: {ctx.target_id}")
+            click.echo(f"run_id: {ctx.run_id}")
+            click.echo(f"stage:  {stage}")
+            click.echo("dry-run: 不执行实际操作")
+    except ConfigError as e:
+        click.echo(f"配置错误: {e}", err=True)
+        sys.exit(2)
+    except Exception as e:
+        click.echo(f"运行异常: {e}", err=True)
+        sys.exit(1)
+
+
+@main.command("skill")
+@click.argument("action", type=click.Choice(["list"]))
+def skill_cmd(action: str) -> None:
+    """Manage skills."""
+    raise NotImplementedError("Phase 4: skill list command")
+
+
+@main.command("tool")
+@click.argument("action", type=click.Choice(["list"]))
+def tool_cmd(action: str) -> None:
+    """Manage tools."""
+    raise NotImplementedError("Phase 4: tool list command")
+
+
+@main.command()
+@click.option("--config", required=True, help="Path to YAML config file to validate.")
+def validate(config: str) -> None:
+    """Validate a config YAML file against its JSON Schema."""
+    raise NotImplementedError(
+        "Phase 3: validate command — calls ConfigLoader._validate_against_schema"
+    )
+
 
 __all__ = ["main"]

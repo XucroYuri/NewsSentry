@@ -35,6 +35,9 @@ dev = [
     "ruff>=0.4",
     "jsonschema>=4.21",
 ]
+proxy = [
+    "httpx[socks]>=0.27",
+]
 
 [project.scripts]
 news-sentry = "news_sentry.cli:main"
