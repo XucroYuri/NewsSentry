@@ -36,13 +36,18 @@ def run(target: str, stage: str, run_id: str | None, dry_run: bool,
     from news_sentry.core.run import ConfigError, bounded_run
 
     try:
-        bounded_run(
+        ctx = bounded_run(
             target_id=target,
             stage=stage,
             run_id=run_id,
             dry_run=dry_run,
             config_dir=config_dir,
         )
+        if dry_run:
+            click.echo(f"target: {ctx.target_id}")
+            click.echo(f"run_id: {ctx.run_id}")
+            click.echo(f"stage:  {stage}")
+            click.echo("dry-run: 不执行实际操作")
     except ConfigError as e:
         click.echo(f"配置错误: {e}", err=True)
         sys.exit(2)
