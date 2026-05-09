@@ -3,9 +3,10 @@
 CLI entry point: news-sentry run --target <target_id> --stage <stage>
 """
 from __future__ import annotations
+
 import sys
+
 import click
-from news_sentry.models.newsevent import PipelineStage
 
 
 @click.group()
@@ -15,14 +16,14 @@ def main() -> None:
 
 
 @main.command()
-@click.option("--target", required=True, help="Target ID (e.g., italy). Maps to config/targets/{id}.yaml")
+@click.option("--target", required=True, help="Target ID (e.g., italy). Maps to config/targets/{id}.yaml")  # noqa: E501
 @click.option(
     "--stage",
     required=True,
     type=click.Choice(["collect", "filter", "judge", "output", "all"]),
     help="Pipeline stage to execute.",
 )
-@click.option("--run-id", default=None, help="Specify run_id (UUID4). Auto-generated if not provided.")
+@click.option("--run-id", default=None, help="Specify run_id. Auto-generated if not provided.")
 @click.option("--dry-run", is_flag=True, default=False, help="Print plan without executing.")
 @click.option("--log-level", default="INFO", type=click.Choice(["DEBUG", "INFO", "WARNING"]))
 @click.option("--config-dir", default=None, help="Override default config/ directory path.")
@@ -32,7 +33,22 @@ def run(target: str, stage: str, run_id: str | None, dry_run: bool,
 
     Exit codes: 0=success, 1=partial failure, 2=config error, 3=sandbox blocked.
     """
-    raise NotImplementedError("Phase 3: CLI run command — calls core.run.bounded_run")
+    from news_sentry.core.run import ConfigError, bounded_run
+
+    try:
+        bounded_run(
+            target_id=target,
+            stage=stage,
+            run_id=run_id,
+            dry_run=dry_run,
+            config_dir=config_dir,
+        )
+    except ConfigError as e:
+        click.echo(f"配置错误: {e}", err=True)
+        sys.exit(2)
+    except Exception as e:
+        click.echo(f"运行异常: {e}", err=True)
+        sys.exit(1)
 
 
 @main.command("skill")
@@ -53,7 +69,7 @@ def tool_cmd(action: str) -> None:
 @click.option("--config", required=True, help="Path to YAML config file to validate.")
 def validate(config: str) -> None:
     """Validate a config YAML file against its JSON Schema."""
-    raise NotImplementedError("Phase 3: validate command — calls ConfigLoader._validate_against_schema")
+    raise NotImplementedError("Phase 3: validate command — calls ConfigLoader._validate_against_schema")  # noqa: E501
 
 
 if __name__ == "__main__":
