@@ -39,7 +39,7 @@
 | [ADR-0013](./0013-src-layout-package-structure.md) | src layout 与三分包结构：core/skills/adapters 单向导入 | Accepted | 2026-05-09 |
 | [ADR-0014](./0014-json-schema-contract-validation.md) | JSON Schema 2020-12 作为契约校验载体，存放于 schemas/ | Accepted | 2026-05-09 |
 | [ADR-0015](./0015-config-merge-priority.md) | 配置覆盖优先级：target → source → sandbox 三层 deep merge | Accepted | 2026-05-09 |
-| [ADR-0016](./0016-cli-entry-point.md) | CLI 入口正式锁定：news-sentry run --target --stage（关闭 ADR-0006 backlog） | Accepted | 2026-05-09 |
+| [ADR-0016](./0016-cli-entry-point.md) | CLI 入口正式锁定：python -m news_sentry.cli run --target --stage --profile（关闭 ADR-0006 backlog） | Accepted | 2026-05-09 |
 
 ## 引用方式
 

@@ -64,21 +64,23 @@
     "MetadataClassification": {
       "type": "object",
       "title": "MetadataClassification",
-      "required": ["l0_domain"],
+      "required": ["l0"],
       "additionalProperties": true,
       "properties": {
-        "l0_domain": { "type": "string" },
-        "l1_topic": { "type": ["string", "null"] },
-        "l2_entities": {
+        "l0": { "type": "string" },
+        "confidence": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "l1": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true }
+        },
+        "l2": {
+          "type": "array",
+          "items": { "type": "object", "additionalProperties": true }
+        },
+        "l3": {
           "type": "array",
           "items": { "type": "string" }
         },
-        "l3_action": { "type": ["string", "null"] },
-        "country_axes": {
-          "type": "object",
-          "additionalProperties": true
-        },
-        "rules_version": { "type": ["string", "null"] },
         "classifier_version": { "type": ["string", "null"] }
       }
     },

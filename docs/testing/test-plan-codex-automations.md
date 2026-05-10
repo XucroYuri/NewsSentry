@@ -4,7 +4,7 @@
 > **目标运行环境**: Codex Desktop Automations（fallback 自动化触发器，local-workstation profile）
 > **版本**: v1.0 | 日期: 2026-05-10
 > **上游文档**: docs/contracts-canonical.md, docs/spec/phase-2-runtime-carrier-alignment.md §附
-> **适用 CLI**: `news-sentry run --target {target_id} --stage {stage}`
+> **适用 CLI**: `python -m news_sentry.cli run --target {target_id} --stage {stage} --profile {profile_id}`
 
 ---
 
@@ -38,7 +38,7 @@ Codex Automations 通过自动化配置触发 CLI 命令，你的任务是：
 | **运行载体** | Codex Desktop Automations |
 | **部署 profile** | local-workstation (`config/profiles/local-workstation.yaml`) |
 | **触发方式** | Codex Automation 配置 → CLI 命令 |
-| **CLI 命令模板** | `news-sentry run --target {target_id} --stage {stage}` |
+| **CLI 命令模板** | `python -m news_sentry.cli run --target {target_id} --stage {stage} --profile {profile_id}` |
 | **工作目录** | 项目根目录（相对于 `.`） |
 | **输出根目录** | `./data` |
 | **沙箱 policy** | `config/sandbox/default.yaml`（较严格，本地开发用） |
@@ -58,7 +58,7 @@ Codex Automations 通过自动化配置触发 CLI 命令，你的任务是：
 
 ### 1.3 测试目标
 
-1. **CLI 可达性**: 验证 Codex Automation 环境能正确找到并执行 `news-sentry` 命令
+1. **CLI 可达性**: 验证 Codex Automation 环境能通过 `python -m news_sentry.cli` 执行项目 CLI
 2. **local-workstation profile 加载**: 验证 profile 决定的数据目录和配置路径正确
 3. **sandbox 兼容性**: 验证 Codex 的 sandbox 不阻止 News Sentry 的必需操作
 4. **文件 I/O 正确性**: 验证在 Codex 环境下文件写入路径和权限正确
@@ -69,8 +69,8 @@ Codex Automations 通过自动化配置触发 CLI 命令，你的任务是：
 
 | 编号 | 条件 | 阈值 |
 |------|------|------|
-| AC-1 | `news-sentry --help` 返回正常 | exit 0 |
-| AC-2 | `news-sentry run --target italy --stage collect` 成功执行 | exit_code ∈ {0, 1} |
+| AC-1 | `python -m news_sentry.cli --help` 返回正常 | exit 0 |
+| AC-2 | `python -m news_sentry.cli run --target italy --stage collect --profile local-workstation` 成功执行 | exit_code ∈ {0, 1} |
 | AC-3 | 产物写入 `./data/` 而非系统路径 | 所有文件在 data/ 下 |
 | AC-4 | 沙箱未阻止 RSS 采集的网络请求 | events_collected ≥ 1 |
 | AC-5 | RunLog JSON 可被 Codex 读取和解析 | valid JSON |
@@ -81,7 +81,7 @@ Codex Automations 通过自动化配置触发 CLI 命令，你的任务是：
 
 | 测试场景 | Automation 触发方式 | 验证重点 |
 |---------|-------------------|---------|
-| T1: CLI 基本可达性 | `news-sentry --help` | 命令可找到，依赖不缺失 |
+| T1: CLI 基本可达性 | `python -m news_sentry.cli --help` | 模块入口可执行，依赖不缺失 |
 | T2: 单源采集 | `run --target italy --stage collect` | RSS 采集正常 |
 | T3: 全链路执行 | `run --target italy --stage all` | 完整 pipeline |
 | T4: 环境隔离 | 检查数据目录是否在项目内 | profile 路径正确 |
@@ -118,8 +118,8 @@ for m in modules:
 "
 
 # Step 3: 验证 CLI 入口
-news-sentry --help
-news-sentry --version
+python -m news_sentry.cli --help
+python -m news_sentry.cli --version
 
 # Step 4: 验证 local-workstation profile
 python -c "
@@ -136,7 +136,7 @@ print(f'Data exists: {os.path.isdir(data_dir)}')
 #### 2.1.3 Check（可由 subagent 执行）
 ```bash
 # subagent 执行：
-news-sentry --help 2>&1 | grep -q "Usage" && echo "CLI_OK" || echo "CLI_FAIL"
+python -m news_sentry.cli --help 2>&1 | grep -q "Usage" && echo "CLI_OK" || echo "CLI_FAIL"
 python -c "import httpx; print(httpx.__version__)" 2>&1
 python -c "import socksio; print('socksio OK')" 2>&1
 python -c "from news_sentry.core.run import bounded_run; print('bounded_run import OK')" 2>&1
@@ -146,7 +146,7 @@ python -c "from news_sentry.core.run import bounded_run; print('bounded_run impo
 - [ ] Python >= 3.11
 - [ ] 所有核心依赖可 import（httpx, feedparser, click, pydantic, yaml）
 - [ ] `socksio` 可 import（代理支持）
-- [ ] `news-sentry --help` 返回正常
+- [ ] `python -m news_sentry.cli --help` 返回正常
 - [ ] `from news_sentry.core.run import bounded_run` 无错误
 - [ ] 数据目录 `data/` 在项目根下
 
@@ -167,10 +167,10 @@ pip install httpx[socks] feedparser click pydantic pyyaml
 #### 2.2.2 Do
 ```bash
 # Step 1: dry-run 验证
-news-sentry run --target italy --stage collect --dry-run
+python -m news_sentry.cli run --target italy --stage collect --profile local-workstation --dry-run
 
 # Step 2: 实际执行
-news-sentry run --target italy --stage collect
+python -m news_sentry.cli run --target italy --stage collect --profile local-workstation
 
 # Step 3: 检查产物
 echo "=== 产物检查 ==="
@@ -218,31 +218,25 @@ for p in log['phases']:
 name: "News Sentry - Italy Monitor Test"
 description: "验证 news-sentry CLI 在 Codex Automation 中的可用性"
 trigger_type: manual  # 测试阶段手动触发，生产可改为 scheduled
-command: "news-sentry run --target italy --stage collect"
+command: "python -m news_sentry.cli run --target italy --stage collect --profile local-workstation"
 working_dir: "${project_root}"
 timeout_seconds: 600
 env:
   NEWSSENTRY_PROFILE: local-workstation
   PYTHONPATH: "${project_root}/src"
 expected_exit_codes: [0, 1]  # 0=完全成功，1=部分成功
-output_check:
-  type: file_exists
+output_validation:
+  type: latest_run_log
   path: "data/italy/logs/"
   pattern: "*.json"
   max_age_minutes: 5
+  require_valid_json: true
+  partial_failure_field: "summary.total_errors"
 ```
 
 验证此配置：
 ```bash
-python -c "
-import yaml
-with open('.codex/automations/news-sentry-test.yaml') as f:
-    cfg = yaml.safe_load(f)
-print(f'Automation: {cfg[\"name\"]}')
-print(f'Command: {cfg[\"command\"]}')
-print(f'Timeout: {cfg[\"timeout_seconds\"]}s')
-print(f'Expected exit: {cfg[\"expected_exit_codes\"]}')
-"
+python -m news_sentry.cli validate --config .codex/automations/news-sentry-test.yaml
 ```
 
 #### 2.3.3 Check
@@ -254,9 +248,9 @@ print(f'Expected exit: {cfg[\"expected_exit_codes\"]}')
 - [ ] `timeout_seconds` 合理（600s = 10 分钟）
 
 #### 2.3.4 Act
-若 Codex 无法找到 `news-sentry` 命令：
-- 使用绝对路径：`command: "/path/to/venv/bin/news-sentry run ..."`
-- 或在 `env` 中添加 `PATH` 变量
+若 Codex 无法导入 `news_sentry`：
+- 先在任务环境安装项目：`python -m pip install -e ".[proxy]"`
+- 或在 `env` 中添加 `PYTHONPATH: "${project_root}/src"`
 
 ### Sub-PDCA 循环 4: Subagent 自我检查
 
@@ -307,12 +301,12 @@ subagent:
 
 | 检查项 | 方法 | 期望 |
 |--------|------|------|
-| venv 可达性 | `which news-sentry` | 指向项目 venv |
+| venv 可达性 | `python -c "import sys; print(sys.executable)"` | 指向当前已激活的项目 Python |
 | 文件写入权限 | `touch data/.write_test && rm data/.write_test` | 成功 |
 | 网络出站 | `curl -sI https://www.ansa.it 2>&1 \| head -1` | HTTP 200 或代理响应 |
 | SOCKS 代理 | `python -c "import httpx; r=httpx.get('https://www.ansa.it', timeout=10); print(r.status_code)"` | 200 |
 | 环境变量隔离 | `env \| grep NEWS` | 仅 NEWSSENTRY_PROFILE 在 Codex 外不可见 |
-| Codex sandbox 边界 | 尝试写 `/tmp/news-sentry-test` 再读回 | 符合 Codex 预期 |
+| Codex sandbox 边界 | 尝试写 `data/runtime-temp/news-sentry-test` 再读回 | 符合 Codex 预期 |
 
 ### 3.2 自动化检查（subagent 执行）
 
@@ -320,7 +314,7 @@ subagent:
 checks:
   - id: all_unit_tests
     command: "python -m pytest tests/ -q"
-    expected: "264 passed"
+    expected: "281 passed"
 
   - id: lint
     command: "python -m ruff check"
@@ -331,7 +325,7 @@ checks:
     expected: "Success: no issues found"
 
   - id: cli_entry
-    command: "news-sentry --help"
+    command: "python -m news_sentry.cli --help"
     expected: "Usage:"
 
   - id: import_all
@@ -364,16 +358,16 @@ Codex 环境问题
 name: "News Sentry - Italy Monitor (with fallback)"
 trigger_type: scheduled
 schedule: "0 */6 * * *"  # 每 6 小时
-command: "/opt/homebrew/bin/news-sentry run --target italy --stage all"
-working_dir: "/Users/xuyu/Code/NewsSentry"
+command: "python -m news_sentry.cli run --target italy --stage all --profile local-workstation"
+working_dir: "${project_root}"
 timeout_seconds: 1800
 retry:
   max_retries: 2
   backoff_seconds: 300
 env:
   NEWSSENTRY_PROFILE: local-workstation
-  PATH: "/opt/homebrew/bin:/usr/local/bin:${PATH}"
-  all_proxy: "socks5://127.0.0.1:10808"
+  PYTHONPATH: "${project_root}/src"
+  all_proxy: "<proxy-url-if-needed>"
 notifications:
   on_failure: "write_to_log"
   on_success: "silent"
@@ -393,7 +387,7 @@ output_validation:
 | R-C2 环境变量 | 在 Automation 配置中显式设置所需 env | `env` 命令对比 |
 | R-C3 代理冲突 | 使用 `all_proxy` 而非分别设置 | httpx 能自动读取 |
 | R-C4 频率限制 | 测试阶段用 manual trigger | 观察 Codex 日志 |
-| R-C5 venv 路径 | 使用绝对路径或 `${project_root}/.venv/bin/` | `which python` |
+| R-C5 Python 环境 | 使用 `python -m news_sentry.cli`，必要时由任务环境激活 venv | `python -c "import news_sentry"` |
 | R-C6 token budget | 用 `--stage collect` 而非 `--stage all` 减少输出 | 观察截断 |
 
 ---
@@ -448,7 +442,7 @@ output_validation:
   "last_heartbeat": "2026-05-10T12:00:00Z",
   "codex_automation_status": "running",
   "codex_specific": {
-    "cli_path": "/opt/homebrew/bin/news-sentry",
+    "cli_path": "python -m news_sentry.cli",
     "sandbox_write_ok": true,
     "proxy_ok": true
   }

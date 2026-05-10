@@ -15,7 +15,7 @@
 | 品牌名/文章标题/文档标题 | `News Sentry` | `news-sentry`（标题场景）、`NewsSentry`、`newssentry` |
 | 包名/CLI 命令/代码标识符 | `news-sentry` | `News-Sentry`、`NewsSentry` |
 | 仓库目录/文件路径 | `news-sentry` 或 `news_sentry` | 任何大写混合 |
-| CLI 入口示例 | `news-sentry run --target italy --stage collect` | 其他形式（待 ADR-0006 定稿） |
+| CLI 入口示例 | `python -m news_sentry.cli run --target italy --stage collect --profile local-workstation` | 依赖本机 PATH 或绝对解释器路径的示例 |
 
 ---
 
@@ -277,13 +277,14 @@ cancelled | ongoing | concluded
 
 任何单边修改（只改文档不改 schema，或只改 schema 不改文档）视为草稿状态，不应合并。
 
-### 10.2 Schema 清单（12 份）
+### 10.2 Schema 清单（13 份）
 
 | Schema 文件 | 覆盖契约章节 | 状态 |
 |---|---|---|
 | `schemas/newsevent.schema.json` | §1–§8 + metadata 扩展 | Phase 1 完成 |
 | `schemas/pipelinecontext.schema.json` | §2（PipelineContext） | Phase 1 完成 |
 | `schemas/targetconfig.schema.json` | config/targets/ 配置结构（ADR-0015） | Phase 1 完成 |
+| `schemas/deploymentprofile.schema.json` | config/profiles/ 部署 profile 结构 | Phase 2 完成 |
 | `schemas/sourcechannel.schema.json` | §4（采集层） | Phase 1 完成 |
 | `schemas/filterrules.schema.json` | Phase 3 Filter 规则集合 | Phase 1 完成 |
 | `schemas/classification.schema.json` | §9（ADR-0009） | Phase 1 完成 |

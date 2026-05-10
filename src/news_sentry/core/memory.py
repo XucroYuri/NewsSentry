@@ -120,8 +120,8 @@ class Memory:
         """获取指定源的运行状况快照。
 
         Returns:
-            dict with keys: last_success_at, last_failure_at, success_count,
-            failure_count, last_error, success_rate。不存在则返回空 dict。
+            dict with keys: last_success_at, last_failure_at, consecutive_failures,
+            last_error, total_runs, total_failures。不存在则返回空 dict。
         """
         with self._lock:
             entry = self._source_health.get(source_id)
@@ -144,22 +144,36 @@ class Memory:
                 entry = {
                     "last_success_at": None,
                     "last_failure_at": None,
-                    "success_count": 0,
-                    "failure_count": 0,
+                    "consecutive_failures": 0,
                     "last_error": None,
-                    "success_rate": 1.0,
+                    "total_runs": 0,
+                    "total_failures": 0,
                 }
+            entry["total_runs"] += 1
             if success:
                 entry["last_success_at"] = now
-                entry["success_count"] += 1
+                entry["consecutive_failures"] = 0
             else:
                 entry["last_failure_at"] = now
-                entry["failure_count"] += 1
+                entry["total_failures"] += 1
+                entry["consecutive_failures"] += 1
                 entry["last_error"] = error_msg
-            total = entry["success_count"] + entry["failure_count"]
-            entry["success_rate"] = round(entry["success_count"] / total, 3) if total > 0 else 1.0
             self._source_health[source_id] = entry
             self._write_yaml(self._SOURCE_HEALTH_FILE, self._source_health)
+
+    def record_source_health(
+        self, source_id: str, success: bool,
+        error_msg: str | None = None, run_id: str | None = None,
+    ) -> None:
+        """记录一次源健康采样 — update_source_health 的便捷封装。
+
+        Args:
+            source_id: 来源标识。
+            success: 本次拉取是否成功。
+            error_msg: 失败时的错误信息。
+            run_id: 关联的运行 ID（保留字段，供未来扩展使用）。
+        """
+        self.update_source_health(source_id, success=success, error_msg=error_msg)
 
     # ------------------------------------------------------------------
     # Cursors（拉取游标）

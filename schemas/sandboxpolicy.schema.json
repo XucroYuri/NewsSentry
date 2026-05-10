@@ -112,6 +112,11 @@
         "log_path": {
           "type": "string",
           "description": "Relative path under the file event protocol logs/ directory"
+        },
+        "debug_stdout": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether local development runs may mirror audit entries to stdout"
         }
       }
     }

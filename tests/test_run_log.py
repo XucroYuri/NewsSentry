@@ -89,6 +89,33 @@ def test_log_error_records_error_info(tmp_path: Path) -> None:
     assert "event_id" not in errors[1]
 
     assert data["summary"]["total_errors"] == 2
+    assert data["errors_count"] == 2
+    assert data["phases"][0]["errors_count"] == 2
+    assert data["errors"][0]["scope"] == "collect"
+    assert data["errors"][0]["stage"] == "collect"
+    assert data["errors"][0]["source_id"] == "ne-italy-ansa-20240115-abc00001"
+
+
+def test_runtime_metadata_is_written_for_automation_parsing(tmp_path: Path) -> None:
+    """RunLog 顶层应包含自动化校验需要的 portable runtime metadata。"""
+    log_dir = tmp_path / "logs"
+    log = RunLog(
+        log_dir=log_dir,
+        run_id="custom-run-id",
+        target_id="italy",
+        profile_id="cloud-vps",
+        output_root="./data",
+    )
+    log.log_phase_start("collect")
+    log.log_phase_end("collect", items_count=0, duration_ms=0.0)
+    path = log.write()
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["target_id"] == "italy"
+    assert data["profile_id"] == "cloud-vps"
+    assert data["output_root"] == "./data"
+    assert data["errors_count"] == 0
+    assert data["errors"] == []
 
 
 def test_run_id_in_filename(tmp_path: Path) -> None:
@@ -129,6 +156,19 @@ def test_target_id_from_run_id_with_hyphens(tmp_path: Path) -> None:
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data["target_id"] == "eu-china"
     assert data["run_id"] == "eu-china_20240115T103000"
+
+
+def test_explicit_target_id_does_not_depend_on_run_id_prefix(tmp_path: Path) -> None:
+    """自定义 run_id 时 target_id 必须由调用方显式传入，而不是从 run_id 猜。"""
+    log_dir = tmp_path / "logs"
+    log = RunLog(log_dir=log_dir, run_id="test_concurrent_A", target_id="italy")
+    log.log_phase_start("collect")
+    log.log_phase_end("collect", items_count=1, duration_ms=500.0)
+    path = log.write()
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["target_id"] == "italy"
+    assert data["run_id"] == "test_concurrent_A"
 
 
 def test_phase_without_explicit_start(tmp_path: Path) -> None:

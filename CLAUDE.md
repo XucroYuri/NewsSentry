@@ -79,7 +79,7 @@
 修改架构、schema、pipeline 行为、权限、provider 路由或工具执行前，必读：
 - `docs/contracts-canonical.md` — 口径规范唯一权威
 - `docs/adr/` — ADR-0001 至 ADR-0016
-- `schemas/` — 12 份 JSON Schema 2020-12（与 contracts-canonical.md 双向绑定）
+- `schemas/` — 13 份 JSON Schema 2020-12（与 contracts-canonical.md 双向绑定）
 - `config/` — 运行时配置骨架
 
 ### 核心决策（不可违反）
@@ -93,8 +93,9 @@
 - **新闻分类走 metadata.classification**：不进 schema 顶层
 - **Python 3.11+ / Pydantic v2**：`src/news_sentry/` 全栈
 - **配置走 config/**：禁止硬编码意大利参数到 src/
-- **CLI 入口固定**：`news-sentry run --target {id} --stage {collect|filter|judge|output|all}`
+- **CLI 入口固定**：`python -m news_sentry.cli run --target {id} --stage {collect|filter|judge|output|all} --profile {profile_id}`
 - **JSON Schema 是契约校验载体**：所有 config YAML 头部 `# Schema:` 指向对应 schema
+- **开源可移植性**：所有 git-tracked 文件中禁止出现用户主目录、外挂卷、系统包管理器路径、虚拟环境内部解释器路径等本机/平台耦合路径；写临时文件统一用 `./data/tmp/`，写日志统一用 `./data/{target_id}/logs/`；个人机器级配置一律入 `CLAUDE.local.md`（gitignored）
 
 ### Phase 执行顺序
 

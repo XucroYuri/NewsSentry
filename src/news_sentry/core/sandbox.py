@@ -31,11 +31,14 @@ class SandboxPolicy(BaseModel):
     对应 schemas/sandboxpolicy.schema.json 的运行时子集。
     """
 
+    model_config = {"extra": "ignore"}
+
     allowed_commands: list[str] = Field(default_factory=list)
     allowed_network_hosts: list[str] = Field(default_factory=list)
     write_roots: list[Path] = Field(default_factory=list)
     max_execution_time_ms: int = 30000
     max_output_bytes: int = 1024 * 1024
+    default_action: str = "allow"  # "allow" | "deny" — 空列表时的默认行为
 
 
 class SandboxEnforcer:
@@ -91,10 +94,12 @@ class SandboxEnforcer:
         支持通配符：``*.ansa.it`` 匹配 ``www.ansa.it``、``static.ansa.it``。
         ``*`` 转换为正则 ``.*``，其余字符按字面量匹配。
 
-        空 ``allowed_network_hosts`` 表示**宽松模式**（允许所有 host）。
+        空 ``allowed_network_hosts`` 时，依据 ``default_action`` 决定：
+        - ``default_action=\"allow\"`` → 允许所有（向后兼容）
+        - ``default_action=\"deny\"`` → 拒绝所有（严格模式）
         """
         if not self._policy.allowed_network_hosts:
-            return True
+            return self._policy.default_action != "deny"
         for pattern in self._policy.allowed_network_hosts:
             regex = re.escape(pattern).replace(r"\*", ".*")
             if re.fullmatch(regex, host):

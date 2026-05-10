@@ -14,7 +14,7 @@
 **本 Phase 是全项目最核心的实现 Phase，所有后续 Phase 均以此为基础扩展。**
 
 **出口标准（进入 Phase 4 的前提）：**
-- [ ] 一次 `news-sentry run --target italy --stage collect` 可稳定产出至少一个 `raw/ne-italy-*.md` 文件
+- [ ] 一次 `python -m news_sentry.cli run --target italy --stage collect --profile local-workstation` 可稳定产出至少一个 `raw/ne-italy-*.md` 文件
 - [ ] 文件 frontmatter 字段符合 `contracts-canonical.md §3`（id 格式正确）
 - [ ] `pipeline_stage` 字段值为 `collected`（符合 `contracts-canonical.md §2`）
 - [ ] 过滤后事件进入 `evaluated/`，被拒事件进入 `archive/`
@@ -158,11 +158,12 @@
   def load_target_config(
       target_id: str,
       config_root: Path,
+      profile_id: str = "local-workstation",
       profile_overrides: dict | None = None,
   ) -> TargetConfig:
       """
       按 ADR-0015 配置合并优先级加载目标配置：
-      target config → source config → sandbox policy（不可被降权）
+      deployment profile → target config → source config → sandbox policy
       """
       ...
   ```
@@ -172,7 +173,7 @@
   config/{target_id}/target.yaml
   config/{target_id}/sources/*.yaml    ←──合并──→  TargetConfig（完整配置对象）
   config/sandbox/{policy_ref}.yaml
-  config/profiles/{profile_id}.yaml
+  config/profiles/{profile_id}.yaml    ←──决定 output_root 与 sandbox profile
   ```
 
 - **错误处理**:
@@ -438,7 +439,8 @@
       run_id: str
       target_id: str
       stage: str
-      profile: str
+      profile_id: str
+      output_root: str  # 项目内路径使用 ./data 这类 portable 形式
       started_at: datetime
       finished_at: datetime
       exit_code: int
@@ -446,7 +448,8 @@
       events_passed_filter: int = 0
       events_archived: int = 0
       source_results: dict = field(default_factory=dict)  # source_id → {collected, errors}
-      errors: list[str] = field(default_factory=list)
+      errors_count: int = 0
+      errors: list[dict] = field(default_factory=list)  # 顶层聚合，便于 automation 解析
       budget_used: dict = field(default_factory=dict)     # {"api_calls": n, "cost_usd": 0.0}
 
   def write_run_log(log: RunLog, output_root: Path) -> Path:
@@ -584,13 +587,13 @@ sandbox_policy_ref: default
 ## 6. 验收清单
 
 ### 文件产出
-- [ ] 一次 `news-sentry run --target italy --stage collect` 产出 `raw/ne-italy-*.md` 文件
+- [ ] 一次 `python -m news_sentry.cli run --target italy --stage collect --profile local-workstation` 产出 `raw/ne-italy-*.md` 文件
 - [ ] 文件 frontmatter 中 `id` 格式符合 `ne-{target_id}-{source_id}-{yyyymmdd}-{hash8}`
 - [ ] 文件 frontmatter 通过 `schemas/news-event.schema.json` JSON Schema 校验
 - [ ] `pipeline_stage: collected` （不是 `collected` 以外的任何值）
 
 ### 过滤与分类
-- [ ] 一次 `news-sentry run --target italy --stage filter` 将 `raw/` 事件移入 `evaluated/` 或 `archive/`
+- [ ] 一次 `python -m news_sentry.cli run --target italy --stage filter --profile local-workstation` 将 `raw/` 事件移入 `evaluated/` 或 `archive/`
 - [ ] `evaluated/` 事件的 `pipeline_stage: filtered`
 - [ ] `archive/` 事件含拒绝原因（frontmatter `archive_reason` 或 `processing_history` 记录）
 - [ ] `metadata.classification.l0` 非空（至少有规则引擎的一级分类）
@@ -610,7 +613,7 @@ sandbox_policy_ref: default
 - [ ] 所有新增模块均有对应的 pytest 单元测试
 
 ### 运行时行为
-- [ ] `news-sentry run` 完成后进程正常退出（非 daemon 模式）
+- [ ] `python -m news_sentry.cli run` 完成后进程正常退出（非 daemon 模式）
 - [ ] run 最大时长受 `max_duration_seconds` 限制，超时后写日志并退出
 
 ---

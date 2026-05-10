@@ -4,18 +4,24 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "news-sentry"
-version = "0.0.0"
-description = "Framework-neutral Agent Skill Pack for continuous news monitoring"
+version = "0.1.0"
+description = "Framework-neutral Agent Skill Pack for continuous news monitoring — Italy Breaking News reference target"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
-keywords = ["news", "monitoring", "agent", "skill-pack", "italy"]
+license = { file = "LICENSE" }
+keywords = ["news", "monitoring", "agent", "skill-pack", "italy", "breaking-news"]
+authors = [
+    { name = "XucroYuri" },
+]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content :: News/Diary",
 ]
 
 dependencies = [
@@ -38,6 +44,12 @@ dev = [
 proxy = [
     "httpx[socks]>=0.27",
 ]
+
+[project.urls]
+Homepage = "https://github.com/XucroYuri/NewsSentry"
+Repository = "https://github.com/XucroYuri/NewsSentry"
+Issues = "https://github.com/XucroYuri/NewsSentry/issues"
+Documentation = "https://github.com/XucroYuri/NewsSentry/blob/main/docs/"
 
 [project.scripts]
 news-sentry = "news_sentry.cli:main"

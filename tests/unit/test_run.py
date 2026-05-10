@@ -172,6 +172,7 @@ class TestBoundedRun:
     def test_collect_stage_dry_run(self):
         ctx = bounded_run("italy", "collect", dry_run=True)
         assert ctx.events_collected == 0
+        assert ctx.profile_id == "local-workstation"
 
     def test_filter_stage_dry_run(self):
         ctx = bounded_run("italy", "filter", dry_run=True)
@@ -184,6 +185,50 @@ class TestBoundedRun:
     def test_custom_run_id(self):
         ctx = bounded_run("italy", "all", run_id="my-custom-run", dry_run=True)
         assert ctx.run_id == "my-custom-run"
+
+    def test_custom_run_id_run_log_keeps_target_id(self, tmp_path: Path, monkeypatch):
+        _setup_minimal_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        ctx = bounded_run(
+            "test-target",
+            "judge",
+            run_id="custom-run-id",
+            config_dir=str(tmp_path),
+        )
+
+        assert ctx.run_log_path is not None
+        data = json.loads(Path(ctx.run_log_path).read_text(encoding="utf-8"))
+        assert data["run_id"] == "custom-run-id"
+        assert data["target_id"] == "test-target"
+        assert data["profile_id"] == "local-workstation"
+        assert data["output_root"] == "./data"
+
+    def test_profile_env_and_argument_precedence(self, tmp_path: Path, monkeypatch):
+        _setup_minimal_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("NEWSSENTRY_PROFILE", "cloud-vps")
+
+        env_ctx = bounded_run("test-target", "collect", dry_run=True, config_dir=str(tmp_path))
+        arg_ctx = bounded_run(
+            "test-target",
+            "collect",
+            dry_run=True,
+            config_dir=str(tmp_path),
+            profile_id="local-workstation",
+        )
+
+        assert env_ctx.profile_id == "cloud-vps"
+        assert arg_ctx.profile_id == "local-workstation"
+
+    def test_data_dir_env_override(self, tmp_path: Path, monkeypatch):
+        _setup_minimal_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("NEWSSENTRY_DATA_DIR", "./custom-data")
+
+        ctx = bounded_run("test-target", "collect", dry_run=True, config_dir=str(tmp_path))
+
+        assert ctx.config_snapshot["output_root"] == "./custom-data"
 
     def test_invalid_stage_raises(self):
         with pytest.raises(ValueError, match="不支持的阶段"):
@@ -211,6 +256,30 @@ class TestBoundedRun:
         assert ctx.target_id == "test-target"
         # 假 RSS URL，collect 应该容错返回空列表
         assert ctx.events_collected >= 0
+
+    def test_collect_errors_are_reflected_in_context(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        _setup_minimal_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        def raise_collect(*_args, **_kwargs):
+            raise RuntimeError("source failed")
+
+        monkeypatch.setattr(
+            "news_sentry.core.run.RSSCollector.collect",
+            raise_collect,
+        )
+
+        ctx = bounded_run("test-target", "collect", config_dir=str(tmp_path))
+
+        assert ctx.errors_count == 1
+        assert ctx.run_log_path is not None
+        assert Path(ctx.run_log_path).is_file()
+        assert (tmp_path / "data" / "test-target" / "memory").is_dir()
+        assert not (tmp_path / "data" / "test-target" / "known_item_ids.yaml").exists()
 
     def test_filter_stage_empty_raw_dir(self, tmp_path: Path, monkeypatch):
         """raw/ 目录为空时 filter 应正常返回而不崩溃。"""
@@ -247,6 +316,9 @@ Trade agreement between Italy and China signed today.
         ctx = bounded_run("test-target", "filter", config_dir=str(tmp_path))
         # 验证结果：关键词 "trade" 和 "China" 应命中 filter 规则
         assert ctx.events_filtered >= 0
+        # archive/ 目录应存在（被拒绝的事件写入其中）
+        archive_dir = tmp_path / "data" / "test-target" / "archive"
+        assert archive_dir.is_dir()
         # 运行日志应已写入
         log_files = list((tmp_path / "data" / "test-target" / "logs").glob("*.json"))
         assert len(log_files) > 0
@@ -365,6 +437,8 @@ def _setup_minimal_project(root: Path) -> None:
         "filterrules.schema.json",
         "classificationrules.schema.json",
         "outputdestinations.schema.json",
+        "deploymentprofile.schema.json",
+        "sandboxpolicy.schema.json",
     ]:
         (schemas_dir / name).write_text(json.dumps(empty_schema))
 
@@ -452,6 +526,57 @@ def _setup_minimal_project(root: Path) -> None:
         "# Schema: schemas/targetconfig.schema.json\n"
         + yaml.dump(target_data, allow_unicode=True)
     )
+
+    # config/profiles
+    profiles_dir = root / "config" / "profiles"
+    profiles_dir.mkdir(parents=True)
+    for profile_id, trigger in [
+        ("local-workstation", "cli"),
+        ("cloud-vps", "cron"),
+    ]:
+        profile_data = {
+            "profile_id": profile_id,
+            "paths": {
+                "cwd": ".",
+                "output_root": "./data",
+                "config_root": "./config",
+                "log_root": "./data/{target_id}/logs",
+                "memory_root": "./data/{target_id}/memory",
+            },
+            "network": {"allow_outbound": True, "blocked_hosts": []},
+            "runtime": {
+                "trigger": trigger,
+                "max_duration_seconds": 600,
+                "max_memory_mb": 1024,
+            },
+            "sandbox": {"profile": profile_id},
+        }
+        (profiles_dir / f"{profile_id}.yaml").write_text(
+            "# Schema: schemas/deploymentprofile.schema.json\n"
+            + yaml.dump(profile_data, allow_unicode=True)
+        )
+
+    # config/sandbox
+    sandbox_dir = root / "config" / "sandbox"
+    sandbox_dir.mkdir(parents=True)
+    for profile_id in ["local-workstation", "cloud-vps"]:
+        sandbox_data = {
+            "profile_id": profile_id,
+            "default_action": "deny",
+            "command_policy": {"allowed_commands": ["python"], "blocked_patterns": []},
+            "filesystem_policy": {"read_roots": ["./"], "write_roots": ["./data/"]},
+            "network_policy": {"allowed_hosts": ["*"], "blocked_hosts": []},
+            "budget_policy": {
+                "max_run_duration_seconds": 600,
+                "max_events_per_run": 50,
+                "max_ai_calls_per_run": 0,
+            },
+            "audit": {"log_all_tool_calls": True, "log_path": "./data/logs/"},
+        }
+        (sandbox_dir / f"{profile_id}.yaml").write_text(
+            "# Schema: schemas/sandboxpolicy.schema.json\n"
+            + yaml.dump(sandbox_data, allow_unicode=True)
+        )
 
     # config/sources
     sources_dir = root / "config" / "sources" / "test-target"

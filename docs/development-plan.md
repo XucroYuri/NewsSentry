@@ -421,7 +421,7 @@
 
 | 编号 | 内容 | 建议决策/实现时机 |
 |------|------|----------------|
-| `CLI-001` | 决定 `news-sentry run` 的完整命令 schema（参数、子命令、输出格式）| Phase 3 实现前 |
+| `CLI-001` | 决定 `python -m news_sentry.cli run` 的完整命令 schema（参数、子命令、输出格式）| Phase 3 实现前 |
 | `LOCK-001` | 并发 Agent 写同一文件时的 lock/lease 机制设计 | Phase 4 多 Skill 并发时 |
 | `EVAL-001` | AI Provider 离线 eval 集构建与评估流程（同一 judge 任务的多 Provider 质量对比） | Phase 5 完成后 |
 | `SCHEMA-VERSION-001` | `prompt_template_id` 和 `output_schema_id` 的版本治理（何时可以 deprecate 旧版本） | Phase 5 完成后 |

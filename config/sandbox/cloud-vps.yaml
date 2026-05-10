@@ -12,8 +12,8 @@ command_policy:
     - opencli
     - curl
     - wget
+    - python
     - python3
-    - news-sentry
   blocked_patterns:
     - "rm -rf"
     - "sudo"
@@ -28,13 +28,8 @@ filesystem_policy:
     - "./docs/"
     - "./src/"
   write_roots:
-    - "./italy/raw/"
-    - "./italy/evaluated/"
-    - "./italy/drafts/"
-    - "./italy/reviewed/"
-    - "./italy/logs/"
-    - "./italy/memory/"
-    - "/tmp/news-sentry-work/"    # 临时工作目录，用于大文件中转
+    - "./data/"
+    - "./data/tmp/work/"    # 项目内临时工作目录，用于大文件中转
 
 network_policy:
   # VPS 环境允许访问更广泛的意大利/欧盟新闻源
@@ -69,4 +64,4 @@ budget_policy:
 
 audit:
   log_all_tool_calls: true
-  log_path: "./italy/logs/"
+  log_path: "./data/logs/"

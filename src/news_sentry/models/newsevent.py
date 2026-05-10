@@ -73,17 +73,17 @@ class NewsEvent(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
-    def make_id(cls, source_id: str, url: str, published_at_iso: str) -> str:
+    def make_id(cls, target_id: str, source_id: str, url: str, published_at_iso: str) -> str:
         """生成确定性 NewsEvent.id。
 
-        格式: ``ne-{source_id}-{yyyymmdd}-{hash8}``（参见 contracts-canonical.md §3）。
-        hash8 由 SHA-256(source_id + url + published_at_iso) 截取前 8 位十六进制生成。
+        格式: ``ne-{target_id}-{source_id}-{yyyymmdd}-{hash8}``（参见 contracts-canonical.md §3）。
+        hash8 由 SHA-256(target_id + source_id + url + published_at_iso) 截取前 8 位十六进制生成。
         """
         try:
             dt = datetime.fromisoformat(published_at_iso)
         except (ValueError, TypeError):
             dt = datetime.now(UTC)
         date_str = dt.strftime("%Y%m%d")
-        hash_input = f"{source_id}{url}{published_at_iso}"
+        hash_input = f"{target_id}{source_id}{url}{published_at_iso}"
         hash8 = hashlib.sha256(hash_input.encode("utf-8")).hexdigest()[:8]
-        return f"ne-{source_id}-{date_str}-{hash8}"
+        return f"ne-{target_id}-{source_id}-{date_str}-{hash8}"

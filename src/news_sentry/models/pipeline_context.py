@@ -18,6 +18,9 @@ class PipelineContext(BaseModel):
     stage: PipelineStage
     started_at: str
     config_snapshot: dict[str, Any] = Field(default_factory=dict)
+    profile_id: str = "local-workstation"
+    errors_count: int = 0
+    run_log_path: str | None = None
     events_collected: int = 0
     events_filtered: int = 0
     events_judged: int = 0

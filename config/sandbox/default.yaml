@@ -26,11 +26,7 @@ filesystem_policy:
     - "./schemas/"
     - "./docs/"
   write_roots:
-    - "./italy/raw/"
-    - "./italy/evaluated/"
-    - "./italy/drafts/"
-    - "./italy/logs/"
-    - "./italy/memory/"
+    - "./data/"
 
 network_policy:
   allowed_hosts:
@@ -57,4 +53,4 @@ budget_policy:
 
 audit:
   log_all_tool_calls: true
-  log_path: "./italy/logs/"
+  log_path: "./data/logs/"
