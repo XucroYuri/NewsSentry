@@ -37,3 +37,6 @@ jobs:
 
       - name: Security scan (sensitive keywords)
         run: python tools/scan_sensitive_data.py
+
+      - name: Hardcoded target scan
+        run: python tools/check_no_hardcoded_target.py

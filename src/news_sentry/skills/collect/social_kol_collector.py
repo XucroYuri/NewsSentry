@@ -51,12 +51,12 @@ class SocialKOLCollector:
     # ── 采集方法（Phase 6 Stub） ──────────────────────────────
 
     def collect_twitter_trends(
-        self, locale: str = "italy", context: str = "",
+        self, locale: str = "worldwide", context: str = "",
     ) -> list[NewsEvent]:
         """采集 Twitter 趋势（stub）。
 
         Args:
-            locale: 趋势地区（默认 "italy"）。
+            locale: 趋势地区（如 "italy", "japan"）。
             context: 采集上下文标识。
 
         Returns:

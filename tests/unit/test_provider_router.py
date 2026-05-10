@@ -422,11 +422,11 @@ def test_rules_provider_call_no_china() -> None:
 
 
 def test_rules_provider_call_breaking() -> None:
-    """breaking/urgente 关键词触发 breaking_news 分类。"""
+    """breaking 关键词触发 breaking_news 分类。"""
     provider = RulesProvider()
     result = provider.call(
         "judge.primary",
-        "ULTIMORA: terremoto in Italia centrale, scosse avvertite a Roma",
+        "BREAKING: earthquake hits central region",
         task_type="judge",
     )
     assert result["recommendation"] == "publish"
