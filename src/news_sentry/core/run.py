@@ -11,7 +11,6 @@ import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 import yaml
 
@@ -26,7 +25,11 @@ from news_sentry.core.memory import Memory
 from news_sentry.core.provider_router import ProviderRouter
 from news_sentry.core.ratelimit import RateLimiter
 from news_sentry.core.run_log import RunLog, write_heartbeat
-from news_sentry.core.sandbox import SandboxEnforcer, SandboxPolicy
+from news_sentry.core.sandbox import (
+    SandboxEnforcer,
+    SandboxPolicy,
+    StopOnRiskError,
+)
 from news_sentry.models.newsevent import (
     JudgeRecommendation,
     NewsEvent,
@@ -122,33 +125,12 @@ def bounded_run(
     file_writer = FileWriter(data_dir)
     file_writer.ensure_dirs()
 
-    # 沙箱策略 — 将嵌套 YAML 映射到平铺 SandboxPolicy 字段
-    sp = config.sandbox_policy
-    if sp:
-        sandbox_kwargs: dict[str, Any] = {}
-        # 命令白名单
-        cmd_policy = sp.get("command_policy", {})
-        if isinstance(cmd_policy, dict):
-            sandbox_kwargs["allowed_commands"] = cmd_policy.get("allowed_commands", [])
-        # 网络白名单
-        net_policy = sp.get("network_policy", {})
-        if isinstance(net_policy, dict):
-            sandbox_kwargs["allowed_network_hosts"] = net_policy.get("allowed_hosts", [])
-        # 写入路径
-        fs_policy = sp.get("filesystem_policy", {})
-        if isinstance(fs_policy, dict):
-            sandbox_kwargs["write_roots"] = [Path(p) for p in fs_policy.get("write_roots", [])]
-        # 超时
-        budget = sp.get("budget_policy", {})
-        if isinstance(budget, dict) and budget.get("max_run_duration_seconds"):
-            sandbox_kwargs["max_execution_time_ms"] = budget["max_run_duration_seconds"] * 1000
-        # default_action
-        if "default_action" in sp:
-            sandbox_kwargs["default_action"] = sp["default_action"]
-        sandbox_policy = SandboxPolicy(**sandbox_kwargs)
+    # 沙箱策略 — 使用 SandboxPolicy.from_yaml_dict() 加载嵌套 YAML
+    if sp := config.sandbox_policy:
+        sandbox_policy = SandboxPolicy.from_yaml_dict(sp)
     else:
-        sandbox_policy = SandboxPolicy()
-    sandbox = SandboxEnforcer(sandbox_policy)
+        sandbox_policy = SandboxPolicy(policy_id="default")
+    sandbox = SandboxEnforcer(sandbox_policy, audit_log_path=data_dir / "logs")
 
     # ── 上下文 ──────────────────────────────────────────────
     ctx = PipelineContext(
@@ -259,6 +241,8 @@ def _run_collect(
             for evt in events:
                 run_log.log_event("collect", evt.id, "collected")
             memory.record_source_health(source_id, success=True, run_id=run_id)
+        except StopOnRiskError:
+            raise
         except Exception as e:
             run_log.log_error("collect", str(e), event_id=source_id)
             memory.record_source_health(

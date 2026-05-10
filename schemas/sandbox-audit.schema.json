@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://news-sentry.local/schemas/sandbox-audit.schema.json",
+  "title": "SandboxAuditRecord",
+  "description": "Audit log record for sandbox policy decisions. Implements: docs/contracts-canonical.md §6; sandbox execution audit trail",
+  "type": "object",
+  "required": [
+    "timestamp",
+    "run_id",
+    "decision",
+    "check_dimension",
+    "args_summary"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of the policy decision"
+    },
+    "run_id": {
+      "type": "string",
+      "description": "Unique identifier for the bounded run execution"
+    },
+    "tool_id": {
+      "type": ["string", "null"],
+      "description": "Tool identifier (ToolManifest.tool_id) if applicable, null for non-tool checks"
+    },
+    "decision": {
+      "type": "string",
+      "enum": ["allow", "deny"],
+      "description": "Policy decision outcome"
+    },
+    "check_dimension": {
+      "type": "string",
+      "enum": ["command", "filesystem", "network", "browser", "budget", "profile"],
+      "description": "Sandbox policy dimension being evaluated"
+    },
+    "args_summary": {
+      "type": "object",
+      "description": "Sanitized argument summary for audit trail; MUST NOT contain raw secrets/tokens",
+      "additionalProperties": true
+    },
+    "result_exit_code": {
+      "type": ["integer", "null"],
+      "description": "Process exit code for command executions; null for non-command checks"
+    },
+    "duration_ms": {
+      "type": ["integer", "null"],
+      "description": "Execution duration in milliseconds; null if not applicable or incomplete"
+    },
+    "reason": {
+      "type": "string",
+      "description": "Human-readable reason for deny decisions; OPTIONAL for allow decisions"
+    }
+  }
+}

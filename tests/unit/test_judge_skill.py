@@ -48,7 +48,11 @@ def rules_skill() -> JudgeSkill:
     router = mock.MagicMock()
 
     def route_side_effect(task_type, prompt, provider_factory, preferred_route_id=None, **kwargs):
-        return rules.call(route_id=preferred_route_id or "judge.primary", prompt=prompt, task_type=task_type)
+        return rules.call(
+            route_id=preferred_route_id or "judge.primary",
+            prompt=prompt,
+            task_type=task_type,
+        )
 
     router.route.side_effect = route_side_effect
     return JudgeSkill(router, lambda name: rules)

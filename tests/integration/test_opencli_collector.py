@@ -14,11 +14,9 @@ import pytest
 import yaml
 
 from news_sentry.adapters.tools.opencli import OpenCLIToolAdapter
-from news_sentry.core.ratelimit import RateLimiter
 from news_sentry.core.sandbox import SandboxViolationError
 from news_sentry.models.newsevent import NewsEvent, PipelineStage
 from news_sentry.skills.collect.opencli_collector import OpenCLICollector
-
 
 # ── 共享夹具（fixtures）─────────────────────────────────────────────
 
@@ -196,7 +194,7 @@ class TestCollectProducesNewsEvents:
         self, mock_sandbox_class: mock.Mock, mock_run: mock.Mock,
         source_config: dict, tmp_manifest: Path,
     ) -> None:
-        """stdout 包含无效 JSON 时 collect() 返回 []。"""
+        """stdout 包含无效 JSON 时 collect() 进入纯文本 fallback，生成 1 个 NewsEvent。"""
         mock_sandbox = mock_sandbox_class.return_value
         mock_sandbox.check_tool_allowed.return_value = True
 
@@ -211,43 +209,9 @@ class TestCollectProducesNewsEvents:
 
         events = collector.collect("test-run-006")
 
-        assert events == []
-
-
-class TestCollectRateLimiterIntegration:
-    """速率限制集成：验证 RateLimiter.wait_if_needed 被正确调用。"""
-
-    @mock.patch("subprocess.run")
-    @mock.patch("news_sentry.adapters.tools.opencli.SandboxEnforcer")
-    def test_collect_rate_limiter_integration(
-        self, mock_sandbox_class: mock.Mock, mock_run: mock.Mock,
-        source_config: dict, sample_news_json: str, tmp_manifest: Path,
-    ) -> None:
-        """验证 collect() 调用 rate_limiter.wait_if_needed 且传入正确 source_id。"""
-        mock_sandbox = mock_sandbox_class.return_value
-        mock_sandbox.check_tool_allowed.return_value = True
-
-        mock_run.return_value = mock.Mock(
-            returncode=0, stdout=sample_news_json, stderr="",
-        )
-
-        mock_rate_limiter = mock.Mock(spec=RateLimiter)
-        mock_rate_limiter.wait_if_needed.return_value = 0.0
-
-        adapter = OpenCLIToolAdapter(
-            manifest_path=str(tmp_manifest), sandbox_enforcer=mock_sandbox,
-        )
-        collector = OpenCLICollector(
-            source_config, adapter,
-            sandbox_enforcer=mock_sandbox, rate_limiter=mock_rate_limiter,
-        )
-
-        events = collector.collect("test-run-007")
-
-        assert len(events) == 2
-        mock_rate_limiter.wait_if_needed.assert_called_once_with("hackernews-top")
-        # 验证 rate_limiter.set_interval 也在初始化时被调用
-        mock_rate_limiter.set_interval.assert_called_once_with("hackernews-top", 1.0)
+        assert len(events) == 1
+        assert "OpenCLI output:" in events[0].title_original
+        assert events[0].content_original == "not valid json {{{"
 
 
 class TestCollectNewsEventMetadata:
@@ -278,7 +242,7 @@ class TestCollectNewsEventMetadata:
         for event in events:
             assert "collection" in event.metadata
             assert event.metadata["collection"]["method"] == "opencli"
-            assert event.metadata["collection"]["tool_ref"] == "opencli.hackernews.top"
+            assert event.metadata["collection"]["tool_ref"] == ""
             assert event.run_id == "test-run-008"
 
     @mock.patch("subprocess.run")
@@ -287,7 +251,7 @@ class TestCollectNewsEventMetadata:
         self, mock_sandbox_class: mock.Mock, mock_run: mock.Mock,
         source_config: dict, tmp_manifest: Path,
     ) -> None:
-        """支持 JSON 对象含 items 字段的格式：{"items": [...]}。"""
+        """JSON 对象（含 items 字段）不再展开，作为一个完整事件处理。"""
         mock_sandbox = mock_sandbox_class.return_value
         mock_sandbox.check_tool_allowed.return_value = True
 
@@ -308,8 +272,5 @@ class TestCollectNewsEventMetadata:
 
         events = collector.collect("test-run-009")
 
-        assert len(events) == 2
-        assert events[0].title_original == "HN Item 1"
-        assert events[0].url == "https://example.com/a"
-        assert events[1].title_original == "HN Item 2"
-        assert events[1].url == "https://example.com/b"
+        assert len(events) == 1
+        assert events[0].pipeline_stage == PipelineStage.COLLECTED

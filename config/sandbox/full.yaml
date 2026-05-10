@@ -1,0 +1,74 @@
+# Schema: ../../schemas/sandboxpolicy.schema.json
+# 契约: docs/contracts-canonical.md §6
+# ADR: ADR-0003
+#
+# Full 沙箱策略：Phase 6 完整权限配置
+# 相比 cloud-vps.yaml：扩展网络白名单至通用知识源，允许全部意大利新闻源
+profile_id: full
+default_action: deny
+
+command_policy:
+  allowed_commands:
+    - opencli
+    - curl
+    - wget
+    - python
+    - python3
+  blocked_patterns:
+    - "rm -rf"
+    - "sudo"
+    - "chmod"
+    - "dd if="
+    - "> /dev/"
+    - "mkfs"
+    - "mount "
+
+filesystem_policy:
+  read_roots:
+    - "./config/"
+    - "./schemas/"
+    - "./docs/"
+    - "./src/"
+  write_roots:
+    - "./data/"
+    - "./data/tmp/work/"
+
+network_policy:
+  # 完整配置：所有意大利/欧盟新闻源 + 通用知识源
+  allowed_hosts:
+    # 意大利主流新闻
+    - "*.ansa.it"
+    - "*.repubblica.it"
+    - "*.corriere.it"
+    - "*.agi.it"
+    - "*.fao.org"
+    - "*.ilsole24ore.com"
+    - "*.lastampa.it"
+    - "*.tgcom24.it"
+    - "*.rainews.it"
+    # 国际新闻源
+    - "feeds.bbci.co.uk"
+    - "rss.reuters.com"
+    - "*.euronews.com"
+    # 通用知识源（Phase 6 新增）
+    - "news.ycombinator.com"
+    - "*.reddit.com"
+    - "scholar.google.com"
+    - "*.wikipedia.org"
+  blocked_hosts:
+    - "169.254.169.254"
+    - "metadata.google.internal"
+    - "169.254.170.2"
+
+browser_policy:
+  # Full 模式默认禁用浏览器 session
+  session_profiles_allowed: []
+
+budget_policy:
+  max_run_duration_seconds: 3600   # 全量运行最长 60 分钟
+  max_events_per_run: 1000
+  max_ai_calls_per_run: 300
+
+audit:
+  log_all_tool_calls: true
+  log_path: "./data/logs/"

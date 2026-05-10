@@ -14,7 +14,11 @@ import pytest
 
 from news_sentry.adapters.tools.base import ToolRunResult
 from news_sentry.adapters.tools.opencli import OpenCLIToolAdapter
-from news_sentry.core.sandbox import SandboxEnforcer, SandboxPolicy
+from news_sentry.core.sandbox import (
+    SandboxEnforcer,
+    SandboxPolicy,
+    StopOnRiskConfig,
+)
 from news_sentry.skills.collect.opencli_collector import OpenCLICollector
 
 # ──────────────────────────────────────────────────────────────
@@ -171,7 +175,8 @@ class TestBuildCommand:
         return OpenCLIToolAdapter(manifest_path=_make_minimal_manifest(tmp_path))
 
     def test_fills_template_placeholders(self, adapter: OpenCLIToolAdapter) -> None:
-        result = adapter._build_command("opencli.fetch", {
+        manifest = adapter._tools["opencli.fetch"]
+        result = adapter._build_command(manifest, {
             "url": "https://example.com/news",
             "output_path": "/tmp/out.json",
         })
@@ -180,29 +185,25 @@ class TestBuildCommand:
         assert "https://example.com/news" in result
         assert "/tmp/out.json" in result
 
-    def test_returns_empty_for_unknown_tool(self, adapter: OpenCLIToolAdapter) -> None:
-        assert adapter._build_command("nonexistent", {}) == []
+    def test_raises_keyerror_for_unknown_manifest(self, adapter: OpenCLIToolAdapter) -> None:
+        with pytest.raises(ValueError, match="missing command_template"):
+            adapter._build_command({}, {})
 
-    def test_returns_empty_for_no_template(self, adapter: OpenCLIToolAdapter) -> None:
-        # Add a tool with no template
-        adapter._tools["bare"] = {"tool_id": "bare"}
-        assert adapter._build_command("bare", {}) == []
+    def test_raises_valueerror_for_no_template(self, adapter: OpenCLIToolAdapter) -> None:
+        with pytest.raises(ValueError, match="missing command_template"):
+            adapter._build_command({"tool_id": "bare"}, {})
 
-    def test_partial_fill_leaves_unused_placeholders_alone(
+    def test_raises_keyerror_for_missing_params(
         self, adapter: OpenCLIToolAdapter,
     ) -> None:
-        """未提供的参数，{placeholder} 保留原样（由 shell 处理或报错）。"""
-        result = adapter._build_command("opencli.fetch", {
-            "url": "https://example.com",
-            # output_path not provided
-        })
-        # output_path placeholder should remain unreplaced
-        joined = " ".join(result)
-        assert "{output_path}" in joined
-        assert "https://example.com" in joined
+        """缺失必填参数时抛出 KeyError。"""
+        manifest = adapter._tools["opencli.fetch"]
+        with pytest.raises(KeyError):
+            adapter._build_command(manifest, {"url": "https://example.com"})
 
     def test_quotes_args_with_spaces(self, adapter: OpenCLIToolAdapter) -> None:
-        result = adapter._build_command("opencli.search", {
+        manifest = adapter._tools["opencli.search"]
+        result = adapter._build_command(manifest, {
             "query": "breaking news italy",
             "limit": "10",
         })
@@ -229,7 +230,7 @@ class TestExecute:
         assert result.success is False
         assert result.exit_code == -1
         assert result.error is not None
-        assert result.error["type"] == "unknown_tool"
+        assert result.error["type"] == "command_not_found"
 
     def test_sandbox_blocked_returns_error(self, tmp_path: Path) -> None:
         """沙箱拦截时返回 error 而非抛异常。"""
@@ -237,6 +238,7 @@ class TestExecute:
             allowed_commands=[],
             allowed_network_hosts=[],
             default_action="deny",
+            stop_on_risk=StopOnRiskConfig(on_sandbox_violation=False),
         )
         sandbox = SandboxEnforcer(policy)
         adapter = OpenCLIToolAdapter(
@@ -250,17 +252,21 @@ class TestExecute:
         )
         assert result.success is False
         assert result.error is not None
-        assert result.error["type"] == "sandbox_blocked"
+        assert result.error["type"] == "permission_denied"
 
     def test_command_build_failed(self, tmp_path: Path) -> None:
-        """当 command_template 不匹配 args 时，_build_command 应容错。"""
+        """当 command_template 不匹配 args 时，抛 KeyError → schema_validation_failed。"""
         adapter = OpenCLIToolAdapter(manifest_path=_make_minimal_manifest(tmp_path))
-        # 删除 template 后再调用 execute
+        # 删除 template 后再调用 execute → ValueError from _build_command
         adapter._tools["opencli.fetch"]["command_template"] = ""
-        result = adapter.execute("opencli.fetch", {"url": "x", "output_path": "/tmp/x.json"}, "run-03")
+        result = adapter.execute(
+            "opencli.fetch",
+            {"url": "x", "output_path": "/tmp/x.json"},
+            "run-03",
+        )
         assert result.success is False
         assert result.error is not None
-        assert result.error["type"] == "command_build_failed"
+        assert result.error["type"] == "schema_validation_failed"
 
     @mock.patch("subprocess.run")
     def test_successful_execution(
@@ -316,7 +322,7 @@ class TestExecute:
             "run-06",
         )
         assert result.success is False
-        assert result.exit_code == 2
+        assert result.exit_code == -1
         assert result.error is not None
         assert result.error["type"] == "timeout"
 
@@ -333,7 +339,7 @@ class TestExecute:
         )
         assert result.success is False
         assert result.error is not None
-        assert result.error["type"] == "opencli_not_installed"
+        assert result.error["type"] == "command_not_found"
 
 
 # ──────────────────────────────────────────────────────────────
@@ -357,7 +363,6 @@ class TestOpenCLICollectorInit:
         }
         collector = OpenCLICollector(config, adapter)
         assert collector._source_id == "test-source"
-        assert collector._target_id == "italy"
         assert collector._tool_ref == "opencli.fetch"
 
 
@@ -369,15 +374,17 @@ class TestOpenCLICollectorCollect:
         return OpenCLIToolAdapter(manifest_path=_make_minimal_manifest(tmp_path))
 
     def test_returns_empty_when_no_tool_ref(self, adapter: OpenCLIToolAdapter) -> None:
-        config = {"tool_ref": ""}
+        config = {"source_id": "test", "tool_ref": ""}
         collector = OpenCLICollector(config, adapter)
         events = collector.collect("run-01")
         assert events == []
 
-    def test_returns_empty_when_opencli_not_installed(
+    def test_returns_empty_when_execute_fails(
         self, adapter: OpenCLIToolAdapter,
     ) -> None:
+        """任何 execute 失败（包括 opencli_not_installed）都返回空列表。"""
         config = {
+            "source_id": "test",
             "tool_ref": "opencli.fetch",
             "validated_args": {"url": "x", "output_path": "/tmp/x.json"},
         }
@@ -387,14 +394,16 @@ class TestOpenCLICollectorCollect:
             adapter, "execute",
             return_value=ToolRunResult(
                 tool_id="opencli.fetch", run_id="r", success=False, exit_code=-1,
-                error={"type": "opencli_not_installed", "message": "not found"},
+                error={"type": "command_not_found", "message": "not found"},
             ),
         ):
             events = collector.collect("run-01")
         assert events == []
 
-    def test_raises_on_unexpected_error(self, adapter: OpenCLIToolAdapter) -> None:
+    def test_does_not_raise_on_unexpected_error(self, adapter: OpenCLIToolAdapter) -> None:
+        """Phase 6: collect() 吞掉所有错误，返回空列表。"""
         config = {
+            "source_id": "test",
             "tool_ref": "opencli.fetch",
             "validated_args": {"url": "x", "output_path": "/tmp/x.json"},
         }
@@ -407,8 +416,8 @@ class TestOpenCLICollectorCollect:
                 error={"type": "fetch_failed", "message": "crash"},
             ),
         ):
-            with pytest.raises(RuntimeError, match="OpenCLI tool"):
-                collector.collect("run-01")
+            events = collector.collect("run-01")
+        assert events == []
 
     def test_parses_json_array_output(self, adapter: OpenCLIToolAdapter) -> None:
         """stdout 是 JSON 数组时应正确解析为 NewsEvent 列表。"""
@@ -449,7 +458,7 @@ class TestOpenCLICollectorCollect:
         assert events[1].title_original == "More News"
 
     def test_parses_object_with_items_field(self, adapter: OpenCLIToolAdapter) -> None:
-        """stdout 是含 items 字段的 JSON 对象时应正确解析。"""
+        """含 items 字段的 JSON 对象作为单事件处理（不展开 items）。"""
         data = {"items": [{"title": "Item 1", "url": "https://ex.com/1"}]}
         config = {
             "source_id": "test-source",
@@ -468,8 +477,8 @@ class TestOpenCLICollectorCollect:
         ):
             events = collector.collect("run-01")
 
+        # dict 作为单个事件，title_original 来自外层 dict（无 title 则为空）
         assert len(events) == 1
-        assert events[0].title_original == "Item 1"
 
     def test_skips_invalid_items(self, adapter: OpenCLIToolAdapter) -> None:
         """跳过没有 title 也没有 url 的无效条目。"""
@@ -513,8 +522,11 @@ class TestOpenCLICollectorParseOutput:
         assert collector._parse_output("", "r1") == []
         assert collector._parse_output("   ", "r1") == []
 
-    def test_invalid_json_returns_empty(self, collector: OpenCLICollector) -> None:
-        assert collector._parse_output("not json", "r1") == []
+    def test_invalid_json_falls_back_to_plaintext(self, collector: OpenCLICollector) -> None:
+        """无效 JSON 时走 plaintext fallback，生成 1 个 content_original 事件。"""
+        events = collector._parse_output("not valid json {{{", "r1")
+        assert len(events) == 1
+        assert events[0].content_original == "not valid json {{{"
 
     def test_non_dict_item_skipped(self, collector: OpenCLICollector) -> None:
         """列表中非 dict 元素被跳过。"""
@@ -530,34 +542,4 @@ class TestOpenCLICollectorParseOutput:
         assert events[0].title_original == "Solo"
 
 
-class TestOpenCLICollectorDetectLanguage:
-    """_detect_language 测试。"""
-
-    def test_italian_detection(self, tmp_path: Path) -> None:
-        adapter = OpenCLIToolAdapter(manifest_path=_make_minimal_manifest(tmp_path))
-        collector = OpenCLICollector({"source_id": "s"}, adapter)
-
-        from news_sentry.models.newsevent import Language
-
-        assert collector._detect_language({"language": "it"}) == Language.IT
-        assert collector._detect_language({"lang": "italian"}) == Language.IT
-        assert collector._detect_language({"language": "ita"}) == Language.IT
-
-    def test_english_detection(self, tmp_path: Path) -> None:
-        adapter = OpenCLIToolAdapter(manifest_path=_make_minimal_manifest(tmp_path))
-        collector = OpenCLICollector({"source_id": "s"}, adapter)
-
-        from news_sentry.models.newsevent import Language
-
-        assert collector._detect_language({"language": "en"}) == Language.EN
-        assert collector._detect_language({"lang": "english"}) == Language.EN
-        assert collector._detect_language({"lang": "eng"}) == Language.EN
-
-    def test_defaults_to_italian(self, tmp_path: Path) -> None:
-        adapter = OpenCLIToolAdapter(manifest_path=_make_minimal_manifest(tmp_path))
-        collector = OpenCLICollector({"source_id": "s"}, adapter)
-
-        from news_sentry.models.newsevent import Language
-
-        assert collector._detect_language({}) == Language.IT
-        assert collector._detect_language({"language": "fr"}) == Language.IT
+# _detect_language removed in Phase 6

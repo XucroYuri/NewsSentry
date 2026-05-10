@@ -14,7 +14,6 @@ import pytest
 from news_sentry.core.provider_router import ProviderRouter
 from news_sentry.models.provider_config import ProviderRoute, ProviderRoutesConfig
 
-
 # ── 测试用路由配置 ─────────────────────────────────────────────────────
 
 def _make_e2e_routes_config() -> ProviderRoutesConfig:
@@ -173,7 +172,9 @@ class TestRouteFallback:
     def test_primary_fails_fallback_succeeds(self, router):
         """主 Provider 失败 → 自动回退到 judge.anthropic。"""
         mock_openai = _make_mock_provider(should_fail=True)
-        mock_anthropic = _make_mock_provider(content="回退 Provider 结果", provider_name="anthropic")
+        mock_anthropic = _make_mock_provider(
+            content="回退 Provider 结果", provider_name="anthropic"
+        )
         factory = _factory({"openai": mock_openai, "anthropic": mock_anthropic})
 
         result = router.route("judge", "test prompt", factory)
@@ -221,7 +222,9 @@ class TestRouteFallback:
 
     def test_provider_unavailable_triggers_fallback(self, router):
         """工厂返回 None → 跳过该 Provider → 使用回退。"""
-        mock_anthropic = _make_mock_provider(content="跳过 OpenAI 后的结果", provider_name="anthropic")
+        mock_anthropic = _make_mock_provider(
+            content="跳过 OpenAI 后的结果", provider_name="anthropic"
+        )
         factory = _factory({"openai": None, "anthropic": mock_anthropic})
 
         result = router.route("judge", "test prompt", factory)
@@ -260,7 +263,9 @@ class TestFullE2EChain:
     def test_judge_primary_to_anthropic_fallback_with_cost(self, router):
         """完整链：judge.primary(OpenAI) 失败 → judge.anthropic 成功 + 成本追踪。"""
         mock_openai = _make_mock_provider(should_fail=True)
-        mock_anthropic = _make_mock_provider(content="Anthropic 研判完成", provider_name="anthropic")
+        mock_anthropic = _make_mock_provider(
+            content="Anthropic 研判完成", provider_name="anthropic"
+        )
         factory = _factory({"openai": mock_openai, "anthropic": mock_anthropic})
 
         result = router.route("judge", "综合研判 prompt", factory)

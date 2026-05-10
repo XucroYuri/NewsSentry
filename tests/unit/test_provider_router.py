@@ -1,7 +1,6 @@
 """Phase 5: Tests for ProviderRouter, CostTracker, ProviderRoute config, and RulesProvider."""
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
 from unittest import mock
 

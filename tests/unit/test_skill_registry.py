@@ -8,7 +8,6 @@ import pytest
 from news_sentry.core.skill_registry import SkillRegistry, discover_skills
 from news_sentry.models.manifests import RuntimeCompatibility, SkillManifest
 
-
 # ──────────────────────────────────────────────────────────────
 # Fixtures
 # ──────────────────────────────────────────────────────────────
