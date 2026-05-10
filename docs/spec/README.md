@@ -93,4 +93,4 @@ graph TD
 | ADR-0013 | src layout，core/skills/adapters 三层结构 | P3 起约束 |
 | ADR-0014 | JSON Schema 2020-12，存放 `schemas/` | P1 定义，P3 起验证 |
 | ADR-0015 | 配置合并优先级：target → source → sandbox | P3 ConfigLoader 实现 |
-| ADR-0016 | CLI `news-sentry run --target <id> --stage <stage>` | P3 入口 |
+| ADR-0016 | CLI `python -m news_sentry.cli run --target <id> --stage <stage> --profile <profile_id>` | P3 入口 |

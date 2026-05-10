@@ -7,10 +7,10 @@
 
 destinations:
 
-  - destination_id: obsidian_italy_drafts
+  - destination_id: obsidian_target_drafts
     type: obsidian_markdown
     enabled: true
-    path: "./italy/drafts/"
+    path: "./data/{target_id}/drafts/"
     # 文件名模板：日期-来源-ID 短码
     # {published_at_date} 格式 YYYY-MM-DD
     # {id_short} 为 NewsEvent.id 前 8 位
@@ -27,10 +27,10 @@ destinations:
       cluster_id: "{{ cluster_id }}"
       run_id: "{{ run_id }}"
 
-  - destination_id: obsidian_italy_evaluated
+  - destination_id: obsidian_target_evaluated
     type: obsidian_markdown
     enabled: true
-    path: "./italy/evaluated/"
+    path: "./data/{target_id}/evaluated/"
     filename_template: "{published_at_date}-{source_id}-{id_short}.md"
     # 仅写入高价值事件（judge 阶段 recommendation 为 publish 或 review）
     filter:

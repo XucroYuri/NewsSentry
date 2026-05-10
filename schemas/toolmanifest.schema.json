@@ -3,8 +3,53 @@
   "$id": "https://news-sentry.local/schemas/toolmanifest.schema.json",
   "title": "ToolManifest",
   "description": "Implements: docs/contracts-canonical.md §8; docs/brainstorming/ToolManifest与工具适配层规格.md; ADR-0008; external tool registration",
-  "type": "object",
   "$defs": {
+    "ToolManifest": {
+      "type": "object",
+      "required": [
+        "tool_id",
+        "display_name",
+        "version",
+        "execution_type",
+        "permissions"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tool_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*(\\.[a-z][a-z0-9_-]*)*$"
+        },
+        "display_name": { "type": "string" },
+        "version": {
+          "type": "string",
+          "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$"
+        },
+        "execution_type": {
+          "type": "string",
+          "enum": ["subprocess", "http", "python"]
+        },
+        "command_template": {
+          "type": ["string", "null"],
+          "description": "Shell command template; null for python/http types. Must not include arbitrary shell commands per ADR-0008."
+        },
+        "parameters_schema": {
+          "type": "object",
+          "description": "JSON Schema for validated_args; arbitrary shell injection prevented by sandbox",
+          "additionalProperties": true
+        },
+        "output_schema": {
+          "type": "object",
+          "description": "JSON Schema for tool output",
+          "additionalProperties": true
+        },
+        "exit_codes": {
+          "type": "object",
+          "description": "Map of exit code string to description, e.g. {'0': 'success', '1': 'error'}",
+          "additionalProperties": { "type": "string" }
+        },
+        "permissions": { "$ref": "#/$defs/PermissionsBlock" }
+      }
+    },
     "PermissionsBlock": {
       "type": "object",
       "title": "PermissionsBlock",
@@ -63,47 +108,19 @@
       }
     }
   },
-  "required": [
-    "tool_id",
-    "display_name",
-    "version",
-    "execution_type",
-    "permissions"
-  ],
-  "additionalProperties": false,
-  "properties": {
-    "tool_id": {
-      "type": "string",
-      "pattern": "^[a-z][a-z0-9_-]*$"
-    },
-    "display_name": { "type": "string" },
-    "version": {
-      "type": "string",
-      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$"
-    },
-    "execution_type": {
-      "type": "string",
-      "enum": ["subprocess", "http", "python"]
-    },
-    "command_template": {
-      "type": ["string", "null"],
-      "description": "Shell command template; null for python/http types. Must not include arbitrary shell commands per ADR-0008."
-    },
-    "parameters_schema": {
+  "oneOf": [
+    { "$ref": "#/$defs/ToolManifest" },
+    {
       "type": "object",
-      "description": "JSON Schema for validated_args; arbitrary shell injection prevented by sandbox",
-      "additionalProperties": true
-    },
-    "output_schema": {
-      "type": "object",
-      "description": "JSON Schema for tool output",
-      "additionalProperties": true
-    },
-    "exit_codes": {
-      "type": "object",
-      "description": "Map of exit code string to description, e.g. {'0': 'success', '1': 'error'}",
-      "additionalProperties": { "type": "string" }
-    },
-    "permissions": { "$ref": "#/$defs/PermissionsBlock" }
-  }
+      "required": ["tools"],
+      "additionalProperties": false,
+      "properties": {
+        "tools": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/ToolManifest" }
+        }
+      }
+    }
+  ]
 }

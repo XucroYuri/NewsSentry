@@ -18,6 +18,7 @@ from news_sentry.skills.collect.rss_collector import RSSCollector
 def _make_minimal_config(**overrides) -> dict:
     """生成最小 SourceChannel 配置。"""
     data = {
+        "target_id": "test-target",
         "source_id": "test-source",
         "display_name": "测试源",
         "type": "rss",
@@ -238,7 +239,7 @@ class TestCollect:
                 result = collector.collect("run-001")
 
         event_id = result[0].id
-        assert event_id.startswith("ne-ansa-20260509-")
+        assert event_id.startswith("ne-test-target-ansa-20260509-")
         assert len(event_id.split("-")[-1]) == 8  # 8-char hex hash
 
     def test_metadata_collection_fields(self):
@@ -416,20 +417,38 @@ class TestCollect:
 
     def test_deterministic_id_same_inputs(self):
         """相同输入应生成相同 id。"""
-        id1 = NewsEvent.make_id("ansa", "https://example.com/1", "2026-05-09T14:30:00+00:00")
-        id2 = NewsEvent.make_id("ansa", "https://example.com/1", "2026-05-09T14:30:00+00:00")
+        id1 = NewsEvent.make_id(
+            "italy", "ansa",
+            "https://example.com/1", "2026-05-09T14:30:00+00:00"
+        )
+        id2 = NewsEvent.make_id(
+            "italy", "ansa",
+            "https://example.com/1", "2026-05-09T14:30:00+00:00"
+        )
         assert id1 == id2
 
     def test_deterministic_id_different_url(self):
         """不同 URL 应生成不同 id。"""
-        id1 = NewsEvent.make_id("ansa", "https://example.com/1", "2026-05-09T14:30:00+00:00")
-        id2 = NewsEvent.make_id("ansa", "https://example.com/2", "2026-05-09T14:30:00+00:00")
+        id1 = NewsEvent.make_id(
+            "italy", "ansa",
+            "https://example.com/1", "2026-05-09T14:30:00+00:00"
+        )
+        id2 = NewsEvent.make_id(
+            "italy", "ansa",
+            "https://example.com/2", "2026-05-09T14:30:00+00:00"
+        )
         assert id1 != id2
 
     def test_deterministic_id_different_date(self):
         """不同日期应生成不同 id。"""
-        id1 = NewsEvent.make_id("ansa", "https://example.com/1", "2026-05-09T14:30:00+00:00")
-        id2 = NewsEvent.make_id("ansa", "https://example.com/1", "2026-05-10T14:30:00+00:00")
+        id1 = NewsEvent.make_id(
+            "italy", "ansa",
+            "https://example.com/1", "2026-05-09T14:30:00+00:00"
+        )
+        id2 = NewsEvent.make_id(
+            "italy", "ansa",
+            "https://example.com/1", "2026-05-10T14:30:00+00:00"
+        )
         assert id1 != id2
 
 
@@ -588,15 +607,22 @@ class TestExtractContent:
 class TestMakeId:
     def test_format_matches_contract(self):
         event_id = NewsEvent.make_id(
-            "ansa", "https://example.com/rss/item/1", "2026-05-09T14:30:00+00:00"
+            "italy", "ansa", "https://example.com/rss/item/1", "2026-05-09T14:30:00+00:00"
         )
         parts = event_id.split("-")
         assert parts[0] == "ne"
-        assert parts[1] == "ansa"
-        assert parts[2] == "20260509"
-        assert len(parts[3]) == 8  # hash8
+        assert parts[1] == "italy"
+        assert parts[2] == "ansa"
+        assert parts[3] == "20260509"
+        assert len(parts[4]) == 8  # hash8
 
     def test_different_source_id_yields_different_id(self):
-        id_a = NewsEvent.make_id("ansa", "https://x.com/1", "2026-05-09T00:00:00+00:00")
-        id_b = NewsEvent.make_id("repubblica", "https://x.com/1", "2026-05-09T00:00:00+00:00")
+        id_a = NewsEvent.make_id(
+            "italy", "ansa",
+            "https://x.com/1", "2026-05-09T00:00:00+00:00"
+        )
+        id_b = NewsEvent.make_id(
+            "italy", "repubblica",
+            "https://x.com/1", "2026-05-09T00:00:00+00:00"
+        )
         assert id_a != id_b

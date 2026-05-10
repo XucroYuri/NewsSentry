@@ -35,7 +35,7 @@ command_policy:
   deny_unregistered_executables: true
 
 filesystem_policy:
-  cwd_root: "/workspace/news-sentry"
+  cwd_root: "${project_root}"
   read_roots:
     - "config"
     - "memory"
@@ -269,4 +269,3 @@ policy_reason: string?
 5. 每次工具运行、Provider 调用和登录态引用都有 audit record。
 6. 登录态异常、验证码、封禁或权限异常会停止自动重试。
 7. sandbox violation 进入日志和人工检查队列。
-

@@ -1,0 +1,19 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015
+source_id: ilfattoquotidiano
+display_name: "Il Fatto Quotidiano"
+type: rss
+url: "https://www.ilfattoquotidiano.it/feed/"
+
+# credibility_base: 0-100 量纲中的基础可信度，详见 contracts-canonical.md §4
+credibility_base: 0.78
+
+fetch_interval_minutes: 20
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+
+health:
+  last_success_at: null        # ISO 8601，首次成功后由 memory 模块写入
+  consecutive_failures: 0

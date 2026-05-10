@@ -1,14 +1,17 @@
 """Implements: docs/spec/phase-3-kernel-mvp.md §3.1
 
 bounded_run — 核心运行生命周期管理器。
-CLI 入口: news-sentry run --target <id> --stage <stage> (ADR-0016)。
+CLI 入口: python -m news_sentry.cli run --target <id> --stage <stage> (ADR-0016)。
 """
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
+from news_sentry.adapters.tools.opencli import OpenCLIToolAdapter
 from news_sentry.core.config import ConfigLoader, ResolvedConfig
 from news_sentry.core.file_writer import FileWriter
 from news_sentry.core.memory import Memory
@@ -16,6 +19,7 @@ from news_sentry.core.run_log import RunLog
 from news_sentry.core.sandbox import SandboxEnforcer, SandboxPolicy
 from news_sentry.models.newsevent import NewsEvent, PipelineStage
 from news_sentry.models.pipeline_context import PipelineContext
+from news_sentry.skills.collect.opencli_collector import OpenCLICollector
 from news_sentry.skills.collect.rss_collector import RSSCollector
 from news_sentry.skills.filter.classifier_rules import ClassifierRules
 from news_sentry.skills.filter.rules_filter import RulesFilter
@@ -28,6 +32,8 @@ def bounded_run(
     run_id: str | None = None,
     dry_run: bool = False,
     config_dir: str | None = None,
+    profile_id: str | None = None,
+    output_root: str | Path | None = None,
 ) -> PipelineContext:
     """执行单次 bounded run，包含一个 target 和一个 stage。
 
@@ -41,42 +47,87 @@ def bounded_run(
         stage: pipeline 阶段（"collect" | "filter" | "judge" | "output" | "all"）。
         run_id: 可选运行 ID，不提供则自动生成。
         dry_run: True 时只打印计划不执行。
-        config_dir: 配置目录覆盖，默认使用项目根目录。
+        config_dir: 项目根目录覆盖，默认使用当前项目根。
+        profile_id: Deployment profile ID。优先级高于 NEWSSENTRY_PROFILE。
+        output_root: 输出根目录覆盖。优先级高于 NEWSSENTRY_DATA_DIR。
 
     Returns:
         PipelineContext 含运行统计信息。
     """
     # ── 规范化参数 ──────────────────────────────────────────
     stage_str = stage if isinstance(stage, str) else stage.value
+    supported_stages = {
+        "collect", "filter", "judge", "judged", "output", "outputted", "all",
+    }
+    if stage_str not in supported_stages:
+        raise ValueError(f"不支持的阶段: {stage_str}")
     if run_id is None:
         ts = datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')
         run_id = f"{target_id}_{ts}_{uuid.uuid4().hex[:8]}"
 
     project_root = Path(config_dir) if config_dir else _find_project_root()
+    selected_profile_id = _resolve_profile_id(profile_id)
+    selected_output_root = _resolve_output_root_override(output_root)
 
     # ── 加载配置 ────────────────────────────────────────────
     try:
         loader = ConfigLoader(project_root)
-        config = loader.load_target(target_id)
+        config = loader.load_target(
+            target_id,
+            profile_id=selected_profile_id,
+            output_root_override=selected_output_root,
+            allow_external_output_root=_allow_external_output_root(),
+        )
     except FileNotFoundError as e:
         raise ConfigError(f"配置加载失败: {e}") from e
     except Exception as e:
         raise ConfigError(f"配置加载异常: {e}") from e
 
     # ── 数据目录 ────────────────────────────────────────────
-    data_dir = project_root / "data" / target_id
+    data_dir = config.output_root / target_id
     data_dir.mkdir(parents=True, exist_ok=True)
 
     # ── 初始化运行时组件 ────────────────────────────────────
-    memory = Memory(data_dir)
+    memory = Memory(data_dir / "memory")
     log_dir = data_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    run_log = RunLog(log_dir, run_id)
+    portable_output_root = _portable_project_path(config.output_root, project_root)
+    run_log = RunLog(
+        log_dir,
+        run_id,
+        target_id=target_id,
+        profile_id=config.profile_id,
+        output_root=portable_output_root,
+    )
     file_writer = FileWriter(data_dir)
+    file_writer.ensure_dirs()
 
-    # 沙箱策略
+    # 沙箱策略 — 将嵌套 YAML 映射到平铺 SandboxPolicy 字段
     sp = config.sandbox_policy
-    sandbox_policy = SandboxPolicy(**sp) if sp else SandboxPolicy()
+    if sp:
+        sandbox_kwargs: dict[str, Any] = {}
+        # 命令白名单
+        cmd_policy = sp.get("command_policy", {})
+        if isinstance(cmd_policy, dict):
+            sandbox_kwargs["allowed_commands"] = cmd_policy.get("allowed_commands", [])
+        # 网络白名单
+        net_policy = sp.get("network_policy", {})
+        if isinstance(net_policy, dict):
+            sandbox_kwargs["allowed_network_hosts"] = net_policy.get("allowed_hosts", [])
+        # 写入路径
+        fs_policy = sp.get("filesystem_policy", {})
+        if isinstance(fs_policy, dict):
+            sandbox_kwargs["write_roots"] = [Path(p) for p in fs_policy.get("write_roots", [])]
+        # 超时
+        budget = sp.get("budget_policy", {})
+        if isinstance(budget, dict) and budget.get("max_run_duration_seconds"):
+            sandbox_kwargs["max_execution_time_ms"] = budget["max_run_duration_seconds"] * 1000
+        # default_action
+        if "default_action" in sp:
+            sandbox_kwargs["default_action"] = sp["default_action"]
+        sandbox_policy = SandboxPolicy(**sandbox_kwargs)
+    else:
+        sandbox_policy = SandboxPolicy()
     sandbox = SandboxEnforcer(sandbox_policy)
 
     # ── 上下文 ──────────────────────────────────────────────
@@ -85,6 +136,12 @@ def bounded_run(
         target_id=target_id,
         stage=PipelineStage.COLLECTED,  # 上下文默认从 collected 开始
         started_at=datetime.now(UTC).isoformat(),
+        config_snapshot={
+            "profile_id": config.profile_id,
+            "output_root": portable_output_root,
+            "target_id": config.target_id,
+        },
+        profile_id=config.profile_id,
     )
 
     if dry_run:
@@ -101,11 +158,11 @@ def bounded_run(
         _run_judge_placeholder(run_log, ctx)
     elif stage_str == "all":
         _run_all(config, run_id, run_log, file_writer, sandbox, memory, ctx)
-    else:
-        raise ValueError(f"不支持的阶段: {stage_str}")
 
     # ── 写入运行日志 ────────────────────────────────────────
-    run_log.write()
+    log_path = run_log.write()
+    ctx.run_log_path = str(log_path)
+    ctx.errors_count = run_log.errors_count
     return ctx
 
 
@@ -125,17 +182,40 @@ def _run_collect(
     run_log.log_phase_start("collect")
     t0 = datetime.now(UTC)
 
+    # 延迟初始化 OpenCLI adapter（首次遇到 opencli 类型时加载）
+    _opencli_adapter: OpenCLIToolAdapter | None = None
+
     all_events: list[NewsEvent] = []
     for source_cfg in config.sources:
+        source_id = source_cfg.get("source_id", "?")
+        source_type = source_cfg.get("type", "rss")
         try:
-            collector = RSSCollector(source_cfg, sandbox)
-            events = collector.collect(run_id)
+            source_cfg["target_id"] = config.target_id
+
+            if source_type == "opencli":
+                if _opencli_adapter is None:
+                    _opencli_adapter = OpenCLIToolAdapter(sandbox_enforcer=sandbox)
+                collector_obj: RSSCollector | OpenCLICollector = OpenCLICollector(
+                    source_cfg, _opencli_adapter, sandbox,
+                )
+            elif source_type == "api":
+                # TODO Phase 4+: APICollector
+                run_log.log_event("collect", source_id, "api_skipped")
+                continue
+            else:
+                # 默认 rss
+                collector_obj = RSSCollector(source_cfg, sandbox)
+
+            events = collector_obj.collect(run_id)
             all_events.extend(events)
             for evt in events:
                 run_log.log_event("collect", evt.id, "collected")
+            memory.record_source_health(source_id, success=True, run_id=run_id)
         except Exception as e:
-            run_log.log_error("collect", str(e),
-                             event_id=source_cfg.get("source_id", "?"))
+            run_log.log_error("collect", str(e), event_id=source_id)
+            memory.record_source_health(
+                source_id, success=False, error_msg=str(e), run_id=run_id
+            )
 
     for event in all_events:
         file_writer.write_event(event)
@@ -167,6 +247,11 @@ def _run_filter(
     # 过滤
     rules_filter = RulesFilter(config.filter_rules, memory)
     filtered = rules_filter.filter(events, run_id)
+
+    # 将被拒绝的事件写入 archive/
+    rejected = [e for e in events if e not in filtered]
+    for event in rejected:
+        file_writer.write_archive(event)
 
     # 分类
     classifier = ClassifierRules(config.classification_rules)
@@ -200,7 +285,10 @@ def _run_output(
     run_log.log_phase_start("output")
     t0 = datetime.now(UTC)
 
-    writer = MarkdownWriter(config.output_destinations)
+    output_config = dict(config.output_destinations)
+    output_config["target_id"] = config.target_id
+    output_config["output_base_dir"] = str(config.output_root)
+    writer = MarkdownWriter(output_config)
     count = 0
     for event in events:
         try:
@@ -300,6 +388,35 @@ def _find_project_root() -> Path:
         if (parent / "pyproject.toml").is_file():
             return parent
     return cwd
+
+
+def _resolve_profile_id(profile_id: str | None) -> str:
+    """按 CLI 参数 > 环境变量 > 开源默认值解析 deployment profile。"""
+    return profile_id or os.environ.get("NEWSSENTRY_PROFILE") or "local-workstation"
+
+
+def _resolve_output_root_override(output_root: str | Path | None) -> str | Path | None:
+    """按显式参数 > 环境变量解析输出根目录覆盖。"""
+    return output_root or os.environ.get("NEWSSENTRY_DATA_DIR")
+
+
+def _allow_external_output_root() -> bool:
+    """显式允许 NEWSSENTRY_DATA_DIR 指向项目外目录。"""
+    value = os.environ.get("NEWSSENTRY_ALLOW_EXTERNAL_DATA_DIR", "")
+    return value.lower() in {"1", "true", "yes", "on"}
+
+
+def _portable_project_path(path: Path, project_root: Path) -> str:
+    """把项目内路径写成 portable 形式，避免运行日志泄漏本机绝对路径。"""
+    resolved = path.resolve()
+    root = project_root.resolve()
+    try:
+        relative = resolved.relative_to(root)
+    except ValueError:
+        return str(resolved)
+    if str(relative) == ".":
+        return "."
+    return f"./{relative.as_posix()}"
 
 
 class ConfigError(Exception):

@@ -132,7 +132,7 @@
   ```yaml
   # Hermes cron 配置示意（非实现代码）
   schedule: "0 */4 * * *"           # 每 4 小时
-  command: news-sentry run --target italy --stage collect
+  command: python -m news_sentry.cli run --target italy --stage collect --profile cloud-vps
   timeout: 3600
   on_failure: notify_and_skip       # 失败时通知但不重试（不堆积）
   ```
@@ -165,23 +165,23 @@ profile_id: cloud-vps
 description: "生产 VPS 环境，Hermes 主调度"
 
 paths:
-  cwd: "/opt/news-sentry"
-  output_root: "/opt/news-sentry/data"  # raw/ evaluated/ 等子目录均在此处
-  config_root: "/opt/news-sentry/config"
-  log_root: "/opt/news-sentry/data/logs"
-  memory_root: "/opt/news-sentry/data/memory"
+  cwd: "."                    # 相对于项目根，由部署器提供 working directory
+  output_root: "./data"        # raw/ evaluated/ 等子目录均在此处
+  config_root: "./config"
+  log_root: "./data/{target_id}/logs"
+  memory_root: "./data/{target_id}/memory"
 
 network:
   allow_outbound: true
   blocked_hosts: []       # 由 SandboxPolicy per-tool 限制
 
 runtime:
-  trigger: hermes-cron    # 由 Hermes 触发
-  max_duration_seconds: 3600
-  max_memory_mb: 512
+  trigger: cron           # 由 Hermes 触发
+  max_duration_seconds: 1800
+  max_memory_mb: 1024
 
 sandbox:
-  profile: default        # 引用 config/sandbox/default.yaml
+  profile: cloud-vps      # 引用 config/sandbox/cloud-vps.yaml
 ```
 
 **local-workstation profile** (`config/profiles/local-workstation.yaml`):
@@ -193,20 +193,20 @@ paths:
   cwd: "."                            # 相对于项目根
   output_root: "./data"
   config_root: "./config"
-  log_root: "./data/logs"
-  memory_root: "./data/memory"
+  log_root: "./data/{target_id}/logs"
+  memory_root: "./data/{target_id}/memory"
 
 network:
   allow_outbound: true
   blocked_hosts: []
 
 runtime:
-  trigger: cli                         # news-sentry run ... 或 Claude Cowork
-  max_duration_seconds: 1800           # 本地开发用更短超时
+  trigger: cli                         # python -m news_sentry.cli run ... 或 Claude Cowork
+  max_duration_seconds: 600            # 本地 fallback 用更短超时
   max_memory_mb: 1024
 
 sandbox:
-  profile: default
+  profile: local-workstation
 ```
 
 ---

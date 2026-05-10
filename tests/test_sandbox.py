@@ -37,12 +37,13 @@ class TestSandboxPolicy:
         assert policy.write_roots == []
         assert policy.max_execution_time_ms == 30000
         assert policy.max_output_bytes == 1024 * 1024
+        assert policy.default_action == "allow"
 
-    def test_custom_values(self) -> None:
+    def test_custom_values(self, tmp_path: Path) -> None:
         policy = SandboxPolicy(
             allowed_commands=["curl", "wget"],
             allowed_network_hosts=["*.ansa.it"],
-            write_roots=[Path("/tmp/safe")],  # noqa: S108
+            write_roots=[tmp_path / "safe"],
             max_execution_time_ms=5000,
             max_output_bytes=4096,
         )
@@ -57,7 +58,7 @@ class TestCheckCommand:
     @pytest.fixture
     def enforcer(self) -> SandboxEnforcer:
         policy = SandboxPolicy(
-            allowed_commands=["curl", "wget", "python ", "opencli", "cat", "news-sentry"]
+            allowed_commands=["curl", "wget", "python ", "opencli", "cat"]
         )
         return SandboxEnforcer(policy)
 
@@ -93,10 +94,11 @@ class TestCheckCommand:
         """'cur' 不匹配 'curl'（非完整命令名）。"""
         assert enforcer.check_command("cur") is False
 
-    def test_news_sentry_command(self, enforcer: SandboxEnforcer) -> None:
-        """'news-sentry' 精确匹配自身，带参数也通过。"""
-        assert enforcer.check_command("news-sentry") is True
-        assert enforcer.check_command("news-sentry run --target italy") is True
+    def test_python_module_cli_command(self, enforcer: SandboxEnforcer) -> None:
+        """portable CLI 通过 python -m news_sentry.cli 调用。"""
+        assert enforcer.check_command(
+            "python -m news_sentry.cli run --target example --stage collect"
+        ) is True
 
 
 class TestCheckWritePath:
@@ -131,9 +133,10 @@ class TestCheckWritePath:
         f.write_text("{}")
         assert enforcer.check_write_path(f) is True
 
-    def test_path_outside_root(self, enforcer: SandboxEnforcer) -> None:
+    def test_path_outside_root(self, enforcer: SandboxEnforcer, tmp_root: Path) -> None:
         """路径不在 write_root 内，拒绝。"""
-        assert enforcer.check_write_path(Path("/etc/passwd")) is False
+        outside = tmp_root.parent / f"{tmp_root.name}_outside.txt"
+        assert enforcer.check_write_path(outside) is False
 
     def test_relative_path_rejected(self, enforcer: SandboxEnforcer) -> None:
         """相对路径直接拒绝（安全考量）。"""
@@ -148,11 +151,11 @@ class TestCheckWritePath:
         f.write_text("ok")
         assert enforcer.check_write_path(f) is True
 
-    def test_empty_write_roots_rejects_all(self) -> None:
+    def test_empty_write_roots_rejects_all(self, tmp_path: Path) -> None:
         """空 write_roots 拒绝所有路径。"""
         policy = SandboxPolicy(write_roots=[])
         enforcer = SandboxEnforcer(policy)
-        assert enforcer.check_write_path(Path("/tmp/test.txt")) is False  # noqa: S108
+        assert enforcer.check_write_path(tmp_path / "test.txt") is False
 
 
 class TestCheckNetworkHost:
@@ -193,12 +196,19 @@ class TestCheckNetworkHost:
         """IP 地址不在白名单中，拒绝（防止 IP 绕过）。"""
         assert enforcer.check_network_host("192.168.1.1") is False
 
-    def test_empty_allowed_list_allows_all(self) -> None:
-        """空 allowed_network_hosts 表示宽松模式，允许所有。"""
-        policy = SandboxPolicy(allowed_network_hosts=[])
+    def test_empty_allowed_list_default_allow(self) -> None:
+        """空 allowed_network_hosts + default_action=allow → 允许所有（向后兼容）。"""
+        policy = SandboxPolicy(allowed_network_hosts=[], default_action="allow")
         enforcer = SandboxEnforcer(policy)
         assert enforcer.check_network_host("anything.example.com") is True
         assert enforcer.check_network_host("192.168.1.1") is True
+
+    def test_empty_allowed_list_with_deny(self) -> None:
+        """空 allowed_network_hosts + default_action=deny → 拒绝所有。"""
+        policy = SandboxPolicy(allowed_network_hosts=[], default_action="deny")
+        enforcer = SandboxEnforcer(policy)
+        assert enforcer.check_network_host("anything.example.com") is False
+        assert enforcer.check_network_host("192.168.1.1") is False
 
     def test_multiple_patterns(self, enforcer: SandboxEnforcer) -> None:
         """多个 pattern 中任一匹配即通过。"""
@@ -240,13 +250,18 @@ class TestEnforce:
         with pytest.raises(SandboxViolationError, match="命令 'rm' 不在白名单中"):
             enforcer.enforce("rm", {"command": "rm"})
 
-    def test_write_path_violation_raises(self, enforcer: SandboxEnforcer) -> None:
+    def test_write_path_violation_raises(
+        self,
+        enforcer: SandboxEnforcer,
+        tmp_root: Path,
+    ) -> None:
         """非法写入路径抛出 SandboxViolationError。"""
+        outside = tmp_root.parent / f"{tmp_root.name}_outside.txt"
         with pytest.raises(
             SandboxViolationError,
-            match="写入路径 '/etc/passwd' 不在允许的根目录内",
+            match="不在允许的根目录内",
         ):
-            enforcer.enforce("curl", {"command": "curl", "output": "/etc/passwd"})
+            enforcer.enforce("curl", {"command": "curl", "output": str(outside)})
 
     def test_network_host_violation_raises(self, enforcer: SandboxEnforcer) -> None:
         """非法网络 host 抛出 SandboxViolationError。"""
@@ -324,10 +339,10 @@ class TestEmptyPolicyDenyAll:
         assert enforcer.check_command("cat") is False
         assert enforcer.check_command("") is False
 
-    def test_all_paths_rejected(self, enforcer: SandboxEnforcer) -> None:
+    def test_all_paths_rejected(self, enforcer: SandboxEnforcer, tmp_path: Path) -> None:
         """空 write_roots 拒绝所有路径。"""
-        assert enforcer.check_write_path(Path("/tmp/test.txt")) is False  # noqa: S108
+        assert enforcer.check_write_path(tmp_path / "test.txt") is False
 
-    def test_network_allowed_when_empty(self, enforcer: SandboxEnforcer) -> None:
-        """空 allowed_network_hosts 允许所有 host（宽松模式）。"""
+    def test_network_allowed_when_empty_and_default_allow(self, enforcer: SandboxEnforcer) -> None:
+        """空 allowed_network_hosts + default_action=allow → 允许所有 host（向后兼容）。"""
         assert enforcer.check_network_host("anything.com") is True

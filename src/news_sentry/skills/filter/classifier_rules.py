@@ -69,11 +69,11 @@ class ClassifierRules:
         l2_results = self._classify_l2(l1_results)
 
         event.metadata["classification"] = {
-            "l0_domain": l0_result["domain"],
-            "l0_confidence": l0_result["confidence"],
-            "l1_topics": l1_results,
-            "l2_country_axes": l2_results,
-            "l3_tags": [],
+            "l0": l0_result["domain"],
+            "confidence": l0_result["confidence"],
+            "l1": l1_results,
+            "l2": l2_results,
+            "l3": [],
             "classifier_version": self._CLASSIFIER_VERSION,
         }
 

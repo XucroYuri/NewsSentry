@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://news-sentry.local/schemas/deploymentprofile.schema.json",
+  "title": "DeploymentProfile",
+  "description": "Runtime deployment profile for selecting paths, runtime budget, network posture, and sandbox policy.",
+  "type": "object",
+  "required": ["profile_id", "paths", "network", "runtime", "sandbox"],
+  "additionalProperties": false,
+  "properties": {
+    "profile_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "description": { "type": "string" },
+    "paths": {
+      "type": "object",
+      "required": ["cwd", "output_root", "config_root", "log_root", "memory_root"],
+      "additionalProperties": false,
+      "properties": {
+        "cwd": { "type": "string" },
+        "output_root": { "type": "string" },
+        "config_root": { "type": "string" },
+        "log_root": { "type": "string" },
+        "memory_root": { "type": "string" }
+      }
+    },
+    "network": {
+      "type": "object",
+      "required": ["allow_outbound", "blocked_hosts"],
+      "additionalProperties": false,
+      "properties": {
+        "allow_outbound": { "type": "boolean" },
+        "blocked_hosts": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["trigger", "max_duration_seconds", "max_memory_mb"],
+      "additionalProperties": false,
+      "properties": {
+        "trigger": {
+          "type": "string",
+          "enum": ["cli", "cron", "manual", "scheduled"]
+        },
+        "max_duration_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_memory_mb": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "sandbox": {
+      "type": "object",
+      "required": ["profile"],
+      "additionalProperties": false,
+      "properties": {
+        "profile": {
+          "type": "string",
+          "description": "Sandbox policy ID or config/sandbox/*.yaml path."
+        }
+      }
+    }
+  }
+}

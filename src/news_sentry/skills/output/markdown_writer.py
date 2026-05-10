@@ -1,11 +1,12 @@
 """Implements: docs/spec/phase-3-kernel-mvp.md §3.6
 
 MarkdownWriter — writes judged NewsEvents to Obsidian-compatible Markdown.
-Output: {target}/drafts/{date}-{source_id}-{id_short}.md with YAML frontmatter.
+Output: {output_base_dir}/{target_id}/drafts/{date}-{source_id}-{id_short}.md.
 """
 from __future__ import annotations
 
 import os
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -29,10 +30,10 @@ class MarkdownWriter:
 
         Args:
             output_config: 输出配置字典，可包含:
-                - target_id: 目标标识，默认 "italy"
+                - target_id: 目标标识，默认 "default"
                 - output_base_dir: 输出根目录，默认 "./data"
         """
-        self._target_id: str = output_config.get("target_id", "italy")
+        self._target_id: str = output_config.get("target_id", "default")
         self._output_base_dir: Path = Path(
             output_config.get("output_base_dir", "./data")
         )
@@ -61,12 +62,12 @@ class MarkdownWriter:
         target_dir.mkdir(parents=True, exist_ok=True)
 
         filepath = target_dir / filename
+        event.pipeline_stage = PipelineStage.OUTPUTTED
         fm = self._render_frontmatter(event)
         body = self._render_body(event)
         content = f"---\n{fm}\n---\n\n{body}"
 
         self._atomic_write(filepath, content)
-        event.pipeline_stage = PipelineStage.OUTPUTTED
         return filepath
 
     # ------------------------------------------------------------------
@@ -117,12 +118,12 @@ class MarkdownWriter:
         classification = event.metadata.get("classification")
         if isinstance(classification, dict):
             c_fm: dict[str, Any] = {}
-            l0 = classification.get("l0_domain")
+            l0 = classification.get("l0")
             if l0:
-                c_fm["l0_domain"] = l0
-            l1 = classification.get("l1_topics")
+                c_fm["l0"] = l0
+            l1 = classification.get("l1")
             if l1:
-                c_fm["l1_topics"] = l1
+                c_fm["l1"] = l1
             if c_fm:
                 fm["classification"] = c_fm
 
@@ -205,7 +206,7 @@ class MarkdownWriter:
     @staticmethod
     def _atomic_write(filepath: Path, content: str) -> None:
         """原子写入：先写临时文件，再 os.replace 到目标路径。"""
-        tmp = filepath.parent / (f".{filepath.name}.tmp")
+        tmp = filepath.parent / f".{filepath.name}.{uuid.uuid4().hex}.tmp"
         try:
             tmp.write_text(content, encoding="utf-8")
             os.replace(tmp, filepath)

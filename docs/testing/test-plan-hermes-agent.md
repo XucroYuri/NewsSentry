@@ -4,7 +4,7 @@
 > **目标运行环境**: Hermes Agent（生产主调度器，cloud-vps profile）
 > **版本**: v1.0 | 日期: 2026-05-10
 > **上游文档**: docs/contracts-canonical.md, docs/spec/phase-2-runtime-carrier-alignment.md
-> **适用 CLI**: `news-sentry run --target {target_id} --stage {stage}`
+> **适用 CLI**: `python -m news_sentry.cli run --target {target_id} --stage {stage} --profile cloud-vps`
 
 ---
 
@@ -35,9 +35,9 @@ subagent 读取产物文件、运行 python -m pytest、检查 lint/type，
 | **运行载体** | Hermes Agent |
 | **部署 profile** | cloud-vps (`config/profiles/cloud-vps.yaml`) |
 | **触发方式** | cron 表达式，由 Hermes 调度 |
-| **CLI 命令模板** | `news-sentry run --target {target_id} --stage {stage}` |
-| **工作目录** | `/opt/news-sentry` |
-| **输出根目录** | `/opt/news-sentry/data` |
+| **CLI 命令模板** | `python -m news_sentry.cli run --target {target_id} --stage {stage} --profile cloud-vps` |
+| **工作目录** | `${project_root}`（由部署器或 Hermes workspace 注入） |
+| **输出根目录** | `${project_root}/data`，或显式 `NEWSSENTRY_DATA_DIR` |
 | **沙箱 policy** | `config/sandbox/cloud-vps.yaml`（较宽松，允许云 VPS 出站） |
 | **超时限制** | 12 分钟/run（小于相邻 cron 间隔 15 分钟） |
 | **失败策略** | `log_and_continue`（记录日志，不中断后续阶段） |
@@ -82,15 +82,15 @@ subagent 读取产物文件、运行 python -m pytest、检查 lint/type，
 ### Sub-PDCA 循环 1: Cron 调度与单阶段执行 (T1, T2)
 
 #### 2.1.1 Plan
-验证 Hermes 能正确解析 cron 表达式并触发 `news-sentry run`。
+验证 Hermes 能正确解析 cron 表达式并触发 `python -m news_sentry.cli run`。
 
 #### 2.1.2 Do
 ```bash
 # Step 1: 验证 CLI 可达性
-news-sentry run --target italy --stage collect --dry-run
+python -m news_sentry.cli run --target italy --stage collect --profile cloud-vps --dry-run
 
 # Step 2: 执行 collect 阶段（由 Hermes cron 触发或手动模拟）
-news-sentry run --target italy --stage collect
+python -m news_sentry.cli run --target italy --stage collect --profile cloud-vps
 
 # Step 3: 验证 RunLog 产出
 cat data/italy/logs/$(ls -t data/italy/logs/ | head -1) | python -c "
@@ -139,13 +139,13 @@ find data/ -name "*.tmp" 2>/dev/null  # 应无残留 .tmp 文件
 #### 2.2.2 Do
 ```bash
 # 按 cron 顺序依次执行四个阶段
-news-sentry run --target italy --stage collect
-news-sentry run --target italy --stage filter
-news-sentry run --target italy --stage judge    # v1 为 stub
-news-sentry run --target italy --stage output
+python -m news_sentry.cli run --target italy --stage collect --profile cloud-vps
+python -m news_sentry.cli run --target italy --stage filter --profile cloud-vps
+python -m news_sentry.cli run --target italy --stage judge --profile cloud-vps    # v1 为 stub
+python -m news_sentry.cli run --target italy --stage output --profile cloud-vps
 
 # 或等价的一体化执行:
-# news-sentry run --target italy --stage all
+# python -m news_sentry.cli run --target italy --stage all --profile cloud-vps
 ```
 
 #### 2.2.3 Check
@@ -161,7 +161,7 @@ echo "logs:       $(ls data/italy/logs/ 2>/dev/null | wc -l)"
 head -20 data/italy/evaluated/filtered_*.md 2>/dev/null | head -30
 
 # 验证 memory 文件持久化
-cat data/italy/known_item_ids.yaml 2>/dev/null | head -5
+cat data/italy/memory/known_item_ids.yaml 2>/dev/null | head -5
 ```
 
 检查清单：
@@ -184,9 +184,9 @@ cat data/italy/known_item_ids.yaml 2>/dev/null | head -5
 **T3: 网络故障注入**
 ```bash
 # 临时将全部 RSS 源 URL 改为无效地址
-# (修改 config/sources/italy/*.yaml 的 url 字段为 http://localhost:1/feed)
+# (修改 config/sources/italy/*.yaml 的 url 字段为 http://example.invalid/feed)
 # 执行 collect
-news-sentry run --target italy --stage collect
+python -m news_sentry.cli run --target italy --stage collect --profile cloud-vps
 # 预期: exit_code=1, RunLog errors[] 包含每个源的网络错误
 ```
 
@@ -194,7 +194,7 @@ news-sentry run --target italy --stage collect
 ```bash
 # 临时将 sandbox policy 的 allowed_hosts 设为空并 network_policy.default_action=deny
 # 执行 collect
-news-sentry run --target italy --stage collect
+python -m news_sentry.cli run --target italy --stage collect --profile cloud-vps
 # 预期: exit_code=3 (sandbox blocked) 或全部源被跳过
 ```
 
@@ -202,7 +202,7 @@ news-sentry run --target italy --stage collect
 ```bash
 # 设置 timeout_minutes=1 在 config/runtime/hermes.yaml
 # 对包含慢速源的 target 执行 collect
-news-sentry run --target italy --stage collect
+python -m news_sentry.cli run --target italy --stage collect --profile cloud-vps
 # 预期: 在 1 分钟后被 Hermes 终止或 CLI 自身超时返回
 ```
 
@@ -239,9 +239,9 @@ for p in log['phases']:
 #### 2.4.2 Do
 ```bash
 # 同时触发两个不同 target 或不同 stage 的 run
-news-sentry run --target italy --stage collect --run-id test_concurrent_A &
+python -m news_sentry.cli run --target italy --stage collect --profile cloud-vps --run-id test_concurrent_A &
 PID_A=$!
-news-sentry run --target italy --stage collect --run-id test_concurrent_B &
+python -m news_sentry.cli run --target italy --stage collect --profile cloud-vps --run-id test_concurrent_B &
 PID_B=$!
 wait $PID_A $PID_B
 ```
@@ -274,7 +274,7 @@ cat data/italy/logs/test_concurrent_B.json | python -c "import sys,json; print(j
 checks:
   - id: unit_tests
     command: "python -m pytest tests/ -q"
-    expected: "264 passed"
+    expected: "281 passed"
     severity: critical
 
   - id: lint
@@ -413,7 +413,7 @@ Agent 每完成一个 Sub-PDCA 循环后，写入心跳文件：
   "last_heartbeat": "2026-05-10T12:00:00Z",
   "current_phase": "Do",
   "errors_so_far": 0,
-  "external_monitor_url": "file:///opt/news-sentry/data/italy/logs/.heartbeat-hermes.json"
+  "external_monitor_url": "file://${project_root}/data/italy/logs/.heartbeat-hermes.json"
 }
 ```
 
@@ -469,13 +469,12 @@ Agent 完成后，将 `§5.2` 的测试报告写入 `data/italy/logs/.test-concl
 ```bash
 # Agent 执行前需注入的环境变量
 export NEWSSENTRY_PROFILE=cloud-vps
-export NEWSSENTRY_CONFIG_DIR=/opt/news-sentry/config
-export NEWSSENTRY_DATA_DIR=/opt/news-sentry/data
+export NEWSSENTRY_DATA_DIR="${project_root}/data"
 
 # SOCKS 代理（若需要）
-export all_proxy=socks5://127.0.0.1:10808
-export http_proxy=http://127.0.0.1:10808
-export https_proxy=http://127.0.0.1:10808
+export all_proxy="<proxy-url-if-needed>"
+export http_proxy="<proxy-url-if-needed>"
+export https_proxy="<proxy-url-if-needed>"
 ```
 
 ### 7.3 Subagent 分派指令模板

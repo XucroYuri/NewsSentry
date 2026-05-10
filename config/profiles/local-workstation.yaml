@@ -1,0 +1,24 @@
+# Schema: ../../schemas/deploymentprofile.schema.json
+# 契约: docs/spec/phase-2-runtime-carrier-alignment.md §3
+profile_id: local-workstation
+description: "Portable local development and fallback automation profile"
+
+paths:
+  cwd: "."
+  output_root: "./data"
+  config_root: "./config"
+  log_root: "./data/{target_id}/logs"
+  memory_root: "./data/{target_id}/memory"
+
+network:
+  allow_outbound: true
+  blocked_hosts:
+    - "169.254.169.254"
+
+runtime:
+  trigger: cli
+  max_duration_seconds: 600
+  max_memory_mb: 1024
+
+sandbox:
+  profile: local-workstation

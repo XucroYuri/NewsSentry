@@ -1,7 +1,7 @@
 """Implements: docs/spec/phase-3-kernel-mvp.md §3.3
 
-ConfigLoader — loads and deep-merges config YAML files per ADR-0015.
-Load order: target → source → sandbox (target has highest priority).
+ConfigLoader — loads and validates config YAML files per ADR-0015.
+Load order: deployment profile → target → sources → sandbox policy.
 
 JSON Schema 校验 per ADR-0014, contracts-canonical.md §10.
 """
@@ -44,6 +44,15 @@ class ResolvedConfig(BaseModel):
     output_destinations: dict[str, Any] = Field(default_factory=dict)
     """输出目的地配置（来自 output_destinations_ref）"""
 
+    deployment_profile: dict[str, Any] = Field(default_factory=dict)
+    """DeploymentProfile 数据（来自 config/profiles/{profile_id}.yaml）"""
+
+    profile_id: str = "local-workstation"
+    """当前 bounded run 使用的 deployment profile ID。"""
+
+    output_root: Path = Path("data")
+    """当前 bounded run 的已解析输出根目录。"""
+
     @property
     def target_id(self) -> str:
         """从 target 配置中提取 target_id。"""
@@ -65,11 +74,40 @@ class ConfigLoader:
 
     # ── 公共接口 ─────────────────────────────────────────────
 
-    def load_target(self, target_id: str) -> ResolvedConfig:
+    def load_profile(self, profile_id: str) -> dict[str, Any]:
+        """加载 deployment profile。
+
+        Args:
+            profile_id: Profile 标识符，如 ``local-workstation`` 或 ``cloud-vps``。
+
+        Returns:
+            已校验的 DeploymentProfile dict。
+
+        Raises:
+            FileNotFoundError: profile 配置文件不存在。
+            ValidationError: JSON Schema 校验失败。
+        """
+        profile_path = self._config_root / "config" / "profiles" / f"{profile_id}.yaml"
+        if not profile_path.is_file():
+            raise FileNotFoundError(f"Deployment profile 不存在: {profile_path}")
+        data = self._load_yaml(profile_path)
+        self._validate_resolved_schema(data, profile_path)
+        return data
+
+    def load_target(
+        self,
+        target_id: str,
+        profile_id: str = "local-workstation",
+        output_root_override: str | Path | None = None,
+        allow_external_output_root: bool = False,
+    ) -> ResolvedConfig:
         """加载 target 的完整配置：加载 YAML → 解析引用 → 合并 → 校验。
 
         Args:
             target_id: target 标识符（如 "italy"）。
+            profile_id: Deployment profile 标识符。
+            output_root_override: 可选数据根目录覆盖。
+            allow_external_output_root: 是否允许输出根目录位于项目外。
 
         Returns:
             包含所有子配置的 ResolvedConfig。
@@ -78,6 +116,8 @@ class ConfigLoader:
             FileNotFoundError: target 配置文件不存在。
             ValidationError: JSON Schema 校验失败。
         """
+        deployment_profile = self.load_profile(profile_id)
+
         target_path = self._config_root / "config" / "targets" / f"{target_id}.yaml"
         if not target_path.is_file():
             raise FileNotFoundError(
@@ -94,14 +134,22 @@ class ConfigLoader:
         classification_rules = self._load_referenced_config(
             target_data.get("classification_rules_ref"), target_path
         )
+        sandbox_ref = self._resolve_sandbox_ref(target_data, deployment_profile)
         sandbox_policy = self._load_referenced_config(
-            target_data.get("sandbox_profile_ref"), target_path
+            sandbox_ref, target_path
         )
+        if sandbox_ref is not None and not sandbox_policy:
+            raise FileNotFoundError(f"Sandbox policy 配置文件不存在: {sandbox_ref}")
         provider_routes = self._load_referenced_config(
             target_data.get("provider_routes_ref"), target_path
         )
         output_destinations = self._load_referenced_config(
             target_data.get("output_destinations_ref"), target_path
+        )
+        output_root = self._resolve_output_root(
+            deployment_profile,
+            output_root_override,
+            allow_external_output_root,
         )
 
         return ResolvedConfig(
@@ -112,6 +160,9 @@ class ConfigLoader:
             sandbox_policy=sandbox_policy,
             provider_routes=provider_routes,
             output_destinations=output_destinations,
+            deployment_profile=deployment_profile,
+            profile_id=profile_id,
+            output_root=output_root,
         )
 
     # ── 内部方法 ─────────────────────────────────────────────
@@ -263,6 +314,56 @@ class ConfigLoader:
         data = self._load_yaml(ref_path)
         self._validate_resolved_schema(data, ref_path)
         return data
+
+    def _resolve_sandbox_ref(
+        self,
+        target_data: dict[str, Any],
+        deployment_profile: dict[str, Any],
+    ) -> str | None:
+        """根据 deployment profile 解析实际 sandbox policy 引用。
+
+        Deployment profile 的 ``sandbox.profile`` 优先于 target 的
+        ``sandbox_profile_ref``，这样 ``NEWSSENTRY_PROFILE`` 能真实影响
+        本次 bounded run 的权限边界。
+        """
+        sandbox_cfg = deployment_profile.get("sandbox", {})
+        profile_ref = sandbox_cfg.get("profile") if isinstance(sandbox_cfg, dict) else None
+        if isinstance(profile_ref, str) and profile_ref:
+            if "/" in profile_ref or profile_ref.endswith(".yaml"):
+                return profile_ref
+            return f"config/sandbox/{profile_ref}.yaml"
+        target_ref = target_data.get("sandbox_profile_ref")
+        return str(target_ref) if target_ref is not None else None
+
+    def _resolve_output_root(
+        self,
+        deployment_profile: dict[str, Any],
+        output_root_override: str | Path | None,
+        allow_external_output_root: bool,
+    ) -> Path:
+        """解析输出根目录并默认限制在项目内。
+
+        相对路径总是以项目根目录为基准。绝对路径只有在调用方显式允许时
+        才能位于项目外，避免开源模板误写用户主目录或系统目录。
+        """
+        paths = deployment_profile.get("paths", {})
+        profile_output_root = paths.get("output_root") if isinstance(paths, dict) else None
+        raw_root = output_root_override or profile_output_root or "./data"
+        output_root = Path(raw_root).expanduser()
+        if not output_root.is_absolute():
+            output_root = self._config_root / output_root
+
+        resolved = output_root.resolve()
+        project_root = self._config_root.resolve()
+        if not allow_external_output_root:
+            try:
+                resolved.relative_to(project_root)
+            except ValueError as e:
+                raise ValueError(
+                    "输出根目录必须位于项目内；若确需项目外路径，请显式设置 "
+                    "NEWSSENTRY_ALLOW_EXTERNAL_DATA_DIR=1"
+                ) from e
+        return resolved
 
     def _load_sources(self, target_id: str,
                       source_ids: list[str]) -> list[dict[str, Any]]:

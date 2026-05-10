@@ -4,15 +4,22 @@ ToolAdapter — abstract protocol for external tool execution.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 
+@dataclass
 class ToolRunResult:
     """Result of a tool execution. Schema: schemas/toolrunresult.schema.json"""
-    def __init__(self, *, tool_id: str, run_id: str, success: bool,
-                 exit_code: int | None, stdout: str | None, stderr: str | None,
-                 duration_ms: int, error: dict[str, str] | None = None) -> None:
-        raise NotImplementedError("Phase 4: ToolRunResult.__init__")
+    tool_id: str
+    run_id: str
+    success: bool
+    exit_code: int
+    stdout: str = ""
+    stderr: str = ""
+    duration_ms: int = 0
+    error: dict[str, str] | None = None
+    # error example: {"type": "timeout", "message": "subprocess timed out after 30s"}
 
 
 class ToolAdapter(Protocol):

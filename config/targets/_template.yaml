@@ -3,24 +3,25 @@
 # ADR: ADR-0015, ADR-0016
 #
 # 使用说明：复制此文件到 config/targets/{target_id}.yaml，
-# 并将所有 <placeholder> 替换为实际值。
+# 并将 example-* 示例值替换为实际值。
 # 必须同步在 config/sources/{target_id}/ 下创建对应源渠道文件。
 
-target_id: "<placeholder>"            # 全局唯一，字母数字加连字符
-display_name: "<显示名称>"
+target_id: "example-target"            # 全局唯一，字母数字加连字符
+display_name: "Example Target"
 
 language_scope:
-  primary: "<ISO 639-1 主语言，如 it/fr/de>"
+  primary: "en"                         # ISO 639-1 / BCP-47 主语言，如 it/fr/de/en
   secondary: []                        # 可选，辅助语言列表
   output: zh                           # 输出语言（中文为 zh）
 
-timezone: "<IANA 时区，如 Europe/Rome>"
+timezone: "UTC"                         # IANA 时区，如 Europe/Rome
 
 # 引用的源渠道 ID，对应 config/sources/{target_id}/{id}.yaml
-source_channel_refs: []
+source_channel_refs:
+  - example-source
 
 # 各子系统规则/路由配置的相对路径（相对于项目根目录）
-filter_rules_ref: config/filters/<target_id>/default.yaml
+filter_rules_ref: config/filters/example-target/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
 provider_routes_ref: config/provider/routes.yaml

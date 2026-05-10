@@ -48,7 +48,7 @@ News Sentry v1 同时设计两套一等部署 profile。二者共享同一 `Runt
 |------|------|
 | 主载体 | Hermes Agent |
 | 触发方式 | Hermes cron 或 gateway 触发 |
-| 工作目录 | 固定 Git workspace，例如 `/opt/news-sentry/workspace` |
+| 工作目录 | 固定 Git workspace，由部署器作为 `${project_root}` 注入 |
 | 状态存储 | Git/Obsidian 文件、`memory/`、`logs/` |
 | 凭据管理 | 宿主环境注入，不写入仓库 |
 | 失败恢复 | 下一次 bounded run 读取 memory 和 source health 恢复 |
@@ -120,7 +120,7 @@ Hermes 适合承担生产主编排，原因是它提供长期运行、cron sched
 
 ### 4.1 Hermes 可以做
 
-1. 按 cron 或 gateway 指令触发 `news-sentry run` 类型的 bounded run。
+1. 按 cron 或 gateway 指令触发 `python -m news_sentry.cli run` 类型的 bounded run。
 2. 维护长期对话和运行记忆，但持久业务状态仍以 `memory/` 和文件事件为准。
 3. 通过 Skill 形式调用采集、评估、草稿、内审等 Agent 角色。
 4. 将复杂成功流程沉淀为候选 Skill。

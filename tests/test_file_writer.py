@@ -159,6 +159,57 @@ def test_write_event_body_excludes_content_translated_when_none(
 # move_event
 # ------------------------------------------------------------------
 
+# ------------------------------------------------------------------
+# write_archive
+# ------------------------------------------------------------------
+
+def test_write_archive_writes_to_archive_dir(
+    writer: FileWriter, base_dir: Path, sample_event: NewsEvent,
+) -> None:
+    """write_archive 应始终写入 archive/ 目录，不依赖 pipeline_stage。"""
+    path = writer.write_archive(sample_event)
+    assert path.parent == base_dir / "archive"
+    assert path.exists()
+    assert path.suffix == ".md"
+
+
+def test_write_archive_uses_rejected_filename(
+    writer: FileWriter, sample_event: NewsEvent,
+) -> None:
+    """archive 文件名格式应为 rejected_{source_id}_{event_id}.md。"""
+    path = writer.write_archive(sample_event)
+    assert path.name == "rejected_ansa_ne-italy-ansa-20260509-a1b2c3d4.md"
+
+
+def test_write_archive_preserves_pipeline_stage_in_frontmatter(
+    writer: FileWriter, sample_event: NewsEvent,
+) -> None:
+    """archive 写入应保留事件的原始 pipeline_stage（通常为 collected）。"""
+    sample_event.pipeline_stage = PipelineStage.COLLECTED
+    path = writer.write_archive(sample_event)
+    text = path.read_text(encoding="utf-8")
+    end = text.find("\n---\n", 4)
+    fm = yaml.safe_load(text[4:end])
+    assert fm["pipeline_stage"] == "collected"
+
+
+def test_write_archive_yaml_frontmatter_valid(
+    writer: FileWriter, sample_event: NewsEvent,
+) -> None:
+    """archive 文件应包含合法的 YAML frontmatter。"""
+    path = writer.write_archive(sample_event)
+    text = path.read_text(encoding="utf-8")
+
+    assert text.startswith("---\n")
+    end = text.find("\n---\n", 4)
+    assert end != -1, "找不到 frontmatter 结束标记"
+
+    fm = yaml.safe_load(text[4:end])
+    assert fm["id"] == sample_event.id
+    assert fm["source_id"] == "ansa"
+    assert fm["title_original"] == "Governo approva riforma"
+
+
 def test_move_event_changes_directory(
     writer: FileWriter, base_dir: Path, sample_event: NewsEvent,
 ) -> None:
@@ -246,3 +297,19 @@ def test_atomic_write_cleans_up_tmp_on_failure(writer: FileWriter, base_dir: Pat
     # tmp 文件应已被 finally 清理
     tmp_files = list(target.parent.glob("*.tmp"))
     assert len(tmp_files) == 0
+
+
+def test_atomic_write_does_not_use_shared_tmp_name(
+    writer: FileWriter,
+    base_dir: Path,
+) -> None:
+    """同一目标文件的并发写入不应竞争固定 tmp 文件名。"""
+    target = base_dir / "raw" / "test_target.md"
+    target.parent.mkdir(parents=True)
+    stale_tmp = target.parent / f"{target.name}.tmp"
+    stale_tmp.write_text("stale", encoding="utf-8")
+
+    writer._atomic_write(target, "fresh")
+
+    assert target.read_text(encoding="utf-8") == "fresh"
+    assert stale_tmp.read_text(encoding="utf-8") == "stale"

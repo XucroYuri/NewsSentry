@@ -58,6 +58,37 @@ def _make_minimal_source(source_id: str = "test-source", **overrides) -> dict:
     return data
 
 
+def _make_minimal_profile(profile_id: str = "local-workstation", **overrides) -> dict:
+    data = {
+        "profile_id": profile_id,
+        "paths": {
+            "cwd": ".",
+            "output_root": "./data",
+            "config_root": "./config",
+            "log_root": "./data/{target_id}/logs",
+            "memory_root": "./data/{target_id}/memory",
+        },
+        "network": {"allow_outbound": True, "blocked_hosts": []},
+        "runtime": {
+            "trigger": "cli",
+            "max_duration_seconds": 600,
+            "max_memory_mb": 1024,
+        },
+        "sandbox": {"profile": profile_id},
+    }
+    data.update(overrides)
+    return data
+
+
+def _write_minimal_sandbox(root: Path, profile_id: str = "local-workstation") -> None:
+    _write_json_schema(root / "schemas" / "sandboxpolicy.schema.json", {"type": "object"})
+    _write_yaml(
+        root / "config" / "sandbox" / f"{profile_id}.yaml",
+        {"profile_id": profile_id, "command_policy": {"allowed_commands": []}},
+        schema_ref="../../schemas/sandboxpolicy.schema.json",
+    )
+
+
 # ── fixtures ───────────────────────────────────────────────────
 
 @pytest.fixture
@@ -81,11 +112,13 @@ class TestResolvedConfig:
             target={"target_id": "italy"},
             sources=[{"source_id": "ansa"}],
             filter_rules={"threshold": 50},
+            deployment_profile=_make_minimal_profile(),
         )
         assert cfg.target_id == "italy"
         assert len(cfg.sources) == 1
         assert cfg.sources[0]["source_id"] == "ansa"
         assert cfg.filter_rules["threshold"] == 50
+        assert cfg.profile_id == "local-workstation"
 
     def test_defaults(self):
         cfg = ResolvedConfig(target={"target_id": "x"})
@@ -95,6 +128,29 @@ class TestResolvedConfig:
         assert cfg.sandbox_policy == {}
         assert cfg.provider_routes == {}
         assert cfg.output_destinations == {}
+        assert cfg.deployment_profile == {}
+        assert cfg.output_root == Path("data")
+
+
+class TestLoadProfile:
+    def test_loads_profile(self, loader, project_root):
+        schemas_dir = project_root / "schemas"
+        _write_json_schema(schemas_dir / "deploymentprofile.schema.json", {"type": "object"})
+        profiles_dir = project_root / "config" / "profiles"
+        _write_yaml(
+            profiles_dir / "local-workstation.yaml",
+            _make_minimal_profile(),
+            schema_ref="../../schemas/deploymentprofile.schema.json",
+        )
+
+        profile = loader.load_profile("local-workstation")
+
+        assert profile["profile_id"] == "local-workstation"
+        assert profile["paths"]["output_root"] == "./data"
+
+    def test_missing_profile_raises(self, loader):
+        with pytest.raises(FileNotFoundError, match="Deployment profile 不存在"):
+            loader.load_profile("ghost")
 
 
 # ── _extract_schema_ref ───────────────────────────────────────
@@ -321,7 +377,7 @@ class TestLoadReferencedConfig:
         assert result == {"threshold": 60}
 
     def test_none_ref_returns_empty_dict(self, loader):
-        result = loader._load_referenced_config(None, Path("/fake/path.yaml"))
+        result = loader._load_referenced_config(None, Path("fake/path.yaml"))
         assert result == {}
 
     def test_missing_ref_returns_empty_dict(self, loader, project_root):
@@ -402,7 +458,8 @@ class TestLoadTarget:
         schemas_dir.mkdir(exist_ok=True)
         empty_schema = {"type": "object"}
         for name in ["targetconfig.schema.json", "sourcechannel.schema.json",
-                     "filterrules.schema.json"]:
+                     "filterrules.schema.json", "deploymentprofile.schema.json",
+                     "sandboxpolicy.schema.json"]:
             _write_json_schema(schemas_dir / name, empty_schema)
 
         # target config
@@ -430,6 +487,20 @@ class TestLoadTarget:
                      "score_threshold": 60, "max_age_hours": 48, "dedup_window_hours": 72},
                     schema_ref="../../schemas/filterrules.schema.json")
 
+        # deployment profile + sandbox
+        profiles_dir = project_root / "config" / "profiles"
+        _write_yaml(
+            profiles_dir / "local-workstation.yaml",
+            _make_minimal_profile(),
+            schema_ref="../../schemas/deploymentprofile.schema.json",
+        )
+        sandbox_dir = project_root / "config" / "sandbox"
+        _write_yaml(
+            sandbox_dir / "local-workstation.yaml",
+            {"profile_id": "local-workstation", "command_policy": {"allowed_commands": []}},
+            schema_ref="../../schemas/sandboxpolicy.schema.json",
+        )
+
         loader = ConfigLoader(project_root)
         config = loader.load_target("my-target")
 
@@ -437,9 +508,89 @@ class TestLoadTarget:
         assert len(config.sources) == 2
         assert config.filter_rules["score_threshold"] == 60
         assert config.classification_rules == {}
-        assert config.sandbox_policy == {}
+        assert config.profile_id == "local-workstation"
+        assert config.output_root == (project_root / "data").resolve()
+        assert config.sandbox_policy["profile_id"] == "local-workstation"
+
+    def test_profile_output_root_override(self, project_root):
+        schemas_dir = project_root / "schemas"
+        schemas_dir.mkdir(exist_ok=True)
+        empty_schema = {"type": "object"}
+        for name in ["targetconfig.schema.json", "deploymentprofile.schema.json"]:
+            _write_json_schema(schemas_dir / name, empty_schema)
+        _write_minimal_sandbox(project_root)
+
+        targets_dir = project_root / "config" / "targets"
+        _write_yaml(
+            targets_dir / "my-target.yaml",
+            _make_minimal_target(target_id="my-target"),
+            schema_ref="../../schemas/targetconfig.schema.json",
+        )
+        profiles_dir = project_root / "config" / "profiles"
+        _write_yaml(
+            profiles_dir / "local-workstation.yaml",
+            _make_minimal_profile(paths={
+                "cwd": ".",
+                "output_root": "./workspace-data",
+                "config_root": "./config",
+                "log_root": "./workspace-data/logs",
+                "memory_root": "./workspace-data/memory",
+            }),
+            schema_ref="../../schemas/deploymentprofile.schema.json",
+        )
+
+        loader = ConfigLoader(project_root)
+        config = loader.load_target("my-target")
+
+        assert config.output_root == (project_root / "workspace-data").resolve()
+
+    def test_external_output_root_requires_explicit_allow(self, project_root):
+        schemas_dir = project_root / "schemas"
+        schemas_dir.mkdir(exist_ok=True)
+        empty_schema = {"type": "object"}
+        for name in ["targetconfig.schema.json", "deploymentprofile.schema.json"]:
+            _write_json_schema(schemas_dir / name, empty_schema)
+        _write_minimal_sandbox(project_root)
+
+        targets_dir = project_root / "config" / "targets"
+        _write_yaml(
+            targets_dir / "my-target.yaml",
+            _make_minimal_target(target_id="my-target"),
+            schema_ref="../../schemas/targetconfig.schema.json",
+        )
+        profiles_dir = project_root / "config" / "profiles"
+        _write_yaml(
+            profiles_dir / "local-workstation.yaml",
+            _make_minimal_profile(),
+            schema_ref="../../schemas/deploymentprofile.schema.json",
+        )
+
+        loader = ConfigLoader(project_root)
+        external_root = project_root.parent / "external-data"
+        with pytest.raises(ValueError, match="输出根目录必须位于项目内"):
+            loader.load_target("my-target", output_root_override=external_root)
+
+        config = loader.load_target(
+            "my-target",
+            output_root_override=external_root,
+            allow_external_output_root=True,
+        )
+        assert config.output_root == external_root.resolve()
 
     def test_missing_target_raises(self, project_root):
+        schemas_dir = project_root / "schemas"
+        schemas_dir.mkdir(exist_ok=True)
+        _write_json_schema(
+            schemas_dir / "deploymentprofile.schema.json",
+            {"type": "object"},
+        )
+        profiles_dir = project_root / "config" / "profiles"
+        _write_yaml(
+            profiles_dir / "local-workstation.yaml",
+            _make_minimal_profile(),
+            schema_ref="../../schemas/deploymentprofile.schema.json",
+        )
+
         loader = ConfigLoader(project_root)
         with pytest.raises(FileNotFoundError, match="Target 配置文件不存在"):
             loader.load_target("no-such-target")
@@ -449,9 +600,12 @@ class TestLoadTarget:
         loader = ConfigLoader(Path("."))
         config = loader.load_target("italy")
         assert config.target_id == "italy"
-        assert len(config.sources) == 5
+        assert len(config.sources) == 9
         source_ids = {s["source_id"] for s in config.sources}
-        assert source_ids == {"ansa", "repubblica", "corriere", "agi", "fao-rss"}
+        assert source_ids == {
+            "ansa", "repubblica", "corriere", "agi", "fao-rss",
+            "tgcom24", "lastampa", "ilfattoquotidiano", "ansa-en",
+        }
         assert "score_threshold" in config.filter_rules
         assert "l0_domains" in config.classification_rules
         assert "command_policy" in config.sandbox_policy

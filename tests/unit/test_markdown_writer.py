@@ -73,8 +73,8 @@ def judged_event() -> NewsEvent:
         story_id=None,
         metadata={
             "classification": {
-                "l0_domain": "economy",
-                "l1_topics": ["trade", "investment"],
+                "l0": "economy",
+                "l1": ["trade", "investment"],
                 "l2": "trade_policy",
             },
             "translation": {"status": "completed", "confidence": 95},
@@ -107,7 +107,7 @@ def minimal_event() -> NewsEvent:
 def test_init_defaults() -> None:
     """空配置时应使用默认值。"""
     w = MarkdownWriter({})
-    assert w._target_id == "italy"
+    assert w._target_id == "default"
     assert w._output_base_dir == Path("./data")
 
 
@@ -240,7 +240,7 @@ def test_frontmatter_contains_stage_and_run(
     """frontmatter 应包含 pipeline_stage 和 run_id。"""
     path = writer.write(judged_event)
     fm = _parse_frontmatter(path)
-    assert fm["pipeline_stage"] == "judged"
+    assert fm["pipeline_stage"] == "outputted"
     assert fm["run_id"] == "550e8400-e29b-41d4-a716-446655440000"
 
 
@@ -269,8 +269,8 @@ def test_frontmatter_contains_classification(
     """metadata.classification 应提取到 frontmatter。"""
     path = writer.write(judged_event)
     fm = _parse_frontmatter(path)
-    assert fm["classification"]["l0_domain"] == "economy"
-    assert fm["classification"]["l1_topics"] == ["trade", "investment"]
+    assert fm["classification"]["l0"] == "economy"
+    assert fm["classification"]["l1"] == ["trade", "investment"]
 
 
 def test_frontmatter_omits_classification_when_missing(
@@ -509,3 +509,19 @@ def test_atomic_write_cleans_up_tmp_on_failure(
     # tmp 文件应已被 finally 清理
     tmp_files = list(target.parent.glob("*.tmp"))
     assert len(tmp_files) == 0
+
+
+def test_atomic_write_does_not_use_shared_tmp_name(
+    writer: MarkdownWriter,
+    base_dir: Path,
+) -> None:
+    """同一目标文件的并发写入不应竞争固定 tmp 文件名。"""
+    target = base_dir / "italy" / "drafts" / "test_target.md"
+    target.parent.mkdir(parents=True)
+    stale_tmp = target.parent / f".{target.name}.tmp"
+    stale_tmp.write_text("stale", encoding="utf-8")
+
+    writer._atomic_write(target, "fresh")
+
+    assert target.read_text(encoding="utf-8") == "fresh"
+    assert stale_tmp.read_text(encoding="utf-8") == "stale"

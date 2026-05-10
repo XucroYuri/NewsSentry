@@ -5,12 +5,12 @@
 # 使用说明：复制此文件到 config/sources/{target_id}/{source_id}.yaml，
 # 并在对应 target.yaml 的 source_channel_refs 中添加 source_id。
 
-source_id: "<placeholder>"               # 全局唯一，字母数字加连字符
-display_name: "<来源全称>"
-type: rss                                 # 支持: rss | api | scrape
+source_id: "example-source"               # 全局唯一，字母数字加连字符
+display_name: "Example Source"
+type: rss                                 # 支持: rss | api | opencli
 
 # 原始 feed / API URL
-url: "<placeholder>"
+url: "https://example.com/feed.xml"
 
 # 基础可信度，0.0-1.0，由 judge 阶段乘以内容质量因子得出最终可信度
 # 权威机构/通讯社: 0.88-0.95 | 主流报纸: 0.80-0.88 | 门户/博客: 0.50-0.75

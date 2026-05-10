@@ -15,8 +15,7 @@
   "properties": {
     "run_id": {
       "type": "string",
-      "format": "uuid",
-      "description": "UUID4 unique per bounded run"
+      "description": "Unique per bounded run, e.g. italy_20260509T181251Z_15bb7eab"
     },
     "target_id": {
       "type": "string",
@@ -31,6 +30,22 @@
       "type": "object",
       "description": "Snapshot of resolved TargetConfig at run start; allows replay",
       "additionalProperties": true
+    },
+    "profile_id": {
+      "type": "string",
+      "default": "local-workstation",
+      "description": "Deployment profile selected for this bounded run"
+    },
+    "errors_count": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Total source or phase errors recorded in the RunLog"
+    },
+    "run_log_path": {
+      "type": ["string", "null"],
+      "default": null,
+      "description": "Path to the RunLog JSON written for this bounded run"
     },
     "events_collected": {
       "type": "integer",

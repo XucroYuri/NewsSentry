@@ -41,13 +41,14 @@
 3. config YAML 文件头部注释 `# Schema: ../schemas/{name}.schema.json`
 4. 三者同时更新，任何单边修改视为草稿状态
 
-### Schema 清单（12 份）
+### Schema 清单（13 份）
 
 | 文件 | 对应契约章节 |
 |---|---|
 | `newsevent.schema.json` | contracts-canonical §1–§8 + metadata 扩展 |
 | `pipelinecontext.schema.json` | contracts-canonical §2（PipelineContext） |
 | `targetconfig.schema.json` | config/targets/ 配置结构 |
+| `deploymentprofile.schema.json` | config/profiles/ 部署 profile 结构 |
 | `sourcechannel.schema.json` | contracts-canonical §4（采集层） |
 | `filterrules.schema.json` | Phase 3 Filter 规则集合 |
 | `classification.schema.json` | contracts-canonical §9（ADR-0009） |
