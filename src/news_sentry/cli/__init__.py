@@ -74,15 +74,57 @@ def run(target: str, stage: str, run_id: str | None, dry_run: bool,
 @main.command("skill")
 @click.argument("action", type=click.Choice(["list"]))
 def skill_cmd(action: str) -> None:
-    """Manage skills."""
-    raise NotImplementedError("Phase 4: skill list command")
+    """Manage skills — list available skills from src/news_sentry/skills/."""
+    skills_dir = _find_project_root(Path(__file__)) / "src" / "news_sentry" / "skills"
+    if not skills_dir.is_dir():
+        click.echo("Skills directory not found.")
+        return
+
+    entries: list[dict[str, str]] = []
+    for child in sorted(skills_dir.iterdir()):
+        if child.is_dir() and not child.name.startswith("_") and not child.name.startswith("."):
+            init_file = child / "__init__.py"
+            if init_file.is_file():
+                doc = _extract_module_doc(init_file)
+                entries.append({"name": child.name, "description": doc})
+    if not entries:
+        click.echo("No skills found.")
+        return
+    for entry in entries:
+        click.echo(f"  {entry['name']:<25}  {entry['description']}")
 
 
 @main.command("tool")
 @click.argument("action", type=click.Choice(["list"]))
 def tool_cmd(action: str) -> None:
-    """Manage tools."""
-    raise NotImplementedError("Phase 4: tool list command")
+    """Manage tools — list available tools from config/toolmanifest/."""
+    toolmanifest_dir = _find_project_root(Path(__file__)) / "config" / "toolmanifest"
+    if not toolmanifest_dir.is_dir():
+        click.echo("Tool manifest directory not found.")
+        return
+
+    entries: list[dict[str, str]] = []
+    for child in sorted(toolmanifest_dir.glob("*.yaml")):
+        try:
+            with open(child, encoding="utf-8") as fh:
+                data = yaml.safe_load(fh)
+            tools = data.get("tools", []) if isinstance(data, dict) else []
+            for tool in tools:
+                if isinstance(tool, dict):
+                    entries.append({
+                        "tool_id": tool.get("tool_id", "?"),
+                        "display_name": tool.get("display_name", ""),
+                        "version": tool.get("version", ""),
+                    })
+        except Exception:  # noqa: S112
+            continue
+    if not entries:
+        click.echo("No tools found.")
+        return
+    for entry in entries:
+        click.echo(
+            f"  {entry['tool_id']:<30} {entry['version']:<8} {entry['display_name']}"
+        )
 
 
 @main.command()
@@ -269,6 +311,24 @@ def _find_project_root(path: Path) -> Path:
         if (parent / "pyproject.toml").is_file():
             return parent
     return Path.cwd()
+
+
+def _extract_module_doc(filepath: Path) -> str:
+    """Extract the first line of a Python module's docstring, or empty string."""
+    try:
+        text = filepath.read_text(encoding="utf-8")
+    except Exception:
+        return ""
+    # 简单的三引号 docstring 提取
+    import ast
+    try:
+        tree = ast.parse(text)
+        doc = ast.get_docstring(tree)
+        if doc:
+            return doc.strip().split("\n")[0]
+    except SyntaxError:
+        pass
+    return ""
 
 
 __all__ = ["main"]
