@@ -23,6 +23,7 @@ from news_sentry.skills.collect.opencli_collector import OpenCLICollector
 from news_sentry.skills.collect.rss_collector import RSSCollector
 from news_sentry.skills.filter.classifier_rules import ClassifierRules
 from news_sentry.skills.filter.rules_filter import RulesFilter
+from news_sentry.skills.judge.rules_judge import RulesJudgeSkill
 from news_sentry.skills.output.markdown_writer import MarkdownWriter
 
 
@@ -155,7 +156,7 @@ def bounded_run(
     elif stage_str == "output" or stage_str == "outputted":
         _run_output(config, run_id, run_log, file_writer, ctx)
     elif stage_str == "judge" or stage_str == "judged":
-        _run_judge_placeholder(run_log, ctx)
+        _run_judge(config, run_id, run_log, file_writer, memory, ctx)
     elif stage_str == "all":
         _run_all(config, run_id, run_log, file_writer, sandbox, memory, ctx)
 
@@ -303,11 +304,38 @@ def _run_output(
     run_log.log_phase_end("output", count, duration_ms)
 
 
-def _run_judge_placeholder(run_log: RunLog, ctx: PipelineContext) -> None:
-    """评审阶段占位 — Kernel MVP 阶段暂不实现 AI 评审。"""
+def _run_judge(
+    config: ResolvedConfig,
+    run_id: str,
+    run_log: RunLog,
+    file_writer: FileWriter,
+    memory: Memory,
+    ctx: PipelineContext,
+) -> None:
+    """执行研判阶段 — 基于规则引擎对 filtered 事件评分和推荐。"""
+    events = _load_events_from_dir(file_writer.base_dir / "evaluated")
+    if not events:
+        run_log.log_phase_start("judge")
+        run_log.log_phase_end("judge", 0, 0)
+        return
+
     run_log.log_phase_start("judge")
-    run_log.log_event("judge", "N/A", "placeholder")
-    run_log.log_phase_end("judge", 0, 0)
+    t0 = datetime.now(UTC)
+
+    judge_skill = RulesJudgeSkill(config.classification_rules, memory)
+    judged = judge_skill.judge(events, run_id)
+
+    # 重新写入 updated events（含 judge_result/new_value_score/china_relevance）
+    for event in judged:
+        try:
+            file_writer.write_event(event)
+            run_log.log_event("judge", event.id, "judged")
+        except Exception as e:
+            run_log.log_error("judge", str(e), event_id=event.id)
+
+    ctx.events_judged = len(judged)
+    duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
+    run_log.log_phase_end("judge", len(judged), duration_ms)
 
 
 def _run_all(
@@ -319,9 +347,10 @@ def _run_all(
     memory: Memory,
     ctx: PipelineContext,
 ) -> None:
-    """执行完整 pipeline: collect → filter → output。"""
+    """执行完整 pipeline: collect → filter → judge → output。"""
     _run_collect(config, run_id, run_log, file_writer, sandbox, memory, ctx)
     _run_filter(config, run_id, run_log, file_writer, memory, ctx)
+    _run_judge(config, run_id, run_log, file_writer, memory, ctx)
     _run_output(config, run_id, run_log, file_writer, ctx)
 
 
