@@ -7,6 +7,7 @@ RunLog — 每次 bounded run 的结构化审计日志。
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -32,7 +33,7 @@ class RunLog:
         """
         self.log_dir = log_dir
         self.run_id = run_id
-        self.target_id = target_id or (run_id.split("_", 1)[0] if "_" in run_id else run_id)
+        self.target_id = target_id or self._parse_target_id_from_run_id(run_id)
         self.profile_id = profile_id
         self.output_root = output_root
         self.started_at = datetime.now(UTC).isoformat()
@@ -179,3 +180,18 @@ class RunLog:
                     entry["source_id"] = entry["event_id"]
                 errors.append(entry)
         return errors
+
+    @staticmethod
+    def _parse_target_id_from_run_id(run_id: str) -> str:
+        """从 run_id 中恢复 target_id。
+
+        run_id 格式可为以下之一：
+        - {target_id}_{YYYYmmddTHHMMSSZ}_{hash8}（正式 runs）
+        - {target_id}_{YYYYmmddTHHMMSS}（简短测试 runs）
+        其中 target_id 可能包含下划线（如 eu_china），
+        通过匹配时间戳模式 ``_\\d{8}T\\d{6}Z?`` 来定位 target_id 结束位置。
+        """
+        m = re.match(r"^(.+?)_\d{8}T\d{6}Z?(?:_.*)?$", run_id)
+        if m:
+            return m.group(1)
+        return run_id
