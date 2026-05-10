@@ -1,0 +1,31 @@
+# Schema: ../../schemas/classification.schema.json
+# 契约: docs/contracts-canonical.md §9
+# ADR: ADR-0009
+extends: rules-v1.yaml
+rules_version: "1.0.0"
+
+# 意大利特有 L1 子议题（追加到 rules-v1.yaml 的 l1_topics）
+l1_topics:
+  - code: china_italy_bilateral
+    l0_domain: international
+    label_zh: "中意双边关系"
+    keywords_it: [Cina, cinese, Belt and Road, Via della Seta, Pechino, accordo Cina-Italia]
+    keywords_en: [China, Chinese, BRI, Belt Road, Beijing, China-Italy]
+
+  - code: bri_italy
+    l0_domain: international
+    label_zh: "一带一路与意大利"
+    keywords_it: [Via della Seta, memorandum, BRI, infrastrutture Cina]
+    keywords_en: [Belt and Road, BRI, memorandum, China infrastructure]
+
+  - code: trade_china_italy
+    l0_domain: economics
+    label_zh: "中意贸易"
+    keywords_it: [commercio Cina, export Cina, import Cina, dazi, made in China]
+    keywords_en: [China trade, exports to China, imports from China, tariffs]
+
+# 意大利特有 country_axes（追加到 rules-v1.yaml 的 country_axes）
+country_axes:
+  china_italy_relations:
+    enabled: true
+    sub_axes: [china_italy_bilateral, bri_italy, trade_china_italy]

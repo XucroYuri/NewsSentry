@@ -1,0 +1,152 @@
+# Schema: ../../schemas/filterrules.schema.json
+# 契约: docs/contracts-canonical.md §3
+# ADR: ADR-0009
+rules_version: "1.0.0"
+target_id: china-watch-en
+
+# 进入 evaluated/ 阶段所需的最低 news_value_score（0-100）
+score_threshold: 40
+
+# 超过此时间窗口的事件直接归档，不进入 judge 阶段
+max_age_hours: 48
+
+# 去重时间窗口：同 URL 或同 id 在此窗口内只保留一条
+dedup_window_hours: 24
+
+# 关键词规则：weight 为增益因子（与基础分相乘），language 指明关键词所属语言
+keyword_rules:
+
+  # ── China Diplomacy / 中国外交 ───────────────────────
+  - keyword: "Xi Jinping"
+    weight: 1.0
+    language: en
+  - keyword: "Belt and Road"
+    weight: 1.0
+    language: en
+  - keyword: "BRI"
+    weight: 0.9
+    language: en
+  - keyword: "South China Sea"
+    weight: 0.95
+    language: en
+  - keyword: "Taiwan strait"
+    weight: 0.95
+    language: en
+  - keyword: "Chinese foreign ministry"
+    weight: 0.85
+    language: en
+  - keyword: "Beijing"
+    weight: 0.75
+    language: en
+  - keyword: "Chinese foreign policy"
+    weight: 0.80
+    language: en
+  - keyword: "SCO"
+    weight: 0.75
+    language: en
+
+  # ── China Economy / 中国经济 ─────────────────────────
+  - keyword: "Chinese economy"
+    weight: 0.90
+    language: en
+  - keyword: "China GDP"
+    weight: 0.90
+    language: en
+  - keyword: "PBOC"
+    weight: 0.85
+    language: en
+  - keyword: "renminbi"
+    weight: 0.80
+    language: en
+  - keyword: "yuan"
+    weight: 0.80
+    language: en
+  - keyword: "China trade war"
+    weight: 0.90
+    language: en
+  - keyword: "Chinese tech"
+    weight: 0.80
+    language: en
+  - keyword: "China growth"
+    weight: 0.80
+    language: en
+  - keyword: "Chinese market"
+    weight: 0.75
+    language: en
+
+  # ── China Politics / 中国政治 ────────────────────────
+  - keyword: "Communist Party of China"
+    weight: 0.90
+    language: en
+  - keyword: "National People's Congress"
+    weight: 0.90
+    language: en
+  - keyword: "politburo"
+    weight: 0.85
+    language: en
+  - keyword: "CCP"
+    weight: 0.80
+    language: en
+  - keyword: "People's Liberation Army"
+    weight: 0.85
+    language: en
+  - keyword: "PLA"
+    weight: 0.80
+    language: en
+
+  # ── International Relations / 国际关系 ──────────────
+  - keyword: "US China"
+    weight: 1.0
+    language: en
+  - keyword: "EU China"
+    weight: 0.90
+    language: en
+  - keyword: "China sanctions"
+    weight: 0.95
+    language: en
+  - keyword: "decoupling"
+    weight: 0.90
+    language: en
+  - keyword: "de-risking"
+    weight: 0.90
+    language: en
+  - keyword: "China Russia"
+    weight: 0.85
+    language: en
+  - keyword: "China Africa"
+    weight: 0.80
+    language: en
+  - keyword: "China Europe"
+    weight: 0.80
+    language: en
+
+  # ── Breaking Events / 突发事件 ───────────────────────
+  - keyword: "breaking news"
+    weight: 1.0
+    language: en
+  - keyword: "state of emergency"
+    weight: 0.90
+    language: en
+  - keyword: "military exercise"
+    weight: 0.90
+    language: en
+  - keyword: "missile launch"
+    weight: 0.90
+    language: en
+  - keyword: "earthquake"
+    weight: 0.85
+    language: en
+  - keyword: "outbreak"
+    weight: 0.80
+    language: en
+
+  # ── Science & Technology / 科技 ──────────────────────
+  - keyword: "AI"
+    weight: 0.75
+    language: en
+  - keyword: "chip ban"
+    weight: 0.85
+    language: en
+  - keyword: "semiconductor"
+    weight: 0.85
+    language: en
