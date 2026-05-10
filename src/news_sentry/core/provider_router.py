@@ -1,0 +1,236 @@
+"""Phase 5: Provider Router — resolution, fallback, cost tracking.
+
+Implements: docs/spec/phase-5-ai-provider-routing.md
+Contracts: docs/contracts-canonical.md §7
+ADR: ADR-0005
+"""
+from __future__ import annotations
+
+from typing import Any
+
+from news_sentry.models.provider_config import ProviderRoute, ProviderRoutesConfig
+
+
+class CostTracker:
+    """基于路由的 AI 调用成本追踪器。
+
+    支持软限制（警告）和硬限制（阻断）：
+    - soft limit: 达到时发出警告日志，不阻断
+    - hard limit: 达到时 ``within_budget`` 返回 False，应阻断调用
+
+    所有操作 O(1)。
+    """
+
+    def __init__(self, soft_limit: float = 0.0, hard_limit: float = 0.0) -> None:
+        self._soft_limit = soft_limit
+        self._hard_limit = hard_limit
+        self._per_route: dict[str, float] = {}
+        self._total: float = 0.0
+
+    def record(self, route_id: str, usd_cost: float) -> None:
+        """记录一次 AI 调用的成本。
+
+        Args:
+            route_id: 路由标识。
+            usd_cost: 本次调用的 USD 成本。
+        """
+        self._per_route[route_id] = self._per_route.get(route_id, 0.0) + usd_cost
+        self._total += usd_cost
+
+    def within_budget(self, limit: float) -> bool:
+        """检查总成本是否在给定限额内。
+
+        Args:
+            limit: USD 预算上限。
+
+        Returns:
+            True 如果 ``total <= limit``，否则 False。
+        """
+        return self._total <= limit
+
+    def summary(self) -> dict[str, Any]:
+        """返回成本摘要。
+
+        Returns:
+            dict with ``total_cost`` (float) and ``per_route`` (dict[str, float])。
+        """
+        return {
+            "total_cost": round(self._total, 6),
+            "per_route": dict(self._per_route),
+        }
+
+    @property
+    def total(self) -> float:
+        """累计总成本（USD）。"""
+        return self._total
+
+    @property
+    def soft_limit(self) -> float:
+        return self._soft_limit
+
+    @property
+    def hard_limit(self) -> float:
+        return self._hard_limit
+
+
+class ProviderRouter:
+    """AI Provider 路由引擎 — 根据 task_type/preferred_route_id 匹配路由。
+
+    功能：
+    - 按 task_type 查找最佳路由
+    - 支持显式 route_id 指定
+    - 支持回退链 (fallback_route_ids + 全局 fallback_route_id)
+    - 运行时成本追踪
+    """
+
+    def __init__(
+        self, routes_config: ProviderRoutesConfig, cost_budget: float = 0.0,
+    ) -> None:
+        """初始化路由器。
+
+        Args:
+            routes_config: 加载的路由配置。
+            cost_budget: 本次运行的最大成本预算（USD），0 表示不限制。
+        """
+        self._config = routes_config
+        self._cost_budget = cost_budget
+        self._cost_tracker = CostTracker(hard_limit=cost_budget)
+        # 构建 route_id → route 索引，O(1) 查找
+        self._route_index: dict[str, ProviderRoute] = {
+            r.route_id: r for r in routes_config.routes
+        }
+        # 构建 task_type → 路由列表索引
+        self._task_index: dict[str, list[ProviderRoute]] = {}
+        for route in routes_config.routes:
+            self._task_index.setdefault(route.task_type, []).append(route)
+
+    # ── 路由解析 ──────────────────────────────────────────────────
+
+    def resolve_route(
+        self, task_type: str, preferred_route_id: str | None = None,
+    ) -> ProviderRoute:
+        """为任务类型查找最佳路由。
+
+        解析顺序：
+        1. 如果指定了 preferred_route_id，优先返回该路由
+        2. 否则返回匹配 task_type 的第一条路由
+        3. 无匹配则抛出 ValueError
+
+        Args:
+            task_type: 任务类型（translate/judge/classify）。
+            preferred_route_id: 可选，优先使用的路由 ID。
+
+        Returns:
+            匹配的 ProviderRoute。
+
+        Raises:
+            ValueError: 未找到匹配路由。
+        """
+        # 显式指定路由 ID 优先
+        if preferred_route_id is not None:
+            route = self._route_index.get(preferred_route_id)
+            if route is not None:
+                return route
+            raise ValueError(
+                f"路由 '{preferred_route_id}' 未在配置中找到。"
+                f" 可用路由: {list(self._route_index.keys())}"
+            )
+
+        # 按 task_type 查找
+        candidates = self._task_index.get(task_type, [])
+        if not candidates:
+            raise ValueError(
+                f"任务类型 '{task_type}' 无匹配路由。"
+                f" 可用类型: {list(self._task_index.keys())}"
+            )
+        return candidates[0]
+
+    def get_fallback_route(self, route: ProviderRoute) -> ProviderRoute | None:
+        """获取指定路由的下一级回退路由。
+
+        查找顺序：
+        1. 路由自身的 fallback_route_ids（按序尝试）
+        2. 全局 fallback_route_id
+        3. 都没有则返回 None
+
+        Args:
+            route: 当前路由。
+
+        Returns:
+            回退路由，无可用回退时返回 None。
+        """
+        # 先检查路由自身的回退链
+        for fallback_id in route.fallback_route_ids:
+            fb = self._route_index.get(fallback_id)
+            if fb is not None:
+                return fb
+
+        # 再检查全局回退
+        global_fb = self._route_index.get(self._config.fallback_route_id)
+        if global_fb is not None and global_fb.route_id != route.route_id:
+            return global_fb
+
+        return None
+
+    def get_route_by_id(self, route_id: str) -> ProviderRoute | None:
+        """按 route_id 精确查找路由。
+
+        Args:
+            route_id: 路由标识。
+
+        Returns:
+            ProviderRoute 或 None。
+        """
+        return self._route_index.get(route_id)
+
+    def list_routes_for_task(self, task_type: str) -> list[ProviderRoute]:
+        """列出某任务类型的所有可用路由。
+
+        Args:
+            task_type: 任务类型。
+
+        Returns:
+            匹配的 ProviderRoute 列表（可能为空）。
+        """
+        return list(self._task_index.get(task_type, []))
+
+    # ── 成本追踪 ──────────────────────────────────────────────────
+
+    def track_cost(self, route_id: str, usd_cost: float) -> None:
+        """记录一次 AI 调用的成本。
+
+        Args:
+            route_id: 使用的路由 ID。
+            usd_cost: 本次调用 USD 成本。
+        """
+        self._cost_tracker.record(route_id, usd_cost)
+
+    def is_over_budget(self) -> bool:
+        """检查是否已超出运行预算。
+
+        Returns:
+            True 如果累计成本 > 预算（且预算 > 0）。
+        """
+        if self._cost_budget <= 0:
+            return False
+        return self._cost_tracker.total > self._cost_budget
+
+    def remaining_budget(self) -> float:
+        """返回剩余预算（USD）。
+
+        Returns:
+            max(0, budget - total_cost)，budget 为 0 时返回 inf。
+        """
+        if self._cost_budget <= 0:
+            return float("inf")
+        return max(0.0, self._cost_budget - self._cost_tracker.total)
+
+    @property
+    def cost_tracker(self) -> CostTracker:
+        """获取内部 CostTracker 实例，用于外部查询成本详情。"""
+        return self._cost_tracker
+
+    @property
+    def routes_config(self) -> ProviderRoutesConfig:
+        """获取当前路由配置。"""
+        return self._config
