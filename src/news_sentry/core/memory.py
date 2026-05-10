@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import threading
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -66,12 +67,13 @@ class Memory:
         return data if isinstance(data, dict) else {}
 
     def _write_yaml(self, filename: str, data: dict[str, Any]) -> None:
-        """原子写入：先写 .tmp 文件，再 rename 到目标。
+        """原子写入：先写 .tmp 文件，再 os.replace 到目标。
 
+        使用 UUID 唯一临时文件名，避免多进程写入时的 tmp 冲突。
         调用方必须持有 self._lock。
         """
         target = self._file_path(filename)
-        tmp = target.with_suffix(".tmp")
+        tmp = target.parent / f".{target.name}.{uuid.uuid4().hex}.tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
         os.replace(tmp, target)
