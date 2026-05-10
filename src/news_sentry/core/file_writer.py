@@ -23,7 +23,8 @@ class FileWriter:
         PipelineStage.COLLECTED: "raw",
         PipelineStage.FILTERED: "evaluated",
         PipelineStage.JUDGED: "evaluated",
-        PipelineStage.OUTPUTTED: "published",
+        # v1: OUTPUTTED stays in drafts/, not published/, per ADR-0016 no-auto-publish policy
+        PipelineStage.OUTPUTTED: "drafts",
     }
 
     # v1 所有子目录（含非事件目录，用于 ensure_dirs）

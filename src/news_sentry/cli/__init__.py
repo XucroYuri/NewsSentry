@@ -59,6 +59,9 @@ def run(target: str, stage: str, run_id: str | None, dry_run: bool,
             click.echo(f"profile: {ctx.profile_id}")
             click.echo("dry-run: 不执行实际操作")
         elif ctx.errors_count > 0:
+            click.echo(
+                f"⚠ {ctx.errors_count} 个源采集失败，详见 RunLog: {ctx.run_log_path}"
+            )
             sys.exit(1)
     except ConfigError as e:
         click.echo(f"配置错误: {e}", err=True)

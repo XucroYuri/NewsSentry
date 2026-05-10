@@ -22,6 +22,11 @@ source_channel_refs:
   - lastampa
   - ilfattoquotidiano
   - ansa-en
+  - ilmessaggero
+  - rainews
+  - ilsole24ore
+  - thelocal-it
+  - sky-tg24
 
 # 各子系统规则/路由配置的相对路径（相对于项目根目录）
 filter_rules_ref: config/filters/italy/default.yaml
