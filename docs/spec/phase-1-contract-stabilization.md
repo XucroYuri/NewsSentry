@@ -157,7 +157,7 @@ Phase 1 为纯文档阶段，无可运行代码，测试策略为文档一致性
 - [x] ADR-0013：src layout，core/skills/adapters 三层结构
 - [x] ADR-0014：JSON Schema 2020-12 合约验证
 - [x] ADR-0015：配置合并优先级
-- [x] ADR-0016：CLI 入口 `news-sentry run --target <id> --stage <stage>`
+- [x] ADR-0016：CLI 入口 `python -m news_sentry.cli run --target <id> --stage <stage> --profile <profile_id>`
 
 ### 双语 SOP
 - [x] `it-zh-bilingual-sop.md` 覆盖翻译时机、三层粒度、术语策略、草稿模板、合规免责

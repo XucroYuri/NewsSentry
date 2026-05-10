@@ -13,6 +13,12 @@
 | [test-plan-codex-automations.md](./test-plan-codex-automations.md) | **Codex Desktop Automations** (fallback) | 2 | CLI 执行 + subagent 检查 |
 | [test-plan-claude-scheduled-tasks.md](./test-plan-claude-scheduled-tasks.md) | **Claude Desktop Scheduled Tasks** (fallback) | 3 | LLM Agent tool calls |
 
+## 测试反馈报告
+
+| 文档 | 来源 | 状态 |
+|------|------|------|
+| [hermes-agent-test-feedback.md](./hermes-agent-test-feedback.md) | Hermes Agent 2 轮 PDCA 测试执行反馈 | ✅ 已完成 (2026-05-10) |
+
 ## 运行环境优先级
 
 ```

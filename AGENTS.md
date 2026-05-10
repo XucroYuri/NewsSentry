@@ -14,7 +14,7 @@ Read these files before changing architecture, schemas, pipeline behavior, permi
 - `docs/adr/` — 架构决策记录（ADR-0001 至 ADR-0016）
 - `docs/spec/README.md` — **7 份 Phase SPEC 索引**：横切组件矩阵 + 演进图，每份 SPEC 是对应阶段实现的规格基准
 - `docs/development-plan.md` — 七阶段开发计划与 TODO 矩阵（含 W10/W11 工作流）
-- `schemas/` — **12 份 JSON Schema 2020-12**：机器可读契约，与 contracts-canonical.md 双向绑定（ADR-0014）
+- `schemas/` — **13 份 JSON Schema 2020-12**：机器可读契约，与 contracts-canonical.md 双向绑定（ADR-0014）
 - `config/` — **运行时配置骨架**：意大利参数封装在 config/targets/italy.yaml，其他国家复制 _template.yaml（ADR-0015）
 - `src/news_sentry/` — **Python 3.11+ stub 骨架**（ADR-0012、ADR-0013）
 - `docs/external-integration-strategy.md` — **外部项目接入策略**：OpenCLI 接入原则、三原则、12 条 ToolManifest 骨架意图、舍弃清单
@@ -49,8 +49,8 @@ Read these files before changing architecture, schemas, pipeline behavior, permi
 - **新闻分类走 metadata.classification，不做顶层字段**：L0–L3 taxonomy 结果写入 `NewsEvent.metadata.classification`，不进 schema 顶层。详见 `docs/news-classification-framework.md` 和 ADR-0009。
 - **实现语言是 Python 3.11+**：`src/news_sentry/` 目录下所有模块使用 Python 3.11+，pydantic v2 作为数据模型层。详见 ADR-0012。
 - **任务配置走 config/，禁止硬编码意大利参数到 src/**：所有与意大利相关的参数（语言、时区、源列表、关键词）封装在 `config/targets/italy.yaml`，切换国家只需复制 `config/targets/_template.yaml`，不改代码。详见 ADR-0015。
-- **CLI 入口格式固定**：`news-sentry run --target {id} --stage {collect|filter|judge|output|all}`。详见 ADR-0016。ADR-0006 的 CLI backlog（CLI-001）已关闭。
-- **JSON Schema 是契约校验载体**：`schemas/` 下 12 份 JSON Schema 2020-12 与 `docs/contracts-canonical.md` 双向绑定，config YAML 文件头部注释 `# Schema:` 指向对应 schema。详见 ADR-0014。
+- **CLI 入口格式固定**：`python -m news_sentry.cli run --target {id} --stage {collect|filter|judge|output|all} --profile {profile_id}`；console script `news-sentry` 可用时等价，但开源文档优先使用 `python -m news_sentry.cli ...` 避免依赖本机 PATH。详见 ADR-0016。ADR-0006 的 CLI backlog（CLI-001）已关闭。
+- **JSON Schema 是契约校验载体**：`schemas/` 下 13 份 JSON Schema 2020-12 与 `docs/contracts-canonical.md` 双向绑定，config YAML 文件头部注释 `# Schema:` 指向对应 schema。详见 ADR-0014。
 
 ## Phase Order
 

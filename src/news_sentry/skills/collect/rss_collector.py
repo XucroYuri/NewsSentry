@@ -35,6 +35,7 @@ class RSSCollector:
         """
         self._config = config
         self._sandbox = sandbox_enforcer
+        self._target_id: str = config["target_id"]
         self._source_id: str = config["source_id"]
         self._url: str = config.get("url", "") or ""
         self._timeout: float = float(config.get("timeout_seconds", 30))
@@ -113,7 +114,7 @@ class RSSCollector:
         content = self._extract_content(entry)
         published_at = self._extract_published(entry)
         collected_at = datetime.now(UTC).isoformat()
-        event_id = NewsEvent.make_id(self._source_id, url, published_at)
+        event_id = NewsEvent.make_id(self._target_id, self._source_id, url, published_at)
 
         return NewsEvent(
             id=event_id,

@@ -122,3 +122,74 @@ keyword_rules:
   - keyword: "rinnovabili"
     weight: 0.65
     language: it
+
+  # ── 突发事件 (Breaking Events) ─────────────────────────
+  - keyword: "attentato"
+    weight: 0.95
+    language: it
+  - keyword: "terremoto"
+    weight: 0.95
+    language: it
+  - keyword: "alluvione"
+    weight: 0.90
+    language: it
+  - keyword: "incendio"
+    weight: 0.85
+    language: it
+  - keyword: "esplosione"
+    weight: 0.90
+    language: it
+  - keyword: "emergenza"
+    weight: 0.80
+    language: it
+  - keyword: "disastro"
+    weight: 0.90
+    language: it
+  - keyword: "allarme"
+    weight: 0.75
+    language: it
+
+  # ── 政治危机 (Political Crisis) ────────────────────────
+  - keyword: "crisi di governo"
+    weight: 0.90
+    language: it
+  - keyword: "dimissioni"
+    weight: 0.85
+    language: it
+  - keyword: "scioglimento"
+    weight: 0.85
+    language: it
+  - keyword: "fiducia"
+    weight: 0.80
+    language: it
+  - keyword: "referendum"
+    weight: 0.85
+    language: it
+
+  # ── 经济冲击 (Economic Shock) ──────────────────────────
+  - keyword: "crollo"
+    weight: 0.85
+    language: it
+  - keyword: "default"
+    weight: 0.80
+    language: it
+  - keyword: "spread BTP-Bund"
+    weight: 0.85
+    language: it
+  - keyword: "recessione"
+    weight: 0.80
+    language: it
+
+  # ── 英语突发新闻 (English Breaking News) ────────────────
+  - keyword: "breaking news"
+    weight: 1.0
+    language: en
+  - keyword: "state of emergency"
+    weight: 0.90
+    language: en
+  - keyword: "resigns"
+    weight: 0.80
+    language: en
+  - keyword: "snap election"
+    weight: 0.90
+    language: en

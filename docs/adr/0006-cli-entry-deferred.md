@@ -11,7 +11,7 @@
 
 PRD Open Questions 第 6 条：
 
-> Skill Pack 的最小 CLI 入口如何命名，是否需要统一为 `news-sentry run --target italy --stage collect`？
+> Skill Pack 的最小 CLI 入口如何命名，是否需要统一为 `python -m news_sentry.cli run --target italy --stage collect --profile local-workstation`？
 
 此问题影响：
 - 开发者与 Hermes/OpenClaw 的调用契约。
@@ -32,10 +32,10 @@ PRD Open Questions 第 6 条：
 **暂定形式（可在 Phase 3 前调整）：**
 
 ```
-news-sentry run --target <target_id> [--stage <stage>] [--config <path>]
+python -m news_sentry.cli run --target <target_id> --stage <stage> --profile <profile_id>
 ```
 
-**治理 backlog 条目：** `CLI-001 — 决定 news-sentry run 的完整命令 schema`，在 `docs/development-plan.md §跨 phase 治理 backlog` 中追踪。
+**治理 backlog 条目：** `CLI-001 — 决定 python -m news_sentry.cli run 的完整命令 schema`，在 `docs/development-plan.md §跨 phase 治理 backlog` 中追踪。
 
 ---
 

@@ -389,8 +389,8 @@ v1 不包含：
 5. 长期 memory 是继续使用 Markdown/YAML 文件，还是在 v2 引入 SQLite？
    **[RESOLVED: v1 使用文件 memory，SQLite 推迟到 v2+]** `AGENTS.md` Core Decisions 与 PRD §8 Out of Scope 均明确 v1 不引入数据库。
 
-6. Skill Pack 的最小 CLI 入口如何命名，是否需要统一为 `news-sentry run --target italy --stage collect`？
-   **[DEFERRED → ADR-0006，治理 backlog CLI-001]** 暂定形式：`news-sentry run --target <target_id> [--stage <stage>]`，Phase 3 前正式定稿。
+6. Skill Pack 的最小 CLI 入口如何命名，是否需要统一为 `python -m news_sentry.cli run --target italy --stage collect --profile local-workstation`？
+   **[DEFERRED → ADR-0006，治理 backlog CLI-001]** 暂定形式：`python -m news_sentry.cli run --target <target_id> --stage <stage> --profile <profile_id>`，Phase 3 前正式定稿。
 
 7. Provider 成本和质量如何评估，是否需要离线 eval 集？
    **[DEFERRED → 治理 backlog EVAL-001，Phase 5]** Phase 5 AI Provider 路由阶段再设计 eval 体系。

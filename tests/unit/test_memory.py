@@ -69,9 +69,9 @@ def test_update_source_health_success(tmp_path: Path) -> None:
     mem = Memory(tmp_path)
     mem.update_source_health("ansa", success=True)
     health = mem.get_source_health("ansa")
-    assert health["success_count"] == 1
-    assert health["failure_count"] == 0
-    assert health["success_rate"] == 1.0
+    assert health["total_runs"] == 1
+    assert health["total_failures"] == 0
+    assert health["consecutive_failures"] == 0
     assert health["last_success_at"] is not None
     assert health["last_failure_at"] is None
 
@@ -80,21 +80,21 @@ def test_update_source_health_failure(tmp_path: Path) -> None:
     mem = Memory(tmp_path)
     mem.update_source_health("ansa", success=False, error_msg="timeout")
     health = mem.get_source_health("ansa")
-    assert health["failure_count"] == 1
-    assert health["success_count"] == 0
-    assert health["success_rate"] == 0.0
+    assert health["total_failures"] == 1
+    assert health["total_runs"] == 1
+    assert health["consecutive_failures"] == 1
     assert health["last_error"] == "timeout"
 
 
-def test_update_source_health_calculates_rate(tmp_path: Path) -> None:
+def test_update_source_health_tracks_total_runs_and_failures(tmp_path: Path) -> None:
     mem = Memory(tmp_path)
     mem.update_source_health("ansa", success=True)
     mem.update_source_health("ansa", success=True)
     mem.update_source_health("ansa", success=False, error_msg="e1")
     health = mem.get_source_health("ansa")
-    assert health["success_count"] == 2
-    assert health["failure_count"] == 1
-    assert health["success_rate"] == round(2 / 3, 3)
+    assert health["total_runs"] == 3
+    assert health["total_failures"] == 1
+    assert health["consecutive_failures"] == 1
 
 
 def test_source_health_persists(tmp_path: Path) -> None:
@@ -102,7 +102,7 @@ def test_source_health_persists(tmp_path: Path) -> None:
     mem1.update_source_health("ansa", success=True)
     mem2 = Memory(tmp_path)
     health = mem2.get_source_health("ansa")
-    assert health["success_count"] == 1
+    assert health["total_runs"] == 1
 
 
 def test_get_source_health_returns_copy(tmp_path: Path) -> None:
@@ -110,8 +110,72 @@ def test_get_source_health_returns_copy(tmp_path: Path) -> None:
     mem = Memory(tmp_path)
     mem.update_source_health("ansa", success=True)
     health = mem.get_source_health("ansa")
-    health["success_count"] = 999
-    assert mem.get_source_health("ansa")["success_count"] == 1
+    health["total_runs"] = 999
+    assert mem.get_source_health("ansa")["total_runs"] == 1
+
+
+# ------------------------------------------------------------------
+# record_source_health (convenience method)
+# ------------------------------------------------------------------
+
+
+def test_record_source_health_tracks_consecutive_failures(tmp_path: Path) -> None:
+    """记录多次失败应递增 consecutive_failures，成功应重置为 0。"""
+    mem = Memory(tmp_path)
+    mem.record_source_health("ansa", success=False, error_msg="e1")
+    mem.record_source_health("ansa", success=False, error_msg="e2")
+    health = mem.get_source_health("ansa")
+    assert health["consecutive_failures"] == 2
+    assert health["total_failures"] == 2
+    # 成功后 consecutive_failures 重置
+    mem.record_source_health("ansa", success=True)
+    health = mem.get_source_health("ansa")
+    assert health["consecutive_failures"] == 0
+    assert health["total_failures"] == 2  # total_failures 不重置
+
+
+def test_record_source_health_tracks_total_runs(tmp_path: Path) -> None:
+    """每次调用 record_source_health 都应递增 total_runs。"""
+    mem = Memory(tmp_path)
+    mem.record_source_health("ansa", success=True)
+    mem.record_source_health("ansa", success=False, error_msg="timeout")
+    mem.record_source_health("ansa", success=True)
+    health = mem.get_source_health("ansa")
+    assert health["total_runs"] == 3
+
+
+def test_record_source_health_resets_consecutive_on_success(tmp_path: Path) -> None:
+    """成功调用后 consecutive_failures 必须重置为 0。"""
+    mem = Memory(tmp_path)
+    mem.record_source_health("ansa", success=False, error_msg="e1")
+    mem.record_source_health("ansa", success=False, error_msg="e2")
+    assert mem.get_source_health("ansa")["consecutive_failures"] == 2
+    mem.record_source_health("ansa", success=True)
+    assert mem.get_source_health("ansa")["consecutive_failures"] == 0
+    # 再次失败从 0 重新递增
+    mem.record_source_health("ansa", success=False, error_msg="e3")
+    assert mem.get_source_health("ansa")["consecutive_failures"] == 1
+
+
+def test_record_source_health_persists_across_instances(tmp_path: Path) -> None:
+    """record_source_health 写入的状态应该在新的 Memory 实例中可见。"""
+    mem1 = Memory(tmp_path)
+    mem1.record_source_health("ansa", success=False, error_msg="timeout",
+                              run_id="test-run-1")
+    mem1.record_source_health("ansa", success=True, run_id="test-run-2")
+    mem2 = Memory(tmp_path)
+    health = mem2.get_source_health("ansa")
+    assert health["total_runs"] == 2
+    assert health["total_failures"] == 1
+    assert health["consecutive_failures"] == 0
+
+
+def test_record_source_health_accepts_run_id(tmp_path: Path) -> None:
+    """record_source_health 接受 run_id 参数（保留字段）。"""
+    mem = Memory(tmp_path)
+    mem.record_source_health("ansa", success=True, run_id="run-abc")
+    health = mem.get_source_health("ansa")
+    assert health["total_runs"] == 1
 
 
 # ------------------------------------------------------------------
@@ -251,8 +315,8 @@ def test_concurrent_update_source_health(tmp_path: Path) -> None:
 
     assert len(errors) == 0
     ansa = mem.get_source_health("ansa")
-    assert ansa["success_count"] == 60
-    assert ansa["failure_count"] == 0
+    assert ansa["total_runs"] == 60
+    assert ansa["total_failures"] == 0
     corriere = mem.get_source_health("corriere")
-    assert corriere["success_count"] == 0
-    assert corriere["failure_count"] == 60
+    assert corriere["total_runs"] == 60
+    assert corriere["total_failures"] == 60

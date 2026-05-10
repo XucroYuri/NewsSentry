@@ -1,0 +1,26 @@
+# Schema: ../../schemas/deploymentprofile.schema.json
+# 契约: docs/spec/phase-2-runtime-carrier-alignment.md §3
+profile_id: cloud-vps
+description: "Portable cloud VPS profile for Hermes-triggered bounded runs"
+
+paths:
+  cwd: "."
+  output_root: "./data"
+  config_root: "./config"
+  log_root: "./data/{target_id}/logs"
+  memory_root: "./data/{target_id}/memory"
+
+network:
+  allow_outbound: true
+  blocked_hosts:
+    - "169.254.169.254"
+    - "metadata.google.internal"
+    - "169.254.170.2"
+
+runtime:
+  trigger: cron
+  max_duration_seconds: 1800
+  max_memory_mb: 1024
+
+sandbox:
+  profile: cloud-vps

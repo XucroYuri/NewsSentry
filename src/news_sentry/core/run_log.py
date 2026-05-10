@@ -15,15 +15,26 @@ from typing import Any
 class RunLog:
     """每次 bounded run 的审计日志，内存缓冲，write() 时一次性序列化写入 JSON。"""
 
-    def __init__(self, log_dir: Path, run_id: str) -> None:
+    def __init__(
+        self,
+        log_dir: Path,
+        run_id: str,
+        target_id: str | None = None,
+        profile_id: str = "local-workstation",
+        output_root: str | None = None,
+    ) -> None:
         """
         log_dir: logs/ 目录路径
-        run_id: 本次运行的唯一标识（格式: {target_id}_{iso_datetime}，如 italy_20240115T103000）
+        run_id: 本次运行的唯一标识
+        target_id: 当前监控目标 ID。未传入时兼容旧 run_id 前缀推断。
+        profile_id: 当前 bounded run 使用的 deployment profile。
+        output_root: 可观测的数据根目录，项目内路径应使用 portable 形式。
         """
         self.log_dir = log_dir
         self.run_id = run_id
-        # target_id 从 run_id 后缀解析；datetime 段不含下划线，从右侧分割安全
-        self.target_id = run_id.split("_", 1)[0] if "_" in run_id else run_id
+        self.target_id = target_id or (run_id.split("_", 1)[0] if "_" in run_id else run_id)
+        self.profile_id = profile_id
+        self.output_root = output_root
         self.started_at = datetime.now(UTC).isoformat()
         self._phases: dict[str, dict[str, Any]] = {}
         self._written: bool = False
@@ -62,6 +73,11 @@ class RunLog:
             err_entry["event_id"] = event_id
         phase["errors"].append(err_entry)
 
+    @property
+    def errors_count(self) -> int:
+        """返回当前运行日志中已记录的错误总数。"""
+        return sum(len(phase["errors"]) for phase in self._phases.values())
+
     # ------------------------------------------------------------------
     # 序列化
     # ------------------------------------------------------------------
@@ -83,17 +99,23 @@ class RunLog:
                 "ended_at": p["ended_at"],
                 "duration_ms": p["duration_ms"],
                 "items_count": p["items_count"],
+                "errors_count": len(p["errors"]),
                 "errors": p["errors"],
             })
 
         summary = self._compute_summary()
+        errors = self._flatten_errors()
 
         output = {
             "run_id": self.run_id,
             "started_at": self.started_at,
             "ended_at": ended_at,
             "target_id": self.target_id,
+            "profile_id": self.profile_id,
+            "output_root": self.output_root,
             "phases": phases_list,
+            "errors_count": len(errors),
+            "errors": errors,
             "summary": summary,
         }
 
@@ -146,3 +168,14 @@ class RunLog:
             "total_events_filtered_out": total_filtered_out,
             "total_errors": total_errors,
         }
+
+    def _flatten_errors(self) -> list[dict[str, str]]:
+        """聚合所有 phase errors，便于自动化只解析 RunLog 顶层。"""
+        errors: list[dict[str, str]] = []
+        for stage, phase in self._phases.items():
+            for err in phase["errors"]:
+                entry = {"scope": stage, "stage": stage, **err}
+                if stage == "collect" and "event_id" in entry:
+                    entry["source_id"] = entry["event_id"]
+                errors.append(entry)
+        return errors

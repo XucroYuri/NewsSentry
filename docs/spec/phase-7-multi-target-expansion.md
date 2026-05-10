@@ -16,7 +16,7 @@
 **前提：** Phase 3（Kernel MVP）以上完成，意大利 reference package 稳定运行。建议在意大利生产运行 1–2 个月后再进行 Phase 7，以确保核心代码足够稳定。
 
 **出口标准（Phase 7 完成标准）：**
-- [ ] 第二国家 `TargetConfig` 创建后，`news-sentry run --target {target_id} --stage collect` 产出 `raw/` 事件，**零核心代码改动**
+- [ ] 第二国家 `TargetConfig` 创建后，`python -m news_sentry.cli run --target {target_id} --stage collect --profile local-workstation` 产出 `raw/` 事件，**零核心代码改动**
 - [ ] 意大利特有关键词/实体/人名配置全部在 `TargetConfig`/`SourceChannel`/`FilterRules` 中，不在核心代码里
 - [ ] 自动化硬编码检测脚本扫描 `core/` 和 `skills/` 无意大利专有字符串
 - [ ] L0 分类主题可复用率 ≥ 80%（评估报告已产出）
@@ -306,7 +306,7 @@ config/{target_id}/target.yaml 最小示例：
 
 ## 步骤 5：端到端测试（1 小时）
 
-□ 运行：news-sentry run --target {target_id} --stage collect
+□ 运行：python -m news_sentry.cli run --target {target_id} --stage collect --profile local-workstation
 □ 验证：data/{target_id}/raw/ 产出至少一个文件
 □ 验证：文件 id 格式为 ne-{target_id}-{source_id}-{yyyymmdd}-{hash8}
 □ 验证：pipeline_stage: collected
@@ -381,7 +381,7 @@ config/{target_id}/target.yaml 最小示例：
 ### 第二国家配置与产出
 - [ ] `config/{target_id}/target.yaml` 创建，通过 TargetConfig schema 校验
 - [ ] 至少一个 RSS 信源配置完整，可成功采集
-- [ ] `news-sentry run --target {target_id} --stage collect` 产出至少一个 `raw/` 文件
+- [ ] `python -m news_sentry.cli run --target {target_id} --stage collect --profile local-workstation` 产出至少一个 `raw/` 文件
 - [ ] 产出文件 id 格式正确：`ne-{target_id}-{source_id}-{yyyymmdd}-{hash8}`
 - [ ] 产出文件 frontmatter 通过 `schemas/news-event.schema.json` 校验
 
@@ -397,7 +397,7 @@ config/{target_id}/target.yaml 最小示例：
 - [ ] 第二国家 run 不影响意大利的 `known_item_ids`（无交叉污染）
 
 ### 回归
-- [ ] 意大利 `news-sentry run --target italy --stage collect` 在 Phase 7 后仍正常运行
+- [ ] 意大利 `python -m news_sentry.cli run --target italy --stage collect --profile local-workstation` 在 Phase 7 后仍正常运行
 - [ ] `pytest tests/` 全量通过（无回归）
 
 ### 文档

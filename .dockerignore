@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+data/
+.omc/
+.claude/
+docs/
+tests/
+*.md
+!CLAUDE.md
+!AGENTS.md
+.env*
+.DS_Store

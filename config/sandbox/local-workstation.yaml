@@ -14,7 +14,6 @@ command_policy:
     - wget
     - python3
     - python
-    - news-sentry
     - rg               # ripgrep，用于本地日志搜索
     - cat
     - less
@@ -29,9 +28,9 @@ filesystem_policy:
   read_roots:
     - "./"
   write_roots:
-    - "./italy/"
+    - "./data/"
     - "./tests/"
-    - "/tmp/news-sentry-dev/"   # 开发用临时目录
+    - "./data/tmp/dev/"   # 开发用项目内临时目录
 
 network_policy:
   # 开发环境允许访问所有外部 URL，方便测试新源
@@ -54,6 +53,6 @@ budget_policy:
 
 audit:
   log_all_tool_calls: true
-  log_path: "./italy/logs/"
+  log_path: "./data/logs/"
   # 开发环境额外输出到 stdout，方便实时查看
   debug_stdout: true

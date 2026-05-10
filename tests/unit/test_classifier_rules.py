@@ -149,8 +149,8 @@ def test_l0_classifies_politics() -> None:
     cr = ClassifierRules(_make_classification_config())
     result = cr.classify(event)
     c = result.metadata["classification"]
-    assert c["l0_domain"] == "politics"
-    assert c["l0_confidence"] > 0
+    assert c["l0"] == "politics"
+    assert c["confidence"] > 0
 
 
 def test_l0_classifies_economics() -> None:
@@ -161,7 +161,7 @@ def test_l0_classifies_economics() -> None:
     cr = ClassifierRules(_make_classification_config())
     result = cr.classify(event)
     c = result.metadata["classification"]
-    assert c["l0_domain"] == "economics"
+    assert c["l0"] == "economics"
 
 
 def test_l0_classifies_security() -> None:
@@ -172,7 +172,7 @@ def test_l0_classifies_security() -> None:
     cr = ClassifierRules(_make_classification_config())
     result = cr.classify(event)
     c = result.metadata["classification"]
-    assert c["l0_domain"] == "security"
+    assert c["l0"] == "security"
 
 
 def test_l0_uncategorized_when_no_match() -> None:
@@ -182,8 +182,8 @@ def test_l0_uncategorized_when_no_match() -> None:
     cr = ClassifierRules(_make_classification_config())
     result = cr.classify(event)
     c = result.metadata["classification"]
-    assert c["l0_domain"] == "uncategorized"
-    assert c["l0_confidence"] == 0
+    assert c["l0"] == "uncategorized"
+    assert c["confidence"] == 0
 
 
 def test_l0_uncategorized_when_no_domains() -> None:
@@ -191,8 +191,8 @@ def test_l0_uncategorized_when_no_domains() -> None:
     cr = ClassifierRules({"l0_domains": []})
     result = cr.classify(event)
     c = result.metadata["classification"]
-    assert c["l0_domain"] == "uncategorized"
-    assert c["l0_confidence"] == 0
+    assert c["l0"] == "uncategorized"
+    assert c["confidence"] == 0
 
 
 def test_l0_matches_translated_text() -> None:
@@ -207,7 +207,7 @@ def test_l0_matches_translated_text() -> None:
     result = cr.classify(event)
     c = result.metadata["classification"]
     # "政府", "议会", "选举" all match in translated text → politics
-    assert c["l0_domain"] == "politics"
+    assert c["l0"] == "politics"
 
 
 def test_l0_case_insensitive() -> None:
@@ -215,7 +215,7 @@ def test_l0_case_insensitive() -> None:
     cr = ClassifierRules(_make_classification_config())
     result = cr.classify(event)
     c = result.metadata["classification"]
-    assert c["l0_domain"] == "politics"
+    assert c["l0"] == "politics"
 
 
 # ── L1 topic classification tests ──────────────────────────────
@@ -229,8 +229,8 @@ def test_l1_matches_topic_in_domain() -> None:
     cr = ClassifierRules(_make_classification_config())
     result = cr.classify(event)
     c = result.metadata["classification"]
-    assert c["l0_domain"] == "politics"
-    topics = c["l1_topics"]
+    assert c["l0"] == "politics"
+    topics = c["l1"]
     topic_codes = {t["code"] for t in topics}
     assert "govt_coalition" in topic_codes
     for t in topics:
@@ -246,8 +246,8 @@ def test_l1_only_matches_in_l0_domain() -> None:
     cr = ClassifierRules(_make_classification_config())
     result = cr.classify(event)
     c = result.metadata["classification"]
-    assert c["l0_domain"] == "economics"
-    topics = c["l1_topics"]
+    assert c["l0"] == "economics"
+    topics = c["l1"]
     topic_codes = {t["code"] for t in topics}
     # "fiscal_policy" is L0=economics, should match
     # "govt_coalition" is L0=politics, should NOT match even if text contains governo-like words
@@ -262,7 +262,7 @@ def test_l1_no_matches_returns_empty() -> None:
     cr = ClassifierRules(_make_classification_config())
     result = cr.classify(event)
     c = result.metadata["classification"]
-    assert c["l1_topics"] == []
+    assert c["l1"] == []
 
 
 # ── L2 country axes tests ──────────────────────────────────────
@@ -297,7 +297,7 @@ def test_l2_activates_china_axis_via_l1() -> None:
     ))
     result = cr.classify(event)
     c = result.metadata["classification"]
-    axes = c["l2_country_axes"]
+    axes = c["l2"]
     axis_codes = {a["code"] for a in axes}
     assert "china_italy_relations" in axis_codes
 
@@ -308,7 +308,7 @@ def test_l2_skips_disabled_axes() -> None:
     cr = ClassifierRules(cfg)
     result = cr.classify(event)
     c = result.metadata["classification"]
-    axes = c["l2_country_axes"]
+    axes = c["l2"]
     # sports axis is disabled, should never appear
     assert all(a["code"] != "sports" for a in axes)
 
@@ -318,7 +318,7 @@ def test_l2_no_axes_when_no_l1_match() -> None:
     cr = ClassifierRules(_make_classification_config())
     result = cr.classify(event)
     c = result.metadata["classification"]
-    assert c["l2_country_axes"] == []
+    assert c["l2"] == []
 
 
 # ── metadata structure tests ───────────────────────────────────
@@ -332,12 +332,12 @@ def test_classification_structure_is_correct() -> None:
     cr = ClassifierRules(_make_classification_config())
     result = cr.classify(event)
     c = result.metadata["classification"]
-    assert c["l0_domain"] == "politics"
-    assert isinstance(c["l0_confidence"], int)
-    assert 0 <= c["l0_confidence"] <= 100
-    assert isinstance(c["l1_topics"], list)
-    assert isinstance(c["l2_country_axes"], list)
-    assert c["l3_tags"] == []
+    assert c["l0"] == "politics"
+    assert isinstance(c["confidence"], int)
+    assert 0 <= c["confidence"] <= 100
+    assert isinstance(c["l1"], list)
+    assert isinstance(c["l2"], list)
+    assert c["l3"] == []
     assert c["classifier_version"] == "rules-v1"
 
 
