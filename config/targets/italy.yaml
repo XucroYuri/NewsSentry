@@ -30,7 +30,7 @@ source_channel_refs:
 
 # 各子系统规则/路由配置的相对路径（相对于项目根目录）
 filter_rules_ref: config/filters/italy/default.yaml
-classification_rules_ref: config/classification/rules-v1.yaml
+classification_rules_ref: config/classification/rules-italy.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
 provider_routes_ref: config/provider/routes.yaml
 output_destinations_ref: config/output/destinations.yaml
