@@ -190,6 +190,8 @@ def _run_collect(
     all_events: list[NewsEvent] = []
     for source_cfg in config.sources:
         source_id = source_cfg.get("source_id", "?")
+        if source_cfg.get("enabled") is False:
+            continue
         source_type = source_cfg.get("type", "rss")
         try:
             source_cfg["target_id"] = config.target_id
