@@ -73,6 +73,11 @@ scan-sensitive:
 	@echo "==> 扫描敏感关键词..."
 	python3 tools/scan_sensitive_data.py
 
+.PHONY: scan-hardcoded
+scan-hardcoded:
+	@echo "==> 扫描意大利硬编码..."
+	python3 tools/check_no_hardcoded_target.py
+
 # ── 运行 ─────────────────────────────────────────────────────────────────────
 
 .PHONY: dry-run
@@ -157,6 +162,7 @@ help:
 	@echo "  make check          lint + test"
 	@echo "  make fmt            自动修复代码风格"
 	@echo "  make scan-sensitive 扫描敏感关键词"
+	@echo "  make scan-hardcoded 扫描意大利硬编码"
 	@echo ""
 	@echo "运行:"
 	@echo "  make dry-run        干运行验证配置"

@@ -24,10 +24,15 @@ class RulesProvider(AIProvider):
 
     # 与 RulesJudgeSkill._CHINA_KEYWORDS 保持同步
     _CHINA_KEYWORDS: tuple[str, ...] = (
-        "cina", "china", "cinese", "chinese",
-        "via della seta", "belt and road", "pechino",
+        "china", "chinese",
+        "belt and road", "pechino",
         "beijing", "shanghai", "xi jinping", "brics",
     )
+
+    # L0 分类关键词（可被子类或配置覆盖）
+    _BREAKING_WORDS: tuple[str, ...] = ("breaking", "flash")
+    _POLITICAL_WORDS: tuple[str, ...] = ("president", "parliament", "election", "senate")
+    _ECONOMY_WORDS: tuple[str, ...] = ("gdp", "stock", "economy", "inflation", "tax")
 
     # L0 分类到推荐的映射
     _DOMAIN_RECOMMENDATION: dict[str, str] = {
@@ -93,22 +98,16 @@ class RulesProvider(AIProvider):
 
     # ── 内部分类推理 ─────────────────────────────────────────
 
-    @staticmethod
-    def _infer_classification(text_lower: str, china_hits: int) -> str:
+    @classmethod
+    def _infer_classification(cls, text_lower: str, china_hits: int) -> str:
         """基于关键词推断 L0 分类。"""
-        breaking_words = ("breaking", "urgente", "ultimora", "flash")
-        political_words = ("governo", "ministero", "presidente", "parlamento",
-                           "elezioni", "senato", "camera", "deputati")
-        economy_words = ("pil", "borsa", "economia", "inflazione", "tasse",
-                         "fisco", "bankitalia", "spread")
-
-        if any(w in text_lower for w in breaking_words):
+        if any(w in text_lower for w in cls._BREAKING_WORDS):
             return "breaking_news"
         if china_hits >= 3:
             return "china_related"
-        if any(w in text_lower for w in political_words):
+        if any(w in text_lower for w in cls._POLITICAL_WORDS):
             return "political"
-        if any(w in text_lower for w in economy_words):
+        if any(w in text_lower for w in cls._ECONOMY_WORDS):
             return "economy"
         return "other"
 
