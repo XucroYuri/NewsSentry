@@ -134,15 +134,42 @@ def test_score_event_matches_in_translated_fields(tmp_path: Path) -> None:
     assert score == 50
 
 
-def test_score_event_substring_match(tmp_path: Path) -> None:
-    """关键词匹配支持子串：govern 在 governativa 中命中。"""
+def test_score_event_word_boundary_prevents_false_positive(tmp_path: Path) -> None:
+    """\b 词边界防止短词误匹配：Cina 不应匹配 Bonacina。"""
     cfg = _make_filter_config(
-        keyword_rules=[{"keyword": "govern", "weight": 0.8, "language": "it"}]
+        keyword_rules=[{"keyword": "Cina", "weight": 1.0, "language": "it"}]
     )
     rf = RulesFilter(cfg, Memory(tmp_path))
-    event = _make_event(title="azione governativa", content="")
+    event = _make_event(
+        title="Bonacina vince medaglia paralimpica",
+        content="Matteo Bonacina ha conquistato una medaglia.",
+    )
     score = rf._score_event(event, cfg["keyword_rules"])
-    assert score == 80  # "govern" in "governativa"
+    assert score == 0  # "Cina" 不在词边界上，不匹配
+
+    # 但 "Cina" 作为独立词应正常匹配
+    event2 = _make_event(
+        title="La Cina firma accordo commerciale",
+        content="Italia e Cina rafforzano i rapporti.",
+    )
+    score2 = rf._score_event(event2, cfg["keyword_rules"])
+    assert score2 == 100  # "Cina" 是独立词，正常匹配
+
+
+def test_score_event_partial_word_boundary_matching(tmp_path: Path) -> None:
+    """词边界匹配：governo 在 'governo italiano' 中命中，但在 'governativa' 中不命中。"""
+    cfg = _make_filter_config(
+        keyword_rules=[{"keyword": "governo", "weight": 0.8, "language": "it"}]
+    )
+    rf = RulesFilter(cfg, Memory(tmp_path))
+
+    # "governo" 作为独立词正常匹配
+    event1 = _make_event(title="governo italiano", content="")
+    assert rf._score_event(event1, cfg["keyword_rules"]) == 80
+
+    # "governo" 不在 "governativa" 词边界上 → 不匹配
+    event2 = _make_event(title="azione governativa", content="")
+    assert rf._score_event(event2, cfg["keyword_rules"]) == 0
 
 
 def test_score_event_empty_keyword_skipped(tmp_path: Path) -> None:
