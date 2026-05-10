@@ -1,0 +1,19 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015
+source_id: thelocal-it
+display_name: "The Local Italy"
+type: rss
+url: "https://www.thelocal.it/feed/"
+
+# 意大利英语新闻，The Local Media AB 旗下
+credibility_base: 0.75
+
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+
+health:
+  last_success_at: null
+  consecutive_failures: 0

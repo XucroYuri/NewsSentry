@@ -92,13 +92,15 @@ def test_write_event_collected_writes_to_raw(
     assert path.suffix == ".md"
 
 
-def test_write_event_outputted_writes_to_published(
+def test_write_event_outputted_writes_to_drafts(
     writer: FileWriter, base_dir: Path, sample_event: NewsEvent,
 ) -> None:
-    """OUTPUTTED 阶段事件应写入 published/ 目录。"""
+    """v1: OUTPUTTED 阶段事件应写入 drafts/ 目录。
+    遵循 ADR-0016 禁止自动发布策略，不使用 published/。
+    """
     sample_event.pipeline_stage = PipelineStage.OUTPUTTED
     path = writer.write_event(sample_event)
-    assert path.parent == base_dir / "published"
+    assert path.parent == base_dir / "drafts"
 
 
 def test_write_event_uses_correct_filename(
@@ -255,7 +257,7 @@ def test_move_event_chain_through_all_stages(
         (PipelineStage.COLLECTED, "raw"),
         (PipelineStage.FILTERED, "evaluated"),
         (PipelineStage.JUDGED, "evaluated"),
-        (PipelineStage.OUTPUTTED, "published"),
+        (PipelineStage.OUTPUTTED, "drafts"),
     ]
 
     path = writer.write_event(sample_event)
