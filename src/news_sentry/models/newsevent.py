@@ -32,6 +32,7 @@ class JudgeRecommendation(StrEnum):
     REVIEW = "review"
     ARCHIVE = "archive"
     DISCARD = "discard"
+    MONITOR = "monitor"
 
 
 class ProcessingHistoryEntry(BaseModel):

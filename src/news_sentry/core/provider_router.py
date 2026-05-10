@@ -6,9 +6,14 @@ ADR: ADR-0005
 """
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable
 from typing import Any
 
+from news_sentry.adapters.providers.base import AIProvider
 from news_sentry.models.provider_config import ProviderRoute, ProviderRoutesConfig
+
+logger = logging.getLogger(__name__)
 
 
 class CostTracker:
@@ -234,3 +239,107 @@ class ProviderRouter:
     def routes_config(self) -> ProviderRoutesConfig:
         """获取当前路由配置。"""
         return self._config
+
+    # ── 路由编排 ──────────────────────────────────────────────────
+
+    def route(
+        self,
+        task_type: str,
+        prompt: str,
+        provider_factory: Callable[[str], AIProvider | None],
+        preferred_route_id: str | None = None,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> dict[str, Any]:
+        """执行完整的 AI 路由编排：解析 → 预算检查 → 调用 → 回退 → 成本记录。
+
+        SPEC §3.1 定义的 route() 编排方法，将路由解析、Provider 调用、
+        fallback 切换和成本追踪串联为一次调用。
+
+        Args:
+            task_type: 任务类型（translate/judge/classify）。
+            prompt: 发送给 AI Provider 的提示词。
+            provider_factory: 将 provider_name 映射为 AIProvider 实例的工厂函数。
+            preferred_route_id: 可选，优先使用的路由 ID。
+            **kwargs: 转发给 AIProvider.call() 的额外参数（如 model, max_tokens）。
+
+        Returns:
+            dict with keys:
+            - content (str): AI 响应文本
+            - model (str): 实际使用的模型
+            - usage (dict): token 用量
+            - route_id (str): 使用的路由 ID
+            - provider (str): 实际 Provider 名称
+            - fallback_used (bool): 是否使用了回退路由
+            - budget_exceeded (bool): 是否因预算超限被跳过
+        """
+        # 1) 解析路由
+        route = self.resolve_route(task_type, preferred_route_id)
+
+        # 2) 预算检查
+        if self.is_over_budget():
+            logger.warning(
+                "预算超限，跳过 AI 调用: route_id=%s budget=%.4f cost=%.4f",
+                route.route_id, self._cost_budget, self._cost_tracker.total,
+            )
+            return {
+                "content": "",
+                "model": "",
+                "usage": {},
+                "route_id": route.route_id,
+                "provider": "",
+                "fallback_used": False,
+                "budget_exceeded": True,
+            }
+
+        # 3) 尝试主路由 + 回退链
+        current_route: ProviderRoute | None = route
+        fallback_used = False
+        last_error: str | None = None
+
+        while current_route is not None:
+            provider = provider_factory(current_route.provider)
+            if provider is None:
+                logger.warning(
+                    "Provider '%s' 不可用，尝试回退", current_route.provider,
+                )
+                current_route = self.get_fallback_route(current_route)
+                fallback_used = True
+                continue
+
+            try:
+                result = provider.call(
+                    route_id=current_route.route_id,
+                    prompt=prompt,
+                    **kwargs,
+                )
+                # 4) 记录成本
+                cost = current_route.max_cost_usd_per_call
+                self.track_cost(current_route.route_id, cost)
+
+                result["fallback_used"] = fallback_used
+                result["budget_exceeded"] = False
+                return result
+
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(
+                    "Provider '%s' 调用失败: %s", current_route.provider, e,
+                )
+                current_route = self.get_fallback_route(current_route)
+                fallback_used = True
+
+        # 5) 所有 Provider 均失败
+        logger.error(
+            "所有 Provider 均失败: route_id=%s last_error=%s",
+            route.route_id, last_error,
+        )
+        return {
+            "content": "",
+            "model": "",
+            "usage": {},
+            "route_id": route.route_id,
+            "provider": "",
+            "fallback_used": True,
+            "budget_exceeded": False,
+            "error": last_error or "All providers failed",
+        }

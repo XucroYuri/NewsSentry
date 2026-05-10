@@ -1,8 +1,8 @@
-"""JudgeSkill 模块测试。
+"""JudgeSkill 模块测试（Phase 5 多 Provider 路由适配）。
 
 覆盖：初始化、judge 填充字段、stage 变更、JudgeResult 构建、
-provider 错误处理、JSON 响应解析。
-使用 RulesProvider（无需 API key）作为 mock AI provider 测试 plumbing。
+router 错误处理、JSON 响应解析、budget_exceeded 降级。
+使用 mock ProviderRouter 模拟多 Provider 路由。
 """
 from __future__ import annotations
 
@@ -23,10 +23,35 @@ from news_sentry.skills.judge.judge_skill import JudgeSkill
 
 # ── 辅助 fixture ────────────────────────────────────────────────────────
 
+
+def _make_mock_router(route_return: dict | None = None) -> mock.MagicMock:
+    """创建模拟 ProviderRouter，route() 返回指定结果。"""
+    router = mock.MagicMock()
+    router.route.return_value = route_return or {}
+    return router
+
+
+def _make_provider_factory(provider=None):
+    """创建 provider_factory callable，返回指定 provider 或 RulesProvider。"""
+    if provider is None:
+        provider = RulesProvider()
+    return lambda name: provider
+
+
 @pytest.fixture
-def rules_provider() -> RulesProvider:
-    """RulesProvider 实例，无需 API key。"""
-    return RulesProvider()
+def rules_skill() -> JudgeSkill:
+    """使用 RulesProvider + mock router 的 JudgeSkill。
+
+    Router 的 route() 委托给 RulesProvider.call()。
+    """
+    rules = RulesProvider()
+    router = mock.MagicMock()
+
+    def route_side_effect(task_type, prompt, provider_factory, preferred_route_id=None, **kwargs):
+        return rules.call(route_id=preferred_route_id or "judge.primary", prompt=prompt, task_type=task_type)
+
+    router.route.side_effect = route_side_effect
+    return JudgeSkill(router, lambda name: rules)
 
 
 @pytest.fixture
@@ -53,16 +78,21 @@ def sample_event() -> NewsEvent:
 class TestInit:
     """JudgeSkill 初始化测试。"""
 
-    def test_init_with_provider(self, rules_provider):
-        """JudgeSkill(RulesProvider()) 成功初始化。"""
-        skill = JudgeSkill(rules_provider)
-        assert skill._provider is rules_provider
+    def test_init_with_router(self):
+        """JudgeSkill(router, factory) 成功初始化。"""
+        router = _make_mock_router()
+        factory = _make_provider_factory()
+        skill = JudgeSkill(router, factory)
+        assert skill._router is router
+        assert skill._provider_factory is factory
         assert skill._sandbox_enforcer is None
 
-    def test_init_with_provider_and_sandbox(self, rules_provider):
+    def test_init_with_router_and_sandbox(self):
         """可传入 sandbox_enforcer。"""
+        router = _make_mock_router()
+        factory = _make_provider_factory()
         sandbox = object()
-        skill = JudgeSkill(rules_provider, sandbox_enforcer=sandbox)
+        skill = JudgeSkill(router, factory, sandbox_enforcer=sandbox)
         assert skill._sandbox_enforcer is sandbox
 
 
@@ -73,8 +103,8 @@ class TestJudge:
 
     def test_judge_populates_fields(self, sample_event):
         """调用 judge() 后 news_value_score/china_relevance/title_translated 被填充。"""
-        mock_provider = mock.MagicMock()
-        mock_provider.call.return_value = {
+        router = mock.MagicMock()
+        router.route.return_value = {
             "content": json.dumps({
                 "news_value_score": 75,
                 "china_relevance": 60,
@@ -90,9 +120,11 @@ class TestJudge:
             "usage": {},
             "route_id": "judge.primary",
             "provider": "openai",
+            "fallback_used": False,
+            "budget_exceeded": False,
         }
 
-        skill = JudgeSkill(mock_provider)
+        skill = JudgeSkill(router, lambda name: None)
         result = skill.judge(sample_event, "run-001")
 
         assert result.news_value_score is not None
@@ -100,17 +132,15 @@ class TestJudge:
         assert result.news_value_score == 75
         assert result.china_relevance == 60
 
-    def test_judge_stage_changed(self, rules_provider, sample_event):
+    def test_judge_stage_changed(self, rules_skill, sample_event):
         """pipeline_stage 从 FILTERED 变为 JUDGED。"""
-        skill = JudgeSkill(rules_provider)
-        result = skill.judge(sample_event, "run-001")
-
+        result = rules_skill.judge(sample_event, "run-001")
         assert result.pipeline_stage == PipelineStage.JUDGED
 
     def test_judge_judge_result(self, sample_event):
         """event.judge_result 包含 recommendation/rationale/confidence/flags。"""
-        mock_provider = mock.MagicMock()
-        mock_provider.call.return_value = {
+        router = mock.MagicMock()
+        router.route.return_value = {
             "content": json.dumps({
                 "news_value_score": 60,
                 "china_relevance": 40,
@@ -127,9 +157,11 @@ class TestJudge:
             "usage": {},
             "route_id": "judge.primary",
             "provider": "openai",
+            "fallback_used": False,
+            "budget_exceeded": False,
         }
 
-        skill = JudgeSkill(mock_provider)
+        skill = JudgeSkill(router, lambda name: None)
         result = skill.judge(sample_event, "run-001")
 
         assert result.judge_result is not None
@@ -143,44 +175,82 @@ class TestJudge:
         assert isinstance(result.judge_result.flags, list)
         assert "priority_topic" in result.judge_result.flags
 
-    def test_judge_sets_sentiment_score(self, rules_provider, sample_event):
+    def test_judge_sets_sentiment_score(self, rules_skill, sample_event):
         """sentiment_score 字段被设置。"""
-        skill = JudgeSkill(rules_provider)
-        result = skill.judge(sample_event, "run-001")
-
+        result = rules_skill.judge(sample_event, "run-001")
         assert result.sentiment_score is not None
         assert -1.0 <= result.sentiment_score <= 1.0
 
-    def test_judge_handles_provider_error(self, sample_event):
-        """mock provider.call() 抛异常，judge 不崩溃，stage 仍变为 JUDGED。"""
-        bad_provider = mock.MagicMock()
-        bad_provider.call.side_effect = RuntimeError("API 不可用")
+    def test_judge_handles_router_error(self, sample_event):
+        """mock router.route() 返回 error，judge 不崩溃，stage 仍变为 JUDGED。"""
+        router = mock.MagicMock()
+        router.route.return_value = {
+            "content": "",
+            "model": "",
+            "usage": {},
+            "route_id": "judge.primary",
+            "provider": "",
+            "fallback_used": True,
+            "budget_exceeded": False,
+            "error": "All providers failed",
+        }
 
-        skill = JudgeSkill(bad_provider)
+        skill = JudgeSkill(router, lambda name: None)
         result = skill.judge(sample_event, "run-001")
 
         # 不崩溃，stage 仍推进为 JUDGED
         assert result.pipeline_stage == PipelineStage.JUDGED
-        # 原有字段可能未变（取决于实现）
-        bad_provider.call.assert_called_once()
+        router.route.assert_called_once()
 
-    def test_judge_handles_provider_error_preserves_existing_fields(self, sample_event):
-        """AI provider 失败时保留已有的规则研判字段。"""
+    def test_judge_handles_router_exception(self, sample_event):
+        """router.route() 抛异常，保留已有字段，stage 仍变为 JUDGED。"""
+        router = mock.MagicMock()
+        router.route.side_effect = RuntimeError("API 不可用")
+
+        skill = JudgeSkill(router, lambda name: None)
+        result = skill.judge(sample_event, "run-001")
+
+        # 不崩溃，stage 仍推进为 JUDGED
+        assert result.pipeline_stage == PipelineStage.JUDGED
+        router.route.assert_called_once()
+
+    def test_judge_handles_error_preserves_existing_fields(self, sample_event):
+        """AI router 失败时保留已有的规则研判字段。"""
         sample_event.news_value_score = 50
         sample_event.pipeline_stage = PipelineStage.JUDGED  # 已由规则研判设置
 
-        bad_provider = mock.MagicMock()
-        bad_provider.call.side_effect = RuntimeError("API 不可用")
+        router = mock.MagicMock()
+        router.route.side_effect = RuntimeError("API 不可用")
 
-        skill = JudgeSkill(bad_provider)
+        skill = JudgeSkill(router, lambda name: None)
         result = skill.judge(sample_event, "run-001")
 
         # 已有的规则研判字段保持不变
         assert result.news_value_score == 50
         assert result.pipeline_stage == PipelineStage.JUDGED
 
+    def test_judge_budget_exceeded_downgrades_to_monitor(self, sample_event):
+        """预算超限时，recommendation 降级为 monitor。"""
+        router = mock.MagicMock()
+        router.route.return_value = {
+            "content": "",
+            "model": "",
+            "usage": {},
+            "route_id": "judge.primary",
+            "provider": "",
+            "fallback_used": False,
+            "budget_exceeded": True,
+        }
+
+        skill = JudgeSkill(router, lambda name: None)
+        result = skill.judge(sample_event, "run-001")
+
+        assert result.judge_result is not None
+        assert result.judge_result.recommendation == JudgeRecommendation.MONITOR
+        assert result.pipeline_stage == PipelineStage.JUDGED
+
     def test_judge_parses_json_response(self, sample_event):
-        """mock provider 返回 content 为 JSON 字符串，验证解析。"""
+        """mock router 返回 content 为 JSON 字符串，验证解析。"""
         raw_json = json.dumps({
             "news_value_score": 85,
             "china_relevance": 70,
@@ -193,16 +263,18 @@ class TestJudge:
             "flags": ["china_significant", "high_value"],
         })
 
-        mock_provider = mock.MagicMock()
-        mock_provider.call.return_value = {
+        router = mock.MagicMock()
+        router.route.return_value = {
             "content": raw_json,
             "model": "gpt-4o-mini",
             "usage": {"total_tokens": 200},
             "route_id": "judge.primary",
             "provider": "openai",
+            "fallback_used": False,
+            "budget_exceeded": False,
         }
 
-        skill = JudgeSkill(mock_provider)
+        skill = JudgeSkill(router, lambda name: None)
         result = skill.judge(sample_event, "run-001")
 
         assert result.news_value_score == 85
@@ -217,7 +289,7 @@ class TestJudge:
         assert "china_significant" in result.judge_result.flags
 
     def test_judge_parses_json_with_markdown_wrapper(self, sample_event):
-        """mock provider 返回 markdown 包裹的 JSON（```json ... ```），验证解析。"""
+        """mock router 返回 markdown 包裹的 JSON，验证解析。"""
         raw_text = (
             '```json\n'
             '{"news_value_score": 60, "china_relevance": 40, '
@@ -228,16 +300,18 @@ class TestJudge:
             '```'
         )
 
-        mock_provider = mock.MagicMock()
-        mock_provider.call.return_value = {
+        router = mock.MagicMock()
+        router.route.return_value = {
             "content": raw_text,
             "model": "gpt-4o-mini",
             "usage": {},
             "route_id": "judge.primary",
             "provider": "openai",
+            "fallback_used": False,
+            "budget_exceeded": False,
         }
 
-        skill = JudgeSkill(mock_provider)
+        skill = JudgeSkill(router, lambda name: None)
         result = skill.judge(sample_event, "run-001")
 
         assert result.news_value_score == 60
@@ -279,23 +353,27 @@ class TestParseResponse:
 class TestMapRecommendation:
     """_map_recommendation 方法测试。"""
 
-    def test_known_values(self, rules_provider):
+    @pytest.fixture
+    def skill(self) -> JudgeSkill:
+        """创建 JudgeSkill 实例用于测试 _map_recommendation（router 不会被调用）。"""
+        router = _make_mock_router()
+        return JudgeSkill(router, lambda name: None)
+
+    def test_known_values(self, skill):
         """已知推荐值正确映射。"""
-        skill = JudgeSkill(rules_provider)
         assert skill._map_recommendation("publish") == JudgeRecommendation.PUBLISH
         assert skill._map_recommendation("review") == JudgeRecommendation.REVIEW
         assert skill._map_recommendation("archive") == JudgeRecommendation.ARCHIVE
         assert skill._map_recommendation("discard") == JudgeRecommendation.DISCARD
+        assert skill._map_recommendation("monitor") == JudgeRecommendation.MONITOR
 
-    def test_case_insensitive(self, rules_provider):
+    def test_case_insensitive(self, skill):
         """大小写不敏感。"""
-        skill = JudgeSkill(rules_provider)
         assert skill._map_recommendation("PUBLISH") == JudgeRecommendation.PUBLISH
         assert skill._map_recommendation("Review") == JudgeRecommendation.REVIEW
 
-    def test_unknown_falls_back_to_archive(self, rules_provider):
+    def test_unknown_falls_back_to_archive(self, skill):
         """未知值回退为 ARCHIVE。"""
-        skill = JudgeSkill(rules_provider)
         assert skill._map_recommendation("garbage") == JudgeRecommendation.ARCHIVE
 
 

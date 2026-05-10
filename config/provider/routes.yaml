@@ -2,8 +2,10 @@
 # 契约: docs/contracts-canonical.md §7
 # ADR: ADR-0005
 #
-# AI Provider 路由配置（Phase 5 实现前，provider/model 均为 placeholder）
-# 详见 docs/brainstorming/AIProvider与模型路由规格.md
+# AI Provider 路由配置 — Phase 5 多 Provider 路由
+# 可通过环境变量覆盖 provider/model：
+#   OPENAI_API_KEY / ANTHROPIC_API_KEY
+#   OPENAI_BASE_URL / ANTHROPIC_BASE_URL
 routes_version: "1.0.0"
 
 routes:
@@ -12,62 +14,75 @@ routes:
 
   - route_id: translate.fast
     task_type: translate
-    # Phase 5 填入实际 provider（如 openai / anthropic / gemini）
-    provider: "<placeholder>"
-    model: "<placeholder>"
+    provider: openai
+    model: gpt-4o-mini
     timeout_seconds: 30
-    max_cost_usd_per_call: 0.01
+    max_cost_usd_per_call: 0.001
     output_schema_ref: null
     audit: false
-    notes: "用于 collect 阶段快速预翻译（仅填 metadata.translation.title_pre）"
+    notes: "collect 阶段快速预翻译标题（metadata.translation.title_pre）"
 
   - route_id: translate.high
     task_type: translate
-    provider: "<placeholder>"
-    model: "<placeholder>"
+    provider: anthropic
+    model: claude-3-haiku-20240307
     timeout_seconds: 60
-    max_cost_usd_per_call: 0.05
+    max_cost_usd_per_call: 0.005
     output_schema_ref: null
     audit: true
-    notes: "用于 judge 阶段高质量翻译（填 title_translated / content_translated）"
+    fallback_route_ids:
+      - translate.fast
+    notes: "judge 阶段高质量翻译（title_translated / content_translated）"
 
   # ── 判断任务 ──────────────────────────────────────────
 
   - route_id: judge.primary
     task_type: judge
-    provider: "<placeholder>"
-    model: "<placeholder>"
+    provider: openai
+    model: gpt-4o
     timeout_seconds: 60
-    max_cost_usd_per_call: 0.10
-    # 输出须符合此 schema，保证 judge_result 结构合法
+    max_cost_usd_per_call: 0.02
     output_schema_ref: "schemas/toolrunresult.schema.json"
     audit: true
-    notes: "主判断路由：计算 news_value_score / china_relevance / recommendation"
+    fallback_route_ids:
+      - judge.anthropic
+    notes: "主研判路由：计算 news_value_score / china_relevance / recommendation"
+
+  - route_id: judge.anthropic
+    task_type: judge
+    provider: anthropic
+    model: claude-3-5-sonnet-20241022
+    timeout_seconds: 60
+    max_cost_usd_per_call: 0.02
+    output_schema_ref: "schemas/toolrunresult.schema.json"
+    audit: true
+    notes: "研判备用路由：OpenAI 主路由失败时切换"
 
   # ── 分类任务 ──────────────────────────────────────────
 
   - route_id: classify.primary
     task_type: classify
-    provider: "<placeholder>"
-    model: "<placeholder>"
+    provider: openai
+    model: gpt-4o-mini
     timeout_seconds: 30
-    max_cost_usd_per_call: 0.02
+    max_cost_usd_per_call: 0.003
     output_schema_ref: "schemas/classification.schema.json"
     audit: true
-    notes: "填写 metadata.classification L0–L3 结果"
+    fallback_route_ids:
+      - fallback.local
+    notes: "LLM 分类路由（L0–L3），失败回退到规则引擎"
 
   # ── 本地回退路由 ──────────────────────────────────────
 
   - route_id: fallback.local
     task_type: judge
     provider: local
-    # 本地 LLM（如 Ollama）model 名称，Phase 5 配置
-    model: "<placeholder-local-llm>"
+    model: rules-engine
     timeout_seconds: 120
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: false
-    notes: "当主路由失败时降级使用本地 LLM，输出质量较低，仅用于保底"
+    notes: "最终回退：本地规则引擎，无 API 依赖，输出质量较低"
 
 # 所有路由失败时的最终回退
 fallback_route_id: fallback.local
