@@ -600,11 +600,12 @@ class TestLoadTarget:
         loader = ConfigLoader(Path("."))
         config = loader.load_target("italy")
         assert config.target_id == "italy"
-        assert len(config.sources) == 9
+        assert len(config.sources) == 14
         source_ids = {s["source_id"] for s in config.sources}
         assert source_ids == {
             "ansa", "repubblica", "corriere", "agi", "fao-rss",
             "tgcom24", "lastampa", "ilfattoquotidiano", "ansa-en",
+            "ilmessaggero", "rainews", "ilsole24ore", "thelocal-it", "sky-tg24",
         }
         assert "score_threshold" in config.filter_rules
         assert "l0_domains" in config.classification_rules

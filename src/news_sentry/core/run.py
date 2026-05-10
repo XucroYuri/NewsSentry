@@ -162,6 +162,7 @@ def bounded_run(
 
     # ── 写入运行日志 ────────────────────────────────────────
     log_path = run_log.write()
+    _prune_old_logs(log_dir, keep=100)
     ctx.run_log_path = str(log_path)
     ctx.errors_count = run_log.errors_count
     return ctx
@@ -355,6 +356,17 @@ def _run_all(
 
 
 # ── 辅助函数 ───────────────────────────────────────────────────
+
+
+def _prune_old_logs(log_dir: Path, keep: int = 100) -> None:
+    """清理旧运行日志，只保留最近 keep 个 JSON 文件。"""
+    json_files = sorted(
+        log_dir.glob("*.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for f in json_files[keep:]:
+        f.unlink()
 
 
 def _load_events_from_dir(directory: Path) -> list[NewsEvent]:
