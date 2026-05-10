@@ -117,8 +117,11 @@ class TestFilterStageWithCollectedEvents:
         assert ctx.events_filtered >= 0
 
         # 验证运行日志已写入
-        log_files = list(
-            (tmp_path / "data" / "test-target" / "logs").glob("*.json")
+        log_dir = tmp_path / "data" / "test-target" / "logs"
+        log_files = sorted(
+            log_dir.glob("*.json"),
+            key=lambda f: f.stat().st_mtime,
+            reverse=True,
         )
         assert len(log_files) >= 1, "运行日志应已写入"
         log_data = json.loads(log_files[0].read_text(encoding="utf-8"))
