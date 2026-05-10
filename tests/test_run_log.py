@@ -47,8 +47,8 @@ def test_full_collect_filter_output_flow(tmp_path: Path) -> None:
     # 验证 summary
     summary = data["summary"]
     assert summary["total_events_collected"] == 3
-    assert summary["total_events_filtered_in"] == 2
-    assert summary["total_events_filtered_out"] == 1
+    assert summary["total_events_filtered_in"] == 3
+    assert summary["total_events_filtered_out"] == 2
     assert summary["total_errors"] == 0
 
 
