@@ -108,14 +108,101 @@ keyword_rules:
   - keyword: "immigrazione"
     weight: 0.7
     language: it
+  - keyword: "profughi"
+    weight: 0.75
+    language: it
   - keyword: "Lampedusa"
     weight: 0.85
     language: it
+
+  # ── 国际关系 ──────────────────────────────────────────
+  - keyword: "Trump"
+    weight: 0.80
+    language: en
+  - keyword: "USA"
+    weight: 0.65
+    language: en
+  - keyword: "Russia"
+    weight: 0.80
+    language: it
+  - keyword: "Ucraina"
+    weight: 0.85
+    language: it
+  - keyword: "NATO"
+    weight: 0.75
+    language: en
+  - keyword: "guerra"
+    weight: 0.80
+    language: it
+  - keyword: "pace"
+    weight: 0.65
+    language: it
+  - keyword: "Israele"
+    weight: 0.80
+    language: it
+  - keyword: "Palestina"
+    weight: 0.75
+    language: it
+  - keyword: "Medio Oriente"
+    weight: 0.75
+    language: it
+  - keyword: "ONU"
+    weight: 0.65
+    language: it
+
+  # ── 社会 ─────────────────────────────────────────────
+  - keyword: "sciopero"
+    weight: 0.70
+    language: it
+  - keyword: "protesta"
+    weight: 0.70
+    language: it
+  - keyword: "manifestazione"
+    weight: 0.65
+    language: it
+  - keyword: "sanità"
+    weight: 0.70
+    language: it
+  - keyword: "scuola"
+    weight: 0.60
+    language: it
+  - keyword: "università"
+    weight: 0.60
+    language: it
+
+  # ── 重要人物 ──────────────────────────────────────────
+  - keyword: "Mattarella"
+    weight: 0.85
+    language: it
+  - keyword: "Papa Francesco"
+    weight: 0.85
+    language: it
+  - keyword: "Pope"
+    weight: 0.80
+    language: en
+  - keyword: "Vaticano"
+    weight: 0.75
+    language: it
+  - keyword: "Santa Sede"
+    weight: 0.75
+    language: it
+  - keyword: "Holy See"
+    weight: 0.70
+    language: en
 
   # ── 能源 ─────────────────────────────────────────────
   - keyword: "energia"
     weight: 0.7
     language: it
+  - keyword: "energy"
+    weight: 0.6
+    language: en
+  - keyword: "nucleare"
+    weight: 0.75
+    language: it
+  - keyword: "nuclear"
+    weight: 0.7
+    language: en
   - keyword: "gas"
     weight: 0.7
     language: it

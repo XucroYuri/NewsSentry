@@ -5,6 +5,7 @@ Input: list[NewsEvent] at stage=collected. Output: list[NewsEvent] at stage=filt
 """
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -104,7 +105,9 @@ class RulesFilter:
             kw = str(rule.get("keyword", ""))
             if not kw:
                 continue
-            if kw.lower() in search_lower:
+            # 使用 \b 词边界防止短词误匹配子串（如 Cina → Bonacina）
+            pattern = r'\b' + re.escape(kw) + r'\b'
+            if re.search(pattern, search_lower, re.IGNORECASE):
                 total += float(rule.get("weight", 0)) * 100
 
         return min(int(total), 100)
