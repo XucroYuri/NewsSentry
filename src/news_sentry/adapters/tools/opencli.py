@@ -74,6 +74,18 @@ class OpenCLIToolAdapter:
                 },
             )
 
+        # 参数 schema 校验（ADR-0011 §exit_codes 及 parameters_schema）
+        args_error = self._validate_args(
+            tool_id,
+            tool_def.get("parameters_schema", {}),
+            validated_args,
+        )
+        if args_error is not None:
+            return ToolRunResult(
+                tool_id=tool_id, run_id=run_id, success=False,
+                exit_code=2, error=args_error,
+            )
+
         command = self._build_command(tool_id, validated_args)
         if not command:
             return ToolRunResult(
@@ -123,15 +135,14 @@ class OpenCLIToolAdapter:
                 error={"type": "opencli_not_installed", "message": msg},
             )
 
-        exit_map = tool_def.get("exit_codes", {})
-        success = proc.returncode == 0
-        error: dict[str, str] | None = None
-        if not success:
-            error_type = exit_map.get(str(proc.returncode), "unknown_error")
-            error = {
-                "type": error_type,
-                "message": proc.stderr.strip() or proc.stdout.strip(),
-            }
+        error = self._map_exit_code(tool_id, proc.returncode)
+        if error is None:
+            success = True
+        else:
+            success = False
+            stderr_msg = proc.stderr.strip()
+            if stderr_msg:
+                error["message"] = stderr_msg
 
         return ToolRunResult(
             tool_id=tool_id, run_id=run_id, success=success,
@@ -186,3 +197,86 @@ class OpenCLIToolAdapter:
             if candidate.is_file():
                 return candidate
         return Path("config/toolmanifest/opencli-baseline.yaml")
+
+    @staticmethod
+    def _validate_args(
+        tool_id: str, parameters_schema: dict[str, Any], args: dict[str, Any],
+    ) -> dict[str, str] | None:
+        """校验 args 是否符合 parameters_schema。返回 None 表示通过。
+
+        ADR-0011: 参数校验失败返回 exit_code=2 (args_invalid)。
+        """
+        if not parameters_schema:
+            return None
+
+        required: list[str] = list(parameters_schema.get("required", []) or [])
+        for name in required:
+            if name not in args:
+                return {
+                    "type": "args_invalid",
+                    "message": f"Missing required parameter: {name}",
+                }
+
+        properties: dict[str, Any] = parameters_schema.get("properties", {}) or {}
+        for name, value in args.items():
+            prop: dict[str, Any] = properties.get(name, {}) or {}
+            if not prop:
+                continue
+
+            enum_vals: Any = prop.get("enum")
+            if enum_vals is not None and value not in enum_vals:
+                return {
+                    "type": "args_invalid",
+                    "message": f"Invalid value for {name}: {value}",
+                }
+
+            if prop.get("type") == "integer":
+                if not isinstance(value, int):
+                    try:
+                        int(value)
+                    except (ValueError, TypeError):
+                        return {
+                            "type": "args_invalid",
+                            "message": f"Expected integer for {name}, got: {value}",
+                        }
+
+        return None
+
+    def _map_exit_code(self, tool_id: str, exit_code: int) -> dict[str, str] | None:
+        """将 exit code 映射为 error dict（ADR-0011 标准码）。
+
+        优先使用工具定义中的 exit_code_mapping，其次 exit_codes（向后兼容），
+        最后回退到 ADR-0011 默认映射。
+        返回 None 表示成功（exit_code 0）或空结果（exit_code 66）。
+        """
+        # ADR-0011 标准映射
+        adr_defaults: dict[int, dict[str, str] | None] = {
+            0: None,
+            66: None,
+            69: {"type": "browser_unavailable", "message": "Browser not connected"},
+            77: {"type": "auth_required", "message": "Authentication required"},
+            1: {"type": "tool_error", "message": "Tool execution error"},
+            2: {"type": "args_invalid", "message": "Invalid arguments"},
+        }
+
+        mapping: dict[int, dict[str, str] | None] = dict(adr_defaults)
+        tool_def = self._tools.get(tool_id, {})
+
+        # exit_code_mapping 覆盖（int code → string type）
+        for code, type_str in tool_def.get("exit_code_mapping", {}).items():
+            if type_str == "result_empty":
+                mapping[code] = None
+            else:
+                mapping[code] = {"type": type_str, "message": ""}
+
+        # exit_codes 向后兼容覆盖（string code → string type）
+        # 跳过 code 0（始终视为成功，不覆盖为 error dict）
+        for code_str, type_str in tool_def.get("exit_codes", {}).items():
+            code = int(code_str)
+            if code == 0:
+                continue
+            mapping[code] = {"type": type_str, "message": ""}
+
+        if exit_code in mapping:
+            return mapping[exit_code]
+        return {"type": "unknown_error", "message": f"Exit code {exit_code}"}
