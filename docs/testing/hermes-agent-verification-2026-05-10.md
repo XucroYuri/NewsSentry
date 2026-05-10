@@ -152,17 +152,28 @@
 
 | 指标 | 值 |
 |------|-----|
-| 测试 | 325 passed, 0 failed |
+| 测试 | 383 passed, 0 failed |
 | Lint (ruff) | All checks passed |
 | Type (mypy) | 38 source files, no issues |
-| 覆盖率 | 88% |
-| 信源 | 9 可用 (8 启用 + 1 间歇), 6 已禁用 |
+| 覆盖率 | 89% |
+| 信源 | 8 启用, 7 已禁用 (6 RSS 永久不可用 + 1 间歇 SSL) |
 | 关键词 | 91 个（52→91） |
 | Pipeline | collect=219 → filter=41 → judge=315 → output=318 |
 
+### 本次会话新增 (2026-05-10 Session 2)
+
+| 类别 | 内容 |
+|------|------|
+| **Phase 3 补完** | APICollector 实现 + 35 个单元测试 |
+| **Phase 4 CLI** | `news-sentry skill list` 和 `news-sentry tool list` 命令实现 |
+| **HEALTH-POLICY-001** | `Memory.is_source_degraded()` + _run_collect 自动跳过已降级源 |
+| **MEMORY-RETENTION-001** | `Memory.prune_old_ids(ttl_days=30)` 集成到 bounded_run |
+| **集成测试** | 14 个端到端 pipeline 测试 (tests/integration/test_pipeline_e2e.py) |
+| **RSS 源最终确认** | 全部 6 个禁用源 RSS URL 搜索完成：AGI (商业社无公开RSS)、RaiNews/SkyTG24 (已移除RSS)、IlSole24Ore (旧URL失效)、TheLocal-it (404)、FAO (旧URL失效) |
+
 ### 部署建议
 
-1. 搜索 corriere/agi/fao-rss/rainews/ilsole24ore/thelocal-it/sky-tg24 的新 RSS URL
+1. 6 个 RSS 源需人工联系获取新 URL（agi/rainews/ilsole24ore/thelocal-it/sky-tg24/fao-rss）
 2. 部署到真实 Hermes Agent 后复测 T1-T6
 3. Phase 5: 配置 AI Provider API key 启用 AI 研判和翻译
 

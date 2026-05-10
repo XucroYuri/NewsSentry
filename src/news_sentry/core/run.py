@@ -165,6 +165,13 @@ def bounded_run(
     _prune_old_logs(log_dir, keep=100)
     ctx.run_log_path = str(log_path)
     ctx.errors_count = run_log.errors_count
+
+    # ── 内存维护 ────────────────────────────────────────────
+    # MEMORY-RETENTION-001: 清理超过 30 天的已知 ID 条目
+    pruned = memory.prune_old_ids(ttl_days=30)
+    if pruned > 0:
+        run_log.log_event("memory", "prune", f"cleaned {pruned} stale known_ids")
+
     return ctx
 
 
@@ -192,6 +199,17 @@ def _run_collect(
         source_id = source_cfg.get("source_id", "?")
         if source_cfg.get("enabled") is False:
             continue
+
+        # HEALTH-POLICY-001: 自动跳过已降级源
+        if memory.is_source_degraded(source_id):
+            health = memory.get_source_health(source_id)
+            cf = health.get("consecutive_failures", 0)
+            run_log.log_event(
+                "collect", source_id,
+                f"degraded (consecutive_failures={cf})",
+            )
+            continue
+
         source_type = source_cfg.get("type", "rss")
         try:
             source_cfg["target_id"] = config.target_id

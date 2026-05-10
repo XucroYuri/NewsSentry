@@ -177,6 +177,43 @@ class Memory:
         """
         self.update_source_health(source_id, success=success, error_msg=error_msg)
 
+    def is_source_degraded(
+        self, source_id: str,
+        max_consecutive_failures: int = 5,
+        min_success_rate: float = 0.3,
+        min_total_runs: int = 10,
+    ) -> bool:
+        """判断源是否已降级（应暂停自动采集）。
+
+        HEALTH-POLICY-001: 连续失败 >= max_consecutive_failures 或
+        总成功率低于 min_success_rate（至少 min_total_runs 次运行后生效）。
+
+        Args:
+            source_id: 来源标识。
+            max_consecutive_failures: 连续失败阈值（默认 5）。
+            min_success_rate: 最低成功率阈值（默认 0.3）。
+            min_total_runs: 最小运行次数后才检查成功率（默认 10）。
+
+        Returns:
+            True 表示源应被暂停。
+        """
+        health = self.get_source_health(source_id)
+        if not health:
+            return False
+
+        consecutive = health.get("consecutive_failures", 0)
+        if isinstance(consecutive, int) and consecutive >= max_consecutive_failures:
+            return True
+
+        total = health.get("total_runs", 0)
+        failures = health.get("total_failures", 0)
+        if isinstance(total, int) and isinstance(failures, int) and total >= min_total_runs:
+            success_rate = (total - failures) / total
+            if success_rate < min_success_rate:
+                return True
+
+        return False
+
     # ------------------------------------------------------------------
     # Cursors（拉取游标）
     # ------------------------------------------------------------------

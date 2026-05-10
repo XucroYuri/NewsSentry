@@ -1,17 +1,155 @@
 """Implements: docs/spec/phase-3-kernel-mvp.md §3.4
 
-APICollector — fetches JSON API endpoints using httpx.
+APICollector — fetches JSON API endpoints using httpx and maps responses to NewsEvent.
 """
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlparse
 
-from news_sentry.models.newsevent import NewsEvent
+import httpx
+
+from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
 
 
 class APICollector:
+    """从 JSON API 端点采集新闻事件。
+
+    使用 httpx 发起 HTTP GET 请求，解析 JSON 响应。
+    网络错误、解析错误均向上抛 RuntimeError，由调用方通过 RunLog.log_error() 记录。
+    沙箱策略拦截时返回空列表。
+    """
+
     def __init__(self, config: dict[str, Any], sandbox_enforcer: Any) -> None:  # noqa: ANN401
-        raise NotImplementedError("Phase 3: APICollector.__init__")
+        self._config = config
+        self._sandbox = sandbox_enforcer
+        self._target_id: str = config["target_id"]
+        self._source_id: str = config["source_id"]
+        self._url: str = config.get("url", "") or ""
+        self._timeout: float = float(config.get("timeout_seconds", 30))
+        self._max_items: int = int(config.get("max_items_per_run", 50))
+        # 可选：JSON 响应到 NewsEvent 的字段映射
+        self._mapping: dict[str, str] = config.get("api_mapping", {}) or {}
 
     def collect(self, run_id: str) -> list[NewsEvent]:
-        raise NotImplementedError("Phase 3: APICollector.collect")
+        """从 API 端点抓取新闻并转换为 NewsEvent 列表。
+
+        API 响应预期为 JSON 对象，其中包含一个列表字段（默认 "items" 或 "data"）。
+        使用 api_mapping 配置将 JSON 字段映射到 NewsEvent 属性。
+
+        Returns:
+            NewsEvent 列表，pipeline_stage=COLLECTED。
+            沙箱策略拦截时返回空列表。
+
+        Raises:
+            RuntimeError: 网络错误、超时或响应格式无效时抛出。
+        """
+        if not self._url:
+            return []
+
+        parsed = urlparse(self._url)
+        host = parsed.hostname
+        if self._sandbox is not None and host and not self._sandbox.check_network_host(host):
+            return []
+
+        try:
+            response = httpx.get(self._url, timeout=self._timeout, follow_redirects=True)
+            response.raise_for_status()
+            data = response.json()
+        except Exception as e:
+            raise RuntimeError(
+                f"API fetch failed for {self._source_id}: {e}"
+            ) from e
+
+        if not isinstance(data, dict):
+            raise RuntimeError(
+                f"API response for {self._source_id} is not a JSON object"
+            )
+
+        # 定位条目列表：优先使用 api_mapping 中指定的列表键名，其次常见键名
+        items_key = self._mapping.get("items_key", "")
+        if items_key:
+            items = data.get(items_key, [])
+        else:
+            items = data.get("items") or data.get("data") or data.get("articles") or []
+
+        if not isinstance(items, list):
+            raise RuntimeError(
+                f"API response for {self._source_id}: items field is not a list"
+            )
+
+        events: list[NewsEvent] = []
+        for item in items[: self._max_items]:
+            if not isinstance(item, dict):
+                continue
+            try:
+                event = self._item_to_event(item, run_id)
+                events.append(event)
+            except Exception:  # noqa: S112
+                continue
+
+        return events
+
+    def _item_to_event(self, item: dict[str, Any], run_id: str) -> NewsEvent:
+        """将单个 API 响应条目转换为 NewsEvent。
+
+        字段映射优先级：api_mapping 配置 > 常见 JSON 字段名自动检测。
+        """
+        title_key = self._mapping.get("title", "title")
+        url_key = self._mapping.get("url", "url")
+        content_key = self._mapping.get("content", "content")
+        published_key = self._mapping.get("published_at", "published_at")
+        language_key = self._mapping.get("language", "")
+
+        title = str(item.get(title_key, item.get("title", "")) or "")
+        url = str(
+            item.get(url_key, item.get("url", item.get("link", ""))) or ""
+        )
+        content = str(
+            item.get(
+                content_key,
+                item.get("content", item.get("summary", item.get("description", ""))),
+            )
+            or ""
+        )
+        published_at = str(
+            item.get(
+                published_key,
+                item.get("published_at", item.get("date", item.get("pubDate", ""))),
+            )
+            or ""
+        )
+        lang_str = str(
+            item.get(language_key, item.get("language", item.get("lang", "mixed")))
+            or "mixed"
+        )
+
+        if not published_at:
+            published_at = datetime.now(UTC).isoformat()
+        collected_at = datetime.now(UTC).isoformat()
+
+        lang_map = {"it": Language.IT, "en": Language.EN, "zh": Language.ZH}
+        language = lang_map.get(lang_str[:2].lower(), Language.MIXED)
+
+        event_id = NewsEvent.make_id(self._target_id, self._source_id, url, published_at)
+
+        return NewsEvent(
+            id=event_id,
+            run_id=run_id,
+            source_id=self._source_id,
+            url=url,
+            title_original=title,
+            content_original=content,
+            language=language,
+            published_at=published_at,
+            collected_at=collected_at,
+            pipeline_stage=PipelineStage.COLLECTED,
+            metadata={
+                "collection": {
+                    "method": "api",
+                    "api_url": self._url,
+                    "raw_item_id": str(item.get("id", "")),
+                }
+            },
+        )

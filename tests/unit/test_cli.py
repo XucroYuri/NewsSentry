@@ -111,3 +111,36 @@ def test_validate_uses_declared_schema(tmp_path):
 
     assert result.exit_code == 0
     assert "valid:" in result.output
+
+
+# ------------------------------------------------------------------
+# skill list
+# ------------------------------------------------------------------
+
+
+def test_skill_list_outputs_skill_names():
+    """skill list 应输出 collect、filter、judge、output 等核心技能名称。"""
+    result = CliRunner().invoke(main, ["skill", "list"])
+    assert result.exit_code == 0
+    for name in ("collect", "filter", "judge", "output"):
+        assert name in result.output
+
+
+def test_skill_list_no_error():
+    """skill list 应以 exit_code 0 退出。"""
+    result = CliRunner().invoke(main, ["skill", "list"])
+    assert result.exit_code == 0
+
+
+# ------------------------------------------------------------------
+# tool list
+# ------------------------------------------------------------------
+
+
+def test_tool_list_outputs_tool_ids():
+    """tool list 应输出 config/toolmanifest/ 中定义的工具 ID。"""
+    result = CliRunner().invoke(main, ["tool", "list"])
+    assert result.exit_code == 0
+    # opencli-baseline.yaml 中定义的 12 条工具
+    for tool_id in ("opencli.fetch", "opencli.search", "opencli.extract"):
+        assert tool_id in result.output
