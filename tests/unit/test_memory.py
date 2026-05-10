@@ -179,6 +179,90 @@ def test_record_source_health_accepts_run_id(tmp_path: Path) -> None:
 
 
 # ------------------------------------------------------------------
+# is_source_degraded (HEALTH-POLICY-001)
+# ------------------------------------------------------------------
+
+
+def test_is_source_degraded_false_for_healthy_source(tmp_path: Path) -> None:
+    """少量失败 + 高成功率 → 不降级。"""
+    mem = Memory(tmp_path)
+    mem.update_source_health("ansa", success=True)
+    mem.update_source_health("ansa", success=True)
+    mem.update_source_health("ansa", success=True)
+    mem.update_source_health("ansa", success=True)
+    mem.update_source_health("ansa", success=False, error_msg="transient")
+    # 1 次失败，consecutive=1 < 5, success_rate=4/5=80% > 30%
+    assert mem.is_source_degraded("ansa") is False
+
+
+def test_is_source_degraded_true_for_consecutive_failures(tmp_path: Path) -> None:
+    """连续 5 次失败 → 触发降级。"""
+    mem = Memory(tmp_path)
+    for i in range(5):
+        mem.update_source_health("ansa", success=False, error_msg=f"fail-{i}")
+    assert mem.is_source_degraded("ansa") is True
+
+
+def test_is_source_degraded_true_for_low_success_rate(tmp_path: Path) -> None:
+    """10+ 次运行后成功率低于 30% → 触发降级。"""
+    mem = Memory(tmp_path)
+    # 10 次运行，只有 2 次成功 → 成功率 20% < 30%
+    for _ in range(2):
+        mem.update_source_health("ansa", success=True)
+    for _ in range(8):
+        mem.update_source_health("ansa", success=False, error_msg="timeout")
+    health = mem.get_source_health("ansa")
+    assert health["total_runs"] == 10
+    assert mem.is_source_degraded("ansa") is True
+
+
+def test_is_source_degraded_false_for_new_source(tmp_path: Path) -> None:
+    """运行次数不足 min_total_runs 时不检查成功率。"""
+    mem = Memory(tmp_path)
+    # 5 次失败 + 1 次成功(重置 consecutive) + 3 次失败 = 9 次运行
+    # consecutive=3 < 5, success_rate=1/9≈11%, total_runs=9 < min_total_runs=10
+    for _ in range(5):
+        mem.update_source_health("corriere", success=False, error_msg="fail")
+    mem.update_source_health("corriere", success=True)
+    for _ in range(3):
+        mem.update_source_health("corriere", success=False, error_msg="fail")
+    assert mem.is_source_degraded("corriere") is False
+
+
+def test_is_source_degraded_unknown_source_returns_false(tmp_path: Path) -> None:
+    """未记录的源 get_source_health 返回 {} → 不降级。"""
+    mem = Memory(tmp_path)
+    assert mem.get_source_health("nonexistent") == {}
+    assert mem.is_source_degraded("nonexistent") is False
+
+
+def test_is_source_degraded_custom_thresholds(tmp_path: Path) -> None:
+    """验证 max_consecutive_failures 和 min_success_rate 自定义参数。"""
+    mem = Memory(tmp_path)
+    # 3 次连续失败，默认阈值 5 不会触发，但自定义阈值 3 会触发
+    for _ in range(3):
+        mem.update_source_health("ansa", success=False, error_msg="fail")
+    assert mem.is_source_degraded("ansa") is False  # 默认 5
+    assert mem.is_source_degraded("ansa", max_consecutive_failures=3) is True
+
+    # 成功率 56.25% — 默认 30% 不触发，自定义 60% 触发
+    mem2 = Memory(tmp_path)
+    # 7S + 3F = 10 runs, consecutive=3
+    for _ in range(7):
+        mem2.update_source_health("corriere", success=True)
+    for _ in range(3):
+        mem2.update_source_health("corriere", success=False, error_msg="fail")
+    # 1S + 4F + 1S = 6 more, total 16 runs, 9 success, consecutive=0
+    mem2.update_source_health("corriere", success=True)
+    for _ in range(4):
+        mem2.update_source_health("corriere", success=False, error_msg="fail")
+    mem2.update_source_health("corriere", success=True)
+    # 16 runs, 9 success → 56.25%
+    assert mem2.is_source_degraded("corriere") is False  # 默认 30%
+    assert mem2.is_source_degraded("corriere", min_success_rate=0.6) is True
+
+
+# ------------------------------------------------------------------
 # Cursors
 # ------------------------------------------------------------------
 
