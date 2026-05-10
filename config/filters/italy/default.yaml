@@ -118,19 +118,28 @@ keyword_rules:
   # ── 国际关系 ──────────────────────────────────────────
   - keyword: "Trump"
     weight: 0.80
-    language: en
+    language: it
   - keyword: "USA"
     weight: 0.65
-    language: en
+    language: it
   - keyword: "Russia"
     weight: 0.80
+    language: it
+  - keyword: "Mosca"
+    weight: 0.75
+    language: it
+  - keyword: "Putin"
+    weight: 0.85
     language: it
   - keyword: "Ucraina"
     weight: 0.85
     language: it
+  - keyword: "Zelensky"
+    weight: 0.80
+    language: it
   - keyword: "NATO"
     weight: 0.75
-    language: en
+    language: it
   - keyword: "guerra"
     weight: 0.80
     language: it
@@ -148,6 +157,18 @@ keyword_rules:
     language: it
   - keyword: "ONU"
     weight: 0.65
+    language: it
+  - keyword: "Iran"
+    weight: 0.80
+    language: it
+  - keyword: "Venezuela"
+    weight: 0.70
+    language: it
+  - keyword: "Francia"
+    weight: 0.65
+    language: it
+  - keyword: "dittatura"
+    weight: 0.75
     language: it
 
   # ── 社会 ─────────────────────────────────────────────
@@ -168,6 +189,21 @@ keyword_rules:
     language: it
   - keyword: "università"
     weight: 0.60
+    language: it
+  - keyword: "morti"
+    weight: 0.70
+    language: it
+  - keyword: "incidente"
+    weight: 0.65
+    language: it
+  - keyword: "virus"
+    weight: 0.70
+    language: it
+  - keyword: "contagi"
+    weight: 0.65
+    language: it
+  - keyword: "processo"
+    weight: 0.65
     language: it
 
   # ── 重要人物 ──────────────────────────────────────────
