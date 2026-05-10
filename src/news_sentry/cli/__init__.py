@@ -293,6 +293,26 @@ def _run_doctor_checks() -> list[dict[str, object]]:
         "message": "found" if git_dir.is_dir() else "not a git repo",
     })
 
+    # 8. Adapter health — skills and tools
+    try:
+        from news_sentry.core.adapter_health import check_all_adapters
+        from news_sentry.core.skill_registry import SkillRegistry
+        from news_sentry.core.tool_registry import ToolRegistry
+
+        skills_dir_path = project_root / "src" / "news_sentry" / "skills"
+        tool_dir_path = project_root / "config" / "toolmanifest"
+        tr = ToolRegistry(tool_dir_path)
+        sr = SkillRegistry(skills_dir_path)
+        adapter_results = check_all_adapters(tr, sr)
+        results.extend(adapter_results)
+    except Exception as e:
+        results.append({
+            "name": "Adapter health",
+            "ok": False,
+            "severity": "warning",
+            "message": str(e),
+        })
+
     return results
 
 
