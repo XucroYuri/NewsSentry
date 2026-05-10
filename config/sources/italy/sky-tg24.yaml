@@ -1,0 +1,19 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015
+source_id: sky-tg24
+display_name: "Sky TG24"
+type: rss
+url: "https://tg24.sky.it/rss/home.xml"
+
+# Sky Italia 全天候新闻频道
+credibility_base: 0.80
+
+fetch_interval_minutes: 20
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+
+health:
+  last_success_at: null
+  consecutive_failures: 0
