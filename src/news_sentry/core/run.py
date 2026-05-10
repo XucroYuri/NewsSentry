@@ -16,6 +16,7 @@ from news_sentry.adapters.tools.opencli import OpenCLIToolAdapter
 from news_sentry.core.config import ConfigLoader, ResolvedConfig
 from news_sentry.core.file_writer import FileWriter
 from news_sentry.core.memory import Memory
+from news_sentry.core.ratelimit import RateLimiter
 from news_sentry.core.run_log import RunLog, write_heartbeat
 from news_sentry.core.sandbox import SandboxEnforcer, SandboxPolicy
 from news_sentry.models.newsevent import NewsEvent, PipelineStage
@@ -200,6 +201,9 @@ def _run_collect(
     run_log.log_phase_start("collect")
     t0 = datetime.now(UTC)
 
+    # 共享速率限制器，跨所有采集器协调按源最小抓取间隔
+    rate_limiter = RateLimiter()
+
     # 延迟初始化 OpenCLI adapter（首次遇到 opencli 类型时加载）
     _opencli_adapter: OpenCLIToolAdapter | None = None
 
@@ -230,10 +234,10 @@ def _run_collect(
                     source_cfg, _opencli_adapter, sandbox,
                 )
             elif source_type == "api":
-                collector_obj = APICollector(source_cfg, sandbox)
+                collector_obj = APICollector(source_cfg, sandbox, rate_limiter)
             else:
                 # 默认 rss
-                collector_obj = RSSCollector(source_cfg, sandbox)
+                collector_obj = RSSCollector(source_cfg, sandbox, rate_limiter)
 
             events = collector_obj.collect(run_id)
             all_events.extend(events)

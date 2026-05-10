@@ -4,10 +4,12 @@
 source_id: sky-tg24
 display_name: "Sky TG24"
 type: rss
-url: "https://tg24.sky.it/rss/home.xml" # 404 on 2026-05-10 integration test
+url: "https://tg24.sky.it/rss/home.xml"  # 2026-05-10: 永久失效，Sky TG24 已不提供 RSS，仅通过 Spreaker 发布播客
 
 # Sky Italia 全天候新闻频道
 credibility_base: 0.80
+deprecated: true
+deprecated_reason: "No RSS feed available — Sky TG24 only offers podcasts via Spreaker"
 
 fetch_interval_minutes: 20
 max_items_per_run: 50

@@ -35,6 +35,30 @@ keyword_rules:
   - keyword: "premier"
     weight: 0.8
     language: it
+  - keyword: "ministro"
+    weight: 0.8
+    language: it
+  - keyword: "senato"
+    weight: 0.75
+    language: it
+  - keyword: "camera dei deputati"
+    weight: 0.75
+    language: it
+  - keyword: "lega"
+    weight: 0.75
+    language: it
+  - keyword: "partito democratico"
+    weight: 0.75
+    language: it
+  - keyword: "fratelli d'italia"
+    weight: 0.8
+    language: it
+  - keyword: "movimento 5 stelle"
+    weight: 0.75
+    language: it
+  - keyword: "forza italia"
+    weight: 0.75
+    language: it
 
   # ── 经济 ─────────────────────────────────────────────
   - keyword: "economia"
@@ -51,6 +75,27 @@ keyword_rules:
     language: it
   - keyword: "spread"
     weight: 0.8
+    language: it
+  - keyword: "banca d'italia"
+    weight: 0.8
+    language: it
+  - keyword: "manovra"
+    weight: 0.8
+    language: it
+  - keyword: "tasse"
+    weight: 0.7
+    language: it
+  - keyword: "fisco"
+    weight: 0.7
+    language: it
+  - keyword: "industria"
+    weight: 0.65
+    language: it
+  - keyword: "made in italy"
+    weight: 0.7
+    language: it
+  - keyword: "export"
+    weight: 0.65
     language: it
 
   # ── 中意关系（高权重） ────────────────────────────────
@@ -75,6 +120,36 @@ keyword_rules:
   - keyword: "Pechino"
     weight: 0.9
     language: it
+  - keyword: "Xi Jinping"
+    weight: 1.0
+    language: en
+  - keyword: "BRI"
+    weight: 0.9
+    language: en
+  - keyword: "Made in China"
+    weight: 0.8
+    language: en
+  - keyword: "dazi"
+    weight: 0.85
+    language: it
+  - keyword: "import"
+    weight: 0.7
+    language: it
+  - keyword: "commercio"
+    weight: 0.7
+    language: it
+  - keyword: "investimenti"
+    weight: 0.75
+    language: it
+  - keyword: "tecnologia cinese"
+    weight: 0.85
+    language: it
+  - keyword: "Huawei"
+    weight: 0.85
+    language: it
+  - keyword: "soft power"
+    weight: 0.7
+    language: en
 
   # ── 欧盟 ─────────────────────────────────────────────
   - keyword: "Unione Europea"
@@ -88,6 +163,21 @@ keyword_rules:
     language: it
   - keyword: "eurozona"
     weight: 0.7
+    language: it
+  - keyword: "parlamento europeo"
+    weight: 0.7
+    language: it
+  - keyword: "consiglio europeo"
+    weight: 0.7
+    language: it
+  - keyword: "BCE"
+    weight: 0.8
+    language: it
+  - keyword: "euro"
+    weight: 0.65
+    language: it
+  - keyword: "sovranità"
+    weight: 0.75
     language: it
 
   # ── 安全与司法 ────────────────────────────────────────
@@ -170,6 +260,21 @@ keyword_rules:
   - keyword: "dittatura"
     weight: 0.75
     language: it
+  - keyword: "Mediterraneo"
+    weight: 0.7
+    language: it
+  - keyword: "Africa"
+    weight: 0.65
+    language: it
+  - keyword: "Libia"
+    weight: 0.7
+    language: it
+  - keyword: "Turchia"
+    weight: 0.7
+    language: it
+  - keyword: "dazi doganali"
+    weight: 0.8
+    language: it
 
   # ── 社会 ─────────────────────────────────────────────
   - keyword: "sciopero"
@@ -204,6 +309,18 @@ keyword_rules:
     language: it
   - keyword: "processo"
     weight: 0.65
+    language: it
+  - keyword: "clima"
+    weight: 0.65
+    language: it
+  - keyword: "ambiente"
+    weight: 0.65
+    language: it
+  - keyword: "turismo"
+    weight: 0.6
+    language: it
+  - keyword: "cultura"
+    weight: 0.6
     language: it
 
   # ── 重要人物 ──────────────────────────────────────────
@@ -316,3 +433,20 @@ keyword_rules:
   - keyword: "snap election"
     weight: 0.90
     language: en
+
+  # ── 科技 (Technology) ────────────────────────────────
+  - keyword: "intelligenza artificiale"
+    weight: 0.75
+    language: it
+  - keyword: "cybersecurity"
+    weight: 0.7
+    language: it
+  - keyword: "AI"
+    weight: 0.7
+    language: en
+  - keyword: "digitale"
+    weight: 0.65
+    language: it
+  - keyword: "5G"
+    weight: 0.75
+    language: it

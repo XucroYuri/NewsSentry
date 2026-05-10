@@ -44,6 +44,12 @@
       "type": "integer",
       "minimum": 1
     },
+    "fetch_interval_seconds": {
+      "type": "number",
+      "minimum": 0.1,
+      "default": 5.0,
+      "description": "Per-fetch rate limit: minimum seconds between HTTP requests to this source (used by RateLimiter). Defaults to 5.0s."
+    },
     "max_items_per_run": {
       "type": "integer",
       "minimum": 1
@@ -54,6 +60,15 @@
       "maximum": 300
     },
     "enabled": { "type": "boolean" },
+    "deprecated": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, source is no longer available. Used with enabled=false for documentation."
+    },
+    "deprecated_reason": {
+      "type": "string",
+      "description": "Why the source was deprecated (e.g., RSS removed, paywall)"
+    },
     "health": {
       "type": "object",
       "additionalProperties": false,
