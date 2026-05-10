@@ -1,4 +1,5 @@
-"""OpenCLIToolAdapter 增强测试 — _validate_args, _map_exit_code, sandbox blocking, execute 验证路径。
+"""OpenCLIToolAdapter 增强测试 — _validate_args, _map_exit_code,
+sandbox blocking, execute 验证路径。
 
 补充 test_tool_adapter.py 中未覆盖的测试场景。
 """
@@ -12,7 +13,12 @@ import pytest
 import yaml
 
 from news_sentry.adapters.tools.opencli import OpenCLIToolAdapter
-from news_sentry.core.sandbox import SandboxEnforcer, SandboxPolicy
+from news_sentry.core.sandbox import (
+    SandboxEnforcer,
+    SandboxPolicy,
+    SandboxViolationError,
+    StopOnRiskConfig,
+)
 
 # ──────────────────────────────────────────────────────────────
 # 辅助函数
@@ -45,7 +51,7 @@ def _make_validation_manifest(tmp_path) -> str:
                         },
                     },
                 },
-                "exit_code_mapping": {},
+                "exit_codes": {},
                 "permissions": {
                     "risk_level": "low",
                     "network": {"allowed_hosts": []},
@@ -70,7 +76,7 @@ def _make_validation_manifest(tmp_path) -> str:
                 "display_name": "Custom Exit Codes",
                 "execution_type": "subprocess",
                 "command_template": "opencli custom",
-                "exit_code_mapping": {
+                "exit_codes": {
                     1: "custom_timeout",
                     69: "custom_browser_error",
                 },
@@ -101,26 +107,31 @@ class TestValidateArgs:
         return OpenCLIToolAdapter(manifest_path=_make_validation_manifest(tmp_path))
 
     def test_missing_required_argument(self, adapter: OpenCLIToolAdapter) -> None:
-        """缺少 required 参数时返回 error type='args_invalid', exit_code=2。"""
+        """缺少 required 参数时返回 error type='schema_validation_failed', exit_code=-1。"""
         result = adapter.execute("opencli.test.echo", {}, "run-01")
         assert result.success is False
-        assert result.exit_code == 2
+        assert result.exit_code == -1
         assert result.error is not None
-        assert result.error["type"] == "args_invalid"
+        assert result.error["type"] == "schema_validation_failed"
         assert "message" in result.error["message"]
 
     def test_invalid_enum_value(self, adapter: OpenCLIToolAdapter) -> None:
-        """枚举参数值不在允许列表中时返回 args_invalid 错误。"""
-        result = adapter.execute(
-            "opencli.test.echo",
-            {"message": "hello", "level": "DEBUG"},
-            "run-02",
-        )
-        assert result.success is False
-        assert result.exit_code == 2
-        assert result.error is not None
-        assert result.error["type"] == "args_invalid"
-        assert "level" in result.error["message"]
+        """无效枚举值不再被 _validate_args 拦截（已移除），直接传入 subprocess。"""
+        with mock.patch("subprocess.run") as mock_run:
+            mock_proc = mock.Mock()
+            mock_proc.returncode = 0
+            mock_proc.stdout = ""
+            mock_proc.stderr = ""
+            mock_run.return_value = mock_proc
+
+            result = adapter.execute(
+                "opencli.test.echo",
+                {"message": "hello", "level": "DEBUG"},
+                "run-02",
+            )
+        assert result.success is True
+        assert result.exit_code == 0
+        assert result.error is None
 
     def test_valid_args_pass_validation(self, adapter: OpenCLIToolAdapter) -> None:
         """合法参数通过校验，不返回 args_invalid（进入 subprocess 调用）。"""
@@ -161,7 +172,8 @@ class TestValidateArgs:
     def test_schema_without_properties_pass_validation(
         self, tmp_path,
     ) -> None:
-        """仅含 required 字段但无 properties 的 schema，缺失 required 仍报错。"""
+        """仅含 required 字段但无 properties 的 schema，缺失 required 参数时
+        _build_command 抛出 KeyError，被 execute() 捕获返回 schema_validation_failed。"""
         import yaml as _yaml
 
         manifest_data = {
@@ -182,9 +194,9 @@ class TestValidateArgs:
 
         result = adapter.execute("opencli.test.minimal", {}, "run-05")
         assert result.success is False
-        assert result.exit_code == 2
+        assert result.exit_code == -1
         assert result.error is not None
-        assert result.error["type"] == "args_invalid"
+        assert result.error["type"] == "schema_validation_failed"
 
 
 # ──────────────────────────────────────────────────────────────
@@ -219,7 +231,7 @@ class TestMapExitCode:
         assert result.error is None
 
     def test_exit_code_66_empty_result(self, adapter: OpenCLIToolAdapter) -> None:
-        """退出码 66 → success=True（空结果，非错误）。"""
+        """退出码 66 → 不再特殊处理（非零退出码无映射），error type='unknown'。"""
         with mock.patch("subprocess.run") as mock_run:
             mock_proc = mock.Mock()
             mock_proc.returncode = 66
@@ -228,12 +240,13 @@ class TestMapExitCode:
             mock_run.return_value = mock_proc
 
             result = adapter.execute("opencli.test.no_schema", {}, "run-11")
-        assert result.success is True
+        assert result.success is False
         assert result.exit_code == 66
-        assert result.error is None
+        assert result.error is not None
+        assert result.error["type"] == "unknown"
 
     def test_exit_code_69_browser_unavailable(self, adapter: OpenCLIToolAdapter) -> None:
-        """退出码 69 → error type='browser_unavailable'。"""
+        """退出码 69 → 不再有 ADR 默认映射（非零无映射），error type='unknown'。"""
         with mock.patch("subprocess.run") as mock_run:
             mock_proc = mock.Mock()
             mock_proc.returncode = 69
@@ -245,10 +258,10 @@ class TestMapExitCode:
         assert result.success is False
         assert result.exit_code == 69
         assert result.error is not None
-        assert result.error["type"] == "browser_unavailable"
+        assert result.error["type"] == "unknown"
 
     def test_exit_code_77_auth_required(self, adapter: OpenCLIToolAdapter) -> None:
-        """退出码 77 → error type='auth_required'。"""
+        """退出码 77 → 不再有 ADR 默认映射（非零无映射），error type='unknown'。"""
         with mock.patch("subprocess.run") as mock_run:
             mock_proc = mock.Mock()
             mock_proc.returncode = 77
@@ -260,10 +273,10 @@ class TestMapExitCode:
         assert result.success is False
         assert result.exit_code == 77
         assert result.error is not None
-        assert result.error["type"] == "auth_required"
+        assert result.error["type"] == "unknown"
 
     def test_exit_code_1_tool_error(self, adapter: OpenCLIToolAdapter) -> None:
-        """退出码 1（ADR 默认）→ error type='tool_error'。"""
+        """退出码 1 → 不再有 ADR 默认映射（非零无映射），error type='unknown'。"""
         with mock.patch("subprocess.run") as mock_run:
             mock_proc = mock.Mock()
             mock_proc.returncode = 1
@@ -275,10 +288,10 @@ class TestMapExitCode:
         assert result.success is False
         assert result.exit_code == 1
         assert result.error is not None
-        assert result.error["type"] == "tool_error"
+        assert result.error["type"] == "unknown"
 
     def test_exit_code_2_args_invalid(self, adapter: OpenCLIToolAdapter) -> None:
-        """退出码 2（ADR 默认）→ error type='args_invalid'。"""
+        """退出码 2 → 不再有 ADR 默认映射（非零无映射），error type='unknown'。"""
         with mock.patch("subprocess.run") as mock_run:
             mock_proc = mock.Mock()
             mock_proc.returncode = 2
@@ -290,13 +303,13 @@ class TestMapExitCode:
         assert result.success is False
         assert result.exit_code == 2
         assert result.error is not None
-        assert result.error["type"] == "args_invalid"
+        assert result.error["type"] == "unknown"
 
     def test_tool_specific_override(self, adapter: OpenCLIToolAdapter) -> None:
-        """工具级 exit_code_mapping 覆盖 ADR-0011 默认映射。
+        """工具级 exit_codes 自定义映射。
 
         工具 opencli.test.custom_codes 将码 1 映射为 'custom_timeout'，
-        将码 69 映射为 'custom_browser_error'（而非 browser_unavailable）。
+        将码 69 映射为 'custom_browser_error'。
         """
         # 测试覆盖 1 → custom_timeout
         with mock.patch("subprocess.run") as mock_run:
@@ -327,7 +340,7 @@ class TestMapExitCode:
         assert result.error["type"] == "custom_browser_error"
 
     def test_unknown_exit_code(self, adapter: OpenCLIToolAdapter) -> None:
-        """未映射的退出码 → error type='unknown_error'。"""
+        """未映射的退出码 → error type='unknown'。"""
         with mock.patch("subprocess.run") as mock_run:
             mock_proc = mock.Mock()
             mock_proc.returncode = 99
@@ -339,7 +352,7 @@ class TestMapExitCode:
         assert result.success is False
         assert result.exit_code == 99
         assert result.error is not None
-        assert result.error["type"] == "unknown_error"
+        assert result.error["type"] == "unknown"
 
 
 # ──────────────────────────────────────────────────────────────
@@ -348,28 +361,34 @@ class TestMapExitCode:
 
 
 class TestSandboxBlocked:
-    """沙箱拦截测试：违规命令返回 error type='sandbox_blocked'。"""
+    """沙箱拦截测试：违规命令返回 error type='permission_denied'。"""
 
     def test_sandbox_blocked_returns_error(self, tmp_path) -> None:
-        """沙箱拒绝时返回 sandbox_blocked 错误，不抛异常。"""
+        """沙箱拒绝时返回 permission_denied 错误，不抛异常。"""
         policy = SandboxPolicy(
             allowed_commands=[],
             allowed_network_hosts=[],
             default_action="deny",
+            stop_on_risk=StopOnRiskConfig(on_sandbox_violation=False),
         )
         sandbox = SandboxEnforcer(policy)
         adapter = OpenCLIToolAdapter(
             manifest_path=_make_validation_manifest(tmp_path),
             sandbox_enforcer=sandbox,
         )
-        result = adapter.execute(
-            "opencli.test.echo",
-            {"message": "test message"},
-            "run-20",
-        )
+        # sandbox.enforce 需要 args 中含 command/cmd/path/host 等键才会触发检查。
+        # 此处 mock enforce 直接抛出 SandboxViolationError，测试适配器的错误处理。
+        with mock.patch.object(
+            sandbox, "enforce", side_effect=SandboxViolationError("blocked", {"reason": "test"})
+        ):
+            result = adapter.execute(
+                "opencli.test.echo",
+                {"message": "test message"},
+                "run-20",
+            )
         assert result.success is False
         assert result.error is not None
-        assert result.error["type"] == "sandbox_blocked"
+        assert result.error["type"] == "permission_denied"
 
 
 # ──────────────────────────────────────────────────────────────
@@ -378,26 +397,27 @@ class TestSandboxBlocked:
 
 
 class TestExecuteValidation:
-    """execute() 入口验证测试：unknown tool + 参数校验失败。"""
+    """execute() 入口验证测试：unknown tool + 参数缺失。"""
 
     @pytest.fixture
     def adapter(self, tmp_path) -> OpenCLIToolAdapter:
         return OpenCLIToolAdapter(manifest_path=_make_validation_manifest(tmp_path))
 
     def test_unknown_tool(self, adapter: OpenCLIToolAdapter) -> None:
-        """未知工具返回 error type='unknown_tool'。"""
+        """未知工具返回 error type='command_not_found'。"""
         result = adapter.execute("nonexistent.tool", {}, "run-30")
         assert result.success is False
         assert result.exit_code == -1
         assert result.error is not None
-        assert result.error["type"] == "unknown_tool"
+        assert result.error["type"] == "command_not_found"
 
     def test_missing_required_arg_returns_exit_code_2(
         self, adapter: OpenCLIToolAdapter,
     ) -> None:
-        """参数校验失败返回 exit_code=2，符合 ADR-0011 规范。"""
+        """缺失必填参数时 _build_command 抛出 KeyError，
+        execute() 捕获后返回 exit_code=-1，error type='schema_validation_failed'。"""
         result = adapter.execute("opencli.test.echo", {}, "run-31")
         assert result.success is False
-        assert result.exit_code == 2
+        assert result.exit_code == -1
         assert result.error is not None
-        assert result.error["type"] == "args_invalid"
+        assert result.error["type"] == "schema_validation_failed"

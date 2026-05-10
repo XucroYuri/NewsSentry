@@ -9,7 +9,6 @@ import yaml
 from news_sentry.core.tool_registry import ToolRegistry, load_from_config
 from news_sentry.models.manifests import ExecutionType, RiskLevel, ToolManifest
 
-
 # ──────────────────────────────────────────────────────────────
 # Fixtures
 # ──────────────────────────────────────────────────────────────

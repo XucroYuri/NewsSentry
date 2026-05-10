@@ -1,19 +1,26 @@
 """沙箱安全模块完整测试 — SandboxPolicy, SandboxEnforcer, SandboxViolationError。
 
 覆盖 check_command、check_write_path、check_network_host、enforce、
-_extract_host、_is_private_host 和异常类。
+_extract_host、_is_private_host 和异常类，以及 Phase 6 新增方法：
+check_read_path、check_browser_session、check_stop_on_risk、
+check_sensitive_data、audit_tool_call、write_security_log、
+blocked_patterns、deny_by_default、from_yaml_dict。
 """
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 
 import pytest
+import yaml
 
 from news_sentry.core.sandbox import (
+    SandboxDecision,
     SandboxEnforcer,
     SandboxPolicy,
     SandboxViolationError,
+    StopOnRiskError,
 )
 
 # =============================================================================
@@ -59,9 +66,9 @@ class TestSandboxPolicy:
         assert policy.allowed_commands == []
         assert policy.allowed_network_hosts == []
         assert policy.write_roots == []
-        assert policy.max_execution_time_ms == 30000
+        assert policy.max_execution_time_ms == 3600000  # Phase 6: 3600s * 1000
         assert policy.max_output_bytes == 1024 * 1024
-        assert policy.default_action == "allow"
+        assert policy.default_action == "deny"  # Phase 6: deny by default
 
     def test_sandbox_policy_custom_values(self, tmp_path: Path) -> None:
         """自定义值正确保存在策略对象中。"""
@@ -492,3 +499,459 @@ class TestEnforce:
     def test_enforce_host_key_legal(self, enforcer: SandboxEnforcer) -> None:
         """通过 'host' 键指定合法 host 通过检查。"""
         enforcer.enforce("curl", {"command": "curl", "host": "www.ansa.it"})
+
+
+# =============================================================================
+# check_read_path（Phase 6 新增）
+# =============================================================================
+
+
+class TestCheckReadPath:
+    """check_read_path — 读取路径限制检查。"""
+
+    def test_read_path_inside_roots_returns_true(self, tmp_path: Path) -> None:
+        """路径在 read_roots 内返回 True。"""
+        root = tmp_path / "readable"
+        root.mkdir()
+        f = root / "data.txt"
+        f.write_text("hello")
+        policy = SandboxPolicy(read_roots=[root])
+        enforcer = SandboxEnforcer(policy)
+        assert enforcer.check_read_path(f) is True
+
+    def test_read_path_outside_roots_returns_false(self, tmp_path: Path) -> None:
+        """路径在 read_roots 外返回 False。"""
+        root = tmp_path / "readable"
+        root.mkdir()
+        outside = tmp_path / "other" / "secret.txt"
+        outside.parent.mkdir()
+        outside.write_text("secret")
+        policy = SandboxPolicy(read_roots=[root])
+        enforcer = SandboxEnforcer(policy)
+        assert enforcer.check_read_path(outside) is False
+
+    def test_read_path_relative_returns_false(self) -> None:
+        """相对路径返回 False。"""
+        policy = SandboxPolicy(read_roots=[Path("/tmp")])  # noqa: S108
+        enforcer = SandboxEnforcer(policy)
+        assert enforcer.check_read_path(Path("relative/data.txt")) is False
+
+    def test_read_path_empty_roots_allows_all(self, tmp_path: Path) -> None:
+        """空 read_roots 允许所有路径。"""
+        f = tmp_path / "anything.txt"
+        f.write_text("ok")
+        policy = SandboxPolicy(read_roots=[])
+        enforcer = SandboxEnforcer(policy)
+        assert enforcer.check_read_path(f) is True
+
+
+# =============================================================================
+# check_browser_session（Phase 6 新增）
+# =============================================================================
+
+
+class TestCheckBrowserSession:
+    """check_browser_session — 浏览器 session profile 校验。"""
+
+    def _make_profile_yaml(
+        self, profiles_dir: Path, profile_id: str, auth_owner: str = "human-approved",
+    ) -> None:
+        """辅助：创建 profile YAML 文件。"""
+        profiles_dir.mkdir(parents=True, exist_ok=True)
+        profile_file = profiles_dir / f"{profile_id}.yaml"
+        profile_file.write_text(f"auth_owner: {auth_owner}\n")
+
+    def test_browser_session_allow_browser_false_raises(self) -> None:
+        """browser.allow_browser=False 时抛出 SandboxViolationError。"""
+        policy = SandboxPolicy()
+        policy.browser.allow_browser = False
+        enforcer = SandboxEnforcer(policy)
+        with pytest.raises(SandboxViolationError, match="浏览器功能未启用"):
+            enforcer.check_browser_session("chrome", "browser_tool")
+
+    def test_browser_session_allow_session_profiles_false_raises(self) -> None:
+        """profile.allow_session_profiles=False 时抛出 SandboxViolationError。"""
+        policy = SandboxPolicy()
+        policy.browser.allow_browser = True
+        policy.browser.allowed_profiles = ["chrome"]
+        policy.profile.allow_session_profiles = False
+        enforcer = SandboxEnforcer(policy)
+        with pytest.raises(SandboxViolationError, match="SessionProfile 未启用"):
+            enforcer.check_browser_session("chrome", "browser_tool")
+
+    def test_browser_session_profile_not_in_allowed_list_raises(self) -> None:
+        """profile_id 不在 allowed_profiles 中时抛出 SandboxViolationError。"""
+        policy = SandboxPolicy()
+        policy.browser.allow_browser = True
+        policy.browser.allowed_profiles = ["firefox"]
+        policy.profile.allow_session_profiles = True
+        enforcer = SandboxEnforcer(policy)
+        with pytest.raises(SandboxViolationError, match="不在 allowed_profiles 白名单中"):
+            enforcer.check_browser_session("chrome", "browser_tool")
+
+    def test_browser_session_all_conditions_met_passes(self, tmp_path: Path) -> None:
+        """所有条件满足时不抛异常。"""
+        profiles_dir = tmp_path / "profiles"
+        self._make_profile_yaml(profiles_dir, "chrome")
+        policy = SandboxPolicy()
+        policy.browser.allow_browser = True
+        policy.browser.allowed_profiles = ["chrome"]
+        policy.profile.allow_session_profiles = True
+        policy.profile.profiles_dir = str(profiles_dir)
+        enforcer = SandboxEnforcer(policy)
+        # 不应抛出异常
+        enforcer.check_browser_session("chrome", "browser_tool")
+
+    def test_browser_session_auth_owner_not_approved_raises(self, tmp_path: Path) -> None:
+        """auth_owner 不是 human-approved 时抛出 SandboxViolationError。"""
+        profiles_dir = tmp_path / "profiles"
+        self._make_profile_yaml(profiles_dir, "chrome", auth_owner="unknown")
+        policy = SandboxPolicy()
+        policy.browser.allow_browser = True
+        policy.browser.allowed_profiles = ["chrome"]
+        policy.profile.allow_session_profiles = True
+        policy.profile.profiles_dir = str(profiles_dir)
+        enforcer = SandboxEnforcer(policy)
+        with pytest.raises(SandboxViolationError, match="auth_owner 不是 'human-approved'"):
+            enforcer.check_browser_session("chrome", "browser_tool")
+
+
+# =============================================================================
+# check_stop_on_risk（Phase 6 新增）
+# =============================================================================
+
+
+class TestStopOnRisk:
+    """check_stop_on_risk — stop-on-risk 信号处理。"""
+
+    def test_stop_on_risk_enabled_with_stop_raises(self, tmp_path: Path) -> None:
+        """信号启用且 on_deny="stop" 时抛出 StopOnRiskError。"""
+        policy = SandboxPolicy()
+        policy.stop_on_risk.on_captcha = True
+        policy.stop_on_risk.on_deny = "stop"
+        enforcer = SandboxEnforcer(policy, audit_log_path=tmp_path / "logs")
+        with pytest.raises(StopOnRiskError, match="stop-on-risk 触发"):
+            enforcer.check_stop_on_risk("captcha", "scraper", "run-001")
+
+    def test_stop_on_risk_signal_not_enabled_returns_silently(self, tmp_path: Path) -> None:
+        """信号未启用时静默返回。"""
+        policy = SandboxPolicy()
+        policy.stop_on_risk.on_captcha = False
+        policy.stop_on_risk.on_deny = "stop"
+        enforcer = SandboxEnforcer(policy, audit_log_path=tmp_path / "logs")
+        # 不应抛出异常
+        enforcer.check_stop_on_risk("captcha", "scraper", "run-001")
+
+    def test_stop_on_risk_log_and_continue_does_not_raise(self, tmp_path: Path) -> None:
+        """on_deny="log_and_continue" 时不抛出异常。"""
+        policy = SandboxPolicy()
+        policy.stop_on_risk.on_blocked = True
+        policy.stop_on_risk.on_deny = "log_and_continue"
+        enforcer = SandboxEnforcer(policy, audit_log_path=tmp_path / "logs")
+        # 不应抛出异常
+        enforcer.check_stop_on_risk("blocked", "scraper", "run-001")
+
+
+# =============================================================================
+# check_sensitive_data（Phase 6 新增）
+# =============================================================================
+
+
+class TestSensitiveData:
+    """check_sensitive_data — 敏感数据扫描。"""
+
+    def test_sensitive_data_bearer_token_raises(self) -> None:
+        """内容包含 bearer token 模式时抛出 SandboxViolationError。"""
+        with pytest.raises(SandboxViolationError, match="检测到敏感数据 'bearer_token'"):
+            SandboxEnforcer.check_sensitive_data(
+                "Authorization: bearer abcdefghijklmnopqrst1234567890",
+                context="http_response",
+            )
+
+    def test_sensitive_data_set_cookie_raises(self) -> None:
+        """内容包含 Set-Cookie 头时抛出 SandboxViolationError（大小写不敏感）。"""
+        with pytest.raises(SandboxViolationError, match="检测到敏感数据 'set_cookie_header'"):
+            SandboxEnforcer.check_sensitive_data(
+                "HTTP/1.1 200 OK\nset-cookie: session=abc123",
+                context="http_response",
+            )
+
+    def test_sensitive_data_clean_content_passes(self) -> None:
+        """干净内容不抛异常。"""
+        # 不应抛出异常
+        SandboxEnforcer.check_sensitive_data(
+            "Normal response body with some text.",
+            context="http_response",
+        )
+
+    def test_sensitive_data_empty_content_passes(self) -> None:
+        """空内容不抛异常。"""
+        # 不应抛出异常
+        SandboxEnforcer.check_sensitive_data("", context="http_response")
+        SandboxEnforcer.check_sensitive_data("")
+
+
+# =============================================================================
+# audit_tool_call（Phase 6 新增）
+# =============================================================================
+
+
+class TestAuditLog:
+    """audit_tool_call — 工具调用审计日志。"""
+
+    def test_audit_writes_jsonl_line(self, tmp_path: Path) -> None:
+        """audit_log_enabled=True 时写入一条 JSONL 记录。"""
+        logs_dir = tmp_path / "logs"
+        policy = SandboxPolicy(audit_log_enabled=True)
+        enforcer = SandboxEnforcer(policy, audit_log_path=logs_dir)
+        decision = SandboxDecision(verdict="allow", check_dimension="command")
+
+        enforcer.audit_tool_call(
+            "curl", decision, run_id="run-001",
+            args_summary={"url": "https://example.com"},
+            result_exit_code=0, duration_ms=150,
+        )
+
+        log_file = logs_dir / "tool-audit-run-001.jsonl"
+        assert log_file.exists()
+        lines = log_file.read_text().strip().split("\n")
+        assert len(lines) == 1
+        record = json.loads(lines[0])
+        assert record["run_id"] == "run-001"
+        assert record["tool_id"] == "curl"
+        assert record["decision"] == "allow"
+        assert record["check_dimension"] == "command"
+        assert record["result_exit_code"] == 0
+        assert record["duration_ms"] == 150
+        assert record["args_summary"]["url"] == "https://example.com"
+
+    def test_audit_skips_when_disabled(self, tmp_path: Path) -> None:
+        """audit_log_enabled=False 时不写文件。"""
+        logs_dir = tmp_path / "logs"
+        policy = SandboxPolicy(audit_log_enabled=False)
+        enforcer = SandboxEnforcer(policy, audit_log_path=logs_dir)
+        decision = SandboxDecision(verdict="allow", check_dimension="command")
+
+        enforcer.audit_tool_call("curl", decision, run_id="run-001")
+
+        log_file = logs_dir / "tool-audit-run-001.jsonl"
+        assert not log_file.exists()
+
+    def test_audit_sanitizes_long_args_values(self, tmp_path: Path) -> None:
+        """args_summary 中超过 80 字符的值被截断为 [len:N]。"""
+        logs_dir = tmp_path / "logs"
+        policy = SandboxPolicy(audit_log_enabled=True)
+        enforcer = SandboxEnforcer(policy, audit_log_path=logs_dir)
+        decision = SandboxDecision(verdict="allow", check_dimension="command")
+
+        long_value = "a" * 120
+        enforcer.audit_tool_call(
+            "curl", decision, run_id="run-001",
+            args_summary={"data": long_value, "short": "ok"},
+        )
+
+        log_file = logs_dir / "tool-audit-run-001.jsonl"
+        record = json.loads(log_file.read_text().strip())
+        assert record["args_summary"]["data"] == "[len:120]"
+        assert record["args_summary"]["short"] == "ok"
+
+
+# =============================================================================
+# write_security_log（Phase 6 新增）
+# =============================================================================
+
+
+class TestSecurityLog:
+    """write_security_log — 安全日志写入。"""
+
+    def test_write_security_log_creates_file_with_entry(self, tmp_path: Path) -> None:
+        """创建 memory/security-log.yaml 并写入一条条目。"""
+        logs_dir = tmp_path / "logs"
+        policy = SandboxPolicy()
+        enforcer = SandboxEnforcer(policy, audit_log_path=logs_dir)
+
+        enforcer.write_security_log("sandbox_violation", "测试违规", "run-001")
+
+        log_file = tmp_path / "memory" / "security-log.yaml"
+        assert log_file.exists()
+        entries = yaml.safe_load(log_file.read_text())
+        assert isinstance(entries, list)
+        assert len(entries) == 1
+        assert entries[0]["violation_type"] == "sandbox_violation"
+        assert entries[0]["run_id"] == "run-001"
+        assert entries[0]["detail"] == "测试违规"
+
+    def test_write_security_log_appends_to_existing(self, tmp_path: Path) -> None:
+        """追加到已有条目后，不覆盖已有数据。"""
+        logs_dir = tmp_path / "logs"
+        memory_dir = tmp_path / "memory"
+        memory_dir.mkdir(parents=True)
+        log_file = memory_dir / "security-log.yaml"
+        existing = [
+            {"violation_type": "blocked", "run_id": "run-000", "detail": "旧的条目"},
+        ]
+        log_file.write_text(yaml.safe_dump(existing, allow_unicode=True))
+
+        policy = SandboxPolicy()
+        enforcer = SandboxEnforcer(policy, audit_log_path=logs_dir)
+
+        enforcer.write_security_log("captcha", "新的条目", "run-001")
+
+        entries = yaml.safe_load(log_file.read_text())
+        assert len(entries) == 2
+        assert entries[0]["violation_type"] == "blocked"
+        assert entries[1]["violation_type"] == "captcha"
+
+
+# =============================================================================
+# blocked_patterns in check_command（Phase 6 新增）
+# =============================================================================
+
+
+class TestBlockedPatterns:
+    """check_command — blocked_patterns 正则黑名单。"""
+
+    def test_command_matching_blocked_pattern_returns_false(self) -> None:
+        """匹配 blocked_pattern 的命令返回 False。"""
+        policy = SandboxPolicy(
+            allowed_commands=["curl"],
+        )
+        policy.command.blocked_patterns = [r"-o\s+/tmp"]
+        enforcer = SandboxEnforcer(policy)
+        # curl 在白名单，但 blocked_pattern 匹配 → 拒绝
+        assert enforcer.check_command("curl -o /tmp/evil http://example.com") is False
+
+    def test_command_not_matching_blocked_pattern_returns_true(self) -> None:
+        """不匹配 blocked_pattern 的命令返回 True。"""
+        policy = SandboxPolicy(
+            allowed_commands=["curl"],
+        )
+        policy.command.blocked_patterns = [r"-o\s+/tmp"]
+        enforcer = SandboxEnforcer(policy)
+        # curl 在白名单，且不匹配 blocked_pattern → 通过
+        assert enforcer.check_command("curl -o output.txt http://example.com") is True
+
+
+# =============================================================================
+# deny_by_default in check_network_host（Phase 6 新增）
+# =============================================================================
+
+
+class TestDenyByDefault:
+    """check_network_host — deny_by_default 行为。"""
+
+    def test_empty_hosts_deny_by_default_true_returns_false(self) -> None:
+        """空 allowed_hosts + deny_by_default=True 返回 False。"""
+        policy = SandboxPolicy()
+        policy.network.allowed_hosts = []
+        policy.network.deny_by_default = True
+        enforcer = SandboxEnforcer(policy)
+        assert enforcer.check_network_host("example.com") is False
+
+    def test_empty_hosts_deny_by_default_false_returns_true(self) -> None:
+        """空 allowed_hosts + deny_by_default=False 返回 True。"""
+        policy = SandboxPolicy()
+        policy.network.allowed_hosts = []
+        policy.network.deny_by_default = False
+        enforcer = SandboxEnforcer(policy)
+        assert enforcer.check_network_host("example.com") is True
+
+    def test_ssrf_hosts_always_blocked(self) -> None:
+        """SSRF host 在任何策略下都被拒绝。"""
+        policy = SandboxPolicy()
+        policy.network.allowed_hosts = ["127.0.0.1", "localhost", "metadata.google.internal"]
+        policy.network.deny_by_default = False
+        enforcer = SandboxEnforcer(policy)
+        assert enforcer.check_network_host("127.0.0.1") is False
+        assert enforcer.check_network_host("localhost") is False
+        assert enforcer.check_network_host("metadata.google.internal") is False
+
+
+# =============================================================================
+# from_yaml_dict（Phase 6 新增）
+# =============================================================================
+
+
+class TestFromYamlDict:
+    """SandboxPolicy.from_yaml_dict — 从 YAML 嵌套结构构造策略。"""
+
+    def test_from_yaml_dict_loads_default_compatible_dict(self) -> None:
+        """加载 default.yaml 兼容的字典。"""
+        data = {
+            "profile_id": "default",
+            "default_action": "deny",
+        }
+        policy = SandboxPolicy.from_yaml_dict(data)
+        assert policy.policy_id == "default"
+        assert policy.default_action == "deny"
+        assert policy.command.allowed_executables == []
+        assert policy.network.allowed_hosts == []
+        assert policy.network.deny_by_default is True
+        assert policy.write_roots == []
+        assert policy.read_roots == []
+        assert policy.audit_log_enabled is True
+
+    def test_from_yaml_dict_maps_profile_id_to_policy_id(self) -> None:
+        """profile_id 映射到 policy_id。"""
+        data = {"profile_id": "ansa-scraper"}
+        policy = SandboxPolicy.from_yaml_dict(data)
+        assert policy.policy_id == "ansa-scraper"
+
+    def test_from_yaml_dict_maps_command_policy_allowed_commands(self) -> None:
+        """command_policy.allowed_commands 映射到 command.allowed_executables。"""
+        data = {
+            "command_policy": {
+                "allowed_commands": ["curl", "wget"],
+                "blocked_patterns": [r"rm\s+-rf"],
+                "deny_shell": False,
+            },
+        }
+        policy = SandboxPolicy.from_yaml_dict(data)
+        assert policy.command.allowed_executables == ["curl", "wget"]
+        assert policy.command.blocked_patterns == [r"rm\s+-rf"]
+        assert policy.command.deny_shell is False
+
+    def test_from_yaml_dict_maps_network_policy(self) -> None:
+        """network_policy 映射到 network。"""
+        data = {
+            "default_action": "deny",
+            "network_policy": {
+                "allowed_hosts": ["*.ansa.it"],
+                "blocked_hosts": ["evil.com"],
+            },
+        }
+        policy = SandboxPolicy.from_yaml_dict(data)
+        assert policy.network.allowed_hosts == ["*.ansa.it"]
+        assert policy.network.blocked_hosts == ["evil.com"]
+        assert policy.network.deny_by_default is True
+
+    def test_from_yaml_dict_maps_filesystem_policy_write_roots_as_path_objects(self) -> None:
+        """filesystem_policy.write_roots 映射为 Path 对象列表。"""
+        data = {
+            "filesystem_policy": {
+                "write_roots": ["/tmp/safe", "/var/data"],  # noqa: S108
+            },
+        }
+        policy = SandboxPolicy.from_yaml_dict(data)
+        expected = [Path("/tmp/safe"), Path("/var/data")]  # noqa: S108
+        assert policy.write_roots == expected
+
+    def test_from_yaml_dict_maps_filesystem_policy_read_roots_as_path_objects(self) -> None:
+        """filesystem_policy.read_roots 映射为 Path 对象列表。"""
+        data = {
+            "filesystem_policy": {
+                "read_roots": ["/etc/news_sentry", "/usr/share/data"],
+            },
+        }
+        policy = SandboxPolicy.from_yaml_dict(data)
+        assert policy.read_roots == [Path("/etc/news_sentry"), Path("/usr/share/data")]
+
+    def test_from_yaml_dict_default_action_deny_sets_deny_by_default_true(self) -> None:
+        """default_action="deny" 设置 network.deny_by_default=True。"""
+        policy = SandboxPolicy.from_yaml_dict({"default_action": "deny"})
+        assert policy.network.deny_by_default is True
+
+    def test_from_yaml_dict_default_action_allow_sets_deny_by_default_false(self) -> None:
+        """default_action="allow" 设置 network.deny_by_default=False。"""
+        policy = SandboxPolicy.from_yaml_dict({"default_action": "allow"})
+        assert policy.network.deny_by_default is False
