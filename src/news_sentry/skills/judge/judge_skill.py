@@ -2,15 +2,17 @@
 
 JudgeSkill — AI-powered news value judgement using judge.primary route.
 One LLM call produces: JudgeResult + title_translated + content_translated.
-Falls back gracefully if AI provider unavailable.
+Uses ProviderRouter for multi-Provider routing with automatic fallback.
 """
 from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from news_sentry.adapters.providers.base import AIProvider
+from news_sentry.core.provider_router import ProviderRouter
 from news_sentry.models.newsevent import (
     JudgeRecommendation,
     JudgeResult,
@@ -22,13 +24,15 @@ logger = logging.getLogger(__name__)
 
 
 class JudgeSkill:
-    """AI 驱动的新闻价值研判，使用 judge.primary 路由。
+    """AI 驱动的新闻价值研判，使用 ProviderRouter 进行多 Provider 路由。
 
     单次 LLM 调用产出：JudgeResult + title_translated + content_translated。
-    如果 AI provider 不可用，保留已有规则研判字段，记录错误日志。
+    主 Provider 失败时通过 ProviderRouter fallback 链自动切换。
+    所有 Provider 失败时保留已有规则研判字段，记录错误日志。
 
     Attributes:
-        _provider: AIProvider 实例（如 OpenAIProvider）。
+        _router: ProviderRouter 实例，负责路由解析与回退编排。
+        _provider_factory: 将 provider_name 映射为 AIProvider 的工厂函数。
         _sandbox_enforcer: 沙箱执行器（预留，Phase 6 sandbox hardening 接入）。
     """
 
@@ -38,18 +42,26 @@ class JudgeSkill:
         "review": JudgeRecommendation.REVIEW,
         "archive": JudgeRecommendation.ARCHIVE,
         "discard": JudgeRecommendation.DISCARD,
+        "monitor": JudgeRecommendation.MONITOR,
     }
 
     def __init__(
         self,
-        provider: AIProvider,
+        router: ProviderRouter,
+        provider_factory: Callable[[str], AIProvider | None],
         sandbox_enforcer: Any = None,  # noqa: ANN401
     ) -> None:
-        self._provider = provider
+        self._router = router
+        self._provider_factory = provider_factory
         self._sandbox_enforcer = sandbox_enforcer
 
     def judge(self, event: NewsEvent, run_id: str) -> NewsEvent:
         """调用 judge.primary AI 路由，填充 event.judge_result 和翻译字段。
+
+        通过 ProviderRouter.route() 编排调用，自动支持：
+        - 预算检查（超限时 recommendation=monitor）
+        - Provider 失败时 fallback 链切换
+        - 成本追踪
 
         Args:
             event: 待研判的 NewsEvent（stage 一般为 FILTERED）。
@@ -64,12 +76,35 @@ class JudgeSkill:
         prompt = self._build_judge_prompt(event)
 
         try:
-            # 调用 AI provider
-            raw_result = self._provider.call(
-                route_id="judge.primary",
-                prompt=prompt,
+            # 通过 ProviderRouter 编排调用（含 fallback + 成本追踪）
+            raw_result = self._router.route(
                 task_type="judge",
+                prompt=prompt,
+                provider_factory=self._provider_factory,
+                preferred_route_id="judge.primary",
             )
+
+            # 预算超限 → 降级为 monitor
+            if raw_result.get("budget_exceeded"):
+                logger.warning(
+                    "预算超限，事件降级为 monitor: event_id=%s", event.id,
+                )
+                event.news_value_score = 0
+                event.china_relevance = 0
+                event.sentiment_score = 0.0
+                event.judge_result = JudgeResult(
+                    recommendation=JudgeRecommendation.MONITOR,
+                    rationale="成本预算超限，自动降级",
+                    confidence=0,
+                    flags=["budget_exceeded"],
+                )
+                event.pipeline_stage = PipelineStage.JUDGED
+                return event
+
+            # 所有 Provider 失败
+            if raw_result.get("error"):
+                raise RuntimeError(raw_result["error"])
+
             parsed = self._parse_response(raw_result, event.id)
 
             # 填充研判分数

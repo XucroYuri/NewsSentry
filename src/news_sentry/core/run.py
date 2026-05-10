@@ -5,22 +5,35 @@ CLI 入口: python -m news_sentry.cli run --target <id> --stage <stage> (ADR-001
 """
 from __future__ import annotations
 
+import logging
 import os
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import yaml
+
+from news_sentry.adapters.providers.anthropic_provider import AnthropicProvider
+from news_sentry.adapters.providers.base import AIProvider
 from news_sentry.adapters.providers.openai_provider import OpenAIProvider
+from news_sentry.adapters.providers.rules_provider import RulesProvider
 from news_sentry.adapters.tools.opencli import OpenCLIToolAdapter
 from news_sentry.core.config import ConfigLoader, ResolvedConfig
 from news_sentry.core.file_writer import FileWriter
 from news_sentry.core.memory import Memory
+from news_sentry.core.provider_router import ProviderRouter
 from news_sentry.core.ratelimit import RateLimiter
 from news_sentry.core.run_log import RunLog, write_heartbeat
 from news_sentry.core.sandbox import SandboxEnforcer, SandboxPolicy
-from news_sentry.models.newsevent import NewsEvent, PipelineStage
+from news_sentry.models.newsevent import (
+    JudgeRecommendation,
+    NewsEvent,
+    PipelineStage,
+)
 from news_sentry.models.pipeline_context import PipelineContext
+from news_sentry.models.provider_config import ProviderRoutesConfig
 from news_sentry.skills.collect.api_collector import APICollector
 from news_sentry.skills.collect.opencli_collector import OpenCLICollector
 from news_sentry.skills.collect.rss_collector import RSSCollector
@@ -29,6 +42,8 @@ from news_sentry.skills.filter.rules_filter import RulesFilter
 from news_sentry.skills.judge.judge_skill import JudgeSkill
 from news_sentry.skills.judge.rules_judge import RulesJudgeSkill
 from news_sentry.skills.output.markdown_writer import MarkdownWriter
+
+logger = logging.getLogger(__name__)
 
 
 def bounded_run(
@@ -253,6 +268,9 @@ def _run_collect(
     for event in all_events:
         file_writer.write_event(event)
 
+    # Phase 5: translate.fast — 快速标题预翻译（ADR-0004）
+    _translate_collected_titles(all_events, run_id, run_log)
+
     ctx.events_collected = len(all_events)
     duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
     run_log.log_phase_end("collect", len(all_events), duration_ms)
@@ -354,12 +372,21 @@ def _run_judge(
     run_log.log_phase_start("judge")
     t0 = datetime.now(UTC)
 
-    # 尝试 AI 研判（Phase 5），不可用时回退到规则引擎
+    # 尝试 AI 研判（Phase 5 多 Provider 路由），不可用时回退到规则引擎
     ai_judge = _init_ai_judge()
     if ai_judge is not None:
         for event in events:
             try:
                 event = ai_judge.judge(event, run_id)
+                # Phase 5: 预算超限降级记录
+                if (
+                    event.judge_result is not None
+                    and event.judge_result.recommendation == JudgeRecommendation.MONITOR
+                ):
+                    run_log.log_event(
+                        "judge", event.id,
+                        "budget_exceeded → recommendation=monitor",
+                    )
             except Exception as e:
                 run_log.log_error("judge", str(e), event_id=event.id)
             try:
@@ -402,19 +429,154 @@ def _run_all(
 
 
 def _init_ai_judge() -> JudgeSkill | None:
-    """尝试初始化 AI 研判器，不可用时返回 None。
+    """尝试初始化 AI 研判器（Phase 5 多 Provider 路由）。
 
-    使用 OpenAI 兼容 provider，默认模型 gpt-4o-mini。
-    如果 API key 未设置、网络不可达或 health check 失败，静默回退到规则引擎。
+    从 config/provider/routes.yaml 加载路由配置，创建 ProviderRouter，
+    构建三 Provider 工厂（openai + anthropic + local），传入 JudgeSkill。
+
+    如果路由配置加载失败或所有 Provider 都不可用，返回 None，
+    调用方回退到 RulesJudgeSkill。
     """
     try:
-        openai_config = {"model": "gpt-4o-mini", "max_tokens": 2048}
-        ai_provider = OpenAIProvider(openai_config)
-        if ai_provider.health_check():
-            return JudgeSkill(ai_provider)
+        # 加载路由配置
+        routes_path = _find_project_root() / "config" / "provider" / "routes.yaml"
+        if not routes_path.is_file():
+            logger.warning("routes.yaml 未找到，跳过 AI 研判初始化")
+            return None
+
+        with open(routes_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        routes_config = ProviderRoutesConfig(**data)
+
+        # 创建 ProviderRouter（从 profile 读取成本预算）
+        cost_budget = float(
+            os.environ.get("NEWSSENTRY_AI_BUDGET_USD", "0.0"),
+        )
+        router = ProviderRouter(routes_config, cost_budget=cost_budget)
+
+        # 构建 provider 工厂
+        factory = _build_provider_factory()
+
+        # 检查至少有一个 Provider 可用
+        primary_route = router.get_route_by_id("judge.primary")
+        if primary_route is None:
+            return None
+        primary_provider = factory(primary_route.provider)
+        if primary_provider is None or not primary_provider.health_check():
+            # 检查 fallback 是否可用
+            fallback_route = router.get_fallback_route(primary_route)
+            if fallback_route is not None:
+                fb_provider = factory(fallback_route.provider)
+                if fb_provider is not None and fb_provider.health_check():
+                    return JudgeSkill(router, factory)
+
+            # 至少 local provider 总可用
+            if factory("local") is not None:
+                return JudgeSkill(router, factory)
+            return None
+
+        return JudgeSkill(router, factory)
+
     except Exception:  # noqa: S110 — AI unavailable is a normal fallback path
-        pass
-    return None
+        logger.warning("AI 研判初始化失败，回退到规则引擎", exc_info=True)
+        return None
+
+
+def _build_provider_factory() -> Callable[[str], AIProvider | None]:
+    """构建 provider_name → AIProvider 实例的工厂函数。
+
+    支持的 provider_name: openai, anthropic, local。
+    通过环境变量配置 API key 和 base URL。
+    """
+    # 惰性初始化，避免在 import 时读取环境变量
+    _cache: dict[str, AIProvider | None] = {}
+
+    def factory(name: str) -> AIProvider | None:
+        if name in _cache:
+            return _cache[name]
+
+        if name == "openai":
+            provider: AIProvider | None = OpenAIProvider({})
+        elif name == "anthropic":
+            provider = AnthropicProvider({})
+        elif name == "local":
+            provider = RulesProvider()
+        else:
+            logger.warning("未知 Provider '%s'，无适配器可用", name)
+            provider = None
+
+        _cache[name] = provider
+        return provider
+
+    return factory
+
+
+def _translate_collected_titles(
+    events: list[NewsEvent],
+    run_id: str,
+    run_log: RunLog,
+) -> None:
+    """Phase 5 translate.fast：对采集到的事件做标题快速预翻译。
+
+    使用 translate.fast 路由（openai/gpt-4o-mini），将意大利语标题
+    翻译为简体中文，写入 event.metadata["translation"]["title_pre"]。
+
+    翻译失败不阻塞采集流程，仅记录 warning 日志。
+
+    Args:
+        events: 已采集的事件列表（原地修改 metadata）。
+        run_id: 运行标识（日志用）。
+        run_log: 运行日志。
+    """
+    if not events:
+        return
+
+    # 初始化 translate 轻量路由
+    try:
+        routes_path = _find_project_root() / "config" / "provider" / "routes.yaml"
+        if not routes_path.is_file():
+            return
+        with open(routes_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        routes_config = ProviderRoutesConfig(**data)
+        router = ProviderRouter(routes_config)
+        factory = _build_provider_factory()
+
+        translate_route = router.get_route_by_id("translate.fast")
+        if translate_route is None:
+            return
+    except Exception:  # noqa: S110
+        return
+
+    for event in events:
+        if not event.title_original:
+            continue
+        try:
+            prompt = (
+                "Translate the following Italian news title to Simplified Chinese. "
+                "Output ONLY the Chinese translation, no extra text.\n\n"
+                f"{event.title_original}"
+            )
+            result = router.route(
+                task_type="translate",
+                prompt=prompt,
+                provider_factory=factory,
+                preferred_route_id="translate.fast",
+                max_tokens=100,
+            )
+            translated = result.get("content", "").strip()
+            if translated:
+                if "translation" not in event.metadata:
+                    event.metadata["translation"] = {}
+                event.metadata["translation"]["title_pre"] = translated
+                run_log.log_event(
+                    "collect", event.id,
+                    "translate.fast: title_pre set",
+                )
+        except Exception:  # noqa: S110 — translation failure is non-blocking
+            logger.warning(
+                "translate.fast 失败: event_id=%s", event.id,
+            )
 
 
 def _prune_old_logs(log_dir: Path, keep: int = 100) -> None:

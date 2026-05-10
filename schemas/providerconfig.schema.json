@@ -43,6 +43,12 @@
         "notes": {
           "type": "string",
           "description": "Human-readable documentation note; not consumed at runtime"
+        },
+        "fallback_route_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Ordered list of fallback route_ids for this route"
         }
       }
     }
