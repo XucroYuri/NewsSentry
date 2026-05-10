@@ -8,12 +8,24 @@ Phase 6: 完整 SandboxPolicy 模型与浏览器 session 治理。
 """
 from __future__ import annotations
 
+import ipaddress
 import re
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, Field
+
+# SSRF 防护：常见 SSRF 绕过 hostname 阻断列表
+_SSRF_HOSTNAME_BLOCKLIST: frozenset[str] = frozenset({
+    "localhost",
+    "localhost.localdomain",
+    "0.0.0.0",  # noqa: S104
+    "0",
+    "metadata.google.internal",
+    "metadata",
+    "169.254.169.254",
+})
 
 
 class SandboxViolationError(Exception):
@@ -97,7 +109,13 @@ class SandboxEnforcer:
         空 ``allowed_network_hosts`` 时，依据 ``default_action`` 决定：
         - ``default_action=\"allow\"`` → 允许所有（向后兼容）
         - ``default_action=\"deny\"`` → 拒绝所有（严格模式）
+
+        始终拒绝私有/内部地址（SSRF 防护）：回环地址、私有 IP 段、
+        链路本地地址和常见 SSRF 绕过 hostname。
         """
+        if self._is_private_host(host):
+            return False
+
         if not self._policy.allowed_network_hosts:
             return self._policy.default_action != "deny"
         for pattern in self._policy.allowed_network_hosts:
@@ -159,3 +177,32 @@ class SandboxEnforcer:
             return parsed.hostname
         except Exception:
             return None
+
+    @staticmethod
+    def _is_private_host(host: str) -> bool:
+        """检测 host 是否为私有/内部地址（SSRF 防护）。
+
+        拒绝以下类别：
+        - 回环地址：127.0.0.0/8, ::1
+        - 私有 IP：10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, fd00::/8
+        - 链路本地：169.254.0.0/16, fe80::/10
+        - 通配符地址：0.0.0.0
+        - 常见 SSRF 绕过 hostname：localhost, metadata.google.internal 等
+        """
+        # 检查裸 IP 地址
+        try:
+            ip = ipaddress.ip_address(host)
+            return ip.is_loopback or ip.is_private or ip.is_link_local or ip.is_unspecified
+        except ValueError:
+            pass  # 不是 IP 地址，检查 hostname
+
+        # 检查常见 SSRF 绕过 hostname
+        host_lower = host.lower().strip("[]")
+        if host_lower in _SSRF_HOSTNAME_BLOCKLIST:
+            return True
+
+        # 检查是否以 .local 结尾（mDNS，常见 SSRF 绕过）
+        if host_lower.endswith(".local"):
+            return True
+
+        return False
