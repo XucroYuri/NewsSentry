@@ -4,7 +4,7 @@
 source_id: thelocal-it
 display_name: "The Local Italy"
 type: rss
-url: "https://www.thelocal.it/feed/"
+url: "https://www.thelocal.it/feed/" # 404 on 2026-05-10 integration test
 
 # 意大利英语新闻，The Local Media AB 旗下
 credibility_base: 0.75
@@ -12,7 +12,7 @@ credibility_base: 0.75
 fetch_interval_minutes: 30
 max_items_per_run: 50
 timeout_seconds: 30
-enabled: true
+enabled: false
 
 health:
   last_success_at: null

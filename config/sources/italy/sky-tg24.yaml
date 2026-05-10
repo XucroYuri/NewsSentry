@@ -4,7 +4,7 @@
 source_id: sky-tg24
 display_name: "Sky TG24"
 type: rss
-url: "https://tg24.sky.it/rss/home.xml"
+url: "https://tg24.sky.it/rss/home.xml" # 404 on 2026-05-10 integration test
 
 # Sky Italia 全天候新闻频道
 credibility_base: 0.80
@@ -12,7 +12,7 @@ credibility_base: 0.80
 fetch_interval_minutes: 20
 max_items_per_run: 50
 timeout_seconds: 30
-enabled: true
+enabled: false
 
 health:
   last_success_at: null
