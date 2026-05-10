@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from news_sentry.adapters.tools.opencli import OpenCLIToolAdapter
+from news_sentry.core.ratelimit import RateLimiter
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
 
 
@@ -32,6 +33,7 @@ class OpenCLICollector:
         config: dict[str, Any],
         tool_adapter: OpenCLIToolAdapter,
         sandbox_enforcer: Any = None,  # noqa: ANN401
+        rate_limiter: RateLimiter | None = None,
     ) -> None:
         """初始化 OpenCLI 采集器。
 
@@ -43,10 +45,14 @@ class OpenCLICollector:
         self._config = config
         self._adapter = tool_adapter
         self._sandbox = sandbox_enforcer
+        self._rate_limiter = rate_limiter or RateLimiter()
         self._source_id: str = config.get("source_id", "opencli-source")
         self._target_id: str = config.get("target_id", "unknown")
         self._tool_ref: str = config.get("tool_ref", "opencli.fetch")
         self._validated_args: dict[str, Any] = dict(config.get("validated_args", {}))
+        # 注册当前源的速率限制间隔
+        interval = float(config.get("fetch_interval_seconds", 5.0))
+        self._rate_limiter.set_interval(self._source_id, interval)
 
     def collect(self, run_id: str) -> list[NewsEvent]:
         """执行 OpenCLI 工具调用，解析结果为 NewsEvent 列表。
@@ -61,14 +67,19 @@ class OpenCLICollector:
         Raises:
             RuntimeError: 工具执行失败（非预期错误）时抛出。
         """
+        # 按源速率限制：等待最小间隔后再执行工具
+        self._rate_limiter.wait_if_needed(self._source_id)
+
         if not self._tool_ref:
             return []
 
         result = self._adapter.execute(self._tool_ref, self._validated_args, run_id)
 
         if not result.success:
-            # opencli 未安装或沙箱拦截 — 返回空列表（预期行为）
-            allowed_types = ("opencli_not_installed", "sandbox_blocked")
+            # 注意：exit code 66 (result_empty) 经 _map_exit_code 映射后返回 None（非错误），
+            # 此时 result.success=True 但 stdout 为空，_parse_output 会正确返回 []。
+            # opencli 未安装、沙箱拦截、认证要求 — 返回空列表（预期行为）
+            allowed_types = ("opencli_not_installed", "sandbox_blocked", "auth_required")
             if result.error and result.error.get("type") in allowed_types:
                 return []
             raise RuntimeError(

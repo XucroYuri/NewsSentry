@@ -257,7 +257,7 @@ class TestExecute:
         adapter = OpenCLIToolAdapter(manifest_path=_make_minimal_manifest(tmp_path))
         # 删除 template 后再调用 execute
         adapter._tools["opencli.fetch"]["command_template"] = ""
-        result = adapter.execute("opencli.fetch", {"url": "x"}, "run-03")
+        result = adapter.execute("opencli.fetch", {"url": "x", "output_path": "/tmp/x.json"}, "run-03")
         assert result.success is False
         assert result.error is not None
         assert result.error["type"] == "command_build_failed"
