@@ -73,7 +73,7 @@ class RulesJudgeSkill:
             recommendation = self._decide_recommendation(event, classification)
 
             # 生成研判理由
-            rationale = self._build_rationale(event, classification, china_rel)
+            rationale = self._build_rationale(event, classification, china_rel, recommendation)
 
             # 置信度基于分类器 confidence
             confidence = int(classification.get("confidence", 50))
@@ -152,6 +152,7 @@ class RulesJudgeSkill:
         event: NewsEvent,
         classification: dict[str, Any],
         china_rel: int,
+        recommendation: JudgeRecommendation,
     ) -> str:
         """生成人类可读的研判理由（简体中文）。"""
         parts: list[str] = []
@@ -171,23 +172,13 @@ class RulesJudgeSkill:
             parts.append(f"主题: {', '.join(l1_codes)}")
 
         # 解释推荐级别
-        rec = event.judge_result
-        if rec is None:
-            rec_map: dict[str, str] = {
-                "publish": "推荐发布 — 高新闻价值或中国相关",
-                "review": "建议审核 — 中等新闻价值",
-                "archive": "归档留存 — 低新闻价值参考",
-                "discard": "可丢弃 — 新闻价值不足",
-            }
-            parts.append(rec_map.get("archive", ""))
-        else:
-            rec_map = {
-                "publish": "推荐发布 — 高新闻价值或中国相关",
-                "review": "建议审核 — 中等新闻价值",
-                "archive": "归档留存 — 低新闻价值参考",
-                "discard": "可丢弃 — 新闻价值不足",
-            }
-            parts.append(rec_map.get(rec.recommendation.value, ""))
+        rec_map = {
+            "publish": "推荐发布 — 高新闻价值或中国相关",
+            "review": "建议审核 — 中等新闻价值",
+            "archive": "归档留存 — 低新闻价值参考",
+            "discard": "可丢弃 — 新闻价值不足",
+        }
+        parts.append(rec_map.get(recommendation.value, ""))
 
         return "；".join(parts)
 
