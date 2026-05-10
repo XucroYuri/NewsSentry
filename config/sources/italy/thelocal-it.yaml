@@ -4,10 +4,12 @@
 source_id: thelocal-it
 display_name: "The Local Italy"
 type: rss
-url: "https://www.thelocal.it/feed/" # 404 on 2026-05-10 integration test
+url: "https://www.thelocal.it/feed/"  # 2026-05-10: 永久失效，所有已知 URL 均返回 404
 
 # 意大利英语新闻，The Local Media AB 旗下
 credibility_base: 0.75
+deprecated: true
+deprecated_reason: "RSS feed permanently removed — all known URLs return 404"
 
 fetch_interval_minutes: 30
 max_items_per_run: 50

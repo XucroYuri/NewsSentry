@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from news_sentry.core.ratelimit import RateLimiter
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
 
 
@@ -59,9 +60,15 @@ class APICollector:
     沙箱策略拦截时返回空列表。
     """
 
-    def __init__(self, config: dict[str, Any], sandbox_enforcer: Any) -> None:  # noqa: ANN401
+    def __init__(
+        self,
+        config: dict[str, Any],
+        sandbox_enforcer: Any,  # noqa: ANN401
+        rate_limiter: RateLimiter | None = None,
+    ) -> None:
         self._config = config
         self._sandbox = sandbox_enforcer
+        self._rate_limiter = rate_limiter or RateLimiter()
         self._target_id: str = config["target_id"]
         self._source_id: str = config["source_id"]
         self._url: str = config.get("url", "") or ""
@@ -69,6 +76,9 @@ class APICollector:
         self._max_items: int = int(config.get("max_items_per_run", 50))
         # 可选：JSON 响应到 NewsEvent 的字段映射
         self._mapping: dict[str, str] = config.get("api_mapping", {}) or {}
+        # 注册当前源的速率限制间隔
+        interval = float(config.get("fetch_interval_seconds", 5.0))
+        self._rate_limiter.set_interval(self._source_id, interval)
 
     def collect(self, run_id: str) -> list[NewsEvent]:
         """从 API 端点抓取新闻并转换为 NewsEvent 列表。
@@ -85,6 +95,9 @@ class APICollector:
         """
         if not self._url:
             return []
+
+        # 按源速率限制：等待最小间隔后再发起请求
+        self._rate_limiter.wait_if_needed(self._source_id)
 
         parsed = urlparse(self._url)
         host = parsed.hostname

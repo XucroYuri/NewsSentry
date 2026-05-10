@@ -4,7 +4,7 @@
 source_id: ilsole24ore
 display_name: "Il Sole 24 Ore"
 type: rss
-url: "https://www.ilsole24ore.com/rss/Italia.xml" # 404 on 2026-05-10 integration test
+url: "https://www.ilsole24ore.com/rss/economia.xml" # fixed 2026-05-10: verified 12 entries, valid RSS
 
 # 意大利经济金融主流媒体
 credibility_base: 0.85
@@ -12,8 +12,9 @@ credibility_base: 0.85
 fetch_interval_minutes: 20
 max_items_per_run: 50
 timeout_seconds: 30
-enabled: false
+enabled: true
 
+# health reset on fix 2026-05-10
 health:
   last_success_at: null
   consecutive_failures: 0

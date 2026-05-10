@@ -4,7 +4,7 @@
 source_id: rainews
 display_name: "Rai News"
 type: rss
-url: "https://www.rainews.it/rss/rai_news_rss_2.0.xml" # 404 on 2026-05-10 integration test
+url: "https://www.rainews.it/rss/cronaca" # fixed 2026-05-10: verified 41 entries, valid RSS
 
 # 意大利公共广播公司 RAI 的新闻部门
 credibility_base: 0.88
@@ -12,8 +12,9 @@ credibility_base: 0.88
 fetch_interval_minutes: 20
 max_items_per_run: 50
 timeout_seconds: 30
-enabled: false
+enabled: true
 
+# health reset on fix 2026-05-10
 health:
   last_success_at: null
   consecutive_failures: 0
