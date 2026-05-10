@@ -68,6 +68,11 @@ check: lint test
 fmt:
 	.venv/bin/python -m ruff check --fix
 
+.PHONY: scan-sensitive
+scan-sensitive:
+	@echo "==> 扫描敏感关键词..."
+	python3 tools/scan_sensitive_data.py
+
 # ── 运行 ─────────────────────────────────────────────────────────────────────
 
 .PHONY: dry-run
@@ -151,6 +156,7 @@ help:
 	@echo "  make lint           ruff + mypy"
 	@echo "  make check          lint + test"
 	@echo "  make fmt            自动修复代码风格"
+	@echo "  make scan-sensitive 扫描敏感关键词"
 	@echo ""
 	@echo "运行:"
 	@echo "  make dry-run        干运行验证配置"

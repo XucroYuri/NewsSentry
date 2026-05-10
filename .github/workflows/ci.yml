@@ -34,3 +34,6 @@ jobs:
 
       - name: Test (pytest)
         run: python -m pytest tests/ -q --tb=short
+
+      - name: Security scan (sensitive keywords)
+        run: python tools/scan_sensitive_data.py
