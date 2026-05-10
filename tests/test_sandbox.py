@@ -197,11 +197,14 @@ class TestCheckNetworkHost:
         assert enforcer.check_network_host("192.168.1.1") is False
 
     def test_empty_allowed_list_default_allow(self) -> None:
-        """空 allowed_network_hosts + default_action=allow → 允许所有（向后兼容）。"""
+        """空 allowed_network_hosts + default_action=allow → 允许公开 hostname。
+
+        但私有/内部 IP 始终被 SSRF 防护拒绝，无论 default_action。
+        """
         policy = SandboxPolicy(allowed_network_hosts=[], default_action="allow")
         enforcer = SandboxEnforcer(policy)
         assert enforcer.check_network_host("anything.example.com") is True
-        assert enforcer.check_network_host("192.168.1.1") is True
+        assert enforcer.check_network_host("192.168.1.1") is False  # 私有 IP 始终拒绝
 
     def test_empty_allowed_list_with_deny(self) -> None:
         """空 allowed_network_hosts + default_action=deny → 拒绝所有。"""
