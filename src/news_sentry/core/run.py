@@ -253,7 +253,8 @@ def _run_collect(
         file_writer.write_event(event)
 
     # Phase 5: translate.fast — 快速标题预翻译（ADR-0004）
-    _translate_collected_titles(all_events, run_id, run_log)
+    lang_primary = config.target.get("language_scope", {}).get("primary", "en")
+    _translate_collected_titles(all_events, run_id, run_log, lang_primary)
 
     ctx.events_collected = len(all_events)
     duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
@@ -499,10 +500,11 @@ def _translate_collected_titles(
     events: list[NewsEvent],
     run_id: str,
     run_log: RunLog,
+    language_primary: str = "en",
 ) -> None:
     """Phase 5 translate.fast：对采集到的事件做标题快速预翻译。
 
-    使用 translate.fast 路由（openai/gpt-4o-mini），将意大利语标题
+    使用 translate.fast 路由（openai/gpt-4o-mini），将源语言标题
     翻译为简体中文，写入 event.metadata["translation"]["title_pre"]。
 
     翻译失败不阻塞采集流程，仅记录 warning 日志。
@@ -511,6 +513,7 @@ def _translate_collected_titles(
         events: 已采集的事件列表（原地修改 metadata）。
         run_id: 运行标识（日志用）。
         run_log: 运行日志。
+        language_primary: 源语言代码（如 "it", "en", "ja"）。
     """
     if not events:
         return
@@ -537,7 +540,7 @@ def _translate_collected_titles(
             continue
         try:
             prompt = (
-                "Translate the following Italian news title to Simplified Chinese. "
+                f"Translate the following {language_primary} news title to Simplified Chinese. "
                 "Output ONLY the Chinese translation, no extra text.\n\n"
                 f"{event.title_original}"
             )
