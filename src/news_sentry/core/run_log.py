@@ -146,7 +146,7 @@ class RunLog:
         return self._phases[stage]
 
     def _compute_summary(self) -> dict[str, Any]:
-        """从内部事件追踪聚合摘要统计"""
+        """从 phases 的 items_count 聚合摘要统计"""
         total_collected = 0
         total_filtered_in = 0
         total_filtered_out = 0
@@ -154,14 +154,14 @@ class RunLog:
 
         for phase in self._phases.values():
             total_errors += len(phase["errors"])
-            for ev in phase.get("_events", []):
-                action = ev["action"]
-                if action == "collected":
-                    total_collected += 1
-                elif action == "filtered_in":
-                    total_filtered_in += 1
-                elif action == "filtered_out":
-                    total_filtered_out += 1
+            stage = phase["stage"]
+            items = phase.get("items_count", 0) or 0
+            if stage == "collect":
+                total_collected += items
+            elif stage == "filter":
+                total_filtered_in += items
+            elif stage in ("judge", "output"):
+                total_filtered_out += items
 
         return {
             "total_events_collected": total_collected,
