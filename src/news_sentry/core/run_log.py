@@ -195,3 +195,29 @@ class RunLog:
         if m:
             return m.group(1)
         return run_id
+
+
+def write_heartbeat(log_dir: Path, run_id: str, stage: str, status: str = "running") -> Path:
+    """Write heartbeat file for external monitoring.
+
+    Args:
+        log_dir: logs/ directory
+        run_id: current run identifier
+        stage: current pipeline stage name
+        status: "running" | "completed" | "error"
+
+    Returns:
+        Path to the heartbeat file.
+    """
+    heartbeat = {
+        "run_id": run_id,
+        "last_stage": stage,
+        "last_at": datetime.now(UTC).isoformat(),
+        "status": status,
+    }
+    heartbeat_path = log_dir / ".heartbeat-hermes.json"
+    # Atomic write: write to .tmp then rename
+    tmp_path = log_dir / ".heartbeat-hermes.json.tmp"
+    tmp_path.write_text(json.dumps(heartbeat, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp_path.replace(heartbeat_path)
+    return heartbeat_path

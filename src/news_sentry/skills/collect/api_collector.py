@@ -4,6 +4,8 @@ APICollector — fetches JSON API endpoints using httpx and maps responses to Ne
 """
 from __future__ import annotations
 
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
@@ -11,6 +13,42 @@ from urllib.parse import urlparse
 import httpx
 
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+
+
+def _retry_fetch(
+    fetch_fn: Callable[[], httpx.Response], source_id: str, max_retries: int = 3
+) -> httpx.Response:
+    """Execute fetch_fn with exponential backoff on transient errors.
+
+    Retries: network errors, timeouts, 5xx responses.
+    No retry: 4xx responses (client errors).
+    """
+    last_error: Exception | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            resp = fetch_fn()
+            resp.raise_for_status()
+            return resp
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code < 500:
+                raise  # 4xx: do not retry
+            last_error = e
+        except (
+            httpx.HTTPError,
+            httpx.TimeoutException,
+            ConnectionError,
+            TimeoutError,
+            OSError,
+        ) as e:
+            last_error = e
+
+        if attempt < max_retries:
+            wait = 2**attempt  # 1, 2, 4 seconds
+            time.sleep(wait)
+
+    raise RuntimeError(
+        f"Fetch failed for {source_id} after {max_retries} retries: {last_error}"
+    ) from last_error
 
 
 class APICollector:
@@ -54,9 +92,13 @@ class APICollector:
             return []
 
         try:
-            response = httpx.get(self._url, timeout=self._timeout, follow_redirects=True)
-            response.raise_for_status()
+            response = _retry_fetch(
+                lambda: httpx.get(self._url, timeout=self._timeout, follow_redirects=True),
+                self._source_id
+            )
             data = response.json()
+        except RuntimeError:
+            raise
         except Exception as e:
             raise RuntimeError(
                 f"API fetch failed for {self._source_id}: {e}"
