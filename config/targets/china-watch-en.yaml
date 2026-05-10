@@ -1,0 +1,40 @@
+# Schema: ../../schemas/targetconfig.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015, ADR-0016
+target_id: china-watch-en
+display_name: "China Watch (English)"
+
+language_scope:
+  primary: en
+  secondary: []
+  output: zh
+
+timezone: Asia/Shanghai
+
+# 引用的源渠道 ID，对应 config/sources/china-watch-en/{id}.yaml
+source_channel_refs:
+  - scmp-rss
+  - reuters-cn
+
+# 各子系统规则/路由配置的相对路径（相对于项目根目录）
+filter_rules_ref: config/filters/china-watch-en/default.yaml
+classification_rules_ref: config/classification/rules-v1.yaml
+sandbox_profile_ref: config/sandbox/default.yaml
+provider_routes_ref: config/provider/routes.yaml
+output_destinations_ref: config/output/destinations.yaml
+
+# country_axes 控制 classification 阶段哪些轴参与打分
+# 仅启用与该目标新闻相关的轴，降低误判噪声
+# 完整轴列表见 docs/news-classification-framework.md
+classification:
+  country_axes:
+    politics: true
+    economics: true
+    crime: false
+    sports: false
+    culture: false
+    eu_relations: false
+    china_italy_relations: false
+    immigration: false
+    energy: false
+    judicial: false

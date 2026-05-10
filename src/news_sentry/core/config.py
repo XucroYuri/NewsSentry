@@ -131,7 +131,7 @@ class ConfigLoader:
         filter_rules = self._load_referenced_config(
             target_data.get("filter_rules_ref"), target_path
         )
-        classification_rules = self._load_referenced_config(
+        classification_rules = self._load_classification_rules(
             target_data.get("classification_rules_ref"), target_path
         )
         sandbox_ref = self._resolve_sandbox_ref(target_data, deployment_profile)
@@ -314,6 +314,129 @@ class ConfigLoader:
         data = self._load_yaml(ref_path)
         self._validate_resolved_schema(data, ref_path)
         return data
+
+    def _load_classification_rules(
+        self,
+        ref_path_str: str | None,
+        context_path: Path,
+    ) -> dict[str, Any]:
+        """加载分类规则配置，支持 extends 继承机制。
+
+        流程：
+        1. 加载 ref 指向的 YAML 文件（不校验，因 extends 文件可能不含全量字段）
+        2. 若存在 ``extends`` 键，加载基文件并递归解析其 extends
+        3. 合并：dict 深层合并，list 为追加（基在前，子在后）
+        4. 校验最终合并结果
+
+        Args:
+            ref_path_str: 引用路径字符串。
+            context_path: 包含此引用的 YAML 文件路径。
+
+        Returns:
+            合并后的分类规则 dict。ref 不存在时返回空 dict。
+        """
+        if ref_path_str is None:
+            return {}
+        ref_path = self._resolve_ref_path(ref_path_str, context_path)
+        if ref_path is None:
+            return {}
+        data = self._load_yaml(ref_path)
+        merged = self._resolve_extends(data, ref_path_str, context_path)
+        # 对最终合并结果校验 schema
+        self._validate_resolved_schema(merged, ref_path)
+        return merged
+
+    def _resolve_ref_path(
+        self, ref_path_str: str, context_path: Path
+    ) -> Path | None:
+        """解析引用路径，与 _load_referenced_config 相同的查找逻辑。
+
+        Args:
+            ref_path_str: 引用路径字符串。
+            context_path: 包含此引用的 YAML 文件路径。
+
+        Returns:
+            解析后的文件路径，找不到时返回 None。
+        """
+        ref_path = self._config_root / ref_path_str
+        if not ref_path.is_file():
+            ref_path = (context_path.parent / ref_path_str).resolve()
+        if not ref_path.is_file():
+            return None
+        return ref_path
+
+    def _resolve_extends(
+        self,
+        data: dict[str, Any],
+        ref_path_str: str,
+        context_path: Path,
+    ) -> dict[str, Any]:
+        """解析分类规则配置的 extends 继承链。
+
+        递归加载基文件，并将当前 data 作为 overlay 合并上去。
+        dict 键深层合并，list 键为追加（基在前，子在后）。
+
+        Args:
+            data: 当前已加载的分类规则 dict。
+            ref_path_str: 当前文件的引用路径（用于解析 extends 相对路径）。
+            context_path: 包含引用的 YAML 文件路径。
+
+        Returns:
+            沿继承链全量合并后的 dict（不含 extends 键）。
+
+        Raises:
+            FileNotFoundError: extends 指向的基文件不存在。
+        """
+        extends_ref: str | None = data.pop("extends", None)
+        if extends_ref is None:
+            return data
+
+        # 解析当前文件的所在目录，extends 路径相对于此目录
+        ref_path = self._resolve_ref_path(ref_path_str, context_path)
+        if ref_path is None:
+            return data  # 防御：不应到达这里
+        base_dir = ref_path.parent
+
+        base_path = (base_dir / extends_ref).resolve()
+        if not base_path.is_file():
+            raise FileNotFoundError(
+                f"分类规则 extends 基文件不存在: {base_path}"
+            )
+
+        base_data = self._load_yaml(base_path)
+
+        # 构造基文件的引用路径，供递归解析使用
+        config_root = self._config_root.resolve()
+        base_ref_str = str(base_path.relative_to(config_root))
+        base_data = self._resolve_extends(base_data, base_ref_str, context_path)
+
+        return self._deep_merge_with_append(base_data, data)
+
+    def _deep_merge_with_append(
+        self, base: dict[str, Any], overlay: dict[str, Any]
+    ) -> dict[str, Any]:
+        """合并两个 dict：dict 键深层合并，list 键追加。
+
+        与 ``_deep_merge`` 的区别：list 键不替换，而是 base + overlay 追加。
+
+        Args:
+            base: 基础配置。
+            overlay: 覆盖配置（优先级更高，其 list 元素追加到末尾）。
+
+        Returns:
+            合并后的新 dict。
+        """
+        result: dict[str, Any] = dict(base)
+        for key, val in overlay.items():
+            if key not in result:
+                result[key] = val
+            elif isinstance(result[key], dict) and isinstance(val, dict):
+                result[key] = self._deep_merge_with_append(result[key], val)
+            elif isinstance(result[key], list) and isinstance(val, list):
+                result[key] = result[key] + val
+            else:
+                result[key] = val
+        return result
 
     def _resolve_sandbox_ref(
         self,
