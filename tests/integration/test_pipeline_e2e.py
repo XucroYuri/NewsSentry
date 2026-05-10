@@ -10,12 +10,10 @@ import json
 from pathlib import Path
 
 import pytest
+from tests.unit.test_run import _make_event_markdown, _setup_minimal_project
 
 from news_sentry.core.run import bounded_run
-from news_sentry.models.newsevent import NewsEvent, PipelineStage, Language
-
-from tests.unit.test_run import _setup_minimal_project, _make_event_markdown
-
+from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
 
 # ── 辅助：在 raw/ 目录准备采集事件 ─────────────────────────────────
 
@@ -45,7 +43,7 @@ def _seed_collected_events(data_dir: Path, target_id: str) -> list[dict[str, str
         },
     ]
 
-    for i, info in enumerate(events_info):
+    for info in events_info:
         md = _make_event_markdown(
             event_id=info["id"],
             source_id=info["source_id"],
@@ -80,7 +78,7 @@ def _seed_filtered_events(data_dir: Path, target_id: str) -> list[dict[str, str]
         },
     ]
 
-    for i, info in enumerate(events_info):
+    for info in events_info:
         md = _make_event_markdown(
             event_id=info["id"],
             source_id=info["source_id"],

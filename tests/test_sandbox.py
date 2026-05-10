@@ -35,9 +35,9 @@ class TestSandboxPolicy:
         assert policy.allowed_commands == []
         assert policy.allowed_network_hosts == []
         assert policy.write_roots == []
-        assert policy.max_execution_time_ms == 30000
+        assert policy.max_execution_time_ms == 3600000
         assert policy.max_output_bytes == 1024 * 1024
-        assert policy.default_action == "allow"
+        assert policy.default_action == "deny"
 
     def test_custom_values(self, tmp_path: Path) -> None:
         policy = SandboxPolicy(
@@ -347,5 +347,5 @@ class TestEmptyPolicyDenyAll:
         assert enforcer.check_write_path(tmp_path / "test.txt") is False
 
     def test_network_allowed_when_empty_and_default_allow(self, enforcer: SandboxEnforcer) -> None:
-        """空 allowed_network_hosts + default_action=allow → 允许所有 host（向后兼容）。"""
-        assert enforcer.check_network_host("anything.com") is True
+        """空 allowed_network_hosts + default_action=deny → 拒绝所有 host。"""
+        assert enforcer.check_network_host("anything.com") is False

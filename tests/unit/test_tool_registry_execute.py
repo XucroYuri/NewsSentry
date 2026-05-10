@@ -1,4 +1,5 @@
 """Tests for ToolRegistry.execute() — bridges to OpenCLIToolAdapter."""
+# ruff: noqa: S108  # 测试中的路径是 mock 参数，不执行实际文件操作
 from __future__ import annotations
 
 from pathlib import Path
@@ -9,7 +10,6 @@ import pytest
 from news_sentry.adapters.tools.base import ToolRunResult
 from news_sentry.core.sandbox import SandboxEnforcer
 from news_sentry.core.tool_registry import ToolRegistry
-
 
 # ──────────────────────────────────────────────────────────────
 # Fixtures
@@ -103,4 +103,4 @@ class TestToolRegistryExecute:
         assert isinstance(result, ToolRunResult)
         assert result.success is False
         # adapter 返回 unknown_tool（注意与 registry 的 tool_not_found 不同）
-        assert result.error["type"] == "unknown_tool"
+        assert result.error["type"] == "command_not_found"

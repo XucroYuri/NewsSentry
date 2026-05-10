@@ -9,7 +9,6 @@ from news_sentry.core.adapter_health import check_all_adapters
 from news_sentry.core.skill_registry import SkillRegistry
 from news_sentry.core.tool_registry import ToolRegistry
 
-
 # ──────────────────────────────────────────────────────────────
 # Fixtures
 # ──────────────────────────────────────────────────────────────
@@ -95,7 +94,6 @@ class TestCheckAllAdapters:
 
     def test_skill_missing_entry_point(self, manifest_dir: Path, tmp_path: Path) -> None:
         """entry_point 不存在时报告 warning。"""
-        import yaml
 
         tr = ToolRegistry(manifest_dir)
 

@@ -1,0 +1,10 @@
+profile_id: twitter-italia-public
+display_name: "Twitter Italy 公开账号观察"
+platform: twitter
+auth_owner: human-approved
+approved_by: "project-owner-2026-05-09"
+approved_at: "2026-05-09T00:00:00Z"
+account_type: public-account
+risk_level: medium
+profile_path: "./data/chrome-profiles/twitter-italia"
+notes: "仅用于观察公开意大利账号趋势，不发布内容，不私信"

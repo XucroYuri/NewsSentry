@@ -50,3 +50,11 @@ data/
 .codex/automations/*.local.yml
 config/**/*.local.yaml
 config/**/*.local.yml
+
+# Chrome / browser profiles (Phase 6)
+**/Chrome/
+**/chromium/
+**/Cookies
+**/Login Data
+**/chrome-profiles/
+**/session-profiles/*.actual.yaml

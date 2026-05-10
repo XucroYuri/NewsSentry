@@ -11,7 +11,6 @@ import pytest
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
 from news_sentry.skills.collect.api_collector import APICollector
 
-
 # ── 测试用 fixture / helper ────────────────────────────────────────
 
 
