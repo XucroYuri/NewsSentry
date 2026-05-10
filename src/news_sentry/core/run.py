@@ -11,18 +11,21 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from news_sentry.adapters.providers.openai_provider import OpenAIProvider
 from news_sentry.adapters.tools.opencli import OpenCLIToolAdapter
 from news_sentry.core.config import ConfigLoader, ResolvedConfig
 from news_sentry.core.file_writer import FileWriter
 from news_sentry.core.memory import Memory
-from news_sentry.core.run_log import RunLog
+from news_sentry.core.run_log import RunLog, write_heartbeat
 from news_sentry.core.sandbox import SandboxEnforcer, SandboxPolicy
 from news_sentry.models.newsevent import NewsEvent, PipelineStage
 from news_sentry.models.pipeline_context import PipelineContext
+from news_sentry.skills.collect.api_collector import APICollector
 from news_sentry.skills.collect.opencli_collector import OpenCLICollector
 from news_sentry.skills.collect.rss_collector import RSSCollector
 from news_sentry.skills.filter.classifier_rules import ClassifierRules
 from news_sentry.skills.filter.rules_filter import RulesFilter
+from news_sentry.skills.judge.judge_skill import JudgeSkill
 from news_sentry.skills.judge.rules_judge import RulesJudgeSkill
 from news_sentry.skills.output.markdown_writer import MarkdownWriter
 
@@ -148,6 +151,9 @@ def bounded_run(
     if dry_run:
         return ctx
 
+    # ── 写入初始心跳 ───────────────────────────────────────
+    write_heartbeat(log_dir, run_id, "starting")
+
     # ── 阶段调度 ────────────────────────────────────────────
     if stage_str == "collect":
         _run_collect(config, run_id, run_log, file_writer, sandbox, memory, ctx)
@@ -159,6 +165,9 @@ def bounded_run(
         _run_judge(config, run_id, run_log, file_writer, memory, ctx)
     elif stage_str == "all":
         _run_all(config, run_id, run_log, file_writer, sandbox, memory, ctx)
+
+    # ── 阶段完成后更新心跳 ──────────────────────────────────
+    write_heartbeat(log_dir, run_id, stage_str, status="completed")
 
     # ── 写入运行日志 ────────────────────────────────────────
     log_path = run_log.write()
@@ -217,13 +226,11 @@ def _run_collect(
             if source_type == "opencli":
                 if _opencli_adapter is None:
                     _opencli_adapter = OpenCLIToolAdapter(sandbox_enforcer=sandbox)
-                collector_obj: RSSCollector | OpenCLICollector = OpenCLICollector(
+                collector_obj: RSSCollector | OpenCLICollector | APICollector = OpenCLICollector(
                     source_cfg, _opencli_adapter, sandbox,
                 )
             elif source_type == "api":
-                # TODO Phase 4+: APICollector
-                run_log.log_event("collect", source_id, "api_skipped")
-                continue
+                collector_obj = APICollector(source_cfg, sandbox)
             else:
                 # 默认 rss
                 collector_obj = RSSCollector(source_cfg, sandbox)
@@ -333,7 +340,7 @@ def _run_judge(
     memory: Memory,
     ctx: PipelineContext,
 ) -> None:
-    """执行研判阶段 — 基于规则引擎对 filtered 事件评分和推荐。"""
+    """执行研判阶段 — AI 优先（Phase 5），回退到规则引擎。"""
     events = _load_events_from_dir(file_writer.base_dir / "evaluated")
     if not events:
         run_log.log_phase_start("judge")
@@ -343,20 +350,32 @@ def _run_judge(
     run_log.log_phase_start("judge")
     t0 = datetime.now(UTC)
 
-    judge_skill = RulesJudgeSkill(config.classification_rules, memory)
-    judged = judge_skill.judge(events, run_id)
+    # 尝试 AI 研判（Phase 5），不可用时回退到规则引擎
+    ai_judge = _init_ai_judge()
+    if ai_judge is not None:
+        for event in events:
+            try:
+                event = ai_judge.judge(event, run_id)
+            except Exception as e:
+                run_log.log_error("judge", str(e), event_id=event.id)
+            try:
+                file_writer.write_event(event)
+                run_log.log_event("judge", event.id, "judged")
+            except Exception as e:
+                run_log.log_error("judge", str(e), event_id=event.id)
+    else:
+        judge_skill = RulesJudgeSkill(config.classification_rules, memory)
+        judged = judge_skill.judge(events, run_id)
+        for event in judged:
+            try:
+                file_writer.write_event(event)
+                run_log.log_event("judge", event.id, "judged")
+            except Exception as e:
+                run_log.log_error("judge", str(e), event_id=event.id)
 
-    # 重新写入 updated events（含 judge_result/new_value_score/china_relevance）
-    for event in judged:
-        try:
-            file_writer.write_event(event)
-            run_log.log_event("judge", event.id, "judged")
-        except Exception as e:
-            run_log.log_error("judge", str(e), event_id=event.id)
-
-    ctx.events_judged = len(judged)
+    ctx.events_judged = len(events)
     duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
-    run_log.log_phase_end("judge", len(judged), duration_ms)
+    run_log.log_phase_end("judge", len(events), duration_ms)
 
 
 def _run_all(
@@ -376,6 +395,22 @@ def _run_all(
 
 
 # ── 辅助函数 ───────────────────────────────────────────────────
+
+
+def _init_ai_judge() -> JudgeSkill | None:
+    """尝试初始化 AI 研判器，不可用时返回 None。
+
+    使用 OpenAI 兼容 provider，默认模型 gpt-4o-mini。
+    如果 API key 未设置、网络不可达或 health check 失败，静默回退到规则引擎。
+    """
+    try:
+        openai_config = {"model": "gpt-4o-mini", "max_tokens": 2048}
+        ai_provider = OpenAIProvider(openai_config)
+        if ai_provider.health_check():
+            return JudgeSkill(ai_provider)
+    except Exception:  # noqa: S110 — AI unavailable is a normal fallback path
+        pass
+    return None
 
 
 def _prune_old_logs(log_dir: Path, keep: int = 100) -> None:
