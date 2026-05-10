@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 # 意大利特有字符串（不应出现在 core/ 和 skills/ 目录中）
 ITALY_PATTERNS = [
@@ -43,18 +44,14 @@ SCAN_DIRS = [
 ]
 
 
-class HardcodedMatch:
+class HardcodedMatch(NamedTuple):
     """一条硬编码匹配结果。"""
 
-    def __init__(self, file: str, line_number: int, line_content: str, pattern: str, description: str):
-        self.file = file
-        self.line_number = line_number
-        self.line_content = line_content
-        self.pattern = pattern
-        self.description = description
-
-    def __repr__(self) -> str:
-        return f"{self.file}:{self.line_number} [{self.description}] {self.line_content!r}"
+    file: str
+    line_number: int
+    line_content: str
+    pattern: str
+    description: str
 
 
 def is_in_docstring_or_comment(line: str) -> bool:
@@ -85,7 +82,7 @@ def scan_for_hardcoded_target(
         for py_file in dir_path.rglob("*.py"):
             try:
                 content = py_file.read_text(encoding="utf-8")
-            except Exception:
+            except Exception:  # noqa: S112
                 continue
 
             in_docstring = False
@@ -139,7 +136,7 @@ if __name__ == "__main__":
         print(f"❌ 发现 {len(real_matches)} 处疑似意大利硬编码：\n")
         for m in real_matches:
             print(f"  {m}")
-        print(f"\n请确认这些是否为核心代码中的硬编码。如果是，请重构为配置驱动。")
+        print("\n请确认这些是否为核心代码中的硬编码。如果是，请重构为配置驱动。")
         sys.exit(1)
 
     print("✅ 无意大利硬编码（core/skills/adapters 中未发现意大利专有字符串）")
