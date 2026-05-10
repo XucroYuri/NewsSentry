@@ -1,7 +1,9 @@
 """Phase 5: Tests for ProviderRouter, CostTracker, ProviderRoute config, and RulesProvider."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from unittest import mock
 
 import pytest
 import yaml
@@ -430,3 +432,181 @@ def test_rules_provider_call_breaking() -> None:
     )
     assert result["recommendation"] == "publish"
     assert "breaking" in result["flags"]
+
+
+# ------------------------------------------------------------------
+# TestRouteOrchestration — route() 编排方法测试
+# ------------------------------------------------------------------
+
+
+class TestRouteOrchestration:
+    """route() 方法的完整编排逻辑测试：解析 → 预算 → 调用 → 回退 → 成本。"""
+
+    @staticmethod
+    def _mock_provider_factory(
+        return_value: dict[str, object] | None = None,
+        side_effect: Exception | None = None,
+    ) -> mock.MagicMock:
+        """创建返回模拟 AIProvider 的工厂函数。
+
+        返回的 MagicMock 在调用 factory(provider_name) 时返回模拟 provider；
+        该 provider 的 .call() 返回给定值或抛出异常。
+        """
+        mock_provider = mock.MagicMock()
+        if side_effect is not None:
+            mock_provider.call.side_effect = side_effect
+        else:
+            mock_provider.call.return_value = return_value or {
+                "content": "mock response",
+                "model": "mock-model",
+                "usage": {"total_tokens": 42},
+                "route_id": "judge.primary",
+                "provider": "<placeholder>",
+            }
+        factory = mock.MagicMock(return_value=mock_provider)
+        return factory
+
+    # ── 正常流程 ──────────────────────────────────────────────────
+
+    def test_route_resolves_and_calls_provider(self) -> None:
+        """route() 解析路由并调用 provider，返回正确结果。"""
+        router = ProviderRouter(_make_test_routes_config())
+        factory = self._mock_provider_factory()
+
+        result = router.route("judge", "test prompt", factory)
+
+        assert result["content"] == "mock response"
+        assert result["fallback_used"] is False
+        assert result["budget_exceeded"] is False
+        assert result["model"] == "mock-model"
+        assert result["usage"] == {"total_tokens": 42}
+        # 验证工厂被调用 — 路由 judge.primary 的 provider 为 "<placeholder>"
+        factory.assert_called_with("<placeholder>")
+
+    # ── 预算超限 ──────────────────────────────────────────────────
+
+    def test_route_budget_exceeded(self) -> None:
+        """预算耗尽时 route() 不再调用 provider，直接返回 budget_exceeded=True。"""
+        router = ProviderRouter(_make_test_routes_config(), cost_budget=0.01)
+        router.track_cost("translate.fast", 0.02)  # 超出 0.01 预算
+
+        factory = mock.MagicMock()  # 不应被调用
+        result = router.route("judge", "test prompt", factory)
+
+        assert result["budget_exceeded"] is True
+        assert result["content"] == ""
+        assert result["provider"] == ""
+        factory.assert_not_called()
+
+    # ── 回退逻辑 ──────────────────────────────────────────────────
+
+    def test_route_fallback_on_primary_failure(self) -> None:
+        """主 provider 抛异常时自动回退到 fallback provider。"""
+        router = ProviderRouter(_make_test_routes_config())
+
+        primary = mock.MagicMock()
+        primary.call.side_effect = RuntimeError("primary error")
+        fallback = mock.MagicMock()
+        fallback.call.return_value = {
+            "content": "fallback response",
+            "model": "fallback-model",
+            "usage": {"total_tokens": 10},
+            "route_id": "fallback.local",
+            "provider": "local",
+        }
+
+        def factory(provider_name: str) -> AIProvider | None:
+            if provider_name == "<placeholder>":
+                return primary
+            if provider_name == "local":
+                return fallback
+            return None
+
+        result = router.route("judge", "test prompt", factory)
+
+        assert result["fallback_used"] is True
+        assert result["content"] == "fallback response"
+        assert result["route_id"] == "fallback.local"
+        assert result["provider"] == "local"
+        primary.call.assert_called_once()
+        fallback.call.assert_called_once()
+
+    def test_route_all_providers_fail(self) -> None:
+        """所有 provider（含回退链）均失败时返回 error 和空 content。"""
+        router = ProviderRouter(_make_test_routes_config())
+
+        failing = mock.MagicMock()
+        failing.call.side_effect = RuntimeError("all providers down")
+
+        def factory(provider_name: str) -> AIProvider | None:
+            return failing
+
+        result = router.route("judge", "test prompt", factory)
+
+        assert "error" in result
+        assert "all providers down" in result["error"]
+        assert result["content"] == ""
+        assert result["fallback_used"] is True
+
+    # ── preferred_route_id ────────────────────────────────────────
+
+    def test_route_uses_preferred_route_id(self) -> None:
+        """preferred_route_id 指定后使用对应路由的 provider。"""
+        router = ProviderRouter(_make_test_routes_config())
+        mock_provider = mock.MagicMock()
+        mock_provider.call.return_value = {
+            "content": "preferred response",
+            "model": "preferred-model",
+            "usage": {},
+            "route_id": "translate.high",
+            "provider": "<placeholder>",
+        }
+
+        factory = mock.MagicMock(return_value=mock_provider)
+        # 使用 preferred_route_id 覆盖默认 task_type 匹配
+        result = router.route(
+            "translate", "test prompt", factory,
+            preferred_route_id="translate.high",
+        )
+
+        assert result["route_id"] == "translate.high"
+        factory.assert_called_with("<placeholder>")
+
+    # ── 成本追踪 ──────────────────────────────────────────────────
+
+    def test_route_tracks_cost_on_success(self) -> None:
+        """成功调用后 cost_tracker.total 增加对应路由的 max_cost_usd_per_call。"""
+        router = ProviderRouter(_make_test_routes_config())
+        factory = self._mock_provider_factory()
+
+        assert router.cost_tracker.total == 0.0
+        router.route("judge", "test prompt", factory)
+        # judge.primary 的 max_cost_usd_per_call = 0.10
+        assert router.cost_tracker.total == 0.10
+
+    # ── 配置集成 ──────────────────────────────────────────────────
+
+    def test_route_uses_router_config(self) -> None:
+        """route() 使用初始化时注入的 ProviderRoutesConfig 进行路由匹配。"""
+        config = _make_test_routes_config()
+        router = ProviderRouter(config)
+        # 为所有 provider 名创建统一 mock
+        mock_provider = mock.MagicMock()
+        mock_provider.call.return_value = {
+            "content": "config-based response",
+            "model": "config-model",
+            "usage": {},
+            "route_id": "classify.primary",
+            "provider": "<placeholder>",
+        }
+
+        def factory(provider_name: str) -> AIProvider | None:
+            return mock_provider
+
+        result = router.route("classify", "test prompt", factory)
+
+        # 验证使用了配置中的 classify.primary 路由
+        assert result["route_id"] == "classify.primary"
+        assert result["fallback_used"] is False
+        assert result["budget_exceeded"] is False
+        assert result["content"] == "config-based response"
