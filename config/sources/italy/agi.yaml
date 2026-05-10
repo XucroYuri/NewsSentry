@@ -4,14 +4,14 @@
 source_id: agi
 display_name: "AGI - Agenzia Giornalistica Italia"
 type: rss
-url: "https://www.agi.it/feed/rss"
+url: "https://www.agi.it/rss"  # fixed 2026-05-10: verified 20 entries, valid RSS
 
 credibility_base: 0.88
 
 fetch_interval_minutes: 15
 max_items_per_run: 50
 timeout_seconds: 30
-enabled: false  # 2026-05-10: RSS feed URL 已失效 (404), 待更新
+enabled: true
 
 health:
   last_success_at: null

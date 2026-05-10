@@ -8,11 +8,13 @@ url: "https://www.fao.org/news/rss-feed/it/"
 
 # FAO 作为联合国专门机构，总部设罗马，提供意大利相关国际新闻背景
 credibility_base: 0.92
+deprecated: true
+deprecated_reason: "FAO no longer provides public RSS feeds — use email subscription at FAO-Newsroom@fao.org"
 
 fetch_interval_minutes: 60
 max_items_per_run: 20
 timeout_seconds: 30
-enabled: false  # 2026-05-10: RSS feed URL 已失效 (404), 待更新
+enabled: false  # 2026-05-10: RSS 已永久移除
 
 health:
   last_success_at: null
