@@ -339,3 +339,464 @@ tools:
         session_profile_required: true
       credentials:
         required: []               # 严禁注入凭据，见 ADR-0003
+
+  # ═══════════════════════════════════════════════════════
+  # ADR-0011 内容源工具（12 条，Phase 4 / Phase 6）
+  # ═══════════════════════════════════════════════════════
+
+  # ── Hacker News ──────────────────────────────────────
+
+  - tool_id: opencli.hackernews.top
+    display_name: "Hacker News 热榜"
+    version: "1.0.0"
+    phase: "Phase 4"
+    execution_type: subprocess
+    executable: opencli
+    argv_template: ["hackernews", "top", "--limit", "{n}", "-f", "json"]
+    command_template: "opencli hackernews top --limit {n} -f json"
+    parameters_schema:
+      type: object
+      required: []
+      properties:
+        n:
+          type: integer
+          default: 30
+          minimum: 1
+          maximum: 100
+    output_schema: { items: [{ id, title, url, score, comments }] }
+    permissions:
+      risk_level: low
+      network:
+        allowed_hosts: ["news.ycombinator.com"]
+      filesystem:
+        read_roots: []
+        write_roots: ["./data/{target_id}/raw/"]
+      browser:
+        session_profile_required: false
+      credentials:
+        required: []
+    rate_limit:
+      max_calls_per_hour: 12
+    exit_code_mapping:
+      66: result_empty
+      69: browser_unavailable
+      1: tool_error
+
+  - tool_id: opencli.hackernews.search
+    display_name: "Hacker News 搜索"
+    version: "1.0.0"
+    phase: "Phase 4"
+    execution_type: subprocess
+    executable: opencli
+    argv_template: ["hackernews", "search", "{q}", "--limit", "{n}", "-f", "json"]
+    command_template: "opencli hackernews search {q} --limit {n} -f json"
+    parameters_schema:
+      type: object
+      required: [q]
+      properties:
+        q:
+          type: string
+        n:
+          type: integer
+          default: 20
+          minimum: 1
+    permissions:
+      risk_level: low
+      network:
+        allowed_hosts: ["news.ycombinator.com", "hn.algolia.com"]
+      filesystem:
+        read_roots: []
+        write_roots: ["./data/{target_id}/raw/"]
+      browser:
+        session_profile_required: false
+      credentials:
+        required: []
+    rate_limit:
+      max_calls_per_hour: 20
+    exit_code_mapping:
+      66: result_empty
+      69: browser_unavailable
+      1: tool_error
+      2: args_invalid
+
+  # ── Reddit ──────────────────────────────────────────
+
+  - tool_id: opencli.reddit.hot
+    display_name: "Reddit 热帖"
+    version: "1.0.0"
+    phase: "Phase 4"
+    execution_type: subprocess
+    executable: opencli
+    argv_template: ["reddit", "hot", "--subreddit", "{r}", "--limit", "{n}", "-f", "json"]
+    command_template: "opencli reddit hot --subreddit {r} --limit {n} -f json"
+    parameters_schema:
+      type: object
+      required: [r]
+      properties:
+        r:
+          type: string
+          examples: ["italy", "europe", "geopolitics", "worldnews"]
+        n:
+          type: integer
+          default: 25
+          minimum: 1
+    permissions:
+      risk_level: low
+      network:
+        allowed_hosts: ["reddit.com", "www.reddit.com", "oauth.reddit.com"]
+      filesystem:
+        read_roots: []
+        write_roots: ["./data/{target_id}/raw/"]
+      browser:
+        session_profile_required: false
+      credentials:
+        required: []
+    rate_limit:
+      max_calls_per_hour: 12
+    exit_code_mapping:
+      66: result_empty
+      69: browser_unavailable
+      1: tool_error
+      2: args_invalid
+
+  - tool_id: opencli.reddit.search
+    display_name: "Reddit 搜索"
+    version: "1.0.0"
+    phase: "Phase 4"
+    execution_type: subprocess
+    executable: opencli
+    argv_template: ["reddit", "search", "{q}", "--limit", "{n}", "-f", "json"]
+    command_template: "opencli reddit search {q} --limit {n} -f json"
+    parameters_schema:
+      type: object
+      required: [q]
+      properties:
+        q:
+          type: string
+        n:
+          type: integer
+          default: 20
+          minimum: 1
+    permissions:
+      risk_level: low
+      network:
+        allowed_hosts: ["reddit.com", "www.reddit.com", "oauth.reddit.com"]
+      filesystem:
+        read_roots: []
+        write_roots: ["./data/{target_id}/raw/"]
+      browser:
+        session_profile_required: false
+      credentials:
+        required: []
+    rate_limit:
+      max_calls_per_hour: 15
+    exit_code_mapping:
+      66: result_empty
+      1: tool_error
+      2: args_invalid
+
+  # ── Google Scholar ──────────────────────────────────
+
+  - tool_id: opencli.google-scholar.search
+    display_name: "Google Scholar 学术搜索"
+    version: "1.0.0"
+    phase: "Phase 4"
+    execution_type: subprocess
+    executable: opencli
+    argv_template: ["google-scholar", "search", "{q}", "--limit", "{n}", "-f", "json"]
+    command_template: "opencli google-scholar search {q} --limit {n} -f json"
+    parameters_schema:
+      type: object
+      required: [q]
+      properties:
+        q:
+          type: string
+        n:
+          type: integer
+          default: 10
+          minimum: 1
+    permissions:
+      risk_level: low
+      network:
+        allowed_hosts: ["scholar.google.com"]
+      filesystem:
+        read_roots: []
+        write_roots: ["./data/{target_id}/raw/"]
+      browser:
+        session_profile_required: false
+      credentials:
+        required: []
+    rate_limit:
+      max_calls_per_hour: 6
+    exit_code_mapping:
+      66: result_empty
+      69: browser_unavailable
+      1: tool_error
+      2: args_invalid
+
+  # ── Gov Policy (意大利政府) ────────────────────────
+
+  - tool_id: opencli.gov-policy.search
+    display_name: "意大利政府政策公告搜索"
+    version: "1.0.0"
+    phase: "Phase 4"
+    execution_type: subprocess
+    executable: opencli
+    argv_template: ["gov-policy", "search", "{q}", "--country", "it", "-f", "json"]
+    command_template: "opencli gov-policy search {q} --country it -f json"
+    parameters_schema:
+      type: object
+      required: [q]
+      properties:
+        q:
+          type: string
+    permissions:
+      risk_level: low
+      network:
+        allowed_hosts: ["www.governo.it", "www.parlamento.it", "eur-lex.europa.eu"]
+      filesystem:
+        read_roots: []
+        write_roots: ["./data/{target_id}/raw/"]
+      browser:
+        session_profile_required: false
+      credentials:
+        required: []
+    rate_limit:
+      max_calls_per_hour: 10
+    exit_code_mapping:
+      66: result_empty
+      69: browser_unavailable
+      1: tool_error
+
+  - tool_id: opencli.gov-policy.recent
+    display_name: "意大利政府近期政策动态"
+    version: "1.0.0"
+    phase: "Phase 4"
+    execution_type: subprocess
+    executable: opencli
+    argv_template: ["gov-policy", "recent", "--country", "it", "--days", "{days}", "-f", "json"]
+    command_template: "opencli gov-policy recent --country it --days {days} -f json"
+    parameters_schema:
+      type: object
+      required: []
+      properties:
+        days:
+          type: integer
+          default: 7
+          minimum: 1
+          maximum: 30
+    permissions:
+      risk_level: low
+      network:
+        allowed_hosts: ["www.governo.it", "www.parlamento.it"]
+      filesystem:
+        read_roots: []
+        write_roots: ["./data/{target_id}/raw/"]
+      browser:
+        session_profile_required: false
+      credentials:
+        required: []
+    rate_limit:
+      max_calls_per_hour: 8
+    exit_code_mapping:
+      66: result_empty
+      69: browser_unavailable
+      1: tool_error
+
+  # ── 知乎 ─────────────────────────────────────────────
+
+  - tool_id: opencli.zhihu.hot
+    display_name: "知乎热榜（中文涉华视角）"
+    version: "1.0.0"
+    phase: "Phase 4"
+    execution_type: subprocess
+    executable: opencli
+    argv_template: ["zhihu", "hot", "--limit", "{n}", "-f", "json"]
+    command_template: "opencli zhihu hot --limit {n} -f json"
+    parameters_schema:
+      type: object
+      required: []
+      properties:
+        n:
+          type: integer
+          default: 20
+          minimum: 1
+    permissions:
+      risk_level: low
+      network:
+        allowed_hosts: ["www.zhihu.com", "api.zhihu.com"]
+      filesystem:
+        read_roots: []
+        write_roots: ["./data/{target_id}/raw/"]
+      browser:
+        session_profile_required: false
+      credentials:
+        required: []
+    rate_limit:
+      max_calls_per_hour: 6
+    exit_code_mapping:
+      66: result_empty
+      69: browser_unavailable
+      1: tool_error
+    notes: "用于观察中文视角的意大利/欧洲舆论，支持 china_relevance 分析"
+
+  # ── 外部自定义工具 ──────────────────────────────────
+
+  - tool_id: opencli.external.custom
+    display_name: "自定义外部工具包装"
+    version: "1.0.0"
+    phase: "Phase 4"
+    execution_type: subprocess
+    executable: opencli
+    argv_template: ["external", "{name}", "{args}"]
+    command_template: "opencli external {name} {args}"
+    parameters_schema:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: "外部工具名称，需在 config/external-tools/ 中注册"
+        args:
+          type: string
+          default: ""
+    permissions:
+      risk_level: medium
+      network:
+        allowed_hosts: []  # 由具体工具注册时指定
+      filesystem:
+        read_roots: []
+        write_roots: ["./data/{target_id}/raw/"]
+      browser:
+        session_profile_required: false
+      credentials:
+        required: []
+    rate_limit:
+      max_calls_per_hour: 20
+    exit_code_mapping:
+      66: result_empty
+      69: browser_unavailable
+      77: auth_required
+      1: tool_error
+      2: args_invalid
+    notes: "用于包装 News Sentry 内部自定义脚本，需要在单独注册文件中声明网络许可"
+
+  # ═══════════════════════════════════════════════════════
+  # Phase 6 社媒工具（需 session_profile 登录态）
+  # ═══════════════════════════════════════════════════════
+
+  # ── Twitter ──────────────────────────────────────────
+
+  - tool_id: opencli.twitter.trending
+    display_name: "Twitter 趋势话题"
+    version: "1.0.0"
+    phase: "Phase 6"
+    execution_type: subprocess
+    executable: opencli
+    argv_template: ["twitter", "trending", "--locale", "{locale}", "-f", "json"]
+    command_template: "opencli twitter trending --locale {locale} -f json"
+    parameters_schema:
+      type: object
+      required: []
+      properties:
+        locale:
+          type: string
+          default: "it"
+          enum: ["it", "en", "zh"]
+    permissions:
+      risk_level: medium
+      network:
+        allowed_hosts: ["twitter.com", "x.com", "api.twitter.com"]
+      filesystem:
+        read_roots: []
+        write_roots: ["./data/{target_id}/raw/"]
+      browser:
+        session_profile_required: true
+      credentials:
+        required: ["TWITTER_SESSION_PROFILE"]
+    rate_limit:
+      max_calls_per_hour: 4
+    exit_code_mapping:
+      66: result_empty
+      69: browser_unavailable
+      77: auth_required
+      1: tool_error
+    notes: "需要提前配置 Chrome profile 登录态，退出码 77 触发 sandbox violation"
+
+  - tool_id: opencli.twitter.search
+    display_name: "Twitter 关键词搜索"
+    version: "1.0.0"
+    phase: "Phase 6"
+    execution_type: subprocess
+    executable: opencli
+    argv_template: ["twitter", "search", "{q}", "--limit", "{n}", "-f", "json"]
+    command_template: "opencli twitter search {q} --limit {n} -f json"
+    parameters_schema:
+      type: object
+      required: [q]
+      properties:
+        q:
+          type: string
+        n:
+          type: integer
+          default: 20
+          minimum: 1
+    permissions:
+      risk_level: medium
+      network:
+        allowed_hosts: ["twitter.com", "x.com", "api.twitter.com"]
+      filesystem:
+        read_roots: []
+        write_roots: ["./data/{target_id}/raw/"]
+      browser:
+        session_profile_required: true
+      credentials:
+        required: ["TWITTER_SESSION_PROFILE"]
+    rate_limit:
+      max_calls_per_hour: 10
+    exit_code_mapping:
+      66: result_empty
+      69: browser_unavailable
+      77: auth_required
+      1: tool_error
+      2: args_invalid
+
+  # ── 微信公众号 ──────────────────────────────────────
+
+  - tool_id: opencli.weixin.search
+    display_name: "微信公众号搜索"
+    version: "1.0.0"
+    phase: "Phase 6"
+    execution_type: subprocess
+    executable: opencli
+    argv_template: ["weixin", "search", "{q}", "--limit", "{n}", "-f", "json"]
+    command_template: "opencli weixin search {q} --limit {n} -f json"
+    parameters_schema:
+      type: object
+      required: [q]
+      properties:
+        q:
+          type: string
+        n:
+          type: integer
+          default: 10
+          minimum: 1
+    permissions:
+      risk_level: high
+      network:
+        allowed_hosts: ["mp.weixin.qq.com", "weixin.qq.com"]
+      filesystem:
+        read_roots: []
+        write_roots: ["./data/{target_id}/raw/"]
+      browser:
+        session_profile_required: true
+      credentials:
+        required: ["WEIXIN_SESSION_PROFILE"]
+    rate_limit:
+      max_calls_per_hour: 3
+    exit_code_mapping:
+      66: result_empty
+      69: browser_unavailable
+      77: auth_required
+      1: tool_error
+    notes: "需要微信登录态，高风险；Phase 6 社媒实验通道"

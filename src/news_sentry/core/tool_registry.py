@@ -7,6 +7,8 @@ from typing import Any
 
 import yaml
 
+from news_sentry.adapters.tools.base import ToolRunResult
+from news_sentry.adapters.tools.opencli import OpenCLIToolAdapter
 from news_sentry.models.manifests import (
     ExecutionType,
     RiskLevel,
@@ -85,6 +87,7 @@ class ToolRegistry:
     """ToolManifest 注册中心 — 管理工具清单的加载、查询与健康检查。"""
 
     def __init__(self, manifest_dir: Path) -> None:
+        self._manifest_dir = manifest_dir
         self._tools: dict[str, ToolManifest] = load_from_config(manifest_dir)
 
     def get_tool(self, tool_id: str) -> ToolManifest | None:
@@ -117,6 +120,47 @@ class ToolRegistry:
 
         # HTTP / Python 类型暂不做运行时检查
         return {"tool_id": tool_id, "ok": True, "execution_type": tool.execution_type.value}
+
+    def execute(
+        self,
+        tool_id: str,
+        binding_id: str,
+        validated_args: dict[str, Any],
+        run_id: str,
+        sandbox: Any = None,  # noqa: ANN401 — SandboxEnforcer 避免循环导入
+    ) -> ToolRunResult:
+        """Execute a registered tool through OpenCLIToolAdapter.
+
+        This bridges ToolRegistry (SPEC's central execution hub) to
+        OpenCLIToolAdapter (subprocess execution + sandbox pre-check).
+
+        Args:
+            tool_id: Registered tool identifier (e.g., "opencli.hackernews.top").
+            binding_id: Caller identifier for audit trail.
+            validated_args: Arguments validated against parameters_schema.
+            run_id: Current bounded run identifier.
+            sandbox: SandboxEnforcer instance for pre-execution safety checks.
+
+        Returns:
+            ToolRunResult with exit_code, stdout, stderr, error info.
+        """
+        if tool_id not in self._tools:
+            return ToolRunResult(
+                tool_id=tool_id,
+                run_id=run_id,
+                success=False,
+                exit_code=-1,
+                error={
+                    "type": "tool_not_found",
+                    "message": f"Tool '{tool_id}' not registered",
+                },
+            )
+
+        adapter = OpenCLIToolAdapter(
+            manifest_path=self._manifest_dir / "opencli-baseline.yaml",
+            sandbox_enforcer=sandbox,
+        )
+        return adapter.execute(tool_id, validated_args, run_id)
 
     def list_tools_by_risk(self, risk_level: str) -> list[ToolManifest]:
         """按风险等级过滤工具。"""
