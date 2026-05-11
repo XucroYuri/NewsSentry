@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
-from typing import Optional
 
 from pydantic import BaseModel
 
 
-class ErrorType(str, Enum):
+class ErrorType(StrEnum):
     TRANSIENT = "transient"  # 网络/限流，自动重试
     DATA = "data"  # 单条 event 异常，跳过
     FATAL = "fatal"  # 配置/schema 错误，停止运行
@@ -27,7 +26,7 @@ class StageCheckpoint(BaseModel):
 
     def model_post_init(self, __context: object) -> None:
         if not self.saved_at:
-            self.saved_at = datetime.now(timezone.utc).isoformat()
+            self.saved_at = datetime.now(UTC).isoformat()
 
 
 class CheckpointManager:
@@ -46,7 +45,7 @@ class CheckpointManager:
             checkpoint.model_dump_json(indent=2), encoding="utf-8"
         )
 
-    def load(self, stage: str) -> Optional[StageCheckpoint]:
+    def load(self, stage: str) -> StageCheckpoint | None:
         path = self._path(stage)
         if not path.is_file():
             return None

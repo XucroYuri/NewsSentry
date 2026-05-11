@@ -174,7 +174,11 @@ def doctor(as_json: bool, target: str, data_root: str) -> None:
             results.append({
                 "name": f"Target: {check_name}",
                 "ok": passed,
-                "severity": "critical" if (not passed and check_name == "schema_check") else ("warning" if not passed else "info"),
+                "severity": (
+                    "critical"
+                    if (not passed and check_name == "schema_check")
+                    else ("warning" if not passed else "info")
+                ),
                 "message": "; ".join(details) if details else ("ok" if passed else "fail"),
             })
     except Exception as e:
