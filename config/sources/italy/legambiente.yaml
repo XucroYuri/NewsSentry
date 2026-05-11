@@ -1,0 +1,13 @@
+source_id: legambiente
+display_name: Legambiente
+type: rss
+url: https://www.legambiente.it/rss
+credibility_base: 0.8
+fetch_interval_minutes: 60
+max_items_per_run: 15
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0
+

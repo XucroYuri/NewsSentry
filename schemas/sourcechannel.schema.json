@@ -34,6 +34,30 @@
       "type": ["string", "null"],
       "description": "OpenCLI tool_id reference; null for rss/api types. Must match a ToolManifest tool_id."
     },
+    "endpoint": {
+      "type": ["object", "null"],
+      "description": "API endpoint configuration for type=api sources.",
+      "additionalProperties": true,
+      "properties": {
+        "url": { "type": "string", "format": "uri" },
+        "method": { "type": "string", "enum": ["GET", "POST"], "default": "GET" },
+        "params": { "type": "object", "additionalProperties": true },
+        "headers": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    },
+    "tool_ref": {
+      "type": ["string", "null"],
+      "description": "OpenCLI tool_id for type=opencli sources. Alias for opencli_command."
+    },
+    "tool_params": {
+      "type": ["object", "null"],
+      "description": "Parameters for OpenCLI tool invocation.",
+      "additionalProperties": true
+    },
+    "sandbox_profile_ref": {
+      "type": ["string", "null"],
+      "description": "Sandbox profile to enforce for this source's tool calls."
+    },
     "credibility_base": {
       "type": "number",
       "minimum": 0.0,

@@ -1,0 +1,11 @@
+platform: twitter
+dimension: I-immigration-demographics
+collect_mode: opencli_bridge
+accounts:
+- handle: '@UNHCRItalia'
+  display_name: UNHCR Italia
+  url: https://x.com/UNHCRItalia
+  tier: L2
+  category: international_org
+  notes: 难民署
+

@@ -1,0 +1,13 @@
+source_id: bancaditalia
+display_name: Banca d'Italia
+type: rss
+url: https://www.bancaditalia.it/rss
+credibility_base: 0.95
+fetch_interval_minutes: 120
+max_items_per_run: 15
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0
+

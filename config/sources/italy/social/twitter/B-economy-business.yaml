@@ -1,0 +1,17 @@
+platform: twitter
+dimension: B-economy-business
+collect_mode: opencli_bridge
+accounts:
+- handle: '@ilsole24ore'
+  display_name: Il Sole 24 Ore
+  url: https://x.com/ilsole24ore
+  tier: L1
+  category: financial_media
+  notes: 财经权威
+- handle: '@Confindustria'
+  display_name: Confindustria
+  url: https://x.com/Confindustria
+  tier: L2
+  category: industry_association
+  notes: 工业联合会
+

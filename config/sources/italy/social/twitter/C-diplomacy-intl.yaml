@@ -1,0 +1,17 @@
+platform: twitter
+dimension: C-diplomacy-intl
+collect_mode: opencli_bridge
+accounts:
+- handle: '@ItalyMFA'
+  display_name: Italy MFA
+  url: https://x.com/ItalyMFA
+  tier: L1
+  category: government
+  notes: 外交部
+- handle: '@ue_italia'
+  display_name: Rappresentanza UE in Italia
+  url: https://x.com/ue_italia
+  tier: L2
+  category: eu_institution
+  notes: 欧盟驻意代表
+

@@ -600,13 +600,15 @@ class TestLoadTarget:
         loader = ConfigLoader(Path("."))
         config = loader.load_target("italy")
         assert config.target_id == "italy"
-        assert len(config.sources) == 14
+        assert len(config.sources) >= 60  # Phase 12: 14→64+ sources
         source_ids = {s["source_id"] for s in config.sources}
-        assert source_ids == {
+        # 验证核心 RSS 源仍然存在
+        core_ids = {
             "ansa", "repubblica", "corriere", "agi", "fao-rss",
             "tgcom24", "lastampa", "ilfattoquotidiano", "ansa-en",
             "ilmessaggero", "rainews", "ilsole24ore", "thelocal-it", "sky-tg24",
         }
+        assert core_ids.issubset(source_ids)
         assert "score_threshold" in config.filter_rules
         assert "l0_domains" in config.classification_rules
         assert "command_policy" in config.sandbox_policy

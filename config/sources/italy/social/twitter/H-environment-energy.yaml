@@ -1,0 +1,11 @@
+platform: twitter
+dimension: H-environment-energy
+collect_mode: opencli_bridge
+accounts:
+- handle: '@Legambiente'
+  display_name: Legambiente
+  url: https://x.com/Legambiente
+  tier: L2
+  category: environmental_ngo
+  notes: 环保组织
+

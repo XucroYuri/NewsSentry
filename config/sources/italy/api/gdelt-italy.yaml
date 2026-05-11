@@ -1,0 +1,21 @@
+source_id: gdelt-italy
+display_name: GDELT API — Italy Events
+type: api
+url: https://api.gdeltproject.org/api/v2/doc/doc
+endpoint:
+  url: https://api.gdeltproject.org/api/v2/doc/doc
+  method: GET
+  params:
+    query: Italy
+    mode: artlist
+    maxrecords: 50
+    format: json
+credibility_base: 0.75
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0
+

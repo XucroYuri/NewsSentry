@@ -1,0 +1,11 @@
+platform: twitter
+dimension: M-other-open
+collect_mode: opencli_bridge
+accounts:
+- handle: '@agenzia_ansa'
+  display_name: ANSA
+  url: https://x.com/agenzia_ansa
+  tier: L1
+  category: national_wire
+  notes: 国家通讯社
+

@@ -1,6 +1,6 @@
 # Schema: ../../schemas/targetconfig.schema.json
 # 契约: docs/contracts-canonical.md §2
-# ADR: ADR-0015, ADR-0016
+# ADR: ADR-0015, ADR-0016, ADR-0021
 target_id: italy
 display_name: "意大利新闻监控"
 
@@ -12,21 +12,105 @@ language_scope:
 timezone: Europe/Rome
 
 # 引用的源渠道 ID，对应 config/sources/italy/{id}.yaml
+# Phase 12: 14→64 信源，覆盖 13 维 × 3 种采集方式 (RSS/API/OpenCLI)
 source_channel_refs:
+  # ── A. 政治与治理 ─────────────────────────────────
   - ansa
+  - agi
+  - adnkronos
+  - rainews
+  - tgcom24
+  - sky-tg24
+  - camera-it
+  - senato-it
+  - quirinale
+  - interno-gov
+  - opencli/governo-it
+  - opencli/parlamento-it
+  - opencli/openpolis
+  - opencli/regione-lombardia
+  - opencli/regione-lazio
+
+  # ── B. 经济与商业 ─────────────────────────────────
+  - ilsole24ore
+  - bancaditalia
+  - eni-group
+  - opencli/confindustria
+  - opencli/cgil-cisl-uil
+  - api/borsa-italiana
+
+  # ── C. 外交与国际关系 ─────────────────────────────
+  - farnesina
+  - opencli/osce-italy
+
+  # ── D. 安全与防务 ─────────────────────────────────
+  - difesa-it
+  - polizia-stato
+  - opencli/guardia-finanza
+  - opencli/carabinieri
+
+  # ── E. 司法与法治 ─────────────────────────────────
+  - ilfattoquotidiano
+  - anac
+  - opencli/corte-costituzionale
+  - opencli/csm
+
+  # ── F. 社会与民生 ─────────────────────────────────
+  - lastampa
+  - ilmessaggero
+  - ilsecoloxix
+  - ilmattino
+  - salute-gov
+  - miur
+  - fondazione-gimbe
+  - opencli/inps
+
+  # ── G. 科技与数字 ─────────────────────────────────
+  - agid
+  - garante-privacy
+  - wired-it
+  - startupitalia
+
+  # ── H. 环境与能源 ─────────────────────────────────
+  - enea
+  - ispra
+  - legambiente
+
+  # ── I. 移民与人口 ─────────────────────────────────
+  - unhcr-italy
+  - iom-italy
+  - open-migration
+
+  # ── J. 文化与遗产 ─────────────────────────────────
   - repubblica
   - corriere
-  - agi
+  - mic
+  - unesco-it
+
+  # ── K. 宗教与梵蒂冈 ──────────────────────────────
+  - vatican-news
+  - osservatore-romano
+  - cei
+  - aci-stampa
+
+  # ── L. 涉华议题 ──────────────────────────────────
+  - opencli/fondazione-italia-cina
+  - opencli/cesi
+  - api/istat-china-trade
+  - api/gdelt-china-italy
+
+  # ── M. Other 开放式兜底 ──────────────────────────
+  - emm-italy
+  - api/gnews-italy
+  - api/newsapi-it
+  - api/gdelt-italy
+  - api/istat
+  - opencli/wikipedia-current
+
+  # ── 辅助源（非意大利专门） ────────────────────────
   - fao-rss
-  - tgcom24
-  - lastampa
-  - ilfattoquotidiano
   - ansa-en
-  - ilmessaggero
-  - rainews
-  - ilsole24ore
   - thelocal-it
-  - sky-tg24
 
 # 各子系统规则/路由配置的相对路径（相对于项目根目录）
 filter_rules_ref: config/filters/italy/default.yaml

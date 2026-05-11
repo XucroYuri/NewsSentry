@@ -1,0 +1,22 @@
+source_id: gnews-italy
+display_name: GNews API — Italy
+type: api
+url: https://gnews.io/api/v4/search
+endpoint:
+  url: https://gnews.io/api/v4/search
+  method: GET
+  params:
+    q: Italy
+    lang: it
+    country: it
+    max: 10
+    apikey: ${GNEWS_API_KEY}
+credibility_base: 0.8
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0
+

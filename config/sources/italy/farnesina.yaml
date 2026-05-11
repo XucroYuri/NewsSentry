@@ -1,0 +1,13 @@
+source_id: farnesina
+display_name: Ministero degli Affari Esteri (MAECI)
+type: rss
+url: https://www.esteri.it/it/rss
+credibility_base: 0.95
+fetch_interval_minutes: 60
+max_items_per_run: 20
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0
+
