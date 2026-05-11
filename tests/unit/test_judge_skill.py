@@ -403,3 +403,34 @@ class TestNormalizeFlags:
 
     def test_empty_list_returns_empty(self):
         assert JudgeSkill._normalize_flags([]) == []
+
+
+# ── _extract_json_from_text ────────────────────────────────────────
+
+
+class TestExtractJsonFromText:
+    """_extract_json_from_text 静态方法测试。"""
+
+    def test_valid_json_string(self):
+        """直接可解析的 JSON 字符串。"""
+        text = '{"news_value_score": 75}'
+        result = JudgeSkill._extract_json_from_text(text, "evt-001")
+        assert result["news_value_score"] == 75
+
+    def test_json_with_surrounding_text(self):
+        """JSON 嵌入在文本中，通过 {...} 提取。"""
+        text = 'Here is the result: {"news_value_score": 60, "recommendation": "review"} end'
+        result = JudgeSkill._extract_json_from_text(text, "evt-002")
+        assert result["news_value_score"] == 60
+
+    def test_invalid_brace_content_returns_empty(self):
+        """{...} 内不是有效 JSON 时返回空 dict。"""
+        text = "Result: {not valid json at all} end"
+        result = JudgeSkill._extract_json_from_text(text, "evt-003")
+        assert result == {}
+
+    def test_no_braces_returns_empty(self):
+        """没有 {} 的文本返回空 dict。"""
+        text = "plain text without any json"
+        result = JudgeSkill._extract_json_from_text(text, "evt-004")
+        assert result == {}

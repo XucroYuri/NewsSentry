@@ -626,3 +626,80 @@ class TestMakeId:
             "https://x.com/1", "2026-05-09T00:00:00+00:00"
         )
         assert id_a != id_b
+
+
+# ── 日期解析边界条件 ─────────────────────────────────────────────
+
+
+class TestDateParsingEdgeCases:
+    """_extract_published 异常分支测试。"""
+
+    def test_invalid_published_parsed_struct(self):
+        """published_parsed 为无效 struct_time 时应回退。"""
+        entry = {
+            "link": "https://example.com/bad-struct",
+            "title": "Bad struct",
+            "published_parsed": "not_a_struct",  # 无效类型
+            "published": "Mon, 10 May 2026 10:00:00 GMT",
+        }
+        result = RSSCollector._extract_published(entry)
+        # 应回退到 published 字符串解析
+        assert "2026" in result
+
+    def test_invalid_published_string(self):
+        """published 字符串无法解析时应回退。"""
+        entry = {
+            "link": "https://example.com/bad-str",
+            "title": "Bad string",
+            "published_parsed": None,
+            "published": "not-a-date",
+            "updated_parsed": None,
+            "updated": "Tue, 11 May 2026 12:00:00 GMT",
+        }
+        result = RSSCollector._extract_published(entry)
+        # 应回退到 updated 字符串
+        assert "2026" in result
+
+    def test_updated_string_no_tzinfo(self):
+        """updated 字符串解析后无 tzinfo 时应加 UTC。"""
+        entry = {
+            "link": "https://example.com/no-tz",
+            "title": "No TZ",
+            "published_parsed": None,
+            "published": "",
+            "updated_parsed": None,
+            "updated": "11 May 2026 12:00:00 +0000",
+        }
+        result = RSSCollector._extract_published(entry)
+        assert "2026" in result
+
+    def test_all_date_fields_empty(self):
+        """所有日期字段为空时应返回当前 UTC 时间。"""
+        entry = {
+            "link": "https://example.com/no-dates",
+            "title": "No dates",
+            "published_parsed": None,
+            "published": "",
+            "updated_parsed": None,
+            "updated": "",
+        }
+        result = RSSCollector._extract_published(entry)
+        # 应回退到 datetime.now(UTC)
+        assert "T" in result  # ISO format
+        assert "+00:00" in result
+
+
+class TestRuntimeErrorReraise:
+    """RSSCollector collect 方法 RuntimeError 直接传递测试。"""
+
+    def test_runtime_error_reraised(self):
+        """_retry_fetch 抛出的 RuntimeError 应直接向上传递。"""
+        config = _make_minimal_config()
+        collector = RSSCollector(config, None)
+
+        with mock.patch(
+            "news_sentry.skills.collect.rss_collector._retry_fetch",
+            side_effect=RuntimeError("already wrapped"),
+        ):
+            with pytest.raises(RuntimeError, match="already wrapped"):
+                collector.collect("run-001")

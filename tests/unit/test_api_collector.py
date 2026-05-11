@@ -637,3 +637,64 @@ class TestCollect:
         assert parts[2] == "ansaapi"
         assert parts[3] == "20260510"
         assert len(parts[4]) == 8
+
+
+# ── _retry_fetch 重试逻辑 ─────────────────────────────────────────
+
+
+class TestRetryFetch:
+    """_retry_fetch 函数重试逻辑测试。"""
+
+    def test_4xx_not_retried(self):
+        """4xx HTTP 错误不应重试，直接抛出。"""
+        import httpx
+
+        from news_sentry.skills.collect.api_collector import _retry_fetch
+
+        mock_resp = mock.MagicMock()
+        mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Not Found", request=mock.MagicMock(), response=mock.MagicMock(status_code=404)
+        )
+        mock_resp.response = mock.MagicMock(status_code=404)
+
+        call_count = 0
+
+        def fetch_fn():
+            nonlocal call_count
+            call_count += 1
+            return mock_resp
+
+        with pytest.raises(httpx.HTTPStatusError):
+            _retry_fetch(fetch_fn, "test-source", max_retries=3)
+
+        assert call_count == 1  # 不重试
+
+    def test_retries_exhausted_raises_runtime_error(self):
+        """重试耗尽后抛出 RuntimeError。"""
+        import httpx
+
+        from news_sentry.skills.collect.api_collector import _retry_fetch
+
+        mock_resp = mock.MagicMock()
+        mock_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Server Error", request=mock.MagicMock(), response=mock.MagicMock(status_code=500)
+        )
+        mock_resp.response = mock.MagicMock(status_code=500)
+
+        with mock.patch("time.sleep"):
+            with pytest.raises(RuntimeError, match="Fetch failed"):
+                _retry_fetch(
+                    lambda: mock_resp,
+                    "test-source",
+                    max_retries=2,
+                )
+
+    def test_runtime_error_reraised(self):
+        """fetch 抛出的 RuntimeError 应直接向上传递（不包装）。"""
+        from news_sentry.skills.collect.api_collector import _retry_fetch
+
+        def fetch_fn():
+            raise RuntimeError("already wrapped")
+
+        with pytest.raises(RuntimeError, match="already wrapped"):
+            _retry_fetch(fetch_fn, "test-source", max_retries=0)
