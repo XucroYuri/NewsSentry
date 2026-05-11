@@ -627,4 +627,5 @@ class TestLoadTarget:
 
         # 验证 OpenCLI 源有 tool_ref 配置
         for opencli_src in by_type["opencli"]:
-            assert "tool_ref" in opencli_src, f"OpenCLI source {opencli_src['source_id']} missing tool_ref"
+            sid = opencli_src["source_id"]
+            assert "tool_ref" in opencli_src, f"OpenCLI source {sid} missing tool_ref"
