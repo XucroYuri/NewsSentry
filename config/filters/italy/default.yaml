@@ -5,7 +5,7 @@ rules_version: "1.0.0"
 target_id: italy
 
 # 进入 evaluated/ 阶段所需的最低 news_value_score（0-100）
-score_threshold: 40
+score_threshold: 30
 
 # 超过此时间窗口的事件直接归档，不进入 judge 阶段
 max_age_hours: 48
@@ -449,4 +449,189 @@ keyword_rules:
     language: it
   - keyword: "5G"
     weight: 0.75
+    language: it
+
+  # ── 文化 (Culture) ────────────────────────────────────
+  - keyword: "mostro"
+    weight: 0.65
+    language: it
+  - keyword: "mostra"
+    weight: 0.60
+    language: it
+  - keyword: "cinema"
+    weight: 0.60
+    language: it
+  - keyword: "festival"
+    weight: 0.60
+    language: it
+  - keyword: "letteratura"
+    weight: 0.60
+    language: it
+  - keyword: "patrimonio"
+    weight: 0.65
+    language: it
+  - keyword: "UNESCO"
+    weight: 0.65
+    language: it
+  - keyword: "restauro"
+    weight: 0.60
+    language: it
+  - keyword: "opera"
+    weight: 0.55
+    language: it
+  - keyword: "biennale"
+    weight: 0.60
+    language: it
+
+  # ── 宗教 (Religion) ────────────────────────────────────
+  - keyword: "Chiesa"
+    weight: 0.65
+    language: it
+  - keyword: "vescovo"
+    weight: 0.65
+    language: it
+  - keyword: "cardinale"
+    weight: 0.70
+    language: it
+  - keyword: "diocesi"
+    weight: 0.60
+    language: it
+  - keyword: "Islam"
+    weight: 0.70
+    language: it
+  - keyword: "moschea"
+    weight: 0.65
+    language: it
+  - keyword: "ebraico"
+    weight: 0.65
+    language: it
+  - keyword: "antisemitismo"
+    weight: 0.80
+    language: it
+  - keyword: "religione"
+    weight: 0.60
+    language: it
+  - keyword: "prete"
+    weight: 0.55
+    language: it
+
+  # ── 环境 (Environment) ──────────────────────────────────
+  - keyword: "inquinamento"
+    weight: 0.70
+    language: it
+  - keyword: "sostenibilità"
+    weight: 0.65
+    language: it
+  - keyword: "emissioni"
+    weight: 0.70
+    language: it
+  - keyword: "CO2"
+    weight: 0.65
+    language: it
+  - keyword: "rifiuti"
+    weight: 0.60
+    language: it
+  - keyword: "riciclo"
+    weight: 0.55
+    language: it
+  - keyword: "ecologia"
+    weight: 0.65
+    language: it
+  - keyword: "biodiversità"
+    weight: 0.65
+    language: it
+
+  # ── 移民 (Immigration) 扩展 ───────────────────────────────
+  - keyword: "sbarchi"
+    weight: 0.80
+    language: it
+  - keyword: "richiedenti asilo"
+    weight: 0.75
+    language: it
+  - keyword: "accoglienza"
+    weight: 0.65
+    language: it
+  - keyword: "deportazione"
+    weight: 0.75
+    language: it
+  - keyword: "centro di accoglienza"
+    weight: 0.70
+    language: it
+  - keyword: "clandestini"
+    weight: 0.70
+    language: it
+  - keyword: "flussi migratori"
+    weight: 0.70
+    language: it
+
+  # ── 安全 (Security) 扩展 ──────────────────────────────────
+  - keyword: "terrorismo"
+    weight: 0.90
+    language: it
+  - keyword: "cyberattacco"
+    weight: 0.80
+    language: it
+  - keyword: "spionaggio"
+    weight: 0.80
+    language: it
+  - keyword: "intelligence"
+    weight: 0.70
+    language: it
+  - keyword: "sicurezza nazionale"
+    weight: 0.80
+    language: it
+  - keyword: "difesa"
+    weight: 0.70
+    language: it
+  - keyword: "esercito"
+    weight: 0.70
+    language: it
+  - keyword: "guardia costiera"
+    weight: 0.65
+    language: it
+
+  # ── 社会 (Society) 扩展 ──────────────────────────────────
+  - keyword: "disuguaglianza"
+    weight: 0.65
+    language: it
+  - keyword: "povertà"
+    weight: 0.70
+    language: it
+  - keyword: "pensione"
+    weight: 0.60
+    language: it
+  - keyword: "precaricato"
+    weight: 0.60
+    language: it
+  - keyword: "giovani"
+    weight: 0.55
+    language: it
+  - keyword: "famiglia"
+    weight: 0.55
+    language: it
+  - keyword: "natalità"
+    weight: 0.60
+    language: it
+  - keyword: "diritti"
+    weight: 0.60
+    language: it
+
+  # ── 司法 (Judicial) 扩展 ──────────────────────────────────
+  - keyword: "tribunale"
+    weight: 0.70
+    language: it
+  - keyword: "sentenza"
+    weight: 0.70
+    language: it
+  - keyword: "indagine"
+    weight: 0.70
+    language: it
+  - keyword: "magistratura"
+    weight: 0.70
+    language: it
+  - keyword: " procura"
+    weight: 0.65
+    language: it
+  - keyword: "penale"
+    weight: 0.65
     language: it
