@@ -247,6 +247,13 @@ class TestValidateNoSensitiveData:
         with pytest.raises(ValueError, match="token"):
             validate_no_sensitive_data(profile)
 
+    def test_profile_with_none_fields_skipped(self):
+        """None 字段应被 validate_no_sensitive_data 跳过。"""
+        data = _make_valid_profile()
+        data["notes"] = None
+        profile = SessionProfile.model_construct(**data)
+        validate_no_sensitive_data(profile)  # 不应抛出
+
     def test_profile_with_cookie_raises_valueerror(self):
         """包含 'cookie' 的字段应抛出 ValueError。"""
         data = _make_valid_profile(notes="set-cookie: abc")
