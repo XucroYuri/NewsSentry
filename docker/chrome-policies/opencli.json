@@ -1,0 +1,5 @@
+{
+  "NativeMessagingUserLevelHosts": false,
+  "NativeMessagingBlocklist": [],
+  "NativeMessagingAllowlist": ["com.opencli.bridge"]
+}

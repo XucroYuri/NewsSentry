@@ -1,0 +1,9 @@
+{
+  "name": "com.opencli.bridge",
+  "description": "OpenCLI Browser Bridge Native Messaging Host",
+  "path": "/usr/local/bin/opencli-bridge-host",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://*/"
+  ]
+}

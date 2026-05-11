@@ -13,3 +13,9 @@ tests/
 !AGENTS.md
 .env*
 .DS_Store
+session-profiles/
+chrome-data/
+chrome-profiles/
+data/
+logs/
+*.log
