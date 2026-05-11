@@ -1,28 +1,21 @@
-FROM python:3.12-slim
-
-LABEL org.opencontainers.image.title="News Sentry"
-LABEL org.opencontainers.image.description="Framework-neutral Agent Skill Pack for continuous news monitoring"
-LABEL org.opencontainers.image.source="https://github.com/XucroYuri/NewsSentry"
-
+# ---- Builder ----
+FROM python:3.12-slim AS builder
 WORKDIR /app
+COPY pyproject.toml ./
+COPY src/ src/
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -e ".[dev]"
 
-# Install system deps if needed (git for project root detection)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy and install Python deps
-COPY pyproject.toml .
-COPY src/ ./src/
-
-RUN pip install --no-cache-dir -e ".[proxy]"
-
-# Create data volume
-RUN mkdir -p /data
-VOLUME ["/data"]
-
-ENV NEWSSENTRY_DATA_DIR=/data
-ENV NEWSSENTRY_PROFILE=cloud-vps
-
+# ---- Runtime ----
+FROM python:3.12-slim AS runtime
+WORKDIR /app
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY src/ src/
+COPY pyproject.toml ./
+COPY config/ config/
+COPY tools/ tools/
+RUN pip install --no-cache-dir -e . --no-deps && \
+    useradd --create-home appuser
+USER appuser
+ENV PYTHONUNBUFFERED=1
 ENTRYPOINT ["python", "-m", "news_sentry.cli"]
-CMD ["run", "--help"]
