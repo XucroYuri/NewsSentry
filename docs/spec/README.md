@@ -40,7 +40,7 @@
 | Phase | 文件 | 核心目标 | 状态 |
 |-------|------|---------|------|
 | Phase 12 | [phase-12-source-matrix.md](phase-12-source-matrix.md) | 70+ 信源 / 13 维度 / 3 采集方式 / Twitter KOL | ✅ DONE |
-| Phase 13 | TBD | ≥100 标注评估集 + Cloud VPS 零依赖部署 | 📋 PLANNED |
+| Phase 13 | [phase-13-eval-set.md](phase-13-eval-set.md) | 112 评估集 + Rules Baseline + Eval Runner | ✅ DONE |
 
 ---
 
@@ -67,7 +67,7 @@ graph TD
 
     subgraph v0_5_0["v0.5.0 信源矩阵"]
         P12["Phase 12\nSource Matrix ✅\n70+ sources / 13 dims\n3 collect methods"]
-        P13["Phase 13\nEval Set + Deploy 📋\n100+ annotated\nCloud VPS"]
+        P13["Phase 13\nEval Set ✅\n112 examples\nRules Baseline"]
     end
 
     P1 --> P2 --> P3 --> P4 --> P5 --> P6

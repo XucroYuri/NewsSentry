@@ -1,0 +1,1918 @@
+{
+  "version": "1.0",
+  "total": 112,
+  "examples": [
+    {
+      "eval_id": "eval-politics-001",
+      "dimension": "politics",
+      "input": {
+        "title_original": "Meloni incontra Macron a Roma per discutere immigrazione",
+        "content_original": "La premier italiana Giorgia Meloni ha incontrato il presidente francese Emmanuel Macron a Roma per un summit bilaterale incentrato sulle politiche migratorie e la cooperazione nel Mediterraneo.",
+        "source_id": "ansa",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "politics",
+        "l1_topic": "government",
+        "news_value_score_min": 70,
+        "china_relevance_min": 10
+      }
+    },
+    {
+      "eval_id": "eval-politics-002",
+      "dimension": "politics",
+      "input": {
+        "title_original": "Senato approva riforma costituzionale sulla leadership",
+        "content_original": "Il Senato ha approvato con 165 voti favorevoli la riforma costituzionale che modifica l'elezione diretta del Presidente del Consiglio.",
+        "source_id": "rainews",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "politics",
+        "l1_topic": "legislation",
+        "news_value_score_min": 75,
+        "china_relevance_min": 5
+      }
+    },
+    {
+      "eval_id": "eval-politics-003",
+      "dimension": "politics",
+      "input": {
+        "title_original": "Comunicato stampa del Quirinale sulla Festa della Repubblica",
+        "content_original": "Il Presidente della Repubblica ha rilasciato un comunicato per la Festa della Repubblica. Programma ufficiale delle celebrazioni.",
+        "source_id": "quirinale",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "politics",
+        "l1_topic": "ceremony",
+        "news_value_score_min": 30,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-politics-004",
+      "dimension": "politics",
+      "input": {
+        "title_original": "Italy's new coalition faces internal divisions over EU budget",
+        "content_original": "The ruling coalition in Italy faces growing internal disagreements over the EU budget proposal, with the League threatening to block the vote.",
+        "source_id": "ansa-en",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "politics",
+        "l1_topic": "eu_politics",
+        "news_value_score_min": 50,
+        "china_relevance_min": 5
+      }
+    },
+    {
+      "eval_id": "eval-politics-005",
+      "dimension": "politics",
+      "input": {
+        "title_original": "Regional elections in Lombardia: polls open",
+        "content_original": "Le urne si sono aperte in Lombardia per le elezioni regionali. Oltre 8 milioni di elettori chiamati alle urne.",
+        "source_id": "corriere",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "politics",
+        "l1_topic": "elections",
+        "news_value_score_min": 60,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-politics-006",
+      "dimension": "politics",
+      "input": {
+        "title_original": "Ministro dell'Interno annuncia nuove misure di sicurezza",
+        "content_original": "Il Ministro dell'Interno ha annunciato un pacchetto di misure sulla sicurezza urbana che include maggiori controlli e nuovi fondi per i comuni.",
+        "source_id": "interno-gov",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "politics",
+        "l1_topic": "security_policy",
+        "news_value_score_min": 45,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-politics-007",
+      "dimension": "politics",
+      "input": {
+        "title_original": "Camera dei Deputati: sessione straordinaria su energia",
+        "content_original": "La Camera ha convocato una sessione straordinaria per discutere la crisi energetica e le proposte di legge sull'energia rinnovabile.",
+        "source_id": "camera-it",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "politics",
+        "l1_topic": "energy_policy",
+        "news_value_score_min": 40,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-politics-008",
+      "dimension": "politics",
+      "input": {
+        "title_original": "Openpolis: analisi della legge di bilancio 2026",
+        "content_original": "Openpolis pubblica un'analisi dettagliata della legge di bilancio 2026, evidenziando tagli alla sanità e aumenti nella difesa.",
+        "source_id": "opencli/openpolis",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "politics",
+        "l1_topic": "budget_analysis",
+        "news_value_score_min": 55,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-economics-009",
+      "dimension": "economics",
+      "input": {
+        "title_original": "Banca d'Italia: PIL cresce dello 0.8% nel primo trimestre",
+        "content_original": "La Banca d'Italia conferma una crescita del PIL dello 0.8% nel primo trimestre 2026, superando le attese degli analisti.",
+        "source_id": "bancaditalia",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "economics",
+        "l1_topic": "gdp_growth",
+        "news_value_score_min": 65,
+        "china_relevance_min": 5
+      }
+    },
+    {
+      "eval_id": "eval-economics-010",
+      "dimension": "economics",
+      "input": {
+        "title_original": "Borsa Italiana: Ftse Mib in calo del 2.3%",
+        "content_original": "Il Ftse Mib chiude in ribasso del 2.3% a causa delle tensioni geopolitiche e del rialzo dei tassi BCE.",
+        "source_id": "api/borsa-italiana",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "economics",
+        "l1_topic": "stock_market",
+        "news_value_score_min": 40,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-economics-011",
+      "dimension": "economics",
+      "input": {
+        "title_original": "Confindustria: rischio recessione per l'industria italiana",
+        "content_original": "Confindustria lancia l'allarme: l'indice della produzione industriale è sceso sotto la soglia di recessione per il terzo mese consecutivo.",
+        "source_id": "opencli/confindustria",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "economics",
+        "l1_topic": "industry",
+        "news_value_score_min": 70,
+        "china_relevance_min": 5
+      }
+    },
+    {
+      "eval_id": "eval-economics-012",
+      "dimension": "economics",
+      "input": {
+        "title_original": "ENI reports record profits amid energy crisis",
+        "content_original": "ENI Group reported record quarterly profits of €4.2 billion, driven by elevated energy prices and increased production.",
+        "source_id": "eni-group",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "economics",
+        "l1_topic": "corporate",
+        "news_value_score_min": 35,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-economics-013",
+      "dimension": "economics",
+      "input": {
+        "title_original": "CGIL-CISL-UIL: sciopero generale contro la riforma pensioni",
+        "content_original": "I tre principali sindacati hanno proclamato uno sciopero generale di 4 ore contro la riforma delle pensioni proposta dal governo.",
+        "source_id": "opencli/cgil-cisl-uil",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "economics",
+        "l1_topic": "labor",
+        "news_value_score_min": 60,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-economics-014",
+      "dimension": "economics",
+      "input": {
+        "title_original": "Il Sole 24 Ore: inflation drops to 1.9%",
+        "content_original": "L'inflazione in Italia scende all'1.9%, il livello più basso dal 2021. I prezzi alimentari restano però sopra il 3%.",
+        "source_id": "ilsole24ore",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "economics",
+        "l1_topic": "inflation",
+        "news_value_score_min": 45,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-economics-015",
+      "dimension": "economics",
+      "input": {
+        "title_original": "ISTAT: commercio con la Cina cresce del 12%",
+        "content_original": "ISTAT registra un aumento del 12% nel commercio bilaterale Italia-Cina nel 2025, trainato dalle esportazioni di macchinari.",
+        "source_id": "api/istat-china-trade",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "economics",
+        "l1_topic": "trade",
+        "news_value_score_min": 55,
+        "china_relevance_min": 60
+      }
+    },
+    {
+      "eval_id": "eval-economics-016",
+      "dimension": "economics",
+      "input": {
+        "title_original": "Spread BTP-Bund scende a 128 punti base",
+        "content_original": "Lo spread tra BTP decennale e Bund tedesco si riduce a 128 pb, segnale di fiducia nei mercati verso i titoli italiani.",
+        "source_id": "ilsole24ore",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "archive",
+        "l0_domain": "economics",
+        "l1_topic": "bonds",
+        "news_value_score_min": 20,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-diplomacy-017",
+      "dimension": "diplomacy",
+      "input": {
+        "title_original": "Farnesina: accordo di cooperazione con l'Arabia Saudita",
+        "content_original": "Il Ministero degli Affari Esteri ha firmato un accordo di cooperazione con l'Arabia Saudita nel settore dell'energia e della tecnologia.",
+        "source_id": "farnesina",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "diplomacy",
+        "l1_topic": "bilateral",
+        "news_value_score_min": 50,
+        "china_relevance_min": 5
+      }
+    },
+    {
+      "eval_id": "eval-diplomacy-018",
+      "dimension": "diplomacy",
+      "input": {
+        "title_original": "Italy elected to UN Human Rights Council",
+        "content_original": "L'Italia è stata eletta al Consiglio per i Diritti Umani delle Nazioni Unite per il mandato 2026-2028.",
+        "source_id": "ansa",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "diplomacy",
+        "l1_topic": "multilateral",
+        "news_value_score_min": 55,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-diplomacy-019",
+      "dimension": "diplomacy",
+      "input": {
+        "title_original": "OSCE: Italian presidency focuses on Mediterranean security",
+        "content_original": "La presidenza italiana dell'OSCE pone l'accento sulla sicurezza nel Mediterraneo e sul ruolo dell'organizzazione nella regione.",
+        "source_id": "opencli/osce-italy",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "diplomacy",
+        "l1_topic": "osce",
+        "news_value_score_min": 40,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-diplomacy-020",
+      "dimension": "diplomacy",
+      "input": {
+        "title_original": "Ambasciata italiana a Pechino: forum economico bilaterale",
+        "content_original": "L'Ambasciata italiana a Pechino organizza il forum economico bilaterale Italia-Cina, con la partecipazione di 200 aziende.",
+        "source_id": "farnesina",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "diplomacy",
+        "l1_topic": "china_relations",
+        "news_value_score_min": 60,
+        "china_relevance_min": 70
+      }
+    },
+    {
+      "eval_id": "eval-diplomacy-021",
+      "dimension": "diplomacy",
+      "input": {
+        "title_original": "Tajani: EU must speak with one voice on trade",
+        "content_original": "Il Ministro degli Esteri Tajani chiede che l'UE parli con una sola voce sulle politiche commerciali internazionali.",
+        "source_id": "ansa",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "diplomacy",
+        "l1_topic": "eu_foreign_policy",
+        "news_value_score_min": 45,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-diplomacy-022",
+      "dimension": "diplomacy",
+      "input": {
+        "title_original": "Vertice Italia-Grecia-Cipro a Atene",
+        "content_original": "I leader di Italia, Grecia e Cipro si incontrano ad Atene per discutere energia, migrazione e cooperazione nel Mediterraneo orientale.",
+        "source_id": "ansa",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "diplomacy",
+        "l1_topic": "regional",
+        "news_value_score_min": 40,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-diplomacy-023",
+      "dimension": "diplomacy",
+      "input": {
+        "title_original": "G7 summit: Italy proposes African investment plan",
+        "content_original": "L'Italia presenta al G7 un piano di investimenti in Africa da 5 miliardi di euro per contrastare le cause profonde della migrazione.",
+        "source_id": "ansa-en",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "diplomacy",
+        "l1_topic": "g7",
+        "news_value_score_min": 65,
+        "china_relevance_min": 5
+      }
+    },
+    {
+      "eval_id": "eval-diplomacy-024",
+      "dimension": "diplomacy",
+      "input": {
+        "title_original": "NATO: Italy increases defense spending to 1.8% GDP",
+        "content_original": "L'Italia annuncia l'aumento della spesa per la difesa all'1.8% del PIL, avvicinandosi all'obiettivo NATO del 2%.",
+        "source_id": "ansa",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "diplomacy",
+        "l1_topic": "nato",
+        "news_value_score_min": 55,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-security-025",
+      "dimension": "security",
+      "input": {
+        "title_original": "Polizia di Stato: operazione antidroga a Napoli",
+        "content_original": "La Polizia di Stato ha eseguito 23 ordinanze di custodia cautelare a Napoli in un'operazione antidroga che ha sequestrato 500kg di cocaina.",
+        "source_id": "polizia-stato",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "security",
+        "l1_topic": "organized_crime",
+        "news_value_score_min": 45,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-security-026",
+      "dimension": "security",
+      "input": {
+        "title_original": "Ministero della Difesa: esercitazioni NATO nel Mediterraneo",
+        "content_original": "Il Ministero della Difesa annuncia l'inizio di esercitazioni NATO nel Mediterraneo con la partecipazione di 12 nazioni.",
+        "source_id": "difesa-it",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "security",
+        "l1_topic": "military",
+        "news_value_score_min": 40,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-security-027",
+      "dimension": "security",
+      "input": {
+        "title_original": "Guardia di Finanza: sequestro di beni per evasione da 200 milioni",
+        "content_original": "La Guardia di Finanza ha sequestrato beni per 200 milioni di euro in un'indagine per evasione fiscale internazionale.",
+        "source_id": "opencli/guardia-finanza",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "security",
+        "l1_topic": "financial_crime",
+        "news_value_score_min": 40,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-security-028",
+      "dimension": "security",
+      "input": {
+        "title_original": "Cyber attack hits Italian healthcare system",
+        "content_original": "A major cyberattack has targeted the Italian national healthcare system, compromising patient records at several hospitals.",
+        "source_id": "ansa-en",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "security",
+        "l1_topic": "cybersecurity",
+        "news_value_score_min": 65,
+        "china_relevance_min": 5
+      }
+    },
+    {
+      "eval_id": "eval-security-029",
+      "dimension": "security",
+      "input": {
+        "title_original": "Carabinieri: operazione contro la mafia a Palermo",
+        "content_original": "I Carabinieri hanno arrestato 15 persone a Palermo legati a Cosa Nostra nell'ambito dell'operazione 'Primavera'.",
+        "source_id": "opencli/carabinieri",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "security",
+        "l1_topic": "anti_mafia",
+        "news_value_score_min": 45,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-security-030",
+      "dimension": "security",
+      "input": {
+        "title_original": "Terror threat level raised after Brussels attack",
+        "content_original": "Italy raises its terror threat level following the attack in Brussels. Enhanced security measures at airports and train stations.",
+        "source_id": "ansa-en",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "security",
+        "l1_topic": "terrorism",
+        "news_value_score_min": 70,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-security-031",
+      "dimension": "security",
+      "input": {
+        "title_original": "Intelligence report: foreign interference in Italian elections",
+        "content_original": "Il DIS (Dipartimento Informazioni per la Sicurezza) segnala tentativi di interferenza straniera nelle elezioni regionali tramite disinformazione online.",
+        "source_id": "ansa",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "security",
+        "l1_topic": "intelligence",
+        "news_value_score_min": 75,
+        "china_relevance_min": 10
+      }
+    },
+    {
+      "eval_id": "eval-security-032",
+      "dimension": "security",
+      "input": {
+        "title_original": "Protezione Civile: allerta meteo per il Nord Italia",
+        "content_original": "La Protezione Civile ha emesso un'allerta arancione per il Nord Italia a causa delle previsioni di piogge intense.",
+        "source_id": "ansa",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "security",
+        "l1_topic": "civil_protection",
+        "news_value_score_min": 30,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-judicial-033",
+      "dimension": "judicial",
+      "input": {
+        "title_original": "Corte Costituzionale: sentenza sulla legge elettorale",
+        "content_original": "La Corte Costituzionale ha dichiarato parzialmente incostituzionale la legge elettorale per la Camera dei Deputati.",
+        "source_id": "opencli/corte-costituzionale",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "judicial",
+        "l1_topic": "constitutional",
+        "news_value_score_min": 65,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-judicial-034",
+      "dimension": "judicial",
+      "input": {
+        "title_original": "ANAC: rapporto annuale sulla corruzione in Italia",
+        "content_original": "L'ANAC pubblica il rapporto annuale: 1.247 segnalazioni di corruzione nel 2025, +15% rispetto all'anno precedente.",
+        "source_id": "anac",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "judicial",
+        "l1_topic": "anti_corruption",
+        "news_value_score_min": 60,
+        "china_relevance_min": 5
+      }
+    },
+    {
+      "eval_id": "eval-judicial-035",
+      "dimension": "judicial",
+      "input": {
+        "title_original": "CSM: nuova nomina per la procura di Milano",
+        "content_original": "Il CSM ha nominato il nuovo procuratore di Milano dopo mesi di stallo politico.",
+        "source_id": "opencli/csm",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "judicial",
+        "l1_topic": "judiciary",
+        "news_value_score_min": 35,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-judicial-036",
+      "dimension": "judicial",
+      "input": {
+        "title_original": "Il Fatto Quotidiano: inchiesta sulle spese del Viminale",
+        "content_original": "Un'inchiesta de Il Fatto Quotidiano rivela spese irregolari per 3 milioni di euro al Ministero dell'Interno.",
+        "source_id": "ilfattoquotidiano",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "judicial",
+        "l1_topic": "investigation",
+        "news_value_score_min": 70,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-judicial-037",
+      "dimension": "judicial",
+      "input": {
+        "title_original": "European Court of Justice rules against Italy on privacy",
+        "content_original": "La Corte di Giustizia UE ha condannato l'Italia per violazione della normativa sulla protezione dei dati personali.",
+        "source_id": "ansa-en",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "judicial",
+        "l1_topic": "eu_judicial",
+        "news_value_score_min": 50,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-judicial-038",
+      "dimension": "judicial",
+      "input": {
+        "title_original": "Processo Mafia Capitale: confermate le condanne",
+        "content_original": "La Corte d'Appello di Roma conferma le condanne per i principali imputati del processo Mafia Capitale.",
+        "source_id": "ansa",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "judicial",
+        "l1_topic": "criminal",
+        "news_value_score_min": 55,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-judicial-039",
+      "dimension": "judicial",
+      "input": {
+        "title_original": "Riforma della giustizia: il Senato approva il ddl",
+        "content_original": "Il Senato approva il disegno di legge sulla riforma della giustizia con 160 voti favorevoli.",
+        "source_id": "senato-it",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "judicial",
+        "l1_topic": "reform",
+        "news_value_score_min": 40,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-judicial-040",
+      "dimension": "judicial",
+      "input": {
+        "title_original": "Garante Privacy: multa a Big Tech per violazione GDPR",
+        "content_original": "Il Garante della Privacy commina una multa di 20 milioni di euro a una Big Tech per violazione del GDPR nella raccolta dati.",
+        "source_id": "garante-privacy",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "judicial",
+        "l1_topic": "privacy",
+        "news_value_score_min": 55,
+        "china_relevance_min": 5
+      }
+    },
+    {
+      "eval_id": "eval-society-041",
+      "dimension": "society",
+      "input": {
+        "title_original": "Ospedali in crisi: 5000 medici mancanti nel SSN",
+        "content_original": "Il Servizio Sanitario Nazionale fa fronte a una carenza di 5000 medici, con conseguenze sugli ospedali di tutta Italia.",
+        "source_id": "salute-gov",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "society",
+        "l1_topic": "healthcare",
+        "news_value_score_min": 60,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-society-042",
+      "dimension": "society",
+      "input": {
+        "title_original": "Fondazione Gimbe: rapporto sulla sanità italiana",
+        "content_original": "La Fondazione Gimbe evidenzia disuguaglianze nell'accesso alle cure tra Nord e Sud Italia nel rapporto annuale.",
+        "source_id": "fondazione-gimbe",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "society",
+        "l1_topic": "health_inequality",
+        "news_value_score_min": 55,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-society-043",
+      "dimension": "society",
+      "input": {
+        "title_original": "MIUR: riforma della maturità 2026",
+        "content_original": "Il MIUR annuncia la riforma dell'esame di maturità con l'introduzione di nuove prove interdisciplinari.",
+        "source_id": "miur",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "society",
+        "l1_topic": "education",
+        "news_value_score_min": 35,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-society-044",
+      "dimension": "society",
+      "input": {
+        "title_original": "INPS: pensioni anticipate, nuove finestre di uscita",
+        "content_original": "L'INPS comunica le nuove finestre di uscita per le pensioni anticipate previste dalla riforma del governo.",
+        "source_id": "opencli/inps",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "society",
+        "l1_topic": "pensions",
+        "news_value_score_min": 30,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-society-045",
+      "dimension": "society",
+      "input": {
+        "title_original": "La Stampa: cresce la povertà in Italia, 5.6 milioni di poveri",
+        "content_original": "La Stampa riporta i dati ISTAT: 5.6 milioni di persone in condizioni di povertà assoluta in Italia.",
+        "source_id": "lastampa",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "society",
+        "l1_topic": "poverty",
+        "news_value_score_min": 60,
+        "china_relevance_min": 5
+      }
+    },
+    {
+      "eval_id": "eval-society-046",
+      "dimension": "society",
+      "input": {
+        "title_original": "Il Messaggero: Roma, emergenza abitativa",
+        "content_original": "Il Messaggero dedica un'inchiesta all'emergenza abitativa a Roma, con 20.000 richieste di alloggio pubblico.",
+        "source_id": "ilmessaggero",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "society",
+        "l1_topic": "housing",
+        "news_value_score_min": 40,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-society-047",
+      "dimension": "society",
+      "input": {
+        "title_original": "Italy's birth rate hits historic low",
+        "content_original": "Italy's birth rate falls to a historic low of 1.12 children per woman, raising concerns about demographic sustainability.",
+        "source_id": "ansa-en",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "society",
+        "l1_topic": "demographics",
+        "news_value_score_min": 55,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-society-048",
+      "dimension": "society",
+      "input": {
+        "title_original": "Il Secolo XIX: Liguria, alluvione causa evacuazioni",
+        "content_original": "L'alluvione in Liguria ha causato l'evacuazione di 200 famiglie. Il Il Secolo XIX copre la situazione in tempo reale.",
+        "source_id": "ilsecoloxix",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "society",
+        "l1_topic": "disaster",
+        "news_value_score_min": 60,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-technology-049",
+      "dimension": "technology",
+      "input": {
+        "title_original": "AGID: strategia nazionale per l'intelligenza artificiale",
+        "content_original": "L'AGID pubblica la strategia nazionale per l'IA 2026-2030, con investimenti previsti di 2 miliardi di euro.",
+        "source_id": "agid",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "technology",
+        "l1_topic": "ai_policy",
+        "news_value_score_min": 55,
+        "china_relevance_min": 10
+      }
+    },
+    {
+      "eval_id": "eval-technology-050",
+      "dimension": "technology",
+      "input": {
+        "title_original": "Wired Italia: startup italiana vince premio AI",
+        "content_original": "Una startup milanese vince il premio europeo per l'innovazione AI applicata alla diagnostica medica.",
+        "source_id": "wired-it",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "technology",
+        "l1_topic": "startup",
+        "news_value_score_min": 35,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-technology-051",
+      "dimension": "technology",
+      "input": {
+        "title_original": "Garante Privacy: linee guida su facial recognition",
+        "content_original": "Il Garante della Privacy emette nuove linee guida restrittive sull'uso del facial recognition in spazi pubblici.",
+        "source_id": "garante-privacy",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "technology",
+        "l1_topic": "privacy_tech",
+        "news_value_score_min": 55,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-technology-052",
+      "dimension": "technology",
+      "input": {
+        "title_original": "StartupItalia: fintech italiano attrae 500 milioni",
+        "content_original": "Il settore fintech italiano ha attirato 500 milioni di euro di investimenti nel primo semestre 2026.",
+        "source_id": "startupitalia",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "technology",
+        "l1_topic": "fintech",
+        "news_value_score_min": 30,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-technology-053",
+      "dimension": "technology",
+      "input": {
+        "title_original": "5G coverage reaches 85% of Italian population",
+        "content_original": "Italy's 5G network now covers 85% of the population, making it one of the leaders in European connectivity.",
+        "source_id": "ansa-en",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "archive",
+        "l0_domain": "technology",
+        "l1_topic": "infrastructure",
+        "news_value_score_min": 20,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-technology-054",
+      "dimension": "technology",
+      "input": {
+        "title_original": "AgID: open data standards for public administration",
+        "content_original": "L'AGID aggiorna gli standard per l'open data nella pubblica amministrazione, richiedendo formati machine-readable.",
+        "source_id": "agid",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "technology",
+        "l1_topic": "open_data",
+        "news_value_score_min": 30,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-technology-055",
+      "dimension": "technology",
+      "input": {
+        "title_original": "TikTok ban in Italy: government considers restrictions",
+        "content_original": "Il governo italiano valuta restrizioni su TikTok per i minori di 16 anni dopo casi di cyberbullismo.",
+        "source_id": "ansa",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "technology",
+        "l1_topic": "social_media_policy",
+        "news_value_score_min": 60,
+        "china_relevance_min": 5
+      }
+    },
+    {
+      "eval_id": "eval-technology-056",
+      "dimension": "technology",
+      "input": {
+        "title_original": "Italian quantum computing lab opens in Pisa",
+        "content_original": "Inaugurato a Pisa il primo laboratorio nazionale di calcolo quantistico, con investimenti di 100 milioni di euro.",
+        "source_id": "ansa",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "technology",
+        "l1_topic": "quantum",
+        "news_value_score_min": 35,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-environment-057",
+      "dimension": "environment",
+      "input": {
+        "title_original": "ENEA: Italia falla gli obiettivi climatici 2025",
+        "content_original": "L'ENEA conferma che l'Italia non ha raggiunto gli obiettivi di riduzione delle emissioni per il 2025, con uno scostamento del 7%.",
+        "source_id": "enea",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "environment",
+        "l1_topic": "climate",
+        "news_value_score_min": 60,
+        "china_relevance_min": 5
+      }
+    },
+    {
+      "eval_id": "eval-environment-058",
+      "dimension": "environment",
+      "input": {
+        "title_original": "ISPRA: qualità dell'aria migliora nel Nord Italia",
+        "content_original": "L'ISPRA riporta un miglioramento della qualità dell'aria nel Nord Italia, con PM2.5 sotto i limiti UE per la prima volta.",
+        "source_id": "ispra",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "environment",
+        "l1_topic": "air_quality",
+        "news_value_score_min": 40,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-environment-059",
+      "dimension": "environment",
+      "input": {
+        "title_original": "Legambiente: rapporto sui rifiuti in mare",
+        "content_original": "Legambiente pubblica il rapporto sui rifiuti marini: le coste italiane tra le più inquinate del Mediterraneo.",
+        "source_id": "legambiente",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "environment",
+        "l1_topic": "marine_pollution",
+        "news_value_score_min": 55,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-environment-060",
+      "dimension": "environment",
+      "input": {
+        "title_original": "Italy's renewable energy hits 40% of total production",
+        "content_original": "Italy's renewable energy reaches 40% of total electricity production, driven by solar and wind expansion.",
+        "source_id": "ansa-en",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "environment",
+        "l1_topic": "renewables",
+        "news_value_score_min": 35,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-environment-061",
+      "dimension": "environment",
+      "input": {
+        "title_original": "Alluvione in Emilia-Romagna: danni per 2 miliardi",
+        "content_original": "I danni dell'alluvione in Emilia-Romagna sono stimati in 2 miliardi di euro. Stati di emergenza in 43 comuni.",
+        "source_id": "ansa",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "environment",
+        "l1_topic": "flooding",
+        "news_value_score_min": 70,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-environment-062",
+      "dimension": "environment",
+      "input": {
+        "title_original": "Siccità in Sicilia: emergenza idrica dichiarata",
+        "content_original": "La Regione Sicilia dichiara lo stato di emergenza idrica. I livelli delle dighe sotto il 30% della capacità.",
+        "source_id": "ansa",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "environment",
+        "l1_topic": "drought",
+        "news_value_score_min": 60,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-environment-063",
+      "dimension": "environment",
+      "input": {
+        "title_original": "ENEA: piano nazionale idrogeno verde",
+        "content_original": "L'ENEA presenta il piano nazionale per l'idrogeno verde con obiettivo di 5 GW di capacità elettrolitica entro il 2030.",
+        "source_id": "enea",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "environment",
+        "l1_topic": "hydrogen",
+        "news_value_score_min": 35,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-environment-064",
+      "dimension": "environment",
+      "input": {
+        "title_original": "ISPRA: rischio sismico, 500 comuni ad alta pericolosità",
+        "content_original": "L'ISPRA aggiorna la mappa del rischio sismico: 500 comuni italiani in zona ad alta pericolosità.",
+        "source_id": "ispra",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "environment",
+        "l1_topic": "seismic",
+        "news_value_score_min": 50,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-immigration-065",
+      "dimension": "immigration",
+      "input": {
+        "title_original": "UNHCR Italy: 45.000 sbarchi nel primo semestre 2026",
+        "content_original": "L'UNHCR Italia riporta 45.000 sbarchi nel primo semestre 2026, un aumento del 20% rispetto allo stesso periodo del 2025.",
+        "source_id": "unhcr-italy",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "immigration",
+        "l1_topic": "arrivals",
+        "news_value_score_min": 65,
+        "china_relevance_min": 5
+      }
+    },
+    {
+      "eval_id": "eval-immigration-066",
+      "dimension": "immigration",
+      "input": {
+        "title_original": "IOM Italia: rapporto sui corridoi umanitari",
+        "content_original": "L'IOM Italia documenta il successo dei corridoi umanitari: 3.000 rifugiati arrivati legalmente nel 2025.",
+        "source_id": "iom-italy",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "immigration",
+        "l1_topic": "humanitarian",
+        "news_value_score_min": 40,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-immigration-067",
+      "dimension": "immigration",
+      "input": {
+        "title_original": "Open Migration: analisi delle politiche di accoglienza",
+        "content_original": "Open Migration pubblica un'analisi critica delle politiche di accoglienza italiane, evidenziando carenze nei CPIA.",
+        "source_id": "open-migration",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "immigration",
+        "l1_topic": "policy",
+        "news_value_score_min": 50,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-immigration-068",
+      "dimension": "immigration",
+      "input": {
+        "title_original": "Lampedusa: centro di prima accoglienza sovraffollato",
+        "content_original": "Il centro di prima accoglienza di Lampedusa è sovraffollato con 4.000 persone per una capienza di 400.",
+        "source_id": "ansa",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "immigration",
+        "l1_topic": "reception",
+        "news_value_score_min": 65,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-immigration-069",
+      "dimension": "immigration",
+      "input": {
+        "title_original": "Italy-Libya migration deal faces EU scrutiny",
+        "content_original": "The Italy-Libya migration cooperation agreement faces increased scrutiny from the EU Parliament over human rights concerns.",
+        "source_id": "ansa-en",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "immigration",
+        "l1_topic": "eu_policy",
+        "news_value_score_min": 55,
+        "china_relevance_min": 5
+      }
+    },
+    {
+      "eval_id": "eval-immigration-070",
+      "dimension": "immigration",
+      "input": {
+        "title_original": "Regolamento Dublin: Italia chiede revisione",
+        "content_original": "L'Italia chiede la revisione del Regolamento di Dublino per una ripartizione equa dei richiedenti asilo nell'UE.",
+        "source_id": "ansa",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "immigration",
+        "l1_topic": "asylum",
+        "news_value_score_min": 45,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-immigration-071",
+      "dimension": "immigration",
+      "input": {
+        "title_original": "IMF: migration contributes 0.5% to Italian GDP",
+        "content_original": "An IMF report finds that migration contributes approximately 0.5% to Italy's GDP growth, primarily through labor market participation.",
+        "source_id": "ansa-en",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "immigration",
+        "l1_topic": "economics",
+        "news_value_score_min": 35,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-immigration-072",
+      "dimension": "immigration",
+      "input": {
+        "title_original": "Migranti nel mercato del lavoro: rapporto INPS",
+        "content_original": "L'INPS riporta che i lavoratori stranieri contribuiscono per 12 miliardi di euro ai contributi previdenziali.",
+        "source_id": "opencli/inps",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "immigration",
+        "l1_topic": "labor",
+        "news_value_score_min": 35,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-culture-073",
+      "dimension": "culture",
+      "input": {
+        "title_original": "Repubblica: restaurato il David di Michelangelo",
+        "content_original": "La Repubblica riporta il completamento del restauro del David di Michelangelo dopo 3 anni di lavoro.",
+        "source_id": "repubblica",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "culture",
+        "l1_topic": "heritage",
+        "news_value_score_min": 40,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-culture-074",
+      "dimension": "culture",
+      "input": {
+        "title_original": "MIC: fondo per il cinema italiano, 500 milioni",
+        "content_original": "Il Ministero della Cultura annuncia un fondo di 500 milioni di euro per il cinema italiano nel triennio 2026-2028.",
+        "source_id": "mic",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "culture",
+        "l1_topic": "film",
+        "news_value_score_min": 30,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-culture-075",
+      "dimension": "culture",
+      "input": {
+        "title_original": "UNESCO: Italian intangible heritage list grows",
+        "content_original": "L'Italia aggiunge due nuovi elementi alla lista UNESCO del patrimonio immateriale: l'arte del mosaico e la transumanza.",
+        "source_id": "unesco-it",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "culture",
+        "l1_topic": "unesco",
+        "news_value_score_min": 35,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-culture-076",
+      "dimension": "culture",
+      "input": {
+        "title_original": "Corriere: Mostra di Leonardo a Milano, 1 milione di visitatori",
+        "content_original": "La mostra di Leonardo da Vinci a Milano supera il milione di visitatori, diventando la mostra più visitata d'Italia.",
+        "source_id": "corriere",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "archive",
+        "l0_domain": "culture",
+        "l1_topic": "exhibition",
+        "news_value_score_min": 20,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-culture-077",
+      "dimension": "culture",
+      "input": {
+        "title_original": "Sanremo 2026: vincitore annunciato",
+        "content_original": "Il Festival di Sanremo 2026 proclama il vincitore. La finale ha registrato 12 milioni di telespettatori.",
+        "source_id": "ansa",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "archive",
+        "l0_domain": "culture",
+        "l1_topic": "entertainment",
+        "news_value_score_min": 15,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-culture-078",
+      "dimension": "culture",
+      "input": {
+        "title_original": "Italian literature wins International Booker Prize",
+        "content_original": "An Italian author wins the International Booker Prize for the first time, bringing global attention to contemporary Italian literature.",
+        "source_id": "ansa-en",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "culture",
+        "l1_topic": "literature",
+        "news_value_score_min": 35,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-culture-079",
+      "dimension": "culture",
+      "input": {
+        "title_original": "Pompei: nuove scoperte nella Regio V",
+        "content_original": "Nuovi scavi a Pompei nella Regio V rivelano affreschi eccezionalmente conservati di 2000 anni fa.",
+        "source_id": "ansa",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "culture",
+        "l1_topic": "archaeology",
+        "news_value_score_min": 55,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-culture-080",
+      "dimension": "culture",
+      "input": {
+        "title_original": "La Scala: stagione lirica 2026-27 annunciata",
+        "content_original": "Il Teatro alla Scala annuncia la stagione lirica 2026-27 con 12 titoli e la direzione di Riccardo Chailly.",
+        "source_id": "corriere",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "archive",
+        "l0_domain": "culture",
+        "l1_topic": "music",
+        "news_value_score_min": 15,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-religion-081",
+      "dimension": "religion",
+      "input": {
+        "title_original": "Vatican News: Papa Francesco in visita pastorale in Asia",
+        "content_original": "Papa Francesco intraprende una visita pastorale in Asia, toccando Indonesia, Papua Nuova Guinea e Timor Est.",
+        "source_id": "vatican-news",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "religion",
+        "l1_topic": "papacy",
+        "news_value_score_min": 55,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-religion-082",
+      "dimension": "religion",
+      "input": {
+        "title_original": "Osservatore Romano: sinodo sulla sinodalità",
+        "content_original": "L'Osservatore Romano copre la sessione finale del Sinodo sulla Sinodalità, con le decisioni sulla partecipazione delle donne.",
+        "source_id": "osservatore-romano",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "religion",
+        "l1_topic": "synod",
+        "news_value_score_min": 50,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-religion-083",
+      "dimension": "religion",
+      "input": {
+        "title_original": "CEI: lettera pastorale sulla povertà in Italia",
+        "content_original": "La Conferenza Episcopale Italiana pubblica una lettera pastorale che denuncia la crescente povertà nel Paese.",
+        "source_id": "cei",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "religion",
+        "l1_topic": "social_teaching",
+        "news_value_score_min": 40,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-religion-084",
+      "dimension": "religion",
+      "input": {
+        "title_original": "ACI Stampa: beatificazione di don Milani",
+        "content_original": "ACI Stampa riporta la beatificazione di don Lorenzo Milani a Firenze, con 20.000 fedeli presenti.",
+        "source_id": "aci-stampa",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "religion",
+        "l1_topic": "beatification",
+        "news_value_score_min": 35,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-religion-085",
+      "dimension": "religion",
+      "input": {
+        "title_original": "Vatican and China: new bishop appointment",
+        "content_original": "The Vatican and China agree on the appointment of a new bishop under the 2018 provisional agreement, signaling continued dialogue.",
+        "source_id": "vatican-news",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "religion",
+        "l1_topic": "china_vatican",
+        "news_value_score_min": 60,
+        "china_relevance_min": 70
+      }
+    },
+    {
+      "eval_id": "eval-religion-086",
+      "dimension": "religion",
+      "input": {
+        "title_original": "Moschea di Roma: dialogo interreligioso",
+        "content_original": "La Moschea di Roma ospita un incontro di dialogo interreligioso tra leader cattolici, musulmani ed ebrei.",
+        "source_id": "ansa",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "religion",
+        "l1_topic": "interfaith",
+        "news_value_score_min": 35,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-religion-087",
+      "dimension": "religion",
+      "input": {
+        "title_original": "Chiesa ortodossa: liturgia a San Nicola di Bari",
+        "content_original": "La chiesa di San Nicola di Bari ospita una liturgia ortodossa per la festa del santo patrono.",
+        "source_id": "ansa",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "archive",
+        "l0_domain": "religion",
+        "l1_topic": "orthodox",
+        "news_value_score_min": 15,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-religion-088",
+      "dimension": "religion",
+      "input": {
+        "title_original": "Vatican finances: reform continues under new oversight",
+        "content_original": "Le riforme finanziarie vaticane continuano con la nuova autorità di supervisione. Bilancio in avanzo per il terzo anno.",
+        "source_id": "osservatore-romano",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "religion",
+        "l1_topic": "vatican_finance",
+        "news_value_score_min": 30,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-china-relations-089",
+      "dimension": "china_relations",
+      "input": {
+        "title_original": "Fondazione Italia-Cina: forum economico a Roma",
+        "content_original": "La Fondazione Italia-Cina organizza un forum economico a Roma con 300 aziende italiane e cinesi.",
+        "source_id": "opencli/fondazione-italia-cina",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "china_relations",
+        "l1_topic": "economic_forum",
+        "news_value_score_min": 55,
+        "china_relevance_min": 75
+      }
+    },
+    {
+      "eval_id": "eval-china-relations-090",
+      "dimension": "china_relations",
+      "input": {
+        "title_original": "CESI: cooperazione Italo-Cinese in energie rinnovabili",
+        "content_original": "Il CESI annuncia un programma di cooperazione con partner cinesi per lo sviluppo di tecnologie per le energie rinnovabili.",
+        "source_id": "opencli/cesi",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "china_relations",
+        "l1_topic": "renewable_cooperation",
+        "news_value_score_min": 50,
+        "china_relevance_min": 80
+      }
+    },
+    {
+      "eval_id": "eval-china-relations-091",
+      "dimension": "china_relations",
+      "input": {
+        "title_original": "Belt and Road: Italy considers non-renewal of MOU",
+        "content_original": "Italy considers not renewing the Memorandum of Understanding on the Belt and Road Initiative, following EU strategic autonomy guidelines.",
+        "source_id": "ansa-en",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "china_relations",
+        "l1_topic": "belt_and_road",
+        "news_value_score_min": 70,
+        "china_relevance_min": 85
+      }
+    },
+    {
+      "eval_id": "eval-china-relations-092",
+      "dimension": "china_relations",
+      "input": {
+        "title_original": "GDELT: Chinese investment in Italian ports analyzed",
+        "content_original": "GDELT data shows a 40% increase in Chinese investment discussions related to Italian port infrastructure in 2025.",
+        "source_id": "api/gdelt-china-italy",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "china_relations",
+        "l1_topic": "infrastructure",
+        "news_value_score_min": 65,
+        "china_relevance_min": 90
+      }
+    },
+    {
+      "eval_id": "eval-china-relations-093",
+      "dimension": "china_relations",
+      "input": {
+        "title_original": "Huawei e 5G: l'Italia blocca nuovi contratti",
+        "content_original": "Il governo italiano blocca nuovi contratti con Huawei per la rete 5G, allineandosi alle raccomandazioni NATO.",
+        "source_id": "ansa",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "china_relations",
+        "l1_topic": "telecom_security",
+        "news_value_score_min": 70,
+        "china_relevance_min": 85
+      }
+    },
+    {
+      "eval_id": "eval-china-relations-094",
+      "dimension": "china_relations",
+      "input": {
+        "title_original": "Confucius Institutes: Italy reviews academic partnerships",
+        "content_original": "Italy's Ministry of Education reviews academic partnerships with Confucius Institutes, requiring transparency in curriculum.",
+        "source_id": "ansa-en",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "china_relations",
+        "l1_topic": "education",
+        "news_value_score_min": 50,
+        "china_relevance_min": 70
+      }
+    },
+    {
+      "eval_id": "eval-china-relations-095",
+      "dimension": "china_relations",
+      "input": {
+        "title_original": "Italy-China fashion collaboration at Milan Fashion Week",
+        "content_original": "Collaborazione Italia-Cina alla Settimana della Moda di Milano: 15 designer cinesi presentano collezioni con partner italiani.",
+        "source_id": "ansa",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "archive",
+        "l0_domain": "china_relations",
+        "l1_topic": "fashion",
+        "news_value_score_min": 25,
+        "china_relevance_min": 50
+      }
+    },
+    {
+      "eval_id": "eval-china-relations-096",
+      "dimension": "china_relations",
+      "input": {
+        "title_original": "ISTAT: commercio bilaterale Italia-Cina dati 2025",
+        "content_original": "ISTAT pubblica i dati sul commercio bilaterale: esportazioni italiane in Cina +12%, importazioni dalla Cina +8%.",
+        "source_id": "api/istat-china-trade",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "china_relations",
+        "l1_topic": "trade_data",
+        "news_value_score_min": 50,
+        "china_relevance_min": 85
+      }
+    },
+    {
+      "eval_id": "eval-other-097",
+      "dimension": "other",
+      "input": {
+        "title_original": "GNews: Italy top stories roundup",
+        "content_original": "GNews API returns top stories from Italy including politics, sports, and entertainment coverage.",
+        "source_id": "api/gnews-italy",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "archive",
+        "l0_domain": "other",
+        "l1_topic": "general",
+        "news_value_score_min": 10,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-other-098",
+      "dimension": "other",
+      "input": {
+        "title_original": "EMM: Italy monitoring summary",
+        "content_original": "Europe Media Monitor summary for Italy: 150 articles processed across multiple languages and topics.",
+        "source_id": "emm-italy",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "archive",
+        "l0_domain": "other",
+        "l1_topic": "media_monitor",
+        "news_value_score_min": 10,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-other-099",
+      "dimension": "other",
+      "input": {
+        "title_original": "Il Mattino: Napoli, cronaca nera",
+        "content_original": "Il Mattino riporta una cronaca nera a Napoli: rapina in banca con ostaggi. Nessun ferito.",
+        "source_id": "ilmattino",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "archive",
+        "l0_domain": "other",
+        "l1_topic": "crime_local",
+        "news_value_score_min": 15,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-other-100",
+      "dimension": "other",
+      "input": {
+        "title_original": "FAO: food price index rises 3%",
+        "content_original": "FAO Food Price Index rises 3% in June, driven by cereal and dairy price increases.",
+        "source_id": "fao-rss",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "other",
+        "l1_topic": "food",
+        "news_value_score_min": 25,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-other-101",
+      "dimension": "other",
+      "input": {
+        "title_original": "The Local IT: expat guide to Italian taxes",
+        "content_original": "The Local Italy publishes a guide for expats on navigating the Italian tax system.",
+        "source_id": "thelocal-it",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "archive",
+        "l0_domain": "other",
+        "l1_topic": "expat",
+        "news_value_score_min": 5,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-other-102",
+      "dimension": "other",
+      "input": {
+        "title_original": "NewsAPI: Italy trending topics",
+        "content_original": "NewsAPI returns trending topics for Italy region. Top topics: Serie A transfer window, heatwave, summer festivals.",
+        "source_id": "api/newsapi-it",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "archive",
+        "l0_domain": "other",
+        "l1_topic": "trending",
+        "news_value_score_min": 5,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-other-103",
+      "dimension": "other",
+      "input": {
+        "title_original": "GDELT: Italy event timeline",
+        "content_original": "GDELT event timeline for Italy shows increased protest activity and political events in the past 48 hours.",
+        "source_id": "api/gdelt-italy",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "archive",
+        "l0_domain": "other",
+        "l1_topic": "event_data",
+        "news_value_score_min": 15,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-other-104",
+      "dimension": "other",
+      "input": {
+        "title_original": "Wikipedia: current events in Italy",
+        "content_original": "Wikipedia current events portal for Italy: summary of major developments in politics, economy, and society.",
+        "source_id": "opencli/wikipedia-current",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "archive",
+        "l0_domain": "other",
+        "l1_topic": "encyclopedia",
+        "news_value_score_min": 5,
+        "china_relevance_min": 0
+      }
+    },
+    {
+      "eval_id": "eval-edge-105",
+      "dimension": "edge_case",
+      "input": {
+        "title_original": "",
+        "content_original": "",
+        "source_id": "test-empty",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "archive",
+        "l0_domain": "other",
+        "l1_topic": "empty",
+        "news_value_score_min": 0,
+        "china_relevance_min": 0
+      },
+      "notes": "Empty title and content should be archived"
+    },
+    {
+      "eval_id": "eval-edge-106",
+      "dimension": "edge_case",
+      "input": {
+        "title_original": "BREAKING: ",
+        "content_original": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "source_id": "test-spam",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "archive",
+        "l0_domain": "other",
+        "l1_topic": "spam",
+        "news_value_score_min": 0,
+        "china_relevance_min": 0
+      },
+      "notes": "Very long repetitive content should be archived"
+    },
+    {
+      "eval_id": "eval-edge-107",
+      "dimension": "edge_case",
+      "input": {
+        "title_original": "Serie A: Juventus wins derby",
+        "content_original": "Juventus batte il Torino 3-1 nel derby della Mole. Doppietta di Vlahovic.",
+        "source_id": "ansa",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "archive",
+        "l0_domain": "other",
+        "l1_topic": "sports",
+        "news_value_score_min": 5,
+        "china_relevance_min": 0
+      },
+      "notes": "Sports content should have low news_value_score for this pipeline"
+    },
+    {
+      "eval_id": "eval-edge-108",
+      "dimension": "edge_case",
+      "input": {
+        "title_original": "中国和意大利签署新的贸易协议",
+        "content_original": "中国和意大利签署了一项新的双边贸易协议，涵盖制造业、农业和科技领域。预计将增加双边贸易额15%.",
+        "source_id": "test-chinese",
+        "language": "zh"
+      },
+      "expected": {
+        "recommendation": "publish",
+        "l0_domain": "china_relations",
+        "l1_topic": "trade",
+        "news_value_score_min": 55,
+        "china_relevance_min": 90
+      },
+      "notes": "Pure Chinese text should still be classified correctly"
+    },
+    {
+      "eval_id": "eval-edge-109",
+      "dimension": "edge_case",
+      "input": {
+        "title_original": "CLICK HERE TO WIN €1000000!!!",
+        "content_original": "Congratulations! You have won €1,000,000. Click the link below to claim your prize. This is definitely not a scam.",
+        "source_id": "test-spam2",
+        "language": "en"
+      },
+      "expected": {
+        "recommendation": "archive",
+        "l0_domain": "other",
+        "l1_topic": "spam",
+        "news_value_score_min": 0,
+        "china_relevance_min": 0
+      },
+      "notes": "Obvious spam/scam should be archived"
+    },
+    {
+      "eval_id": "eval-edge-110",
+      "dimension": "edge_case",
+      "input": {
+        "title_original": "Weather forecast: sunny in Rome tomorrow",
+        "content_original": "Previsioni meteo: domani sole a Roma, temperature massime 28°C. Nessuna precipitazione prevista.",
+        "source_id": "test-weather",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "archive",
+        "l0_domain": "other",
+        "l1_topic": "weather",
+        "news_value_score_min": 0,
+        "china_relevance_min": 0
+      },
+      "notes": "Routine weather should be archived"
+    },
+    {
+      "eval_id": "eval-edge-111",
+      "dimension": "edge_case",
+      "input": {
+        "title_original": "Mixed language: Italy and Cina cooperazione",
+        "content_original": "Italy e la Cina hanno firmato un nuovo accordo di cooperazione nel settore delle energie rinnovabili. The agreement covers solar and wind.",
+        "source_id": "test-mixed",
+        "language": "mixed"
+      },
+      "expected": {
+        "recommendation": "review",
+        "l0_domain": "china_relations",
+        "l1_topic": "bilingual",
+        "news_value_score_min": 40,
+        "china_relevance_min": 60
+      },
+      "notes": "Mixed language content should still classify correctly"
+    },
+    {
+      "eval_id": "eval-edge-112",
+      "dimension": "edge_case",
+      "input": {
+        "title_original": "Duplicate: Meloni incontra Macron",
+        "content_original": "La premier italiana Giorgia Meloni ha incontrato il presidente francese Emmanuel Macron a Roma.",
+        "source_id": "test-dup",
+        "language": "it"
+      },
+      "expected": {
+        "recommendation": "archive",
+        "l0_domain": "politics",
+        "l1_topic": "duplicate",
+        "news_value_score_min": 0,
+        "china_relevance_min": 0
+      },
+      "notes": "Near-duplicate of existing event should be archived"
+    }
+  ]
+}
