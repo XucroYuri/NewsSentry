@@ -1,6 +1,6 @@
 # News Sentry — 阶段 SPEC 索引
 
-> 版本: v1.0 | 日期: 2026-05-09  
+> 版本: v1.1 | 日期: 2026-05-11
 > 口径基准: [docs/contracts-canonical.md](../contracts-canonical.md)  
 > 路线图主权文档: [docs/development-plan.md](../development-plan.md)  
 > 架构决策记录: [docs/adr/README.md](../adr/README.md)
@@ -16,12 +16,12 @@
 | Phase | 文件 | 核心目标 | 状态 |
 |-------|------|---------|------|
 | Phase 1 | [phase-1-contract-stabilization.md](phase-1-contract-stabilization.md) | 定稿所有核心契约，消除口径漂移 | ✅ DONE |
-| Phase 2 | [phase-2-runtime-carrier-alignment.md](phase-2-runtime-carrier-alignment.md) | RuntimeHostAdapter、bounded run 入口协议 | 🔲 PENDING |
-| Phase 3 | [phase-3-kernel-mvp.md](phase-3-kernel-mvp.md) | RSS/API 基线、文件事件闭环、最小 sandbox | 🔲 PENDING |
-| Phase 4 | [phase-4-tool-skill-registry-opencli.md](phase-4-tool-skill-registry-opencli.md) | Skill/Tool registry、OpenCLI 12 条接入 | 🔲 PENDING |
-| Phase 5 | [phase-5-ai-provider-routing.md](phase-5-ai-provider-routing.md) | 多 Provider 路由、翻译/研判 route_id | 🔲 PENDING |
-| Phase 6 | [phase-6-sandbox-hardening-social-kol.md](phase-6-sandbox-hardening-social-kol.md) | 沙箱强化、社媒/KOL 实验通道 | 🔲 PENDING |
-| Phase 7 | [phase-7-multi-target-expansion.md](phase-7-multi-target-expansion.md) | 第二国家 reference package | 🔲 PENDING |
+| Phase 2 | [phase-2-runtime-carrier-alignment.md](phase-2-runtime-carrier-alignment.md) | RuntimeHostAdapter、bounded run 入口协议 | ✅ DONE |
+| Phase 3 | [phase-3-kernel-mvp.md](phase-3-kernel-mvp.md) | RSS/API 基线、文件事件闭环、最小 sandbox | ✅ DONE |
+| Phase 4 | [phase-4-tool-skill-registry-opencli.md](phase-4-tool-skill-registry-opencli.md) | Skill/Tool registry、OpenCLI 12 条接入 | ✅ DONE |
+| Phase 5 | [phase-5-ai-provider-routing.md](phase-5-ai-provider-routing.md) | 多 Provider 路由、翻译/研判 route_id | ✅ DONE |
+| Phase 6 | [phase-6-sandbox-hardening-social-kol.md](phase-6-sandbox-hardening-social-kol.md) | 沙箱强化、社媒/KOL 实验通道 | ✅ DONE |
+| Phase 7 | [phase-7-multi-target-expansion.md](phase-7-multi-target-expansion.md) | 第二国家 reference package | ✅ DONE |
 
 ---
 
@@ -30,12 +30,12 @@
 ```mermaid
 graph TD
     P1["Phase 1\nContract Stabilization\n✅ DONE\n—ADR-0001..0016\n—contracts-canonical.md\n—NewsEvent schema"]
-    P2["Phase 2\nRuntime Carrier Alignment\n—RuntimeHostAdapter\n—cloud-vps / local-workstation"]
-    P3["Phase 3\nKernel MVP\n—BoundedRun\n—ConfigLoader / RSSCollector\n—FileWriter / RunLog\n—minimal SandboxEnforcer"]
-    P4["Phase 4\nTool/Skill Registry + OpenCLI\n—SkillManifestRegistry\n—ToolManifestRegistry\n—OpenCLI Adapter (12 tools)"]
-    P5["Phase 5\nAI Provider Routing\n—AIProviderRouter\n—route_id table\n—JudgeSkill / ClassifierLLM"]
-    P6["Phase 6\nSandbox Hardening + Social/KOL\n—Full SandboxPolicy\n—session_profile governance\n—KOL experiment channel"]
-    P7["Phase 7\nMulti-target Expansion\n—Second target TargetConfig\n—country_axes validation\n—L1 reuse assessment"]
+    P2["Phase 2\nRuntime Carrier Alignment\n✅ DONE\n—RuntimeHostAdapter\n—cloud-vps / local-workstation"]
+    P3["Phase 3\nKernel MVP\n✅ DONE\n—BoundedRun\n—ConfigLoader / RSSCollector\n—FileWriter / RunLog\n—minimal SandboxEnforcer"]
+    P4["Phase 4\nTool/Skill Registry + OpenCLI\n✅ DONE\n—SkillManifestRegistry\n—ToolManifestRegistry\n—OpenCLI Adapter (12 tools)"]
+    P5["Phase 5\nAI Provider Routing\n✅ DONE\n—AIProviderRouter\n—route_id table\n—JudgeSkill / ClassifierLLM"]
+    P6["Phase 6\nSandbox Hardening + Social/KOL\n✅ DONE\n—Full SandboxPolicy\n—session_profile governance\n—KOL experiment channel"]
+    P7["Phase 7\nMulti-target Expansion\n✅ DONE\n—Second target TargetConfig\n—country_axes validation\n—L1 reuse assessment"]
 
     P1 --> P2
     P2 --> P3
