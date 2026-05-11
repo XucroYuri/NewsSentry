@@ -1,17 +1,20 @@
 # News Sentry — 阶段 SPEC 索引
 
-> 版本: v1.1 | 日期: 2026-05-11
-> 口径基准: [docs/contracts-canonical.md](../contracts-canonical.md)  
-> 路线图主权文档: [docs/development-plan.md](../development-plan.md)  
+> 版本: v2.0 | 日期: 2026-05-11
+> 口径基准: [docs/contracts-canonical.md](../contracts-canonical.md)
+> 路线图主权文档: [docs/development-plan.md](../development-plan.md)
 > 架构决策记录: [docs/adr/README.md](../adr/README.md)
+> Phase 12 设计: [docs/superpowers/specs/2026-05-11-phase-12-source-matrix-design.md](../superpowers/specs/2026-05-11-phase-12-source-matrix-design.md)
 
-本目录为 News Sentry 七个开发阶段的详细 SPEC 文档索引。每份 SPEC 文件覆盖：目标与出口标准、内外范围矩阵、横切组件接口定义、配置契约、测试策略、验收清单和风险回退。
+本目录为 News Sentry 多阶段开发 SPEC 文档索引。每份 SPEC 文件覆盖：目标与出口标准、内外范围矩阵、横切组件接口定义、配置契约、测试策略、验收清单和风险回退。
 
 **使用原则：** SPEC 文件是"对 development-plan.md 的实现级细化"，不替代路线图，不创建新的口径，遇到字段命名争议以 [contracts-canonical.md](../contracts-canonical.md) 为准。
 
 ---
 
 ## 阶段索引
+
+### v0.1.0–v0.3.0 — 基础平台 ✅
 
 | Phase | 文件 | 核心目标 | 状态 |
 |-------|------|---------|------|
@@ -23,28 +26,56 @@
 | Phase 6 | [phase-6-sandbox-hardening-social-kol.md](phase-6-sandbox-hardening-social-kol.md) | 沙箱强化、社媒/KOL 实验通道 | ✅ DONE |
 | Phase 7 | [phase-7-multi-target-expansion.md](phase-7-multi-target-expansion.md) | 第二国家 reference package | ✅ DONE |
 
+### v0.4.0 — 迭代改进 ✅
+
+| Phase | 文件 | 核心目标 | 状态 |
+|-------|------|---------|------|
+| Phase 8 | Obsidian Ontology Sync | Obsidian 知识库与本体图双向同步 | ✅ DONE |
+| Phase 9 | Karpathy Skills Integration | Karpathy 四原则 + 四心智模型 Skill | ✅ DONE |
+| Phase 10 | Structured Logging + CLI Doctor | JSON 日志 + doctor 诊断命令 | ✅ DONE |
+| Phase 11 | Trend Analysis | TopicTrend + TrendReport 趋势报告 | ✅ DONE |
+
+### v0.5.0 — 信源矩阵与生产部署 🔄
+
+| Phase | 文件 | 核心目标 | 状态 |
+|-------|------|---------|------|
+| Phase 12 | [../superpowers/specs/2026-05-11-phase-12-source-matrix-design.md](../superpowers/specs/2026-05-11-phase-12-source-matrix-design.md) | 60+ 信源 / 13 维度 / 7 平台社媒 KOL | 🔄 IN PROGRESS |
+| Phase 13 | TBD | ≥100 标注评估集 + Cloud VPS 零依赖部署 | 📋 PLANNED |
+
 ---
 
 ## 阶段演进 Mermaid 图
 
 ```mermaid
 graph TD
-    P1["Phase 1\nContract Stabilization\n✅ DONE\n—ADR-0001..0016\n—contracts-canonical.md\n—NewsEvent schema"]
-    P2["Phase 2\nRuntime Carrier Alignment\n✅ DONE\n—RuntimeHostAdapter\n—cloud-vps / local-workstation"]
-    P3["Phase 3\nKernel MVP\n✅ DONE\n—BoundedRun\n—ConfigLoader / RSSCollector\n—FileWriter / RunLog\n—minimal SandboxEnforcer"]
-    P4["Phase 4\nTool/Skill Registry + OpenCLI\n✅ DONE\n—SkillManifestRegistry\n—ToolManifestRegistry\n—OpenCLI Adapter (12 tools)"]
-    P5["Phase 5\nAI Provider Routing\n✅ DONE\n—AIProviderRouter\n—route_id table\n—JudgeSkill / ClassifierLLM"]
-    P6["Phase 6\nSandbox Hardening + Social/KOL\n✅ DONE\n—Full SandboxPolicy\n—session_profile governance\n—KOL experiment channel"]
-    P7["Phase 7\nMulti-target Expansion\n✅ DONE\n—Second target TargetConfig\n—country_axes validation\n—L1 reuse assessment"]
+    subgraph v0_1_0["v0.1.0–v0.3.0 基础平台"]
+        P1["Phase 1\nContract Stabilization ✅\nADR-0001..0016"]
+        P2["Phase 2\nRuntime Carrier ✅"]
+        P3["Phase 3\nKernel MVP ✅\nRSS/API/Filter/Judge"]
+        P4["Phase 4\nTool/Skill Registry ✅\nOpenCLI 12 tools"]
+        P5["Phase 5\nAI Provider Routing ✅\nMulti-provider"]
+        P6["Phase 6\nSandbox + KOL Exp ✅"]
+        P7["Phase 7\nMulti-target ✅\nchina-watch-en"]
+    end
 
-    P1 --> P2
-    P2 --> P3
-    P3 --> P4
-    P4 --> P5
-    P5 --> P6
-    P3 -.->|"可提前"| P6
+    subgraph v0_4_0["v0.4.0 迭代改进"]
+        P8["Phase 8\nOntology Sync ✅"]
+        P9["Phase 9\nKarpathy Skills ✅"]
+        P10["Phase 10\nLogging + Doctor ✅"]
+        P11["Phase 11\nTrend Analysis ✅"]
+    end
+
+    subgraph v0_5_0["v0.5.0 信源矩阵"]
+        P12["Phase 12\nSource Matrix 🔄\n60+ sources / 13 dims\n7 platforms KOL"]
+        P13["Phase 13\nEval Set + Deploy 📋\n100+ annotated\nCloud VPS"]
+    end
+
+    P1 --> P2 --> P3 --> P4 --> P5 --> P6
+    P3 -.-> P6
     P5 --> P7
     P4 --> P7
+    P7 --> P8 --> P9 --> P10 --> P11
+    P11 --> P12 --> P13
 ```
 
 ---
@@ -53,24 +84,27 @@ graph TD
 
 > 图例：`🟢 引入` = 该 Phase 首次定义或实现 | `🔵 使用` = 该 Phase 使用或扩展 | `—` = 本 Phase 不涉及
 
-| 组件 | P1 | P2 | P3 | P4 | P5 | P6 | P7 |
-|------|----|----|----|----|----|----|-----|
-| **NewsEvent** | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 |
-| **PipelineContext** | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 |
-| **ConfigLoader** | — | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 |
-| **BoundedRun** | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 |
-| **RSSCollector** | — | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | — | 🔵 使用 |
-| **APICollector** | — | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | — | 🔵 使用 |
-| **OpenCLICollector** | — | — | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 |
-| **RulesFilter** | — | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 |
-| **ClassifierRules** | — | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 |
-| **JudgeSkill** | — | — | — | — | 🟢 引入 | 🔵 使用 | 🔵 使用 |
-| **MarkdownWriter** | — | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 |
-| **SkillManifestRegistry** | — | — | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 |
-| **ToolManifestRegistry** | — | — | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 |
-| **SandboxEnforcer** | — | — | 🟢 引入（最小） | 🔵 使用 | 🔵 使用 | 🟢 强化 | 🔵 使用 |
-| **AIProviderRouter** | — | — | — | — | 🟢 引入 | 🔵 使用 | 🔵 使用 |
-| **RuntimeHostAdapter** | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 |
+| 组件 | P1 | P2 | P3 | P4 | P5 | P6 | P7 | P12 |
+|------|----|----|----|----|----|----|-----|-----|
+| **NewsEvent** | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 |
+| **PipelineContext** | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 |
+| **ConfigLoader** | — | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 |
+| **BoundedRun** | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 |
+| **RSSCollector** | — | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | — | 🔵 使用 | 🟢 扩展（32新源） |
+| **APICollector** | — | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | — | 🔵 使用 | 🟢 扩展（4新源） |
+| **OpenCLICollector** | — | — | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🟢 扩展（12+新源） |
+| **SocialKOLCollector** | — | — | — | — | — | 🟢 引入（stub） | — | 🟢 升级（Bridge驱动） |
+| **BrowserFallback** | — | — | — | — | — | — | — | 🟢 引入 |
+| **MatrixGovernance** | — | — | — | — | — | — | — | 🟢 引入 |
+| **RulesFilter** | — | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 |
+| **ClassifierRules** | — | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 |
+| **JudgeSkill** | — | — | — | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 |
+| **MarkdownWriter** | — | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 |
+| **SkillManifestRegistry** | — | — | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 |
+| **ToolManifestRegistry** | — | — | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 |
+| **SandboxEnforcer** | — | — | 🟢 引入（最小） | 🔵 使用 | 🔵 使用 | 🟢 强化 | 🔵 使用 | 🔵 使用 |
+| **AIProviderRouter** | — | — | — | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | — |
+| **RuntimeHostAdapter** | — | 🟢 引入 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 | 🔵 使用 |
 
 ---
 
@@ -94,3 +128,8 @@ graph TD
 | ADR-0014 | JSON Schema 2020-12，存放 `schemas/` | P1 定义，P3 起验证 |
 | ADR-0015 | 配置合并优先级：target → source → sandbox | P3 ConfigLoader 实现 |
 | ADR-0016 | CLI `python -m news_sentry.cli run --target <id> --stage <stage> --profile <profile_id>` | P3 入口 |
+| ADR-0017 | 采集阶段零 Token 消耗原则 | P12 信源矩阵 |
+| ADR-0018 | 三层浏览器采集兜底（Bridge → Playwright → Computer Use） | P12 信源矩阵 |
+| ADR-0019 | 信源生命周期状态机（active/degraded/dead） | P12 信源矩阵 |
+| ADR-0020 | 社媒 KOL 三级账号分级（L1/L2/L3）+ active/semi-active 双模式 | P12 信源矩阵 |
+| ADR-0021 | Docker 全栈零依赖部署（Chromium + Xvfb + Playwright MCP + Node.js） | P12 信源矩阵 |

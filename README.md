@@ -42,8 +42,27 @@ RSS/API Sources → Collect → Filter → Judge → Output (Markdown)
 - **v1 no auto-publish** — output stops at drafts/reviewed, no automatic external publishing
 - **Bilingual pipeline** — native Italian → Chinese translation support
 
-**Reference use case — Italy Breaking News monitoring:**
-Monitors 8 Italian news sources (ANSA, Corriere della Sera, la Repubblica, TGCOM24, il Fatto Quotidiano, La Stampa, Il Messaggero, ANSA English) with 91 Italian keywords covering politics, economics, crime, EU relations, China-Italy relations, immigration, energy, and judiciary topics.
+**Reference use case — Italy Full-Spectrum Monitoring (意大利全维度监控):**
+
+Phase 12 expands from 14 RSS feeds to **60+ sources across 13 dimensions**, using 3 collection methods (RSS/API/OpenCLI) and covering 7 social media platforms for KOL monitoring:
+
+| Dimension | Focus | Sources |
+|-----------|-------|---------|
+| A. Politics & Governance | Government, parliament, parties, elections | 15 |
+| B. Economy & Business | Macro, industry, trade, finance | 7 |
+| C. Diplomacy & International | EU, NATO, G7, Mediterranean | 4 |
+| D. Security & Defense | Military, counter-terror, cyber | 4 |
+| E. Justice & Rule of Law | Courts, anti-corruption, organized crime | 4 |
+| F. Society & Livelihood | Healthcare, education, labor, housing | 8 |
+| G. Tech & Digital | AI, digital transformation, privacy | 5+ |
+| H. Environment & Energy | Climate, renewables, nuclear, disasters | 5+ |
+| I. Immigration & Demographics | Mediterranean migration, refugees | 3+ |
+| J. Culture & Heritage | Conservation, tourism, arts, fashion | 5+ |
+| K. Religion & Vatican | Holy See, Catholicism, interfaith | 4+ |
+| L. China-Related | BRI, MOUs, Chinese enterprises, diaspora | 5+ |
+| M. Other (Open) | Universal monitoring, breaking detection | 3+ |
+
+**Collection principle: Zero Token at collect stage.** RSS, API, OpenCLI, and Playwright MCP all operate without AI token consumption.
 
 ---
 
@@ -89,34 +108,37 @@ make check
 ## Pipeline Overview
 
 ```
-                    ┌──────────────┐
-  RSS Feeds ──────→ │   COLLECT    │ ──→ raw/*.md
-  API Endpoints ──→ │  (8 sources) │
-                    └──────┬───────┘
-                           │
-                    ┌──────▼───────┐
-                    │   FILTER     │ ──→ evaluated/*.md  (keyword matching + classification)
-                    │ (91 keywords)│ ──→ archive/*.md     (rejected)
-                    └──────┬───────┘
-                           │
-                    ┌──────▼───────┐
-                    │    JUDGE     │ ──→ evaluated/*.md  (scoring + recommendations)
-                    │ (rules-based)│
-                    └──────┬───────┘
-                           │
-                    ┌──────▼───────┐
-                    │   OUTPUT     │ ──→ drafts/*.md      (Markdown reports)
-                    │  (Markdown)  │
-                    └──────────────┘
+                         ┌──────────────────┐
+  RSS Feeds (32+)  ────→ │                  │
+  API Endpoints (4) ───→ │     COLLECT      │ ──→ raw/*.md
+  OpenCLI (12+)    ────→ │  (Zero Token)    │
+  Social/KOL (7 pf) ───→ │                  │
+                         └────────┬─────────┘
+                                  │
+                         ┌────────▼─────────┐
+                         │     FILTER        │ ──→ evaluated/*.md
+                         │ (91+ keywords)    │ ──→ archive/*.md
+                         │ L0-L3 classification │
+                         └────────┬─────────┘
+                                  │
+                         ┌────────▼─────────┐
+                         │      JUDGE        │ ──→ evaluated/*.md
+                         │ (AI + rules-based) │
+                         └────────┬─────────┘
+                                  │
+                         ┌────────▼─────────┐
+                         │     OUTPUT        │ ──→ drafts/*.md
+                         │   (Markdown)      │
+                         └──────────────────┘
 ```
 
 **Pipeline stages:**
 
 | Stage | Input | Output | Description |
 |-------|-------|--------|-------------|
-| **collect** | RSS/API configs | `raw/*.md` | Fetch and parse news from configured sources |
-| **filter** | `raw/*.md` | `evaluated/*.md` | Keyword matching (91 keywords, word-boundary regex), L0-L2 classification, dedup |
-| **judge** | `evaluated/*.md` | `evaluated/*.md` | News value scoring, China relevance, recommendation (publish/review/archive/discard) |
+| **collect** | RSS/API/OpenCLI/Social configs | `raw/*.md` | Zero-token fetch from 60+ sources across RSS, API, OpenCLI, and social media |
+| **filter** | `raw/*.md` | `evaluated/*.md` | Keyword matching, L0-L3 classification across 13 dimensions, dedup |
+| **judge** | `evaluated/*.md` | `evaluated/*.md` | AI-powered news value scoring, China relevance, recommendation |
 | **output** | `evaluated/*.md` | `drafts/*.md` | Generate structured Markdown reports |
 
 **Each run produces:**
@@ -188,22 +210,25 @@ pip install -e ".[proxy]"        # with SOCKS5 proxy support
 ```
 config/
 ├── targets/           # Monitoring target definitions
-│   ├── italy.yaml     # Italy target (language, sources, classification axes)
+│   ├── italy.yaml     # Italy target (13 dimensions, 60+ sources)
 │   └── _template.yaml # Template for new targets
-├── sources/italy/     # Source channel configs (one YAML per source)
-│   ├── ansa.yaml      # enabled
-│   ├── corriere.yaml  # enabled
-│   └── ...            # 8 enabled, 7 disabled total
+├── sources/italy/     # Source channel configs by acquisition method
+│   ├── rss/           # 32 RSS feed configs (A-M dimensions)
+│   ├── api/           # 4 API configs (GDELT, NewsAPI, GNews, ISTAT)
+│   ├── opencli/       # 12+ OpenCLI configs (government, parliament, etc.)
+│   ├── social/        # Social media account lists by platform
+│   │   └── twitter/   # Twitter/X account configs (4 dimensions, 60+ accounts)
+│   ├── _matrix_governance.yaml  # Self-evolution + health audit config
+│   └── _browser_fallback.yaml   # 3-layer browser degradation config
 ├── filters/italy/     # Keyword filter rules
 │   └── default.yaml   # 91 Italian keywords with weights
-├── classification/    # L0-L2 classification rules
-│   └── rules-v1.yaml
+├── classification/    # L0-L3 classification rules
 ├── profiles/          # Deployment profiles
 │   ├── local-workstation.yaml
 │   └── cloud-vps.yaml
 ├── sandbox/           # Sandbox security policies
 ├── runtime/           # Runtime carrier configs
-├── provider/          # AI provider routing (Phase 5)
+├── provider/          # AI provider routing
 ├── output/            # Output destinations
 └── toolmanifest/      # Tool manifest registry
     └── opencli-baseline.yaml  # 12 OpenCLI tools
@@ -300,11 +325,12 @@ make clean                # Clean build artifacts
 
 ### Source Management
 
-Sources are configured in `config/sources/italy/*.yaml`. Each source:
+Sources are configured in `config/sources/italy/` organized by acquisition method and dimension. Each source:
 
 ```yaml
 source_id: ansa
-type: rss                       # rss | api | opencli
+type: rss                       # rss | api | opencli | social
+dimension: A                    # A-M (13-dimension taxonomy)
 url: "https://www.ansa.it/..."
 enabled: true
 credibility_base: 0.9           # 0.0–1.0
@@ -312,20 +338,28 @@ max_items_per_run: 50
 timeout_seconds: 30
 ```
 
-**Currently active Italian sources (8):**
+**Collection methods (all zero-token at collect stage):**
 
-| Source | Language | Type | Status |
-|--------|----------|------|--------|
-| ANSA | it | rss | active |
-| ANSA English | en | rss | active |
-| Corriere della Sera | it | rss | intermittent SSL |
-| la Repubblica | it | rss | active |
-| TGCOM24 | it | rss | active |
-| il Fatto Quotidiano | it | rss | active |
-| La Stampa | it | rss | active |
-| Il Messaggero | it | rss | active |
+| Method | Count | Token Cost | Use Case |
+|--------|-------|------------|----------|
+| **RSS/Atom** | 32+ sources | Zero | News media, government feeds, institutional sources |
+| **API (JSON)** | 4 sources | Zero | GDELT, NewsAPI, GNews, ISTAT statistics |
+| **OpenCLI** | 12+ sources | Zero | Government sites, parliament, NGOs without RSS |
+| **OpenCLI Bridge** | Social media | Zero | Browser-based social media monitoring via Chrome extension |
+| **Playwright MCP** | Fallback | Zero | Layer 2 fallback when Bridge unavailable |
+| **Computer Use** | Last resort | Token | L1 accounts only, ≤3/day/source, $5/run cap |
 
-**Disabled sources (7):** AGI, Rai News, Il Sole 24 Ore, The Local Italy, Sky TG24, FAO RSS — RSS feeds permanently unavailable.
+**Social media KOL monitoring — 7 platforms:**
+Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
+
+**Three-tier account classification:**
+- **L1** (Mandatory, active mode): Per-account page visit — government officials, party leaders
+- **L2** (Should-monitor, active + semi-active): Important accounts + feed browsing — journalists, think tanks
+- **L3** (Can-monitor, semi-active mode): Feed-based discovery — emerging voices, niche experts
+
+**Source lifecycle:** `active` → `degraded` (3 failures) → `dead` (10 failures) → `archive`
+
+**Self-evolution:** Built-in health audit, hot source discovery (GDELT/NewsAPI/trending), KOL list auto-expansion.
 
 ### Keyword Filtering
 
@@ -373,30 +407,35 @@ src/news_sentry/
 │   ├── sandbox.py     # SandboxEnforcer (network/file/command policies)
 │   ├── file_writer.py # File event writer (stage → directory mapping)
 │   ├── memory.py      # Known IDs, source health, cursors, provider stats
-│   └── run_log.py     # RunLog generation (phases, errors, summary)
+│   ├── run_log.py     # RunLog generation (phases, errors, summary)
+│   ├── matrix_governance.py  # Source lifecycle state machine + self-evolution
+│   └── trend_analyzer.py     # TopicTrend + TrendReport generation (Phase 11)
 ├── skills/            # Pipeline skills
 │   ├── collect/
-│   │   ├── rss_collector.py    # RSS/Atom feed collector
-│   │   ├── api_collector.py    # JSON API collector
-│   │   └── opencli_collector.py # OpenCLI-based collector
+│   │   ├── rss_collector.py       # RSS/Atom feed collector
+│   │   ├── api_collector.py       # JSON API collector
+│   │   ├── opencli_collector.py   # OpenCLI-based collector
+│   │   ├── social_kol_collector.py # Social/KOL collector (Bridge-driven)
+│   │   └── browser_fallback.py    # 3-layer degradation (Bridge→Playwright→CU)
 │   ├── filter/
 │   │   ├── rules_filter.py     # Keyword-based rules filter
-│   │   └── classifier_rules.py # L0-L2 classification engine
+│   │   └── classifier_rules.py # L0-L3 classification engine (13 dimensions)
 │   ├── judge/
 │   │   ├── rules_judge.py      # Rules-based scoring engine
-│   │   └── judge_skill.py      # AI-powered judge (Phase 5 stub)
+│   │   └── judge_skill.py      # AI-powered judge
 │   └── output/
 │       └── markdown_writer.py  # Markdown report generator
 ├── adapters/          # Integration bridges
-│   ├── runtime/       # Hermes Agent / OpenClaw adapters (Phase 2 stubs)
+│   ├── runtime/       # Hermes Agent / OpenClaw adapters
 │   ├── tools/         # OpenCLI tool adapter
-│   └── providers/     # AI provider adapters (Phase 5 stubs)
+│   └── providers/     # AI provider adapters
 ├── models/            # Pydantic v2 data models
 │   ├── newsevent.py   # NewsEvent — core data exchange object
 │   ├── pipeline_context.py
 │   └── manifests.py   # Tool/Skill manifest models
 └── cli/               # Click CLI entry points
-    └── __init__.py    # run, validate, skill, tool, doctor commands
+    ├── __init__.py    # run, validate, skill, tool commands
+    └── doctor.py      # Environment health checks (Bridge, Playwright, Chromium)
 ```
 
 ### Key Design Decisions
@@ -408,6 +447,11 @@ src/news_sentry/
 - **v1 no auto-publish**: output stops at `drafts/`
 - **Configuration over code**: all Italy-specific params in `config/`, not in `src/`
 - **External projects: install only** — no vendoring, forking, or git submodules
+- **Zero token at collect**: RSS, API, OpenCLI, Playwright MCP all operate without AI tokens
+- **13-dimension taxonomy**: A-Politics through M-Other for comprehensive coverage
+- **3-layer browser fallback**: OpenCLI Bridge → Playwright MCP → Computer Use (L1 only)
+- **Source self-evolution**: automated health audits, discovery, KOL list expansion
+- **Notification-channel agnostic**: all alerts via Hermes Agent, no platform hardcoding
 
 ### Robustness Features
 
@@ -417,10 +461,13 @@ src/news_sentry/
 | Log rotation | Auto-prune to 100 most recent run logs |
 | Memory retention | `prune_old_ids(ttl_days=30)` for known_item_ids |
 | Source health degradation | Auto-pause sources with ≥5 consecutive failures or <30% success rate |
+| Source lifecycle management | `active → degraded (3 failures) → dead (10 failures) → archive` |
+| Browser fallback | 3-layer degradation: Bridge → Playwright MCP → Computer Use |
 | Sandbox enforcement | SSRF protection, network host whitelist, command allowlists |
 | Concurrent safety | Threading lock on memory YAML I/O; run_id-based isolation |
 | Error resilience | `on_failure=log_and_continue` — failed sources don't block downstream stages |
 | Disabled source skipping | `enabled: false` sources are skipped automatically |
+| Self-evolution | Automated health audit, hot source discovery, KOL list expansion |
 
 ---
 
@@ -435,11 +482,12 @@ src/news_sentry/
 | **RSS** | feedparser 6.0+ | RSS/Atom feed parsing |
 | **Config** | PyYAML 6.0+ | All runtime configuration |
 | **Schema validation** | jsonschema 4.21+ | JSON Schema 2020-12 |
-| **Testing** | pytest 8.0+ | 383 tests, 89% coverage |
+| **Browser automation** | OpenCLI Bridge / Playwright MCP / Computer Use | 3-layer fallback for social/KOL |
+| **Testing** | pytest 8.0+ | 887 tests, 95% coverage |
 | **Linting** | ruff 0.4+ | Zero-tolerance |
-| **Type checking** | mypy 1.10+ | strict mode, 38 source files |
+| **Type checking** | mypy 1.10+ | strict mode |
 | **CI/CD** | GitHub Actions | Python 3.11 + 3.12 matrix |
-| **Container** | Docker (python:3.12-slim) | Volume-mounted data dir |
+| **Container** | Docker (python:3.12-slim + Chromium + Xvfb + Node.js + Playwright) | Cloud VPS zero-dependency |
 | **Storage** | Markdown + YAML frontmatter | Obsidian-compatible |
 
 ---
@@ -460,7 +508,7 @@ source .venv/bin/activate
 make check
 
 # Individual checks
-make test        # pytest (383 tests)
+make test        # pytest (887 tests)
 make lint        # ruff + mypy
 make fmt         # auto-fix style issues
 ```
@@ -507,10 +555,11 @@ Fix: _run_collect 跳过 enabled=false 的源
 |----------|---------|
 | [AGENTS.md](AGENTS.md) | Agent instruction baseline + architecture authority |
 | [docs/contracts-canonical.md](docs/contracts-canonical.md) | Canonical specification (field naming, scoring, directory mapping) |
-| [docs/development-plan.md](docs/development-plan.md) | 7-phase development plan |
-| [docs/adr/](docs/adr/) | Architecture Decision Records (ADR-0001 to 0016) |
+| [docs/development-plan.md](docs/development-plan.md) | Multi-phase development plan (Phase 1–13) |
+| [docs/adr/](docs/adr/) | Architecture Decision Records (ADR-0001 to 0021 planned) |
 | [docs/spec/](docs/spec/) | Phase SPEC index + component matrix |
-| [docs/testing/](docs/testing/) | Test plans + Hermes Agent verification |
+| [docs/superpowers/specs/](docs/superpowers/specs/) | Phase 12 design spec (source matrix) |
+| [docs/superpowers/plans/](docs/superpowers/plans/) | Phase 12 implementation plan (15 tasks) |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guide |
 
 ---
@@ -520,17 +569,26 @@ Fix: _run_collect 跳过 enabled=false 的源
 ### Docker
 
 ```bash
-# Build
+# Build (includes Chromium + Xvfb + Playwright MCP + Node.js)
 docker build -t news-sentry .
 
-# Run collection
-docker run -v $(pwd)/data:/data news-sentry run --target italy --stage collect
+# Run collection with browser support
+docker run -v $(pwd)/data:/app/data \
+  -v $(pwd)/session-profiles:/app/session-profiles \
+  -v $(pwd)/chrome-data:/home/appuser/.config/chromium \
+  news-sentry run --target italy --stage collect
 
 # Run full pipeline
-docker run -v $(pwd)/data:/data news-sentry run --target italy --stage all
+docker run -v $(pwd)/data:/app/data news-sentry run --target italy --stage all
 ```
 
-The Docker image uses `python:3.12-slim`, mounts `/data` as a volume, and defaults to `cloud-vps` profile.
+The Docker image provides **zero-dependency Cloud VPS deployment** with:
+- Python 3.12 + Chromium + Xvfb (virtual display for headless browser)
+- Node.js + npm + Playwright + `@playwright/mcp`
+- Chrome Native Messaging Host for OpenCLI Bridge
+- Chrome managed policies for extension allowlisting
+- `docker-entrypoint.sh` with automatic Xvfb startup
+- `docker/verify-bridge.sh` for pre-flight health checks
 
 ### Hermes Agent (Recommended for Production)
 
@@ -562,15 +620,28 @@ For environments without Hermes Agent:
 
 ## Project Status
 
+### Completed (v0.4.0)
+
 | Phase | Status | Description |
 |-------|--------|-------------|
-| 1 — Contract Stabilization | Done | ADR-0001~0016, 13 JSON Schemas, canonical contracts |
-| 2 — Runtime Carrier Alignment | Done | Profiles, RuntimeHostAdapter protocol, Docker |
-| 3 — Kernel MVP | Done | bounded_run, RSS/API collect, filter, judge, output |
-| 4 — Tool/Skill Registry | Done | OpenCLI baseline, registries, APICollector, CLI skill/tool commands |
-| 5 — AI Provider Routing | Done | Multi-provider router, judge/translate/classify routes, cost budget |
-| 6 — Sandbox Hardening + KOL | Done | Full sandbox policy, session profiles, KOL experiment channel |
-| 7 — Multi-target Expansion | Done | Second target `china-watch-en`, hardcoded-target scan, target comparison |
+| 1 — Contract Stabilization | ✅ Done | ADR-0001~0016, 13 JSON Schemas, canonical contracts |
+| 2 — Runtime Carrier Alignment | ✅ Done | Profiles, RuntimeHostAdapter protocol, Docker |
+| 3 — Kernel MVP | ✅ Done | bounded_run, RSS/API collect, filter, judge, output |
+| 4 — Tool/Skill Registry | ✅ Done | OpenCLI baseline, registries, APICollector |
+| 5 — AI Provider Routing | ✅ Done | Multi-provider router, judge/translate/classify routes |
+| 6 — Sandbox Hardening + KOL | ✅ Done | Full sandbox policy, session profiles, KOL experiment |
+| 7 — Multi-target Expansion | ✅ Done | Second target `china-watch-en` |
+| 8 — Obsidian Ontology Sync | ✅ Done | Bidirectional ontology sync |
+| 9 — Karpathy Skills Integration | ✅ Done | Karpathy 4 principles + 4 mental models |
+| 10 — Structured Logging + Doctor | ✅ Done | JSON logs, CLI doctor command |
+| 11 — Trend Analysis | ✅ Done | TopicTrend + TrendReport generation |
+
+### In Progress (v0.5.0)
+
+| Phase | Status | Description |
+|-------|--------|-------------|
+| 12 — Italy Source Matrix | 🔄 In Progress | 60+ sources, 13 dims, 7 social platforms, Browser fallback |
+| 13 — Eval Set + Cloud Deploy | 📋 Planned | ≥100 annotated eval set, Cloud VPS zero-dependency deployment |
 
 Run `make progress` for local vs remote Git sync and phase status.
 
@@ -578,13 +649,15 @@ Run `make progress` for local vs remote Git sync and phase status.
 
 | Metric | Value |
 |--------|-------|
-| Tests | 878 passed, 0 failed |
-| Coverage | 94% |
+| Version | `0.4.0` → `0.5.0` (Phase 12) |
+| Tests | 887 passed, 0 failed |
+| Coverage | 95% |
 | Lint (ruff) | All checks passed |
-| Type (mypy) | 38 source files, no issues |
+| Type (mypy) | All source files, no issues |
 | Active targets | 2 (`italy`, `china-watch-en`) |
-| RSS sources | 14 (Italy), 5 (China Watch EN) |
+| Planned sources (Italy) | 60+ across 13 dimensions, 3 methods, 7 social platforms |
 | Pipeline stages | 4 (collect, filter, judge, output) |
+| ADRs | 16 existing + 5 planned (ADR-0017–0021) |
 
 ---
 
