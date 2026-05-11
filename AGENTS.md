@@ -54,17 +54,15 @@ Read these files before changing architecture, schemas, pipeline behavior, permi
 
 ## Phase Order
 
-Follow this implementation order unless the user explicitly changes the roadmap:
+All seven phases (Phase 1-7) are complete. See docs/spec/README.md for detailed status.
 
-1. Contract Stabilization
-2. Runtime Carrier Alignment
-3. Kernel MVP
-4. Tool/Skill Registry + OpenCLI
-5. AI Provider Routing
-6. Sandbox Hardening + Social/KOL Experiment
-7. Multi-target Expansion
-
-Kernel MVP should focus on RSS/API baseline, bounded run lifecycle, config loading, file event writing, run logs, memory, source health, and a minimal sandbox enforcer. Do not pull OpenCLI, social login state, dynamic registry, or complex provider routing into Kernel MVP.
+1. Contract Stabilization ✅
+2. Runtime Carrier Alignment ✅
+3. Kernel MVP ✅
+4. Tool/Skill Registry + OpenCLI ✅
+5. AI Provider Routing ✅
+6. Sandbox Hardening + Social/KOL Experiment ✅
+7. Multi-target Expansion ✅
 
 ## File Event Protocol
 
