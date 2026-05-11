@@ -502,6 +502,9 @@ class ConfigLoader:
         sources: list[dict[str, Any]] = []
         sources_dir = self._config_root / "config" / "sources" / target_id
         for sid in source_ids:
+            # 跳过社媒渠道配置 — 由 SocialKOLCollector 独立加载
+            if sid.startswith("social/"):
+                continue
             source_path = sources_dir / f"{sid}.yaml"
             if not source_path.is_file():
                 raise FileNotFoundError(
