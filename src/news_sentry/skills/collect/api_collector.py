@@ -4,6 +4,8 @@ APICollector — fetches JSON API endpoints using httpx and maps responses to Ne
 """
 from __future__ import annotations
 
+import os
+import re
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -79,11 +81,25 @@ class APICollector:
         endpoint = config.get("endpoint") or {}
         self._url: str = endpoint.get("url", "") or config.get("url", "") or ""
         self._method: str = endpoint.get("method", "GET").upper()
-        self._params: dict[str, Any] = endpoint.get("params", {}) or {}
-        self._headers: dict[str, str] = endpoint.get("headers", {}) or {}
+        self._params: dict[str, Any] = self._substitute_env(endpoint.get("params", {}) or {})
+        self._headers: dict[str, str] = self._substitute_env(endpoint.get("headers", {}) or {})
         # 注册当前源的速率限制间隔
         interval = float(config.get("fetch_interval_seconds", 5.0))
         self._rate_limiter.set_interval(self._source_id, interval)
+
+    @staticmethod
+    def _substitute_env(data: dict[str, Any]) -> dict[str, Any]:
+        """将 dict 值中的 ${ENV_VAR} 占位符替换为环境变量值。"""
+        result: dict[str, Any] = {}
+        env_pattern = re.compile(r"\$\{(\w+)\}")
+        for key, value in data.items():
+            if isinstance(value, str):
+                def _repl(m: re.Match[str]) -> str:
+                    return os.environ.get(m.group(1), m.group(0))
+                result[key] = env_pattern.sub(_repl, value)
+            else:
+                result[key] = value
+        return result
 
     def collect(self, run_id: str) -> list[NewsEvent]:
         """从 API 端点抓取新闻并转换为 NewsEvent 列表。
