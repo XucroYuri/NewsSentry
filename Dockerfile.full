@@ -6,21 +6,21 @@ COPY src/ src/
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -e ".[dev]"
 
-# ---- Runtime with Chromium + Playwright MCP + OpenCLI ----
+# ---- Runtime with Chromium + Playwright MCP + OpenCLI + Hermes ----
 # NOTE: This image requires ≥12GB RAM for docker build.
 # If local build OOMs, use GitHub Actions CI (16GB) instead:
 #   docker build -f Dockerfile.full -t news-sentry-full:0.5.0 .
 FROM python:3.12-slim AS runtime
 WORKDIR /app
 
-# Step 1: Xvfb + gosu + curl
+# Step 1: Xvfb + gosu + cron + curl + unzip
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    xvfb curl ca-certificates gosu unzip \
+    xvfb gosu cron curl ca-certificates unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Step 2: Node.js + npm
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    nodejs npm \
+# Step 2: Node.js 22 LTS (via NodeSource, required by OpenCLI ≥21)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Step 3: Chromium + driver
@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium chromium-driver \
     && rm -rf /var/lib/apt/lists/*
 
-# Step 4: CJK fonts + yt-dlp dependency (ffmpeg for video extraction)
+# Step 4: CJK fonts + ffmpeg (for yt-dlp video extraction)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-noto-cjk ffmpeg \
     && rm -rf /var/lib/apt/lists/*
@@ -67,6 +67,11 @@ RUN pip install --no-cache-dir -e . --no-deps && \
               /app/data/italy/memory /app/data/italy/logs && \
     chown -R appuser:appuser /app/data && \
     mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
+
+# Hermes cron schedule (2-hour cycle: collect→filter→judge→output)
+COPY config/hermes.crontab /etc/cron.d/news-sentry
+RUN chmod 0644 /etc/cron.d/news-sentry && \
+    crontab /etc/cron.d/news-sentry
 
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
