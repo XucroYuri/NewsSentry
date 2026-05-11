@@ -40,3 +40,6 @@ jobs:
 
       - name: Hardcoded target scan
         run: python tools/check_no_hardcoded_target.py
+
+      - name: Config schema validation
+        run: python -m pytest tests/unit/test_config_schema_validation.py -q
