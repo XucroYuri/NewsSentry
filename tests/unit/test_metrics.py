@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from news_sentry.core.metrics import RunMetrics, MetricsWriter
+from news_sentry.core.metrics import MetricsWriter, RunMetrics
 
 
 def test_metrics_to_jsonl():
