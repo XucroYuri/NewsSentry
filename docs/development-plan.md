@@ -1,10 +1,13 @@
 # News Sentry — 开发计划
 
-> 版本: v1.1 | 日期: 2026-05-11
-> 状态: **路线图主权文档** — 本文档是七阶段开发计划与 TODO 矩阵的唯一权威来源
+> 版本: v2.0 | 日期: 2026-05-11
+> 状态: **路线图主权文档** — 本文档是多阶段开发计划与 TODO 矩阵的唯一权威来源
+> 当前版本: **v0.4.0** | 下一版本: **v0.5.0** (Phase 12 信源矩阵)
 > 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](spec/README.md) 为准）
 > 字段口径基准: [`docs/contracts-canonical.md`](./contracts-canonical.md)
 > 架构决策: [`docs/adr/README.md`](./adr/README.md)
+> Phase 12 设计: [`docs/superpowers/specs/2026-05-11-phase-12-source-matrix-design.md`](./superpowers/specs/2026-05-11-phase-12-source-matrix-design.md)
+> Phase 12 计划: [`docs/superpowers/plans/2026-05-11-phase-12-source-matrix.md`](./superpowers/plans/2026-05-11-phase-12-source-matrix.md)
 > 历史背景: [`docs/brainstorming/AgentSkillPack开发总纲与多Agent生产线路线图.md`](./brainstorming/AgentSkillPack开发总纲与多Agent生产线路线图.md)（历史脉络文档）
 
 ---
@@ -32,11 +35,11 @@
 - `ToolRunResult.error.type` → 补充 `args_invalid` 等缺失枚举
 - 产品名大小写 → `News Sentry`（文章）/ `news-sentry`（包名/命令）
 
-### 推迟（明确写入 Phase 6+，不在 v1 主线）
+### 推迟（已提升至 v0.5.0 主线）
 
-- `kol-tracking` 全量 KOL 矩阵、多账号 session 池、邮件/微信反向信源
-- `information-acquisition-chains` L3 多源交叉、动态 Skill registry、复杂 provider 调度
-- 社媒生产化通道（只做 Phase 6 小规模实验）
+- `kol-tracking` 全量 KOL 矩阵 → **已提升至 Phase 12**：7 平台社媒监控、三层账号分级（L1/L2/L3）、active/semi-active 双模式
+- `information-acquisition-chains` L3 多源交叉 → 保留在 Phase 13+ 评估集验证阶段
+- 社媒生产化通道 → **已提升至 Phase 12**：OpenCLI Browser Bridge + Playwright MCP + Computer Use 三层兜底
 
 ### 舍弃（v1 不引入，写明"非缺陷"）
 
@@ -48,7 +51,9 @@
 
 ---
 
-## §1. 七阶段总览
+## §1. 多阶段总览
+
+### v0.1.0–v0.3.0 — 基础平台
 
 | Phase | 名称 | 核心目标 | 估算规模 | 状态 |
 |-------|------|---------|---------|------|
@@ -59,6 +64,22 @@
 | Phase 5 | AI Provider Routing | task-based 路由、多 Provider、prompt/output schema、成本预算 | L | ✅ DONE |
 | Phase 6 | Sandbox Hardening + Social/KOL Experiment | 权限模型强化、社媒/KOL 小规模实验通道 | M | ✅ DONE |
 | Phase 7 | Multi-target Expansion | 第二国家 reference package，验证核心无意大利硬编码 | M | ✅ DONE |
+
+### v0.4.0 — 迭代改进
+
+| Phase | 名称 | 核心目标 | 估算规模 | 状态 |
+|-------|------|---------|---------|------|
+| Phase 8 | Obsidian Ontology Sync | Obsidian 知识库与结构化本体图双向同步 | S | ✅ DONE |
+| Phase 9 | Karpathy Skills Integration | Andrej Karpathy 技能体系集成（4 大心智模型） | S | ✅ DONE |
+| Phase 10 | Structured Logging + CLI Doctor | JSON 结构化日志、CLI doctor 诊断命令 | S | ✅ DONE |
+| Phase 11 | Trend Analysis | TopicTrend + TrendReport + Markdown 趋势报告 | M | ✅ DONE |
+
+### v0.5.0 — 信源矩阵与生产部署
+
+| Phase | 名称 | 核心目标 | 估算规模 | 状态 |
+|-------|------|---------|---------|------|
+| Phase 12 | Italy Source Matrix | 60+ 信源 / 13 维度 / 3 种采集 / 7 平台社媒 KOL | XL | 🔄 IN PROGRESS |
+| Phase 13 | Evaluation Set + Cloud VPS Deploy | ≥100 标注评估集、Docker 全栈 Cloud VPS 部署验证 | L | 📋 PLANNED |
 
 ---
 
@@ -337,38 +358,171 @@
 
 ---
 
-## §9. Workstream 矩阵（横切七个 Phase）
+## §9. Phase 8 — Obsidian Ontology Sync
 
-| Workstream | W1 契约与口径治理 | W2 运行载体 | W3 内核 MVP | W4 工具/Skill Registry | W5 AI Provider 路由 | W6 沙箱硬化 | W7 多 target | W8 双语 SOP | W9 文档治理 | W10 外部集成 | W11 分类框架 |
-|-----------|----------|-----------|-----------|---------------------|---------------------|-----------|------------|-----------|-----------|-----------|-----------|
-| **Phase 1** | ★ 核心 | — | — | — | — | — | — | ★ 核心 | ★ 核心 | ◎ 策略文档 | ◎ 框架文档 |
-| **Phase 2** | ◎ 引用 | ★ 核心 | — | — | — | — | — | — | ◎ 更新 | — | — |
-| **Phase 3** | ◎ 引用 | ◎ 适配 | ★ 核心 | — | — | ◎ 最小 | — | ◎ 基础 | ◎ 更新 | ◎ 数据集接入 | ◎ 规则引擎 |
-| **Phase 4** | ◎ 引用 | ◎ 适配 | ◎ 扩展 | ★ 核心 | — | ◎ 扩展 | — | — | ◎ 更新 | ★ 核心 | ◎ 分类测试 |
-| **Phase 5** | ◎ 引用 | — | ◎ 适配 | ◎ 适配 | ★ 核心 | ◎ 审计 | — | ★ 翻译路由 | ◎ 更新 | ◎ MCP形态 | ★ LLM分类器 |
-| **Phase 6** | ◎ 引用 | — | — | ◎ 扩展 | ◎ 适配 | ★ 核心 | — | ◎ 社媒合规 | ◎ 更新 | ◎ 社媒适配 | ◎ 扩展 |
-| **Phase 7** | ◎ 引用 | ◎ 适配 | ◎ 验证 | ◎ 验证 | ◎ 适配 | ◎ 适配 | ★ 核心 | ◎ 扩展 | ◎ 更新 | ◎ 新目标适配 | ★ 新子轴设计 |
+> 详细 SPEC: [docs/spec/phase-8-obsidian-ontology-sync.md](spec/phase-8-obsidian-ontology-sync.md)（待补）
+
+**目标：** 实现 Obsidian 知识库与结构化本体图的双向同步，从 Markdown 自动抽取实体与关系。
+
+**入口标准：** Phase 1-7 完成，Obsidian vault 有内容。
+
+**出口标准：** `obsidian-ontology-sync` Skill 可运行，本体图在 `.planning/graphs/` 中可用。
+
+**范围内：**
+- Obsidian vault 读取与 Markdown 解析
+- 实体/关系自动抽取
+- 本体图维护与双向同步
+
+**范围外：**
+- 实时同步（v1 按需/bounded run 触发）
+
+---
+
+## §10. Phase 9 — Karpathy Skills Integration
+
+**目标：** 将 Andrej Karpathy 四原则（先思考再编码 / 简洁优先 / 精准修改 / 目标驱动执行）和四大心智模型（March of Nines / 构建即理解 / 锯齿状智能 / Iron Man 套装）体系化为可注册 Agent Skill。
+
+**入口标准：** Phase 1-7 完成。
+
+**出口标准：** `karpathy-perspective` Skill 可被 Agent 调度，提供设计审查视角。
+
+**范围内：**
+- 注册 `karpathy-perspective` Agent Skill
+- 四原则 + 四心智模型作为 review lens
+
+---
+
+## §11. Phase 10 — Structured Logging + CLI Doctor
+
+**目标：** 将日志输出切换为 JSON 结构化格式，新增 `doctor` CLI 子命令用于环境诊断。
+
+**入口标准：** Phase 3+ 日志系统就绪。
+
+**出口标准：** JSON 日志可用 `jq` 解析；`python -m news_sentry.cli doctor` 输出环境健康报告。
+
+**范围内：**
+- JSON formatter for Python logging
+- `doctor` CLI 命令：Python 版本、依赖、配置校验、信源可达性
+
+---
+
+## §12. Phase 11 — Trend Analysis
+
+**目标：** 基于历史 NewsEvent 产出趋势分析报告（TopicTrend + TrendReport），生成 Markdown 格式趋势报告。
+
+**入口标准：** Phase 3-7 数据积累足够。
+
+**出口标准：** `python -m news_sentry.cli trend --target italy --days 7` 产出趋势报告。
+
+---
+
+## §13. Phase 12 — Italy Source Matrix (信源矩阵)
+
+> → 详细设计: [`docs/superpowers/specs/2026-05-11-phase-12-source-matrix-design.md`](./superpowers/specs/2026-05-11-phase-12-source-matrix-design.md)
+> → 实现计划: [`docs/superpowers/plans/2026-05-11-phase-12-source-matrix.md`](./superpowers/plans/2026-05-11-phase-12-source-matrix.md)
+
+**目标：** 将意大利信源从 14 个 RSS 扩展到 60+ 个，覆盖 13 个维度、3 种采集方式（RSS/API/OpenCLI），社媒 KOL 覆盖 7 个平台。采集阶段零 Token 消耗。
+
+**入口标准：** Phase 1-11 全部 DONE。
+
+**出口标准：** 意大利 target 拥有 ≥60 个已配置信源，覆盖全部 13 个维度；SocialKOLCollector 从 stub 升级为 Bridge 驱动；BrowserFallback 三层降级逻辑可用；MatrixGovernance 信源生命周期管理可用；Docker 镜像含 Chromium + Xvfb + Playwright + Node.js 全栈依赖。
+
+**13 维分类框架：**
+```
+A. 政治与治理    B. 经济与商业    C. 外交与国际关系
+D. 安全与防务    E. 司法与法治    F. 社会与民生
+G. 科技与数字    H. 环境与能源    I. 移民与人口
+J. 文化与遗产    K. 宗教与梵蒂冈  L. 涉华议题
+M. Other 开放式兜底
+```
+
+**3 种采集方式：**
+- RSS（零 Token，优先使用）
+- API（零 Token，JSON 端点）
+- OpenCLI / OpenCLI Browser Bridge（零 Token，CLI 化的网站采集）
+
+**社媒 KOL — 7 平台：**
+Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
+
+**三层账号分级：**
+- L1（必监，active 模式）：每账号单独页面访问
+- L2（应监，active + semi-active）：重要账号 + feed
+- L3（可监，semi-active 模式）：feed 浏览捕获
+
+**三层浏览器采集兜底：**
+1. OpenCLI Bridge（零 Token）
+2. Playwright MCP（零 Token）
+3. Computer Use（Token 消耗，仅 L1，每日 ≤3 次/源，$5/次上限）
+
+**核心交付物：**
+- 32 个新 RSS 源配置、4 个 API 源配置、12+ 个 OpenCLI 源配置
+- 社媒账号清单（Twitter 4 维度 60+ 账号）
+- `SocialKOLCollector` — 从 stub 升级为 Bridge 驱动
+- `BrowserFallback` — 三层降级模块
+- `MatrixGovernance` — 信源生命周期状态机 + 自进化
+- `doctor` 扩展 — Bridge/Playwright/session 诊断
+- Docker 全栈重写 — Chromium + Xvfb + Playwright MCP + Node.js
+- ADR-0017 至 ADR-0021
+
+**版本：** P12 完成 → `v0.5.0`
+
+---
+
+## §14. Phase 13 — Evaluation Set + Cloud VPS Deployment
+
+**目标：** 构建 ≥100 标注评估集用于 Judge 准确率量化；在 Cloud VPS 完成零依赖 Docker 全栈部署验证。
+
+**入口标准：** Phase 12 信源矩阵完成，有持续采集的数据流。
+
+**出口标准：**
+- 评估集 ≥100 条人工标注（覆盖 13 维度 + 边界 case）
+- Judge 准确率可量化（Precision/Recall/F1）
+- Cloud VPS Docker 部署 72h 稳定运行
+- 生产级全链路模拟通过
+
+**版本：** P13 完成 → `v0.6.0`
+
+---
+
+## §15. Workstream 矩阵（横切全部 Phase）
+
+| Workstream | W1 契约与口径 | W2 运行载体 | W3 内核 | W4 工具/Registry | W5 AI Provider | W6 沙箱 | W7 多target | W8 双语SOP | W9 文档治理 | W10 外部集成 | W11 分类框架 | W12 信源矩阵 | W13 社媒KOL |
+|-----------|----------|-----------|-----------|---------------------|---------------------|-----------|------------|-----------|-----------|-----------|-----------|-----------|-----------|
+| **Phase 1-7** | ★ 核心 | ★ 核心 | ★ 核心 | ★ 核心 | ★ 核心 | ★ 核心 | ★ 核心 | ★ 核心 | ★ 核心 | ★ 核心 | ★ 核心 | — | — |
+| **Phase 8-11** | ◎ 引用 | — | ◎ 扩展 | — | — | — | — | — | — | — | — | — | — |
+| **Phase 12** | ◎ 引用 | ◎ 适配 | — | ◎ 扩展 | — | ★ 强化 | — | — | ◎ 更新 | ★ 核心 | ★ 13维 | ★ 核心 | ★ 核心 |
+| **Phase 13** | ◎ 引用 | ★ 部署 | — | — | ◎ 评估 | ◎ 审计 | — | — | ◎ 更新 | ◎ 云端 | ◎ 覆盖验证 | — | — |
 
 图例：`★ 核心` = 此 Phase 中 workstream 的主要工作量 | `◎ 适配/引用` = 关联工作但非主角 | `—` = 本 Phase 不涉及
 
-### W10 — 外部集成工作流（跨 Phase 1–4）
+### W10 — 外部集成工作流
 
 | Phase | 主要产出物 |
 |---|---|
-| Phase 1 | `docs/external-integration-strategy.md`（策略定稿）、`docs/reference-projects-insights.md`（参考项目提取）、ADR-0008、ADR-0011 |
-| Phase 3 | `docs/datasets-catalog-italy.md` 中 Phase 3 标注数据集（ISTAT/Eurostat/GDELT）离线接入 |
-| Phase 4 | `config/toolmanifest/opencli-baseline.yaml`（12 条 ADR-0011 骨架实现）；OpenCLI Tool Adapter 集成测试 |
-| Phase 5+ | TrendRadar MCP server 形态（可选）；worldmonitor 数据源接入（Phase 7 候选） |
+| Phase 1 | `docs/external-integration-strategy.md`（策略定稿）、ADR-0008、ADR-0011 |
+| Phase 4 | `config/toolmanifest/opencli-baseline.yaml`（12 条 ADR-0011 骨架实现）；OpenCLI Tool Adapter |
+| Phase 12 | OpenCLI Browser Bridge 集成；Playwright MCP 集成；社媒平台适配；Computer Use 兜底 |
 
-### W11 — 分类框架工作流（跨 Phase 3–7）
+### W11 — 分类框架工作流
 
 | Phase | 主要产出物 |
 |---|---|
-| Phase 1 | `docs/news-classification-framework.md`（框架定稿）、ADR-0009；`contracts-canonical.md §9` 新增 |
-| Phase 3 | 规则引擎分类器（`config/classification-rules.yaml`）；`metadata.classification` 写入 collect/filter Skill |
+| Phase 1 | `docs/news-classification-framework.md`（框架定稿）、ADR-0009 |
+| Phase 3 | 规则引擎分类器；`metadata.classification` 写入 collect/filter Skill |
 | Phase 5 | LLM 分类器（route_id: `classify.primary`）；fallback 降级到规则引擎 |
-| Phase 6 | 社媒内容分类适配（社媒文本的 L0/L1 识别率验证） |
-| Phase 7 | 第二国家 `country_axes` 子轴文件设计；L1 子主题可复用度评估 |
+| Phase 12 | **13 维分类框架落地**：60+ 信源按 A-M 维度标注，配置文件中携带 `dimension` 字段 |
+
+### W12 — 信源矩阵（Phase 12 新增）
+
+| Phase | 主要产出物 |
+|---|---|
+| Phase 12 | 32 RSS + 4 API + 12+ OpenCLI 信源配置；`_matrix_governance.yaml` 自进化配置；`_browser_fallback.yaml` 三层降级配置 |
+
+### W13 — 社媒 KOL（Phase 12 新增）
+
+| Phase | 主要产出物 |
+|---|---|
+| Phase 12 | `SocialKOLCollector` 升级（stub → Bridge 驱动）；7 平台社媒账号清单；L1/L2/L3 三级账号管理；active/semi-active 双模式采集 |
 
 ---
 
@@ -398,7 +552,7 @@
 
 ---
 
-## §11. 关键决策与 ADR 列表
+## §16. 关键决策与 ADR 列表
 
 | ADR | 决策摘要 | Phase |
 |-----|---------|-------|
@@ -409,14 +563,24 @@
 | [ADR-0005](./adr/0005-pipeline-stage-vs-workflow-state.md) | `pipeline_stage` 与 `workflow_state` 正交分离 | Phase 1 |
 | [ADR-0006](./adr/0006-cli-entry-deferred.md) | CLI 入口命名暂缓到 Phase 3 前决策 | 治理 backlog |
 | [ADR-0007](./adr/0007-prd-open-questions-resolved.md) | PRD Open Questions 批量关闭 | Phase 1 |
-| [ADR-0008](./adr/0008-external-deps-install-not-vendor.md) | 外部项目只 install 不 vendor；三原则：install-not-vendor、wrap-not-rewrite、document-the-version | Phase 1 / Phase 4 |
+| [ADR-0008](./adr/0008-external-deps-install-not-vendor.md) | 外部项目只 install 不 vendor | Phase 1 / Phase 4 |
 | [ADR-0009](./adr/0009-four-layer-classification-framework.md) | 四层新闻分类框架（L0–L3）与 `metadata.classification` 字段契约 | Phase 1 / Phase 3 |
 | [ADR-0010](./adr/0010-no-dedicated-frontend.md) | 永不做专用前端；终态是 Obsidian + 推送 | Phase 1 |
 | [ADR-0011](./adr/0011-opencli-baseline-toolmanifest.md) | OpenCLI baseline ToolManifest 12 条命令骨架；退出码映射 | Phase 4 |
+| ADR-0012 | Python 3.11+ 实现语言 | Phase 3 |
+| ADR-0013 | src layout，core/skills/adapters 三层结构 | Phase 3 |
+| ADR-0014 | JSON Schema 2020-12，存放 `schemas/` | Phase 1 |
+| ADR-0015 | 配置合并优先级：target → source → sandbox | Phase 3 |
+| ADR-0016 | CLI `python -m news_sentry.cli run` 入口 | Phase 3 |
+| ADR-0017 | 采集阶段零 Token 消耗原则 | Phase 12 |
+| ADR-0018 | 三层浏览器采集兜底机制（Bridge → Playwright → Computer Use） | Phase 12 |
+| ADR-0019 | 信源生命周期状态机（active/degraded/dead） | Phase 12 |
+| ADR-0020 | 社媒 KOL 三级账号分级（L1/L2/L3）+ active/semi-active 双模式 | Phase 12 |
+| ADR-0021 | Docker 全栈零依赖部署（Chromium + Xvfb + Playwright MCP + Node.js） | Phase 12 |
 
 ---
 
-## §12. 跨 Phase 治理 Backlog
+## §17. 跨 Phase 治理 Backlog
 
 > 不绑定具体 Phase，但必须在适当时机决策或实现。
 
@@ -430,10 +594,15 @@
 | `HEALTH-POLICY-001` | source health 降级阈值（多少次失败后停止采集该信源，如何恢复） | Phase 3 运行稳定后 |
 | `MEMORY-RETENTION-001` | `known_item_ids` 保留策略（最大条目数、过期时间、清理方式）| Phase 3 实现时 |
 | `ARCHIVE-POLICY-001` | `archive/` 中被拒事件的保留周期（多久清理或迁移到冷存储）| Phase 4 稳定后 |
+| `MATRIX-GOV-001` | 信源自进化机制的触发频率和审计策略 | Phase 12 实现时 |
+| `SOCIAL-SESSION-001` | 社媒 session profile 的刷新周期和安全存储策略 | Phase 12 实现时 |
+| `BRIDGE-FALLBACK-001` | Computer Use 兜底的成本预算上限和告警阈值 | Phase 12 实现时 |
+| `EVAL-002` | 评估集更新机制（何时触发重新标注、标注者间一致性度量） | Phase 13 实现时 |
+| `DEPLOY-001` | Cloud VPS 部署的平台选择（GCP Cloud Run / AWS ECS / 自管 VM）和成本估算 | Phase 13 实现时 |
 
 ---
 
-## §13. 风险总览
+## §18. 风险总览
 
 | 风险 | 影响 | 所在 Phase | 缓解策略 |
 |------|------|-----------|---------|
@@ -445,3 +614,8 @@
 | LLM 成本线性失控 | 运营成本不可控 | Phase 5 | `max_provider_cost`、优先级队列、低分事件不进 LLM |
 | 自动化越界，发布事故 | 合规/事实风险 | 全 Phase | v1 只产草稿，`publish/` 只做归档，验收清单含"自动发布事故=0"要求 |
 | 术语翻译不一致 | 草稿质量低，人审成本高 | Phase 3+ | `it-zh-glossary.md` 种子表，`glossary_hit_rate < 50` 时降为 monitor |
+| 社媒平台 API 变更或封禁 | KOL 采集通道中断 | Phase 12 | 三层降级兜底；session profile 轮换；L1 优先保活 |
+| Docker 镜像体积过大 | Cloud VPS 部署/拉取缓慢 | Phase 12 | 多阶段构建；Chromium 使用 slim 变体；npm 清理缓存 |
+| OpenCLI Bridge 与网站结构不兼容 | 部分 OpenCLI 源无法采集 | Phase 12 | 降级到 Playwright MCP；Computer Use 作为最终兜底 |
+| 信源过度采集导致 IP 被封 | 所有采集中断 | Phase 12 | 速率限制（`max_items_per_run`、`timeout_seconds`）；信源健康自动降级 |
+| 评估集标注不一致 | Judge 准确率指标不可信 | Phase 13 | 双标注 + 一致性度量（Cohen's Kappa）；争议样本仲裁流程 |
