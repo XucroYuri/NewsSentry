@@ -61,9 +61,13 @@
       }
     }
   },
-  "required": ["rules_version", "l0_domains"],
+  "required": ["rules_version"],
   "additionalProperties": false,
   "properties": {
+    "extends": {
+      "type": "string",
+      "description": "Base rules file to inherit from (e.g. 'rules-v1.yaml'). When set, l0_domains can be omitted."
+    },
     "rules_version": {
       "type": "string",
       "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$"
@@ -71,7 +75,7 @@
     "l0_domains": {
       "type": "array",
       "items": { "$ref": "#/$defs/L0Domain" },
-      "minItems": 1
+      "default": []
     },
     "l1_topics": {
       "type": "array",
@@ -80,7 +84,7 @@
     },
     "country_axes": {
       "type": "object",
-      "description": "Italy-specific sub-axes with enable flags: politics, economics, crime, sports, culture",
+      "description": "Target-specific sub-axes with enable flags: politics, economics, crime, sports, culture",
       "additionalProperties": {
         "type": "object",
         "additionalProperties": true

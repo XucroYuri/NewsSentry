@@ -32,6 +32,15 @@
           "type": ["string", "null"],
           "description": "Shell command template; null for python/http types. Must not include arbitrary shell commands per ADR-0008."
         },
+        "argv_template": {
+          "type": ["array", "string", "null"],
+          "description": "Argument vector template for subprocess invocation; alternative to command_template for safer argv splitting.",
+          "items": { "type": "string" }
+        },
+        "executable": {
+          "type": ["string", "null"],
+          "description": "Executable name for subprocess type; resolved via PATH."
+        },
         "parameters_schema": {
           "type": "object",
           "description": "JSON Schema for validated_args; arbitrary shell injection prevented by sandbox",
@@ -47,7 +56,28 @@
           "description": "Map of exit code string to description, e.g. {'0': 'success', '1': 'error'}",
           "additionalProperties": { "type": "string" }
         },
-        "permissions": { "$ref": "#/$defs/PermissionsBlock" }
+        "exit_code_mapping": {
+          "type": "object",
+          "description": "Alternative exit code mapping with structured error info.",
+          "additionalProperties": { "type": "string" }
+        },
+        "permissions": { "$ref": "#/$defs/PermissionsBlock" },
+        "notes": {
+          "type": "string",
+          "description": "Optional usage notes or caveats for this tool."
+        },
+        "phase": {
+          "type": "string",
+          "description": "Development phase this tool was introduced (e.g. 'Phase 4')."
+        },
+        "rate_limit": {
+          "type": ["object", "string", "null"],
+          "description": "Rate limit configuration. Object form: {max_calls_per_hour: N}. String form: '1/s' or '10/min'.",
+          "properties": {
+            "max_calls_per_hour": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
+        }
       }
     },
     "PermissionsBlock": {
