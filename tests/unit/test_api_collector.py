@@ -698,3 +698,54 @@ class TestRetryFetch:
 
         with pytest.raises(RuntimeError, match="already wrapped"):
             _retry_fetch(fetch_fn, "test-source", max_retries=0)
+
+
+class TestEnvSubstitution:
+    """环境变量替换测试。"""
+
+    def test_substitute_env_replaces_placeholder(self):
+        """${ENV_VAR} 应被替换为对应环境变量值。"""
+        config = _make_minimal_config(
+            endpoint={
+                "url": "https://api.example.com/search",
+                "params": {"apikey": "${TEST_API_KEY_123}"},
+            }
+        )
+        with mock.patch.dict("os.environ", {"TEST_API_KEY_123": "my-secret-key"}):
+            collector = APICollector(config, sandbox_enforcer=None)
+        assert collector._params["apikey"] == "my-secret-key"
+
+    def test_substitute_env_preserves_unset_var(self):
+        """未设置的环境变量应保留原始占位符。"""
+        config = _make_minimal_config(
+            endpoint={
+                "url": "https://api.example.com/search",
+                "params": {"apikey": "${NONEXISTENT_KEY_XYZ}"},
+            }
+        )
+        collector = APICollector(config, sandbox_enforcer=None)
+        assert collector._params["apikey"] == "${NONEXISTENT_KEY_XYZ}"
+
+    def test_substitute_env_in_headers(self):
+        """headers 中的环境变量也应被替换。"""
+        config = _make_minimal_config(
+            endpoint={
+                "url": "https://api.example.com/search",
+                "headers": {"Authorization": "Bearer ${TEST_AUTH_TOKEN}"},
+            }
+        )
+        with mock.patch.dict("os.environ", {"TEST_AUTH_TOKEN": "tok123"}):
+            collector = APICollector(config, sandbox_enforcer=None)
+        assert collector._headers["Authorization"] == "Bearer tok123"
+
+    def test_substitute_env_non_string_values_unchanged(self):
+        """非字符串值（如 int）不应被替换。"""
+        config = _make_minimal_config(
+            endpoint={
+                "url": "https://api.example.com/search",
+                "params": {"max": 10, "q": "Italy"},
+            }
+        )
+        collector = APICollector(config, sandbox_enforcer=None)
+        assert collector._params["max"] == 10
+        assert collector._params["q"] == "Italy"
