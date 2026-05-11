@@ -129,3 +129,19 @@ class TestToolManifestSchema:
         schema = _load_schema("toolmanifest.schema.json")
         data = _load_yaml(manifest_file)
         validate(data, schema)
+
+
+# ── OutputDestinations ────────────────────────────────────────
+
+
+class TestOutputDestinationsSchema:
+    """所有 output destinations YAML 通过 outputdestinations.schema.json 校验。"""
+
+    @pytest.fixture(params=list(CONFIG_DIR.glob("output/*.yaml")))
+    def output_file(self, request: pytest.FixtureRequest) -> Path:
+        return request.param
+
+    def test_output_destinations_valid(self, output_file: Path) -> None:
+        schema = _load_schema("outputdestinations.schema.json")
+        data = _load_yaml(output_file)
+        validate(data, schema)
