@@ -162,6 +162,17 @@ docker-build:
 doctor:
 	.venv/bin/python -m news_sentry.cli doctor --target $(TARGET)
 
+# ── 评估 ─────────────────────────────────────────────────────────────────────
+
+.PHONY: eval
+eval:
+	@echo "==> Phase 13 评估集 (target=$(TARGET))..."
+	.venv/bin/python3 tools/run_eval.py --target $(TARGET)
+
+.PHONY: eval-report
+eval-report:
+	.venv/bin/python3 tools/run_eval.py --target $(TARGET) --output data/eval/report.json
+
 # ── 帮助 ─────────────────────────────────────────────────────────────────────
 
 .PHONY: help
@@ -202,6 +213,10 @@ help:
 	@echo ""
 	@echo "诊断:"
 	@echo "  make doctor         运行系统诊断"
+	@echo ""
+	@echo "评估:"
+	@echo "  make eval           运行 Phase 13 评估集"
+	@echo "  make eval-report    运行评估并保存 JSON 报告"
 	@echo ""
 	@echo "清理:"
 	@echo "  make clean          清理构建产物"
