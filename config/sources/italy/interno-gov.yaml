@@ -1,0 +1,13 @@
+source_id: interno-gov
+display_name: Ministero dell'Interno
+type: rss
+url: https://www.interno.gov.it/it/rss
+credibility_base: 0.95
+fetch_interval_minutes: 60
+max_items_per_run: 20
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0
+

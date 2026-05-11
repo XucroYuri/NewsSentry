@@ -1,0 +1,13 @@
+source_id: wired-it
+display_name: Wired Italia
+type: rss
+url: https://www.wired.it/rss
+credibility_base: 0.8
+fetch_interval_minutes: 60
+max_items_per_run: 20
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0
+

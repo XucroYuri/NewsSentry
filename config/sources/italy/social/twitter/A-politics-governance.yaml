@@ -1,0 +1,23 @@
+platform: twitter
+dimension: A-politics-governance
+collect_mode: opencli_bridge
+accounts:
+- handle: '@Palazzo_Chigi'
+  display_name: Palazzo Chigi
+  url: https://x.com/Palazzo_Chigi
+  tier: L1
+  category: government
+  notes: 总理府官方账号
+- handle: '@GiorgiaMeloni'
+  display_name: Giorgia Meloni
+  url: https://x.com/GiorgiaMeloni
+  tier: L1
+  category: head_of_government
+  notes: 意大利总理
+- handle: '@ItaliaLeI'
+  display_name: Italia Viva
+  url: https://x.com/ItaliaLeI
+  tier: L2
+  category: political_party
+  notes: 意大利活力党
+

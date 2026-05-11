@@ -1,0 +1,18 @@
+source_id: fondazione-italia-cina
+display_name: Fondazione Italia Cina
+type: opencli
+url: https://fondazioneitaliacina.it
+tool_ref: opencli.fetch
+tool_params:
+  url: https://fondazioneitaliacina.it
+  selector: .article-list .article-item
+credibility_base: 0.8
+fetch_interval_minutes: 60
+max_items_per_run: 20
+timeout_seconds: 60
+enabled: true
+sandbox_profile_ref: config/sandbox/default.yaml
+health:
+  last_success_at: null
+  consecutive_failures: 0
+

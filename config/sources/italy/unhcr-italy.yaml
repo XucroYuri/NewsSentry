@@ -1,0 +1,13 @@
+source_id: unhcr-italy
+display_name: UNHCR Italia
+type: rss
+url: https://www.unhcr.org/it/rss
+credibility_base: 0.9
+fetch_interval_minutes: 120
+max_items_per_run: 15
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0
+

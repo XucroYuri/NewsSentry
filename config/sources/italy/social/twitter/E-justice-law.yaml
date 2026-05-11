@@ -1,0 +1,11 @@
+platform: twitter
+dimension: E-justice-law
+collect_mode: opencli_bridge
+accounts:
+- handle: '@DiPietroBeppe'
+  display_name: Antonio Di Pietro
+  url: https://x.com/DiPietroBeppe
+  tier: L2
+  category: political_figure
+  notes: 反腐标志人物
+

@@ -31,9 +31,17 @@ def _load_yaml(path: Path) -> dict:
 
 
 class TestSourceChannelSchema:
-    """所有 source channel YAML 通过 sourcechannel.schema.json 校验。"""
+    """所有 source channel YAML 通过 sourcechannel.schema.json 校验。
 
-    @pytest.fixture(params=list(CONFIG_DIR.glob("sources/**/*.yaml")))
+    排除非 sourcechannel schema 的文件：social/ 目录、_browser_fallback.yaml 等。
+    """
+
+    @pytest.fixture(params=[
+        p for p in CONFIG_DIR.glob("sources/**/*.yaml")
+        if "social" not in str(p)
+        and "browser_fallback" not in str(p)
+        and not p.name.startswith("_template")
+    ])
     def source_file(self, request: pytest.FixtureRequest) -> Path:
         return request.param
 

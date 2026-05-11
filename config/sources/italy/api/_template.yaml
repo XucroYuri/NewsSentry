@@ -1,0 +1,17 @@
+source_id: TEMPLATE_API
+display_name: API 源模板
+type: api
+url: https://api.example.com/v1/endpoint
+endpoint:
+  url: https://api.example.com/v1/endpoint
+  method: GET
+  params: {}
+credibility_base: 0.8
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: false
+health:
+  last_success_at: null
+  consecutive_failures: 0
+
