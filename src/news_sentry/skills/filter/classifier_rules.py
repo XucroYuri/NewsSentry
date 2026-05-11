@@ -93,10 +93,19 @@ class ClassifierRules:
             parts.append(event.content_translated)
         return " ".join(parts).lower()
 
+    @staticmethod
+    def _keyword_keys(item: dict[str, Any]) -> list[str]:
+        """从 domain/topic dict 中提取所有 keywords_* 键名。
+
+        动态发现而非硬编码 keywords_it/keywords_en/keywords_zh，
+        支持任意语言关键词（如 keywords_ja、keywords_fr）。
+        """
+        return [k for k in item if k.startswith("keywords_")]
+
     def _classify_l0(self, text: str) -> dict[str, Any]:
         """L0 一级域分类：统计每个域的命中数，返回最高分域。
 
-        对每个 domain 的所有语言关键词（keywords_it + keywords_en + keywords_zh）
+        对每个 domain 的所有语言关键词（keywords_* 键）
         在文本中进行不区分大小写匹配，命中数最多的为预测域。
 
         Args:
@@ -113,7 +122,7 @@ class ClassifierRules:
 
         for domain in self._l0_domains:
             count = 0
-            for lang_key in ("keywords_it", "keywords_en", "keywords_zh"):
+            for lang_key in self._keyword_keys(domain):
                 for kw in domain.get(lang_key, []):
                     if kw.lower() in text:
                         count += 1
@@ -129,10 +138,9 @@ class ClassifierRules:
             )
             if best_def:
                 total_kw = sum(
-                    len(best_def.get(k, []))
-                    for k in ("keywords_it", "keywords_en", "keywords_zh")
+                    len(best_def.get(k, [])) for k in self._keyword_keys(best_def)
                 )
-                confidence = min(round(best_count / total_kw * 100), 100)
+                confidence = min(round(best_count / total_kw * 100), 100) if total_kw > 0 else 0
 
         return {"domain": best_domain, "confidence": confidence}
 
@@ -156,7 +164,7 @@ class ClassifierRules:
 
             hits = 0
             total = 0
-            for lang_key in ("keywords_it", "keywords_en", "keywords_zh"):
+            for lang_key in self._keyword_keys(topic):
                 kws = topic.get(lang_key, [])
                 total += len(kws)
                 for kw in kws:
