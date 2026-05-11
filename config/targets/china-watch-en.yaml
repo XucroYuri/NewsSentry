@@ -15,6 +15,9 @@ timezone: Asia/Shanghai
 source_channel_refs:
   - scmp-rss
   - reuters-cn
+  - bbc-cn
+  - guardian-cn
+  - nyt-cn
 
 # 各子系统规则/路由配置的相对路径（相对于项目根目录）
 filter_rules_ref: config/filters/china-watch-en/default.yaml
