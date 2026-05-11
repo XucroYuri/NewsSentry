@@ -150,6 +150,18 @@ clean-data:
 	@read -p "确认删除 data/ 目录? [y/N] " yn; \
 	case $$yn in [Yy]*) rm -rf data/ && echo "✅ 已删除" ;; *) echo "已取消" ;; esac
 
+# ── Docker ───────────────────────────────────────────────────────────────────
+
+.PHONY: docker-build
+docker-build:
+	docker build -t news-sentry:latest .
+
+# ── 诊断 ─────────────────────────────────────────────────────────────────────
+
+.PHONY: doctor
+doctor:
+	.venv/bin/python -m news_sentry.cli doctor --target $(TARGET)
+
 # ── 帮助 ─────────────────────────────────────────────────────────────────────
 
 .PHONY: help
@@ -184,6 +196,12 @@ help:
 	@echo "数据:"
 	@echo "  make stats          查看数据统计"
 	@echo "  make latest-log     查看最新 RunLog"
+	@echo ""
+	@echo "Docker:"
+	@echo "  make docker-build   构建 Docker 镜像"
+	@echo ""
+	@echo "诊断:"
+	@echo "  make doctor         运行系统诊断"
 	@echo ""
 	@echo "清理:"
 	@echo "  make clean          清理构建产物"
