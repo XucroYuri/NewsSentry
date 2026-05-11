@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +27,8 @@ class DoctorReport(BaseModel):
     directory_check: dict[str, Any] = {}
     source_check: dict[str, Any] = {}
     provider_check: dict[str, Any] = {}
+    browser_bridge_check: dict[str, Any] = {}
+    session_profiles_check: dict[str, Any] = {}
 
     @property
     def all_passed(self) -> bool:
@@ -33,6 +37,8 @@ class DoctorReport(BaseModel):
             self.directory_check,
             self.source_check,
             self.provider_check,
+            self.browser_bridge_check,
+            self.session_profiles_check,
         ]
         return all(c.get("passed", False) for c in checks if c)
 
@@ -42,6 +48,8 @@ class DoctorReport(BaseModel):
             "directory_check": self.directory_check,
             "source_check": self.source_check,
             "provider_check": self.provider_check,
+            "browser_bridge_check": self.browser_bridge_check,
+            "session_profiles_check": self.session_profiles_check,
             "overall": "PASS" if self.all_passed else "FAIL",
         }
 
@@ -85,11 +93,83 @@ def run_doctor(target_id: str, data_root: str = "data") -> DoctorReport:
             provider_ok = False
             provider_details.append(f"{var} not set")
 
+    # Browser Bridge check
+    bridge_ok = True
+    bridge_details: list[str] = []
+
+    chromium = shutil.which("chromium") or shutil.which("chromium-browser")
+    chromedriver = shutil.which("chromedriver")
+    xdpyinfo = shutil.which("xdpyinfo")
+
+    if chromium:
+        bridge_details.append(f"Chromium found at {chromium}")
+    else:
+        bridge_details.append("Chromium not found")
+    if chromedriver:
+        bridge_details.append(f"ChromeDriver found at {chromedriver}")
+    else:
+        bridge_details.append("ChromeDriver not found")
+
+    # Xvfb display check
+    display_ok = False
+    if xdpyinfo:
+        try:
+            result = subprocess.run(
+                ["xdpyinfo", "-display", ":99"],
+                capture_output=True, text=True, timeout=5,
+            )
+            display_ok = result.returncode == 0
+        except Exception:
+            pass
+    bridge_details.append(f"Xvfb display :99 {'available' if display_ok else 'not running'}")
+
+    # OpenCLI check
+    opencli = shutil.which("opencli")
+    opencli_ok = False
+    if opencli:
+        try:
+            result = subprocess.run(
+                [opencli, "--version"], capture_output=True, text=True, timeout=10,
+            )
+            opencli_ok = result.returncode == 0
+        except Exception:
+            pass
+    bridge_details.append(f"OpenCLI {'available' if opencli_ok else 'not found'}")
+
+    # Playwright check
+    npx = shutil.which("npx")
+    playwright_ok = False
+    if npx:
+        try:
+            result = subprocess.run(
+                [npx, "playwright", "--version"], capture_output=True, text=True, timeout=10,
+            )
+            playwright_ok = result.returncode == 0
+        except Exception:
+            pass
+    bridge_details.append(f"Playwright {'available' if playwright_ok else 'not available'}")
+
+    bridge_ok = bool(chromium) and bool(chromedriver)
+
+    # Session Profiles check
+    session_ok = True
+    session_details: list[str] = []
+    session_dir = Path("config/session-profiles/italy")
+    if not session_dir.exists():
+        session_ok = False
+        session_details.append("config/session-profiles/italy/ not found")
+    else:
+        yaml_files = list(session_dir.glob("*.yaml"))
+        session_files = list(session_dir.glob("*.session.*"))
+        session_details.append(f"{len(yaml_files)} session configs, {len(session_files)} session files")
+
     return DoctorReport(
         schema_check={"passed": schema_ok, "details": schema_details},
         directory_check={"passed": dir_ok, "details": dir_details},
         source_check={"passed": source_ok, "details": source_details},
         provider_check={"passed": provider_ok, "details": provider_details},
+        browser_bridge_check={"passed": bridge_ok, "details": bridge_details},
+        session_profiles_check={"passed": session_ok, "details": session_details},
     )
 
 
