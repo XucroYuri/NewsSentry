@@ -23,6 +23,7 @@ ignore = [
 
 [lint.per-file-ignores]
 "tests/**" = ["ANN", "S101"]
+"tools/**" = ["S603", "S607"]
 
 [lint.isort]
 known-first-party = ["news_sentry"]

@@ -78,6 +78,10 @@ scan-hardcoded:
 	@echo "==> 扫描意大利硬编码..."
 	python3 tools/check_no_hardcoded_target.py
 
+.PHONY: progress
+progress:
+	python3 tools/dev_progress.py
+
 # ── 运行 ─────────────────────────────────────────────────────────────────────
 
 .PHONY: dry-run
@@ -163,6 +167,7 @@ help:
 	@echo "  make fmt            自动修复代码风格"
 	@echo "  make scan-sensitive 扫描敏感关键词"
 	@echo "  make scan-hardcoded 扫描意大利硬编码"
+	@echo "  make progress        本地/远端 Git 与路线图进度"
 	@echo ""
 	@echo "运行:"
 	@echo "  make dry-run        干运行验证配置"
