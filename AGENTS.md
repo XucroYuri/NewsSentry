@@ -11,9 +11,11 @@ The production runtime priority is Hermes Agent first, OpenClaw/OpenClaw Skills/
 Read these files before changing architecture, schemas, pipeline behavior, permissions, provider routing, or tool execution:
 
 - `docs/contracts-canonical.md` — **口径规范基准**：字段命名、分值量纲、目录映射、pipeline_stage 枚举、产品命名、classification metadata schema 的唯一权威来源
-- `docs/adr/` — 架构决策记录（ADR-0001 至 ADR-0016）
-- `docs/spec/README.md` — **7 份 Phase SPEC 索引**：横切组件矩阵 + 演进图，每份 SPEC 是对应阶段实现的规格基准
-- `docs/development-plan.md` — 七阶段开发计划与 TODO 矩阵（含 W10/W11 工作流）
+- `docs/adr/` — 架构决策记录（ADR-0001 至 ADR-0020）
+- `docs/spec/README.md` — **Phase SPEC 索引**：横切组件矩阵 + 演进图，每份 SPEC 是对应阶段实现的规格基准
+- `docs/development-plan.md` — 多阶段开发计划与 TODO 矩阵（含 W10/W11 工作流）
+- `docs/superpowers/specs/2026-05-11-phase-12-source-matrix-design.md` — **Phase 12 信源矩阵设计**：13 维分类 × 3 种采集 × 7 平台社媒 KOL
+- `docs/superpowers/plans/2026-05-11-phase-12-source-matrix.md` — **Phase 12 实现计划**：15 任务可执行计划
 - `schemas/` — **13 份 JSON Schema 2020-12**：机器可读契约，与 contracts-canonical.md 双向绑定（ADR-0014）
 - `config/` — **运行时配置骨架**：意大利参数封装在 config/targets/italy.yaml，其他国家复制 _template.yaml（ADR-0015）
 - `src/news_sentry/` — **Python 3.11+ stub 骨架**（ADR-0012、ADR-0013）
@@ -51,6 +53,11 @@ Read these files before changing architecture, schemas, pipeline behavior, permi
 - **任务配置走 config/，禁止硬编码意大利参数到 src/**：所有与意大利相关的参数（语言、时区、源列表、关键词）封装在 `config/targets/italy.yaml`，切换国家只需复制 `config/targets/_template.yaml`，不改代码。详见 ADR-0015。
 - **CLI 入口格式固定**：`python -m news_sentry.cli run --target {id} --stage {collect|filter|judge|output|all} --profile {profile_id}`；console script `news-sentry` 可用时等价，但开源文档优先使用 `python -m news_sentry.cli ...` 避免依赖本机 PATH。详见 ADR-0016。ADR-0006 的 CLI backlog（CLI-001）已关闭。
 - **JSON Schema 是契约校验载体**：`schemas/` 下 13 份 JSON Schema 2020-12 与 `docs/contracts-canonical.md` 双向绑定，config YAML 文件头部注释 `# Schema:` 指向对应 schema。详见 ADR-0014。
+- **采集阶段零 Token 消耗**：RSS/API/OpenCLI/Playwright MCP 四种采集方式均不消耗 AI token；Computer Use 仅作为 L1 账号的最终兜底，用量受严格限制。详见 Phase 12 设计文档。
+- **13 维新闻分类框架**：A-政治与治理 / B-经济与商业 / C-外交与国际关系 / D-安全与防务 / E-司法与法治 / F-社会与民生 / G-科技与数字 / H-环境与能源 / I-移民与人口 / J-文化与遗产 / K-宗教与梵蒂冈 / L-涉华议题 / M-Other 开放式兜底。详见 `docs/superpowers/specs/2026-05-11-phase-12-source-matrix-design.md`。
+- **信源生命周期管理**：active → degraded（3 次失败）→ dead（10 次失败）→ archive；内置自进化机制（健康审计、热点信源发现、KOL 清单自动扩展）。
+- **三层浏览器采集兜底**：Layer 1 OpenCLI Bridge（零 Token）→ Layer 2 Playwright MCP（零 Token）→ Layer 3 Computer Use（限 L1 账号，每日 ≤3 次/源，$5/次上限）。
+- **通知通道不硬编码**：所有告警/通知走 Hermes Agent 配置的信息通道，不做飞书/钉钉/企微等具体平台假设。
 
 ## AI 辅助设计原则
 
@@ -92,8 +99,9 @@ Read these files before changing architecture, schemas, pipeline behavior, permi
 
 ## Phase Order
 
-All seven phases (Phase 1-7) are complete. See docs/spec/README.md for detailed status.
+Phases 1-11 are complete (v0.4.0). Phase 12 is in progress. See docs/spec/README.md for detailed status.
 
+**v0.4.0 — 基础平台（已完成）：**
 1. Contract Stabilization ✅
 2. Runtime Carrier Alignment ✅
 3. Kernel MVP ✅
@@ -101,6 +109,14 @@ All seven phases (Phase 1-7) are complete. See docs/spec/README.md for detailed 
 5. AI Provider Routing ✅
 6. Sandbox Hardening + Social/KOL Experiment ✅
 7. Multi-target Expansion ✅
+8. Obsidian Ontology Sync ✅
+9. Karpathy Skills Integration ✅
+10. Structured Logging + CLI Doctor ✅
+11. Trend Analysis ✅
+
+**v0.5.0 — 信源矩阵（进行中）：**
+12. Italy Source Matrix — 60+ 信源 / 13 维度 / 3 种采集 / 7 平台社媒 KOL
+13. Evaluation Set + Cloud VPS Deployment — 评估集构建与生产部署验证
 
 ## File Event Protocol
 
@@ -112,8 +128,10 @@ Use the v1 directory protocol consistently:
 - `reviewed/`: human or internal-review candidates
 - `published/`: approved archive or publish-ready files
 - `archive/`: rejected, duplicate, low-value, or failed samples
-- `memory/`: known IDs, source health, cursors, provider stats, KOL state
+- `memory/`: known IDs, source health, cursors, provider stats, KOL state, matrix governance state
 - `logs/`: bounded run logs, tool audit logs, provider usage logs
+- `session-profiles/`: browser session profiles for social/KOL collection (gitignored)
+- `chrome-data/`: Chromium user data directory for OpenCLI Bridge (gitignored)
 
 Directory state does not replace `NewsEvent.pipeline_stage`. Preserve `processing_history` when moving or enriching events. For the precise directory ↔ `pipeline_stage` mapping and the separation of `pipeline_stage` from `workflow_state` (editorial review flow), see `docs/contracts-canonical.md §5`.
 
