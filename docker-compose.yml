@@ -1,8 +1,22 @@
 services:
   news-sentry:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: news-sentry:0.5.0
     env_file: .env
+    environment:
+      - TARGET_ID=italy
+      - RUN_STAGE=all
     volumes:
       - ./data:/app/data
       - ./config:/app/config
+    tmpfs:
+      - /tmp
+    restart: "no"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     command: run --target italy --stage all --profile cloud-vps
