@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://news-sentry.local/schemas/matrixgovernance.schema.json",
+  "title": "MatrixGovernance",
+  "description": "Self-evolution and health governance config for source matrix management.",
+  "type": "object",
+  "required": ["self_evolution"],
+  "additionalProperties": false,
+  "properties": {
+    "self_evolution": {
+      "type": "object",
+      "required": ["enabled"],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "health_audit": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "degraded_after_failures": { "type": "integer", "minimum": 1 },
+            "dead_after_failures": { "type": "integer", "minimum": 1 },
+            "retry_interval_hours": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "discovery": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "sources": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "max_candidates_per_cycle": { "type": "integer", "minimum": 1 },
+            "auto_promote_to_L3": { "type": "boolean" },
+            "require_approval_L1_L2": { "type": "boolean" }
+          }
+        },
+        "kol_expansion": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "max_new_per_cycle": { "type": "integer", "minimum": 1 },
+            "min_follower_threshold": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "notify_on": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}
