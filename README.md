@@ -567,21 +567,23 @@ For environments without Hermes Agent:
 | 1 — Contract Stabilization | Done | ADR-0001~0016, 13 JSON Schemas, canonical contracts |
 | 2 — Runtime Carrier Alignment | Done | Profiles, RuntimeHostAdapter protocol, Docker |
 | 3 — Kernel MVP | Done | bounded_run, RSS/API collect, filter, judge, output |
-| 4 — Tool/Skill Registry | In Progress | OpenCLI adapter done, CLI skill/tool commands done, APICollector done |
-| 5 — AI Provider Routing | Planned | AI-powered judge, translate, classify |
-| 6 — Sandbox Hardening + KOL | Planned | Full sandbox policy, social media/KOL |
-| 7 — Multi-target Expansion | Planned | Second target validation |
+| 4 — Tool/Skill Registry | Done | OpenCLI baseline, registries, APICollector, CLI skill/tool commands |
+| 5 — AI Provider Routing | Done | Multi-provider router, judge/translate/classify routes, cost budget |
+| 6 — Sandbox Hardening + KOL | Done | Full sandbox policy, session profiles, KOL experiment channel |
+| 7 — Multi-target Expansion | Done | Second target `china-watch-en`, hardcoded-target scan, target comparison |
+
+Run `make progress` for local vs remote Git sync and phase status.
 
 ### Current Metrics
 
 | Metric | Value |
 |--------|-------|
-| Tests | 383 passed, 0 failed |
-| Coverage | 89% |
+| Tests | 878 passed, 0 failed |
+| Coverage | 94% |
 | Lint (ruff) | All checks passed |
 | Type (mypy) | 38 source files, no issues |
-| Active sources | 8 (Italy) |
-| Keywords (Italian) | 91 |
+| Active targets | 2 (`italy`, `china-watch-en`) |
+| RSS sources | 14 (Italy), 5 (China Watch EN) |
 | Pipeline stages | 4 (collect, filter, judge, output) |
 
 ---
