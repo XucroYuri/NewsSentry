@@ -11,7 +11,7 @@ The production runtime priority is Hermes Agent first, OpenClaw/OpenClaw Skills/
 Read these files before changing architecture, schemas, pipeline behavior, permissions, provider routing, or tool execution:
 
 - `docs/contracts-canonical.md` — **口径规范基准**：字段命名、分值量纲、目录映射、pipeline_stage 枚举、产品命名、classification metadata schema 的唯一权威来源
-- `docs/adr/` — 架构决策记录（ADR-0001 至 ADR-0020）
+- `docs/adr/` — 架构决策记录（ADR-0001 至 ADR-0021）
 - `docs/spec/README.md` — **Phase SPEC 索引**：横切组件矩阵 + 演进图，每份 SPEC 是对应阶段实现的规格基准
 - `docs/development-plan.md` — 多阶段开发计划与 TODO 矩阵（含 W10/W11 工作流）
 - `docs/superpowers/specs/2026-05-11-phase-12-source-matrix-design.md` — **Phase 12 信源矩阵设计**：13 维分类 × 3 种采集 × 7 平台社媒 KOL
