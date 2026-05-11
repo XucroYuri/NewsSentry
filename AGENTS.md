@@ -52,19 +52,55 @@ Read these files before changing architecture, schemas, pipeline behavior, permi
 - **CLI 入口格式固定**：`python -m news_sentry.cli run --target {id} --stage {collect|filter|judge|output|all} --profile {profile_id}`；console script `news-sentry` 可用时等价，但开源文档优先使用 `python -m news_sentry.cli ...` 避免依赖本机 PATH。详见 ADR-0016。ADR-0006 的 CLI backlog（CLI-001）已关闭。
 - **JSON Schema 是契约校验载体**：`schemas/` 下 13 份 JSON Schema 2020-12 与 `docs/contracts-canonical.md` 双向绑定，config YAML 文件头部注释 `# Schema:` 指向对应 schema。详见 ADR-0014。
 
+## AI 辅助设计原则
+
+以下原则源自 Karpathy 的"锯齿状智能"和"Iron Man 套装"心智模型，约束所有涉及 AI 组件的设计决策。
+
+### 锯齿状智能应对
+
+- LLM 能力分布非均匀：任何基于 LLM 的管道步骤必须识别已知凹陷点（数字/日期提取、跨语言实体对齐、极端情感判断），并为凹陷点加规则兜底
+- 凹陷点不靠更大的模型解决，靠更窄的规则补丁
+- 每个 AI 管道组件必须附带一份"已知失败模式"清单
+
+### Iron Man 套装原则
+
+- News Sentry 是"增强人工研判的套装"，不是"替代人工的机器人"
+- 所有关键判断（news_value_score >= 80、publish gate）保留人工介入点
+- Agent 编排中的角色：人是监督者，Agent 是执行者
+- 完全自主能力（自动发布、自动封禁）不在 v1 范围
+
+## 质量门槛
+
+以下门槛源自 Karpathy 的"March of Nines"工程现实主义，任何 AI 管道组件上线前必须满足：
+
+1. **尾部行为评估**：在最差 5% 输入场景下，组件输出不得产生静默错误
+2. **置信度对齐**：`judge_result.confidence` 与实际准确率的偏差不超过 10%
+3. **数据飞轮检查**：该组件是否持续积累反馈数据以自我改进？如否，需说明原因
+4. **demo ≠ 部署**：任何基于单次 LLM 调用验证的"看起来能工作"不等于可部署
+
+## Decision Checklist
+
+每次重大技术决策（新增依赖、架构变更、管道设计、Agent 编排模式选择）前必须过：
+
+1. [March of Nines] 这个方案在最差 5% 场景下会怎样？
+2. [构建即理解] 我们能向新人解释清楚这个方案的核心原理吗？
+3. [锯齿状智能] 我们依赖的 AI 能力在哪些维度可能有凹陷？
+4. [Iron Man 套装] 关键决策点是否保留了人工介入？
+5. [简洁优先] 资深工程师会认为这个方案过度复杂吗？
+
+出现 ≥2 个 NO 时，方案必须重新设计。
+
 ## Phase Order
 
-Follow this implementation order unless the user explicitly changes the roadmap:
+All seven phases (Phase 1-7) are complete. See docs/spec/README.md for detailed status.
 
-1. Contract Stabilization
-2. Runtime Carrier Alignment
-3. Kernel MVP
-4. Tool/Skill Registry + OpenCLI
-5. AI Provider Routing
-6. Sandbox Hardening + Social/KOL Experiment
-7. Multi-target Expansion
-
-Kernel MVP should focus on RSS/API baseline, bounded run lifecycle, config loading, file event writing, run logs, memory, source health, and a minimal sandbox enforcer. Do not pull OpenCLI, social login state, dynamic registry, or complex provider routing into Kernel MVP.
+1. Contract Stabilization ✅
+2. Runtime Carrier Alignment ✅
+3. Kernel MVP ✅
+4. Tool/Skill Registry + OpenCLI ✅
+5. AI Provider Routing ✅
+6. Sandbox Hardening + Social/KOL Experiment ✅
+7. Multi-target Expansion ✅
 
 ## File Event Protocol
 

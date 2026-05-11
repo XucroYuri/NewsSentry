@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 from news_sentry.core.run_log import RunLog, write_heartbeat
@@ -229,3 +230,24 @@ class TestWriteHeartbeat:
         )
         assert content["last_stage"] == "judge"
         assert content["status"] == "completed"
+
+
+# ── JsonLogFormatter ─────────────────────────────────────────────────────
+
+def test_json_formatter_includes_required_fields():
+    from news_sentry.core.run_log import JsonLogFormatter
+
+    fmt = JsonLogFormatter(run_id="r-001", target_id="italy", stage="collect")
+    record = logging.LogRecord(
+        name="test", level=logging.INFO, pathname="", lineno=1,
+        msg="test message", args=(), exc_info=None
+    )
+    output = fmt.format(record)
+    data = json.loads(output)
+
+    assert data["run_id"] == "r-001"
+    assert data["target_id"] == "italy"
+    assert data["stage"] == "collect"
+    assert data["message"] == "test message"
+    assert data["level"] == "INFO"
+    assert "timestamp" in data

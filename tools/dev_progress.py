@@ -73,9 +73,9 @@ def remote_git_state(remote: str, branch: str) -> dict[str, object]:
     behind = 0
     counts = run_git("rev-list", "--left-right", "--count", f"HEAD...{ref}")
     if counts:
-        behind_s, ahead_s = counts.split()
-        behind = int(behind_s)
+        ahead_s, behind_s = counts.split()
         ahead = int(ahead_s)
+        behind = int(behind_s)
 
     return {
         "ref": ref,
