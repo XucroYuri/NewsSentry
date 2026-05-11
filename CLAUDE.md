@@ -100,12 +100,12 @@
 ### Phase 执行顺序
 
 1. Contract Stabilization ✅
-2. Runtime Carrier Alignment
-3. **Kernel MVP ← 当前**
-4. Tool/Skill Registry + OpenCLI
-5. AI Provider Routing
-6. Sandbox Hardening + Social/KOL
-7. Multi-target Expansion
+2. Runtime Carrier Alignment ✅
+3. Kernel MVP ✅
+4. Tool/Skill Registry + OpenCLI ✅
+5. AI Provider Routing ✅
+6. Sandbox Hardening + Social/KOL ✅
+7. Multi-target Expansion ✅
 
 ### 目录协议与文件事件
 
