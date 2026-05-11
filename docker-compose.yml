@@ -1,0 +1,8 @@
+services:
+  news-sentry:
+    build: .
+    env_file: .env
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    command: run --target italy --stage all --profile cloud-vps
