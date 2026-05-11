@@ -1,0 +1,22 @@
+browser_fallback:
+  degrade_to_layer2_after_failures: 2
+  degrade_to_layer3_after_failures: 5
+  layer_1:
+    name: opencli_bridge
+    token_cost: 0
+    enabled: true
+  layer_2:
+    name: playwright_mcp
+    token_cost: 0
+    enabled: true
+    command: npx @playwright/mcp
+  layer_3:
+    name: computer_use
+    token_cost: medium
+    enabled: true
+    route_id: browser.computer_use
+    tier_filter:
+    - L1
+    max_uses_per_source_per_day: 3
+    max_cost_per_run: 5.0
+

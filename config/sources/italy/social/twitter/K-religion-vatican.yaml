@@ -1,0 +1,11 @@
+platform: twitter
+dimension: K-religion-vatican
+collect_mode: opencli_bridge
+accounts:
+- handle: '@VaticanNews'
+  display_name: Vatican News
+  url: https://x.com/VaticanNews
+  tier: L1
+  category: religious_media
+  notes: 梵蒂冈新闻
+

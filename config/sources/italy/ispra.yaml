@@ -1,0 +1,13 @@
+source_id: ispra
+display_name: ISPRA - Istituto Superiore per la Protezione e la Ricerca Ambientale
+type: rss
+url: https://www.isprambiente.gov.it/rss
+credibility_base: 0.9
+fetch_interval_minutes: 120
+max_items_per_run: 10
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0
+

@@ -1,0 +1,11 @@
+platform: twitter
+dimension: L-china-relations
+collect_mode: opencli_bridge
+accounts:
+- handle: '@AmbCinaRoma'
+  display_name: Ambasciata Cina in Italia
+  url: https://x.com/AmbCinaRoma
+  tier: L2
+  category: foreign_embassy
+  notes: 中国驻意使馆
+

@@ -1,0 +1,11 @@
+platform: twitter
+dimension: F-society-livelihood
+collect_mode: opencli_bridge
+accounts:
+- handle: '@istat_it'
+  display_name: ISTAT
+  url: https://x.com/istat_it
+  tier: L2
+  category: statistical_institute
+  notes: 国家统计局
+

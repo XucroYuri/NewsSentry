@@ -1,0 +1,13 @@
+source_id: ilsecoloxix
+display_name: Il Secolo XIX
+type: rss
+url: https://www.ilsecoloxix.it/rss
+credibility_base: 0.75
+fetch_interval_minutes: 30
+max_items_per_run: 30
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0
+

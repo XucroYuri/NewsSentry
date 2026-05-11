@@ -1,0 +1,18 @@
+source_id: governo-it
+display_name: Governo Italiano
+type: opencli
+url: https://www.governo.it/it/articoli
+tool_ref: opencli.fetch
+tool_params:
+  url: https://www.governo.it/it/articoli
+  selector: .article-list .article-item
+credibility_base: 0.95
+fetch_interval_minutes: 60
+max_items_per_run: 20
+timeout_seconds: 60
+enabled: true
+sandbox_profile_ref: config/sandbox/default.yaml
+health:
+  last_success_at: null
+  consecutive_failures: 0
+

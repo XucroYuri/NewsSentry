@@ -1,0 +1,20 @@
+source_id: newsapi-it
+display_name: NewsAPI — Italy
+type: api
+url: https://newsapi.org/v2/top-headlines
+endpoint:
+  url: https://newsapi.org/v2/top-headlines
+  method: GET
+  params:
+    country: it
+    pageSize: 20
+    apiKey: ${NEWSAPI_KEY}
+credibility_base: 0.8
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0
+

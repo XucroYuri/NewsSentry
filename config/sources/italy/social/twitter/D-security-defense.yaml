@@ -1,0 +1,11 @@
+platform: twitter
+dimension: D-security-defense
+collect_mode: opencli_bridge
+accounts:
+- handle: '@Difesa_Online'
+  display_name: Ministero della Difesa
+  url: https://x.com/Difesa_Online
+  tier: L1
+  category: government
+  notes: 国防部
+
