@@ -1,7 +1,8 @@
 # News Sentry — 开发计划
 
-> 版本: v1.0 | 日期: 2026-05-09
+> 版本: v1.1 | 日期: 2026-05-11
 > 状态: **路线图主权文档** — 本文档是七阶段开发计划与 TODO 矩阵的唯一权威来源
+> 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](spec/README.md) 为准）
 > 字段口径基准: [`docs/contracts-canonical.md`](./contracts-canonical.md)
 > 架构决策: [`docs/adr/README.md`](./adr/README.md)
 > 历史背景: [`docs/brainstorming/AgentSkillPack开发总纲与多Agent生产线路线图.md`](./brainstorming/AgentSkillPack开发总纲与多Agent生产线路线图.md)（历史脉络文档）
@@ -49,15 +50,15 @@
 
 ## §1. 七阶段总览
 
-| Phase | 名称 | 核心目标 | 估算规模 |
-|-------|------|---------|---------|
-| Phase 1 | Contract Stabilization | 定稿所有核心契约和文档，消除口径漂移 | S（已基本完成） |
-| Phase 2 | Runtime Carrier Alignment | Hermes/OpenClaw adapter、bounded run 协议定稿 | M |
-| Phase 3 | Kernel MVP | RSS/API 基线、bounded run、文件事件、source health、最小 sandbox | L |
-| Phase 4 | Tool/Skill Registry + OpenCLI | SkillManifest/ToolManifest registry、OpenCLI 接入 | L |
-| Phase 5 | AI Provider Routing | task-based 路由、多 Provider、prompt/output schema、成本预算 | L |
-| Phase 6 | Sandbox Hardening + Social/KOL Experiment | 权限模型强化、社媒/KOL 小规模实验通道 | M |
-| Phase 7 | Multi-target Expansion | 第二国家 reference package，验证核心无意大利硬编码 | M |
+| Phase | 名称 | 核心目标 | 估算规模 | 状态 |
+|-------|------|---------|---------|------|
+| Phase 1 | Contract Stabilization | 定稿所有核心契约和文档，消除口径漂移 | S | ✅ DONE |
+| Phase 2 | Runtime Carrier Alignment | Hermes/OpenClaw adapter、bounded run 协议定稿 | M | ✅ DONE |
+| Phase 3 | Kernel MVP | RSS/API 基线、bounded run、文件事件、source health、最小 sandbox | L | ✅ DONE |
+| Phase 4 | Tool/Skill Registry + OpenCLI | SkillManifest/ToolManifest registry、OpenCLI 接入 | L | ✅ DONE |
+| Phase 5 | AI Provider Routing | task-based 路由、多 Provider、prompt/output schema、成本预算 | L | ✅ DONE |
+| Phase 6 | Sandbox Hardening + Social/KOL Experiment | 权限模型强化、社媒/KOL 小规模实验通道 | M | ✅ DONE |
+| Phase 7 | Multi-target Expansion | 第二国家 reference package，验证核心无意大利硬编码 | M | ✅ DONE |
 
 ---
 
