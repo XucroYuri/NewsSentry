@@ -433,6 +433,53 @@ def test_rules_provider_call_breaking() -> None:
     assert "breaking" in result["flags"]
 
 
+def test_rules_provider_political_classification() -> None:
+    """政治关键词触发 political 分类 → review 推荐。"""
+    provider = RulesProvider()
+    result = provider.call(
+        "judge.primary",
+        "President addresses parliament on election reform in senate",
+        task_type="judge",
+    )
+    assert result["recommendation"] == "review"
+    assert "priority_topic" in result["flags"]
+
+
+def test_rules_provider_economy_classification() -> None:
+    """经济关键词触发 economy 分类 → review 推荐。"""
+    provider = RulesProvider()
+    result = provider.call(
+        "judge.primary",
+        "GDP growth slows as stock market faces inflation and tax concerns",
+        task_type="judge",
+    )
+    assert result["recommendation"] == "review"
+    assert "priority_topic" in result["flags"]
+
+
+def test_rules_provider_other_classification() -> None:
+    """无匹配关键词时归为 other 分类 → archive 推荐。"""
+    provider = RulesProvider()
+    result = provider.call(
+        "judge.primary",
+        "A beautiful sunset over the mountains today",
+        task_type="judge",
+    )
+    assert result["recommendation"] == "archive"
+
+
+def test_rules_provider_china_significant_flag() -> None:
+    """china_relevance >= 50 时产生 china_significant 标记。"""
+    provider = RulesProvider()
+    result = provider.call(
+        "judge.primary",
+        "China and Beijing and Shanghai and Xi Jinping and BRICS meet",
+        task_type="judge",
+    )
+    assert result["china_relevance"] >= 50
+    assert "china_significant" in result["flags"]
+
+
 # ------------------------------------------------------------------
 # TestRouteOrchestration — route() 编排方法测试
 # ------------------------------------------------------------------

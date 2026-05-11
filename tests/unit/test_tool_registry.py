@@ -165,3 +165,87 @@ class TestToolRegistry:
     def test_check_tool_health_unknown_tool(self, registry: ToolRegistry) -> None:
         health = registry.check_tool_health("unknown.tool")
         assert health == {"tool_id": "unknown.tool", "ok": False, "error": "unknown_tool"}
+
+
+# ──────────────────────────────────────────────────────────────
+# Additional edge-case coverage
+# ──────────────────────────────────────────────────────────────
+
+
+class TestLoadFromConfigEdgeCases:
+    """load_from_config 异常和边界条件测试。"""
+
+    def test_non_dict_permissions_fallback(self, tmp_path: Path) -> None:
+        """permissions 字段非 dict 时使用默认 RiskLevel.LOW。"""
+        d = tmp_path / "toolmanifest"
+        d.mkdir()
+        manifest = {
+            "tools": [
+                {
+                    "tool_id": "test.tool",
+                    "command_template": "echo",
+                    "permissions": "invalid",
+                },
+            ]
+        }
+        (d / "bad_perms.yaml").write_text(yaml.dump(manifest), encoding="utf-8")
+        tools = load_from_config(d)
+        assert "test.tool" in tools
+        assert tools["test.tool"].permissions.risk_level == RiskLevel.LOW
+
+    def test_malformed_yaml_skipped(self, tmp_path: Path) -> None:
+        """无效 YAML 文件被跳过，不影响其他文件解析。"""
+        d = tmp_path / "toolmanifest"
+        d.mkdir()
+        (d / "bad.yaml").write_text("{{invalid yaml:::", encoding="utf-8")
+        manifest = {"tools": [{"tool_id": "ok.tool", "command_template": "echo"}]}
+        (d / "good.yaml").write_text(yaml.dump(manifest), encoding="utf-8")
+        tools = load_from_config(d)
+        assert "ok.tool" in tools
+
+    def test_non_dict_tool_data_skipped(self, tmp_path: Path) -> None:
+        """tools 列表中的非 dict 条目被跳过。"""
+        d = tmp_path / "toolmanifest"
+        d.mkdir()
+        manifest = {
+            "tools": [
+                "not_a_dict",
+                42,
+                {"tool_id": "valid.tool", "command_template": "echo"},
+            ]
+        }
+        (d / "mixed.yaml").write_text(yaml.dump(manifest), encoding="utf-8")
+        tools = load_from_config(d)
+        assert "valid.tool" in tools
+        assert len(tools) == 1
+
+    def test_non_dict_yaml_root_skipped(self, tmp_path: Path) -> None:
+        """YAML 根节点非 dict 时返回空。"""
+        d = tmp_path / "toolmanifest"
+        d.mkdir()
+        (d / "list.yaml").write_text("- item1\n- item2\n", encoding="utf-8")
+        tools = load_from_config(d)
+        assert tools == {}
+
+
+class TestCheckToolHealthTypes:
+    """check_tool_health 对不同 execution_type 的处理测试。"""
+
+    def test_http_tool_always_ok(self, tmp_path: Path) -> None:
+        """HTTP 类型工具不做运行时检查，始终 ok=True。"""
+        d = tmp_path / "toolmanifest"
+        d.mkdir()
+        manifest = {
+            "tools": [
+                {
+                    "tool_id": "http.tool",
+                    "execution_type": "http",
+                    "permissions": {"risk_level": "low"},
+                },
+            ]
+        }
+        (d / "http.yaml").write_text(yaml.dump(manifest), encoding="utf-8")
+        registry = ToolRegistry(d)
+        health = registry.check_tool_health("http.tool")
+        assert health["ok"] is True
+        assert health["execution_type"] == "http"
