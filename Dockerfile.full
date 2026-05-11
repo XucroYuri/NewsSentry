@@ -7,14 +7,27 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -e ".[dev]"
 
 # ---- Runtime with Chromium + Playwright MCP ----
+# NOTE: This image requires ≥12GB RAM for docker build.
+# If local build OOMs, use GitHub Actions CI (16GB) instead:
+#   docker build -f Dockerfile.full -t news-sentry-full:0.5.0 .
 FROM python:3.12-slim AS runtime
 WORKDIR /app
 
-# System dependencies: Chromium + Xvfb + Node.js
+# System dependencies: Chromium + Xvfb + Node.js (split to reduce peak memory)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium chromium-driver xvfb \
+    xvfb curl ca-certificates gosu \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
     nodejs npm \
-    curl ca-certificates fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    chromium chromium-driver \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 # Playwright MCP (Layer 2 browser fallback)
@@ -34,7 +47,8 @@ RUN pip install --no-cache-dir -e . --no-deps && \
     mkdir -p /app/data/italy/raw /app/data/italy/evaluated /app/data/italy/drafts \
               /app/data/italy/reviewed /app/data/italy/published /app/data/italy/archive \
               /app/data/italy/memory /app/data/italy/logs && \
-    chown -R appuser:appuser /app/data
+    chown -R appuser:appuser /app/data && \
+    mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
 
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
@@ -46,6 +60,5 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=true
 ENV PYTHONUNBUFFERED=1
 
-USER appuser
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["python", "-m", "news_sentry.cli", "run", "--target", "italy", "--stage", "all"]
+CMD ["run", "--target", "italy", "--stage", "all"]
