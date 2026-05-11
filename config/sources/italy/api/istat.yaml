@@ -1,0 +1,21 @@
+# Schema: ../../../schemas/sourcechannel.schema.json
+source_id: istat
+display_name: "ISTAT — Statistiche"
+type: api
+
+endpoint:
+  url: "https://sdmx.istat.it/SDMXWS/rest/dataflow/IT1"
+  method: GET
+  params: {}
+
+api_mapping:
+  items_key: "dataflows"
+
+fetch_interval_minutes: 1440
+max_items_per_run: 10
+timeout_seconds: 60
+enabled: true
+credibility_base: 0.95
+health:
+  last_success_at: null
+  consecutive_failures: 0

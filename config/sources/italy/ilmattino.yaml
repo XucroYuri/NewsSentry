@@ -1,0 +1,13 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: ilmattino
+display_name: "Il Mattino"
+type: rss
+url: "https://www.ilmattino.it/rss"
+credibility_base: 0.75
+fetch_interval_minutes: 15
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0

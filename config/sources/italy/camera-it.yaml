@@ -1,0 +1,13 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: camera-it
+display_name: "Camera dei Deputati"
+type: rss
+url: "https://www.camera.it/leg18/824"
+credibility_base: 0.95
+fetch_interval_minutes: 15
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -61,3 +61,7 @@ config/**/*.local.yml
 **/Login Data
 **/chrome-profiles/
 **/session-profiles/*.actual.yaml
+
+# Session profiles (credentials, 不进 Git)
+config/session-profiles/italy/*.yaml
+config/session-profiles/italy/*.json

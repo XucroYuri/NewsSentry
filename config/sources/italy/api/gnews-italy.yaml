@@ -1,0 +1,30 @@
+# Schema: ../../../schemas/sourcechannel.schema.json
+source_id: gnews-italy
+display_name: "GNews API — Italy"
+type: api
+
+endpoint:
+  url: "https://gnews.io/api/v4/search"
+  method: GET
+  params:
+    q: "Italy"
+    lang: "it"
+    country: "it"
+    max: 10
+    apikey: "${GNEWS_API_KEY}"
+
+api_mapping:
+  items_key: "articles"
+  title: "title"
+  url: "url"
+  content: "description"
+  published_at: "publishedAt"
+
+fetch_interval_minutes: 30
+max_items_per_run: 10
+timeout_seconds: 30
+enabled: true
+credibility_base: 0.75
+health:
+  last_success_at: null
+  consecutive_failures: 0

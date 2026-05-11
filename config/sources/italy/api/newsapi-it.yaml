@@ -1,0 +1,28 @@
+# Schema: ../../../schemas/sourcechannel.schema.json
+source_id: newsapi-it
+display_name: "NewsAPI — Italy"
+type: api
+
+endpoint:
+  url: "https://newsapi.org/v2/top-headlines"
+  method: GET
+  params:
+    country: "it"
+    pageSize: 20
+    apikey: "${NEWSAPI_KEY}"
+
+api_mapping:
+  items_key: "articles"
+  title: "title"
+  url: "url"
+  content: "content"
+  published_at: "publishedAt"
+
+fetch_interval_minutes: 30
+max_items_per_run: 20
+timeout_seconds: 30
+enabled: true
+credibility_base: 0.75
+health:
+  last_success_at: null
+  consecutive_failures: 0

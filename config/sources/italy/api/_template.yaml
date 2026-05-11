@@ -1,0 +1,22 @@
+# Schema: ../../../schemas/sourcechannel.schema.json
+source_id: "example-api-source"
+display_name: "Example API Source"
+type: api
+
+endpoint:
+  url: "https://example.com/api/v1/news"
+  method: GET
+  params:
+    q: "Italy"
+    lang: "it"
+    max: 10
+    apikey: "${EXAMPLE_API_KEY}"
+
+fetch_interval_minutes: 30
+max_items_per_run: 10
+timeout_seconds: 30
+enabled: true
+credibility_base: 0.80
+health:
+  last_success_at: null
+  consecutive_failures: 0

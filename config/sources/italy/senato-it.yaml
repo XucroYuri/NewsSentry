@@ -1,0 +1,13 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: senato-it
+display_name: "Senato della Repubblica"
+type: rss
+url: "https://www.senato.it/rss"
+credibility_base: 0.95
+fetch_interval_minutes: 15
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0

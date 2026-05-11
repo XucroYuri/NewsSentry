@@ -1,0 +1,24 @@
+# Schema: ../../../schemas/sourcechannel.schema.json
+source_id: "example-opencli-source"
+display_name: "Example OpenCLI Source"
+type: opencli
+
+tool_ref: opencli.fetch
+tool_params:
+  url: "https://example.com/news"
+  selector: ".article-list .article-item"
+  extract_fields:
+    - title
+    - url
+    - date
+    - summary
+
+fetch_interval_minutes: 60
+max_items_per_run: 20
+timeout_seconds: 60
+enabled: true
+credibility_base: 0.90
+sandbox_profile_ref: config/sandbox/default.yaml
+health:
+  last_success_at: null
+  consecutive_failures: 0

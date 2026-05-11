@@ -1,0 +1,27 @@
+# Schema: ../../../schemas/sourcechannel.schema.json
+source_id: gdelt-italy
+display_name: "GDELT — Italy Events"
+type: api
+
+endpoint:
+  url: "https://api.gdeltproject.org/api/v2/doc/doc"
+  method: GET
+  params:
+    query: "Italy sourcelang:ita"
+    mode: "ArtList"
+    format: "json"
+    maxrecords: 20
+
+api_mapping:
+  items_key: "articles"
+  title: "title"
+  url: "url"
+
+fetch_interval_minutes: 60
+max_items_per_run: 20
+timeout_seconds: 45
+enabled: true
+credibility_base: 0.70
+health:
+  last_success_at: null
+  consecutive_failures: 0
