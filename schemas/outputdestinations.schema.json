@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://news-sentry.local/schemas/outputdestinations.schema.json",
+  "title": "OutputDestinations",
+  "description": "Implements: docs/contracts-canonical.md §8; output destination configuration for the output stage",
+  "type": "object",
+  "required": ["destinations"],
+  "additionalProperties": false,
+  "properties": {
+    "destinations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/DestinationConfig"
+      }
+    }
+  },
+  "$defs": {
+    "DestinationConfig": {
+      "type": "object",
+      "required": ["destination_id", "type", "enabled"],
+      "additionalProperties": false,
+      "properties": {
+        "destination_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*$"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["obsidian_markdown", "feishu_webhook", "file"],
+          "description": "v1 output destinations only; no external publishing without explicit new decision"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "path": {
+          "type": "string",
+          "description": "Filesystem path for obsidian_markdown/file types"
+        },
+        "url": {
+          "type": "string",
+          "description": "Webhook URL for feishu_webhook type; supports ${ENV_VAR} substitution"
+        },
+        "filename_template": {
+          "type": "string",
+          "description": "Filename template with {placeholder} variables"
+        },
+        "frontmatter": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "YAML frontmatter field mappings using Jinja2-style {{ }} templates"
+        },
+        "filter": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "Output filter: only write events matching these criteria"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Human-readable notes about this destination"
+        }
+      }
+    }
+  }
+}
