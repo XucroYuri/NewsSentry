@@ -144,3 +144,84 @@ def test_tool_list_outputs_tool_ids():
     # opencli-baseline.yaml 中定义的 12 条工具
     for tool_id in ("opencli.fetch", "opencli.search", "opencli.extract"):
         assert tool_id in result.output
+
+
+# ------------------------------------------------------------------
+# doctor
+# ------------------------------------------------------------------
+
+
+def test_doctor_exits_zero():
+    """doctor 命令应正常退出。"""
+    result = CliRunner().invoke(main, ["doctor"])
+    assert result.exit_code == 0
+
+
+def test_doctor_reports_python_version():
+    """doctor 输出应包含 Python 版本信息。"""
+    result = CliRunner().invoke(main, ["doctor"])
+    assert "Python" in result.output
+
+
+def test_doctor_json_flag():
+    """doctor --json 应输出有效 JSON。"""
+    result = CliRunner().invoke(main, ["doctor", "--json"])
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert isinstance(data, list)
+    assert len(data) > 0
+
+
+# ------------------------------------------------------------------
+# validate
+# ------------------------------------------------------------------
+
+
+def test_validate_rejects_invalid_yaml(tmp_path):
+    """validate 对不符合 schema 的 YAML 应报错。"""
+    schema_path = tmp_path / "test.schema.json"
+    schema_path.write_text(
+        json.dumps({
+            "type": "object",
+            "required": ["name"],
+            "properties": {"name": {"type": "string"}},
+        }),
+        encoding="utf-8",
+    )
+    config_path = tmp_path / "bad.yaml"
+    config_path.write_text(
+        "# Schema: test.schema.json\nother_field: 123\n",
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(main, ["validate", "--config", str(config_path)])
+    assert result.exit_code != 0
+
+
+# ------------------------------------------------------------------
+# --version / --help
+# ------------------------------------------------------------------
+
+
+def test_version_flag():
+    """--version 应输出版本号并正常退出。"""
+    result = CliRunner().invoke(main, ["--version"])
+    assert result.exit_code == 0
+    assert "version" in result.output.lower() or "." in result.output
+
+
+def test_help_flag():
+    """--help 应列出可用命令。"""
+    result = CliRunner().invoke(main, ["--help"])
+    assert result.exit_code == 0
+    for cmd in ("run", "doctor", "validate", "skill", "tool"):
+        assert cmd in result.output
+
+
+def test_run_help():
+    """run --help 应显示选项。"""
+    result = CliRunner().invoke(main, ["run", "--help"])
+    assert result.exit_code == 0
+    assert "--target" in result.output
+    assert "--stage" in result.output
+    assert "--profile" in result.output
