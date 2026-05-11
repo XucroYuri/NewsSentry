@@ -137,6 +137,25 @@ class TestResolve:
         assert resolved_item["resolved"] is True
         assert resolved_item["resolved_at"] is not None
 
+    def test_resolve_with_note(self, review_queue: ReviewQueue):
+        """resolve 带 note 时应在 detail 中追加备注。"""
+        item = ReviewQueueItem(
+            item_id="",
+            created_at=datetime.now(UTC),
+            item_type="sandbox_violation",
+            source_run_id="note-test",
+            detail="原始详情",
+        )
+        review_queue.enqueue(item)
+
+        unresolved = review_queue.get_unresolved()
+        item_id = unresolved[0].item_id
+
+        review_queue.resolve(item_id, note="已确认安全")
+
+        raw_items = review_queue._load()
+        assert "已确认安全" in raw_items[0]["detail"]
+
     def test_resolve_nonexistent_raises(self, review_queue: ReviewQueue):
         """解决不存在的 item_id 应抛出 KeyError。"""
         with pytest.raises(KeyError):
