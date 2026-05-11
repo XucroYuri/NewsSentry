@@ -9,7 +9,7 @@
 | language_primary | it | en | — |
 | language_secondary | [en] | [] | 意大利有英语辅助源 |
 | timezone | Europe/Rome | Asia/Shanghai | — |
-| RSS 信源数量 | 14 | 2 | italy 更成熟 |
+| RSS 信源数量 | 14 | 5 | italy 更成熟 |
 | filter_rules | config/filters/italy/default.yaml | config/filters/china-watch-en/default.yaml | 各自独立规则 |
 | classification_rules | rules-italy.yaml | rules-v1.yaml | italy 使用意大利定制规则 |
 | sandbox_profile | default | default | 相同 |
