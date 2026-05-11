@@ -5,9 +5,20 @@ on:
     tags: ["v*"]
 
 jobs:
-  build:
+  build-base:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build Docker image
+      - name: Build base Docker image
         run: docker build -t news-sentry:${{ github.ref_name }} .
+      - name: Test base image
+        run: docker run --rm news-sentry:${{ github.ref_name }} --version
+
+  build-full:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build full Docker image (Chromium + Playwright)
+        run: docker build -f Dockerfile.full -t news-sentry-full:${{ github.ref_name }} .
+      - name: Test full image
+        run: docker run --rm news-sentry-full:${{ github.ref_name }} --version
