@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://news-sentry.local/schemas/socialsource.schema.json",
+  "title": "SocialSource",
+  "description": "Social media source definition for Twitter/KOL account tracking per dimension.",
+  "type": "object",
+  "required": ["platform", "dimension", "collect_mode", "accounts"],
+  "additionalProperties": false,
+  "properties": {
+    "platform": {
+      "type": "string",
+      "enum": ["twitter", "zhihu", "weixin", "weibo"]
+    },
+    "dimension": {
+      "type": "string",
+      "pattern": "^[A-Z]-"
+    },
+    "collect_mode": {
+      "type": "string",
+      "enum": ["opencli_bridge", "api", "manual"]
+    },
+    "accounts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["handle", "display_name", "tier"],
+        "additionalProperties": false,
+        "properties": {
+          "handle": { "type": "string" },
+          "display_name": { "type": "string" },
+          "url": { "type": "string" },
+          "tier": {
+            "type": "string",
+            "enum": ["L1", "L2", "L3"]
+          },
+          "category": { "type": "string" },
+          "notes": { "type": "string" }
+        }
+      }
+    }
+  }
+}
