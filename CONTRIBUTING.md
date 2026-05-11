@@ -8,7 +8,9 @@
 
 - **[AGENTS.md](AGENTS.md)** — 跨 Agent 共用基准，包含所有核心决策、目录协议、Phase 执行顺序
 - **[docs/contracts-canonical.md](docs/contracts-canonical.md)** — 口径规范唯一权威（字段命名、分值量纲、目录映射等）
-- **[docs/adr/](docs/adr/)** — 架构决策记录（ADR-0001 至 ADR-0016）
+- **[docs/adr/](docs/adr/)** — 架构决策记录（ADR-0001 至 ADR-0016，ADR-0017–0021 规划中）
+- **[docs/development-plan.md](docs/development-plan.md)** — 多阶段开发计划（Phase 1–13）
+- **[docs/superpowers/specs/2026-05-11-phase-12-source-matrix-design.md](docs/superpowers/specs/2026-05-11-phase-12-source-matrix-design.md)** — Phase 12 信源矩阵设计
 
 ## 开发环境
 
