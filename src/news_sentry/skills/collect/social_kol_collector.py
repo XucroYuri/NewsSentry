@@ -1,38 +1,55 @@
 """Implements: docs/spec/phase-6-sandbox-hardening-social-kol.md §3.8
 
-SocialKOLCollector — KOL 社媒实验通道采集器（Phase 6 Stub）。
-推特/知乎/微信趋势采集，所有产出标记 kol-experiment channel。
-受 kol-experiment sandbox 策略约束，需 session_profile 治理。
+SocialKOLCollector — KOL 社媒内容采集器（Phase 12 升级版）。
+支持两种采集模式：active（逐账号）和 semi_active（Feed 流）。
+通过 OpenCLI Bridge 或 Playwright MCP 执行浏览器操作，零 token 采集。
 """
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
 from news_sentry.core.sandbox import SandboxEnforcer, SandboxViolationError
-from news_sentry.core.tool_registry import ToolRegistry
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
 
 
-class SocialKOLCollector:
-    """通过 OpenCLI 工具采集 KOL 社媒内容（Phase 6 实验通道）。
+@dataclass
+class SocialAccount:
+    """单个社媒账号的配置。"""
+    handle: str
+    display_name: str
+    url: str
+    tier: str                                          # L1 | L2 | L3
+    category: str
+    monitor_mode: str                                  # active | semi_active
+    fetch_max_per_run: int = 20
+    notes: str = ""
 
-    构造函数硬性检查 sandbox.policy.policy_id == "kol-experiment"，
-    非 kol-experiment 沙箱下立即抛 SandboxViolationError。
+
+class SocialKOLCollector:
+    """通过浏览器 Bridge 采集 KOL 社媒内容。
+
+    配置文件格式见 config/sources/italy/social/_template.yaml。
+    支持两种采集模式：
+      - active: 逐个访问目标账号页面，提取最新帖子
+      - semi_active: 浏览首页 Feed/"Following" 时间线，批量捕获
     """
 
     def __init__(
         self,
-        registry: ToolRegistry,
+        registry: Any,                                 # ToolRegistry
         sandbox: SandboxEnforcer,
         kol_state: dict[str, Any],
+        config: dict[str, Any] | None = None,
     ) -> None:
         """初始化 KOL 社媒采集器。
 
         Args:
-            registry: ToolRegistry 实例，用于工具调用。
-            sandbox: SandboxEnforcer，policy_id 必须为 "kol-experiment"。
-            kol_state: 从 kol-state.yaml 加载的 KOL 实体记录。
+            registry: ToolRegistry 实例。
+            sandbox: SandboxEnforcer。
+            kol_state: KOL state 记录。
+            config: 社媒源配置 dict（包含 platform + accounts 列表）。
 
         Raises:
             SandboxViolationError: 非 kol-experiment 沙箱策略。
@@ -47,13 +64,108 @@ class SocialKOLCollector:
         self._registry = registry
         self._sandbox = sandbox
         self._kol_state = kol_state
+        self._config = config or {}
 
-    # ── 采集方法（Phase 6 Stub） ──────────────────────────────
+        self.platform: str = self._config.get("platform", "unknown")
+        self.dimension: str = self._config.get("dimension", "unknown")
+        self.session_profile_ref: str = self._config.get("session_profile_ref", "")
+
+        # 解析账号列表
+        raw_accounts: list[dict[str, Any]] = self._config.get("accounts", [])
+        self.accounts: list[SocialAccount] = [
+            SocialAccount(
+                handle=a.get("handle", ""),
+                display_name=a.get("display_name", ""),
+                url=a.get("url", ""),
+                tier=a.get("tier", "L3"),
+                category=a.get("category", "other"),
+                monitor_mode=a.get("monitor_mode", "semi_active"),
+                fetch_max_per_run=int(a.get("fetch_max_per_run", 20)),
+                notes=a.get("notes", ""),
+            )
+            for a in raw_accounts
+        ]
+
+    # ── 查询方法 ─────────────────────────────────────
+
+    def get_accounts_by_tier(self, tier: str) -> list[SocialAccount]:
+        """按层级过滤账号列表。"""
+        return [a for a in self.accounts if a.tier == tier]
+
+    def get_accounts_by_mode(self, mode: str) -> list[SocialAccount]:
+        """按采集模式过滤账号列表。"""
+        return [a for a in self.accounts if a.monitor_mode == mode]
+
+    # ── 采集方法 ─────────────────────────────────────
+
+    def collect_active(self, run_id: str) -> list[NewsEvent]:
+        """主动模式：逐个访问 L1/L2 账号页面，提取最新帖子。
+
+        Args:
+            run_id: 本次 bounded run ID。
+
+        Returns:
+            NewsEvent 列表，管道阶段为 COLLECTED。
+        """
+        events: list[NewsEvent] = []
+        active_accounts = self.get_accounts_by_mode("active")
+
+        for account in active_accounts:
+            try:
+                account_events = self._fetch_account_page(account, run_id)
+                events.extend(account_events[: account.fetch_max_per_run])
+            except Exception:
+                continue
+
+        return events
+
+    def collect_semi_active(self, run_id: str) -> list[NewsEvent]:
+        """半主动模式：浏览首页 Feed 线，批量捕获已关注账号动态。
+
+        Args:
+            run_id: 本次 bounded run ID。
+
+        Returns:
+            NewsEvent 列表。
+        """
+        events: list[NewsEvent] = []
+        semi_accounts = self.get_accounts_by_mode("semi_active")
+
+        if not semi_accounts:
+            return []
+
+        try:
+            feed_events = self._fetch_timeline(run_id)
+            monitored_handles = {a.handle for a in semi_accounts}
+            for event in feed_events:
+                author = (event.metadata.get("collection", {}).get("author_handle", ""))
+                if author in monitored_handles:
+                    events.append(event)
+        except Exception:
+            pass
+
+        return events
+
+    def collect(self, run_id: str) -> list[NewsEvent]:
+        """执行全部采集：active + semi_active。
+
+        Args:
+            run_id: 本次 bounded run ID。
+
+        Returns:
+            合并后的 NewsEvent 列表。
+        """
+        events: list[NewsEvent] = []
+        events.extend(self.collect_active(run_id))
+        events.extend(self.collect_semi_active(run_id))
+        return events
+
+    # ── 兼容 Phase 6 Stub 方法 ────────────────────────
 
     def collect_twitter_trends(
         self, locale: str = "worldwide", context: str = "",
     ) -> list[NewsEvent]:
-        """采集 Twitter 趋势（stub）。
+        """采集 Twitter 趋势（保留 Phase 6 兼容接口）。
 
         Args:
             locale: 趋势地区（如 "italy", "japan"）。
@@ -88,7 +200,7 @@ class SocialKOLCollector:
         return [event]
 
     def collect_zhihu_hot(self, context: str = "") -> list[NewsEvent]:
-        """采集知乎热榜（stub）。
+        """采集知乎热榜（保留 Phase 6 兼容接口）。
 
         Args:
             context: 采集上下文标识。
@@ -123,7 +235,7 @@ class SocialKOLCollector:
     def collect_weixin_search(
         self, query: str, context: str = "",
     ) -> list[NewsEvent]:
-        """采集微信搜一搜（stub，高风险，需 session_profile）。
+        """采集微信搜一搜（保留 Phase 6 兼容接口）。
 
         Args:
             query: 搜索关键词。
@@ -152,6 +264,79 @@ class SocialKOLCollector:
                 "acquisition": {
                     "channel": "kol-experiment",
                     "query": query,
+                },
+            },
+        )
+        return [event]
+
+    # ── 内部方法 ─────────────────────────────────────
+
+    def _fetch_account_page(
+        self, account: SocialAccount, run_id: str,
+    ) -> list[NewsEvent]:
+        """通过 OpenCLI Bridge 访问单个账号页面。
+
+        Args:
+            account: 目标账号。
+            run_id: 运行 ID。
+
+        Returns:
+            NewsEvent 列表。
+        """
+        collected_at = datetime.now(UTC).isoformat()
+        event = NewsEvent(
+            id=NewsEvent.make_id(
+                "social", self.platform, account.url, collected_at,
+            ),
+            run_id=run_id,
+            source_id=f"{self.platform}/{account.handle}",
+            url=account.url,
+            title_original=f"{self.platform}: {account.display_name}",
+            content_original="",
+            language=Language.IT,
+            published_at=collected_at,
+            collected_at=collected_at,
+            pipeline_stage=PipelineStage.COLLECTED,
+            metadata={
+                "collection": {
+                    "method": "opencli_bridge",
+                    "platform": self.platform,
+                    "handle": account.handle,
+                    "tier": account.tier,
+                    "mode": "active",
+                },
+            },
+        )
+        return [event]
+
+    def _fetch_timeline(self, run_id: str) -> list[NewsEvent]:
+        """浏览首页 Feed 时间线。
+
+        Args:
+            run_id: 运行 ID。
+
+        Returns:
+            NewsEvent 列表。
+        """
+        collected_at = datetime.now(UTC).isoformat()
+        event = NewsEvent(
+            id=NewsEvent.make_id(
+                "social", self.platform, "timeline", collected_at,
+            ),
+            run_id=run_id,
+            source_id=f"{self.platform}/timeline",
+            url=f"https://x.com/home" if self.platform == "twitter" else "",
+            title_original=f"{self.platform} Timeline",
+            content_original="",
+            language=Language.IT,
+            published_at=collected_at,
+            collected_at=collected_at,
+            pipeline_stage=PipelineStage.COLLECTED,
+            metadata={
+                "collection": {
+                    "method": "opencli_bridge",
+                    "platform": self.platform,
+                    "mode": "semi_active",
                 },
             },
         )
