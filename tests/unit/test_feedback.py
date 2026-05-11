@@ -48,3 +48,21 @@ def test_feedback_stats():
         assert stats["total"] == 3
         assert stats["correct"] == 2
         assert abs(stats["accuracy"] - 2/3) < 0.001
+
+
+def test_feedback_load_all_empty():
+    """空文件路径应返回空列表。"""
+    with TemporaryDirectory() as tmp:
+        store = FeedbackStore(Path(tmp))
+        records = store.load_all()
+        assert records == []
+
+
+def test_feedback_stats_empty():
+    """无记录时统计应返回零值。"""
+    with TemporaryDirectory() as tmp:
+        store = FeedbackStore(Path(tmp))
+        stats = store.stats()
+        assert stats["total"] == 0
+        assert stats["correct"] == 0
+        assert stats["accuracy"] == 0.0
