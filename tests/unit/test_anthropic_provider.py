@@ -127,6 +127,45 @@ class TestCall:
             with pytest.raises(RuntimeError, match="Anthropic API 返回 HTTP"):
                 provider.call("judge.primary", "Judge this.")
 
+    def test_call_network_error(self):
+        """mock httpx.RequestError，验证 RuntimeError 被抛出。"""
+        with mock.patch("httpx.post", side_effect=httpx.RequestError("Connection refused")):
+            provider = AnthropicProvider({"api_key": "sk-ant-test"})
+            with pytest.raises(RuntimeError, match="Anthropic API 网络请求失败"):
+                provider.call("translate.fast", "Hello")
+
+    def test_call_custom_model(self):
+        """call 中 kwargs.model 覆盖 default_model。"""
+        mock_response = _make_mock_response(
+            json_data={
+                "content": [{"type": "text", "text": "Hi"}],
+                "model": "claude-sonnet-4-20250514",
+                "usage": {"input_tokens": 5, "output_tokens": 1},
+            }
+        )
+        with mock.patch("httpx.post", return_value=mock_response) as mock_post:
+            provider = AnthropicProvider({"api_key": "sk-ant-test"})
+            result = provider.call("translate.fast", "Hello", model="claude-sonnet-4-20250514")
+
+        assert result["model"] == "claude-sonnet-4-20250514"
+        call_kwargs = mock_post.call_args.kwargs
+        assert call_kwargs["json"]["model"] == "claude-sonnet-4-20250514"
+
+    def test_call_empty_content_blocks(self):
+        """API 返回空 content 列表时 content 应为空字符串。"""
+        mock_response = _make_mock_response(
+            json_data={
+                "content": [],
+                "model": "claude-3-haiku-20240307",
+                "usage": {"input_tokens": 3, "output_tokens": 0},
+            }
+        )
+        with mock.patch("httpx.post", return_value=mock_response):
+            provider = AnthropicProvider({"api_key": "sk-ant-test"})
+            result = provider.call("translate.fast", "Hello")
+
+        assert result["content"] == ""
+
 
 # ── provider_id ────────────────────────────────────────────────────────
 

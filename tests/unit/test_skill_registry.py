@@ -93,6 +93,50 @@ class TestDiscoverSkills:
         result = discover_skills(tmp_path / "nonesuch")
         assert result == {}
 
+    def test_extract_doc_unreadable_file(self, tmp_path: Path) -> None:
+        """_extract_first_doc_line 读取失败时返回空字符串。"""
+        from news_sentry.core.skill_registry import _extract_first_doc_line
+
+        bad_file = tmp_path / "bad.py"
+        bad_file.write_text("not valid python {", encoding="utf-8")
+        result = _extract_first_doc_line(bad_file)
+        assert result == ""
+
+    def test_extract_doc_no_docstring(self, tmp_path: Path) -> None:
+        """_extract_first_doc_line 模块无 docstring 时返回空字符串。"""
+        from news_sentry.core.skill_registry import _extract_first_doc_line
+
+        no_doc = tmp_path / "nodoc.py"
+        no_doc.write_text("x = 1\n", encoding="utf-8")
+        result = _extract_first_doc_line(no_doc)
+        assert result == ""
+
+    def test_extract_doc_returns_first_line(self, tmp_path: Path) -> None:
+        """_extract_first_doc_line 只返回 docstring 第一行。"""
+        from news_sentry.core.skill_registry import _extract_first_doc_line
+
+        multi = tmp_path / "multi.py"
+        multi.write_text('"""First line\nSecond line\nThird line"""\n', encoding="utf-8")
+        result = _extract_first_doc_line(multi)
+        assert result == "First line"
+
+    def test_dot_dirs_skipped(self, skills_dir: Path) -> None:
+        """以点开头的目录应被跳过。"""
+        dot = skills_dir / ".hidden"
+        dot.mkdir()
+        (dot / "__init__.py").write_text('"""hidden"""\n', encoding="utf-8")
+        result = discover_skills(skills_dir)
+        assert ".hidden" not in result
+
+    def test_no_docstring_uses_stage_as_display_name(self, tmp_path: Path) -> None:
+        """模块无 docstring 时 display_name 退化为 stage 名。"""
+        skills_root = tmp_path / "skills"
+        stage_dir = skills_root / "mystage"
+        stage_dir.mkdir(parents=True)
+        (stage_dir / "__init__.py").write_text("x = 1\n", encoding="utf-8")
+        result = discover_skills(skills_root)
+        assert result["mystage"].display_name == "mystage"
+
 
 # ──────────────────────────────────────────────────────────────
 # SkillRegistry class
