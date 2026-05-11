@@ -115,6 +115,51 @@ class TestCheckAllAdapters:
         assert broken_results[0]["ok"] is False
         assert broken_results[0]["severity"] == "warning"
 
+    def test_tool_health_not_ok(self, manifest_dir: Path, skills_dir: Path, monkeypatch) -> None:
+        """工具健康检查失败时应报告 warning。"""
+        tr = ToolRegistry(manifest_dir)
+        sr = SkillRegistry(skills_dir)
+
+        # mock check_tool_health 返回 not ok
+        monkeypatch.setattr(
+            tr, "check_tool_health",
+            lambda tid: {"ok": False, "error": "not found"},
+        )
+
+        results = check_all_adapters(tr, sr)
+        tool_results = [r for r in results if r["name"].startswith("Tool:")]
+        assert len(tool_results) == 1
+        assert tool_results[0]["ok"] is False
+        assert tool_results[0]["severity"] == "warning"
+        assert "not found" in tool_results[0]["message"]
+
+    def test_skill_import_error(self, manifest_dir: Path, tmp_path: Path, monkeypatch) -> None:
+        """skill entry_point 导入失败时报告 warning。"""
+        tr = ToolRegistry(manifest_dir)
+
+        broken_skills_dir = tmp_path / "broken_skills"
+        broken_skills_dir.mkdir()
+        broken_stage = broken_skills_dir / "broken"
+        broken_stage.mkdir()
+        (broken_stage / "__init__.py").write_text('"""broken"""\n', encoding="utf-8")
+        sr = SkillRegistry(broken_skills_dir)
+
+        # mock find_spec 抛出 ImportError
+        from importlib.util import find_spec as real_find_spec
+
+        def fake_find_spec(name, *args, **kwargs):
+            if "broken" in name:
+                raise ImportError(f"Cannot import {name}")
+            return real_find_spec(name, *args, **kwargs)
+
+        monkeypatch.setattr("news_sentry.core.adapter_health.find_spec", fake_find_spec)
+
+        results = check_all_adapters(tr, sr)
+        skill_results = [r for r in results if "broken" in str(r["name"])]
+        assert len(skill_results) == 1
+        assert skill_results[0]["ok"] is False
+        assert skill_results[0]["severity"] == "warning"
+
     def test_empty_registries(self, tmp_path: Path) -> None:
         """空注册中心返回空结果列表。"""
         empty_dir = tmp_path / "empty"
