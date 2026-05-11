@@ -7,10 +7,35 @@ RunLog — 每次 bounded run 的结构化审计日志。
 from __future__ import annotations
 
 import json
+import logging
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+class JsonLogFormatter(logging.Formatter):
+    """JSON 格式日志 formatter，每条日志携带 run_id/target_id/stage."""
+
+    def __init__(self, run_id: str = "", target_id: str = "", stage: str = "") -> None:
+        super().__init__()
+        self.run_id = run_id
+        self.target_id = target_id
+        self.stage = stage
+
+    def format(self, record: logging.LogRecord) -> str:
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "run_id": self.run_id,
+            "target_id": self.target_id,
+            "stage": self.stage,
+        }
+        if record.exc_info and record.exc_info[1]:
+            entry["exception"] = str(record.exc_info[1])
+        return json.dumps(entry, ensure_ascii=False)
 
 
 class RunLog:

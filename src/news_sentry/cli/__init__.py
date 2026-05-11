@@ -155,9 +155,36 @@ def validate(config: str) -> None:
 
 @main.command()
 @click.option("--json", "as_json", is_flag=True, default=False, help="Output as JSON")
-def doctor(as_json: bool) -> None:
-    """检查开发/运行环境健康状况。"""
+@click.option("--target", default="italy", help="监控目标 ID")
+@click.option("--data-root", default="data", help="数据根目录")
+def doctor(as_json: bool, target: str, data_root: str) -> None:
+    """运行项目健康检查 — schema/目录/信源/Provider。"""
+    from news_sentry.cli.doctor import run_doctor as run_target_doctor
+
     results = _run_doctor_checks()
+
+    # 集成目标级健康检查
+    try:
+        target_report = run_target_doctor(target, data_root)
+        for check_name, check in target_report.to_dict().items():
+            if check_name == "overall":
+                continue
+            passed = bool(check.get("passed"))
+            details = check.get("details", [])
+            results.append({
+                "name": f"Target: {check_name}",
+                "ok": passed,
+                "severity": "critical" if (not passed and check_name == "schema_check") else ("warning" if not passed else "info"),
+                "message": "; ".join(details) if details else ("ok" if passed else "fail"),
+            })
+    except Exception as e:
+        results.append({
+            "name": "Target health check",
+            "ok": False,
+            "severity": "warning",
+            "message": str(e),
+        })
+
     if as_json:
         import json as _json
 

@@ -63,6 +63,44 @@
 
 ---
 
+## 决策框架：Karpathy 心智模型
+
+以下 4 个心智模型来自 Andrej Karpathy 的系统化思维体系，用于项目技术决策：
+
+### March of Nines（工程现实主义）
+
+从 90% 到 99.9% 的工程爬坡比从 0 到 90% 更难。评估任何 AI 管道组件时必须问：
+
+- 这个组件在最差 5% 的场景下表现如何？
+- Demo 效果不等于部署可靠性
+- 数据飞轮（持续积累真实数据）比模型架构更重要
+
+### 构建即理解
+
+理解的终极检验是能否用最少代码从零重建核心：
+
+- 技术选型时优先选择"能从零重建核心"的方案
+- 外部 Skill/工具必须能解释内部原理，否则不予集成
+- 不要因为"社区推荐"而跳过理解步骤
+
+### 锯齿状智能（Jagged Intelligence）
+
+LLM 能力分布是锯齿状的——某些维度超人，某些维度犯蠢：
+
+- 不假设 AI 能力均匀分布
+- 为已知凹陷点加规则兜底，不靠更大的模型硬解
+- 测试时优先找系统性失败模式
+
+### Iron Man 套装 > Iron Man 机器人
+
+构建 AI 应用应该给人穿上套装让人更强大，而不是造替代人的机器人：
+
+- News Sentry 定位为"增强人工研判"，不是"替代人工决策"
+- 所有关键判断保留人工介入点
+- Agent 编排中，人是监督者，不是旁观者
+
+---
+
 ## 项目特定指引
 
 以下规则是对 Karpathy 基线的项目级补充，同样具有约束力。
@@ -100,12 +138,12 @@
 ### Phase 执行顺序
 
 1. Contract Stabilization ✅
-2. Runtime Carrier Alignment
-3. **Kernel MVP ← 当前**
-4. Tool/Skill Registry + OpenCLI
-5. AI Provider Routing
-6. Sandbox Hardening + Social/KOL
-7. Multi-target Expansion
+2. Runtime Carrier Alignment ✅
+3. Kernel MVP ✅
+4. Tool/Skill Registry + OpenCLI ✅
+5. AI Provider Routing ✅
+6. Sandbox Hardening + Social/KOL ✅
+7. Multi-target Expansion ✅
 
 ### 目录协议与文件事件
 
