@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://news-sentry.local/schemas/evalexample.schema.json",
+  "title": "EvalExample",
+  "description": "Single evaluation example for Judge accuracy benchmarking. Covers 13 dimensions and edge cases.",
+  "type": "object",
+  "required": ["eval_id", "input", "expected"],
+  "additionalProperties": false,
+  "properties": {
+    "eval_id": {
+      "type": "string",
+      "pattern": "^eval-[a-z0-9-]+$"
+    },
+    "dimension": {
+      "type": "string",
+      "enum": [
+        "politics", "economics", "diplomacy", "security", "judicial",
+        "society", "technology", "environment", "immigration", "culture",
+        "religion", "china_relations", "other", "edge_case"
+      ],
+      "description": "One of the 13 dimensions or edge_case for boundary testing"
+    },
+    "input": {
+      "type": "object",
+      "required": ["title_original", "content_original", "source_id"],
+      "additionalProperties": false,
+      "properties": {
+        "title_original": { "type": "string" },
+        "content_original": { "type": "string" },
+        "source_id": { "type": "string" },
+        "url": { "type": "string" },
+        "language": { "type": "string", "enum": ["it", "en", "zh", "mixed"] }
+      }
+    },
+    "expected": {
+      "type": "object",
+      "required": ["recommendation", "l0_domain"],
+      "additionalProperties": false,
+      "properties": {
+        "recommendation": {
+          "type": "string",
+          "enum": ["publish", "review", "archive"]
+        },
+        "l0_domain": { "type": "string" },
+        "l1_topic": { "type": "string" },
+        "news_value_score_min": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Minimum acceptable news_value_score"
+        },
+        "china_relevance_min": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Minimum acceptable china_relevance score (0 if not relevant)"
+        },
+        "sentiment_expected": {
+          "type": "string",
+          "enum": ["positive", "neutral", "negative", "mixed"],
+          "description": "Expected sentiment direction"
+        }
+      }
+    },
+    "notes": {
+      "type": "string",
+      "description": "Human annotator notes on why this example is included"
+    }
+  }
+}
