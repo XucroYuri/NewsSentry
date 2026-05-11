@@ -5,7 +5,7 @@ rules_version: "1.0.0"
 target_id: china-watch-en
 
 # 进入 evaluated/ 阶段所需的最低 news_value_score（0-100）
-score_threshold: 40
+score_threshold: 30
 
 # 超过此时间窗口的事件直接归档，不进入 judge 阶段
 max_age_hours: 48
@@ -149,4 +149,107 @@ keyword_rules:
     language: en
   - keyword: "semiconductor"
     weight: 0.85
+    language: en
+
+  # ── Human Rights / 人权 ───────────────────────────────
+  - keyword: "human rights"
+    weight: 0.80
+    language: en
+  - keyword: "Xinjiang"
+    weight: 0.90
+    language: en
+  - keyword: "Tibet"
+    weight: 0.80
+    language: en
+  - keyword: "Hong Kong"
+    weight: 0.85
+    language: en
+  - keyword: "censorship"
+    weight: 0.75
+    language: en
+  - keyword: "dissident"
+    weight: 0.80
+    language: en
+
+  # ── Environment & Energy / 环境与能源 ────────────────────
+  - keyword: "carbon emissions"
+    weight: 0.70
+    language: en
+  - keyword: "climate change"
+    weight: 0.70
+    language: en
+  - keyword: "coal"
+    weight: 0.65
+    language: en
+  - keyword: "renewable energy"
+    weight: 0.65
+    language: en
+  - keyword: "pollution"
+    weight: 0.65
+    language: en
+
+  # ── Society & Culture / 社会文化 ────────────────────────
+  - keyword: "demographics"
+    weight: 0.65
+    language: en
+  - keyword: "aging population"
+    weight: 0.65
+    language: en
+  - keyword: "property crisis"
+    weight: 0.80
+    language: en
+  - keyword: "real estate"
+    weight: 0.70
+    language: en
+  - keyword: "protest"
+    weight: 0.80
+    language: en
+  - keyword: "social credit"
+    weight: 0.75
+    language: en
+
+  # ── Security / 安全 ────────────────────────────────────
+  - keyword: "cybersecurity"
+    weight: 0.80
+    language: en
+  - keyword: "espionage"
+    weight: 0.85
+    language: en
+  - keyword: "spy"
+    weight: 0.75
+    language: en
+  - keyword: "surveillance"
+    weight: 0.75
+    language: en
+  - keyword: "military"
+    weight: 0.75
+    language: en
+  - keyword: "naval"
+    weight: 0.70
+    language: en
+  - keyword: "nuclear"
+    weight: 0.70
+    language: en
+
+  # ── Companies / 中国企业 ──────────────────────────────
+  - keyword: "Huawei"
+    weight: 0.80
+    language: en
+  - keyword: "TikTok"
+    weight: 0.80
+    language: en
+  - keyword: "BYD"
+    weight: 0.75
+    language: en
+  - keyword: "Tencent"
+    weight: 0.70
+    language: en
+  - keyword: "Alibaba"
+    weight: 0.70
+    language: en
+  - keyword: "Xiaomi"
+    weight: 0.65
+    language: en
+  - keyword: "ZTE"
+    weight: 0.70
     language: en
