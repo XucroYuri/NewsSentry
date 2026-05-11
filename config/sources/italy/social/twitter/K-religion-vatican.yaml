@@ -1,0 +1,29 @@
+platform: twitter
+dimension: religion-vatican
+collect_mode: opencli_bridge
+session_profile_ref: config/session-profiles/italy/twitter.session.yaml
+
+accounts:
+  - handle: "@Pontifex"
+    display_name: "Papa Francesco"
+    url: "https://x.com/Pontifex"
+    tier: L1
+    category: pope
+    monitor_mode: active
+    fetch_max_per_run: 10
+
+  - handle: "@HolySeePress"
+    display_name: "Holy See Press Office"
+    url: "https://x.com/HolySeePress"
+    tier: L1
+    category: vatican_official
+    monitor_mode: active
+    fetch_max_per_run: 15
+
+  - handle: "@vaticannews_it"
+    display_name: "Vatican News IT"
+    url: "https://x.com/vaticannews_it"
+    tier: L2
+    category: vatican_media
+    monitor_mode: active
+    fetch_max_per_run: 15

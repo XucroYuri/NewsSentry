@@ -1,0 +1,32 @@
+platform: twitter
+dimension: china-topics
+collect_mode: opencli_bridge
+session_profile_ref: config/session-profiles/italy/twitter.session.yaml
+
+accounts:
+  - handle: "@AmbasciataCina"
+    display_name: "Ambasciata Cina in Italia"
+    url: "https://x.com/AmbasciataCina"
+    tier: L1
+    category: embassy
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "中国驻意大利大使馆"
+
+  - handle: "@ChinaAmbUN"
+    display_name: "China Mission to UN"
+    url: "https://x.com/ChinaAmbUN"
+    tier: L2
+    category: diplomacy
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "中国常驻联合国代表团（涉意多边议题）"
+
+  - handle: "@ICCFI_FIC"
+    display_name: "Fondazione Italia Cina"
+    url: "https://x.com/ICCFI_FIC"
+    tier: L2
+    category: bilateral
+    monitor_mode: active
+    fetch_max_per_run: 10
+    notes: "意中基金会"

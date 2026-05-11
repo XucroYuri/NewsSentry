@@ -1,0 +1,29 @@
+platform: twitter
+dimension: economy-business
+collect_mode: opencli_bridge
+session_profile_ref: config/session-profiles/italy/twitter.session.yaml
+
+accounts:
+  - handle: "@bancaditalia"
+    display_name: "Banca d'Italia"
+    url: "https://x.com/bancaditalia"
+    tier: L1
+    category: central_bank
+    monitor_mode: active
+    fetch_max_per_run: 15
+
+  - handle: "@istat_it"
+    display_name: "Istat"
+    url: "https://x.com/istat_it"
+    tier: L2
+    category: statistics
+    monitor_mode: active
+    fetch_max_per_run: 15
+
+  - handle: "@MEF_GOV"
+    display_name: "MEF"
+    url: "https://x.com/MEF_GOV"
+    tier: L2
+    category: economy_ministry
+    monitor_mode: active
+    fetch_max_per_run: 15

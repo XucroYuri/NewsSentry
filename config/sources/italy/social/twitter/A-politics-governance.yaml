@@ -1,0 +1,140 @@
+platform: twitter
+dimension: politics-governance
+collect_mode: opencli_bridge
+session_profile_ref: config/session-profiles/italy/twitter.session.yaml
+
+accounts:
+  - handle: "@Palazzo_Chigi"
+    display_name: "Palazzo Chigi"
+    url: "https://x.com/Palazzo_Chigi"
+    tier: L1
+    category: government
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "总理府官方账号"
+
+  - handle: "@GiorgiaMeloni"
+    display_name: "Giorgia Meloni"
+    url: "https://x.com/GiorgiaMeloni"
+    tier: L1
+    category: head_of_government
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "意大利总理个人账号"
+
+  - handle: "@Quirinale"
+    display_name: "Quirinale"
+    url: "https://x.com/Quirinale"
+    tier: L1
+    category: head_of_state
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "意大利总统府"
+
+  - handle: "@Viminale"
+    display_name: "Ministero dell'Interno"
+    url: "https://x.com/Viminale"
+    tier: L1
+    category: government
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "内政部"
+
+  - handle: "@ItalyMFA"
+    display_name: "Italy MFA"
+    url: "https://x.com/ItalyMFA"
+    tier: L1
+    category: foreign_affairs
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "外交部官方英文"
+
+  - handle: "@Farnesina"
+    display_name: "Farnesina"
+    url: "https://x.com/Farnesina"
+    tier: L1
+    category: foreign_affairs
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "外交部意大利文"
+
+  - handle: "@MatteoSalviniMI"
+    display_name: "Matteo Salvini"
+    url: "https://x.com/MatteoSalviniMI"
+    tier: L2
+    category: party_leader
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "副总理/基础设施部长，Lega 党魁"
+
+  - handle: "@Antonio_Tajani"
+    display_name: "Antonio Tajani"
+    url: "https://x.com/Antonio_Tajani"
+    tier: L2
+    category: foreign_affairs
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "副总理/外交部长，Forza Italia"
+
+  - handle: "@FratellidItalia"
+    display_name: "Fratelli d'Italia"
+    url: "https://x.com/FratellidItalia"
+    tier: L2
+    category: party_official
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "执政党官方账号"
+
+  - handle: "@pdnetwork"
+    display_name: "Partito Democratico"
+    url: "https://x.com/pdnetwork"
+    tier: L2
+    category: party_official
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "主要反对党"
+
+  - handle: "@Mov5Stelle"
+    display_name: "Movimento 5 Stelle"
+    url: "https://x.com/Mov5Stelle"
+    tier: L2
+    category: party_official
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "五星运动"
+
+  - handle: "@Forza_Italia"
+    display_name: "Forza Italia"
+    url: "https://x.com/Forza_Italia"
+    tier: L2
+    category: party_official
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "中右翼政党"
+
+  - handle: "@RegioneLombardia"
+    display_name: "Regione Lombardia"
+    url: "https://x.com/RegioneLombardia"
+    tier: L3
+    category: regional
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "伦巴第大区"
+
+  - handle: "@ComuneRoma"
+    display_name: "Roma Capitale"
+    url: "https://x.com/ComuneRoma"
+    tier: L3
+    category: municipal
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "罗马市政府"
+
+  - handle: "@ComuneMI"
+    display_name: "Comune di Milano"
+    url: "https://x.com/ComuneMI"
+    tier: L3
+    category: municipal
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "米兰市政府"
