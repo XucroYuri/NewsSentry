@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 PIPELINE_STAGE_ORDER = ["collect", "filter", "judge", "output", "analyze"]
 
 
-class OrchestratorMode(str, Enum):
+class OrchestratorMode(StrEnum):
     SEQUENTIAL = "sequential"
     CONCURRENT = "concurrent"
 

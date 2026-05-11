@@ -1,4 +1,4 @@
-from news_sentry.skills.analysis.trend_analyzer import TrendReport, TopicTrend
+from news_sentry.skills.analysis.trend_analyzer import TopicTrend, TrendReport
 
 
 def test_topic_trend_creation():

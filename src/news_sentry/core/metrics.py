@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -28,7 +27,7 @@ class RunMetrics(BaseModel):
 
     def model_post_init(self, __context: object) -> None:
         if not self.generated_at:
-            self.generated_at = datetime.now(timezone.utc).isoformat()
+            self.generated_at = datetime.now(UTC).isoformat()
 
 
 class MetricsWriter:
