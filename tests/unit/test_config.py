@@ -612,3 +612,19 @@ class TestLoadTarget:
         assert "score_threshold" in config.filter_rules
         assert "l0_domains" in config.classification_rules
         assert "command_policy" in config.sandbox_policy
+
+        # Phase 12: 验证三种采集类型都有源
+        by_type = {}
+        for s in config.sources:
+            by_type.setdefault(s["type"], []).append(s)
+        assert len(by_type.get("rss", [])) >= 30
+        assert len(by_type.get("api", [])) >= 5
+        assert len(by_type.get("opencli", [])) >= 10
+
+        # 验证 API 源有 endpoint 配置
+        for api_src in by_type["api"]:
+            assert "endpoint" in api_src, f"API source {api_src['source_id']} missing endpoint"
+
+        # 验证 OpenCLI 源有 tool_ref 配置
+        for opencli_src in by_type["opencli"]:
+            assert "tool_ref" in opencli_src, f"OpenCLI source {opencli_src['source_id']} missing tool_ref"
