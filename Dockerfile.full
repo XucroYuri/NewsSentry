@@ -6,34 +6,52 @@ COPY src/ src/
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -e ".[dev]"
 
-# ---- Runtime with Chromium + Playwright MCP ----
+# ---- Runtime with Chromium + Playwright MCP + OpenCLI ----
 # NOTE: This image requires ≥12GB RAM for docker build.
 # If local build OOMs, use GitHub Actions CI (16GB) instead:
 #   docker build -f Dockerfile.full -t news-sentry-full:0.5.0 .
 FROM python:3.12-slim AS runtime
 WORKDIR /app
 
-# System dependencies: Chromium + Xvfb + Node.js (split to reduce peak memory)
+# Step 1: Xvfb + gosu + curl
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    xvfb curl ca-certificates gosu \
+    xvfb curl ca-certificates gosu unzip \
     && rm -rf /var/lib/apt/lists/*
 
+# Step 2: Node.js + npm
 RUN apt-get update && apt-get install -y --no-install-recommends \
     nodejs npm \
     && rm -rf /var/lib/apt/lists/*
 
+# Step 3: Chromium + driver
 RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium chromium-driver \
     && rm -rf /var/lib/apt/lists/*
 
+# Step 4: CJK fonts + yt-dlp dependency (ffmpeg for video extraction)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    fonts-noto-cjk \
+    fonts-noto-cjk ffmpeg \
     && rm -rf /var/lib/apt/lists/*
+
+# OpenCLI CLI (Layer 1 browser bridge - zero Token)
+RUN npm install -g @jackwener/opencli
+
+# OpenCLI Extension for Chromium (download from GitHub releases)
+ARG OPENCLI_VERSION=v1.7.16
+ARG OPENCLI_EXT_VERSION=v1.0.10
+RUN mkdir -p /usr/share/chromium/extensions/opencli && \
+    cd /tmp && \
+    curl -sL "https://github.com/jackwener/OpenCLI/releases/download/${OPENCLI_VERSION}/opencli-extension-${OPENCLI_EXT_VERSION}.zip" -o opencli-ext.zip && \
+    unzip -o opencli-ext.zip -d /usr/share/chromium/extensions/opencli && \
+    rm opencli-ext.zip
 
 # Playwright MCP (Layer 2 browser fallback)
 RUN npm install -g playwright @playwright/mcp \
     && npx playwright install-deps chromium \
     && npx playwright install chromium
+
+# yt-dlp (video/audio extraction for media sources)
+RUN pip install --no-cache-dir yt-dlp
 
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
@@ -55,6 +73,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 ENV CHROME_BIN=/usr/bin/chromium
 ENV CHROMEDRIVER_BIN=/usr/bin/chromedriver
+ENV CHROME_EXTENSIONS_DIR=/usr/share/chromium/extensions
 ENV DISPLAY=:99
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=true
