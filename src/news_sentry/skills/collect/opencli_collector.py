@@ -35,8 +35,9 @@ class OpenCLICollector:
         self._config = config
         self._adapter = opencli_adapter
         self._source_id: str = config["source_id"]
-        self._tool_ref: str = config.get("tool_ref", "") or ""
-        self._args: dict[str, Any] = config.get("validated_args", {}) or {}
+        self._tool_ref: str = config.get("tool_ref", "") or config.get("opencli_command", "") or ""
+        # Phase 12: 优先使用 tool_params，兼容旧的 validated_args
+        self._args: dict[str, Any] = config.get("tool_params") or config.get("validated_args") or {}
 
     def collect(self, run_id: str) -> list[NewsEvent]:
         """执行 OpenCLI 工具调用并解析结果为 NewsEvent 列表。
