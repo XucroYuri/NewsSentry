@@ -2,7 +2,7 @@
 
 > 版本: v2.0 | 日期: 2026-05-11
 > 状态: **路线图主权文档** — 本文档是多阶段开发计划与 TODO 矩阵的唯一权威来源
-> 当前版本: **v0.4.0** | 下一版本: **v0.5.0** (Phase 12 信源矩阵)
+> 当前版本: **v0.5.0** | 下一版本: **v0.6.0** (Phase 13 评估集+部署)
 > 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](spec/README.md) 为准）
 > 字段口径基准: [`docs/contracts-canonical.md`](./contracts-canonical.md)
 > 架构决策: [`docs/adr/README.md`](./adr/README.md)
