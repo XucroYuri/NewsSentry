@@ -16,8 +16,6 @@ select = [
     "N",   # pep8-naming
 ]
 ignore = [
-    "ANN101", # missing type annotation for self
-    "ANN102", # missing type annotation for cls
     "S101",   # use of assert (allowed in tests)
 ]
 

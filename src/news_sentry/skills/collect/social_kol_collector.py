@@ -39,7 +39,7 @@ class SocialKOLCollector:
 
     def __init__(
         self,
-        registry: Any,                                 # ToolRegistry
+        registry: Any,  # noqa: ANN401 — ToolRegistry import would cause circular import
         sandbox: SandboxEnforcer,
         kol_state: dict[str, Any],
         config: dict[str, Any] | None = None,
@@ -119,7 +119,7 @@ class SocialKOLCollector:
             try:
                 account_events = self._fetch_account_page(account, run_id)
                 events.extend(account_events[: account.fetch_max_per_run])
-            except Exception:
+            except Exception:  # noqa: S112 — skip failed account, continue with remaining
                 continue
 
         return events
@@ -146,7 +146,7 @@ class SocialKOLCollector:
                 author = (event.metadata.get("collection", {}).get("author_handle", ""))
                 if author in monitored_handles:
                     events.append(event)
-        except Exception:
+        except Exception:  # noqa: S110 — timeline fetch failure is non-fatal, return empty list
             pass
 
         return events
@@ -299,7 +299,7 @@ class SocialKOLCollector:
 
     def _execute_bridge_tool(
         self, tool_id: str, validated_args: dict[str, Any], run_id: str,
-    ) -> Any:  # ToolRunResult
+    ) -> Any:  # noqa: ANN401 — ToolRunResult is defined in adapters.tools.base
         """封装 registry.execute 调用，统一注入 binding_id 和 sandbox。"""
         return self._registry.execute(
             tool_id,

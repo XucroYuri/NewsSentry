@@ -19,7 +19,7 @@ class TestBrowserFallback:
         bf.record_failure()
         assert bf.active_layer == 2  # 2 次失败降级到 Layer 2
 
-    def test_degrade_to_layer3_only_for_L1(self):
+    def test_degrade_to_layer3_only_for_l1(self):
         """Layer 1+2 合计失败 5 次，仅对 L1 降级到 Layer 3。"""
         config = {
             "browser_fallback": {

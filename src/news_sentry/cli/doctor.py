@@ -115,11 +115,11 @@ def run_doctor(target_id: str, data_root: str = "data") -> DoctorReport:
     if xdpyinfo:
         try:
             result = subprocess.run(
-                ["xdpyinfo", "-display", ":99"],
+                ["xdpyinfo", "-display", ":99"],  # noqa: S607 — xdpyinfo path varies by distro
                 capture_output=True, text=True, timeout=5,
             )
             display_ok = result.returncode == 0
-        except Exception:
+        except Exception:  # noqa: S110 — Xvfb may not be running, health check handles this
             pass
     bridge_details.append(f"Xvfb display :99 {'available' if display_ok else 'not running'}")
 
@@ -128,11 +128,11 @@ def run_doctor(target_id: str, data_root: str = "data") -> DoctorReport:
     opencli_ok = False
     if opencli:
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # noqa: S603 — opencli path from shutil.which, trusted input
                 [opencli, "--version"], capture_output=True, text=True, timeout=10,
             )
             opencli_ok = result.returncode == 0
-        except Exception:
+        except Exception:  # noqa: S110 — opencli may not be installed, health check handles this
             pass
     bridge_details.append(f"OpenCLI {'available' if opencli_ok else 'not found'}")
 
@@ -141,11 +141,11 @@ def run_doctor(target_id: str, data_root: str = "data") -> DoctorReport:
     playwright_ok = False
     if npx:
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # noqa: S603 — npx path from shutil.which, trusted input
                 [npx, "playwright", "--version"], capture_output=True, text=True, timeout=10,
             )
             playwright_ok = result.returncode == 0
-        except Exception:
+        except Exception:  # noqa: S110 — playwright may not be installed, health check handles this
             pass
     bridge_details.append(f"Playwright {'available' if playwright_ok else 'not available'}")
 
@@ -161,7 +161,9 @@ def run_doctor(target_id: str, data_root: str = "data") -> DoctorReport:
     else:
         yaml_files = list(session_dir.glob("*.yaml"))
         session_files = list(session_dir.glob("*.session.*"))
-        session_details.append(f"{len(yaml_files)} session configs, {len(session_files)} session files")
+        session_details.append(
+            f"{len(yaml_files)} session configs, {len(session_files)} session files"
+        )
 
     return DoctorReport(
         schema_check={"passed": schema_ok, "details": schema_details},
