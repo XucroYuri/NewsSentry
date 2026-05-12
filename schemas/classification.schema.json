@@ -8,7 +8,7 @@
     "L0Domain": {
       "type": "object",
       "title": "L0Domain",
-      "required": ["code", "label_zh", "label_it"],
+      "required": ["code", "label_zh"],
       "additionalProperties": false,
       "properties": {
         "code": {
@@ -17,7 +17,8 @@
           "description": "Code identifier, e.g. 'politics', 'POLITICS'"
         },
         "label_zh": { "type": "string" },
-        "label_it": { "type": "string" },
+        "label_it": { "type": ["string", "null"] },
+        "label_ja": { "type": ["string", "null"] },
         "keywords_it": {
           "type": "array",
           "items": { "type": "string" },
@@ -29,6 +30,11 @@
           "default": []
         },
         "keywords_zh": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "keywords_ja": {
           "type": "array",
           "items": { "type": "string" },
           "default": []
@@ -48,12 +54,18 @@
         "l0_domain": { "type": "string" },
         "label_zh": { "type": "string" },
         "label_it": { "type": ["string", "null"] },
+        "label_ja": { "type": ["string", "null"] },
         "keywords_it": {
           "type": "array",
           "items": { "type": "string" },
           "default": []
         },
         "keywords_en": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": []
+        },
+        "keywords_ja": {
           "type": "array",
           "items": { "type": "string" },
           "default": []
