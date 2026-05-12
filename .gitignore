@@ -54,6 +54,9 @@ data/
 
 # Development planning workspace (local only, v1.0+ reevaluate)
 .planning/
+
+# Local document archive (dev-reference docs not for publication)
+docs/_archive/
 config/**/*.local.yaml
 config/**/*.local.yml
 
