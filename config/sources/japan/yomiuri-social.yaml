@@ -1,0 +1,10 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: "yomiuri-social"
+display_name: "読売新聞 社会"
+type: rss
+url: "https://www.yomiuri.co.jp/rss/social.xml"
+credibility_base: 0.85
+fetch_interval_minutes: 60
+max_items_per_run: 30
+timeout_seconds: 30
+enabled: true

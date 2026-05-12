@@ -1,0 +1,10 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: "asahi-culture"
+display_name: "朝日新聞 文化"
+type: rss
+url: "https://rss.asahi.com/rss/asahi/culture.rdf"
+credibility_base: 0.80
+fetch_interval_minutes: 120
+max_items_per_run: 20
+timeout_seconds: 30
+enabled: true
