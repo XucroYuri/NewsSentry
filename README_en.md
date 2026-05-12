@@ -17,11 +17,11 @@
 </p>
 
 <p align="center">
-  <a href="README.md">简体中文</a> · <a href="README_en.md">English</a>
+  <a href="#quick-start">Quick Start</a> · <a href="#pipeline-overview">Architecture</a> · <a href="#usage">Usage</a> · <a href="#deployment">Deploy</a> · <a href="#capability-boundaries--roadmap">Roadmap</a>
 </p>
 
 <p align="center">
-  <a href="#quick-start">Quick Start</a> · <a href="#installation">Install</a> · <a href="#usage">Usage</a> · <a href="#deployment">Deploy</a> · <a href="docs/architecture.md">Architecture</a> · <a href="docs/api-reference.md">API</a>
+  <a href="README.md">简体中文</a> · <a href="README_en.md">English</a>
 </p>
 
 ---
@@ -108,60 +108,6 @@ pip install -e ".[api]"    # FastAPI REST API gateway
 
 ---
 
-## Usage
-
-### CLI Commands
-
-```bash
-# Single stage
-python -m news_sentry.cli run --target italy --stage collect
-python -m news_sentry.cli run --target italy --stage filter
-python -m news_sentry.cli run --target italy --stage judge
-python -m news_sentry.cli run --target italy --stage output
-
-# Full pipeline
-python -m news_sentry.cli run --target italy --stage all
-
-# Other targets
-python -m news_sentry.cli run --target japan --stage all
-python -m news_sentry.cli run --target germany --stage all
-
-# Dry-run (validate config, no file writes)
-python -m news_sentry.cli run --target italy --stage all --dry-run
-
-# Production profile
-python -m news_sentry.cli run --target italy --stage all --profile cloud-vps
-
-# System diagnostics
-python -m news_sentry.cli doctor --target italy
-```
-
-### Makefile Shortcuts
-
-```bash
-make dry-run        # Validate configuration
-make run            # Collect stage
-make run-all        # Full pipeline
-make check          # lint + test
-make stats          # Data statistics
-make latest-log     # View latest run log
-make doctor         # System diagnostics
-make help           # View all commands
-```
-
-### Environment Variables
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `OPENAI_API_KEY` | At least one | — | OpenAI API Key |
-| `ANTHROPIC_API_KEY` | At least one | — | Anthropic API Key |
-| `DEEPSEEK_API_KEY` | No | — | DeepSeek API Key |
-| `NEWSSENTRY_API_KEY` | No | — | API gateway auth key |
-| `NEWSSENTRY_PROFILE` | No | `local-workstation` | Deployment profile |
-| `HTTPS_PROXY` | No | — | Proxy (e.g. `socks5://127.0.0.1:1080`) |
-
----
-
 ## Pipeline Overview
 
 ```
@@ -221,9 +167,42 @@ data/{target}/
 └── logs/          #  Run logs + heartbeat
 ```
 
----
+### External Project Dependencies
 
-## Configured Targets
+News Sentry is not a fully self-contained project — some capabilities rely on external projects:
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│                        News Sentry                                │
+│              (Core Pipeline + Config + Data Models)               │
+├───────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────────┐    │
+│  │ Hermes Agent │    │   OpenClaw   │    │     OpenCLI      │    │
+│  │ Runtime Host │    │ Runtime Host │    │   CLI Tool Bridge│    │
+│  └──────┬───────┘    └──────┬───────┘    └────────┬─────────┘    │
+│         │                   │                     │              │
+│    Cron scheduling    Skill registration    Social/web collection│
+│    Heartbeat          Ecosystem compat      Sources without RSS  │
+│    Lifecycle mgmt     Status queries        Browser Bridge       │
+│                                                                   │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+| Project | Role | Required? | Description |
+|---------|------|-----------|-------------|
+| **[OpenCLI](https://github.com/jackwener/OpenCLI)** | CLI tool bridge | Optional | Converts websites/social media into deterministic CLI commands for sources without RSS (Twitter, Reddit, government sites, etc.). Install: `npm install -g @jackwener/opencli` |
+| **[Hermes Agent](https://github.com/NousResearch/hermes-agent)** | Runtime host | Optional | Provides cron scheduling, heartbeat monitoring, lifecycle management. Recommended for production; dev can use standalone CLI |
+| **OpenClaw** | Runtime host | Optional | Alternative Skill runtime with registration and ecosystem compatibility. Currently a stub adapter |
+
+**Integration principles (ADR-0008):**
+- **Install, not vendor** — External projects installed via system package managers, no fork/submodule/vendor
+- **Wrap, not rewrite** — Call external tools via `ToolManifest` wrappers, never duplicate logic
+- **Graceful degradation** — Runs independently without external projects (RSS/API collection + CLI mode only)
+
+> Full integration strategy: [docs/external-integration-strategy.md](docs/external-integration-strategy.md)
+
+### Configured Targets
 
 | Target | Language Pair | Sources | Keyword Rules |
 |--------|--------------|---------|---------------|
@@ -233,18 +212,67 @@ data/{target}/
 | 🇩🇪 **germany** | de→zh | 22 | 46 |
 | 🇫🇷 **france** | fr→zh | 21 | 45 |
 
-### Add a New Country (Zero Code)
+Add a new country (zero code):
 
 ```bash
-# 1. Create target config from template
 cp config/targets/_template.yaml config/targets/{country}.yaml
-
-# 2. Create source and filter configs
 mkdir -p config/sources/{country}/rss config/filters/{country}
-
-# 3. Run
 make run TARGET={country}
 ```
+
+---
+
+## Usage
+
+### CLI Commands
+
+```bash
+# Single stage
+python -m news_sentry.cli run --target italy --stage collect
+python -m news_sentry.cli run --target italy --stage filter
+python -m news_sentry.cli run --target italy --stage judge
+python -m news_sentry.cli run --target italy --stage output
+
+# Full pipeline
+python -m news_sentry.cli run --target italy --stage all
+
+# Other targets
+python -m news_sentry.cli run --target japan --stage all
+python -m news_sentry.cli run --target germany --stage all
+
+# Dry-run (validate config, no file writes)
+python -m news_sentry.cli run --target italy --stage all --dry-run
+
+# Production profile
+python -m news_sentry.cli run --target italy --stage all --profile cloud-vps
+
+# System diagnostics
+python -m news_sentry.cli doctor --target italy
+```
+
+### Makefile Shortcuts
+
+```bash
+make dry-run        # Validate configuration
+make run            # Collect stage
+make run-all        # Full pipeline
+make check          # lint + test
+make stats          # Data statistics
+make latest-log     # View latest run log
+make doctor         # System diagnostics
+make help           # View all commands
+```
+
+### Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OPENAI_API_KEY` | At least one | — | OpenAI API Key |
+| `ANTHROPIC_API_KEY` | At least one | — | Anthropic API Key |
+| `DEEPSEEK_API_KEY` | No | — | DeepSeek API Key |
+| `NEWSSENTRY_API_KEY` | No | — | API gateway auth key |
+| `NEWSSENTRY_PROFILE` | No | `local-workstation` | Deployment profile |
+| `HTTPS_PROXY` | No | — | Proxy (e.g. `socks5://127.0.0.1:1080`) |
 
 ---
 
@@ -297,43 +325,6 @@ sudo systemctl enable --now news-sentry
 
 ---
 
-## External Project Dependencies
-
-News Sentry is not a fully self-contained project — some capabilities rely on external projects. Below describes each project's role and relationship:
-
-```
-┌───────────────────────────────────────────────────────────────────┐
-│                        News Sentry                                │
-│              (Core Pipeline + Config + Data Models)               │
-├───────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────────┐    │
-│  │ Hermes Agent │    │   OpenClaw   │    │     OpenCLI      │    │
-│  │ Runtime Host │    │ Runtime Host │    │   CLI Tool Bridge│    │
-│  └──────┬───────┘    └──────┬───────┘    └────────┬─────────┘    │
-│         │                   │                     │              │
-│    Cron scheduling    Skill registration    Social/web collection│
-│    Heartbeat          Ecosystem compat      Sources without RSS  │
-│    Lifecycle mgmt     Status queries        Browser Bridge       │
-│                                                                   │
-└───────────────────────────────────────────────────────────────────┘
-```
-
-| Project | Role | Required? | Description |
-|---------|------|-----------|-------------|
-| **[OpenCLI](https://github.com/jackwener/OpenCLI)** | CLI tool bridge | Optional | Converts websites/social media into deterministic CLI commands for sources without RSS (Twitter, Reddit, government sites, etc.). Install: `npm install -g @jackwener/opencli` |
-| **[Hermes Agent](https://github.com/NousResearch/hermes-agent)** | Runtime host | Optional | Provides cron scheduling, heartbeat monitoring, lifecycle management. Recommended for production; dev can use standalone CLI |
-| **OpenClaw** | Runtime host | Optional | Alternative Skill runtime with registration and ecosystem compatibility. Currently a stub adapter |
-
-**Integration principles (ADR-0008):**
-- **Install, not vendor** — External projects installed via system package managers, no fork/submodule/vendor
-- **Wrap, not rewrite** — Call external tools via `ToolManifest` wrappers, never duplicate logic
-- **Graceful degradation** — Runs independently without external projects (RSS/API collection + CLI mode only)
-
-> Full integration strategy: [docs/external-integration-strategy.md](docs/external-integration-strategy.md)
-
----
-
 ## Tech Stack
 
 | Layer | Technology | Notes |
@@ -365,49 +356,6 @@ make eval           # Run evaluation set
 - `ruff check` — 0 errors
 - `mypy —strict` — 0 issues
 - `pytest` — 1251 passed
-
----
-
-## Project Status
-
-**v1.0.0 — All 23 Phases Complete**
-
-| Stage | Version | Status |
-|-------|---------|--------|
-| Foundation (P1-P7) | v0.1–v0.3 | ✅ Done |
-| Iteration (P8-P11) | v0.4 | ✅ Done |
-| Source Matrix + Eval (P12-P13) | v0.5 | ✅ Done |
-| AI Optimization + Cloud (P14-P15) | v0.6 | ✅ Done |
-| Production + Multi-target (P16-P18) | v0.7 | ✅ Done |
-| Multilingual + Feedback (P19-P20) | v0.8 | ✅ Done |
-| Ecosystem Integration (P21-P22) | v0.9 | ✅ Done |
-| Stable Release (P23) | v1.0 | ✅ Done |
-
-| Metric | Value |
-|--------|-------|
-| Tests | 1251 passed |
-| Coverage | 92% |
-| Lint | ruff = 0 errors |
-| Type | mypy strict = 0 issues |
-| Targets | 5 countries |
-| Sources | 70+ |
-| Phases | 23/23 complete |
-
----
-
-## Documentation
-
-| Document | Description |
-|----------|-------------|
-| [Architecture](docs/architecture.md) | System architecture, data flow, directory structure |
-| [API Reference](docs/api-reference.md) | REST API endpoints, auth, Webhook |
-| [Deployment Guide](docs/deployment-guide.md) | Docker / VPS / API / systemd |
-| [Security Audit](docs/security-audit-report.md) | OWASP Top 10 audit report |
-| [Development Plan](docs/development-plan.md) | 23-phase roadmap |
-| [Contracts](docs/contracts-canonical.md) | Field naming, scoring, directory mapping |
-| [ADR](docs/adr/) | Architecture Decision Records (ADR-0001 ~ 0022) |
-| [Phase SPEC](docs/spec/) | Per-phase implementation specs |
-| [External Integration Strategy](docs/external-integration-strategy.md) | OpenCLI/Hermes/OpenClaw integration & version constraints |
 
 ---
 
@@ -448,6 +396,47 @@ make eval           # Run evaluation set
 | **Multilingual** | 5 countries / it/en/ja/de/fr | Translation quality depends on AI, domain terms may vary |
 | **Deployment** | Docker zero-dep / API gateway | VPS long-term stability needs real-world validation |
 | **Feedback** | Human annotation → rules auto-optimize | Requires sufficient feedback data to be effective |
+
+### Project Status
+
+**v1.0.0 — All 23 Phases Complete**
+
+| Stage | Version | Status |
+|-------|---------|--------|
+| Foundation (P1-P7) | v0.1–v0.3 | ✅ Done |
+| Iteration (P8-P11) | v0.4 | ✅ Done |
+| Source Matrix + Eval (P12-P13) | v0.5 | ✅ Done |
+| AI Optimization + Cloud (P14-P15) | v0.6 | ✅ Done |
+| Production + Multi-target (P16-P18) | v0.7 | ✅ Done |
+| Multilingual + Feedback (P19-P20) | v0.8 | ✅ Done |
+| Ecosystem Integration (P21-P22) | v0.9 | ✅ Done |
+| Stable Release (P23) | v1.0 | ✅ Done |
+
+| Metric | Value |
+|--------|-------|
+| Tests | 1251 passed |
+| Coverage | 92% |
+| Lint | ruff = 0 errors |
+| Type | mypy strict = 0 issues |
+| Targets | 5 countries |
+| Sources | 70+ |
+| Phases | 23/23 complete |
+
+---
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Architecture](docs/architecture.md) | System architecture, data flow, directory structure |
+| [API Reference](docs/api-reference.md) | REST API endpoints, auth, Webhook |
+| [Deployment Guide](docs/deployment-guide.md) | Docker / VPS / API / systemd |
+| [Security Audit](docs/security-audit-report.md) | OWASP Top 10 audit report |
+| [External Integration Strategy](docs/external-integration-strategy.md) | OpenCLI/Hermes/OpenClaw integration & version constraints |
+| [Development Plan](docs/development-plan.md) | 23-phase roadmap |
+| [Contracts](docs/contracts-canonical.md) | Field naming, scoring, directory mapping |
+| [ADR](docs/adr/) | Architecture Decision Records (ADR-0001 ~ 0022) |
+| [Phase SPEC](docs/spec/) | Per-phase implementation specs |
 
 ---
 

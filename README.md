@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="#快速开始">快速开始</a> · <a href="#安装">安装</a> · <a href="#使用">使用</a> · <a href="#部署">部署</a> · <a href="docs/architecture.md">架构</a> · <a href="docs/api-reference.md">API</a>
+  <a href="#快速开始">快速开始</a> · <a href="#pipeline-总览">架构</a> · <a href="#使用">使用</a> · <a href="#部署">部署</a> · <a href="#能力边界与路线图">路线图</a>
 </p>
 
 <p align="center">
@@ -108,60 +108,6 @@ pip install -e ".[api]"    # FastAPI REST API 网关
 
 ---
 
-## 使用
-
-### CLI 命令
-
-```bash
-# 单阶段运行
-python -m news_sentry.cli run --target italy --stage collect    # 仅采集
-python -m news_sentry.cli run --target italy --stage filter     # 仅过滤
-python -m news_sentry.cli run --target italy --stage judge      # 仅研判
-python -m news_sentry.cli run --target italy --stage output     # 仅输出
-
-# 全链路
-python -m news_sentry.cli run --target italy --stage all
-
-# 其他 target
-python -m news_sentry.cli run --target japan --stage all
-python -m news_sentry.cli run --target germany --stage all
-
-# 干运行（验证配置，不写文件）
-python -m news_sentry.cli run --target italy --stage all --dry-run
-
-# 生产 profile
-python -m news_sentry.cli run --target italy --stage all --profile cloud-vps
-
-# 系统诊断
-python -m news_sentry.cli doctor --target italy
-```
-
-### Makefile 快捷命令
-
-```bash
-make dry-run        # 验证配置
-make run            # 采集
-make run-all        # 全链路
-make check          # lint + test
-make stats          # 查看数据统计
-make latest-log     # 查看最新运行日志
-make doctor         # 系统诊断
-make help           # 查看所有命令
-```
-
-### 环境变量
-
-| 变量 | 必填 | 默认值 | 说明 |
-|------|------|--------|------|
-| `OPENAI_API_KEY` | 至少一个 | — | OpenAI API Key |
-| `ANTHROPIC_API_KEY` | 至少一个 | — | Anthropic API Key |
-| `DEEPSEEK_API_KEY` | 否 | — | DeepSeek API Key |
-| `NEWSSENTRY_API_KEY` | 否 | — | API 网关认证 Key |
-| `NEWSSENTRY_PROFILE` | 否 | `local-workstation` | 部署 profile |
-| `HTTPS_PROXY` | 否 | — | 代理（如 `socks5://127.0.0.1:1080`）|
-
----
-
 ## Pipeline 总览
 
 ```
@@ -221,9 +167,42 @@ data/{target}/
 └── logs/          #  运行日志 + 心跳
 ```
 
----
+### 外部项目依赖
 
-## 已配置的监控目标
+News Sentry 不是一个完全自包含的孤立项目，部分能力依赖外部项目协作实现：
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│                        News Sentry                                │
+│                  （核心管道 + 配置 + 数据模型）                      │
+├───────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────────┐    │
+│  │ Hermes Agent │    │   OpenClaw   │    │     OpenCLI      │    │
+│  │  运行时载体   │    │  运行时载体   │    │   CLI 工具桥接    │    │
+│  └──────┬───────┘    └──────┬───────┘    └────────┬─────────┘    │
+│         │                   │                     │              │
+│    Cron 调度           Skill 注册              社媒/网站采集     │
+│    心跳监控           生态兼容              无 RSS 的信源        │
+│    生命周期管理        运行状态查询           浏览器 Bridge       │
+│                                                                   │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+| 项目 | 角色 | 必需？ | 说明 |
+|------|------|--------|------|
+| **[OpenCLI](https://github.com/jackwener/OpenCLI)** | CLI 工具桥接 | 可选 | 将网站/社媒转为确定性 CLI 命令，用于采集无 RSS 的信源（Twitter、Reddit、政府网站等）。安装：`npm install -g @jackwener/opencli` |
+| **[Hermes Agent](https://github.com/NousResearch/hermes-agent)** | 运行时载体 | 可选 | 提供 Cron 调度、心跳监控、生命周期管理。生产环境推荐，开发可用独立 CLI 替代 |
+| **OpenClaw** | 运行时载体 | 可选 | 另一种 Skill 运行时，提供 Skill 注册和生态兼容。当前为 stub 适配 |
+
+**关系原则（ADR-0008）：**
+- **安装不内嵌** — 外部项目通过系统包管理器安装，不 fork / submodule / vendor
+- **包装不重写** — 通过 `ToolManifest` 包装调用外部工具，不复制其逻辑
+- **降级可运行** — 无外部项目时仍可独立运行（仅 RSS/API 采集 + CLI 模式）
+
+> 详细接入策略：[docs/external-integration-strategy.md](docs/external-integration-strategy.md)
+
+### 已配置的监控目标
 
 | Target | 语言对 | 信源数 | 关键词规则 |
 |--------|--------|--------|-----------|
@@ -233,18 +212,67 @@ data/{target}/
 | 🇩🇪 **germany** | de→zh | 22 | 46 |
 | 🇫🇷 **france** | fr→zh | 21 | 45 |
 
-### 添加新国家（零代码）
+添加新国家（零代码）：
 
 ```bash
-# 1. 从模板创建 target 配置
 cp config/targets/_template.yaml config/targets/{country}.yaml
-
-# 2. 创建信源和过滤配置
 mkdir -p config/sources/{country}/rss config/filters/{country}
-
-# 3. 运行
 make run TARGET={country}
 ```
+
+---
+
+## 使用
+
+### CLI 命令
+
+```bash
+# 单阶段运行
+python -m news_sentry.cli run --target italy --stage collect    # 仅采集
+python -m news_sentry.cli run --target italy --stage filter     # 仅过滤
+python -m news_sentry.cli run --target italy --stage judge      # 仅研判
+python -m news_sentry.cli run --target italy --stage output     # 仅输出
+
+# 全链路
+python -m news_sentry.cli run --target italy --stage all
+
+# 其他 target
+python -m news_sentry.cli run --target japan --stage all
+python -m news_sentry.cli run --target germany --stage all
+
+# 干运行（验证配置，不写文件）
+python -m news_sentry.cli run --target italy --stage all --dry-run
+
+# 生产 profile
+python -m news_sentry.cli run --target italy --stage all --profile cloud-vps
+
+# 系统诊断
+python -m news_sentry.cli doctor --target italy
+```
+
+### Makefile 快捷命令
+
+```bash
+make dry-run        # 验证配置
+make run            # 采集
+make run-all        # 全链路
+make check          # lint + test
+make stats          # 查看数据统计
+make latest-log     # 查看最新运行日志
+make doctor         # 系统诊断
+make help           # 查看所有命令
+```
+
+### 环境变量
+
+| 变量 | 必填 | 默认值 | 说明 |
+|------|------|--------|------|
+| `OPENAI_API_KEY` | 至少一个 | — | OpenAI API Key |
+| `ANTHROPIC_API_KEY` | 至少一个 | — | Anthropic API Key |
+| `DEEPSEEK_API_KEY` | 否 | — | DeepSeek API Key |
+| `NEWSSENTRY_API_KEY` | 否 | — | API 网关认证 Key |
+| `NEWSSENTRY_PROFILE` | 否 | `local-workstation` | 部署 profile |
+| `HTTPS_PROXY` | 否 | — | 代理（如 `socks5://127.0.0.1:1080`）|
 
 ---
 
@@ -297,43 +325,6 @@ sudo systemctl enable --now news-sentry
 
 ---
 
-## 外部项目依赖
-
-News Sentry 不是一个完全自包含的孤立项目，部分能力依赖外部项目协作实现。以下说明各项目的关系与作用：
-
-```
-┌───────────────────────────────────────────────────────────────────┐
-│                        News Sentry                                │
-│                  （核心管道 + 配置 + 数据模型）                      │
-├───────────────────────────────────────────────────────────────────┤
-│                                                                   │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────────┐    │
-│  │ Hermes Agent │    │   OpenClaw   │    │     OpenCLI      │    │
-│  │  运行时载体   │    │  运行时载体   │    │   CLI 工具桥接    │    │
-│  └──────┬───────┘    └──────┬───────┘    └────────┬─────────┘    │
-│         │                   │                     │              │
-│    Cron 调度           Skill 注册              社媒/网站采集     │
-│    心跳监控           生态兼容              无 RSS 的信源        │
-│    生命周期管理        运行状态查询           浏览器 Bridge       │
-│                                                                   │
-└───────────────────────────────────────────────────────────────────┘
-```
-
-| 项目 | 角色 | 必需？ | 说明 |
-|------|------|--------|------|
-| **[OpenCLI](https://github.com/jackwener/OpenCLI)** | CLI 工具桥接 | 可选 | 将网站/社媒转为确定性 CLI 命令，用于采集无 RSS 的信源（Twitter、Reddit、政府网站等）。安装：`npm install -g @jackwener/opencli` |
-| **[Hermes Agent](https://github.com/NousResearch/hermes-agent)** | 运行时载体 | 可选 | 提供 Cron 调度、心跳监控、生命周期管理。生产环境推荐，开发可用独立 CLI 替代 |
-| **OpenClaw** | 运行时载体 | 可选 | 另一种 Skill 运行时，提供 Skill 注册和生态兼容。当前为 stub 适配 |
-
-**关系原则（ADR-0008）：**
-- **安装不内嵌** — 外部项目通过系统包管理器安装，不 fork / submodule / vendor
-- **包装不重写** — 通过 `ToolManifest` 包装调用外部工具，不复制其逻辑
-- **降级可运行** — 无外部项目时仍可独立运行（仅 RSS/API 采集 + CLI 模式）
-
-> 详细接入策略：[docs/external-integration-strategy.md](docs/external-integration-strategy.md)
-
----
-
 ## 技术栈
 
 | 层 | 技术 | 说明 |
@@ -365,49 +356,6 @@ make eval          # 运行评估集
 - `ruff check` — 0 errors
 - `mypy —strict` — 0 issues
 - `pytest` — 1251 passed
-
----
-
-## 项目状态
-
-**v1.0.0 — 全部 23 个 Phase 已完成**
-
-| 阶段 | 版本 | 状态 |
-|------|------|------|
-| 基础平台（P1-P7） | v0.1–v0.3 | ✅ 完成 |
-| 迭代改进（P8-P11） | v0.4 | ✅ 完成 |
-| 信源矩阵 + 评估集（P12-P13） | v0.5 | ✅ 完成 |
-| AI 优化 + 云部署（P14-P15） | v0.6 | ✅ 完成 |
-| 生产化 + 多目标（P16-P18） | v0.7 | ✅ 完成 |
-| 多语言 + 反馈闭环（P19-P20） | v0.8 | ✅ 完成 |
-| 生态集成（P21-P22） | v0.9 | ✅ 完成 |
-| 稳定发布（P23） | v1.0 | ✅ 完成 |
-
-| 指标 | 值 |
-|------|-----|
-| 测试 | 1251 passed |
-| 覆盖率 | 92% |
-| Lint | ruff = 0 errors |
-| 类型 | mypy strict = 0 issues |
-| Target | 5 个国家 |
-| 信源 | 70+ |
-| Phase | 23/23 完成 |
-
----
-
-## 文档导航
-
-| 文档 | 说明 |
-|------|------|
-| [架构总览](docs/architecture.md) | 系统架构、数据流、目录结构 |
-| [API 文档](docs/api-reference.md) | REST API 端点、认证、Webhook |
-| [部署指南](docs/deployment-guide.md) | Docker / VPS / API / systemd |
-| [安全审计](docs/security-audit-report.md) | OWASP Top 10 审计报告 |
-| [开发计划](docs/development-plan.md) | 23 Phase 路线图 |
-| [契约规范](docs/contracts-canonical.md) | 字段命名、评分、目录映射 |
-| [ADR](docs/adr/) | 架构决策记录（ADR-0001 ~ 0022）|
-| [Phase SPEC](docs/spec/) | 各阶段实现规格 |
-| [外部项目接入策略](docs/external-integration-strategy.md) | OpenCLI/Hermes/OpenClaw 接入与版本约束 |
 
 ---
 
@@ -447,6 +395,47 @@ make eval          # 运行评估集
 | **多语言** | 5 国配置 / it/en/ja/de/fr | 翻译质量依赖 AI，专业术语可能偏差 |
 | **部署** | Docker 零依赖 / API 网关 | VPS 长期稳定性需实际验证 |
 | **反馈** | 人工标注 → 规则自优化 | 需要足够反馈数据才有效果 |
+
+### 项目状态
+
+**v1.0.0 — 全部 23 个 Phase 已完成**
+
+| 阶段 | 版本 | 状态 |
+|------|------|------|
+| 基础平台（P1-P7） | v0.1–v0.3 | ✅ 完成 |
+| 迭代改进（P8-P11） | v0.4 | ✅ 完成 |
+| 信源矩阵 + 评估集（P12-P13） | v0.5 | ✅ 完成 |
+| AI 优化 + 云部署（P14-P15） | v0.6 | ✅ 完成 |
+| 生产化 + 多目标（P16-P18） | v0.7 | ✅ 完成 |
+| 多语言 + 反馈闭环（P19-P20） | v0.8 | ✅ 完成 |
+| 生态集成（P21-P22） | v0.9 | ✅ 完成 |
+| 稳定发布（P23） | v1.0 | ✅ 完成 |
+
+| 指标 | 值 |
+|------|-----|
+| 测试 | 1251 passed |
+| 覆盖率 | 92% |
+| Lint | ruff = 0 errors |
+| 类型 | mypy strict = 0 issues |
+| Target | 5 个国家 |
+| 信源 | 70+ |
+| Phase | 23/23 完成 |
+
+---
+
+## 文档导航
+
+| 文档 | 说明 |
+|------|------|
+| [架构总览](docs/architecture.md) | 系统架构、数据流、目录结构 |
+| [API 文档](docs/api-reference.md) | REST API 端点、认证、Webhook |
+| [部署指南](docs/deployment-guide.md) | Docker / VPS / API / systemd |
+| [安全审计](docs/security-audit-report.md) | OWASP Top 10 审计报告 |
+| [外部项目接入策略](docs/external-integration-strategy.md) | OpenCLI/Hermes/OpenClaw 接入与版本约束 |
+| [开发计划](docs/development-plan.md) | 23 Phase 路线图 |
+| [契约规范](docs/contracts-canonical.md) | 字段命名、评分、目录映射 |
+| [ADR](docs/adr/) | 架构决策记录（ADR-0001 ~ 0022）|
+| [Phase SPEC](docs/spec/) | 各阶段实现规格 |
 
 ---
 
