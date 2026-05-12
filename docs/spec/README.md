@@ -54,8 +54,28 @@
 | Phase | 文件 | 核心目标 | 状态 |
 |-------|------|---------|------|
 | Phase 16 | Third Target (Japan JP) | 第三国家验证、多语言模板化 | ✅ DONE |
-| Phase 17 | Real-time Alert Pipeline | 飞书/邮件/推送实时告警 | 📋 PLANNED |
+| Phase 17 | Real-time Alert Pipeline | 飞书/邮件/推送实时告警 | ✅ DONE |
 | Phase 18 | Production Hardening | 监控/告警/备份/HA | 📋 PLANNED |
+
+### v0.8.0 — 多语言增强与质量反馈
+
+| Phase | 文件 | 核心目标 | 状态 |
+|-------|------|---------|------|
+| Phase 19 | Multi-language Enhancement | 德语/法语第 4-5 target | 📋 PLANNED |
+| Phase 20 | Quality Feedback Loop | 人工反馈→规则自优化 | 📋 PLANNED |
+
+### v0.9.0 — 生态集成与高级功能
+
+| Phase | 文件 | 核心目标 | 状态 |
+|-------|------|---------|------|
+| Phase 21 | RSS Auto-Discovery | 信源自动发现与矩阵自进化 | 📋 PLANNED |
+| Phase 22 | API Gateway | REST API + Webhook 入站 | 📋 PLANNED |
+
+### v1.0.0 — 稳定发布
+
+| Phase | 文件 | 核心目标 | 状态 |
+|-------|------|---------|------|
+| Phase 23 | Release v1.0 | 功能冻结、安全审计、正式发布 | 📋 PLANNED |
 
 ---
 
@@ -92,8 +112,22 @@ graph TD
 
     subgraph v0_7_0["v0.7.0 生产化"]
         P16["Phase 16\n3rd Target JP ✅"]
-        P17["Phase 17\nReal-time Alert 📋"]
+        P17["Phase 17\nReal-time Alert ✅"]
         P18["Phase 18\nProd Hardening 📋"]
+    end
+
+    subgraph v0_8_0["v0.8.0 多语言+反馈"]
+        P19["Phase 19\nMulti-language 📋\nDE + FR targets"]
+        P20["Phase 20\nFeedback Loop 📋\nHuman→Rules"]
+    end
+
+    subgraph v0_9_0["v0.9.0 生态集成"]
+        P21["Phase 21\nRSS Discovery 📋\nMatrix 自进化"]
+        P22["Phase 22\nAPI Gateway 📋\nREST + Webhook"]
+    end
+
+    subgraph v1_0_0["v1.0.0 稳定发布"]
+        P23["Phase 23\nRelease v1.0 📋\nSecurity Audit"]
     end
 
     P1 --> P2 --> P3 --> P4 --> P5 --> P6
@@ -104,6 +138,9 @@ graph TD
     P11 --> P12 --> P13
     P13 --> P14 --> P15
     P15 --> P16 --> P17 --> P18
+    P18 --> P19 --> P20
+    P20 --> P21 --> P22
+    P22 --> P23
 ```
 
 ---
