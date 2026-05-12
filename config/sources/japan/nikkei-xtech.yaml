@@ -1,0 +1,10 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: "nikkei-xtech"
+display_name: "日経クロステック"
+type: rss
+url: "https://xtrend.nikkei.com/rss/feed.xml"
+credibility_base: 0.87
+fetch_interval_minutes: 60
+max_items_per_run: 30
+timeout_seconds: 30
+enabled: true

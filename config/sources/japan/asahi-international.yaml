@@ -1,0 +1,10 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: "asahi-international"
+display_name: "朝日新聞 国際"
+type: rss
+url: "https://rss.asahi.com/rss/asahi/international.rdf"
+credibility_base: 0.85
+fetch_interval_minutes: 60
+max_items_per_run: 30
+timeout_seconds: 30
+enabled: true

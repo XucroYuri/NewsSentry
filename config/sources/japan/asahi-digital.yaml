@@ -1,0 +1,10 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: "asahi-digital"
+display_name: "朝日新聞 デジタル"
+type: rss
+url: "https://rss.asahi.com/rss/asahi/digital.rdf"
+credibility_base: 0.82
+fetch_interval_minutes: 60
+max_items_per_run: 30
+timeout_seconds: 30
+enabled: true

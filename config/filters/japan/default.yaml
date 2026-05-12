@@ -1,0 +1,206 @@
+# Schema: ../../schemas/filterrules.schema.json
+# 契约: docs/contracts-canonical.md §3
+# ADR: ADR-0009
+rules_version: "1.0.0"
+target_id: japan
+
+score_threshold: 30
+max_age_hours: 48
+dedup_window_hours: 24
+
+keyword_rules:
+
+  # ── 政治 ─────────────────────────────────────────────
+  - keyword: "政府"
+    weight: 0.8
+    language: ja
+  - keyword: "国会"
+    weight: 0.8
+    language: ja
+  - keyword: "首相"
+    weight: 0.9
+    language: ja
+  - keyword: "総理"
+    weight: 0.9
+    language: ja
+  - keyword: "選挙"
+    weight: 0.85
+    language: ja
+  - keyword: "自民党"
+    weight: 0.85
+    language: ja
+  - keyword: "野党"
+    weight: 0.7
+    language: ja
+  - keyword: "内閣"
+    weight: 0.8
+    language: ja
+  - keyword: "大臣"
+    weight: 0.75
+    language: ja
+
+  # ── 经济 ─────────────────────────────────────────────
+  - keyword: "経済"
+    weight: 0.8
+    language: ja
+  - keyword: "日経"
+    weight: 0.8
+    language: ja
+  - keyword: "GDP"
+    weight: 0.75
+    language: ja
+  - keyword: "金融政策"
+    weight: 0.8
+    language: ja
+  - keyword: "日銀"
+    weight: 0.85
+    language: ja
+  - keyword: "インフレ"
+    weight: 0.75
+    language: ja
+  - keyword: "円安"
+    weight: 0.8
+    language: ja
+  - keyword: "円高"
+    weight: 0.8
+    language: ja
+  - keyword: "株価"
+    weight: 0.7
+    language: ja
+
+  # ── 外交 ─────────────────────────────────────────────
+  - keyword: "外交"
+    weight: 0.85
+    language: ja
+  - keyword: "外相"
+    weight: 0.8
+    language: ja
+  - keyword: "首脳会談"
+    weight: 0.9
+    language: ja
+  - keyword: "G7"
+    weight: 0.8
+    language: ja
+  - keyword: "国連"
+    weight: 0.7
+    language: ja
+  - keyword: "同盟"
+    weight: 0.8
+    language: ja
+
+  # ── 安全 ─────────────────────────────────────────────
+  - keyword: "防衛"
+    weight: 0.85
+    language: ja
+  - keyword: "自衛隊"
+    weight: 0.85
+    language: ja
+  - keyword: "安全保障"
+    weight: 0.9
+    language: ja
+  - keyword: "北朝鮮"
+    weight: 0.9
+    language: ja
+  - keyword: "ミサイル"
+    weight: 0.85
+    language: ja
+  - keyword: "テロ"
+    weight: 0.8
+    language: ja
+  - keyword: "サイバー攻撃"
+    weight: 0.8
+    language: ja
+
+  # ── 社会 ─────────────────────────────────────────────
+  - keyword: "少子化"
+    weight: 0.8
+    language: ja
+  - keyword: "高齢化"
+    weight: 0.75
+    language: ja
+  - keyword: "人口減少"
+    weight: 0.8
+    language: ja
+  - keyword: "外国人労働者"
+    weight: 0.75
+    language: ja
+  - keyword: "労働"
+    weight: 0.7
+    language: ja
+  - keyword: "年金"
+    weight: 0.7
+    language: ja
+
+  # ── 科技 ─────────────────────────────────────────────
+  - keyword: "AI"
+    weight: 0.7
+    language: ja
+  - keyword: "半導体"
+    weight: 0.8
+    language: ja
+  - keyword: "スタートアップ"
+    weight: 0.65
+    language: ja
+
+  # ── 环境 ─────────────────────────────────────────────
+  - keyword: "環境"
+    weight: 0.7
+    language: ja
+  - keyword: "脱炭素"
+    weight: 0.75
+    language: ja
+  - keyword: "原発"
+    weight: 0.8
+    language: ja
+  - keyword: "地震"
+    weight: 0.85
+    language: ja
+  - keyword: "津波"
+    weight: 0.9
+    language: ja
+
+  # ── 涉华 ─────────────────────────────────────────────
+  - keyword: "中国"
+    weight: 0.9
+    language: ja
+  - keyword: "中日"
+    weight: 0.9
+    language: ja
+  - keyword: "日中"
+    weight: 0.9
+    language: ja
+  - keyword: "尖閣"
+    weight: 0.95
+    language: ja
+  - keyword: "習近平"
+    weight: 0.9
+    language: ja
+  - keyword: "北京"
+    weight: 0.8
+    language: ja
+  - keyword: "対中"
+    weight: 0.85
+    language: ja
+  - keyword: "一帯一路"
+    weight: 0.85
+    language: ja
+  - keyword: "半導体規制"
+    weight: 0.85
+    language: ja
+
+  # ── English supplementary ────────────────────────────
+  - keyword: "Japan"
+    weight: 0.6
+    language: en
+  - keyword: "Tokyo"
+    weight: 0.5
+    language: en
+  - keyword: "China-Japan"
+    weight: 0.9
+    language: en
+  - keyword: "Senkaku"
+    weight: 0.95
+    language: en
+  - keyword: "JSDF"
+    weight: 0.85
+    language: en

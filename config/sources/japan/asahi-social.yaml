@@ -1,0 +1,10 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: "asahi-social"
+display_name: "朝日新聞 社会"
+type: rss
+url: "https://rss.asahi.com/rss/asahi/social.rdf"
+credibility_base: 0.85
+fetch_interval_minutes: 60
+max_items_per_run: 30
+timeout_seconds: 30
+enabled: true
