@@ -297,6 +297,43 @@ sudo systemctl enable --now news-sentry
 
 ---
 
+## 外部项目依赖
+
+News Sentry 不是一个完全自包含的孤立项目，部分能力依赖外部项目协作实现。以下说明各项目的关系与作用：
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│                        News Sentry                                │
+│                  （核心管道 + 配置 + 数据模型）                      │
+├───────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────────┐    │
+│  │ Hermes Agent │    │   OpenClaw   │    │     OpenCLI      │    │
+│  │  运行时载体   │    │  运行时载体   │    │   CLI 工具桥接    │    │
+│  └──────┬───────┘    └──────┬───────┘    └────────┬─────────┘    │
+│         │                   │                     │              │
+│    Cron 调度           Skill 注册              社媒/网站采集     │
+│    心跳监控           生态兼容              无 RSS 的信源        │
+│    生命周期管理        运行状态查询           浏览器 Bridge       │
+│                                                                   │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+| 项目 | 角色 | 必需？ | 说明 |
+|------|------|--------|------|
+| **[OpenCLI](https://github.com/jackwener/OpenCLI)** | CLI 工具桥接 | 可选 | 将网站/社媒转为确定性 CLI 命令，用于采集无 RSS 的信源（Twitter、Reddit、政府网站等）。安装：`npm install -g @jackwener/opencli` |
+| **[Hermes Agent](https://github.com/NousResearch/hermes-agent)** | 运行时载体 | 可选 | 提供 Cron 调度、心跳监控、生命周期管理。生产环境推荐，开发可用独立 CLI 替代 |
+| **OpenClaw** | 运行时载体 | 可选 | 另一种 Skill 运行时，提供 Skill 注册和生态兼容。当前为 stub 适配 |
+
+**关系原则（ADR-0008）：**
+- **安装不内嵌** — 外部项目通过系统包管理器安装，不 fork / submodule / vendor
+- **包装不重写** — 通过 `ToolManifest` 包装调用外部工具，不复制其逻辑
+- **降级可运行** — 无外部项目时仍可独立运行（仅 RSS/API 采集 + CLI 模式）
+
+> 详细接入策略：[docs/external-integration-strategy.md](docs/external-integration-strategy.md)
+
+---
+
 ## 技术栈
 
 | 层 | 技术 | 说明 |
@@ -370,6 +407,7 @@ make eval          # 运行评估集
 | [契约规范](docs/contracts-canonical.md) | 字段命名、评分、目录映射 |
 | [ADR](docs/adr/) | 架构决策记录（ADR-0001 ~ 0022）|
 | [Phase SPEC](docs/spec/) | 各阶段实现规格 |
+| [外部项目接入策略](docs/external-integration-strategy.md) | OpenCLI/Hermes/OpenClaw 接入与版本约束 |
 
 ---
 

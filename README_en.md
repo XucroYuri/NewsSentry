@@ -297,6 +297,43 @@ sudo systemctl enable --now news-sentry
 
 ---
 
+## External Project Dependencies
+
+News Sentry is not a fully self-contained project — some capabilities rely on external projects. Below describes each project's role and relationship:
+
+```
+┌───────────────────────────────────────────────────────────────────┐
+│                        News Sentry                                │
+│              (Core Pipeline + Config + Data Models)               │
+├───────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────────┐    │
+│  │ Hermes Agent │    │   OpenClaw   │    │     OpenCLI      │    │
+│  │ Runtime Host │    │ Runtime Host │    │   CLI Tool Bridge│    │
+│  └──────┬───────┘    └──────┬───────┘    └────────┬─────────┘    │
+│         │                   │                     │              │
+│    Cron scheduling    Skill registration    Social/web collection│
+│    Heartbeat          Ecosystem compat      Sources without RSS  │
+│    Lifecycle mgmt     Status queries        Browser Bridge       │
+│                                                                   │
+└───────────────────────────────────────────────────────────────────┘
+```
+
+| Project | Role | Required? | Description |
+|---------|------|-----------|-------------|
+| **[OpenCLI](https://github.com/jackwener/OpenCLI)** | CLI tool bridge | Optional | Converts websites/social media into deterministic CLI commands for sources without RSS (Twitter, Reddit, government sites, etc.). Install: `npm install -g @jackwener/opencli` |
+| **[Hermes Agent](https://github.com/NousResearch/hermes-agent)** | Runtime host | Optional | Provides cron scheduling, heartbeat monitoring, lifecycle management. Recommended for production; dev can use standalone CLI |
+| **OpenClaw** | Runtime host | Optional | Alternative Skill runtime with registration and ecosystem compatibility. Currently a stub adapter |
+
+**Integration principles (ADR-0008):**
+- **Install, not vendor** — External projects installed via system package managers, no fork/submodule/vendor
+- **Wrap, not rewrite** — Call external tools via `ToolManifest` wrappers, never duplicate logic
+- **Graceful degradation** — Runs independently without external projects (RSS/API collection + CLI mode only)
+
+> Full integration strategy: [docs/external-integration-strategy.md](docs/external-integration-strategy.md)
+
+---
+
 ## Tech Stack
 
 | Layer | Technology | Notes |
@@ -370,6 +407,7 @@ make eval           # Run evaluation set
 | [Contracts](docs/contracts-canonical.md) | Field naming, scoring, directory mapping |
 | [ADR](docs/adr/) | Architecture Decision Records (ADR-0001 ~ 0022) |
 | [Phase SPEC](docs/spec/) | Per-phase implementation specs |
+| [External Integration Strategy](docs/external-integration-strategy.md) | OpenCLI/Hermes/OpenClaw integration & version constraints |
 
 ---
 
