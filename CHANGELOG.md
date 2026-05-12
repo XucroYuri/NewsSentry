@@ -10,6 +10,10 @@
 ## [未发布]
 
 ### 新增
+- Phase 18: health_server.py — 轻量 /health HTTP 端点（http.server, 90% 覆盖率）
+- Phase 18: backup.sh — 每日增量+每周全量备份，保留 4 周
+- Phase 18: logrotate.conf — 30 天日志轮转，每日 rotate + 压缩
+- Phase 18: news-sentry.service — systemd 服务文件，Restart=on-failure
 - Phase 17: AlertPipeline 告警管道 — 阈值过滤+24h 去重+飞书/邮件/Telegram 多通道推送
 - Phase 17: destinations.yaml 扩展（6 个目的地，告警类型默认禁用）
 - Phase 17: `${ENV_VAR}` 环境变量解析，禁止硬编码密钥

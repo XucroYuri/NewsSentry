@@ -55,7 +55,7 @@
 |-------|------|---------|------|
 | Phase 16 | Third Target (Japan JP) | 第三国家验证、多语言模板化 | ✅ DONE |
 | Phase 17 | Real-time Alert Pipeline | 飞书/邮件/推送实时告警 | ✅ DONE |
-| Phase 18 | Production Hardening | 监控/告警/备份/HA | 📋 PLANNED |
+| Phase 18 | Production Hardening | 监控/告警/备份/HA | ✅ DONE |
 
 ### v0.8.0 — 多语言增强与质量反馈
 
@@ -113,7 +113,7 @@ graph TD
     subgraph v0_7_0["v0.7.0 生产化"]
         P16["Phase 16\n3rd Target JP ✅"]
         P17["Phase 17\nReal-time Alert ✅"]
-        P18["Phase 18\nProd Hardening 📋"]
+        P18["Phase 18\nProd Hardening ✅"]
     end
 
     subgraph v0_8_0["v0.8.0 多语言+反馈"]

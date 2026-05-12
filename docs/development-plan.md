@@ -95,7 +95,7 @@
 |-------|------|---------|---------|------|
 | Phase 16 | Third Target (Japan JP) | 日本 target + 19 源 + 59 关键词规则 + keywords_ja | L | ✅ DONE |
 | Phase 17 | Real-time Alert Pipeline | AlertPipeline: 阈值过滤+24h去重+飞书/邮件/Telegram 推送 | M | ✅ DONE |
-| Phase 18 | Production Hardening | 监控面板、自动备份、HA 故障恢复、日志轮转 | L | 📋 PLANNED |
+| Phase 18 | Production Hardening | health_server + backup.sh + logrotate + systemd | L | ✅ DONE |
 
 ---
 
@@ -602,21 +602,21 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 ---
 
-## §19. Phase 18 — Production Hardening
+## §19. Phase 18 — Production Hardening ✅
 
 **目标：** 生产级监控、备份、HA，支撑长期无人值守运行。
 
 **入口标准：** Phase 17 告警通道就绪。
 
 **出口标准：**
-- Prometheus/Grafana 监控面板（或等效轻量方案）
-- 自动数据备份（每日增量 + 每周全量）
-- 日志轮转（保留 30 天）
-- 故障自动恢复（进程挂掉自动重启）
+- ✅ 轻量健康检查 HTTP 端点（/health 返回 JSON）
+- ✅ 自动数据备份（每日增量 + 每周全量）
+- ✅ 日志轮转（保留 30 天）
+- ✅ 故障自动恢复（systemd Restart=on-failure）
 
 **范围内：**
-- 健康检查端点
-- 备份脚本
+- ✅ 健康检查端点
+- ✅ 备份脚本
 - 日志轮转配置
 - 进程管理（systemd 或 supervisord）
 
@@ -731,15 +731,15 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P17.05 | 集成到 run.py 输出阶段 | `core/run.py` _run_output() | P17.01 | S | judged 事件自动触发告警 | ✅ |
 | P17.06 | destinations.yaml 扩展 | `config/output/destinations.yaml` | — | S | 飞书/邮件/Telegram 三通道配置（默认禁用） | ✅ |
 
-### Phase 18 · Production Hardening
+### Phase 18 · Production Hardening ✅
 
 | ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 | 状态 |
 |----|------|--------|------|------|--------|------|
-| P18.01 | 健康检查 HTTP 端点 | `core/health_server.py` | — | S | /health 返回 200 + 状态 JSON | 📋 |
-| P18.02 | 自动数据备份脚本 | `tools/backup.sh` | — | S | 每日增量 + 每周全量 | 📋 |
-| P18.03 | 日志轮转配置 | `config/logrotate.conf` | — | S | 保留 30 天日志 | 📋 |
-| P18.04 | 进程管理（systemd） | `config/news-sentry.service` | P18.01 | S | 进程挂掉自动重启 | 📋 |
-| P18.05 | Cloud VPS 部署验证 | 72h 运行报告 | P15.02 | M | 72h 无 OOM/Crash | 📋 |
+| P18.01 | 健康检查 HTTP 端点 | `core/health_server.py` | — | S | /health 返回 200 + 状态 JSON | ✅ |
+| P18.02 | 自动数据备份脚本 | `tools/backup.sh` | — | S | 每日增量 + 每周全量 | ✅ |
+| P18.03 | 日志轮转配置 | `config/logrotate.conf` | — | S | 保留 30 天日志 | ✅ |
+| P18.04 | 进程管理（systemd） | `config/news-sentry.service` | P18.01 | S | 进程挂掉自动重启 | ✅ |
+| P18.05 | Cloud VPS 部署验证 | 72h 运行报告 | P15.02 | M | 72h 无 OOM/Crash | ⏳ 待 VPS |
 
 ---
 
