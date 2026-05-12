@@ -591,7 +591,7 @@ src/news_sentry/skills/collect/opencli_collector.py  ← ❌ 全部 NotImplement
          ▼
    (断层)
          │
-/Users/xuyu/.local/bin/opencli (v1.7.8)   ← ✅ 本机已安装, 可用
+opencli (v1.7.8)   ← ✅ 本机已安装, 可用
 ```
 
 **结论**: ToolManifest YAML 是完整的，可执行工具在本机是存在的，但代码路径在三个断点处完全中断。

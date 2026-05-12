@@ -2,9 +2,8 @@
 **/.DS_Store
 .claude/
 CLAUDE.local.md
-.cursor/*
-!.cursor/rules/
-!.cursor/rules/**
+.cursor/
+CLAUDE-PROMPT.md
 .env
 .env.*
 !.env.example
@@ -50,9 +49,11 @@ data/
 # But track eval set (core benchmark asset)
 !data/eval/eval-set-v1.json
 
-# Local automation overrides (portable templates may live under .codex/)
-.codex/automations/*.local.yaml
-.codex/automations/*.local.yml
+# IDE/toolchain local config (not project code)
+.codex/
+
+# Development planning workspace (local only, v1.0+ reevaluate)
+.planning/
 config/**/*.local.yaml
 config/**/*.local.yml
 
