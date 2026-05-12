@@ -93,13 +93,13 @@ git filter-repo \
 | Commit | 文件 | 路径内容 | 修复为 |
 |--------|------|---------|--------|
 | `1fb8b2f` | memory/MEMORY.md | `/Users/huachi/.claude/projects/...` | `~/.claude/projects/...` |
-| `8ce5bbc` | docs/spec/phase-3-test-plan.md | `.` | `./` |
-| `ff423f1` | config/profiles/local-workstation.yaml | `.` | `./` |
+| `8ce5bbc` | docs/spec/phase-3-test-plan.md | `./` | `./` |
+| `ff423f1` | config/profiles/local-workstation.yaml | `./` | `./` |
 
 修复文本文件（replacements.txt）：
 ```
-./memory/MEMORY.md==>~/.claude/projects/NewsSentry/memory/MEMORY.md
-.==>./
+~/.claude/projects/NewsSentry/memory/MEMORY.md==>~/.claude/projects/NewsSentry/memory/MEMORY.md
+./==>./
 opencli==>opencli
 ```
 
@@ -330,8 +330,8 @@ git clone https://github.com/XucroYuri/NewsSentry.git NewsSentry-restored
 | Commit | 文件 | 路径 |
 |--------|------|------|
 | `1fb8b2f` | memory/MEMORY.md | `/Users/huachi/.claude/projects/...` |
-| `8ce5bbc` | docs/spec/phase-3-test-plan.md | `.` |
-| `ff423f1` | config/profiles/local-workstation.yaml | `.` |
+| `8ce5bbc` | docs/spec/phase-3-test-plan.md | `./` |
+| `ff423f1` | config/profiles/local-workstation.yaml | `./` |
 
 ### C. .gitignore 变更清单
 

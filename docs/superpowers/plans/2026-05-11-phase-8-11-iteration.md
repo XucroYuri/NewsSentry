@@ -236,7 +236,7 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
 - **Type**: Python 3.12+ Git 仓库，878 tests, 95% coverage, 7 Phase DONE
 ```
 
-路径：`./memory/MEMORY.md`
+路径：`~/.claude/projects/NewsSentry/memory/MEMORY.md`
 
 - [ ] **Step 5: Commit**
 
