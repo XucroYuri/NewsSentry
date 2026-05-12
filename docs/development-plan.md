@@ -1,9 +1,10 @@
 # News Sentry — 开发计划
 
-> 版本: v2.0 | 日期: 2026-05-11
+> 版本: v2.1 | 日期: 2026-05-12
 > 状态: **路线图主权文档** — 本文档是多阶段开发计划与 TODO 矩阵的唯一权威来源
 > 当前版本: **v0.5.0** | 下一版本: **v0.6.0** (Phase 14 AI Judge Optimization)
 > 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](spec/README.md) 为准）
+> Cloud VPS 方案: [docs/deployment/cloud-vps-recommendations.md](./deployment/cloud-vps-recommendations.md)
 > 字段口径基准: [`docs/contracts-canonical.md`](./contracts-canonical.md)
 > 架构决策: [`docs/adr/README.md`](./adr/README.md)
 > Phase 12 设计: [`docs/superpowers/specs/2026-05-11-phase-12-source-matrix-design.md`](./superpowers/specs/2026-05-11-phase-12-source-matrix-design.md)
@@ -74,12 +75,27 @@
 | Phase 10 | Structured Logging + CLI Doctor | JSON 结构化日志、CLI doctor 诊断命令 | S | ✅ DONE |
 | Phase 11 | Trend Analysis | TopicTrend + TrendReport + Markdown 趋势报告 | M | ✅ DONE |
 
-### v0.5.0 — 信源矩阵与生产部署
+### v0.5.0 — 信源矩阵与评估基线
 
 | Phase | 名称 | 核心目标 | 估算规模 | 状态 |
 |-------|------|---------|---------|------|
-| Phase 12 | Italy Source Matrix | 60+ 信源 / 13 维度 / 3 种采集 / 7 平台社媒 KOL | XL | 🔄 IN PROGRESS |
-| Phase 13 | Evaluation Set + Cloud VPS Deploy | ≥100 标注评估集、Docker 全栈 Cloud VPS 部署验证 | L | 📋 PLANNED |
+| Phase 12 | Italy Source Matrix | 60+ 信源 / 13 维度 / 3 种采集 / 7 平台社媒 KOL | XL | ✅ DONE |
+| Phase 13 | Evaluation Set + Baseline | 112 标注评估集、Rules Baseline (F1=74.3%)、Eval Runner | L | ✅ DONE |
+
+### v0.6.0 — AI 优化与云部署
+
+| Phase | 名称 | 核心目标 | 估算规模 | 状态 |
+|-------|------|---------|---------|------|
+| Phase 14 | AI Judge Optimization | AI 研判接入 eval 对比、accuracy >70%、cost budget 控制 | L | 📋 PLANNED |
+| Phase 15 | Cloud VPS Deployment | Hetzner/Oracle 部署验证、72h 稳定运行、监控告警 | M | 📋 PLANNED |
+
+### v0.7.0 — 生产化与多目标扩展
+
+| Phase | 名称 | 核心目标 | 估算规模 | 状态 |
+|-------|------|---------|---------|------|
+| Phase 16 | Third Target (Japan JP) | 第三国家 reference package、多语言模板化、东亚维度适配 | L | 📋 PLANNED |
+| Phase 17 | Real-time Alert Pipeline | 飞书/邮件/Telegram 实时告警、阈值配置、告警模板 | M | 📋 PLANNED |
+| Phase 18 | Production Hardening | 监控面板、自动备份、HA 故障恢复、日志轮转 | L | 📋 PLANNED |
 
 ---
 
@@ -468,19 +484,142 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 ---
 
-## §14. Phase 13 — Evaluation Set + Cloud VPS Deployment
+## §14. Phase 13 — Evaluation Set + Baseline
 
-**目标：** 构建 ≥100 标注评估集用于 Judge 准确率量化；在 Cloud VPS 完成零依赖 Docker 全栈部署验证。
+**目标：** 构建 ≥100 标注评估集用于 Judge 准确率量化，建立规则引擎基线。
 
 **入口标准：** Phase 12 信源矩阵完成，有持续采集的数据流。
 
 **出口标准：**
-- 评估集 ≥100 条人工标注（覆盖 13 维度 + 边界 case）
-- Judge 准确率可量化（Precision/Recall/F1）
-- Cloud VPS Docker 部署 72h 稳定运行
-- 生产级全链路模拟通过
+- ✅ 评估集 112 条标注（14 维度 × 8 = 112，含 edge_case）
+- ✅ Rules Baseline: accuracy=37.5%, F1=74.3%, filtered_out=39/112
+- ✅ Eval Runner (`tools/run_eval.py`) 可重复执行
+- ✅ `schemas/evalexample.schema.json` 校验全部通过
 
-**版本：** P13 完成 → `v0.6.0`
+**实际交付物：**
+- `data/eval/eval-set-v1.json` — 112 评估用例
+- `tools/run_eval.py` — 评估运行脚本
+- `schemas/evalexample.schema.json` — 评估用例 schema
+- `docs/spec/phase-13-eval-set.md` — 阶段规格
+- ADR-0022 — 评估集基准测试决策记录
+
+**版本：** P13 完成 → `v0.5.0` (与 Phase 12 合并发布)
+
+---
+
+## §15. Phase 14 — AI Judge Optimization
+
+**目标：** 将 AI Judge 接入评估集对比，将推荐准确率从 37.5% 提升至 >70%。
+
+**入口标准：** Phase 13 评估集和 Rules Baseline 已建立。
+
+**出口标准：**
+- AI Judge (Anthropic/OpenAI) 在 eval-set 上 accuracy >70%
+- Rules→AI fallback 逻辑：规则置信度高时省 AI 调用，置信度低时走 AI
+- 成本预算控制：单次 run AI 调用 ≤$1.00
+- eval-set 扩展至 200+ 条
+
+**范围内：**
+- `JudgeSkill` 接入 `ProviderRouter`，使用 `judge.primary` 路由
+- 置信度路由：`news_value_score` 高置信 → 规则直接判定；低置信 → AI 研判
+- Eval 对比：Rules-only vs AI-only vs Hybrid 三模式对比
+- 成本追踪：每次 AI 调用记录 token 用量和费用
+
+**范围外：**
+- 模型微调
+- 自定义 prompt 优化（使用项目标准 prompt）
+
+---
+
+## §16. Phase 15 — Cloud VPS Deployment
+
+**目标：** 在 Cloud VPS 完成 Docker 全栈部署验证，72h 稳定运行。
+
+**入口标准：** Phase 14 AI Judge 优化完成。
+
+**出口标准：**
+- Hetzner CX32 或 Oracle A1 Flex 部署成功
+- `make eval` 在云端运行且结果与本地一致
+- 72h 无 OOM/Crash/数据丢失
+- 监控告警就绪
+
+**范围内：**
+- 部署脚本 (`docs/deployment/`)
+- GitHub Actions CI → Docker build → GHCR push
+- 云端 docker-compose 配置
+- 基础监控（内存、磁盘、进程健康）
+
+**详细方案：** [`docs/deployment/cloud-vps-recommendations.md`](./deployment/cloud-vps-recommendations.md)
+
+---
+
+## §17. Phase 16 — Third Target (Japan JP)
+
+**目标：** 增加第三国家 reference package（日本），验证多语言模板化能力。
+
+**入口标准：** Phase 15 云端部署稳定。
+
+**出口标准：**
+- 日本 target 配置创建，无需修改核心代码即可运行
+- 日语关键词规则 + 日中翻译 SOP
+- 东亚维度适配（china_relations 权重调整）
+
+**范围内：**
+- `config/targets/japan.yaml`
+- `config/sources/japan/` — 日语 RSS/API 源
+- `config/filters/japan/` — 日语关键词规则
+- `config/classification/rules-japan.yaml` — 日本 country_axes
+
+**范围外：**
+- 第四国家
+- SaaS 多租户
+
+---
+
+## §18. Phase 17 — Real-time Alert Pipeline
+
+**目标：** 实现从研判到告警的实时推送，打破"v1 不自动外发"限制（仅告警，不发布内容）。
+
+**入口标准：** Phase 15 部署稳定。
+
+**出口标准：**
+- 飞书 Webhook 告警就绪
+- 邮件告警可选
+- Telegram Bot 告警可选
+- 告警阈值可配置（news_value_score ≥ X 且 china_relevance ≥ Y）
+
+**范围内：**
+- `config/output/destinations.yaml` 扩展
+- Alert template（Markdown 格式）
+- 告警去重（同一事件 24h 内不重复告警）
+
+**范围外：**
+- 自动发布内容到外部平台
+- 即时通讯自动回复
+
+---
+
+## §19. Phase 18 — Production Hardening
+
+**目标：** 生产级监控、备份、HA，支撑长期无人值守运行。
+
+**入口标准：** Phase 17 告警通道就绪。
+
+**出口标准：**
+- Prometheus/Grafana 监控面板（或等效轻量方案）
+- 自动数据备份（每日增量 + 每周全量）
+- 日志轮转（保留 30 天）
+- 故障自动恢复（进程挂掉自动重启）
+
+**范围内：**
+- 健康检查端点
+- 备份脚本
+- 日志轮转配置
+- 进程管理（systemd 或 supervisord）
+
+**范围外：**
+- Kubernetes 部署
+- 多节点集群
 
 ---
 
@@ -550,6 +689,52 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P3.W8.01 | 在 RSS collector 中实现语种检测和标题机译 | `NewsEvent.language` 和 `metadata.translation.title_pre` | `translate.fast` route（Phase 5 前可用 mock） | S | 意大利语事件含 `language=it`，`title_pre` 非空 |
 | P3.W8.02 | 实现草稿生成 Skill（基础版） | `drafts/{id}.md` | `it-zh-bilingual-sop.md §5` | M | 草稿含标准 frontmatter、30 秒摘要节，`compliance_note` 非空 |
 
+### Phase 14 · AI Judge Optimization
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 |
+|----|------|--------|------|------|--------|
+| P14.01 | JudgeSkill 接入 ProviderRouter | `skills/judge/judge_skill.py` 更新 | Phase 5 ProviderRouter | M | AI judge 产出 JudgeResult，结构同 RulesJudge |
+| P14.02 | 置信度路由（Rules→AI fallback） | `core/confidence_router.py` | P14.01 | M | 高置信规则直接判定，低置信走 AI，成本降低 ≥40% |
+| P14.03 | Eval 三模式对比（Rules/AI/Hybrid） | `data/eval/report-v3-*.json` | P14.02 | S | Hybrid F1 > Rules F1，AI accuracy >70% |
+| P14.04 | 成本追踪（token/费用/run） | `core/ai_cost_tracker.py` | P14.01 | S | 每次 AI 调用记录 token 数和费用，run 级汇总 |
+| P14.05 | 扩展 eval-set 至 200+ | `data/eval/eval-set-v2.json` | — | S | 200+ 评估用例通过 schema 校验 |
+
+### Phase 15 · Cloud VPS Deployment
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 |
+|----|------|--------|------|------|--------|
+| P15.01 | GHCR 镜像推送 CI | `.github/workflows/docker.yml` 更新 | Dockerfile.full | S | CI 构建推送镜像到 GHCR |
+| P15.02 | Hetzner 部署脚本 | `docs/deployment/deploy-hetzner.sh` | P15.01 | S | 一键部署到 Hetzner CX32 |
+| P15.03 | 72h 稳定性验证 | 运行报告 | P15.02 | M | 72h 无 OOM/Crash，Hermes cron 正常执行 |
+| P15.04 | 基础监控脚本 | `tools/health_monitor.sh` | P15.02 | S | 内存>90%/磁盘>85% 告警 |
+
+### Phase 16 · Third Target (Japan JP)
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 |
+|----|------|--------|------|------|--------|
+| P16.01 | 日本 target 配置 | `config/targets/japan.yaml` | — | S | bounded run 成功产出 raw/ 事件 |
+| P16.02 | 日语 RSS/API 源配置 | `config/sources/japan/` | P16.01 | M | ≥20 日语源通过 schema 校验 |
+| P16.03 | 日语关键词规则 | `config/filters/japan/` | P16.02 | M | 日语关键词匹配正确 |
+| P16.04 | 日中翻译 SOP | `docs/jp-zh-bilingual-sop.md` | — | S | 翻译时机和术语策略定义 |
+
+### Phase 17 · Real-time Alert Pipeline
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 |
+|----|------|--------|------|------|--------|
+| P17.01 | 飞书 Webhook 输出适配器 | `skills/output/feishu_webhook.py` | — | M | 高分事件推送到飞书群 |
+| P17.02 | 告警模板和去重 | `config/output/alert-templates/` | P17.01 | S | 同一事件 24h 不重复告警 |
+| P17.03 | 邮件告警适配器 | `skills/output/email_alert.py` | P17.01 | S | 可选邮件告警通道 |
+| P17.04 | Telegram Bot 告警适配器 | `skills/output/telegram_bot.py` | P17.01 | S | 可选 Telegram 告警通道 |
+
+### Phase 18 · Production Hardening
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 |
+|----|------|--------|------|------|--------|
+| P18.01 | 健康检查 HTTP 端点 | `core/health_server.py` | — | S | /health 返回 200 + 状态 JSON |
+| P18.02 | 自动数据备份脚本 | `tools/backup.sh` | — | S | 每日增量 + 每周全量 |
+| P18.03 | 日志轮转配置 | `config/logrotate.conf` | — | S | 保留 30 天日志 |
+| P18.04 | 进程管理（systemd） | `config/news-sentry.service` | P18.01 | S | 进程挂掉自动重启 |
+
 ---
 
 ## §16. 关键决策与 ADR 列表
@@ -577,6 +762,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | ADR-0019 | 信源生命周期状态机（active/degraded/dead） | Phase 12 |
 | ADR-0020 | 社媒 KOL 三级账号分级（L1/L2/L3）+ active/semi-active 双模式 | Phase 12 |
 | ADR-0021 | Docker 全栈零依赖部署（Chromium + Xvfb + Playwright MCP + Node.js） | Phase 12 |
+| ADR-0022 | 评估集基准测试与规则引擎准确率基线 | Phase 13 |
 
 ---
 
@@ -598,7 +784,12 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | `SOCIAL-SESSION-001` | 社媒 session profile 的刷新周期和安全存储策略 | Phase 12 实现时 |
 | `BRIDGE-FALLBACK-001` | Computer Use 兜底的成本预算上限和告警阈值 | Phase 12 实现时 |
 | `EVAL-002` | 评估集更新机制（何时触发重新标注、标注者间一致性度量） | Phase 13 实现时 |
-| `DEPLOY-001` | Cloud VPS 部署的平台选择（GCP Cloud Run / AWS ECS / 自管 VM）和成本估算 | Phase 13 实现时 |
+| `DEPLOY-001` | Cloud VPS 部署的平台选择（GCP Cloud Run / AWS ECS / 自管 VM）和成本估算 | Phase 15 实现时 |
+| `AI-JUDGE-001` | AI Judge 置信度路由阈值（news_value_score 什么范围走规则 vs AI）| Phase 14 实现时 |
+| `AI-JUDGE-002` | Hybrid 模式下 Rules→AI fallback 的判定逻辑 | Phase 14 实现时 |
+| `ALERT-001` | 告警去重窗口和阈值配置策略 | Phase 17 实现时 |
+| `MONITOR-001` | 监控方案选型（Prometheus vs 轻量自建） | Phase 18 实现时 |
+| `BACKUP-001` | 数据备份保留策略和恢复测试 | Phase 18 实现时 |
 
 ---
 
@@ -619,3 +810,8 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | OpenCLI Bridge 与网站结构不兼容 | 部分 OpenCLI 源无法采集 | Phase 12 | 降级到 Playwright MCP；Computer Use 作为最终兜底 |
 | 信源过度采集导致 IP 被封 | 所有采集中断 | Phase 12 | 速率限制（`max_items_per_run`、`timeout_seconds`）；信源健康自动降级 |
 | 评估集标注不一致 | Judge 准确率指标不可信 | Phase 13 | 双标注 + 一致性度量（Cohen's Kappa）；争议样本仲裁流程 |
+| AI Judge 成本失控 | 月度 AI 费用超预算 | Phase 14 | cost_budget 硬限制；置信度路由减少 AI 调用；低分事件不进 AI |
+| AI Judge 输出不稳定 | 同一输入不同 Provider 输出差异大 | Phase 14 | output_schema_id 版本化；多 Provider 输出结构验证 |
+| Cloud VPS 被封 IP | 意大利源采集中断 | Phase 15 | 速率限制；请求间隔随机化；备用 VPS 切换 |
+| 日语源结构差异大 | 日本 target 需大量自定义 adapter | Phase 16 | 优先日语 RSS（标准化）；API/OpenCLI 降级兜底 |
+| 告警通道被封/限流 | 告警无法送达 | Phase 17 | 多通道冗余（飞书+邮件+Telegram）；告警队列持久化 |

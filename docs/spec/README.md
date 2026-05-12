@@ -35,12 +35,27 @@
 | Phase 10 | Structured Logging + CLI Doctor | JSON 日志 + doctor 诊断命令 | ✅ DONE |
 | Phase 11 | Trend Analysis | TopicTrend + TrendReport 趋势报告 | ✅ DONE |
 
-### v0.5.0 — 信源矩阵与生产部署
+### v0.5.0 — 信源矩阵与评估基线 ✅
 
 | Phase | 文件 | 核心目标 | 状态 |
 |-------|------|---------|------|
 | Phase 12 | [phase-12-source-matrix.md](phase-12-source-matrix.md) | 70+ 信源 / 13 维度 / 3 采集方式 / Twitter KOL | ✅ DONE |
 | Phase 13 | [phase-13-eval-set.md](phase-13-eval-set.md) | 112 评估集 + Rules Baseline + Eval Runner | ✅ DONE |
+
+### v0.6.0 — AI 优化与云部署
+
+| Phase | 文件 | 核心目标 | 状态 |
+|-------|------|---------|------|
+| Phase 14 | AI Judge Optimization | AI 研判优化、accuracy >70%、eval 对比 | 📋 PLANNED |
+| Phase 15 | Cloud VPS Deployment | Hetzner/Oracle 部署验证、72h 稳定运行 | 📋 PLANNED |
+
+### v0.7.0 — 生产化与多目标扩展
+
+| Phase | 文件 | 核心目标 | 状态 |
+|-------|------|---------|------|
+| Phase 16 | Third Target (Japan JP) | 第三国家验证、多语言模板化 | 📋 PLANNED |
+| Phase 17 | Real-time Alert Pipeline | 飞书/邮件/推送实时告警 | 📋 PLANNED |
+| Phase 18 | Production Hardening | 监控/告警/备份/HA | 📋 PLANNED |
 
 ---
 
@@ -70,12 +85,25 @@ graph TD
         P13["Phase 13\nEval Set ✅\n112 examples\nRules Baseline"]
     end
 
+    subgraph v0_6_0["v0.6.0 AI 优化与云部署"]
+        P14["Phase 14\nAI Judge Opt 📋\naccuracy >70%"]
+        P15["Phase 15\nCloud Deploy 📋\n72h stable"]
+    end
+
+    subgraph v0_7_0["v0.7.0 生产化"]
+        P16["Phase 16\n3rd Target JP 📋"]
+        P17["Phase 17\nReal-time Alert 📋"]
+        P18["Phase 18\nProd Hardening 📋"]
+    end
+
     P1 --> P2 --> P3 --> P4 --> P5 --> P6
     P3 -.-> P6
     P5 --> P7
     P4 --> P7
     P7 --> P8 --> P9 --> P10 --> P11
     P11 --> P12 --> P13
+    P13 --> P14 --> P15
+    P15 --> P16 --> P17 --> P18
 ```
 
 ---
@@ -133,3 +161,4 @@ graph TD
 | ADR-0019 | 信源生命周期状态机（active/degraded/dead） | P12 信源矩阵 |
 | ADR-0020 | 社媒 KOL 三级账号分级（L1/L2/L3）+ active/semi-active 双模式 | P12 信源矩阵 |
 | ADR-0021 | Docker 全栈零依赖部署（Chromium + Xvfb + Playwright MCP + Node.js） | P12 信源矩阵 |
+| ADR-0022 | 评估集基准测试与规则引擎准确率基线 | P13 评估集 |
