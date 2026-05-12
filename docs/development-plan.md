@@ -94,7 +94,7 @@
 | Phase | 名称 | 核心目标 | 估算规模 | 状态 |
 |-------|------|---------|---------|------|
 | Phase 16 | Third Target (Japan JP) | 日本 target + 19 源 + 59 关键词规则 + keywords_ja | L | ✅ DONE |
-| Phase 17 | Real-time Alert Pipeline | 飞书/邮件/Telegram 实时告警、阈值配置、告警模板 | M | 📋 PLANNED |
+| Phase 17 | Real-time Alert Pipeline | AlertPipeline: 阈值过滤+24h去重+飞书/邮件/Telegram 推送 | M | ✅ DONE |
 | Phase 18 | Production Hardening | 监控面板、自动备份、HA 故障恢复、日志轮转 | L | 📋 PLANNED |
 
 ---
@@ -578,22 +578,23 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 ---
 
-## §18. Phase 17 — Real-time Alert Pipeline
+## §18. Phase 17 — Real-time Alert Pipeline ✅
 
 **目标：** 实现从研判到告警的实时推送，打破"v1 不自动外发"限制（仅告警，不发布内容）。
 
 **入口标准：** Phase 15 部署稳定。
 
 **出口标准：**
-- 飞书 Webhook 告警就绪
-- 邮件告警可选
-- Telegram Bot 告警可选
-- 告警阈值可配置（news_value_score ≥ X 且 china_relevance ≥ Y）
+- ✅ 飞书 Webhook 告警就绪
+- ✅ 邮件告警可选
+- ✅ Telegram Bot 告警可选
+- ✅ 告警阈值可配置（news_value_score ≥ X 且 china_relevance ≥ Y）
 
 **范围内：**
-- `config/output/destinations.yaml` 扩展
-- Alert template（Markdown 格式）
-- 告警去重（同一事件 24h 内不重复告警）
+- ✅ `config/output/destinations.yaml` 扩展
+- ✅ Alert template（Markdown 格式）
+- ✅ 告警去重（同一事件 24h 内不重复告警）
+- ✅ `${ENV_VAR}` 环境变量解析，禁止硬编码密钥
 
 **范围外：**
 - 自动发布内容到外部平台
@@ -719,23 +720,257 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P16.03 | 日语关键词规则 | `config/filters/japan/` | P16.02 | M | 日语关键词匹配正确 |
 | P16.04 | 日中翻译 SOP | `docs/jp-zh-bilingual-sop.md` | — | S | 翻译时机和术语策略定义 |
 
-### Phase 17 · Real-time Alert Pipeline
+### Phase 17 · Real-time Alert Pipeline ✅
 
-| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 |
-|----|------|--------|------|------|--------|
-| P17.01 | 飞书 Webhook 输出适配器 | `skills/output/feishu_webhook.py` | — | M | 高分事件推送到飞书群 |
-| P17.02 | 告警模板和去重 | `config/output/alert-templates/` | P17.01 | S | 同一事件 24h 不重复告警 |
-| P17.03 | 邮件告警适配器 | `skills/output/email_alert.py` | P17.01 | S | 可选邮件告警通道 |
-| P17.04 | Telegram Bot 告警适配器 | `skills/output/telegram_bot.py` | P17.01 | S | 可选 Telegram 告警通道 |
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 | 状态 |
+|----|------|--------|------|------|--------|------|
+| P17.01 | 统一 AlertPipeline（阈值过滤+去重+多通道） | `core/alert_pipeline.py` | — | M | 三通道推送，24h 去重，阈值可配 | ✅ |
+| P17.02 | 告警模板（Markdown 格式） | 内嵌于 AlertPipeline._format_alert() | P17.01 | S | 标题/来源/推荐/分数/链接完整 | ✅ |
+| P17.03 | 邮件告警适配器 | AlertPipeline._send_email() | P17.01 | S | SMTP + TLS，环境变量配置 | ✅ |
+| P17.04 | Telegram Bot 告警适配器 | AlertPipeline._send_telegram() | P17.01 | S | Bot API，环境变量配置 | ✅ |
+| P17.05 | 集成到 run.py 输出阶段 | `core/run.py` _run_output() | P17.01 | S | judged 事件自动触发告警 | ✅ |
+| P17.06 | destinations.yaml 扩展 | `config/output/destinations.yaml` | — | S | 飞书/邮件/Telegram 三通道配置（默认禁用） | ✅ |
 
 ### Phase 18 · Production Hardening
 
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 | 状态 |
+|----|------|--------|------|------|--------|------|
+| P18.01 | 健康检查 HTTP 端点 | `core/health_server.py` | — | S | /health 返回 200 + 状态 JSON | 📋 |
+| P18.02 | 自动数据备份脚本 | `tools/backup.sh` | — | S | 每日增量 + 每周全量 | 📋 |
+| P18.03 | 日志轮转配置 | `config/logrotate.conf` | — | S | 保留 30 天日志 | 📋 |
+| P18.04 | 进程管理（systemd） | `config/news-sentry.service` | P18.01 | S | 进程挂掉自动重启 | 📋 |
+| P18.05 | Cloud VPS 部署验证 | 72h 运行报告 | P15.02 | M | 72h 无 OOM/Crash | 📋 |
+
+---
+
+## §20. v0.8.0 — 多语言增强与质量反馈
+
+> Phase 17 完成后的下一阶段迭代目标。
+
+| Phase | 名称 | 核心目标 | 估算规模 | 状态 |
+|-------|------|---------|---------|------|
+| Phase 19 | Multi-language Enhancement | 德语/法语第 4-5 target、多语言分类框架扩展 | L | 📋 |
+| Phase 20 | Quality Feedback Loop | 人工反馈采集→规则自优化、eval-set 自动扩展 | M | 📋 |
+
+### Phase 19 · Multi-language Enhancement
+
+**目标：** 验证多语言 target 模板化能力，接入第 4-5 个国家（德国 DE、法国 FR）。
+
+**入口标准：** Phase 16 日本 target 验证通过。
+
+**出口标准：**
+- 德语 target + 法语 target 配置完整
+- `keywords_de` / `keywords_fr` / `label_de` / `label_fr` 分类框架扩展
+- 至少 15 个德语源 + 15 个法语源通过 schema 校验
+- 多语言翻译链路 (de→zh, fr→zh) 端到端验证
+
+**范围内：**
+- `config/targets/germany.yaml`, `config/targets/france.yaml`
+- `config/sources/germany/`, `config/sources/france/`
+- `config/filters/germany/`, `config/filters/france/`
+- classification schema 扩展 `keywords_de/fr`, `label_de/fr`
+- 翻译 SOP: de-zh, fr-zh
+
+**范围外：**
+- 阿拉伯语/俄语等非拉丁字符集语言
+- 自动语言检测（已有 `language` 字段）
+
 | ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 |
 |----|------|--------|------|------|--------|
-| P18.01 | 健康检查 HTTP 端点 | `core/health_server.py` | — | S | /health 返回 200 + 状态 JSON |
-| P18.02 | 自动数据备份脚本 | `tools/backup.sh` | — | S | 每日增量 + 每周全量 |
-| P18.03 | 日志轮转配置 | `config/logrotate.conf` | — | S | 保留 30 天日志 |
-| P18.04 | 进程管理（systemd） | `config/news-sentry.service` | P18.01 | S | 进程挂掉自动重启 |
+| P19.01 | 德国 target 配置 | `config/targets/germany.yaml` | — | S | bounded run 成功产出 raw/ 事件 |
+| P19.02 | 德语源配置 | `config/sources/germany/` | P19.01 | M | ≥15 德语源通过 schema 校验 |
+| P19.03 | 德语关键词规则 | `config/filters/germany/` | P19.02 | M | 德语关键词匹配正确 |
+| P19.04 | 法国 target 配置 | `config/targets/france.yaml` | — | S | bounded run 成功产出 raw/ 事件 |
+| P19.05 | 法语源配置 | `config/sources/france/` | P19.04 | M | ≥15 法语源通过 schema 校验 |
+| P19.06 | 法语关键词规则 | `config/filters/france/` | P19.05 | M | 法语关键词匹配正确 |
+| P19.07 | classification schema 多语言扩展 | `schemas/classification.schema.json` | — | S | keywords_de/fr, label_de/fr 字段 |
+
+### Phase 20 · Quality Feedback Loop
+
+**目标：** 建立人工反馈 → 规则自优化的闭环，持续提升研判准确率。
+
+**入口标准：** Phase 14 AI Judge + Phase 17 告警管道就绪。
+
+**出口标准：**
+- Obsidian 草稿中可标注反馈（publish/archive/override）
+- 反馈数据写入 `memory/feedback/` 并自动回灌 eval-set
+- 规则引擎根据反馈自动调整关键词权重
+- eval-set 自动扩展（月度新增 ≥20 条）
+
+**范围内：**
+- Obsidian frontmatter 反馈字段定义
+- `FeedbackCollector` 读取 reviewed/ 目录反馈
+- `RulesOptimizer` 基于反馈调整关键词权重
+- eval-set 增量更新机制
+
+**范围外：**
+- 全自动规则生成（需人工审核）
+- Reinforcement Learning
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 |
+|----|------|--------|------|------|--------|
+| P20.01 | Obsidian 反馈字段规范 | frontmatter schema 更新 | — | S | reviewed/ 目录支持 human_verdict 字段 |
+| P20.02 | FeedbackCollector | `core/feedback_collector.py` | P20.01 | M | 读取 reviewed/ 反馈并结构化存储 |
+| P20.03 | 规则权重自动调整 | `core/rules_optimizer.py` | P20.02 | M | 反馈命中率 >60% 时自动提升关键词权重 |
+| P20.04 | eval-set 增量更新 | `data/eval/eval-set-v3.json` | P20.02 | S | 月度新增 ≥20 条评估用例 |
+
+---
+
+## §21. v0.9.0 — 生态集成与高级功能
+
+| Phase | 名称 | 核心目标 | 估算规模 | 状态 |
+|-------|------|---------|---------|------|
+| Phase 21 | RSS Auto-Discovery | 信源自动发现与健康巡检、matrix 自进化 | M | 📋 |
+| Phase 22 | API Gateway | REST API 网关、Webhook 入站、第三方集成 | L | 📋 |
+
+### Phase 21 · RSS Auto-Discovery
+
+**目标：** 自动发现新 RSS 源、监测信源健康、实现信源矩阵自进化。
+
+**入口标准：** Phase 12 信源矩阵 + Phase 18 生产化完成。
+
+**出口标准：**
+- 自动从现有信源页面发现新 RSS/Atom 链接
+- 信源健康自动巡检（日频）
+- 健康度低于阈值的信源自动降级
+- 新发现信源经审批后纳入矩阵
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 |
+|----|------|--------|------|------|--------|
+| P21.01 | RSS Auto-Discovery | `skills/collect/rss_discovery.py` | — | M | 从信源页面发现新 RSS 链接 |
+| P21.02 | 信源健康巡检 | `core/source_health_checker.py` | P21.01 | S | 日频检查信源可达性和更新频率 |
+| P21.03 | 矩阵自进化 | `_matrix_governance.yaml` 驱动 | P21.02 | M | 新源审批→配置生成→自动纳入采集 |
+
+### Phase 22 · API Gateway
+
+**目标：** 提供 REST API 和 Webhook 入站，支持第三方系统集成。
+
+**入口标准：** Phase 18 生产化 + Phase 17 告警管道完成。
+
+**出口标准：**
+- `/api/v1/events` 查询接口
+- `/api/v1/webhook` 入站 Webhook（接收外部事件）
+- API Key 认证 + 速率限制
+- OpenAPI 3.1 文档
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 |
+|----|------|--------|------|------|--------|
+| P22.01 | FastAPI 网关骨架 | `core/api_server.py` | — | M | /api/v1/events 返回事件列表 |
+| P22.02 | 认证与速率限制 | `core/api_auth.py` | P22.01 | S | API Key 验证 + 60 req/min 限制 |
+| P22.03 | Webhook 入站 | `core/webhook_handler.py` | P22.01 | M | 接收外部事件并入库 |
+| P22.04 | OpenAPI 文档 | `/docs` 自动生成 | P22.01 | S | Swagger UI 可访问 |
+
+---
+
+## §22. v1.0.0 — 稳定发布
+
+| Phase | 名称 | 核心目标 | 估算规模 | 状态 |
+|-------|------|---------|---------|------|
+| Phase 23 | Release v1.0 | 功能冻结、文档完善、安全审计、正式发布 | L | 📋 |
+
+### Phase 23 · Release v1.0
+
+**目标：** 功能冻结、全面测试、安全审计、正式发布 v1.0.0。
+
+**入口标准：** Phase 18-22 全部完成。
+
+**出口标准：**
+- 所有 P0-P2 bug 清零
+- 安全审计通过（OWASP top 10 扫描）
+- 文档完整（架构、部署、API、配置）
+- 性能基准测试通过（单 target 100 源 ≤5min 采集+研判）
+- CHANGELOG.md + Release notes
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 |
+|----|------|--------|------|------|--------|
+| P23.01 | 功能冻结与回归测试 | 测试报告 | Phase 18-22 | M | 1200+ tests 通过，覆盖率 ≥90% |
+| P23.02 | 安全审计 | 审计报告 | — | M | OWASP top 10 无高危 |
+| P23.03 | 文档完善 | docs/ 全面更新 | — | S | 架构/部署/API/配置文档齐全 |
+| P23.04 | 性能基准 | benchmark 报告 | — | S | 100 源 ≤5min |
+| P23.05 | 发布 | v1.0.0 tag + Release | P23.01-04 | S | GitHub Release 发布 |
+
+---
+
+## §23. Cloud VPS 部署方案推荐
+
+> 替代/补充 Phase 15 的 Hetzner 方案。以下为 2026 年可用的主流 Cloud VPS 对比。
+
+### 方案对比
+
+| 提供商 | 推荐机型 | 月费 | vCPU | RAM | 存储 | 带宽 | 优势 | 劣势 |
+|--------|---------|------|------|-----|------|------|------|------|
+| **Hetzner** | CX32 | €7.9 | 2 | 8GB | 80GB | 20TB | 性价比最高、EU 隐私友好 | 非 US 区、中文支付不便 |
+| **Hetzner** | CAX31 (ARM) | €5.8 | 8 | 16GB | 160GB | 20TB | ARM 极高性价比 | Python ARM 兼容性偶有问题 |
+| **Oracle Cloud** | Always Free VM | $0 | 1 | 1GB | 47GB |10TB | 永久免费 | RAM 不足（需 swap）、配置低 |
+| **Oracle Cloud** | VM.Standard.E4.Flex | $13.5 | 2 | 12GB | 47GB | 10TB | 高配性价比好 | 按需计费、需信用卡 |
+| **DigitalOcean** | Basic 4GB | $24 | 2 | 4GB | 80GB | 4TB | 管理界面友好、文档好 | 价格偏高 |
+| **Vultr** | Regular 8GB | $40 | 4 | 8GB | 160GB | 5TB | 全球节点多 | 价格最高 |
+| **Linode (Akamai)** | Shared 8GB | $48 | 4 | 8GB | 160GB | 5TB | 稳定性好 | 价格偏高 |
+
+### 推荐方案
+
+#### 首选：Hetzner CX32（生产环境）
+- **理由**：8GB RAM 足够运行 News Sentry 全栈（Python + Chromium headless），80GB SSD 满足数据存储，20TB 流量充足
+- **部署**：使用 `docs/deployment/deploy-hetzner.sh` 一键部署
+- **预估月费**：€7.9（约 ¥62）
+- **注意**：需注册 Hetzner 账号并通过身份验证
+
+#### 备选：Hetzner CAX31 ARM（成本优化）
+- **理由**：16GB RAM + 160GB SSD，€5.8/月，适合内存密集场景
+- **注意**：Docker ARM64 镜像需确认兼容性；Python 3.11+ ARM 支持良好
+
+#### 免费方案：Oracle Cloud Always Free
+- **理由**：1GB RAM + 47GB 存储，零成本
+- **限制**：1GB RAM 不够运行 Chromium，需：
+  1. 添加 4GB swap：`fallocate -l 4G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile`
+  2. 使用 `Dockerfile.slim`（不含 Chromium，仅 Python 运行时）
+  3. 关闭 Chromium 依赖功能（浏览器采集降级为 RSS-only）
+- **适合**：轻量验证、开发测试
+
+#### 部署架构
+
+```
+┌──────────────────────────────────────────────┐
+│              Cloud VPS (CX32)                │
+│  ┌─────────┐  ┌──────────┐  ┌─────────────┐ │
+│  │ Docker  │  │ Health   │  │ Cron        │ │
+│  │ Compose │  │ Monitor  │  │ (Hermes)    │ │
+│  │ (full)  │  │          │  │ */30 * * *  │ │
+│  └────┬────┘  └──────────┘  └─────────────┘ │
+│       │                                      │
+│  ┌────▼────────────────────────────────────┐ │
+│  │ Container: news-sentry-full             │ │
+│  │  ├─ Python 3.11+ runtime                │ │
+│  │  ├─ Chromium + Xvfb (headless)          │ │
+│  │  ├─ Playwright MCP + Node.js            │ │
+│  │  └─ /app/data/ (persistent volume)      │ │
+│  └─────────────────────────────────────────┘ │
+│       │                                      │
+│  ┌────▼────────────────────────────────────┐ │
+│  │ /app/data/                              │ │
+│  │  ├─ {target_id}/raw/                    │ │
+│  │  ├─ {target_id}/evaluated/              │ │
+│  │  ├─ {target_id}/logs/                   │ │
+│  │  ├─ {target_id}/drafts/                 │ │
+│  │  └─ memory/                             │ │
+│  └─────────────────────────────────────────┘ │
+└──────────────────────────────────────────────┘
+         │
+         ▼
+   飞书/邮件/Telegram 告警
+```
+
+### 部署检查清单
+
+- [ ] VPS 创建完成（推荐 Hetzner CX32）
+- [ ] SSH 密钥登录（禁用密码）
+- [ ] Docker + Docker Compose 安装
+- [ ] 防火墙规则（仅开放 22/80/443）
+- [ ] `deploy-hetzner.sh` 一键部署
+- [ ] 环境变量配置（FEISHU_WEBHOOK_URL / SMTP_* / TELEGRAM_BOT_TOKEN）
+- [ ] Cron 定时任务（`*/30 * * * *` 每 30 分钟采集）
+- [ ] Health monitor 验证
+- [ ] 72h 稳定性验证
 
 ---
 
@@ -789,7 +1024,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | `DEPLOY-001` | Cloud VPS 部署的平台选择（GCP Cloud Run / AWS ECS / 自管 VM）和成本估算 | Phase 15 实现时 |
 | `AI-JUDGE-001` | AI Judge 置信度路由阈值（news_value_score 什么范围走规则 vs AI）| Phase 14 实现时 |
 | `AI-JUDGE-002` | Hybrid 模式下 Rules→AI fallback 的判定逻辑 | Phase 14 实现时 |
-| `ALERT-001` | 告警去重窗口和阈值配置策略 | Phase 17 实现时 |
+| `ALERT-001` | 告警去重窗口和阈值配置策略 | Phase 17 已决策：24h 去重窗口，阈值通过 destinations.yaml filter 配置 |
 | `MONITOR-001` | 监控方案选型（Prometheus vs 轻量自建） | Phase 18 实现时 |
 | `BACKUP-001` | 数据备份保留策略和恢复测试 | Phase 18 实现时 |
 
