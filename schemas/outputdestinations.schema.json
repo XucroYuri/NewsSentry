@@ -27,8 +27,8 @@
         },
         "type": {
           "type": "string",
-          "enum": ["obsidian_markdown", "feishu_webhook", "file"],
-          "description": "v1 output destinations only; no external publishing without explicit new decision"
+          "enum": ["obsidian_markdown", "feishu_webhook", "email_smtp", "telegram_bot", "file"],
+          "description": "Output destination type; alerts (feishu/email/telegram) never publish content, only notifications"
         },
         "enabled": {
           "type": "boolean"
@@ -53,8 +53,40 @@
         "filter": {
           "type": "object",
           "additionalProperties": true,
-          "description": "Output filter: only write events matching these criteria"
+          "description": "Output filter: only write events matching these criteria",
+          "properties": {
+            "min_news_value_score": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100,
+              "description": "Minimum news_value_score to trigger"
+            },
+            "min_china_relevance": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100,
+              "description": "Minimum china_relevance to trigger"
+            },
+            "recommendation": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Allowed recommendation values"
+            }
+          }
         },
+        "smtp_host": { "type": "string", "description": "SMTP server host (email_smtp type)" },
+        "smtp_port": { "type": "integer", "description": "SMTP server port (email_smtp type, default 587)" },
+        "smtp_user": { "type": "string", "description": "SMTP username; supports ${ENV_VAR} (email_smtp type)" },
+        "smtp_password": { "type": "string", "description": "SMTP password; supports ${ENV_VAR} (email_smtp type)" },
+        "from": { "type": "string", "description": "Sender email address (email_smtp type)" },
+        "to": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Recipient email addresses (email_smtp type)"
+        },
+        "use_tls": { "type": "boolean", "description": "Use TLS for SMTP (default true)" },
+        "bot_token": { "type": "string", "description": "Telegram bot token; supports ${ENV_VAR} (telegram_bot type)" },
+        "chat_id": { "type": "string", "description": "Telegram chat ID; supports ${ENV_VAR} (telegram_bot type)" },
         "notes": {
           "type": "string",
           "description": "Human-readable notes about this destination"
