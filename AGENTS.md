@@ -11,26 +11,11 @@ The production runtime priority is Hermes Agent first, OpenClaw/OpenClaw Skills/
 Read these files before changing architecture, schemas, pipeline behavior, permissions, provider routing, or tool execution:
 
 - `docs/contracts-canonical.md` — **口径规范基准**：字段命名、分值量纲、目录映射、pipeline_stage 枚举、产品命名、classification metadata schema 的唯一权威来源
-- `docs/adr/` — 架构决策记录（ADR-0001 至 ADR-0021）
-- `docs/spec/README.md` — **Phase SPEC 索引**：横切组件矩阵 + 演进图，每份 SPEC 是对应阶段实现的规格基准
-- `docs/development-plan.md` — 多阶段开发计划与 TODO 矩阵（含 W10/W11 工作流）
-- `docs/superpowers/specs/2026-05-11-phase-12-source-matrix-design.md` — **Phase 12 信源矩阵设计**：13 维分类 × 3 种采集 × 7 平台社媒 KOL
-- `docs/superpowers/plans/2026-05-11-phase-12-source-matrix.md` — **Phase 12 实现计划**：15 任务可执行计划
-- `schemas/` — **13 份 JSON Schema 2020-12**：机器可读契约，与 contracts-canonical.md 双向绑定（ADR-0014）
+- `docs/architecture.md` — **架构总览**：系统架构、数据流、目录结构
+- `docs/external-integration-strategy.md` — **外部项目接入策略**：OpenCLI 接入原则、三原则、ToolManifest 骨架意图、舍弃清单
+- `schemas/` — **14 份 JSON Schema 2020-12**：机器可读契约，与 contracts-canonical.md 双向绑定（ADR-0014）
 - `config/` — **运行时配置骨架**：意大利参数封装在 config/targets/italy.yaml，其他国家复制 _template.yaml（ADR-0015）
-- `src/news_sentry/` — **Python 3.11+ stub 骨架**（ADR-0012、ADR-0013）
-- `docs/external-integration-strategy.md` — **外部项目接入策略**：OpenCLI 接入原则、三原则、12 条 ToolManifest 骨架意图、舍弃清单
-- `docs/reference-projects-insights.md` — **参考项目价值提取**：8 个外部项目的启发点与落地指针
-- `docs/news-classification-framework.md` — **新闻分类框架**：L0–L3 taxonomy、Italy 子轴、metadata.classification 完整 schema
-- `docs/datasets-catalog-italy.md` — **意大利数据集目录**：ISTAT/Eurostat/GDELT 等公开数据集的接入建议
-- `docs/architecture-overview.md`
-- `docs/integration-protocol.md`
-- `docs/newsevent-schema.md`
-- `docs/brainstorming/通用内核与平台化架构PRD.md`
-- `docs/brainstorming/ToolManifest与工具适配层规格.md`
-- `docs/brainstorming/AIProvider与模型路由规格.md`
-- `docs/brainstorming/SandboxPolicy与执行权限规格.md`
-- `docs/brainstorming/Hermes与OpenClaw运行载体规格.md`
+- `src/news_sentry/` — **Python 3.11+ / Pydantic v2 实现**（ADR-0012、ADR-0013）
 
 ## Core Decisions
 
@@ -99,9 +84,8 @@ Read these files before changing architecture, schemas, pipeline behavior, permi
 
 ## Phase Order
 
-Phases 1-11 are complete (v0.4.0). Phase 12 is in progress. See docs/spec/README.md for detailed status.
+**v1.0.0 — 全部 23 个 Phase 已完成。**
 
-**v0.4.0 — 基础平台（已完成）：**
 1. Contract Stabilization ✅
 2. Runtime Carrier Alignment ✅
 3. Kernel MVP ✅
@@ -113,10 +97,18 @@ Phases 1-11 are complete (v0.4.0). Phase 12 is in progress. See docs/spec/README
 9. Karpathy Skills Integration ✅
 10. Structured Logging + CLI Doctor ✅
 11. Trend Analysis ✅
-
-**v0.5.0 — 信源矩阵（进行中）：**
-12. Italy Source Matrix — 60+ 信源 / 13 维度 / 3 种采集 / 7 平台社媒 KOL
-13. Evaluation Set + Cloud VPS Deployment — 评估集构建与生产部署验证
+12. Italy Source Matrix ✅
+13. Evaluation Set ✅
+14. AI Judge Optimization ✅
+15. Cloud VPS Deployment 🔧
+16. Third Target (Japan) ✅
+17. Real-time Alert Pipeline ✅
+18. Production Hardening ✅
+19. Multi-language Enhancement ✅
+20. Quality Feedback Loop ✅
+21. RSS Auto-Discovery ✅
+22. API Gateway ✅
+23. Release v1.0 ✅
 
 ## File Event Protocol
 

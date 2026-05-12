@@ -57,6 +57,22 @@ data/
 
 # Local document archive (dev-reference docs not for publication)
 docs/_archive/
+docs/development/
+docs/spec/
+docs/adr/
+docs/testing/
+docs/brainstorming/
+docs/superpowers/
+docs/development-plan.md
+docs/integration-protocol.md
+docs/it-zh-bilingual-sop.md
+docs/it-zh-glossary.md
+docs/datasets-catalog-italy.md
+docs/newsevent-schema.md
+docs/news-classification-framework.md
+docs/reference-projects-insights.md
+docs/target-comparison.md
+docs/architecture-overview.md
 config/**/*.local.yaml
 config/**/*.local.yml
 

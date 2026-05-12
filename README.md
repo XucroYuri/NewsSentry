@@ -432,10 +432,7 @@ make eval          # 运行评估集
 | [部署指南](docs/deployment-guide.md) | Docker / VPS / API / systemd |
 | [安全审计](docs/security-audit-report.md) | OWASP Top 10 审计报告 |
 | [外部项目接入策略](docs/external-integration-strategy.md) | OpenCLI/Hermes/OpenClaw 接入与版本约束 |
-| [开发计划](docs/development-plan.md) | 23 Phase 路线图 |
 | [契约规范](docs/contracts-canonical.md) | 字段命名、评分、目录映射 |
-| [ADR](docs/adr/) | 架构决策记录（ADR-0001 ~ 0022）|
-| [Phase SPEC](docs/spec/) | 各阶段实现规格 |
 
 ---
 

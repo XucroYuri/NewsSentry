@@ -433,10 +433,7 @@ make eval           # Run evaluation set
 | [Deployment Guide](docs/deployment-guide.md) | Docker / VPS / API / systemd |
 | [Security Audit](docs/security-audit-report.md) | OWASP Top 10 audit report |
 | [External Integration Strategy](docs/external-integration-strategy.md) | OpenCLI/Hermes/OpenClaw integration & version constraints |
-| [Development Plan](docs/development-plan.md) | 23-phase roadmap |
 | [Contracts](docs/contracts-canonical.md) | Field naming, scoring, directory mapping |
-| [ADR](docs/adr/) | Architecture Decision Records (ADR-0001 ~ 0022) |
-| [Phase SPEC](docs/spec/) | Per-phase implementation specs |
 
 ---
 

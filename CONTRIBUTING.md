@@ -8,9 +8,7 @@
 
 - **[AGENTS.md](AGENTS.md)** — 跨 Agent 共用基准，包含所有核心决策、目录协议、Phase 执行顺序
 - **[docs/contracts-canonical.md](docs/contracts-canonical.md)** — 口径规范唯一权威（字段命名、分值量纲、目录映射等）
-- **[docs/adr/](docs/adr/)** — 架构决策记录（ADR-0001 至 ADR-0022）
-- **[docs/development-plan.md](docs/development-plan.md)** — 多阶段开发计划（Phase 1–18）
-- **[docs/spec/](docs/spec/)** — Phase 规格文档（Phase 1–16）
+- **[docs/architecture.md](docs/architecture.md)** — 系统架构、数据流、目录结构
 
 ## 开发环境
 
