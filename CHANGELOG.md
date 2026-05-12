@@ -7,38 +7,30 @@
 
 ---
 
-## [未发布]
+## [1.0.0] — 2026-05-12
 
 ### 新增
-- Phase 22: API Server — FastAPI REST API 网关（/api/v1/events + /api/v1/webhook + /api/v1/health）
-- Phase 22: API Key 认证（X-API-Key header）+ 60 req/min 速率限制
-- Phase 22: Webhook 入站 — 接收外部事件写入 raw/ 目录
-- Phase 22: OpenAPI 3.1 文档（/docs + /openapi.json 自动生成）
-- Phase 22: FastAPI + uvicorn 可选依赖（pip install ".[api]"）
+- Phase 20: FeedbackCollector — 扫描 reviewed/ 目录解析 human_verdict 反馈
+- Phase 20: RulesOptimizer — 根据人工反馈自动调整关键词权重
 - Phase 21: RSSDiscovery — 从现有信源页面自动发现新 RSS/Atom 链接
 - Phase 21: SourceHealthChecker — 信源健康巡检（可达性+更新频率+健康评分）
 - Phase 21: MatrixEvolution — 候选源审批→配置生成→自动纳入采集矩阵
-- Phase 20: FeedbackCollector — 扫描 reviewed/ 目录解析 human_verdict 反馈
-- Phase 20: RulesOptimizer — 根据人工反馈自动调整关键词权重（publish_override 升权，archive_override 降权）
-- Phase 20: MarkdownWriter 扩展 filter_matched_keywords / human_verdict frontmatter 字段
-- Phase 20: RulesFilter 记录匹配关键词到 event.metadata["filter_matched_keywords"]
-- Phase 19: 德国 target 配置（de→zh, 22 源, 46 关键词规则）
-- Phase 19: 法国 target 配置（fr→zh, 21 源, 45 关键词规则）
-- Phase 19: classification schema 扩展 keywords_de/fr, label_de/fr
-- Phase 18: health_server.py — 轻量 /health HTTP 端点（http.server, 90% 覆盖率）
-- Phase 18: backup.sh — 每日增量+每周全量备份，保留 4 周
-- Phase 18: logrotate.conf — 30 天日志轮转，每日 rotate + 压缩
-- Phase 18: news-sentry.service — systemd 服务文件，Restart=on-failure
-- Phase 17: AlertPipeline 告警管道 — 阈值过滤+24h 去重+飞书/邮件/Telegram 多通道推送
-- Phase 17: destinations.yaml 扩展（6 个目的地，告警类型默认禁用）
-- Phase 17: `${ENV_VAR}` 环境变量解析，禁止硬编码密钥
-- 文档: v0.8.0~v1.0.0 迭代计划（Phase 19-23）
-- 文档: Cloud VPS 方案推荐（Hetzner CX32 / Oracle Free）
+- Phase 22: API Server — FastAPI REST API 网关
+- Phase 22: API Key 认证 + 60 req/min 速率限制
+- Phase 22: Webhook 入站 — 接收外部事件写入 raw/ 目录
+- Phase 22: OpenAPI 3.1 文档（/docs + /openapi.json）
+- Phase 23: 安全审计报告（OWASP Top 10 全部通过）
+- Phase 23: 架构总览、API 文档、部署指南
+- 文档: security-audit-report.md, architecture.md, api-reference.md, deployment-guide.md
+- 工具: tools/security_audit.py — OWASP Top 10 快速扫描
 
 ### 变更
-- outputdestinations.schema.json 扩展支持 email_smtp / telegram_bot 类型
-- development-plan.md Phase 17 标记为 DONE，ALERT-001 治理条目已决策
-- spec/README.md Mermaid 图扩展至 v1.0.0
+- 版本号推进至 1.0.0
+- pyproject.toml 新增 api 可选依赖组（fastapi + uvicorn）
+- MarkdownWriter 扩展 filter_matched_keywords / human_verdict frontmatter 字段
+- RulesFilter 记录匹配关键词到 event.metadata["filter_matched_keywords"]
+
+## [未发布]
 
 ## [0.7.0] — 2026-05
 

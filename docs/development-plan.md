@@ -866,7 +866,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 | Phase | 名称 | 核心目标 | 估算规模 | 状态 |
 |-------|------|---------|---------|------|
-| Phase 23 | Release v1.0 | 功能冻结、文档完善、安全审计、正式发布 | L | 📋 |
+| Phase 23 | Release v1.0 | 功能冻结、文档完善、安全审计、正式发布 | L | ✅ |
 
 ### Phase 23 · Release v1.0
 
@@ -883,11 +883,11 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 | ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 |
 |----|------|--------|------|------|--------|
-| P23.01 | 功能冻结与回归测试 | 测试报告 | Phase 18-22 | M | 1200+ tests 通过，覆盖率 ≥90% |
-| P23.02 | 安全审计 | 审计报告 | — | M | OWASP top 10 无高危 |
-| P23.03 | 文档完善 | docs/ 全面更新 | — | S | 架构/部署/API/配置文档齐全 |
-| P23.04 | 性能基准 | benchmark 报告 | — | S | 100 源 ≤5min |
-| P23.05 | 发布 | v1.0.0 tag + Release | P23.01-04 | S | GitHub Release 发布 |
+| P23.01 | 功能冻结与回归测试 | 测试报告 | Phase 18-22 | M | 1200+ tests 通过，覆盖率 ≥90% | ✅ |
+| P23.02 | 安全审计 | 审计报告 | — | M | OWASP top 10 无高危 | ✅ |
+| P23.03 | 文档完善 | docs/ 全面更新 | — | S | 架构/部署/API/配置文档齐全 | ✅ |
+| P23.04 | 性能基准 | benchmark 报告 | — | S | 100 源 ≤5min | ✅ |
+| P23.05 | 发布 | v1.0.0 tag + Release | P23.01-04 | S | GitHub Release 发布 | ✅ |
 
 ---
 

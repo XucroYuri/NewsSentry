@@ -267,7 +267,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     @app.post("/api/v1/webhook", response_model=WebhookResponse)
     async def receive_webhook(
         payload: WebhookPayload,
-        target_id: str = Query("italy", description="目标标识"),
+        target_id: str = Query(..., description="目标标识"),
         x_api_key: str | None = Header(None, alias="X-API-Key"),
     ) -> WebhookResponse:
         key = _verify_api_key(x_api_key)

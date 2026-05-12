@@ -75,7 +75,7 @@
 
 | Phase | 文件 | 核心目标 | 状态 |
 |-------|------|---------|------|
-| Phase 23 | Release v1.0 | 功能冻结、安全审计、正式发布 | 📋 PLANNED |
+| Phase 23 | Release v1.0 | 功能冻结、安全审计、正式发布 | ✅ DONE |
 
 ---
 
@@ -127,7 +127,7 @@ graph TD
     end
 
     subgraph v1_0_0["v1.0.0 稳定发布"]
-        P23["Phase 23\nRelease v1.0 📋\nSecurity Audit"]
+        P23["Phase 23\nRelease v1.0 ✅\nSecurity Audit"]
     end
 
     P1 --> P2 --> P3 --> P4 --> P5 --> P6
