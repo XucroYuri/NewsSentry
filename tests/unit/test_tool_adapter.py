@@ -176,10 +176,13 @@ class TestBuildCommand:
 
     def test_fills_template_placeholders(self, adapter: OpenCLIToolAdapter) -> None:
         manifest = adapter._tools["opencli.fetch"]
-        result = adapter._build_command(manifest, {
-            "url": "https://example.com/news",
-            "output_path": "/tmp/out.json",
-        })
+        result = adapter._build_command(
+            manifest,
+            {
+                "url": "https://example.com/news",
+                "output_path": "/tmp/out.json",
+            },
+        )
         assert result[0] == "opencli"
         assert "fetch" in result
         assert "https://example.com/news" in result
@@ -194,7 +197,8 @@ class TestBuildCommand:
             adapter._build_command({"tool_id": "bare"}, {})
 
     def test_raises_keyerror_for_missing_params(
-        self, adapter: OpenCLIToolAdapter,
+        self,
+        adapter: OpenCLIToolAdapter,
     ) -> None:
         """缺失必填参数时抛出 KeyError。"""
         manifest = adapter._tools["opencli.fetch"]
@@ -203,10 +207,13 @@ class TestBuildCommand:
 
     def test_quotes_args_with_spaces(self, adapter: OpenCLIToolAdapter) -> None:
         manifest = adapter._tools["opencli.search"]
-        result = adapter._build_command(manifest, {
-            "query": "breaking news italy",
-            "limit": "10",
-        })
+        result = adapter._build_command(
+            manifest,
+            {
+                "query": "breaking news italy",
+                "limit": "10",
+            },
+        )
         # shlex.split 保留 "breaking news italy" 为单个参数
         assert "breaking news italy" in result
         # 确认命令结构正确（参数值在正确位置，不含引号字符）
@@ -270,7 +277,9 @@ class TestExecute:
 
     @mock.patch("subprocess.run")
     def test_successful_execution(
-        self, mock_run: mock.Mock, adapter: OpenCLIToolAdapter,
+        self,
+        mock_run: mock.Mock,
+        adapter: OpenCLIToolAdapter,
     ) -> None:
         mock_proc = mock.Mock()
         mock_proc.returncode = 0
@@ -289,7 +298,9 @@ class TestExecute:
 
     @mock.patch("subprocess.run")
     def test_failed_execution_maps_exit_code(
-        self, mock_run: mock.Mock, adapter: OpenCLIToolAdapter,
+        self,
+        mock_run: mock.Mock,
+        adapter: OpenCLIToolAdapter,
     ) -> None:
         mock_proc = mock.Mock()
         mock_proc.returncode = 1
@@ -310,7 +321,9 @@ class TestExecute:
 
     @mock.patch("subprocess.run")
     def test_timeout_handling(
-        self, mock_run: mock.Mock, adapter: OpenCLIToolAdapter,
+        self,
+        mock_run: mock.Mock,
+        adapter: OpenCLIToolAdapter,
     ) -> None:
         import subprocess
 
@@ -328,7 +341,9 @@ class TestExecute:
 
     @mock.patch("subprocess.run")
     def test_file_not_found(
-        self, mock_run: mock.Mock, adapter: OpenCLIToolAdapter,
+        self,
+        mock_run: mock.Mock,
+        adapter: OpenCLIToolAdapter,
     ) -> None:
         mock_run.side_effect = FileNotFoundError("opencli not in PATH")
 
@@ -380,7 +395,8 @@ class TestOpenCLICollectorCollect:
         assert events == []
 
     def test_returns_empty_when_execute_fails(
-        self, adapter: OpenCLIToolAdapter,
+        self,
+        adapter: OpenCLIToolAdapter,
     ) -> None:
         """任何 execute 失败（包括 opencli_not_installed）都返回空列表。"""
         config = {
@@ -391,9 +407,13 @@ class TestOpenCLICollectorCollect:
         collector = OpenCLICollector(config, adapter)
 
         with mock.patch.object(
-            adapter, "execute",
+            adapter,
+            "execute",
             return_value=ToolRunResult(
-                tool_id="opencli.fetch", run_id="r", success=False, exit_code=-1,
+                tool_id="opencli.fetch",
+                run_id="r",
+                success=False,
+                exit_code=-1,
                 error={"type": "command_not_found", "message": "not found"},
             ),
         ):
@@ -410,9 +430,13 @@ class TestOpenCLICollectorCollect:
         collector = OpenCLICollector(config, adapter)
 
         with mock.patch.object(
-            adapter, "execute",
+            adapter,
+            "execute",
             return_value=ToolRunResult(
-                tool_id="opencli.fetch", run_id="r", success=False, exit_code=1,
+                tool_id="opencli.fetch",
+                run_id="r",
+                success=False,
+                exit_code=1,
                 error={"type": "fetch_failed", "message": "crash"},
             ),
         ):
@@ -444,9 +468,13 @@ class TestOpenCLICollectorCollect:
         collector = OpenCLICollector(config, adapter)
 
         with mock.patch.object(
-            adapter, "execute",
+            adapter,
+            "execute",
             return_value=ToolRunResult(
-                tool_id="opencli.fetch", run_id="r", success=True, exit_code=0,
+                tool_id="opencli.fetch",
+                run_id="r",
+                success=True,
+                exit_code=0,
                 stdout=json.dumps(items),
             ),
         ):
@@ -469,9 +497,13 @@ class TestOpenCLICollectorCollect:
         collector = OpenCLICollector(config, adapter)
 
         with mock.patch.object(
-            adapter, "execute",
+            adapter,
+            "execute",
             return_value=ToolRunResult(
-                tool_id="opencli.fetch", run_id="r", success=True, exit_code=0,
+                tool_id="opencli.fetch",
+                run_id="r",
+                success=True,
+                exit_code=0,
                 stdout=json.dumps(data),
             ),
         ):
@@ -495,9 +527,13 @@ class TestOpenCLICollectorCollect:
         collector = OpenCLICollector(config, adapter)
 
         with mock.patch.object(
-            adapter, "execute",
+            adapter,
+            "execute",
             return_value=ToolRunResult(
-                tool_id="opencli.fetch", run_id="r", success=True, exit_code=0,
+                tool_id="opencli.fetch",
+                run_id="r",
+                success=True,
+                exit_code=0,
                 stdout=json.dumps(items),
             ),
         ):

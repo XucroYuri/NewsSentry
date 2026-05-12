@@ -13,9 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC_INDEX = ROOT / "docs" / "spec" / "README.md"
-PHASE_ROW = re.compile(
-    r"^\|\s*Phase\s+(\d+)\s*\|[^|]+\|[^|]+\|\s*(.+?)\s*\|\s*$"
-)
+PHASE_ROW = re.compile(r"^\|\s*Phase\s+(\d+)\s*\|[^|]+\|[^|]+\|\s*(.+?)\s*\|\s*$")
 
 
 def run_git(*args: str) -> str:
@@ -158,19 +156,13 @@ def format_text(report: dict[str, object]) -> str:
         f"生成时间: {report['generated_at']}",
         "",
         "Git 同步",
-        f"  本地: {local['branch']} @ {local['short']}"
-        f"{' (dirty)' if local['dirty'] else ''}",
+        f"  本地: {local['branch']} @ {local['short']}{' (dirty)' if local['dirty'] else ''}",
     ]
 
     if remote.get("reachable"):
         lines.append(f"  远端: {remote['ref']} @ {remote['short']}")
-        lines.append(
-            f"  差异: ahead {remote['ahead']}, behind {remote['behind']}"
-        )
-        lines.append(
-            "  状态: "
-            + ("已同步" if remote.get("synced") else "未同步")
-        )
+        lines.append(f"  差异: ahead {remote['ahead']}, behind {remote['behind']}")
+        lines.append("  状态: " + ("已同步" if remote.get("synced") else "未同步"))
     else:
         lines.append(f"  远端: {remote['ref']} 不可达（先 git fetch）")
 

@@ -192,4 +192,3 @@ status: success
 4. schema 校验失败会触发 fallback 或人工检查，不静默通过。
 5. 每次调用都有 usage log 和 output ref。
 6. 发布、社媒事实定性、高风险矛盾源必须保留人工 gate。
-

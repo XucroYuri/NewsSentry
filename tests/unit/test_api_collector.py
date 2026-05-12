@@ -2,6 +2,7 @@
 
 覆盖：正常采集、字段映射、错误处理、沙箱拦截、空数据、语言检测等。
 """
+
 from __future__ import annotations
 
 from unittest import mock
@@ -339,11 +340,13 @@ class TestCollect:
 
         # 构造同时有 records、data、items 的响应，应优先用 records
         items = [_make_mock_api_item(title="From records", url="https://x.com/records/1")]
-        mock_resp = _make_mock_response({
-            "items": [],
-            "data": [],
-            "records": items,
-        })
+        mock_resp = _make_mock_response(
+            {
+                "items": [],
+                "data": [],
+                "records": items,
+            }
+        )
 
         with mock.patch("httpx.get", return_value=mock_resp):
             result = collector.collect("run-001")

@@ -1,9 +1,9 @@
 # Phase 4 — Tool/Skill Registry + OpenCLI
 
-> 详细 SPEC: 本文档  
-> 路线图: [docs/development-plan.md §Phase-4](../development-plan.md)  
-> 横切组件矩阵: [docs/spec/README.md](README.md)  
-> ADR-0008: [外部依赖 install-not-vendor 原则](../adr/0008-external-deps-install-not-vendor.md)  
+> 详细 SPEC: 本文档
+> 路线图: [docs/development-plan.md §Phase-4](../development-plan.md)
+> 横切组件矩阵: [docs/spec/README.md](README.md)
+> ADR-0008: [外部依赖 install-not-vendor 原则](../adr/0008-external-deps-install-not-vendor.md)
 > ADR-0011: [OpenCLI baseline ToolManifest 12 条](../adr/0011-opencli-baseline-toolmanifest.md)
 
 ---

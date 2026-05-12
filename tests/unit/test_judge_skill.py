@@ -4,6 +4,7 @@
 router 错误处理、JSON 响应解析、budget_exceeded 降级。
 使用 mock ProviderRouter 模拟多 Provider 路由。
 """
+
 from __future__ import annotations
 
 import json
@@ -68,8 +69,8 @@ def sample_event() -> NewsEvent:
         url="https://ansa.it/politica/20260510_1",
         title_original="Cina e Italia firmano accordo commerciale",
         content_original="La Cina e l'Italia hanno firmato un nuovo accordo "
-                         "commerciale a Pechino, rafforzando i legami "
-                         "della Via della Seta.",
+        "commerciale a Pechino, rafforzando i legami "
+        "della Via della Seta.",
         language=Language.IT,
         published_at="2026-05-10T10:30:00+00:00",
         collected_at="2026-05-10T10:31:00+00:00",
@@ -78,6 +79,7 @@ def sample_event() -> NewsEvent:
 
 
 # ── 初始化 ──────────────────────────────────────────────────────────────
+
 
 class TestInit:
     """JudgeSkill 初始化测试。"""
@@ -102,6 +104,7 @@ class TestInit:
 
 # ── judge ────────────────────────────────────────────────────────────────
 
+
 class TestJudge:
     """judge 方法测试。"""
 
@@ -109,17 +112,19 @@ class TestJudge:
         """调用 judge() 后 news_value_score/china_relevance/title_translated 被填充。"""
         router = mock.MagicMock()
         router.route.return_value = {
-            "content": json.dumps({
-                "news_value_score": 75,
-                "china_relevance": 60,
-                "recommendation": "publish",
-                "rationale": "高价值涉华新闻。",
-                "sentiment_score": 0.5,
-                "title_translated": "中意贸易协议",
-                "content_translated": "内容译文...",
-                "classification_l0": "china_related",
-                "flags": ["china_significant"],
-            }),
+            "content": json.dumps(
+                {
+                    "news_value_score": 75,
+                    "china_relevance": 60,
+                    "recommendation": "publish",
+                    "rationale": "高价值涉华新闻。",
+                    "sentiment_score": 0.5,
+                    "title_translated": "中意贸易协议",
+                    "content_translated": "内容译文...",
+                    "classification_l0": "china_related",
+                    "flags": ["china_significant"],
+                }
+            ),
             "model": "gpt-4o-mini",
             "usage": {},
             "route_id": "judge.primary",
@@ -145,18 +150,20 @@ class TestJudge:
         """event.judge_result 包含 recommendation/rationale/confidence/flags。"""
         router = mock.MagicMock()
         router.route.return_value = {
-            "content": json.dumps({
-                "news_value_score": 60,
-                "china_relevance": 40,
-                "recommendation": "review",
-                "rationale": "普通政治新闻，建议审核。",
-                "sentiment_score": 0.0,
-                "title_translated": "标题",
-                "content_translated": "正文",
-                "classification_l0": "political",
-                "flags": ["priority_topic", "high_value"],
-                "confidence": 65,
-            }),
+            "content": json.dumps(
+                {
+                    "news_value_score": 60,
+                    "china_relevance": 40,
+                    "recommendation": "review",
+                    "rationale": "普通政治新闻，建议审核。",
+                    "sentiment_score": 0.0,
+                    "title_translated": "标题",
+                    "content_translated": "正文",
+                    "classification_l0": "political",
+                    "flags": ["priority_topic", "high_value"],
+                    "confidence": 65,
+                }
+            ),
             "model": "gpt-4o-mini",
             "usage": {},
             "route_id": "judge.primary",
@@ -255,17 +262,19 @@ class TestJudge:
 
     def test_judge_parses_json_response(self, sample_event):
         """mock router 返回 content 为 JSON 字符串，验证解析。"""
-        raw_json = json.dumps({
-            "news_value_score": 85,
-            "china_relevance": 70,
-            "recommendation": "publish",
-            "rationale": "涉及中国重大经贸协议，建议发布。",
-            "sentiment_score": 0.6,
-            "title_translated": "中国与意大利签署贸易协议",
-            "content_translated": "中国和意大利在北京签署了新的贸易协议...",
-            "classification_l0": "china_related",
-            "flags": ["china_significant", "high_value"],
-        })
+        raw_json = json.dumps(
+            {
+                "news_value_score": 85,
+                "china_relevance": 70,
+                "recommendation": "publish",
+                "rationale": "涉及中国重大经贸协议，建议发布。",
+                "sentiment_score": 0.6,
+                "title_translated": "中国与意大利签署贸易协议",
+                "content_translated": "中国和意大利在北京签署了新的贸易协议...",
+                "classification_l0": "china_related",
+                "flags": ["china_significant", "high_value"],
+            }
+        )
 
         router = mock.MagicMock()
         router.route.return_value = {
@@ -295,13 +304,13 @@ class TestJudge:
     def test_judge_parses_json_with_markdown_wrapper(self, sample_event):
         """mock router 返回 markdown 包裹的 JSON，验证解析。"""
         raw_text = (
-            '```json\n'
+            "```json\n"
             '{"news_value_score": 60, "china_relevance": 40, '
             '"recommendation": "review", "rationale": "普通政治新闻。", '
             '"sentiment_score": 0.0, "title_translated": "标题", '
             '"content_translated": "正文", "classification_l0": "political", '
             '"flags": ["priority_topic"]}\n'
-            '```'
+            "```"
         )
 
         router = mock.MagicMock()
@@ -326,6 +335,7 @@ class TestJudge:
 
 
 # ── _parse_response ─────────────────────────────────────────────────────
+
 
 class TestParseResponse:
     """_parse_response 静态方法测试。"""
@@ -353,6 +363,7 @@ class TestParseResponse:
 
 
 # ── _map_recommendation ─────────────────────────────────────────────────
+
 
 class TestMapRecommendation:
     """_map_recommendation 方法测试。"""
@@ -382,6 +393,7 @@ class TestMapRecommendation:
 
 
 # ── _normalize_flags ────────────────────────────────────────────────────
+
 
 class TestNormalizeFlags:
     """_normalize_flags 静态方法测试。"""

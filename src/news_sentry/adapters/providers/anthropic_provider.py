@@ -3,6 +3,7 @@
 Implements AIProvider protocol as second provider for multi-Provider routing.
 Uses httpx to call Anthropic Messages API (/v1/messages).
 """
+
 from __future__ import annotations
 
 import os
@@ -36,14 +37,16 @@ class AnthropicProvider(AIProvider):
                 - max_tokens: 最大输出 token 数，默认 2048
         """
         self._api_key = config.get(
-            "api_key", os.environ.get("ANTHROPIC_API_KEY"),
+            "api_key",
+            os.environ.get("ANTHROPIC_API_KEY"),
         )
         self._base_url = config.get(
             "base_url",
             os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1"),
         )
         self._default_model = config.get(
-            "default_model", "claude-3-haiku-20240307",
+            "default_model",
+            "claude-3-haiku-20240307",
         )
         self._max_tokens = config.get("max_tokens", 2048)
 
@@ -85,7 +88,10 @@ class AnthropicProvider(AIProvider):
 
         try:
             response = httpx.post(
-                url, headers=headers, json=payload, timeout=60,
+                url,
+                headers=headers,
+                json=payload,
+                timeout=60,
             )
             response.raise_for_status()
             data = response.json()
@@ -94,9 +100,7 @@ class AnthropicProvider(AIProvider):
                 f"Anthropic API 返回 HTTP {e.response.status_code}: {e.response.text}"
             ) from e
         except httpx.RequestError as e:
-            raise RuntimeError(
-                f"Anthropic API 网络请求失败: {e}"
-            ) from e
+            raise RuntimeError(f"Anthropic API 网络请求失败: {e}") from e
 
         content_blocks = data.get("content", [])
         text = ""

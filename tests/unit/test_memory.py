@@ -1,4 +1,5 @@
 """Tests for core/memory.py — known IDs, source health, cursors, provider stats, concurrency."""
+
 from __future__ import annotations
 
 import threading
@@ -160,8 +161,7 @@ def test_record_source_health_resets_consecutive_on_success(tmp_path: Path) -> N
 def test_record_source_health_persists_across_instances(tmp_path: Path) -> None:
     """record_source_health 写入的状态应该在新的 Memory 实例中可见。"""
     mem1 = Memory(tmp_path)
-    mem1.record_source_health("ansa", success=False, error_msg="timeout",
-                              run_id="test-run-1")
+    mem1.record_source_health("ansa", success=False, error_msg="timeout", run_id="test-run-1")
     mem1.record_source_health("ansa", success=True, run_id="test-run-2")
     mem2 = Memory(tmp_path)
     health = mem2.get_source_health("ansa")

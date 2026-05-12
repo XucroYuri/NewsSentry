@@ -1,8 +1,8 @@
 # Phase 3 — Kernel MVP
 
-> 详细 SPEC: 本文档  
-> 路线图: [docs/development-plan.md §Phase-3](../development-plan.md)  
-> 横切组件矩阵: [docs/spec/README.md](README.md)  
+> 详细 SPEC: 本文档
+> 路线图: [docs/development-plan.md §Phase-3](../development-plan.md)
+> 横切组件矩阵: [docs/spec/README.md](README.md)
 > 口径基准: [docs/contracts-canonical.md](../contracts-canonical.md)
 
 ---

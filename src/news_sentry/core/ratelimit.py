@@ -2,6 +2,7 @@
 
 使用 monotonic 时钟 + 随机抖动，防止惊群效应。
 """
+
 from __future__ import annotations
 
 import random

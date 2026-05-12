@@ -4,6 +4,7 @@ RulesJudgeSkill — rule-engine news value judgment without LLM dependency.
 Input: filtered NewsEvent list. Output: enriched NewsEvent with judge_result.
 Phase 3 fallback — Phase 5 will add AI-powered JudgeSkill as primary.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -32,9 +33,17 @@ class RulesJudgeSkill:
 
     # China 相关关键词（contracts-canonical.md 关联类别）
     _CHINA_KEYWORDS: tuple[str, ...] = (
-        "cina", "china", "cinese", "chinese",
-        "via della seta", "belt and road", "pechino",
-        "beijing", "shanghai", "xi jinping", "brics",
+        "cina",
+        "china",
+        "cinese",
+        "chinese",
+        "via della seta",
+        "belt and road",
+        "pechino",
+        "beijing",
+        "shanghai",
+        "xi jinping",
+        "brics",
     )
 
     # 分类 l0 映射到推荐级别的阈值
@@ -47,7 +56,9 @@ class RulesJudgeSkill:
     }
 
     def __init__(
-        self, classification_rules: dict[str, Any], memory: Memory,
+        self,
+        classification_rules: dict[str, Any],
+        memory: Memory,
     ) -> None:
         self._classification_rules = classification_rules
         self._memory = memory
@@ -99,19 +110,17 @@ class RulesJudgeSkill:
 
         匹配 title + content 中的 China 关键词，按命中比例打分。
         """
-        search_text = (
-            event.title_original + " " + event.content_original
-        ).lower()
-        hits = sum(
-            1 for kw in self._CHINA_KEYWORDS if kw in search_text
-        )
+        search_text = (event.title_original + " " + event.content_original).lower()
+        hits = sum(1 for kw in self._CHINA_KEYWORDS if kw in search_text)
         # 每命中一个关键词 +10，上限 100
         return min(hits * 10, 100)
 
     # ── 推荐决策 ─────────────────────────────────────────────────
 
     def _decide_recommendation(
-        self, event: NewsEvent, classification: dict[str, Any],
+        self,
+        event: NewsEvent,
+        classification: dict[str, Any],
     ) -> JudgeRecommendation:
         """综合 news_value_score、分类和 china_relevance 产生推荐。
 

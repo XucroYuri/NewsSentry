@@ -3,6 +3,7 @@
 RulesFilter — keyword + score threshold filtering.
 Input: list[NewsEvent] at stage=collected. Output: list[NewsEvent] at stage=filtered.
 """
+
 from __future__ import annotations
 
 import re
@@ -76,9 +77,7 @@ class RulesFilter:
 
         return passed
 
-    def _score_event(
-        self, event: NewsEvent, keyword_rules: list[dict[str, Any]]
-    ) -> int:
+    def _score_event(self, event: NewsEvent, keyword_rules: list[dict[str, Any]]) -> int:
         """根据关键词规则计算新闻价值评分（0-100）。
 
         对每条规则在 event 的 title 和 content 中进行不区分大小写
@@ -106,16 +105,14 @@ class RulesFilter:
             if not kw:
                 continue
             # 使用 \b 词边界防止短词误匹配子串（如 Cina → Bonacina）
-            pattern = r'\b' + re.escape(kw) + r'\b'
+            pattern = r"\b" + re.escape(kw) + r"\b"
             if re.search(pattern, search_lower, re.IGNORECASE):
                 total += float(rule.get("weight", 0)) * 100
 
         return min(int(total), 100)
 
     @staticmethod
-    def _is_within_age(
-        event: NewsEvent, now: datetime, max_age: timedelta
-    ) -> bool:
+    def _is_within_age(event: NewsEvent, now: datetime, max_age: timedelta) -> bool:
         """检查事件是否在时效窗口内。
 
         Args:

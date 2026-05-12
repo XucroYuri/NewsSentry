@@ -3,6 +3,7 @@
 覆盖：route() 编排 → Provider 调用 → 回退切换 → 成本追踪 → 预算超限。
 使用 mock AIProvider 避免真实 API 调用。
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -15,6 +16,7 @@ from news_sentry.core.provider_router import ProviderRouter
 from news_sentry.models.provider_config import ProviderRoute, ProviderRoutesConfig
 
 # ── 测试用路由配置 ─────────────────────────────────────────────────────
+
 
 def _make_e2e_routes_config() -> ProviderRoutesConfig:
     """构造含主路由 + 回退路由的测试配置。"""
@@ -63,6 +65,7 @@ def _make_e2e_routes_config() -> ProviderRoutesConfig:
 
 # ── 模拟 Provider ───────────────────────────────────────────────────────
 
+
 def _make_mock_provider(
     content: str = "mock response",
     should_fail: bool = False,
@@ -73,8 +76,11 @@ def _make_mock_provider(
     if should_fail:
         provider.call.side_effect = RuntimeError("模拟 Provider 调用失败")
     else:
+
         def call_side_effect(
-            route_id: str = "", prompt: str = "", **kwargs: Any,  # noqa: ARG001
+            route_id: str = "",
+            prompt: str = "",
+            **kwargs: Any,  # noqa: ARG001
         ) -> dict[str, Any]:
             return {
                 "content": content,
@@ -83,18 +89,22 @@ def _make_mock_provider(
                 "route_id": route_id,
                 "provider": provider_name or "mock",
             }
+
         provider.call.side_effect = call_side_effect
     return provider
 
 
 def _factory(providers: dict[str, mock.MagicMock | None]) -> Callable[[str], Any | None]:
     """创建 provider_factory callable。"""
+
     def inner(name: str) -> Any | None:
         return providers.get(name)
+
     return inner
 
 
 # ── 夹具 ────────────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def router() -> ProviderRouter:
@@ -109,6 +119,7 @@ def router_with_budget() -> ProviderRouter:
 
 
 # ── route() 编排：成功路径 ─────────────────────────────────────────────
+
 
 class TestRouteSuccess:
     """route() 成功调用路径。"""
@@ -133,7 +144,9 @@ class TestRouteSuccess:
         factory = _factory({"anthropic": mock_anthropic})
 
         result = router.route(
-            "judge", "test prompt", factory,
+            "judge",
+            "test prompt",
+            factory,
             preferred_route_id="judge.anthropic",
         )
 
@@ -166,6 +179,7 @@ class TestRouteSuccess:
 
 # ── route() 编排：回退路径 ─────────────────────────────────────────────
 
+
 class TestRouteFallback:
     """route() 回退链路测试。"""
 
@@ -192,9 +206,13 @@ class TestRouteFallback:
         mock_openai = _make_mock_provider(should_fail=True)
         mock_anthropic = _make_mock_provider(should_fail=True)
         mock_local = _make_mock_provider(content="本地规则引擎结果", provider_name="local")
-        factory = _factory({
-            "openai": mock_openai, "anthropic": mock_anthropic, "local": mock_local,
-        })
+        factory = _factory(
+            {
+                "openai": mock_openai,
+                "anthropic": mock_anthropic,
+                "local": mock_local,
+            }
+        )
 
         result = router.route("judge", "test prompt", factory)
 
@@ -209,9 +227,13 @@ class TestRouteFallback:
         mock_openai = _make_mock_provider(should_fail=True)
         mock_anthropic = _make_mock_provider(should_fail=True)
         mock_local = _make_mock_provider(should_fail=True)
-        factory = _factory({
-            "openai": mock_openai, "anthropic": mock_anthropic, "local": mock_local,
-        })
+        factory = _factory(
+            {
+                "openai": mock_openai,
+                "anthropic": mock_anthropic,
+                "local": mock_local,
+            }
+        )
 
         result = router.route("judge", "test prompt", factory)
 
@@ -236,6 +258,7 @@ class TestRouteFallback:
 
 # ── route() 编排：预算超限 ─────────────────────────────────────────────
 
+
 class TestRouteBudget:
     """route() 预算超限测试。"""
 
@@ -256,6 +279,7 @@ class TestRouteBudget:
 
 
 # ── route() 编排：端到端完整链 ─────────────────────────────────────────
+
 
 class TestFullE2EChain:
     """完整的端到端编排链路。"""

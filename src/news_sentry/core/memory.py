@@ -3,6 +3,7 @@
 Memory — manages known IDs, source health, cursors, KOL state.
 Storage: {target}/memory/ directory (YAML files).
 """
+
 from __future__ import annotations
 
 import os
@@ -37,15 +38,11 @@ class Memory:
         self._memory_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
 
-        self._known_ids: dict[str, str] = (
-            self._read_yaml(self._KNOWN_IDS_FILE) or {}
-        )
+        self._known_ids: dict[str, str] = self._read_yaml(self._KNOWN_IDS_FILE) or {}
         self._source_health: dict[str, dict[str, Any]] = (
             self._read_yaml(self._SOURCE_HEALTH_FILE) or {}
         )
-        self._cursors: dict[str, str] = (
-            self._read_yaml(self._CURSORS_FILE) or {}
-        )
+        self._cursors: dict[str, str] = self._read_yaml(self._CURSORS_FILE) or {}
         self._provider_stats: dict[str, dict[str, Any]] = (
             self._read_yaml(self._PROVIDER_STATS_FILE) or {}
         )
@@ -104,9 +101,7 @@ class Memory:
         cutoff = datetime.now(UTC) - timedelta(days=ttl_days)
         with self._lock:
             stale = [
-                eid
-                for eid, ts in self._known_ids.items()
-                if datetime.fromisoformat(ts) < cutoff
+                eid for eid, ts in self._known_ids.items() if datetime.fromisoformat(ts) < cutoff
             ]
             for eid in stale:
                 del self._known_ids[eid]
@@ -164,8 +159,11 @@ class Memory:
             self._write_yaml(self._SOURCE_HEALTH_FILE, self._source_health)
 
     def record_source_health(
-        self, source_id: str, success: bool,
-        error_msg: str | None = None, run_id: str | None = None,
+        self,
+        source_id: str,
+        success: bool,
+        error_msg: str | None = None,
+        run_id: str | None = None,
     ) -> None:
         """记录一次源健康采样 — update_source_health 的便捷封装。
 
@@ -178,7 +176,8 @@ class Memory:
         self.update_source_health(source_id, success=success, error_msg=error_msg)
 
     def is_source_degraded(
-        self, source_id: str,
+        self,
+        source_id: str,
         max_consecutive_failures: int = 5,
         min_success_rate: float = 0.3,
         min_total_runs: int = 10,
@@ -244,9 +243,7 @@ class Memory:
             entry = self._provider_stats.get(provider_id)
             return entry.copy() if entry else {}
 
-    def update_provider_stats(
-        self, provider_id: str, tokens_used: int, success: bool
-    ) -> None:
+    def update_provider_stats(self, provider_id: str, tokens_used: int, success: bool) -> None:
         """更新 provider 调用统计：记录调用次数、token 用量、成功/失败。
 
         Args:

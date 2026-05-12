@@ -4,6 +4,7 @@ SocialKOLCollector — KOL 社媒内容采集器（Phase 12 升级版）。
 支持两种采集模式：active（逐账号）和 semi_active（Feed 流）。
 通过 OpenCLI Bridge 或 Playwright MCP 执行浏览器操作，零 token 采集。
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -18,12 +19,13 @@ from news_sentry.skills.collect.browser_fallback import BrowserFallback
 @dataclass
 class SocialAccount:
     """单个社媒账号的配置。"""
+
     handle: str
     display_name: str
     url: str
-    tier: str                                          # L1 | L2 | L3
+    tier: str  # L1 | L2 | L3
     category: str
-    monitor_mode: str                                  # active | semi_active
+    monitor_mode: str  # active | semi_active
     fetch_max_per_run: int = 20
     notes: str = ""
 
@@ -143,7 +145,7 @@ class SocialKOLCollector:
             feed_events = self._fetch_timeline(run_id)
             monitored_handles = {a.handle for a in semi_accounts}
             for event in feed_events:
-                author = (event.metadata.get("collection", {}).get("author_handle", ""))
+                author = event.metadata.get("collection", {}).get("author_handle", "")
                 if author in monitored_handles:
                     events.append(event)
         except Exception:  # noqa: S110 — timeline fetch failure is non-fatal, return empty list
@@ -168,7 +170,9 @@ class SocialKOLCollector:
     # ── 兼容 Phase 6 Stub 方法 ────────────────────────
 
     def collect_twitter_trends(
-        self, locale: str = "worldwide", context: str = "",
+        self,
+        locale: str = "worldwide",
+        context: str = "",
     ) -> list[NewsEvent]:
         """采集 Twitter 趋势（保留 Phase 6 兼容接口）。
 
@@ -238,7 +242,9 @@ class SocialKOLCollector:
         return [event]
 
     def collect_weixin_search(
-        self, query: str, context: str = "",
+        self,
+        query: str,
+        context: str = "",
     ) -> list[NewsEvent]:
         """采集微信搜一搜（保留 Phase 6 兼容接口）。
 
@@ -298,7 +304,10 @@ class SocialKOLCollector:
     # ── 内部方法 ─────────────────────────────────────
 
     def _execute_bridge_tool(
-        self, tool_id: str, validated_args: dict[str, Any], run_id: str,
+        self,
+        tool_id: str,
+        validated_args: dict[str, Any],
+        run_id: str,
     ) -> Any:  # noqa: ANN401 — ToolRunResult is defined in adapters.tools.base
         """封装 registry.execute 调用，统一注入 binding_id 和 sandbox。"""
         return self._registry.execute(
@@ -321,9 +330,7 @@ class SocialKOLCollector:
         """
         if not stdout.strip():
             return []
-        posts = [
-            p.strip() for p in stdout.split(self._POST_SEPARATOR) if p.strip()
-        ]
+        posts = [p.strip() for p in stdout.split(self._POST_SEPARATOR) if p.strip()]
         return posts[:max_posts]
 
     def _make_event(
@@ -370,11 +377,15 @@ class SocialKOLCollector:
         return None
 
     def _try_opencli_bridge(
-        self, account: SocialAccount, run_id: str,
+        self,
+        account: SocialAccount,
+        run_id: str,
     ) -> list[NewsEvent] | None:
         """Layer 1: OpenCLI Bridge 采集。"""
         nav_result = self._execute_bridge_tool(
-            "opencli.navigate", {"url": account.url}, run_id,
+            "opencli.navigate",
+            {"url": account.url},
+            run_id,
         )
         if not nav_result.success:
             return None
@@ -394,11 +405,15 @@ class SocialKOLCollector:
         return self._build_events(account, posts, run_id, "opencli_bridge")
 
     def _try_mcp_bridge(
-        self, account: SocialAccount, run_id: str,
+        self,
+        account: SocialAccount,
+        run_id: str,
     ) -> list[NewsEvent] | None:
         """Layer 2: Playwright MCP 采集。"""
         nav_result = self._execute_bridge_tool(
-            self._L2_NAVIGATE_TOOL, {"url": account.url}, run_id,
+            self._L2_NAVIGATE_TOOL,
+            {"url": account.url},
+            run_id,
         )
         if not nav_result.success:
             return None
@@ -418,7 +433,9 @@ class SocialKOLCollector:
         return self._build_events(account, posts, run_id, "playwright_mcp")
 
     def _try_layer_3(
-        self, account: SocialAccount, run_id: str,
+        self,
+        account: SocialAccount,
+        run_id: str,
     ) -> list[NewsEvent] | None:
         """Layer 3: Computer Use — 经由 ProviderRouter，消耗 token。
 
@@ -458,7 +475,9 @@ class SocialKOLCollector:
         return events
 
     def _fetch_account_page(
-        self, account: SocialAccount, run_id: str,
+        self,
+        account: SocialAccount,
+        run_id: str,
     ) -> list[NewsEvent]:
         """通过降级链采集单个账号页面的最新帖子。
 
@@ -499,7 +518,8 @@ class SocialKOLCollector:
             NewsEvent 列表。
         """
         home_url = self._PLATFORM_HOME_URL.get(
-            self.platform, f"https://{self.platform}.com/",
+            self.platform,
+            f"https://{self.platform}.com/",
         )
 
         # Step 1: 导航到首页 Feed

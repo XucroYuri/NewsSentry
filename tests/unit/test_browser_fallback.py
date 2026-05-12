@@ -1,4 +1,5 @@
 """BrowserFallback 模块测试。"""
+
 from news_sentry.skills.collect.browser_fallback import (
     BrowserFallback,
 )
@@ -42,4 +43,4 @@ class TestBrowserFallback:
         bf.record_success()
         assert bf.active_layer == 2  # 仅成功 1 次仍为 Layer 2
         bf.record_success()
-        assert bf.active_layer == 1       # 连续成功 2 次恢复到 Layer 1
+        assert bf.active_layer == 1  # 连续成功 2 次恢复到 Layer 1

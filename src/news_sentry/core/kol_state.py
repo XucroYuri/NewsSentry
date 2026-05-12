@@ -39,18 +39,14 @@ class KOLEntry(BaseModel):
     @classmethod
     def check_content_length(cls, v: str | None) -> str | None:
         if v is not None and len(v) > 200:
-            raise ValueError(
-                f"last_content_sample 不能超过 200 字，当前长度: {len(v)}"
-            )
+            raise ValueError(f"last_content_sample 不能超过 200 字，当前长度: {len(v)}")
         return v
 
     @field_validator("china_relevance_score")
     @classmethod
     def check_score_range(cls, v: int | None) -> int | None:
         if v is not None and not (0 <= v <= 100):
-            raise ValueError(
-                f"china_relevance_score 必须在 0-100 之间，当前值: {v}"
-            )
+            raise ValueError(f"china_relevance_score 必须在 0-100 之间，当前值: {v}")
         return v
 
 
@@ -73,9 +69,7 @@ def load_kol_state(memory_root: Path) -> dict[str, KOLEntry]:
             entry = KOLEntry(**item)
             entries[entry.kol_id] = entry
         except Exception as e:
-            logger.warning(
-                "跳过无效 KOL 条目: %s error=%s", item.get("kol_id", "?"), e
-            )
+            logger.warning("跳过无效 KOL 条目: %s error=%s", item.get("kol_id", "?"), e)
     return entries
 
 

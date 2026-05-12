@@ -1,4 +1,5 @@
 """Tests for ToolRegistry — load, lookup, health check, and risk filtering."""
+
 from __future__ import annotations
 
 from pathlib import Path

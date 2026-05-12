@@ -2,6 +2,7 @@
 
 ToolAdapter — abstract protocol for external tool execution.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,6 +12,7 @@ from typing import Any, Protocol
 @dataclass
 class ToolRunResult:
     """Result of a tool execution. Schema: schemas/toolrunresult.schema.json"""
+
     tool_id: str
     run_id: str
     success: bool
@@ -72,6 +74,7 @@ class ToolRunResult:
 
 class ToolAdapter(Protocol):
     """Protocol for tool adapters."""
+
     tool_id: str
 
     def execute(self, validated_args: dict[str, Any], run_id: str) -> ToolRunResult:

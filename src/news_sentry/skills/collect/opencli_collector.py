@@ -4,6 +4,7 @@ OpenCLICollector — wraps OpenCLI tool calls to collect web page content.
 Uses ToolManifest entries from config/toolmanifest/opencli-baseline.yaml (ADR-0011).
 Translates OpenCLI tool output into NewsEvent objects at pipeline_stage=collected.
 """
+
 from __future__ import annotations
 
 import json

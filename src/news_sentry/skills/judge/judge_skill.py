@@ -4,6 +4,7 @@ JudgeSkill — AI-powered news value judgement using judge.primary route.
 One LLM call produces: JudgeResult + title_translated + content_translated.
 Uses ProviderRouter for multi-Provider routing with automatic fallback.
 """
+
 from __future__ import annotations
 
 import json
@@ -87,7 +88,8 @@ class JudgeSkill:
             # 预算超限 → 降级为 monitor
             if raw_result.get("budget_exceeded"):
                 logger.warning(
-                    "预算超限，事件降级为 monitor: event_id=%s", event.id,
+                    "预算超限，事件降级为 monitor: event_id=%s",
+                    event.id,
                 )
                 event.news_value_score = 0
                 event.china_relevance = 0
@@ -248,7 +250,7 @@ Output ONLY valid JSON, no markdown, no extra text. Use this exact format:
         end = text.rfind("}")
         if start != -1 and end != -1 and end > start:
             try:
-                return json.loads(text[start:end + 1])  # type: ignore[no-any-return]
+                return json.loads(text[start : end + 1])  # type: ignore[no-any-return]
             except json.JSONDecodeError:
                 pass
 

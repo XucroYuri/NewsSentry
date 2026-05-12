@@ -13,6 +13,7 @@ from news_sentry.core.config import ConfigLoader, ResolvedConfig
 
 # ── helpers ────────────────────────────────────────────────────
 
+
 def _write_yaml(path: Path, data: dict, schema_ref: str | None = None) -> None:
     """写入 YAML 文件，可选带 # Schema: 头部注释。"""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -91,6 +92,7 @@ def _write_minimal_sandbox(root: Path, profile_id: str = "local-workstation") ->
 
 # ── fixtures ───────────────────────────────────────────────────
 
+
 @pytest.fixture
 def project_root(tmp_path: Path) -> Path:
     """创建最小项目结构，含 config/ 和 schemas/ 目录。"""
@@ -105,6 +107,7 @@ def loader(project_root: Path) -> ConfigLoader:
 
 
 # ── ResolvedConfig ─────────────────────────────────────────────
+
 
 class TestResolvedConfig:
     def test_basic_fields(self):
@@ -155,6 +158,7 @@ class TestLoadProfile:
 
 # ── _extract_schema_ref ───────────────────────────────────────
 
+
 class TestExtractSchemaRef:
     def test_extracts_schema_ref(self):
         text = "# Schema: ../../schemas/targetconfig.schema.json\nkey: val\n"
@@ -181,6 +185,7 @@ class TestExtractSchemaRef:
 
 # ── _load_yaml ────────────────────────────────────────────────
 
+
 class TestLoadYaml:
     def test_loads_basic_yaml(self, loader, project_root):
         path = project_root / "test.yaml"
@@ -203,6 +208,7 @@ class TestLoadYaml:
 
 
 # ── _deep_merge ───────────────────────────────────────────────
+
 
 class TestDeepMerge:
     @pytest.fixture
@@ -244,6 +250,7 @@ class TestDeepMerge:
 
 
 # ── _resolve_schema_path ──────────────────────────────────────
+
 
 class TestResolveSchemaPath:
     def test_resolves_relative_to_yaml(self, loader, project_root):
@@ -290,26 +297,33 @@ class TestResolveSchemaPath:
 
 # ── _validate ──────────────────────────────────────────────────
 
+
 class TestValidate:
     def test_valid_data_passes(self, loader, project_root):
         schemas_dir = project_root / "schemas"
         schemas_dir.mkdir(exist_ok=True)
         schema_path = schemas_dir / "test.schema.json"
-        _write_json_schema(schema_path, {
-            "type": "object",
-            "properties": {"name": {"type": "string"}},
-            "required": ["name"],
-        })
+        _write_json_schema(
+            schema_path,
+            {
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "required": ["name"],
+            },
+        )
         loader._validate({"name": "hello"}, schema_path)
 
     def test_invalid_data_raises(self, loader, project_root):
         schemas_dir = project_root / "schemas"
         schemas_dir.mkdir(exist_ok=True)
         schema_path = schemas_dir / "test.schema.json"
-        _write_json_schema(schema_path, {
-            "type": "object",
-            "properties": {"age": {"type": "integer", "minimum": 0}},
-        })
+        _write_json_schema(
+            schema_path,
+            {
+                "type": "object",
+                "properties": {"age": {"type": "integer", "minimum": 0}},
+            },
+        )
         with pytest.raises(ValidationError):
             loader._validate({"age": -1}, schema_path)
 
@@ -320,6 +334,7 @@ class TestValidate:
 
 # ── _validate_resolved_schema ──────────────────────────────────
 
+
 class TestValidateResolvedSchema:
     def test_skips_when_no_schema(self, loader, project_root):
         path = project_root / "no_schema.yaml"
@@ -329,11 +344,14 @@ class TestValidateResolvedSchema:
     def test_validates_with_schema(self, loader, project_root):
         schemas_dir = project_root / "schemas"
         schemas_dir.mkdir(exist_ok=True)
-        _write_json_schema(schemas_dir / "s.schema.json", {
-            "type": "object",
-            "properties": {"name": {"type": "string"}},
-            "required": ["name"],
-        })
+        _write_json_schema(
+            schemas_dir / "s.schema.json",
+            {
+                "type": "object",
+                "properties": {"name": {"type": "string"}},
+                "required": ["name"],
+            },
+        )
         yaml_path = project_root / "with_schema.yaml"
         yaml_path.write_text("# Schema: schemas/s.schema.json\nname: test", encoding="utf-8")
         loader._validate_resolved_schema({"name": "test"}, yaml_path)
@@ -341,10 +359,13 @@ class TestValidateResolvedSchema:
     def test_validation_failure_raises(self, loader, project_root):
         schemas_dir = project_root / "schemas"
         schemas_dir.mkdir(exist_ok=True)
-        _write_json_schema(schemas_dir / "s.schema.json", {
-            "type": "object",
-            "required": ["must_exist"],
-        })
+        _write_json_schema(
+            schemas_dir / "s.schema.json",
+            {
+                "type": "object",
+                "required": ["must_exist"],
+            },
+        )
         yaml_path = project_root / "fail.yaml"
         yaml_path.write_text("# Schema: schemas/s.schema.json\nfoo: bar", encoding="utf-8")
         with pytest.raises(ValidationError):
@@ -353,6 +374,7 @@ class TestValidateResolvedSchema:
 
 # ── _load_referenced_config ───────────────────────────────────
 
+
 class TestLoadReferencedConfig:
     def test_loads_by_relative_to_config_root(self, loader, project_root):
         ref_dir = project_root / "config" / "filters"
@@ -360,8 +382,7 @@ class TestLoadReferencedConfig:
         _write_yaml(ref_dir / "rules.yaml", {"threshold": 80})
 
         result = loader._load_referenced_config(
-            "config/filters/rules.yaml",
-            project_root / "config" / "targets" / "test.yaml"
+            "config/filters/rules.yaml", project_root / "config" / "targets" / "test.yaml"
         )
         assert result == {"threshold": 80}
 
@@ -370,10 +391,7 @@ class TestLoadReferencedConfig:
         targets_dir.mkdir(parents=True)
         _write_yaml(targets_dir / "rules.yaml", {"threshold": 60})
 
-        result = loader._load_referenced_config(
-            "rules.yaml",
-            targets_dir / "test.yaml"
-        )
+        result = loader._load_referenced_config("rules.yaml", targets_dir / "test.yaml")
         assert result == {"threshold": 60}
 
     def test_none_ref_returns_empty_dict(self, loader):
@@ -382,33 +400,36 @@ class TestLoadReferencedConfig:
 
     def test_missing_ref_returns_empty_dict(self, loader, project_root):
         result = loader._load_referenced_config(
-            "missing.yaml",
-            project_root / "config" / "targets" / "test.yaml"
+            "missing.yaml", project_root / "config" / "targets" / "test.yaml"
         )
         assert result == {}
 
     def test_validates_with_schema(self, loader, project_root):
         schemas_dir = project_root / "schemas"
         schemas_dir.mkdir(exist_ok=True)
-        _write_json_schema(schemas_dir / "filter.schema.json", {
-            "type": "object",
-            "required": ["threshold"],
-            "properties": {"threshold": {"type": "integer"}},
-        })
+        _write_json_schema(
+            schemas_dir / "filter.schema.json",
+            {
+                "type": "object",
+                "required": ["threshold"],
+                "properties": {"threshold": {"type": "integer"}},
+            },
+        )
 
         ref_dir = project_root / "config" / "filters"
         ref_dir.mkdir(parents=True)
-        _write_yaml(ref_dir / "rules.yaml", {"threshold": 80},
-                    schema_ref="../../schemas/filter.schema.json")
+        _write_yaml(
+            ref_dir / "rules.yaml", {"threshold": 80}, schema_ref="../../schemas/filter.schema.json"
+        )
 
         result = loader._load_referenced_config(
-            "config/filters/rules.yaml",
-            project_root / "config" / "targets" / "test.yaml"
+            "config/filters/rules.yaml", project_root / "config" / "targets" / "test.yaml"
         )
         assert result == {"threshold": 80}
 
 
 # ── _load_sources ─────────────────────────────────────────────
+
 
 class TestLoadSources:
     def test_loads_multiple_sources(self, loader, project_root):
@@ -433,22 +454,29 @@ class TestLoadSources:
     def test_validates_source_against_schema(self, loader, project_root):
         schemas_dir = project_root / "schemas"
         schemas_dir.mkdir(exist_ok=True)
-        _write_json_schema(schemas_dir / "sourcechannel.schema.json", {
-            "type": "object",
-            "required": ["source_id"],
-            "properties": {"source_id": {"type": "string"}},
-        })
+        _write_json_schema(
+            schemas_dir / "sourcechannel.schema.json",
+            {
+                "type": "object",
+                "required": ["source_id"],
+                "properties": {"source_id": {"type": "string"}},
+            },
+        )
 
         sources_dir = project_root / "config" / "sources" / "my-target"
         sources_dir.mkdir(parents=True)
-        _write_yaml(sources_dir / "s.yaml", _make_minimal_source("s"),
-                    schema_ref="../../schemas/sourcechannel.schema.json")
+        _write_yaml(
+            sources_dir / "s.yaml",
+            _make_minimal_source("s"),
+            schema_ref="../../schemas/sourcechannel.schema.json",
+        )
 
         results = loader._load_sources("my-target", ["s"])
         assert len(results) == 1
 
 
 # ── load_target 集成 ──────────────────────────────────────────
+
 
 class TestLoadTarget:
     def test_full_load_target(self, project_root):
@@ -457,35 +485,56 @@ class TestLoadTarget:
         schemas_dir = project_root / "schemas"
         schemas_dir.mkdir(exist_ok=True)
         empty_schema = {"type": "object"}
-        for name in ["targetconfig.schema.json", "sourcechannel.schema.json",
-                     "filterrules.schema.json", "deploymentprofile.schema.json",
-                     "sandboxpolicy.schema.json"]:
+        for name in [
+            "targetconfig.schema.json",
+            "sourcechannel.schema.json",
+            "filterrules.schema.json",
+            "deploymentprofile.schema.json",
+            "sandboxpolicy.schema.json",
+        ]:
             _write_json_schema(schemas_dir / name, empty_schema)
 
         # target config
         targets_dir = project_root / "config" / "targets"
         targets_dir.mkdir(parents=True)
-        _write_yaml(targets_dir / "my-target.yaml",
-                    _make_minimal_target(target_id="my-target",
-                                         source_channel_refs=["src-a", "src-b"],
-                                         filter_rules_ref="config/filters/my-target/default.yaml"),
-                    schema_ref="../../schemas/targetconfig.schema.json")
+        _write_yaml(
+            targets_dir / "my-target.yaml",
+            _make_minimal_target(
+                target_id="my-target",
+                source_channel_refs=["src-a", "src-b"],
+                filter_rules_ref="config/filters/my-target/default.yaml",
+            ),
+            schema_ref="../../schemas/targetconfig.schema.json",
+        )
 
         # sources
         sources_dir = project_root / "config" / "sources" / "my-target"
         sources_dir.mkdir(parents=True)
-        _write_yaml(sources_dir / "src-a.yaml", _make_minimal_source("src-a"),
-                    schema_ref="../../schemas/sourcechannel.schema.json")
-        _write_yaml(sources_dir / "src-b.yaml", _make_minimal_source("src-b"),
-                    schema_ref="../../schemas/sourcechannel.schema.json")
+        _write_yaml(
+            sources_dir / "src-a.yaml",
+            _make_minimal_source("src-a"),
+            schema_ref="../../schemas/sourcechannel.schema.json",
+        )
+        _write_yaml(
+            sources_dir / "src-b.yaml",
+            _make_minimal_source("src-b"),
+            schema_ref="../../schemas/sourcechannel.schema.json",
+        )
 
         # filter rules
         filters_dir = project_root / "config" / "filters" / "my-target"
         filters_dir.mkdir(parents=True)
-        _write_yaml(filters_dir / "default.yaml",
-                    {"rules_version": 1, "target_id": "my-target",
-                     "score_threshold": 60, "max_age_hours": 48, "dedup_window_hours": 72},
-                    schema_ref="../../schemas/filterrules.schema.json")
+        _write_yaml(
+            filters_dir / "default.yaml",
+            {
+                "rules_version": 1,
+                "target_id": "my-target",
+                "score_threshold": 60,
+                "max_age_hours": 48,
+                "dedup_window_hours": 72,
+            },
+            schema_ref="../../schemas/filterrules.schema.json",
+        )
 
         # deployment profile + sandbox
         profiles_dir = project_root / "config" / "profiles"
@@ -529,13 +578,15 @@ class TestLoadTarget:
         profiles_dir = project_root / "config" / "profiles"
         _write_yaml(
             profiles_dir / "local-workstation.yaml",
-            _make_minimal_profile(paths={
-                "cwd": ".",
-                "output_root": "./workspace-data",
-                "config_root": "./config",
-                "log_root": "./workspace-data/logs",
-                "memory_root": "./workspace-data/memory",
-            }),
+            _make_minimal_profile(
+                paths={
+                    "cwd": ".",
+                    "output_root": "./workspace-data",
+                    "config_root": "./config",
+                    "log_root": "./workspace-data/logs",
+                    "memory_root": "./workspace-data/memory",
+                }
+            ),
             schema_ref="../../schemas/deploymentprofile.schema.json",
         )
 
@@ -604,9 +655,20 @@ class TestLoadTarget:
         source_ids = {s["source_id"] for s in config.sources}
         # 验证核心 RSS 源仍然存在
         core_ids = {
-            "ansa", "repubblica", "corriere", "agi", "fao-rss",
-            "tgcom24", "lastampa", "ilfattoquotidiano", "ansa-en",
-            "ilmessaggero", "rainews", "ilsole24ore", "thelocal-it", "sky-tg24",
+            "ansa",
+            "repubblica",
+            "corriere",
+            "agi",
+            "fao-rss",
+            "tgcom24",
+            "lastampa",
+            "ilfattoquotidiano",
+            "ansa-en",
+            "ilmessaggero",
+            "rainews",
+            "ilsole24ore",
+            "thelocal-it",
+            "sky-tg24",
         }
         assert core_ids.issubset(source_ids)
         assert "score_threshold" in config.filter_rules

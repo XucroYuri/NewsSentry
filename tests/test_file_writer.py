@@ -1,4 +1,5 @@
 """测试 FileWriter — 文件写入、移动、目录创建与 YAML frontmatter 正确性。"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -17,6 +18,7 @@ from news_sentry.models.newsevent import (
 # ------------------------------------------------------------------
 # 夹具
 # ------------------------------------------------------------------
+
 
 @pytest.fixture
 def base_dir(tmp_path: Path) -> Path:
@@ -66,13 +68,20 @@ def sample_event() -> NewsEvent:
 # ensure_dirs
 # ------------------------------------------------------------------
 
+
 def test_ensure_dirs_creates_all_directories(writer: FileWriter, base_dir: Path) -> None:
     """ensure_dirs 应创建所有 v1 目录。"""
     writer.ensure_dirs()
 
     expected = [
-        "raw", "evaluated", "drafts", "reviewed",
-        "published", "archive", "memory", "logs",
+        "raw",
+        "evaluated",
+        "drafts",
+        "reviewed",
+        "published",
+        "archive",
+        "memory",
+        "logs",
     ]
     for d in expected:
         assert (base_dir / d).is_dir(), f"目录 {d} 未被创建"
@@ -82,8 +91,11 @@ def test_ensure_dirs_creates_all_directories(writer: FileWriter, base_dir: Path)
 # write_event
 # ------------------------------------------------------------------
 
+
 def test_write_event_collected_writes_to_raw(
-    writer: FileWriter, base_dir: Path, sample_event: NewsEvent,
+    writer: FileWriter,
+    base_dir: Path,
+    sample_event: NewsEvent,
 ) -> None:
     """COLLECTED 阶段事件应写入 raw/ 目录。"""
     path = writer.write_event(sample_event)
@@ -93,7 +105,9 @@ def test_write_event_collected_writes_to_raw(
 
 
 def test_write_event_outputted_writes_to_drafts(
-    writer: FileWriter, base_dir: Path, sample_event: NewsEvent,
+    writer: FileWriter,
+    base_dir: Path,
+    sample_event: NewsEvent,
 ) -> None:
     """v1: OUTPUTTED 阶段事件应写入 drafts/ 目录。
     遵循 ADR-0016 禁止自动发布策略，不使用 published/。
@@ -104,7 +118,8 @@ def test_write_event_outputted_writes_to_drafts(
 
 
 def test_write_event_uses_correct_filename(
-    writer: FileWriter, sample_event: NewsEvent,
+    writer: FileWriter,
+    sample_event: NewsEvent,
 ) -> None:
     """文件名格式应为 {stage}_{source_id}_{event_id}.md。"""
     path = writer.write_event(sample_event)
@@ -112,7 +127,8 @@ def test_write_event_uses_correct_filename(
 
 
 def test_write_event_yaml_frontmatter_valid(
-    writer: FileWriter, sample_event: NewsEvent,
+    writer: FileWriter,
+    sample_event: NewsEvent,
 ) -> None:
     """写入的文件应包含合法的 YAML frontmatter。"""
     path = writer.write_event(sample_event)
@@ -136,7 +152,8 @@ def test_write_event_yaml_frontmatter_valid(
 
 
 def test_write_event_yaml_body_contains_content(
-    writer: FileWriter, sample_event: NewsEvent,
+    writer: FileWriter,
+    sample_event: NewsEvent,
 ) -> None:
     """正文应包含原标题、原文内容及可选的翻译。"""
     path = writer.write_event(sample_event)
@@ -147,7 +164,8 @@ def test_write_event_yaml_body_contains_content(
 
 
 def test_write_event_body_excludes_content_translated_when_none(
-    writer: FileWriter, sample_event: NewsEvent,
+    writer: FileWriter,
+    sample_event: NewsEvent,
 ) -> None:
     """当 content_translated 为 None 时，正文不应出现翻译节。"""
     sample_event.content_translated = None
@@ -165,8 +183,11 @@ def test_write_event_body_excludes_content_translated_when_none(
 # write_archive
 # ------------------------------------------------------------------
 
+
 def test_write_archive_writes_to_archive_dir(
-    writer: FileWriter, base_dir: Path, sample_event: NewsEvent,
+    writer: FileWriter,
+    base_dir: Path,
+    sample_event: NewsEvent,
 ) -> None:
     """write_archive 应始终写入 archive/ 目录，不依赖 pipeline_stage。"""
     path = writer.write_archive(sample_event)
@@ -176,7 +197,8 @@ def test_write_archive_writes_to_archive_dir(
 
 
 def test_write_archive_uses_rejected_filename(
-    writer: FileWriter, sample_event: NewsEvent,
+    writer: FileWriter,
+    sample_event: NewsEvent,
 ) -> None:
     """archive 文件名格式应为 rejected_{source_id}_{event_id}.md。"""
     path = writer.write_archive(sample_event)
@@ -184,7 +206,8 @@ def test_write_archive_uses_rejected_filename(
 
 
 def test_write_archive_preserves_pipeline_stage_in_frontmatter(
-    writer: FileWriter, sample_event: NewsEvent,
+    writer: FileWriter,
+    sample_event: NewsEvent,
 ) -> None:
     """archive 写入应保留事件的原始 pipeline_stage（通常为 collected）。"""
     sample_event.pipeline_stage = PipelineStage.COLLECTED
@@ -196,7 +219,8 @@ def test_write_archive_preserves_pipeline_stage_in_frontmatter(
 
 
 def test_write_archive_yaml_frontmatter_valid(
-    writer: FileWriter, sample_event: NewsEvent,
+    writer: FileWriter,
+    sample_event: NewsEvent,
 ) -> None:
     """archive 文件应包含合法的 YAML frontmatter。"""
     path = writer.write_archive(sample_event)
@@ -213,7 +237,9 @@ def test_write_archive_yaml_frontmatter_valid(
 
 
 def test_move_event_changes_directory(
-    writer: FileWriter, base_dir: Path, sample_event: NewsEvent,
+    writer: FileWriter,
+    base_dir: Path,
+    sample_event: NewsEvent,
 ) -> None:
     """move_event 应将文件移动到新阶段对应的目录。"""
     src_path = writer.write_event(sample_event)
@@ -225,7 +251,8 @@ def test_move_event_changes_directory(
 
 
 def test_move_event_updates_frontmatter_pipeline_stage(
-    writer: FileWriter, sample_event: NewsEvent,
+    writer: FileWriter,
+    sample_event: NewsEvent,
 ) -> None:
     """move_event 应更新 YAML frontmatter 中的 pipeline_stage。"""
     src_path = writer.write_event(sample_event)
@@ -239,7 +266,8 @@ def test_move_event_updates_frontmatter_pipeline_stage(
 
 
 def test_move_event_preserves_body(
-    writer: FileWriter, sample_event: NewsEvent,
+    writer: FileWriter,
+    sample_event: NewsEvent,
 ) -> None:
     """move_event 不应改动正文内容。"""
     src_path = writer.write_event(sample_event)
@@ -250,7 +278,9 @@ def test_move_event_preserves_body(
 
 
 def test_move_event_chain_through_all_stages(
-    writer: FileWriter, base_dir: Path, sample_event: NewsEvent,
+    writer: FileWriter,
+    base_dir: Path,
+    sample_event: NewsEvent,
 ) -> None:
     """事件可以连续穿越全部 4 个阶段。"""
     stages: list[tuple[PipelineStage, str]] = [
@@ -270,6 +300,7 @@ def test_move_event_chain_through_all_stages(
 # _parse_frontmatter 边界情况
 # ------------------------------------------------------------------
 
+
 def test_parse_frontmatter_no_leading_dashes_raises(writer: FileWriter) -> None:
     """文件不以 --- 开头时抛出 ValueError。"""
     with pytest.raises(ValueError, match="文件不以 YAML frontmatter 开头"):
@@ -285,6 +316,7 @@ def test_parse_frontmatter_no_closing_dashes_raises(writer: FileWriter) -> None:
 # ------------------------------------------------------------------
 # _atomic_write 边界
 # ------------------------------------------------------------------
+
 
 def test_atomic_write_cleans_up_tmp_on_failure(writer: FileWriter, base_dir: Path) -> None:
     """写入过程中若 os.replace 失败，finally 仍清理 tmp 文件。"""

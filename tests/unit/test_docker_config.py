@@ -1,4 +1,5 @@
 """Docker 配置验证测试 — 不执行 docker build，仅验证配置文件的一致性和完整性。"""
+
 from pathlib import Path
 
 import yaml

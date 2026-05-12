@@ -1,4 +1,5 @@
 """Tests for skills/filter/classifier_rules.py — L0/L1/L2 rule-based classification."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -176,9 +177,7 @@ def test_l0_classifies_security() -> None:
 
 
 def test_l0_uncategorized_when_no_match() -> None:
-    event = _make_event(
-        title="Oggi bel tempo", content="Sole e mare per tutto il weekend."
-    )
+    event = _make_event(title="Oggi bel tempo", content="Sole e mare per tutto il weekend.")
     cr = ClassifierRules(_make_classification_config())
     result = cr.classify(event)
     c = result.metadata["classification"]
@@ -256,9 +255,7 @@ def test_l1_only_matches_in_l0_domain() -> None:
 
 
 def test_l1_no_matches_returns_empty() -> None:
-    event = _make_event(
-        title="Sole e mare", content="Weekend al mare."
-    )
+    event = _make_event(title="Sole e mare", content="Weekend al mare.")
     cr = ClassifierRules(_make_classification_config())
     result = cr.classify(event)
     c = result.metadata["classification"]
@@ -273,28 +270,30 @@ def test_l2_activates_china_axis_via_l1() -> None:
         title="Cina e Pechino firmano accordo",
         content="Relazioni bilaterali tra Cina e Italia.",
     )
-    cr = ClassifierRules(_make_classification_config(
-        l0_domains=[
-            {
-                "code": "politics",
-                "keywords_it": ["governo", "parlamento", "Cina", "Pechino"],
-                "keywords_en": ["government", "China"],
-                "keywords_zh": [],
-            },
-            {
-                "code": "economics",
-                "keywords_it": ["economia", "PIL"],
-                "keywords_en": ["economy"],
-                "keywords_zh": [],
-            },
-            {
-                "code": "security",
-                "keywords_it": ["mafia"],
-                "keywords_en": ["mafia"],
-                "keywords_zh": [],
-            },
-        ],
-    ))
+    cr = ClassifierRules(
+        _make_classification_config(
+            l0_domains=[
+                {
+                    "code": "politics",
+                    "keywords_it": ["governo", "parlamento", "Cina", "Pechino"],
+                    "keywords_en": ["government", "China"],
+                    "keywords_zh": [],
+                },
+                {
+                    "code": "economics",
+                    "keywords_it": ["economia", "PIL"],
+                    "keywords_en": ["economy"],
+                    "keywords_zh": [],
+                },
+                {
+                    "code": "security",
+                    "keywords_it": ["mafia"],
+                    "keywords_en": ["mafia"],
+                    "keywords_zh": [],
+                },
+            ],
+        )
+    )
     result = cr.classify(event)
     c = result.metadata["classification"]
     axes = c["l2"]

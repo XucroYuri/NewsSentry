@@ -3,6 +3,7 @@
 Implements AIProvider protocol as fallback.local and for testing.
 Uses keyword-based analysis similar to RulesJudgeSkill/RulesFilter.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -24,9 +25,14 @@ class RulesProvider(AIProvider):
 
     # 与 RulesJudgeSkill._CHINA_KEYWORDS 保持同步
     _CHINA_KEYWORDS: tuple[str, ...] = (
-        "china", "chinese",
-        "belt and road", "pechino",
-        "beijing", "shanghai", "xi jinping", "brics",
+        "china",
+        "chinese",
+        "belt and road",
+        "pechino",
+        "beijing",
+        "shanghai",
+        "xi jinping",
+        "brics",
     )
 
     # L0 分类关键词（可被子类或配置覆盖）
@@ -72,7 +78,10 @@ class RulesProvider(AIProvider):
 
         # 构建理由
         rationale = self._build_rationale(
-            china_relevance, classification, recommendation, task_type,
+            china_relevance,
+            classification,
+            recommendation,
+            task_type,
         )
 
         # 构建标记
@@ -113,8 +122,10 @@ class RulesProvider(AIProvider):
 
     @staticmethod
     def _build_rationale(
-        china_relevance: int, classification: str,
-        recommendation: str, task_type: str,
+        china_relevance: int,
+        classification: str,
+        recommendation: str,
+        task_type: str,
     ) -> str:
         """生成研判理由（简体中文）。"""
         parts: list[str] = [f"任务类型: {task_type}"]

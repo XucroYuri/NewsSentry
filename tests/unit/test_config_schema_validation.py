@@ -3,6 +3,7 @@
 确保所有 config/ 下的 YAML 文件通过对应 JSON Schema 校验。
 未来新增配置文件也会被自动覆盖。
 """
+
 from __future__ import annotations
 
 import json
@@ -36,12 +37,15 @@ class TestSourceChannelSchema:
     排除非 sourcechannel schema 的文件：social/ 目录、_browser_fallback.yaml 等。
     """
 
-    @pytest.fixture(params=[
-        p for p in CONFIG_DIR.glob("sources/**/*.yaml")
-        if "social" not in str(p)
-        and "browser_fallback" not in str(p)
-        and not p.name.startswith("_")
-    ])
+    @pytest.fixture(
+        params=[
+            p
+            for p in CONFIG_DIR.glob("sources/**/*.yaml")
+            if "social" not in str(p)
+            and "browser_fallback" not in str(p)
+            and not p.name.startswith("_")
+        ]
+    )
     def source_file(self, request: pytest.FixtureRequest) -> Path:
         return request.param
 
@@ -153,10 +157,11 @@ class TestOutputDestinationsSchema:
 class TestSocialSourceSchema:
     """所有 social source YAML 通过 socialsource.schema.json 校验。"""
 
-    @pytest.fixture(params=[
-        p for p in CONFIG_DIR.glob("sources/**/social/**/*.yaml")
-        if not p.name.startswith("_")
-    ])
+    @pytest.fixture(
+        params=[
+            p for p in CONFIG_DIR.glob("sources/**/social/**/*.yaml") if not p.name.startswith("_")
+        ]
+    )
     def social_file(self, request: pytest.FixtureRequest) -> Path:
         return request.param
 

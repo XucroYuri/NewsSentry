@@ -6,6 +6,7 @@ check_read_path、check_browser_session、check_stop_on_risk、
 check_sensitive_data、audit_tool_call、write_security_log、
 blocked_patterns、deny_by_default、from_yaml_dict。
 """
+
 from __future__ import annotations
 
 import json
@@ -446,16 +447,10 @@ class TestEnforce:
         with pytest.raises(SandboxViolationError, match="不在允许的根目录内"):
             enforcer.enforce("curl", {"command": "curl", "output": str(outside)})
 
-    def test_enforce_blocked_host_raises_violation_error(
-        self, enforcer: SandboxEnforcer
-    ) -> None:
+    def test_enforce_blocked_host_raises_violation_error(self, enforcer: SandboxEnforcer) -> None:
         """非法 host 抛出 SandboxViolationError。"""
-        with pytest.raises(
-            SandboxViolationError, match="网络 host 'evil.com' 不在允许列表中"
-        ):
-            enforcer.enforce(
-                "curl", {"command": "curl", "url": "https://evil.com/hack"}
-            )
+        with pytest.raises(SandboxViolationError, match="网络 host 'evil.com' 不在允许列表中"):
+            enforcer.enforce("curl", {"command": "curl", "url": "https://evil.com/hack"})
 
     def test_enforce_url_host_extraction_and_check(
         self, enforcer: SandboxEnforcer, tmp_root: Path
@@ -554,7 +549,10 @@ class TestCheckBrowserSession:
     """check_browser_session — 浏览器 session profile 校验。"""
 
     def _make_profile_yaml(
-        self, profiles_dir: Path, profile_id: str, auth_owner: str = "human-approved",
+        self,
+        profiles_dir: Path,
+        profile_id: str,
+        auth_owner: str = "human-approved",
     ) -> None:
         """辅助：创建 profile YAML 文件。"""
         profiles_dir.mkdir(parents=True, exist_ok=True)
@@ -707,9 +705,12 @@ class TestAuditLog:
         decision = SandboxDecision(verdict="allow", check_dimension="command")
 
         enforcer.audit_tool_call(
-            "curl", decision, run_id="run-001",
+            "curl",
+            decision,
+            run_id="run-001",
             args_summary={"url": "https://example.com"},
-            result_exit_code=0, duration_ms=150,
+            result_exit_code=0,
+            duration_ms=150,
         )
 
         log_file = logs_dir / "tool-audit-run-001.jsonl"
@@ -746,7 +747,9 @@ class TestAuditLog:
 
         long_value = "a" * 120
         enforcer.audit_tool_call(
-            "curl", decision, run_id="run-001",
+            "curl",
+            decision,
+            run_id="run-001",
             args_summary={"data": long_value, "short": "ok"},
         )
 

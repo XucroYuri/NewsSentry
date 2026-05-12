@@ -4,6 +4,7 @@
 provider_id。
 使用 mock httpx.post 避免真实 API 调用。
 """
+
 from __future__ import annotations
 
 from unittest import mock
@@ -46,12 +47,14 @@ class TestInit:
 
     def test_init_with_config(self):
         """config dict 覆盖默认值。"""
-        provider = AnthropicProvider({
-            "api_key": "sk-ant-test",
-            "base_url": "https://proxy.example.com/v1",
-            "default_model": "claude-sonnet-4-20250514",
-            "max_tokens": 4096,
-        })
+        provider = AnthropicProvider(
+            {
+                "api_key": "sk-ant-test",
+                "base_url": "https://proxy.example.com/v1",
+                "default_model": "claude-sonnet-4-20250514",
+                "max_tokens": 4096,
+            }
+        )
         assert provider._api_key == "sk-ant-test"
         assert provider._base_url == "https://proxy.example.com/v1"
         assert provider._default_model == "claude-sonnet-4-20250514"

@@ -255,4 +255,3 @@ security_review:
 4. 工具输出必须映射为 canonical `NewsEvent` 或结构化中间结果。
 5. 错误必须归一为标准错误类型并写入审计日志。
 6. OpenCLI、RSS parser、浏览器/MCP 工具可以复用同一 registry 和 adapter 思路。
-

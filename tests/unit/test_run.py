@@ -40,7 +40,8 @@ class TestLoadEventsFromDir:
         d = tmp_path / "raw"
         d.mkdir()
         event_file = d / "collected_ansa_test123.md"
-        event_file.write_text("""---
+        event_file.write_text(
+            """---
 id: test123
 run_id: run-001
 source_id: ansa
@@ -55,7 +56,9 @@ pipeline_stage: collected
 
 # Test Event
 Test content
-""", encoding="utf-8")
+""",
+            encoding="utf-8",
+        )
 
         events = _load_events_from_dir(d)
         assert len(events) == 1
@@ -69,7 +72,8 @@ Test content
         # 坏文件
         (d / "bad.md").write_text("not a frontmatter file\n", encoding="utf-8")
         # 好文件
-        (d / "good.md").write_text("""---
+        (d / "good.md").write_text(
+            """---
 id: good123
 run_id: run-001
 source_id: ansa
@@ -83,7 +87,9 @@ pipeline_stage: collected
 ---
 
 # Good
-""", encoding="utf-8")
+""",
+            encoding="utf-8",
+        )
 
         events = _load_events_from_dir(d)
         assert len(events) == 1
@@ -99,11 +105,14 @@ pipeline_stage: collected
         """损坏的 YAML frontmatter 应被跳过，不中断加载。"""
         d = tmp_path / "raw"
         d.mkdir()
-        (d / "bad-yaml.md").write_text("""---
+        (d / "bad-yaml.md").write_text(
+            """---
 key: "unclosed string
 ---
 正文
-""", encoding="utf-8")
+""",
+            encoding="utf-8",
+        )
         # 应返回空列表，不抛异常
         events = _load_events_from_dir(d)
         assert events == []
@@ -112,11 +121,14 @@ key: "unclosed string
         """frontmatter 为空（yaml.safe_load 返回 None）时应跳过。"""
         d = tmp_path / "raw"
         d.mkdir()
-        (d / "empty-fm.md").write_text("""---
+        (d / "empty-fm.md").write_text(
+            """---
 ---
 
 # 正文
-""", encoding="utf-8")
+""",
+            encoding="utf-8",
+        )
         events = _load_events_from_dir(d)
         assert events == []
 
@@ -124,11 +136,14 @@ key: "unclosed string
         """frontmatter 无闭合标记时应跳过。"""
         d = tmp_path / "raw"
         d.mkdir()
-        (d / "unclosed.md").write_text("""---
+        (d / "unclosed.md").write_text(
+            """---
 id: test
 title: "no end marker"
 正文
-""", encoding="utf-8")
+""",
+            encoding="utf-8",
+        )
         events = _load_events_from_dir(d)
         assert events == []
 
@@ -137,7 +152,8 @@ title: "no end marker"
         d = tmp_path / "raw"
         d.mkdir()
         # pipeline_stage 使用无效值，PipelineStage 枚举构造会抛 ValueError
-        (d / "bad-enum.md").write_text("""---
+        (d / "bad-enum.md").write_text(
+            """---
 id: bad-enum
 run_id: run-x
 source_id: ansa
@@ -151,7 +167,9 @@ pipeline_stage: invalid_stage_value
 ---
 
 正文
-""", encoding="utf-8")
+""",
+            encoding="utf-8",
+        )
         events = _load_events_from_dir(d)
         # 无效 pipeline_stage 值导致 ValueError，异常被捕获后跳过
         assert events == []
@@ -240,7 +258,7 @@ class TestBoundedRun:
         assert ctx is not None
 
     def test_judged_stage_alias(self):
-        """"judged" 是 "judge" 的别名，同样走占位实现。"""
+        """ "judged" 是 "judge" 的别名，同样走占位实现。"""
         ctx = bounded_run("italy", "judged")
         assert ctx is not None
 
@@ -296,7 +314,8 @@ class TestBoundedRun:
         # 在 raw/ 下准备事件文件（pipeline_stage=collected）
         raw_dir = tmp_path / "data" / "test-target" / "raw"
         raw_dir.mkdir(parents=True)
-        (raw_dir / "collected_test-source_evt001.md").write_text("""---
+        (raw_dir / "collected_test-source_evt001.md").write_text(
+            """---
 id: evt001
 run_id: run-x
 source_id: test-source
@@ -311,7 +330,9 @@ pipeline_stage: collected
 
 # Italian economy trade deal with China
 Trade agreement between Italy and China signed today.
-""", encoding="utf-8")
+""",
+            encoding="utf-8",
+        )
 
         ctx = bounded_run("test-target", "filter", config_dir=str(tmp_path))
         # 验证结果：关键词 "trade" 和 "China" 应命中 filter 规则
@@ -338,7 +359,8 @@ Trade agreement between Italy and China signed today.
         # 在 evaluated/ 下准备事件文件
         eval_dir = tmp_path / "data" / "test-target" / "evaluated"
         eval_dir.mkdir(parents=True)
-        (eval_dir / "filtered_test-source_evt002.md").write_text("""---
+        (eval_dir / "filtered_test-source_evt002.md").write_text(
+            """---
 id: evt002
 run_id: run-x
 source_id: test-source
@@ -353,7 +375,9 @@ pipeline_stage: filtered
 
 # Test output event
 Some content for output stage.
-""", encoding="utf-8")
+""",
+            encoding="utf-8",
+        )
 
         ctx = bounded_run("test-target", "output", config_dir=str(tmp_path))
         assert ctx.events_output >= 0
@@ -362,13 +386,14 @@ Some content for output stage.
         assert len(log_files) > 0
 
     def test_outputted_stage_alias(self, tmp_path: Path, monkeypatch):
-        """"outputted" 是 "output" 的别名，应执行相同的 output 逻辑。"""
+        """ "outputted" 是 "output" 的别名，应执行相同的 output 逻辑。"""
         _setup_minimal_project(tmp_path)
         monkeypatch.chdir(tmp_path)
 
         eval_dir = tmp_path / "data" / "test-target" / "evaluated"
         eval_dir.mkdir(parents=True)
-        (eval_dir / "filtered_test-source_evt003.md").write_text("""---
+        (eval_dir / "filtered_test-source_evt003.md").write_text(
+            """---
 id: evt003
 run_id: run-x
 source_id: test-source
@@ -383,7 +408,9 @@ pipeline_stage: filtered
 
 # Alias test
 Testing outputted alias.
-""", encoding="utf-8")
+""",
+            encoding="utf-8",
+        )
 
         ctx = bounded_run("test-target", "outputted", config_dir=str(tmp_path))
         # "outputted" 应被识别为 output 阶段，不抛异常
@@ -456,8 +483,7 @@ def _setup_minimal_project(root: Path) -> None:
         ],
     }
     (filters_dir / "default.yaml").write_text(
-        "# Schema: schemas/filterrules.schema.json\n"
-        + yaml.dump(filter_data, allow_unicode=True)
+        "# Schema: schemas/filterrules.schema.json\n" + yaml.dump(filter_data, allow_unicode=True)
     )
 
     # config/classifications
@@ -523,8 +549,7 @@ def _setup_minimal_project(root: Path) -> None:
         "output_destinations_ref": "config/outputs/test-target/default.yaml",
     }
     (targets_dir / "test-target.yaml").write_text(
-        "# Schema: schemas/targetconfig.schema.json\n"
-        + yaml.dump(target_data, allow_unicode=True)
+        "# Schema: schemas/targetconfig.schema.json\n" + yaml.dump(target_data, allow_unicode=True)
     )
 
     # config/profiles
@@ -594,6 +619,5 @@ def _setup_minimal_project(root: Path) -> None:
         "health": {"last_success_at": None, "consecutive_failures": 0},
     }
     (sources_dir / "test-source.yaml").write_text(
-        "# Schema: schemas/sourcechannel.schema.json\n"
-        + yaml.dump(source_data, allow_unicode=True)
+        "# Schema: schemas/sourcechannel.schema.json\n" + yaml.dump(source_data, allow_unicode=True)
     )

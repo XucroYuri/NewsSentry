@@ -1,8 +1,8 @@
 # Phase 1 — Contract Stabilization
 
-> 详细 SPEC: 本文档  
-> 路线图: [docs/development-plan.md §Phase-1](../development-plan.md)  
-> 横切组件矩阵: [docs/spec/README.md](README.md)  
+> 详细 SPEC: 本文档
+> 路线图: [docs/development-plan.md §Phase-1](../development-plan.md)
+> 横切组件矩阵: [docs/spec/README.md](README.md)
 > **状态: ✅ Phase 1 已完成（DONE）**
 
 ---

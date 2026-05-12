@@ -1,4 +1,5 @@
 """Phase 4: ToolManifest Registry — loads and manages OpenCLI tool manifests."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -164,7 +165,4 @@ class ToolRegistry:
 
     def list_tools_by_risk(self, risk_level: str) -> list[ToolManifest]:
         """按风险等级过滤工具。"""
-        return [
-            t for t in self._tools.values()
-            if t.permissions.risk_level.value == risk_level
-        ]
+        return [t for t in self._tools.values() if t.permissions.risk_level.value == risk_level]

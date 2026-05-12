@@ -1,4 +1,5 @@
 """测试 core/run_log.py — RunLog 审计日志记录与序列化"""
+
 from __future__ import annotations
 
 import json

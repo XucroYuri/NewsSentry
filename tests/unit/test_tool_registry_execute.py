@@ -1,4 +1,5 @@
 """Tests for ToolRegistry.execute() — bridges to OpenCLIToolAdapter."""
+
 # ruff: noqa: S108  # 测试中的路径是 mock 参数，不执行实际文件操作
 from __future__ import annotations
 
@@ -49,9 +50,7 @@ class TestToolRegistryExecute:
         self, mock_run: mock.MagicMock, tool_registry: ToolRegistry
     ) -> None:
         """有效 tool_id + mock subprocess 返回 ToolRunResult。"""
-        mock_run.return_value = mock.Mock(
-            returncode=0, stdout="ok", stderr="", args=[]
-        )
+        mock_run.return_value = mock.Mock(returncode=0, stdout="ok", stderr="", args=[])
         result = tool_registry.execute(
             tool_id="opencli.fetch",
             binding_id="test",

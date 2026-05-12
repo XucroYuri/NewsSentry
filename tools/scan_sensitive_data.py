@@ -7,6 +7,7 @@ CI 安全扫描工具：拒绝包含 cookie/token/password/bearer/secret
 用法：
     python tools/scan_sensitive_data.py [ROOT_DIR]
 """
+
 from __future__ import annotations
 
 import re
@@ -92,13 +93,9 @@ def scan(root: Path) -> int:
         for filepath in root.glob(pattern):
             if any(part in filepath.parts for part in EXCLUDE_DIRS):
                 continue
-            if filepath.name.endswith(".local.yaml") or filepath.name.endswith(
-                ".local.yml"
-            ):
+            if filepath.name.endswith(".local.yaml") or filepath.name.endswith(".local.yml"):
                 continue
-            if filepath.name.endswith(".actual.yaml") or filepath.name.endswith(
-                ".actual.yml"
-            ):
+            if filepath.name.endswith(".actual.yaml") or filepath.name.endswith(".actual.yml"):
                 continue
             for line_num, keyword, line_content in scan_file(filepath):
                 all_hits.append((filepath, line_num, keyword, line_content))

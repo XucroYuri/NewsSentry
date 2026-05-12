@@ -1,4 +1,5 @@
 """Phase 14 — AICostTracker 测试：run 级 AI 成本追踪。"""
+
 from __future__ import annotations
 
 from news_sentry.core.ai_cost_tracker import AICostTracker

@@ -3,6 +3,7 @@
 RSSCollector — fetches and parses RSS feeds using feedparser + httpx.
 Input: SourceChannel config. Output: list[NewsEvent] at stage=collected.
 """
+
 from __future__ import annotations
 
 import calendar
@@ -118,22 +119,18 @@ class RSSCollector:
         try:
             response = _retry_fetch(
                 lambda: httpx.get(self._url, timeout=self._timeout, follow_redirects=True),
-                self._source_id
+                self._source_id,
             )
             feed_content = response.text
         except RuntimeError:
             raise
         except Exception as e:
-            raise RuntimeError(
-                f"RSS fetch failed for {self._source_id}: {e}"
-            ) from e
+            raise RuntimeError(f"RSS fetch failed for {self._source_id}: {e}") from e
 
         try:
             feed = feedparser.parse(feed_content)
         except Exception as e:
-            raise RuntimeError(
-                f"RSS parse failed for {self._source_id}: {e}"
-            ) from e
+            raise RuntimeError(f"RSS parse failed for {self._source_id}: {e}") from e
 
         if feed.get("bozo", 0) and not feed.get("entries"):
             return []

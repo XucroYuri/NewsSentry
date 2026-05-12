@@ -1,4 +1,5 @@
 """Phase 17 — AlertPipeline 测试：告警管道、去重、多通道推送。"""
+
 from __future__ import annotations
 
 from unittest.mock import patch

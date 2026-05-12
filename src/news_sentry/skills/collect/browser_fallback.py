@@ -5,6 +5,7 @@
   Layer 2: Playwright MCP（兜底，零 token）
   Layer 3: Computer Use（仅 L1 最终保障，消耗 token）
 """
+
 from __future__ import annotations
 
 from enum import IntEnum
@@ -13,13 +14,15 @@ from typing import Any
 
 class FallbackLayer(IntEnum):
     """降级层级"""
-    LAYER_1 = 1    # OpenCLI Bridge
-    LAYER_2 = 2    # Playwright MCP
-    LAYER_3 = 3    # Computer Use
+
+    LAYER_1 = 1  # OpenCLI Bridge
+    LAYER_2 = 2  # Playwright MCP
+    LAYER_3 = 3  # Computer Use
 
 
 class LayerStatus:
     """某层的当前状态。"""
+
     def __init__(self) -> None:
         self.consecutive_failures: int = 0
         self.total_uses_today: int = 0

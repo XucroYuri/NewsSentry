@@ -40,8 +40,16 @@ def test_run_doctor_existing_dirs():
     """存在所有数据目录时应通过。"""
     with TemporaryDirectory() as tmp:
         data_path = Path(tmp) / "test-target"
-        for d in ["raw", "evaluated", "drafts", "reviewed", "published",
-                   "archive", "memory", "logs"]:
+        for d in [
+            "raw",
+            "evaluated",
+            "drafts",
+            "reviewed",
+            "published",
+            "archive",
+            "memory",
+            "logs",
+        ]:
             (data_path / d).mkdir(parents=True)
         report = run_doctor("test-target", data_root=tmp)
         assert report.directory_check["passed"] is True
@@ -51,8 +59,16 @@ def test_doctor_command_json_output(capsys):
     """JSON 输出模式。"""
     with TemporaryDirectory() as tmp:
         data_path = Path(tmp) / "test-target"
-        for d in ["raw", "evaluated", "drafts", "reviewed", "published",
-                   "archive", "memory", "logs"]:
+        for d in [
+            "raw",
+            "evaluated",
+            "drafts",
+            "reviewed",
+            "published",
+            "archive",
+            "memory",
+            "logs",
+        ]:
             (data_path / d).mkdir(parents=True)
         exit_code = doctor_command("test-target", data_root=tmp, json_output=True)
         captured = capsys.readouterr()

@@ -1,4 +1,5 @@
 """CLI entry point — python -m news_sentry.cli run --target <id> --stage <stage>."""
+
 from __future__ import annotations
 
 import sys
@@ -16,7 +17,8 @@ def main() -> None:
 
 @main.command()
 @click.option(
-    "--target", required=True,
+    "--target",
+    required=True,
     help="Target ID (e.g., italy). Maps to config/targets/{id}.yaml",
 )
 @click.option(
@@ -35,8 +37,15 @@ def main() -> None:
     default=None,
     help="Deployment profile ID. Overrides NEWSSENTRY_PROFILE.",
 )
-def run(target: str, stage: str, run_id: str | None, dry_run: bool,
-        log_level: str, config_dir: str | None, profile_id: str | None) -> None:
+def run(
+    target: str,
+    stage: str,
+    run_id: str | None,
+    dry_run: bool,
+    log_level: str,
+    config_dir: str | None,
+    profile_id: str | None,
+) -> None:
     """Execute a bounded run for a monitoring target.
 
     Exit codes: 0=success, 1=partial failure, 2=config error, 3=sandbox blocked.
@@ -59,9 +68,7 @@ def run(target: str, stage: str, run_id: str | None, dry_run: bool,
             click.echo(f"profile: {ctx.profile_id}")
             click.echo("dry-run: 不执行实际操作")
         elif ctx.errors_count > 0:
-            click.echo(
-                f"⚠ {ctx.errors_count} 个源采集失败，详见 RunLog: {ctx.run_log_path}"
-            )
+            click.echo(f"⚠ {ctx.errors_count} 个源采集失败，详见 RunLog: {ctx.run_log_path}")
             sys.exit(1)
     except ConfigError as e:
         click.echo(f"配置错误: {e}", err=True)
@@ -111,20 +118,20 @@ def tool_cmd(action: str) -> None:
             tools = data.get("tools", []) if isinstance(data, dict) else []
             for tool in tools:
                 if isinstance(tool, dict):
-                    entries.append({
-                        "tool_id": tool.get("tool_id", "?"),
-                        "display_name": tool.get("display_name", ""),
-                        "version": tool.get("version", ""),
-                    })
+                    entries.append(
+                        {
+                            "tool_id": tool.get("tool_id", "?"),
+                            "display_name": tool.get("display_name", ""),
+                            "version": tool.get("version", ""),
+                        }
+                    )
         except Exception:  # noqa: S112
             continue
     if not entries:
         click.echo("No tools found.")
         return
     for entry in entries:
-        click.echo(
-            f"  {entry['tool_id']:<30} {entry['version']:<8} {entry['display_name']}"
-        )
+        click.echo(f"  {entry['tool_id']:<30} {entry['version']:<8} {entry['display_name']}")
 
 
 @main.command()
@@ -171,23 +178,27 @@ def doctor(as_json: bool, target: str, data_root: str) -> None:
                 continue
             passed = bool(check.get("passed"))
             details = check.get("details", [])
-            results.append({
-                "name": f"Target: {check_name}",
-                "ok": passed,
-                "severity": (
-                    "critical"
-                    if (not passed and check_name == "schema_check")
-                    else ("warning" if not passed else "info")
-                ),
-                "message": "; ".join(details) if details else ("ok" if passed else "fail"),
-            })
+            results.append(
+                {
+                    "name": f"Target: {check_name}",
+                    "ok": passed,
+                    "severity": (
+                        "critical"
+                        if (not passed and check_name == "schema_check")
+                        else ("warning" if not passed else "info")
+                    ),
+                    "message": "; ".join(details) if details else ("ok" if passed else "fail"),
+                }
+            )
     except Exception as e:
-        results.append({
-            "name": "Target health check",
-            "ok": False,
-            "severity": "warning",
-            "message": str(e),
-        })
+        results.append(
+            {
+                "name": "Target health check",
+                "ok": False,
+                "severity": "warning",
+                "message": str(e),
+            }
+        )
 
     if as_json:
         import json as _json
@@ -196,9 +207,7 @@ def doctor(as_json: bool, target: str, data_root: str) -> None:
     else:
         _print_doctor_results(results)
 
-    has_critical_failure = any(
-        not r["ok"] and r.get("severity") == "critical" for r in results
-    )
+    has_critical_failure = any(not r["ok"] and r.get("severity") == "critical" for r in results)
     if has_critical_failure:
         sys.exit(1)
 
@@ -210,13 +219,16 @@ def _run_doctor_checks() -> list[dict[str, object]]:
     # 1. Python version
     py_version = sys.version_info
     py_ok = py_version >= (3, 11)
-    results.append({
-        "name": "Python version",
-        "ok": py_ok,
-        "severity": "critical",
-        "message": f"{py_version.major}.{py_version.minor}.{py_version.micro}"
-        if py_ok else f"{py_version.major}.{py_version.minor} (< 3.11)",
-    })
+    results.append(
+        {
+            "name": "Python version",
+            "ok": py_ok,
+            "severity": "critical",
+            "message": f"{py_version.major}.{py_version.minor}.{py_version.micro}"
+            if py_ok
+            else f"{py_version.major}.{py_version.minor} (< 3.11)",
+        }
+    )
 
     # 2. Core dependency imports
     core_packages = {
@@ -229,100 +241,125 @@ def _run_doctor_checks() -> list[dict[str, object]]:
     for display_name, import_name in core_packages.items():
         try:
             __import__(import_name)
-            results.append({
-                "name": f"Import {display_name}",
-                "ok": True,
-                "severity": "critical",
-                "message": "ok",
-            })
+            results.append(
+                {
+                    "name": f"Import {display_name}",
+                    "ok": True,
+                    "severity": "critical",
+                    "message": "ok",
+                }
+            )
         except ImportError:
-            results.append({
-                "name": f"Import {display_name}",
-                "ok": False,
-                "severity": "critical",
-                "message": "not found",
-            })
+            results.append(
+                {
+                    "name": f"Import {display_name}",
+                    "ok": False,
+                    "severity": "critical",
+                    "message": "not found",
+                }
+            )
 
     # 3. Project import
     try:
         from news_sentry.cli import main as _main  # noqa: F401
-        results.append({
-            "name": "Project import",
-            "ok": True,
-            "severity": "critical",
-            "message": "ok",
-        })
+
+        results.append(
+            {
+                "name": "Project import",
+                "ok": True,
+                "severity": "critical",
+                "message": "ok",
+            }
+        )
     except ImportError as e:
-        results.append({
-            "name": "Project import",
-            "ok": False,
-            "severity": "critical",
-            "message": str(e),
-        })
+        results.append(
+            {
+                "name": "Project import",
+                "ok": False,
+                "severity": "critical",
+                "message": str(e),
+            }
+        )
 
     # 4. Config loading (best effort)
     project_root = _find_project_root(Path(__file__))
     try:
         from news_sentry.core.config import ConfigLoader
+
         ConfigLoader(project_root)
-        results.append({
-            "name": "Config loading",
-            "ok": True,
-            "severity": "info",
-            "message": f"ConfigLoader initialized from {project_root}",
-        })
+        results.append(
+            {
+                "name": "Config loading",
+                "ok": True,
+                "severity": "info",
+                "message": f"ConfigLoader initialized from {project_root}",
+            }
+        )
     except Exception as e:
-        results.append({
-            "name": "Config loading",
-            "ok": False,
-            "severity": "warning",
-            "message": str(e),
-        })
+        results.append(
+            {
+                "name": "Config loading",
+                "ok": False,
+                "severity": "warning",
+                "message": str(e),
+            }
+        )
 
     # 5. Data directory permissions
     data_dir = project_root / "data"
     if data_dir.is_dir():
-        results.append({
-            "name": "Data directory",
-            "ok": True,
-            "severity": "critical",
-            "message": str(data_dir),
-        })
-    else:
-        try:
-            data_dir.mkdir(parents=True, exist_ok=True)
-            results.append({
+        results.append(
+            {
                 "name": "Data directory",
                 "ok": True,
                 "severity": "critical",
-                "message": f"created: {data_dir}",
-            })
+                "message": str(data_dir),
+            }
+        )
+    else:
+        try:
+            data_dir.mkdir(parents=True, exist_ok=True)
+            results.append(
+                {
+                    "name": "Data directory",
+                    "ok": True,
+                    "severity": "critical",
+                    "message": f"created: {data_dir}",
+                }
+            )
         except OSError as e:
-            results.append({
-                "name": "Data directory",
-                "ok": False,
-                "severity": "critical",
-                "message": str(e),
-            })
+            results.append(
+                {
+                    "name": "Data directory",
+                    "ok": False,
+                    "severity": "critical",
+                    "message": str(e),
+                }
+            )
 
     # 6. Optional: opencli in PATH
     from shutil import which
+
     opencli_path = which("opencli")
-    results.append({
-        "name": "opencli (optional)",
-        "ok": True,
-        "severity": "info",
-        "message": opencli_path if opencli_path else "not found",
-    })
+    results.append(
+        {
+            "name": "opencli (optional)",
+            "ok": True,
+            "severity": "info",
+            "message": opencli_path if opencli_path else "not found",
+        }
+    )
 
     # 7. Optional: git repo
     git_dir = project_root / ".git"
-    results.append({
-        "name": "Git repository (optional)",
-        "ok": True,
-        "severity": "info",
-        "message": "found" if git_dir.is_dir() else "not a git repo",
-    })
+    results.append(
+        {
+            "name": "Git repository (optional)",
+            "ok": True,
+            "severity": "info",
+            "message": "found" if git_dir.is_dir() else "not a git repo",
+        }
+    )
 
     # 8. Adapter health — skills and tools
     try:
@@ -337,12 +374,14 @@ def _run_doctor_checks() -> list[dict[str, object]]:
         adapter_results = check_all_adapters(tr, sr)
         results.extend(adapter_results)
     except Exception as e:
-        results.append({
-            "name": "Adapter health",
-            "ok": False,
-            "severity": "warning",
-            "message": str(e),
-        })
+        results.append(
+            {
+                "name": "Adapter health",
+                "ok": False,
+                "severity": "warning",
+                "message": str(e),
+            }
+        )
 
     return results
 
@@ -372,6 +411,7 @@ def _extract_module_doc(filepath: Path) -> str:
         return ""
     # 简单的三引号 docstring 提取
     import ast
+
     try:
         tree = ast.parse(text)
         doc = ast.get_docstring(tree)

@@ -170,7 +170,8 @@ class TestValidateArgs:
             assert result.error is None
 
     def test_schema_without_properties_pass_validation(
-        self, tmp_path,
+        self,
+        tmp_path,
     ) -> None:
         """仅含 required 字段但无 properties 的 schema，缺失 required 参数时
         _build_command 抛出 KeyError，被 execute() 捕获返回 schema_validation_failed。"""
@@ -412,7 +413,8 @@ class TestExecuteValidation:
         assert result.error["type"] == "command_not_found"
 
     def test_missing_required_arg_returns_exit_code_2(
-        self, adapter: OpenCLIToolAdapter,
+        self,
+        adapter: OpenCLIToolAdapter,
     ) -> None:
         """缺失必填参数时 _build_command 抛出 KeyError，
         execute() 捕获后返回 exit_code=-1，error type='schema_validation_failed'。"""

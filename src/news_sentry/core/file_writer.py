@@ -3,6 +3,7 @@
 FileWriter — 将 NewsEvent 序列化为带 YAML frontmatter 的 Markdown 文件。
 目录映射参见 docs/contracts-canonical.md §5。
 """
+
 from __future__ import annotations
 
 import os
@@ -29,8 +30,14 @@ class FileWriter:
 
     # v1 所有子目录（含非事件目录，用于 ensure_dirs）
     _ALL_DIRS: tuple[str, ...] = (
-        "raw", "evaluated", "drafts", "reviewed",
-        "published", "archive", "memory", "logs",
+        "raw",
+        "evaluated",
+        "drafts",
+        "reviewed",
+        "published",
+        "archive",
+        "memory",
+        "logs",
     )
 
     def __init__(self, base_dir: Path) -> None:
@@ -113,7 +120,10 @@ class FileWriter:
         body_fields = {"content_original", "content_translated"}
         fm_data = {k: v for k, v in data.items() if k not in body_fields}
         result: str = yaml.dump(
-            fm_data, allow_unicode=True, default_flow_style=False, sort_keys=False,
+            fm_data,
+            allow_unicode=True,
+            default_flow_style=False,
+            sort_keys=False,
         ).rstrip("\n")
         return result
 
@@ -147,7 +157,7 @@ class FileWriter:
         if end == -1:
             raise ValueError("找不到 frontmatter 结束标记")
         fm_str = text[4:end]
-        body = text[end + 5:]  # 跳过 \n---\n
+        body = text[end + 5 :]  # 跳过 \n---\n
         fm_dict = yaml.safe_load(fm_str)
         return fm_dict, body
 
@@ -159,7 +169,10 @@ class FileWriter:
     def _render_frontmatter_str(data: dict[str, Any]) -> str:
         """将 dict 渲染为带 --- 分隔符的 YAML frontmatter 块。"""
         fm = yaml.dump(
-            data, allow_unicode=True, default_flow_style=False, sort_keys=False,
+            data,
+            allow_unicode=True,
+            default_flow_style=False,
+            sort_keys=False,
         ).rstrip("\n")
         return f"---\n{fm}\n---\n"
 

@@ -1,4 +1,5 @@
 """HermesAdapter 测试 — 运行时适配器单元测试"""
+
 from __future__ import annotations
 
 import json
@@ -123,11 +124,16 @@ class TestGetRunStatus:
         log_dir.mkdir(parents=True)
 
         log_file = log_dir / "italy_20260509T120000Z_abc12345.json"
-        log_file.write_text(json.dumps({
-            "run_id": "italy_20260509T120000Z_abc12345",
-            "target_id": "italy",
-            "ended_at": "2026-05-09T12:05:00+00:00",
-        }), encoding="utf-8")
+        log_file.write_text(
+            json.dumps(
+                {
+                    "run_id": "italy_20260509T120000Z_abc12345",
+                    "target_id": "italy",
+                    "ended_at": "2026-05-09T12:05:00+00:00",
+                }
+            ),
+            encoding="utf-8",
+        )
 
         adapter = HermesAdapter({"project_root": str(project_root)})
         status = adapter.get_run_status("italy_20260509T120000Z_abc12345")
@@ -146,10 +152,15 @@ class TestGetRunStatus:
         log_dir.mkdir(parents=True)
 
         log_file = log_dir / "italy_20260509T120000Z_abc12345.json"
-        log_file.write_text(json.dumps({
-            "run_id": "italy_20260509T120000Z_abc12345",
-            "target_id": "italy",
-        }), encoding="utf-8")
+        log_file.write_text(
+            json.dumps(
+                {
+                    "run_id": "italy_20260509T120000Z_abc12345",
+                    "target_id": "italy",
+                }
+            ),
+            encoding="utf-8",
+        )
 
         adapter = HermesAdapter({"project_root": str(project_root)})
         status = adapter.get_run_status("italy_20260509T120000Z_abc12345")
@@ -166,11 +177,16 @@ class TestGetRunStatus:
         log_dir.mkdir(parents=True)
 
         hb_file = log_dir / ".heartbeat-hermes.json"
-        hb_file.write_text(json.dumps({
-            "run_id": "italy_20260509T120000Z_abc12345",
-            "last_stage": "collect",
-            "status": "running",
-        }), encoding="utf-8")
+        hb_file.write_text(
+            json.dumps(
+                {
+                    "run_id": "italy_20260509T120000Z_abc12345",
+                    "last_stage": "collect",
+                    "status": "running",
+                }
+            ),
+            encoding="utf-8",
+        )
 
         adapter = HermesAdapter({"project_root": str(project_root)})
         status = adapter.get_run_status("italy_20260509T120000Z_abc12345")
@@ -201,11 +217,16 @@ class TestGetRunStatus:
         log_dir.mkdir(parents=True)
 
         log_file = log_dir / "eu_china_20260509T120000Z_abc12345.json"
-        log_file.write_text(json.dumps({
-            "run_id": "eu_china_20260509T120000Z_abc12345",
-            "target_id": "eu_china",
-            "ended_at": "2026-05-09T12:05:00+00:00",
-        }), encoding="utf-8")
+        log_file.write_text(
+            json.dumps(
+                {
+                    "run_id": "eu_china_20260509T120000Z_abc12345",
+                    "target_id": "eu_china",
+                    "ended_at": "2026-05-09T12:05:00+00:00",
+                }
+            ),
+            encoding="utf-8",
+        )
 
         adapter = HermesAdapter({"project_root": str(project_root)})
         status = adapter.get_run_status("eu_china_20260509T120000Z_abc12345")

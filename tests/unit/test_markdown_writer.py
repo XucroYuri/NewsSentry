@@ -1,4 +1,5 @@
 """测试 MarkdownWriter — YAML frontmatter 正确性、文件命名、原子写入、内容转义。"""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -125,7 +126,9 @@ def test_init_with_config(tmp_path: Path) -> None:
 
 
 def test_write_creates_target_dir(
-    writer: MarkdownWriter, base_dir: Path, judged_event: NewsEvent,
+    writer: MarkdownWriter,
+    base_dir: Path,
+    judged_event: NewsEvent,
 ) -> None:
     """write 应自动创建 target/drafts 目录。"""
     writer.write(judged_event)
@@ -133,7 +136,8 @@ def test_write_creates_target_dir(
 
 
 def test_write_filename_format(
-    writer: MarkdownWriter, judged_event: NewsEvent,
+    writer: MarkdownWriter,
+    judged_event: NewsEvent,
 ) -> None:
     """文件名应为 {date}-{source_id}-{id_short}.md。"""
     path = writer.write(judged_event)
@@ -141,7 +145,8 @@ def test_write_filename_format(
 
 
 def test_write_returns_path(
-    writer: MarkdownWriter, judged_event: NewsEvent,
+    writer: MarkdownWriter,
+    judged_event: NewsEvent,
 ) -> None:
     """write 应返回写入文件的 Path。"""
     path = writer.write(judged_event)
@@ -150,7 +155,8 @@ def test_write_returns_path(
 
 
 def test_write_updates_pipeline_stage(
-    writer: MarkdownWriter, judged_event: NewsEvent,
+    writer: MarkdownWriter,
+    judged_event: NewsEvent,
 ) -> None:
     """写入后 pipeline_stage 应为 OUTPUTTED。"""
     writer.write(judged_event)
@@ -172,7 +178,8 @@ def _parse_frontmatter(path: Path) -> dict:
 
 
 def test_frontmatter_contains_identity_fields(
-    writer: MarkdownWriter, judged_event: NewsEvent,
+    writer: MarkdownWriter,
+    judged_event: NewsEvent,
 ) -> None:
     """frontmatter 应包含 id、source_id、url、title_original。"""
     path = writer.write(judged_event)
@@ -184,7 +191,8 @@ def test_frontmatter_contains_identity_fields(
 
 
 def test_frontmatter_contains_title_translated(
-    writer: MarkdownWriter, judged_event: NewsEvent,
+    writer: MarkdownWriter,
+    judged_event: NewsEvent,
 ) -> None:
     """有 title_translated 时应写入 frontmatter。"""
     path = writer.write(judged_event)
@@ -193,7 +201,8 @@ def test_frontmatter_contains_title_translated(
 
 
 def test_frontmatter_omits_title_translated_when_none(
-    writer: MarkdownWriter, minimal_event: NewsEvent,
+    writer: MarkdownWriter,
+    minimal_event: NewsEvent,
 ) -> None:
     """title_translated 为 None 时不出现在 frontmatter。"""
     path = writer.write(minimal_event)
@@ -202,7 +211,8 @@ def test_frontmatter_omits_title_translated_when_none(
 
 
 def test_frontmatter_contains_language_and_timestamps(
-    writer: MarkdownWriter, judged_event: NewsEvent,
+    writer: MarkdownWriter,
+    judged_event: NewsEvent,
 ) -> None:
     """frontmatter 应包含 language、published_at、collected_at。"""
     path = writer.write(judged_event)
@@ -213,7 +223,8 @@ def test_frontmatter_contains_language_and_timestamps(
 
 
 def test_frontmatter_contains_scores(
-    writer: MarkdownWriter, judged_event: NewsEvent,
+    writer: MarkdownWriter,
+    judged_event: NewsEvent,
 ) -> None:
     """frontmatter 应包含 news_value_score、china_relevance、sentiment_score。"""
     path = writer.write(judged_event)
@@ -224,7 +235,8 @@ def test_frontmatter_contains_scores(
 
 
 def test_frontmatter_omits_null_scores(
-    writer: MarkdownWriter, minimal_event: NewsEvent,
+    writer: MarkdownWriter,
+    minimal_event: NewsEvent,
 ) -> None:
     """可选分值为 None 时不出现在 frontmatter。"""
     path = writer.write(minimal_event)
@@ -235,7 +247,8 @@ def test_frontmatter_omits_null_scores(
 
 
 def test_frontmatter_contains_stage_and_run(
-    writer: MarkdownWriter, judged_event: NewsEvent,
+    writer: MarkdownWriter,
+    judged_event: NewsEvent,
 ) -> None:
     """frontmatter 应包含 pipeline_stage 和 run_id。"""
     path = writer.write(judged_event)
@@ -245,7 +258,8 @@ def test_frontmatter_contains_stage_and_run(
 
 
 def test_frontmatter_contains_judge_result(
-    writer: MarkdownWriter, judged_event: NewsEvent,
+    writer: MarkdownWriter,
+    judged_event: NewsEvent,
 ) -> None:
     """有 judge_result 时应写入 frontmatter。"""
     path = writer.write(judged_event)
@@ -255,7 +269,8 @@ def test_frontmatter_contains_judge_result(
 
 
 def test_frontmatter_omits_judge_result_when_none(
-    writer: MarkdownWriter, minimal_event: NewsEvent,
+    writer: MarkdownWriter,
+    minimal_event: NewsEvent,
 ) -> None:
     """judge_result 为 None 时不出现在 frontmatter。"""
     path = writer.write(minimal_event)
@@ -264,7 +279,8 @@ def test_frontmatter_omits_judge_result_when_none(
 
 
 def test_frontmatter_contains_classification(
-    writer: MarkdownWriter, judged_event: NewsEvent,
+    writer: MarkdownWriter,
+    judged_event: NewsEvent,
 ) -> None:
     """metadata.classification 应提取到 frontmatter。"""
     path = writer.write(judged_event)
@@ -274,7 +290,8 @@ def test_frontmatter_contains_classification(
 
 
 def test_frontmatter_omits_classification_when_missing(
-    writer: MarkdownWriter, minimal_event: NewsEvent,
+    writer: MarkdownWriter,
+    minimal_event: NewsEvent,
 ) -> None:
     """metadata 无 classification 时不出现在 frontmatter。"""
     path = writer.write(minimal_event)
@@ -283,7 +300,8 @@ def test_frontmatter_omits_classification_when_missing(
 
 
 def test_frontmatter_excludes_content_fields(
-    writer: MarkdownWriter, judged_event: NewsEvent,
+    writer: MarkdownWriter,
+    judged_event: NewsEvent,
 ) -> None:
     """content_original/content_translated 不应出现在 frontmatter。"""
     path = writer.write(judged_event)
@@ -298,7 +316,8 @@ def test_frontmatter_excludes_content_fields(
 
 
 def test_body_contains_title(
-    writer: MarkdownWriter, judged_event: NewsEvent,
+    writer: MarkdownWriter,
+    judged_event: NewsEvent,
 ) -> None:
     """正文标题优先使用 title_translated。"""
     path = writer.write(judged_event)
@@ -307,7 +326,8 @@ def test_body_contains_title(
 
 
 def test_body_falls_back_to_original_title(
-    writer: MarkdownWriter, minimal_event: NewsEvent,
+    writer: MarkdownWriter,
+    minimal_event: NewsEvent,
 ) -> None:
     """无 title_translated 时正文标题退到 title_original。"""
     path = writer.write(minimal_event)
@@ -316,7 +336,8 @@ def test_body_falls_back_to_original_title(
 
 
 def test_body_contains_info_block(
-    writer: MarkdownWriter, judged_event: NewsEvent,
+    writer: MarkdownWriter,
+    judged_event: NewsEvent,
 ) -> None:
     """正文基本信息块应包含来源、链接、发布时间。"""
     path = writer.write(judged_event)
@@ -327,7 +348,8 @@ def test_body_contains_info_block(
 
 
 def test_body_contains_original_content(
-    writer: MarkdownWriter, judged_event: NewsEvent,
+    writer: MarkdownWriter,
+    judged_event: NewsEvent,
 ) -> None:
     """正文应包含 ## 原文内容 节。"""
     path = writer.write(judged_event)
@@ -337,7 +359,8 @@ def test_body_contains_original_content(
 
 
 def test_body_contains_translated_content(
-    writer: MarkdownWriter, judged_event: NewsEvent,
+    writer: MarkdownWriter,
+    judged_event: NewsEvent,
 ) -> None:
     """有 content_translated 时应包含 ## 中文翻译 节。"""
     path = writer.write(judged_event)
@@ -347,7 +370,8 @@ def test_body_contains_translated_content(
 
 
 def test_body_omits_translation_when_none(
-    writer: MarkdownWriter, minimal_event: NewsEvent,
+    writer: MarkdownWriter,
+    minimal_event: NewsEvent,
 ) -> None:
     """content_translated 为 None 时不出现翻译节。"""
     path = writer.write(minimal_event)
@@ -356,7 +380,8 @@ def test_body_omits_translation_when_none(
 
 
 def test_body_contains_judge_rationale(
-    writer: MarkdownWriter, judged_event: NewsEvent,
+    writer: MarkdownWriter,
+    judged_event: NewsEvent,
 ) -> None:
     """有 judge_result.rationale 时应包含 ## 评审意见 节。"""
     path = writer.write(judged_event)
@@ -366,7 +391,8 @@ def test_body_contains_judge_rationale(
 
 
 def test_body_omits_rationale_when_none(
-    writer: MarkdownWriter, minimal_event: NewsEvent,
+    writer: MarkdownWriter,
+    minimal_event: NewsEvent,
 ) -> None:
     """无 judge_result 时不出现评审意见节。"""
     path = writer.write(minimal_event)
@@ -375,7 +401,8 @@ def test_body_omits_rationale_when_none(
 
 
 def test_body_contains_footer(
-    writer: MarkdownWriter, judged_event: NewsEvent,
+    writer: MarkdownWriter,
+    judged_event: NewsEvent,
 ) -> None:
     """正文末尾应包含 News Sentry 品牌脚注。"""
     path = writer.write(judged_event)
@@ -390,7 +417,9 @@ def test_body_contains_footer(
 
 
 def test_atomic_write_uses_temp_file(
-    writer: MarkdownWriter, base_dir: Path, judged_event: NewsEvent,
+    writer: MarkdownWriter,
+    base_dir: Path,
+    judged_event: NewsEvent,
 ) -> None:
     """写入过程中不应残留 .tmp 文件。"""
     path = writer.write(judged_event)
@@ -401,7 +430,8 @@ def test_atomic_write_uses_temp_file(
 
 
 def test_write_overwrites_existing_file(
-    writer: MarkdownWriter, judged_event: NewsEvent,
+    writer: MarkdownWriter,
+    judged_event: NewsEvent,
 ) -> None:
     """同名文件应被覆盖。"""
     path1 = writer.write(judged_event)
@@ -422,7 +452,8 @@ def test_write_overwrites_existing_file(
 
 
 def test_body_escapes_frontmatter_breaks(
-    writer: MarkdownWriter, base_dir: Path,
+    writer: MarkdownWriter,
+    base_dir: Path,
 ) -> None:
     """正文中独立的 --- 行应被转义。"""
     event = NewsEvent(
@@ -446,7 +477,8 @@ def test_body_escapes_frontmatter_breaks(
 
 
 def test_body_escapes_leading_breaks(
-    writer: MarkdownWriter, base_dir: Path,
+    writer: MarkdownWriter,
+    base_dir: Path,
 ) -> None:
     """正文以 --- 开头时也应被转义。"""
     event = NewsEvent(
@@ -469,7 +501,8 @@ def test_body_escapes_leading_breaks(
 
 
 def test_body_escapes_trailing_breaks(
-    writer: MarkdownWriter, base_dir: Path,
+    writer: MarkdownWriter,
+    base_dir: Path,
 ) -> None:
     """正文以 --- 结尾时也应被转义。"""
     event = NewsEvent(
@@ -494,8 +527,10 @@ def test_body_escapes_trailing_breaks(
 # _atomic_write 边界
 # ------------------------------------------------------------------
 
+
 def test_atomic_write_cleans_up_tmp_on_failure(
-    writer: MarkdownWriter, base_dir: Path,
+    writer: MarkdownWriter,
+    base_dir: Path,
 ) -> None:
     """写入过程中若 os.replace 失败，finally 仍清理 tmp 文件。"""
     target = base_dir / "italy" / "drafts" / "test_target.md"

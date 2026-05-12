@@ -1,10 +1,10 @@
 # Phase 7 — Multi-target Expansion
 
-> 详细 SPEC: 本文档  
-> 路线图: [docs/development-plan.md §Phase-7](../development-plan.md)  
-> 横切组件矩阵: [docs/spec/README.md](README.md)  
-> 分类框架: [docs/news-classification-framework.md](../news-classification-framework.md)  
-> ADR-0009: [四层分类框架 L0–L3](../adr/0009-four-layer-classification-framework.md)  
+> 详细 SPEC: 本文档
+> 路线图: [docs/development-plan.md §Phase-7](../development-plan.md)
+> 横切组件矩阵: [docs/spec/README.md](README.md)
+> 分类框架: [docs/news-classification-framework.md](../news-classification-framework.md)
+> ADR-0009: [四层分类框架 L0–L3](../adr/0009-four-layer-classification-framework.md)
 > ADR-0015: [配置合并优先级](../adr/0015-config-merge-priority.md)
 
 ---

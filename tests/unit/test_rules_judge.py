@@ -1,4 +1,5 @@
 """RulesJudgeSkill 模块测试 — 规则引擎研判分支覆盖。"""
+
 from __future__ import annotations
 
 import pytest
@@ -124,7 +125,7 @@ class TestCalcChinaRelevance:
     def test_max_100(self, skill):
         event = _make_event(
             title="cina china cinese chinese via della seta belt and road "
-                  "pechino beijing shanghai xi jinping brics",
+            "pechino beijing shanghai xi jinping brics",
             content="",
         )
         assert skill._calc_china_relevance(event) == 100
@@ -236,10 +237,18 @@ class TestJudge:
 
     def test_judge_multiple_events(self, skill):
         events = [
-            _make_event(title="Breaking: earthquake", content="", score=90,
-                        classification={"l0": "breaking_news", "confidence": 80}),
-            _make_event(title="Sports results", content="", score=20,
-                        classification={"l0": "other", "confidence": 30}),
+            _make_event(
+                title="Breaking: earthquake",
+                content="",
+                score=90,
+                classification={"l0": "breaking_news", "confidence": 80},
+            ),
+            _make_event(
+                title="Sports results",
+                content="",
+                score=20,
+                classification={"l0": "other", "confidence": 30},
+            ),
         ]
         results = skill.judge(events, "run-001")
         assert len(results) == 2

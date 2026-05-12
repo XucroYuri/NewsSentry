@@ -3,6 +3,7 @@
 MarkdownWriter — writes judged NewsEvents to Obsidian-compatible Markdown.
 Output: {output_base_dir}/{target_id}/drafts/{date}-{source_id}-{id_short}.md.
 """
+
 from __future__ import annotations
 
 import os
@@ -34,9 +35,7 @@ class MarkdownWriter:
                 - output_base_dir: 输出根目录，默认 "./data"
         """
         self._target_id: str = output_config.get("target_id", "default")
-        self._output_base_dir: Path = Path(
-            output_config.get("output_base_dir", "./data")
-        )
+        self._output_base_dir: Path = Path(output_config.get("output_base_dir", "./data"))
 
     # ------------------------------------------------------------------
     # 公开方法
@@ -127,9 +126,14 @@ class MarkdownWriter:
             if c_fm:
                 fm["classification"] = c_fm
 
-        return str(yaml.dump(
-            fm, allow_unicode=True, default_flow_style=False, sort_keys=False,
-        ).rstrip("\n"))
+        return str(
+            yaml.dump(
+                fm,
+                allow_unicode=True,
+                default_flow_style=False,
+                sort_keys=False,
+            ).rstrip("\n")
+        )
 
     def _render_body(self, event: NewsEvent) -> str:
         """渲染 Markdown 正文。
@@ -156,29 +160,35 @@ class MarkdownWriter:
         ]
 
         if event.content_translated:
-            lines.extend([
-                "",
-                "## 中文翻译",
-                "",
-                self._escape_body_breaks(event.content_translated),
-            ])
+            lines.extend(
+                [
+                    "",
+                    "## 中文翻译",
+                    "",
+                    self._escape_body_breaks(event.content_translated),
+                ]
+            )
 
         if event.judge_result is not None and event.judge_result.rationale:
-            lines.extend([
-                "",
-                "## 评审意见",
-                "",
-                event.judge_result.rationale,
-            ])
+            lines.extend(
+                [
+                    "",
+                    "## 评审意见",
+                    "",
+                    event.judge_result.rationale,
+                ]
+            )
 
         now = datetime.now(UTC).isoformat()
-        lines.extend([
-            "",
-            "---",
-            "",
-            f"*由 News Sentry 生成 | run_id: {event.run_id} | 生成时间: {now}*",
-            "",
-        ])
+        lines.extend(
+            [
+                "",
+                "---",
+                "",
+                f"*由 News Sentry 生成 | run_id: {event.run_id} | 生成时间: {now}*",
+                "",
+            ]
+        )
 
         return "\n".join(lines)
 

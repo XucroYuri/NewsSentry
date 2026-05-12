@@ -52,7 +52,9 @@ def default_sandbox() -> SandboxEnforcer:
 
 @pytest.fixture
 def kol_collector(
-    tmp_manifest_file: Path, kol_sandbox: SandboxEnforcer, kol_state: dict[str, Any],
+    tmp_manifest_file: Path,
+    kol_sandbox: SandboxEnforcer,
+    kol_state: dict[str, Any],
 ) -> SocialKOLCollector:
     """使用 kol-experiment 沙箱的 SocialKOLCollector 实例。"""
     registry = ToolRegistry(manifest_dir=tmp_manifest_file.parent)
@@ -95,7 +97,8 @@ class TestSocialKOLCollectorCollect:
     """验证三个采集方法的返回值格式和元数据标记。"""
 
     def test_collect_twitter_trends_returns_event(
-        self, kol_collector: SocialKOLCollector,
+        self,
+        kol_collector: SocialKOLCollector,
     ) -> None:
         """collect_twitter_trends() 应返回 1 个 NewsEvent，含 kol-experiment channel。"""
         events = kol_collector.collect_twitter_trends()
@@ -109,7 +112,8 @@ class TestSocialKOLCollectorCollect:
         assert event.metadata["collection"]["tool_ref"] == "opencli.twitter.trending"
 
     def test_collect_zhihu_hot_returns_event(
-        self, kol_collector: SocialKOLCollector,
+        self,
+        kol_collector: SocialKOLCollector,
     ) -> None:
         """collect_zhihu_hot() 应返回 1 个 NewsEvent，语言为中文。"""
         events = kol_collector.collect_zhihu_hot()
@@ -122,7 +126,8 @@ class TestSocialKOLCollectorCollect:
         assert event.language == Language.ZH
 
     def test_collect_weixin_search_returns_event(
-        self, kol_collector: SocialKOLCollector,
+        self,
+        kol_collector: SocialKOLCollector,
     ) -> None:
         """collect_weixin_search() 应返回事件列表，channel 为 kol-experiment，query 与输入一致。"""
         query = "意甲"
@@ -136,7 +141,8 @@ class TestSocialKOLCollectorCollect:
         assert event.metadata["acquisition"]["query"] == query
 
     def test_twitter_trends_with_custom_locale(
-        self, kol_collector: SocialKOLCollector,
+        self,
+        kol_collector: SocialKOLCollector,
     ) -> None:
         """locale="us" 时 URL 应包含 "us"。"""
         events = kol_collector.collect_twitter_trends(locale="us")

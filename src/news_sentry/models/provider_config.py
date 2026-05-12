@@ -3,6 +3,7 @@
 Implements: docs/spec/phase-5-ai-provider-routing.md
 Schema: schemas/providerconfig.schema.json
 """
+
 from __future__ import annotations
 
 from pydantic import BaseModel, Field

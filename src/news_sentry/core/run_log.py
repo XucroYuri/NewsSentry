@@ -4,6 +4,7 @@ RunLog — 每次 bounded run 的结构化审计日志。
 输出: logs/{run_id}.json
 覆盖率: core/run_log.py（本文件，2026-05-09）
 """
+
 from __future__ import annotations
 
 import json
@@ -119,15 +120,17 @@ class RunLog:
         phases_list = []
         for stage in self._phases:
             p = self._phases[stage]
-            phases_list.append({
-                "stage": p["stage"],
-                "started_at": p["started_at"],
-                "ended_at": p["ended_at"],
-                "duration_ms": p["duration_ms"],
-                "items_count": p["items_count"],
-                "errors_count": len(p["errors"]),
-                "errors": p["errors"],
-            })
+            phases_list.append(
+                {
+                    "stage": p["stage"],
+                    "started_at": p["started_at"],
+                    "ended_at": p["ended_at"],
+                    "duration_ms": p["duration_ms"],
+                    "items_count": p["items_count"],
+                    "errors_count": len(p["errors"]),
+                    "errors": p["errors"],
+                }
+            )
 
         summary = self._compute_summary()
         errors = self._flatten_errors()

@@ -1,9 +1,9 @@
 # Phase 6 — Sandbox Hardening + Social/KOL Experiment
 
-> 详细 SPEC: 本文档  
-> 路线图: [docs/development-plan.md §Phase-6](../development-plan.md)  
-> 横切组件矩阵: [docs/spec/README.md](README.md)  
-> ADR-0003: [SandboxPolicy write_roots 和错误枚举](../adr/0003-sandbox-write-roots-and-error-enum.md)  
+> 详细 SPEC: 本文档
+> 路线图: [docs/development-plan.md §Phase-6](../development-plan.md)
+> 横切组件矩阵: [docs/spec/README.md](README.md)
+> ADR-0003: [SandboxPolicy write_roots 和错误枚举](../adr/0003-sandbox-write-roots-and-error-enum.md)
 > ADR-0011: [OpenCLI ToolManifest（含高风险工具）](../adr/0011-opencli-baseline-toolmanifest.md)
 
 ---

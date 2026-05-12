@@ -2,6 +2,7 @@
 
 OpenClawAdapter — stub for OpenClaw/ClawHub runtime integration (ADR-0006).
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -9,6 +10,7 @@ from typing import Any
 
 class OpenClawAdapter:
     """Stub adapter for OpenClaw Skill runtime. Full impl in Phase 2."""
+
     runtime_id = "openclaw"
 
     def __init__(self, config: dict[str, Any]) -> None:

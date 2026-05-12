@@ -4,6 +4,7 @@ Implements: docs/spec/phase-5-ai-provider-routing.md
 Contracts: docs/contracts-canonical.md §7
 ADR: ADR-0005
 """
+
 from __future__ import annotations
 
 import logging
@@ -89,7 +90,9 @@ class ProviderRouter:
     """
 
     def __init__(
-        self, routes_config: ProviderRoutesConfig, cost_budget: float = 0.0,
+        self,
+        routes_config: ProviderRoutesConfig,
+        cost_budget: float = 0.0,
     ) -> None:
         """初始化路由器。
 
@@ -101,9 +104,7 @@ class ProviderRouter:
         self._cost_budget = cost_budget
         self._cost_tracker = CostTracker(hard_limit=cost_budget)
         # 构建 route_id → route 索引，O(1) 查找
-        self._route_index: dict[str, ProviderRoute] = {
-            r.route_id: r for r in routes_config.routes
-        }
+        self._route_index: dict[str, ProviderRoute] = {r.route_id: r for r in routes_config.routes}
         # 构建 task_type → 路由列表索引
         self._task_index: dict[str, list[ProviderRoute]] = {}
         for route in routes_config.routes:
@@ -112,7 +113,9 @@ class ProviderRouter:
     # ── 路由解析 ──────────────────────────────────────────────────
 
     def resolve_route(
-        self, task_type: str, preferred_route_id: str | None = None,
+        self,
+        task_type: str,
+        preferred_route_id: str | None = None,
     ) -> ProviderRoute:
         """为任务类型查找最佳路由。
 
@@ -145,8 +148,7 @@ class ProviderRouter:
         candidates = self._task_index.get(task_type, [])
         if not candidates:
             raise ValueError(
-                f"任务类型 '{task_type}' 无匹配路由。"
-                f" 可用类型: {list(self._task_index.keys())}"
+                f"任务类型 '{task_type}' 无匹配路由。 可用类型: {list(self._task_index.keys())}"
             )
         return candidates[0]
 
@@ -279,7 +281,9 @@ class ProviderRouter:
         if self.is_over_budget():
             logger.warning(
                 "预算超限，跳过 AI 调用: route_id=%s budget=%.4f cost=%.4f",
-                route.route_id, self._cost_budget, self._cost_tracker.total,
+                route.route_id,
+                self._cost_budget,
+                self._cost_tracker.total,
             )
             return {
                 "content": "",
@@ -300,7 +304,8 @@ class ProviderRouter:
             provider = provider_factory(current_route.provider)
             if provider is None:
                 logger.warning(
-                    "Provider '%s' 不可用，尝试回退", current_route.provider,
+                    "Provider '%s' 不可用，尝试回退",
+                    current_route.provider,
                 )
                 current_route = self.get_fallback_route(current_route)
                 fallback_used = True
@@ -323,7 +328,9 @@ class ProviderRouter:
             except Exception as e:
                 last_error = str(e)
                 logger.warning(
-                    "Provider '%s' 调用失败: %s", current_route.provider, e,
+                    "Provider '%s' 调用失败: %s",
+                    current_route.provider,
+                    e,
                 )
                 current_route = self.get_fallback_route(current_route)
                 fallback_used = True
@@ -331,7 +338,8 @@ class ProviderRouter:
         # 5) 所有 Provider 均失败
         logger.error(
             "所有 Provider 均失败: route_id=%s last_error=%s",
-            route.route_id, last_error,
+            route.route_id,
+            last_error,
         )
         return {
             "content": "",

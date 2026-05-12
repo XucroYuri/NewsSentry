@@ -3,6 +3,7 @@
 PipelineContext carries run-level state across skill invocations.
 Schema: schemas/pipelinecontext.schema.json
 """
+
 from __future__ import annotations
 
 from typing import Any

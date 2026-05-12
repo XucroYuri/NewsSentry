@@ -1,4 +1,5 @@
 """Phase 13 — Eval Set Schema 校验 + Eval Runner 基础测试。"""
+
 from __future__ import annotations
 
 import json
@@ -47,9 +48,20 @@ class TestEvalExampleSchema:
 
         dims = {ex["dimension"] for ex in data["examples"]}
         expected_dims = {
-            "politics", "economics", "diplomacy", "security", "judicial",
-            "society", "technology", "environment", "immigration", "culture",
-            "religion", "china_relations", "other", "edge_case",
+            "politics",
+            "economics",
+            "diplomacy",
+            "security",
+            "judicial",
+            "society",
+            "technology",
+            "environment",
+            "immigration",
+            "culture",
+            "religion",
+            "china_relations",
+            "other",
+            "edge_case",
         }
         assert dims == expected_dims
 
@@ -153,9 +165,20 @@ class TestEvalSetV2:
 
         dims = {ex["dimension"] for ex in data["examples"]}
         expected_dims = {
-            "politics", "economics", "diplomacy", "security", "judicial",
-            "society", "technology", "environment", "immigration", "culture",
-            "religion", "china_relations", "other", "edge_case",
+            "politics",
+            "economics",
+            "diplomacy",
+            "security",
+            "judicial",
+            "society",
+            "technology",
+            "environment",
+            "immigration",
+            "culture",
+            "religion",
+            "china_relations",
+            "other",
+            "edge_case",
         }
         assert dims == expected_dims
 

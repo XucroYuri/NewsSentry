@@ -12,8 +12,14 @@ from typing import Any
 from pydantic import BaseModel
 
 REQUIRED_DIRS = [
-    "raw", "evaluated", "drafts", "reviewed", "published",
-    "archive", "memory", "logs",
+    "raw",
+    "evaluated",
+    "drafts",
+    "reviewed",
+    "published",
+    "archive",
+    "memory",
+    "logs",
 ]
 
 REQUIRED_ENV_VARS = [
@@ -116,7 +122,9 @@ def run_doctor(target_id: str, data_root: str = "data") -> DoctorReport:
         try:
             result = subprocess.run(
                 ["xdpyinfo", "-display", ":99"],  # noqa: S607 — xdpyinfo path varies by distro
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             display_ok = result.returncode == 0
         except Exception:  # noqa: S110 — Xvfb may not be running, health check handles this
@@ -129,7 +137,10 @@ def run_doctor(target_id: str, data_root: str = "data") -> DoctorReport:
     if opencli:
         try:
             result = subprocess.run(  # noqa: S603 — opencli path from shutil.which, trusted input
-                [opencli, "--version"], capture_output=True, text=True, timeout=10,
+                [opencli, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             opencli_ok = result.returncode == 0
         except Exception:  # noqa: S110 — opencli may not be installed, health check handles this
@@ -142,7 +153,10 @@ def run_doctor(target_id: str, data_root: str = "data") -> DoctorReport:
     if npx:
         try:
             result = subprocess.run(  # noqa: S603 — npx path from shutil.which, trusted input
-                [npx, "playwright", "--version"], capture_output=True, text=True, timeout=10,
+                [npx, "playwright", "--version"],
+                capture_output=True,
+                text=True,
+                timeout=10,
             )
             playwright_ok = result.returncode == 0
         except Exception:  # noqa: S110 — playwright may not be installed, health check handles this

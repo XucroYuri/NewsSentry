@@ -17,6 +17,7 @@ from news_sentry.core.session_profile import (
 
 # ── helpers ────────────────────────────────────────────────────
 
+
 def _make_valid_profile(**overrides) -> dict:
     data = {
         "profile_id": "test-profile-1",
@@ -35,6 +36,7 @@ def _make_valid_profile(**overrides) -> dict:
 
 
 # ── SessionProfile ─────────────────────────────────────────────
+
 
 class TestSessionProfileValid:
     def test_valid_construction(self):
@@ -120,15 +122,18 @@ class TestSessionProfileSensitiveData:
 
     def test_clean_fields_pass(self):
         """不含任何敏感关键词的字段应通过验证。"""
-        profile = SessionProfile(**_make_valid_profile(
-            notes="公开账号，无敏感信息",
-            display_name="NewsBot Official",
-            profile_path="/home/user/chrome-profiles/newsbot",
-        ))
+        profile = SessionProfile(
+            **_make_valid_profile(
+                notes="公开账号，无敏感信息",
+                display_name="NewsBot Official",
+                profile_path="/home/user/chrome-profiles/newsbot",
+            )
+        )
         assert profile.notes == "公开账号，无敏感信息"
 
 
 # ── load_session_profiles ──────────────────────────────────────
+
 
 class TestLoadSessionProfiles:
     def test_loads_valid_yaml_files(self, tmp_path: Path):
@@ -139,12 +144,8 @@ class TestLoadSessionProfiles:
         p1 = _make_valid_profile(profile_id="p1", display_name="账号1")
         p2 = _make_valid_profile(profile_id="p2", display_name="账号2")
 
-        (profiles_dir / "p1.yaml").write_text(
-            yaml.dump(p1, allow_unicode=True), encoding="utf-8"
-        )
-        (profiles_dir / "p2.yaml").write_text(
-            yaml.dump(p2, allow_unicode=True), encoding="utf-8"
-        )
+        (profiles_dir / "p1.yaml").write_text(yaml.dump(p1, allow_unicode=True), encoding="utf-8")
+        (profiles_dir / "p2.yaml").write_text(yaml.dump(p2, allow_unicode=True), encoding="utf-8")
 
         profiles = load_session_profiles(profiles_dir)
 
@@ -230,6 +231,7 @@ class TestLoadSessionProfiles:
 
 
 # ── validate_no_sensitive_data ─────────────────────────────────
+
 
 class TestValidateNoSensitiveData:
     def test_clean_profile_passes(self):

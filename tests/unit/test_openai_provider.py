@@ -4,6 +4,7 @@
 model 覆盖、provider_id。
 使用 mock httpx.post 避免真实 API 调用。
 """
+
 from __future__ import annotations
 
 from unittest import mock
@@ -14,6 +15,7 @@ import pytest
 from news_sentry.adapters.providers.openai_provider import OpenAIProvider
 
 # ── 辅助 ────────────────────────────────────────────────────────────────
+
 
 def _make_mock_response(status_code: int = 200, json_data: dict | None = None) -> mock.MagicMock:
     """构造 httpx.post 的 mock 返回值。"""
@@ -30,6 +32,7 @@ def _make_mock_response(status_code: int = 200, json_data: dict | None = None) -
 
 
 # ── 初始化 ──────────────────────────────────────────────────────────────
+
 
 class TestInit:
     """__init__ 初始化测试。"""
@@ -52,10 +55,12 @@ class TestInit:
 
     def test_init_base_url_from_config(self):
         """config 指定 base_url 时优先使用。"""
-        provider = OpenAIProvider({
-            "api_key": "sk-test",
-            "base_url": "https://deepseek.example.com/v1",
-        })
+        provider = OpenAIProvider(
+            {
+                "api_key": "sk-test",
+                "base_url": "https://deepseek.example.com/v1",
+            }
+        )
         assert provider._base_url == "https://deepseek.example.com/v1"
 
     def test_init_base_url_from_env(self, monkeypatch):
@@ -76,6 +81,7 @@ class TestInit:
 
 
 # ── health_check ────────────────────────────────────────────────────────
+
 
 class TestHealthCheck:
     """health_check 测试。"""
@@ -98,6 +104,7 @@ class TestHealthCheck:
 
 
 # ── call ────────────────────────────────────────────────────────────────
+
 
 class TestCall:
     """call 方法测试。"""
@@ -179,6 +186,7 @@ class TestCall:
 
 # ── provider_id ────────────────────────────────────────────────────────
 
+
 class TestProviderId:
     """provider_id 属性测试。"""
 
@@ -194,5 +202,6 @@ class TestProviderId:
     def test_satisfies_ai_provider_protocol(self):
         """OpenAIProvider 满足 AIProvider 协议。"""
         from news_sentry.adapters.providers.base import AIProvider
+
         provider = OpenAIProvider({"api_key": "sk-test"})
         assert isinstance(provider, AIProvider)

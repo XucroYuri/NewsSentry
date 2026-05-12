@@ -1,4 +1,5 @@
 """SocialKOLCollector 升级后测试 — 从 stub 到真实 Bridge 采集。"""
+
 from unittest.mock import ANY, MagicMock, Mock
 
 from news_sentry.adapters.tools.base import ToolRunResult
@@ -10,28 +11,38 @@ class MockSandbox:
     policy = MagicMock(policy_id="kol-experiment")
 
 
-def make_account(handle="@test", tier="L1", monitor_mode="active",
-                 url="https://x.com/test", fetch_max_per_run=10):
+def make_account(
+    handle="@test", tier="L1", monitor_mode="active", url="https://x.com/test", fetch_max_per_run=10
+):
     return {
-        "handle": handle, "tier": tier, "monitor_mode": monitor_mode,
-        "url": url, "fetch_max_per_run": fetch_max_per_run,
-        "display_name": "Test Account", "category": "test",
+        "handle": handle,
+        "tier": tier,
+        "monitor_mode": monitor_mode,
+        "url": url,
+        "fetch_max_per_run": fetch_max_per_run,
+        "display_name": "Test Account",
+        "category": "test",
     }
 
 
 def make_success_result(tool_id="opencli.navigate", stdout="") -> ToolRunResult:
     """构造成功的 ToolRunResult。"""
     return ToolRunResult(
-        tool_id=tool_id, run_id="test-run",
-        success=True, exit_code=0, stdout=stdout,
+        tool_id=tool_id,
+        run_id="test-run",
+        success=True,
+        exit_code=0,
+        stdout=stdout,
     )
 
 
 def make_failure_result(tool_id="opencli.navigate") -> ToolRunResult:
     """构造失败的 ToolRunResult。"""
     return ToolRunResult(
-        tool_id=tool_id, run_id="test-run",
-        success=False, exit_code=1,
+        tool_id=tool_id,
+        run_id="test-run",
+        success=False,
+        exit_code=1,
         error={"type": "timeout", "message": "timed out"},
     )
 
@@ -150,9 +161,7 @@ class TestFetchAccountPage:
     def test_returns_empty_list_on_navigate_failure(self):
         """navigate 持续失败时应返回空列表（不抛异常）。"""
         mock_registry = MagicMock()
-        mock_registry.execute.return_value = make_failure_result(
-            tool_id="opencli.navigate"
-        )
+        mock_registry.execute.return_value = make_failure_result(tool_id="opencli.navigate")
         config = {"platform": "twitter", "accounts": [make_account()]}
         collector = SocialKOLCollector(mock_registry, MockSandbox(), {}, config)
         account = collector.accounts[0]
@@ -251,9 +260,7 @@ class TestFetchTimeline:
     def test_returns_empty_list_on_failure(self):
         """execute 失败时应返回空列表。"""
         mock_registry = MagicMock()
-        mock_registry.execute.return_value = make_failure_result(
-            tool_id="opencli.navigate"
-        )
+        mock_registry.execute.return_value = make_failure_result(tool_id="opencli.navigate")
         config = {
             "platform": "twitter",
             "accounts": [make_account(monitor_mode="semi_active")],
@@ -338,7 +345,11 @@ class TestBrowserFallbackIntegration:
 
         assert len(events) >= 1
         mock_registry.execute.assert_any_call(
-            "opencli.navigate", ANY, ANY, ANY, ANY,
+            "opencli.navigate",
+            ANY,
+            ANY,
+            ANY,
+            ANY,
         )
 
     def test_uses_layer2_when_degraded(self):
@@ -356,7 +367,11 @@ class TestBrowserFallbackIntegration:
 
         assert len(events) >= 1
         mock_registry.execute.assert_any_call(
-            "opencli.mcp.navigate", ANY, ANY, ANY, ANY,
+            "opencli.mcp.navigate",
+            ANY,
+            ANY,
+            ANY,
+            ANY,
         )
 
     def test_records_success_on_layer1_success(self):

@@ -28,11 +28,18 @@ def test_metrics_writer_append_jsonl():
     with TemporaryDirectory() as tmp:
         writer = MetricsWriter(Path(tmp))
         m = RunMetrics(
-            run_id="r-001", target_id="italy",
-            collected=5, filtered=3, judged=2, outputted=1,
-            duration_collect_ms=100, duration_filter_ms=100,
-            duration_judge_ms=100, duration_output_ms=100,
-            provider_calls={}, provider_cost={},
+            run_id="r-001",
+            target_id="italy",
+            collected=5,
+            filtered=3,
+            judged=2,
+            outputted=1,
+            duration_collect_ms=100,
+            duration_filter_ms=100,
+            duration_judge_ms=100,
+            duration_output_ms=100,
+            provider_calls={},
+            provider_cost={},
         )
         writer.write(m)
         written = list(Path(tmp).glob("*.jsonl"))

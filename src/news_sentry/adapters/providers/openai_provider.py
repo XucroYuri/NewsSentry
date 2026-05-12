@@ -2,6 +2,7 @@
 
 OpenAIProvider — OpenAI-compatible API 调用提供者，支持 translate/judge/classify 等路由。
 """
+
 from __future__ import annotations
 
 import os
@@ -36,7 +37,8 @@ class OpenAIProvider(AIProvider):
                 - max_tokens: 最大输出 token 数，默认 2048
         """
         self._api_key = config.get(
-            "api_key", os.environ.get("OPENAI_API_KEY"),
+            "api_key",
+            os.environ.get("OPENAI_API_KEY"),
         )
         self._base_url = config.get(
             "base_url",
@@ -82,7 +84,10 @@ class OpenAIProvider(AIProvider):
 
         try:
             response = httpx.post(
-                url, headers=headers, json=payload, timeout=30,
+                url,
+                headers=headers,
+                json=payload,
+                timeout=30,
             )
             response.raise_for_status()
             data = response.json()
@@ -91,9 +96,7 @@ class OpenAIProvider(AIProvider):
                 f"OpenAI API 返回 HTTP {e.response.status_code}: {e.response.text}"
             ) from e
         except httpx.RequestError as e:
-            raise RuntimeError(
-                f"OpenAI API 网络请求失败: {e}"
-            ) from e
+            raise RuntimeError(f"OpenAI API 网络请求失败: {e}") from e
 
         choice = data["choices"][0]
         return {

@@ -4,6 +4,7 @@ Sends alerts when events meet configurable thresholds (news_value_score,
 china_relevance, recommendation). Supports Feishu webhook, email (SMTP),
 and Telegram bot. Includes 24h dedup to prevent alert fatigue.
 """
+
 from __future__ import annotations
 
 import json
@@ -81,7 +82,9 @@ class AlertPipeline:
                     self._stats["alerts_failed"] += 1
                     logger.warning(
                         "告警发送失败: dest=%s event_id=%s error=%s",
-                        dest.get("destination_id", "?"), event.id, e,
+                        dest.get("destination_id", "?"),
+                        event.id,
+                        e,
                     )
 
             self._mark_alerted(event)
@@ -167,11 +170,13 @@ class AlertPipeline:
         if event.url:
             lines.append(f"**链接**: {event.url}")
 
-        lines.extend([
-            "",
-            "---",
-            f"run_id: {run_id} | event_id: {event.id}",
-        ])
+        lines.extend(
+            [
+                "",
+                "---",
+                f"run_id: {run_id} | event_id: {event.id}",
+            ]
+        )
 
         return "\n".join(lines)
 

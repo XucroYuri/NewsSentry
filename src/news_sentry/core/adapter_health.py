@@ -1,4 +1,5 @@
 """Phase 4: Adapter health check — pre-run validation of tools and skills."""
+
 from __future__ import annotations
 
 from importlib.util import find_spec
@@ -26,43 +27,53 @@ def check_all_adapters(
         try:
             spec = find_spec(ep)
             if spec is None:
-                results.append({
+                results.append(
+                    {
+                        "name": f"Skill: {skill.skill_id}",
+                        "ok": False,
+                        "severity": "warning",
+                        "message": f"entry_point not found: {ep}",
+                    }
+                )
+            else:
+                results.append(
+                    {
+                        "name": f"Skill: {skill.skill_id}",
+                        "ok": True,
+                        "severity": "info",
+                        "message": ep,
+                    }
+                )
+        except (ImportError, ModuleNotFoundError, ValueError) as e:
+            results.append(
+                {
                     "name": f"Skill: {skill.skill_id}",
                     "ok": False,
                     "severity": "warning",
-                    "message": f"entry_point not found: {ep}",
-                })
-            else:
-                results.append({
-                    "name": f"Skill: {skill.skill_id}",
-                    "ok": True,
-                    "severity": "info",
-                    "message": ep,
-                })
-        except (ImportError, ModuleNotFoundError, ValueError) as e:
-            results.append({
-                "name": f"Skill: {skill.skill_id}",
-                "ok": False,
-                "severity": "warning",
-                "message": f"{ep}: {e}",
-            })
+                    "message": f"{ep}: {e}",
+                }
+            )
 
     # ── Tools 健康检查 ───────────────────────────────────────
     for tool in tool_registry.list_tools():
         health = tool_registry.check_tool_health(tool.tool_id)
         if health.get("ok"):
-            results.append({
-                "name": f"Tool: {tool.tool_id}",
-                "ok": True,
-                "severity": "info",
-                "message": health.get("path") or health.get("execution_type", "ok"),
-            })
+            results.append(
+                {
+                    "name": f"Tool: {tool.tool_id}",
+                    "ok": True,
+                    "severity": "info",
+                    "message": health.get("path") or health.get("execution_type", "ok"),
+                }
+            )
         else:
-            results.append({
-                "name": f"Tool: {tool.tool_id}",
-                "ok": False,
-                "severity": "warning",
-                "message": health.get("error", "unknown"),
-            })
+            results.append(
+                {
+                    "name": f"Tool: {tool.tool_id}",
+                    "ok": False,
+                    "severity": "warning",
+                    "message": health.get("error", "unknown"),
+                }
+            )
 
     return results

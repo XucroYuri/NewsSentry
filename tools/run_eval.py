@@ -13,6 +13,7 @@ Modes:
 Usage:
     python tools/run_eval.py [--eval-set PATH] [--output PATH] [--target TARGET] [--mode MODE]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -128,7 +129,8 @@ def run_pipeline(
 
 
 def compare_recommendation(
-    actual: JudgeRecommendation, expected: str,
+    actual: JudgeRecommendation,
+    expected: str,
 ) -> str:
     """比对推荐级别，返回 match / partial / miss。"""
     try:
@@ -205,37 +207,44 @@ def run_evaluation(
             expected = example["expected"]
 
             judged = run_pipeline(
-                event, rules_filter, classifier, rules_judge,
-                ai_judge=ai_judge, mode=mode,
+                event,
+                rules_filter,
+                classifier,
+                rules_judge,
+                ai_judge=ai_judge,
+                mode=mode,
             )
 
             if judged is None:
                 # 被 filter 丢弃
-                results.append({
-                    "eval_id": example["eval_id"],
-                    "dimension": example.get("dimension", "?"),
-                    "filtered_out": True,
-                    "recommendation": {
-                        "actual": "discard",
-                        "expected": expected["recommendation"],
-                        "comparison": compare_recommendation(
-                            JudgeRecommendation.DISCARD,
-                            expected["recommendation"],
-                        ),
-                    },
-                    "news_value_score": {
-                        "actual": 0,
-                        "expected_min": expected.get("news_value_score_min"),
-                        "comparison": "miss",
-                    },
-                    "china_relevance": {
-                        "actual": 0,
-                        "expected_min": expected.get("china_relevance_min"),
-                        "comparison": compare_score(
-                            0, expected.get("china_relevance_min"),
-                        ),
-                    },
-                })
+                results.append(
+                    {
+                        "eval_id": example["eval_id"],
+                        "dimension": example.get("dimension", "?"),
+                        "filtered_out": True,
+                        "recommendation": {
+                            "actual": "discard",
+                            "expected": expected["recommendation"],
+                            "comparison": compare_recommendation(
+                                JudgeRecommendation.DISCARD,
+                                expected["recommendation"],
+                            ),
+                        },
+                        "news_value_score": {
+                            "actual": 0,
+                            "expected_min": expected.get("news_value_score_min"),
+                            "comparison": "miss",
+                        },
+                        "china_relevance": {
+                            "actual": 0,
+                            "expected_min": expected.get("china_relevance_min"),
+                            "comparison": compare_score(
+                                0,
+                                expected.get("china_relevance_min"),
+                            ),
+                        },
+                    }
+                )
                 continue
 
             actual_rec = (
@@ -246,32 +255,36 @@ def run_evaluation(
 
             rec_comp = compare_recommendation(actual_rec, expected["recommendation"])
             nvs_comp = compare_score(
-                judged.news_value_score, expected.get("news_value_score_min"),
+                judged.news_value_score,
+                expected.get("news_value_score_min"),
             )
             cr_comp = compare_score(
-                judged.china_relevance, expected.get("china_relevance_min"),
+                judged.china_relevance,
+                expected.get("china_relevance_min"),
             )
 
-            results.append({
-                "eval_id": example["eval_id"],
-                "dimension": example.get("dimension", "?"),
-                "filtered_out": False,
-                "recommendation": {
-                    "actual": actual_rec.value,
-                    "expected": expected["recommendation"],
-                    "comparison": rec_comp,
-                },
-                "news_value_score": {
-                    "actual": judged.news_value_score,
-                    "expected_min": expected.get("news_value_score_min"),
-                    "comparison": nvs_comp,
-                },
-                "china_relevance": {
-                    "actual": judged.china_relevance,
-                    "expected_min": expected.get("china_relevance_min"),
-                    "comparison": cr_comp,
-                },
-            })
+            results.append(
+                {
+                    "eval_id": example["eval_id"],
+                    "dimension": example.get("dimension", "?"),
+                    "filtered_out": False,
+                    "recommendation": {
+                        "actual": actual_rec.value,
+                        "expected": expected["recommendation"],
+                        "comparison": rec_comp,
+                    },
+                    "news_value_score": {
+                        "actual": judged.news_value_score,
+                        "expected_min": expected.get("news_value_score_min"),
+                        "comparison": nvs_comp,
+                    },
+                    "china_relevance": {
+                        "actual": judged.china_relevance,
+                        "expected_min": expected.get("china_relevance_min"),
+                        "comparison": cr_comp,
+                    },
+                }
+            )
 
     # ── 聚合统计 ──────────────────────────────────────────────
     dims = defaultdict(list)
@@ -339,25 +352,18 @@ def run_evaluation(
         "filtered_out": total_filtered_out,
         "accuracy": total_match / n_total if n_total > 0 else 0.0,
         "precision": (
-            total_match / (total_match + total_miss)
-            if (total_match + total_miss) > 0 else 0.0
+            total_match / (total_match + total_miss) if (total_match + total_miss) > 0 else 0.0
         ),
         "recall": (
-            total_match / (total_match + total_miss)
-            if (total_match + total_miss) > 0 else 0.0
+            total_match / (total_match + total_miss) if (total_match + total_miss) > 0 else 0.0
         ),
         "f1": (
             2 * total_match / (2 * total_match + total_miss)
-            if (2 * total_match + total_miss) > 0 else 0.0
+            if (2 * total_match + total_miss) > 0
+            else 0.0
         ),
-        "nvs_compliance": (
-            total_nvs_pass / total_nvs_count
-            if total_nvs_count > 0 else None
-        ),
-        "cr_compliance": (
-            total_cr_pass / total_cr_count
-            if total_cr_count > 0 else None
-        ),
+        "nvs_compliance": (total_nvs_pass / total_nvs_count if total_nvs_count > 0 else None),
+        "cr_compliance": (total_cr_pass / total_cr_count if total_cr_count > 0 else None),
     }
 
     report = {
@@ -381,24 +387,20 @@ def run_evaluation(
 def print_report(report: dict) -> None:
     """格式化打印评估报告。"""
     mode_label = {"rules": "Rules-only", "ai": "AI-only", "hybrid": "Hybrid"}
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print("  Phase 14 — Judge Accuracy Evaluation Report")
     print(f"  Eval set: {report['eval_set']}")
     print(f"  Target:   {report['target']}")
     print(f"  Mode:     {mode_label.get(report['mode'], report['mode'])}")
     print(f"  Examples: {report['total_examples']}")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
 
     o = report["overall"]
     print("\n  Overall:")
     print(f"    Recommendation Accuracy: {o['accuracy']:.1%} ({o['match']}/{o['n']})")
     print(f"    Partial Match: {o['partial']}  Miss: {o['miss']}")
     print(f"    Filtered Out: {o['filtered_out']}")
-    print(
-        f"    Precision: {o['precision']:.1%}"
-        f"  Recall: {o['recall']:.1%}"
-        f"  F1: {o['f1']:.1%}"
-    )
+    print(f"    Precision: {o['precision']:.1%}  Recall: {o['recall']:.1%}  F1: {o['f1']:.1%}")
     if o["nvs_compliance"] is not None:
         print(f"    News Value Score Compliance: {o['nvs_compliance']:.1%}")
     if o["cr_compliance"] is not None:
@@ -406,16 +408,10 @@ def print_report(report: dict) -> None:
 
     print("\n  By Dimension:")
     hdr = (
-        f"  {'Dimension':<18} {'N':>3}"
-        f" {'OK':>3} {'~':>3} {'X':>3}"
-        f" {'Flt':>3} {'Acc':>6} {'F1':>6}"
+        f"  {'Dimension':<18} {'N':>3} {'OK':>3} {'~':>3} {'X':>3} {'Flt':>3} {'Acc':>6} {'F1':>6}"
     )
     print(hdr)
-    sep = (
-        f"  {'-'*18} {'-'*3}"
-        f" {'-'*3} {'-'*3} {'-'*3}"
-        f" {'-'*3} {'-'*6} {'-'*6}"
-    )
+    sep = f"  {'-' * 18} {'-' * 3} {'-' * 3} {'-' * 3} {'-' * 3} {'-' * 3} {'-' * 6} {'-' * 6}"
     print(sep)
     for dim, m in report["by_dimension"].items():
         print(
@@ -423,7 +419,7 @@ def print_report(report: dict) -> None:
             f"{m['miss']:>3} {m['filtered_out']:>3} {m['accuracy']:>5.0%} {m['f1']:>5.1%}"
         )
 
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
 
 
 def main() -> None:

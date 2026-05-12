@@ -1,4 +1,5 @@
 """country_axes 隔离验证测试 — Phase 7 确保意大利专有轴不泄漏到其他国家。"""
+
 from __future__ import annotations
 
 import pytest

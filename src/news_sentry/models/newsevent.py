@@ -3,6 +3,7 @@
 NewsEvent is the core data exchange object — defined in docs/contracts-canonical.md §1
 and docs/newsevent-schema.md. Schema: schemas/newsevent.schema.json
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -52,6 +53,7 @@ class JudgeResult(BaseModel):
 
 class NewsEvent(BaseModel):
     """Core data exchange object. Schema: schemas/newsevent.schema.json"""
+
     id: str
     run_id: str
     source_id: str

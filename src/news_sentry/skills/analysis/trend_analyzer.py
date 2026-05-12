@@ -45,9 +45,7 @@ class TrendReport(BaseModel):
             "|------|------|------|--------|",
         ]
         for t in self.topics:
-            lines.append(
-                f"| {t.topic} | {t.hotness} | {t.trend_direction} | {t.event_count} |"
-            )
+            lines.append(f"| {t.topic} | {t.hotness} | {t.trend_direction} | {t.event_count} |")
         lines.append("")
         lines.append("## 整体情感分布")
         lines.append("")

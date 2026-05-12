@@ -1,4 +1,5 @@
 """Tests for adapter_health — pre-run validation of tools and skills."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -122,7 +123,8 @@ class TestCheckAllAdapters:
 
         # mock check_tool_health 返回 not ok
         monkeypatch.setattr(
-            tr, "check_tool_health",
+            tr,
+            "check_tool_health",
             lambda tid: {"ok": False, "error": "not found"},
         )
 

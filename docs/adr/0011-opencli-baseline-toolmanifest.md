@@ -12,7 +12,7 @@
 
 ## 背景
 
-ADR-0008 确定了 OpenCLI 作为系统级依赖、通过 `ToolManifest` 包装调用的原则。  
+ADR-0008 确定了 OpenCLI 作为系统级依赖、通过 `ToolManifest` 包装调用的原则。
 本 ADR 记录 v1+ 阶段 OpenCLI ToolManifest 的具体 12 条命令骨架，作为 Phase 4 实现的起点。
 
 ---

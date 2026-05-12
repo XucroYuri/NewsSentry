@@ -5,6 +5,7 @@
 - auth_error 信号（exit_code=77）→ StopOnRiskError 或 ToolRunResult
 - audit log JSONL 写入
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -82,7 +83,9 @@ class TestSandboxViolationStopOnRisk:
     """sandbox_violation 信号的 stop-on-risk 行为。"""
 
     def test_sandbox_violation_triggers_stop_on_risk(
-        self, tmp_path: Path, fetch_tool_args: dict,
+        self,
+        tmp_path: Path,
+        fetch_tool_args: dict,
     ) -> None:
         """on_sandbox_violation=True + on_deny='stop' → StopOnRiskError 传播。"""
         manifest_path = _make_opencli_fetch_manifest(tmp_path)
@@ -98,14 +101,20 @@ class TestSandboxViolationStopOnRisk:
             sandbox_enforcer=sandbox,
         )
 
-        with mock.patch.object(
-            sandbox, "enforce",
-            side_effect=SandboxViolationError("blocked by sandbox"),
-        ), pytest.raises(StopOnRiskError, match="stop-on-risk 触发"):
+        with (
+            mock.patch.object(
+                sandbox,
+                "enforce",
+                side_effect=SandboxViolationError("blocked by sandbox"),
+            ),
+            pytest.raises(StopOnRiskError, match="stop-on-risk 触发"),
+        ):
             adapter.execute("opencli.fetch", fetch_tool_args, "run-stop-01")
 
     def test_sandbox_violation_log_and_continue(
-        self, tmp_path: Path, fetch_tool_args: dict,
+        self,
+        tmp_path: Path,
+        fetch_tool_args: dict,
     ) -> None:
         """on_sandbox_violation=True + on_deny='log_and_continue'
         → 返回 ToolRunResult(error type=permission_denied)，不抛异常。"""
@@ -123,11 +132,14 @@ class TestSandboxViolationStopOnRisk:
         )
 
         with mock.patch.object(
-            sandbox, "enforce",
+            sandbox,
+            "enforce",
             side_effect=SandboxViolationError("blocked by sandbox"),
         ):
             result = adapter.execute(
-                "opencli.fetch", fetch_tool_args, "run-stop-02",
+                "opencli.fetch",
+                fetch_tool_args,
+                "run-stop-02",
             )
 
         assert isinstance(result, ToolRunResult)
@@ -136,7 +148,9 @@ class TestSandboxViolationStopOnRisk:
         assert result.error["type"] == "permission_denied"
 
     def test_sandbox_violation_disabled(
-        self, tmp_path: Path, fetch_tool_args: dict,
+        self,
+        tmp_path: Path,
+        fetch_tool_args: dict,
     ) -> None:
         """on_sandbox_violation=False → 返回 ToolRunResult(permission_denied)，不抛异常。"""
         manifest_path = _make_opencli_fetch_manifest(tmp_path)
@@ -153,11 +167,14 @@ class TestSandboxViolationStopOnRisk:
         )
 
         with mock.patch.object(
-            sandbox, "enforce",
+            sandbox,
+            "enforce",
             side_effect=SandboxViolationError("blocked by sandbox"),
         ):
             result = adapter.execute(
-                "opencli.fetch", fetch_tool_args, "run-stop-03",
+                "opencli.fetch",
+                fetch_tool_args,
+                "run-stop-03",
             )
 
         assert isinstance(result, ToolRunResult)
@@ -173,7 +190,9 @@ class TestExitCode77StopOnRisk:
     """exit_code=77 触发的 auth_error stop-on-risk 行为。"""
 
     def test_exit_code_77_triggers_auth_error_stop(
-        self, tmp_path: Path, fetch_tool_args: dict,
+        self,
+        tmp_path: Path,
+        fetch_tool_args: dict,
     ) -> None:
         """on_auth_error=True + on_deny='stop' → subprocess exit_code=77 时
         StopOnRiskError 传播。"""
@@ -194,13 +213,17 @@ class TestExitCode77StopOnRisk:
         mock_proc.stdout = ""
         mock_proc.stderr = "auth expired"
 
-        with mock.patch.object(sandbox, "enforce"), \
-                mock.patch("subprocess.run", return_value=mock_proc), \
-                pytest.raises(StopOnRiskError, match="stop-on-risk 触发"):
+        with (
+            mock.patch.object(sandbox, "enforce"),
+            mock.patch("subprocess.run", return_value=mock_proc),
+            pytest.raises(StopOnRiskError, match="stop-on-risk 触发"),
+        ):
             adapter.execute("opencli.fetch", fetch_tool_args, "run-77-stop-01")
 
     def test_exit_code_77_log_and_continue(
-        self, tmp_path: Path, fetch_tool_args: dict,
+        self,
+        tmp_path: Path,
+        fetch_tool_args: dict,
     ) -> None:
         """on_auth_error=True + on_deny='log_and_continue'
         → subprocess exit_code=77 时返回 ToolRunResult，不抛异常。"""
@@ -221,10 +244,14 @@ class TestExitCode77StopOnRisk:
         mock_proc.stdout = ""
         mock_proc.stderr = "auth expired"
 
-        with mock.patch.object(sandbox, "enforce"), \
-                mock.patch("subprocess.run", return_value=mock_proc):
+        with (
+            mock.patch.object(sandbox, "enforce"),
+            mock.patch("subprocess.run", return_value=mock_proc),
+        ):
             result = adapter.execute(
-                "opencli.fetch", fetch_tool_args, "run-77-stop-02",
+                "opencli.fetch",
+                fetch_tool_args,
+                "run-77-stop-02",
             )
 
         assert isinstance(result, ToolRunResult)
@@ -233,7 +260,9 @@ class TestExitCode77StopOnRisk:
         # The key assertion: no exception was raised
 
     def test_exit_code_77_auth_error_disabled(
-        self, tmp_path: Path, fetch_tool_args: dict,
+        self,
+        tmp_path: Path,
+        fetch_tool_args: dict,
     ) -> None:
         """on_auth_error=False → subprocess exit_code=77 时正常返回 ToolRunResult。"""
         manifest_path = _make_opencli_fetch_manifest(tmp_path)
@@ -253,10 +282,14 @@ class TestExitCode77StopOnRisk:
         mock_proc.stdout = ""
         mock_proc.stderr = "auth expired"
 
-        with mock.patch.object(sandbox, "enforce"), \
-                mock.patch("subprocess.run", return_value=mock_proc):
+        with (
+            mock.patch.object(sandbox, "enforce"),
+            mock.patch("subprocess.run", return_value=mock_proc),
+        ):
             result = adapter.execute(
-                "opencli.fetch", fetch_tool_args, "run-77-stop-03",
+                "opencli.fetch",
+                fetch_tool_args,
+                "run-77-stop-03",
             )
 
         assert isinstance(result, ToolRunResult)
@@ -270,7 +303,9 @@ class TestAuditLogWritten:
     """audit_tool_call 的 JSONL 写入验证。"""
 
     def test_audit_log_written_on_sandbox_violation(
-        self, tmp_path: Path, fetch_tool_args: dict,
+        self,
+        tmp_path: Path,
+        fetch_tool_args: dict,
     ) -> None:
         """沙箱违规时，audit_tool_call 创建一个 JSONL 文件在 audit_log_path 中。"""
         logs_dir = tmp_path / "logs"
@@ -288,7 +323,8 @@ class TestAuditLogWritten:
         )
 
         with mock.patch.object(
-            sandbox, "enforce",
+            sandbox,
+            "enforce",
             side_effect=SandboxViolationError("blocked by sandbox"),
         ):
             adapter.execute("opencli.fetch", fetch_tool_args, "run-audit-01")
@@ -305,6 +341,7 @@ class TestAuditLogWritten:
 
         # 验证记录内容
         import json as _json
+
         record = _json.loads(lines[0])
         assert record["decision"] == "deny"
         assert record["check_dimension"] == "sandbox"

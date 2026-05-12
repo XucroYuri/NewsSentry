@@ -3,6 +3,7 @@
 RuntimeHostAdapter — abstract protocol for Hermes/OpenClaw runtime integration.
 Concrete implementations in hermes.py and openclaw.py.
 """
+
 from __future__ import annotations
 
 from typing import Protocol, runtime_checkable

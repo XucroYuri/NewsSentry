@@ -18,4 +18,3 @@ enabled: true
 health:
   last_success_at: null
   consecutive_failures: 0
-

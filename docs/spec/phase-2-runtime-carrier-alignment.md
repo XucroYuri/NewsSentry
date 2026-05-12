@@ -1,8 +1,8 @@
 # Phase 2 — Runtime Carrier Alignment
 
-> 详细 SPEC: 本文档  
-> 路线图: [docs/development-plan.md §Phase-2](../development-plan.md)  
-> 横切组件矩阵: [docs/spec/README.md](README.md)  
+> 详细 SPEC: 本文档
+> 路线图: [docs/development-plan.md §Phase-2](../development-plan.md)
+> 横切组件矩阵: [docs/spec/README.md](README.md)
 > 运行载体规格: [docs/brainstorming/Hermes与OpenClaw运行载体规格.md](../brainstorming/Hermes与OpenClaw运行载体规格.md)
 
 ---

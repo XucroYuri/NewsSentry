@@ -6,6 +6,7 @@ Phase 7 验收工具：确保核心代码不含意大利硬编码，新增国家
 用法：
     python tools/check_no_hardcoded_target.py [ROOT_DIR]
 """
+
 from __future__ import annotations
 
 import re
@@ -16,22 +17,22 @@ from typing import NamedTuple
 # 意大利特有字符串（不应出现在 core/ 和 skills/ 目录中）
 ITALY_PATTERNS = [
     (r'\bitaly\b(?!\s*["\']?\s*[:=])', "italy 出现在非配置读取场景"),
-    (r'\bansa\b', "意大利 ANSA 通讯社"),
-    (r'\bcorriere\b', "意大利 Corriere della Sera"),
-    (r'\brepubblica\b', "意大利 La Repubblica"),
-    (r'\bgiorgiam?eloni\b', "意大利政客名"),
-    (r'\bmeloni\b', "意大利政客名（Meloni）"),
-    (r'\bitalian[oa]?\b', "Italian 意大利语/人"),
-    (r'\bgiorno\b', "意大利语 giorno"),
+    (r"\bansa\b", "意大利 ANSA 通讯社"),
+    (r"\bcorriere\b", "意大利 Corriere della Sera"),
+    (r"\brepubblica\b", "意大利 La Repubblica"),
+    (r"\bgiorgiam?eloni\b", "意大利政客名"),
+    (r"\bmeloni\b", "意大利政客名（Meloni）"),
+    (r"\bitalian[oa]?\b", "Italian 意大利语/人"),
+    (r"\bgiorno\b", "意大利语 giorno"),
     (r'language\s*=\s*["\']it["\']', "硬编码语言代码 'it'"),
-    (r'\bfisco\b', "意大利财政术语"),
-    (r'\bbankitalia\b', "意大利央行"),
-    (r'\bspread\b', "意大利金融术语 spread（需人工确认）"),
+    (r"\bfisco\b", "意大利财政术语"),
+    (r"\bbankitalia\b", "意大利央行"),
+    (r"\bspread\b", "意大利金融术语 spread（需人工确认）"),
 ]
 
 # 允许出现的场景（注释、docstring、类型标注）
 ALLOWED_PATTERNS = [
-    r'#.*$',  # 注释行
+    r"#.*$",  # 注释行
     r'^\s*"""',  # docstring 开始
     r'^\s*"""$',  # docstring 结束
 ]
@@ -108,13 +109,15 @@ def scan_for_hardcoded_target(
 
                 for pat, desc in patterns:
                     if re.search(pat, line, re.IGNORECASE):
-                        matches.append(HardcodedMatch(
-                            file=str(py_file.relative_to(root)),
-                            line_number=i,
-                            line_content=stripped,
-                            pattern=pat,
-                            description=desc,
-                        ))
+                        matches.append(
+                            HardcodedMatch(
+                                file=str(py_file.relative_to(root)),
+                                line_number=i,
+                                line_content=stripped,
+                                pattern=pat,
+                                description=desc,
+                            )
+                        )
 
     return matches
 
@@ -125,11 +128,9 @@ if __name__ == "__main__":
 
     # 过滤掉明确的合法引用（注释和示例中的）
     real_matches = [
-        m for m in matches
-        if not any(
-            exc in m.line_content.lower()
-            for exc in ["如", "例如", "example", "比如"]
-        )
+        m
+        for m in matches
+        if not any(exc in m.line_content.lower() for exc in ["如", "例如", "example", "比如"])
     ]
 
     if real_matches:

@@ -1,4 +1,5 @@
 """测试 SandboxEnforcer — 命令白名单、路径限制、网络 host 检查。"""
+
 from __future__ import annotations
 
 import tempfile
@@ -57,9 +58,7 @@ class TestCheckCommand:
 
     @pytest.fixture
     def enforcer(self) -> SandboxEnforcer:
-        policy = SandboxPolicy(
-            allowed_commands=["curl", "wget", "python ", "opencli", "cat"]
-        )
+        policy = SandboxPolicy(allowed_commands=["curl", "wget", "python ", "opencli", "cat"])
         return SandboxEnforcer(policy)
 
     def test_exact_match(self, enforcer: SandboxEnforcer) -> None:
@@ -76,7 +75,7 @@ class TestCheckCommand:
 
     def test_prefix_with_space_entry(self, enforcer: SandboxEnforcer) -> None:
         """'python ' 匹配 'python -c \"print(1)\"'（含空格条目前缀）。"""
-        assert enforcer.check_command("python -c \"print(1)\"") is True
+        assert enforcer.check_command('python -c "print(1)"') is True
 
     def test_prefix_space_entry_excludes_similar(self, enforcer: SandboxEnforcer) -> None:
         """'python ' 不匹配 'python3'（无空格分隔）。"""
@@ -96,9 +95,10 @@ class TestCheckCommand:
 
     def test_python_module_cli_command(self, enforcer: SandboxEnforcer) -> None:
         """portable CLI 通过 python -m news_sentry.cli 调用。"""
-        assert enforcer.check_command(
-            "python -m news_sentry.cli run --target example --stage collect"
-        ) is True
+        assert (
+            enforcer.check_command("python -m news_sentry.cli run --target example --stage collect")
+            is True
+        )
 
 
 class TestCheckWritePath:

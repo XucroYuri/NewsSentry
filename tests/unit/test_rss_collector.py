@@ -2,6 +2,7 @@
 
 覆盖：正常采集、网络错误、空 feed、解析错误、NewsEvent 字段正确性。
 """
+
 from __future__ import annotations
 
 import time
@@ -14,6 +15,7 @@ from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
 from news_sentry.skills.collect.rss_collector import RSSCollector
 
 # ── 测试用 fixture / helper ────────────────────────────────────────
+
 
 def _make_minimal_config(**overrides) -> dict:
     """生成最小 SourceChannel 配置。"""
@@ -50,14 +52,16 @@ def _build_rss_entry(
         # 生成一个 time.struct_time
         published_parsed = time.strptime("2026-05-09 14:30:00", "%Y-%m-%d %H:%M:%S")
 
-    return feedparser.FeedParserDict({
-        "title": title,
-        "link": link,
-        "summary": summary,
-        "published": published,
-        "published_parsed": published_parsed,
-        "id": f"entry-id-{link.split('/')[-1]}",
-    })
+    return feedparser.FeedParserDict(
+        {
+            "title": title,
+            "link": link,
+            "summary": summary,
+            "published": published,
+            "published_parsed": published_parsed,
+            "id": f"entry-id-{link.split('/')[-1]}",
+        }
+    )
 
 
 def _patch_feed(
@@ -73,6 +77,7 @@ def _patch_feed(
 
 
 # ── RSSCollector.__init__ ───────────────────────────────────────────
+
 
 class TestInit:
     def test_stores_config_and_sandbox(self):
@@ -111,6 +116,7 @@ class TestInit:
 
 
 # ── RSSCollector.collect ─────────────────────────────────────────────
+
 
 class TestCollect:
     def test_empty_url_returns_empty_list(self):
@@ -315,12 +321,14 @@ class TestCollect:
         config = _make_minimal_config()
         collector = RSSCollector(config, None)
 
-        entry = feedparser.FeedParserDict({
-            "title": "No Published Date",
-            "link": "https://example.com/no-date",
-            "summary": "Content here.",
-            "id": "entry-no-date",
-        })
+        entry = feedparser.FeedParserDict(
+            {
+                "title": "No Published Date",
+                "link": "https://example.com/no-date",
+                "summary": "Content here.",
+                "id": "entry-no-date",
+            }
+        )
 
         with mock.patch("feedparser.parse") as mock_parse:
             mock_parse.return_value = _patch_feed([entry])
@@ -362,13 +370,15 @@ class TestCollect:
         config = _make_minimal_config()
         collector = RSSCollector(config, None)
 
-        entry = feedparser.FeedParserDict({
-            "title": "Minimal Entry",
-            "link": "https://example.com/minimal",
-            "published": "Mon, 09 May 2026 14:30:00 GMT",
-            "published_parsed": time.strptime("2026-05-09 14:30:00", "%Y-%m-%d %H:%M:%S"),
-            "id": "minimal-1",
-        })
+        entry = feedparser.FeedParserDict(
+            {
+                "title": "Minimal Entry",
+                "link": "https://example.com/minimal",
+                "published": "Mon, 09 May 2026 14:30:00 GMT",
+                "published_parsed": time.strptime("2026-05-09 14:30:00", "%Y-%m-%d %H:%M:%S"),
+                "id": "minimal-1",
+            }
+        )
 
         with mock.patch("feedparser.parse") as mock_parse:
             mock_parse.return_value = _patch_feed([entry])
@@ -418,41 +428,36 @@ class TestCollect:
     def test_deterministic_id_same_inputs(self):
         """相同输入应生成相同 id。"""
         id1 = NewsEvent.make_id(
-            "italy", "ansa",
-            "https://example.com/1", "2026-05-09T14:30:00+00:00"
+            "italy", "ansa", "https://example.com/1", "2026-05-09T14:30:00+00:00"
         )
         id2 = NewsEvent.make_id(
-            "italy", "ansa",
-            "https://example.com/1", "2026-05-09T14:30:00+00:00"
+            "italy", "ansa", "https://example.com/1", "2026-05-09T14:30:00+00:00"
         )
         assert id1 == id2
 
     def test_deterministic_id_different_url(self):
         """不同 URL 应生成不同 id。"""
         id1 = NewsEvent.make_id(
-            "italy", "ansa",
-            "https://example.com/1", "2026-05-09T14:30:00+00:00"
+            "italy", "ansa", "https://example.com/1", "2026-05-09T14:30:00+00:00"
         )
         id2 = NewsEvent.make_id(
-            "italy", "ansa",
-            "https://example.com/2", "2026-05-09T14:30:00+00:00"
+            "italy", "ansa", "https://example.com/2", "2026-05-09T14:30:00+00:00"
         )
         assert id1 != id2
 
     def test_deterministic_id_different_date(self):
         """不同日期应生成不同 id。"""
         id1 = NewsEvent.make_id(
-            "italy", "ansa",
-            "https://example.com/1", "2026-05-09T14:30:00+00:00"
+            "italy", "ansa", "https://example.com/1", "2026-05-09T14:30:00+00:00"
         )
         id2 = NewsEvent.make_id(
-            "italy", "ansa",
-            "https://example.com/1", "2026-05-10T14:30:00+00:00"
+            "italy", "ansa", "https://example.com/1", "2026-05-10T14:30:00+00:00"
         )
         assert id1 != id2
 
 
 # ── _extract_published ───────────────────────────────────────────────
+
 
 class TestExtractPublished:
     def test_parses_rss_published_date(self):
@@ -468,14 +473,16 @@ class TestExtractPublished:
         config = _make_minimal_config()
         collector = RSSCollector(config, None)
 
-        entry = feedparser.FeedParserDict({
-            "title": "Updated Entry",
-            "link": "https://example.com/updated",
-            "summary": "Content.",
-            "updated": "Mon, 09 May 2026 16:00:00 GMT",
-            "updated_parsed": time.strptime("2026-05-09 16:00:00", "%Y-%m-%d %H:%M:%S"),
-            "id": "updated-1",
-        })
+        entry = feedparser.FeedParserDict(
+            {
+                "title": "Updated Entry",
+                "link": "https://example.com/updated",
+                "summary": "Content.",
+                "updated": "Mon, 09 May 2026 16:00:00 GMT",
+                "updated_parsed": time.strptime("2026-05-09 16:00:00", "%Y-%m-%d %H:%M:%S"),
+                "id": "updated-1",
+            }
+        )
 
         result = collector._extract_published(entry)
         assert "2026-05-09" in result
@@ -485,12 +492,14 @@ class TestExtractPublished:
         config = _make_minimal_config()
         collector = RSSCollector(config, None)
 
-        entry = feedparser.FeedParserDict({
-            "title": "No Date",
-            "link": "https://example.com/no-date",
-            "summary": "Content.",
-            "id": "no-date-1",
-        })
+        entry = feedparser.FeedParserDict(
+            {
+                "title": "No Date",
+                "link": "https://example.com/no-date",
+                "summary": "Content.",
+                "id": "no-date-1",
+            }
+        )
 
         result = collector._extract_published(entry)
         assert "T" in result
@@ -503,14 +512,16 @@ class TestExtractPublished:
         collector = RSSCollector(config, None)
 
         updated_ts = time.strptime("2026-05-09 18:00:00", "%Y-%m-%d %H:%M:%S")
-        entry = feedparser.FeedParserDict({
-            "title": "Bad Published",
-            "link": "https://example.com/bad-pub",
-            "summary": "Content.",
-            "published": "Not a valid date at all",
-            "updated_parsed": updated_ts,
-            "id": "bad-pub-1",
-        })
+        entry = feedparser.FeedParserDict(
+            {
+                "title": "Bad Published",
+                "link": "https://example.com/bad-pub",
+                "summary": "Content.",
+                "published": "Not a valid date at all",
+                "updated_parsed": updated_ts,
+                "id": "bad-pub-1",
+            }
+        )
 
         result = collector._extract_published(entry)
         assert "2026-05-09" in result
@@ -521,14 +532,16 @@ class TestExtractPublished:
         config = _make_minimal_config()
         collector = RSSCollector(config, None)
 
-        entry = feedparser.FeedParserDict({
-            "title": "Bad Both",
-            "link": "https://example.com/bad-both",
-            "summary": "Content.",
-            "published": "garbage data",
-            "updated": "Mon, 09 May 2026 20:00:00 GMT",
-            "id": "bad-both-1",
-        })
+        entry = feedparser.FeedParserDict(
+            {
+                "title": "Bad Both",
+                "link": "https://example.com/bad-both",
+                "summary": "Content.",
+                "published": "garbage data",
+                "updated": "Mon, 09 May 2026 20:00:00 GMT",
+                "id": "bad-both-1",
+            }
+        )
 
         result = collector._extract_published(entry)
         assert "2026-05-09" in result
@@ -539,13 +552,15 @@ class TestExtractPublished:
         config = _make_minimal_config()
         collector = RSSCollector(config, None)
 
-        entry = feedparser.FeedParserDict({
-            "title": "All Bad",
-            "link": "https://example.com/all-bad",
-            "summary": "Content.",
-            "updated": "garbage date",
-            "id": "all-bad-1",
-        })
+        entry = feedparser.FeedParserDict(
+            {
+                "title": "All Bad",
+                "link": "https://example.com/all-bad",
+                "summary": "Content.",
+                "updated": "garbage date",
+                "id": "all-bad-1",
+            }
+        )
 
         result = collector._extract_published(entry)
         assert "T" in result
@@ -553,6 +568,7 @@ class TestExtractPublished:
 
 
 # ── _extract_content ─────────────────────────────────────────────────
+
 
 class TestExtractContent:
     def test_prefers_content_over_summary(self):
@@ -578,12 +594,14 @@ class TestExtractContent:
         config = _make_minimal_config()
         collector = RSSCollector(config, None)
 
-        entry = feedparser.FeedParserDict({
-            "title": "Desc",
-            "link": "https://example.com/desc",
-            "description": "Description text.",
-            "id": "desc-1",
-        })
+        entry = feedparser.FeedParserDict(
+            {
+                "title": "Desc",
+                "link": "https://example.com/desc",
+                "description": "Description text.",
+                "id": "desc-1",
+            }
+        )
 
         result = collector._extract_content(entry)
         assert result == "Description text."
@@ -592,17 +610,20 @@ class TestExtractContent:
         config = _make_minimal_config()
         collector = RSSCollector(config, None)
 
-        entry = feedparser.FeedParserDict({
-            "title": "Empty",
-            "link": "https://example.com/empty",
-            "id": "empty-1",
-        })
+        entry = feedparser.FeedParserDict(
+            {
+                "title": "Empty",
+                "link": "https://example.com/empty",
+                "id": "empty-1",
+            }
+        )
 
         result = collector._extract_content(entry)
         assert result == ""
 
 
 # ── NewsEvent.make_id ────────────────────────────────────────────────
+
 
 class TestMakeId:
     def test_format_matches_contract(self):
@@ -617,13 +638,9 @@ class TestMakeId:
         assert len(parts[4]) == 8  # hash8
 
     def test_different_source_id_yields_different_id(self):
-        id_a = NewsEvent.make_id(
-            "italy", "ansa",
-            "https://x.com/1", "2026-05-09T00:00:00+00:00"
-        )
+        id_a = NewsEvent.make_id("italy", "ansa", "https://x.com/1", "2026-05-09T00:00:00+00:00")
         id_b = NewsEvent.make_id(
-            "italy", "repubblica",
-            "https://x.com/1", "2026-05-09T00:00:00+00:00"
+            "italy", "repubblica", "https://x.com/1", "2026-05-09T00:00:00+00:00"
         )
         assert id_a != id_b
 

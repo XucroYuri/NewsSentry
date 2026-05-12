@@ -1,4 +1,5 @@
 """Phase 5: Tests for ProviderRouter, CostTracker, ProviderRoute config, and RulesProvider."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -15,6 +16,7 @@ from news_sentry.models.provider_config import ProviderRoute, ProviderRoutesConf
 # ------------------------------------------------------------------
 # Shared test fixtures — 模拟 routes.yaml 的 5 条路由
 # ------------------------------------------------------------------
+
 
 def _make_test_routes_config() -> ProviderRoutesConfig:
     """构造与 config/provider/routes.yaml 结构一致的测试配置。"""
@@ -78,6 +80,7 @@ def _make_test_routes_config() -> ProviderRoutesConfig:
 # ------------------------------------------------------------------
 # ProviderRoute / ProviderRoutesConfig model tests
 # ------------------------------------------------------------------
+
 
 def test_routes_config_from_dict() -> None:
     """验证从字典（模拟 YAML 加载）构造 ProviderRoutesConfig。"""
@@ -611,7 +614,9 @@ class TestRouteOrchestration:
         factory = mock.MagicMock(return_value=mock_provider)
         # 使用 preferred_route_id 覆盖默认 task_type 匹配
         result = router.route(
-            "translate", "test prompt", factory,
+            "translate",
+            "test prompt",
+            factory,
             preferred_route_id="translate.high",
         )
 

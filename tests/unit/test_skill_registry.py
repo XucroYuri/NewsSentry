@@ -1,4 +1,5 @@
 """Tests for SkillRegistry — discover, lookup, and filter pipeline skills."""
+
 from __future__ import annotations
 
 from pathlib import Path

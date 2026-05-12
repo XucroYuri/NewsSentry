@@ -6,6 +6,7 @@
 
 持久化至 data/{target_id}/memory/matrix-governance.yaml。
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

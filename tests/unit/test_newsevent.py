@@ -21,57 +21,45 @@ class TestMakeId:
         assert len(parts[4]) == 8  # hash8
 
     def test_different_source_id_yields_different_id(self) -> None:
-        id_a = NewsEvent.make_id(
-            "italy", "ansa",
-            "https://x.com/1", "2026-05-09T00:00:00+00:00"
-        )
+        id_a = NewsEvent.make_id("italy", "ansa", "https://x.com/1", "2026-05-09T00:00:00+00:00")
         id_b = NewsEvent.make_id(
-            "italy", "repubblica",
-            "https://x.com/1", "2026-05-09T00:00:00+00:00"
+            "italy", "repubblica", "https://x.com/1", "2026-05-09T00:00:00+00:00"
         )
         assert id_a != id_b
 
     def test_deterministic_id_same_inputs(self) -> None:
         """相同输入应生成相同 id。"""
         id1 = NewsEvent.make_id(
-            "italy", "ansa",
-            "https://example.com/1", "2026-05-09T14:30:00+00:00"
+            "italy", "ansa", "https://example.com/1", "2026-05-09T14:30:00+00:00"
         )
         id2 = NewsEvent.make_id(
-            "italy", "ansa",
-            "https://example.com/1", "2026-05-09T14:30:00+00:00"
+            "italy", "ansa", "https://example.com/1", "2026-05-09T14:30:00+00:00"
         )
         assert id1 == id2
 
     def test_deterministic_id_different_url(self) -> None:
         """不同 URL 应生成不同 id。"""
         id1 = NewsEvent.make_id(
-            "italy", "ansa",
-            "https://example.com/1", "2026-05-09T14:30:00+00:00"
+            "italy", "ansa", "https://example.com/1", "2026-05-09T14:30:00+00:00"
         )
         id2 = NewsEvent.make_id(
-            "italy", "ansa",
-            "https://example.com/2", "2026-05-09T14:30:00+00:00"
+            "italy", "ansa", "https://example.com/2", "2026-05-09T14:30:00+00:00"
         )
         assert id1 != id2
 
     def test_deterministic_id_different_date(self) -> None:
         """不同日期应生成不同 id。"""
         id1 = NewsEvent.make_id(
-            "italy", "ansa",
-            "https://example.com/1", "2026-05-09T14:30:00+00:00"
+            "italy", "ansa", "https://example.com/1", "2026-05-09T14:30:00+00:00"
         )
         id2 = NewsEvent.make_id(
-            "italy", "ansa",
-            "https://example.com/1", "2026-05-10T14:30:00+00:00"
+            "italy", "ansa", "https://example.com/1", "2026-05-10T14:30:00+00:00"
         )
         assert id1 != id2
 
     def test_invalid_iso_date_falls_back_to_utcnow(self) -> None:
         """无效 ISO 日期格式时，fromisoformat 失败，退回 datetime.utcnow()。"""
-        event_id = NewsEvent.make_id(
-            "italy", "ansa", "https://example.com/1", "not-a-valid-date"
-        )
+        event_id = NewsEvent.make_id("italy", "ansa", "https://example.com/1", "not-a-valid-date")
         # 应正常生成 id，格式仍为 ne-{target_id}-{source_id}-{yyyymmdd}-{hash8}
         assert event_id.startswith("ne-italy-ansa-")
         assert re.match(r"ne-italy-ansa-\d{8}-[a-f0-9]{8}", event_id)

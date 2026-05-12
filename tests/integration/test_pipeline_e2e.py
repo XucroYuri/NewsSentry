@@ -17,6 +17,7 @@ from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
 
 # ── 辅助：在 raw/ 目录准备采集事件 ─────────────────────────────────
 
+
 def _seed_collected_events(data_dir: Path, target_id: str) -> list[dict[str, str]]:
     """在 data_dir/{target_id}/raw/ 写入测试事件，返回事件摘要列表。"""
     raw_dir = data_dir / target_id / "raw"
@@ -150,9 +151,7 @@ class TestFilterStageWithCollectedEvents:
         assert ctx.events_filtered == 0
 
         # 即使无事件，运行日志也应写入
-        log_files = list(
-            (tmp_path / "data" / "test-target" / "logs").glob("*.json")
-        )
+        log_files = list((tmp_path / "data" / "test-target" / "logs").glob("*.json"))
         assert len(log_files) >= 1
 
 
@@ -175,9 +174,7 @@ class TestJudgeStageWithFilteredEvents:
         assert ctx.run_id is not None
 
         # 验证运行日志
-        log_files = list(
-            (tmp_path / "data" / "test-target" / "logs").glob("*.json")
-        )
+        log_files = list((tmp_path / "data" / "test-target" / "logs").glob("*.json"))
         assert len(log_files) >= 1
 
     def test_judge_empty_evaluated_dir(self, tmp_path: Path, monkeypatch):
@@ -193,7 +190,7 @@ class TestJudgeStageWithFilteredEvents:
         assert ctx.events_judged == 0
 
     def test_judged_stage_alias(self, tmp_path: Path, monkeypatch):
-        """"judged" 是 "judge" 的别名。"""
+        """ "judged" 是 "judge" 的别名。"""
         _setup_minimal_project(tmp_path)
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("NEWSSENTRY_DATA_DIR", str(tmp_path / "data"))
@@ -241,7 +238,7 @@ class TestOutputStageWithJudgedEvents:
         assert ctx.events_output == 0
 
     def test_outputted_stage_alias(self, tmp_path: Path, monkeypatch):
-        """"outputted" 是 "output" 的别名。"""
+        """ "outputted" 是 "output" 的别名。"""
         _setup_minimal_project(tmp_path)
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("NEWSSENTRY_DATA_DIR", str(tmp_path / "data"))

@@ -12,6 +12,7 @@ from news_sentry.core.kol_state import KOLEntry, load_kol_state, update_kol_stat
 
 # ── helpers ────────────────────────────────────────────────────
 
+
 def _make_valid_kol(**overrides) -> dict:
     data = {
         "kol_id": "twitter:test_user",
@@ -32,6 +33,7 @@ def _make_valid_kol(**overrides) -> dict:
 
 
 # ── KOLEntry ──────────────────────────────────────────────────
+
 
 class TestKOLEntryValid:
     def test_valid_construction(self):
@@ -64,12 +66,14 @@ class TestKOLEntryValid:
 
     def test_nullable_fields_accept_none(self):
         """允许为 None 的字段接受 None 值。"""
-        entry = KOLEntry(**_make_valid_kol(
-            last_active_at=None,
-            follower_count_approx=None,
-            last_content_sample=None,
-            china_relevance_score=None,
-        ))
+        entry = KOLEntry(
+            **_make_valid_kol(
+                last_active_at=None,
+                follower_count_approx=None,
+                last_content_sample=None,
+                china_relevance_score=None,
+            )
+        )
         assert entry.last_active_at is None
         assert entry.follower_count_approx is None
         assert entry.last_content_sample is None
@@ -123,6 +127,7 @@ class TestKOLEntryChinaRelevanceScore:
 
 
 # ── load_kol_state ────────────────────────────────────────────
+
 
 class TestLoadKolState:
     def test_loads_valid_yaml(self, tmp_path: Path):
@@ -180,6 +185,7 @@ class TestLoadKolState:
 
 # ── update_kol_state ──────────────────────────────────────────
 
+
 class TestUpdateKolState:
     def test_new_entry_created(self, tmp_path: Path):
         """新增 KOL 条目。"""
@@ -192,13 +198,17 @@ class TestUpdateKolState:
             yaml.dump(state, allow_unicode=True), encoding="utf-8"
         )
 
-        update_kol_state("twitter:new_user", {
-            "platform": "twitter",
-            "display_name": "新用户",
-            "account_url": "https://twitter.com/new_user",
-            "first_observed_at": "2026-05-11T08:00:00+00:00",
-            "china_relevance_score": 75,
-        }, memory_root)
+        update_kol_state(
+            "twitter:new_user",
+            {
+                "platform": "twitter",
+                "display_name": "新用户",
+                "account_url": "https://twitter.com/new_user",
+                "first_observed_at": "2026-05-11T08:00:00+00:00",
+                "china_relevance_score": 75,
+            },
+            memory_root,
+        )
 
         result = load_kol_state(memory_root)
         assert len(result) == 1
@@ -213,7 +223,9 @@ class TestUpdateKolState:
 
         entries = [
             _make_valid_kol(
-                kol_id="twitter:test", display_name="旧名称", china_relevance_score=50,
+                kol_id="twitter:test",
+                display_name="旧名称",
+                china_relevance_score=50,
             )
         ]
         state = {"entries": entries, "updated_at": "2026-05-01T00:00:00+00:00"}
@@ -260,12 +272,16 @@ class TestUpdateKolState:
         memory_root = tmp_path / "memory"
         memory_root.mkdir()
 
-        update_kol_state("twitter:first", {
-            "platform": "twitter",
-            "display_name": "首个用户",
-            "account_url": "https://twitter.com/first",
-            "first_observed_at": "2026-05-11T08:00:00+00:00",
-        }, memory_root)
+        update_kol_state(
+            "twitter:first",
+            {
+                "platform": "twitter",
+                "display_name": "首个用户",
+                "account_url": "https://twitter.com/first",
+                "first_observed_at": "2026-05-11T08:00:00+00:00",
+            },
+            memory_root,
+        )
 
         result = load_kol_state(memory_root)
         assert len(result) == 1

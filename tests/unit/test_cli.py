@@ -94,11 +94,13 @@ output_validation:
 def test_validate_uses_declared_schema(tmp_path):
     schema_path = tmp_path / "example.schema.json"
     schema_path.write_text(
-        json.dumps({
-            "type": "object",
-            "required": ["name"],
-            "properties": {"name": {"type": "string"}},
-        }),
+        json.dumps(
+            {
+                "type": "object",
+                "required": ["name"],
+                "properties": {"name": {"type": "string"}},
+            }
+        ),
         encoding="utf-8",
     )
     config_path = tmp_path / "example.yaml"
@@ -181,11 +183,13 @@ def test_validate_rejects_invalid_yaml(tmp_path):
     """validate 对不符合 schema 的 YAML 应报错。"""
     schema_path = tmp_path / "test.schema.json"
     schema_path.write_text(
-        json.dumps({
-            "type": "object",
-            "required": ["name"],
-            "properties": {"name": {"type": "string"}},
-        }),
+        json.dumps(
+            {
+                "type": "object",
+                "required": ["name"],
+                "properties": {"name": {"type": "string"}},
+            }
+        ),
         encoding="utf-8",
     )
     config_path = tmp_path / "bad.yaml"

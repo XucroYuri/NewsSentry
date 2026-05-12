@@ -24,10 +24,12 @@ from news_sentry.skills.collect.opencli_collector import OpenCLICollector
 @pytest.fixture
 def sample_news_json() -> str:
     """Sample output from an OpenCLI tool — HN top stories."""
-    return json.dumps([
-        {"title": "Show HN: New Framework", "url": "https://example.com/1", "score": 100},
-        {"title": "Why Rust is the Future", "url": "https://example.com/2", "score": 200},
-    ])
+    return json.dumps(
+        [
+            {"title": "Show HN: New Framework", "url": "https://example.com/1", "score": 100},
+            {"title": "Why Rust is the Future", "url": "https://example.com/2", "score": 200},
+        ]
+    )
 
 
 @pytest.fixture
@@ -71,19 +73,26 @@ class TestCollectProducesNewsEvents:
     @mock.patch("subprocess.run")
     @mock.patch("news_sentry.adapters.tools.opencli.SandboxEnforcer")
     def test_collect_produces_news_events(
-        self, mock_sandbox_class: mock.Mock, mock_run: mock.Mock,
-        source_config: dict, sample_news_json: str, tmp_manifest: Path,
+        self,
+        mock_sandbox_class: mock.Mock,
+        mock_run: mock.Mock,
+        source_config: dict,
+        sample_news_json: str,
+        tmp_manifest: Path,
     ) -> None:
         """mock subprocess.run 返回 sample JSON，collect() 应产生正确的 NewsEvent 列表。"""
         mock_sandbox = mock_sandbox_class.return_value
         mock_sandbox.check_tool_allowed.return_value = True
 
         mock_run.return_value = mock.Mock(
-            returncode=0, stdout=sample_news_json, stderr="",
+            returncode=0,
+            stdout=sample_news_json,
+            stderr="",
         )
 
         adapter = OpenCLIToolAdapter(
-            manifest_path=str(tmp_manifest), sandbox_enforcer=mock_sandbox,
+            manifest_path=str(tmp_manifest),
+            sandbox_enforcer=mock_sandbox,
         )
         collector = OpenCLICollector(source_config, adapter, sandbox_enforcer=mock_sandbox)
 
@@ -100,19 +109,25 @@ class TestCollectProducesNewsEvents:
     @mock.patch("subprocess.run")
     @mock.patch("news_sentry.adapters.tools.opencli.SandboxEnforcer")
     def test_collect_empty_stdout(
-        self, mock_sandbox_class: mock.Mock, mock_run: mock.Mock,
-        source_config: dict, tmp_manifest: Path,
+        self,
+        mock_sandbox_class: mock.Mock,
+        mock_run: mock.Mock,
+        source_config: dict,
+        tmp_manifest: Path,
     ) -> None:
         """exit_code=66（result_empty）+ 空 stdout 时 collect() 返回 []。"""
         mock_sandbox = mock_sandbox_class.return_value
         mock_sandbox.check_tool_allowed.return_value = True
 
         mock_run.return_value = mock.Mock(
-            returncode=66, stdout="", stderr="",
+            returncode=66,
+            stdout="",
+            stderr="",
         )
 
         adapter = OpenCLIToolAdapter(
-            manifest_path=str(tmp_manifest), sandbox_enforcer=mock_sandbox,
+            manifest_path=str(tmp_manifest),
+            sandbox_enforcer=mock_sandbox,
         )
         collector = OpenCLICollector(source_config, adapter, sandbox_enforcer=mock_sandbox)
 
@@ -123,8 +138,11 @@ class TestCollectProducesNewsEvents:
     @mock.patch("subprocess.run")
     @mock.patch("news_sentry.adapters.tools.opencli.SandboxEnforcer")
     def test_collect_sandbox_blocked(
-        self, mock_sandbox_class: mock.Mock, mock_run: mock.Mock,
-        source_config: dict, tmp_manifest: Path,
+        self,
+        mock_sandbox_class: mock.Mock,
+        mock_run: mock.Mock,
+        source_config: dict,
+        tmp_manifest: Path,
     ) -> None:
         """沙箱 enforce() 抛出 SandboxViolationError 时 collect() 返回 []。"""
         mock_sandbox = mock_sandbox_class.return_value
@@ -134,7 +152,8 @@ class TestCollectProducesNewsEvents:
         )
 
         adapter = OpenCLIToolAdapter(
-            manifest_path=str(tmp_manifest), sandbox_enforcer=mock_sandbox,
+            manifest_path=str(tmp_manifest),
+            sandbox_enforcer=mock_sandbox,
         )
         collector = OpenCLICollector(source_config, adapter, sandbox_enforcer=mock_sandbox)
 
@@ -147,8 +166,11 @@ class TestCollectProducesNewsEvents:
     @mock.patch("subprocess.run")
     @mock.patch("news_sentry.adapters.tools.opencli.SandboxEnforcer")
     def test_collect_opencli_not_installed(
-        self, mock_sandbox_class: mock.Mock, mock_run: mock.Mock,
-        source_config: dict, tmp_manifest: Path,
+        self,
+        mock_sandbox_class: mock.Mock,
+        mock_run: mock.Mock,
+        source_config: dict,
+        tmp_manifest: Path,
     ) -> None:
         """subprocess.run 抛出 FileNotFoundError 时 collect() 返回 []。"""
         mock_sandbox = mock_sandbox_class.return_value
@@ -157,7 +179,8 @@ class TestCollectProducesNewsEvents:
         mock_run.side_effect = FileNotFoundError("opencli not found")
 
         adapter = OpenCLIToolAdapter(
-            manifest_path=str(tmp_manifest), sandbox_enforcer=mock_sandbox,
+            manifest_path=str(tmp_manifest),
+            sandbox_enforcer=mock_sandbox,
         )
         collector = OpenCLICollector(source_config, adapter, sandbox_enforcer=mock_sandbox)
 
@@ -168,19 +191,25 @@ class TestCollectProducesNewsEvents:
     @mock.patch("subprocess.run")
     @mock.patch("news_sentry.adapters.tools.opencli.SandboxEnforcer")
     def test_collect_auth_required(
-        self, mock_sandbox_class: mock.Mock, mock_run: mock.Mock,
-        source_config: dict, tmp_manifest: Path,
+        self,
+        mock_sandbox_class: mock.Mock,
+        mock_run: mock.Mock,
+        source_config: dict,
+        tmp_manifest: Path,
     ) -> None:
         """exit_code=77（auth_required）时 collect() 返回 []。"""
         mock_sandbox = mock_sandbox_class.return_value
         mock_sandbox.check_tool_allowed.return_value = True
 
         mock_run.return_value = mock.Mock(
-            returncode=77, stdout="", stderr="authentication required",
+            returncode=77,
+            stdout="",
+            stderr="authentication required",
         )
 
         adapter = OpenCLIToolAdapter(
-            manifest_path=str(tmp_manifest), sandbox_enforcer=mock_sandbox,
+            manifest_path=str(tmp_manifest),
+            sandbox_enforcer=mock_sandbox,
         )
         collector = OpenCLICollector(source_config, adapter, sandbox_enforcer=mock_sandbox)
 
@@ -191,19 +220,25 @@ class TestCollectProducesNewsEvents:
     @mock.patch("subprocess.run")
     @mock.patch("news_sentry.adapters.tools.opencli.SandboxEnforcer")
     def test_collect_invalid_json(
-        self, mock_sandbox_class: mock.Mock, mock_run: mock.Mock,
-        source_config: dict, tmp_manifest: Path,
+        self,
+        mock_sandbox_class: mock.Mock,
+        mock_run: mock.Mock,
+        source_config: dict,
+        tmp_manifest: Path,
     ) -> None:
         """stdout 包含无效 JSON 时 collect() 进入纯文本 fallback，生成 1 个 NewsEvent。"""
         mock_sandbox = mock_sandbox_class.return_value
         mock_sandbox.check_tool_allowed.return_value = True
 
         mock_run.return_value = mock.Mock(
-            returncode=0, stdout="not valid json {{{", stderr="",
+            returncode=0,
+            stdout="not valid json {{{",
+            stderr="",
         )
 
         adapter = OpenCLIToolAdapter(
-            manifest_path=str(tmp_manifest), sandbox_enforcer=mock_sandbox,
+            manifest_path=str(tmp_manifest),
+            sandbox_enforcer=mock_sandbox,
         )
         collector = OpenCLICollector(source_config, adapter, sandbox_enforcer=mock_sandbox)
 
@@ -220,19 +255,26 @@ class TestCollectNewsEventMetadata:
     @mock.patch("subprocess.run")
     @mock.patch("news_sentry.adapters.tools.opencli.SandboxEnforcer")
     def test_collect_news_event_metadata(
-        self, mock_sandbox_class: mock.Mock, mock_run: mock.Mock,
-        source_config: dict, sample_news_json: str, tmp_manifest: Path,
+        self,
+        mock_sandbox_class: mock.Mock,
+        mock_run: mock.Mock,
+        source_config: dict,
+        sample_news_json: str,
+        tmp_manifest: Path,
     ) -> None:
         """验证产生的 NewsEvent 包含正确的 metadata.collection 字段。"""
         mock_sandbox = mock_sandbox_class.return_value
         mock_sandbox.check_tool_allowed.return_value = True
 
         mock_run.return_value = mock.Mock(
-            returncode=0, stdout=sample_news_json, stderr="",
+            returncode=0,
+            stdout=sample_news_json,
+            stderr="",
         )
 
         adapter = OpenCLIToolAdapter(
-            manifest_path=str(tmp_manifest), sandbox_enforcer=mock_sandbox,
+            manifest_path=str(tmp_manifest),
+            sandbox_enforcer=mock_sandbox,
         )
         collector = OpenCLICollector(source_config, adapter, sandbox_enforcer=mock_sandbox)
 
@@ -248,25 +290,33 @@ class TestCollectNewsEventMetadata:
     @mock.patch("subprocess.run")
     @mock.patch("news_sentry.adapters.tools.opencli.SandboxEnforcer")
     def test_collect_parses_items_wrapper(
-        self, mock_sandbox_class: mock.Mock, mock_run: mock.Mock,
-        source_config: dict, tmp_manifest: Path,
+        self,
+        mock_sandbox_class: mock.Mock,
+        mock_run: mock.Mock,
+        source_config: dict,
+        tmp_manifest: Path,
     ) -> None:
         """JSON 对象（含 items 字段）不再展开，作为一个完整事件处理。"""
         mock_sandbox = mock_sandbox_class.return_value
         mock_sandbox.check_tool_allowed.return_value = True
 
-        items_json = json.dumps({
-            "items": [
-                {"title": "HN Item 1", "url": "https://example.com/a"},
-                {"title": "HN Item 2", "url": "https://example.com/b"},
-            ]
-        })
+        items_json = json.dumps(
+            {
+                "items": [
+                    {"title": "HN Item 1", "url": "https://example.com/a"},
+                    {"title": "HN Item 2", "url": "https://example.com/b"},
+                ]
+            }
+        )
         mock_run.return_value = mock.Mock(
-            returncode=0, stdout=items_json, stderr="",
+            returncode=0,
+            stdout=items_json,
+            stderr="",
         )
 
         adapter = OpenCLIToolAdapter(
-            manifest_path=str(tmp_manifest), sandbox_enforcer=mock_sandbox,
+            manifest_path=str(tmp_manifest),
+            sandbox_enforcer=mock_sandbox,
         )
         collector = OpenCLICollector(source_config, adapter, sandbox_enforcer=mock_sandbox)
 

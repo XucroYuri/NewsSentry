@@ -3,6 +3,7 @@
 SkillManifest and ToolManifest data models.
 Schemas: schemas/skillmanifest.schema.json, schemas/toolmanifest.schema.json
 """
+
 from __future__ import annotations
 
 from enum import StrEnum

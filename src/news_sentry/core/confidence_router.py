@@ -3,6 +3,7 @@
 Determines whether each event should be judged by rules only (high confidence)
 or escalated to AI (low confidence), optimizing cost while maintaining accuracy.
 """
+
 from __future__ import annotations
 
 import logging
@@ -84,8 +85,11 @@ class ConfidenceRouter:
         self._stats["ai_escalated"] = len(ai_candidates)
         logger.info(
             "置信度路由: %d/%d 事件升级到 AI (confidence<%d or score %d-%d)",
-            len(ai_candidates), len(judged),
-            self._confidence_threshold, self._score_low, self._score_high,
+            len(ai_candidates),
+            len(judged),
+            self._confidence_threshold,
+            self._score_low,
+            self._score_high,
         )
 
         # Step 4: AI 研判低置信度事件
@@ -97,13 +101,16 @@ class ConfidenceRouter:
                 ai_rec = event.judge_result.recommendation if event.judge_result else None
                 logger.info(
                     "AI 升级: event_id=%s rules=%s → ai=%s",
-                    event.id, rules_rec, ai_rec,
+                    event.id,
+                    rules_rec,
+                    ai_rec,
                 )
             except Exception as e:
                 self._stats["ai_failed"] += 1
                 logger.warning(
                     "AI 研判失败，保留规则结果: event_id=%s error=%s",
-                    event.id, e,
+                    event.id,
+                    e,
                 )
 
         self._stats["rules_only"] = len(judged) - len(ai_candidates)

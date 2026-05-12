@@ -4,6 +4,7 @@ OpenCLIToolAdapter — wraps OpenCLI subprocess calls per ADR-0008 and ADR-0011.
 Loads ToolManifest from config/toolmanifest/opencli-baseline.yaml,
 builds commands from templates, executes via subprocess with sandbox checks.
 """
+
 from __future__ import annotations
 
 import re
@@ -29,7 +30,9 @@ def _default_manifest() -> Path:
     # opencli.py → tools/ → adapters/ → news_sentry/ → src/ → project_root/
     return (
         Path(__file__).resolve().parent.parent.parent.parent.parent
-        / "config" / "toolmanifest" / "opencli-baseline.yaml"
+        / "config"
+        / "toolmanifest"
+        / "opencli-baseline.yaml"
     )
 
 
@@ -58,9 +61,7 @@ class OpenCLIToolAdapter:
 
     # ── 公开方法 ──────────────────────────────────────────────
 
-    def execute(
-        self, tool_ref: str, validated_args: dict[str, Any], run_id: str
-    ) -> ToolRunResult:
+    def execute(self, tool_ref: str, validated_args: dict[str, Any], run_id: str) -> ToolRunResult:
         """执行一个 OpenCLI 工具调用。
 
         Args:
@@ -110,7 +111,9 @@ class OpenCLIToolAdapter:
                 # stop-on-risk 检查（可能 raise StopOnRiskError，必须传播）
                 try:
                     self._sandbox.check_stop_on_risk(
-                        "sandbox_violation", tool_ref, run_id,
+                        "sandbox_violation",
+                        tool_ref,
+                        run_id,
                     )
                 except StopOnRiskError:
                     raise
@@ -200,7 +203,9 @@ class OpenCLIToolAdapter:
         if completed.returncode == 77 and self._sandbox is not None:
             try:
                 self._sandbox.check_stop_on_risk(
-                    "auth_error", tool_ref, run_id,
+                    "auth_error",
+                    tool_ref,
+                    run_id,
                 )
             except StopOnRiskError:
                 raise
@@ -264,9 +269,7 @@ class OpenCLIToolAdapter:
                 self._tools[entry["tool_id"]] = entry
 
     @staticmethod
-    def _build_command(
-        manifest: dict[str, Any], args: dict[str, Any]
-    ) -> list[str]:
+    def _build_command(manifest: dict[str, Any], args: dict[str, Any]) -> list[str]:
         """从 command_template 和参数构建命令列表。
 
         模板中的 {param_name} 由 args 中的同名键替换。

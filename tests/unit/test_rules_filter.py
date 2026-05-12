@@ -1,4 +1,5 @@
 """Tests for skills/filter/rules_filter.py — keyword scoring, dedup, age filtering, threshold."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
@@ -136,9 +137,7 @@ def test_score_event_matches_in_translated_fields(tmp_path: Path) -> None:
 
 def test_score_event_word_boundary_prevents_false_positive(tmp_path: Path) -> None:
     """\b 词边界防止短词误匹配：Cina 不应匹配 Bonacina。"""
-    cfg = _make_filter_config(
-        keyword_rules=[{"keyword": "Cina", "weight": 1.0, "language": "it"}]
-    )
+    cfg = _make_filter_config(keyword_rules=[{"keyword": "Cina", "weight": 1.0, "language": "it"}])
     rf = RulesFilter(cfg, Memory(tmp_path))
     event = _make_event(
         title="Bonacina vince medaglia paralimpica",
@@ -279,6 +278,4 @@ def test_is_within_age_bad_date_passes(tmp_path: Path) -> None:
     # 没匹配关键词，score=0 < threshold=40，但时效检查不是拒绝原因
     assert len(result) == 0
     # 单独测 _is_within_age — 坏日期应宽容通过
-    assert RulesFilter._is_within_age(
-        event_bad, datetime.now(UTC), timedelta(hours=48)
-    ) is True
+    assert RulesFilter._is_within_age(event_bad, datetime.now(UTC), timedelta(hours=48)) is True

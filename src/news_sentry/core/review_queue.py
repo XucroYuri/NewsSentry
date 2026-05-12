@@ -8,6 +8,7 @@ ReviewQueue — 人工检查队列，存储 sandbox violation、auth_required、
 - OpenCLI 工具返回 exit_code=77（auth_required）
 - 低质量/空结果自动降级
 """
+
 from __future__ import annotations
 
 import os

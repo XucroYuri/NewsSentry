@@ -5,6 +5,7 @@ Load order: deployment profile → target → sources → sandbox policy.
 
 JSON Schema 校验 per ADR-0014, contracts-canonical.md §10.
 """
+
 from __future__ import annotations
 
 import re
@@ -120,9 +121,7 @@ class ConfigLoader:
 
         target_path = self._config_root / "config" / "targets" / f"{target_id}.yaml"
         if not target_path.is_file():
-            raise FileNotFoundError(
-                f"Target 配置文件不存在: {target_path}"
-            )
+            raise FileNotFoundError(f"Target 配置文件不存在: {target_path}")
 
         target_data = self._load_yaml(target_path)
         self._validate_resolved_schema(target_data, target_path)
@@ -135,9 +134,7 @@ class ConfigLoader:
             target_data.get("classification_rules_ref"), target_path
         )
         sandbox_ref = self._resolve_sandbox_ref(target_data, deployment_profile)
-        sandbox_policy = self._load_referenced_config(
-            sandbox_ref, target_path
-        )
+        sandbox_policy = self._load_referenced_config(sandbox_ref, target_path)
         if sandbox_ref is not None and not sandbox_policy:
             raise FileNotFoundError(f"Sandbox policy 配置文件不存在: {sandbox_ref}")
         provider_routes = self._load_referenced_config(
@@ -288,8 +285,9 @@ class ConfigLoader:
             return  # 无 schema 声明或找不到 schema 文件，跳过校验
         self._validate(data, schema_path)
 
-    def _load_referenced_config(self, ref_path_str: str | None,
-                                context_path: Path) -> dict[str, Any]:
+    def _load_referenced_config(
+        self, ref_path_str: str | None, context_path: Path
+    ) -> dict[str, Any]:
         """加载 target YAML 中引用的子配置文件。
 
         ref_path_str 可以是相对于 config_root 的路径，也可以是相对路径。
@@ -346,9 +344,7 @@ class ConfigLoader:
         self._validate_resolved_schema(merged, ref_path)
         return merged
 
-    def _resolve_ref_path(
-        self, ref_path_str: str, context_path: Path
-    ) -> Path | None:
+    def _resolve_ref_path(self, ref_path_str: str, context_path: Path) -> Path | None:
         """解析引用路径，与 _load_referenced_config 相同的查找逻辑。
 
         Args:
@@ -399,9 +395,7 @@ class ConfigLoader:
 
         base_path = (base_dir / extends_ref).resolve()
         if not base_path.is_file():
-            raise FileNotFoundError(
-                f"分类规则 extends 基文件不存在: {base_path}"
-            )
+            raise FileNotFoundError(f"分类规则 extends 基文件不存在: {base_path}")
 
         base_data = self._load_yaml(base_path)
 
@@ -488,8 +482,7 @@ class ConfigLoader:
                 ) from e
         return resolved
 
-    def _load_sources(self, target_id: str,
-                      source_ids: list[str]) -> list[dict[str, Any]]:
+    def _load_sources(self, target_id: str, source_ids: list[str]) -> list[dict[str, Any]]:
         """加载 target 的所有 source channel 配置。
 
         Args:
@@ -507,9 +500,7 @@ class ConfigLoader:
                 continue
             source_path = sources_dir / f"{sid}.yaml"
             if not source_path.is_file():
-                raise FileNotFoundError(
-                    f"Source 配置文件不存在: {source_path}"
-                )
+                raise FileNotFoundError(f"Source 配置文件不存在: {source_path}")
             data = self._load_yaml(source_path)
             self._validate_resolved_schema(data, source_path)
             sources.append(data)

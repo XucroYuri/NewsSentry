@@ -1,4 +1,5 @@
 """OpenClaw adapter stub 测试 — 确保所有方法抛出 NotImplementedError。"""
+
 from __future__ import annotations
 
 import pytest

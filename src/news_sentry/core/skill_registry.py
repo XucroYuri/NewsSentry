@@ -1,4 +1,5 @@
 """Phase 4: SkillManifest Registry — discovers and manages pipeline skills."""
+
 from __future__ import annotations
 
 import ast

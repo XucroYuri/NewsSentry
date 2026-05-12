@@ -15,4 +15,3 @@ sandbox_profile_ref: config/sandbox/default.yaml
 health:
   last_success_at: null
   consecutive_failures: 0
-

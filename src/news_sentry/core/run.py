@@ -3,6 +3,7 @@
 bounded_run — 核心运行生命周期管理器。
 CLI 入口: python -m news_sentry.cli run --target <id> --stage <stage> (ADR-0016)。
 """
+
 from __future__ import annotations
 
 import logging
@@ -82,12 +83,18 @@ def bounded_run(
     # ── 规范化参数 ──────────────────────────────────────────
     stage_str = stage if isinstance(stage, str) else stage.value
     supported_stages = {
-        "collect", "filter", "judge", "judged", "output", "outputted", "all",
+        "collect",
+        "filter",
+        "judge",
+        "judged",
+        "output",
+        "outputted",
+        "all",
     }
     if stage_str not in supported_stages:
         raise ValueError(f"不支持的阶段: {stage_str}")
     if run_id is None:
-        ts = datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')
+        ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         run_id = f"{target_id}_{ts}_{uuid.uuid4().hex[:8]}"
 
     project_root = Path(config_dir) if config_dir else _find_project_root()
@@ -217,7 +224,8 @@ def _run_collect(
             health = memory.get_source_health(source_id)
             cf = health.get("consecutive_failures", 0)
             run_log.log_event(
-                "collect", source_id,
+                "collect",
+                source_id,
                 f"degraded (consecutive_failures={cf})",
             )
             continue
@@ -230,7 +238,9 @@ def _run_collect(
                 if _opencli_adapter is None:
                     _opencli_adapter = OpenCLIToolAdapter(sandbox_enforcer=sandbox)
                 collector_obj: RSSCollector | OpenCLICollector | APICollector = OpenCLICollector(
-                    source_cfg, _opencli_adapter, sandbox,
+                    source_cfg,
+                    _opencli_adapter,
+                    sandbox,
                 )
             elif source_type == "api":
                 collector_obj = APICollector(source_cfg, sandbox, rate_limiter)
@@ -247,9 +257,7 @@ def _run_collect(
             raise
         except Exception as e:
             run_log.log_error("collect", str(e), event_id=source_id)
-            memory.record_source_health(
-                source_id, success=False, error_msg=str(e), run_id=run_id
-            )
+            memory.record_source_health(source_id, success=False, error_msg=str(e), run_id=run_id)
 
     for event in all_events:
         file_writer.write_event(event)
@@ -387,8 +395,11 @@ def _run_judge(
     stats = router.stats
     logger.info(
         "研判路由统计: total=%d rules_only=%d ai_escalated=%d ai_success=%d ai_failed=%d",
-        stats["total"], stats["rules_only"],
-        stats["ai_escalated"], stats["ai_success"], stats["ai_failed"],
+        stats["total"],
+        stats["rules_only"],
+        stats["ai_escalated"],
+        stats["ai_success"],
+        stats["ai_failed"],
     )
 
     for event in judged:
@@ -398,7 +409,8 @@ def _run_judge(
             and event.judge_result.recommendation == JudgeRecommendation.MONITOR
         ):
             run_log.log_event(
-                "judge", event.id,
+                "judge",
+                event.id,
                 "budget_exceeded → recommendation=monitor",
             )
         try:
@@ -575,12 +587,14 @@ def _translate_collected_titles(
                     event.metadata["translation"] = {}
                 event.metadata["translation"]["title_pre"] = translated
                 run_log.log_event(
-                    "collect", event.id,
+                    "collect",
+                    event.id,
                     "translate.fast: title_pre set",
                 )
         except Exception:  # noqa: S110 — translation failure is non-blocking
             logger.warning(
-                "translate.fast 失败: event_id=%s", event.id,
+                "translate.fast 失败: event_id=%s",
+                event.id,
             )
 
 

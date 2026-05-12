@@ -3,6 +3,7 @@
 ClassifierRules — rule-based L0/L1/L2/L3 classification (Phase 3, no AI).
 Phase 5 will add LLM-based classifier (classify.primary route).
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -31,20 +32,14 @@ class ClassifierRules:
             classification_config: 分类配置，需包含 l0_domains、l1_topics、
                                   country_axes。
         """
-        self._l0_domains: list[dict[str, Any]] = classification_config.get(
-            "l0_domains", []
-        )
-        self._l1_topics: list[dict[str, Any]] = classification_config.get(
-            "l1_topics", []
-        )
+        self._l0_domains: list[dict[str, Any]] = classification_config.get("l0_domains", [])
+        self._l1_topics: list[dict[str, Any]] = classification_config.get("l1_topics", [])
         self._country_axes: dict[str, dict[str, Any]] = classification_config.get(
             "country_axes", {}
         )
 
         # 预构建 L1 topics 索引：code → topic dict
-        self._l1_by_code: dict[str, dict[str, Any]] = {
-            t["code"]: t for t in self._l1_topics
-        }
+        self._l1_by_code: dict[str, dict[str, Any]] = {t["code"]: t for t in self._l1_topics}
 
     def classify(self, event: NewsEvent) -> NewsEvent:
         """对事件进行分类，结果写入 event.metadata.classification。
@@ -133,20 +128,14 @@ class ClassifierRules:
         # 置信度：命中数 / 该域总关键词数，映射到 0-100
         confidence = 0
         if best_domain != "uncategorized":
-            best_def = next(
-                (d for d in self._l0_domains if d["code"] == best_domain), None
-            )
+            best_def = next((d for d in self._l0_domains if d["code"] == best_domain), None)
             if best_def:
-                total_kw = sum(
-                    len(best_def.get(k, [])) for k in self._keyword_keys(best_def)
-                )
+                total_kw = sum(len(best_def.get(k, [])) for k in self._keyword_keys(best_def))
                 confidence = min(round(best_count / total_kw * 100), 100) if total_kw > 0 else 0
 
         return {"domain": best_domain, "confidence": confidence}
 
-    def _classify_l1(
-        self, text: str, l0_domain: str
-    ) -> list[dict[str, Any]]:
+    def _classify_l1(self, text: str, l0_domain: str) -> list[dict[str, Any]]:
         """L1 子议题匹配：在指定 L0 域下查找匹配的主题。
 
         Args:
@@ -177,9 +166,7 @@ class ClassifierRules:
 
         return results
 
-    def _classify_l2(
-        self, l1_results: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
+    def _classify_l2(self, l1_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """L2 国家子轴激活：根据匹配到的 L1 主题查找对应的 country_axes。
 
         取每个子轴下 L1 主题置信度的平均值作为子轴置信度。

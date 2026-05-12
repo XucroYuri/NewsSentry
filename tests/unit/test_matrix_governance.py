@@ -1,4 +1,5 @@
 """MatrixGovernance 模块测试。"""
+
 import tempfile
 from pathlib import Path
 
@@ -83,6 +84,7 @@ class TestPersistenceSave:
             filepath = Path(td) / "matrix-governance.yaml"
             gov.save(filepath)
             import yaml
+
             with open(filepath, encoding="utf-8") as f:
                 data = yaml.safe_load(f)
             src_a = next(s for s in data["sources"] if s["source_id"] == "src_a")

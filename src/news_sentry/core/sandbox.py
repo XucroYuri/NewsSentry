@@ -7,6 +7,7 @@ Phase 3: 命令白名单、写入路径限制、网络 host 检查。
 Phase 6: 完整 SandboxPolicy 5 维权限模型、browser session 治理、
 stop-on-risk、敏感数据扫描、audit log。
 """
+
 from __future__ import annotations
 
 import ipaddress
@@ -23,15 +24,17 @@ from pydantic import BaseModel, Field, model_validator
 logger = logging.getLogger(__name__)
 
 # SSRF 防护：常见 SSRF 绕过 hostname 阻断列表
-_SSRF_HOSTNAME_BLOCKLIST: frozenset[str] = frozenset({
-    "localhost",
-    "localhost.localdomain",
-    "0.0.0.0",  # noqa: S104
-    "0",
-    "metadata.google.internal",
-    "metadata",
-    "169.254.169.254",
-})
+_SSRF_HOSTNAME_BLOCKLIST: frozenset[str] = frozenset(
+    {
+        "localhost",
+        "localhost.localdomain",
+        "0.0.0.0",  # noqa: S104
+        "0",
+        "metadata.google.internal",
+        "metadata",
+        "169.254.169.254",
+    }
+)
 
 # 敏感数据检测正则（Phase 6）
 _SENSITIVE_PATTERNS: list[tuple[str, str]] = [
@@ -48,6 +51,7 @@ _SENSITIVE_PATTERNS: list[tuple[str, str]] = [
 
 # ── 异常类 ────────────────────────────────────────────────────────────────
 
+
 class SandboxViolationError(Exception):
     """沙箱违规异常。"""
 
@@ -61,7 +65,10 @@ class StopOnRiskError(SandboxViolationError):
     """stop-on-risk 触发异常 — 要求立即停止当前 run。"""
 
     def __init__(
-        self, signal: str, run_id: str, detail: dict[str, Any] | None = None,
+        self,
+        signal: str,
+        run_id: str,
+        detail: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(
             f"stop-on-risk 触发: signal={signal} run_id={run_id}",
@@ -72,6 +79,7 @@ class StopOnRiskError(SandboxViolationError):
 
 
 # ── Phase 6 子策略模型 ────────────────────────────────────────────────────
+
 
 class CommandPolicy(BaseModel):
     """命令执行策略。"""
@@ -135,6 +143,7 @@ class StopOnRiskConfig(BaseModel):
 
 # ── Audit 模型 ─────────────────────────────────────────────────────────────
 
+
 class SandboxDecision(BaseModel):
     """沙箱检查决策。"""
 
@@ -159,6 +168,7 @@ class SandboxAuditRecord(BaseModel):
 
 
 # ── 主策略模型 ─────────────────────────────────────────────────────────────
+
 
 class SandboxPolicy(BaseModel):
     """沙箱策略配置 — Phase 6 完整 5 维权限模型。
@@ -350,6 +360,7 @@ class SandboxPolicy(BaseModel):
 
 # ── SandboxEnforcer ────────────────────────────────────────────────────────
 
+
 class SandboxEnforcer:
     """工具执行安全校验器（Phase 6 完整实现）。
 
@@ -359,7 +370,8 @@ class SandboxEnforcer:
     """
 
     def __init__(
-        self, policy: SandboxPolicy,
+        self,
+        policy: SandboxPolicy,
         audit_log_path: Path | None = None,
     ) -> None:
         self._policy = policy
@@ -616,7 +628,10 @@ class SandboxEnforcer:
     # -- 安全日志（Phase 6 新增） ------------------------------------------
 
     def write_security_log(
-        self, violation_type: str, detail: str, run_id: str,
+        self,
+        violation_type: str,
+        detail: str,
+        run_id: str,
     ) -> None:
         """追加写入 memory/security-log.yaml，不覆盖历史。
 

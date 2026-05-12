@@ -4,6 +4,7 @@
 首次失败第二次成功。
 从 rss_collector 导入 _retry_fetch（两个 collector 中代码相同）。
 """
+
 from __future__ import annotations
 
 from unittest import mock
@@ -15,6 +16,7 @@ from news_sentry.skills.collect.rss_collector import _retry_fetch
 
 # ── 辅助 ────────────────────────────────────────────────────────────────
 
+
 def _make_mock_response(status_code: int = 200) -> mock.MagicMock:
     """构造 httpx.Response 的 mock。"""
     resp = mock.MagicMock()
@@ -24,6 +26,7 @@ def _make_mock_response(status_code: int = 200) -> mock.MagicMock:
 
 
 # ── 重试逻辑 ────────────────────────────────────────────────────────────
+
 
 class TestRetryOnConnectionError:
     """网络错误时的重试行为。"""

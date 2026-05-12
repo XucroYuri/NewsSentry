@@ -4,6 +4,7 @@ Wraps provider_router.CostTracker to add token counting and per-run reporting.
 Each bounded run creates one AICostTracker; after the run completes, summary()
 produces a JSON-serializable cost report for the run log.
 """
+
 from __future__ import annotations
 
 import logging
@@ -63,13 +64,15 @@ class AICostTracker:
     ) -> None:
         """记录一次 AI 调用。"""
         self._cost_tracker.record(route_id, usd_cost)
-        self._records.append(AICallRecord(
-            route_id=route_id,
-            task_type=task_type,
-            usd_cost=usd_cost,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-        ))
+        self._records.append(
+            AICallRecord(
+                route_id=route_id,
+                task_type=task_type,
+                usd_cost=usd_cost,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
+        )
 
     def is_over_budget(self) -> bool:
         """是否超过费用预算。"""

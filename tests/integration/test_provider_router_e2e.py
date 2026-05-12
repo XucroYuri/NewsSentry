@@ -3,6 +3,7 @@
 测试 ProviderRouter + ProviderRoute + CostTracker + RulesProvider 的完整链路,
 覆盖路由解析 -> Provider 调用 -> 回退切换 -> 成本追踪全流程。
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -144,7 +145,8 @@ class TestFullRouteChain:
     """完整路由链：解析路由 → 实例化 Provider → 调用 → 验证响应结构。"""
 
     def test_resolve_and_call_judge_primary(
-        self, router: ProviderRouter,
+        self,
+        router: ProviderRouter,
     ) -> None:
         """解析 judge.primary 路由，使用 RulesProvider 调用并验证响应。"""
         # 1) 解析路由
@@ -180,7 +182,8 @@ class TestFullRouteChain:
         assert result["china_relevance"] >= 30
 
     def test_resolve_and_call_with_explicit_route_id(
-        self, router: ProviderRouter,
+        self,
+        router: ProviderRouter,
     ) -> None:
         """通过 preferred_route_id 显式指定路由并调用。"""
         route = router.resolve_route("judge", preferred_route_id="judge.secondary")
@@ -199,7 +202,8 @@ class TestFullRouteChain:
         assert result["china_relevance"] == 0
 
     def test_full_chain_from_yaml_file(
-        self, router_from_file: ProviderRouter,
+        self,
+        router_from_file: ProviderRouter,
     ) -> None:
         """从 YAML 文件加载完整配置，解析路由并调用 Provider。"""
         # 从文件加载的路由器应正确解析
@@ -239,12 +243,11 @@ class TestFullRouteChain:
 class TestFallbackSwitching:
     """主 Provider 失败时自动回退到 fallback.local。"""
 
-    _FALLBACK_PROMPT = (
-        "Cina e Italia: nuovi accordi commerciali strategici firmati a Pechino"
-    )
+    _FALLBACK_PROMPT = "Cina e Italia: nuovi accordi commerciali strategici firmati a Pechino"
 
     def test_primary_fails_fallback_succeeds(
-        self, router: ProviderRouter,
+        self,
+        router: ProviderRouter,
     ) -> None:
         """模拟主 Provider 异常 → 解析回退路由 → RulesProvider 正常响应。"""
         # 1) 解析主路由
@@ -286,7 +289,8 @@ class TestFallbackSwitching:
         assert "recommendation" in result
 
     def test_fallback_is_rules_provider_instance(
-        self, router: ProviderRouter,
+        self,
+        router: ProviderRouter,
     ) -> None:
         """回退路由的 provider 字段为 'local'，应实例化为 RulesProvider。"""
         primary_route = router.resolve_route("judge")
@@ -301,7 +305,8 @@ class TestFallbackSwitching:
         assert fb_provider.health_check() is True
 
     def test_fallback_returns_none_when_already_fallback(
-        self, router: ProviderRouter,
+        self,
+        router: ProviderRouter,
     ) -> None:
         """回退路由自身无进一步回退（防止自循环）。"""
         fallback_route = router.get_route_by_id("fallback.local")
@@ -311,7 +316,8 @@ class TestFallbackSwitching:
         assert further_fallback is None
 
     def test_full_fallback_chain_with_cost_tracking(
-        self, router_with_budget: ProviderRouter,
+        self,
+        router_with_budget: ProviderRouter,
     ) -> None:
         """主路由失败 → 回退成功 → 同时追踪成本。"""
         router = router_with_budget
@@ -401,7 +407,8 @@ class TestCostTrackerIntegration:
         assert router.remaining_budget() == float("inf")
 
     def test_cost_accumulation_from_multiple_routes_via_router(
-        self, router: ProviderRouter,
+        self,
+        router: ProviderRouter,
     ) -> None:
         """通过 ProviderRouter.track_cost 累计多个路由成本。"""
         router.track_cost("judge.primary", 0.03)

@@ -2,6 +2,7 @@
 
 覆盖：基本等待、间隔未到时无需等待、抖动范围、多源独立追踪、默认间隔。
 """
+
 from __future__ import annotations
 
 from unittest import mock

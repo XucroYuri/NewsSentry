@@ -2,6 +2,7 @@
 
 覆盖：入队、ID 生成、序号自增、未解决筛选、解决标记、持久化、多种类型。
 """
+
 from datetime import UTC, datetime
 from pathlib import Path
 

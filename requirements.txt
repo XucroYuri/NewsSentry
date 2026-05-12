@@ -1,0 +1,18 @@
+# Lock file generated 2026-05-12 — pip freeze from Python 3.12.12 venv
+# Install: pip install -r requirements.txt
+# Rebuild: pip freeze --exclude-editable > requirements.txt
+
+annotated-types==0.7.0
+anyio==4.13.0
+certifi==2026.4.22
+click==8.3.3
+feedparser==6.0.12
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.14
+pydantic==2.13.4
+pydantic_core==2.46.4
+PyYAML==6.0.3
+typing-inspection==0.4.2
+typing_extensions==4.15.0

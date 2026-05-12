@@ -3,6 +3,7 @@
 HermesAdapter — 薄适配器，将 bounded_run() 接入 Hermes 运行时 (ADR-0006)。
 不依赖 Hermes 内部 API，仅委托本地 kernel 执行。
 """
+
 from __future__ import annotations
 
 import json

@@ -2,6 +2,7 @@
 
 APICollector — fetches JSON API endpoints using httpx and maps responses to NewsEvent.
 """
+
 from __future__ import annotations
 
 import os
@@ -94,8 +95,10 @@ class APICollector:
         env_pattern = re.compile(r"\$\{(\w+)\}")
         for key, value in data.items():
             if isinstance(value, str):
+
                 def _repl(m: re.Match[str]) -> str:
                     return os.environ.get(m.group(1), m.group(0))
+
                 result[key] = env_pattern.sub(_repl, value)
             else:
                 result[key] = value
@@ -129,16 +132,22 @@ class APICollector:
             if self._method == "POST":
                 response = _retry_fetch(
                     lambda: httpx.post(
-                        self._url, params=self._params, headers=self._headers,
-                        timeout=self._timeout, follow_redirects=True,
+                        self._url,
+                        params=self._params,
+                        headers=self._headers,
+                        timeout=self._timeout,
+                        follow_redirects=True,
                     ),
                     self._source_id,
                 )
             else:
                 response = _retry_fetch(
                     lambda: httpx.get(
-                        self._url, params=self._params, headers=self._headers,
-                        timeout=self._timeout, follow_redirects=True,
+                        self._url,
+                        params=self._params,
+                        headers=self._headers,
+                        timeout=self._timeout,
+                        follow_redirects=True,
                     ),
                     self._source_id,
                 )
@@ -146,14 +155,10 @@ class APICollector:
         except RuntimeError:
             raise
         except Exception as e:
-            raise RuntimeError(
-                f"API fetch failed for {self._source_id}: {e}"
-            ) from e
+            raise RuntimeError(f"API fetch failed for {self._source_id}: {e}") from e
 
         if not isinstance(data, dict):
-            raise RuntimeError(
-                f"API response for {self._source_id} is not a JSON object"
-            )
+            raise RuntimeError(f"API response for {self._source_id} is not a JSON object")
 
         # 定位条目列表：优先使用 api_mapping 中指定的列表键名，其次常见键名
         items_key = self._mapping.get("items_key", "")
@@ -163,9 +168,7 @@ class APICollector:
             items = data.get("items") or data.get("data") or data.get("articles") or []
 
         if not isinstance(items, list):
-            raise RuntimeError(
-                f"API response for {self._source_id}: items field is not a list"
-            )
+            raise RuntimeError(f"API response for {self._source_id}: items field is not a list")
 
         events: list[NewsEvent] = []
         for item in items[: self._max_items]:
@@ -191,9 +194,7 @@ class APICollector:
         language_key = self._mapping.get("language", "")
 
         title = str(item.get(title_key, item.get("title", "")) or "")
-        url = str(
-            item.get(url_key, item.get("url", item.get("link", ""))) or ""
-        )
+        url = str(item.get(url_key, item.get("url", item.get("link", ""))) or "")
         content = str(
             item.get(
                 content_key,
@@ -209,8 +210,7 @@ class APICollector:
             or ""
         )
         lang_str = str(
-            item.get(language_key, item.get("language", item.get("lang", "mixed")))
-            or "mixed"
+            item.get(language_key, item.get("language", item.get("lang", "mixed"))) or "mixed"
         )
 
         if not published_at:

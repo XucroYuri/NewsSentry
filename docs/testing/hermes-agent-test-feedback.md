@@ -606,13 +606,13 @@ opencli (v1.7.8)   ← ✅ 本机已安装, 可用
 
 2. OpenCLIToolAdapter (opencli.py)
    → __init__:  解析 ToolManifest YAML → tool_id → command_template 映射
-   → execute:   填充模板参数 → SandboxEnforcer 预检 → subprocess.run → 
+   → execute:   填充模板参数 → SandboxEnforcer 预检 → subprocess.run →
                 映射 exit_code → 返回 ToolRunResult
    → 退出码映射: opencli-baseline.yaml exit_codes {} → ToolRunResult.error.type
 
 3. OpenCLICollector (opencli_collector.py)
    → __init__:  接收 SourceChannel config + ToolManifest tool_id 引用
-   → collect:  调用 OpenCLIToolAdapter.execute → 解析 stdout → 
+   → collect:  调用 OpenCLIToolAdapter.execute → 解析 stdout →
                 构造 NewsEvent(pipeline_stage=collected)
 
 4. 集成到 run.py _run_collect
