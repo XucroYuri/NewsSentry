@@ -488,3 +488,9 @@ News Sentry 采集和处理来自以下外部来源的信息：
 ### 许可证
 
 Copyright 2026 XucroYuri. Licensed under the [Apache License 2.0](LICENSE).
+
+---
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=XucroYuri/NewsSentry&type=Date)](https://star-history.com/#XucroYuri/NewsSentry&Date)
