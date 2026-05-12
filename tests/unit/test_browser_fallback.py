@@ -1,9 +1,6 @@
 """BrowserFallback 模块测试。"""
-import pytest
 from news_sentry.skills.collect.browser_fallback import (
     BrowserFallback,
-    FallbackLayer,
-    LayerStatus,
 )
 
 

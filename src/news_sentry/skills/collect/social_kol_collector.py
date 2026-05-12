@@ -6,7 +6,7 @@ SocialKOLCollector — KOL 社媒内容采集器（Phase 12 升级版）。
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -325,7 +325,7 @@ class SocialKOLCollector:
             ),
             run_id=run_id,
             source_id=f"{self.platform}/timeline",
-            url=f"https://x.com/home" if self.platform == "twitter" else "",
+            url="https://x.com/home" if self.platform == "twitter" else "",
             title_original=f"{self.platform} Timeline",
             content_original="",
             language=Language.IT,

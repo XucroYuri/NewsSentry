@@ -1,6 +1,5 @@
 """MatrixGovernance 模块测试。"""
-import pytest
-from news_sentry.core.matrix_governance import SourceLifecycle, SourceHealth
+from news_sentry.core.matrix_governance import SourceHealth, SourceLifecycle
 
 
 class TestSourceLifecycle:

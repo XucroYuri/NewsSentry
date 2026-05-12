@@ -1,6 +1,6 @@
 """SocialKOLCollector 升级后测试 — 从 stub 到真实 Bridge 采集。"""
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
+
 from news_sentry.skills.collect.social_kol_collector import SocialKOLCollector
 
 
