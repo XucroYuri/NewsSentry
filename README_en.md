@@ -41,7 +41,7 @@ News Sentry is a **continuous news monitoring platform** that automates the full
 | **Framework-neutral** | Runs on Hermes Agent, OpenClaw, or standalone CLI |
 | **Config-driven** | Add new countries with YAML only — no code changes |
 | **Zero-token collection** | RSS / API / OpenCLI collection consumes no AI tokens |
-| **5 countries configured** | Italy, China, Japan, Germany, France |
+| **5 countries configured** | Italy, Japan, Germany, France + English China-coverage |
 | **Bilingual pipeline** | Original language → auto-translation → Chinese output |
 | **Feedback loop** | Human annotations automatically optimize keyword weights |
 | **Self-evolving sources** | RSS auto-discovery + health patrol + matrix expansion |
@@ -150,7 +150,7 @@ pip install -e ".[api]"    # FastAPI REST API gateway
 |-------|-------|--------|-------------|
 | **Collect** | RSS/API/OpenCLI configs | `raw/` | Fetch from 70+ sources, zero token |
 | **Filter** | `raw/` | `evaluated/` + `archive/` | Keyword scoring + L0-L3 classification + dedup |
-| **Judge** | `evaluated/` | `evaluated/` | AI news value scoring + China relevance |
+| **Judge** | `evaluated/` | `evaluated/` | AI news value scoring + China-topic relevance |
 | **Output** | `evaluated/` | `drafts/` | Markdown reports + multi-channel alerts |
 
 ### Data Directory
@@ -204,13 +204,13 @@ News Sentry is not a fully self-contained project — some capabilities rely on 
 
 ### Configured Targets
 
-| Target | Language Pair | Sources | Keyword Rules |
-|--------|--------------|---------|---------------|
-| 🇮🇹 **italy** | it→zh | 19+ | 100+ |
-| 🇨🇳 **china-watch-en** | en→zh | 10+ | 30+ |
-| 🇯🇵 **japan** | ja→zh | 19 | 59 |
-| 🇩🇪 **germany** | de→zh | 22 | 46 |
-| 🇫🇷 **france** | fr→zh | 21 | 45 |
+| Target | Language Pair | Sources | Keyword Rules | Description |
+|--------|--------------|---------|---------------|-------------|
+| 🇮🇹 **italy** | it→zh | 19+ | 100+ | Italy full-spectrum news |
+| 🇬🇧 **china-watch-en** | en→zh | 5 | 30+ | China-related coverage from English media (SCMP/Reuters/BBC/Guardian/NYT) |
+| 🇯🇵 **japan** | ja→zh | 19 | 59 | Japan full-spectrum news |
+| 🇩🇪 **germany** | de→zh | 22 | 46 | Germany full-spectrum news |
+| 🇫🇷 **france** | fr→zh | 21 | 45 | France full-spectrum news |
 
 Add a new country (zero code):
 
@@ -393,7 +393,7 @@ make eval           # Run evaluation set
 |-----------|------------|---------------|
 | **Collection** | 70+ sources / zero token / auto-discovery | Social KOL is experimental, depends on external Bridge |
 | **Judgment** | Rules + AI dual routing / accuracy >70% | AI may misjudge — cannot replace human decision |
-| **Multilingual** | 5 countries / it/en/ja/de/fr | Translation quality depends on AI, domain terms may vary |
+| **Multilingual** | 4 countries + en China-coverage / it/en/ja/de/fr | Translation quality depends on AI, domain terms may vary |
 | **Deployment** | Docker zero-dep / API gateway | VPS long-term stability needs real-world validation |
 | **Feedback** | Human annotation → rules auto-optimize | Requires sufficient feedback data to be effective |
 
