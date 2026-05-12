@@ -129,3 +129,37 @@ class TestEvalRunner:
             report = json.load(f)
         assert report["overall"]["accuracy"] > 0
         assert "by_dimension" in report
+
+
+class TestEvalSetV2:
+    """eval-set-v2 (210 examples) 校验。"""
+
+    def test_v2_all_examples_pass_schema(self) -> None:
+        with open(SCHEMA_DIR / "evalexample.schema.json") as f:
+            schema = json.load(f)
+        with open(EVAL_DIR / "eval-set-v2.json") as f:
+            data = json.load(f)
+
+        assert len(data["examples"]) >= 200
+
+        for example in data["examples"]:
+            validate(example, schema)
+
+    def test_v2_dimension_coverage(self) -> None:
+        with open(EVAL_DIR / "eval-set-v2.json") as f:
+            data = json.load(f)
+
+        dims = {ex["dimension"] for ex in data["examples"]}
+        expected_dims = {
+            "politics", "economics", "diplomacy", "security", "judicial",
+            "society", "technology", "environment", "immigration", "culture",
+            "religion", "china_relations", "other", "edge_case",
+        }
+        assert dims == expected_dims
+
+    def test_v2_no_duplicate_ids(self) -> None:
+        with open(EVAL_DIR / "eval-set-v2.json") as f:
+            data = json.load(f)
+
+        ids = [ex["eval_id"] for ex in data["examples"]]
+        assert len(ids) == len(set(ids)), "Duplicate eval_ids found"
