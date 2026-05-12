@@ -3,11 +3,17 @@
 
 管理信源生命周期状态机：
   active → degraded → dead → 归档
+
+持久化至 data/{target_id}/memory/matrix-governance.yaml。
 """
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from enum import Enum, auto
+from pathlib import Path
 from typing import Any
+
+import yaml
 
 
 class SourceLifecycle(Enum):
@@ -108,3 +114,60 @@ class MatrixGovernance:
             "dead": len(self.get_dead_sources()),
             "details": [h.to_dict() for h in self._health.values()],
         }
+
+    # ── 持久化 ─────────────────────────────────────
+
+    def save(self, filepath: Path) -> None:
+        """保存当前治理状态到 YAML 文件（原子写入）。
+
+        Args:
+            filepath: 目标文件路径（如 data/{target}/memory/matrix-governance.yaml）。
+        """
+        data: dict[str, Any] = {
+            "sources": [h.to_dict() for h in self._health.values()],
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+        tmp_path = filepath.with_suffix(".tmp")
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False)
+        tmp_path.rename(filepath)
+
+    @classmethod
+    def load(cls, filepath: Path) -> MatrixGovernance:
+        """从 YAML 文件恢复治理状态。
+
+        Args:
+            filepath: 源文件路径。
+
+        Returns:
+            恢复后的 MatrixGovernance 实例。文件不存在或为空时返回空实例。
+        """
+        gov = cls()
+        if not filepath.exists():
+            return gov
+        try:
+            with open(filepath, encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+        except Exception:
+            return gov
+
+        if not isinstance(data, dict):
+            return gov
+
+        for src_data in data.get("sources", []):
+            if not isinstance(src_data, dict):
+                continue
+            source_id = src_data.get("source_id")
+            if not source_id:
+                continue
+            health = SourceHealth(source_id)
+            health.consecutive_failures = int(src_data.get("consecutive_failures", 0))
+            health.consecutive_successes = int(src_data.get("consecutive_successes", 0))
+            state_name = src_data.get("state", "ACTIVE")
+            try:
+                health.state = SourceLifecycle[state_name]
+            except KeyError:
+                health.state = SourceLifecycle.ACTIVE
+            gov._health[source_id] = health
+
+        return gov
