@@ -1,0 +1,139 @@
+# Schema: ../../schemas/filterrules.schema.json
+# 契约: docs/contracts-canonical.md §3
+# ADR: ADR-0009
+rules_version: "1.0.0"
+target_id: germany
+
+score_threshold: 30
+max_age_hours: 48
+dedup_window_hours: 24
+
+keyword_rules:
+
+  # ── 政治 ─────────────────────────────────────────────
+  - keyword: "Bundesregierung"
+    weight: 0.8
+    language: de
+  - keyword: "Bundestag"
+    weight: 0.8
+    language: de
+  - keyword: "Kanzler"
+    weight: 0.9
+    language: de
+  - keyword: "Kanzlerin"
+    weight: 0.9
+    language: de
+  - keyword: "Wahl"
+    weight: 0.85
+    language: de
+  - keyword: "SPD"
+    weight: 0.7
+    language: de
+  - keyword: "CDU"
+    weight: 0.7
+    language: de
+  - keyword: "CSU"
+    weight: 0.7
+    language: de
+  - keyword: "Grüne"
+    weight: 0.65
+    language: de
+  - keyword: "AfD"
+    weight: 0.75
+    language: de
+  - keyword: "FDP"
+    weight: 0.6
+    language: de
+
+  # ── 经济 ─────────────────────────────────────────────
+  - keyword: "Wirtschaft"
+    weight: 0.7
+    language: de
+  - keyword: "Inflation"
+    weight: 0.8
+    language: de
+  - keyword: "BIP"
+    weight: 0.7
+    language: de
+  - keyword: "Export"
+    weight: 0.7
+    language: de
+  - keyword: "Industrie"
+    weight: 0.65
+    language: de
+
+  # ── 外交 ─────────────────────────────────────────────
+  - keyword: "Außenpolitik"
+    weight: 0.8
+    language: de
+  - keyword: "EU"
+    weight: 0.7
+    language: de
+  - keyword: "NATO"
+    weight: 0.8
+    language: de
+  - keyword: "G7"
+    weight: 0.7
+    language: de
+
+  # ── 安全 ─────────────────────────────────────────────
+  - keyword: "Sicherheit"
+    weight: 0.7
+    language: de
+  - keyword: "Bundeswehr"
+    weight: 0.85
+    language: de
+  - keyword: "Verteidigung"
+    weight: 0.8
+    language: de
+
+  # ── 社会 ─────────────────────────────────────────────
+  - keyword: "Einwanderung"
+    weight: 0.75
+    language: de
+  - keyword: "Migration"
+    weight: 0.75
+    language: de
+  - keyword: "Flüchtlinge"
+    weight: 0.7
+    language: de
+  - keyword: "Klima"
+    weight: 0.7
+    language: de
+  - keyword: "Energiewende"
+    weight: 0.8
+    language: de
+
+  # ── 涉华 ─────────────────────────────────────────────
+  - keyword: "China"
+    weight: 0.9
+    language: de
+  - keyword: "Peking"
+    weight: 0.85
+    language: de
+  - keyword: "Xi Jinping"
+    weight: 0.9
+    language: de
+  - keyword: "Taiwan"
+    weight: 0.85
+    language: de
+  - keyword: "Lieferkette"
+    weight: 0.7
+    language: de
+  - keyword: "Halbleiter"
+    weight: 0.75
+    language: de
+
+  # ── 英文补充 ─────────────────────────────────────────
+  - keyword: "Germany"
+    weight: 0.6
+    language: en
+  - keyword: "Merkel"
+    weight: 0.7
+    language: en
+  - keyword: "Scholz"
+    weight: 0.8
+    language: en
+  - keyword: "Berlin"
+    weight: 0.5
+    language: en

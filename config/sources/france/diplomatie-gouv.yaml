@@ -1,0 +1,13 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: "diplomatie-gouv"
+display_name: "France Diplomatie"
+type: rss
+url: "https://www.diplomatie.gouv.fr/spip.php?page=backend"
+credibility_base: 0.9
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0

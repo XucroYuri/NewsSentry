@@ -1,0 +1,13 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: "zeit-social"
+display_name: "ZEIT Gesellschaft"
+type: rss
+url: "https://www.zeit.de/gesellschaft/index"
+credibility_base: 0.85
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0

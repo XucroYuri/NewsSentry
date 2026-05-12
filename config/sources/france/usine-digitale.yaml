@@ -1,0 +1,13 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: "usine-digitale"
+display_name: "L'Usine Digitale"
+type: rss
+url: "https://www.usinedigitale.com/rss/rss_usine_digitale.xml"
+credibility_base: 0.84
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0

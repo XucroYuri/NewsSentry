@@ -1,0 +1,13 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: "ofii"
+display_name: "OFII"
+type: rss
+url: "https://www.ofii.fr/rss.xml"
+credibility_base: 0.86
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0

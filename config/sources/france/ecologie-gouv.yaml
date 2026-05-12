@@ -1,0 +1,13 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: "ecologie-gouv"
+display_name: "Ministère Transition Écologique"
+type: rss
+url: "https://www.ecologie.gouv.fr/rss.xml"
+credibility_base: 0.88
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0

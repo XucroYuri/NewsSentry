@@ -1,0 +1,139 @@
+# Schema: ../../schemas/filterrules.schema.json
+# 契约: docs/contracts-canonical.md §3
+# ADR: ADR-0009
+rules_version: "1.0.0"
+target_id: france
+
+score_threshold: 30
+max_age_hours: 48
+dedup_window_hours: 24
+
+keyword_rules:
+
+  # ── 政治 ─────────────────────────────────────────────
+  - keyword: "gouvernement"
+    weight: 0.8
+    language: fr
+  - keyword: "Assemblée"
+    weight: 0.8
+    language: fr
+  - keyword: "président"
+    weight: 0.9
+    language: fr
+  - keyword: "présidentielle"
+    weight: 0.85
+    language: fr
+  - keyword: "élection"
+    weight: 0.85
+    language: fr
+  - keyword: "Macron"
+    weight: 0.8
+    language: fr
+  - keyword: "Premier ministre"
+    weight: 0.8
+    language: fr
+  - keyword: "RN"
+    weight: 0.7
+    language: fr
+  - keyword: "LREM"
+    weight: 0.65
+    language: fr
+  - keyword: "Nupes"
+    weight: 0.65
+    language: fr
+
+  # ── 经济 ─────────────────────────────────────────────
+  - keyword: "économie"
+    weight: 0.7
+    language: fr
+  - keyword: "inflation"
+    weight: 0.8
+    language: fr
+  - keyword: "PIB"
+    weight: 0.7
+    language: fr
+  - keyword: "exportation"
+    weight: 0.7
+    language: fr
+  - keyword: "chômage"
+    weight: 0.7
+    language: fr
+
+  # ── 外交 ─────────────────────────────────────────────
+  - keyword: "diplomatie"
+    weight: 0.8
+    language: fr
+  - keyword: "UE"
+    weight: 0.7
+    language: fr
+  - keyword: "OTAN"
+    weight: 0.8
+    language: fr
+  - keyword: "sommet"
+    weight: 0.6
+    language: fr
+
+  # ── 安全 ─────────────────────────────────────────────
+  - keyword: "sécurité"
+    weight: 0.7
+    language: fr
+  - keyword: "armée"
+    weight: 0.85
+    language: fr
+  - keyword: "défense"
+    weight: 0.8
+    language: fr
+  - keyword: "terrorisme"
+    weight: 0.8
+    language: fr
+
+  # ── 社会 ─────────────────────────────────────────────
+  - keyword: "immigration"
+    weight: 0.75
+    language: fr
+  - keyword: "migration"
+    weight: 0.75
+    language: fr
+  - keyword: "réfugiés"
+    weight: 0.7
+    language: fr
+  - keyword: "climat"
+    weight: 0.7
+    language: fr
+  - keyword: "transition énergétique"
+    weight: 0.8
+    language: fr
+
+  # ── 涉华 ─────────────────────────────────────────────
+  - keyword: "Chine"
+    weight: 0.9
+    language: fr
+  - keyword: "Pékin"
+    weight: 0.85
+    language: fr
+  - keyword: "Xi Jinping"
+    weight: 0.9
+    language: fr
+  - keyword: "Taïwan"
+    weight: 0.85
+    language: fr
+  - keyword: "douanes"
+    weight: 0.7
+    language: fr
+  - keyword: "Cognac"
+    weight: 0.75
+    language: fr
+  - keyword: "luxe"
+    weight: 0.65
+    language: fr
+
+  # ── 英文补充 ─────────────────────────────────────────
+  - keyword: "France"
+    weight: 0.6
+    language: en
+  - keyword: "Macron"
+    weight: 0.8
+    language: en
+  - keyword: "Paris"
+    weight: 0.5
+    language: en

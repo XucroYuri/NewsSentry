@@ -1,0 +1,13 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: "bamf"
+display_name: "BAMF"
+type: rss
+url: "https://www.bamf.de/SiteGlobals/Functions/RSSFeed/RSSFeed_BAMF_DE.xml"
+credibility_base: 0.87
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0

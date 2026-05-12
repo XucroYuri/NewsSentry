@@ -1,0 +1,55 @@
+# Schema: ../../schemas/classification.schema.json
+# 契约: docs/contracts-canonical.md §9
+# ADR: ADR-0009
+extends: rules-v1.yaml
+rules_version: "1.0.0"
+
+# 德国特有 L1 子议题
+l1_topics:
+  - code: china_germany_bilateral
+    l0_domain: international
+    label_zh: "中德双边关系"
+    label_de: "Chinesisch-deutsche Beziehungen"
+    keywords_de: [China, Peking, Xi Jinping, bilateral, Handelsbeziehungen]
+    keywords_en: [China, Germany-China, bilateral, Beijing]
+
+  - code: german_automotive
+    l0_domain: economics
+    label_zh: "德国汽车产业"
+    label_de: "Deutsche Automobilindustrie"
+    keywords_de: [Automobil, VW, BMW, Mercedes, Elektromobilität]
+    keywords_en: [automotive, VW, BMW, Mercedes, EV]
+
+  - code: energiewende
+    l0_domain: energy
+    label_zh: "能源转型"
+    label_de: "Energiewende"
+    keywords_de: [Energiewende, erneuerbar, Windkraft, Solar, Atomausstieg]
+    keywords_en: [energy transition, renewable, wind, solar, nuclear phase-out]
+
+  - code: china_trade_germany
+    l0_domain: economics
+    label_zh: "中德贸易"
+    label_de: "Deutsch-chinesischer Handel"
+    keywords_de: [Handel, China, Export, Import, Zölle, Lieferkette]
+    keywords_en: [trade, China, exports, tariffs, supply chain]
+
+  - code: german_defense
+    l0_domain: security
+    label_zh: "德国防务"
+    label_de: "Deutsche Verteidigung"
+    keywords_de: [Bundeswehr, Verteidigung, NATO, Sicherheitspolitik]
+    keywords_en: [Bundeswehr, defense, NATO, security policy]
+
+  - code: german_immigration
+    l0_domain: society
+    label_zh: "德国移民"
+    label_de: "Einwanderung"
+    keywords_de: [Einwanderung, Migration, Flüchtlinge, Integration, Fachkräfte]
+    keywords_en: [immigration, migration, refugees, integration]
+
+# 德国特有 country_axes
+country_axes:
+  china_germany_relations:
+    enabled: true
+    sub_axes: [china_germany_bilateral, china_trade_germany]

@@ -1,0 +1,13 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: "tagesschau-politics"
+display_name: "Tagesschau Politik"
+type: rss
+url: "https://www.tagesschau.de/xml/rss2"
+credibility_base: 0.92
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0
