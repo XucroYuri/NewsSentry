@@ -19,6 +19,7 @@ from news_sentry.adapters.providers.base import AIProvider
 from news_sentry.adapters.providers.openai_provider import OpenAIProvider
 from news_sentry.adapters.providers.rules_provider import RulesProvider
 from news_sentry.adapters.tools.opencli import OpenCLIToolAdapter
+from news_sentry.core.alert_pipeline import AlertPipeline
 from news_sentry.core.confidence_router import ConfidenceRouter
 from news_sentry.core.config import ConfigLoader, ResolvedConfig
 from news_sentry.core.file_writer import FileWriter
@@ -336,6 +337,20 @@ def _run_output(
             run_log.log_error("output", str(e), event_id=event.id)
 
     ctx.events_output = count
+
+    # Phase 17: 告警管道 — 对满足条件的 judged 事件推送告警
+    dests_list = dict(config.output_destinations).get("destinations", [])
+    if dests_list:
+        alert_pipeline = AlertPipeline(destinations=dests_list)
+        alert_stats = alert_pipeline.process(events, run_id)
+        if alert_stats["alerts_sent"] > 0 or alert_stats["alerts_failed"] > 0:
+            logger.info(
+                "告警统计: sent=%d deduped=%d failed=%d",
+                alert_stats["alerts_sent"],
+                alert_stats["alerts_deduped"],
+                alert_stats["alerts_failed"],
+            )
+
     duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
     run_log.log_phase_end("output", count, duration_ms)
 
