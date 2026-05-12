@@ -269,7 +269,78 @@ class SocialKOLCollector:
         )
         return [event]
 
+    # ── 内部常量 ─────────────────────────────────────
+
+    _BRIDGE_CALLER_ID: str = "social_kol_collector"
+    _CONTENT_SELECTOR: str = "[data-testid='tweetText']"
+    _POST_SEPARATOR: str = "\n---\n"
+
+    _PLATFORM_HOME_URL: dict[str, str] = {
+        "twitter": "https://x.com/home",
+        "facebook": "https://www.facebook.com/",
+        "instagram": "https://www.instagram.com/",
+        "linkedin": "https://www.linkedin.com/feed/",
+        "youtube": "https://www.youtube.com/",
+        "tiktok": "https://www.tiktok.com/",
+        "reddit": "https://www.reddit.com/",
+        "weibo": "https://weibo.com/",
+    }
+
     # ── 内部方法 ─────────────────────────────────────
+
+    def _execute_bridge_tool(
+        self, tool_id: str, validated_args: dict[str, Any], run_id: str,
+    ) -> Any:  # ToolRunResult
+        """封装 registry.execute 调用，统一注入 binding_id 和 sandbox。"""
+        return self._registry.execute(
+            tool_id,
+            self._BRIDGE_CALLER_ID,
+            validated_args,
+            run_id,
+            self._sandbox,
+        )
+
+    def _parse_posts(self, stdout: str, max_posts: int) -> list[str]:
+        """从 stdout 文本中解析帖子列表。
+
+        Args:
+            stdout: 采集工具返回的原始文本。
+            max_posts: 上限截断数。
+
+        Returns:
+            去空后的帖子文本列表（不超 max_posts）。
+        """
+        if not stdout.strip():
+            return []
+        posts = [
+            p.strip() for p in stdout.split(self._POST_SEPARATOR) if p.strip()
+        ]
+        return posts[:max_posts]
+
+    def _make_event(
+        self,
+        source_id: str,
+        url: str,
+        title: str,
+        content: str,
+        run_id: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> NewsEvent:
+        """构造采集阶段的 NewsEvent。"""
+        collected_at = datetime.now(UTC).isoformat()
+        return NewsEvent(
+            id=NewsEvent.make_id("social", self.platform, url, collected_at),
+            run_id=run_id,
+            source_id=source_id,
+            url=url,
+            title_original=title,
+            content_original=content,
+            language=Language.IT,
+            published_at=collected_at,
+            collected_at=collected_at,
+            pipeline_stage=PipelineStage.COLLECTED,
+            metadata=metadata or {},
+        )
 
     def _fetch_account_page(
         self, account: SocialAccount, run_id: str,
@@ -281,33 +352,54 @@ class SocialKOLCollector:
             run_id: 运行 ID。
 
         Returns:
-            NewsEvent 列表。
+            NewsEvent 列表（最多 fetch_max_per_run 条）。
         """
-        collected_at = datetime.now(UTC).isoformat()
-        event = NewsEvent(
-            id=NewsEvent.make_id(
-                "social", self.platform, account.url, collected_at,
-            ),
-            run_id=run_id,
-            source_id=f"{self.platform}/{account.handle}",
-            url=account.url,
-            title_original=f"{self.platform}: {account.display_name}",
-            content_original="",
-            language=Language.IT,
-            published_at=collected_at,
-            collected_at=collected_at,
-            pipeline_stage=PipelineStage.COLLECTED,
-            metadata={
-                "collection": {
-                    "method": "opencli_bridge",
-                    "platform": self.platform,
-                    "handle": account.handle,
-                    "tier": account.tier,
-                    "mode": "active",
-                },
-            },
+        # Step 1: 导航到账号页面
+        nav_result = self._execute_bridge_tool(
+            "opencli.navigate",
+            {"url": account.url},
+            run_id,
         )
-        return [event]
+        if not nav_result.success:
+            return []
+
+        # Step 2: 提取页面文本内容
+        extract_result = self._execute_bridge_tool(
+            "opencli.get_text",
+            {
+                "selector": self._CONTENT_SELECTOR,
+                "output_path": f"./data/tmp/{run_id}_account.txt",
+            },
+            run_id,
+        )
+        if not extract_result.success:
+            return []
+
+        # Step 3: 解析帖子列表并构造 NewsEvent
+        posts = self._parse_posts(extract_result.stdout, account.fetch_max_per_run)
+        base_metadata = {
+            "collection": {
+                "method": "opencli_bridge",
+                "platform": self.platform,
+                "handle": account.handle,
+                "tier": account.tier,
+                "mode": "active",
+            },
+        }
+
+        events: list[NewsEvent] = []
+        for i, post_text in enumerate(posts):
+            event = self._make_event(
+                source_id=f"{self.platform}/{account.handle}",
+                url=account.url,
+                title=f"{self.platform}: {account.display_name} #{i + 1}",
+                content=post_text,
+                run_id=run_id,
+                metadata=base_metadata,
+            )
+            events.append(event)
+
+        return events
 
     def _fetch_timeline(self, run_id: str) -> list[NewsEvent]:
         """浏览首页 Feed 时间线。
@@ -318,26 +410,51 @@ class SocialKOLCollector:
         Returns:
             NewsEvent 列表。
         """
-        collected_at = datetime.now(UTC).isoformat()
-        event = NewsEvent(
-            id=NewsEvent.make_id(
-                "social", self.platform, "timeline", collected_at,
-            ),
-            run_id=run_id,
-            source_id=f"{self.platform}/timeline",
-            url="https://x.com/home" if self.platform == "twitter" else "",
-            title_original=f"{self.platform} Timeline",
-            content_original="",
-            language=Language.IT,
-            published_at=collected_at,
-            collected_at=collected_at,
-            pipeline_stage=PipelineStage.COLLECTED,
-            metadata={
-                "collection": {
-                    "method": "opencli_bridge",
-                    "platform": self.platform,
-                    "mode": "semi_active",
-                },
-            },
+        home_url = self._PLATFORM_HOME_URL.get(
+            self.platform, f"https://{self.platform}.com/",
         )
-        return [event]
+
+        # Step 1: 导航到首页 Feed
+        nav_result = self._execute_bridge_tool(
+            "opencli.navigate",
+            {"url": home_url},
+            run_id,
+        )
+        if not nav_result.success:
+            return []
+
+        # Step 2: 提取时间线文本
+        extract_result = self._execute_bridge_tool(
+            "opencli.get_text",
+            {
+                "selector": self._CONTENT_SELECTOR,
+                "output_path": f"./data/tmp/{run_id}_timeline.txt",
+            },
+            run_id,
+        )
+        if not extract_result.success:
+            return []
+
+        # Step 3: 解析帖子列表
+        posts = self._parse_posts(extract_result.stdout, max_posts=50)
+        timeline_metadata = {
+            "collection": {
+                "method": "opencli_bridge",
+                "platform": self.platform,
+                "mode": "semi_active",
+            },
+        }
+
+        events: list[NewsEvent] = []
+        for i, post_text in enumerate(posts):
+            event = self._make_event(
+                source_id=f"{self.platform}/timeline",
+                url=home_url,
+                title=f"{self.platform} Timeline #{i + 1}",
+                content=post_text,
+                run_id=run_id,
+                metadata=timeline_metadata,
+            )
+            events.append(event)
+
+        return events
