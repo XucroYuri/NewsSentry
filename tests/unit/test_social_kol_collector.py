@@ -1,7 +1,8 @@
 """SocialKOLCollector 升级后测试 — 从 stub 到真实 Bridge 采集。"""
-from unittest.mock import ANY, MagicMock
+from unittest.mock import ANY, MagicMock, Mock
 
 from news_sentry.adapters.tools.base import ToolRunResult
+from news_sentry.skills.collect.browser_fallback import BrowserFallback
 from news_sentry.skills.collect.social_kol_collector import SocialKOLCollector
 
 
@@ -147,7 +148,7 @@ class TestFetchAccountPage:
         assert events[0].source_id == "twitter/@test"
 
     def test_returns_empty_list_on_navigate_failure(self):
-        """navigate 失败时应返回空列表（不抛异常）。"""
+        """navigate 持续失败时应返回空列表（不抛异常）。"""
         mock_registry = MagicMock()
         mock_registry.execute.return_value = make_failure_result(
             tool_id="opencli.navigate"
@@ -158,12 +159,17 @@ class TestFetchAccountPage:
 
         events = collector._fetch_account_page(account, "run-001")
 
+        # 重试后仍失败，返回空列表
         assert events == []
 
     def test_returns_empty_list_on_get_text_failure(self):
-        """navigate 成功但 get_text 失败时应返回空列表。"""
+        """navigate 成功但 get_text 失败，重试后全部失败，应返回空列表。"""
         mock_registry = MagicMock()
         mock_registry.execute.side_effect = [
+            # First attempt: navigate OK, get_text fails
+            make_success_result(tool_id="opencli.navigate"),
+            make_failure_result(tool_id="opencli.get_text"),
+            # Retry after record_failure(): navigate OK, get_text still fails
             make_success_result(tool_id="opencli.navigate"),
             make_failure_result(tool_id="opencli.get_text"),
         ]
@@ -306,3 +312,111 @@ class TestCollectActiveIntegration:
         events = collector.collect_active("run-001")
 
         assert len(events) >= 1
+
+
+class TestBrowserFallbackIntegration:
+    """BrowserFallback 三层降级集成到 SocialKOLCollector._fetch_account_page。"""
+
+    def _make_collector(self, registry, fallback_config=None):  # noqa: ANN001
+        """构造带 BrowserFallback 的 SocialKOLCollector。"""
+        fb = BrowserFallback(fallback_config or {})
+        config = {"platform": "twitter", "accounts": [make_account()]}
+        collector = SocialKOLCollector(registry, MockSandbox(), {}, config, fallback=fb)
+        return collector, fb
+
+    def test_uses_layer1_bridge_when_layer1_active(self):
+        """active_layer == 1 时使用 opencli.navigate + get_text。"""
+        mock_registry = MagicMock()
+        mock_registry.execute.side_effect = [
+            make_success_result(tool_id="opencli.navigate"),
+            make_success_result(tool_id="opencli.get_text", stdout="Post A"),
+        ]
+        collector, fb = self._make_collector(mock_registry)
+        assert fb.active_layer == 1
+
+        events = collector._fetch_account_page(collector.accounts[0], "run-001")
+
+        assert len(events) >= 1
+        mock_registry.execute.assert_any_call(
+            "opencli.navigate", ANY, ANY, ANY, ANY,
+        )
+
+    def test_uses_layer2_when_degraded(self):
+        """active_layer == 2 降级时使用 Playwright MCP 工具。"""
+        mock_registry = MagicMock()
+        mock_registry.execute.side_effect = [
+            make_success_result(tool_id="opencli.mcp.navigate"),
+            make_success_result(tool_id="opencli.mcp.get_text", stdout="Post from L2"),
+        ]
+        collector, fb = self._make_collector(mock_registry)
+        # 强制降级到 Layer 2
+        fb.active_layer = 2
+
+        events = collector._fetch_account_page(collector.accounts[0], "run-001")
+
+        assert len(events) >= 1
+        mock_registry.execute.assert_any_call(
+            "opencli.mcp.navigate", ANY, ANY, ANY, ANY,
+        )
+
+    def test_records_success_on_layer1_success(self):
+        """Layer 1 成功时应调用 record_success()。"""
+        mock_registry = MagicMock()
+        mock_registry.execute.side_effect = [
+            make_success_result(tool_id="opencli.navigate"),
+            make_success_result(tool_id="opencli.get_text", stdout="Success"),
+        ]
+        collector, fb = self._make_collector(mock_registry)
+        fb.record_success = Mock()
+
+        collector._fetch_account_page(collector.accounts[0], "run-001")
+
+        fb.record_success.assert_called_once()
+
+    def test_records_failure_on_layer1_failure(self):
+        """Layer 1 navigate 失败时应调用 record_failure()。"""
+        mock_registry = MagicMock()
+        mock_registry.execute.return_value = make_failure_result(tool_id="opencli.navigate")
+        collector, fb = self._make_collector(mock_registry)
+        fb.record_failure = Mock()
+
+        collector._fetch_account_page(collector.accounts[0], "run-001")
+
+        fb.record_failure.assert_called_once()
+
+    def test_layer3_available_for_l1_accounts_only(self):
+        """Layer 3 (Computer Use) 仅对 L1 tier 开放。"""
+        mock_registry = MagicMock()
+        config = {"browser_fallback": {"degrade_to_layer3_after_failures": 3}}
+        fb = BrowserFallback(config)
+        # 累积足够的失败以触发 Layer 3
+        for _ in range(5):
+            fb.record_failure()
+
+        l1_config = {"platform": "twitter", "accounts": [make_account("@l1", tier="L1")]}
+        l1_collector = SocialKOLCollector(mock_registry, MockSandbox(), {}, l1_config, fallback=fb)
+        assert l1_collector._should_use_layer_3(l1_collector.accounts[0]) is True
+
+        l2_config = {"platform": "twitter", "accounts": [make_account("@l2", tier="L2")]}
+        l2_collector = SocialKOLCollector(mock_registry, MockSandbox(), {}, l2_config, fallback=fb)
+        assert l2_collector._should_use_layer_3(l2_collector.accounts[0]) is False
+
+    def test_after_layer1_failure_checks_and_tries_layer2(self):
+        """Layer 1 失败后 record_failure，如果当前层变为 Layer 2 则重试。"""
+        mock_registry = MagicMock()
+        # Layer 1 fails, then after record_failure, active_layer moves to 2
+        mock_registry.execute.side_effect = [
+            # First try: Layer 1 navigate fails
+            make_failure_result(tool_id="opencli.navigate"),
+            # After record_failure, layer becomes 2, try Layer 2
+            make_success_result(tool_id="opencli.mcp.navigate"),
+            make_success_result(tool_id="opencli.mcp.get_text", stdout="L2 recovery post"),
+        ]
+        config_fb = {"browser_fallback": {"degrade_to_layer2_after_failures": 0}}
+        collector, fb = self._make_collector(mock_registry, config_fb)
+
+        events = collector._fetch_account_page(collector.accounts[0], "run-001")
+
+        # Should have recovered via layer 2
+        assert len(events) >= 1
+        assert "L2 recovery post" in events[0].content_original

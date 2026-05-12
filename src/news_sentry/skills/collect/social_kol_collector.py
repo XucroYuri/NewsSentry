@@ -12,6 +12,7 @@ from typing import Any
 
 from news_sentry.core.sandbox import SandboxEnforcer, SandboxViolationError
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+from news_sentry.skills.collect.browser_fallback import BrowserFallback
 
 
 @dataclass
@@ -42,6 +43,8 @@ class SocialKOLCollector:
         sandbox: SandboxEnforcer,
         kol_state: dict[str, Any],
         config: dict[str, Any] | None = None,
+        *,
+        fallback: BrowserFallback | None = None,
     ) -> None:
         """初始化 KOL 社媒采集器。
 
@@ -50,6 +53,7 @@ class SocialKOLCollector:
             sandbox: SandboxEnforcer。
             kol_state: KOL state 记录。
             config: 社媒源配置 dict（包含 platform + accounts 列表）。
+            fallback: BrowserFallback 降级管理器，未提供时用空配置创建。
 
         Raises:
             SandboxViolationError: 非 kol-experiment 沙箱策略。
@@ -65,6 +69,7 @@ class SocialKOLCollector:
         self._sandbox = sandbox
         self._kol_state = kol_state
         self._config = config or {}
+        self._fallback = fallback or BrowserFallback(config or {})
 
         self.platform: str = self._config.get("platform", "unknown")
         self.dimension: str = self._config.get("dimension", "unknown")
@@ -275,6 +280,10 @@ class SocialKOLCollector:
     _CONTENT_SELECTOR: str = "[data-testid='tweetText']"
     _POST_SEPARATOR: str = "\n---\n"
 
+    # Layer 2 (Playwright MCP) tool IDs — 与 Layer 1 对应的 MCP 版本
+    _L2_NAVIGATE_TOOL: str = "opencli.mcp.navigate"
+    _L2_GET_TEXT_TOOL: str = "opencli.mcp.get_text"
+
     _PLATFORM_HOME_URL: dict[str, str] = {
         "twitter": "https://x.com/home",
         "facebook": "https://www.facebook.com/",
@@ -342,28 +351,34 @@ class SocialKOLCollector:
             metadata=metadata or {},
         )
 
-    def _fetch_account_page(
-        self, account: SocialAccount, run_id: str,
-    ) -> list[NewsEvent]:
-        """通过 OpenCLI Bridge 访问单个账号页面。
+    def _should_use_layer_3(self, account: SocialAccount) -> bool:
+        """检查是否应对该账号使用 Layer 3 (Computer Use)。"""
+        return self._fallback.should_use_layer_3(account.tier)
 
-        Args:
-            account: 目标账号。
-            run_id: 运行 ID。
+    def _try_layer(self, account: SocialAccount, run_id: str) -> list[NewsEvent] | None:
+        """按当前 active_layer 执行采集，返回 NewsEvent 列表或 None。
 
         Returns:
-            NewsEvent 列表（最多 fetch_max_per_run 条）。
+            NewsEvent 列表表示成功；None 表示该层采集失败。
         """
-        # Step 1: 导航到账号页面
+        if self._fallback.active_layer == 1:
+            return self._try_opencli_bridge(account, run_id)
+        elif self._fallback.active_layer == 2:
+            return self._try_mcp_bridge(account, run_id)
+        elif self._should_use_layer_3(account):
+            return self._try_layer_3(account, run_id)
+        return None
+
+    def _try_opencli_bridge(
+        self, account: SocialAccount, run_id: str,
+    ) -> list[NewsEvent] | None:
+        """Layer 1: OpenCLI Bridge 采集。"""
         nav_result = self._execute_bridge_tool(
-            "opencli.navigate",
-            {"url": account.url},
-            run_id,
+            "opencli.navigate", {"url": account.url}, run_id,
         )
         if not nav_result.success:
-            return []
+            return None
 
-        # Step 2: 提取页面文本内容
         extract_result = self._execute_bridge_tool(
             "opencli.get_text",
             {
@@ -373,20 +388,62 @@ class SocialKOLCollector:
             run_id,
         )
         if not extract_result.success:
-            return []
+            return None
 
-        # Step 3: 解析帖子列表并构造 NewsEvent
         posts = self._parse_posts(extract_result.stdout, account.fetch_max_per_run)
+        return self._build_events(account, posts, run_id, "opencli_bridge")
+
+    def _try_mcp_bridge(
+        self, account: SocialAccount, run_id: str,
+    ) -> list[NewsEvent] | None:
+        """Layer 2: Playwright MCP 采集。"""
+        nav_result = self._execute_bridge_tool(
+            self._L2_NAVIGATE_TOOL, {"url": account.url}, run_id,
+        )
+        if not nav_result.success:
+            return None
+
+        extract_result = self._execute_bridge_tool(
+            self._L2_GET_TEXT_TOOL,
+            {
+                "selector": self._CONTENT_SELECTOR,
+                "output_path": f"./data/tmp/{run_id}_account_l2.txt",
+            },
+            run_id,
+        )
+        if not extract_result.success:
+            return None
+
+        posts = self._parse_posts(extract_result.stdout, account.fetch_max_per_run)
+        return self._build_events(account, posts, run_id, "playwright_mcp")
+
+    def _try_layer_3(
+        self, account: SocialAccount, run_id: str,
+    ) -> list[NewsEvent] | None:
+        """Layer 3: Computer Use — 经由 ProviderRouter，消耗 token。
+
+        当前返回 None，完整实现需在 Agent 环境可用时接入。
+        """
+        return None
+
+    def _build_events(
+        self,
+        account: SocialAccount,
+        posts: list[str],
+        run_id: str,
+        method: str,
+    ) -> list[NewsEvent]:
+        """将帖子文本列表构造为 NewsEvent 列表。"""
         base_metadata = {
             "collection": {
-                "method": "opencli_bridge",
+                "method": method,
                 "platform": self.platform,
                 "handle": account.handle,
                 "tier": account.tier,
                 "mode": "active",
+                "layer": self._fallback.active_layer,
             },
         }
-
         events: list[NewsEvent] = []
         for i, post_text in enumerate(posts):
             event = self._make_event(
@@ -398,8 +455,39 @@ class SocialKOLCollector:
                 metadata=base_metadata,
             )
             events.append(event)
-
         return events
+
+    def _fetch_account_page(
+        self, account: SocialAccount, run_id: str,
+    ) -> list[NewsEvent]:
+        """通过降级链采集单个账号页面的最新帖子。
+
+        流程：
+          1. 按 _fallback.active_layer 选择当前活跃层采集
+          2. 成功 → record_success() → 返回结果
+          3. 失败 → record_failure() → 如果降级则重试新层
+          4. 三层均失败 → 返回空列表
+
+        Args:
+            account: 目标账号。
+            run_id: 运行 ID。
+
+        Returns:
+            NewsEvent 列表（最多 fetch_max_per_run 条）。
+        """
+        result = self._try_layer(account, run_id)
+        if result is not None:
+            self._fallback.record_success()
+            return result
+
+        self._fallback.record_failure()
+        # record_failure 可能触发降级，重试新层
+        retry_result = self._try_layer(account, run_id)
+        if retry_result is not None:
+            self._fallback.record_success()
+            return retry_result
+
+        return []
 
     def _fetch_timeline(self, run_id: str) -> list[NewsEvent]:
         """浏览首页 Feed 时间线。
