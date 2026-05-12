@@ -820,7 +820,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 | Phase | 名称 | 核心目标 | 估算规模 | 状态 |
 |-------|------|---------|---------|------|
-| Phase 21 | RSS Auto-Discovery | 信源自动发现与健康巡检、matrix 自进化 | M | 📋 |
+| Phase 21 | RSS Auto-Discovery | 信源自动发现与健康巡检、matrix 自进化 | M | ✅ |
 | Phase 22 | API Gateway | REST API 网关、Webhook 入站、第三方集成 | L | 📋 |
 
 ### Phase 21 · RSS Auto-Discovery
@@ -837,9 +837,9 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 | ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 |
 |----|------|--------|------|------|--------|
-| P21.01 | RSS Auto-Discovery | `skills/collect/rss_discovery.py` | — | M | 从信源页面发现新 RSS 链接 |
-| P21.02 | 信源健康巡检 | `core/source_health_checker.py` | P21.01 | S | 日频检查信源可达性和更新频率 |
-| P21.03 | 矩阵自进化 | `_matrix_governance.yaml` 驱动 | P21.02 | M | 新源审批→配置生成→自动纳入采集 |
+| P21.01 | RSS Auto-Discovery | `skills/collect/rss_discovery.py` | — | M | 从信源页面发现新 RSS 链接 | ✅ |
+| P21.02 | 信源健康巡检 | `core/source_health_checker.py` | P21.01 | S | 日频检查信源可达性和更新频率 | ✅ |
+| P21.03 | 矩阵自进化 | `_matrix_governance.yaml` 驱动 | P21.02 | M | 新源审批→配置生成→自动纳入采集 | ✅ |
 
 ### Phase 22 · API Gateway
 

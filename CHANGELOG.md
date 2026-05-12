@@ -10,6 +10,9 @@
 ## [未发布]
 
 ### 新增
+- Phase 21: RSSDiscovery — 从现有信源页面自动发现新 RSS/Atom 链接
+- Phase 21: SourceHealthChecker — 信源健康巡检（可达性+更新频率+健康评分）
+- Phase 21: MatrixEvolution — 候选源审批→配置生成→自动纳入采集矩阵
 - Phase 20: FeedbackCollector — 扫描 reviewed/ 目录解析 human_verdict 反馈
 - Phase 20: RulesOptimizer — 根据人工反馈自动调整关键词权重（publish_override 升权，archive_override 降权）
 - Phase 20: MarkdownWriter 扩展 filter_matched_keywords / human_verdict frontmatter 字段
