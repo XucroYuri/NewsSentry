@@ -26,7 +26,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN npm install -g playwright @playwright/mcp \
     && npx playwright install-deps chromium
 
-# OpenCLI Bridge (Layer 1)
+# OpenCLI CLI (Layer 1 browser bridge — zero Token)
+RUN npm install -g @jackwener/opencli
+
+# OpenCLI Bridge NMH + Chrome policies
 COPY docker/chrome-native-messaging-host/ /etc/chromium/native-messaging-hosts/
 COPY docker/chrome-policies/ /etc/chromium/policies/managed/
 
@@ -42,6 +45,7 @@ COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/pytho
 COPY src/ src/
 COPY pyproject.toml ./
 COPY config/ config/
+COPY schemas/ schemas/
 COPY tools/ tools/
 RUN pip install --no-cache-dir -e . --no-deps
 

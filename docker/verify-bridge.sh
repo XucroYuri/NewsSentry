@@ -23,9 +23,10 @@ check "3/7 ChromeDriver" "chromedriver --version"
 check "4/7 Node.js" "node --version"
 check "5/7 npm" "npm --version"
 check "6/7 Playwright" "npx playwright --version"
+check "7/7 OpenCLI" "opencli --version"
 
-echo -n "[7/7 NMH manifest] "
-if [ -f "/etc/chromium/native-messaging-hosts/com.opencli.bridge.json" ]; then
+echo -n "[8/8 NMH manifest] "
+if [ -f "/etc/chromium/native-messaging-hosts/opencli.json" ]; then
     echo "OK"
 else
     echo "WARN — NMH manifest not found, OpenCLI Bridge Layer 1 unavailable"
