@@ -30,8 +30,8 @@ SSH_KEY=""
 SKIP_DOCKER=false
 SKIP_FIREWALL=false
 TAGS=()
-GHCR_IMAGE="ghcr.io/xucroyuri/news-sentry-full"
-VERSION="0.5.0"
+GHCR_IMAGE="ghcr.io/xucroyuri/news-sentry"
+VERSION="1.0.0"
 
 # ── 参数解析 ──
 while [[ $# -gt 0 ]]; do
