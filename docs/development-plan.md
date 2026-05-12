@@ -93,7 +93,7 @@
 
 | Phase | 名称 | 核心目标 | 估算规模 | 状态 |
 |-------|------|---------|---------|------|
-| Phase 16 | Third Target (Japan JP) | 第三国家 reference package、多语言模板化、东亚维度适配 | L | 📋 PLANNED |
+| Phase 16 | Third Target (Japan JP) | 日本 target + 19 源 + 59 关键词规则 + keywords_ja | L | ✅ DONE |
 | Phase 17 | Real-time Alert Pipeline | 飞书/邮件/Telegram 实时告警、阈值配置、告警模板 | M | 📋 PLANNED |
 | Phase 18 | Production Hardening | 监控面板、自动备份、HA 故障恢复、日志轮转 | L | 📋 PLANNED |
 
