@@ -45,6 +45,10 @@ dev = [
 proxy = [
     "httpx[socks]>=0.27",
 ]
+api = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+]
 
 [project.urls]
 Homepage = "https://github.com/XucroYuri/NewsSentry"

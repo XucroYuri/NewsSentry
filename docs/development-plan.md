@@ -821,7 +821,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | Phase | 名称 | 核心目标 | 估算规模 | 状态 |
 |-------|------|---------|---------|------|
 | Phase 21 | RSS Auto-Discovery | 信源自动发现与健康巡检、matrix 自进化 | M | ✅ |
-| Phase 22 | API Gateway | REST API 网关、Webhook 入站、第三方集成 | L | 📋 |
+| Phase 22 | API Gateway | REST API 网关、Webhook 入站、第三方集成 | L | ✅ |
 
 ### Phase 21 · RSS Auto-Discovery
 
@@ -855,10 +855,10 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 | ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 |
 |----|------|--------|------|------|--------|
-| P22.01 | FastAPI 网关骨架 | `core/api_server.py` | — | M | /api/v1/events 返回事件列表 |
-| P22.02 | 认证与速率限制 | `core/api_auth.py` | P22.01 | S | API Key 验证 + 60 req/min 限制 |
-| P22.03 | Webhook 入站 | `core/webhook_handler.py` | P22.01 | M | 接收外部事件并入库 |
-| P22.04 | OpenAPI 文档 | `/docs` 自动生成 | P22.01 | S | Swagger UI 可访问 |
+| P22.01 | FastAPI 网关骨架 | `core/api_server.py` | — | M | /api/v1/events 返回事件列表 | ✅ |
+| P22.02 | 认证与速率限制 | `core/api_auth.py` | P22.01 | S | API Key 验证 + 60 req/min 限制 | ✅ |
+| P22.03 | Webhook 入站 | `core/webhook_handler.py` | P22.01 | M | 接收外部事件并入库 | ✅ |
+| P22.04 | OpenAPI 文档 | `/docs` 自动生成 | P22.01 | S | Swagger UI 可访问 | ✅ |
 
 ---
 

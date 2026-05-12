@@ -69,7 +69,7 @@
 | Phase | 文件 | 核心目标 | 状态 |
 |-------|------|---------|------|
 | Phase 21 | RSS Auto-Discovery | 信源自动发现与矩阵自进化 | ✅ DONE |
-| Phase 22 | API Gateway | REST API + Webhook 入站 | 📋 PLANNED |
+| Phase 22 | API Gateway | REST API + Webhook 入站 | ✅ DONE |
 
 ### v1.0.0 — 稳定发布
 
@@ -123,7 +123,7 @@ graph TD
 
     subgraph v0_9_0["v0.9.0 生态集成"]
         P21["Phase 21\nRSS Discovery ✅\nMatrix 自进化"]
-        P22["Phase 22\nAPI Gateway 📋\nREST + Webhook"]
+        P22["Phase 22\nAPI Gateway ✅\nREST + Webhook"]
     end
 
     subgraph v1_0_0["v1.0.0 稳定发布"]

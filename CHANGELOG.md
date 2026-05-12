@@ -10,6 +10,11 @@
 ## [未发布]
 
 ### 新增
+- Phase 22: API Server — FastAPI REST API 网关（/api/v1/events + /api/v1/webhook + /api/v1/health）
+- Phase 22: API Key 认证（X-API-Key header）+ 60 req/min 速率限制
+- Phase 22: Webhook 入站 — 接收外部事件写入 raw/ 目录
+- Phase 22: OpenAPI 3.1 文档（/docs + /openapi.json 自动生成）
+- Phase 22: FastAPI + uvicorn 可选依赖（pip install ".[api]"）
 - Phase 21: RSSDiscovery — 从现有信源页面自动发现新 RSS/Atom 链接
 - Phase 21: SourceHealthChecker — 信源健康巡检（可达性+更新频率+健康评分）
 - Phase 21: MatrixEvolution — 候选源审批→配置生成→自动纳入采集矩阵
