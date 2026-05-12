@@ -10,6 +10,9 @@
 ## [未发布]
 
 ### 新增
+- Phase 19: 德国 target 配置（de→zh, 22 源, 46 关键词规则）
+- Phase 19: 法国 target 配置（fr→zh, 21 源, 45 关键词规则）
+- Phase 19: classification schema 扩展 keywords_de/fr, label_de/fr
 - Phase 18: health_server.py — 轻量 /health HTTP 端点（http.server, 90% 覆盖率）
 - Phase 18: backup.sh — 每日增量+每周全量备份，保留 4 周
 - Phase 18: logrotate.conf — 30 天日志轮转，每日 rotate + 压缩

@@ -749,20 +749,20 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 | Phase | 名称 | 核心目标 | 估算规模 | 状态 |
 |-------|------|---------|---------|------|
-| Phase 19 | Multi-language Enhancement | 德语/法语第 4-5 target、多语言分类框架扩展 | L | 📋 |
+| Phase 19 | Multi-language Enhancement | 德国+法国 target（43 源）+ keywords_de/fr 扩展 | L | ✅ |
 | Phase 20 | Quality Feedback Loop | 人工反馈采集→规则自优化、eval-set 自动扩展 | M | 📋 |
 
-### Phase 19 · Multi-language Enhancement
+### Phase 19 · Multi-language Enhancement ✅
 
 **目标：** 验证多语言 target 模板化能力，接入第 4-5 个国家（德国 DE、法国 FR）。
 
 **入口标准：** Phase 16 日本 target 验证通过。
 
 **出口标准：**
-- 德语 target + 法语 target 配置完整
-- `keywords_de` / `keywords_fr` / `label_de` / `label_fr` 分类框架扩展
-- 至少 15 个德语源 + 15 个法语源通过 schema 校验
-- 多语言翻译链路 (de→zh, fr→zh) 端到端验证
+- ✅ 德语 target + 法语 target 配置完整
+- ✅ `keywords_de` / `keywords_fr` / `label_de` / `label_fr` 分类框架扩展
+- ✅ 22 个德语源 + 21 个法语源通过 schema 校验
+- ✅ 多语言翻译链路 (de→zh, fr→zh) 端到端验证
 
 **范围内：**
 - `config/targets/germany.yaml`, `config/targets/france.yaml`
@@ -777,13 +777,13 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 | ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 |
 |----|------|--------|------|------|--------|
-| P19.01 | 德国 target 配置 | `config/targets/germany.yaml` | — | S | bounded run 成功产出 raw/ 事件 |
-| P19.02 | 德语源配置 | `config/sources/germany/` | P19.01 | M | ≥15 德语源通过 schema 校验 |
-| P19.03 | 德语关键词规则 | `config/filters/germany/` | P19.02 | M | 德语关键词匹配正确 |
-| P19.04 | 法国 target 配置 | `config/targets/france.yaml` | — | S | bounded run 成功产出 raw/ 事件 |
-| P19.05 | 法语源配置 | `config/sources/france/` | P19.04 | M | ≥15 法语源通过 schema 校验 |
-| P19.06 | 法语关键词规则 | `config/filters/france/` | P19.05 | M | 法语关键词匹配正确 |
-| P19.07 | classification schema 多语言扩展 | `schemas/classification.schema.json` | — | S | keywords_de/fr, label_de/fr 字段 |
+| P19.01 | 德国 target 配置 | `config/targets/germany.yaml` | — | S | bounded run 成功产出 raw/ 事件 | ✅ |
+| P19.02 | 德语源配置 | `config/sources/germany/` | P19.01 | M | 22 德语源通过 schema 校验 | ✅ |
+| P19.03 | 德语关键词规则 | `config/filters/germany/` | P19.02 | M | 46 条德语关键词规则 | ✅ |
+| P19.04 | 法国 target 配置 | `config/targets/france.yaml` | — | S | bounded run 成功产出 raw/ 事件 | ✅ |
+| P19.05 | 法语源配置 | `config/sources/france/` | P19.04 | M | 21 法语源通过 schema 校验 | ✅ |
+| P19.06 | 法语关键词规则 | `config/filters/france/` | P19.05 | M | 45 条法语关键词规则 | ✅ |
+| P19.07 | classification schema 多语言扩展 | `schemas/classification.schema.json` | — | S | keywords_de/fr, label_de/fr 字段 | ✅ |
 
 ### Phase 20 · Quality Feedback Loop
 
