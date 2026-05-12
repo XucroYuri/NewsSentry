@@ -1,7 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from news_sentry.skills.judge.feedback import JudgeFeedback, FeedbackStore
+from news_sentry.skills.judge.feedback import FeedbackStore, JudgeFeedback
 
 
 def test_feedback_record():
@@ -32,10 +32,37 @@ def test_feedback_store_append():
 def test_feedback_stats():
     with TemporaryDirectory() as tmp:
         store = FeedbackStore(Path(tmp))
-        store.append(JudgeFeedback(event_id="a", run_id="r-001", automated_confidence=80, human_correct=True, notes=""))
-        store.append(JudgeFeedback(event_id="b", run_id="r-001", automated_confidence=60, human_correct=False, notes=""))
-        store.append(JudgeFeedback(event_id="c", run_id="r-001", automated_confidence=90, human_correct=True, notes=""))
+        store.append(JudgeFeedback(
+            event_id="a", run_id="r-001",
+            automated_confidence=80, human_correct=True, notes="",
+        ))
+        store.append(JudgeFeedback(
+            event_id="b", run_id="r-001",
+            automated_confidence=60, human_correct=False, notes="",
+        ))
+        store.append(JudgeFeedback(
+            event_id="c", run_id="r-001",
+            automated_confidence=90, human_correct=True, notes="",
+        ))
         stats = store.stats()
         assert stats["total"] == 3
         assert stats["correct"] == 2
         assert abs(stats["accuracy"] - 2/3) < 0.001
+
+
+def test_feedback_load_all_empty():
+    """空文件路径应返回空列表。"""
+    with TemporaryDirectory() as tmp:
+        store = FeedbackStore(Path(tmp))
+        records = store.load_all()
+        assert records == []
+
+
+def test_feedback_stats_empty():
+    """无记录时统计应返回零值。"""
+    with TemporaryDirectory() as tmp:
+        store = FeedbackStore(Path(tmp))
+        stats = store.stats()
+        assert stats["total"] == 0
+        assert stats["correct"] == 0
+        assert stats["accuracy"] == 0.0

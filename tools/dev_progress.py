@@ -8,7 +8,7 @@ import json
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -142,7 +142,7 @@ def build_report(*, remote: str, fetch: bool) -> dict[str, object]:
     metrics = collect_test_metrics()
 
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "local": local,
         "remote": remote_state,
         "phases": phases,

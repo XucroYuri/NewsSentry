@@ -31,9 +31,17 @@ def _load_yaml(path: Path) -> dict:
 
 
 class TestSourceChannelSchema:
-    """所有 source channel YAML 通过 sourcechannel.schema.json 校验。"""
+    """所有 source channel YAML 通过 sourcechannel.schema.json 校验。
 
-    @pytest.fixture(params=list(CONFIG_DIR.glob("sources/**/*.yaml")))
+    排除非 sourcechannel schema 的文件：social/ 目录、_browser_fallback.yaml 等。
+    """
+
+    @pytest.fixture(params=[
+        p for p in CONFIG_DIR.glob("sources/**/*.yaml")
+        if "social" not in str(p)
+        and "browser_fallback" not in str(p)
+        and not p.name.startswith("_template")
+    ])
     def source_file(self, request: pytest.FixtureRequest) -> Path:
         return request.param
 
@@ -120,4 +128,55 @@ class TestToolManifestSchema:
     def test_tool_manifest_valid(self, manifest_file: Path) -> None:
         schema = _load_schema("toolmanifest.schema.json")
         data = _load_yaml(manifest_file)
+        validate(data, schema)
+
+
+# ── OutputDestinations ────────────────────────────────────────
+
+
+class TestOutputDestinationsSchema:
+    """所有 output destinations YAML 通过 outputdestinations.schema.json 校验。"""
+
+    @pytest.fixture(params=list(CONFIG_DIR.glob("output/*.yaml")))
+    def output_file(self, request: pytest.FixtureRequest) -> Path:
+        return request.param
+
+    def test_output_destinations_valid(self, output_file: Path) -> None:
+        schema = _load_schema("outputdestinations.schema.json")
+        data = _load_yaml(output_file)
+        validate(data, schema)
+
+
+# ── SocialSource ──────────────────────────────────────────────
+
+
+class TestSocialSourceSchema:
+    """所有 social source YAML 通过 socialsource.schema.json 校验。"""
+
+    @pytest.fixture(params=[
+        p for p in CONFIG_DIR.glob("sources/**/social/**/*.yaml")
+        if not p.name.startswith("_")
+    ])
+    def social_file(self, request: pytest.FixtureRequest) -> Path:
+        return request.param
+
+    def test_social_source_valid(self, social_file: Path) -> None:
+        schema = _load_schema("socialsource.schema.json")
+        data = _load_yaml(social_file)
+        validate(data, schema)
+
+
+# ── MatrixGovernance ──────────────────────────────────────────
+
+
+class TestMatrixGovernanceSchema:
+    """所有 matrix governance YAML 通过 matrixgovernance.schema.json 校验。"""
+
+    @pytest.fixture(params=list(CONFIG_DIR.glob("sources/**/social/_matrix_*.yaml")))
+    def governance_file(self, request: pytest.FixtureRequest) -> Path:
+        return request.param
+
+    def test_matrix_governance_valid(self, governance_file: Path) -> None:
+        schema = _load_schema("matrixgovernance.schema.json")
+        data = _load_yaml(governance_file)
         validate(data, schema)

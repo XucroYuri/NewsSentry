@@ -1,0 +1,11 @@
+platform: twitter
+dimension: J-culture-heritage
+collect_mode: opencli_bridge
+accounts:
+- handle: '@beniculturali'
+  display_name: MiC — Ministero della Cultura
+  url: https://x.com/beniculturali
+  tier: L1
+  category: government
+  notes: 文化部
+

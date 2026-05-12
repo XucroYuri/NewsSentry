@@ -35,12 +35,47 @@
 | Phase 10 | Structured Logging + CLI Doctor | JSON 日志 + doctor 诊断命令 | ✅ DONE |
 | Phase 11 | Trend Analysis | TopicTrend + TrendReport 趋势报告 | ✅ DONE |
 
-### v0.5.0 — 信源矩阵与生产部署 🔄
+### v0.5.0 — 信源矩阵与评估基线 ✅
 
 | Phase | 文件 | 核心目标 | 状态 |
 |-------|------|---------|------|
-| Phase 12 | [../superpowers/specs/2026-05-11-phase-12-source-matrix-design.md](../superpowers/specs/2026-05-11-phase-12-source-matrix-design.md) | 60+ 信源 / 13 维度 / 7 平台社媒 KOL | 🔄 IN PROGRESS |
-| Phase 13 | TBD | ≥100 标注评估集 + Cloud VPS 零依赖部署 | 📋 PLANNED |
+| Phase 12 | [phase-12-source-matrix.md](phase-12-source-matrix.md) | 70+ 信源 / 13 维度 / 3 采集方式 / Twitter KOL | ✅ DONE |
+| Phase 13 | [phase-13-eval-set.md](phase-13-eval-set.md) | 112 评估集 + Rules Baseline + Eval Runner | ✅ DONE |
+
+### v0.6.0 — AI 优化与云部署
+
+| Phase | 文件 | 核心目标 | 状态 |
+|-------|------|---------|------|
+| Phase 14 | AI Judge Optimization | AI 研判优化、accuracy >70%、eval 对比 | ✅ DONE |
+| Phase 15 | Cloud VPS Deployment | Hetzner/Oracle 部署验证、72h 稳定运行 | 🔧 PARTIAL |
+
+### v0.7.0 — 生产化与多目标扩展
+
+| Phase | 文件 | 核心目标 | 状态 |
+|-------|------|---------|------|
+| Phase 16 | Third Target (Japan JP) | 第三国家验证、多语言模板化 | ✅ DONE |
+| Phase 17 | Real-time Alert Pipeline | 飞书/邮件/推送实时告警 | ✅ DONE |
+| Phase 18 | Production Hardening | 监控/告警/备份/HA | 📋 PLANNED |
+
+### v0.8.0 — 多语言增强与质量反馈
+
+| Phase | 文件 | 核心目标 | 状态 |
+|-------|------|---------|------|
+| Phase 19 | Multi-language Enhancement | 德语/法语第 4-5 target | 📋 PLANNED |
+| Phase 20 | Quality Feedback Loop | 人工反馈→规则自优化 | 📋 PLANNED |
+
+### v0.9.0 — 生态集成与高级功能
+
+| Phase | 文件 | 核心目标 | 状态 |
+|-------|------|---------|------|
+| Phase 21 | RSS Auto-Discovery | 信源自动发现与矩阵自进化 | 📋 PLANNED |
+| Phase 22 | API Gateway | REST API + Webhook 入站 | 📋 PLANNED |
+
+### v1.0.0 — 稳定发布
+
+| Phase | 文件 | 核心目标 | 状态 |
+|-------|------|---------|------|
+| Phase 23 | Release v1.0 | 功能冻结、安全审计、正式发布 | 📋 PLANNED |
 
 ---
 
@@ -66,8 +101,33 @@ graph TD
     end
 
     subgraph v0_5_0["v0.5.0 信源矩阵"]
-        P12["Phase 12\nSource Matrix 🔄\n60+ sources / 13 dims\n7 platforms KOL"]
-        P13["Phase 13\nEval Set + Deploy 📋\n100+ annotated\nCloud VPS"]
+        P12["Phase 12\nSource Matrix ✅\n70+ sources / 13 dims\n3 collect methods"]
+        P13["Phase 13\nEval Set ✅\n112 examples\nRules Baseline"]
+    end
+
+    subgraph v0_6_0["v0.6.0 AI 优化与云部署"]
+        P14["Phase 14\nAI Judge Opt ✅\naccuracy >70%"]
+        P15["Phase 15\nCloud Deploy 📋\n72h stable"]
+    end
+
+    subgraph v0_7_0["v0.7.0 生产化"]
+        P16["Phase 16\n3rd Target JP ✅"]
+        P17["Phase 17\nReal-time Alert ✅"]
+        P18["Phase 18\nProd Hardening 📋"]
+    end
+
+    subgraph v0_8_0["v0.8.0 多语言+反馈"]
+        P19["Phase 19\nMulti-language 📋\nDE + FR targets"]
+        P20["Phase 20\nFeedback Loop 📋\nHuman→Rules"]
+    end
+
+    subgraph v0_9_0["v0.9.0 生态集成"]
+        P21["Phase 21\nRSS Discovery 📋\nMatrix 自进化"]
+        P22["Phase 22\nAPI Gateway 📋\nREST + Webhook"]
+    end
+
+    subgraph v1_0_0["v1.0.0 稳定发布"]
+        P23["Phase 23\nRelease v1.0 📋\nSecurity Audit"]
     end
 
     P1 --> P2 --> P3 --> P4 --> P5 --> P6
@@ -76,6 +136,11 @@ graph TD
     P4 --> P7
     P7 --> P8 --> P9 --> P10 --> P11
     P11 --> P12 --> P13
+    P13 --> P14 --> P15
+    P15 --> P16 --> P17 --> P18
+    P18 --> P19 --> P20
+    P20 --> P21 --> P22
+    P22 --> P23
 ```
 
 ---
@@ -133,3 +198,4 @@ graph TD
 | ADR-0019 | 信源生命周期状态机（active/degraded/dead） | P12 信源矩阵 |
 | ADR-0020 | 社媒 KOL 三级账号分级（L1/L2/L3）+ active/semi-active 双模式 | P12 信源矩阵 |
 | ADR-0021 | Docker 全栈零依赖部署（Chromium + Xvfb + Playwright MCP + Node.js） | P12 信源矩阵 |
+| ADR-0022 | 评估集基准测试与规则引擎准确率基线 | P13 评估集 |

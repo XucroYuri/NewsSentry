@@ -4,6 +4,8 @@ APICollector — fetches JSON API endpoints using httpx and maps responses to Ne
 """
 from __future__ import annotations
 
+import os
+import re
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -71,14 +73,33 @@ class APICollector:
         self._rate_limiter = rate_limiter or RateLimiter()
         self._target_id: str = config["target_id"]
         self._source_id: str = config["source_id"]
-        self._url: str = config.get("url", "") or ""
         self._timeout: float = float(config.get("timeout_seconds", 30))
         self._max_items: int = int(config.get("max_items_per_run", 50))
         # 可选：JSON 响应到 NewsEvent 的字段映射
         self._mapping: dict[str, str] = config.get("api_mapping", {}) or {}
+        # Phase 12: 支持 endpoint 配置对象（优先）或 url 字段
+        endpoint = config.get("endpoint") or {}
+        self._url: str = endpoint.get("url", "") or config.get("url", "") or ""
+        self._method: str = endpoint.get("method", "GET").upper()
+        self._params: dict[str, Any] = self._substitute_env(endpoint.get("params", {}) or {})
+        self._headers: dict[str, str] = self._substitute_env(endpoint.get("headers", {}) or {})
         # 注册当前源的速率限制间隔
         interval = float(config.get("fetch_interval_seconds", 5.0))
         self._rate_limiter.set_interval(self._source_id, interval)
+
+    @staticmethod
+    def _substitute_env(data: dict[str, Any]) -> dict[str, Any]:
+        """将 dict 值中的 ${ENV_VAR} 占位符替换为环境变量值。"""
+        result: dict[str, Any] = {}
+        env_pattern = re.compile(r"\$\{(\w+)\}")
+        for key, value in data.items():
+            if isinstance(value, str):
+                def _repl(m: re.Match[str]) -> str:
+                    return os.environ.get(m.group(1), m.group(0))
+                result[key] = env_pattern.sub(_repl, value)
+            else:
+                result[key] = value
+        return result
 
     def collect(self, run_id: str) -> list[NewsEvent]:
         """从 API 端点抓取新闻并转换为 NewsEvent 列表。
@@ -105,10 +126,22 @@ class APICollector:
             return []
 
         try:
-            response = _retry_fetch(
-                lambda: httpx.get(self._url, timeout=self._timeout, follow_redirects=True),
-                self._source_id
-            )
+            if self._method == "POST":
+                response = _retry_fetch(
+                    lambda: httpx.post(
+                        self._url, params=self._params, headers=self._headers,
+                        timeout=self._timeout, follow_redirects=True,
+                    ),
+                    self._source_id,
+                )
+            else:
+                response = _retry_fetch(
+                    lambda: httpx.get(
+                        self._url, params=self._params, headers=self._headers,
+                        timeout=self._timeout, follow_redirects=True,
+                    ),
+                    self._source_id,
+                )
             data = response.json()
         except RuntimeError:
             raise

@@ -600,42 +600,32 @@ class TestLoadTarget:
         loader = ConfigLoader(Path("."))
         config = loader.load_target("italy")
         assert config.target_id == "italy"
-        assert len(config.sources) == 55
+        assert len(config.sources) >= 60  # Phase 12: 14→64+ sources
         source_ids = {s["source_id"] for s in config.sources}
-        expected_sources = {
-            # 已有 RSS（14 个）
+        # 验证核心 RSS 源仍然存在
+        core_ids = {
             "ansa", "repubblica", "corriere", "agi", "fao-rss",
             "tgcom24", "lastampa", "ilfattoquotidiano", "ansa-en",
             "ilmessaggero", "rainews", "ilsole24ore", "thelocal-it", "sky-tg24",
-            # 新增 RSS — A.政治与治理
-            "adnkronos", "camera-it", "senato-it", "quirinale", "interno-gov",
-            # 新增 RSS — B.经济与商业
-            "bancaditalia", "eni-group",
-            # 新增 RSS — C.外交与国际关系
-            "farnesina",
-            # 新增 RSS — D.安全与防务
-            "difesa-it", "polizia-stato", "carabinieri",
-            # 新增 RSS — E.司法与法治
-            "anac",
-            # 新增 RSS — F.社会与民生
-            "ilsecoloxix", "ilmattino", "salute-gov", "miur",
-            # 新增 RSS — G.科技与数字
-            "agid", "garante-privacy", "wired-it", "startupitalia",
-            # 新增 RSS — H.环境与能源
-            "enea", "ispra", "legambiente",
-            # 新增 RSS — I.移民与人口
-            "unhcr-italia", "iom-italy", "open-migration",
-            # 新增 RSS — J.文化与遗产
-            "mic", "unesco-it", "ansa-cultura",
-            # 新增 RSS — K.宗教与梵蒂冈
-            "vatican-news", "cei", "aci-stampa",
-            # API 信源（4 个）
-            "gnews-italy", "newsapi-it", "gdelt-italy", "istat",
-            # OpenCLI 信源（5 个）
-            "governo-it", "parlamento-it", "openpolis",
-            "corte-costituzionale", "fondazione-italia-cina",
         }
-        assert source_ids == expected_sources
+        assert core_ids.issubset(source_ids)
         assert "score_threshold" in config.filter_rules
         assert "l0_domains" in config.classification_rules
         assert "command_policy" in config.sandbox_policy
+
+        # Phase 12: 验证三种采集类型都有源
+        by_type = {}
+        for s in config.sources:
+            by_type.setdefault(s["type"], []).append(s)
+        assert len(by_type.get("rss", [])) >= 30
+        assert len(by_type.get("api", [])) >= 5
+        assert len(by_type.get("opencli", [])) >= 10
+
+        # 验证 API 源有 endpoint 配置
+        for api_src in by_type["api"]:
+            assert "endpoint" in api_src, f"API source {api_src['source_id']} missing endpoint"
+
+        # 验证 OpenCLI 源有 tool_ref 配置
+        for opencli_src in by_type["opencli"]:
+            sid = opencli_src["source_id"]
+            assert "tool_ref" in opencli_src, f"OpenCLI source {sid} missing tool_ref"

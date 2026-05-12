@@ -1,8 +1,7 @@
-import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from news_sentry.core.checkpoint import StageCheckpoint, CheckpointManager, ErrorType
+from news_sentry.core.checkpoint import CheckpointManager, ErrorType, StageCheckpoint
 
 
 def test_checkpoint_save_and_load():

@@ -1,0 +1,10 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: "bbc-jp"
+display_name: "BBC Japanese"
+type: rss
+url: "https://feeds.bbci.co.uk/japanese/rss.xml"
+credibility_base: 0.88
+fetch_interval_minutes: 60
+max_items_per_run: 30
+timeout_seconds: 30
+enabled: true

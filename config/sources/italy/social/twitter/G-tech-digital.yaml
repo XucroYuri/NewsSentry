@@ -1,0 +1,11 @@
+platform: twitter
+dimension: G-tech-digital
+collect_mode: opencli_bridge
+accounts:
+- handle: '@AgenziaItalia'
+  display_name: Agenzia per l'Italia Digitale
+  url: https://x.com/AgenziaItalia
+  tier: L2
+  category: government_digital
+  notes: 数字化局
+

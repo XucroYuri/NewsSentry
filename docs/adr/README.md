@@ -40,6 +40,12 @@
 | [ADR-0014](./0014-json-schema-contract-validation.md) | JSON Schema 2020-12 作为契约校验载体，存放于 schemas/ | Accepted | 2026-05-09 |
 | [ADR-0015](./0015-config-merge-priority.md) | 配置覆盖优先级：target → source → sandbox 三层 deep merge | Accepted | 2026-05-09 |
 | [ADR-0016](./0016-cli-entry-point.md) | CLI 入口正式锁定：python -m news_sentry.cli run --target --stage --profile（关闭 ADR-0006 backlog） | Accepted | 2026-05-09 |
+| [ADR-0017](./adr-0017.md) | 采集阶段零 Token 消耗原则 | Accepted | 2026-05-11 |
+| [ADR-0018](./adr-0018.md) | 三层浏览器采集兜底（Bridge → Playwright → Computer Use） | Accepted | 2026-05-11 |
+| [ADR-0019](./adr-0019.md) | 信源生命周期状态机（active/degraded/dead） | Accepted | 2026-05-11 |
+| [ADR-0020](./adr-0020.md) | 多 Agent 编排模式 | Accepted | 2026-05-11 |
+| [ADR-0021](./adr-0021.md) | 信源矩阵 13 维分类框架 + 多层浏览器兜底架构 | Accepted | 2026-05-11 |
+| [ADR-0022](./adr-0022.md) | 评估集基准测试与规则引擎准确率基线 | Accepted | 2026-05-12 |
 
 ## 引用方式
 

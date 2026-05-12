@@ -1,0 +1,88 @@
+# ---- Builder ----
+FROM python:3.12-slim AS builder
+WORKDIR /app
+COPY pyproject.toml ./
+COPY src/ src/
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -e ".[dev]"
+
+# ---- Runtime with Chromium + Playwright MCP + OpenCLI + Hermes ----
+# NOTE: This image requires ≥12GB RAM for docker build.
+# If local build OOMs, use GitHub Actions CI (16GB) instead:
+#   docker build -f Dockerfile.full -t news-sentry-full:0.5.0 .
+FROM python:3.12-slim AS runtime
+WORKDIR /app
+
+# Step 1: Xvfb + gosu + cron + curl + unzip
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    xvfb gosu cron curl ca-certificates unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+# Step 2: Node.js 22 LTS (via NodeSource, required by OpenCLI ≥21)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Step 3: Chromium + driver
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    chromium chromium-driver \
+    && rm -rf /var/lib/apt/lists/*
+
+# Step 4: CJK fonts + ffmpeg (for yt-dlp video extraction)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    fonts-noto-cjk ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# OpenCLI CLI (Layer 1 browser bridge - zero Token)
+RUN npm install -g @jackwener/opencli
+
+# OpenCLI Extension for Chromium (download from GitHub releases)
+ARG OPENCLI_VERSION=v1.7.16
+ARG OPENCLI_EXT_VERSION=v1.0.10
+RUN mkdir -p /usr/share/chromium/extensions/opencli && \
+    cd /tmp && \
+    curl -sL "https://github.com/jackwener/OpenCLI/releases/download/${OPENCLI_VERSION}/opencli-extension-${OPENCLI_EXT_VERSION}.zip" -o opencli-ext.zip && \
+    unzip -o opencli-ext.zip -d /usr/share/chromium/extensions/opencli && \
+    rm opencli-ext.zip
+
+# Playwright MCP (Layer 2 browser fallback)
+RUN npm install -g playwright @playwright/mcp \
+    && npx playwright install-deps chromium \
+    && npx playwright install chromium
+
+# yt-dlp (video/audio extraction for media sources)
+RUN pip install --no-cache-dir yt-dlp
+
+COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+COPY src/ src/
+COPY pyproject.toml ./
+COPY config/ config/
+COPY schemas/ schemas/
+COPY tools/ tools/
+RUN pip install --no-cache-dir -e . --no-deps && \
+    useradd --create-home appuser && \
+    mkdir -p /app/data/italy/raw /app/data/italy/evaluated /app/data/italy/drafts \
+              /app/data/italy/reviewed /app/data/italy/published /app/data/italy/archive \
+              /app/data/italy/memory /app/data/italy/logs && \
+    chown -R appuser:appuser /app/data && \
+    mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
+
+# Hermes cron schedule (2-hour cycle: collect→filter→judge→output)
+COPY config/hermes.crontab /etc/cron.d/news-sentry
+RUN chmod 0644 /etc/cron.d/news-sentry && \
+    crontab /etc/cron.d/news-sentry
+
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+ENV CHROME_BIN=/usr/bin/chromium
+ENV CHROMEDRIVER_BIN=/usr/bin/chromedriver
+ENV CHROME_EXTENSIONS_DIR=/usr/share/chromium/extensions
+ENV DISPLAY=:99
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=true
+ENV PYTHONUNBUFFERED=1
+
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
+CMD ["run", "--target", "italy", "--stage", "all"]

@@ -300,7 +300,11 @@ class SandboxPolicy(BaseModel):
         # ── browser_policy ──
         br_raw = data.get("browser_policy", {})
         if isinstance(br_raw, dict):
-            allowed_profiles = br_raw.get("session_profiles_allowed", [])
+            profiles_val = br_raw.get("session_profiles_allowed", [])
+            if isinstance(profiles_val, list):
+                allowed_profiles = profiles_val
+            else:
+                allowed_profiles = []
             browser = BrowserPolicy(
                 allow_browser=len(allowed_profiles) > 0,
                 allowed_profiles=allowed_profiles,

@@ -1,3 +1,4 @@
+# Schema: ../../schemas/outputdestinations.schema.json
 # 契约: docs/contracts-canonical.md §8
 # ADR: ADR-0002, ADR-0010
 #
@@ -51,4 +52,40 @@ destinations:
     filter:
       min_news_value_score: 80
       recommendation: ["publish"]
-    notes: "Phase 6 社交/KOL 推送实验阶段启用，v1 保持 false"
+    notes: "Phase 17 告警推送：高价值+涉华事件"
+
+  - destination_id: feishu_webhook_china
+    type: feishu_webhook
+    enabled: false
+    url: "${FEISHU_WEBHOOK_URL}"
+    filter:
+      min_news_value_score: 60
+      min_china_relevance: 50
+      recommendation: ["publish", "review"]
+    notes: "Phase 17 告警推送：中等价值+中国关联事件"
+
+  - destination_id: email_alert
+    type: email_smtp
+    enabled: false                        # 需配置 SMTP 环境变量后手动启用
+    smtp_host: "${SMTP_HOST}"
+    smtp_port: 587
+    smtp_user: "${SMTP_USER}"
+    smtp_password: "${SMTP_PASSWORD}"
+    from: "${SMTP_USER}"
+    to: []
+    use_tls: true
+    filter:
+      min_news_value_score: 80
+      recommendation: ["publish"]
+    notes: "Phase 17 邮件告警：高价值事件"
+
+  - destination_id: telegram_alert
+    type: telegram_bot
+    enabled: false                        # 需配置 TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
+    filter:
+      min_news_value_score: 80
+      min_china_relevance: 30
+      recommendation: ["publish"]
+    notes: "Phase 17 Telegram 告警：高价值+涉华事件"

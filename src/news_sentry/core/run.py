@@ -19,6 +19,8 @@ from news_sentry.adapters.providers.base import AIProvider
 from news_sentry.adapters.providers.openai_provider import OpenAIProvider
 from news_sentry.adapters.providers.rules_provider import RulesProvider
 from news_sentry.adapters.tools.opencli import OpenCLIToolAdapter
+from news_sentry.core.alert_pipeline import AlertPipeline
+from news_sentry.core.confidence_router import ConfidenceRouter
 from news_sentry.core.config import ConfigLoader, ResolvedConfig
 from news_sentry.core.file_writer import FileWriter
 from news_sentry.core.memory import Memory
@@ -335,6 +337,20 @@ def _run_output(
             run_log.log_error("output", str(e), event_id=event.id)
 
     ctx.events_output = count
+
+    # Phase 17: 告警管道 — 对满足条件的 judged 事件推送告警
+    dests_list = dict(config.output_destinations).get("destinations", [])
+    if dests_list:
+        alert_pipeline = AlertPipeline(destinations=dests_list)
+        alert_stats = alert_pipeline.process(events, run_id)
+        if alert_stats["alerts_sent"] > 0 or alert_stats["alerts_failed"] > 0:
+            logger.info(
+                "告警统计: sent=%d deduped=%d failed=%d",
+                alert_stats["alerts_sent"],
+                alert_stats["alerts_deduped"],
+                alert_stats["alerts_failed"],
+            )
+
     duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
     run_log.log_phase_end("output", count, duration_ms)
 
@@ -347,7 +363,11 @@ def _run_judge(
     memory: Memory,
     ctx: PipelineContext,
 ) -> None:
-    """执行研判阶段 — AI 优先（Phase 5），回退到规则引擎。"""
+    """执行研判阶段 — Phase 14 置信度路由混合模式。
+
+    工作流：规则引擎先跑全部 → 低置信度升级到 AI → 写入事件。
+    AI 不可用时全部走规则引擎（向后兼容）。
+    """
     events = _load_events_from_dir(file_writer.base_dir / "evaluated")
     if not events:
         run_log.log_phase_start("judge")
@@ -357,37 +377,35 @@ def _run_judge(
     run_log.log_phase_start("judge")
     t0 = datetime.now(UTC)
 
-    # 尝试 AI 研判（Phase 5 多 Provider 路由），不可用时回退到规则引擎
+    # Phase 14: 置信度路由 — 规则先跑，低置信度升级 AI
+    rules_judge = RulesJudgeSkill(config.classification_rules, memory)
     ai_judge = _init_ai_judge()
-    if ai_judge is not None:
-        for event in events:
-            try:
-                event = ai_judge.judge(event, run_id)
-                # Phase 5: 预算超限降级记录
-                if (
-                    event.judge_result is not None
-                    and event.judge_result.recommendation == JudgeRecommendation.MONITOR
-                ):
-                    run_log.log_event(
-                        "judge", event.id,
-                        "budget_exceeded → recommendation=monitor",
-                    )
-            except Exception as e:
-                run_log.log_error("judge", str(e), event_id=event.id)
-            try:
-                file_writer.write_event(event)
-                run_log.log_event("judge", event.id, "judged")
-            except Exception as e:
-                run_log.log_error("judge", str(e), event_id=event.id)
-    else:
-        judge_skill = RulesJudgeSkill(config.classification_rules, memory)
-        judged = judge_skill.judge(events, run_id)
-        for event in judged:
-            try:
-                file_writer.write_event(event)
-                run_log.log_event("judge", event.id, "judged")
-            except Exception as e:
-                run_log.log_error("judge", str(e), event_id=event.id)
+    router = ConfidenceRouter(rules_judge, ai_judge)
+    judged = router.judge(events, run_id)
+
+    # 记录路由统计
+    stats = router.stats
+    logger.info(
+        "研判路由统计: total=%d rules_only=%d ai_escalated=%d ai_success=%d ai_failed=%d",
+        stats["total"], stats["rules_only"],
+        stats["ai_escalated"], stats["ai_success"], stats["ai_failed"],
+    )
+
+    for event in judged:
+        # 预算超限降级记录
+        if (
+            event.judge_result is not None
+            and event.judge_result.recommendation == JudgeRecommendation.MONITOR
+        ):
+            run_log.log_event(
+                "judge", event.id,
+                "budget_exceeded → recommendation=monitor",
+            )
+        try:
+            file_writer.write_event(event)
+            run_log.log_event("judge", event.id, "judged")
+        except Exception as e:
+            run_log.log_error("judge", str(e), event_id=event.id)
 
     ctx.events_judged = len(events)
     duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
