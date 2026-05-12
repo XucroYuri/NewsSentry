@@ -1,0 +1,43 @@
+# News Sentry — systemd 服务文件
+# 安装:
+#   sudo cp config/news-sentry.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable news-sentry
+#   sudo systemctl start news-sentry
+#
+# 查看状态:
+#   sudo systemctl status news-sentry
+#   curl http://localhost:8080/health
+
+[Unit]
+Description=News Sentry — 新闻监控与研判管道
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=news-sentry
+Group=news-sentry
+WorkingDirectory=/opt/news-sentry
+ExecStart=/opt/news-sentry/.venv/bin/python3 -m news_sentry.cli run --target italy --stage all
+Restart=on-failure
+RestartSec=30
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# 环境变量
+EnvironmentFile=-/opt/news-sentry/.env
+
+# 安全加固
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/news-sentry/data
+
+# 健康检查
+ExecStartPost=/bin/sleep 5
+HealthCheckIntervalSec=60
+HealthCheckTimeOutSec=5
+
+[Install]
+WantedBy=multi-user.target
