@@ -1,0 +1,13 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: "mainichi-politics"
+display_name: "毎日新聞 政治"
+type: rss
+url: "https://mainichi.jp/rss/politics.xml"
+credibility_base: 0.85
+fetch_interval_minutes: 60
+max_items_per_run: 30
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0

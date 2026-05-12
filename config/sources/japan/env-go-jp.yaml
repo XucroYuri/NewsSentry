@@ -1,0 +1,10 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: "env-go-jp"
+display_name: "環境省 発表"
+type: rss
+url: "https://www.env.go.jp/rss/info.rdf"
+credibility_base: 0.90
+fetch_interval_minutes: 120
+max_items_per_run: 20
+timeout_seconds: 30
+enabled: true

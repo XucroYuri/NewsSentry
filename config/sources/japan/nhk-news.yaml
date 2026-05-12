@@ -1,0 +1,13 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: "nhk-news"
+display_name: "NHK ニュース"
+type: rss
+url: "https://www.nhk.or.jp/rss/news/cat0.xml"
+credibility_base: 0.92
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+health:
+  last_success_at: null
+  consecutive_failures: 0
