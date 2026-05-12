@@ -1,681 +1,374 @@
-# News Sentry
+<p align="center">
+  <img src="https://img.shields.io/badge/version-1.0.0-blue.svg" alt="version" />
+  <img src="https://img.shields.io/badge/python-3.11+-3776AB.svg?logo=python&logoColor=white" alt="python" />
+  <img src="https://img.shields.io/badge/tests-1251%20passed-brightgreen.svg" alt="tests" />
+  <img src="https://img.shields.io/badge/coverage-92%25-green.svg" alt="coverage" />
+  <img src="https://img.shields.io/badge/license-Apache%202.0-orange.svg" alt="license" />
+  <img src="https://img.shields.io/badge/ruff-0%20errors-success.svg" alt="ruff" />
+  <img src="https://img.shields.io/badge/mypy-strict-success.svg" alt="mypy" />
+</p>
 
-**Framework-neutral Agent Skill Pack for continuous news monitoring.**
+<h1 align="center">News Sentry</h1>
 
-First reference target: **Italy** (Italian → Chinese, Breaking News focus).
-Core kernel and contracts are reusable for any country, region, or domain.
+<p align="center">
+  <strong>框架中立的 AI 新闻监控引擎</strong><br>
+  RSS/API/社媒采集 → 智能过滤 → AI 研判 → Markdown 输出<br>
+  配置驱动，零代码扩展新国家
+</p>
 
-> **License**: [Apache 2.0](LICENSE)
-> **Language**: [简体中文版](README_zh.md)
-
----
-
-## Table of Contents
-
-- [What is News Sentry](#what-is-news-sentry)
-- [Quick Start](#quick-start)
-- [Pipeline Overview](#pipeline-overview)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Usage Guide](#usage-guide)
-- [Architecture](#architecture)
-- [Tech Stack](#tech-stack)
-- [Development](#development)
-- [Deployment](#deployment)
-- [Project Status](#project-status)
-- [Troubleshooting](#troubleshooting)
+<p align="center">
+  <a href="#快速开始">快速开始</a> · <a href="#安装">安装</a> · <a href="#使用">使用</a> · <a href="#部署">部署</a> · <a href="docs/architecture.md">架构</a> · <a href="docs/api-reference.md">API</a>
+</p>
 
 ---
 
-## What is News Sentry
+## News Sentry 是什么？
 
-News Sentry is a **continuous news monitoring platform** designed to run as an Agent Skill Pack on Hermes Agent or OpenClaw runtime carriers. It automates the full news intelligence lifecycle:
+News Sentry 是一个**持续新闻监控平台**，自动化完成从采集到研判的全流程：
 
 ```
-RSS/API Sources → Collect → Filter → Judge → Output (Markdown)
+70+ 信源采集 → 关键词过滤 → AI 研判评分 → Markdown 输出 + 实时告警
 ```
 
-**Core principles:**
-- **Framework-neutral** — runs on Hermes Agent, OpenClaw, or standalone CLI
-- **Configuration-driven** — add new countries without writing code
-- **No dedicated frontend** — visualization via Obsidian Markdown + push notifications (Feishu/email)
-- **v1 no auto-publish** — output stops at drafts/reviewed, no automatic external publishing
-- **Bilingual pipeline** — native Italian → Chinese translation support
+**核心特性：**
 
-**Reference use case — Italy Full-Spectrum Monitoring (意大利全维度监控):**
-
-Phase 12 expands from 14 RSS feeds to **60+ sources across 13 dimensions**, using 3 collection methods (RSS/API/OpenCLI) and covering 7 social media platforms for KOL monitoring:
-
-| Dimension | Focus | Sources |
-|-----------|-------|---------|
-| A. Politics & Governance | Government, parliament, parties, elections | 15 |
-| B. Economy & Business | Macro, industry, trade, finance | 7 |
-| C. Diplomacy & International | EU, NATO, G7, Mediterranean | 4 |
-| D. Security & Defense | Military, counter-terror, cyber | 4 |
-| E. Justice & Rule of Law | Courts, anti-corruption, organized crime | 4 |
-| F. Society & Livelihood | Healthcare, education, labor, housing | 8 |
-| G. Tech & Digital | AI, digital transformation, privacy | 5+ |
-| H. Environment & Energy | Climate, renewables, nuclear, disasters | 5+ |
-| I. Immigration & Demographics | Mediterranean migration, refugees | 3+ |
-| J. Culture & Heritage | Conservation, tourism, arts, fashion | 5+ |
-| K. Religion & Vatican | Holy See, Catholicism, interfaith | 4+ |
-| L. China-Related | BRI, MOUs, Chinese enterprises, diaspora | 5+ |
-| M. Other (Open) | Universal monitoring, breaking detection | 3+ |
-
-**Collection principle: Zero Token at collect stage.** RSS, API, OpenCLI, and Playwright MCP all operate without AI token consumption.
+| 特性 | 说明 |
+|------|------|
+| **框架中立** | 支持 Hermes Agent、OpenClaw 或独立 CLI 运行 |
+| **配置驱动** | 新增监控国家只需添加 YAML，无需写代码 |
+| **零 Token 采集** | RSS / API / OpenCLI 采集阶段不消耗 AI Token |
+| **5 国已配置** | 意大利、中国、日本、德国、法国 |
+| **双语管道** | 原文采集 → 自动翻译 → 中文研判输出 |
+| **反馈闭环** | 人工反馈自动优化关键词权重 |
+| **信源自进化** | RSS 自动发现 + 健康巡检 + 矩阵自扩展 |
+| **无专用前端** | Obsidian Markdown + 飞书/邮件/推送告警 |
 
 ---
 
-## Quick Start
+## 快速开始
 
 ```bash
-# 1. Clone
+# 1. 克隆
 git clone https://github.com/XucroYuri/NewsSentry.git
 cd NewsSentry
 
-# 2. Install
+# 2. 安装
 bash install.sh --dev
 
-# 3. Dry-run — verify configuration
+# 3. 配置 API Key（至少一个，用于 AI 研判）
+cp .env.example .env
+# 编辑 .env 填入 OPENAI_API_KEY 或 ANTHROPIC_API_KEY
+
+# 4. 验证配置
 source .venv/bin/activate
 make dry-run
 
-# 4. Collect news from Italian sources
-make run
-
-# 5. Run full pipeline: collect → filter → judge → output
+# 5. 运行全链路
 make run-all
-
-# 6. Check data statistics
-make stats
-
-# 7. Run tests and lint
-make check
 ```
 
-### Two Profiles
-
-| | `local-workstation` | `cloud-vps` |
-|---|---|---|
-| **Purpose** | Local dev / testing / manual review | 24/7 production monitoring |
-| **Trigger** | CLI manual / Claude Cowork fallback | Hermes Agent cron / gateway |
-| **Timeout** | 10 minutes | 30 minutes |
-| **Network** | Permissive (local debug) | Sandbox-restricted |
-| **Recommended for** | First deployment validation | Long-term production |
+> **首次运行预计 1-2 分钟**，包含：采集意大利 19+ RSS 源 → 过滤 100+ 关键词 → AI 研判 → 输出 Markdown
 
 ---
 
-## Pipeline Overview
+## 安装
 
-```
-                         ┌──────────────────┐
-  RSS Feeds (32+)  ────→ │                  │
-  API Endpoints (4) ───→ │     COLLECT      │ ──→ raw/*.md
-  OpenCLI (12+)    ────→ │  (Zero Token)    │
-  Social/KOL (7 pf) ───→ │                  │
-                         └────────┬─────────┘
-                                  │
-                         ┌────────▼─────────┐
-                         │     FILTER        │ ──→ evaluated/*.md
-                         │ (91+ keywords)    │ ──→ archive/*.md
-                         │ L0-L3 classification │
-                         └────────┬─────────┘
-                                  │
-                         ┌────────▼─────────┐
-                         │      JUDGE        │ ──→ evaluated/*.md
-                         │ (AI + rules-based) │
-                         └────────┬─────────┘
-                                  │
-                         ┌────────▼─────────┐
-                         │     OUTPUT        │ ──→ drafts/*.md
-                         │   (Markdown)      │
-                         └──────────────────┘
-```
+### 前置要求
 
-**Pipeline stages:**
+| 依赖 | 最低版本 | 用途 |
+|------|---------|------|
+| Python | 3.11+ | 运行时 |
+| pip | 随 Python | 包管理 |
+| git | 任意 | 版本控制 |
 
-| Stage | Input | Output | Description |
-|-------|-------|--------|-------------|
-| **collect** | RSS/API/OpenCLI/Social configs | `raw/*.md` | Zero-token fetch from 60+ sources across RSS, API, OpenCLI, and social media |
-| **filter** | `raw/*.md` | `evaluated/*.md` | Keyword matching, L0-L3 classification across 13 dimensions, dedup |
-| **judge** | `evaluated/*.md` | `evaluated/*.md` | AI-powered news value scoring, China relevance, recommendation |
-| **output** | `evaluated/*.md` | `drafts/*.md` | Generate structured Markdown reports |
+> **零原生依赖** — 所有 Python 包均为纯 Python wheel，无需 C 编译工具链。
 
-**Each run produces:**
-- A **RunLog** JSON with timing, counts, errors per phase
-- **Heartbeat file** for health monitoring
-- **Source health** tracking (consecutive failures, success rate)
-- **Automatic log rotation** (keeps last 100 runs)
-
----
-
-## Installation
-
-### Prerequisites
-
-| Dependency | Min Version | Purpose |
-|------------|-------------|---------|
-| **Python** | 3.11+ | Runtime |
-| **pip** | bundled | Package management |
-| **git** | any | Version control |
-
-**Zero native dependencies** — all Python packages are pure Python wheels. No `libxml2`, `libxslt`, or C extension toolchain required.
-
-### Install Script
+### 一键安装
 
 ```bash
-# Development install (includes pytest, ruff, mypy)
-bash install.sh --dev
-
-# Production install (core dependencies only)
-bash install.sh
+bash install.sh --dev      # 开发模式（含 pytest, ruff, mypy）
+bash install.sh            # 生产模式
+bash install.sh --check    # 安装 + 运行测试
 ```
 
-The script creates a `.venv` virtual environment and installs all dependencies. A `.env` file is auto-created from `.env.example`.
-
-### Manual Install
+### 手动安装
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"          # development
-pip install -e .                 # production only
-pip install -e ".[proxy]"        # with SOCKS5 proxy support
+pip install -e ".[dev]"    # 开发
+pip install -e .           # 生产
+pip install -e ".[proxy]"  # SOCKS5 代理支持
+pip install -e ".[api]"    # FastAPI REST API 网关
 ```
-
-### Dependencies
-
-**Core** (`pyproject.toml`):
-- `pydantic>=2.0` — data models
-- `pyyaml>=6.0` — config parsing
-- `httpx>=0.27` — HTTP client
-- `feedparser>=6.0` — RSS/Atom parsing
-- `click>=8.1` — CLI framework
-
-**Dev extras** `[dev]`:
-- `pytest>=8.0`, `pytest-asyncio`, `pytest-cov` — testing
-- `mypy>=1.10` — static type checking (strict mode)
-- `ruff>=0.4` — linting
-- `jsonschema>=4.21` — JSON Schema validation
-
-**Proxy extras** `[proxy]`:
-- `httpx[socks]>=0.27` — SOCKS5 proxy support
 
 ---
 
-## Configuration
+## 使用
 
-### Directory Structure
-
-```
-config/
-├── targets/           # Monitoring target definitions
-│   ├── italy.yaml     # Italy target (13 dimensions, 60+ sources)
-│   └── _template.yaml # Template for new targets
-├── sources/italy/     # Source channel configs by acquisition method
-│   ├── rss/           # 32 RSS feed configs (A-M dimensions)
-│   ├── api/           # 4 API configs (GDELT, NewsAPI, GNews, ISTAT)
-│   ├── opencli/       # 12+ OpenCLI configs (government, parliament, etc.)
-│   ├── social/        # Social media account lists by platform
-│   │   └── twitter/   # Twitter/X account configs (4 dimensions, 60+ accounts)
-│   ├── _matrix_governance.yaml  # Self-evolution + health audit config
-│   └── _browser_fallback.yaml   # 3-layer browser degradation config
-├── filters/italy/     # Keyword filter rules
-│   └── default.yaml   # 91 Italian keywords with weights
-├── classification/    # L0-L3 classification rules
-├── profiles/          # Deployment profiles
-│   ├── local-workstation.yaml
-│   └── cloud-vps.yaml
-├── sandbox/           # Sandbox security policies
-├── runtime/           # Runtime carrier configs
-├── provider/          # AI provider routing
-├── output/            # Output destinations
-└── toolmanifest/      # Tool manifest registry
-    └── opencli-baseline.yaml  # 12 OpenCLI tools
-```
-
-### Adding a New Monitoring Target
+### CLI 命令
 
 ```bash
-# 1. Create target config from template
+# 单阶段运行
+python -m news_sentry.cli run --target italy --stage collect    # 仅采集
+python -m news_sentry.cli run --target italy --stage filter     # 仅过滤
+python -m news_sentry.cli run --target italy --stage judge      # 仅研判
+python -m news_sentry.cli run --target italy --stage output     # 仅输出
+
+# 全链路
+python -m news_sentry.cli run --target italy --stage all
+
+# 其他 target
+python -m news_sentry.cli run --target japan --stage all
+python -m news_sentry.cli run --target germany --stage all
+
+# 干运行（验证配置，不写文件）
+python -m news_sentry.cli run --target italy --stage all --dry-run
+
+# 生产 profile
+python -m news_sentry.cli run --target italy --stage all --profile cloud-vps
+
+# 系统诊断
+python -m news_sentry.cli doctor --target italy
+```
+
+### Makefile 快捷命令
+
+```bash
+make dry-run        # 验证配置
+make run            # 采集
+make run-all        # 全链路
+make check          # lint + test
+make stats          # 查看数据统计
+make latest-log     # 查看最新运行日志
+make doctor         # 系统诊断
+make help           # 查看所有命令
+```
+
+### 环境变量
+
+| 变量 | 必填 | 默认值 | 说明 |
+|------|------|--------|------|
+| `OPENAI_API_KEY` | 至少一个 | — | OpenAI API Key |
+| `ANTHROPIC_API_KEY` | 至少一个 | — | Anthropic API Key |
+| `DEEPSEEK_API_KEY` | 否 | — | DeepSeek API Key |
+| `NEWSSENTRY_API_KEY` | 否 | — | API 网关认证 Key |
+| `NEWSSENTRY_PROFILE` | 否 | `local-workstation` | 部署 profile |
+| `HTTPS_PROXY` | 否 | — | 代理（如 `socks5://127.0.0.1:1080`）|
+
+---
+
+## Pipeline 总览
+
+```
+┌───────────────────────────────────────────────────────────────┐
+│                        CLI / API 入口                          │
+│      python -m news_sentry.cli        FastAPI /api/v1         │
+└─────────────────────┬─────────────────────────┬───────────────┘
+                      │                         │
+┌─────────────────────▼─────────────────────────▼───────────────┐
+│                     bounded_run 运行时                          │
+│              ConfigLoader + RunLog + Memory                    │
+└─────────┬───────────────────────────────────────┬─────────────┘
+          │                                       │
+ ┌────────▼────────┐                    ┌─────────▼──────────┐
+ │   COLLECT 采集   │                    │   FILTER 过滤       │
+ │ RSS · API · KOL  │──────────────────→ │ 100+ 关键词评分     │
+ │ 零 Token 消耗    │                    │ L0-L3 四层分类       │
+ └─────────────────┘                    └─────────┬──────────┘
+                                                  │
+                                        ┌─────────▼──────────┐
+                                        │    JUDGE 研判       │
+                                        │ ConfidenceRouter    │
+                                        │ 规则 → AI 升级路由  │
+                                        └─────────┬──────────┘
+                                                  │
+ ┌───────────────────────┐              ┌─────────▼──────────┐
+ │  告警推送              │◀─────────────│   OUTPUT 输出       │
+ │ 飞书 · 邮件 · TG      │              │ Markdown 报告生成   │
+ └───────────────────────┘              └─────────┬──────────┘
+                                                  │
+                                       ┌──────────▼─────────┐
+                                       │  FEEDBACK 反馈      │
+                                       │ 人工标注 → 规则优化  │
+                                       └────────────────────┘
+```
+
+### 四个阶段
+
+| 阶段 | 输入 | 输出 | 说明 |
+|------|------|------|------|
+| **Collect** | RSS/API/OpenCLI 配置 | `raw/` | 从 70+ 源采集，零 Token |
+| **Filter** | `raw/` | `evaluated/` + `archive/` | 关键词评分 + L0-L3 分类 + 去重 |
+| **Judge** | `evaluated/` | `evaluated/` | AI 新闻价值评分 + 中国关联度 |
+| **Output** | `evaluated/` | `drafts/` | Markdown 报告 + 多通道告警 |
+
+### 数据目录
+
+```
+data/{target}/
+├── raw/           #  采集事件（Markdown + YAML frontmatter）
+├── evaluated/     #  过滤 + 研判后的事件
+├── drafts/        #  输出报告（v1 不自动发布）
+├── reviewed/      #  人工审阅候选
+├── published/     #  已批准归档
+├── archive/       #  拒绝 / 重复 / 低价值
+├── memory/        #  已知 ID / 信源健康 / 游标 / 规则优化状态
+└── logs/          #  运行日志 + 心跳
+```
+
+---
+
+## 已配置的监控目标
+
+| Target | 语言对 | 信源数 | 关键词规则 |
+|--------|--------|--------|-----------|
+| 🇮🇹 **italy** | it→zh | 19+ | 100+ |
+| 🇨🇳 **china-watch-en** | en→zh | 10+ | 30+ |
+| 🇯🇵 **japan** | ja→zh | 19 | 59 |
+| 🇩🇪 **germany** | de→zh | 22 | 46 |
+| 🇫🇷 **france** | fr→zh | 21 | 45 |
+
+### 添加新国家（零代码）
+
+```bash
+# 1. 从模板创建 target 配置
 cp config/targets/_template.yaml config/targets/{country}.yaml
 
-# 2. Create source configs directory
-mkdir config/sources/{country}/
-# Add source YAML files...
+# 2. 创建信源和过滤配置
+mkdir -p config/sources/{country}/rss config/filters/{country}
 
-# 3. Create filter rules
-mkdir config/filters/{country}/
-# Add keyword YAML...
-
-# 4. Run — no code changes needed
+# 3. 运行
 make run TARGET={country}
 ```
 
-### Environment Variables
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `NEWSSENTRY_PROFILE` | No | `local-workstation` | Deployment profile ID |
-| `NEWSSENTRY_DATA_DIR` | No | `./data` | Data output root directory |
-| `NEWSSENTRY_ALLOW_EXTERNAL_DATA_DIR` | No | `false` | Allow data dir outside project root (set `1`/`true`) |
-| `DEEPSEEK_API_KEY` | Phase 5 | — | DeepSeek API key |
-| `OPENAI_API_KEY` | Phase 5 | — | OpenAI API key |
-| `FEISHU_WEBHOOK_URL` | No | — | Feishu push notification webhook |
-| `all_proxy` | No | — | SOCKS5 proxy (e.g., `socks5://127.0.0.1:1080`) |
-
-Full list in [`.env.example`](.env.example).
-
 ---
 
-## Usage Guide
+## 部署
 
-### CLI Commands
-
-```bash
-# Run a single stage
-python -m news_sentry.cli run --target italy --stage collect
-python -m news_sentry.cli run --target italy --stage filter
-python -m news_sentry.cli run --target italy --stage judge
-python -m news_sentry.cli run --target italy --stage output
-
-# Run full pipeline
-python -m news_sentry.cli run --target italy --stage all
-
-# Dry-run (validate config without execution)
-python -m news_sentry.cli run --target italy --stage collect --dry-run
-
-# Use cloud profile
-python -m news_sentry.cli run --target italy --stage all --profile cloud-vps
-
-# Specify run ID (otherwise auto-generated)
-python -m news_sentry.cli run --target italy --stage all --run-id my-run-001
-
-# Validate a config file
-python -m news_sentry.cli validate --config config/targets/italy.yaml
-
-# List available skills
-python -m news_sentry.cli skill list
-
-# List available tools
-python -m news_sentry.cli tool list
-
-# Health check
-python -m news_sentry.cli doctor
-python -m news_sentry.cli doctor --json
-```
-
-### Makefile Shortcuts
+### Docker（推荐）
 
 ```bash
-make dry-run              # Validate config
-make run                  # Collect stage
-make run-filter           # Filter stage
-make run-judge            # Judge stage
-make run-output           # Output stage
-make run-all              # Full pipeline
-make stats                # Data directory statistics
-make latest-log           # View latest run log
-make test                 # Run tests
-make lint                 # ruff + mypy
-make check                # lint + test
-make fmt                  # Auto-fix code style
-make clean                # Clean build artifacts
-```
-
-### Source Management
-
-Sources are configured in `config/sources/italy/` organized by acquisition method and dimension. Each source:
-
-```yaml
-source_id: ansa
-type: rss                       # rss | api | opencli | social
-dimension: A                    # A-M (13-dimension taxonomy)
-url: "https://www.ansa.it/..."
-enabled: true
-credibility_base: 0.9           # 0.0–1.0
-max_items_per_run: 50
-timeout_seconds: 30
-```
-
-**Collection methods (all zero-token at collect stage):**
-
-| Method | Count | Token Cost | Use Case |
-|--------|-------|------------|----------|
-| **RSS/Atom** | 32+ sources | Zero | News media, government feeds, institutional sources |
-| **API (JSON)** | 4 sources | Zero | GDELT, NewsAPI, GNews, ISTAT statistics |
-| **OpenCLI** | 12+ sources | Zero | Government sites, parliament, NGOs without RSS |
-| **OpenCLI Bridge** | Social media | Zero | Browser-based social media monitoring via Chrome extension |
-| **Playwright MCP** | Fallback | Zero | Layer 2 fallback when Bridge unavailable |
-| **Computer Use** | Last resort | Token | L1 accounts only, ≤3/day/source, $5/run cap |
-
-**Social media KOL monitoring — 7 platforms:**
-Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
-
-**Three-tier account classification:**
-- **L1** (Mandatory, active mode): Per-account page visit — government officials, party leaders
-- **L2** (Should-monitor, active + semi-active): Important accounts + feed browsing — journalists, think tanks
-- **L3** (Can-monitor, semi-active mode): Feed-based discovery — emerging voices, niche experts
-
-**Source lifecycle:** `active` → `degraded` (3 failures) → `dead` (10 failures) → `archive`
-
-**Self-evolution:** Built-in health audit, hot source discovery (GDELT/NewsAPI/trending), KOL list auto-expansion.
-
-### Keyword Filtering
-
-The filter stage uses **word-boundary regex** matching against 91 Italian keywords. Keywords are configured in `config/filters/italy/default.yaml` with weights:
-
-```yaml
-keywords:
-  - keyword: Cina
-    weight: 1.0
-    tag: china_relations
-  - keyword: Putin
-    weight: 0.9
-    tag: international
-```
-
-Each event's `news_value_score` is calculated as: `sum(keyword_weight × 100)`. Events must score ≥ 40 to pass the filter.
-
-### Data Directory
-
-```
-data/italy/
-├── raw/           # Collected events (Markdown with YAML frontmatter)
-├── evaluated/     # Filtered + judged events
-├── drafts/        # Output Markdown reports (v1: no auto-publish)
-├── reviewed/      # Human-review candidates (Phase 5+)
-├── published/     # Approved archive
-├── archive/       # Rejected / duplicate / low-value
-├── memory/        # known_item_ids, source_health, cursors, provider_stats
-│   ├── known_item_ids.yaml
-│   ├── source_health.yaml
-│   └── cursors.yaml
-└── logs/          # Run logs + heartbeat
-    └── .heartbeat-hermes.json
-```
-
----
-
-## Architecture
-
-```
-src/news_sentry/
-├── core/              # Framework-neutral kernel
-│   ├── config.py      # ConfigLoader with JSON Schema validation
-│   ├── run.py         # bounded_run lifecycle manager
-│   ├── sandbox.py     # SandboxEnforcer (network/file/command policies)
-│   ├── file_writer.py # File event writer (stage → directory mapping)
-│   ├── memory.py      # Known IDs, source health, cursors, provider stats
-│   ├── run_log.py     # RunLog generation (phases, errors, summary)
-│   ├── matrix_governance.py  # Source lifecycle state machine + self-evolution
-│   └── trend_analyzer.py     # TopicTrend + TrendReport generation (Phase 11)
-├── skills/            # Pipeline skills
-│   ├── collect/
-│   │   ├── rss_collector.py       # RSS/Atom feed collector
-│   │   ├── api_collector.py       # JSON API collector
-│   │   ├── opencli_collector.py   # OpenCLI-based collector
-│   │   ├── social_kol_collector.py # Social/KOL collector (Bridge-driven)
-│   │   └── browser_fallback.py    # 3-layer degradation (Bridge→Playwright→CU)
-│   ├── filter/
-│   │   ├── rules_filter.py     # Keyword-based rules filter
-│   │   └── classifier_rules.py # L0-L3 classification engine (13 dimensions)
-│   ├── judge/
-│   │   ├── rules_judge.py      # Rules-based scoring engine
-│   │   └── judge_skill.py      # AI-powered judge
-│   └── output/
-│       └── markdown_writer.py  # Markdown report generator
-├── adapters/          # Integration bridges
-│   ├── runtime/       # Hermes Agent / OpenClaw adapters
-│   ├── tools/         # OpenCLI tool adapter
-│   └── providers/     # AI provider adapters
-├── models/            # Pydantic v2 data models
-│   ├── newsevent.py   # NewsEvent — core data exchange object
-│   ├── pipeline_context.py
-│   └── manifests.py   # Tool/Skill manifest models
-└── cli/               # Click CLI entry points
-    ├── __init__.py    # run, validate, skill, tool commands
-    └── doctor.py      # Environment health checks (Bridge, Playwright, Chromium)
-```
-
-### Key Design Decisions
-
-- **`NewsEvent`** is the single cross-agent data object (no competing schemas)
-- **0–100 scores** for news_value_score, china_relevance, confidence (sentiment_score: -1.0 to 1.0)
-- **Deterministic IDs**: `ne-{target_id}-{source_id}-{yyyymmdd}-{hash8}`
-- **Pipeline stages**: `collected → filtered → judged → outputted`
-- **v1 no auto-publish**: output stops at `drafts/`
-- **Configuration over code**: all Italy-specific params in `config/`, not in `src/`
-- **External projects: install only** — no vendoring, forking, or git submodules
-- **Zero token at collect**: RSS, API, OpenCLI, Playwright MCP all operate without AI tokens
-- **13-dimension taxonomy**: A-Politics through M-Other for comprehensive coverage
-- **3-layer browser fallback**: OpenCLI Bridge → Playwright MCP → Computer Use (L1 only)
-- **Source self-evolution**: automated health audits, discovery, KOL list expansion
-- **Notification-channel agnostic**: all alerts via Hermes Agent, no platform hardcoding
-
-### Robustness Features
-
-| Feature | Implementation |
-|---------|---------------|
-| Atomic file writes | `.tmp` → `os.replace()` in Memory module |
-| Log rotation | Auto-prune to 100 most recent run logs |
-| Memory retention | `prune_old_ids(ttl_days=30)` for known_item_ids |
-| Source health degradation | Auto-pause sources with ≥5 consecutive failures or <30% success rate |
-| Source lifecycle management | `active → degraded (3 failures) → dead (10 failures) → archive` |
-| Browser fallback | 3-layer degradation: Bridge → Playwright MCP → Computer Use |
-| Sandbox enforcement | SSRF protection, network host whitelist, command allowlists |
-| Concurrent safety | Threading lock on memory YAML I/O; run_id-based isolation |
-| Error resilience | `on_failure=log_and_continue` — failed sources don't block downstream stages |
-| Disabled source skipping | `enabled: false` sources are skipped automatically |
-| Self-evolution | Automated health audit, hot source discovery, KOL list expansion |
-
----
-
-## Tech Stack
-
-| Layer | Technology | Notes |
-|-------|-----------|-------|
-| **Language** | Python 3.11+ | Strict mypy, ruff lint |
-| **Data models** | Pydantic v2 | Runtime validation + serialization |
-| **CLI** | Click 8.1+ | `news-sentry` console script |
-| **HTTP** | httpx 0.27+ | RSS/API fetching, SOCKS5 proxy |
-| **RSS** | feedparser 6.0+ | RSS/Atom feed parsing |
-| **Config** | PyYAML 6.0+ | All runtime configuration |
-| **Schema validation** | jsonschema 4.21+ | JSON Schema 2020-12 |
-| **Browser automation** | OpenCLI Bridge / Playwright MCP / Computer Use | 3-layer fallback for social/KOL |
-| **Testing** | pytest 8.0+ | 887 tests, 95% coverage |
-| **Linting** | ruff 0.4+ | Zero-tolerance |
-| **Type checking** | mypy 1.10+ | strict mode |
-| **CI/CD** | GitHub Actions | Python 3.11 + 3.12 matrix |
-| **Container** | Docker (python:3.12-slim + Chromium + Xvfb + Node.js + Playwright) | Cloud VPS zero-dependency |
-| **Storage** | Markdown + YAML frontmatter | Obsidian-compatible |
-
----
-
-## Development
-
-### Setup
-
-```bash
-bash install.sh --dev
-source .venv/bin/activate
-```
-
-### Code Quality
-
-```bash
-# Run all checks
-make check
-
-# Individual checks
-make test        # pytest (887 tests)
-make lint        # ruff + mypy
-make fmt         # auto-fix style issues
-```
-
-**Quality gates (all must pass before commit):**
-- `ruff check src/news_sentry/` — All checks passed
-- `mypy src/news_sentry/` — Success: no issues found
-- `pytest tests/` — All passed, 0 failed
-
-### Project Structure
-
-```
-.
-├── docs/              # Architecture docs, ADRs, Phase SPECs, SOPs
-│   ├── spec/          # Phase specification documents
-│   ├── adr/           # Architecture Decision Records (ADR-0001 ~ 0016)
-│   ├── testing/       # Test plans + verification reports
-│   └── brainstorming/ # Design discussions & references
-├── schemas/           # 13 JSON Schema 2020-12 contract files
-├── config/            # All runtime configuration
-├── src/news_sentry/   # Python package
-├── tests/
-│   ├── unit/          # Unit tests (per module)
-│   └── integration/   # End-to-end pipeline tests
-├── data/              # Runtime data (gitignored)
-├── pyproject.toml
-├── Dockerfile
-├── Makefile
-└── install.sh
-```
-
-### Commit Convention
-
-All commit messages in **simplified Chinese**, format: `<Phase/Module>: <brief description>`
-
-```
-Phase 3 Kernel: 实现 ConfigLoader 配置加载与 schema 校验
-Fix: _run_collect 跳过 enabled=false 的源
-```
-
-### Key Documentation
-
-| Document | Purpose |
-|----------|---------|
-| [AGENTS.md](AGENTS.md) | Agent instruction baseline + architecture authority |
-| [docs/contracts-canonical.md](docs/contracts-canonical.md) | Canonical specification (field naming, scoring, directory mapping) |
-| [docs/development-plan.md](docs/development-plan.md) | Multi-phase development plan (Phase 1–13) |
-| [docs/adr/](docs/adr/) | Architecture Decision Records (ADR-0001 to 0021 planned) |
-| [docs/spec/](docs/spec/) | Phase SPEC index + component matrix |
-| [docs/superpowers/specs/](docs/superpowers/specs/) | Phase 12 design spec (source matrix) |
-| [docs/superpowers/plans/](docs/superpowers/plans/) | Phase 12 implementation plan (15 tasks) |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Contribution guide |
-
----
-
-## Deployment
-
-### Docker
-
-```bash
-# Build (includes Chromium + Xvfb + Playwright MCP + Node.js)
 docker build -t news-sentry .
-
-# Run collection with browser support
-docker run -v $(pwd)/data:/app/data \
-  -v $(pwd)/session-profiles:/app/session-profiles \
-  -v $(pwd)/chrome-data:/home/appuser/.config/chromium \
-  news-sentry run --target italy --stage collect
-
-# Run full pipeline
-docker run -v $(pwd)/data:/app/data news-sentry run --target italy --stage all
+docker run -d \
+  --name news-sentry \
+  -e OPENAI_API_KEY=$OPENAI_API_KEY \
+  -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+  -v /data/news-sentry:/app/data \
+  -p 8000:8000 \
+  news-sentry
 ```
 
-The Docker image provides **zero-dependency Cloud VPS deployment** with:
-- Python 3.12 + Chromium + Xvfb (virtual display for headless browser)
-- Node.js + npm + Playwright + `@playwright/mcp`
-- Chrome Native Messaging Host for OpenCLI Bridge
-- Chrome managed policies for extension allowlisting
-- `docker-entrypoint.sh` with automatic Xvfb startup
-- `docker/verify-bridge.sh` for pre-flight health checks
-
-### Hermes Agent (Recommended for Production)
-
-News Sentry is designed to run as a Skill Pack on **Hermes Agent**. The Hermes Agent handles:
-- Cron-based scheduling
-- Gateway-triggered execution
-- Heartbeat monitoring
-- Run lifecycle management
-
-The `HermesAdapter` (Phase 2) provides the bridge layer. See `config/runtime/hermes.yaml`.
-
-### OpenClaw (Ecosystem Compatibility)
-
-OpenClaw Skill runtime provides an alternative carrier. The `OpenClawAdapter` (Phase 2 stub) handles:
-- Skill discovery and registration
-- ClawHub ecosystem compatibility
-- Run status queries
-
-### Standalone CLI / Cron
-
-For environments without Hermes Agent:
+### API 服务
 
 ```bash
-# cron example — run every 15 minutes
+pip install ".[api]"
+NEWSSENTRY_API_KEY=your-key \
+  uvicorn news_sentry.core.api_server:create_app \
+  --factory --host 0.0.0.0 --port 8000
+
+# 健康检查
+curl http://localhost:8000/api/v1/health
+
+# 查询事件
+curl -H "X-API-Key: your-key" \
+  "http://localhost:8000/api/v1/events?target_id=italy&page=1&page_size=20"
+```
+
+> 详细部署指南：[docs/deployment-guide.md](docs/deployment-guide.md)
+
+### systemd
+
+```bash
+sudo cp config/news-sentry.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now news-sentry
+```
+
+### Cron（无 Docker）
+
+```bash
 */15 * * * * cd /path/to/NewsSentry && .venv/bin/python -m news_sentry.cli run --target italy --stage all --profile cloud-vps
 ```
 
 ---
 
-## Project Status
+## 技术栈
 
-### Completed (v0.4.0)
-
-| Phase | Status | Description |
-|-------|--------|-------------|
-| 1 — Contract Stabilization | ✅ Done | ADR-0001~0016, 13 JSON Schemas, canonical contracts |
-| 2 — Runtime Carrier Alignment | ✅ Done | Profiles, RuntimeHostAdapter protocol, Docker |
-| 3 — Kernel MVP | ✅ Done | bounded_run, RSS/API collect, filter, judge, output |
-| 4 — Tool/Skill Registry | ✅ Done | OpenCLI baseline, registries, APICollector |
-| 5 — AI Provider Routing | ✅ Done | Multi-provider router, judge/translate/classify routes |
-| 6 — Sandbox Hardening + KOL | ✅ Done | Full sandbox policy, session profiles, KOL experiment |
-| 7 — Multi-target Expansion | ✅ Done | Second target `china-watch-en` |
-| 8 — Obsidian Ontology Sync | ✅ Done | Bidirectional ontology sync |
-| 9 — Karpathy Skills Integration | ✅ Done | Karpathy 4 principles + 4 mental models |
-| 10 — Structured Logging + Doctor | ✅ Done | JSON logs, CLI doctor command |
-| 11 — Trend Analysis | ✅ Done | TopicTrend + TrendReport generation |
-
-### In Progress (v0.5.0)
-
-| Phase | Status | Description |
-|-------|--------|-------------|
-| 12 — Italy Source Matrix | 🔄 In Progress | 60+ sources, 13 dims, 7 social platforms, Browser fallback |
-| 13 — Eval Set + Cloud Deploy | 📋 Planned | ≥100 annotated eval set, Cloud VPS zero-dependency deployment |
-
-Run `make progress` for local vs remote Git sync and phase status.
-
-### Current Metrics
-
-| Metric | Value |
-|--------|-------|
-| Version | `0.4.0` → `0.5.0` (Phase 12) |
-| Tests | 887 passed, 0 failed |
-| Coverage | 95% |
-| Lint (ruff) | All checks passed |
-| Type (mypy) | All source files, no issues |
-| Active targets | 2 (`italy`, `china-watch-en`) |
-| Planned sources (Italy) | 60+ across 13 dimensions, 3 methods, 7 social platforms |
-| Pipeline stages | 4 (collect, filter, judge, output) |
-| ADRs | 16 existing + 5 planned (ADR-0017–0021) |
+| 层 | 技术 | 说明 |
+|----|------|------|
+| 语言 | Python 3.11+ | strict mypy + ruff |
+| 数据模型 | Pydantic v2 | 运行时校验 + 序列化 |
+| CLI | Click 8.1+ | `news-sentry` 命令 |
+| HTTP | httpx 0.27+ | SOCKS5 代理支持 |
+| RSS | feedparser 6.0+ | RSS/Atom 解析 |
+| API | FastAPI 0.110+ | REST API + OpenAPI 3.1 |
+| 配置 | PyYAML 6.0+ | 全 YAML 配置驱动 |
+| 存储 | Markdown + YAML | Obsidian 兼容 |
+| 测试 | pytest 8.0+ | 1251 tests / 92% coverage |
 
 ---
 
-## Troubleshooting
+## 开发
 
-| Symptom | Cause | Solution |
-|---------|-------|----------|
-| `ModuleNotFoundError: news_sentry` | venv not activated or not installed | `bash install.sh --dev` |
-| `corriere: SSL: UNEXPECTED_EOF` | Corriere della Sera intermittent SSL issue | Normal — other sources unaffected, auto-retried next run |
-| `agi: 404 / fao-rss: 404` | RSS feeds permanently unavailable | These sources are `enabled: false` — no action needed |
-| `No module named 'news_sentry.cli'` | Working directory not at project root | `cd /path/to/NewsSentry` |
-| Filter produces 0 events | No new news matching keywords (all known items deduplicated) | Wait for fresh news; check `config/filters/italy/default.yaml` |
-| Low coverage in adapters/ | Phase 2/5 stubs not tested | Expected — these are design-intended stubs |
+```bash
+make check         # lint + test（提交前必须通过）
+make test          # 运行测试
+make lint          # ruff + mypy
+make fmt           # 自动修复代码风格
+make scan-sensitive # 扫描敏感数据
+make eval          # 运行评估集
+```
+
+**质量门禁：**
+- `ruff check` — 0 errors
+- `mypy —strict` — 0 issues
+- `pytest` — 1251 passed
+
+---
+
+## 项目状态
+
+**v1.0.0 — 全部 23 个 Phase 已完成**
+
+| 阶段 | 版本 | 状态 |
+|------|------|------|
+| 基础平台（P1-P7） | v0.1–v0.3 | ✅ 完成 |
+| 迭代改进（P8-P11） | v0.4 | ✅ 完成 |
+| 信源矩阵 + 评估集（P12-P13） | v0.5 | ✅ 完成 |
+| AI 优化 + 云部署（P14-P15） | v0.6 | ✅ 完成 |
+| 生产化 + 多目标（P16-P18） | v0.7 | ✅ 完成 |
+| 多语言 + 反馈闭环（P19-P20） | v0.8 | ✅ 完成 |
+| 生态集成（P21-P22） | v0.9 | ✅ 完成 |
+| 稳定发布（P23） | v1.0 | ✅ 完成 |
+
+| 指标 | 值 |
+|------|-----|
+| 测试 | 1251 passed |
+| 覆盖率 | 92% |
+| Lint | ruff = 0 errors |
+| 类型 | mypy strict = 0 issues |
+| Target | 5 个国家 |
+| 信源 | 70+ |
+| Phase | 23/23 完成 |
+
+---
+
+## 文档导航
+
+| 文档 | 说明 |
+|------|------|
+| [架构总览](docs/architecture.md) | 系统架构、数据流、目录结构 |
+| [API 文档](docs/api-reference.md) | REST API 端点、认证、Webhook |
+| [部署指南](docs/deployment-guide.md) | Docker / VPS / API / systemd |
+| [安全审计](docs/security-audit-report.md) | OWASP Top 10 审计报告 |
+| [开发计划](docs/development-plan.md) | 23 Phase 路线图 |
+| [契约规范](docs/contracts-canonical.md) | 字段命名、评分、目录映射 |
+| [ADR](docs/adr/) | 架构决策记录（ADR-0001 ~ 0022）|
+| [Phase SPEC](docs/spec/) | 各阶段实现规格 |
 
 ---
 
 ## License
 
-Copyright 2026 XucroYuri
-
-Licensed under the [Apache License 2.0](LICENSE) — free to use, modify, and distribute with patent grant and limitation of liability.
+Copyright 2026 XucroYuri. Licensed under the [Apache License 2.0](LICENSE).
