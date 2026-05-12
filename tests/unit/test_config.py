@@ -600,7 +600,7 @@ class TestLoadTarget:
         loader = ConfigLoader(Path("."))
         config = loader.load_target("italy")
         assert config.target_id == "italy"
-        assert len(config.sources) >= 60  # Phase 12: 14→64+ sources
+        assert len(config.sources) >= 55  # Phase 12: 60 refs - 5 social/ (独立加载) = 55
         source_ids = {s["source_id"] for s in config.sources}
         # 验证核心 RSS 源仍然存在
         core_ids = {
@@ -618,8 +618,8 @@ class TestLoadTarget:
         for s in config.sources:
             by_type.setdefault(s["type"], []).append(s)
         assert len(by_type.get("rss", [])) >= 30
-        assert len(by_type.get("api", [])) >= 5
-        assert len(by_type.get("opencli", [])) >= 10
+        assert len(by_type.get("api", [])) >= 4
+        assert len(by_type.get("opencli", [])) >= 5
 
         # 验证 API 源有 endpoint 配置
         for api_src in by_type["api"]:

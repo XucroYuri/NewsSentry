@@ -107,6 +107,21 @@
           "default": 0
         }
       }
+    },
+    "api_mapping": {
+      "type": "object",
+      "description": "API JSON response field mapping for type=api sources. Maps API response keys to NewsEvent attributes.",
+      "additionalProperties": false,
+      "properties": {
+        "items_key": {
+          "type": "string",
+          "description": "Key in API response body that holds the array of items/articles"
+        },
+        "title": { "type": "string", "description": "Field name for the title" },
+        "url": { "type": "string", "description": "Field name for the URL/link" },
+        "content": { "type": "string", "description": "Field name for the content/body" },
+        "published_at": { "type": "string", "description": "Field name for the publication date" }
+      }
     }
   }
 }

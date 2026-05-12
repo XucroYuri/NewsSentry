@@ -1,5 +1,5 @@
 platform: twitter
-dimension: economy-business
+dimension: B-economy-business
 collect_mode: opencli_bridge
 session_profile_ref: config/session-profiles/italy/twitter.session.yaml
 

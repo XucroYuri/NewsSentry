@@ -19,6 +19,10 @@
       "type": "string",
       "enum": ["opencli_bridge", "api", "manual"]
     },
+    "session_profile_ref": {
+      "type": "string",
+      "description": "Path to session profile config for browser-authenticated collection"
+    },
     "accounts": {
       "type": "array",
       "items": {
@@ -34,6 +38,16 @@
             "enum": ["L1", "L2", "L3"]
           },
           "category": { "type": "string" },
+          "monitor_mode": {
+            "type": "string",
+            "enum": ["active", "semi_active"],
+            "description": "active=daily per-account page, semi_active=home feed timeline"
+          },
+          "fetch_max_per_run": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 20
+          },
           "notes": { "type": "string" }
         }
       }

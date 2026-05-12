@@ -1,5 +1,5 @@
 platform: twitter
-dimension: religion-vatican
+dimension: K-religion-vatican
 collect_mode: opencli_bridge
 session_profile_ref: config/session-profiles/italy/twitter.session.yaml
 

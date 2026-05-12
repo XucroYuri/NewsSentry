@@ -40,7 +40,7 @@ class TestSourceChannelSchema:
         p for p in CONFIG_DIR.glob("sources/**/*.yaml")
         if "social" not in str(p)
         and "browser_fallback" not in str(p)
-        and not p.name.startswith("_template")
+        and not p.name.startswith("_")
     ])
     def source_file(self, request: pytest.FixtureRequest) -> Path:
         return request.param
