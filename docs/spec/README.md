@@ -62,7 +62,7 @@
 | Phase | 文件 | 核心目标 | 状态 |
 |-------|------|---------|------|
 | Phase 19 | Multi-language Enhancement | 德语/法语第 4-5 target | ✅ DONE |
-| Phase 20 | Quality Feedback Loop | 人工反馈→规则自优化 | 📋 PLANNED |
+| Phase 20 | Quality Feedback Loop | 人工反馈→规则自优化 | ✅ DONE |
 
 ### v0.9.0 — 生态集成与高级功能
 
@@ -118,7 +118,7 @@ graph TD
 
     subgraph v0_8_0["v0.8.0 多语言+反馈"]
         P19["Phase 19\nMulti-language ✅\nDE + FR targets"]
-        P20["Phase 20\nFeedback Loop 📋\nHuman→Rules"]
+        P20["Phase 20\nFeedback Loop ✅\nHuman→Rules"]
     end
 
     subgraph v0_9_0["v0.9.0 生态集成"]

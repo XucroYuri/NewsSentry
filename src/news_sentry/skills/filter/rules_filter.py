@@ -82,6 +82,7 @@ class RulesFilter:
 
         对每条规则在 event 的 title 和 content 中进行不区分大小写
         的子串匹配，匹配到的规则权重累加，最终封顶 100。
+        同时将匹配到的关键词写入 event.metadata["filter_matched_keywords"]。
 
         Args:
             event: 待评分的 NewsEvent。
@@ -91,6 +92,7 @@ class RulesFilter:
             0-100 的新闻价值评分。
         """
         total: float = 0.0
+        matched_keywords: list[str] = []
 
         # 收集所有可搜索的文本
         search_text = event.title_original + " " + event.content_original
@@ -108,6 +110,11 @@ class RulesFilter:
             pattern = r"\b" + re.escape(kw) + r"\b"
             if re.search(pattern, search_lower, re.IGNORECASE):
                 total += float(rule.get("weight", 0)) * 100
+                matched_keywords.append(kw)
+
+        # Phase 20: 记录匹配的关键词，供反馈优化器使用
+        if matched_keywords:
+            event.metadata["filter_matched_keywords"] = matched_keywords
 
         return min(int(total), 100)
 

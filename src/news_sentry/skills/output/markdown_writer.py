@@ -126,6 +126,16 @@ class MarkdownWriter:
             if c_fm:
                 fm["classification"] = c_fm
 
+        # Phase 20: 匹配的关键词列表（供反馈优化器使用）
+        filter_matched_keywords = event.metadata.get("filter_matched_keywords")
+        if isinstance(filter_matched_keywords, list) and filter_matched_keywords:
+            fm["filter_matched_keywords"] = filter_matched_keywords
+
+        # Phase 20: 人工反馈字段（Obsidian 编辑时填入）
+        human_verdict = event.metadata.get("human_verdict")
+        if human_verdict is not None:
+            fm["human_verdict"] = human_verdict
+
         return str(
             yaml.dump(
                 fm,

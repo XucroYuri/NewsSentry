@@ -750,7 +750,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | Phase | 名称 | 核心目标 | 估算规模 | 状态 |
 |-------|------|---------|---------|------|
 | Phase 19 | Multi-language Enhancement | 德国+法国 target（43 源）+ keywords_de/fr 扩展 | L | ✅ |
-| Phase 20 | Quality Feedback Loop | 人工反馈采集→规则自优化、eval-set 自动扩展 | M | 📋 |
+| Phase 20 | Quality Feedback Loop | 人工反馈采集→规则自优化、eval-set 自动扩展 | M | ✅ |
 
 ### Phase 19 · Multi-language Enhancement ✅
 
@@ -809,10 +809,10 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 | ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 |
 |----|------|--------|------|------|--------|
-| P20.01 | Obsidian 反馈字段规范 | frontmatter schema 更新 | — | S | reviewed/ 目录支持 human_verdict 字段 |
-| P20.02 | FeedbackCollector | `core/feedback_collector.py` | P20.01 | M | 读取 reviewed/ 反馈并结构化存储 |
-| P20.03 | 规则权重自动调整 | `core/rules_optimizer.py` | P20.02 | M | 反馈命中率 >60% 时自动提升关键词权重 |
-| P20.04 | eval-set 增量更新 | `data/eval/eval-set-v3.json` | P20.02 | S | 月度新增 ≥20 条评估用例 |
+| P20.01 | Obsidian 反馈字段规范 | frontmatter schema 更新 | — | S | reviewed/ 目录支持 human_verdict 字段 | ✅ |
+| P20.02 | FeedbackCollector | `core/feedback_collector.py` | P20.01 | M | 读取 reviewed/ 反馈并结构化存储 | ✅ |
+| P20.03 | 规则权重自动调整 | `core/rules_optimizer.py` | P20.02 | M | 反馈命中率 >60% 时自动提升关键词权重 | ✅ |
+| P20.04 | eval-set 增量更新 | `data/eval/eval-set-v3.json` | P20.02 | S | 月度新增 ≥20 条评估用例 | 📋 |
 
 ---
 

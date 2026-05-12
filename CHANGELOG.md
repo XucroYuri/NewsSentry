@@ -10,6 +10,10 @@
 ## [未发布]
 
 ### 新增
+- Phase 20: FeedbackCollector — 扫描 reviewed/ 目录解析 human_verdict 反馈
+- Phase 20: RulesOptimizer — 根据人工反馈自动调整关键词权重（publish_override 升权，archive_override 降权）
+- Phase 20: MarkdownWriter 扩展 filter_matched_keywords / human_verdict frontmatter 字段
+- Phase 20: RulesFilter 记录匹配关键词到 event.metadata["filter_matched_keywords"]
 - Phase 19: 德国 target 配置（de→zh, 22 源, 46 关键词规则）
 - Phase 19: 法国 target 配置（fr→zh, 21 源, 45 关键词规则）
 - Phase 19: classification schema 扩展 keywords_de/fr, label_de/fr
