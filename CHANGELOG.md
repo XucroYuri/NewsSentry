@@ -9,6 +9,44 @@
 
 ## [未发布]
 
+### 新增
+- Phase 17: AlertPipeline 告警管道 — 阈值过滤+24h 去重+飞书/邮件/Telegram 多通道推送
+- Phase 17: destinations.yaml 扩展（6 个目的地，告警类型默认禁用）
+- Phase 17: `${ENV_VAR}` 环境变量解析，禁止硬编码密钥
+- 文档: v0.8.0~v1.0.0 迭代计划（Phase 19-23）
+- 文档: Cloud VPS 方案推荐（Hetzner CX32 / Oracle Free）
+
+### 变更
+- outputdestinations.schema.json 扩展支持 email_smtp / telegram_bot 类型
+- development-plan.md Phase 17 标记为 DONE，ALERT-001 治理条目已决策
+- spec/README.md Mermaid 图扩展至 v1.0.0
+
+## [0.7.0] — 2026-05
+
+### 新增
+- Phase 16: 日本 target 配置（ja→zh, 19 源, 59 关键词规则）
+- Phase 16: classification schema 扩展 keywords_ja / label_ja
+- Phase 12: MatrixGovernance 信源生命周期管理（save/load YAML 持久化）
+- Phase 12: BrowserFallback 3 层降级织入 SocialKOLCollector
+- Phase 12: SocialKOLCollector 升级（stub → OpenCLI Bridge 真实采集器）
+
+### 变更
+- 版本号推进至 0.7.0
+
+## [0.6.0] — 2026-05
+
+### 新增
+- Phase 14: ConfidenceRouter 混合规则+AI 置信度路由
+- Phase 14: 三模式 eval runner + AI 成本追踪器
+- Phase 14: 扩展 eval-set 至 210 条
+- Phase 15: GHCR CI + Hetzner 部署脚本 + 健康监控脚本
+- Phase 13: 优化过滤关键词规则 + 112 评估用例 + Eval Runner
+
+### 变更
+- Makefile: 新增 eval/eval-report 目标
+- CI: 增加 config schema 校验步骤
+- 版本号推进至 0.6.0
+
 ## [0.5.0] — 2026-05
 
 ### 新增
