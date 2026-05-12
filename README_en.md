@@ -496,3 +496,9 @@ This project **makes no warranty regarding the availability, accuracy, or compli
 ### License
 
 Copyright 2026 XucroYuri. Licensed under the [Apache License 2.0](LICENSE).
+
+---
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=XucroYuri/NewsSentry&type=Date)](https://star-history.com/#XucroYuri/NewsSentry&Date)
