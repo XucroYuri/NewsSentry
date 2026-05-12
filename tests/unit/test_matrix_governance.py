@@ -137,3 +137,87 @@ class TestPersistenceLoad:
             filepath.write_text("", encoding="utf-8")
             gov = MatrixGovernance.load(filepath)
             assert gov.audit_summary()["total"] == 0
+
+    def test_load_invalid_yaml_returns_empty(self):
+        """load() 对非法 YAML 应返回空 MatrixGovernance。"""
+        with tempfile.TemporaryDirectory() as td:
+            filepath = Path(td) / "invalid.yaml"
+            filepath.write_text("{bad yaml: [unclosed", encoding="utf-8")
+            gov = MatrixGovernance.load(filepath)
+            assert gov.audit_summary()["total"] == 0
+
+    def test_load_non_dict_data_returns_empty(self):
+        """load() 对 YAML 解析为列表的数据应返回空 MatrixGovernance。"""
+        with tempfile.TemporaryDirectory() as td:
+            filepath = Path(td) / "list.yaml"
+            import yaml
+
+            filepath.write_text(yaml.dump(["item1", "item2"]), encoding="utf-8")
+            gov = MatrixGovernance.load(filepath)
+            assert gov.audit_summary()["total"] == 0
+
+    def test_load_skips_non_dict_source_entry(self):
+        """load() 应跳过 sources 列表中非 dict 类型的条目。"""
+        with tempfile.TemporaryDirectory() as td:
+            filepath = Path(td) / "mixed.yaml"
+            import yaml
+
+            data = {
+                "sources": [
+                    "not_a_dict",
+                    {
+                        "source_id": "valid_src",
+                        "state": "ACTIVE",
+                        "consecutive_failures": 0,
+                        "consecutive_successes": 5,
+                    },
+                    123,
+                ],
+            }
+            filepath.write_text(yaml.dump(data), encoding="utf-8")
+            gov = MatrixGovernance.load(filepath)
+            assert gov.audit_summary()["total"] == 1
+            assert "valid_src" in gov._health
+
+    def test_load_skips_source_without_id(self):
+        """load() 应跳过 sources 中缺少 source_id 的条目。"""
+        with tempfile.TemporaryDirectory() as td:
+            filepath = Path(td) / "no_id.yaml"
+            import yaml
+
+            data = {
+                "sources": [
+                    {"state": "ACTIVE", "consecutive_failures": 0, "consecutive_successes": 3},
+                    {
+                        "source_id": "has_id",
+                        "state": "DEGRADED",
+                        "consecutive_failures": 4,
+                        "consecutive_successes": 0,
+                    },
+                ],
+            }
+            filepath.write_text(yaml.dump(data), encoding="utf-8")
+            gov = MatrixGovernance.load(filepath)
+            assert gov.audit_summary()["total"] == 1
+            assert "has_id" in gov._health
+
+    def test_load_unknown_state_defaults_to_active(self):
+        """load() 对未知 state 名称应回退为 ACTIVE。"""
+        with tempfile.TemporaryDirectory() as td:
+            filepath = Path(td) / "unknown_state.yaml"
+            import yaml
+
+            data = {
+                "sources": [
+                    {
+                        "source_id": "src_x",
+                        "state": "NONEXISTENT_STATE",
+                        "consecutive_failures": 7,
+                        "consecutive_successes": 0,
+                    },
+                ],
+            }
+            filepath.write_text(yaml.dump(data), encoding="utf-8")
+            gov = MatrixGovernance.load(filepath)
+            assert gov._health["src_x"].state == SourceLifecycle.ACTIVE
+            assert gov._health["src_x"].consecutive_failures == 7
