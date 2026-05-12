@@ -87,7 +87,7 @@
 | Phase | 名称 | 核心目标 | 估算规模 | 状态 |
 |-------|------|---------|---------|------|
 | Phase 14 | AI Judge Optimization | ConfidenceRouter 混合路由、三模式 eval、AICostTracker、210 eval-set | L | ✅ DONE |
-| Phase 15 | Cloud VPS Deployment | Hetzner/Oracle 部署验证、72h 稳定运行、监控告警 | M | 📋 PLANNED |
+| Phase 15 | Cloud VPS Deployment | GHCR CI、Hetzner 部署脚本、健康监控（72h 验证待 VPS） | M | 🔧 PARTIAL |
 
 ### v0.7.0 — 生产化与多目标扩展
 
@@ -701,14 +701,14 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P14.04 | 成本追踪（token/费用/run） | `core/ai_cost_tracker.py` | P14.01 | S | 每次 AI 调用记录 token 数和费用，run 级汇总 | ✅ |
 | P14.05 | 扩展 eval-set 至 200+ | `data/eval/eval-set-v2.json` | — | S | 200+ 评估用例通过 schema 校验 | ✅ |
 
-### Phase 15 · Cloud VPS Deployment
+### Phase 15 · Cloud VPS Deployment 🔧
 
-| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 |
-|----|------|--------|------|------|--------|
-| P15.01 | GHCR 镜像推送 CI | `.github/workflows/docker.yml` 更新 | Dockerfile.full | S | CI 构建推送镜像到 GHCR |
-| P15.02 | Hetzner 部署脚本 | `docs/deployment/deploy-hetzner.sh` | P15.01 | S | 一键部署到 Hetzner CX32 |
-| P15.03 | 72h 稳定性验证 | 运行报告 | P15.02 | M | 72h 无 OOM/Crash，Hermes cron 正常执行 |
-| P15.04 | 基础监控脚本 | `tools/health_monitor.sh` | P15.02 | S | 内存>90%/磁盘>85% 告警 |
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 | 状态 |
+|----|------|--------|------|------|--------|------|
+| P15.01 | GHCR 镜像推送 CI | `.github/workflows/docker.yml` 更新 | Dockerfile.full | S | CI 构建推送镜像到 GHCR | ✅ |
+| P15.02 | Hetzner 部署脚本 | `docs/deployment/deploy-hetzner.sh` | P15.01 | S | 一键部署到 Hetzner CX32 | ✅ |
+| P15.03 | 72h 稳定性验证 | 运行报告 | P15.02 | M | 72h 无 OOM/Crash，Hermes cron 正常执行 | ⏳ 待 VPS |
+| P15.04 | 基础监控脚本 | `tools/health_monitor.sh` | P15.02 | S | 内存>90%/磁盘>85% 告警 | ✅ |
 
 ### Phase 16 · Third Target (Japan JP)
 

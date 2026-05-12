@@ -47,7 +47,7 @@
 | Phase | 文件 | 核心目标 | 状态 |
 |-------|------|---------|------|
 | Phase 14 | AI Judge Optimization | AI 研判优化、accuracy >70%、eval 对比 | ✅ DONE |
-| Phase 15 | Cloud VPS Deployment | Hetzner/Oracle 部署验证、72h 稳定运行 | 📋 PLANNED |
+| Phase 15 | Cloud VPS Deployment | Hetzner/Oracle 部署验证、72h 稳定运行 | 🔧 PARTIAL |
 
 ### v0.7.0 — 生产化与多目标扩展
 
