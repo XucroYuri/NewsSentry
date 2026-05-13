@@ -232,3 +232,260 @@ class TestAlertPipelineIntegration:
         s2 = pipeline.stats
         assert s1 == s2
         assert s1 is not s2
+
+
+class TestSendFeishu:
+    """飞书 Webhook 发送测试。"""
+
+    def test_feishu_sends_payload(self) -> None:
+        dest = {
+            "destination_id": "feishu",
+            "type": "feishu_webhook",
+            "enabled": True,
+            "url": "https://open.feishu.cn/open-apis/bot/v2/hook/test",
+            "filter": {},
+        }
+        pipeline = AlertPipeline(destinations=[dest])
+        event = _make_event()
+
+        with patch("news_sentry.core.alert_pipeline.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__ = lambda s: s
+            mock_urlopen.return_value.__exit__ = lambda s, *a: None
+            mock_urlopen.return_value.status = 200
+            body = pipeline._format_alert(event, "run-001")
+            pipeline._send_feishu(dest, body, event)
+
+        mock_urlopen.assert_called_once()
+        req = mock_urlopen.call_args[0][0]
+        assert req.method == "POST"
+        assert "open.feishu.cn" in req.full_url
+
+    def test_feishu_no_url_skips(self) -> None:
+        dest = {
+            "destination_id": "feishu",
+            "type": "feishu_webhook",
+            "enabled": True,
+            "url": "",
+            "filter": {},
+        }
+        pipeline = AlertPipeline(destinations=[dest])
+        event = _make_event()
+
+        with patch("news_sentry.core.alert_pipeline.urlopen") as mock_urlopen:
+            body = pipeline._format_alert(event, "run-001")
+            pipeline._send_feishu(dest, body, event)
+
+        mock_urlopen.assert_not_called()
+
+    def test_feishu_env_var_url(self) -> None:
+        dest = {
+            "destination_id": "feishu",
+            "type": "feishu_webhook",
+            "enabled": True,
+            "url": "${FEISHU_WEBHOOK_URL}",
+            "filter": {},
+        }
+        pipeline = AlertPipeline(destinations=[dest])
+        event = _make_event()
+
+        with patch.dict("os.environ", {"FEISHU_WEBHOOK_URL": "https://feishu.test/hook"}):
+            with patch("news_sentry.core.alert_pipeline.urlopen") as mock_urlopen:
+                mock_urlopen.return_value.__enter__ = lambda s: s
+                mock_urlopen.return_value.__exit__ = lambda s, *a: None
+                mock_urlopen.return_value.status = 200
+                body = pipeline._format_alert(event, "run-001")
+                pipeline._send_feishu(dest, body, event)
+
+        mock_urlopen.assert_called_once()
+
+
+class TestSendEmail:
+    """SMTP 邮件发送测试。"""
+
+    def test_email_sends_with_tls(self) -> None:
+        dest = {
+            "destination_id": "email",
+            "type": "email_smtp",
+            "enabled": True,
+            "smtp_host": "smtp.test.com",
+            "smtp_port": 587,
+            "smtp_user": "user@test.com",
+            "smtp_password": "pass",
+            "from": "user@test.com",
+            "to": ["admin@test.com"],
+            "use_tls": True,
+            "filter": {},
+        }
+        pipeline = AlertPipeline(destinations=[dest])
+        event = _make_event()
+
+        with patch("news_sentry.core.alert_pipeline.smtplib.SMTP") as mock_smtp:
+            server = mock_smtp.return_value.__enter__.return_value
+            body = pipeline._format_alert(event, "run-001")
+            pipeline._send_email(dest, body, event)
+
+        server.starttls.assert_called_once()
+        server.login.assert_called_once()
+        server.sendmail.assert_called_once()
+
+    def test_email_sends_without_tls(self) -> None:
+        dest = {
+            "destination_id": "email",
+            "type": "email_smtp",
+            "enabled": True,
+            "smtp_host": "smtp.test.com",
+            "smtp_port": 25,
+            "smtp_user": "user@test.com",
+            "smtp_password": "pass",
+            "from": "user@test.com",
+            "to": "admin@test.com",
+            "use_tls": False,
+            "filter": {},
+        }
+        pipeline = AlertPipeline(destinations=[dest])
+        event = _make_event()
+
+        with patch("news_sentry.core.alert_pipeline.smtplib.SMTP") as mock_smtp:
+            server = mock_smtp.return_value.__enter__.return_value
+            body = pipeline._format_alert(event, "run-001")
+            pipeline._send_email(dest, body, event)
+
+        server.starttls.assert_not_called()
+        server.sendmail.assert_called_once()
+
+    def test_email_no_host_skips(self) -> None:
+        dest = {
+            "destination_id": "email",
+            "type": "email_smtp",
+            "enabled": True,
+            "smtp_host": "",
+            "to": ["admin@test.com"],
+            "filter": {},
+        }
+        pipeline = AlertPipeline(destinations=[dest])
+        event = _make_event()
+
+        with patch("news_sentry.core.alert_pipeline.smtplib.SMTP") as mock_smtp:
+            body = pipeline._format_alert(event, "run-001")
+            pipeline._send_email(dest, body, event)
+
+        mock_smtp.assert_not_called()
+
+
+class TestSendTelegram:
+    """Telegram Bot 发送测试。"""
+
+    def test_telegram_sends_message(self) -> None:
+        dest = {
+            "destination_id": "telegram",
+            "type": "telegram_bot",
+            "enabled": True,
+            "bot_token": "123456:ABC",
+            "chat_id": "-100123456",
+            "filter": {},
+        }
+        pipeline = AlertPipeline(destinations=[dest])
+        event = _make_event()
+
+        with patch("news_sentry.core.alert_pipeline.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__ = lambda s: s
+            mock_urlopen.return_value.__exit__ = lambda s, *a: None
+            mock_urlopen.return_value.status = 200
+            body = pipeline._format_alert(event, "run-001")
+            pipeline._send_telegram(dest, body, event)
+
+        mock_urlopen.assert_called_once()
+        req = mock_urlopen.call_args[0][0]
+        assert "api.telegram.org" in req.full_url
+        assert req.method == "POST"
+
+    def test_telegram_no_token_skips(self) -> None:
+        dest = {
+            "destination_id": "telegram",
+            "type": "telegram_bot",
+            "enabled": True,
+            "bot_token": "",
+            "chat_id": "-100123456",
+            "filter": {},
+        }
+        pipeline = AlertPipeline(destinations=[dest])
+        event = _make_event()
+
+        with patch("news_sentry.core.alert_pipeline.urlopen") as mock_urlopen:
+            body = pipeline._format_alert(event, "run-001")
+            pipeline._send_telegram(dest, body, event)
+
+        mock_urlopen.assert_not_called()
+
+
+class TestSendDispatch:
+    """_send 路由分发测试。"""
+
+    def test_send_dispatches_to_feishu(self) -> None:
+        dest = {
+            "destination_id": "feishu",
+            "type": "feishu_webhook",
+            "enabled": True,
+            "url": "https://feishu.test/hook",
+            "filter": {},
+        }
+        pipeline = AlertPipeline(destinations=[dest])
+        event = _make_event()
+
+        with patch.object(pipeline, "_send_feishu") as mock_feishu:
+            body = pipeline._format_alert(event, "run-001")
+            pipeline._send(dest, body, event, "run-001")
+
+        mock_feishu.assert_called_once()
+
+    def test_send_dispatches_to_email(self) -> None:
+        dest = {
+            "destination_id": "email",
+            "type": "email_smtp",
+            "enabled": True,
+            "smtp_host": "smtp.test.com",
+            "to": ["a@b.com"],
+            "filter": {},
+        }
+        pipeline = AlertPipeline(destinations=[dest])
+        event = _make_event()
+
+        with patch.object(pipeline, "_send_email") as mock_email:
+            body = pipeline._format_alert(event, "run-001")
+            pipeline._send(dest, body, event, "run-001")
+
+        mock_email.assert_called_once()
+
+    def test_send_dispatches_to_telegram(self) -> None:
+        dest = {
+            "destination_id": "telegram",
+            "type": "telegram_bot",
+            "enabled": True,
+            "bot_token": "tok",
+            "chat_id": "cid",
+            "filter": {},
+        }
+        pipeline = AlertPipeline(destinations=[dest])
+        event = _make_event()
+
+        with patch.object(pipeline, "_send_telegram") as mock_tg:
+            body = pipeline._format_alert(event, "run-001")
+            pipeline._send(dest, body, event, "run-001")
+
+        mock_tg.assert_called_once()
+
+    def test_send_unknown_type_logs_warning(self) -> None:
+        dest = {
+            "destination_id": "unknown",
+            "type": "carrier_pigeon",
+            "enabled": True,
+            "filter": {},
+        }
+        pipeline = AlertPipeline(destinations=[dest])
+        event = _make_event()
+
+        with patch("news_sentry.core.alert_pipeline.logger") as mock_logger:
+            body = pipeline._format_alert(event, "run-001")
+            pipeline._send(dest, body, event, "run-001")
+
+        mock_logger.warning.assert_called_once()
