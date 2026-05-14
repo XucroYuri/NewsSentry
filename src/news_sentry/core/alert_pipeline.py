@@ -17,6 +17,7 @@ import logging
 import os
 import smtplib
 import time
+from collections.abc import Callable
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -45,11 +46,13 @@ class AlertPipeline:
         destinations: list[dict[str, Any]],
         dedup_window_hours: int = 24,
         data_dir: Path | None = None,
+        translate_fn: Callable[[str, str], str] | None = None,
     ) -> None:
         self._destinations = [d for d in destinations if d.get("enabled", False)]
         self._dedup_window = dedup_window_hours * 3600
         self._alerted: dict[str, float] = {}
         self._data_dir = data_dir or Path("./data")
+        self._translate_fn = translate_fn
         self._stats: dict[str, int] = {
             "total_checked": 0,
             "alerts_sent": 0,
@@ -83,6 +86,19 @@ class AlertPipeline:
             for dest in self._destinations:
                 if not self._matches_filter(event, dest.get("filter", {})):
                     continue
+
+                # Phase 24: L2/L3 自动翻译
+                tier = dest.get("tier", "")
+                auto_translate = dest.get("auto_translate", tier in ("L2", "L3"))
+                if auto_translate and not event.title_translated and self._translate_fn:
+                    try:
+                        event.title_translated = self._translate_fn(
+                            event.title_original,
+                            str(event.language.value) if hasattr(event.language, "value") else "en",
+                        )
+                    except Exception as exc:
+                        logger.warning("自动翻译失败: event_id=%s error=%s", event.id, exc)
+
                 try:
                     tier = dest.get("tier", "")
                     alert_body = self._format_tier_alert(event, run_id, tier)
