@@ -50,8 +50,14 @@ def load_eval_set(path: Path) -> list[dict]:
 
 
 def eval_to_event(example: dict) -> NewsEvent:
-    """将 eval example 转换为 NewsEvent（stage=collected）。"""
+    """将 eval example 转换为 NewsEvent（stage=collected）。
+
+    published_at 使用当前时间，避免被时效过滤误杀。
+    """
+    from datetime import UTC, datetime
+
     inp = example["input"]
+    now_iso = datetime.now(UTC).isoformat()
     return NewsEvent(
         id=example["eval_id"],
         run_id="eval-run",
@@ -60,8 +66,8 @@ def eval_to_event(example: dict) -> NewsEvent:
         title_original=inp["title_original"],
         content_original=inp["content_original"],
         language=inp.get("language", "mixed"),
-        published_at="2026-05-12T00:00:00Z",
-        collected_at="2026-05-12T00:00:00Z",
+        published_at=now_iso,
+        collected_at=now_iso,
         pipeline_stage=PipelineStage.COLLECTED,
     )
 
