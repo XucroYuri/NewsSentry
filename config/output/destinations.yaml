@@ -88,4 +88,58 @@ destinations:
       min_news_value_score: 80
       min_china_relevance: 30
       recommendation: ["publish"]
-    notes: "Phase 17 Telegram 告警：高价值+涉华事件"
+    notes: "Phase 17 Telegram 告警：高价值+涉华事件（兼容旧配置）"
+
+  # ── Phase 24 三级推送策略 ────────────────────────────────────────
+  # L1: 原文快报 — news_value_score >= 60
+  # L2: 翻译快报 — news_value_score >= 80，自动翻译中文标题
+  # L3: 突发稿件 — news_value_score >= 90 + breaking，AI 生成报道方案
+
+  - destination_id: telegram_l1
+    type: telegram_bot
+    enabled: false
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
+    tier: L1
+    filter:
+      min_news_value_score: 60
+      recommendation: ["publish", "review"]
+    auto_translate: false
+    notes: "Phase 24 L1 原文快报：标题+链接+评分"
+
+  - destination_id: telegram_l2
+    type: telegram_bot
+    enabled: false
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
+    tier: L2
+    filter:
+      min_news_value_score: 80
+      recommendation: ["publish"]
+    auto_translate: true
+    notes: "Phase 24 L2 翻译快报：自动翻译中文标题"
+
+  - destination_id: telegram_l3
+    type: telegram_bot
+    enabled: false
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
+    tier: L3
+    filter:
+      min_news_value_score: 90
+      recommendation: ["publish"]
+    auto_translate: true
+    auto_draft: true
+    notes: "Phase 24 L3 突发稿件：翻译 + AI 报道方案草稿"
+
+  - destination_id: feishu_l3
+    type: feishu_webhook
+    enabled: false
+    url: "${FEISHU_WEBHOOK_URL}"
+    tier: L3
+    filter:
+      min_news_value_score: 90
+      recommendation: ["publish"]
+    auto_translate: true
+    auto_draft: true
+    notes: "Phase 24 L3 飞书突发稿件"

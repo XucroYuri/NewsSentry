@@ -90,6 +90,19 @@
         "notes": {
           "type": "string",
           "description": "Human-readable notes about this destination"
+        },
+        "tier": {
+          "type": "string",
+          "enum": ["L1", "L2", "L3"],
+          "description": "Phase 24 push tier: L1=原文快报(>=60), L2=翻译快报(>=80), L3=突发稿件(>=90+breaking)"
+        },
+        "auto_translate": {
+          "type": "boolean",
+          "description": "Phase 24: auto-translate title to output language before push (default: true for L2+)"
+        },
+        "auto_draft": {
+          "type": "boolean",
+          "description": "Phase 24: auto-generate editorial draft for L3 tier (default: true for L3)"
         }
       }
     }

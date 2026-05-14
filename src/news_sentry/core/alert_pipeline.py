@@ -1,8 +1,13 @@
-"""Phase 17: Alert Pipeline — real-time alerting from judged events.
+"""Phase 17/24: Alert Pipeline — real-time alerting with tiered push.
 
 Sends alerts when events meet configurable thresholds (news_value_score,
 china_relevance, recommendation). Supports Feishu webhook, email (SMTP),
 and Telegram bot. Includes 24h dedup to prevent alert fatigue.
+
+Phase 24 adds tier-based push strategy:
+  L1: 原文快报 (news_value_score >= 60)
+  L2: 翻译快报 (news_value_score >= 80, auto-translate)
+  L3: 突发稿件 (news_value_score >= 90 + breaking, translate + AI draft)
 """
 
 from __future__ import annotations
@@ -55,6 +60,9 @@ class AlertPipeline:
     def process(self, events: list[NewsEvent], run_id: str) -> dict[str, int]:
         """处理事件列表，对满足条件的事件发送告警。
 
+        Phase 24: 按 tier 级别分发不同格式的告警内容。
+        L1 只推原文，L2 自动附加翻译，L3 附加翻译 + AI 草稿。
+
         Args:
             events: 已研判的事件列表。
             run_id: 本次运行标识。
@@ -72,10 +80,12 @@ class AlertPipeline:
                 self._stats["alerts_deduped"] += 1
                 continue
 
-            alert_body = self._format_alert(event, run_id)
-
             for dest in self._destinations:
+                if not self._matches_filter(event, dest.get("filter", {})):
+                    continue
                 try:
+                    tier = dest.get("tier", "")
+                    alert_body = self._format_tier_alert(event, run_id, tier)
                     self._send(dest, alert_body, event, run_id)
                     self._stats["alerts_sent"] += 1
                 except Exception as e:
@@ -147,7 +157,59 @@ class AlertPipeline:
             del self._alerted[k]
 
     def _format_alert(self, event: NewsEvent, run_id: str) -> str:
-        """格式化告警内容为 Markdown。"""
+        """格式化告警内容为 Markdown（无 tier 的默认格式）。"""
+        return self._format_tier_alert(event, run_id, "")
+
+    def _format_tier_alert(self, event: NewsEvent, run_id: str, tier: str) -> str:
+        """Phase 24: 根据 tier 级别格式化不同内容的告警。
+
+        L1: 原文标题 + 链接 + 评分（最快推送）
+        L2: L1 + 中文翻译标题（auto_translate）
+        L3: L2 + AI 报道方案草稿（auto_draft）
+        无 tier: 保持原有完整格式
+        """
+        rec = event.judge_result.recommendation.value if event.judge_result else "unknown"
+        nvs = event.news_value_score or 0
+        title = event.title_original
+
+        if not tier:
+            # 无 tier 的传统格式
+            return self._format_full_alert(event, run_id)
+
+        tier_label = {"L1": "原文快报", "L2": "翻译快报", "L3": "突发稿件"}.get(tier, "告警")
+        lines = [
+            f"### 🚨 {tier_label}",
+            "",
+            f"**标题**: {title}",
+            f"**新闻价值**: {nvs}/100",
+        ]
+
+        # L2+: 附加翻译标题
+        if tier in ("L2", "L3") and event.title_translated:
+            lines.append(f"**中文**: {event.title_translated}")
+
+        # L3: 附加报道方案占位（实际内容由 AI 生成后填充到 event）
+        if tier == "L3" and event.content_translated:
+            lines.append(f"**摘要**: {event.content_translated[:200]}")
+
+        lines.append(f"**来源**: {event.source_id}")
+        lines.append(f"**推荐**: {rec}")
+
+        if event.url:
+            lines.append(f"**链接**: {event.url}")
+
+        lines.extend(
+            [
+                "",
+                "---",
+                f"run_id: {run_id} | event_id: {event.id} | tier: {tier}",
+            ]
+        )
+
+        return "\n".join(lines)
+
+    def _format_full_alert(self, event: NewsEvent, run_id: str) -> str:
+        """完整格式告警（无 tier 时使用）。"""
         rec = event.judge_result.recommendation.value if event.judge_result else "unknown"
         confidence = event.judge_result.confidence if event.judge_result else 0
         rationale = event.judge_result.rationale if event.judge_result else ""
@@ -160,7 +222,7 @@ class AlertPipeline:
             f"**来源**: {event.source_id}",
             f"**推荐**: {rec} (置信度: {confidence}%)",
             f"**新闻价值**: {event.news_value_score or 0}/100",
-            f"**中国关联**: {event.china_relevance or 0}/100",
+            f"**本国关联**: {event.china_relevance or 0}/100",
             f"**情感**: {event.sentiment_score or 0:.1f}",
         ]
 
