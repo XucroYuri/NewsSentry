@@ -41,3 +41,17 @@ classification:
     immigration: false
     energy: false
     judicial: false
+  # 英文涉华报道：home_relevance 基于通用 China 关键词
+  home_relevance_keywords:
+    - "China"
+    - "Chinese"
+    - "Beijing"
+    - "Shanghai"
+    - "Xi Jinping"
+    - "Belt and Road"
+    - "BRICS"
+    - "CCP"
+    - "PLA"
+    - "Tibet"
+    - "Xinjiang"
+    - "Taiwan"

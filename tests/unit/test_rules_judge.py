@@ -103,32 +103,32 @@ class TestDecideRecommendation:
 # ── _calc_china_relevance ────────────────────────────────────
 
 
-class TestCalcChinaRelevance:
-    """China 关键词匹配计算测试。"""
+class TestCalcHomeRelevance:
+    """home_relevance 关键词匹配计算测试。"""
 
-    def test_no_china_keyword(self, skill):
+    def test_no_relevance_keyword(self, skill):
         event = _make_event(title="Local weather report", content="Sunny day")
-        assert skill._calc_china_relevance(event) == 0
+        assert skill._calc_home_relevance(event) == 0
 
-    def test_single_china_keyword(self, skill):
+    def test_single_relevance_keyword(self, skill):
         event = _make_event(title="China trade policy", content="Update")
-        assert skill._calc_china_relevance(event) == 10
+        assert skill._calc_home_relevance(event) == 10
 
-    def test_multiple_china_keywords(self, skill):
+    def test_multiple_relevance_keywords(self, skill):
         event = _make_event(
             title="China and Beijing summit",
             content="Xi Jinping addresses BRICS leaders in Shanghai",
         )
-        rel = skill._calc_china_relevance(event)
+        rel = skill._calc_home_relevance(event)
         assert rel >= 40
 
     def test_max_100(self, skill):
         event = _make_event(
-            title="cina china cinese chinese via della seta belt and road "
+            title="cina china cinese chinese belt and road "
             "pechino beijing shanghai xi jinping brics",
             content="",
         )
-        assert skill._calc_china_relevance(event) == 100
+        assert skill._calc_home_relevance(event) == 100
 
 
 # ── _build_rationale ─────────────────────────────────────────
@@ -147,13 +147,13 @@ class TestBuildRationale:
         event = _make_event(score=50)
         classification = {"l0": "china_related"}
         rationale = skill._build_rationale(event, classification, 40, JudgeRecommendation.PUBLISH)
-        assert "中国关联度" in rationale
+        assert "本国关联度" in rationale
 
     def test_excludes_china_rel_when_lt_30(self, skill):
         event = _make_event(score=50)
         classification = {"l0": "other"}
         rationale = skill._build_rationale(event, classification, 10, JudgeRecommendation.ARCHIVE)
-        assert "中国关联度" not in rationale
+        assert "本国关联度" not in rationale
 
     def test_includes_l1_codes(self, skill):
         event = _make_event(score=50)
@@ -178,16 +178,16 @@ class TestBuildFlags:
         flags = RulesJudgeSkill._build_flags(event, {"l0": "other"}, 0)
         assert "high_value" not in flags
 
-    def test_china_significant_flag(self):
+    def test_home_significant_flag(self):
         event = _make_event(score=50)
         flags = RulesJudgeSkill._build_flags(event, {"l0": "other"}, 60)
-        assert "china_significant" in flags
+        assert "home_significant" in flags
 
-    def test_china_related_flag(self):
+    def test_home_related_flag(self):
         event = _make_event(score=50)
         flags = RulesJudgeSkill._build_flags(event, {"l0": "other"}, 35)
-        assert "china_related" in flags
-        assert "china_significant" not in flags
+        assert "home_related" in flags
+        assert "home_significant" not in flags
 
     def test_breaking_flag(self):
         event = _make_event(score=50)

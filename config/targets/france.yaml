@@ -77,3 +77,13 @@ classification:
     immigration: true
     energy: true
     judicial: true
+  home_relevance_keywords:
+    - "Chine"
+    - "chinois"
+    - "Pékin"
+    - "Beijing"
+    - "Shanghai"
+    - "Xi Jinping"
+    - "nouvelle route de la soie"
+    - "Belt and Road"
+    - "BRICS"

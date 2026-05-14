@@ -133,6 +133,11 @@ class ConfigLoader:
         classification_rules = self._load_classification_rules(
             target_data.get("classification_rules_ref"), target_path
         )
+        # Phase 24: 将 target 配置中的 home_relevance_keywords 合并到 classification_rules
+        target_classification = target_data.get("classification", {})
+        hrk = "home_relevance_keywords"
+        if isinstance(target_classification, dict) and hrk in target_classification:
+            classification_rules[hrk] = target_classification[hrk]
         sandbox_ref = self._resolve_sandbox_ref(target_data, deployment_profile)
         sandbox_policy = self._load_referenced_config(sandbox_ref, target_path)
         if sandbox_ref is not None and not sandbox_policy:

@@ -23,8 +23,8 @@ class RulesProvider(AIProvider):
 
     provider_id = "local"
 
-    # 与 RulesJudgeSkill._CHINA_KEYWORDS 保持同步
-    _CHINA_KEYWORDS: tuple[str, ...] = (
+    # Phase 24: 默认 fallback 关键词（与 RulesJudgeSkill._FALLBACK_KEYWORDS 同步）
+    _FALLBACK_KEYWORDS: tuple[str, ...] = (
         "china",
         "chinese",
         "belt and road",
@@ -65,31 +65,32 @@ class RulesProvider(AIProvider):
         task_type = str(kwargs.get("task_type", "judge"))
         prompt_lower = prompt.lower()
 
-        # 计算 China 关键词命中
-        china_hits = sum(1 for kw in self._CHINA_KEYWORDS if kw in prompt_lower)
-        china_relevance = min(china_hits * 10, 100)
+        # 计算 home_relevance 关键词命中
+        home_hits = sum(1 for kw in self._FALLBACK_KEYWORDS if kw in prompt_lower)
+        home_relevance = min(home_hits * 10, 100)
 
         # 推断分类
-        classification = self._infer_classification(prompt_lower, china_hits)
+        classification = self._infer_classification(prompt_lower, home_hits)
 
         # 确定推荐和置信度
         recommendation = self._DOMAIN_RECOMMENDATION.get(classification, "archive")
-        confidence = min(30 + china_hits * 5, 80)
+        confidence = min(30 + home_hits * 5, 80)
 
         # 构建理由
         rationale = self._build_rationale(
-            china_relevance,
+            home_relevance,
             classification,
             recommendation,
             task_type,
         )
 
         # 构建标记
-        flags = self._build_flags(china_relevance, classification)
+        flags = self._build_flags(home_relevance, classification)
 
         return {
             "recommendation": recommendation,
-            "china_relevance": china_relevance,
+            "china_relevance": home_relevance,  # 向后兼容
+            "home_relevance": home_relevance,
             "confidence": confidence,
             "rationale": rationale,
             "flags": flags,
@@ -108,11 +109,11 @@ class RulesProvider(AIProvider):
     # ── 内部分类推理 ─────────────────────────────────────────
 
     @classmethod
-    def _infer_classification(cls, text_lower: str, china_hits: int) -> str:
+    def _infer_classification(cls, text_lower: str, home_hits: int) -> str:
         """基于关键词推断 L0 分类。"""
         if any(w in text_lower for w in cls._BREAKING_WORDS):
             return "breaking_news"
-        if china_hits >= 3:
+        if home_hits >= 3:
             return "china_related"
         if any(w in text_lower for w in cls._POLITICAL_WORDS):
             return "political"
@@ -122,15 +123,15 @@ class RulesProvider(AIProvider):
 
     @staticmethod
     def _build_rationale(
-        china_relevance: int,
+        home_relevance: int,
         classification: str,
         recommendation: str,
         task_type: str,
     ) -> str:
         """生成研判理由（简体中文）。"""
         parts: list[str] = [f"任务类型: {task_type}"]
-        if china_relevance >= 30:
-            parts.append(f"中国关联度: {china_relevance}/100")
+        if home_relevance >= 30:
+            parts.append(f"本国关联度: {home_relevance}/100")
         parts.append(f"分类: {classification}")
         rec_map = {
             "publish": "推荐发布",
@@ -143,13 +144,13 @@ class RulesProvider(AIProvider):
         return "；".join(parts)
 
     @staticmethod
-    def _build_flags(china_relevance: int, classification: str) -> list[str]:
+    def _build_flags(home_relevance: int, classification: str) -> list[str]:
         """生成研判标记。"""
         flags: list[str] = []
-        if china_relevance >= 50:
-            flags.append("china_significant")
-        if china_relevance >= 30:
-            flags.append("china_related")
+        if home_relevance >= 50:
+            flags.append("home_significant")
+        if home_relevance >= 30:
+            flags.append("home_related")
         if classification == "breaking_news":
             flags.append("breaking")
         if classification in ("political", "economy"):

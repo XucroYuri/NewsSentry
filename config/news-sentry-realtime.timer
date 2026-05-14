@@ -1,0 +1,30 @@
+# News Sentry — systemd timer 分钟级调度（实时突发新闻雷达）
+# 安装:
+#   sudo cp config/news-sentry-realtime.timer /etc/systemd/system/
+#   sudo cp config/news-sentry-realtime.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable news-sentry-realtime.timer
+#   sudo systemctl start news-sentry-realtime.timer
+#
+# 查看状态:
+#   sudo systemctl list-timers news-sentry-realtime
+#
+# 调整间隔:
+#   OnUnitActiveSec=1min  (1分钟，适合突发新闻)
+#   OnUnitActiveSec=3min  (3分钟，平衡资源)
+#   OnUnitActiveSec=5min  (5分钟，低频监控)
+
+[Unit]
+Description=News Sentry — 实时突发新闻雷达（分钟级轮询）
+Requires=news-sentry-realtime.service
+
+[Timer]
+# 上次运行结束后等待指定时间再触发
+OnUnitActiveSec=3min
+# 随机抖动 0-60 秒，避免多 target 同时请求
+RandomizedDelaySec=60
+# 系统启动后 30 秒开始首次运行
+OnBootSec=30sec
+
+[Install]
+WantedBy=timers.target

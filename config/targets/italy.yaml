@@ -124,3 +124,16 @@ classification:
     immigration: true
     energy: true
     judicial: true
+  # 本国相关性关键词：命中越多 home_relevance 越高（每词+10，上限100）
+  home_relevance_keywords:
+    - "cina"
+    - "china"
+    - "cinese"
+    - "chinese"
+    - "via della seta"
+    - "belt and road"
+    - "pechino"
+    - "beijing"
+    - "shanghai"
+    - "xi jinping"
+    - "brics"

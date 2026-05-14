@@ -78,3 +78,13 @@ classification:
     immigration: true
     energy: true
     judicial: true
+  home_relevance_keywords:
+    - "China"
+    - "chinesisch"
+    - "Peking"
+    - "Beijing"
+    - "Shanghai"
+    - "Xi Jinping"
+    - "Belt and Road"
+    - "Seidenstraße"
+    - "BRICS"

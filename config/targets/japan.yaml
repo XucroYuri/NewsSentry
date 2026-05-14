@@ -83,3 +83,15 @@ classification:
     immigration: false
     energy: true
     judicial: true
+  home_relevance_keywords:
+    - "中国"
+    - "中国"
+    - "北京"
+    - "上海"
+    - "習近平"
+    - "習近平"
+    - "一帯一路"
+    - "belt and road"
+    - "brics"
+    - "中日"
+    - "日中"

@@ -471,16 +471,16 @@ def test_rules_provider_other_classification() -> None:
     assert result["recommendation"] == "archive"
 
 
-def test_rules_provider_china_significant_flag() -> None:
-    """china_relevance >= 50 时产生 china_significant 标记。"""
+def test_rules_provider_home_significant_flag() -> None:
+    """home_relevance >= 50 时产生 home_significant 标记。"""
     provider = RulesProvider()
     result = provider.call(
         "judge.primary",
         "China and Beijing and Shanghai and Xi Jinping and BRICS meet",
         task_type="judge",
     )
-    assert result["china_relevance"] >= 50
-    assert "china_significant" in result["flags"]
+    assert result["home_relevance"] >= 50
+    assert "home_significant" in result["flags"]
 
 
 # ------------------------------------------------------------------

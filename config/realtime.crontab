@@ -1,0 +1,28 @@
+# News Sentry — 实时突发新闻雷达（分钟级 crontab）
+# 用法:
+#   crontab -u appuser config/realtime.crontab
+#
+# 间隔调整:
+#   */1 * * * * — 每分钟（高频突发）
+#   */3 * * * * — 每 3 分钟（推荐）
+#   */5 * * * * — 每 5 分钟（低频）
+#
+# 多 target: 每行一个 target，可错开分钟避免并发
+
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+
+# 意大利 — 每 3 分钟全链路
+*/3 * * * * appuser cd /app && python -m news_sentry.cli run --target italy --stage all --profile cloud-vps >> /app/data/italy/logs/realtime.log 2>&1
+
+# 日本 — 每 3 分钟（错开 1 分钟）
+1-59/3 * * * * appuser cd /app && python -m news_sentry.cli run --target japan --stage all --profile cloud-vps >> /app/data/japan/logs/realtime.log 2>&1
+
+# 德国 — 每 5 分钟
+*/5 * * * * appuser cd /app && python -m news_sentry.cli run --target germany --stage all --profile cloud-vps >> /app/data/germany/logs/realtime.log 2>&1
+
+# 法国 — 每 5 分钟（错开 2 分钟）
+2-59/5 * * * * appuser cd /app && python -m news_sentry.cli run --target france --stage all --profile cloud-vps >> /app/data/france/logs/realtime.log 2>&1
+
+# 英文涉华 — 每 5 分钟（错开 3 分钟）
+3-59/5 * * * * appuser cd /app && python -m news_sentry.cli run --target china-watch-en --stage all --profile cloud-vps >> /app/data/china-watch-en/logs/realtime.log 2>&1

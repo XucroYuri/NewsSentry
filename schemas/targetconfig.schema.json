@@ -65,8 +65,14 @@
       "properties": {
         "country_axes": {
           "type": "object",
-          "description": "Enable flags for Italy-specific sub-axes (politics, economics, crime, sports, culture)",
+          "description": "Enable flags for country-specific sub-axes (politics, economics, crime, sports, culture)",
           "additionalProperties": { "type": "boolean" }
+        },
+        "home_relevance_keywords": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Keywords for computing home_relevance score (0-100). Each hit adds 10, capped at 100.",
+          "default": []
         }
       }
     }

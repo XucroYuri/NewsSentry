@@ -22,27 +22,27 @@ class RulesJudgeSkill:
     """基于规则的新闻价值研判，不依赖 AI/LLM。
 
     对每个事件：
-    - 计算 china_relevance (0-100): China 关键词匹配度
+    - 计算 home_relevance (0-100): 基于目标国配置的关键词匹配度
     - 基于 classifier 分类和 keyword 权重产生推荐
     - 生成 JudgeResult 和 recommendation
 
     Attributes:
         _classification_rules: 分类规则配置
         _memory: 跨运行持久化 Memory 实例
+        _home_relevance_keywords: 从 target 配置读取的本国相关性关键词
     """
 
-    # China 相关关键词（contracts-canonical.md 关联类别）
-    _CHINA_KEYWORDS: tuple[str, ...] = (
+    # 默认 fallback 关键词（当 target 配置未指定 home_relevance_keywords 时使用）
+    _FALLBACK_KEYWORDS: tuple[str, ...] = (
         "cina",
         "china",
         "cinese",
         "chinese",
-        "via della seta",
-        "belt and road",
         "pechino",
         "beijing",
         "shanghai",
         "xi jinping",
+        "belt and road",
         "brics",
     )
 
@@ -62,6 +62,12 @@ class RulesJudgeSkill:
     ) -> None:
         self._classification_rules = classification_rules
         self._memory = memory
+        # Phase 24: 从配置读取 home_relevance_keywords，无则 fallback
+        config_keywords = classification_rules.get("home_relevance_keywords", [])
+        if config_keywords:
+            self._home_relevance_keywords: tuple[str, ...] = tuple(config_keywords)
+        else:
+            self._home_relevance_keywords = self._FALLBACK_KEYWORDS
 
     def judge(self, events: list[NewsEvent], run_id: str) -> list[NewsEvent]:
         """对过滤后的事件列表执行规则研判。
@@ -77,42 +83,41 @@ class RulesJudgeSkill:
         for event in events:
             classification = event.metadata.get("classification", {})
 
-            # 计算 china_relevance
-            china_rel = self._calc_china_relevance(event)
+            # 计算 home_relevance（china_relevance 作为别名保留）
+            home_rel = self._calc_home_relevance(event)
 
             # 基于分类确定推荐级别
             recommendation = self._decide_recommendation(event, classification)
 
             # 生成研判理由
-            rationale = self._build_rationale(event, classification, china_rel, recommendation)
+            rationale = self._build_rationale(event, classification, home_rel, recommendation)
 
             # 置信度基于分类器 confidence
             confidence = int(classification.get("confidence", 50))
 
-            event.china_relevance = china_rel
+            event.china_relevance = home_rel  # 向后兼容别名
             event.sentiment_score = 0.0  # Phase 5 AI 接入后替换
 
             event.judge_result = JudgeResult(
                 recommendation=recommendation,
                 rationale=rationale,
                 confidence=confidence,
-                flags=self._build_flags(event, classification, china_rel),
+                flags=self._build_flags(event, classification, home_rel),
             )
 
             event.pipeline_stage = PipelineStage.JUDGED
 
         return events
 
-    # ── china_relevance 计算 ──────────────────────────────────────
+    # ── home_relevance 计算 ──────────────────────────────────────
 
-    def _calc_china_relevance(self, event: NewsEvent) -> int:
-        """基于 China 关键词匹配计算 china_relevance (0-100)。
+    def _calc_home_relevance(self, event: NewsEvent) -> int:
+        """基于 target 配置的关键词匹配计算 home_relevance (0-100)。
 
-        匹配 title + content 中的 China 关键词，按命中比例打分。
+        匹配 title + content 中的关键词，每命中一个 +10，上限 100。
         """
         search_text = (event.title_original + " " + event.content_original).lower()
-        hits = sum(1 for kw in self._CHINA_KEYWORDS if kw in search_text)
-        # 每命中一个关键词 +10，上限 100
+        hits = sum(1 for kw in self._home_relevance_keywords if kw.lower() in search_text)
         return min(hits * 10, 100)
 
     # ── 推荐决策 ─────────────────────────────────────────────────
@@ -160,7 +165,7 @@ class RulesJudgeSkill:
         self,
         event: NewsEvent,
         classification: dict[str, Any],
-        china_rel: int,
+        home_rel: int,
         recommendation: JudgeRecommendation,
     ) -> str:
         """生成人类可读的研判理由（简体中文）。"""
@@ -173,8 +178,8 @@ class RulesJudgeSkill:
 
         parts.append(f"新闻价值评分: {score}/100")
 
-        if china_rel >= 30:
-            parts.append(f"中国关联度: {china_rel}/100")
+        if home_rel >= 30:
+            parts.append(f"本国关联度: {home_rel}/100")
 
         parts.append(f"分类: {l0}")
         if l1_codes:
@@ -197,7 +202,7 @@ class RulesJudgeSkill:
     def _build_flags(
         event: NewsEvent,
         classification: dict[str, Any],
-        china_rel: int,
+        home_rel: int,
     ) -> list[str]:
         """生成研判标记列表，用于 downstream 过滤和自动化。"""
         flags: list[str] = []
@@ -205,10 +210,10 @@ class RulesJudgeSkill:
         score = event.news_value_score or 0
         if score >= 80:
             flags.append("high_value")
-        if china_rel >= 50:
-            flags.append("china_significant")
-        if china_rel >= 30:
-            flags.append("china_related")
+        if home_rel >= 50:
+            flags.append("home_significant")
+        if home_rel >= 30:
+            flags.append("home_related")
 
         l0 = str(classification.get("l0", ""))
         if l0 == "breaking_news":
