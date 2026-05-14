@@ -47,12 +47,14 @@ class AlertPipeline:
         dedup_window_hours: int = 24,
         data_dir: Path | None = None,
         translate_fn: Callable[[str, str], str] | None = None,
+        draft_fn: Callable[[str, str, str], str] | None = None,
     ) -> None:
         self._destinations = [d for d in destinations if d.get("enabled", False)]
         self._dedup_window = dedup_window_hours * 3600
         self._alerted: dict[str, float] = {}
         self._data_dir = data_dir or Path("./data")
         self._translate_fn = translate_fn
+        self._draft_fn = draft_fn
         self._stats: dict[str, int] = {
             "total_checked": 0,
             "alerts_sent": 0,
@@ -98,6 +100,20 @@ class AlertPipeline:
                         )
                     except Exception as exc:
                         logger.warning("自动翻译失败: event_id=%s error=%s", event.id, exc)
+
+                # Phase 24: L3 AI 报道方案草稿
+                auto_draft = dest.get("auto_draft", tier == "L3")
+                if auto_draft and self._draft_fn and "editorial_draft" not in event.metadata:
+                    try:
+                        title = event.title_translated or event.title_original
+                        draft = self._draft_fn(
+                            title,
+                            event.content_original[:500],
+                            str(event.language.value) if hasattr(event.language, "value") else "en",
+                        )
+                        event.metadata["editorial_draft"] = draft
+                    except Exception as exc:
+                        logger.warning("草稿生成失败: event_id=%s error=%s", event.id, exc)
 
                 try:
                     tier = dest.get("tier", "")
@@ -204,9 +220,13 @@ class AlertPipeline:
         if tier in ("L2", "L3") and event.title_translated:
             lines.append(f"**中文**: {event.title_translated}")
 
-        # L3: 附加报道方案占位（实际内容由 AI 生成后填充到 event）
-        if tier == "L3" and event.content_translated:
-            lines.append(f"**摘要**: {event.content_translated[:200]}")
+        # L3: 附加 AI 生成的报道方案
+        if tier == "L3":
+            draft = event.metadata.get("editorial_draft", "")
+            if draft:
+                lines.append(f"**报道方案**:\n{draft[:500]}")
+            elif event.content_translated:
+                lines.append(f"**摘要**: {event.content_translated[:200]}")
 
         lines.append(f"**来源**: {event.source_id}")
         lines.append(f"**推荐**: {rec}")
