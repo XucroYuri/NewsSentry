@@ -1,8 +1,8 @@
 """异步 pipeline 执行核心。CLI 通过 asyncio.run() 调用。
 
-P25 阶段：只有 _run_collect_async 是真正的并发实现。
-_run_filter_async/_run_judge_async/_run_output_async 通过 asyncio.to_thread
-包装现有同步逻辑，后续 Phase 再逐步改为原生 async。
+P27 阶段：采集并发 + 翻译批处理 + 分级模型路由 + LLM 缓存。
+_run_filter_async/_run_output_async 通过 asyncio.to_thread
+包装现有同步逻辑。
 """
 
 import asyncio
@@ -10,17 +10,21 @@ import logging
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import httpx
 
 from news_sentry.core.async_store import AsyncStore
+from news_sentry.core.confidence_router import TieredConfidenceRouter
 from news_sentry.core.config import ConfigLoader, ResolvedConfig
 from news_sentry.core.file_writer import FileWriter
+from news_sentry.core.llm_cache_manager import LLMCacheManager
 from news_sentry.core.memory import Memory
 from news_sentry.core.run import (
     ConfigError,
     _allow_external_output_root,
     _find_project_root,
+    _load_events_from_dir,
     _portable_project_path,
     _prune_old_logs,
     _resolve_output_root_override,
@@ -32,11 +36,13 @@ from news_sentry.core.run import (
 )
 from news_sentry.core.run_log import RunLog, write_heartbeat
 from news_sentry.core.sandbox import SandboxEnforcer, SandboxPolicy
+from news_sentry.core.translation_batcher import TranslationBatcher
 from news_sentry.core.yaml_migration import migrate_yaml_to_sqlite, should_migrate
 from news_sentry.models.newsevent import NewsEvent, PipelineStage
 from news_sentry.models.pipeline_context import PipelineContext
 from news_sentry.skills.collect.api_collector import APICollector
 from news_sentry.skills.collect.rss_collector import RSSCollector
+from news_sentry.skills.judge.rules_judge import RulesJudgeSkill
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +158,9 @@ async def bounded_run_async(
     if dry_run:
         return ctx
 
+    # P27: LLM 缓存管理器
+    cache_mgr = LLMCacheManager(store)
+
     write_heartbeat(log_dir, run_id, "starting")
 
     try:
@@ -166,13 +175,22 @@ async def bounded_run_async(
                 memory,
                 ctx,
                 max_concurrent=max_concurrent,
+                cache_mgr=cache_mgr,
             )
         elif stage == "filter":
             await _run_filter_async(config, run_id, run_log, file_writer, memory, ctx)
         elif stage in ("output", "outputted"):
             await _run_output_async(config, run_id, run_log, file_writer, ctx)
         elif stage in ("judge", "judged"):
-            await _run_judge_async(config, run_id, run_log, file_writer, memory, ctx)
+            await _run_judge_async(
+                config,
+                run_id,
+                run_log,
+                file_writer,
+                memory,
+                ctx,
+                cache_mgr=cache_mgr,
+            )
         elif stage == "all":
             await _run_collect_async(
                 config,
@@ -183,9 +201,18 @@ async def bounded_run_async(
                 memory,
                 ctx,
                 max_concurrent=max_concurrent,
+                cache_mgr=cache_mgr,
             )
             await _run_filter_async(config, run_id, run_log, file_writer, memory, ctx)
-            await _run_judge_async(config, run_id, run_log, file_writer, memory, ctx)
+            await _run_judge_async(
+                config,
+                run_id,
+                run_log,
+                file_writer,
+                memory,
+                ctx,
+                cache_mgr=cache_mgr,
+            )
             await _run_output_async(config, run_id, run_log, file_writer, ctx)
 
         write_heartbeat(log_dir, run_id, stage, status="completed")
@@ -203,6 +230,25 @@ async def bounded_run_async(
     return ctx
 
 
+def _try_create_provider_router() -> Any:  # noqa: ANN401
+    """尝试从 routes.yaml 创建 ProviderRouter，失败返回 None。"""
+    import yaml
+
+    from news_sentry.core.provider_router import ProviderRouter
+    from news_sentry.models.provider_config import ProviderRoutesConfig
+
+    try:
+        routes_path = _find_project_root() / "config" / "provider" / "routes.yaml"
+        if not routes_path.is_file():
+            return None
+        with open(routes_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        routes_config = ProviderRoutesConfig(**data)
+        return ProviderRouter(routes_config)
+    except Exception:
+        return None
+
+
 async def _run_collect_async(
     config: ResolvedConfig,
     run_id: str,
@@ -213,6 +259,7 @@ async def _run_collect_async(
     ctx: PipelineContext,
     http_client: httpx.AsyncClient | None = None,
     max_concurrent: int = 10,
+    cache_mgr: LLMCacheManager | None = None,
 ) -> list[NewsEvent]:
     """并发采集所有源。"""
     run_log.log_phase_start("collect")
@@ -278,19 +325,41 @@ async def _run_collect_async(
     for event in all_events:
         file_writer.write_event(event)
 
-    # 快速预翻译
+    # 快速预翻译 — P27: TranslationBatcher 批处理
     lang_primary = (
         config.target.get("language_scope", {}).get("primary", "en")
         if hasattr(config.target, "get")
         else "en"
     )
-    await asyncio.to_thread(
-        _translate_collected_titles,
-        all_events,
-        run_id,
-        run_log,
-        lang_primary,
-    )
+    if all_events:
+        try:
+            router = _try_create_provider_router()
+            if router is not None:
+                batcher = TranslationBatcher()
+                translated = await batcher.translate(
+                    all_events,
+                    router,
+                    None,
+                    language=lang_primary,
+                )
+                logger.info("批处理翻译完成: %d/%d", translated, len(all_events))
+            else:
+                await asyncio.to_thread(
+                    _translate_collected_titles,
+                    all_events,
+                    run_id,
+                    run_log,
+                    lang_primary,
+                )
+        except Exception as e:
+            logger.warning("批处理翻译失败，回退到同步翻译: %s", e)
+            await asyncio.to_thread(
+                _translate_collected_titles,
+                all_events,
+                run_id,
+                run_log,
+                lang_primary,
+            )
 
     ctx.events_collected = len(all_events)
     duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
@@ -325,17 +394,75 @@ async def _run_judge_async(
     file_writer: FileWriter,
     memory: Memory,
     ctx: PipelineContext,
+    cache_mgr: LLMCacheManager | None = None,
 ) -> None:
-    """异步研判阶段 — P25 通过 to_thread 包装同步逻辑。"""
-    await asyncio.to_thread(
-        _run_judge,
-        config,
-        run_id,
-        run_log,
-        file_writer,
-        memory,
-        ctx,
-    )
+    """异步研判阶段 — P27 使用 TieredConfidenceRouter 并发研判。
+
+    回退：如果 TieredConfidenceRouter 初始化失败，降级为同步 _run_judge。
+    """
+    events = _load_events_from_dir(file_writer.base_dir / "evaluated")
+    if not events:
+        run_log.log_phase_start("judge")
+        run_log.log_phase_end("judge", 0, 0)
+        return
+
+    run_log.log_phase_start("judge")
+    t0 = datetime.now(UTC)
+
+    try:
+        provider_router = _try_create_provider_router()
+        if provider_router is None:
+            raise ValueError("ProviderRouter 初始化失败")
+        rules_judge = RulesJudgeSkill(config.classification_rules, memory)
+        tiered = TieredConfidenceRouter(rules_judge, provider_router)
+
+        judged = await tiered.judge_events_async(
+            events,
+            None,
+            run_id=run_id,
+            max_concurrent=5,
+        )
+
+        stats = tiered.stats
+        logger.info(
+            "分级研判完成: total=%d skipped=%d medium=%d high=%d",
+            stats["total"],
+            stats["skipped"],
+            stats["medium"],
+            stats["high"],
+        )
+        run_log.log_event(
+            "judge",
+            "tiered_router",
+            f"total={stats['total']} skipped={stats['skipped']} "
+            f"medium={stats['medium']} high={stats['high']}",
+        )
+    except Exception as e:
+        logger.warning("分级研判失败，回退到同步研判: %s", e)
+        # 回退：写回事件文件后走同步逻辑
+        for event in events:
+            file_writer.write_event(event)
+        await asyncio.to_thread(
+            _run_judge,
+            config,
+            run_id,
+            run_log,
+            file_writer,
+            memory,
+            ctx,
+        )
+        duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
+        run_log.log_phase_end("judge", len(events), duration_ms)
+        return
+
+    # 写入研判结果
+    for event in judged:
+        event.pipeline_stage = PipelineStage.JUDGED
+        file_writer.write_event(event)
+
+    ctx.events_judged = len(judged)
+    duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
+    run_log.log_phase_end("judge", len(judged), duration_ms)
 
 
 async def _run_output_async(
