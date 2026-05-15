@@ -9,6 +9,8 @@ from pathlib import Path
 import click
 import yaml
 
+from news_sentry.models.pipeline_context import PipelineContext
+
 
 @click.group()
 @click.version_option()
@@ -38,6 +40,12 @@ def main() -> None:
     default=None,
     help="Deployment profile ID. Overrides NEWSSENTRY_PROFILE.",
 )
+@click.option(
+    "--interval",
+    default=None,
+    type=int,
+    help="Loop mode: run pipeline every N seconds. Use with --target all or comma-separated.",
+)
 def run(
     target: str,
     stage: str,
@@ -46,11 +54,59 @@ def run(
     log_level: str,
     config_dir: str | None,
     profile_id: str | None,
+    interval: int | None,
 ) -> None:
     """Execute a bounded run for a monitoring target.
 
+    \b
+    Target modes:
+      --target italy         Single target (sync pipeline)
+      --target all           All configured targets concurrently (async)
+      --target italy,japan   Specific targets concurrently (async)
+
+    \b
+    Loop mode (async only):
+      --interval 300         Repeat every 300 seconds
+
     Exit codes: 0=success, 1=partial failure, 2=config error, 3=sandbox blocked.
     """
+    # --interval 参数校验
+    if interval is not None and interval <= 0:
+        click.echo("--interval 必须为正整数", err=True)
+        sys.exit(2)
+
+    # 判断是否为多目标模式
+    is_multi = target == "all" or "," in target
+
+    if is_multi:
+        _run_multi_target(
+            target=target,
+            stage=stage,
+            run_id=run_id,
+            config_dir=config_dir,
+            profile_id=profile_id,
+            interval=interval,
+        )
+    else:
+        _run_single_target(
+            target=target,
+            stage=stage,
+            run_id=run_id,
+            dry_run=dry_run,
+            config_dir=config_dir,
+            profile_id=profile_id,
+        )
+
+
+def _run_single_target(
+    target: str,
+    stage: str,
+    run_id: str | None,
+    dry_run: bool,
+    config_dir: str | None,
+    profile_id: str | None,
+) -> None:
+    """单目标同步运行（原有 bounded_run 行为）。"""
     from news_sentry.core.async_run import bounded_run_async
     from news_sentry.core.run import ConfigError
 
@@ -79,6 +135,98 @@ def run(
         sys.exit(2)
     except Exception as e:
         click.echo(f"运行异常: {e}", err=True)
+        sys.exit(1)
+
+
+def _run_multi_target(
+    target: str,
+    stage: str,
+    run_id: str | None,
+    config_dir: str | None,
+    profile_id: str | None,
+    interval: int | None,
+) -> None:
+    """多目标异步运行入口。"""
+    from news_sentry.core.async_run import _resolve_targets, bounded_run_multi_async
+
+    config_path = Path(config_dir) if config_dir else Path(".")
+    target_ids = _resolve_targets(target, config_dir=config_path)
+
+    if not target_ids:
+        click.echo("未发现可运行的 target", err=True)
+        sys.exit(2)
+
+    try:
+        if interval is not None:
+            _run_loop(
+                target_ids=target_ids,
+                stage=stage,
+                config_dir=config_dir,
+                profile_id=profile_id,
+                interval=interval,
+            )
+        else:
+            results = asyncio.run(
+                bounded_run_multi_async(
+                    targets=target_ids,
+                    stage=stage,
+                    run_id=run_id,
+                    config_dir=config_dir,
+                    profile_id=profile_id,
+                )
+            )
+            _report_multi_results(results)
+    except Exception as e:
+        click.echo(f"运行异常: {e}", err=True)
+        sys.exit(1)
+
+
+def _run_loop(
+    target_ids: list[str],
+    stage: str,
+    config_dir: str | None,
+    profile_id: str | None,
+    interval: int,
+) -> None:
+    """循环运行模式。"""
+    from news_sentry.core.async_run import run_loop_async
+
+    click.echo(f"循环模式: 每 {interval}s 运行 {len(target_ids)} 个 target (Ctrl+C 终止)")
+
+    try:
+        asyncio.run(
+            run_loop_async(
+                targets=target_ids,
+                stage=stage,
+                config_dir=config_dir,
+                profile_id=profile_id,
+                interval=interval,
+                max_iterations=999999,  # CLI 层无限循环
+            )
+        )
+    except KeyboardInterrupt:
+        click.echo("\n循环已终止")
+
+
+def _report_multi_results(results: list[PipelineContext]) -> None:
+    """输出多目标运行结果摘要。"""
+    if not results:
+        click.echo("无 target 成功完成")
+        return
+
+    for ctx in results:
+        status = "ok" if ctx.errors_count == 0 else f"⚠ {ctx.errors_count} 个错误"
+        click.echo(
+            f"  target: {ctx.target_id}  "
+            f"collected: {getattr(ctx, 'events_collected', 0)}  "
+            f"filtered: {getattr(ctx, 'events_filtered', 0)}  "
+            f"judged: {getattr(ctx, 'events_judged', 0)}  "
+            f"output: {getattr(ctx, 'events_output', 0)}  "
+            f"[{status}]"
+        )
+
+    total_errors = sum(getattr(ctx, "errors_count", 0) for ctx in results)
+    if total_errors > 0:
         sys.exit(1)
 
 
