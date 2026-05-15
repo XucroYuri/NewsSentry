@@ -1,0 +1,29 @@
+# 日语实体词典 — Phase 30 NLP 规则引擎
+language: ja
+persons:
+  - name: "岸田"
+  - name: "安倍"
+  - name: "菅"
+  - name: "野田"
+  - name: "麻生"
+  - name: "茂木"
+  - name: "林"
+  - name: "松野"
+organizations:
+  - name: "政府"
+  - name: "国会"
+  - name: "自民党"
+  - name: "立憲民主党"
+  - name: "日銀"
+  - name: "経団連"
+locations:
+  - name: "東京"
+  - name: "大阪"
+  - name: "横浜"
+  - name: "名古屋"
+  - name: "福岡"
+  - name: "札幌"
+  - name: "沖縄"
+  - name: "尖閣"
+  - name: "台湾"
+  - name: "中国"

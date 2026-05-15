@@ -1,0 +1,28 @@
+# 法语实体词典 — Phase 30 NLP 规则引擎
+language: fr
+persons:
+  - name: "Macron"
+  - name: "Le Pen"
+  - name: "Mélanchon"
+  - name: "Borne"
+  - name: "Darmanin"
+  - name: "Attal"
+  - name: "Hollande"
+organizations:
+  - name: "gouvernement"
+  - name: "Assemblée nationale"
+  - name: "Sénat"
+  - name: "UE"
+  - name: "OTAN"
+  - name: "Banque de France"
+  - name: "ENA"
+locations:
+  - name: "Paris"
+  - name: "Lyon"
+  - name: "Marseille"
+  - name: "Toulouse"
+  - name: "Nice"
+  - name: "Bordeaux"
+  - name: "Strasbourg"
+  - name: "Ukraine"
+  - name: "Chine"

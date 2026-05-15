@@ -1,0 +1,28 @@
+# 德语实体词典 — Phase 30 NLP 规则引擎
+language: de
+persons:
+  - name: "Scholz"
+  - name: "Merz"
+  - name: "Habeck"
+  - name: "Söder"
+  - name: "Lauterbach"
+  - name: "Baerbock"
+  - name: "Merkel"
+organizations:
+  - name: "Bundesregierung"
+  - name: "Bundestag"
+  - name: "Bundesrat"
+  - name: "EU"
+  - name: "NATO"
+  - name: "Bundesbank"
+  - name: "BND"
+locations:
+  - name: "Berlin"
+  - name: "München"
+  - name: "Hamburg"
+  - name: "Frankfurt"
+  - name: "Köln"
+  - name: "Stuttgart"
+  - name: "Düsseldorf"
+  - name: "Ukraine"
+  - name: "China"
