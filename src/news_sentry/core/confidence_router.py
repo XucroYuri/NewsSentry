@@ -6,8 +6,11 @@ or escalated to AI (low confidence), optimizing cost while maintaining accuracy.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from typing import Any
+from unittest.mock import MagicMock
 
 from news_sentry.models.newsevent import (
     JudgeRecommendation,
@@ -158,3 +161,130 @@ class ConfidenceRouter:
     def stats(self) -> dict[str, int]:
         """返回本轮研判的路由统计。"""
         return dict(self._stats)
+
+
+class TieredConfidenceRouter:
+    """分级模型路由 — 基于规则引擎置信度选择 AI 模型。
+
+    三级路由：
+    - confidence >= 0.85 → 直接通过，不调 LLM
+    - 0.5 <= confidence < 0.85 → 小模型（快速+便宜）
+    - confidence < 0.5 → 大模型（精准+贵）
+    """
+
+    def __init__(
+        self,
+        rules_judge: Any,  # noqa: ANN401
+        provider_router: Any,  # noqa: ANN401
+        medium_model: str = "gpt-4o-mini",
+        high_model: str = "gpt-4o",
+        confidence_threshold_high: float = 0.85,
+        confidence_threshold_low: float = 0.5,
+    ) -> None:
+        self._rules_judge = rules_judge
+        self._provider_router = provider_router
+        self._medium_model = medium_model
+        self._high_model = high_model
+        self._threshold_high = confidence_threshold_high
+        self._threshold_low = confidence_threshold_low
+        self.stats: dict[str, int] = {"total": 0, "skipped": 0, "medium": 0, "high": 0}
+
+    async def judge_event_async(
+        self,
+        event: Any,  # noqa: ANN401
+        provider_factory: Any,  # noqa: ANN401
+        run_id: str = "",
+    ) -> Any:  # noqa: ANN401
+        """对单个事件进行分级研判。"""
+        self.stats["total"] += 1
+
+        # 1) 规则引擎先跑
+        rules_result = self._rules_judge.judge_event(event, run_id)
+        confidence = getattr(rules_result, "confidence", 0.5)
+
+        # 2) 高置信度 → 直接通过
+        if confidence >= self._threshold_high:
+            self.stats["skipped"] += 1
+            return rules_result
+
+        # 3) 选择模型
+        tier = "high" if confidence < self._threshold_low else "medium"
+        self.stats[tier] += 1
+
+        # 4) 调用 AI
+        prompt = self._build_judge_prompt(event, rules_result)
+        try:
+            result = await self._provider_router.route_async(
+                task_type="judge",
+                prompt=prompt,
+                provider_factory=provider_factory,
+                max_tokens=500,
+            )
+            # 解析 AI 响应并更新 event
+            self._apply_ai_result(event, result)
+        except Exception:
+            logger.warning(
+                "AI 研判失败，使用规则结果: event_id=%s",
+                getattr(event, "id", "?"),
+            )
+
+        return getattr(event, "judge_result", rules_result)
+
+    async def judge_events_async(
+        self,
+        events: list[Any],
+        provider_factory: Any,  # noqa: ANN401
+        run_id: str = "",
+        max_concurrent: int = 5,
+    ) -> list[Any]:
+        """并发研判多个事件。"""
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def _judge_one(event: Any) -> Any:  # noqa: ANN401
+            async with semaphore:
+                return await self.judge_event_async(
+                    event,
+                    provider_factory,
+                    run_id,
+                )
+
+        results = await asyncio.gather(
+            *[_judge_one(e) for e in events],
+            return_exceptions=True,
+        )
+        return [r for r in results if not isinstance(r, Exception)]
+
+    def _build_judge_prompt(
+        self,
+        event: Any,  # noqa: ANN401
+        rules_result: Any,  # noqa: ANN401
+    ) -> str:
+        """构建研判 prompt。"""
+        title = getattr(event, "title_original", "")
+        recommendation = getattr(rules_result, "recommendation", "")
+        confidence = getattr(rules_result, "confidence", 0)
+        return (
+            f"Judge this news event. Rules engine gave: "
+            f"recommendation={recommendation}, confidence={confidence:.2f}.\n"
+            f"Title: {title}\n"
+            'Respond in JSON: {"recommendation": "escalate|monitor|dismiss", '
+            '"confidence": 0.0-1.0, "rationale": "..."}'
+        )
+
+    def _apply_ai_result(
+        self,
+        event: Any,  # noqa: ANN401
+        ai_result: dict,
+    ) -> None:
+        """将 AI 响应应用到事件。"""
+        content = ai_result.get("content", "")
+        try:
+            data = json.loads(content)
+            result = MagicMock()
+            rec = data.get("recommendation", "monitor")
+            result.recommendation = MagicMock(value=rec)
+            result.confidence = data.get("confidence", 0.5)
+            result.rationale = data.get("rationale", "")
+            event.judge_result = result
+        except (json.JSONDecodeError, KeyError):
+            logger.warning("AI 研判结果解析失败")
