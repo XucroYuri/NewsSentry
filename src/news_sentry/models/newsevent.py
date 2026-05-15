@@ -36,6 +36,26 @@ class JudgeRecommendation(StrEnum):
     MONITOR = "monitor"
 
 
+class Sentiment(StrEnum):
+    POSITIVE = "positive"
+    NEGATIVE = "negative"
+    NEUTRAL = "neutral"
+
+
+class NLPEntity(BaseModel):
+    name: str
+    entity_type: str
+    relevance: int = Field(ge=0, le=100)
+
+
+class NLPAnalysis(BaseModel):
+    sentiment: Sentiment | None = None
+    sentiment_confidence: int | None = Field(default=None, ge=0, le=100)
+    entities: list[NLPEntity] = Field(default_factory=list)
+    topic_tags: list[str] = Field(default_factory=list)
+    event_relations: list[str] = Field(default_factory=list)
+
+
 class ProcessingHistoryEntry(BaseModel):
     stage: str
     run_id: str
@@ -49,6 +69,7 @@ class JudgeResult(BaseModel):
     rationale: str
     confidence: int = Field(ge=0, le=100)
     flags: list[str] = Field(default_factory=list)
+    nlp_analysis: NLPAnalysis | None = None
 
 
 class NewsEvent(BaseModel):
