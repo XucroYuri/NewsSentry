@@ -1,8 +1,9 @@
 # News Sentry — 开发计划
 
-> 版本: v2.2 | 日期: 2026-05-15
+> 版本: v2.3 | 日期: 2026-05-15
 > 状态: **路线图主权文档** — 本文档是多阶段开发计划与 TODO 矩阵的唯一权威来源
-> 当前版本: **v1.0.0** | 下一版本: **v1.1.0** (Phase 24 Real-time Breaking News Radar)
+> 当前版本: **v1.1.0** | 下一版本: **v1.2.0**
+> Phase 25-29 性能优化: ✅ 全部完成 (异步 pipeline + SQLite + AI 批处理/缓存/分级路由 + API SQLite 查询 + 多目标并发调度)
 > 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](spec/README.md) 为准）
 > Cloud VPS 方案: [docs/deployment/cloud-vps-recommendations.md](./deployment/cloud-vps-recommendations.md)
 > 字段口径基准: [`docs/contracts-canonical.md`](./contracts-canonical.md)
@@ -956,7 +957,112 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P24.06 | 分钟级调度模板 | systemd timer + crontab 模板 | — | S | 1-5 分钟可配置，systemd timer/crontab 二选一 |
 | P24.07 | 向后兼容与测试 | 测试补全 + china_relevance 兼容层 | P24.01-05 | M | 现有测试全通过，新增 ≥30 测试 |
 
-## §23. Cloud VPS 部署方案推荐
+## §24. v1.2.0 — 性能优化
+
+> 性能设计文档: [`docs/performance-overhaul-design.md`](./performance-overhaul-design.md)
+> 1467 tests / ruff=0 / mypy=0 / 92% coverage
+
+| Phase | 名称 | 核心目标 | 估算规模 | 状态 |
+|-------|------|---------|---------|------|
+| Phase 25 | Async Pipeline Core | 异步采集+过滤+研判 pipeline，httpx.AsyncClient 共享连接池 | L | ✅ |
+| Phase 26 | SQLite Storage | SQLite 异步存储引擎，替代文件扫描查询 | M | ✅ |
+| Phase 27 | AI Batch & Cache | AI 调用批处理 + LRU 缓存 + 分级路由 | L | ✅ |
+| Phase 28 | API Server SQLite | API 端点 SQLite 查询 + ConfigCache TTL + reload | M | ✅ |
+| Phase 29 | Multi-target Concurrency | FairScheduler + --target all + --interval loop | L | ✅ |
+
+### Phase 25 · Async Pipeline Core ✅
+
+**目标：** 将同步 pipeline 转为异步架构，httpx.AsyncClient 共享连接池，提升 I/O 密集型操作吞吐量。
+
+**核心交付：**
+- `async_run.py` — 异步 bounded_run 入口 (`bounded_run_async`)
+- `_run_collect_async` / `_run_filter_async` / `_run_judge_async` / `_run_output_async` 异步阶段
+- `AsyncStore` 异步 SQLite 存储骨架
+- 共享 `httpx.AsyncClient` 连接池
+- 1332 tests → 1402 tests
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 | 状态 |
+|----|------|--------|------|------|--------|------|
+| P25.01 | AsyncStore 异步存储引擎 | `core/async_store.py` | — | M | 异步写入/查询事件索引 | ✅ |
+| P25.02 | 异步 bounded_run 入口 | `core/async_run.py` | P25.01 | L | 单 target 异步 pipeline 端到端跑通 | ✅ |
+| P25.03 | httpx.AsyncClient 共享连接池 | 集成到 async_run | P25.02 | S | 采集阶段复用连接池，减少 TCP 握手 | ✅ |
+| P25.04 | 异步 filter/judge/output | async_run 各阶段 | P25.02 | M | 各阶段异步化，维持数据一致性 | ✅ |
+
+### Phase 26 · SQLite Storage ✅
+
+**目标：** SQLite 作为事件索引存储引擎，替代全文件扫描，支持分页查询和聚合统计。
+
+**核心交付：**
+- `AsyncStore` 完整实现：`query_events`、`get_stats`、`upsert_event`
+- 事件索引：event_id / source_id / classification / news_value_score 索引字段
+- 异步写入：`aiosqlite` 驱动
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 | 状态 |
+|----|------|--------|------|------|--------|------|
+| P26.01 | AsyncStore 完整查询 | `core/async_store.py` 扩展 | Phase 25 | M | 分页查询+聚合统计+按源/分类过滤 | ✅ |
+| P26.02 | pipeline 集成写入 | `core/async_run.py` 集成 | P26.01 | S | 每个 pipeline 阶段结束后写入事件索引 | ✅ |
+
+### Phase 27 · AI Batch & Cache ✅
+
+**目标：** AI 调用性能优化：批处理合并请求、LRU 缓存避免重复调用、分级路由减少大模型开销。
+
+**核心交付：**
+- `ai_batch.py` — AI 请求批处理队列（合并同类 prompt）
+- `ai_cache.py` — LRU 缓存（prompt hash → AI 响应，TTL 可配）
+- `TieredConfidenceRouter` — 基于 confidence 分级选择模型（高置信→跳过，中→小模型，低→大模型）
+- 1402 tests → 1402 tests（+质量改进）
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 | 状态 |
+|----|------|--------|------|------|--------|------|
+| P27.01 | AI 批处理队列 | `core/ai_batch.py` | — | M | 同类 prompt 合并，减少 API 调用次数 | ✅ |
+| P27.02 | AI LRU 缓存 | `core/ai_cache.py` | — | S | 重复 prompt 命中缓存，跳过 API 调用 | ✅ |
+| P27.03 | 分级置信度路由 | `confidence_router.py` TieredConfidenceRouter | P27.01 | M | confidence ≥0.85 跳过 LLM，0.5-0.85 小模型，<0.5 大模型 | ✅ |
+| P27.04 | 集成到 pipeline | `async_run.py` 集成 | P27.01-03 | S | 批处理+缓存+分级路由端到端验证 | ✅ |
+
+### Phase 28 · API Server SQLite ✅
+
+**目标：** API Server 从全文件扫描重构为 SQLite 查询，ConfigCache TTL 避免重复 YAML 读取。
+
+**核心交付：**
+- `AsyncStore.query_events_paginated` / `get_stats_aggregated` / `get_event_file_path`
+- `ConfigCache` — `cachetools.TTLCache` 封装 YAML 读取（60s TTL）
+- API 端点 SQLite-first + 文件扫描 fallback（优雅降级）
+- `POST /api/v1/config/reload` 热重载端点
+- 1402 tests → 1426 tests
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 | 状态 |
+|----|------|--------|------|------|--------|------|
+| P28.01 | AsyncStore 事件索引查询 | `async_store.py` 新方法 | Phase 26 | S | 分页查询+聚合统计+文件路径查找 | ✅ |
+| P28.02 | ConfigCache TTL | `core/config_cache.py` | — | S | YAML 读取 60s TTL 缓存 + reload 清除 | ✅ |
+| P28.03 | API 端点 SQLite 集成 | `api_server.py` 重构 | P28.01-02 | M | get_stats/list_events/get_event SQLite-first | ✅ |
+| P28.04 | Config reload 端点 | `POST /api/v1/config/reload` | P28.02 | S | 调用后缓存清除，下次请求读取最新配置 | ✅ |
+| P28.05 | SQLite 查询测试 | `test_api_server.py` 扩展 | P28.03 | S | SQLite 模式下各端点正确返回 | ✅ |
+| P28.06 | async_run event_index 写入 | `async_run.py` 输出阶段集成 | P28.01 | S | pipeline 完成后写入事件索引 | ✅ |
+
+### Phase 29 · Multi-target Concurrency ✅
+
+**目标：** 多目标并发调度，FairScheduler 保证资源公平分配，CLI 支持批量运行和循环模式。
+
+**核心交付：**
+- `scheduler.py` — FairScheduler（两级 Semaphore：per-target + global）
+- `--target all` 批量运行所有 target
+- `--target italy,china-watch-en` 逗号分隔多目标
+- `--interval N` 循环运行模式（分钟级）
+- `run_loop_async` 无限循环 + max_iterations 限制
+- 1426 tests → 1467 tests
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 | 状态 |
+|----|------|--------|------|------|--------|------|
+| P29.01 | FairScheduler | `core/scheduler.py` | — | M | 两级并发控制，无饥饿，资源公平分配 | ✅ |
+| P29.02 | 多目标并发运行 | `async_run.py` bounded_run_multi_async | P29.01 | L | asyncio.gather 并发多 target，共享 httpx client | ✅ |
+| P29.03 | CLI --target 扩展 | `cli/__init__.py` | P29.02 | S | --target all / 逗号分隔 / 单目标三模式 | ✅ |
+| P29.04 | CLI --interval 循环模式 | `cli/__init__.py` --interval | P29.03 | S | N 分钟间隔循环运行，max_iterations 限制 | ✅ |
+| P29.05 | 多目标测试 | `test_multi_target.py` | P29.02 | M | 并发调度 + FairScheduler + 资源隔离验证 | ✅ |
+| P29.06 | CLI 多目标测试 | `test_cli_multi_target.py` | P29.03-04 | S | CLI 参数解析 + 调度逻辑验证 | ✅ |
+
+---
+
+## §25. Cloud VPS 部署方案推荐
 
 > 替代/补充 Phase 15 的 Hetzner 方案。以下为 2026 年可用的主流 Cloud VPS 对比。
 
