@@ -20,6 +20,8 @@ from news_sentry.core.config import ConfigLoader, ResolvedConfig
 from news_sentry.core.file_writer import FileWriter
 from news_sentry.core.llm_cache_manager import LLMCacheManager
 from news_sentry.core.memory import Memory
+from news_sentry.core.nlp_analyzer import NLPAnalyzer
+from news_sentry.core.nlp_rules import NLPRulesAnalyzer
 from news_sentry.core.run import (
     ConfigError,
     _allow_external_output_root,
@@ -455,6 +457,21 @@ async def _run_judge_async(
         duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
         run_log.log_phase_end("judge", len(events), duration_ms)
         return
+
+    # P30: NLP 增强
+    try:
+        nlp_config_dir = _find_project_root() / "config" / "nlp"
+        if nlp_config_dir.is_dir():
+            rules_nlp = NLPRulesAnalyzer(nlp_config_dir)
+            nlp_analyzer = NLPAnalyzer(rules_nlp)
+            judged = await nlp_analyzer.enrich(judged, run_id)
+            logger.info(
+                "NLP 增强: rules_only=%d ai_upgraded=%d",
+                nlp_analyzer.stats["rules_only"],
+                nlp_analyzer.stats["ai_upgraded"],
+            )
+    except Exception as e:
+        logger.warning("NLP 增强失败（非阻塞）: %s", e)
 
     # 写入研判结果
     for event in judged:

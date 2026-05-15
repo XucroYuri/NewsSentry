@@ -187,10 +187,10 @@ class TestJudge:
         assert "priority_topic" in result.judge_result.flags
 
     def test_judge_sets_sentiment_score(self, rules_skill, sample_event):
-        """sentiment_score 字段被设置。"""
+        """sentiment_score 由 NLPAnalyzer 填充，rules_judge 不再设置。"""
         result = rules_skill.judge(sample_event, "run-001")
-        assert result.sentiment_score is not None
-        assert -1.0 <= result.sentiment_score <= 1.0
+        # sentiment_score 不再由 rules_judge 硬编码 0.0，由 NLPAnalyzer 后续填充
+        assert result.sentiment_score is None or -1.0 <= result.sentiment_score <= 1.0
 
     def test_judge_handles_router_error(self, sample_event):
         """mock router.route() 返回 error，judge 不崩溃，stage 仍变为 JUDGED。"""

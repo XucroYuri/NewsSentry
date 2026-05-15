@@ -72,6 +72,18 @@ routes:
       - fallback.local
     notes: "LLM 分类路由（L0–L3），失败回退到规则引擎"
 
+  # ── NLP 分析任务 ──────────────────────────────────────────
+
+  - route_id: nlp.ai-fast
+    task_type: nlp
+    provider: openai
+    model: gpt-4o-mini
+    timeout_seconds: 30
+    max_cost_usd_per_call: 0.002
+    output_schema_ref: null
+    audit: false
+    notes: "NLP 深度分析路由：情感/实体/关联/摘要增强"
+
   # ── 本地回退路由 ──────────────────────────────────────
 
   - route_id: fallback.local

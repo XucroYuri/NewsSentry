@@ -96,7 +96,7 @@ class RulesJudgeSkill:
             confidence = int(classification.get("confidence", 50))
 
             event.china_relevance = home_rel  # 向后兼容别名
-            event.sentiment_score = 0.0  # Phase 5 AI 接入后替换
+            # sentiment_score 由 NLPAnalyzer 在 judge 后填充
 
             event.judge_result = JudgeResult(
                 recommendation=recommendation,
