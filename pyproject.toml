@@ -31,6 +31,7 @@ dependencies = [
     "feedparser>=6.0",
     "click>=8.1",
     "aiosqlite>=0.20",
+    "cachetools>=5.3",
 ]
 
 [project.optional-dependencies]
