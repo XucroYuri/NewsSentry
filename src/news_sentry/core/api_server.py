@@ -30,6 +30,9 @@ import yaml
 from fastapi import FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from news_sentry.core.async_store import AsyncStore
+from news_sentry.core.config_cache import ConfigCache
+
 # ── Pydantic 模型 ──────────────────────────────────────
 
 
@@ -403,14 +406,32 @@ def _load_all_events(data_dir: Path, target_id: str) -> list[dict[str, Any]]:
     return events
 
 
+def _load_event_by_path(file_path: str | None) -> dict[str, Any] | None:
+    """根据 file_path 读取单个 .md 文件的 frontmatter。"""
+    if file_path is None:
+        return None
+    path = Path(file_path)
+    if not path.is_file():
+        return None
+    try:
+        raw = path.read_text(encoding="utf-8")
+        return _parse_frontmatter(raw)
+    except Exception:  # noqa: S112
+        return None
+
+
 # ── FastAPI 应用 ────────────────────────────────────────
 
 
-def create_app(data_dir: str | Path | None = None) -> FastAPI:
+def create_app(
+    data_dir: str | Path | None = None,
+    store: AsyncStore | None = None,
+) -> FastAPI:
     """创建 FastAPI 应用实例。
 
     Args:
         data_dir: 数据根目录，默认 ./data。
+        store: AsyncStore 实例（Phase 28 新增，用于 SQLite 查询）。
     """
     app = FastAPI(
         title="News Sentry API",
@@ -419,6 +440,8 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     )
 
     _data_dir = Path(data_dir) if data_dir else Path("./data")
+    _store = store
+    _config_cache = ConfigCache(ttl=60, maxsize=128)
 
     # ── 公开端点（无需认证）─────────────────────────────
 
@@ -445,7 +468,19 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     async def get_stats(
         target_id: str = Query(..., description="目标标识"),
     ) -> StatsResponse:
-        """返回指定 target 的事件统计。"""
+        """返回指定 target 的事件统计（SQLite 聚合查询）。"""
+        if _store is not None:
+            stats = await _store.get_stats_aggregated(target_id)
+            return StatsResponse(
+                target_id=target_id,
+                total_events=stats["total_events"],
+                avg_news_value_score=stats["avg_news_value_score"],
+                avg_china_relevance=stats["avg_china_relevance"],
+                by_classification=stats["by_classification"],
+                by_source=stats["by_source"],
+            )
+
+        # 降级路径：无 store 时走原始文件扫描
         events = _load_all_events(_data_dir, target_id)
 
         total = len(events)
@@ -490,7 +525,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     async def get_target_config(target_id: str) -> dict[str, Any]:
         """读取指定 target 的完整配置。"""
         config_path = Path(f"config/targets/{target_id}.yaml")
-        data = _load_yaml_file(config_path)
+        data = _config_cache.load_yaml(config_path)
         if data is None:
             raise HTTPException(status_code=404, detail=f"Target '{target_id}' not found")
         return data
@@ -549,7 +584,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     async def get_filter_rules(target_id: str) -> FilterRulesResponse:
         """读取指定 target 的过滤规则。"""
         filter_path = Path(f"config/filters/{target_id}/default.yaml")
-        data = _load_yaml_file(filter_path)
+        data = _config_cache.load_yaml(filter_path)
         if data is None:
             raise HTTPException(
                 status_code=404,
@@ -574,7 +609,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     async def list_destinations() -> DestinationListResponse:
         """读取所有输出目的地配置。"""
         dest_path = Path("config/output/destinations.yaml")
-        data = _load_yaml_file(dest_path)
+        data = _config_cache.load_yaml(dest_path)
         if data is None:
             return DestinationListResponse(destinations=[])
         raw_dests = data.get("destinations", [])
@@ -607,7 +642,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     async def get_provider_routes() -> ProviderRoutesResponse:
         """读取 AI Provider 路由配置。"""
         routes_path = Path("config/provider/routes.yaml")
-        data = _load_yaml_file(routes_path)
+        data = _config_cache.load_yaml(routes_path)
         if data is None:
             raise HTTPException(status_code=404, detail="Provider routes not found")
         raw_routes = data.get("routes", [])
@@ -651,6 +686,40 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         key = _verify_api_key(x_api_key)
         if not _rate_limiter.check(key):
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+        if _store is not None:
+            offset = (page - 1) * page_size
+            result = await _store.query_events_paginated(
+                target_id=target_id,
+                stage="drafts",
+                limit=page_size,
+                offset=offset,
+                source_id=source_id,
+                classification_l0=classification,
+                min_score=min_score,
+            )
+            total = result["total"]
+            page_events: list[dict[str, Any]] = []
+
+            for row in result["rows"]:
+                event_fm = _load_event_by_path(row["file_path"])
+                if event_fm is None:
+                    continue
+                if search is not None:
+                    keyword = search.lower()
+                    if keyword not in (event_fm.get("title_original") or "").lower():
+                        total -= 1
+                        continue
+                page_events.append(event_fm)
+
+            return EventResponse(
+                total=total,
+                events=page_events,
+                page=page,
+                page_size=page_size,
+            )
+
+        # 降级路径
         return _load_events_from_data(
             _data_dir,
             target_id,
@@ -671,6 +740,17 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         key = _verify_api_key(x_api_key)
         if not _rate_limiter.check(key):
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+        if _store is not None:
+            file_path = await _store.get_event_file_path(event_id)
+            if file_path is None:
+                raise HTTPException(status_code=404, detail="Event not found")
+            event = _load_event_by_path(file_path)
+            if event is None:
+                raise HTTPException(status_code=404, detail="Event file not found")
+            return event
+
+        # 降级路径
         event = _load_single_event(_data_dir, target_id, event_id)
         if event is None:
             raise HTTPException(status_code=404, detail="Event not found")
@@ -691,6 +771,17 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             event_id=event_id,
             message=f"Event {event_id} saved to {target_id}/raw/",
         )
+
+    @app.post("/api/v1/config/reload")
+    async def reload_config(
+        x_api_key: str | None = Header(None, alias="X-API-Key"),
+    ) -> dict[str, str]:
+        """清除配置缓存，下次请求时重新从文件加载。"""
+        key = _verify_api_key(x_api_key)
+        if not _rate_limiter.check(key):
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        _config_cache.reload()
+        return {"status": "ok", "message": "Configuration cache cleared"}
 
     # ── 静态文件（必须在所有 API 路由之后挂载）────────
     static_dir = Path(__file__).parent.parent / "static"
