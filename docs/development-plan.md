@@ -1,9 +1,10 @@
 # News Sentry — 开发计划
 
-> 版本: v2.3 | 日期: 2026-05-15
+> 版本: v2.4 | 日期: 2026-05-15
 > 状态: **路线图主权文档** — 本文档是多阶段开发计划与 TODO 矩阵的唯一权威来源
-> 当前版本: **v1.1.0** | 下一版本: **v1.2.0**
+> 当前版本: **v1.1.0** | 下一版本: **v1.3.0**
 > Phase 25-29 性能优化: ✅ 全部完成 (异步 pipeline + SQLite + AI 批处理/缓存/分级路由 + API SQLite 查询 + 多目标并发调度)
+> Phase 30 多语言 NLP: ✅ 全部完成 (规则引擎零成本基线 + AI 按需升级 + 5 种语言情感/实体词典)
 > 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](spec/README.md) 为准）
 > Cloud VPS 方案: [docs/deployment/cloud-vps-recommendations.md](./deployment/cloud-vps-recommendations.md)
 > 字段口径基准: [`docs/contracts-canonical.md`](./contracts-canonical.md)
@@ -1059,6 +1060,37 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P29.04 | CLI --interval 循环模式 | `cli/__init__.py` --interval | P29.03 | S | N 分钟间隔循环运行，max_iterations 限制 | ✅ |
 | P29.05 | 多目标测试 | `test_multi_target.py` | P29.02 | M | 并发调度 + FairScheduler + 资源隔离验证 | ✅ |
 | P29.06 | CLI 多目标测试 | `test_cli_multi_target.py` | P29.03-04 | S | CLI 参数解析 + 调度逻辑验证 | ✅ |
+
+---
+
+## §26. v1.3.0 — 多语言 NLP 深度分析
+
+| Phase | 名称 | 核心交付 | 规模 | 状态 |
+|-------|------|---------|------|------|
+| Phase 30 | Multi-language NLP Analysis | NLPAnalysis 模型 + 规则引擎 + AI 升级 + async_run 集成 | L | ✅ |
+
+### Phase 30 · Multi-language NLP Analysis ✅
+
+**目标：** 在 JudgeResult 基础上扩展 4 个 NLP 维度（情感/实体/主题标签/事件关联），规则引擎零成本基线 + AI 按需升级。
+
+**核心交付：**
+- `NLPAnalysis` 模型 — Sentiment 枚举 + NLPEntity + topic_tags + event_relations
+- `NLPRulesAnalyzer` — 情感词典词频 + 实体词典匹配 + classification 主题标签
+- `NLPAIAnalyzer` — ProviderRouter task_type="nlp" LLM 升级
+- `NLPAnalyzer` 编排器 — 规则→升级检查→AI，stats 追踪
+- 5 种语言情感/实体词典（it/en/ja/de/fr）
+- sentiment_score 不再硬编码 0.0，由 NLP 分析器写入
+- 1467 tests → 1504 tests, 92% coverage
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 | 状态 |
+|----|------|--------|------|------|--------|------|
+| P30.01 | NLP 模型扩展 | `models/newsevent.py` Sentiment/NLPEntity/NLPAnalysis | — | S | 10 模型测试通过 | ✅ |
+| P30.02 | NLP 配置文件 | `config/nlp/sentiment/*.yaml` + `entities/*.yaml` | — | M | 5 语言 × 2 类型 = 10 YAML | ✅ |
+| P30.03 | NLPRulesAnalyzer | `core/nlp_rules.py` | P30.01, P30.02 | M | 13 规则引擎测试通过 | ✅ |
+| P30.04 | NLPAIAnalyzer | `core/nlp_ai.py` | P30.01 | M | 7 AI 升级测试通过 | ✅ |
+| P30.05 | NLPAnalyzer 编排器 | `core/nlp_analyzer.py` | P30.03, P30.04 | M | 7 编排器测试通过 | ✅ |
+| P30.06 | 集成 + 路由 + 修复 | `async_run.py` + `routes.yaml` + `rules_judge.py` + schema | P30.05 | S | 全量 1504 tests 通过 | ✅ |
+| P30.07 | 验证与清理 | development-plan.md 更新 | P30.06 | S | ruff=0, mypy=0, 92% coverage | ✅ |
 
 ---
 
