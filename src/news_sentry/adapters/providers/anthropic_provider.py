@@ -116,6 +116,75 @@ class AnthropicProvider(AIProvider):
             "provider": "anthropic",
         }
 
+    async def call_async(
+        self,
+        route_id: str,
+        prompt: str,
+        *,
+        http_client: httpx.AsyncClient | None = None,
+        model: str | None = None,
+        max_tokens: int = 1000,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> dict[str, Any]:
+        """异步调用 Anthropic Messages API。
+
+        Args:
+            route_id: 路由标识。
+            prompt: 用户提示词。
+            http_client: 外部 httpx.AsyncClient（复用连接池），不传则自建临时 client。
+            model: 覆盖默认模型。
+            max_tokens: 最大输出 token 数。
+            **kwargs: 额外参数。
+
+        Returns:
+            dict with keys: content, model, usage, route_id, provider。
+        """
+        if not self._api_key:
+            raise RuntimeError(
+                "ANTHROPIC_API_KEY 未设置，无法调用 Anthropic API。"
+                " 请在环境变量或 config 中提供 api_key。"
+            )
+
+        use_model = model or self._default_model
+        payload: dict[str, Any] = {
+            "model": use_model,
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+
+        headers = {
+            "x-api-key": self._api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        }
+
+        client = http_client or httpx.AsyncClient(timeout=60.0)
+        try:
+            response = await client.post(
+                f"{self._base_url}/messages",
+                json=payload,
+                headers=headers,
+            )
+            response.raise_for_status()
+        finally:
+            if http_client is None:
+                await client.aclose()
+
+        data = response.json()
+        content_blocks = data.get("content", [])
+        text = ""
+        for block in content_blocks:
+            if block.get("type") == "text":
+                text += block.get("text", "")
+
+        return {
+            "content": text,
+            "model": data.get("model", use_model),
+            "usage": data.get("usage", {}),
+            "route_id": route_id,
+            "provider": "anthropic",
+        }
+
     def health_check(self) -> bool:
         """检查 Anthropic Provider 可用性。
 

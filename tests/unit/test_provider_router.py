@@ -661,3 +661,90 @@ class TestRouteOrchestration:
         assert result["fallback_used"] is False
         assert result["budget_exceeded"] is False
         assert result["content"] == "config-based response"
+
+
+# ------------------------------------------------------------------
+# TestRouteAsyncOrchestration — route_async() 异步编排测试
+# ------------------------------------------------------------------
+
+
+class TestRouteAsyncOrchestration:
+    """route_async 异步编排测试。"""
+
+    @pytest.mark.asyncio
+    async def test_route_async_calls_provider_call_async(self):
+        """route_async 应调用 provider.call_async 而非 provider.call。"""
+        from unittest.mock import AsyncMock, MagicMock
+
+        config = _make_test_routes_config()
+        # 用 openai provider 名覆盖 translate.fast 的 provider 字段
+        config.routes[0] = ProviderRoute(
+            route_id="translate.fast",
+            task_type="translate",
+            provider="openai",
+            model="gpt-4o-mini",
+            timeout_seconds=30,
+            max_cost_usd_per_call=0.01,
+        )
+        router = ProviderRouter(config)
+
+        async_provider = MagicMock()
+        async_provider.call_async = AsyncMock(
+            return_value={
+                "content": "async result",
+                "model": "gpt-4o-mini",
+                "usage": {"total_tokens": 10},
+            }
+        )
+
+        def factory(name):
+            return async_provider if name == "openai" else None
+
+        result = await router.route_async(
+            task_type="translate",
+            prompt="Hello",
+            provider_factory=factory,
+            max_tokens=100,
+        )
+
+        assert result["content"] == "async result"
+        assert result["fallback_used"] is False
+        assert result["budget_exceeded"] is False
+
+    @pytest.mark.asyncio
+    async def test_route_async_falls_back_to_sync(self):
+        """provider 没有 call_async 时应通过 asyncio.to_thread 回退到 call。"""
+        from unittest.mock import MagicMock
+
+        config = _make_test_routes_config()
+        config.routes[0] = ProviderRoute(
+            route_id="translate.fast",
+            task_type="translate",
+            provider="openai",
+            model="gpt-4o-mini",
+            timeout_seconds=30,
+            max_cost_usd_per_call=0.01,
+        )
+        router = ProviderRouter(config)
+
+        sync_provider = MagicMock(spec=object)
+        sync_provider.call = MagicMock(
+            return_value={
+                "content": "sync fallback",
+                "model": "gpt-4o-mini",
+                "usage": {"total_tokens": 10},
+            }
+        )
+        # spec=object 确保 MagicMock 不自动创建 call_async 属性
+
+        def factory(name):
+            return sync_provider if name == "openai" else None
+
+        result = await router.route_async(
+            task_type="translate",
+            prompt="Hello",
+            provider_factory=factory,
+            max_tokens=100,
+        )
+
+        assert result["content"] == "sync fallback"

@@ -107,6 +107,71 @@ class OpenAIProvider(AIProvider):
             "provider": "openai",
         }
 
+    async def call_async(
+        self,
+        route_id: str,
+        prompt: str,
+        *,
+        http_client: httpx.AsyncClient | None = None,
+        model: str | None = None,
+        max_tokens: int = 1000,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> dict[str, Any]:
+        """异步调用 OpenAI API。
+
+        Args:
+            route_id: 路由标识。
+            prompt: 用户提示词。
+            http_client: 外部 httpx.AsyncClient（复用连接池），不传则自建临时 client。
+            model: 覆盖默认模型。
+            max_tokens: 最大输出 token 数。
+            **kwargs: 额外参数，支持 response_format 等。
+
+        Returns:
+            dict with keys: content, model, usage, route_id, provider。
+        """
+        if not self._api_key:
+            raise RuntimeError(
+                "OPENAI_API_KEY 未设置，无法调用 OpenAI API。"
+                " 请在环境变量或 config 中提供 api_key。"
+            )
+
+        use_model = model or self._default_model
+        payload: dict[str, Any] = {
+            "model": use_model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": max_tokens,
+        }
+        if "response_format" in kwargs:
+            payload["response_format"] = kwargs["response_format"]
+
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+
+        client = http_client or httpx.AsyncClient(timeout=30.0)
+        try:
+            response = await client.post(
+                f"{self._base_url}/chat/completions",
+                json=payload,
+                headers=headers,
+            )
+            response.raise_for_status()
+        finally:
+            if http_client is None:
+                await client.aclose()
+
+        data = response.json()
+        content = data["choices"][0]["message"]["content"]
+        return {
+            "content": content,
+            "model": data.get("model", use_model),
+            "usage": data.get("usage", {}),
+            "route_id": route_id,
+            "provider": "openai",
+        }
+
     def health_check(self) -> bool:
         """检查 OpenAI Provider 可用性。
 

@@ -351,3 +351,98 @@ class ProviderRouter:
             "budget_exceeded": False,
             "error": last_error or "All providers failed",
         }
+
+    # ── 异步路由编排 ──────────────────────────────────────────────
+
+    async def route_async(
+        self,
+        task_type: str,
+        prompt: str,
+        provider_factory: Callable[[str], AIProvider | None],
+        preferred_route_id: str | None = None,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> dict[str, Any]:
+        """异步版路由编排：解析 → 预算检查 → async 调用 → 回退 → 成本记录。
+
+        优先调用 provider.call_async（鸭子类型检测），无则通过
+        asyncio.to_thread 回退到同步 call()。
+
+        Args:
+            task_type: 任务类型（translate/judge/classify）。
+            prompt: 发送给 AI Provider 的提示词。
+            provider_factory: 将 provider_name 映射为 AIProvider 实例的工厂函数。
+            preferred_route_id: 可选，优先使用的路由 ID。
+            **kwargs: 转发给 AIProvider 的额外参数（如 model, max_tokens）。
+
+        Returns:
+            与 route() 相同结构的 dict。
+        """
+        import asyncio
+
+        route = self.resolve_route(task_type, preferred_route_id)
+
+        if self.is_over_budget():
+            logger.warning("预算超限，跳过 AI 调用: route_id=%s", route.route_id)
+            return {
+                "content": "",
+                "model": "",
+                "usage": {},
+                "route_id": route.route_id,
+                "provider": "",
+                "fallback_used": False,
+                "budget_exceeded": True,
+            }
+
+        current_route: ProviderRoute | None = route
+        fallback_used = False
+        last_error: str | None = None
+
+        while current_route is not None:
+            provider = provider_factory(current_route.provider)
+            if provider is None:
+                current_route = self.get_fallback_route(current_route)
+                fallback_used = True
+                continue
+
+            try:
+                if hasattr(provider, "call_async") and callable(provider.call_async):
+                    result = await provider.call_async(
+                        route_id=current_route.route_id,
+                        prompt=prompt,
+                        **kwargs,
+                    )
+                else:
+                    result = await asyncio.to_thread(
+                        provider.call,
+                        route_id=current_route.route_id,
+                        prompt=prompt,
+                        **kwargs,
+                    )
+
+                cost = current_route.max_cost_usd_per_call
+                self.track_cost(current_route.route_id, cost)
+                result["fallback_used"] = fallback_used
+                result["budget_exceeded"] = False
+                return result
+
+            except Exception as e:
+                last_error = str(e)
+                logger.warning(
+                    "Provider '%s' 异步调用失败: %s",
+                    current_route.provider,
+                    e,
+                )
+                current_route = self.get_fallback_route(current_route)
+                fallback_used = True
+
+        logger.error("所有 Provider 异步调用均失败: route_id=%s", route.route_id)
+        return {
+            "content": "",
+            "model": "",
+            "usage": {},
+            "route_id": route.route_id,
+            "provider": "",
+            "fallback_used": True,
+            "budget_exceeded": False,
+            "error": last_error or "All providers failed",
+        }
