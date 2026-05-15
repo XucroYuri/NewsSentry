@@ -36,6 +36,7 @@ from news_sentry.core.run import (
 )
 from news_sentry.core.run_log import RunLog, write_heartbeat
 from news_sentry.core.sandbox import SandboxEnforcer, SandboxPolicy
+from news_sentry.core.scheduler import FairScheduler
 from news_sentry.core.translation_batcher import TranslationBatcher
 from news_sentry.core.yaml_migration import migrate_yaml_to_sqlite, should_migrate
 from news_sentry.models.newsevent import NewsEvent, PipelineStage
@@ -493,3 +494,158 @@ async def _run_output_async(
             await store.index_event(event, target_id, "drafts", file_path=file_path)
         if events:
             logger.info("event_index 写入 %d 条事件", len(events))
+
+
+def _resolve_targets(target_str: str, config_dir: Path) -> list[str]:
+    """将 target 参数字符串解析为 target_id 列表。
+
+    支持以下格式：
+    - 单个 target: "italy"
+    - 逗号分隔: "italy,japan,germany"
+    - 关键字 "all": 从 config/targets/ 发现所有 target
+    """
+    if target_str == "all":
+        return _discover_all_targets(config_dir)
+
+    seen: set[str] = set()
+    result: list[str] = []
+    for part in target_str.split(","):
+        tid = part.strip()
+        if tid and tid not in seen:
+            seen.add(tid)
+            result.append(tid)
+    return result
+
+
+def _discover_all_targets(config_dir: Path) -> list[str]:
+    """从 config/targets/ 目录发现所有 target。
+
+    跳过以 _ 开头的文件（如 _template.yaml），返回按字母排序的列表。
+    """
+    targets_dir = config_dir / "config" / "targets"
+    if not targets_dir.is_dir():
+        return []
+    targets: list[str] = []
+    for yaml_file in sorted(targets_dir.glob("*.yaml")):
+        if yaml_file.name.startswith("_"):
+            continue
+        targets.append(yaml_file.stem)
+    return targets
+
+
+async def bounded_run_multi_async(
+    targets: list[str],
+    stage: str = "all",
+    run_id: str | None = None,
+    config_dir: str | Path | None = None,
+    profile_id: str | None = None,
+    output_root: str | Path | None = None,
+) -> list[Any]:
+    """多 Target 并发运行入口。
+
+    为每个 target 启动独立的 pipeline 运行，通过 FairScheduler 协调并发。
+    全局共享 httpx.AsyncClient 连接池。单个 target 失败不影响其他 target。
+    """
+    if not targets:
+        return []
+
+    scheduler = FairScheduler(per_target_min=5, global_max=30)
+    for target_id in targets:
+        scheduler.register(target_id)
+
+    async with httpx.AsyncClient(timeout=30.0) as http_client:
+        coros = [
+            _run_single_target_async(
+                target_id=target_id,
+                stage=stage,
+                run_id=run_id,
+                config_dir=config_dir,
+                profile_id=profile_id,
+                output_root=output_root,
+                http_client=http_client,
+                scheduler=scheduler,
+            )
+            for target_id in targets
+        ]
+
+        results = await asyncio.gather(*coros, return_exceptions=True)
+
+    success: list[Any] = []
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            logger.error("target '%s' 运行失败: %s", targets[i], result)
+        else:
+            success.append(result)
+    return success
+
+
+async def _run_single_target_async(
+    target_id: str,
+    stage: str = "all",
+    run_id: str | None = None,
+    config_dir: str | Path | None = None,
+    profile_id: str | None = None,
+    output_root: str | Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+    scheduler: FairScheduler | None = None,
+) -> Any:  # noqa: ANN401
+    """运行单个 target 的完整 pipeline。使用 FairScheduler 控制并发槽位。"""
+    if scheduler is not None:
+        await scheduler.acquire(target_id)
+
+    # bounded_run_async 接受 str | None，转换 Path → str
+    config_dir_str = str(config_dir) if isinstance(config_dir, Path) else config_dir
+
+    try:
+        ctx = await bounded_run_async(
+            target_id=target_id,
+            stage=stage,
+            run_id=run_id,
+            config_dir=config_dir_str,
+            profile_id=profile_id,
+            output_root=output_root,
+        )
+        return ctx
+    finally:
+        if scheduler is not None:
+            scheduler.release(target_id)
+
+
+async def run_loop_async(
+    targets: list[str],
+    stage: str = "all",
+    config_dir: str | Path | None = None,
+    profile_id: str | None = None,
+    interval: int = 300,
+    max_iterations: int = 0,
+) -> None:
+    """异步循环运行模式。
+
+    每隔 interval 秒执行一次多目标 pipeline。单次迭代失败不终止循环。
+    """
+    iteration = 0
+    while iteration < max_iterations:
+        iteration += 1
+        logger.info("循环模式: 第 %d 轮开始", iteration)
+        try:
+            await bounded_run_multi_async(
+                targets=targets,
+                stage=stage,
+                config_dir=config_dir,
+                profile_id=profile_id,
+            )
+        except Exception:
+            logger.error("循环模式: 第 %d 轮失败", iteration, exc_info=True)
+
+        if iteration < max_iterations:
+            await asyncio.sleep(interval)
+
+
+def _target_db_path(target_id: str, output_root: Path) -> Path:
+    """计算 target 的 SQLite 数据库路径：{output_root}/{target_id}/state.db"""
+    return output_root / target_id / "state.db"
+
+
+def _target_memory_dir(target_id: str, output_root: Path) -> Path:
+    """计算 target 的 Memory 目录路径：{output_root}/{target_id}/memory"""
+    return output_root / target_id / "memory"
