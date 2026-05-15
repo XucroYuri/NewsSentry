@@ -898,7 +898,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 | Phase | 名称 | 核心目标 | 估算规模 | 状态 |
 |-------|------|---------|---------|------|
-| Phase 24 | Real-time Breaking News Radar | 分钟级轮询 + 分级推送 + 本国相关性泛化 | L | 🔧 TODO |
+| Phase 24 | Real-time Breaking News Radar | 分钟级轮询 + 分级推送 + 本国相关性泛化 | L | ✅ |
 
 ### Phase 24 · Real-time Breaking News Radar
 
@@ -938,13 +938,13 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 **验收清单：**
 
-- [ ] 每个target配置含 `home_relevance_keywords`，`rules_judge.py` 从配置读取而非硬编码
-- [ ] `destinations.yaml` 支持 `tier: L1/L2/L3` 字段
-- [ ] L2 推送自动触发翻译（复用 ProviderRouter translate 路由）
-- [ ] L3 推送自动生成报道方案草稿（AI prompt）
-- [ ] systemd timer 模板支持 1-5 分钟间隔
-- [ ] 所有现有测试通过，新增 tier/home_relevance 测试
-- [ ] `china_relevance` 字段保留向后兼容
+- [x] 每个target配置含 `home_relevance_keywords`，`rules_judge.py` 从配置读取而非硬编码
+- [x] `destinations.yaml` 支持 `tier: L1/L2/L3` 字段
+- [x] L2 推送自动触发翻译（复用 ProviderRouter translate 路由）
+- [x] L3 推送自动生成报道方案草稿（AI prompt）
+- [x] systemd timer 模板支持 1-5 分钟间隔
+- [x] 所有现有测试通过，新增 tier/home_relevance 测试
+- [x] `china_relevance` 字段保留向后兼容
 
 | ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 |
 |----|------|--------|------|------|--------|
