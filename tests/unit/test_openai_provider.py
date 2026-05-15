@@ -205,3 +205,67 @@ class TestProviderId:
 
         provider = OpenAIProvider({"api_key": "sk-test"})
         assert isinstance(provider, AIProvider)
+
+
+# ── call_async ──────────────────────────────────────────────────────
+
+
+class TestCallAsync:
+    """call_async 方法测试 — mock httpx.AsyncClient。"""
+
+    @pytest.mark.asyncio
+    async def test_call_async_returns_structured_dict(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "Async response"}}],
+            "model": "gpt-4o-mini",
+            "usage": {"total_tokens": 20},
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        provider = OpenAIProvider({"api_key": "sk-test"})
+        result = await provider.call_async("translate.fast", "Hello world", http_client=mock_client)
+        assert result["content"] == "Async response"
+        assert result["model"] == "gpt-4o-mini"
+
+    @pytest.mark.asyncio
+    async def test_call_async_with_response_format(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": '{"key": "value"}'}}],
+            "model": "gpt-4o-mini",
+            "usage": {"total_tokens": 15},
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        provider = OpenAIProvider({"api_key": "sk-test"})
+        result = await provider.call_async(
+            "translate.fast",
+            "Test prompt",
+            http_client=mock_client,
+            response_format={"type": "json_object"},
+        )
+        assert "key" in result["content"]
+
+    @pytest.mark.asyncio
+    async def test_call_async_handles_http_error(self):
+        from unittest.mock import AsyncMock
+
+        import httpx
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=httpx.ConnectTimeout("timeout"))
+
+        provider = OpenAIProvider({"api_key": "sk-test"})
+        with pytest.raises(httpx.ConnectTimeout):
+            await provider.call_async("translate.fast", "Hello", http_client=mock_client)
