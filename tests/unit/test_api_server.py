@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ from news_sentry.core.api_server import (
     _verify_api_key,
     create_app,
 )
+from news_sentry.core.async_store import AsyncStore
 
 
 def _write_draft(
@@ -657,4 +659,213 @@ class TestConfigAPI:
         self._setup_config(tmp_path, monkeypatch)
         client = self._make_client(tmp_path)
         resp = client.get("/api/v1/config/provider/routes")
+        assert resp.status_code == 404
+
+
+class TestAPIServerSQLite:
+    """使用 AsyncStore（SQLite）的 API Server 端点测试。"""
+
+    @pytest.fixture
+    async def store_with_data(self, tmp_path: Path) -> AsyncStore:
+        """创建包含测试数据的 AsyncStore。"""
+        db_path = tmp_path / "state.db"
+        store = AsyncStore(db_path)
+        await store.initialize()
+
+        now = datetime.now(UTC).isoformat()
+        events_data = [
+            {
+                "event_id": "ne-italy-ansa-20260512-aaa11111",
+                "source_id": "ansa",
+                "news_value_score": 80,
+                "china_relevance": 20,
+                "classification_l0": "international",
+                "title_original": "Pace in Medio Oriente",
+            },
+            {
+                "event_id": "ne-italy-repubblica-20260512-bbb22222",
+                "source_id": "repubblica",
+                "news_value_score": 60,
+                "china_relevance": 40,
+                "classification_l0": "politics",
+                "title_original": "Elezioni politiche",
+            },
+            {
+                "event_id": "ne-italy-ansa-20260512-ccc33333",
+                "source_id": "ansa",
+                "news_value_score": 90,
+                "china_relevance": 10,
+                "classification_l0": "international",
+                "title_original": "Accordo commerciale",
+            },
+        ]
+
+        # 创建对应的 drafts 文件
+        drafts_dir = tmp_path / "italy" / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+
+        for ev in events_data:
+            file_name = f"outputted_{ev['source_id']}_{ev['event_id']}.md"
+            file_path = drafts_dir / file_name
+            fm_data = {
+                "id": ev["event_id"],
+                "source_id": ev["source_id"],
+                "url": "https://example.com",
+                "title_original": ev["title_original"],
+                "news_value_score": ev["news_value_score"],
+                "china_relevance": ev["china_relevance"],
+                "classification": {"l0": ev["classification_l0"]},
+                "pipeline_stage": "outputted",
+            }
+            fm = yaml.dump(fm_data, allow_unicode=True, default_flow_style=False, sort_keys=False)
+            file_path.write_text(
+                f"---\n{fm}---\n\n# {ev['title_original']}\n\nBody\n",
+                encoding="utf-8",
+            )
+
+            await store._db.execute(  # noqa: SLF001
+                "INSERT OR REPLACE INTO event_index "
+                "(event_id, target_id, stage, source_id, news_value_score, "
+                "china_relevance, classification_l0, title_original, "
+                "published_at, file_path, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    ev["event_id"],
+                    "italy",
+                    "drafts",
+                    ev["source_id"],
+                    ev["news_value_score"],
+                    ev["china_relevance"],
+                    ev["classification_l0"],
+                    ev["title_original"],
+                    now,
+                    str(file_path),
+                    now,
+                ),
+            )
+        await store._db.commit()  # noqa: SLF001
+        return store
+
+    def _make_client_with_store(self, tmp_path: Path, store: AsyncStore) -> TestClient:
+        app = create_app(data_dir=tmp_path, store=store)
+        return TestClient(app)
+
+    def test_stats_with_sqlite(
+        self,
+        tmp_path: Path,
+        store_with_data: AsyncStore,
+    ) -> None:
+        client = self._make_client_with_store(tmp_path, store_with_data)
+        resp = client.get("/api/v1/stats", params={"target_id": "italy"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_events"] == 3
+        assert data["avg_news_value_score"] is not None
+        assert data["by_classification"]["international"] == 2
+        assert data["by_classification"]["politics"] == 1
+        assert data["by_source"]["ansa"] == 2
+
+    def test_list_events_with_sqlite(
+        self,
+        tmp_path: Path,
+        store_with_data: AsyncStore,
+    ) -> None:
+        client = self._make_client_with_store(tmp_path, store_with_data)
+        resp = client.get("/api/v1/events", params={"target_id": "italy"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 3
+        assert len(data["events"]) == 3
+
+    def test_list_events_pagination_with_sqlite(
+        self,
+        tmp_path: Path,
+        store_with_data: AsyncStore,
+    ) -> None:
+        client = self._make_client_with_store(tmp_path, store_with_data)
+        resp = client.get(
+            "/api/v1/events",
+            params={"target_id": "italy", "page": 1, "page_size": 2},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 3
+        assert len(data["events"]) == 2
+        assert data["page"] == 1
+
+    def test_list_events_filter_source_with_sqlite(
+        self,
+        tmp_path: Path,
+        store_with_data: AsyncStore,
+    ) -> None:
+        client = self._make_client_with_store(tmp_path, store_with_data)
+        resp = client.get(
+            "/api/v1/events",
+            params={"target_id": "italy", "source_id": "ansa"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 2
+
+    def test_list_events_filter_classification_with_sqlite(
+        self,
+        tmp_path: Path,
+        store_with_data: AsyncStore,
+    ) -> None:
+        client = self._make_client_with_store(tmp_path, store_with_data)
+        resp = client.get(
+            "/api/v1/events",
+            params={"target_id": "italy", "classification": "politics"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 1
+
+    def test_list_events_filter_min_score_with_sqlite(
+        self,
+        tmp_path: Path,
+        store_with_data: AsyncStore,
+    ) -> None:
+        client = self._make_client_with_store(tmp_path, store_with_data)
+        resp = client.get(
+            "/api/v1/events",
+            params={"target_id": "italy", "min_score": 70},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 2
+
+    def test_list_events_search_with_sqlite(
+        self,
+        tmp_path: Path,
+        store_with_data: AsyncStore,
+    ) -> None:
+        client = self._make_client_with_store(tmp_path, store_with_data)
+        resp = client.get(
+            "/api/v1/events",
+            params={"target_id": "italy", "search": "pace"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 1
+
+    def test_get_single_event_with_sqlite(
+        self,
+        tmp_path: Path,
+        store_with_data: AsyncStore,
+    ) -> None:
+        client = self._make_client_with_store(tmp_path, store_with_data)
+        resp = client.get(
+            "/api/v1/events/ne-italy-ansa-20260512-aaa11111",
+            params={"target_id": "italy"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["id"] == "ne-italy-ansa-20260512-aaa11111"
+
+    def test_get_single_event_not_found_with_sqlite(
+        self,
+        tmp_path: Path,
+        store_with_data: AsyncStore,
+    ) -> None:
+        client = self._make_client_with_store(tmp_path, store_with_data)
+        resp = client.get(
+            "/api/v1/events/nonexistent",
+            params={"target_id": "italy"},
+        )
         assert resp.status_code == 404
