@@ -489,3 +489,341 @@ class TestSendDispatch:
             pipeline._send(dest, body, event, "run-001")
 
         mock_logger.warning.assert_called_once()
+
+
+# ── Phase 24: Tier 分发 / 翻译 / 草稿 测试 ────────────────────
+
+
+class TestTierFormat:
+    """Phase 24: _format_tier_alert 按 tier 级别格式化不同内容。"""
+
+    def test_l1_format_contains_tier_label(self) -> None:
+        dest = {
+            "destination_id": "tg-l1",
+            "type": "telegram_bot",
+            "enabled": True,
+            "tier": "L1",
+            "bot_token": "tok",
+            "chat_id": "cid",
+            "filter": {},
+        }
+        pipeline = AlertPipeline(destinations=[dest])
+        event = _make_event()
+        body = pipeline._format_tier_alert(event, "run-001", "L1")
+        assert "原文快报" in body
+        assert "**标题**" in body
+        assert "新闻价值" in body
+
+    def test_l2_format_with_translation(self) -> None:
+        dest = {
+            "destination_id": "tg-l2",
+            "type": "telegram_bot",
+            "enabled": True,
+            "tier": "L2",
+            "bot_token": "tok",
+            "chat_id": "cid",
+            "filter": {},
+        }
+        pipeline = AlertPipeline(destinations=[dest])
+        event = _make_event()
+        event.title_translated = "测试标题翻译"
+        body = pipeline._format_tier_alert(event, "run-001", "L2")
+        assert "翻译快报" in body
+        assert "测试标题翻译" in body
+        assert "**中文**" in body
+
+    def test_l3_format_with_editorial_draft(self) -> None:
+        dest = {
+            "destination_id": "tg-l3",
+            "type": "telegram_bot",
+            "enabled": True,
+            "tier": "L3",
+            "bot_token": "tok",
+            "chat_id": "cid",
+            "filter": {},
+        }
+        pipeline = AlertPipeline(destinations=[dest])
+        event = _make_event()
+        event.title_translated = "突发新闻"
+        event.metadata["editorial_draft"] = "建议角度：xxx\n采访对象：yyy"
+        body = pipeline._format_tier_alert(event, "run-001", "L3")
+        assert "突发稿件" in body
+        assert "报道方案" in body
+        assert "建议角度" in body
+
+    def test_no_tier_uses_full_format(self) -> None:
+        dest = {**_DEST_ENABLED}
+        pipeline = AlertPipeline(destinations=[dest])
+        event = _make_event()
+        body = pipeline._format_tier_alert(event, "run-001", "")
+        assert "News Sentry 告警" in body
+        assert "置信度" in body
+
+
+class TestAutoTranslate:
+    """Phase 24: L2/L3 自动翻译触发测试。"""
+
+    def test_translate_fn_called_when_l2_no_translation(self) -> None:
+        dest = {
+            "destination_id": "tg-l2",
+            "type": "telegram_bot",
+            "enabled": True,
+            "tier": "L2",
+            "auto_translate": True,
+            "bot_token": "tok",
+            "chat_id": "cid",
+            "filter": {},
+        }
+
+        def translate_fn(title: str, lang: str) -> str:
+            return f"[{lang}] {title}"
+
+        pipeline = AlertPipeline(destinations=[dest], translate_fn=translate_fn)
+        event = _make_event()
+
+        with patch.object(pipeline, "_send"):
+            pipeline.process([event], "run-001")
+
+        assert event.title_translated is not None
+        assert "[it]" in event.title_translated
+
+    def test_translate_fn_not_called_when_already_translated(self) -> None:
+        dest = {
+            "destination_id": "tg-l2",
+            "type": "telegram_bot",
+            "enabled": True,
+            "tier": "L2",
+            "auto_translate": True,
+            "bot_token": "tok",
+            "chat_id": "cid",
+            "filter": {},
+        }
+        calls = []
+
+        def mock_translate(title: str, lang: str) -> str:
+            calls.append(title)
+            return "translated"
+
+        pipeline = AlertPipeline(destinations=[dest], translate_fn=mock_translate)
+        event = _make_event()
+        event.title_translated = "already translated"
+
+        with patch.object(pipeline, "_send"):
+            pipeline.process([event], "run-001")
+
+        assert len(calls) == 0
+
+    def test_translate_failure_does_not_block(self) -> None:
+        dest = {
+            "destination_id": "tg-l2",
+            "type": "telegram_bot",
+            "enabled": True,
+            "tier": "L2",
+            "auto_translate": True,
+            "bot_token": "tok",
+            "chat_id": "cid",
+            "filter": {},
+        }
+
+        def bad_translate(title: str, lang: str) -> str:
+            raise RuntimeError("AI service down")
+
+        pipeline = AlertPipeline(destinations=[dest], translate_fn=bad_translate)
+        event = _make_event()
+
+        with patch.object(pipeline, "_send"):
+            stats = pipeline.process([event], "run-001")
+
+        assert stats["alerts_sent"] >= 1
+
+    def test_l1_does_not_trigger_translate(self) -> None:
+        dest = {
+            "destination_id": "tg-l1",
+            "type": "telegram_bot",
+            "enabled": True,
+            "tier": "L1",
+            "bot_token": "tok",
+            "chat_id": "cid",
+            "filter": {},
+        }
+        calls = []
+
+        def mock_translate(title: str, lang: str) -> str:
+            calls.append(title)
+            return "translated"
+
+        pipeline = AlertPipeline(destinations=[dest], translate_fn=mock_translate)
+        event = _make_event()
+
+        with patch.object(pipeline, "_send"):
+            pipeline.process([event], "run-001")
+
+        assert len(calls) == 0
+
+
+class TestAutoDraft:
+    """Phase 24: L3 AI 报道方案草稿生成测试。"""
+
+    def test_draft_fn_called_for_l3(self) -> None:
+        dest = {
+            "destination_id": "tg-l3",
+            "type": "telegram_bot",
+            "enabled": True,
+            "tier": "L3",
+            "auto_draft": True,
+            "bot_token": "tok",
+            "chat_id": "cid",
+            "filter": {},
+        }
+
+        def mock_draft(title: str, content: str, lang: str) -> str:
+            return f"报道方案：{title}"
+
+        pipeline = AlertPipeline(destinations=[dest], draft_fn=mock_draft)
+        event = _make_event()
+
+        with patch.object(pipeline, "_send"):
+            pipeline.process([event], "run-001")
+
+        assert event.metadata.get("editorial_draft") is not None
+        assert "报道方案" in event.metadata["editorial_draft"]
+
+    def test_draft_not_called_for_l2(self) -> None:
+        dest = {
+            "destination_id": "tg-l2",
+            "type": "telegram_bot",
+            "enabled": True,
+            "tier": "L2",
+            "bot_token": "tok",
+            "chat_id": "cid",
+            "filter": {},
+        }
+        calls = []
+
+        def mock_draft(title: str, content: str, lang: str) -> str:
+            calls.append(title)
+            return "draft"
+
+        pipeline = AlertPipeline(destinations=[dest], draft_fn=mock_draft)
+        event = _make_event()
+
+        with patch.object(pipeline, "_send"):
+            pipeline.process([event], "run-001")
+
+        assert len(calls) == 0
+
+    def test_draft_failure_does_not_block(self) -> None:
+        dest = {
+            "destination_id": "tg-l3",
+            "type": "telegram_bot",
+            "enabled": True,
+            "tier": "L3",
+            "auto_draft": True,
+            "bot_token": "tok",
+            "chat_id": "cid",
+            "filter": {},
+        }
+
+        def bad_draft(title: str, content: str, lang: str) -> str:
+            raise RuntimeError("AI timeout")
+
+        pipeline = AlertPipeline(destinations=[dest], draft_fn=bad_draft)
+        event = _make_event()
+
+        with patch.object(pipeline, "_send"):
+            stats = pipeline.process([event], "run-001")
+
+        assert stats["alerts_sent"] >= 1
+
+    def test_draft_not_called_if_already_exists(self) -> None:
+        dest = {
+            "destination_id": "tg-l3",
+            "type": "telegram_bot",
+            "enabled": True,
+            "tier": "L3",
+            "auto_draft": True,
+            "bot_token": "tok",
+            "chat_id": "cid",
+            "filter": {},
+        }
+        calls = []
+
+        def mock_draft(title: str, content: str, lang: str) -> str:
+            calls.append(title)
+            return "new draft"
+
+        pipeline = AlertPipeline(destinations=[dest], draft_fn=mock_draft)
+        event = _make_event()
+        event.metadata["editorial_draft"] = "existing draft"
+
+        with patch.object(pipeline, "_send"):
+            pipeline.process([event], "run-001")
+
+        assert len(calls) == 0
+        assert event.metadata["editorial_draft"] == "existing draft"
+
+
+class TestTierDestinations:
+    """Phase 24: 多 tier destination 同时匹配测试。"""
+
+    def test_multiple_tiers_match_different_dests(self) -> None:
+        l1 = {
+            "destination_id": "tg-l1",
+            "type": "telegram_bot",
+            "enabled": True,
+            "tier": "L1",
+            "bot_token": "tok",
+            "chat_id": "cid",
+            "filter": {"min_news_value_score": 60},
+        }
+        l2 = {
+            "destination_id": "tg-l2",
+            "type": "telegram_bot",
+            "enabled": True,
+            "tier": "L2",
+            "auto_translate": True,
+            "bot_token": "tok",
+            "chat_id": "cid",
+            "filter": {"min_news_value_score": 80},
+        }
+
+        def translate_fn(title: str, lang: str) -> str:
+            return f"[{lang}] {title}"
+
+        pipeline = AlertPipeline(destinations=[l1, l2], translate_fn=translate_fn)
+        event = _make_event(score=85)
+
+        with patch.object(pipeline, "_send") as mock_send:
+            stats = pipeline.process([event], "run-001")
+
+        # L1 和 L2 都匹配，两次 send
+        assert mock_send.call_count == 2
+        assert stats["alerts_sent"] == 2
+
+    def test_low_score_only_matches_l1(self) -> None:
+        l1 = {
+            "destination_id": "tg-l1",
+            "type": "telegram_bot",
+            "enabled": True,
+            "tier": "L1",
+            "bot_token": "tok",
+            "chat_id": "cid",
+            "filter": {"min_news_value_score": 60},
+        }
+        l3 = {
+            "destination_id": "tg-l3",
+            "type": "telegram_bot",
+            "enabled": True,
+            "tier": "L3",
+            "bot_token": "tok",
+            "chat_id": "cid",
+            "filter": {"min_news_value_score": 90},
+        }
+        pipeline = AlertPipeline(destinations=[l1, l3])
+        event = _make_event(score=70)
+
+        with patch.object(pipeline, "_send") as mock_send:
+            stats = pipeline.process([event], "run-001")
+
+        assert mock_send.call_count == 1
+        assert stats["alerts_sent"] == 1
