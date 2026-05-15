@@ -6,8 +6,10 @@ Input: SourceChannel config. Output: list[NewsEvent] at stage=collected.
 
 from __future__ import annotations
 
+import asyncio
 import calendar
 import time
+import traceback
 from collections.abc import Callable
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -148,6 +150,81 @@ class RSSCollector:
                 continue
 
         return events
+
+    async def collect_async(
+        self, run_id: str, *, http_client: httpx.AsyncClient | None = None
+    ) -> list[NewsEvent]:
+        """异步采集版本。接收外部 AsyncClient 以复用连接池。
+
+        Args:
+            run_id: 本次运行的唯一标识。
+            http_client: 可选外部 httpx.AsyncClient，未提供时自建临时连接。
+
+        Returns:
+            解析出的 NewsEvent 列表，pipeline_stage=COLLECTED。
+            沙箱策略拦截或网络异常时返回空列表。
+        """
+        if not self._url:
+            return []
+
+        # 按源速率限制
+        self._rate_limiter.wait_if_needed(self._source_id)
+
+        parsed = urlparse(self._url)
+        host = parsed.hostname
+        if self._sandbox is not None and host and not self._sandbox.check_network_host(host):
+            return []
+
+        try:
+            response = await self._retry_fetch_async(http_client)
+        except Exception:
+            self._last_error = traceback.format_exc()
+            return []
+
+        feed = feedparser.parse(response.text)
+        if feed.get("bozo", 0) and not feed.get("entries"):
+            return []
+
+        feed_dict = feed.get("feed") or {}
+        feed_title = feed_dict.get("title", "") if isinstance(feed_dict, dict) else ""
+
+        events: list[NewsEvent] = []
+        for entry in feed.get("entries", [])[: self._max_items]:
+            try:
+                event = self._entry_to_event(entry, run_id, feed_title)
+                events.append(event)
+            except Exception:  # noqa: S112
+                continue
+        return events
+
+    async def _retry_fetch_async(
+        self,
+        client: httpx.AsyncClient | None,
+        max_retries: int = 3,
+    ) -> httpx.Response:
+        """异步指数退避重试。"""
+        last_exc: Exception | None = None
+        for attempt in range(max_retries):
+            try:
+                if client is not None:
+                    resp = await client.get(self._url, timeout=self._timeout, follow_redirects=True)
+                else:
+                    async with httpx.AsyncClient() as temp_client:
+                        resp = await temp_client.get(
+                            self._url, timeout=self._timeout, follow_redirects=True
+                        )
+                if resp.status_code >= 500:
+                    raise httpx.HTTPStatusError(
+                        f"Server error {resp.status_code}",
+                        request=resp.request,
+                        response=resp,
+                    )
+                return resp
+            except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+                last_exc = exc
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2**attempt)
+        raise last_exc  # type: ignore[misc]
 
     def _entry_to_event(
         self, entry: feedparser.FeedParserDict, run_id: str, feed_title: str

@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import time
 from unittest import mock
+from unittest.mock import AsyncMock, MagicMock
 
 import feedparser
+import httpx
 import pytest
 
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
@@ -720,3 +722,63 @@ class TestRuntimeErrorReraise:
         ):
             with pytest.raises(RuntimeError, match="already wrapped"):
                 collector.collect("run-001")
+
+
+# ── RSSCollector.collect_async ─────────────────────────────────────────
+
+
+class TestRSSCollectorAsync:
+    """RSSCollector async 版本测试。"""
+
+    def _make_config(self, url="https://example.com/feed.xml"):
+        return {
+            "target_id": "test-target",
+            "source_id": "test-source",
+            "display_name": "测试源",
+            "type": "rss",
+            "url": url,
+            "timeout_seconds": 10,
+            "max_items_per_run": 50,
+        }
+
+    def _make_sandbox(self):
+        sandbox = MagicMock()
+        sandbox.check_network_host.return_value = True
+        return sandbox
+
+    @pytest.mark.asyncio
+    async def test_collect_async_returns_events(self):
+        config = self._make_config()
+        sandbox = self._make_sandbox()
+        collector = RSSCollector(config, sandbox)
+
+        fake_response = httpx.Response(
+            200,
+            text='<?xml version="1.0"?><rss><channel><title>Test</title>'
+            "<item><title>Hello</title><link>https://example.com/1</link>"
+            "<description>Desc</description>"
+            "<pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate>"
+            "</item></channel></rss>",
+            request=httpx.Request("GET", config["url"]),
+        )
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=fake_response)
+
+        events = await collector.collect_async("run-001", http_client=mock_client)
+
+        assert len(events) >= 1
+        assert events[0].title_original == "Hello"
+
+    @pytest.mark.asyncio
+    async def test_collect_async_handles_http_error(self):
+        config = self._make_config()
+        sandbox = self._make_sandbox()
+        collector = RSSCollector(config, sandbox)
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=httpx.ConnectTimeout("timeout"))
+
+        events = await collector.collect_async("run-001", http_client=mock_client)
+
+        assert events == []
