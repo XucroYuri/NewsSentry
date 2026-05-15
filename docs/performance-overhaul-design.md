@@ -335,7 +335,7 @@ class AsyncRateLimiter:
 
 ### 配置缓存
 
-- `functools.lru_cache` 包装配置加载函数，TTL 60s
+- `cachetools.TTLCache`（或自实现带过期的缓存）包装配置加载函数，TTL 60s
 - 配置变更通过 `POST /config/reload` 端点主动失效缓存
 - 运行时配置（provider_routes、output_destinations）支持热更新
 
@@ -433,10 +433,48 @@ P26 (SQLite)     ──→ P28 (API Server，依赖 event_index)
 P25 + P26 + P27  ──→ P29 (多 target，依赖全部基础设施)
 ```
 
-### 测试策略
+### 回滚策略
 
-每个 Phase 的验证标准：
-- 现有 1298 个测试全部通过（兼容性）
-- 新增 async 版本的单元测试
-- 性能基准测试：记录 Phase 前后的 `bounded_run` 端到端时间
-- SQLite 迁移验证：YAML 数据完整性迁移到 SQLite 后数据一致
+每个 Phase 保留旧的同步/YAML 代码路径，通过 feature flag 切换：
+
+- **Feature flag**：`config/deployment/{profile}.yaml` 中新增 `use_async_pipeline: bool` 和 `use_sqlite_store: bool`，默认 `false`。每个 Phase 完成后将对应 flag 翻转为 `true`。
+- **YAML 回退**：SQLite 迁移后 YAML 文件保留不删除。如需回退，CLI 新增 `--fallback-yaml` 选项，跳过 SQLite 直接读写原有 YAML 文件。
+- **回滚触发条件**（任一满足即回滚）：
+  - 测试覆盖率下降 > 5%
+  - 性能基准退化 > 10%
+  - 数据不一致（SQLite 与 YAML 数据校验失败）
+- **回滚操作**：`git revert` 对应 Phase 的 commit，恢复 feature flag 为 `false`。无需数据库迁移回退，因为 SQLite 和 YAML 在迁移后并行存在。
+
+### 测试迁移策略
+
+当前 1298 个测试全部基于同步 API。async 化需要同步迁移测试基础设施。
+
+**P25 测试基础设施**（前置工作，优先于业务代码改动）：
+- `conftest.py` 新增 `@pytest.fixture` async 版本：`async_http_client`、`async_store`、`async_memory`
+- `pytest.ini` 或 `pyproject.toml` 配置 `asyncio_mode = "auto"`，支持混合同步/异步测试
+- 引入 `pytest-asyncio` 的 `@pytest.mark.asyncio` 标记
+
+**每个 Phase 的测试迁移**：
+
+| Phase | 测试工作量 | 说明 |
+|-------|-----------|------|
+| P25 | 中 | 采集相关测试改为 async（mock httpx.AsyncClient），约 30-40 个测试 |
+| P26 | 高 | Memory 相关测试全部重写（mock aiosqlite），约 50-60 个测试；新增 YAML→SQLite 迁移测试 |
+| P27 | 中 | AI Provider 测试改为 async，新增缓存和批处理测试，约 20-30 个测试 |
+| P28 | 低 | API Server 测试改为 async client，约 15-20 个测试 |
+| P29 | 中 | 新增多 target 并发集成测试，约 10-15 个测试 |
+
+**测试原则**：
+- 旧同步测试在对应模块 async 化后删除，不保留两套
+- 每个 Phase 完成后测试总数不应减少，新增测试覆盖 async 路径
+- Mock 策略：HTTP 用 `httpx.AsyncClient` mock，SQLite 用 `aiosqlite` 内存数据库（`:memory:`），避免文件依赖
+
+### 验证标准
+
+每个 Phase 完成的验收条件：
+- 现有测试全部通过（CI 绿色）
+- 新增 async 测试覆盖新增代码路径
+- `ruff check` + `mypy` 零错误
+- 测试覆盖率不低于 Phase 开始前水平
+- 性能基准：记录 Phase 前后 `bounded_run` 端到端时间，量化改善
+- SQLite 迁移验证（P26）：YAML 数据完整性迁移到 SQLite 后数据一致
