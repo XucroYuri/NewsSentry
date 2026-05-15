@@ -180,7 +180,7 @@ async def bounded_run_async(
         elif stage == "filter":
             await _run_filter_async(config, run_id, run_log, file_writer, memory, ctx)
         elif stage in ("output", "outputted"):
-            await _run_output_async(config, run_id, run_log, file_writer, ctx)
+            await _run_output_async(config, run_id, run_log, file_writer, ctx, store=store)
         elif stage in ("judge", "judged"):
             await _run_judge_async(
                 config,
@@ -213,7 +213,7 @@ async def bounded_run_async(
                 ctx,
                 cache_mgr=cache_mgr,
             )
-            await _run_output_async(config, run_id, run_log, file_writer, ctx)
+            await _run_output_async(config, run_id, run_log, file_writer, ctx, store=store)
 
         write_heartbeat(log_dir, run_id, stage, status="completed")
         log_path = run_log.write()
@@ -471,8 +471,9 @@ async def _run_output_async(
     run_log: RunLog,
     file_writer: FileWriter,
     ctx: PipelineContext,
+    store: AsyncStore | None = None,
 ) -> None:
-    """异步输出阶段 — P25 通过 to_thread 包装同步逻辑。"""
+    """异步输出阶段 — P28 写入 event_index。"""
     await asyncio.to_thread(
         _run_output,
         config,
@@ -481,3 +482,14 @@ async def _run_output_async(
         file_writer,
         ctx,
     )
+
+    # P28: 将输出事件写入 event_index
+    if store is not None:
+        events = _load_events_from_dir(file_writer.base_dir / "drafts")
+        target_id = config.target_id
+        for event in events:
+            file_name = f"outputted_{getattr(event, 'source_id', 'unknown')}_{event.id}.md"
+            file_path = str(file_writer.base_dir / "drafts" / file_name)
+            await store.index_event(event, target_id, "drafts", file_path=file_path)
+        if events:
+            logger.info("event_index 写入 %d 条事件", len(events))
