@@ -449,3 +449,164 @@ class TestEventIndex:
         assert stats["total_events"] == 0
         assert stats["stage_counts"] == {}
         assert stats["avg_news_value_score"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# TestEventIndexQueries
+# ---------------------------------------------------------------------------
+
+
+class TestEventIndexQueries:
+    """event_index 查询方法测试。"""
+
+    @pytest.fixture
+    async def store_with_events(self, tmp_path: Path) -> AsyncStore:
+        """创建包含测试数据的 AsyncStore。"""
+        db_path = tmp_path / "state.db"
+        store = AsyncStore(db_path)
+        await store.initialize()
+
+        # 插入 5 条测试事件
+        now = datetime.now(UTC).isoformat()
+        for i in range(5):
+            await store._db.execute(  # noqa: SLF001
+                "INSERT OR REPLACE INTO event_index "
+                "(event_id, target_id, stage, source_id, news_value_score, "
+                "china_relevance, classification_l0, published_at, file_path, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    f"ne-italy-src{i:04d}",
+                    "italy",
+                    "drafts",
+                    "ansa" if i % 2 == 0 else "repubblica",
+                    60 + i * 5,
+                    20 + i * 3,
+                    "international" if i % 2 == 0 else "politics",
+                    now,
+                    f"data/italy/drafts/outputted_src{i:04d}_ne-italy-src{i:04d}.md",
+                    now,
+                ),
+            )
+        await store._db.commit()  # noqa: SLF001
+        return store
+
+    @pytest.mark.asyncio
+    async def test_query_events_paginated_basic(
+        self,
+        store_with_events: AsyncStore,
+    ) -> None:
+        """基本分页查询。"""
+        result = await store_with_events.query_events_paginated(
+            target_id="italy",
+            stage="drafts",
+            limit=2,
+            offset=0,
+        )
+        assert result["total"] == 5
+        assert len(result["rows"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_query_events_paginated_second_page(
+        self,
+        store_with_events: AsyncStore,
+    ) -> None:
+        """第二页查询。"""
+        result = await store_with_events.query_events_paginated(
+            target_id="italy",
+            stage="drafts",
+            limit=2,
+            offset=2,
+        )
+        assert result["total"] == 5
+        assert len(result["rows"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_query_events_filter_by_source(
+        self,
+        store_with_events: AsyncStore,
+    ) -> None:
+        """按 source_id 筛选。"""
+        result = await store_with_events.query_events_paginated(
+            target_id="italy",
+            stage="drafts",
+            source_id="ansa",
+            limit=10,
+            offset=0,
+        )
+        assert result["total"] == 3  # 索引 0, 2, 4
+
+    @pytest.mark.asyncio
+    async def test_query_events_filter_by_classification(
+        self,
+        store_with_events: AsyncStore,
+    ) -> None:
+        """按 classification_l0 筛选。"""
+        result = await store_with_events.query_events_paginated(
+            target_id="italy",
+            stage="drafts",
+            classification_l0="politics",
+            limit=10,
+            offset=0,
+        )
+        assert result["total"] == 2
+
+    @pytest.mark.asyncio
+    async def test_query_events_filter_by_min_score(
+        self,
+        store_with_events: AsyncStore,
+    ) -> None:
+        """按最低 news_value_score 筛选。"""
+        result = await store_with_events.query_events_paginated(
+            target_id="italy",
+            stage="drafts",
+            min_score=70,
+            limit=10,
+            offset=0,
+        )
+        assert result["total"] == 3  # 75, 80, 85
+
+    @pytest.mark.asyncio
+    async def test_get_stats_aggregated(
+        self,
+        store_with_events: AsyncStore,
+    ) -> None:
+        """聚合统计查询。"""
+        stats = await store_with_events.get_stats_aggregated(target_id="italy")
+        assert stats["total_events"] == 5
+        assert stats["avg_news_value_score"] is not None
+        assert 60 <= stats["avg_news_value_score"] <= 85
+        assert stats["avg_china_relevance"] is not None
+        assert stats["by_classification"]["international"] == 3
+        assert stats["by_classification"]["politics"] == 2
+        assert stats["by_source"]["ansa"] == 3
+        assert stats["by_source"]["repubblica"] == 2
+
+    @pytest.mark.asyncio
+    async def test_get_stats_empty(self, tmp_path: Path) -> None:
+        """空 target 统计。"""
+        db_path = tmp_path / "state.db"
+        store = AsyncStore(db_path)
+        await store.initialize()
+        stats = await store.get_stats_aggregated(target_id="nonexistent")
+        assert stats["total_events"] == 0
+        assert stats["avg_news_value_score"] is None
+        await store.close()
+
+    @pytest.mark.asyncio
+    async def test_get_event_file_path(
+        self,
+        store_with_events: AsyncStore,
+    ) -> None:
+        """根据 event_id 查找 file_path。"""
+        path = await store_with_events.get_event_file_path(event_id="ne-italy-src0000")
+        assert path is not None
+        assert "ne-italy-src0000" in path
+
+    @pytest.mark.asyncio
+    async def test_get_event_file_path_not_found(
+        self,
+        store_with_events: AsyncStore,
+    ) -> None:
+        """不存在的 event_id 返回 None。"""
+        path = await store_with_events.get_event_file_path(event_id="ne-nonexistent")
+        assert path is None

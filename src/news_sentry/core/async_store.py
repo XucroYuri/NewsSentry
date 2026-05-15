@@ -420,3 +420,140 @@ class AsyncStore:
             "stage_counts": stage_counts,
             "avg_news_value_score": avg_score,
         }
+
+    async def query_events_paginated(
+        self,
+        target_id: str,
+        stage: str,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+        source_id: str | None = None,
+        classification_l0: str | None = None,
+        min_score: int | None = None,
+    ) -> dict[str, Any]:
+        """分页查询 event_index，返回 {total: int, rows: list[dict]}。"""
+        if self._db is None:
+            return {"total": 0, "rows": []}
+        conditions = ["target_id = ?", "stage = ?"]
+        params: list[Any] = [target_id, stage]
+
+        if source_id is not None:
+            conditions.append("source_id = ?")
+            params.append(source_id)
+        if classification_l0 is not None:
+            conditions.append("classification_l0 = ?")
+            params.append(classification_l0)
+        if min_score is not None:
+            conditions.append("news_value_score >= ?")
+            params.append(min_score)
+
+        where = " AND ".join(conditions)
+
+        # 总数查询
+        count_sql = f"SELECT COUNT(*) FROM event_index WHERE {where}"  # noqa: S608
+        async with self._db.execute(count_sql, params) as cursor:
+            row = await cursor.fetchone()
+            total = row[0] if row else 0
+
+        # 分页查询
+        data_sql = (
+            "SELECT event_id, source_id, news_value_score, china_relevance, "  # noqa: S608
+            "classification_l0, published_at, file_path, title_original "
+            f"FROM event_index WHERE {where} "
+            "ORDER BY published_at DESC LIMIT ? OFFSET ?"
+        )
+        async with self._db.execute(data_sql, params + [limit, offset]) as cursor:
+            rows = await cursor.fetchall()
+
+        result_rows = []
+        for r in rows:
+            result_rows.append(
+                {
+                    "event_id": r[0],
+                    "source_id": r[1],
+                    "news_value_score": r[2],
+                    "china_relevance": r[3],
+                    "classification_l0": r[4],
+                    "published_at": r[5],
+                    "file_path": r[6],
+                    "title_original": r[7],
+                }
+            )
+
+        return {"total": total, "rows": result_rows}
+
+    async def get_stats_aggregated(self, target_id: str) -> dict[str, Any]:
+        """聚合统计查询，返回事件总数、平均分、按分类/来源计数。"""
+        if self._db is None:
+            return {
+                "total_events": 0,
+                "avg_news_value_score": None,
+                "avg_china_relevance": None,
+                "by_classification": {},
+                "by_source": {},
+            }
+        async with self._db.execute(
+            "SELECT COUNT(*) FROM event_index WHERE target_id = ?",
+            [target_id],
+        ) as cursor:
+            row = await cursor.fetchone()
+            total = row[0] if row else 0
+
+        if total == 0:
+            return {
+                "total_events": 0,
+                "avg_news_value_score": None,
+                "avg_china_relevance": None,
+                "by_classification": {},
+                "by_source": {},
+            }
+
+        async with self._db.execute(
+            "SELECT AVG(news_value_score), AVG(china_relevance) "
+            "FROM event_index WHERE target_id = ? "
+            "AND news_value_score IS NOT NULL",
+            [target_id],
+        ) as cursor:
+            row = await cursor.fetchone()
+            avg_score = row[0] if row and row[0] is not None else None
+            avg_relevance = row[1] if row and row[1] is not None else None
+
+        by_classification: dict[str, int] = {}
+        async with self._db.execute(
+            "SELECT classification_l0, COUNT(*) FROM event_index "
+            "WHERE target_id = ? AND classification_l0 IS NOT NULL "
+            "GROUP BY classification_l0",
+            [target_id],
+        ) as cursor:
+            async for row in cursor:
+                by_classification[row[0]] = row[1]
+
+        by_source: dict[str, int] = {}
+        async with self._db.execute(
+            "SELECT source_id, COUNT(*) FROM event_index "
+            "WHERE target_id = ? AND source_id IS NOT NULL "
+            "GROUP BY source_id",
+            [target_id],
+        ) as cursor:
+            async for row in cursor:
+                by_source[row[0]] = row[1]
+
+        return {
+            "total_events": total,
+            "avg_news_value_score": round(avg_score, 2) if avg_score is not None else None,
+            "avg_china_relevance": round(avg_relevance, 2) if avg_relevance is not None else None,
+            "by_classification": by_classification,
+            "by_source": by_source,
+        }
+
+    async def get_event_file_path(self, event_id: str) -> str | None:
+        """根据 event_id 查找对应的 .md 文件路径。"""
+        if self._db is None:
+            return None
+        async with self._db.execute(
+            "SELECT file_path FROM event_index WHERE event_id = ?",
+            [event_id],
+        ) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else None
