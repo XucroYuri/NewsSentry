@@ -4,8 +4,13 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import yaml
 
-from news_sentry.core.async_run import _run_collect_async, bounded_run_async
+from news_sentry.core.async_run import (
+    _init_async_store_for_target,
+    _run_collect_async,
+    bounded_run_async,
+)
 
 
 class TestRunCollectAsync:
@@ -246,8 +251,17 @@ class TestBoundedRunAsync:
         config.output_root = MagicMock()
         config.profile_id = "test-profile"
 
+        mock_store = AsyncMock()
+        mock_store.prune_old_ids = AsyncMock(return_value=0)
+        mock_store.close = AsyncMock()
+
         with (
             patch("news_sentry.core.async_run.ConfigLoader") as mock_loader,
+            patch(
+                "news_sentry.core.async_run._init_async_store_for_target",
+                new_callable=AsyncMock,
+                return_value=mock_store,
+            ),
             patch(
                 "news_sentry.core.async_run._run_collect_async",
                 new_callable=AsyncMock,
@@ -295,8 +309,16 @@ class TestBoundedRunAsync:
         config.output_root = MagicMock()
         config.profile_id = "test-profile"
 
+        mock_store = AsyncMock()
+        mock_store.close = AsyncMock()
+
         with (
             patch("news_sentry.core.async_run.ConfigLoader") as mock_loader,
+            patch(
+                "news_sentry.core.async_run._init_async_store_for_target",
+                new_callable=AsyncMock,
+                return_value=mock_store,
+            ),
             patch(
                 "news_sentry.core.async_run._run_collect_async",
                 new_callable=AsyncMock,
@@ -317,3 +339,35 @@ class TestBoundedRunAsync:
         """验证无效阶段抛出 ValueError。"""
         with pytest.raises(ValueError, match="不支持的阶段"):
             await bounded_run_async(target_id="test", stage="invalid")
+
+
+class TestAsyncStoreIntegration:
+    """验证 AsyncStore 在 async_run pipeline 中替代 Memory。"""
+
+    @pytest.mark.asyncio
+    async def test_async_store_initialized(self, tmp_path):
+        """_init_async_store_for_target 应创建并初始化 AsyncStore。"""
+        from news_sentry.core.async_store import AsyncStore
+
+        data_dir = tmp_path / "test-target"
+        data_dir.mkdir()
+        store = await _init_async_store_for_target(data_dir)
+        assert isinstance(store, AsyncStore)
+        assert (data_dir / "state.db").exists()
+        await store.close()
+
+    @pytest.mark.asyncio
+    async def test_async_store_migration_triggered(self, tmp_path):
+        """首次使用时如果 YAML 存在，应触发迁移。"""
+        data_dir = tmp_path / "italy"
+        memory_dir = data_dir / "memory"
+        memory_dir.mkdir(parents=True)
+        (memory_dir / "known_item_ids.yaml").write_text(
+            yaml.dump({"ne-test-001": "2026-05-15T10:00:00Z"})
+        )
+
+        db_path = data_dir / "state.db"
+        store = await _init_async_store_for_target(data_dir)
+        assert db_path.exists()
+        assert await store.is_known("ne-test-001") is True
+        await store.close()

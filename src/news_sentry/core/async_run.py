@@ -13,6 +13,7 @@ from pathlib import Path
 
 import httpx
 
+from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.config import ConfigLoader, ResolvedConfig
 from news_sentry.core.file_writer import FileWriter
 from news_sentry.core.memory import Memory
@@ -31,12 +32,36 @@ from news_sentry.core.run import (
 )
 from news_sentry.core.run_log import RunLog, write_heartbeat
 from news_sentry.core.sandbox import SandboxEnforcer, SandboxPolicy
+from news_sentry.core.yaml_migration import migrate_yaml_to_sqlite, should_migrate
 from news_sentry.models.newsevent import NewsEvent, PipelineStage
 from news_sentry.models.pipeline_context import PipelineContext
 from news_sentry.skills.collect.api_collector import APICollector
 from news_sentry.skills.collect.rss_collector import RSSCollector
 
 logger = logging.getLogger(__name__)
+
+
+async def _init_async_store_for_target(data_dir: Path) -> AsyncStore:
+    """为目标目录初始化 AsyncStore（含 YAML 迁移检测）。"""
+    db_path = data_dir / "state.db"
+    memory_dir = data_dir / "memory"
+
+    need_migration = should_migrate(memory_dir, db_path)
+
+    store = AsyncStore(db_path)
+    await store.initialize()
+
+    if need_migration:
+        logger.info("检测到旧 YAML 文件，开始迁移到 SQLite...")
+        result = await migrate_yaml_to_sqlite(memory_dir, store)
+        logger.info(
+            "YAML→SQLite 迁移完成: known_ids=%d, source_health=%d, cursors=%d",
+            result["known_ids_migrated"],
+            result["source_health_migrated"],
+            result["cursors_migrated"],
+        )
+
+    return store
 
 
 async def bounded_run_async(
@@ -89,6 +114,7 @@ async def bounded_run_async(
 
     # 初始化运行时组件
     memory = Memory(data_dir / "memory")
+    store = await _init_async_store_for_target(data_dir)
     log_dir = data_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     portable_output_root = _portable_project_path(config.output_root, project_root)
@@ -128,48 +154,51 @@ async def bounded_run_async(
 
     write_heartbeat(log_dir, run_id, "starting")
 
-    # 阶段调度
-    if stage == "collect":
-        await _run_collect_async(
-            config,
-            run_id,
-            run_log,
-            file_writer,
-            sandbox,
-            memory,
-            ctx,
-            max_concurrent=max_concurrent,
-        )
-    elif stage == "filter":
-        await _run_filter_async(config, run_id, run_log, file_writer, memory, ctx)
-    elif stage in ("output", "outputted"):
-        await _run_output_async(config, run_id, run_log, file_writer, ctx)
-    elif stage in ("judge", "judged"):
-        await _run_judge_async(config, run_id, run_log, file_writer, memory, ctx)
-    elif stage == "all":
-        await _run_collect_async(
-            config,
-            run_id,
-            run_log,
-            file_writer,
-            sandbox,
-            memory,
-            ctx,
-            max_concurrent=max_concurrent,
-        )
-        await _run_filter_async(config, run_id, run_log, file_writer, memory, ctx)
-        await _run_judge_async(config, run_id, run_log, file_writer, memory, ctx)
-        await _run_output_async(config, run_id, run_log, file_writer, ctx)
+    try:
+        # 阶段调度
+        if stage == "collect":
+            await _run_collect_async(
+                config,
+                run_id,
+                run_log,
+                file_writer,
+                sandbox,
+                memory,
+                ctx,
+                max_concurrent=max_concurrent,
+            )
+        elif stage == "filter":
+            await _run_filter_async(config, run_id, run_log, file_writer, memory, ctx)
+        elif stage in ("output", "outputted"):
+            await _run_output_async(config, run_id, run_log, file_writer, ctx)
+        elif stage in ("judge", "judged"):
+            await _run_judge_async(config, run_id, run_log, file_writer, memory, ctx)
+        elif stage == "all":
+            await _run_collect_async(
+                config,
+                run_id,
+                run_log,
+                file_writer,
+                sandbox,
+                memory,
+                ctx,
+                max_concurrent=max_concurrent,
+            )
+            await _run_filter_async(config, run_id, run_log, file_writer, memory, ctx)
+            await _run_judge_async(config, run_id, run_log, file_writer, memory, ctx)
+            await _run_output_async(config, run_id, run_log, file_writer, ctx)
 
-    write_heartbeat(log_dir, run_id, stage, status="completed")
-    log_path = run_log.write()
-    _prune_old_logs(log_dir, keep=100)
-    ctx.run_log_path = str(log_path)
-    ctx.errors_count = run_log.errors_count
+        write_heartbeat(log_dir, run_id, stage, status="completed")
+        log_path = run_log.write()
+        _prune_old_logs(log_dir, keep=100)
+        ctx.run_log_path = str(log_path)
+        ctx.errors_count = run_log.errors_count
 
-    pruned = memory.prune_old_ids(ttl_days=30)
-    if pruned > 0:
-        run_log.log_event("memory", "prune", f"cleaned {pruned} stale known_ids")
+        pruned = await store.prune_old_ids(max_age_days=30)
+        if pruned > 0:
+            run_log.log_event("store", "prune", f"cleaned {pruned} stale known_ids")
+    finally:
+        await store.close()
 
     return ctx
 
