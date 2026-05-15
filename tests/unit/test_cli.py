@@ -25,11 +25,11 @@ def _ctx(errors_count: int = 0) -> PipelineContext:
 def test_run_passes_profile_to_bounded_run(monkeypatch):
     captured: dict[str, str | None] = {}
 
-    def fake_bounded_run(**kwargs):
+    async def fake_bounded_run_async(**kwargs):
         captured["profile_id"] = kwargs["profile_id"]
         return _ctx()
 
-    monkeypatch.setattr("news_sentry.core.run.bounded_run", fake_bounded_run)
+    monkeypatch.setattr("news_sentry.core.async_run.bounded_run_async", fake_bounded_run_async)
 
     result = CliRunner().invoke(
         main,
@@ -41,10 +41,10 @@ def test_run_passes_profile_to_bounded_run(monkeypatch):
 
 
 def test_run_returns_one_when_context_has_errors(monkeypatch):
-    def fake_bounded_run(**_kwargs):
+    async def fake_bounded_run_async(**_kwargs):
         return _ctx(errors_count=2)
 
-    monkeypatch.setattr("news_sentry.core.run.bounded_run", fake_bounded_run)
+    monkeypatch.setattr("news_sentry.core.async_run.bounded_run_async", fake_bounded_run_async)
 
     result = CliRunner().invoke(
         main,
@@ -55,10 +55,10 @@ def test_run_returns_one_when_context_has_errors(monkeypatch):
 
 
 def test_dry_run_prints_profile(monkeypatch):
-    def fake_bounded_run(**_kwargs):
+    async def fake_bounded_run_async(**_kwargs):
         return _ctx()
 
-    monkeypatch.setattr("news_sentry.core.run.bounded_run", fake_bounded_run)
+    monkeypatch.setattr("news_sentry.core.async_run.bounded_run_async", fake_bounded_run_async)
 
     result = CliRunner().invoke(
         main,

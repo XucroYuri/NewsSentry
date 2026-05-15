@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -50,16 +51,19 @@ def run(
 
     Exit codes: 0=success, 1=partial failure, 2=config error, 3=sandbox blocked.
     """
-    from news_sentry.core.run import ConfigError, bounded_run
+    from news_sentry.core.async_run import bounded_run_async
+    from news_sentry.core.run import ConfigError
 
     try:
-        ctx = bounded_run(
-            target_id=target,
-            stage=stage,
-            run_id=run_id,
-            dry_run=dry_run,
-            config_dir=config_dir,
-            profile_id=profile_id,
+        ctx = asyncio.run(
+            bounded_run_async(
+                target_id=target,
+                stage=stage,
+                run_id=run_id,
+                dry_run=dry_run,
+                config_dir=config_dir,
+                profile_id=profile_id,
+            )
         )
         if dry_run:
             click.echo(f"target: {ctx.target_id}")
