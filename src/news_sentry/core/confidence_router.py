@@ -274,7 +274,7 @@ class TieredConfidenceRouter:
     def _apply_ai_result(
         self,
         event: Any,  # noqa: ANN401
-        ai_result: dict,
+        ai_result: dict[str, Any],
     ) -> None:
         """将 AI 响应应用到事件。"""
         content = ai_result.get("content", "")

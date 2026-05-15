@@ -423,7 +423,7 @@ class ProviderRouter:
                 self.track_cost(current_route.route_id, cost)
                 result["fallback_used"] = fallback_used
                 result["budget_exceeded"] = False
-                return result
+                return dict(result)
 
             except Exception as e:
                 last_error = str(e)
