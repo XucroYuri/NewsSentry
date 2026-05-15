@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 from unittest import mock
+from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
@@ -752,3 +754,137 @@ class TestEnvSubstitution:
         collector = APICollector(config, sandbox_enforcer=None)
         assert collector._params["max"] == 10
         assert collector._params["q"] == "Italy"
+
+
+# ── APICollector.collect_async 异步版本 ──────────────────────────────
+
+
+class TestAPICollectorAsync:
+    """APICollector async 版本测试。"""
+
+    def _make_config(self, url="https://api.example.com/news", method="GET"):
+        return _make_minimal_config(
+            url=url,
+            endpoint={"url": url, "method": method},
+        )
+
+    def _make_sandbox(self):
+        sandbox = MagicMock()
+        sandbox.check_network_host.return_value = True
+        return sandbox
+
+    async def test_collect_async_returns_events(self):
+        """异步采集应返回 NewsEvent 列表。"""
+        config = self._make_config()
+        sandbox = self._make_sandbox()
+        collector = APICollector(config, sandbox)
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "articles": [
+                        {
+                            "title": "News1",
+                            "url": "https://example.com/1",
+                            "description": "Desc1",
+                            "published_at": "2026-05-10T10:00:00+00:00",
+                        }
+                    ]
+                },
+                request=httpx.Request("GET", config["url"]),
+            )
+        )
+
+        events = await collector.collect_async("run-001", http_client=mock_client)
+        assert len(events) >= 1
+        assert isinstance(events[0], NewsEvent)
+
+    async def test_collect_async_handles_http_error(self):
+        """网络错误时应返回空列表。"""
+        config = self._make_config()
+        sandbox = self._make_sandbox()
+        collector = APICollector(config, sandbox)
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(side_effect=httpx.ConnectTimeout("timeout"))
+
+        events = await collector.collect_async("run-001", http_client=mock_client)
+        assert events == []
+
+    async def test_collect_async_post_method(self):
+        """POST 方法应调用 client.post。"""
+        config = self._make_config(method="POST")
+        sandbox = self._make_sandbox()
+        collector = APICollector(config, sandbox)
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "articles": [
+                        {
+                            "title": "News1",
+                            "url": "https://example.com/1",
+                            "description": "Desc1",
+                            "published_at": "2026-05-10T10:00:00+00:00",
+                        }
+                    ]
+                },
+                request=httpx.Request("POST", config["url"]),
+            )
+        )
+
+        events = await collector.collect_async("run-001", http_client=mock_client)
+        assert len(events) >= 1
+        mock_client.post.assert_awaited_once()
+
+    async def test_collect_async_empty_url_returns_empty(self):
+        """空 URL 应返回空列表。"""
+        config = self._make_config(url="")
+        sandbox = self._make_sandbox()
+        collector = APICollector(config, sandbox)
+
+        events = await collector.collect_async("run-001")
+        assert events == []
+
+    async def test_collect_async_sandbox_block_returns_empty(self):
+        """沙箱拦截时应返回空列表。"""
+        config = self._make_config(url="https://blocked.example.com/api")
+        sandbox = MagicMock()
+        sandbox.check_network_host.return_value = False
+        collector = APICollector(config, sandbox)
+
+        events = await collector.collect_async("run-001")
+        assert events == []
+        sandbox.check_network_host.assert_called_once_with("blocked.example.com")
+
+    async def test_collect_async_respects_max_items(self):
+        """max_items_per_run 应截断结果。"""
+        config = self._make_config()
+        config["max_items_per_run"] = 2
+        sandbox = self._make_sandbox()
+        collector = APICollector(config, sandbox)
+
+        articles = [
+            {
+                "title": f"News{i}",
+                "url": f"https://example.com/{i}",
+                "description": f"Desc{i}",
+                "published_at": "2026-05-10T10:00:00+00:00",
+            }
+            for i in range(5)
+        ]
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(
+            return_value=httpx.Response(
+                200,
+                json={"articles": articles},
+                request=httpx.Request("GET", config["url"]),
+            )
+        )
+
+        events = await collector.collect_async("run-001", http_client=mock_client)
+        assert len(events) == 2

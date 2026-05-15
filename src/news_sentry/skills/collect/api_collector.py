@@ -5,6 +5,7 @@ APICollector — fetches JSON API endpoints using httpx and maps responses to Ne
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import time
@@ -241,3 +242,100 @@ class APICollector:
                 }
             },
         )
+
+    async def collect_async(
+        self, run_id: str, *, http_client: httpx.AsyncClient | None = None
+    ) -> list[NewsEvent]:
+        """异步采集版本。
+
+        与 collect() 逻辑一致，但使用 httpx.AsyncClient。
+        网络错误时不抛异常，返回空列表。
+
+        Args:
+            run_id: 运行标识。
+            http_client: 可选的 httpx.AsyncClient 实例。
+
+        Returns:
+            NewsEvent 列表，pipeline_stage=COLLECTED。
+        """
+        if not self._url:
+            return []
+
+        parsed = urlparse(self._url)
+        host = parsed.hostname
+        if self._sandbox is not None and host and not self._sandbox.check_network_host(host):
+            return []
+
+        try:
+            response = await self._retry_fetch_async(http_client)
+        except Exception:
+            return []
+
+        try:
+            data = response.json()
+        except Exception:
+            return []
+
+        if not isinstance(data, dict):
+            return []
+
+        # 定位条目列表：与 collect() 相同逻辑
+        items_key = self._mapping.get("items_key", "")
+        if items_key:
+            items = data.get(items_key, [])
+        else:
+            items = data.get("items") or data.get("data") or data.get("articles") or []
+
+        if not isinstance(items, list):
+            return []
+
+        events: list[NewsEvent] = []
+        for item in items[: self._max_items]:
+            if not isinstance(item, dict):
+                continue
+            try:
+                event = self._item_to_event(item, run_id)
+                events.append(event)
+            except Exception:  # noqa: S112
+                continue
+
+        return events
+
+    async def _retry_fetch_async(
+        self,
+        client: httpx.AsyncClient | None,
+        max_retries: int = 3,
+    ) -> httpx.Response:
+        """异步指数退避重试，支持 GET 和 POST。"""
+        last_exc: Exception | None = None
+        for attempt in range(max_retries):
+            try:
+                if client is not None:
+                    resp = await self._do_async_request(client)
+                else:
+                    async with httpx.AsyncClient() as temp_client:
+                        resp = await self._do_async_request(temp_client)
+                if resp.status_code >= 500:
+                    raise httpx.HTTPStatusError(
+                        f"Server error {resp.status_code}",
+                        request=resp.request,
+                        response=resp,
+                    )
+                return resp
+            except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+                last_exc = exc
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(2**attempt)
+        raise last_exc  # type: ignore[misc]
+
+    async def _do_async_request(self, client: httpx.AsyncClient) -> httpx.Response:
+        """使用 AsyncClient 发起 GET 或 POST 请求。"""
+        kwargs: dict[str, Any] = {
+            "timeout": self._timeout,
+            "follow_redirects": True,
+        }
+        if self._method == "POST":
+            return await client.post(
+                self._url, params=self._params, headers=self._headers, **kwargs
+            )
+        return await client.get(self._url, params=self._params, headers=self._headers, **kwargs)
