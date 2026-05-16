@@ -74,12 +74,28 @@ CREATE TABLE IF NOT EXISTS event_index (
 )
 """
 
+_DDL_ENTITIES = """
+CREATE TABLE IF NOT EXISTS entities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    canonical_name TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    mention_count INTEGER DEFAULT 1,
+    first_seen TEXT NOT NULL,
+    last_seen TEXT NOT NULL,
+    target_ids TEXT DEFAULT '',
+    UNIQUE(canonical_name, entity_type)
+)
+"""
+
 _DDL_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_known_ids_seen ON known_ids(seen_at)",
     "CREATE INDEX IF NOT EXISTS idx_event_target_stage ON event_index(target_id, stage)",
     "CREATE INDEX IF NOT EXISTS idx_event_published ON event_index(published_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_event_sentiment ON event_index(sentiment)",
     "CREATE INDEX IF NOT EXISTS idx_event_topic_tags ON event_index(topic_tags)",
+    "CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(entity_type)",
+    "CREATE INDEX IF NOT EXISTS idx_entities_mentions ON entities(mention_count DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_entities_last_seen ON entities(last_seen DESC)",
 )
 
 __all__ = ["AsyncStore"]
@@ -105,6 +121,7 @@ class AsyncStore:
         await self._db.execute(_DDL_CURSORS)
         await self._db.execute(_DDL_LLM_CACHE)
         await self._db.execute(_DDL_EVENT_INDEX)
+        await self._db.execute(_DDL_ENTITIES)
         # Phase 31: 为已有数据库添加 NLP 列
         for col in ("sentiment", "entity_names", "topic_tags"):
             try:
@@ -626,3 +643,32 @@ class AsyncStore:
         ) as cursor:
             row = await cursor.fetchone()
             return row[0] if row else None
+
+    # ------------------------------------------------------------------
+    # Entity Tracking (Phase 32)
+    # ------------------------------------------------------------------
+
+    async def upsert_entity(
+        self,
+        name: str,
+        entity_type: str,
+        target_id: str,
+        seen_at: str,
+    ) -> None:
+        """插入或更新实体记录（同名+同类型视为同一实体）。"""
+        if self._db is None:
+            return
+        await self._db.execute(
+            """INSERT INTO entities (canonical_name, entity_type, first_seen, last_seen, target_ids)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(canonical_name, entity_type) DO UPDATE SET
+                   mention_count = mention_count + 1,
+                   last_seen = excluded.last_seen,
+                   target_ids = CASE
+                       WHEN ',' || target_ids || ',' LIKE '%,' || excluded.target_ids || ',%'
+                       THEN target_ids
+                       ELSE target_ids || ',' || excluded.target_ids
+                   END""",
+            (name, entity_type, seen_at, seen_at, target_id),
+        )
+        await self._db.commit()

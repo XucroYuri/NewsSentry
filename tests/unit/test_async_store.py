@@ -610,3 +610,78 @@ class TestEventIndexQueries:
         """不存在的 event_id 返回 None。"""
         path = await store_with_events.get_event_file_path(event_id="ne-nonexistent")
         assert path is None
+
+
+# ---------------------------------------------------------------------------
+# TestEntityTracking
+# ---------------------------------------------------------------------------
+
+
+class TestEntityTracking:
+    """entities 表 CRUD 与去重。"""
+
+    @pytest.mark.asyncio
+    async def test_entities_table_created(self, tmp_path: Path):
+        """entities 表在 initialize() 后存在。"""
+        db_path = tmp_path / "state.db"
+        store = AsyncStore(db_path)
+        await store.initialize()
+        async with store._db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='entities'"
+        ) as cursor:
+            row = await cursor.fetchone()
+        assert row is not None
+        await store.close()
+
+    @pytest.mark.asyncio
+    async def test_upsert_entity_inserts_new(self, store: AsyncStore):
+        """首次 upsert 插入新实体。"""
+        await store.upsert_entity("Meloni", "person", "italy", "2026-05-16T10:00:00+00:00")
+        async with store._db.execute(
+            "SELECT canonical_name, entity_type, mention_count, target_ids FROM entities"
+        ) as cursor:
+            row = await cursor.fetchone()
+        assert row is not None
+        assert row[0] == "Meloni"
+        assert row[1] == "person"
+        assert row[2] == 1
+        assert row[3] == "italy"
+
+    @pytest.mark.asyncio
+    async def test_upsert_entity_increments_on_conflict(self, store: AsyncStore):
+        """相同 canonical_name+entity_type 时 mention_count 累加。"""
+        await store.upsert_entity("Meloni", "person", "italy", "2026-05-16T10:00:00+00:00")
+        await store.upsert_entity("Meloni", "person", "italy", "2026-05-17T10:00:00+00:00")
+        async with store._db.execute(
+            "SELECT mention_count, last_seen FROM entities WHERE canonical_name = 'Meloni'"
+        ) as cursor:
+            row = await cursor.fetchone()
+        assert row is not None
+        assert row[0] == 2
+        assert "2026-05-17" in row[1]
+
+    @pytest.mark.asyncio
+    async def test_upsert_entity_appends_target_id(self, store: AsyncStore):
+        """不同 target_id 时追加到 target_ids。"""
+        await store.upsert_entity("EU", "organization", "italy", "2026-05-16T10:00:00+00:00")
+        await store.upsert_entity("EU", "organization", "germany", "2026-05-17T10:00:00+00:00")
+        async with store._db.execute(
+            "SELECT target_ids FROM entities WHERE canonical_name = 'EU'"
+        ) as cursor:
+            row = await cursor.fetchone()
+        assert row is not None
+        assert "italy" in row[0]
+        assert "germany" in row[0]
+
+    @pytest.mark.asyncio
+    async def test_upsert_entity_same_target_id_no_duplicate(self, store: AsyncStore):
+        """相同 target_id 不重复追加。"""
+        await store.upsert_entity("EU", "organization", "italy", "2026-05-16T10:00:00+00:00")
+        await store.upsert_entity("EU", "organization", "italy", "2026-05-17T10:00:00+00:00")
+        async with store._db.execute(
+            "SELECT target_ids FROM entities WHERE canonical_name = 'EU'"
+        ) as cursor:
+            row = await cursor.fetchone()
+        assert row is not None
+        parts = [p for p in row[0].split(",") if p]
+        assert parts.count("italy") == 1
