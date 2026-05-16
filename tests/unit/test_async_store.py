@@ -1028,3 +1028,153 @@ class TestChainNarratives:
         assert "topic_tags" in first
         assert "news_value_score" in first
         assert first["sentiment"] == "positive"
+
+
+class TestTrendQueries:
+    """Phase 37: 趋势聚合查询测试。"""
+
+    @pytest.fixture
+    async def store_with_trends(self, tmp_path: Path) -> AsyncStore:
+        """创建包含趋势测试数据的 AsyncStore。"""
+        db_path = tmp_path / "state.db"
+        store = AsyncStore(db_path)
+        await store.initialize()
+
+        base_date = "2026-05-01"
+        events = [
+            (
+                "evt-1",
+                "italy",
+                "judged",
+                "ansa",
+                80,
+                50,
+                "politics",
+                f"{base_date}T10:00:00",
+                "positive",
+                "immigration,elections",
+            ),
+            (
+                "evt-2",
+                "italy",
+                "judged",
+                "ansa",
+                75,
+                45,
+                "politics",
+                f"{base_date}T12:00:00",
+                "negative",
+                "immigration,economy",
+            ),
+            (
+                "evt-3",
+                "italy",
+                "judged",
+                "repubblica",
+                60,
+                30,
+                "economy",
+                f"{base_date}T14:00:00",
+                "neutral",
+                "economy,EU",
+            ),
+            (
+                "evt-4",
+                "italy",
+                "judged",
+                "ansa",
+                70,
+                40,
+                "international",
+                "2026-05-05T10:00:00",
+                "positive",
+                "EU,immigration",
+            ),
+            (
+                "evt-5",
+                "italy",
+                "judged",
+                "ansa",
+                85,
+                55,
+                "politics",
+                "2026-05-05T12:00:00",
+                "negative",
+                "elections,immigration",
+            ),
+        ]
+        now = datetime.now(UTC).isoformat()
+        for eid, tid, stage, src, score, rel, cls, pub, sent, tags in events:
+            await store._db.execute(  # noqa: SLF001
+                "INSERT OR REPLACE INTO event_index "
+                "(event_id, target_id, stage, source_id, news_value_score, "
+                "china_relevance, classification_l0, published_at, "
+                "sentiment, topic_tags, file_path, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    eid,
+                    tid,
+                    stage,
+                    src,
+                    score,
+                    rel,
+                    cls,
+                    pub,
+                    sent,
+                    tags,
+                    f"data/{tid}/drafts/{eid}.md",
+                    now,
+                ),
+            )
+        await store._db.commit()  # noqa: SLF001
+        return store
+
+    @pytest.mark.asyncio
+    async def test_get_sentiment_daily_counts(self, store_with_trends: AsyncStore) -> None:
+        """按天统计情感分布。"""
+        result = await store_with_trends.get_sentiment_daily_counts("italy", days=30)
+        assert isinstance(result, list)
+        assert len(result) > 0
+        for entry in result:
+            assert "day" in entry
+            assert "sentiment" in entry
+            assert "count" in entry
+        # 5月1日应有 1 positive, 1 negative, 1 neutral
+        may1 = [e for e in result if e["day"] == "2026-05-01"]
+        sentiments = {e["sentiment"]: e["count"] for e in may1}
+        assert sentiments.get("positive", 0) == 1
+        assert sentiments.get("negative", 0) == 1
+        assert sentiments.get("neutral", 0) == 1
+
+    @pytest.mark.asyncio
+    async def test_get_topic_daily_counts(self, store_with_trends: AsyncStore) -> None:
+        """按天统计 topic 出现次数。"""
+        result = await store_with_trends.get_topic_daily_counts("italy", days=30)
+        assert isinstance(result, list)
+        assert len(result) > 0
+        # immigration 出现在 5月1日(2次) + 5月5日(2次)
+        imm_counts = [e for e in result if e["topic"] == "immigration"]
+        total_imm = sum(e["count"] for e in imm_counts)
+        assert total_imm == 4
+
+    @pytest.mark.asyncio
+    async def test_get_top_topics(self, store_with_trends: AsyncStore) -> None:
+        """获取最热主题排名。"""
+        result = await store_with_trends.get_top_topics("italy", days=30, limit=5)
+        assert isinstance(result, list)
+        assert len(result) > 0
+        # immigration 应排第一（4次）
+        assert result[0]["topic"] == "immigration"
+        assert result[0]["count"] == 4
+        # 结果按 count 降序
+        for i in range(len(result) - 1):
+            assert result[i]["count"] >= result[i + 1]["count"]
+
+    @pytest.mark.asyncio
+    async def test_get_sentiment_daily_counts_empty(self, tmp_path: Path) -> None:
+        """空数据库返回空列表。"""
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        result = await store.get_sentiment_daily_counts("nonexistent", days=7)
+        assert result == []
+        await store.close()

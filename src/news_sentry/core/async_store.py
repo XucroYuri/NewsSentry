@@ -1081,3 +1081,74 @@ class AsyncStore:
             for e in sorted(events, key=lambda x: x.get("event_id", ""))
         )
         return sha256(parts.encode()).hexdigest()
+
+    # ------------------------------------------------------------------
+    # Trend Analysis (Phase 37)
+    # ------------------------------------------------------------------
+
+    async def get_sentiment_daily_counts(
+        self, target_id: str, days: int = 14
+    ) -> list[dict[str, Any]]:
+        """按天统计情感分布，返回 [{day, sentiment, count}, ...]."""
+        if self._db is None:
+            return []
+        async with self._db.execute(
+            "SELECT date(published_at) AS day, sentiment, COUNT(*) AS cnt "
+            "FROM event_index "
+            "WHERE target_id = ? AND stage = 'judged' "
+            "AND published_at >= date('now', ? || ' days') "
+            "AND sentiment IS NOT NULL "
+            "GROUP BY day, sentiment ORDER BY day",
+            [target_id, f"-{days}"],
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [{"day": r[0], "sentiment": r[1], "count": r[2]} for r in rows]
+
+    async def get_topic_daily_counts(self, target_id: str, days: int = 14) -> list[dict[str, Any]]:
+        """按天统计每个 topic 的出现次数，返回 [{topic, day, count}, ...]."""
+        if self._db is None:
+            return []
+        async with self._db.execute(
+            "SELECT date(published_at) AS day, topic_tags "
+            "FROM event_index "
+            "WHERE target_id = ? AND stage = 'judged' "
+            "AND published_at >= date('now', ? || ' days') "
+            "AND topic_tags IS NOT NULL AND topic_tags != ''",
+            [target_id, f"-{days}"],
+        ) as cursor:
+            rows = await cursor.fetchall()
+        # Python 层拆分 topic_tags 并按 (topic, day) 聚合
+        counts: dict[tuple[str, str], int] = {}
+        for day, tags_str in rows:
+            for tag in tags_str.split(","):
+                tag = tag.strip()
+                if tag:
+                    key = (tag, day)
+                    counts[key] = counts.get(key, 0) + 1
+        return [
+            {"topic": topic, "day": day, "count": cnt}
+            for (topic, day), cnt in sorted(counts.items())
+        ]
+
+    async def get_top_topics(
+        self, target_id: str, days: int = 7, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """获取最近 N 天最热主题排名。"""
+        if self._db is None:
+            return []
+        async with self._db.execute(
+            "SELECT topic_tags FROM event_index "
+            "WHERE target_id = ? AND stage = 'judged' "
+            "AND published_at >= date('now', ? || ' days') "
+            "AND topic_tags IS NOT NULL AND topic_tags != ''",
+            [target_id, f"-{days}"],
+        ) as cursor:
+            rows = await cursor.fetchall()
+        topic_counts: dict[str, int] = {}
+        for (tags_str,) in rows:
+            for tag in tags_str.split(","):
+                tag = tag.strip()
+                if tag:
+                    topic_counts[tag] = topic_counts.get(tag, 0) + 1
+        sorted_topics = sorted(topic_counts.items(), key=lambda x: x[1], reverse=True)[:limit]
+        return [{"topic": t, "count": c} for t, c in sorted_topics]
