@@ -957,3 +957,112 @@ class TestAPIServerSQLite:
         assert sb.get("positive") == 1
         assert sb.get("negative") == 1
         assert sb.get("neutral") == 1
+
+    def test_list_entities_with_sqlite(
+        self,
+        tmp_path: Path,
+        store_with_data: AsyncStore,
+    ) -> None:
+        """GET /entities 返回实体列表。"""
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(
+            store_with_data.upsert_entity("Meloni", "person", "italy", "2026-05-16T10:00:00+00:00")
+        )
+        asyncio.get_event_loop().run_until_complete(
+            store_with_data.upsert_entity(
+                "EU", "organization", "italy", "2026-05-16T10:00:00+00:00"
+            )
+        )
+        client = self._make_client_with_store(tmp_path, store_with_data)
+        resp = client.get("/api/v1/entities")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "entities" in data
+        assert data["total"] == 2
+
+    def test_list_entities_filter_by_type(
+        self,
+        tmp_path: Path,
+        store_with_data: AsyncStore,
+    ) -> None:
+        """GET /entities?entity_type=person 过滤。"""
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(
+            store_with_data.upsert_entity("Meloni", "person", "italy", "2026-05-16T10:00:00+00:00")
+        )
+        asyncio.get_event_loop().run_until_complete(
+            store_with_data.upsert_entity(
+                "EU", "organization", "italy", "2026-05-16T10:00:00+00:00"
+            )
+        )
+        client = self._make_client_with_store(tmp_path, store_with_data)
+        resp = client.get("/api/v1/entities", params={"entity_type": "person"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+        assert data["entities"][0]["canonical_name"] == "Meloni"
+
+    def test_list_entities_min_mentions(
+        self,
+        tmp_path: Path,
+        store_with_data: AsyncStore,
+    ) -> None:
+        """GET /entities?min_mentions=2 过滤低频实体。"""
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(
+            store_with_data.upsert_entity("Meloni", "person", "italy", "2026-05-16T10:00:00+00:00")
+        )
+        asyncio.get_event_loop().run_until_complete(
+            store_with_data.upsert_entity("Meloni", "person", "italy", "2026-05-17T10:00:00+00:00")
+        )
+        asyncio.get_event_loop().run_until_complete(
+            store_with_data.upsert_entity(
+                "EU", "organization", "italy", "2026-05-16T10:00:00+00:00"
+            )
+        )
+        client = self._make_client_with_store(tmp_path, store_with_data)
+        resp = client.get("/api/v1/entities", params={"min_mentions": 2})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+        assert data["entities"][0]["canonical_name"] == "Meloni"
+
+    def test_get_entity_detail_with_sqlite(
+        self,
+        tmp_path: Path,
+        store_with_data: AsyncStore,
+    ) -> None:
+        """GET /entities/{id} 返回实体详情。"""
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(
+            store_with_data.upsert_entity("Meloni", "person", "italy", "2026-05-16T10:00:00+00:00")
+        )
+        client = self._make_client_with_store(tmp_path, store_with_data)
+        resp = client.get("/api/v1/entities/1")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["entity"]["canonical_name"] == "Meloni"
+        assert "recent_events" in data
+
+    def test_stats_top_entities_with_sqlite(
+        self,
+        tmp_path: Path,
+        store_with_data: AsyncStore,
+    ) -> None:
+        """stats 端点返回 top_entities。"""
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(
+            store_with_data.upsert_entity("Meloni", "person", "italy", "2026-05-16T10:00:00+00:00")
+        )
+        client = self._make_client_with_store(tmp_path, store_with_data)
+        resp = client.get("/api/v1/stats", params={"target_id": "italy"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "top_entities" in data
+        assert len(data["top_entities"]) >= 1
+        assert data["top_entities"][0]["name"] == "Meloni"

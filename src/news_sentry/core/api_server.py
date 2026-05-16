@@ -90,6 +90,7 @@ class StatsResponse(BaseModel):
     by_classification: dict[str, int]
     by_source: dict[str, int]
     sentiment_breakdown: dict[str, int] = {}
+    top_entities: list[dict[str, Any]] = []
 
 
 class SourceInfo(BaseModel):
@@ -159,6 +160,32 @@ class ProviderRoutesResponse(BaseModel):
     routes_version: str
     routes: list[RouteInfo]
     fallback_route_id: str | None = None
+
+
+class EntityInfo(BaseModel):
+    """实体摘要信息。"""
+
+    id: int
+    canonical_name: str
+    entity_type: str
+    mention_count: int
+    first_seen: str
+    last_seen: str
+    target_ids: str = ""
+
+
+class EntityListResponse(BaseModel):
+    """实体列表响应。"""
+
+    total: int
+    entities: list[EntityInfo]
+
+
+class EntityDetailResponse(BaseModel):
+    """实体详情响应。"""
+
+    entity: EntityInfo
+    recent_events: list[dict[str, Any]] = []
 
 
 # ── API Key 认证 ───────────────────────────────────────
@@ -480,6 +507,7 @@ def create_app(
                 by_classification=stats["by_classification"],
                 by_source=stats["by_source"],
                 sentiment_breakdown=stats.get("sentiment_breakdown", {}),
+                top_entities=stats.get("top_entities", []),
             )
 
         # 降级路径：无 store 时走原始文件扫描
@@ -519,6 +547,7 @@ def create_app(
             avg_china_relevance=avg_relevance,
             by_classification=dict(by_classification),
             by_source=dict(by_source),
+            top_entities=[],
         )
 
     # ── 配置读取端点（无需认证）─────────────────────────
@@ -670,6 +699,45 @@ def create_app(
             routes_version=data.get("routes_version", ""),
             routes=routes,
             fallback_route_id=data.get("fallback_route_id"),
+        )
+
+    # ── 实体端点 ────────────────────────────────────────
+
+    @app.get("/api/v1/entities", response_model=EntityListResponse)
+    async def list_entities(
+        entity_type: str | None = Query(None, description="按实体类型过滤"),
+        target_id: str | None = Query(None, description="按目标过滤"),
+        min_mentions: int = Query(1, ge=1, description="最少提及次数"),
+        limit: int = Query(20, ge=1, le=100, description="返回数量"),
+        sort: str = Query("mention_count", description="排序: mention_count 或 last_seen"),
+    ) -> EntityListResponse:
+        """返回实体列表。"""
+        if _store is None:
+            return EntityListResponse(total=0, entities=[])
+        entities = await _store.query_entities(
+            entity_type=entity_type,
+            target_id=target_id,
+            min_mentions=min_mentions,
+            limit=limit,
+            sort=sort,
+        )
+        return EntityListResponse(
+            total=len(entities),
+            entities=[EntityInfo(**e) for e in entities],
+        )
+
+    @app.get("/api/v1/entities/{entity_id}", response_model=EntityDetailResponse)
+    async def get_entity(entity_id: int) -> EntityDetailResponse:
+        """返回实体详情及关联事件。"""
+        if _store is None:
+            raise HTTPException(status_code=404, detail="Entity not found")
+        detail = await _store.query_entity_detail(entity_id)
+        if detail is None:
+            raise HTTPException(status_code=404, detail="Entity not found")
+        recent = detail.pop("recent_events", [])
+        return EntityDetailResponse(
+            entity=EntityInfo(**detail),
+            recent_events=recent,
         )
 
     # ── 需认证端点 ────────────────────────────────────
