@@ -126,6 +126,12 @@ _DDL_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_event_links_source ON event_links(source_event_id)",
     "CREATE INDEX IF NOT EXISTS idx_event_links_target ON event_links(target_event_id)",
     "CREATE INDEX IF NOT EXISTS idx_event_links_target_id ON event_links(target_id)",
+    "CREATE INDEX IF NOT EXISTS idx_event_classification ON event_index(classification_l0)",
+    "CREATE INDEX IF NOT EXISTS idx_event_source ON event_index(source_id)",
+    "CREATE INDEX IF NOT EXISTS idx_event_score ON event_index(news_value_score)",
+    "CREATE INDEX IF NOT EXISTS idx_narrative_target ON chain_narratives(target_id)",
+    "CREATE INDEX IF NOT EXISTS idx_event_links_type ON event_links(link_type, strength)",
+    "CREATE INDEX IF NOT EXISTS idx_event_created ON event_index(created_at)",
 )
 
 __all__ = ["AsyncStore"]
@@ -969,38 +975,45 @@ class AsyncStore:
         return chain_events
 
     async def get_active_chains(self, target_id: str) -> list[dict[str, Any]]:
-        """返回当前 target 的活跃追踪链（有 >=2 事件的链）。"""
+        """获取当前 target 的活跃追踪链（含叙述摘要）。"""
         if self._db is None:
             return []
-        # 找出所有有 source 的 event_id（即链的根节点）
+        # 找所有有 link 的 root events
         async with self._db.execute(
-            "SELECT DISTINCT el.source_event_id "
-            "FROM event_links el "
-            "WHERE el.target_id = ? "
-            "AND el.source_event_id NOT IN (SELECT target_event_id FROM event_links)",
+            "SELECT DISTINCT source_event_id FROM event_links WHERE target_id = ?",
             [target_id],
         ) as cursor:
-            root_rows = await cursor.fetchall()
+            root_ids = [r[0] for r in await cursor.fetchall()]
 
-        # 如果没有纯根节点，找所有 source_event_id
-        if not root_rows:
+        if not root_ids:
+            return []
+
+        # 批量获取 narratives
+        narrative_map: dict[str, str] = {}
+        if root_ids:
+            placeholders = ",".join("?" * len(root_ids))
             async with self._db.execute(
-                "SELECT DISTINCT source_event_id FROM event_links WHERE target_id = ?",
-                [target_id],
+                f"SELECT chain_root_id, narrative FROM chain_narratives "  # noqa: S608
+                f"WHERE chain_root_id IN ({placeholders})",
+                root_ids,
             ) as cursor:
-                root_rows = await cursor.fetchall()
+                for row in await cursor.fetchall():
+                    narrative_map[row[0]] = row[1]
 
         chains: list[dict[str, Any]] = []
-        for (root_id,) in root_rows:
+        for root_id in root_ids:
             chain = await self.get_event_chain(root_id, depth=10)
-            if len(chain) >= 2:
+            if chain:
                 latest = chain[-1]
+                narr = narrative_map.get(root_id, "")
                 chains.append(
                     {
                         "root_event_id": root_id,
                         "event_count": len(chain),
                         "latest_time": latest.get("published_at", ""),
                         "latest_title": latest.get("title_original", ""),
+                        "has_narrative": bool(narr),
+                        "narrative_summary": narr[:50] + "..." if len(narr) > 50 else narr,
                     }
                 )
         return sorted(chains, key=lambda c: c["latest_time"], reverse=True)
@@ -1152,3 +1165,51 @@ class AsyncStore:
                     topic_counts[tag] = topic_counts.get(tag, 0) + 1
         sorted_topics = sorted(topic_counts.items(), key=lambda x: x[1], reverse=True)[:limit]
         return [{"topic": t, "count": c} for t, c in sorted_topics]
+
+    # ------------------------------------------------------------------
+    # Smart Alerts (Phase 38)
+    # ------------------------------------------------------------------
+
+    async def get_recent_links(self, target_id: str, hours: int = 24) -> list[dict[str, Any]]:
+        """获取最近 N 小时新增的 event_links。"""
+        if self._db is None:
+            return []
+        async with self._db.execute(
+            "SELECT el.source_event_id, el.target_event_id, el.link_type, "
+            "el.strength, el.target_id, ei.title_original "
+            "FROM event_links el "
+            "LEFT JOIN event_index ei ON ei.event_id = el.target_event_id "
+            "WHERE el.target_id = ? "
+            "AND el.created_at >= datetime('now', ? || ' hours') "
+            "ORDER BY el.created_at DESC",
+            [target_id, f"-{hours}"],
+        ) as cursor:
+            rows = await cursor.fetchall()
+        cols = (
+            "source_event_id",
+            "target_event_id",
+            "link_type",
+            "strength",
+            "target_id",
+            "title_original",
+        )
+        return [dict(zip(cols, row, strict=True)) for row in rows]
+
+    async def get_entity_daily_mentions(
+        self, entity_name: str, target_id: str, days: int = 7
+    ) -> list[dict[str, Any]]:
+        """获取某实体在每天中的提及次数。"""
+        if self._db is None:
+            return []
+        pattern = f"%,{entity_name},%"
+        async with self._db.execute(
+            "SELECT date(published_at) AS day, COUNT(*) AS cnt "
+            "FROM event_index "
+            "WHERE target_id = ? AND stage = 'judged' "
+            "AND published_at >= date('now', ? || ' days') "
+            "AND ',' || entity_names || ',' LIKE ? "
+            "GROUP BY day ORDER BY day",
+            [target_id, f"-{days}", pattern],
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [{"day": r[0], "count": r[1]} for r in rows]

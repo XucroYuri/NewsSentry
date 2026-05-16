@@ -1178,3 +1178,75 @@ class TestTrendQueries:
         result = await store.get_sentiment_daily_counts("nonexistent", days=7)
         assert result == []
         await store.close()
+
+
+class TestSmartAlertQueries:
+    """Phase 38: 智能告警查询测试。"""
+
+    @pytest.fixture
+    async def store_with_alerts(self, tmp_path: Path) -> AsyncStore:
+        """创建包含告警测试数据的 AsyncStore。"""
+        db_path = tmp_path / "state.db"
+        store = AsyncStore(db_path)
+        await store.initialize()
+
+        now = datetime.now(UTC).isoformat()
+        for eid, ents in [
+            ("a-evt-1", "Meloni,EU"),
+            ("a-evt-2", "Meloni,China"),
+            ("a-evt-3", "EU,China"),
+            ("a-evt-4", "Meloni,EU"),
+            ("a-evt-5", "Meloni"),
+        ]:
+            await store._db.execute(  # noqa: SLF001
+                "INSERT OR REPLACE INTO event_index "
+                "(event_id, target_id, stage, source_id, news_value_score, "
+                "china_relevance, published_at, created_at, entity_names) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (eid, "italy", "judged", "ansa", 80, 50, now, now, ents),
+            )
+        await store._db.commit()
+
+        await store.create_link("a-evt-1", "a-evt-2", "followup", 0.85, {}, "italy")
+        await store.create_link("a-evt-3", "a-evt-4", "related", 0.5, {}, "italy")
+
+        return store
+
+    @pytest.mark.asyncio
+    async def test_get_recent_links(self, store_with_alerts: AsyncStore) -> None:
+        """获取近期新增 links。"""
+        result = await store_with_alerts.get_recent_links("italy", hours=24)
+        assert isinstance(result, list)
+        assert len(result) == 2
+        followup = [r for r in result if r["link_type"] == "followup"]
+        assert len(followup) == 1
+        assert followup[0]["strength"] == 0.85
+
+    @pytest.mark.asyncio
+    async def test_get_entity_daily_mentions(self, store_with_alerts: AsyncStore) -> None:
+        """获取实体每日提及量。"""
+        result = await store_with_alerts.get_entity_daily_mentions("Meloni", "italy", days=7)
+        assert isinstance(result, list)
+        assert len(result) > 0
+        total = sum(r["count"] for r in result)
+        assert total == 4
+
+    @pytest.mark.asyncio
+    async def test_new_indexes_created(self, tmp_path: Path) -> None:
+        """验证 6 个新索引正确创建。"""
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        async with store._db.execute(  # noqa: SLF001
+            "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'"
+        ) as cursor:
+            indexes = {r[0] for r in await cursor.fetchall()}
+        expected = {
+            "idx_event_classification",
+            "idx_event_source",
+            "idx_event_score",
+            "idx_narrative_target",
+            "idx_event_links_type",
+            "idx_event_created",
+        }
+        assert expected.issubset(indexes)
+        await store.close()
