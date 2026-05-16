@@ -1,10 +1,311 @@
 platform: twitter
 dimension: G-tech-digital
 collect_mode: opencli_bridge
+session_profile_ref: config/session-profiles/italy/twitter.session.yaml
+
 accounts:
-- handle: '@AgenziaItalia'
-  display_name: Agenzia per l'Italia Digitale
-  url: https://x.com/AgenziaItalia
-  tier: L2
-  category: government_digital
-  notes: 数字化局
+  - handle: "@AgenziaItalia"
+    display_name: "Agenzia per l'Italia Digitale"
+    url: "https://x.com/AgenziaItalia"
+    tier: L2
+    category: government_digital
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "数字化局"
+
+  - handle: "@DipartimentoTD"
+    display_name: "Dipartimento Trasformazione Digitale"
+    url: "https://x.com/DipartimentoTD"
+    tier: L1
+    category: government_digital
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "数字转型部"
+
+  - handle: "@InnovazioneGov"
+    display_name: "Innovazione.gov.it"
+    url: "https://x.com/InnovazioneGov"
+    tier: L2
+    category: government_digital
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "政府创新门户"
+
+  - handle: "@SPID_IT"
+    display_name: "SPID"
+    url: "https://x.com/SPID_IT"
+    tier: L2
+    category: government_digital
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "公共数字身份系统"
+
+  - handle: "@io_app"
+    display_name: "IO App"
+    url: "https://x.com/io_app"
+    tier: L2
+    category: government_digital
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "政府服务App"
+
+  - handle: "@pagopa"
+    display_name: "PagoPA"
+    url: "https://x.com/pagopa"
+    tier: L2
+    category: government_digital
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "公共支付平台"
+
+  - handle: "@TIM_Official"
+    display_name: "TIM"
+    url: "https://x.com/TIM_Official"
+    tier: L2
+    category: telco
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "意大利电信"
+
+  - handle: "@VodafoneIT"
+    display_name: "Vodafone Italia"
+    url: "https://x.com/VodafoneIT"
+    tier: L2
+    category: telco
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "沃达丰意大利"
+
+  - handle: "@FastwebIt"
+    display_name: "Fastweb"
+    url: "https://x.com/FastwebIt"
+    tier: L3
+    category: telco
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "宽带运营商"
+
+  - handle: "@IliadItalia"
+    display_name: "Iliad Italia"
+    url: "https://x.com/IliadItalia"
+    tier: L3
+    category: telco
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "意大利用户增长最快运营商"
+
+  - handle: "@ItalianTech"
+    display_name: "Italian Tech"
+    url: "https://x.com/ItalianTech"
+    tier: L2
+    category: startup
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "意大利科技创新聚合"
+
+  - handle: "@StartupItalia"
+    display_name: "StartupItalia!"
+    url: "https://x.com/StartupItalia"
+    tier: L2
+    category: startup
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "创业生态媒体"
+
+  - handle: "@H_Farm"
+    display_name: "H-FARM"
+    url: "https://x.com/H_Farm"
+    tier: L3
+    category: startup
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "意大利最大创业孵化器"
+
+  - handle: "@CDPVenture"
+    display_name: "CDP Venture Capital"
+    url: "https://x.com/CDPVenture"
+    tier: L2
+    category: vc
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "国家风投基金"
+
+  - handle: "@MindTheBridge"
+    display_name: "Mind the Bridge"
+    url: "https://x.com/MindTheBridge"
+    tier: L3
+    category: vc
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "创新咨询公司"
+
+  - handle: "@CINI_news"
+    display_name: "CINI"
+    url: "https://x.com/CINI_news"
+    tier: L3
+    category: ai_cyber
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "国家信息学联合会"
+
+  - handle: "@SissaMediacenter"
+    display_name: "SISSA"
+    url: "https://x.com/SissaMediacenter"
+    tier: L3
+    category: university
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "国际高等研究院（AI/物理）"
+
+  - handle: "@WiredItalia"
+    display_name: "Wired Italia"
+    url: "https://x.com/WiredItalia"
+    tier: L2
+    category: journalist
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "科技杂志意大利版"
+
+  - handle: "@Punto_Informatico"
+    display_name: "Punto Informatico"
+    url: "https://x.com/Punto_Informatico"
+    tier: L3
+    category: journalist
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "意大利老牌IT新闻"
+
+  - handle: "@AgendaDigitale"
+    display_name: "Agenda Digitale"
+    url: "https://x.com/AgendaDigitale"
+    tier: L2
+    category: digital_rights
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "数字化转型观察"
+
+  - handle: "@HermesCenter"
+    display_name: "Hermes Center"
+    url: "https://x.com/HermesCenter"
+    tier: L3
+    category: digital_rights
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "数字权利/透明度中心"
+
+  - handle: "@BendingSpoons"
+    display_name: "Bending Spoons"
+    url: "https://x.com/BendingSpoons"
+    tier: L3
+    category: startup
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "独角兽/移动应用开发"
+
+  - handle: "@Scalapay"
+    display_name: "Scalapay"
+    url: "https://x.com/Scalapay"
+    tier: L3
+    category: startup
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "BNPL金融科技独角兽"
+
+  - handle: "@Satispay"
+    display_name: "Satispay"
+    url: "https://x.com/Satispay"
+    tier: L3
+    category: startup
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "移动支付独角兽"
+
+  - handle: "@FondazioneGolinelli"
+    display_name: "Fondazione Golinelli"
+    url: "https://x.com/FondazioneGolinelli"
+    tier: L3
+    category: innovation
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "科技创新基金会"
+
+  - handle: "@OGR_Torino"
+    display_name: "OGR Torino"
+    url: "https://x.com/OGR_Torino"
+    tier: L3
+    category: innovation
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "都灵创新中心"
+
+  - handle: "@OpenPolis"
+    display_name: "Openpolis"
+    url: "https://x.com/OpenPolis"
+    tier: L3
+    category: digital_rights
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "开放政治数据平台"
+
+  - handle: "@DatiOpen"
+    display_name: "Dati Open"
+    url: "https://x.com/DatiOpen"
+    tier: L3
+    category: digital_rights
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "开放数据观察"
+
+  - handle: "@Eataly"
+    display_name: "Eataly"
+    url: "https://x.com/Eataly"
+    tier: L3
+    category: startup
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "意大利食品零售创新"
+
+  - handle: "@YOOX"
+    display_name: "YOOX NET-A-PORTER"
+    url: "https://x.com/YOOX"
+    tier: L3
+    category: startup
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "奢侈品电商"
+
+  - handle: "@CodingBunker"
+    display_name: "Coding Bunker"
+    url: "https://x.com/CodingBunker"
+    tier: L3
+    category: influencer
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "开发者社区"
+
+  - handle: "@CodemotionIT"
+    display_name: "Codemotion Italia"
+    url: "https://x.com/CodemotionIT"
+    tier: L3
+    category: influencer
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "开发者大会"
+
+  - handle: "@CryptoItaliaIT"
+    display_name: "Crypto Italia"
+    url: "https://x.com/CryptoItaliaIT"
+    tier: L3
+    category: influencer
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "加密货币意大利社区"
+
+  - handle: "@DL_AI_it"
+    display_name: "Deep Learning Italia"
+    url: "https://x.com/DL_AI_it"
+    tier: L3
+    category: ai_cyber
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "深度学习/AI社区"

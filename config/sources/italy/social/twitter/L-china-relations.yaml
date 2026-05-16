@@ -1,10 +1,293 @@
 platform: twitter
 dimension: L-china-relations
 collect_mode: opencli_bridge
+session_profile_ref: config/session-profiles/italy/twitter.session.yaml
+
 accounts:
-- handle: '@AmbCinaRoma'
-  display_name: Ambasciata Cina in Italia
-  url: https://x.com/AmbCinaRoma
-  tier: L2
-  category: foreign_embassy
-  notes: 中国驻意使馆
+  - handle: "@AmbCinaRoma"
+    display_name: "Ambasciata Cina in Italia"
+    url: "https://x.com/AmbCinaRoma"
+    tier: L1
+    category: chinese_embassy
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "中国驻意使馆"
+
+  - handle: "@AmbasciataCina"
+    display_name: "Ambasciata Cina"
+    url: "https://x.com/AmbasciataCina"
+    tier: L1
+    category: chinese_embassy
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "中国大使馆（备用账号）"
+
+  - handle: "@ICCFI_FIC"
+    display_name: "Fondazione Italia Cina"
+    url: "https://x.com/ICCFI_FIC"
+    tier: L1
+    category: business_assoc
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "意中基金会"
+
+  - handle: "@ChinaAmbUN"
+    display_name: "China Mission to UN"
+    url: "https://x.com/ChinaAmbUN"
+    tier: L2
+    category: chinese_diplomacy
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "中国常驻联合国"
+
+  - handle: "@ItAmbPechino"
+    display_name: "Ambasciata Italia a Pechino"
+    url: "https://x.com/ItAmbPechino"
+    tier: L1
+    category: italian_embassy
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "意大利驻华使馆"
+
+  - handle: "@MFA_China"
+    display_name: "Chinese MFA"
+    url: "https://x.com/MFA_China"
+    tier: L2
+    category: chinese_diplomacy
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "中国外交部"
+
+  - handle: "@SpokespersonCHN"
+    display_name: "Hua Chunying / MFA Spokesperson"
+    url: "https://x.com/SpokespersonCHN"
+    tier: L2
+    category: chinese_diplomacy
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "中国外交部发言人"
+
+  - handle: "@CGTNOfficial"
+    display_name: "CGTN"
+    url: "https://x.com/CGTNOfficial"
+    tier: L2
+    category: chinese_media
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "中国国际电视台"
+
+  - handle: "@XHNews"
+    display_name: "Xinhua News"
+    url: "https://x.com/XHNews"
+    tier: L2
+    category: chinese_media
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "新华社英文"
+
+  - handle: "@PDChina"
+    display_name: "People's Daily China"
+    url: "https://x.com/PDChina"
+    tier: L2
+    category: chinese_media
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "人民日报英文"
+
+  - handle: "@ChinaDaily"
+    display_name: "China Daily"
+    url: "https://x.com/ChinaDaily"
+    tier: L2
+    category: chinese_media
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "中国日报"
+
+  - handle: "@CRIonair"
+    display_name: "CRI - China Radio International"
+    url: "https://x.com/CRIonair"
+    tier: L2
+    category: chinese_media
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "中国国际广播电台"
+
+  - handle: "@ConfucioMilano"
+    display_name: "Confucio Milano"
+    url: "https://x.com/ConfucioMilano"
+    tier: L3
+    category: confucius
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "米兰孔子学院"
+
+  - handle: "@ConfucioRoma"
+    display_name: "Confucio Roma"
+    url: "https://x.com/ConfucioRoma"
+    tier: L3
+    category: confucius
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "罗马孔子学院"
+
+  - handle: "@UniCaFoscari"
+    display_name: "Ca' Foscari Venezia"
+    url: "https://x.com/UniCaFoscari"
+    tier: L2
+    category: academic
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "威尼斯大学（意大利汉学中心）"
+
+  - handle: "@Unitorvergata"
+    display_name: "Tor Vergata"
+    url: "https://x.com/Unitorvergata"
+    tier: L3
+    category: academic
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "罗马第二大学（中国研究中心）"
+
+  - handle: "@LOrientaleNA"
+    display_name: "L'Orientale Napoli"
+    url: "https://x.com/LOrientaleNA"
+    tier: L2
+    category: academic
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "那不勒斯东方大学（汉学重镇）"
+
+  - handle: "@ISPI_Online"
+    display_name: "ISPI"
+    url: "https://x.com/ISPI_Online"
+    tier: L2
+    category: think_tank
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "国际政治研究所（含中国研究）"
+
+  - handle: "@IAIonline"
+    display_name: "IAI"
+    url: "https://x.com/IAIonline"
+    tier: L2
+    category: think_tank
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "国际事务研究所（中国研究项目）"
+
+  - handle: "@HuaweiItalia"
+    display_name: "Huawei Italia"
+    url: "https://x.com/HuaweiItalia"
+    tier: L2
+    category: chinese_tech
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "华为意大利"
+
+  - handle: "@ZTEItalia"
+    display_name: "ZTE Italia"
+    url: "https://x.com/ZTEItalia"
+    tier: L3
+    category: chinese_tech
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "中兴意大利"
+
+  - handle: "@TikTokItalia"
+    display_name: "TikTok Italia"
+    url: "https://x.com/TikTokItalia"
+    tier: L2
+    category: chinese_tech
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "TikTok意大利"
+
+  - handle: "@GWMEurope"
+    display_name: "GWM Europe"
+    url: "https://x.com/GWMEurope"
+    tier: L3
+    category: chinese_auto
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "长城汽车欧洲"
+
+  - handle: "@BYD_Europe"
+    display_name: "BYD Europe"
+    url: "https://x.com/BYD_Europe"
+    tier: L3
+    category: chinese_auto
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "比亚迪欧洲"
+
+  - handle: "@ItaliaCinaAssoc"
+    display_name: "Associazione Italia-Cina"
+    url: "https://x.com/ItaliaCinaAssoc"
+    tier: L3
+    category: business_assoc
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "意中友好协会"
+
+  - handle: "@ChinaEUTrade"
+    display_name: "EU-China Business"
+    url: "https://x.com/ChinaEUTrade"
+    tier: L3
+    category: business_assoc
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "中欧经贸关系"
+
+  - handle: "@ChinaItalyChamber"
+    display_name: "China-Italy Chamber of Commerce"
+    url: "https://x.com/ChinaItalyChamber"
+    tier: L3
+    category: business_assoc
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "中意商会"
+
+  - handle: "@Farnesina"
+    display_name: "Farnesina"
+    url: "https://x.com/Farnesina"
+    tier: L1
+    category: government
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "外交部（涉华政策）"
+
+  - handle: "@GiorgiaMeloni"
+    display_name: "Giorgia Meloni"
+    url: "https://x.com/GiorgiaMeloni"
+    tier: L1
+    category: government
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "总理（涉华决策）"
+
+  - handle: "@Antonio_Tajani"
+    display_name: "Antonio Tajani"
+    url: "https://x.com/Antonio_Tajani"
+    tier: L1
+    category: government
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "外长（涉华事务）"
+
+  - handle: "@AdolfoUrso"
+    display_name: "Adolfo Urso"
+    url: "https://x.com/AdolfoUrso"
+    tier: L2
+    category: government
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "企业与制造部部长（中意经贸）"
+
+  - handle: "@Calenda"
+    display_name: "Carlo Calenda"
+    url: "https://x.com/Calenda"
+    tier: L2
+    category: politician
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "行动党领袖（关注中国竞争）"

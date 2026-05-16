@@ -10,7 +10,17 @@ accounts:
     tier: L1
     category: pope
     monitor_mode: active
-    fetch_max_per_run: 10
+    fetch_max_per_run: 20
+    notes: "教宗方济各"
+
+  - handle: "@Pontifex_it"
+    display_name: "Papa Francesco IT"
+    url: "https://x.com/Pontifex_it"
+    tier: L1
+    category: pope
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "教宗意大利语"
 
   - handle: "@HolySeePress"
     display_name: "Holy See Press Office"
@@ -19,11 +29,202 @@ accounts:
     category: vatican_official
     monitor_mode: active
     fetch_max_per_run: 15
+    notes: "梵蒂冈新闻办公室"
 
   - handle: "@vaticannews_it"
     display_name: "Vatican News IT"
     url: "https://x.com/vaticannews_it"
+    tier: L1
+    category: vatican_media
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "梵蒂冈新闻意大利语"
+
+  - handle: "@VaticanNews"
+    display_name: "Vatican News EN"
+    url: "https://x.com/VaticanNews"
+    tier: L1
+    category: vatican_media
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "梵蒂冈新闻英文"
+
+  - handle: "@ChiesaCattolica"
+    display_name: "Chiesa Cattolica Italiana"
+    url: "https://x.com/ChiesaCattolica"
+    tier: L2
+    category: bishops
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "意大利天主教会"
+
+  - handle: "@CEI_Italia"
+    display_name: "CEI - Conferenza Episcopale"
+    url: "https://x.com/CEI_Italia"
+    tier: L2
+    category: bishops
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "意大利主教团"
+
+  - handle: "@ChiesadiRoma"
+    display_name: "Diocesi di Roma"
+    url: "https://x.com/ChiesadiRoma"
+    tier: L2
+    category: diocese
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "罗马教区"
+
+  - handle: "@DiocesiMilano"
+    display_name: "Diocesi di Milano"
+    url: "https://x.com/DiocesiMilano"
+    tier: L2
+    category: diocese
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "米兰教区（世界最大之一）"
+
+  - handle: "@DiocesiNapoli"
+    display_name: "Diocesi di Napoli"
+    url: "https://x.com/DiocesiNapoli"
+    tier: L3
+    category: diocese
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "那不勒斯教区"
+
+  - handle: "@AvvenireIT"
+    display_name: "Avvenire"
+    url: "https://x.com/AvvenireIT"
+    tier: L2
+    category: catholic_media
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "天主教日报"
+
+  - handle: "@FamigliaCristiana"
+    display_name: "Famiglia Cristiana"
+    url: "https://x.com/FamigliaCristiana"
+    tier: L2
+    category: catholic_media
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "天主教家庭周刊"
+
+  - handle: "@L_Osservatore"
+    display_name: "L'Osservatore Romano"
+    url: "https://x.com/L_Osservatore"
     tier: L2
     category: vatican_media
     monitor_mode: active
     fetch_max_per_run: 15
+    notes: "梵蒂冈半官方报纸"
+
+  - handle: "@RadioVaticana"
+    display_name: "Radio Vaticana"
+    url: "https://x.com/RadioVaticana"
+    tier: L2
+    category: vatican_media
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "梵蒂冈电台"
+
+  - handle: "@GesuitiItalia"
+    display_name: "Gesuiti Italia"
+    url: "https://x.com/GesuitiItalia"
+    tier: L3
+    category: religious_order
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "耶稣会意大利"
+
+  - handle: "@SalesianiItalia"
+    display_name: "Salesiani Italia"
+    url: "https://x.com/SalesianiItalia"
+    tier: L3
+    category: religious_order
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "慈幼会意大利"
+
+  - handle: "@FratiMinoriIT"
+    display_name: "Ordine dei Frati Minori"
+    url: "https://x.com/FratiMinoriIT"
+    tier: L3
+    category: religious_order
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "方济各会意大利"
+
+  - handle: "@ComunitaSantE"
+    display_name: "Comunità di Sant'Egidio"
+    url: "https://x.com/ComunitaSantE"
+    tier: L2
+    category: catholic_ngo
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "圣艾智德团体（和平/对话）"
+
+  - handle: "@UCOII_org"
+    display_name: "UCOII"
+    url: "https://x.com/UCOII_org"
+    tier: L3
+    category: islamic
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "意大利伊斯兰社团联盟"
+
+  - handle: "@Coreis_Italia"
+    display_name: "Coreis"
+    url: "https://x.com/Coreis_Italia"
+    tier: L3
+    category: islamic
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "意大利伊斯兰文化共同体"
+
+  - handle: "@UCEI_official"
+    display_name: "UCEI"
+    url: "https://x.com/UCEI_official"
+    tier: L3
+    category: jewish
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "意大利犹太社区联盟"
+
+  - handle: "@FCEI_Chiese"
+    display_name: "FCEI"
+    url: "https://x.com/FCEI_Chiese"
+    tier: L3
+    category: protestant
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "意大利新教教会联合会"
+
+  - handle: "@SantEgidioNews"
+    display_name: "Sant'Egidio News"
+    url: "https://x.com/SantEgidioNews"
+    tier: L2
+    category: catholic_ngo
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "圣艾智德新闻（宗教和平）"
+
+  - handle: "@OpusDei_IT"
+    display_name: "Opus Dei Italia"
+    url: "https://x.com/OpusDei_IT"
+    tier: L3
+    category: religious_order
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "主业团意大利"
+
+  - handle: "@PropagandaFide"
+    display_name: "Propaganda Fide"
+    url: "https://x.com/PropagandaFide"
+    tier: L3
+    category: vatican_official
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "万民福音部"

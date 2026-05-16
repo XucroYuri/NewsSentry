@@ -1,10 +1,284 @@
 platform: twitter
 dimension: H-environment-energy
 collect_mode: opencli_bridge
+session_profile_ref: config/session-profiles/italy/twitter.session.yaml
+
 accounts:
-- handle: '@Legambiente'
-  display_name: Legambiente
-  url: https://x.com/Legambiente
-  tier: L2
-  category: environmental_ngo
-  notes: 环保组织
+  - handle: "@Legambiente"
+    display_name: "Legambiente"
+    url: "https://x.com/Legambiente"
+    tier: L1
+    category: ngo
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "意大利最大环保组织"
+
+  - handle: "@MASE_gov"
+    display_name: "MASE"
+    url: "https://x.com/MASE_gov"
+    tier: L1
+    category: government_env
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "环境与能源安全部"
+
+  - handle: "@ISPRA_Press"
+    display_name: "ISPRA"
+    url: "https://x.com/ISPRA_Press"
+    tier: L1
+    category: government_env
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "环境研究与保护高等研究所"
+
+  - handle: "@eni"
+    display_name: "Eni"
+    url: "https://x.com/eni"
+    tier: L1
+    category: energy_company
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "意大利国家能源巨头"
+
+  - handle: "@EnelGroup"
+    display_name: "Enel Group"
+    url: "https://x.com/EnelGroup"
+    tier: L1
+    category: energy_company
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "意大利国家电力公司"
+
+  - handle: "@SNAM"
+    display_name: "Snam"
+    url: "https://x.com/SNAM"
+    tier: L2
+    category: energy_company
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "天然气基础设施公司"
+
+  - handle: "@TernaSpA"
+    display_name: "Terna"
+    url: "https://x.com/TernaSpA"
+    tier: L2
+    category: energy_company
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "国家电网运营"
+
+  - handle: "@GSErinnovabili"
+    display_name: "GSE"
+    url: "https://x.com/GSErinnovabili"
+    tier: L2
+    category: renewable
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "能源服务管理局（可再生能源）"
+
+  - handle: "@WWFItalia"
+    display_name: "WWF Italia"
+    url: "https://x.com/WWFItalia"
+    tier: L2
+    category: ngo
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "世界自然基金会意大利"
+
+  - handle: "@GreenpeaceIT"
+    display_name: "Greenpeace Italia"
+    url: "https://x.com/GreenpeaceIT"
+    tier: L2
+    category: ngo
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "绿色和平意大利"
+
+  - handle: "@A2A_SpA"
+    display_name: "A2A"
+    url: "https://x.com/A2A_SpA"
+    tier: L2
+    category: energy_company
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "伦巴第综合公用事业"
+
+  - handle: "@IrenSpA"
+    display_name: "Iren Group"
+    url: "https://x.com/IrenSpA"
+    tier: L3
+    category: energy_company
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "西北大区公用事业"
+
+  - handle: "@ERGnow"
+    display_name: "ERG"
+    url: "https://x.com/ERGnow"
+    tier: L3
+    category: renewable
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "可再生能源开发商"
+
+  - handle: "@CMCC_Climate"
+    display_name: "CMCC"
+    url: "https://x.com/CMCC_Climate"
+    tier: L2
+    category: research
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "气候变化研究中心"
+
+  - handle: "@FAI_italia"
+    display_name: "FAI"
+    url: "https://x.com/FAI_italia"
+    tier: L3
+    category: ngo
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "意大利环境基金会"
+
+  - handle: "@FridaysForFuture_IT"
+    display_name: "FFF Italia"
+    url: "https://x.com/FridaysForFuture_IT"
+    tier: L3
+    category: climate_activism
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "气候罢课运动意大利"
+
+  - handle: "@UltimaGenerazione"
+    display_name: "Ultima Generazione"
+    url: "https://x.com/UltimaGenerazione"
+    tier: L3
+    category: climate_activism
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "气候抗议组织"
+
+  - handle: "@ExtinctionR_IT"
+    display_name: "Extinction Rebellion Italia"
+    url: "https://x.com/ExtinctionR_IT"
+    tier: L3
+    category: climate_activism
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "灭绝叛乱意大利"
+
+  - handle: "@ProtezioneCivile"
+    display_name: "Protezione Civile"
+    url: "https://x.com/ProtezioneCivile"
+    tier: L1
+    category: disaster
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "民防部（灾害预警）"
+
+  - handle: "@INGVterremoti"
+    display_name: "INGV Terremoti"
+    url: "https://x.com/INGVterremoti"
+    tier: L2
+    category: research
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "国家地球物理/地震监测"
+
+  - handle: "@INGVvulcani"
+    display_name: "INGV Vulcani"
+    url: "https://x.com/INGVvulcani"
+    tier: L2
+    category: research
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "火山活动监测"
+
+  - handle: "@3Bmeteo"
+    display_name: "3B Meteo"
+    url: "https://x.com/3Bmeteo"
+    tier: L3
+    category: weather
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "主要天气预报服务"
+
+  - handle: "@MeteoIT"
+    display_name: "Meteo Italia"
+    url: "https://x.com/MeteoIT"
+    tier: L3
+    category: weather
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "气象信息聚合"
+
+  - handle: "@CONAI"
+    display_name: "CONAI"
+    url: "https://x.com/CONAI"
+    tier: L3
+    category: waste
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "全国包装回收联盟"
+
+  - handle: "@KyotoClub"
+    display_name: "Kyoto Club"
+    url: "https://x.com/KyotoClub"
+    tier: L3
+    category: ngo
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "气候政策倡导组织"
+
+  - handle: "@ItaliaSolare"
+    display_name: "Italia Solare"
+    url: "https://x.com/ItaliaSolare"
+    tier: L3
+    category: renewable
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "光伏产业协会"
+
+  - handle: "@ANEVento"
+    display_name: "ANEV"
+    url: "https://x.com/ANEVento"
+    tier: L3
+    category: renewable
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "风电协会"
+
+  - handle: "@Utilitalia"
+    display_name: "Utilitalia"
+    url: "https://x.com/Utilitalia"
+    tier: L3
+    category: energy_company
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "公用事业联合会"
+
+  - handle: "@AmiciTerra"
+    display_name: "Amici della Terra"
+    url: "https://x.com/AmiciTerra"
+    tier: L3
+    category: ngo
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "地球之友意大利"
+
+  - handle: "@RSE_spA"
+    display_name: "RSE - Ricerca Sistema Energetico"
+    url: "https://x.com/RSE_spA"
+    tier: L3
+    category: research
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "能源系统研究公司"
+
+  - handle: "@Parchi_Italia"
+    display_name: "Federparchi"
+    url: "https://x.com/Parchi_Italia"
+    tier: L3
+    category: ngo
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "意大利公园联合会"

@@ -138,3 +138,356 @@ accounts:
     monitor_mode: semi_active
     fetch_max_per_run: 10
     notes: "米兰市政府"
+
+  # ── 新增账号（16-50）──
+
+  - handle: "@Camera_deputati"
+    display_name: "Camera dei Deputati"
+    url: "https://x.com/Camera_deputati"
+    tier: L1
+    category: parliament
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "众议院"
+
+  - handle: "@SenatoStampa"
+    display_name: "Senato della Repubblica"
+    url: "https://x.com/SenatoStampa"
+    tier: L1
+    category: parliament
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "参议院新闻"
+
+  - handle: "@LegaSalvini"
+    display_name: "Lega"
+    url: "https://x.com/LegaSalvini"
+    tier: L2
+    category: party_official
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "联盟党官方"
+
+  - handle: "@SinistraItalia"
+    display_name: "Alleanza Verdi e Sinistra"
+    url: "https://x.com/SinistraItalia"
+    tier: L3
+    category: party_official
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "绿左联盟"
+
+  - handle: "@AzioneItalia"
+    display_name: "Azione"
+    url: "https://x.com/AzioneItalia"
+    tier: L3
+    category: party_official
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "行动党（Calenda）"
+
+  - handle: "@ItaliaViva"
+    display_name: "Italia Viva"
+    url: "https://x.com/ItaliaViva"
+    tier: L3
+    category: party_official
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "意大利活力党（Renzi）"
+
+  - handle: "@MinisteroGiust"
+    display_name: "Ministero della Giustizia"
+    url: "https://x.com/MinisteroGiust"
+    tier: L1
+    category: government
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "司法部"
+
+  - handle: "@Difesa_Online"
+    display_name: "Ministero della Difesa"
+    url: "https://x.com/Difesa_Online"
+    tier: L1
+    category: government
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "国防部"
+
+  - handle: "@MEF_GOV"
+    display_name: "MEF"
+    url: "https://x.com/MEF_GOV"
+    tier: L1
+    category: government
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "经济财政部"
+
+  - handle: "@MinisteroSalute"
+    display_name: "Ministero della Salute"
+    url: "https://x.com/MinisteroSalute"
+    tier: L1
+    category: government
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "卫生部"
+
+  - handle: "@MIUR_Italia"
+    display_name: "Ministero Istruzione"
+    url: "https://x.com/MIUR_Italia"
+    tier: L2
+    category: government
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "教育部"
+
+  - handle: "@MASE_gov"
+    display_name: "MASE"
+    url: "https://x.com/MASE_gov"
+    tier: L2
+    category: government
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "环境与能源安全部"
+
+  - handle: "@RegioneLazio"
+    display_name: "Regione Lazio"
+    url: "https://x.com/RegioneLazio"
+    tier: L3
+    category: regional
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "拉齐奥大区"
+
+  - handle: "@RegioneVeneto"
+    display_name: "Regione Veneto"
+    url: "https://x.com/RegioneVeneto"
+    tier: L3
+    category: regional
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "威尼托大区"
+
+  - handle: "@RegionePiemonte"
+    display_name: "Regione Piemonte"
+    url: "https://x.com/RegionePiemonte"
+    tier: L3
+    category: regional
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "皮埃蒙特大区"
+
+  - handle: "@RegioneEmiliaR"
+    display_name: "Regione Emilia-Romagna"
+    url: "https://x.com/RegioneEmiliaR"
+    tier: L3
+    category: regional
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "艾米利亚-罗马涅大区"
+
+  - handle: "@RegioneToscana"
+    display_name: "Regione Toscana"
+    url: "https://x.com/RegioneToscana"
+    tier: L3
+    category: regional
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "托斯卡纳大区"
+
+  - handle: "@ComuneNapoli"
+    display_name: "Comune di Napoli"
+    url: "https://x.com/ComuneNapoli"
+    tier: L3
+    category: municipal
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "那不勒斯市政府"
+
+  - handle: "@ComuneTorino"
+    display_name: "Comune di Torino"
+    url: "https://x.com/ComuneTorino"
+    tier: L3
+    category: municipal
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "都灵市政府"
+
+  - handle: "@ComuneBologna"
+    display_name: "Comune di Bologna"
+    url: "https://x.com/ComuneBologna"
+    tier: L3
+    category: municipal
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "博洛尼亚市政府"
+
+  - handle: "@ComuneFirenze"
+    display_name: "Comune di Firenze"
+    url: "https://x.com/ComuneFirenze"
+    tier: L3
+    category: municipal
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "佛罗伦萨市政府"
+
+  - handle: "@ComunePalermo"
+    display_name: "Comune di Palermo"
+    url: "https://x.com/ComunePalermo"
+    tier: L3
+    category: municipal
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "巴勒莫市政府"
+
+  - handle: "@ComuneGenova"
+    display_name: "Comune di Genova"
+    url: "https://x.com/ComuneGenova"
+    tier: L3
+    category: municipal
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "热那亚市政府"
+
+  - handle: "@ComuneBari"
+    display_name: "Comune di Bari"
+    url: "https://x.com/ComuneBari"
+    tier: L3
+    category: municipal
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "巴里市政府"
+
+  - handle: "@agenzia_ansa"
+    display_name: "ANSA"
+    url: "https://x.com/agenzia_ansa"
+    tier: L1
+    category: news_agency
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "国家通讯社"
+
+  - handle: "@Corriere"
+    display_name: "Corriere della Sera"
+    url: "https://x.com/Corriere"
+    tier: L1
+    category: journalist
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "发行量最大报纸"
+
+  - handle: "@repubblica"
+    display_name: "la Repubblica"
+    url: "https://x.com/repubblica"
+    tier: L1
+    category: journalist
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "左翼主流日报"
+
+  - handle: "@rainewsit"
+    display_name: "Rai News"
+    url: "https://x.com/rainewsit"
+    tier: L1
+    category: journalist
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "国家电视台新闻"
+
+  - handle: "@SkyTG24"
+    display_name: "Sky TG24"
+    url: "https://x.com/SkyTG24"
+    tier: L1
+    category: journalist
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "24小时新闻台"
+
+  - handle: "@ilfattoquotidiano"
+    display_name: "Il Fatto Quotidiano"
+    url: "https://x.com/ilfattoquotidiano"
+    tier: L2
+    category: journalist
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "独立左翼日报"
+
+  - handle: "@LaStampa"
+    display_name: "La Stampa"
+    url: "https://x.com/LaStampa"
+    tier: L2
+    category: journalist
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "都灵主流日报"
+
+  - handle: "@ilPost_it"
+    display_name: "Il Post"
+    url: "https://x.com/ilPost_it"
+    tier: L2
+    category: journalist
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "高质量独立在线新闻"
+
+  - handle: "@pagellapolitica"
+    display_name: "Pagella Politica"
+    url: "https://x.com/pagellapolitica"
+    tier: L2
+    category: analyst
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "事实核查/政治分析"
+
+  - handle: "@DemosPi"
+    display_name: "Demos & Pi"
+    url: "https://x.com/DemosPi"
+    tier: L3
+    category: polling
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "民调机构"
+
+  - handle: "@ISPI_Online"
+    display_name: "ISPI"
+    url: "https://x.com/ISPI_Online"
+    tier: L2
+    category: analyst
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "国际政治研究所"
+
+  - handle: "@Openpolis"
+    display_name: "Openpolis"
+    url: "https://x.com/Openpolis"
+    tier: L3
+    category: analyst
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "开放政治数据"
+
+  - handle: "@CorteCostituz"
+    display_name: "Corte Costituzionale"
+    url: "https://x.com/CorteCostituz"
+    tier: L1
+    category: constitutional
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "宪法法院"
+
+  - handle: "@ProtezioneCivile"
+    display_name: "Protezione Civile"
+    url: "https://x.com/ProtezioneCivile"
+    tier: L1
+    category: government
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "民防部"
+
+  - handle: "@DipartimentoTD"
+    display_name: "Dip. Trasformazione Digitale"
+    url: "https://x.com/DipartimentoTD"
+    tier: L2
+    category: government
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "数字转型部"

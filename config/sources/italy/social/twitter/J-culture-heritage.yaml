@@ -1,10 +1,320 @@
 platform: twitter
 dimension: J-culture-heritage
 collect_mode: opencli_bridge
+session_profile_ref: config/session-profiles/italy/twitter.session.yaml
+
 accounts:
-- handle: '@beniculturali'
-  display_name: MiC — Ministero della Cultura
-  url: https://x.com/beniculturali
-  tier: L1
-  category: government
-  notes: 文化部
+  - handle: "@beniculturali"
+    display_name: "MiC - Ministero della Cultura"
+    url: "https://x.com/beniculturali"
+    tier: L1
+    category: government
+    monitor_mode: active
+    fetch_max_per_run: 20
+    notes: "文化部"
+
+  - handle: "@uffizigalleries"
+    display_name: "Gallerie degli Uffizi"
+    url: "https://x.com/uffizigalleries"
+    tier: L2
+    category: museum
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "乌菲兹美术馆"
+
+  - handle: "@MuseiVaticani"
+    display_name: "Musei Vaticani"
+    url: "https://x.com/MuseiVaticani"
+    tier: L2
+    category: museum
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "梵蒂冈博物馆"
+
+  - handle: "@MuseoEgizioTO"
+    display_name: "Museo Egizio Torino"
+    url: "https://x.com/MuseoEgizioTO"
+    tier: L3
+    category: museum
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "都灵埃及博物馆（世界第二）"
+
+  - handle: "@TeatroAllaScala"
+    display_name: "Teatro alla Scala"
+    url: "https://x.com/TeatroAllaScala"
+    tier: L2
+    category: institution
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "斯卡拉歌剧院"
+
+  - handle: "@FondazioneMAXXI"
+    display_name: "MAXXI"
+    url: "https://x.com/FondazioneMAXXI"
+    tier: L3
+    category: museum
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "21世纪国家艺术博物馆"
+
+  - handle: "@GalleriaAccademia"
+    display_name: "Galleria dell'Accademia Firenze"
+    url: "https://x.com/GalleriaAccademia"
+    tier: L3
+    category: museum
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "佛罗伦萨学院美术馆（大卫像）"
+
+  - handle: "@FAI_italia"
+    display_name: "FAI"
+    url: "https://x.com/FAI_italia"
+    tier: L2
+    category: institution
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "意大利环境遗产基金会"
+
+  - handle: "@BeniCulturaliIt"
+    display_name: "Direzione Beni Culturali"
+    url: "https://x.com/BeniCulturaliIt"
+    tier: L2
+    category: institution
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "文化遗产总局"
+
+  - handle: "@ICCMItalia"
+    display_name: "ICCOM"
+    url: "https://x.com/ICCMItalia"
+    tier: L3
+    category: institution
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "博物馆委员会"
+
+  - handle: "@Cinecitta"
+    display_name: "Cinecittà"
+    url: "https://x.com/Cinecitta"
+    tier: L2
+    category: film
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "罗马电影城"
+
+  - handle: "@cinemaitaliano"
+    display_name: "Cinema Italiano"
+    url: "https://x.com/cinemaitaliano"
+    tier: L3
+    category: film
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "意大利电影资讯"
+
+  - handle: "@DavidDiDonatello"
+    display_name: "Premio David di Donatello"
+    url: "https://x.com/DavidDiDonatello"
+    tier: L3
+    category: film
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "意大利奥斯卡"
+
+  - handle: "@FieraDelLibro"
+    display_name: "Turin Book Fair"
+    url: "https://x.com/FieraDelLibro"
+    tier: L3
+    category: literature
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "都灵国际书展"
+
+  - handle: "@SaloneLibro"
+    display_name: "Salone del Libro"
+    url: "https://x.com/SaloneLibro"
+    tier: L3
+    category: literature
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "都灵书展"
+
+  - handle: "@SanremoFestival"
+    display_name: "Festival di Sanremo"
+    url: "https://x.com/SanremoFestival"
+    tier: L2
+    category: music
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "圣雷莫音乐节（意大利国民综艺）"
+
+  - handle: "@ArenaDiVerona"
+    display_name: "Arena di Verona"
+    url: "https://x.com/ArenaDiVerona"
+    tier: L3
+    category: music
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "维罗纳圆形竞技场歌剧院"
+
+  - handle: "@FondSlowFood"
+    display_name: "Slow Food"
+    url: "https://x.com/FondSlowFood"
+    tier: L2
+    category: food
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "慢食运动总部"
+
+  - handle: "@GamberoRosso"
+    display_name: "Gambero Rosso"
+    url: "https://x.com/GamberoRosso"
+    tier: L3
+    category: food
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "美食指南"
+
+  - handle: "@Italiait"
+    display_name: "Italia.it"
+    url: "https://x.com/Italiait"
+    tier: L2
+    category: tourism
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "国家旅游门户"
+
+  - handle: "@ENITvez"
+    display_name: "ENIT"
+    url: "https://x.com/ENITvez"
+    tier: L2
+    category: tourism
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "国家旅游局"
+
+  - handle: "@CameraModa"
+    display_name: "Camera Nazionale della Moda"
+    url: "https://x.com/CameraModa"
+    tier: L2
+    category: fashion
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "国家时装协会"
+
+  - handle: "@Pitti_Immagine"
+    display_name: "Pitti Immagine"
+    url: "https://x.com/Pitti_Immagine"
+    tier: L3
+    category: fashion
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "佛罗伦萨男装展"
+
+  - handle: "@CONI_Italia"
+    display_name: "CONI"
+    url: "https://x.com/CONI_Italia"
+    tier: L2
+    category: sports
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "国家奥委会"
+
+  - handle: "@FIGC"
+    display_name: "FIGC"
+    url: "https://x.com/FIGC"
+    tier: L2
+    category: sports
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "意大利足协"
+
+  - handle: "@Inter"
+    display_name: "FC Internazionale Milano"
+    url: "https://x.com/Inter"
+    tier: L3
+    category: sports
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "国际米兰"
+
+  - handle: "@ACMilan"
+    display_name: "AC Milan"
+    url: "https://x.com/ACMilan"
+    tier: L3
+    category: sports
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "AC米兰"
+
+  - handle: "@juventusfc"
+    display_name: "Juventus"
+    url: "https://x.com/juventusfc"
+    tier: L3
+    category: sports
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "尤文图斯"
+
+  - handle: "@ASRoma"
+    display_name: "AS Roma"
+    url: "https://x.com/ASRoma"
+    tier: L3
+    category: sports
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "罗马队"
+
+  - handle: "@sscnapoli"
+    display_name: "SSC Napoli"
+    url: "https://x.com/sscnapoli"
+    tier: L3
+    category: sports
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "那不勒斯队（2023冠军）"
+
+  - handle: "@FondazionePrada"
+    display_name: "Fondazione Prada"
+    url: "https://x.com/FondazionePrada"
+    tier: L3
+    category: museum
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "普拉达当代艺术基金会"
+
+  - handle: "@MAMboBologna"
+    display_name: "MAMbo"
+    url: "https://x.com/MAMboBologna"
+    tier: L3
+    category: museum
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "博洛尼亚现代艺术博物馆"
+
+  - handle: "@UNESCO"
+    display_name: "UNESCO"
+    url: "https://x.com/UNESCO"
+    tier: L2
+    category: institution
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "联合国教科文组织（意大利世界遗产最多）"
+
+  - handle: "@FestivalCinema"
+    display_name: "Mostra del Cinema di Venezia"
+    url: "https://x.com/FestivalCinema"
+    tier: L2
+    category: film
+    monitor_mode: active
+    fetch_max_per_run: 15
+    notes: "威尼斯国际电影节"
+
+  - handle: "@RaiCultura"
+    display_name: "Rai Cultura"
+    url: "https://x.com/RaiCultura"
+    tier: L3
+    category: institution
+    monitor_mode: semi_active
+    fetch_max_per_run: 10
+    notes: "国家电视台文化频道"
