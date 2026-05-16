@@ -48,12 +48,24 @@ export async function renderChainList() {
         </div>
       </div>`;
 
+    // Phase 36: 加载叙述摘要
+    const narrativeMap = {};
+    await Promise.all(data.chains.map(async (c) => {
+      try {
+        const narr = await api(`/api/v1/chains/${encodeURIComponent(c.root_event_id)}/narrative?target_id=${state.currentTarget}`);
+        if (narr && narr.narrative) {
+          narrativeMap[c.root_event_id] = narr.narrative;
+        }
+      } catch { /* ignore */ }
+    }));
+
     const chainRows = data.chains.map(c => `
       <tr class="chain-row" data-root="${escapeHtml(c.root_event_id)}" onclick="location.hash='#/chains/${encodeURIComponent(c.root_event_id)}'">
         <td>${escapeHtml(c.root_event_id)}</td>
         <td><span class="badge badge-count">${c.event_count}</span></td>
         <td>${c.latest_time ? new Date(c.latest_time).toLocaleString("zh-CN") : "-"}</td>
         <td>${escapeHtml(c.latest_title || "-")}</td>
+        <td class="narrative-summary">${narrativeMap[c.root_event_id] ? escapeHtml(narrativeMap[c.root_event_id].substring(0, 50)) + "..." : "-"}</td>
       </tr>`).join("");
 
     dom.pageContainer.innerHTML = `
@@ -62,7 +74,7 @@ export async function renderChainList() {
         <h3>追踪链列表</h3>
         <table class="data-table">
           <thead>
-            <tr><th>根事件</th><th>事件数</th><th>最新时间</th><th>最新标题</th></tr>
+            <tr><th>根事件</th><th>事件数</th><th>最新时间</th><th>最新标题</th><th>叙述</th></tr>
           </thead>
           <tbody>${chainRows}</tbody>
         </table>
@@ -115,6 +127,50 @@ export async function renderChainDetail(rootEventId) {
     dom.pageContainer.innerHTML = `
       ${headerHtml}
       <div class="timeline">${timelineHtml}</div>`;
+
+    // Phase 36: AI 叙述卡片
+    try {
+      const narrData = await api(`/api/v1/chains/${encodeURIComponent(rootEventId)}/narrative?target_id=${state.currentTarget}`);
+      if (narrData && narrData.narrative) {
+        const narrCard = document.createElement("div");
+        narrCard.className = "section-card narrative-card";
+        narrCard.innerHTML = `
+          <div class="narrative-header">
+            <h3>AI 事件叙述</h3>
+            <button class="btn-regenerate" id="btnRegenerate">重新生成</button>
+          </div>
+          <div class="narrative-text">${escapeHtml(narrData.narrative)}</div>
+          <div class="narrative-meta">
+            <span>模型: ${escapeHtml(narrData.model_used || "unknown")}</span>
+            <span>事件数: ${narrData.event_count}</span>
+            <span>${narrData.generated_at ? new Date(narrData.generated_at).toLocaleString("zh-CN") : ""}</span>
+          </div>`;
+        dom.pageContainer.querySelector(".chain-header")?.after(narrCard) || dom.pageContainer.insertBefore(narrCard, dom.pageContainer.firstChild);
+
+        document.getElementById("btnRegenerate")?.addEventListener("click", async function() {
+          this.disabled = true;
+          this.textContent = "生成中...";
+          try {
+            const resp = await fetch(
+              `/api/v1/chains/${encodeURIComponent(rootEventId)}/narrative?target_id=${state.currentTarget}`,
+              { method: "POST" }
+            );
+            if (resp.ok) {
+              const newData = await resp.json();
+              narrCard.querySelector(".narrative-text").textContent = newData.narrative;
+              this.textContent = "重新生成";
+            } else {
+              this.textContent = "生成失败";
+              setTimeout(() => { this.textContent = "重新生成"; }, 2000);
+            }
+          } catch {
+            this.textContent = "生成失败";
+            setTimeout(() => { this.textContent = "重新生成"; }, 2000);
+          }
+          this.disabled = false;
+        });
+      }
+    } catch { /* 404 = 无叙述，不显示 */ }
   } catch (err) {
     showError(`加载追踪链详情失败: ${err.message}`);
   }

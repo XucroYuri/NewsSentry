@@ -1192,6 +1192,24 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P35.03 | API 端点 | api_server.py 3 端点 + 测试 | P35.01 | M | links/chain/chains | ✅ |
 | P35.04 | 前端页面 | chains.js + events.js + style.css + index.html + app.js | P35.03 | M | 追踪链列表 + 详情 + 关联卡片 | ✅ |
 
+### Phase 36 · AI 叙述引擎 ✅
+
+**目标：** 基于追踪链事件序列，由 AI 自动生成连贯的事件叙述文本，支持前端展示与一键重新生成。
+
+**核心交付：**
+- AsyncStore chain_narratives 表 + narrative CRUD 方法
+- _generate_narrative 协程集成到 async_run pipeline
+- 2 个新 API 端点：GET/POST /chains/{id}/narrative
+- Web UI 叙述卡片（链详情页）+ 链列表叙述摘要列
+- 叙述卡片 CSS 样式
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 | 状态 |
+|----|------|--------|------|------|--------|------|
+| P36.01 | chain_narratives 表 | async_store.py + 测试 | P35 | M | 新表 + narrative 方法 | ✅ |
+| P36.02 | Pipeline 集成 | async_run.py _generate_narrative | P36.01 | S | chain 完成后自动生成叙述 | ✅ |
+| P36.03 | API 端点 | api_server.py 2 端点 + 测试 | P36.01 | M | GET/POST narrative | ✅ |
+| P36.04 | 前端叙述展示 | chains.js + style.css | P36.03 | M | 叙述卡片 + 链列表摘要 | ✅ |
+
 ---
 
 ## §25. Cloud VPS 部署方案推荐

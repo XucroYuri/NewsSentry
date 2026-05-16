@@ -1659,3 +1659,15 @@ a:hover {
 .data-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
 .data-table th { text-align: left; padding: 8px 12px; border-bottom: 2px solid var(--border-color); color: var(--text-muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; }
 .data-table td { padding: 8px 12px; border-bottom: 1px solid var(--border-color); color: var(--text-primary); }
+
+/* ── Phase 36: 叙述卡片 ─────────────────────────────── */
+
+.narrative-card { margin-bottom: 20px; }
+.narrative-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.narrative-header h3 { margin: 0; }
+.btn-regenerate { background: var(--primary, #3b82f6); color: #fff; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+.btn-regenerate:hover { opacity: 0.9; }
+.btn-regenerate:disabled { opacity: 0.5; cursor: not-allowed; }
+.narrative-text { color: var(--text-primary, #e0e0e0); line-height: 1.6; font-size: 14px; margin-bottom: 8px; }
+.narrative-meta { display: flex; gap: 16px; font-size: 11px; color: var(--text-secondary, #888); }
+.narrative-summary { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
