@@ -322,3 +322,24 @@ class TestLoadSources:
         sources = checker._load_sources()
 
         assert len(sources) == 0
+
+
+class TestDegradationPolicy:
+    """Phase 40: 降级策略测试。"""
+
+    def test_degradation_policy_healthy(self) -> None:
+        """0-2 次错误保持 healthy。"""
+        assert SourceHealthChecker._degradation_policy(0) == "healthy"
+        assert SourceHealthChecker._degradation_policy(1) == "healthy"
+        assert SourceHealthChecker._degradation_policy(2) == "healthy"
+
+    def test_degradation_policy_degraded(self) -> None:
+        """3-6 次错误降为 degraded。"""
+        assert SourceHealthChecker._degradation_policy(3) == "degraded"
+        assert SourceHealthChecker._degradation_policy(5) == "degraded"
+        assert SourceHealthChecker._degradation_policy(6) == "degraded"
+
+    def test_degradation_policy_unreachable(self) -> None:
+        """7+ 次错误降为 unreachable。"""
+        assert SourceHealthChecker._degradation_policy(7) == "unreachable"
+        assert SourceHealthChecker._degradation_policy(10) == "unreachable"

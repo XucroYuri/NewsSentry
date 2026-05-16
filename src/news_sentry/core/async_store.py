@@ -145,6 +145,11 @@ class AsyncStore:
         self._db: aiosqlite.Connection | None = None
         self._lock = asyncio.Lock()
 
+    @property
+    def db_path(self) -> Path:
+        """数据库文件路径。"""
+        return self._db_path
+
     async def initialize(self) -> None:
         if self._db is not None:
             return
@@ -1278,3 +1283,77 @@ class AsyncStore:
             rows = await cursor.fetchall()
         cols = ("event_id", "title_original", "news_value_score", "source_id", "published_at")
         return [dict(zip(cols, row, strict=True)) for row in rows]
+
+    # ------------------------------------------------------------------
+    # Governance / Maintenance (Phase 40)
+    # ------------------------------------------------------------------
+
+    async def prune_old_data(self, target_id: str, max_age_days: int = 30) -> dict[str, int]:
+        """清理过期数据：事件、孤儿 links、旧 known_ids。"""
+        result: dict[str, int] = {
+            "deleted_events": 0,
+            "deleted_links": 0,
+            "deleted_ids": 0,
+        }
+        if self._db is None:
+            return result
+
+        cutoff = f"-{max_age_days}"
+
+        # 1. 删除过期事件
+        async with self._db.execute(
+            "SELECT COUNT(*) FROM event_index "
+            "WHERE target_id = ? AND created_at < date('now', ? || ' days')",
+            [target_id, cutoff],
+        ) as cursor:
+            row = await cursor.fetchone()
+        result["deleted_events"] = row[0] if row else 0
+        if result["deleted_events"] > 0:
+            await self._db.execute(
+                "DELETE FROM event_index "
+                "WHERE target_id = ? AND created_at < date('now', ? || ' days')",
+                [target_id, cutoff],
+            )
+
+        # 2. 删除孤儿 links（source_event_id 不在 event_index 中）
+        async with self._db.execute(
+            "SELECT COUNT(*) FROM event_links "
+            "WHERE target_id = ? "
+            "AND source_event_id NOT IN (SELECT event_id FROM event_index)",
+            [target_id],
+        ) as cursor:
+            row = await cursor.fetchone()
+        result["deleted_links"] = row[0] if row else 0
+        if result["deleted_links"] > 0:
+            await self._db.execute(
+                "DELETE FROM event_links "
+                "WHERE target_id = ? "
+                "AND source_event_id NOT IN (SELECT event_id FROM event_index)",
+                [target_id],
+            )
+
+        # 3. 清理旧 known_ids
+        result["deleted_ids"] = await self.prune_old_ids(max_age_days)
+
+        await self._db.commit()
+        return result
+
+    async def backup_db(self, backup_dir: Path) -> Path:
+        """备份数据库到指定目录。"""
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        backup_path = backup_dir / f"state_{timestamp}.db"
+
+        if self._db is not None:
+            # 使用 VACUUM INTO 创建一致性备份
+            await self._db.execute(
+                f"VACUUM INTO '{backup_path}'"  # noqa: S608
+            )
+
+        # 清理旧备份（保留最近 7 个）
+        backups = sorted(backup_dir.glob("state_*.db"))
+        if len(backups) > 7:
+            for old_backup in backups[:-7]:
+                old_backup.unlink(missing_ok=True)
+
+        return backup_path

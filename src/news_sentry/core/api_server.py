@@ -401,6 +401,22 @@ class TopEventsResponse(BaseModel):
     events: list[TopEventInfo]
 
 
+class PruneResponse(BaseModel):
+    """数据清理响应。"""
+
+    target_id: str
+    deleted_events: int = 0
+    deleted_links: int = 0
+    deleted_ids: int = 0
+
+
+class BackupResponse(BaseModel):
+    """备份响应。"""
+
+    backup_path: str
+    size_bytes: int = 0
+
+
 # ── API Key 认证 ───────────────────────────────────────
 
 _API_KEY_ENV = "NEWSSENTRY_API_KEY"
@@ -1447,6 +1463,29 @@ def create_app(
             )
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e)) from e
+
+    # ── 维护端点 (Phase 40) ─────────────────────────────
+
+    @app.post("/api/v1/maintenance/prune", response_model=PruneResponse)
+    async def maintenance_prune(
+        target_id: str = Query(..., description="目标标识"),
+        max_age_days: int = Query(30, ge=7, le=365, description="保留天数"),
+    ) -> PruneResponse:
+        """手动触发数据清理。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not available")
+        result = await _store.prune_old_data(target_id, max_age_days=max_age_days)
+        return PruneResponse(target_id=target_id, **result)
+
+    @app.post("/api/v1/maintenance/backup", response_model=BackupResponse)
+    async def maintenance_backup() -> BackupResponse:
+        """手动触发数据库备份。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not available")
+        backup_dir = _store.db_path.parent / "backups"
+        backup_path = await _store.backup_db(backup_dir)
+        size = backup_path.stat().st_size if backup_path.exists() else 0
+        return BackupResponse(backup_path=str(backup_path), size_bytes=size)
 
     # ── 静态文件（必须在所有 API 路由之后挂载）────────
     static_dir = Path(__file__).parent.parent / "static"

@@ -98,6 +98,15 @@ class SourceHealthChecker:
         self._target_id = target_id
         self._timeout = timeout_seconds
 
+    @staticmethod
+    def _degradation_policy(error_count: int) -> str:
+        """根据连续错误次数返回降级状态。"""
+        if error_count >= 7:
+            return "unreachable"
+        if error_count >= 3:
+            return "degraded"
+        return "healthy"
+
     def check_all(self) -> HealthCheckReport:
         """对所有已配置的 RSS 源执行健康巡检。
 

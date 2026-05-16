@@ -1573,3 +1573,44 @@ class TestDashboardAPI:
         assert data["target_id"] == "italy"
         assert len(data["events"]) == 3
         assert data["events"][0]["news_value_score"] == 90
+
+
+class TestMaintenanceAPI:
+    """Phase 40: 维护 API 端点。"""
+
+    @pytest.fixture
+    async def client_with_maintenance(self, tmp_path):
+        """创建维护测试客户端。"""
+        db_path = tmp_path / "state.db"
+        store = AsyncStore(db_path)
+        await store.initialize()
+
+        app = create_app(data_dir=str(tmp_path), store=store)
+        from httpx import ASGITransport, AsyncClient
+
+        transport = ASGITransport(app=app)
+        client = AsyncClient(transport=transport, base_url="http://test")
+        yield client, store
+        await client.aclose()
+        await store.close()
+
+    async def test_maintenance_prune(self, client_with_maintenance):
+        """POST /api/v1/maintenance/prune。"""
+        client, _ = client_with_maintenance
+        resp = await client.post(
+            "/api/v1/maintenance/prune",
+            params={"target_id": "italy", "max_age_days": 30},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "deleted_events" in data
+        assert "target_id" in data
+
+    async def test_maintenance_backup(self, client_with_maintenance):
+        """POST /api/v1/maintenance/backup。"""
+        client, _ = client_with_maintenance
+        resp = await client.post("/api/v1/maintenance/backup")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "backup_path" in data
+        assert "size_bytes" in data

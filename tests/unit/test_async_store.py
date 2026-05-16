@@ -1321,3 +1321,63 @@ class TestDashboardQueries:
         assert result[1]["news_value_score"] == 85
         assert result[2]["news_value_score"] == 70
         await store.close()
+
+
+class TestGovernance:
+    """Phase 40: 治理清理测试。"""
+
+    @pytest.mark.asyncio
+    async def test_prune_old_data(self, tmp_path: Path) -> None:
+        """清理过期数据。"""
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+
+        now = datetime.now(UTC).isoformat()
+        old_date = (datetime.now(UTC) - timedelta(days=60)).isoformat()
+
+        # 插入旧事件和新事件
+        await store._db.execute(  # noqa: SLF001
+            "INSERT OR REPLACE INTO event_index "
+            "(event_id, target_id, stage, news_value_score, published_at, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("old-evt-1", "italy", "judged", 80, old_date, old_date),
+        )
+        await store._db.execute(  # noqa: SLF001
+            "INSERT OR REPLACE INTO event_index "
+            "(event_id, target_id, stage, news_value_score, published_at, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("new-evt-1", "italy", "judged", 90, now, now),
+        )
+        await store._db.commit()
+
+        result = await store.prune_old_data("italy", max_age_days=30)
+        assert result["deleted_events"] == 1
+
+        # 新事件应保留
+        remaining = await store.get_event_count("italy", "judged")
+        assert remaining == 1
+        await store.close()
+
+    @pytest.mark.asyncio
+    async def test_backup_db(self, tmp_path: Path) -> None:
+        """数据库备份。"""
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+
+        backup_dir = tmp_path / "backups"
+        backup_path = await store.backup_db(backup_dir)
+
+        assert backup_path.exists()
+        assert backup_path.stat().st_size > 0
+        assert backup_dir.exists()
+        await store.close()
+
+    @pytest.mark.asyncio
+    async def test_prune_empty_db(self, tmp_path: Path) -> None:
+        """空数据库清理不报错。"""
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        result = await store.prune_old_data("nonexistent", max_age_days=30)
+        assert result["deleted_events"] == 0
+        assert result["deleted_links"] == 0
+        await store.close()
