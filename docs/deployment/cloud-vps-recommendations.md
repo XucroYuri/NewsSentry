@@ -1,8 +1,8 @@
 # Cloud VPS 部署方案推荐
 
 > 日期: 2026-05-12
-> 适用: News Sentry v1.0.0+ Docker 全栈部署
-> 前置: Dockerfile.full 构建的 `news-sentry:1.0.0` 镜像
+> 适用: News Sentry v1.5.0+ Docker 全栈部署
+> 前置: Dockerfile.full 构建的 `news-sentry:1.5.0` 镜像
 
 ---
 
@@ -56,7 +56,7 @@ hcloud server create --name news-sentry \
 curl -fsSL https://get.docker.com | sh
 
 # 3. 拉取镜像并运行
-docker pull ghcr.io/xucroyuri/news-sentry:1.0.0
+docker pull ghcr.io/xucroyuri/news-sentry:1.5.0
 docker run -d --name news-sentry \
   -e HERMES_MODE=cron \
   -e NEWSSENTRY_AI_BUDGET_USD=1.0 \

@@ -15,6 +15,7 @@
 #   --image IMG       OS 镜像 (默认: ubuntu-24.04)
 #   --ssh-key KEY     SSH 密钥名称或 ID
 #   --tag TAG         服务器标签 (可多次使用)
+#   --env-file FILE   环境变量文件路径 (含 API keys)
 #   --skip-docker     跳过 Docker 安装 (已安装时)
 #   --skip-firewall   跳过防火墙配置
 #   --help            显示帮助
@@ -27,11 +28,12 @@ SERVER_TYPE="cx32"
 LOCATION="hel1"
 IMAGE="ubuntu-24.04"
 SSH_KEY=""
+ENV_FILE=""
 SKIP_DOCKER=false
 SKIP_FIREWALL=false
 TAGS=()
 GHCR_IMAGE="ghcr.io/xucroyuri/news-sentry"
-VERSION="1.0.0"
+VERSION="1.5.0"
 
 # ── 参数解析 ──
 while [[ $# -gt 0 ]]; do
@@ -41,6 +43,7 @@ while [[ $# -gt 0 ]]; do
         --location)   LOCATION="$2"; shift 2 ;;
         --image)      IMAGE="$2"; shift 2 ;;
         --ssh-key)    SSH_KEY="$2"; shift 2 ;;
+        --env-file)   ENV_FILE="$2"; shift 2 ;;
         --tag)        TAGS+=("$2"); shift 2 ;;
         --skip-docker)    SKIP_DOCKER=true; shift ;;
         --skip-firewall)  SKIP_FIREWALL=true; shift ;;
@@ -119,12 +122,21 @@ $SSH_CMD "docker pull ${GHCR_IMAGE}:${VERSION}"
 
 # ── Step 5: 启动容器 ──
 echo "[5/6] 启动容器..."
+
+# 将 env-file 上传到 VPS
+ENV_FILE_ARG=""
+if [[ -n "$ENV_FILE" && -f "$ENV_FILE" ]]; then
+    scp -o StrictHostKeyChecking=no "$ENV_FILE" "root@${SERVER_IP}:/tmp/news-sentry.env"
+    ENV_FILE_ARG="--env-file /tmp/news-sentry.env"
+fi
+
 $SSH_CMD "docker run -d \
     --name news-sentry \
     --restart unless-stopped \
     --security-opt=no-new-privileges \
     --memory=6g \
     --cpus=1.5 \
+    ${ENV_FILE_ARG} \
     -e TARGET_ID=italy \
     -e RUN_STAGE=all \
     -e NEWSSENTRY_AI_BUDGET_USD=1.0 \
