@@ -355,6 +355,24 @@ class SentimentTrendsResponse(BaseModel):
     generated_at: str
 
 
+class SmartAlertItem(BaseModel):
+    """智能告警条目。"""
+
+    type: str
+    severity: str
+    message: str
+    details: dict[str, Any] = {}
+    triggered_at: str = ""
+
+
+class SmartAlertsResponse(BaseModel):
+    """智能告警响应。"""
+
+    target_id: str
+    alerts: list[SmartAlertItem]
+    total: int
+
+
 # ── API Key 认证 ───────────────────────────────────────
 
 _API_KEY_ENV = "NEWSSENTRY_API_KEY"
@@ -1353,6 +1371,26 @@ def create_app(
                 days=days,
                 daily_sentiment=daily,
                 generated_at=datetime.now(UTC).isoformat(),
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
+
+    @app.get("/api/v1/alerts/smart", response_model=SmartAlertsResponse)
+    async def get_smart_alerts(
+        target_id: str = Query(..., description="目标标识"),
+    ) -> SmartAlertsResponse:
+        """获取智能告警列表。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not available")
+        try:
+            from news_sentry.core.alert_pipeline import AlertPipeline
+
+            pipeline = AlertPipeline([])
+            alerts = await pipeline.check_smart_alerts(_store, target_id)
+            return SmartAlertsResponse(
+                target_id=target_id,
+                alerts=[SmartAlertItem(**a) for a in alerts],
+                total=len(alerts),
             )
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e)) from e

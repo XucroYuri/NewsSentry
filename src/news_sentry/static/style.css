@@ -1689,3 +1689,9 @@ a:hover {
 .badge-falling { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
 .hotness-bar { width: 100px; height: 8px; background: var(--bg-hover); border-radius: 4px; overflow: hidden; }
 .hotness-fill { height: 100%; background: var(--accent-blue); border-radius: 4px; transition: width 0.3s; }
+
+/* ── Phase 38: 智能告警 ─────────────────────────────── */
+.alert-item { padding: 10px 14px; margin-bottom: 8px; background: var(--bg-secondary); border-radius: var(--radius-sm); }
+.alert-type { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; }
+.alert-message { font-size: 0.85rem; color: var(--text-primary); line-height: 1.4; }
+.alert-time { font-size: 0.7rem; color: var(--text-muted); margin-top: 4px; }

@@ -48,16 +48,13 @@ export async function renderChainList() {
         </div>
       </div>`;
 
-    // Phase 36: 加载叙述摘要
+    // Phase 38: 使用嵌入的 narrative_summary，避免 N+1
     const narrativeMap = {};
-    await Promise.all(data.chains.map(async (c) => {
-      try {
-        const narr = await api(`/api/v1/chains/${encodeURIComponent(c.root_event_id)}/narrative?target_id=${state.currentTarget}`);
-        if (narr && narr.narrative) {
-          narrativeMap[c.root_event_id] = narr.narrative;
-        }
-      } catch { /* ignore */ }
-    }));
+    data.chains.forEach((c) => {
+      if (c.narrative_summary) {
+        narrativeMap[c.root_event_id] = c.narrative_summary;
+      }
+    });
 
     const chainRows = data.chains.map(c => `
       <tr class="chain-row" data-root="${escapeHtml(c.root_event_id)}" onclick="location.hash='#/chains/${encodeURIComponent(c.root_event_id)}'">
@@ -65,7 +62,7 @@ export async function renderChainList() {
         <td><span class="badge badge-count">${c.event_count}</span></td>
         <td>${c.latest_time ? new Date(c.latest_time).toLocaleString("zh-CN") : "-"}</td>
         <td>${escapeHtml(c.latest_title || "-")}</td>
-        <td class="narrative-summary">${narrativeMap[c.root_event_id] ? escapeHtml(narrativeMap[c.root_event_id].substring(0, 50)) + "..." : "-"}</td>
+        <td class="narrative-summary">${narrativeMap[c.root_event_id] ? escapeHtml(narrativeMap[c.root_event_id]) : "-"}</td>
       </tr>`).join("");
 
     dom.pageContainer.innerHTML = `

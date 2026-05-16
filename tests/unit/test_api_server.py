@@ -1448,3 +1448,61 @@ class TestTrendAPI:
         )
         assert resp.status_code == 503
         await client.aclose()
+
+
+class TestSmartAlertAPI:
+    """Phase 38: 智能告警 API 端点。"""
+
+    @pytest.fixture
+    async def client_with_alerts(self, tmp_path):
+        """创建带告警数据的客户端。"""
+        db_path = tmp_path / "state.db"
+        store = AsyncStore(db_path)
+        await store.initialize()
+
+        now = datetime.now(UTC).isoformat()
+        await store._db.execute(
+            "INSERT OR REPLACE INTO event_index "
+            "(event_id, target_id, stage, source_id, news_value_score, "
+            "china_relevance, published_at, created_at, sentiment, topic_tags) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("al-evt-1", "italy", "judged", "ansa", 80, 50, now, now, "positive", "immigration"),
+        )
+        await store._db.commit()
+        await store.create_link("al-evt-1", "al-evt-1", "followup", 0.9, {}, "italy")
+
+        app = create_app(data_dir=str(tmp_path), store=store)
+        from httpx import ASGITransport, AsyncClient
+
+        transport = ASGITransport(app=app)
+        client = AsyncClient(transport=transport, base_url="http://test")
+        yield client, store
+        await client.aclose()
+        await store.close()
+
+    async def test_get_smart_alerts(self, client_with_alerts):
+        """GET /api/v1/alerts/smart 返回告警列表。"""
+        client, _ = client_with_alerts
+        resp = await client.get(
+            "/api/v1/alerts/smart",
+            params={"target_id": "italy"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["target_id"] == "italy"
+        assert "alerts" in data
+        assert "total" in data
+
+    async def test_smart_alerts_no_store(self, tmp_path):
+        """无 store 时返回 503。"""
+        app = create_app(data_dir=str(tmp_path))
+        from httpx import ASGITransport, AsyncClient
+
+        transport = ASGITransport(app=app)
+        client = AsyncClient(transport=transport, base_url="http://test")
+        resp = await client.get(
+            "/api/v1/alerts/smart",
+            params={"target_id": "italy"},
+        )
+        assert resp.status_code == 503
+        await client.aclose()
