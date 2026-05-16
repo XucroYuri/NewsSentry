@@ -316,6 +316,45 @@ class NarrativeResponse(BaseModel):
     generated_at: str = ""
 
 
+class TopicTrendItem(BaseModel):
+    """主题趋势条目。"""
+
+    topic: str
+    trend_direction: str
+    hotness: int
+    current_count: int
+    prev_count: int
+    event_count: int
+    daily_counts: list[dict[str, Any]]
+
+
+class TopicTrendsResponse(BaseModel):
+    """主题趋势响应。"""
+
+    target_id: str
+    days: int
+    topics: list[TopicTrendItem]
+    generated_at: str
+
+
+class DailySentimentCount(BaseModel):
+    """每日情感计数。"""
+
+    day: str
+    positive: int = 0
+    negative: int = 0
+    neutral: int = 0
+
+
+class SentimentTrendsResponse(BaseModel):
+    """情感趋势响应。"""
+
+    target_id: str
+    days: int
+    daily_sentiment: list[DailySentimentCount]
+    generated_at: str
+
+
 # ── API Key 认证 ───────────────────────────────────────
 
 _API_KEY_ENV = "NEWSSENTRY_API_KEY"
@@ -1258,6 +1297,63 @@ def create_app(
             )
         except HTTPException:
             raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
+
+    @app.get("/api/v1/trends/topics", response_model=TopicTrendsResponse)
+    async def get_topic_trends(
+        target_id: str = Query(..., description="目标标识"),
+        days: int = Query(14, ge=7, le=30, description="天数"),
+    ) -> TopicTrendsResponse:
+        """主题热度趋势。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not available")
+        try:
+            daily_counts = await _store.get_topic_daily_counts(target_id, days=days)
+            top_topics = await _store.get_top_topics(target_id, days=days, limit=10)
+            from news_sentry.skills.analysis.trend_analyzer import compute_topic_trends
+
+            topics = compute_topic_trends(daily_counts, top_topics, total_days=days)
+            return TopicTrendsResponse(
+                target_id=target_id,
+                days=days,
+                topics=[TopicTrendItem(**t.model_dump()) for t in topics],
+                generated_at=datetime.now(UTC).isoformat(),
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
+
+    @app.get("/api/v1/trends/sentiment", response_model=SentimentTrendsResponse)
+    async def get_sentiment_trends(
+        target_id: str = Query(..., description="目标标识"),
+        days: int = Query(14, ge=7, le=30, description="天数"),
+    ) -> SentimentTrendsResponse:
+        """情感分布趋势。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not available")
+        try:
+            raw = await _store.get_sentiment_daily_counts(target_id, days=days)
+            # 转换为按天聚合
+            day_map: dict[str, DailySentimentCount] = {}
+            for entry in raw:
+                d = entry["day"]
+                if d not in day_map:
+                    day_map[d] = DailySentimentCount(day=d)
+                item = day_map[d]
+                sentiment = entry["sentiment"]
+                if sentiment == "positive":
+                    item.positive = entry["count"]
+                elif sentiment == "negative":
+                    item.negative = entry["count"]
+                elif sentiment == "neutral":
+                    item.neutral = entry["count"]
+            daily = sorted(day_map.values(), key=lambda x: x.day)
+            return SentimentTrendsResponse(
+                target_id=target_id,
+                days=days,
+                daily_sentiment=daily,
+                generated_at=datetime.now(UTC).isoformat(),
+            )
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e)) from e
 

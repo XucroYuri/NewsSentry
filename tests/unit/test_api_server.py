@@ -1287,3 +1287,164 @@ class TestChainNarrativeAPI:
         resp = await client.post("/api/v1/chains/evt-1/narrative", params={"target_id": "italy"})
         assert resp.status_code == 503
         await client.aclose()
+
+
+class TestTrendAPI:
+    """Phase 37: 趋势分析 API 端点。"""
+
+    @pytest.fixture
+    async def client_with_trends(self, tmp_path):
+        """创建带趋势测试数据的客户端。"""
+        db_path = tmp_path / "state.db"
+        store = AsyncStore(db_path)
+        await store.initialize()
+
+        now = datetime.now(UTC).isoformat()
+        events = [
+            # 5月1日: 3 events
+            (
+                "t-evt-1",
+                "italy",
+                "judged",
+                "ansa",
+                80,
+                50,
+                "politics",
+                "2026-05-01T10:00:00",
+                now,
+                "positive",
+                "immigration,elections",
+            ),
+            (
+                "t-evt-2",
+                "italy",
+                "judged",
+                "ansa",
+                75,
+                45,
+                "politics",
+                "2026-05-01T12:00:00",
+                now,
+                "negative",
+                "immigration,economy",
+            ),
+            (
+                "t-evt-3",
+                "italy",
+                "judged",
+                "repubblica",
+                60,
+                30,
+                "economy",
+                "2026-05-01T14:00:00",
+                now,
+                "neutral",
+                "economy,EU",
+            ),
+            # 5月5日: 2 events
+            (
+                "t-evt-4",
+                "italy",
+                "judged",
+                "ansa",
+                70,
+                40,
+                "international",
+                "2026-05-05T10:00:00",
+                now,
+                "positive",
+                "EU,immigration",
+            ),
+            (
+                "t-evt-5",
+                "italy",
+                "judged",
+                "ansa",
+                85,
+                55,
+                "politics",
+                "2026-05-05T12:00:00",
+                now,
+                "negative",
+                "elections,immigration",
+            ),
+        ]
+        for eid, tid, stage, src, score, rel, cls, pub, created, sent, tags in events:
+            await store._db.execute(
+                "INSERT OR REPLACE INTO event_index "
+                "(event_id, target_id, stage, source_id, news_value_score, "
+                "china_relevance, classification_l0, published_at, created_at, "
+                "sentiment, topic_tags, file_path, title_original) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    eid,
+                    tid,
+                    stage,
+                    src,
+                    score,
+                    rel,
+                    cls,
+                    pub,
+                    created,
+                    sent,
+                    tags,
+                    f"data/{tid}/drafts/{eid}.md",
+                    f"Title {eid}",
+                ),
+            )
+        await store._db.commit()
+
+        app = create_app(data_dir=str(tmp_path), store=store)
+        from httpx import ASGITransport, AsyncClient
+
+        transport = ASGITransport(app=app)
+        client = AsyncClient(transport=transport, base_url="http://test")
+        yield client, store
+        await client.aclose()
+        await store.close()
+
+    async def test_get_topic_trends(self, client_with_trends):
+        """GET /api/v1/trends/topics 返回主题趋势。"""
+        client, _ = client_with_trends
+        resp = await client.get(
+            "/api/v1/trends/topics",
+            params={"target_id": "italy", "days": 30},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["target_id"] == "italy"
+        assert data["days"] == 30
+        assert "topics" in data
+        assert "generated_at" in data
+        # immigration 应该在 topics 中（出现 4 次）
+        topic_names = [t["topic"] for t in data["topics"]]
+        assert "immigration" in topic_names
+
+    async def test_get_sentiment_trends(self, client_with_trends):
+        """GET /api/v1/trends/sentiment 返回情感趋势。"""
+        client, _ = client_with_trends
+        resp = await client.get(
+            "/api/v1/trends/sentiment",
+            params={"target_id": "italy", "days": 30},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["target_id"] == "italy"
+        assert "daily_sentiment" in data
+        assert "generated_at" in data
+        # 至少有 2 天的数据
+        assert len(data["daily_sentiment"]) >= 2
+
+    async def test_trends_no_store(self, tmp_path):
+        """无 store 时返回 503。"""
+        app = create_app(data_dir=str(tmp_path))
+        from httpx import ASGITransport, AsyncClient
+
+        transport = ASGITransport(app=app)
+        client = AsyncClient(transport=transport, base_url="http://test")
+        resp = await client.get(
+            "/api/v1/trends/topics",
+            params={"target_id": "italy"},
+        )
+        assert resp.status_code == 503
+        await client.aclose()
