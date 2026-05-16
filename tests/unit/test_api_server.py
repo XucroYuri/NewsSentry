@@ -681,6 +681,9 @@ class TestAPIServerSQLite:
                 "china_relevance": 20,
                 "classification_l0": "international",
                 "title_original": "Pace in Medio Oriente",
+                "sentiment": "positive",
+                "entity_names": "Roma,Medio Oriente",
+                "topic_tags": "international,peace",
             },
             {
                 "event_id": "ne-italy-repubblica-20260512-bbb22222",
@@ -689,6 +692,9 @@ class TestAPIServerSQLite:
                 "china_relevance": 40,
                 "classification_l0": "politics",
                 "title_original": "Elezioni politiche",
+                "sentiment": "negative",
+                "entity_names": "Meloni",
+                "topic_tags": "politics,elections",
             },
             {
                 "event_id": "ne-italy-ansa-20260512-ccc33333",
@@ -697,6 +703,9 @@ class TestAPIServerSQLite:
                 "china_relevance": 10,
                 "classification_l0": "international",
                 "title_original": "Accordo commerciale",
+                "sentiment": "neutral",
+                "entity_names": None,
+                "topic_tags": "economy",
             },
         ]
 
@@ -727,8 +736,9 @@ class TestAPIServerSQLite:
                 "INSERT OR REPLACE INTO event_index "
                 "(event_id, target_id, stage, source_id, news_value_score, "
                 "china_relevance, classification_l0, title_original, "
-                "published_at, file_path, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "published_at, file_path, created_at, "
+                "sentiment, entity_names, topic_tags) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     ev["event_id"],
                     "italy",
@@ -741,6 +751,9 @@ class TestAPIServerSQLite:
                     now,
                     str(file_path),
                     now,
+                    ev.get("sentiment"),
+                    ev.get("entity_names"),
+                    ev.get("topic_tags"),
                 ),
             )
         await store._db.commit()  # noqa: SLF001
@@ -869,3 +882,78 @@ class TestAPIServerSQLite:
             params={"target_id": "italy"},
         )
         assert resp.status_code == 404
+
+    def test_events_filter_by_sentiment_with_sqlite(
+        self,
+        tmp_path: Path,
+        store_with_data: AsyncStore,
+    ) -> None:
+        """按 sentiment 过滤事件。"""
+        client = self._make_client_with_store(tmp_path, store_with_data)
+        resp = client.get(
+            "/api/v1/events",
+            params={
+                "target_id": "italy",
+                "sentiment": "negative",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+        assert "Elezioni" in data["events"][0]["title_original"]
+
+    def test_events_filter_by_entity_with_sqlite(
+        self,
+        tmp_path: Path,
+        store_with_data: AsyncStore,
+    ) -> None:
+        """按 entity 过滤事件。"""
+        client = self._make_client_with_store(tmp_path, store_with_data)
+        resp = client.get(
+            "/api/v1/events",
+            params={
+                "target_id": "italy",
+                "entity": "Meloni",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+
+    def test_events_filter_by_topic_tag_with_sqlite(
+        self,
+        tmp_path: Path,
+        store_with_data: AsyncStore,
+    ) -> None:
+        """按 topic_tag 过滤事件。"""
+        client = self._make_client_with_store(tmp_path, store_with_data)
+        resp = client.get(
+            "/api/v1/events",
+            params={
+                "target_id": "italy",
+                "topic_tag": "peace",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+        assert "Pace" in data["events"][0]["title_original"]
+
+    def test_stats_sentiment_breakdown_with_sqlite(
+        self,
+        tmp_path: Path,
+        store_with_data: AsyncStore,
+    ) -> None:
+        """stats 端点返回 sentiment_breakdown。"""
+        client = self._make_client_with_store(tmp_path, store_with_data)
+        resp = client.get(
+            "/api/v1/stats",
+            params={"target_id": "italy"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "sentiment_breakdown" in data
+        sb = data["sentiment_breakdown"]
+        assert sb.get("positive") == 1
+        assert sb.get("negative") == 1
+        assert sb.get("neutral") == 1

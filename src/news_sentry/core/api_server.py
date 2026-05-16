@@ -89,6 +89,7 @@ class StatsResponse(BaseModel):
     avg_china_relevance: float | None
     by_classification: dict[str, int]
     by_source: dict[str, int]
+    sentiment_breakdown: dict[str, int] = {}
 
 
 class SourceInfo(BaseModel):
@@ -478,6 +479,7 @@ def create_app(
                 avg_china_relevance=stats["avg_china_relevance"],
                 by_classification=stats["by_classification"],
                 by_source=stats["by_source"],
+                sentiment_breakdown=stats.get("sentiment_breakdown", {}),
             )
 
         # 降级路径：无 store 时走原始文件扫描
@@ -681,6 +683,11 @@ def create_app(
         source_id: str | None = Query(None, description="按 source_id 筛选"),
         min_score: int | None = Query(None, description="最低 news_value_score"),
         search: str | None = Query(None, description="在 title_original 中搜索关键词"),
+        sentiment: str | None = Query(
+            None, description="按 sentiment 筛选 (positive/negative/neutral)"
+        ),
+        entity: str | None = Query(None, description="按实体名筛选"),
+        topic_tag: str | None = Query(None, description="按主题标签筛选"),
         x_api_key: str | None = Header(None, alias="X-API-Key"),
     ) -> EventResponse:
         key = _verify_api_key(x_api_key)
@@ -697,6 +704,9 @@ def create_app(
                 source_id=source_id,
                 classification_l0=classification,
                 min_score=min_score,
+                sentiment=sentiment,
+                entity_name=entity,
+                topic_tag=topic_tag,
             )
             total = result["total"]
             page_events: list[dict[str, Any]] = []
