@@ -14,6 +14,8 @@ import { renderEntityList, renderEntityDetail } from "./pages/entities.js";
 import { renderOpsDashboard, renderOpsDetail } from "./pages/ops.js";
 import { renderChainList, renderChainDetail } from "./pages/chains.js";
 import { renderTrends } from "./pages/trends.js";
+import { renderAlerts } from "./pages/alerts.js";
+import { renderFeedback } from "./pages/feedback.js";
 import { renderConfigTarget, renderConfigSources, renderConfigFilters, renderConfigOutputs, renderConfigProvider } from "./pages/config.js";
 
 // ── 路由 ──────────────────────────────────────────────────
@@ -51,6 +53,8 @@ function navigate() {
     chains: "追踪链",
     chain: "链详情",
     trends: "趋势分析",
+    alerts: "告警中心",
+    feedback: "反馈管理",
     "config-target": "Target 配置",
     "config-sources": "Source 渠道管理",
     "config-filters": "Filter 规则",
@@ -87,6 +91,10 @@ function navigate() {
     renderChainList();
   } else if (page === "trends") {
     renderTrends();
+  } else if (page === "alerts") {
+    renderAlerts();
+  } else if (page === "feedback") {
+    renderFeedback();
   } else if (page === "config-target") {
     renderConfigTarget();
   } else if (page === "config-sources") {

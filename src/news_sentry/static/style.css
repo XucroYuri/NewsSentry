@@ -1691,10 +1691,14 @@ a:hover {
 .hotness-fill { height: 100%; background: var(--accent-blue); border-radius: 4px; transition: width 0.3s; }
 
 /* ── Phase 38: 智能告警 ─────────────────────────────── */
-.alert-item { padding: 10px 14px; margin-bottom: 8px; background: var(--bg-secondary); border-radius: var(--radius-sm); }
+.alert-item { padding: 10px 14px; margin-bottom: 8px; background: var(--bg-secondary); border-radius: var(--radius-sm); border-left: 3px solid var(--accent-blue); }
+.alert-item-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .alert-type { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; }
+.alert-type-badge { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; background: rgba(59,130,246,0.15); color: #3b82f6; }
+.alert-severity { font-size: 0.75rem; font-weight: 600; }
 .alert-message { font-size: 0.85rem; color: var(--text-primary); line-height: 1.4; }
 .alert-time { font-size: 0.7rem; color: var(--text-muted); margin-top: 4px; }
+.alert-list { display: flex; flex-direction: column; gap: 0; }
 
 /* ── Phase 39: Dashboard 增强 ───────────────────────── */
 .today-cards { margin-bottom: 16px; }
@@ -1704,3 +1708,27 @@ a:hover {
 .top-events-table { margin-top: 8px; }
 .top-event-row:hover { background: var(--bg-hover); }
 .score-badge { font-weight: 600; }
+
+/* ── Phase 41: 反馈闭环 + 告警管理 ─────────────────── */
+.empty-hint { color: var(--text-muted); font-size: 0.85rem; padding: 1rem 0; }
+.feedback-card { margin-top: 16px; }
+.feedback-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+.feedback-comment-row { display: flex; gap: 8px; align-items: center; }
+.feedback-input { flex: 1; padding: 6px 10px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-secondary); color: var(--text-primary); font-size: 0.85rem; }
+.feedback-status { margin-top: 8px; }
+.feedback-ok { color: #22c55e; font-size: 0.85rem; }
+.feedback-hint { color: var(--text-muted); font-size: 0.85rem; margin-bottom: 12px; }
+.optimize-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+.optimize-result { margin-top: 8px; }
+.optimize-preview p { font-size: 0.85rem; color: var(--text-primary); margin-bottom: 8px; }
+.optimize-applied { color: #22c55e; font-size: 0.85rem; padding: 8px 0; }
+.optimize-empty { color: var(--text-muted); font-size: 0.85rem; padding: 8px 0; }
+.btn-green { background: #22c55e; color: #fff; }
+.btn-green:hover { background: #16a34a; }
+.btn-red { background: #ef4444; color: #fff; }
+.btn-red:hover { background: #dc2626; }
+.btn-primary { background: var(--accent-blue); color: #fff; }
+.btn-primary:hover { background: #2563eb; }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-secondary { background: var(--bg-hover); color: var(--text-primary); }
+.btn-secondary:hover { background: var(--border-color); }

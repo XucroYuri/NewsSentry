@@ -4,7 +4,7 @@
 
 "use strict";
 
-import { api, state, dom, $, escapeHtml, showError, formatDate, scoreBar, scoreColor, scoreGradient, sentimentColor, sentimentPct, sentimentGradient, sentimentLabelColor, sentimentDotHtml, entityChipsHtml } from "../api.js";
+import { api, apiPost, state, dom, $, escapeHtml, showError, formatDate, scoreBar, scoreColor, scoreGradient, sentimentColor, sentimentPct, sentimentGradient, sentimentLabelColor, sentimentDotHtml, entityChipsHtml } from "../api.js";
 
 const LINK_TYPE_LABELS = { followup: "后续进展", related: "相关", same_event: "同一事件", correction: "纠正" };
 const LINK_TYPE_COLORS = { followup: "#3b82f6", related: "#6b7280", same_event: "#10b981", correction: "#ef4444" };
@@ -430,6 +430,61 @@ export async function renderEventDetail(eventId) {
         dom.pageContainer.querySelector(".nlp-section")?.after(card) || dom.pageContainer.appendChild(card);
       }
     } catch { /* 非阻塞 */ }
+
+    // Phase 41: 反馈操作区
+    const feedbackCard = document.createElement("div");
+    feedbackCard.className = "card feedback-card";
+    feedbackCard.innerHTML = `
+      <div class="section-title">人工反馈</div>
+      <div class="feedback-actions">
+        <button class="btn btn-green" id="btnPublish">推荐发布</button>
+        <button class="btn btn-red" id="btnArchive">归档</button>
+      </div>
+      <div class="feedback-comment-row">
+        <input type="text" id="feedbackComment" placeholder="添加评论（可选）..." class="feedback-input">
+        <button class="btn btn-secondary" id="btnComment">提交评论</button>
+      </div>
+      <div id="feedbackStatus" class="feedback-status"></div>
+    `;
+    dom.pageContainer.appendChild(feedbackCard);
+
+    const submitFeedback = async (verdictType) => {
+      const statusEl = $("#feedbackStatus");
+      try {
+        await apiPost("/api/v1/feedback", {
+          target_id: state.currentTarget,
+          event_id: eventId,
+          verdict_type: verdictType,
+          comment: "",
+        });
+        statusEl.innerHTML = `<span class="feedback-ok">已提交: ${escapeHtml(verdictType === "publish_override" ? "推荐发布" : "归档")}</span>`;
+      } catch (err) {
+        showError(`反馈提交失败: ${err.message}`);
+      }
+    };
+
+    const submitComment = async () => {
+      const input = $("#feedbackComment");
+      const comment = input.value.trim();
+      if (!comment) return;
+      const statusEl = $("#feedbackStatus");
+      try {
+        await apiPost("/api/v1/feedback", {
+          target_id: state.currentTarget,
+          event_id: eventId,
+          verdict_type: "comment",
+          comment,
+        });
+        input.value = "";
+        statusEl.innerHTML = '<span class="feedback-ok">评论已提交</span>';
+      } catch (err) {
+        showError(`评论提交失败: ${err.message}`);
+      }
+    };
+
+    $("#btnPublish").addEventListener("click", () => submitFeedback("publish_override"));
+    $("#btnArchive").addEventListener("click", () => submitFeedback("archive_override"));
+    $("#btnComment").addEventListener("click", submitComment);
   } catch (err) {
     showError(`加载事件详情失败: ${err.message}`);
     dom.pageContainer.innerHTML = `
