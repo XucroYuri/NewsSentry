@@ -14,6 +14,7 @@ MatrixEvolution — 信源矩阵自进化引擎。
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -81,6 +82,8 @@ class MatrixEvolution:
         source_dir: Path,
         target_config_path: Path,
         state_path: Path,
+        audit_log_path: Path | None = None,
+        rss_discovery_cooldown_hours: int = 168,
     ) -> None:
         """初始化 MatrixEvolution。
 
@@ -88,29 +91,43 @@ class MatrixEvolution:
             source_dir: 信源配置目录（如 config/sources/italy/）。
             target_config_path: target 配置文件路径（如 config/targets/italy.yaml）。
             state_path: 进化状态持久化路径（如 data/italy/memory/matrix-evolution.yaml）。
+            audit_log_path: 审计日志路径（JSONL）。None 时不记日志。
+            rss_discovery_cooldown_hours: RSS 发现冷却时间（默认 168h=7d）。
         """
         self._source_dir = source_dir
         self._target_config_path = target_config_path
         self._state_path = state_path
+        self._audit_log_path = audit_log_path
+        self._cooldown_hours = rss_discovery_cooldown_hours
         self._candidates: dict[str, CandidateSource] = {}
         self._rejected_urls: set[str] = set()
+        self._last_discovery_at: str = ""
         self._load_state()
 
     def ingest_discovery(self, result: DiscoveryResult) -> int:
         """将发现结果注入候选队列。
 
         过滤已审批、已拒绝的源，仅保留新候选。
+        遵守 rss_discovery_cooldown_hours 冷却期。
 
         Returns:
             新增候选数量。
         """
+        # 检查冷却期
+        if self._last_discovery_at:
+            try:
+                last = datetime.fromisoformat(self._last_discovery_at)
+                elapsed = (datetime.now(UTC) - last).total_seconds() / 3600
+                if elapsed < self._cooldown_hours:
+                    return 0
+            except (ValueError, TypeError):
+                pass
+
         added = 0
         now = datetime.now(UTC).isoformat()
         for feed in result.new_feeds:
-            # 跳过已拒绝
             if feed.url in self._rejected_urls:
                 continue
-            # 跳过已存在（任何状态）
             if feed.url in self._candidates:
                 continue
             self._candidates[feed.url] = CandidateSource(
@@ -123,6 +140,7 @@ class MatrixEvolution:
             )
             added += 1
         if added > 0:
+            self._last_discovery_at = now
             self._save_state()
         return added
 
@@ -144,6 +162,16 @@ class MatrixEvolution:
         now = datetime.now(UTC).isoformat()
         candidate.status = "approved"
         candidate.reviewed_at = now
+
+        # 审计日志
+        self._write_audit(
+            "approve",
+            url,
+            {
+                "source_id": source_id,
+                "credibility_base": credibility_base,
+            },
+        )
 
         # 生成 source YAML
         source_path = self._generate_source_yaml(source_id, candidate, credibility_base)
@@ -173,6 +201,9 @@ class MatrixEvolution:
         candidate.reviewed_at = now
         candidate.reviewer_note = note
         self._rejected_urls.add(url)
+
+        # 审计日志
+        self._write_audit("reject", url, {"note": note})
 
         self._save_state()
         return True
@@ -233,6 +264,20 @@ class MatrixEvolution:
 
     # ── 持久化 ─────────────────────────────────────
 
+    def _write_audit(self, action: str, url: str, detail: dict[str, Any]) -> None:
+        """写一条 JSONL 审计日志。"""
+        if self._audit_log_path is None:
+            return
+        self._audit_log_path.parent.mkdir(parents=True, exist_ok=True)
+        entry = {
+            "ts": datetime.now(UTC).isoformat(),
+            "action": action,
+            "url": url,
+            "detail": detail,
+        }
+        with open(self._audit_log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
     def _load_state(self) -> None:
         """加载进化状态。"""
         if not self._state_path.is_file():
@@ -266,6 +311,8 @@ class MatrixEvolution:
         for url in data.get("rejected_urls", []):
             self._rejected_urls.add(str(url))
 
+        self._last_discovery_at = str(data.get("last_discovery_at", ""))
+
     def _save_state(self) -> None:
         """保存进化状态。"""
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -273,6 +320,7 @@ class MatrixEvolution:
             "candidates": [c.to_dict() for c in self._candidates.values()],
             "rejected_urls": sorted(self._rejected_urls),
             "updated_at": datetime.now(UTC).isoformat(),
+            "last_discovery_at": self._last_discovery_at,
         }
         tmp_path = self._state_path.with_suffix(".tmp")
         with open(tmp_path, "w", encoding="utf-8") as f:

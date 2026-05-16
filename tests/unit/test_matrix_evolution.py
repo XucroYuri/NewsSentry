@@ -224,3 +224,85 @@ class TestMatrixEvolution:
             data = yaml.safe_load(f)
         # src1 不应重复
         assert data["source_channel_refs"].count("src1") == 1
+
+
+class TestMatrixEvolutionAudit:
+    """Phase 46: 矩阵自进化审计日志测试。"""
+
+    def test_audit_log_approve_writes_jsonl(self, tmp_path):
+        """approve 时应写入 JSONL 审计日志。"""
+        from news_sentry.core.matrix_evolution import MatrixEvolution
+        from news_sentry.skills.collect.rss_discovery import DiscoveredFeed, DiscoveryResult
+
+        source_dir = tmp_path / "sources"
+        source_dir.mkdir()
+        target_path = tmp_path / "target.yaml"
+        target_path.write_text("source_channel_refs: []", encoding="utf-8")
+        state_path = tmp_path / "state.yaml"
+        audit_path = tmp_path / "audit.jsonl"
+
+        evo = MatrixEvolution(source_dir, target_path, state_path, audit_log_path=audit_path)
+        result = DiscoveryResult(
+            target_id="italy",
+            new_feeds=[DiscoveredFeed(url="https://new.com/rss")],
+        )
+        evo.ingest_discovery(result)
+        evo.approve("https://new.com/rss", "src-audit")
+
+        assert audit_path.exists()
+        lines = audit_path.read_text(encoding="utf-8").strip().split("\n")
+        assert len(lines) == 1
+        entry = __import__("json").loads(lines[0])
+        assert entry["action"] == "approve"
+        assert entry["url"] == "https://new.com/rss"
+
+    def test_audit_log_reject_writes_jsonl(self, tmp_path):
+        """reject 时应写入 JSONL 审计日志。"""
+        from news_sentry.core.matrix_evolution import MatrixEvolution
+        from news_sentry.skills.collect.rss_discovery import DiscoveredFeed, DiscoveryResult
+
+        source_dir = tmp_path / "sources"
+        source_dir.mkdir()
+        target_path = tmp_path / "target.yaml"
+        target_path.write_text("source_channel_refs: []", encoding="utf-8")
+        state_path = tmp_path / "state.yaml"
+        audit_path = tmp_path / "audit.jsonl"
+
+        evo = MatrixEvolution(source_dir, target_path, state_path, audit_log_path=audit_path)
+        result = DiscoveryResult(
+            target_id="italy",
+            new_feeds=[DiscoveredFeed(url="https://bad.com/rss")],
+        )
+        evo.ingest_discovery(result)
+        evo.reject("https://bad.com/rss", "low quality")
+
+        assert audit_path.exists()
+        lines = audit_path.read_text(encoding="utf-8").strip().split("\n")
+        assert len(lines) == 1
+        entry = __import__("json").loads(lines[0])
+        assert entry["action"] == "reject"
+        assert entry["url"] == "https://bad.com/rss"
+        assert entry["detail"]["note"] == "low quality"
+
+    def test_audit_log_none_skips_writing(self, tmp_path):
+        """audit_log_path=None 时不写审计日志。"""
+        from news_sentry.core.matrix_evolution import MatrixEvolution
+        from news_sentry.skills.collect.rss_discovery import DiscoveredFeed, DiscoveryResult
+
+        source_dir = tmp_path / "sources"
+        source_dir.mkdir()
+        target_path = tmp_path / "target.yaml"
+        target_path.write_text("source_channel_refs: []", encoding="utf-8")
+        state_path = tmp_path / "state.yaml"
+
+        evo = MatrixEvolution(source_dir, target_path, state_path, audit_log_path=None)
+        result = DiscoveryResult(
+            target_id="italy",
+            new_feeds=[DiscoveredFeed(url="https://new.com/rss")],
+        )
+        evo.ingest_discovery(result)
+        evo.approve("https://new.com/rss", "src-no-audit")
+
+        # 不应创建审计文件（目录也不应创建）
+        default_audit = tmp_path / "audit.jsonl"
+        assert not default_audit.exists()

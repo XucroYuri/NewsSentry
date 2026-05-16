@@ -284,3 +284,79 @@ class TestValidateNoSensitiveData:
         # 第一层：构造时通过
         validate_no_sensitive_data(profile)  # 第二层：显式调用也通过
         assert profile.profile_id == "test-profile-1"
+
+
+class TestSessionProfileExpiry:
+    """Phase 46: Session Profile 过期与刷新策略测试。"""
+
+    def test_is_expired_false_for_empty_expires_at(self):
+        """expires_at 为空时不视为过期。"""
+        data = _make_valid_profile()
+        data["expires_at"] = ""
+        profile = SessionProfile(**data)
+        assert profile.is_expired() is False
+
+    def test_is_expired_true_when_past(self):
+        """过期时间在过去时返回 True。"""
+        from datetime import UTC, datetime, timedelta
+
+        past = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+        data = _make_valid_profile()
+        data["expires_at"] = past
+        profile = SessionProfile(**data)
+        assert profile.is_expired() is True
+
+    def test_is_expired_false_when_future(self):
+        """过期时间在未来时返回 False。"""
+        from datetime import UTC, datetime, timedelta
+
+        future = (datetime.now(UTC) + timedelta(days=30)).isoformat()
+        data = _make_valid_profile()
+        data["expires_at"] = future
+        profile = SessionProfile(**data)
+        assert profile.is_expired() is False
+
+    def test_needs_review_when_near_expiry(self):
+        """即将过期（默认 14 天内）时 needs_review 返回 True。"""
+        from datetime import UTC, datetime, timedelta
+
+        soon = (datetime.now(UTC) + timedelta(days=7)).isoformat()
+        data = _make_valid_profile()
+        data["expires_at"] = soon
+        profile = SessionProfile(**data)
+        assert profile.needs_review() is True
+
+    def test_needs_review_false_when_far_from_expiry(self):
+        """离过期较远时 needs_review 返回 False。"""
+        from datetime import UTC, datetime, timedelta
+
+        far = (datetime.now(UTC) + timedelta(days=60)).isoformat()
+        data = _make_valid_profile()
+        data["expires_at"] = far
+        profile = SessionProfile(**data)
+        assert profile.needs_review() is False
+
+    def test_load_skips_expired_profiles(self, tmp_path):
+        """skip_expired=True 时自动跳过过期 profile。"""
+        from datetime import UTC, datetime, timedelta
+
+        from news_sentry.core.session_profile import load_session_profiles
+
+        past = (datetime.now(UTC) - timedelta(days=10)).isoformat()
+        valid_data = _make_valid_profile()
+        valid_data["expires_at"] = past  # 已过期
+        expired_yaml = tmp_path / "expired.yaml"
+        with open(expired_yaml, "w", encoding="utf-8") as f:
+            __import__("yaml").dump(valid_data, f)
+
+        future = (datetime.now(UTC) + timedelta(days=30)).isoformat()
+        fresh_data = _make_valid_profile()
+        fresh_data["profile_id"] = "fresh-1"
+        fresh_data["expires_at"] = future
+        fresh_yaml = tmp_path / "fresh.yaml"
+        with open(fresh_yaml, "w", encoding="utf-8") as f:
+            __import__("yaml").dump(fresh_data, f)
+
+        profiles = load_session_profiles(tmp_path, skip_expired=True)
+        assert "fresh-1" in profiles
+        assert "test-profile-1" not in profiles  # expired

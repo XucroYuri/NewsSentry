@@ -6,6 +6,7 @@ Storage: memory/session-profiles/ 目录（YAML 文件）。
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import yaml
@@ -38,6 +39,18 @@ class SessionProfile(BaseModel):
     risk_level: str  # "low" | "medium" | "high"
     profile_path: str  # Chrome profile 路径
     notes: str = ""
+    expires_at: str = ""  # ISO datetime，审批后 90 天。空字符串=不过期
+
+    @field_validator("expires_at")
+    @classmethod
+    def validate_expires_at(cls, v: str) -> str:
+        if v == "":
+            return v
+        try:
+            datetime.fromisoformat(v)
+        except (ValueError, TypeError) as err:
+            raise ValueError(f"expires_at 必须是有效的 ISO datetime 字符串，当前值: '{v}'") from err
+        return v
 
     @field_validator("auth_owner")
     @classmethod
@@ -58,14 +71,37 @@ class SessionProfile(BaseModel):
                 raise ValueError(f"字段 '{info.field_name}' 包含敏感关键词 '{keyword}'，禁止存储")
         return v
 
+    def is_expired(self) -> bool:
+        """检查 session profile 是否已过期。"""
+        if not self.expires_at:
+            return False
+        try:
+            expires = datetime.fromisoformat(self.expires_at)
+            return datetime.now(UTC) >= expires
+        except (ValueError, TypeError):
+            return False
+
+    def needs_review(self, days_before_expiry: int = 14) -> bool:
+        """检查是否即将过期（默认 14 天内到期）。"""
+        if not self.expires_at:
+            return False
+        try:
+            expires = datetime.fromisoformat(self.expires_at)
+            threshold = datetime.now(UTC) + timedelta(days=days_before_expiry)
+            return expires <= threshold
+        except (ValueError, TypeError):
+            return False
+
 
 def load_session_profiles(
     profiles_dir: Path | str,
+    skip_expired: bool = True,
 ) -> dict[str, SessionProfile]:
     """从 profiles_dir 加载所有 SessionProfile YAML 文件。
 
     Args:
         profiles_dir: session-profiles 目录路径。
+        skip_expired: True 时自动跳过已过期的 profile。
 
     Returns:
         以 profile_id 为键的 SessionProfile 字典。不存在的目录返回空字典。
@@ -81,6 +117,8 @@ def load_session_profiles(
         if data is None:
             continue
         profile = SessionProfile.model_validate(data)
+        if skip_expired and profile.is_expired():
+            continue
         profiles[profile.profile_id] = profile
 
     return profiles

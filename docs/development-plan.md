@@ -1,6 +1,6 @@
 # News Sentry — 开发计划
 
-> 版本: v2.5 | 日期: 2026-05-16
+> 版本: v2.6 | 日期: 2026-05-16
 > 状态: **路线图主权文档** — 本文档是多阶段开发计划与 TODO 矩阵的唯一权威来源
 > 当前版本: **v1.5.0** | 下一版本: **v2.0.0**
 > Phase 25-29 性能优化: ✅ 全部完成 (异步 pipeline + SQLite + AI 批处理/缓存/分级路由 + API SQLite 查询 + 多目标并发调度)
@@ -17,6 +17,10 @@
 > Phase 40 治理积压清理: ✅ 全部完成 (prune_old_data + backup_db + 降级策略 + 2 maintenance API)
 > Phase 41 反馈闭环 + 告警管理: ✅ 全部完成 (feedback/alert_history 表 + 5 API + alerts/feedback UI)
 > Phase 42 配置编辑: ✅ 全部完成 (5 config write 端点 + atomic YAML + 5 可编辑配置页)
+> Phase 43 文档同步: ✅ 全部完成 (development-plan v2.4→v2.5 + ADR-0023)
+> Phase 44 评估集扩展: ✅ 全部完成 (eval-set 210→250 + _run_judge_async 7 测试)
+> Phase 45 CI/CD 整合: ✅ 全部完成 (3 workflow 文件 零重叠)
+> Phase 46 治理 backlog 收尾: ✅ 全部完成 (MATRIX-GOV-001 + SOCIAL-SESSION-001)
 > 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](spec/README.md) 为准）
 > Cloud VPS 方案: [docs/deployment/cloud-vps-recommendations.md](./deployment/cloud-vps-recommendations.md)
 > 字段口径基准: [`docs/contracts-canonical.md`](./contracts-canonical.md)
@@ -1458,8 +1462,8 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | `MEMORY-RETENTION-001` | `known_item_ids` 保留策略（最大条目数、过期时间、清理方式）| Phase 40 已解决：prune_old_data 级联清理 |
 | `ARCHIVE-POLICY-001` | `archive/` 中被拒事件的保留周期（多久清理或迁移到冷存储）| Phase 40 已解决：prune_old_data + max_age_days 参数 |
 | `HEALTH-POLICY-001` | source health 降级阈值（多少次失败后停止采集该信源，如何恢复） | Phase 40 已解决：>=3 degraded, >=7 unreachable |
-| `MATRIX-GOV-001` | 信源自进化机制的触发频率和审计策略 | Phase 12 实现时 |
-| `SOCIAL-SESSION-001` | 社媒 session profile 的刷新周期和安全存储策略 | Phase 12 实现时 |
+| `MATRIX-GOV-001` | 信源自进化机制的触发频率和审计策略 | Phase 46 已解决：JSONL 审计日志 + rss_discovery_cooldown_hours=168 (7d) |
+| `SOCIAL-SESSION-001` | 社媒 session profile 的刷新周期和安全存储策略 | Phase 46 已解决：expires_at 90d TTL + is_expired/needs_review + load 自动跳过过期 |
 | `BRIDGE-FALLBACK-001` | Computer Use 兜底的成本预算上限和告警阈值 | Phase 12 实现时 |
 | `EVAL-002` | 评估集更新机制（何时触发重新标注、标注者间一致性度量） | Phase 13 实现时 |
 | `DEPLOY-001` | Cloud VPS 部署的平台选择（GCP Cloud Run / AWS ECS / 自管 VM）和成本估算 | Phase 15 已决策：Hetzner CX32 |
