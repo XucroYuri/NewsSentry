@@ -1506,3 +1506,70 @@ class TestSmartAlertAPI:
         )
         assert resp.status_code == 503
         await client.aclose()
+
+
+class TestDashboardAPI:
+    """Phase 39: Dashboard API 端点。"""
+
+    @pytest.fixture
+    async def client_with_dashboard(self, tmp_path):
+        """创建带 dashboard 数据的客户端。"""
+        db_path = tmp_path / "state.db"
+        store = AsyncStore(db_path)
+        await store.initialize()
+
+        now = datetime.now(UTC).isoformat()
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
+        for i, score in enumerate([80, 90, 70]):
+            await store._db.execute(
+                "INSERT OR REPLACE INTO event_index "
+                "(event_id, target_id, stage, news_value_score, published_at, "
+                "created_at, title_original, source_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    f"db-evt-{i}",
+                    "italy",
+                    "judged",
+                    score,
+                    f"{today}T10:00:00",
+                    now,
+                    f"DB Event {i}",
+                    "ansa",
+                ),
+            )
+        await store._db.commit()
+
+        app = create_app(data_dir=str(tmp_path), store=store)
+        from httpx import ASGITransport, AsyncClient
+
+        transport = ASGITransport(app=app)
+        client = AsyncClient(transport=transport, base_url="http://test")
+        yield client, store
+        await client.aclose()
+        await store.close()
+
+    async def test_get_today_stats(self, client_with_dashboard):
+        """GET /api/v1/stats/today。"""
+        client, _ = client_with_dashboard
+        resp = await client.get(
+            "/api/v1/stats/today",
+            params={"target_id": "italy"},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["target_id"] == "italy"
+        assert data["today_count"] == 3
+        assert data["today_max_score"] == 90
+
+    async def test_get_top_events(self, client_with_dashboard):
+        """GET /api/v1/events/top。"""
+        client, _ = client_with_dashboard
+        resp = await client.get(
+            "/api/v1/events/top",
+            params={"target_id": "italy", "days": 7, "limit": 5},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["target_id"] == "italy"
+        assert len(data["events"]) == 3
+        assert data["events"][0]["news_value_score"] == 90

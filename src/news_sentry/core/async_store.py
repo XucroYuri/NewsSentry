@@ -1213,3 +1213,68 @@ class AsyncStore:
         ) as cursor:
             rows = await cursor.fetchall()
         return [{"day": r[0], "count": r[1]} for r in rows]
+
+    # ------------------------------------------------------------------
+    # Dashboard Enhancement (Phase 39)
+    # ------------------------------------------------------------------
+
+    async def get_today_stats(self, target_id: str) -> dict[str, Any]:
+        """获取今日 vs 昨日对比统计。"""
+        empty = {
+            "today_count": 0,
+            "today_avg_score": None,
+            "today_max_score": None,
+            "yesterday_count": 0,
+            "yesterday_avg_score": None,
+        }
+        if self._db is None:
+            return empty
+
+        # 今日统计
+        async with self._db.execute(
+            "SELECT COUNT(*), AVG(news_value_score), MAX(news_value_score) "
+            "FROM event_index WHERE target_id = ? AND stage = 'judged' "
+            "AND date(published_at) = date('now')",
+            [target_id],
+        ) as cursor:
+            row = await cursor.fetchone()
+        today_count = row[0] if row else 0
+        today_avg = row[1] if row and row[1] is not None else None
+        today_max = row[2] if row and row[2] is not None else None
+
+        # 昨日统计
+        async with self._db.execute(
+            "SELECT COUNT(*), AVG(news_value_score) "
+            "FROM event_index WHERE target_id = ? AND stage = 'judged' "
+            "AND date(published_at) = date('now', '-1 day')",
+            [target_id],
+        ) as cursor:
+            row = await cursor.fetchone()
+        yesterday_count = row[0] if row else 0
+        yesterday_avg = row[1] if row and row[1] is not None else None
+
+        return {
+            "today_count": today_count,
+            "today_avg_score": round(today_avg, 1) if today_avg is not None else None,
+            "today_max_score": today_max,
+            "yesterday_count": yesterday_count,
+            "yesterday_avg_score": round(yesterday_avg, 1) if yesterday_avg is not None else None,
+        }
+
+    async def get_top_events(
+        self, target_id: str, days: int = 7, limit: int = 5
+    ) -> list[dict[str, Any]]:
+        """获取最近 N 天最高分事件。"""
+        if self._db is None:
+            return []
+        async with self._db.execute(
+            "SELECT event_id, title_original, news_value_score, source_id, published_at "
+            "FROM event_index "
+            "WHERE target_id = ? AND stage = 'judged' "
+            "AND published_at >= date('now', ? || ' days') "
+            "ORDER BY news_value_score DESC LIMIT ?",
+            [target_id, f"-{days}", limit],
+        ) as cursor:
+            rows = await cursor.fetchall()
+        cols = ("event_id", "title_original", "news_value_score", "source_id", "published_at")
+        return [dict(zip(cols, row, strict=True)) for row in rows]

@@ -373,6 +373,34 @@ class SmartAlertsResponse(BaseModel):
     total: int
 
 
+class TodayStatsResponse(BaseModel):
+    """今日 vs 昨日统计响应。"""
+
+    target_id: str
+    today_count: int = 0
+    today_avg_score: float | None = None
+    today_max_score: int | None = None
+    yesterday_count: int = 0
+    yesterday_avg_score: float | None = None
+
+
+class TopEventInfo(BaseModel):
+    """高价值事件条目。"""
+
+    event_id: str
+    title_original: str
+    news_value_score: int
+    source_id: str | None = None
+    published_at: str | None = None
+
+
+class TopEventsResponse(BaseModel):
+    """高价值事件响应。"""
+
+    target_id: str
+    events: list[TopEventInfo]
+
+
 # ── API Key 认证 ───────────────────────────────────────
 
 _API_KEY_ENV = "NEWSSENTRY_API_KEY"
@@ -1003,6 +1031,31 @@ def create_app(
         )
 
     # ── 需认证端点 ────────────────────────────────────
+
+    @app.get("/api/v1/stats/today", response_model=TodayStatsResponse)
+    async def get_today_stats_api(
+        target_id: str = Query(..., description="目标标识"),
+    ) -> TodayStatsResponse:
+        """今日 vs 昨日对比统计。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not available")
+        stats = await _store.get_today_stats(target_id)
+        return TodayStatsResponse(target_id=target_id, **stats)
+
+    @app.get("/api/v1/events/top", response_model=TopEventsResponse)
+    async def get_top_events_api(
+        target_id: str = Query(..., description="目标标识"),
+        days: int = Query(7, ge=1, le=30, description="天数"),
+        limit: int = Query(5, ge=1, le=20, description="数量"),
+    ) -> TopEventsResponse:
+        """近期高价值事件。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not available")
+        events = await _store.get_top_events(target_id, days=days, limit=limit)
+        return TopEventsResponse(
+            target_id=target_id,
+            events=[TopEventInfo(**e) for e in events],
+        )
 
     @app.get("/api/v1/events", response_model=EventResponse)
     async def list_events(

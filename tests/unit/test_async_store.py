@@ -1250,3 +1250,74 @@ class TestSmartAlertQueries:
         }
         assert expected.issubset(indexes)
         await store.close()
+
+
+class TestDashboardQueries:
+    """Phase 39: Dashboard 查询测试。"""
+
+    @pytest.mark.asyncio
+    async def test_get_today_stats(self, tmp_path: Path) -> None:
+        """今日 vs 昨日对比统计。"""
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+
+        now = datetime.now(UTC).isoformat()
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
+        yesterday_date = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%d")
+
+        # 今日 2 事件
+        for i, score in enumerate([80, 90]):
+            await store._db.execute(  # noqa: SLF001
+                "INSERT OR REPLACE INTO event_index "
+                "(event_id, target_id, stage, news_value_score, published_at, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (f"d-evt-t{i}", "italy", "judged", score, f"{today}T10:00:00", now),
+            )
+        # 昨日 1 事件
+        await store._db.execute(  # noqa: SLF001
+            "INSERT OR REPLACE INTO event_index "
+            "(event_id, target_id, stage, news_value_score, published_at, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("d-evt-y1", "italy", "judged", 70, f"{yesterday_date}T10:00:00", now),
+        )
+        await store._db.commit()
+
+        stats = await store.get_today_stats("italy")
+        assert stats["today_count"] == 2
+        assert stats["today_avg_score"] == 85.0
+        assert stats["today_max_score"] == 90
+        assert stats["yesterday_count"] == 1
+        assert stats["yesterday_avg_score"] == 70.0
+        await store.close()
+
+    @pytest.mark.asyncio
+    async def test_get_top_events(self, tmp_path: Path) -> None:
+        """获取 Top 事件。"""
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+
+        now = datetime.now(UTC).isoformat()
+        for i, score in enumerate([60, 95, 70, 85, 50]):
+            await store._db.execute(  # noqa: SLF001
+                "INSERT OR REPLACE INTO event_index "
+                "(event_id, target_id, stage, news_value_score, published_at, "
+                "created_at, title_original) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    f"d-top-{i}",
+                    "italy",
+                    "judged",
+                    score,
+                    now,
+                    now,
+                    f"Event {i}",
+                ),
+            )
+        await store._db.commit()
+
+        result = await store.get_top_events("italy", days=7, limit=3)
+        assert len(result) == 3
+        assert result[0]["news_value_score"] == 95
+        assert result[1]["news_value_score"] == 85
+        assert result[2]["news_value_score"] == 70
+        await store.close()
