@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import uuid
 from collections import defaultdict
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -161,6 +162,56 @@ class ProviderRoutesResponse(BaseModel):
     routes_version: str
     routes: list[RouteInfo]
     fallback_route_id: str | None = None
+
+
+# ── 配置写入模型 ──────────────────────────────────────
+
+
+class TargetConfigUpdate(BaseModel):
+    """Target 配置更新请求。"""
+
+    display_name: str | None = None
+    timezone: str | None = None
+    classification: dict[str, Any] | None = None
+    language_scope: dict[str, Any] | None = None
+
+
+class SourceConfigUpdate(BaseModel):
+    """Source 配置更新请求。"""
+
+    display_name: str | None = None
+    url: str | None = None
+    credibility_base: float | None = None
+    fetch_interval_minutes: int | None = None
+    max_items_per_run: int | None = None
+    timeout_seconds: int | None = None
+    enabled: bool | None = None
+
+
+class FilterConfigUpdate(BaseModel):
+    """Filter 配置更新请求。"""
+
+    score_threshold: int | None = None
+    max_age_hours: int | None = None
+    dedup_window_hours: int | None = None
+    keyword_rules: list[dict[str, Any]] | None = None
+
+
+class DestinationConfigUpdate(BaseModel):
+    """Destination 配置更新请求。"""
+
+    enabled: bool | None = None
+    filter: dict[str, Any] | None = None
+    notes: str | None = None
+
+
+class RouteConfigUpdate(BaseModel):
+    """Provider Route 配置更新请求。"""
+
+    timeout_seconds: int | None = None
+    max_cost_usd_per_call: float | None = None
+    audit: bool | None = None
+    fallback_route_ids: list[str] | None = None
 
 
 class EntityInfo(BaseModel):
@@ -806,6 +857,34 @@ def _load_single_source(target_id: str, source_id: str) -> dict[str, Any] | None
     return _load_yaml_file(source_path)
 
 
+# ── 配置写入辅助函数 ─────────────────────────────────
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """深度合并两个 dict，返回新 dict。override 的值覆盖 base。"""
+    result = base.copy()
+    for k, v in override.items():
+        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+            result[k] = _deep_merge(result[k], v)
+        else:
+            result[k] = v
+    return result
+
+
+def _atomic_write_yaml(filepath: Path, data: dict[str, Any]) -> None:
+    """原子写入 YAML 文件（UUID tmp + os.replace）。"""
+    filepath = Path(filepath)
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    tmp = filepath.parent / f".{filepath.name}.{uuid.uuid4().hex}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            yaml.safe_dump(data, f, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        os.replace(tmp, filepath)
+    finally:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+
+
 def _load_all_events(data_dir: Path, target_id: str) -> list[dict[str, Any]]:
     """从 data/{target_id}/drafts/ 读取所有事件（不分页）。"""
     drafts_dir = data_dir / target_id / "drafts"
@@ -1273,6 +1352,166 @@ def create_app(
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
         _config_cache.reload()
         return {"status": "ok", "message": "Configuration cache cleared"}
+
+    # ── Phase 42: 配置写入端点 ────────────────────────────
+
+    @app.put("/api/v1/config/targets/{target_id}")
+    async def update_target_config(
+        target_id: str,
+        body: TargetConfigUpdate,
+        x_api_key: str | None = Header(None, alias="X-API-Key"),
+    ) -> dict[str, Any]:
+        """更新 target 配置。"""
+        key = _verify_api_key(x_api_key)
+        if not _rate_limiter.check(key):
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+        filepath = Path(f"config/targets/{target_id}.yaml")
+        if not filepath.exists():
+            raise HTTPException(status_code=404, detail=f"Target config not found: {target_id}")
+
+        existing = _load_yaml_file(filepath)
+        if not existing:
+            raise HTTPException(status_code=500, detail="Failed to load existing config")
+
+        update_data = {k: v for k, v in body.model_dump().items() if v is not None}
+        merged = _deep_merge(existing, update_data)
+
+        _atomic_write_yaml(filepath, merged)
+        _config_cache.clear()
+
+        return merged
+
+    @app.patch("/api/v1/config/targets/{target_id}/sources/{source_id:path}")
+    async def update_source_config(
+        target_id: str,
+        source_id: str,
+        body: SourceConfigUpdate,
+        x_api_key: str | None = Header(None, alias="X-API-Key"),
+    ) -> dict[str, Any]:
+        """更新 source 配置。"""
+        key = _verify_api_key(x_api_key)
+        if not _rate_limiter.check(key):
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+        filepath = Path(f"config/sources/{target_id}/{source_id}.yaml")
+        if not filepath.exists():
+            raise HTTPException(status_code=404, detail=f"Source config not found: {source_id}")
+
+        existing = _load_yaml_file(filepath)
+        if not existing:
+            raise HTTPException(status_code=500, detail="Failed to load existing config")
+
+        update_data = {k: v for k, v in body.model_dump().items() if v is not None}
+        merged = _deep_merge(existing, update_data)
+
+        _atomic_write_yaml(filepath, merged)
+        _config_cache.clear()
+
+        return merged
+
+    @app.patch("/api/v1/config/targets/{target_id}/filters")
+    async def update_filter_config(
+        target_id: str,
+        body: FilterConfigUpdate,
+        x_api_key: str | None = Header(None, alias="X-API-Key"),
+    ) -> dict[str, Any]:
+        """更新 filter 配置。"""
+        key = _verify_api_key(x_api_key)
+        if not _rate_limiter.check(key):
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+        filepath = Path(f"config/filters/{target_id}/default.yaml")
+        if not filepath.exists():
+            raise HTTPException(status_code=404, detail=f"Filter config not found for: {target_id}")
+
+        existing = _load_yaml_file(filepath)
+        if not existing:
+            raise HTTPException(status_code=500, detail="Failed to load existing config")
+
+        update_data = {k: v for k, v in body.model_dump().items() if v is not None}
+        merged = _deep_merge(existing, update_data)
+
+        _atomic_write_yaml(filepath, merged)
+        _config_cache.clear()
+
+        return merged
+
+    @app.patch("/api/v1/config/output/destinations/{destination_id}")
+    async def update_destination_config(
+        destination_id: str,
+        body: DestinationConfigUpdate,
+        x_api_key: str | None = Header(None, alias="X-API-Key"),
+    ) -> dict[str, Any]:
+        """更新 output destination 配置。"""
+        key = _verify_api_key(x_api_key)
+        if not _rate_limiter.check(key):
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+        filepath = Path("config/output/destinations.yaml")
+        if not filepath.exists():
+            raise HTTPException(status_code=404, detail="Destinations config not found")
+
+        existing = _load_yaml_file(filepath)
+        if not existing:
+            raise HTTPException(status_code=500, detail="Failed to load existing config")
+
+        dests: list[dict[str, Any]] = existing.get("destinations", [])
+        found = False
+        result: dict[str, Any] = {}
+        for i, d in enumerate(dests):
+            if d.get("destination_id") == destination_id:
+                update_data = {k: v for k, v in body.model_dump().items() if v is not None}
+                dests[i] = _deep_merge(d, update_data)
+                result = dests[i]
+                found = True
+                break
+
+        if not found:
+            raise HTTPException(status_code=404, detail=f"Destination not found: {destination_id}")
+
+        _atomic_write_yaml(filepath, existing)
+        _config_cache.clear()
+
+        return result
+
+    @app.patch("/api/v1/config/provider/routes/{route_id}")
+    async def update_provider_route(
+        route_id: str,
+        body: RouteConfigUpdate,
+        x_api_key: str | None = Header(None, alias="X-API-Key"),
+    ) -> dict[str, Any]:
+        """更新 provider route 配置。"""
+        key = _verify_api_key(x_api_key)
+        if not _rate_limiter.check(key):
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+        filepath = Path("config/provider/routes.yaml")
+        if not filepath.exists():
+            raise HTTPException(status_code=404, detail="Provider routes config not found")
+
+        existing = _load_yaml_file(filepath)
+        if not existing:
+            raise HTTPException(status_code=500, detail="Failed to load existing config")
+
+        routes: list[dict[str, Any]] = existing.get("routes", [])
+        found = False
+        result: dict[str, Any] = {}
+        for i, r in enumerate(routes):
+            if r.get("route_id") == route_id:
+                update_data = {k: v for k, v in body.model_dump().items() if v is not None}
+                routes[i] = _deep_merge(r, update_data)
+                result = routes[i]
+                found = True
+                break
+
+        if not found:
+            raise HTTPException(status_code=404, detail=f"Route not found: {route_id}")
+
+        _atomic_write_yaml(filepath, existing)
+        _config_cache.clear()
+
+        return result
 
     # ── Phase 34: 运维端点 ────────────────────────────────
 

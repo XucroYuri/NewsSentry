@@ -1723,3 +1723,124 @@ class TestFeedbackAndAlertAPI:
             },
         )
         assert resp.status_code == 404
+
+
+class TestConfigWriteEndpoints:
+    """Phase 42: 配置写入端点测试。"""
+
+    def _make_client(self, tmp_path: Path) -> TestClient:
+        app = create_app(data_dir=tmp_path)
+        return TestClient(app)
+
+    def _setup_auth(self) -> dict[str, str]:
+        os.environ["NEWSSENTRY_API_KEY"] = "secret123"
+        return {"X-API-Key": "secret123"}
+
+    def _teardown_auth(self) -> None:
+        del os.environ["NEWSSENTRY_API_KEY"]
+
+    def test_update_target_config(self, tmp_path: Path) -> None:
+        """PUT /config/targets/{id} 更新 target 配置。"""
+        filepath = Path("config/targets/italy.yaml")
+        original = filepath.read_text(encoding="utf-8")
+        headers = self._setup_auth()
+        try:
+            client = self._make_client(tmp_path)
+            resp = client.put(
+                "/api/v1/config/targets/italy",
+                json={"display_name": "意大利 (测试)"},
+                headers=headers,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["display_name"] == "意大利 (测试)"
+        finally:
+            filepath.write_text(original, encoding="utf-8")
+            self._teardown_auth()
+
+    def test_update_source_config(self, tmp_path: Path) -> None:
+        """PATCH /config/targets/{id}/sources/{sid} 更新 source。"""
+        filepath = Path("config/sources/italy/aci-stampa.yaml")
+        original = filepath.read_text(encoding="utf-8")
+        headers = self._setup_auth()
+        try:
+            client = self._make_client(tmp_path)
+            resp = client.patch(
+                "/api/v1/config/targets/italy/sources/aci-stampa",
+                json={"enabled": False},
+                headers=headers,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["enabled"] is False
+        finally:
+            filepath.write_text(original, encoding="utf-8")
+            self._teardown_auth()
+
+    def test_update_filter_config(self, tmp_path: Path) -> None:
+        """PATCH /config/targets/{id}/filters 更新 filter。"""
+        filepath = Path("config/filters/italy/default.yaml")
+        original = filepath.read_text(encoding="utf-8")
+        headers = self._setup_auth()
+        try:
+            client = self._make_client(tmp_path)
+            resp = client.patch(
+                "/api/v1/config/targets/italy/filters",
+                json={"score_threshold": 50},
+                headers=headers,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["score_threshold"] == 50
+        finally:
+            filepath.write_text(original, encoding="utf-8")
+            self._teardown_auth()
+
+    def test_update_destination(self, tmp_path: Path) -> None:
+        """PATCH /config/output/destinations/{id} 更新 destination。"""
+        filepath = Path("config/output/destinations.yaml")
+        original = filepath.read_text(encoding="utf-8")
+        headers = self._setup_auth()
+        try:
+            client = self._make_client(tmp_path)
+            resp = client.patch(
+                "/api/v1/config/output/destinations/obsidian_target_drafts",
+                json={"enabled": False},
+                headers=headers,
+            )
+            assert resp.status_code == 200
+        finally:
+            filepath.write_text(original, encoding="utf-8")
+            self._teardown_auth()
+
+    def test_update_provider_route(self, tmp_path: Path) -> None:
+        """PATCH /config/provider/routes/{id} 更新 route。"""
+        filepath = Path("config/provider/routes.yaml")
+        original = filepath.read_text(encoding="utf-8")
+        headers = self._setup_auth()
+        try:
+            client = self._make_client(tmp_path)
+            resp = client.patch(
+                "/api/v1/config/provider/routes/translate.fast",
+                json={"timeout_seconds": 45},
+                headers=headers,
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["timeout_seconds"] == 45
+        finally:
+            filepath.write_text(original, encoding="utf-8")
+            self._teardown_auth()
+
+    def test_config_write_requires_auth(self, tmp_path: Path) -> None:
+        """配置写入端点要求 API key 认证。"""
+        os.environ["NEWSSENTRY_API_KEY"] = "secret123"
+        try:
+            client = self._make_client(tmp_path)
+            resp = client.put(
+                "/api/v1/config/targets/italy",
+                json={"display_name": "test"},
+            )
+            assert resp.status_code == 401
+        finally:
+            del os.environ["NEWSSENTRY_API_KEY"]
