@@ -9,22 +9,19 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.12"]
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e ".[dev,api,proxy]"
 
       - name: Lint (ruff)
         run: python -m ruff check
@@ -32,8 +29,8 @@ jobs:
       - name: Type check (mypy)
         run: python -m mypy src/news_sentry/
 
-      - name: Test (pytest)
-        run: python -m pytest tests/ -q --tb=short
+      - name: Test (pytest + coverage)
+        run: python -m pytest tests/ -q --tb=short --cov=src/news_sentry --cov-report=term-missing --cov-report=xml
 
       - name: Security scan (sensitive keywords)
         run: python tools/scan_sensitive_data.py
