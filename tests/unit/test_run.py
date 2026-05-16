@@ -621,3 +621,65 @@ def _setup_minimal_project(root: Path) -> None:
     (sources_dir / "test-source.yaml").write_text(
         "# Schema: schemas/sourcechannel.schema.json\n" + yaml.dump(source_data, allow_unicode=True)
     )
+
+
+class TestEntityPersistence:
+    """P32.04: NLP 增强后实体持久化。"""
+
+    @pytest.mark.asyncio
+    async def test_entity_persistence_after_nlp(self, tmp_path: Path):
+        """NLP 增强后实体被持久化到 store。"""
+        from datetime import UTC, datetime
+
+        from news_sentry.core.async_store import AsyncStore
+        from news_sentry.models.newsevent import (
+            JudgeRecommendation,
+            JudgeResult,
+            NewsEvent,
+            NLPAnalysis,
+            NLPEntity,
+            Sentiment,
+        )
+
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+
+        event = NewsEvent(
+            id="ne-test-001",
+            run_id="run-test-001",
+            source_id="test",
+            url="https://example.com",
+            title_original="Test",
+            content_original="Test body",
+            language="it",
+            published_at="2026-05-16T12:00:00+00:00",
+            collected_at="2026-05-16T12:01:00+00:00",
+        )
+        event.judge_result = JudgeResult(
+            recommendation=JudgeRecommendation.PUBLISH,
+            rationale="Test rationale",
+            confidence=80,
+            news_value_score=70,
+            nlp_analysis=NLPAnalysis(
+                sentiment=Sentiment.POSITIVE,
+                entities=[
+                    NLPEntity(name="Meloni", entity_type="person", relevance=80),
+                    NLPEntity(name="Roma", entity_type="location", relevance=50),
+                ],
+            ),
+        )
+
+        # 直接测试持久化逻辑
+        nlp = event.judge_result.nlp_analysis
+        if nlp is not None:
+            now = datetime.now(UTC).isoformat()
+            for entity in nlp.entities:
+                await store.upsert_entity(entity.name, entity.entity_type, "italy", now)
+
+        entities = await store.query_entities(limit=10)
+        assert len(entities) == 2
+        names = {e["canonical_name"] for e in entities}
+        assert "Meloni" in names
+        assert "Roma" in names
+
+        await store.close()

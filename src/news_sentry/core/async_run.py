@@ -193,6 +193,7 @@ async def bounded_run_async(
                 memory,
                 ctx,
                 cache_mgr=cache_mgr,
+                store=store,
             )
         elif stage == "all":
             await _run_collect_async(
@@ -215,6 +216,7 @@ async def bounded_run_async(
                 memory,
                 ctx,
                 cache_mgr=cache_mgr,
+                store=store,
             )
             await _run_output_async(config, run_id, run_log, file_writer, ctx, store=store)
 
@@ -398,6 +400,7 @@ async def _run_judge_async(
     memory: Memory,
     ctx: PipelineContext,
     cache_mgr: LLMCacheManager | None = None,
+    store: AsyncStore | None = None,
 ) -> None:
     """异步研判阶段 — P27 使用 TieredConfidenceRouter 并发研判。
 
@@ -472,6 +475,23 @@ async def _run_judge_async(
             )
     except Exception as e:
         logger.warning("NLP 增强失败（非阻塞）: %s", e)
+
+    # P32: 实体持久化
+    if store is not None:
+        try:
+            now_iso = datetime.now(UTC).isoformat()
+            for event in judged:
+                nlp = getattr(event, "judge_result", None) and getattr(
+                    event.judge_result, "nlp_analysis", None
+                )
+                if nlp is None:
+                    continue
+                for entity in nlp.entities:
+                    await store.upsert_entity(
+                        entity.name, entity.entity_type, config.target_id, now_iso
+                    )
+        except Exception as e:
+            logger.warning("实体持久化失败（非阻塞）: %s", e)
 
     # 写入研判结果
     for event in judged:
