@@ -6,6 +6,7 @@
 > Phase 25-29 性能优化: ✅ 全部完成 (异步 pipeline + SQLite + AI 批处理/缓存/分级路由 + API SQLite 查询 + 多目标并发调度)
 > Phase 30 多语言 NLP: ✅ 全部完成 (规则引擎零成本基线 + AI 按需升级 + 5 种语言情感/实体词典)
 > Phase 31 NLP API: ✅ 全部完成 (Frontmatter + SQLite 索引 + API 过滤 + sentiment_breakdown)
+> Phase 32 Entity Tracking: ✅ 全部完成 (entities 表 + upsert 去重 + 查询 API + top_entities + async_run 集成)
 > 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](spec/README.md) 为准）
 > Cloud VPS 方案: [docs/deployment/cloud-vps-recommendations.md](./deployment/cloud-vps-recommendations.md)
 > 字段口径基准: [`docs/contracts-canonical.md`](./contracts-canonical.md)
@@ -1111,6 +1112,28 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P31.03 | SQLite 查询扩展 | `async_store.py` 过滤 + stats | P31.02 | M | NLP 过滤 + sentiment_breakdown | ✅ |
 | P31.04 | API Server 扩展 | `api_server.py` 过滤参数 + stats | P31.03 | M | 4 API 测试通过 | ✅ |
 | P31.05 | 验证与清理 | development-plan.md 更新 | P31.04 | S | 1511 tests, ruff=0, mypy=0, 92% | ✅ |
+
+---
+
+### Phase 32 · Entity Tracking & Cross-Reference ✅
+
+**目标：** 将 NLP 实体从一次性提取升级为跨 run 持久化追踪，支持累计统计和 API 查询。
+
+**核心交付：**
+- SQLite 新增 `entities` 表（UNIQUE 去重 + mention_count 累计）
+- `upsert_entity()` 原子操作：INSERT ON CONFLICT DO UPDATE
+- `query_entities()` + `query_entity_detail()` 支持过滤/排序
+- API `GET /entities` + `GET /entities/{id}` + `stats.top_entities`
+- async_run 集成：NLP 增强后自动持久化实体
+- 1511 tests → 1527 tests, 92% coverage
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 | 状态 |
+|----|------|--------|------|------|--------|------|
+| P32.01 | entities 表 + upsert_entity | `async_store.py` DDL + 方法 | P31 | M | 5 entity tests, ON CONFLICT 去重 | ✅ |
+| P32.02 | entity 查询方法 | `async_store.py` query + stats | P32.01 | M | 5 query tests, top_entities | ✅ |
+| P32.03 | API entity 端点 | `api_server.py` 2 新端点 + StatsResponse | P32.02 | M | 5 API tests | ✅ |
+| P32.04 | async_run 集成 | `async_run.py` store 参数 + 持久化 | P32.01 | S | 1 集成 test | ✅ |
+| P32.05 | 验证与清理 | development-plan.md 更新 | P32.03, P32.04 | S | 1527 tests, ruff=0, mypy=0, 92% | ✅ |
 
 ---
 
