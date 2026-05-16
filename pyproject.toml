@@ -32,6 +32,7 @@ dependencies = [
     "click>=8.1",
     "aiosqlite>=0.20",
     "cachetools>=5.3",
+    "jsonschema>=4.21",
 ]
 
 [project.optional-dependencies]
