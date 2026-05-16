@@ -18,6 +18,7 @@ API Server — FastAPI REST API 网关。
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from collections import defaultdict
@@ -188,6 +189,72 @@ class EntityDetailResponse(BaseModel):
     recent_events: list[dict[str, Any]] = []
 
 
+class RunInfo(BaseModel):
+    """运行历史条目。"""
+
+    run_id: str
+    target_id: str = ""
+    started_at: str = ""
+    ended_at: str = ""
+    duration_ms: float = 0
+    events_collected: int = 0
+    errors_count: int = 0
+    status: str = "completed"
+
+
+class RunListResponse(BaseModel):
+    """运行历史列表响应。"""
+
+    runs: list[RunInfo]
+
+
+class RunDetailResponse(BaseModel):
+    """运行详情响应。"""
+
+    run_id: str
+    target_id: str = ""
+    started_at: str = ""
+    ended_at: str = ""
+    phases: list[dict[str, Any]] = []
+    errors_count: int = 0
+    errors: list[dict[str, Any]] = []
+    summary: dict[str, Any] = {}
+
+
+class HeartbeatResponse(BaseModel):
+    """活跃运行心跳响应。"""
+
+    active: bool
+    run_id: str = ""
+    last_stage: str = ""
+    last_at: str = ""
+    status: str = ""
+
+
+class SourceHealthInfo(BaseModel):
+    """信源健康状态条目。"""
+
+    source_id: str
+    status: str
+    last_check: str
+    error_count: int = 0
+    metadata: dict[str, Any] = {}
+
+
+class SourceHealthListResponse(BaseModel):
+    """信源健康列表响应。"""
+
+    sources: list[SourceHealthInfo]
+
+
+class TriggerResponse(BaseModel):
+    """Pipeline 触发响应。"""
+
+    status: str
+    run_id: str
+    message: str
+
+
 # ── API Key 认证 ───────────────────────────────────────
 
 _API_KEY_ENV = "NEWSSENTRY_API_KEY"
@@ -242,6 +309,83 @@ class _RateLimiter:
 
 
 _rate_limiter = _RateLimiter()
+
+
+# ── 运行日志读取 ────────────────────────────────────────
+
+
+def _load_run_logs(
+    data_dir: Path,
+    target_id: str,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """从 logs/ 目录读取最近的运行日志。"""
+    log_dir = data_dir / target_id / "logs"
+    if not log_dir.is_dir():
+        return []
+    json_files = sorted(log_dir.glob("*.json"), reverse=True)
+    runs: list[dict[str, Any]] = []
+    for f in json_files[:limit]:
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            phases = data.get("phases", [])
+            total_ms = sum(p.get("duration_ms", 0) for p in phases)
+            summary = data.get("summary", {})
+            runs.append(
+                {
+                    "run_id": data.get("run_id", f.stem),
+                    "target_id": data.get("target_id", target_id),
+                    "started_at": data.get("started_at", ""),
+                    "ended_at": data.get("ended_at", ""),
+                    "duration_ms": total_ms,
+                    "events_collected": summary.get("total_events_collected", 0),
+                    "errors_count": data.get("errors_count", 0),
+                    "status": "completed" if data.get("ended_at") else "running",
+                }
+            )
+        except (json.JSONDecodeError, OSError):
+            continue
+    return runs
+
+
+def _load_single_run_log(
+    data_dir: Path,
+    run_id: str,
+    target_id: str,
+) -> dict[str, Any] | None:
+    """读取单个运行日志详情。"""
+    log_dir = data_dir / target_id / "logs"
+    if not log_dir.is_dir():
+        return None
+    for f in log_dir.glob("*.json"):
+        if run_id in f.name:
+            try:
+                data: dict[str, Any] = json.loads(f.read_text(encoding="utf-8"))
+                return data
+            except (json.JSONDecodeError, OSError):
+                return None
+    return None
+
+
+def _load_heartbeat(
+    data_dir: Path,
+    target_id: str,
+) -> dict[str, Any]:
+    """读取心跳文件。"""
+    hb_path = data_dir / target_id / "logs" / ".heartbeat-hermes.json"
+    if not hb_path.is_file():
+        return {"active": False}
+    try:
+        data = json.loads(hb_path.read_text(encoding="utf-8"))
+        return {
+            "active": data.get("status") == "running",
+            "run_id": data.get("run_id", ""),
+            "last_stage": data.get("last_stage", ""),
+            "last_at": data.get("last_at", ""),
+            "status": data.get("status", ""),
+        }
+    except (json.JSONDecodeError, OSError):
+        return {"active": False}
 
 
 # ── 事件存储读取 ────────────────────────────────────────
@@ -860,6 +1004,75 @@ def create_app(
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
         _config_cache.reload()
         return {"status": "ok", "message": "Configuration cache cleared"}
+
+    # ── Phase 34: 运维端点 ────────────────────────────────
+
+    @app.get("/api/v1/runs", response_model=RunListResponse)
+    async def list_runs(
+        target_id: str = Query(..., description="目标标识"),
+        limit: int = Query(20, ge=1, le=100),
+    ) -> RunListResponse:
+        runs = _load_run_logs(_data_dir, target_id, limit)
+        return RunListResponse(runs=[RunInfo(**r) for r in runs])
+
+    @app.get("/api/v1/runs/active", response_model=HeartbeatResponse)
+    async def get_active_run(
+        target_id: str = Query(..., description="目标标识"),
+    ) -> HeartbeatResponse:
+        data = _load_heartbeat(_data_dir, target_id)
+        return HeartbeatResponse(**data)
+
+    @app.get("/api/v1/runs/{run_id:path}", response_model=RunDetailResponse)
+    async def get_run_detail(
+        run_id: str,
+        target_id: str = Query(..., description="目标标识"),
+    ) -> RunDetailResponse:
+        data = _load_single_run_log(_data_dir, run_id, target_id)
+        if data is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return RunDetailResponse(
+            run_id=data.get("run_id", run_id),
+            target_id=data.get("target_id", target_id),
+            started_at=data.get("started_at", ""),
+            ended_at=data.get("ended_at", ""),
+            phases=data.get("phases", []),
+            errors_count=data.get("errors_count", 0),
+            errors=data.get("errors", []),
+            summary=data.get("summary", {}),
+        )
+
+    @app.get("/api/v1/sources/health", response_model=SourceHealthListResponse)
+    async def list_source_health(
+        target_id: str = Query(..., description="目标标识"),
+    ) -> SourceHealthListResponse:
+        if _store is None:
+            return SourceHealthListResponse(sources=[])
+        records = await _store.get_all_source_health()
+        return SourceHealthListResponse(sources=[SourceHealthInfo(**r) for r in records])
+
+    @app.post("/api/v1/runs/trigger", response_model=TriggerResponse)
+    async def trigger_run(
+        target_id: str = Query(..., description="目标标识"),
+        stage: str = Query("all", description="执行阶段"),
+        x_api_key: str | None = Header(None, alias="X-API-Key"),
+    ) -> TriggerResponse:
+        key = _verify_api_key(x_api_key)
+        if not _rate_limiter.check(key):
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        try:
+            import asyncio
+
+            from news_sentry.core.async_run import bounded_run_async
+
+            run_id = f"{target_id}_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
+            asyncio.create_task(bounded_run_async(target_id=target_id, stage=stage, run_id=run_id))
+            return TriggerResponse(
+                status="triggered",
+                run_id=run_id,
+                message=f"Pipeline triggered for {target_id}/{stage}",
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
 
     # ── 静态文件（必须在所有 API 路由之后挂载）────────
     static_dir = Path(__file__).parent.parent / "static"

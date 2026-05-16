@@ -8,6 +8,7 @@
 > Phase 31 NLP API: ✅ 全部完成 (Frontmatter + SQLite 索引 + API 过滤 + sentiment_breakdown)
 > Phase 32 Entity Tracking: ✅ 全部完成 (entities 表 + upsert 去重 + 查询 API + top_entities + async_run 集成)
 > Phase 33 Web UI NLP: ✅ 全部完成 (ES Modules 拆分 + Dashboard 情感/实体可视化 + 事件 NLP 筛选/展示 + Entity 浏览页)
+> Phase 34 运维仪表盘: ✅ 全部完成 (RunLog API + 信源健康 API + Pipeline 触发 + 运维 Web UI)
 > 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](spec/README.md) 为准）
 > Cloud VPS 方案: [docs/deployment/cloud-vps-recommendations.md](./deployment/cloud-vps-recommendations.md)
 > 字段口径基准: [`docs/contracts-canonical.md`](./contracts-canonical.md)
@@ -1154,6 +1155,24 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P33.02 | Dashboard + Events NLP | dashboard.js + events.js + style.css | P33.01 | L | 情感图/实体列表/筛选/卡片增强/详情NLP | ✅ |
 | P33.03 | Entity 浏览页 | entities.js + index.html + app.js + style.css | P33.01 | M | 列表筛选 + 详情关联事件 | ✅ |
 | P33.04 | 验证与清理 | development-plan.md 更新 | P33.02, P33.03 | S | 1527 tests, ruff=0, mypy=0, 92% | ✅ |
+
+### Phase 34 · 运维仪表盘 + Pipeline 控制 ✅
+
+**目标：** 将 RunLog、信源健康等运维数据通过 API 暴露，在 Web UI 中可视化，支持从 UI 手动触发采集。
+
+**核心交付：**
+- AsyncStore 批量信源健康查询 `get_all_source_health()`
+- 5 个新 API 端点：运行历史列表、运行详情、活跃运行心跳、信源健康、Pipeline 触发
+- Web UI 运维总览页（#/ops）：运行历史 + 信源健康 + 触发/重载操作
+- Web UI 运行详情页（#/ops/{run_id}）：阶段执行 + 汇总 + 错误
+- 1527 tests → 1535 tests, ruff=0, mypy=0, 92% coverage
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 | 状态 |
+|----|------|--------|------|------|--------|------|
+| P34.01 | 批量信源健康查询 | async_store.py + 测试 | P33 | S | 2 新测试, 1529 tests | ✅ |
+| P34.02 | API 运维端点 | api_server.py 5 端点 + 测试 | P34.01 | M | 6 新测试, 1535 tests | ✅ |
+| P34.03 | 前端运维页面 | ops.js + app.js + index.html + style.css | P34.02 | M | 运维总览 + 运行详情 | ✅ |
+| P34.04 | 验证与清理 | development-plan.md 更新 | P34.03 | S | 1535 tests, ruff=0, mypy=0, 92% | ✅ |
 
 ---
 
