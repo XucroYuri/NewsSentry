@@ -67,6 +67,9 @@ CREATE TABLE IF NOT EXISTS event_index (
     title_original    TEXT,
     published_at      TEXT,
     file_path         TEXT,
+    sentiment         TEXT,
+    entity_names      TEXT,
+    topic_tags        TEXT,
     created_at        TEXT NOT NULL
 )
 """
@@ -75,6 +78,8 @@ _DDL_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_known_ids_seen ON known_ids(seen_at)",
     "CREATE INDEX IF NOT EXISTS idx_event_target_stage ON event_index(target_id, stage)",
     "CREATE INDEX IF NOT EXISTS idx_event_published ON event_index(published_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_event_sentiment ON event_index(sentiment)",
+    "CREATE INDEX IF NOT EXISTS idx_event_topic_tags ON event_index(topic_tags)",
 )
 
 __all__ = ["AsyncStore"]
@@ -100,6 +105,14 @@ class AsyncStore:
         await self._db.execute(_DDL_CURSORS)
         await self._db.execute(_DDL_LLM_CACHE)
         await self._db.execute(_DDL_EVENT_INDEX)
+        # Phase 31: 为已有数据库添加 NLP 列
+        for col in ("sentiment", "entity_names", "topic_tags"):
+            try:
+                await self._db.execute(
+                    f"ALTER TABLE event_index ADD COLUMN {col} TEXT"  # noqa: S608
+                )
+            except Exception:  # noqa: S110
+                pass  # 列已存在
         for idx_sql in _DDL_INDEXES:
             await self._db.execute(idx_sql)
         await self._db.commit()
@@ -308,6 +321,27 @@ class AsyncStore:
     # Event Index
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _extract_nlp_fields(event: Any) -> tuple[str | None, str | None, str | None]:  # noqa: ANN401
+        """从 event.judge_result.nlp_analysis 提取 SQLite 窄列值。"""
+        judge_result = getattr(event, "judge_result", None)
+        if judge_result is None:
+            return None, None, None
+        nlp = getattr(judge_result, "nlp_analysis", None)
+        if nlp is None:
+            return None, None, None
+
+        sentiment = nlp.sentiment.value if nlp.sentiment is not None else None
+        if not isinstance(sentiment, str):
+            sentiment = None
+        entity_names = ",".join(e.name for e in nlp.entities) if nlp.entities else None
+        if not isinstance(entity_names, str):
+            entity_names = None
+        topic_tags = ",".join(nlp.topic_tags) if nlp.topic_tags else None
+        if not isinstance(topic_tags, str):
+            topic_tags = None
+        return sentiment, entity_names, topic_tags
+
     async def index_event(
         self,
         event: object,
@@ -326,8 +360,9 @@ class AsyncStore:
             """INSERT OR REPLACE INTO event_index
                (event_id, target_id, stage, source_id, news_value_score,
                 china_relevance, classification_l0, title_original,
-                published_at, file_path, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(
+                published_at, file_path, sentiment, entity_names, topic_tags,
+                created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(
                    (SELECT created_at FROM event_index WHERE event_id = ?), ?))""",
             (
                 getattr(event, "id", ""),
@@ -340,6 +375,7 @@ class AsyncStore:
                 getattr(event, "title_original", None),
                 getattr(event, "published_at", None),
                 file_path,
+                *self._extract_nlp_fields(event),
                 getattr(event, "id", ""),
                 now,
             ),
