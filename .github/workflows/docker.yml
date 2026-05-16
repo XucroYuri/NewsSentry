@@ -35,14 +35,51 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=sha
 
-      - name: Build and push image
+      - name: Extract version
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      # ── Stage 1: Core 镜像（RSS/API + 研判 + API Server）──
+      - name: Build core image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.core
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}-core
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:core
+
+      # ── Stage 2: Browser 镜像（+ Playwright + OpenCLI）──
+      - name: Build browser image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.browser
+          push: true
+          build-args: |
+            CORE_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}-core
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}-browser
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:browser
+
+      # ── Stage 3: Full 镜像（+ ffmpeg + yt-dlp + Hermes cron）──
+      - name: Build full image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile.full
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            BROWSER_IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}-browser
+          tags: |
+            ${{ steps.meta.outputs.tags }}
 
-      - name: Test image
-        run: docker run --rm ${{ steps.meta.outputs.tags }} --version
+      - name: Test core image
+        run: |
+          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.VERSION }}-core \
+            python -m news_sentry.cli --help
+
+      - name: Test full image
+        run: |
+          docker run --rm ${{ steps.meta.outputs.tags }} --version

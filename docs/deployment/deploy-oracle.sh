@@ -33,6 +33,7 @@ ENV_FILE=""
 SKIP_FIREWALL=false
 GHCR_IMAGE="ghcr.io/xucroyuri/news-sentry"
 VERSION="1.5.0"
+IMAGE_TYPE="browser"
 IMAGE="Oracle-Linux-9.3-aarch64-2024.02.20-0"
 
 # ── 参数解析 ──
@@ -45,6 +46,7 @@ while [[ $# -gt 0 ]]; do
         --ad)           AVAILABILITY_DOMAIN="$2"; shift 2 ;;
         --compartment)  COMPARTMENT_ID="$2"; shift 2 ;;
         --env-file)     ENV_FILE="$2"; shift 2 ;;
+        --image-type)   IMAGE_TYPE="$2"; shift 2 ;;
         --skip-firewall) SKIP_FIREWALL=true; shift ;;
         --help)
             head -25 "$0" | tail -22
@@ -268,7 +270,7 @@ done
 
 # ── Step 5: 拉取镜像 ──
 echo "[6/7] 拉取 Docker 镜像 (ARM64)..."
-$SSH_CMD "docker pull ${GHCR_IMAGE}:${VERSION}"
+$SSH_CMD "docker pull ${GHCR_IMAGE}:${VERSION}-${IMAGE_TYPE}"
 
 # ── Step 6: 启动容器 ──
 echo "[7/7] 启动容器..."
@@ -290,7 +292,7 @@ $SSH_CMD "sudo docker run -d \
     -e RUN_STAGE=all \
     -e NEWSSENTRY_AI_BUDGET_USD=1.0 \
     -v /opt/news-sentry/data:/app/data \
-    ${GHCR_IMAGE}:${VERSION} \
+    ${GHCR_IMAGE}:${VERSION}-${IMAGE_TYPE} \
     run --target italy --stage all --profile cloud-vps"
 
 sleep 10

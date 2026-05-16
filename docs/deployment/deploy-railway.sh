@@ -29,12 +29,14 @@ ENV_FILE=""
 LOCAL_MODE=false
 GHCR_IMAGE="ghcr.io/xucroyuri/news-sentry"
 VERSION="1.5.0"
+IMAGE_TYPE="core"
 
 # ── 参数解析 ──
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --name)      PROJECT_NAME="$2"; shift 2 ;;
         --env-file)  ENV_FILE="$2"; shift 2 ;;
+        --image-type) IMAGE_TYPE="$2"; shift 2 ;;
         --local)     LOCAL_MODE=true; shift ;;
         --help)
             head -27 "$0" | tail -24
@@ -131,7 +133,7 @@ railway up --dockerfile Dockerfile 2>/dev/null || {
         echo "  请尝试通过 Railway Dashboard 部署:"
         echo "    1. 打开 https://railway.app/dashboard"
         echo "    2. 新建 Service → Docker Image"
-        echo "    3. 输入: ${GHCR_IMAGE}:${VERSION}"
+        echo "    3. 输入: ${GHCR_IMAGE}:${VERSION}-${IMAGE_TYPE}"
         exit 1
     }
 }

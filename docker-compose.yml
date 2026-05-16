@@ -1,9 +1,10 @@
 services:
+  # 核心服务（RSS/API 采集 + 研判 + API Server，无浏览器）
   news-sentry:
     build:
       context: .
-      dockerfile: Dockerfile
-    image: ghcr.io/xucroyuri/news-sentry:latest
+      dockerfile: Dockerfile.core
+    image: ghcr.io/xucroyuri/news-sentry:core
     env_file:
       - .env
     environment:
@@ -12,8 +13,8 @@ services:
     volumes:
       - ./data:/app/data
       - ./config:/app/config
-      - ./session-profiles:/app/session-profiles
-      - ./chrome-data:/home/appuser/.config/chromium
+    ports:
+      - "8000:8000"
     tmpfs:
       - /tmp
     restart: "no"
@@ -22,3 +23,24 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  # 浏览器服务（社媒/KOL/OpenCLI 采集，需要 ≥4GB RAM）
+  # 取消注释以启用浏览器采集:
+  # news-sentry-browser:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.browser
+  #   image: ghcr.io/xucroyuri/news-sentry:browser
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     - TARGET_ID=italy
+  #     - RUN_STAGE=all
+  #   volumes:
+  #     - ./data:/app/data
+  #     - ./config:/app/config
+  #     - ./session-profiles:/app/session-profiles
+  #     - ./chrome-data:/home/appuser/.config/chromium
+  #   tmpfs:
+  #     - /tmp
+  #   restart: "no"

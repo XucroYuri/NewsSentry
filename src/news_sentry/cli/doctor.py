@@ -102,71 +102,76 @@ def run_doctor(target_id: str, data_root: str = "data") -> DoctorReport:
             provider_ok = False
             provider_details.append(f"{var} not set")
 
-    # Browser Bridge check
+    # Browser Bridge check（core 镜像中为 optional）
+    image_type = os.environ.get("NEWSSENTRY_IMAGE_TYPE", "full")
+    is_core = image_type == "core"
     bridge_ok = True
     bridge_details: list[str] = []
 
-    chromium = shutil.which("chromium") or shutil.which("chromium-browser")
-    chromedriver = shutil.which("chromedriver")
-    xdpyinfo = shutil.which("xdpyinfo")
-
-    if chromium:
-        bridge_details.append(f"Chromium found at {chromium}")
+    if is_core:
+        bridge_details.append("core image: browser features not available (use browser/full image)")
     else:
-        bridge_details.append("Chromium not found")
-    if chromedriver:
-        bridge_details.append(f"ChromeDriver found at {chromedriver}")
-    else:
-        bridge_details.append("ChromeDriver not found")
+        chromium = shutil.which("chromium") or shutil.which("chromium-browser")
+        chromedriver = shutil.which("chromedriver")
+        xdpyinfo = shutil.which("xdpyinfo")
 
-    # Xvfb display check
-    display_ok = False
-    if xdpyinfo:
-        try:
-            result = subprocess.run(
-                ["xdpyinfo", "-display", ":99"],  # noqa: S607 — xdpyinfo path varies by distro
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            display_ok = result.returncode == 0
-        except Exception:  # noqa: S110 — Xvfb may not be running, health check handles this
-            pass
-    bridge_details.append(f"Xvfb display :99 {'available' if display_ok else 'not running'}")
+        if chromium:
+            bridge_details.append(f"Chromium found at {chromium}")
+        else:
+            bridge_details.append("Chromium not found")
+        if chromedriver:
+            bridge_details.append(f"ChromeDriver found at {chromedriver}")
+        else:
+            bridge_details.append("ChromeDriver not found")
 
-    # OpenCLI check
-    opencli = shutil.which("opencli")
-    opencli_ok = False
-    if opencli:
-        try:
-            result = subprocess.run(  # noqa: S603 — opencli path from shutil.which, trusted input
-                [opencli, "--version"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            opencli_ok = result.returncode == 0
-        except Exception:  # noqa: S110 — opencli may not be installed, health check handles this
-            pass
-    bridge_details.append(f"OpenCLI {'available' if opencli_ok else 'not found'}")
+        # Xvfb display check
+        display_ok = False
+        if xdpyinfo:
+            try:
+                result = subprocess.run(
+                    ["xdpyinfo", "-display", ":99"],  # noqa: S607 — xdpyinfo path varies by distro
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                display_ok = result.returncode == 0
+            except Exception:  # noqa: S110 — Xvfb may not be running, health check handles this
+                pass
+        bridge_details.append(f"Xvfb display :99 {'available' if display_ok else 'not running'}")
 
-    # Playwright check
-    npx = shutil.which("npx")
-    playwright_ok = False
-    if npx:
-        try:
-            result = subprocess.run(  # noqa: S603 — npx path from shutil.which, trusted input
-                [npx, "playwright", "--version"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            playwright_ok = result.returncode == 0
-        except Exception:  # noqa: S110 — playwright may not be installed, health check handles this
-            pass
-    bridge_details.append(f"Playwright {'available' if playwright_ok else 'not available'}")
+        # OpenCLI check
+        opencli = shutil.which("opencli")
+        opencli_ok = False
+        if opencli:
+            try:
+                result = subprocess.run(  # noqa: S603 — opencli path from shutil.which, trusted input
+                    [opencli, "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                opencli_ok = result.returncode == 0
+            except Exception:  # noqa: S110 — opencli may not be installed, health check handles this
+                pass
+        bridge_details.append(f"OpenCLI {'available' if opencli_ok else 'not found'}")
 
-    bridge_ok = bool(chromium) and bool(chromedriver)
+        # Playwright check
+        npx = shutil.which("npx")
+        playwright_ok = False
+        if npx:
+            try:
+                result = subprocess.run(  # noqa: S603 — npx path from shutil.which, trusted input
+                    [npx, "playwright", "--version"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                playwright_ok = result.returncode == 0
+            except Exception:  # noqa: S110 — playwright may not be installed, health check handles this
+                pass
+        bridge_details.append(f"Playwright {'available' if playwright_ok else 'not available'}")
+
+        bridge_ok = bool(chromium) and bool(chromedriver)
 
     # Session Profiles check
     session_ok = True
