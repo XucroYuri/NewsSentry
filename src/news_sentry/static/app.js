@@ -10,6 +10,7 @@
 import { state, dom, $, $$, api, escapeHtml, showError } from "./api.js";
 import { renderDashboard } from "./pages/dashboard.js";
 import { renderEventList, renderEventDetail } from "./pages/events.js";
+import { renderEntityList, renderEntityDetail } from "./pages/entities.js";
 import { renderConfigTarget, renderConfigSources, renderConfigFilters, renderConfigOutputs, renderConfigProvider } from "./pages/config.js";
 
 // ── 路由 ──────────────────────────────────────────────────
@@ -40,6 +41,8 @@ function navigate() {
     dashboard: "概览",
     events: "事件列表",
     event: "事件详情",
+    entities: "实体追踪",
+    entity: "实体详情",
     "config-target": "Target 配置",
     "config-sources": "Source 渠道管理",
     "config-filters": "Filter 规则",
@@ -47,7 +50,8 @@ function navigate() {
     "config-provider": "Provider 路由",
   };
   const pageKey = page === "events" && param ? "event" : page;
-  dom.pageTitle.textContent = titles[pageKey] || "概览";
+  const pageKeyFinal = page === "entities" && param ? "entity" : pageKey;
+  dom.pageTitle.textContent = titles[pageKeyFinal] || "概览";
 
   // 渲染对应页面
   state.currentPage = page;
@@ -57,6 +61,10 @@ function navigate() {
     renderEventDetail(param);
   } else if (page === "events") {
     renderEventList();
+  } else if (page === "entities" && param) {
+    renderEntityDetail(param);
+  } else if (page === "entities") {
+    renderEntityList();
   } else if (page === "config-target") {
     renderConfigTarget();
   } else if (page === "config-sources") {
