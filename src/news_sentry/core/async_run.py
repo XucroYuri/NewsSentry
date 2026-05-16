@@ -500,6 +500,14 @@ async def _run_judge_async(
         except Exception as e:
             logger.warning("事件关联扫描失败（非阻塞）: %s", e)
 
+    # P36: 链叙述生成
+    if store is not None:
+        try:
+            narrative_router = _try_create_provider_router()
+            await _generate_narratives(store, config.target_id, router=narrative_router)
+        except Exception as e:
+            logger.warning("链叙述生成失败（非阻塞）: %s", e)
+
     # 写入研判结果
     for event in judged:
         event.pipeline_stage = PipelineStage.JUDGED
@@ -508,6 +516,92 @@ async def _run_judge_async(
     ctx.events_judged = len(judged)
     duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
     run_log.log_phase_end("judge", len(judged), duration_ms)
+
+
+async def _generate_narratives(
+    store: AsyncStore,
+    target_id: str,
+    router: Any | None = None,  # noqa: ANN401
+) -> None:
+    """Phase 36: 对活跃追踪链生成 AI 叙述。
+
+    短链(<=5)一段，中链(6-10)两段，长链(>10)截断最近10事件。
+    失败不阻塞 pipeline。
+    """
+    if store._db is None or router is None:
+        return
+    try:
+        chains = await store.get_active_chains(target_id)
+        for chain_info in chains:
+            root_id = chain_info["root_event_id"]
+            chain = await store.get_event_chain(root_id, depth=15)
+            if len(chain) < 2:
+                continue
+
+            new_hash = AsyncStore.compute_chain_hash(chain)
+            existing = await store.get_narrative(root_id)
+            if existing and existing["narrative_hash"] == new_hash:
+                continue
+
+            if len(chain) > 10:
+                preamble_titles = ", ".join(e.get("title_original", "")[:30] for e in chain[:-10])
+                events_for_prompt = chain[-10:]
+                prefix = f"前序事件摘要：{preamble_titles}。以下是最新的进展：\n\n"
+            else:
+                events_for_prompt = chain
+                prefix = ""
+
+            event_lines = []
+            for e in events_for_prompt:
+                line = (
+                    f"- {e.get('published_at', '?')[:16]} | "
+                    f"{e.get('title_original', '?')} | "
+                    f"情感: {e.get('sentiment', '?')} | "
+                    f"实体: {e.get('entity_names', '?')} | "
+                    f"主题: {e.get('topic_tags', '?')}"
+                )
+                event_lines.append(line)
+
+            events_text = "\n".join(event_lines)
+            count = len(events_for_prompt)
+
+            if len(chain) > 5:
+                instruction = (
+                    f"以下是同一事件发展脉络中的 {count} 条报道，按时间排列：\n\n"
+                    f"{events_text}\n\n"
+                    f"请分两段概括：第一段概述事件背景和起因（100字以内），"
+                    f"第二段描述最新进展和走向（100字以内）。"
+                )
+            else:
+                instruction = (
+                    f"以下是同一事件发展脉络中的 {count} 条报道，按时间排列：\n\n"
+                    f"{events_text}\n\n"
+                    f"请用一段话（150字以内）概括这个事件的发展脉络，突出关键转折和核心人物。"
+                )
+
+            prompt = prefix + instruction
+
+            result = await router.route_async(
+                task_type="narrative",
+                prompt=prompt,
+                provider_factory=lambda name: None,
+            )
+            narrative_text = result.get("content", "").strip()
+            if not narrative_text:
+                continue
+
+            model_used = result.get("model", "")
+            await store.upsert_narrative(
+                chain_root_id=root_id,
+                target_id=target_id,
+                narrative=narrative_text,
+                narrative_hash=new_hash,
+                event_count=len(chain),
+                model_used=model_used,
+            )
+            logger.info("链叙述已生成: root=%s, events=%d", root_id, len(chain))
+    except Exception as e:
+        logger.warning("链叙述生成失败（非阻塞）: %s", e)
 
 
 async def _link_events(

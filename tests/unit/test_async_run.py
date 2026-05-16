@@ -444,3 +444,82 @@ class TestLinkEvents:
         new_event.id = "evt-test"
         # store 已关闭，操作应失败但不抛异常
         await _link_events(store, [new_event], "italy")
+
+
+class TestGenerateNarratives:
+    """Phase 36: _generate_narratives 协程测试。"""
+
+    @pytest.mark.asyncio
+    async def test_generate_narratives_skips_no_provider(self, tmp_path):
+        """无 ProviderRouter 时不生成叙述（不抛异常）。"""
+        from news_sentry.core.async_store import AsyncStore
+
+        db_path = tmp_path / "state.db"
+        store = AsyncStore(db_path)
+        await store.initialize()
+
+        now = "2026-05-16T12:00:00+00:00"
+        for eid in ("evt-1", "evt-2"):
+            await store._db.execute(
+                "INSERT INTO event_index "
+                "(event_id, target_id, stage, created_at, published_at, title_original) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (eid, "italy", "drafts", now, now, f"Event {eid}"),
+            )
+        await store._db.commit()
+        await store.create_link("evt-1", "evt-2", "followup", 0.8, {}, "italy")
+
+        from news_sentry.core.async_run import _generate_narratives
+
+        await _generate_narratives(store, "italy", router=None)
+        await store.close()
+
+    @pytest.mark.asyncio
+    async def test_generate_narratives_with_mock_router(self, tmp_path):
+        """模拟 ProviderRouter 成功生成叙述。"""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from news_sentry.core.async_store import AsyncStore
+
+        db_path = tmp_path / "state.db"
+        store = AsyncStore(db_path)
+        await store.initialize()
+
+        now = "2026-05-16T12:00:00+00:00"
+        for eid in ("evt-1", "evt-2"):
+            await store._db.execute(
+                "INSERT INTO event_index "
+                "(event_id, target_id, stage, created_at, published_at, "
+                "title_original, sentiment, entity_names, topic_tags, news_value_score) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    eid,
+                    "italy",
+                    "drafts",
+                    now,
+                    now,
+                    f"Event {eid}",
+                    "positive",
+                    "Meloni",
+                    "politics",
+                    75,
+                ),
+            )
+        await store._db.commit()
+        await store.create_link("evt-1", "evt-2", "followup", 0.8, {}, "italy")
+
+        router = MagicMock()
+        router.route_async = AsyncMock(
+            return_value={"content": "梅洛尼在意大利政坛持续活跃。", "model": "mock"}
+        )
+
+        from news_sentry.core.async_run import _generate_narratives
+
+        await _generate_narratives(store, "italy", router=router)
+
+        narrative = await store.get_narrative("evt-1")
+        assert narrative is not None
+        assert "梅洛尼" in narrative["narrative"]
+        assert narrative["model_used"] == "mock"
+
+        await store.close()
