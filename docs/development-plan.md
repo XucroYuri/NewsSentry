@@ -7,6 +7,7 @@
 > Phase 30 多语言 NLP: ✅ 全部完成 (规则引擎零成本基线 + AI 按需升级 + 5 种语言情感/实体词典)
 > Phase 31 NLP API: ✅ 全部完成 (Frontmatter + SQLite 索引 + API 过滤 + sentiment_breakdown)
 > Phase 32 Entity Tracking: ✅ 全部完成 (entities 表 + upsert 去重 + 查询 API + top_entities + async_run 集成)
+> Phase 33 Web UI NLP: ✅ 全部完成 (ES Modules 拆分 + Dashboard 情感/实体可视化 + 事件 NLP 筛选/展示 + Entity 浏览页)
 > 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](spec/README.md) 为准）
 > Cloud VPS 方案: [docs/deployment/cloud-vps-recommendations.md](./deployment/cloud-vps-recommendations.md)
 > 字段口径基准: [`docs/contracts-canonical.md`](./contracts-canonical.md)
@@ -1134,6 +1135,25 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P32.03 | API entity 端点 | `api_server.py` 2 新端点 + StatsResponse | P32.02 | M | 5 API tests | ✅ |
 | P32.04 | async_run 集成 | `async_run.py` store 参数 + 持久化 | P32.01 | S | 1 集成 test | ✅ |
 | P32.05 | 验证与清理 | development-plan.md 更新 | P32.03, P32.04 | S | 1527 tests, ruff=0, mypy=0, 92% | ✅ |
+
+### Phase 33 · Web UI NLP + Entity 可视化 ✅
+
+**目标：** 将 Phase 30-32 的 NLP/Entity 数据接入 Web UI，让用户可通过浏览器直接消费。
+
+**核心交付：**
+- ES Modules 拆分：1131 行 app.js → api.js + pages/dashboard.js + pages/events.js + pages/config.js + app.js 入口
+- Dashboard 增强：sentiment_breakdown 条形图 + top_entities 高频实体列表
+- 事件列表 NLP 筛选：sentiment 下拉 + entity 搜索 + topic_tag 搜索
+- 事件卡片/详情增强：sentiment 色标点 + entity chips + NLP 分析区域
+- Entity 浏览页：#/entities 列表（筛选+分页）+ #/entities/{id} 详情（关联事件）
+- 1527 tests, ruff=0, mypy=0, 92% coverage
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 | 状态 |
+|----|------|--------|------|------|--------|------|
+| P33.01 | ES Modules 拆分 | api.js + pages/*.js + app.js 入口 | P32 | M | 1527 tests, 零功能变化 | ✅ |
+| P33.02 | Dashboard + Events NLP | dashboard.js + events.js + style.css | P33.01 | L | 情感图/实体列表/筛选/卡片增强/详情NLP | ✅ |
+| P33.03 | Entity 浏览页 | entities.js + index.html + app.js + style.css | P33.01 | M | 列表筛选 + 详情关联事件 | ✅ |
+| P33.04 | 验证与清理 | development-plan.md 更新 | P33.02, P33.03 | S | 1527 tests, ruff=0, mypy=0, 92% | ✅ |
 
 ---
 
