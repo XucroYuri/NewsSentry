@@ -394,7 +394,8 @@ class AsyncStore:
         async with self._db.execute(
             """SELECT event_id, target_id, stage, source_id, news_value_score,
                       china_relevance, classification_l0, title_original,
-                      published_at, file_path, created_at
+                      published_at, file_path, created_at,
+                      sentiment, entity_names, topic_tags
                FROM event_index
                WHERE target_id = ? AND stage = ?
                ORDER BY published_at DESC
@@ -414,6 +415,9 @@ class AsyncStore:
             "published_at",
             "file_path",
             "created_at",
+            "sentiment",
+            "entity_names",
+            "topic_tags",
         )
         return [dict(zip(cols, row, strict=True)) for row in rows]
 
@@ -467,6 +471,9 @@ class AsyncStore:
         source_id: str | None = None,
         classification_l0: str | None = None,
         min_score: int | None = None,
+        sentiment: str | None = None,
+        entity_name: str | None = None,
+        topic_tag: str | None = None,
     ) -> dict[str, Any]:
         """分页查询 event_index，返回 {total: int, rows: list[dict]}。"""
         if self._db is None:
@@ -483,6 +490,15 @@ class AsyncStore:
         if min_score is not None:
             conditions.append("news_value_score >= ?")
             params.append(min_score)
+        if sentiment is not None:
+            conditions.append("sentiment = ?")
+            params.append(sentiment)
+        if entity_name is not None:
+            conditions.append("',' || entity_names || ',' LIKE '%,' || ? || ',%'")
+            params.append(entity_name)
+        if topic_tag is not None:
+            conditions.append("',' || topic_tags || ',' LIKE '%,' || ? || ',%'")
+            params.append(topic_tag)
 
         where = " AND ".join(conditions)
 
@@ -495,7 +511,8 @@ class AsyncStore:
         # 分页查询
         data_sql = (
             "SELECT event_id, source_id, news_value_score, china_relevance, "  # noqa: S608
-            "classification_l0, published_at, file_path, title_original "
+            "classification_l0, published_at, file_path, title_original, "
+            "sentiment, entity_names, topic_tags "
             f"FROM event_index WHERE {where} "
             "ORDER BY published_at DESC LIMIT ? OFFSET ?"
         )
@@ -514,6 +531,9 @@ class AsyncStore:
                     "published_at": r[5],
                     "file_path": r[6],
                     "title_original": r[7],
+                    "sentiment": r[8],
+                    "entity_names": r[9],
+                    "topic_tags": r[10],
                 }
             )
 
@@ -528,6 +548,7 @@ class AsyncStore:
                 "avg_china_relevance": None,
                 "by_classification": {},
                 "by_source": {},
+                "sentiment_breakdown": {},
             }
         async with self._db.execute(
             "SELECT COUNT(*) FROM event_index WHERE target_id = ?",
@@ -543,6 +564,7 @@ class AsyncStore:
                 "avg_china_relevance": None,
                 "by_classification": {},
                 "by_source": {},
+                "sentiment_breakdown": {},
             }
 
         async with self._db.execute(
@@ -575,12 +597,23 @@ class AsyncStore:
             async for row in cursor:
                 by_source[row[0]] = row[1]
 
+        # Phase 31: sentiment 分布
+        sentiment_breakdown: dict[str, int] = {}
+        async with self._db.execute(
+            "SELECT sentiment, COUNT(*) FROM event_index WHERE target_id = ? GROUP BY sentiment",
+            [target_id],
+        ) as cursor:
+            async for row in cursor:
+                key = row[0] if row[0] is not None else "none"
+                sentiment_breakdown[key] = row[1]
+
         return {
             "total_events": total,
             "avg_news_value_score": round(avg_score, 2) if avg_score is not None else None,
             "avg_china_relevance": round(avg_relevance, 2) if avg_relevance is not None else None,
             "by_classification": by_classification,
             "by_source": by_source,
+            "sentiment_breakdown": sentiment_breakdown,
         }
 
     async def get_event_file_path(self, event_id: str) -> str | None:
