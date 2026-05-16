@@ -1224,3 +1224,66 @@ class TestEventChainAPI:
         assert resp.status_code == 200
         data = resp.json()
         assert data["links"] == []
+
+
+class TestChainNarrativeAPI:
+    """Phase 36: 链叙述 API 端点。"""
+
+    @pytest.fixture
+    async def client_with_narrative(self, tmp_path):
+        from news_sentry.core.async_store import AsyncStore
+
+        db_path = tmp_path / "state.db"
+        store = AsyncStore(db_path)
+        await store.initialize()
+
+        now = "2026-05-16T12:00:00+00:00"
+        for eid, title in [("evt-1", "Event One"), ("evt-2", "Event Two")]:
+            await store._db.execute(
+                "INSERT INTO event_index"
+                " (event_id, target_id, stage, created_at, published_at, title_original) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (eid, "italy", "drafts", now, now, title),
+            )
+        await store._db.commit()
+        await store.create_link("evt-1", "evt-2", "followup", 0.8, {}, "italy")
+        await store.upsert_narrative(
+            "evt-1", "italy", "梅洛尼在意大利政坛持续活跃。", "hash1", 2, "gpt-4o-mini"
+        )
+
+        app = create_app(data_dir=str(tmp_path), store=store)
+        from httpx import ASGITransport, AsyncClient
+
+        transport = ASGITransport(app=app)
+        client = AsyncClient(transport=transport, base_url="http://test")
+        yield client, store
+        await client.aclose()
+        await store.close()
+
+    async def test_get_narrative(self, client_with_narrative):
+        client, _ = client_with_narrative
+        resp = await client.get("/api/v1/chains/evt-1/narrative", params={"target_id": "italy"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["chain_root_id"] == "evt-1"
+        assert "梅洛尼" in data["narrative"]
+        assert data["event_count"] == 2
+
+    async def test_get_narrative_not_found(self, client_with_narrative):
+        client, _ = client_with_narrative
+        resp = await client.get(
+            "/api/v1/chains/nonexistent/narrative",
+            params={"target_id": "italy"},
+        )
+        assert resp.status_code == 404
+
+    async def test_post_narrative_no_store(self, tmp_path):
+        """无 store 时 POST 返回 503。"""
+        app = create_app(data_dir=str(tmp_path))
+        from httpx import ASGITransport, AsyncClient
+
+        transport = ASGITransport(app=app)
+        client = AsyncClient(transport=transport, base_url="http://test")
+        resp = await client.post("/api/v1/chains/evt-1/narrative", params={"target_id": "italy"})
+        assert resp.status_code == 503
+        await client.aclose()

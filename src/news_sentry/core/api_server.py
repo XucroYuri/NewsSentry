@@ -306,6 +306,16 @@ class ChainListResponse(BaseModel):
     chains: list[ChainSummaryInfo]
 
 
+class NarrativeResponse(BaseModel):
+    """链叙述响应。"""
+
+    chain_root_id: str
+    narrative: str
+    event_count: int = 0
+    model_used: str = ""
+    generated_at: str = ""
+
+
 # ── API Key 认证 ───────────────────────────────────────
 
 _API_KEY_ENV = "NEWSSENTRY_API_KEY"
@@ -1195,6 +1205,61 @@ def create_app(
         return ChainListResponse(
             chains=[ChainSummaryInfo(**c) for c in chains],
         )
+
+    @app.get("/api/v1/chains/{root_id}/narrative", response_model=NarrativeResponse)
+    async def get_chain_narrative(
+        root_id: str,
+        target_id: str = Query(..., description="目标标识"),
+    ) -> NarrativeResponse:
+        """获取链的 AI 叙述。"""
+        if _store is None:
+            raise HTTPException(status_code=404, detail="No narrative found")
+        result = await _store.get_narrative(root_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Narrative not found")
+        return NarrativeResponse(
+            chain_root_id=result["chain_root_id"],
+            narrative=result["narrative"],
+            event_count=result["event_count"],
+            model_used=result["model_used"],
+            generated_at=result["updated_at"],
+        )
+
+    @app.post("/api/v1/chains/{root_id}/narrative", response_model=NarrativeResponse)
+    async def regenerate_chain_narrative(
+        root_id: str,
+        target_id: str = Query(..., description="目标标识"),
+    ) -> NarrativeResponse:
+        """手动重新生成链叙述。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not available")
+        try:
+            from news_sentry.core.async_run import _generate_narratives, _try_create_provider_router
+
+            router = _try_create_provider_router()
+            if router is None:
+                raise HTTPException(status_code=503, detail="AI provider not configured")
+            # 删除旧叙述强制重新生成
+            if _store._db is not None:
+                await _store._db.execute(
+                    "DELETE FROM chain_narratives WHERE chain_root_id = ?", [root_id]
+                )
+                await _store._db.commit()
+            await _generate_narratives(_store, target_id, router=router)
+            result = await _store.get_narrative(root_id)
+            if result is None:
+                raise HTTPException(status_code=500, detail="Narrative generation failed")
+            return NarrativeResponse(
+                chain_root_id=result["chain_root_id"],
+                narrative=result["narrative"],
+                event_count=result["event_count"],
+                model_used=result["model_used"],
+                generated_at=result["updated_at"],
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
 
     # ── 静态文件（必须在所有 API 路由之后挂载）────────
     static_dir = Path(__file__).parent.parent / "static"
