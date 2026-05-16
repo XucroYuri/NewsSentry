@@ -1381,3 +1381,93 @@ class TestGovernance:
         assert result["deleted_events"] == 0
         assert result["deleted_links"] == 0
         await store.close()
+
+
+class TestFeedbackAndAlertHistory:
+    """Phase 41: feedback + alert_history 表和方法。"""
+
+    @pytest.mark.asyncio
+    async def test_save_and_get_feedback(self, store: AsyncStore) -> None:
+        """反馈保存和查询。"""
+        rid = await store.save_feedback(
+            target_id="test-target",
+            event_id="evt-1",
+            verdict_type="publish_override",
+            comment="应推送",
+            original_recommendation="archive",
+            source_id="ansa",
+        )
+        assert rid > 0
+
+        items = await store.get_feedback("test-target")
+        assert len(items) == 1
+        assert items[0]["event_id"] == "evt-1"
+        assert items[0]["verdict_type"] == "publish_override"
+
+        stats = await store.get_feedback_stats("test-target")
+        assert stats["total"] == 1
+        assert stats["publish_override"] == 1
+
+    @pytest.mark.asyncio
+    async def test_alert_history(self, store: AsyncStore) -> None:
+        """告警历史持久化。"""
+        alerts = [
+            {
+                "type": "chain_update",
+                "severity": "high",
+                "message": "链更新",
+                "details": {"k": "v"},
+            },
+            {"type": "trend_rising", "severity": "medium", "message": "趋势上升"},
+        ]
+        saved = await store.save_alert_history("test-target", alerts)
+        assert saved == 2
+
+        history = await store.get_alert_history("test-target")
+        assert len(history) == 2
+        types = {h["alert_type"] for h in history}
+        assert types == {"chain_update", "trend_rising"}
+
+    @pytest.mark.asyncio
+    async def test_save_feedback_empty_comment(self, store: AsyncStore) -> None:
+        """空 comment 保存为 None。"""
+        rid = await store.save_feedback(
+            target_id="t1",
+            event_id="e1",
+            verdict_type="comment",
+        )
+        assert rid > 0
+        items = await store.get_feedback("t1")
+        assert items[0]["comment"] is None
+
+    @pytest.mark.asyncio
+    async def test_get_feedback_stats_empty(self, store: AsyncStore) -> None:
+        """无反馈时统计全零。"""
+        stats = await store.get_feedback_stats("no-data")
+        assert stats["total"] == 0
+        assert stats["publish_override"] == 0
+
+    @pytest.mark.asyncio
+    async def test_save_alert_history_empty(self, store: AsyncStore) -> None:
+        """空告警列表不插入。"""
+        saved = await store.save_alert_history("t1", [])
+        assert saved == 0
+
+    @pytest.mark.asyncio
+    async def test_get_event_by_id(self, store: AsyncStore) -> None:
+        """根据 event_id 查找事件。"""
+        now = datetime.now(UTC).isoformat()
+        await store._db.execute(  # noqa: SLF001
+            "INSERT OR REPLACE INTO event_index "
+            "(event_id, target_id, stage, source_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("evt-x", "t1", "judged", "ansa", now),
+        )
+        await store._db.commit()
+
+        result = await store.get_event_by_id("t1", "evt-x")
+        assert result is not None
+        assert result["event_id"] == "evt-x"
+        assert result["source_id"] == "ansa"
+
+        assert await store.get_event_by_id("t1", "nonexistent") is None

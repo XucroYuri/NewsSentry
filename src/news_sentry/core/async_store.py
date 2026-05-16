@@ -114,6 +114,32 @@ CREATE TABLE IF NOT EXISTS chain_narratives (
 )
 """
 
+_DDL_FEEDBACK = """
+CREATE TABLE IF NOT EXISTS feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    verdict_type TEXT NOT NULL,
+    original_recommendation TEXT,
+    comment TEXT,
+    keywords_matched TEXT,
+    source_id TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+)
+"""
+
+_DDL_ALERT_HISTORY = """
+CREATE TABLE IF NOT EXISTS alert_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_id TEXT NOT NULL,
+    alert_type TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    message TEXT NOT NULL,
+    details TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+)
+"""
+
 _DDL_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_known_ids_seen ON known_ids(seen_at)",
     "CREATE INDEX IF NOT EXISTS idx_event_target_stage ON event_index(target_id, stage)",
@@ -165,6 +191,8 @@ class AsyncStore:
         await self._db.execute(_DDL_ENTITIES)
         await self._db.execute(_DDL_EVENT_LINKS)
         await self._db.execute(_DDL_CHAIN_NARRATIVES)
+        await self._db.execute(_DDL_FEEDBACK)
+        await self._db.execute(_DDL_ALERT_HISTORY)
         # Phase 31: 为已有数据库添加 NLP 列
         for col in ("sentiment", "entity_names", "topic_tags"):
             try:
@@ -1357,3 +1385,134 @@ class AsyncStore:
                 old_backup.unlink(missing_ok=True)
 
         return backup_path
+
+    # ------------------------------------------------------------------
+    # Feedback + Alert History (Phase 41)
+    # ------------------------------------------------------------------
+
+    async def save_feedback(
+        self,
+        target_id: str,
+        event_id: str,
+        verdict_type: str,
+        comment: str = "",
+        original_recommendation: str | None = None,
+        keywords_matched: list[str] | None = None,
+        source_id: str | None = None,
+    ) -> int:
+        """保存人工反馈，返回记录 ID。"""
+        if self._db is None:
+            return 0
+        async with self._db.execute(
+            """INSERT INTO feedback
+               (event_id, target_id, verdict_type, original_recommendation,
+                comment, keywords_matched, source_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                event_id,
+                target_id,
+                verdict_type,
+                original_recommendation,
+                comment or None,
+                json.dumps(keywords_matched) if keywords_matched else None,
+                source_id,
+            ),
+        ) as cursor:
+            await self._db.commit()
+            return cursor.lastrowid or 0
+
+    async def get_feedback(self, target_id: str, limit: int = 50) -> list[dict[str, Any]]:
+        """获取反馈列表。"""
+        if self._db is None:
+            return []
+        self._db.row_factory = aiosqlite.Row
+        async with self._db.execute(
+            """SELECT id, event_id, target_id, verdict_type,
+                      original_recommendation, comment, keywords_matched,
+                      source_id, created_at
+               FROM feedback
+               WHERE target_id = ?
+               ORDER BY created_at DESC LIMIT ?""",
+            (target_id, limit),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        self._db.row_factory = None
+        return [dict(r) for r in rows]
+
+    async def get_feedback_stats(self, target_id: str) -> dict[str, int]:
+        """获取反馈统计。"""
+        if self._db is None:
+            return {"total": 0, "publish_override": 0, "archive_override": 0, "comment": 0}
+        self._db.row_factory = aiosqlite.Row
+        async with self._db.execute(
+            """SELECT verdict_type, COUNT(*) as cnt
+               FROM feedback WHERE target_id = ?
+               GROUP BY verdict_type""",
+            (target_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        self._db.row_factory = None
+        counts = {r["verdict_type"]: r["cnt"] for r in rows}
+        return {
+            "total": sum(counts.values()),
+            "publish_override": counts.get("publish_override", 0),
+            "archive_override": counts.get("archive_override", 0),
+            "comment": counts.get("comment", 0),
+        }
+
+    async def save_alert_history(self, target_id: str, alerts: list[dict[str, Any]]) -> int:
+        """批量保存告警记录，返回插入数量。"""
+        if not alerts or self._db is None:
+            return 0
+        await self._db.executemany(
+            """INSERT INTO alert_history
+               (target_id, alert_type, severity, message, details)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                (
+                    target_id,
+                    a["type"],
+                    a["severity"],
+                    a["message"],
+                    json.dumps(a.get("details", {})),
+                )
+                for a in alerts
+            ],
+        )
+        await self._db.commit()
+        return len(alerts)
+
+    async def get_alert_history(self, target_id: str, limit: int = 50) -> list[dict[str, Any]]:
+        """获取历史告警。"""
+        if self._db is None:
+            return []
+        self._db.row_factory = aiosqlite.Row
+        async with self._db.execute(
+            """SELECT id, target_id, alert_type, severity,
+                      message, details, created_at
+               FROM alert_history
+               WHERE target_id = ?
+               ORDER BY created_at DESC LIMIT ?""",
+            (target_id, limit),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        self._db.row_factory = None
+        return [dict(r) for r in rows]
+
+    async def get_event_by_id(self, target_id: str, event_id: str) -> dict[str, Any] | None:
+        """根据 event_id 查找事件详情。"""
+        if self._db is None:
+            return None
+        self._db.row_factory = aiosqlite.Row
+        async with self._db.execute(
+            """SELECT event_id, target_id, stage, source_id,
+                      news_value_score, china_relevance, classification_l0,
+                      title_original, published_at, file_path, sentiment,
+                      entity_names, topic_tags, created_at
+               FROM event_index
+               WHERE target_id = ? AND event_id = ?""",
+            (target_id, event_id),
+        ) as cursor:
+            row = await cursor.fetchone()
+        self._db.row_factory = None
+        return dict(row) if row else None

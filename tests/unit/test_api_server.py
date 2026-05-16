@@ -1614,3 +1614,112 @@ class TestMaintenanceAPI:
         data = resp.json()
         assert "backup_path" in data
         assert "size_bytes" in data
+
+
+class TestFeedbackAndAlertAPI:
+    """Phase 41: 反馈闭环 + 告警管理 API 端点。"""
+
+    @pytest.fixture
+    async def client_with_feedback(self, tmp_path):
+        """创建带反馈功能的测试客户端。"""
+        from httpx import ASGITransport, AsyncClient
+
+        db_path = tmp_path / "state.db"
+        store = AsyncStore(db_path)
+        await store.initialize()
+
+        now = datetime.now(UTC).isoformat()
+        await store._db.execute(
+            "INSERT OR REPLACE INTO event_index "
+            "(event_id, target_id, stage, source_id, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("ne-1", "italy", "judged", "ansa", now),
+        )
+        await store._db.commit()
+
+        app = create_app(data_dir=str(tmp_path), store=store)
+        transport = ASGITransport(app=app)
+        client = AsyncClient(transport=transport, base_url="http://test")
+        yield client, store
+        await client.aclose()
+        await store.close()
+
+    async def test_submit_feedback(self, client_with_feedback):
+        """POST /api/v1/feedback 提交反馈。"""
+        client, _ = client_with_feedback
+        resp = await client.post(
+            "/api/v1/feedback",
+            json={
+                "target_id": "italy",
+                "event_id": "ne-1",
+                "verdict_type": "publish_override",
+                "comment": "应推送",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["id"] > 0
+        assert data["verdict_type"] == "publish_override"
+
+    async def test_list_feedback(self, client_with_feedback):
+        """GET /api/v1/feedback 反馈列表。"""
+        client, _ = client_with_feedback
+        # 先提交一条
+        await client.post(
+            "/api/v1/feedback",
+            json={
+                "target_id": "italy",
+                "event_id": "ne-1",
+                "verdict_type": "publish_override",
+                "comment": "test",
+            },
+        )
+        resp = await client.get("/api/v1/feedback", params={"target_id": "italy"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] >= 1
+
+    async def test_feedback_stats(self, client_with_feedback):
+        """GET /api/v1/feedback/stats 反馈统计。"""
+        client, _ = client_with_feedback
+        await client.post(
+            "/api/v1/feedback",
+            json={
+                "target_id": "italy",
+                "event_id": "ne-1",
+                "verdict_type": "publish_override",
+            },
+        )
+        resp = await client.get("/api/v1/feedback/stats", params={"target_id": "italy"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] >= 1
+        assert data["publish_override"] >= 1
+
+    async def test_alert_history(self, client_with_feedback):
+        """GET /api/v1/alerts/history 告警历史。"""
+        client, store = client_with_feedback
+        # 直接插入告警数据
+        await store.save_alert_history(
+            "italy",
+            [
+                {"type": "chain_update", "severity": "high", "message": "链更新"},
+            ],
+        )
+        resp = await client.get("/api/v1/alerts/history", params={"target_id": "italy"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+        assert data["alerts"][0]["alert_type"] == "chain_update"
+
+    async def test_rules_optimize_missing_config(self, client_with_feedback):
+        """POST /api/v1/rules/optimize 配置不存在返回 404。"""
+        client, _ = client_with_feedback
+        resp = await client.post(
+            "/api/v1/rules/optimize",
+            json={
+                "target_id": "nonexistent",
+                "dry_run": True,
+            },
+        )
+        assert resp.status_code == 404

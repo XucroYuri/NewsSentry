@@ -294,6 +294,13 @@ class AlertPipeline:
         except Exception as exc:
             logger.warning("实体突增告警检查失败: %s", exc)
 
+        # 持久化告警记录
+        if alerts:
+            try:
+                await store.save_alert_history(target_id, alerts)
+            except Exception:
+                logger.debug("告警持久化失败，不影响告警检查")
+
         return alerts
 
     def _format_alert(self, event: NewsEvent, run_id: str) -> str:

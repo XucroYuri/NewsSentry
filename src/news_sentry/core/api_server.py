@@ -417,6 +417,88 @@ class BackupResponse(BaseModel):
     size_bytes: int = 0
 
 
+class FeedbackSubmitRequest(BaseModel):
+    """提交反馈请求。"""
+
+    target_id: str
+    event_id: str
+    verdict_type: str  # publish_override | archive_override | comment
+    comment: str = ""
+
+
+class FeedbackSubmitResponse(BaseModel):
+    """提交反馈响应。"""
+
+    id: int
+    event_id: str
+    verdict_type: str
+
+
+class FeedbackStatsResponse(BaseModel):
+    """反馈统计响应。"""
+
+    total: int
+    publish_override: int
+    archive_override: int
+    comment: int
+
+
+class FeedbackItem(BaseModel):
+    """反馈条目。"""
+
+    id: int
+    event_id: str
+    target_id: str
+    verdict_type: str
+    original_recommendation: str | None = None
+    comment: str | None = None
+    keywords_matched: str | None = None
+    source_id: str | None = None
+    created_at: str | None = None
+
+
+class FeedbackListResponse(BaseModel):
+    """反馈列表响应。"""
+
+    feedback: list[FeedbackItem]
+    total: int
+
+
+class RulesOptimizeRequest(BaseModel):
+    """规则优化请求。"""
+
+    target_id: str
+    dry_run: bool = True
+
+
+class RulesOptimizeResponse(BaseModel):
+    """规则优化响应。"""
+
+    total_verdicts: int
+    adjustments: int
+    adjustments_detail: list[dict[str, Any]]
+    written: bool
+
+
+class AlertHistoryItem(BaseModel):
+    """告警历史条目。"""
+
+    id: int
+    target_id: str
+    alert_type: str
+    severity: str
+    message: str
+    details: str | None = None
+    created_at: str | None = None
+
+
+class AlertHistoryResponse(BaseModel):
+    """告警历史响应。"""
+
+    alerts: list[AlertHistoryItem]
+    total: int
+
+
 # ── API Key 认证 ───────────────────────────────────────
 
 _API_KEY_ENV = "NEWSSENTRY_API_KEY"
@@ -1486,6 +1568,106 @@ def create_app(
         backup_path = await _store.backup_db(backup_dir)
         size = backup_path.stat().st_size if backup_path.exists() else 0
         return BackupResponse(backup_path=str(backup_path), size_bytes=size)
+
+    # ── 反馈闭环 + 告警管理 (Phase 41) ──────────────────
+
+    @app.post("/api/v1/feedback", response_model=FeedbackSubmitResponse)
+    async def submit_feedback(req: FeedbackSubmitRequest) -> FeedbackSubmitResponse:
+        """提交人工反馈。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not available")
+        event = await _store.get_event_by_id(req.target_id, req.event_id)
+        original_rec = None
+        source_id = None
+        if event:
+            original_rec = event.get("original_recommendation")
+            source_id = event.get("source_id")
+        row_id = await _store.save_feedback(
+            target_id=req.target_id,
+            event_id=req.event_id,
+            verdict_type=req.verdict_type,
+            comment=req.comment,
+            original_recommendation=original_rec,
+            source_id=source_id,
+        )
+        return FeedbackSubmitResponse(
+            id=row_id, event_id=req.event_id, verdict_type=req.verdict_type
+        )
+
+    @app.get("/api/v1/feedback", response_model=FeedbackListResponse)
+    async def list_feedback(
+        target_id: str = Query(..., description="目标标识"),
+    ) -> FeedbackListResponse:
+        """获取反馈列表。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not available")
+        items = await _store.get_feedback(target_id)
+        feedback = [
+            FeedbackItem(
+                id=f["id"],
+                event_id=f["event_id"],
+                target_id=f["target_id"],
+                verdict_type=f["verdict_type"],
+                original_recommendation=f.get("original_recommendation"),
+                comment=f.get("comment"),
+                keywords_matched=f.get("keywords_matched"),
+                source_id=f.get("source_id"),
+                created_at=f.get("created_at"),
+            )
+            for f in items
+        ]
+        return FeedbackListResponse(feedback=feedback, total=len(feedback))
+
+    @app.get("/api/v1/feedback/stats", response_model=FeedbackStatsResponse)
+    async def feedback_stats(
+        target_id: str = Query(..., description="目标标识"),
+    ) -> FeedbackStatsResponse:
+        """获取反馈统计。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not available")
+        stats = await _store.get_feedback_stats(target_id)
+        return FeedbackStatsResponse(**stats)
+
+    @app.post("/api/v1/rules/optimize", response_model=RulesOptimizeResponse)
+    async def optimize_rules(req: RulesOptimizeRequest) -> RulesOptimizeResponse:
+        """触发规则优化。"""
+        config_dir = Path("config")
+        filter_yaml = config_dir / f"filter-{req.target_id}.yaml"
+        if not filter_yaml.exists():
+            raise HTTPException(status_code=404, detail=f"Filter config not found: {filter_yaml}")
+        from news_sentry.core.rules_optimizer import RulesOptimizer
+
+        data_dir = Path("data") / req.target_id
+        optimizer = RulesOptimizer(filter_yaml, data_dir)
+        result = optimizer.optimize(dry_run=req.dry_run)
+        return RulesOptimizeResponse(
+            total_verdicts=result["total_verdicts"],
+            adjustments=result["adjustments"],
+            adjustments_detail=result["adjustments_detail"],
+            written=result["written"],
+        )
+
+    @app.get("/api/v1/alerts/history", response_model=AlertHistoryResponse)
+    async def alert_history(
+        target_id: str = Query(..., description="目标标识"),
+    ) -> AlertHistoryResponse:
+        """获取告警历史。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not available")
+        items = await _store.get_alert_history(target_id)
+        alerts = [
+            AlertHistoryItem(
+                id=a["id"],
+                target_id=a["target_id"],
+                alert_type=a["alert_type"],
+                severity=a["severity"],
+                message=a["message"],
+                details=a.get("details"),
+                created_at=a.get("created_at"),
+            )
+            for a in items
+        ]
+        return AlertHistoryResponse(alerts=alerts, total=len(alerts))
 
     # ── 静态文件（必须在所有 API 路由之后挂载）────────
     static_dir = Path(__file__).parent.parent / "static"
