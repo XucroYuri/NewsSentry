@@ -1,8 +1,10 @@
 # Cloud VPS 部署方案推荐
 
-> 日期: 2026-05-12
+> 日期: 2026-05-16
 > 适用: News Sentry v1.5.0+ Docker 全栈部署
 > 前置: Dockerfile.full 构建的 `news-sentry:1.5.0` 镜像
+>
+> 一键部署脚本: `docs/deployment/deploy-{platform}.sh`
 
 ---
 
@@ -63,12 +65,14 @@ docker run -d --name news-sentry \
   -e ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY} \
   -v /app/data:/app/data \
   --restart unless-stopped \
-  news-sentry:1.0.0
+  ghcr.io/xucroyuri/news-sentry:1.5.0
 ```
 
 ---
 
 ### 方案 B: Oracle Cloud Free Tier A1 Flex（免费方案）
+
+> 部署脚本: `docs/deployment/deploy-oracle.sh`
 
 | 项目 | 规格 |
 |------|------|
@@ -118,9 +122,30 @@ docker run -d --name news-sentry \
 - 4GB 内存偏紧，可能需要 swap
 - 成本较 Hetzner 高
 
+**部署步骤：**
+```bash
+# 使用 doctl CLI
+doctl compute droplet create news-sentry \
+  --image docker-24-0 --size s-2vcpu-4gb \
+  --region fra1 --ssh-keys $(doctl compute ssh-key list --format ID --no-header | head -1)
+
+# SSH 登录后运行
+docker run -d --name news-sentry \
+  --restart unless-stopped \
+  --security-opt=no-new-privileges \
+  --memory=3500m \
+  -e TARGET_ID=italy -e RUN_STAGE=all \
+  -e NEWSSENTRY_AI_BUDGET_USD=1.0 \
+  -v /opt/news-sentry/data:/app/data \
+  ghcr.io/xucroyuri/news-sentry:1.5.0 \
+  run --target italy --stage all --profile cloud-vps
+```
+
 ---
 
 ### 方案 D: Google Cloud Platform e2-medium（企业级）
+
+> 部署脚本: `docs/deployment/deploy-gcp.sh`
 
 | 项目 | 规格 |
 |------|------|
@@ -144,14 +169,120 @@ docker run -d --name news-sentry \
 
 ---
 
+### 方案 E: Cloudflare Containers（边缘容器）
+
+> 部署脚本: `docs/deployment/deploy-cloudflare.sh`
+
+| 项目 | 规格 |
+|------|------|
+| CPU | 共享 |
+| 内存 | ~1 GB |
+| 存储 | Workers KV / R2 |
+| 带宽 | Workers 付费计划含 25 GiB-hours |
+| 位置 | 全球边缘节点 |
+| 月费 | **$5**（Workers Paid） |
+
+**优势：**
+- 全球边缘部署，低延迟
+- Workers 生态集成
+- 按用量付费
+
+**限制：**
+- 内存 ~1GB，**无法运行 Chromium headless**
+- 仅适合 API-only 模式
+- 需 Workers Paid 计划 ($5/月)
+
+---
+
+### 方案 F: Fly.io（开发者友好容器平台）
+
+> 部署脚本: `docs/deployment/deploy-flyio.sh`
+
+| 项目 | 规格 |
+|------|------|
+| CPU | shared-cpu-2x |
+| 内存 | 4 GB（可调） |
+| 磁盘 | 10 GB 持久卷 |
+| 带宽 | 160 GB/月 |
+| 位置 | fra (法兰克福) / 全球 30+ 区域 |
+| 月费 | **~$7.16**（4GB VM + 3GB 卷） |
+
+**优势：**
+- Docker 原生部署，fly.toml 配置简单
+- 全球 Anycast IP + 自动 TLS
+- 持久卷支持
+- 内置日志/监控
+
+**限制：**
+- 免费层仅 256MB（不够）
+- 需要 $5 Hobby 计划
+- Chromium 需要特权模式（Fly.io 支持）
+
+---
+
+### 方案 G: Railway（快速部署 PaaS）
+
+> 部署脚本: `docs/deployment/deploy-railway.sh`
+
+| 项目 | 规格 |
+|------|------|
+| CPU | 共享 |
+| 内存 | 最高 8 GB（Hobby） |
+| 磁盘 | 8 GB |
+| 带宽 | 出站 $0.10/GB |
+| 位置 | us-west / eu-west |
+| 月费 | **$5**（Hobby） |
+
+**优势：**
+- 极简部署，GitHub 仓库直连
+- 内置 Cron Job 支持
+- 自动 CI/CD
+
+**限制：**
+- 单容器默认 512MB-1GB
+- Chromium 特权模式可能不支持
+- 推荐用于 API-only 模式
+
+---
+
+### 方案 H: Render（现代 PaaS）
+
+> 部署配置: `docs/deployment/render.yaml`
+
+| 项目 | 规格 |
+|------|------|
+| CPU | 共享 |
+| 内存 | 512 MB（Starter $7/月） |
+| 磁盘 | 10 GB 持久磁盘 |
+| 带宽 | 100 GB/月 |
+| 位置 | us-west / eu-west |
+| 月费 | **$7**（Starter） |
+
+**优势：**
+- `render.yaml` Blueprint 声明式配置
+- 内置 Cron Job + Web Service 双服务
+- 自动 TLS + 健康检查
+- GitHub 仓库直连
+
+**限制：**
+- 免费层 512MB + 自动休眠
+- Cron Job 需付费计划
+- Chromium headless 需 Starter+
+
+---
+
 ## 成本对比汇总
 
-| 方案 | 月费 | 年费 | 推荐场景 |
-|------|------|------|---------|
-| **Hetzner CX32** | €12.34 | €148 | **推荐** — 最佳性价比，8GB 内存 |
-| Oracle A1 Flex | 免费 | 免费 | 实验/低预算，需 arm64 验证 |
-| DigitalOcean 4GB | $24 | $288 | 开发者偏好，快速部署 |
-| GCP e2-medium | $35-50 | $420-600 | 企业级 SLA，CI/CD 集成 |
+| 方案 | 月费 | 年费 | 内存 | 推荐场景 |
+|------|------|------|------|---------|
+| **Hetzner CX32** | €12.34 | €148 | 8 GB | **推荐** — 最佳性价比，全功能运行 |
+| Oracle A1 Flex | 免费 | 免费 | 24 GB | 实验/低预算，需 arm64 验证 |
+| Fly.io 4GB | $7.16 | $86 | 4 GB | 开发者友好，全球边缘 |
+| DigitalOcean 4GB | $24 | $288 | 4 GB | 开发者偏好，快速部署 |
+| Cloudflare Containers | $5 | $60 | ~1 GB | API-only 模式，边缘部署 |
+| Railway Hobby | $5 | $60 | ~1 GB | 快速原型，API-only |
+| Render Starter | $7 | $84 | 512 MB | Blueprint 声明式部署 |
+| GCP e2-medium | $35-50 | $420-600 | 4 GB | 企业级 SLA，CI/CD 集成 |
 
 ---
 
@@ -224,4 +355,37 @@ docker run --security-opt=no-new-privileges \
 # 自动安全更新
 apt install unattended-upgrades
 dpkg-reconfigure -plow unattended-upgrades
+```
+
+---
+
+## 部署脚本索引
+
+| 平台 | 脚本/配置 | CLI 工具 | 类型 |
+|------|----------|----------|------|
+| Hetzner | `deploy-hetzner.sh` | `hcloud` | VPS |
+| Oracle Cloud | `deploy-oracle.sh` | `oci` | VPS (免费层) |
+| GCP | `deploy-gcp.sh` | `gcloud` | VPS |
+| DigitalOcean | (手动部署) | `doctl` | VPS |
+| Cloudflare | `deploy-cloudflare.sh` | `wrangler` | 容器 |
+| Fly.io | `deploy-flyio.sh` | `fly` | 容器平台 |
+| Railway | `deploy-railway.sh` | `railway` | PaaS |
+| Render | `render.yaml` | Dashboard | PaaS |
+
+所有脚本统一支持 `--env-file` 参数传入 API keys，支持 `--help` 查看选项。
+
+---
+
+## 平台选择决策树
+
+```
+需要全功能（Chromium + AI 研判）？
+├── 是 → 需要 ≥4GB 内存
+│   ├── 预算优先 → Hetzner CX32 (€12.34/月, 8GB) ★推荐
+│   ├── 零预算 → Oracle A1 Flex (免费, 24GB ARM)
+│   └── 企业级 → GCP e2-medium ($35-50/月)
+└── 否 → API-only / 轻量采集
+    ├── 边缘部署 → Cloudflare Containers ($5/月)
+    ├── 快速原型 → Railway ($5/月) 或 Render ($7/月)
+    └── 开发者友好 → Fly.io ($7.16/月, 4GB)
 ```

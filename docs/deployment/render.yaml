@@ -1,0 +1,76 @@
+# render.yaml — News Sentry Render 部署配置
+#
+# 用法:
+#   1. 将此文件放在项目根目录
+#   2. 在 Render Dashboard 导入或使用 CLI:
+#      render blueprint deploy
+#
+# 注意:
+#   Render 免费层: 512MB RAM / 自动休眠 — 不适合持续运行
+#   推荐使用 Starter ($7/月) 获得固定内存
+#   Chromium headless 需要特权模式（Render Starter+ 支持）
+#   Cron Job 功能仅付费计划可用
+#
+# 前置:
+#   - Render 账户 (https://render.com)
+#   - GitHub 仓库已连接 或 Docker 镜像可访问
+#   - 环境变量通过 Dashboard 或 CLI 设置
+
+services:
+  # ── 主服务: News Sentry 定时采集 ──
+  - type: cron
+    name: news-sentry-collector
+    plan: starter  # starter=$7/月, standard=$25/月
+    env: docker
+    schedule: "0 */2 * * *"  # 每 2 小时运行
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      - key: TARGET_ID
+        value: italy
+      - key: RUN_STAGE
+        value: all
+      - key: NEWSSENTRY_PROFILE
+        value: cloud-vps
+      - key: NEWSSENTRY_AI_BUDGET_USD
+        value: "1.0"
+      - key: OPENAI_API_KEY
+        sync: false  # 手动设置
+      - key: ANTHROPIC_API_KEY
+        sync: false  # 手动设置
+    # Render cron 不支持持久磁盘
+    # 数据通过 API Server 查询
+
+  # ── API 服务: REST API 网关 ──
+  - type: web
+    name: news-sentry-api
+    plan: starter  # starter=$7/月, 512MB RAM
+    env: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    startCommand: "uvicorn news_sentry.core.api_server:create_app --factory --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NEWSSENTRY_API_MODE
+        value: "true"
+      - key: NEWSSENTRY_API_KEY
+        generateValue: true  # 自动生成 API Key
+      - key: PORT
+        value: "8000"
+    # Auto-scaling (付费计划)
+    numInstances: 1
+
+  # ── 持久磁盘 (仅 web 服务可用) ──
+    disk:
+      name: news-sentry-data
+      mountPath: /app/data
+      sizeGB: 10
+
+# ── 全局环境变量 ──
+envVarGroups:
+  - name: news-sentry-common
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: PYTHONDONTWRITEBYTECODE
+        value: "1"
