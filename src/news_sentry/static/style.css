@@ -1732,3 +1732,31 @@ a:hover {
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-secondary { background: var(--bg-hover); color: var(--text-primary); }
 .btn-secondary:hover { background: var(--border-color); }
+.btn-sm { padding: 4px 10px; font-size: 0.8rem; }
+.btn-xs { padding: 2px 6px; font-size: 0.7rem; line-height: 1.2; }
+.btn-save { margin-top: 16px; width: 100%; max-width: 200px; }
+
+/* Config edit forms */
+.config-field-editable { flex-direction: column; align-items: flex-start; gap: 4px; }
+.config-input { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 7px 10px; font-size: 0.85rem; font-family: var(--font-stack); width: 100%; max-width: 360px; }
+.config-input:focus { border-color: var(--accent-blue); outline: none; }
+.config-input-sm { width: auto; max-width: 200px; padding: 4px 8px; }
+.config-select { cursor: pointer; }
+.toggle-clickable { cursor: pointer; user-select: none; }
+.toggle-clickable:hover { opacity: 0.85; }
+.config-tag-removable { display: inline-flex; align-items: center; gap: 4px; }
+.tag-remove-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1rem; line-height: 1; padding: 0 2px; }
+.tag-remove-btn:hover { color: var(--accent-red); }
+.kw-add-row { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
+.source-edit-panel { margin-top: 10px; padding: 10px; background: var(--bg-tertiary); border-radius: var(--radius-sm); border: 1px solid var(--border-color); }
+.source-edit-panel .config-input { margin-bottom: 6px; }
+.save-status { margin-top: 8px; }
+.save-status-inline { margin-left: 8px; font-size: 0.8rem; }
+.save-ok { color: #22c55e; font-size: 0.85rem; }
+.dest-edit-fields, .route-edit-fields { margin-top: 10px; padding: 10px; background: var(--bg-tertiary); border-radius: var(--radius-sm); }
+.dest-edit-fields .config-input, .route-edit-fields .config-input { margin-bottom: 6px; }
+.toggle-label { font-size: 0.8rem; margin-left: 4px; }
+
+/* Success toast */
+.success-toast { position: fixed; bottom: 20px; right: 20px; background: #16a34a; color: #fff; padding: 10px 16px; border-radius: var(--radius-md); font-size: 0.85rem; z-index: 9999; display: flex; align-items: center; gap: 8px; box-shadow: var(--shadow-card); animation: slideUp 0.3s; }
+.success-toast .toast-icon { display: flex; }

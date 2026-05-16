@@ -106,6 +106,65 @@ export function scoreGradient(score) {
 }
 
 /**
+ * 发送 JSON body 的 PUT 请求。
+ * @param {string} path - API 路径
+ * @param {object} [body] - JSON body
+ * @returns {Promise<any>}
+ */
+export async function apiPut(path, body = {}) {
+  const url = new URL(path, window.location.origin);
+  const resp = await fetch(url.toString(), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => "");
+    throw new Error(`API ${resp.status}: ${text || resp.statusText}`);
+  }
+  return resp.json();
+}
+
+/**
+ * 发送 JSON body 的 PATCH 请求。
+ * @param {string} path - API 路径
+ * @param {object} [body] - JSON body
+ * @returns {Promise<any>}
+ */
+export async function apiPatch(path, body = {}) {
+  const url = new URL(path, window.location.origin);
+  const resp = await fetch(url.toString(), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => "");
+    throw new Error(`API ${resp.status}: ${text || resp.statusText}`);
+  }
+  return resp.json();
+}
+
+/**
+ * 显示成功提示 toast。
+ */
+export function showSuccess(msg) {
+  $$(".success-toast").forEach((el) => el.remove());
+  const toast = document.createElement("div");
+  toast.className = "success-toast";
+  toast.innerHTML = `
+    <span class="toast-icon">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"/><polyline points="8 12 11 15 16 9"/>
+      </svg>
+    </span>
+    <span>${escapeHtml(msg)}</span>
+  `;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 4000);
+}
+
+/**
  * 显示错误提示 toast。
  */
 export function showError(msg) {
