@@ -1,7 +1,14 @@
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from news_sentry.cli.doctor import DoctorReport, doctor_command, run_doctor
+from news_sentry.cli.doctor import (
+    DoctorReport,
+    _count_eval_coverage,
+    _extract_glossary_terms,
+    doctor_command,
+    run_doctor,
+)
 
 
 def test_doctor_report_structure():
@@ -83,3 +90,67 @@ def test_doctor_command_text_output(capsys):
         captured = capsys.readouterr()
         assert "Doctor check:" in captured.out
         assert exit_code in (0, 1)
+
+
+def test_extract_glossary_terms(tmp_path: Path):
+    """术语表解析应提取意大利语词条。"""
+    glossary = tmp_path / "glossary.md"
+    glossary.write_text(
+        "## 表 1：政府机构\n\n"
+        "| 意大利语 | 中文规范译名 | 缩写/别名 | 说明 | 更新日期 |\n"
+        "|---------|------------|---------|------|---------|\n"
+        "| Ministero degli Affari Esteri | 外交部 | MAE | 外交 | 2026-01-01 |\n"
+        "| Senato | 参议院 | — | 上议院 | 2026-01-01 |\n",
+        encoding="utf-8",
+    )
+    terms = _extract_glossary_terms(glossary)
+    assert "ministero degli affari esteri" in terms
+    assert "senato" in terms
+    assert len(terms) == 2
+
+
+def test_extract_glossary_terms_no_table(tmp_path: Path):
+    """无表格时应返回空集合。"""
+    glossary = tmp_path / "glossary.md"
+    glossary.write_text("# Empty glossary\n\nNo tables here.\n", encoding="utf-8")
+    terms = _extract_glossary_terms(glossary)
+    assert terms == set()
+
+
+def test_count_eval_coverage(tmp_path: Path):
+    """评估集覆盖率统计。"""
+    eval_data = {
+        "examples": [
+            {
+                "input": {
+                    "title_original": "Senato approva riforma",
+                    "content_original": "Il Senato ha approvato",
+                    "source_id": "ansa",
+                    "language": "it",
+                },
+            },
+            {
+                "input": {
+                    "title_original": "Weather forecast",
+                    "content_original": "Sunny day",
+                    "source_id": "weather",
+                    "language": "en",
+                },
+            },
+        ]
+    }
+    eval_file = tmp_path / "eval-set-v1.json"
+    eval_file.write_text(json.dumps(eval_data), encoding="utf-8")
+
+    terms = {"senato", "ministero"}
+    total, covered = _count_eval_coverage(eval_file, terms)
+    assert total == 2
+    assert covered == 1
+
+
+def test_glossary_check_in_report():
+    """DoctorReport 应包含 glossary_check 字段。"""
+    report = DoctorReport(glossary_check={"passed": True, "details": ["86 terms"]})
+    assert report.glossary_check["passed"] is True
+    d = report.to_dict()
+    assert "glossary_check" in d

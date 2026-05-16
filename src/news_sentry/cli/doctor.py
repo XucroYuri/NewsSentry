@@ -35,6 +35,7 @@ class DoctorReport(BaseModel):
     provider_check: dict[str, Any] = {}
     browser_bridge_check: dict[str, Any] = {}
     session_profiles_check: dict[str, Any] = {}
+    glossary_check: dict[str, Any] = {}
 
     @property
     def all_passed(self) -> bool:
@@ -45,6 +46,7 @@ class DoctorReport(BaseModel):
             self.provider_check,
             self.browser_bridge_check,
             self.session_profiles_check,
+            self.glossary_check,
         ]
         return all(c.get("passed", False) for c in checks if c)
 
@@ -56,6 +58,7 @@ class DoctorReport(BaseModel):
             "provider_check": self.provider_check,
             "browser_bridge_check": self.browser_bridge_check,
             "session_profiles_check": self.session_profiles_check,
+            "glossary_check": self.glossary_check,
             "overall": "PASS" if self.all_passed else "FAIL",
         }
 
@@ -179,6 +182,28 @@ def run_doctor(target_id: str, data_root: str = "data") -> DoctorReport:
             f"{len(yaml_files)} session configs, {len(session_files)} session files"
         )
 
+    # Glossary coverage check
+    glossary_ok = True
+    glossary_details: list[str] = []
+    glossary_path = Path("docs/it-zh-glossary.md")
+    if not glossary_path.is_file():
+        glossary_ok = False
+        glossary_details.append("docs/it-zh-glossary.md not found")
+    else:
+        glossary_terms = _extract_glossary_terms(glossary_path)
+        glossary_details.append(f"{len(glossary_terms)} glossary terms")
+        eval_files = sorted(Path("data/eval").glob("eval-set-v*.json"))
+        if eval_files:
+            latest_eval = eval_files[-1]
+            total, covered = _count_eval_coverage(latest_eval, glossary_terms)
+            pct = covered / total * 100 if total > 0 else 0
+            glossary_details.append(f"eval coverage: {covered}/{total} ({pct:.0f}%)")
+            if pct < 50:
+                glossary_ok = False
+                glossary_details.append("coverage below 50% threshold")
+        else:
+            glossary_details.append("no eval-set files found (skip coverage check)")
+
     return DoctorReport(
         schema_check={"passed": schema_ok, "details": schema_details},
         directory_check={"passed": dir_ok, "details": dir_details},
@@ -186,6 +211,7 @@ def run_doctor(target_id: str, data_root: str = "data") -> DoctorReport:
         provider_check={"passed": provider_ok, "details": provider_details},
         browser_bridge_check={"passed": bridge_ok, "details": bridge_details},
         session_profiles_check={"passed": session_ok, "details": session_details},
+        glossary_check={"passed": glossary_ok, "details": glossary_details},
     )
 
 
@@ -204,3 +230,46 @@ def doctor_command(target: str, data_root: str = "data", json_output: bool = Fal
             for detail in check.get("details", []):
                 print(f"     {detail}")
     return 0 if report.all_passed else 1
+
+
+def _extract_glossary_terms(glossary_path: Path) -> set[str]:
+    """从术语表 Markdown 中提取意大利语词条（第一列）。"""
+    terms: set[str] = set()
+    in_table = False
+    for line in glossary_path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("|") and "意大利语" in stripped:
+            in_table = True
+            continue
+        if in_table and stripped.startswith("|"):
+            cells = [c.strip() for c in stripped.split("|")]
+            # 过滤分隔行和空行
+            if len(cells) >= 2 and cells[1] and not cells[1].startswith("-"):
+                term = cells[1]
+                if term and term != "意大利语":
+                    terms.add(term.lower())
+        elif in_table and not stripped.startswith("|"):
+            in_table = False
+    return terms
+
+
+def _count_eval_coverage(eval_path: Path, glossary_terms: set[str]) -> tuple[int, int]:
+    """统计评估集中有多少条目的 input 涉及术语表词条。"""
+    data = json.loads(eval_path.read_text(encoding="utf-8"))
+    examples = data.get("examples", [])
+    total = len(examples)
+    covered = 0
+    for ex in examples:
+        inp = ex.get("input", {})
+        text = " ".join(
+            [
+                inp.get("title_original", ""),
+                inp.get("content_original", ""),
+                inp.get("title", ""),
+                inp.get("content", ""),
+                inp.get("source_id", ""),
+            ]
+        ).lower()
+        if any(term in text for term in glossary_terms):
+            covered += 1
+    return total, covered

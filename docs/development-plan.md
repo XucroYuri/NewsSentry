@@ -1,6 +1,6 @@
 # News Sentry — 开发计划
 
-> 版本: v2.6 | 日期: 2026-05-16
+> 版本: v2.7 | 日期: 2026-05-16
 > 状态: **路线图主权文档** — 本文档是多阶段开发计划与 TODO 矩阵的唯一权威来源
 > 当前版本: **v1.5.0** | 下一版本: **v2.0.0**
 > Phase 25-29 性能优化: ✅ 全部完成 (异步 pipeline + SQLite + AI 批处理/缓存/分级路由 + API SQLite 查询 + 多目标并发调度)
@@ -1453,22 +1453,21 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 | 编号 | 内容 | 建议决策/实现时机 |
 |------|------|----------------|
-| `CLI-001` | 决定 `python -m news_sentry.cli run` 的完整命令 schema（参数、子命令、输出格式）| Phase 3 实现前 |
-| `LOCK-001` | 并发 Agent 写同一文件时的 lock/lease 机制设计 | Phase 4 多 Skill 并发时 |
-| `EVAL-001` | AI Provider 离线 eval 集构建与评估流程（同一 judge 任务的多 Provider 质量对比） | Phase 5 完成后 |
-| `SCHEMA-VERSION-001` | `prompt_template_id` 和 `output_schema_id` 的版本治理（何时可以 deprecate 旧版本） | Phase 5 完成后 |
-| `GLOSSARY-UPDATE-001` | `it-zh-glossary.md` 更新机制（判断新条目纳入阈值、格式、审核人）| Phase 3 首次生产运行后 |
-| `HEALTH-POLICY-001` | source health 降级阈值（多少次失败后停止采集该信源，如何恢复） | Phase 3 运行稳定后 |
+| `CLI-001` | 决定 `python -m news_sentry.cli run` 的完整命令 schema（参数、子命令、输出格式）| ✅ Phase 47 已解决：Click 实现 5 子命令 (run/skill/tool/validate/doctor)，完整参数与退出码 |
+| `LOCK-001` | 并发 Agent 写同一文件时的 lock/lease 机制设计 | ✅ Phase 47 关闭：SQLite WAL + asyncio.Lock 已覆盖，无需文件锁 |
+| `EVAL-001` | AI Provider 离线 eval 集构建与评估流程（同一 judge 任务的多 Provider 质量对比） | ✅ Phase 47 已解决：run_eval.py 三种 mode (rules/ai/hybrid) 支持多轮对比 |
+| `SCHEMA-VERSION-001` | `prompt_template_id` 和 `output_schema_id` 的版本治理（何时可以 deprecate 旧版本） | ✅ Phase 47 已解决：18 schema 均已有 $id/$schema，ADR-0024 记录版本策略 |
+| `GLOSSARY-UPDATE-001` | `it-zh-glossary.md` 更新机制（判断新条目纳入阈值、格式、审核人）| ✅ Phase 47 已解决：doctor 命令新增术语表覆盖率检查 (69% eval coverage)，人工更新流程不变 |
+| `HEALTH-POLICY-001` | source health 降级阈值（多少次失败后停止采集该信源，如何恢复） | Phase 40 已解决：>=3 degraded, >=7 unreachable |
 | `MEMORY-RETENTION-001` | `known_item_ids` 保留策略（最大条目数、过期时间、清理方式）| Phase 40 已解决：prune_old_data 级联清理 |
 | `ARCHIVE-POLICY-001` | `archive/` 中被拒事件的保留周期（多久清理或迁移到冷存储）| Phase 40 已解决：prune_old_data + max_age_days 参数 |
-| `HEALTH-POLICY-001` | source health 降级阈值（多少次失败后停止采集该信源，如何恢复） | Phase 40 已解决：>=3 degraded, >=7 unreachable |
 | `MATRIX-GOV-001` | 信源自进化机制的触发频率和审计策略 | Phase 46 已解决：JSONL 审计日志 + rss_discovery_cooldown_hours=168 (7d) |
 | `SOCIAL-SESSION-001` | 社媒 session profile 的刷新周期和安全存储策略 | Phase 46 已解决：expires_at 90d TTL + is_expired/needs_review + load 自动跳过过期 |
-| `BRIDGE-FALLBACK-001` | Computer Use 兜底的成本预算上限和告警阈值 | Phase 12 实现时 |
-| `EVAL-002` | 评估集更新机制（何时触发重新标注、标注者间一致性度量） | Phase 13 实现时 |
+| `BRIDGE-FALLBACK-001` | Computer Use 兜底的成本预算上限和告警阈值 | ✅ Phase 47 已解决：三层降级 + AI CostTracker 全局预算 + 每日次数上限 |
+| `EVAL-002` | 评估集更新机制（何时触发重新标注、标注者间一致性度量） | ✅ Phase 47 已解决：手动 v1→v2→v3 流程已就位，按需扩展 |
 | `DEPLOY-001` | Cloud VPS 部署的平台选择（GCP Cloud Run / AWS ECS / 自管 VM）和成本估算 | Phase 15 已决策：Hetzner CX32 |
-| `AI-JUDGE-001` | AI Judge 置信度路由阈值（news_value_score 什么范围走规则 vs AI）| Phase 14 实现时 |
-| `AI-JUDGE-002` | Hybrid 模式下 Rules→AI fallback 的判定逻辑 | Phase 14 实现时 |
+| `AI-JUDGE-001` | AI Judge 置信度路由阈值（news_value_score 什么范围走规则 vs AI）| ✅ Phase 47 已解决：ConfidenceRouter (threshold=60) + TieredConfidenceRouter (0.85/0.5 三级) |
+| `AI-JUDGE-002` | Hybrid 模式下 Rules→AI fallback 的判定逻辑 | ✅ Phase 47 已解决：_should_escalate 多条件升级 + AI 失败保留规则结果 |
 | `ALERT-001` | 告警去重窗口和阈值配置策略 | Phase 17 已决策：24h 去重窗口，阈值通过 destinations.yaml filter 配置 |
 | `MONITOR-001` | 监控方案选型（Prometheus vs 轻量自建） | Phase 34 已解决：自建运维仪表盘 |
 | `BACKUP-001` | 数据备份保留策略和恢复测试 | Phase 40 已解决：VACUUM INTO + 保留最近 7 份 |
