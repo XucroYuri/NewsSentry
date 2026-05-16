@@ -4,7 +4,10 @@
 
 "use strict";
 
-import { api, state, dom, $, escapeHtml, showError, formatDate, scoreBar, scoreColor, scoreGradient, sentimentColor, sentimentPct, sentimentGradient } from "../api.js";
+import { api, state, dom, $, escapeHtml, showError, formatDate, scoreBar, scoreColor, scoreGradient, sentimentColor, sentimentPct, sentimentGradient, sentimentLabelColor, sentimentDotHtml, entityChipsHtml } from "../api.js";
+
+const LINK_TYPE_LABELS = { followup: "后续进展", related: "相关", same_event: "同一事件", correction: "纠正" };
+const LINK_TYPE_COLORS = { followup: "#3b82f6", related: "#6b7280", same_event: "#10b981", correction: "#ef4444" };
 
 // ── 页面渲染：事件列表 ────────────────────────────────────
 
@@ -61,6 +64,23 @@ export async function renderEventList() {
       <label>搜索</label>
       <input type="search" id="filterSearch" placeholder="搜索标题..." value="${escapeHtml(state.filters.search)}">
     </div>
+    <div class="filter-group">
+      <label>情感</label>
+      <select id="filterSentiment">
+        <option value="">全部</option>
+        <option value="positive" ${state.filters.sentiment === "positive" ? "selected" : ""}>正面</option>
+        <option value="negative" ${state.filters.sentiment === "negative" ? "selected" : ""}>负面</option>
+        <option value="neutral" ${state.filters.sentiment === "neutral" ? "selected" : ""}>中性</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>实体</label>
+      <input type="search" id="filterEntity" placeholder="实体名..." value="${escapeHtml(state.filters.entity || "")}">
+    </div>
+    <div class="filter-group">
+      <label>主题</label>
+      <input type="search" id="filterTopic" placeholder="主题标签..." value="${escapeHtml(state.filters.topic_tag || "")}">
+    </div>
   `;
 
   // 绑定筛选事件
@@ -92,6 +112,30 @@ export async function renderEventList() {
       loadEventList();
     }, 350);
   });
+  // NLP 筛选
+  $("#filterSentiment").addEventListener("change", (e) => {
+    state.filters.sentiment = e.target.value;
+    state.filters.page = 1;
+    loadEventList();
+  });
+  let entityTimer = null;
+  $("#filterEntity").addEventListener("input", (e) => {
+    state.filters.entity = e.target.value;
+    clearTimeout(entityTimer);
+    entityTimer = setTimeout(() => {
+      state.filters.page = 1;
+      loadEventList();
+    }, 350);
+  });
+  let topicTimer = null;
+  $("#filterTopic").addEventListener("input", (e) => {
+    state.filters.topic_tag = e.target.value;
+    clearTimeout(topicTimer);
+    topicTimer = setTimeout(() => {
+      state.filters.page = 1;
+      loadEventList();
+    }, 350);
+  });
 
   // 加载事件列表
   await loadEventList();
@@ -112,6 +156,9 @@ async function loadEventList() {
     if (state.filters.classification) params.classification = state.filters.classification;
     if (state.filters.min_score > 0) params.min_score = state.filters.min_score;
     if (state.filters.search) params.search = state.filters.search;
+    if (state.filters.sentiment) params.sentiment = state.filters.sentiment;
+    if (state.filters.entity) params.entity = state.filters.entity;
+    if (state.filters.topic_tag) params.topic_tag = state.filters.topic_tag;
 
     const data = await api("/api/v1/events", params);
     const events = data.events || [];
@@ -137,7 +184,7 @@ async function loadEventList() {
         (ev, i) => `
       <div class="event-card" data-event-id="${escapeHtml(ev.id || "")}" style="animation-delay:${i * 40}ms">
         <div class="event-card-header">
-          <div class="event-card-title">${escapeHtml(ev.title_original || ev.id || "无标题")}</div>
+          <div class="event-card-title">${sentimentDotHtml(ev.sentiment)}${escapeHtml(ev.title_original || ev.id || "无标题")}</div>
           <div class="event-card-time">${formatDate(ev.published_at)}</div>
         </div>
         <div class="event-card-meta">
@@ -148,6 +195,7 @@ async function loadEventList() {
           ${scoreBar("新闻价值", ev.news_value_score)}
           ${scoreBar("中国相关度", ev.china_relevance)}
         </div>
+        ${ev.nlp_entities ? entityChipsHtml(ev.nlp_entities) : ""}
       </div>
     `
       )
@@ -239,6 +287,7 @@ export async function renderEventDetail(eventId) {
       "id", "title_original", "source_id", "url", "published_at",
       "news_value_score", "china_relevance", "sentiment_score",
       "classification", "pipeline_stage", "language",
+      "sentiment", "nlp_entities", "topic_tags", "event_relations",
     ]);
 
     const extraFields = Object.entries(ev)
@@ -303,6 +352,42 @@ export async function renderEventDetail(eventId) {
             </div>
           </div>
 
+          ${ev.sentiment || ev.nlp_entities || ev.topic_tags ? `
+            <div class="detail-section" style="margin-top:20px">
+              <div class="detail-section-title">NLP 分析</div>
+              ${ev.sentiment ? `
+                <div class="nlp-field">
+                  <span class="nlp-label">情感</span>
+                  <span class="nlp-value">
+                    <span class="sentiment-badge" style="background:${sentimentLabelColor(ev.sentiment)}">${escapeHtml(ev.sentiment)}</span>
+                  </span>
+                </div>
+              ` : ""}
+              ${ev.nlp_entities && ev.nlp_entities.length ? `
+                <div class="nlp-field">
+                  <span class="nlp-label">实体</span>
+                  <div class="chip-list">
+                    ${ev.nlp_entities.map((e) => `<a class="chip chip-entity chip-link" href="#/entities/${encodeURIComponent(e.name)}" title="相关性: ${e.relevance}">${escapeHtml(e.name)} <span class="chip-type">${escapeHtml(e.entity_type)}</span></a>`).join("")}
+                  </div>
+                </div>
+              ` : ""}
+              ${ev.topic_tags && ev.topic_tags.length ? `
+                <div class="nlp-field">
+                  <span class="nlp-label">主题</span>
+                  <div class="chip-list">
+                    ${ev.topic_tags.map((t) => `<span class="chip chip-topic">${escapeHtml(t)}</span>`).join("")}
+                  </div>
+                </div>
+              ` : ""}
+              ${ev.event_relations && ev.event_relations.length ? `
+                <div class="nlp-field">
+                  <span class="nlp-label">关联</span>
+                  <div class="nlp-relations">${ev.event_relations.map((r) => escapeHtml(r)).join("、")}</div>
+                </div>
+              ` : ""}
+            </div>
+          ` : ""}
+
           ${ev.url ? `
             <a class="detail-link" href="${escapeHtml(ev.url)}" target="_blank" rel="noopener noreferrer">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -327,6 +412,24 @@ export async function renderEventDetail(eventId) {
     $("#detailBack").addEventListener("click", () => {
       window.location.hash = "#/events";
     });
+
+    // Phase 35: 关联事件卡片
+    try {
+      const linksData = await api(`/api/v1/events/${encodeURIComponent(eventId)}/links?target_id=${state.currentTarget}`);
+      if (linksData.links && linksData.links.length > 0) {
+        const linksHtml = linksData.links.map(l => `
+          <div class="link-item" onclick="location.hash='#/events/${encodeURIComponent(l.linked_event_id)}'">
+            <span class="link-direction">${l.direction === "forward" ? "\u2192" : "\u2190"}</span>
+            <span class="link-type-badge" style="background:${LINK_TYPE_COLORS[l.link_type] || '#6b7280'}">${LINK_TYPE_LABELS[l.link_type] || l.link_type}</span>
+            <span class="link-title">${escapeHtml(l.linked_event_title || l.linked_event_id)}</span>
+            <span class="link-strength">${(l.strength * 100).toFixed(0)}%</span>
+          </div>`).join("");
+        const card = document.createElement("div");
+        card.className = "section-card linked-events-card";
+        card.innerHTML = `<h3>关联事件 (${linksData.links.length})</h3><div class="links-list">${linksHtml}</div>`;
+        dom.pageContainer.querySelector(".nlp-section")?.after(card) || dom.pageContainer.appendChild(card);
+      }
+    } catch { /* 非阻塞 */ }
   } catch (err) {
     showError(`加载事件详情失败: ${err.message}`);
     dom.pageContainer.innerHTML = `

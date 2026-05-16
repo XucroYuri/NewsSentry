@@ -11,6 +11,8 @@ import { state, dom, $, $$, api, escapeHtml, showError } from "./api.js";
 import { renderDashboard } from "./pages/dashboard.js";
 import { renderEventList, renderEventDetail } from "./pages/events.js";
 import { renderEntityList, renderEntityDetail } from "./pages/entities.js";
+import { renderOpsDashboard, renderOpsDetail } from "./pages/ops.js";
+import { renderChainList, renderChainDetail } from "./pages/chains.js";
 import { renderConfigTarget, renderConfigSources, renderConfigFilters, renderConfigOutputs, renderConfigProvider } from "./pages/config.js";
 
 // ── 路由 ──────────────────────────────────────────────────
@@ -43,14 +45,22 @@ function navigate() {
     event: "事件详情",
     entities: "实体追踪",
     entity: "实体详情",
+    ops: "运维中心",
+    op: "运行详情",
+    chains: "追踪链",
+    chain: "链详情",
     "config-target": "Target 配置",
     "config-sources": "Source 渠道管理",
     "config-filters": "Filter 规则",
     "config-outputs": "输出目的地",
     "config-provider": "Provider 路由",
   };
-  const pageKey = page === "events" && param ? "event" : page;
-  const pageKeyFinal = page === "entities" && param ? "entity" : pageKey;
+  const pageKey = page === "events" && param ? "event"
+    : page === "entities" && param ? "entity"
+    : page === "ops" && param ? "op"
+    : page === "chains" && param ? "chain"
+    : page;
+  const pageKeyFinal = pageKey;
   dom.pageTitle.textContent = titles[pageKeyFinal] || "概览";
 
   // 渲染对应页面
@@ -65,6 +75,14 @@ function navigate() {
     renderEntityDetail(param);
   } else if (page === "entities") {
     renderEntityList();
+  } else if (page === "ops" && param) {
+    renderOpsDetail(param);
+  } else if (page === "ops") {
+    renderOpsDashboard();
+  } else if (page === "chains" && param) {
+    renderChainDetail(param);
+  } else if (page === "chains") {
+    renderChainList();
   } else if (page === "config-target") {
     renderConfigTarget();
   } else if (page === "config-sources") {

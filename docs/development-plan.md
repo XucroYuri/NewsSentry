@@ -1174,6 +1174,24 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P34.03 | 前端运维页面 | ops.js + app.js + index.html + style.css | P34.02 | M | 运维总览 + 运行详情 | ✅ |
 | P34.04 | 验证与清理 | development-plan.md 更新 | P34.03 | S | 1535 tests, ruff=0, mypy=0, 92% | ✅ |
 
+### Phase 35 · 事件追踪链 ✅
+
+**目标：** 自动发现事件间关联关系，支持追踪链浏览和时间线展示。
+
+**核心交付：**
+- AsyncStore event_links 表 + 4 个关联查询方法
+- _link_events 协程集成到 async_run pipeline
+- 3 个新 API 端点：事件关联 /events/{id}/links、追踪链 /events/{id}/chain、链列表 /chains
+- Web UI 追踪链页面（#/chains + #/chains/{id}）+ 事件详情关联卡片
+- 时间线 CSS 组件 + 链列表表格
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 | 状态 |
+|----|------|--------|------|------|--------|------|
+| P35.01 | event_links 表 | async_store.py + 测试 | P34 | M | 新表 + 4 查询方法 | ✅ |
+| P35.02 | Pipeline 集成 | async_run.py _link_events | P35.01 | S | judge 后自动关联 | ✅ |
+| P35.03 | API 端点 | api_server.py 3 端点 + 测试 | P35.01 | M | links/chain/chains | ✅ |
+| P35.04 | 前端页面 | chains.js + events.js + style.css + index.html + app.js | P35.03 | M | 追踪链列表 + 详情 + 关联卡片 | ✅ |
+
 ---
 
 ## §25. Cloud VPS 部署方案推荐
