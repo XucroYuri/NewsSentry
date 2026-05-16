@@ -7,6 +7,71 @@
 
 ---
 
+## [1.5.0] — 2026-05-16
+
+### 新增
+- Phase 47: 治理 backlog 清零 — 8 条治理项全部关闭
+- ADR-0024: Schema 版本治理策略
+- doctor 命令新增术语表覆盖率检查 (86 terms, 69% eval coverage)
+- Phase 46: MatrixEvolution JSONL 审计日志 + RSS 发现冷却期 (168h)
+- Phase 46: SessionProfile expires_at 过期 + is_expired()/needs_review() + 自动跳过
+- Phase 45: CI/CD 整合 — 合并冗余 workflow, Python 3.12 only, 覆盖率 XML 报告
+- Phase 44: eval-set v2→v3 (210→250 examples) + _run_judge_async 7 项测试
+- Phase 40-43: Web UI + 运维仪表盘 + 趋势分析 + 数据保留策略
+
+### 变更
+- 版本号推进至 1.5.0
+- development-plan.md v2.7: 治理 backlog 全部关闭
+- 1629 tests, 92% coverage, ruff=0, mypy=0
+
+## [1.4.0] — 2026-05-15
+
+### 新增
+- Phase 34-39: 运维仪表盘 (概览/事件/告警/趋势)
+- 异步运维 API (SQLite 查询)
+- 趋势分析引擎
+- 多通道告警增强
+
+### 变更
+- 版本号推进至 1.4.0
+
+## [1.3.0] — 2026-05-14
+
+### 新增
+- Phase 30-33: 多语言 NLP 深度分析
+- NLP 情感分析引擎 (规则零成本基线 + AI 按需升级)
+- 5 种语言情感/实体词典 (it/en/ja/de/fr)
+- Entity Tracking (entities 表 + upsert 去重 + 查询 API)
+- Web UI NLP 可视化 (ES Modules + Dashboard)
+
+### 变更
+- 版本号推进至 1.3.0
+
+## [1.2.0] — 2026-05-15
+
+### 新增
+- Phase 25-29: 性能优化全面完成
+- 异步基础设施 (async_run, AsyncRateLimiter, httpx.AsyncClient)
+- SQLite 存储 (AsyncStore 5 表, WAL mode)
+- AI 优化 (TranslationBatcher, LLMCacheManager, TieredConfidenceRouter)
+- API Server 重构 (SQLite 查询, ConfigCache TTL)
+- 多目标并发调度 (FairScheduler, --target all|a,b, --interval N)
+
+### 变更
+- 版本号推进至 1.2.0
+- YAML→SQLite 自动迁移
+
+## [1.1.0] — 2026-05-13
+
+### 新增
+- Phase 24: 突发新闻雷达
+- home_relevance 字段 + tier 推送
+- min-level 调度 + 实时突发新闻检测
+- L2/L3 自动翻译 + 报道方案草稿生成
+
+### 变更
+- 版本号推进至 1.1.0
+
 ## [1.0.0] — 2026-05-12
 
 ### 新增
