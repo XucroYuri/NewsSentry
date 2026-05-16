@@ -87,6 +87,20 @@ CREATE TABLE IF NOT EXISTS entities (
 )
 """
 
+_DDL_EVENT_LINKS = """
+CREATE TABLE IF NOT EXISTS event_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_event_id TEXT NOT NULL,
+    target_event_id TEXT NOT NULL,
+    link_type TEXT NOT NULL,
+    strength REAL NOT NULL DEFAULT 0.5,
+    signals TEXT NOT NULL DEFAULT '{}',
+    target_id TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(source_event_id, target_event_id, link_type)
+)
+"""
+
 _DDL_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_known_ids_seen ON known_ids(seen_at)",
     "CREATE INDEX IF NOT EXISTS idx_event_target_stage ON event_index(target_id, stage)",
@@ -96,6 +110,9 @@ _DDL_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(entity_type)",
     "CREATE INDEX IF NOT EXISTS idx_entities_mentions ON entities(mention_count DESC)",
     "CREATE INDEX IF NOT EXISTS idx_entities_last_seen ON entities(last_seen DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_event_links_source ON event_links(source_event_id)",
+    "CREATE INDEX IF NOT EXISTS idx_event_links_target ON event_links(target_event_id)",
+    "CREATE INDEX IF NOT EXISTS idx_event_links_target_id ON event_links(target_id)",
 )
 
 __all__ = ["AsyncStore"]
@@ -122,6 +139,7 @@ class AsyncStore:
         await self._db.execute(_DDL_LLM_CACHE)
         await self._db.execute(_DDL_EVENT_INDEX)
         await self._db.execute(_DDL_ENTITIES)
+        await self._db.execute(_DDL_EVENT_LINKS)
         # Phase 31: 为已有数据库添加 NLP 列
         for col in ("sentiment", "entity_names", "topic_tags"):
             try:
@@ -790,3 +808,180 @@ class AsyncStore:
         recent_events = [dict(zip(ev_cols, r, strict=True)) for r in rows]
         entity["recent_events"] = recent_events
         return entity
+
+    # ------------------------------------------------------------------
+    # Event Links (Phase 35)
+    # ------------------------------------------------------------------
+
+    async def create_link(
+        self,
+        source_event_id: str,
+        target_event_id: str,
+        link_type: str,
+        strength: float,
+        signals: dict[str, Any],
+        target_id: str,
+    ) -> None:
+        """写入事件关联（UNIQUE 约束去重）。"""
+        if self._db is None:
+            return
+        signals_json = json.dumps(signals, ensure_ascii=False)
+        await self._db.execute(
+            """INSERT OR IGNORE INTO event_links
+               (source_event_id, target_event_id, link_type, strength, signals, target_id)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (source_event_id, target_event_id, link_type, strength, signals_json, target_id),
+        )
+        await self._db.commit()
+
+    async def get_event_links(self, event_id: str) -> list[dict[str, Any]]:
+        """获取某事件的所有直接关联（双向）。"""
+        if self._db is None:
+            return []
+        results: list[dict[str, Any]] = []
+        # 作为 source 的关联
+        async with self._db.execute(
+            "SELECT target_event_id, link_type, strength, signals, created_at "
+            "FROM event_links WHERE source_event_id = ?",
+            [event_id],
+        ) as cursor:
+            async for row in cursor:
+                results.append(
+                    {
+                        "linked_event_id": row[0],
+                        "link_type": row[1],
+                        "strength": row[2],
+                        "direction": "forward",
+                        "signals": json.loads(row[3]) if row[3] else {},
+                        "created_at": row[4],
+                    }
+                )
+        # 作为 target 的关联
+        async with self._db.execute(
+            "SELECT source_event_id, link_type, strength, signals, created_at "
+            "FROM event_links WHERE target_event_id = ?",
+            [event_id],
+        ) as cursor:
+            async for row in cursor:
+                results.append(
+                    {
+                        "linked_event_id": row[0],
+                        "link_type": row[1],
+                        "strength": row[2],
+                        "direction": "backward",
+                        "signals": json.loads(row[3]) if row[3] else {},
+                        "created_at": row[4],
+                    }
+                )
+        return results
+
+    async def find_candidates(
+        self,
+        target_id: str,
+        event_id: str,
+        days: int = 7,
+    ) -> list[dict[str, Any]]:
+        """查找同一 target 最近 N 天的候选关联事件（排除自身）。"""
+        if self._db is None:
+            return []
+        cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+        async with self._db.execute(
+            "SELECT event_id, entity_names, topic_tags, published_at, title_original "
+            "FROM event_index WHERE target_id = ? AND event_id != ? "
+            "AND published_at >= ? ORDER BY published_at DESC",
+            [target_id, event_id, cutoff],
+        ) as cursor:
+            rows = await cursor.fetchall()
+        cols = ("event_id", "entity_names", "topic_tags", "published_at", "title_original")
+        return [dict(zip(cols, row, strict=True)) for row in rows]
+
+    async def get_event_chain(
+        self,
+        event_id: str,
+        depth: int = 5,
+    ) -> list[dict[str, Any]]:
+        """向前向后遍历关联链，返回链上所有事件。"""
+        if self._db is None:
+            return []
+        visited: set[str] = set()
+        chain_events: list[dict[str, Any]] = []
+
+        # 收集链上所有 event_id (BFS)
+        queue = [event_id]
+        visited.add(event_id)
+        while queue and len(visited) < depth * 2 + 1:
+            current = queue.pop(0)
+            linked_ids: set[str] = set()
+            async with self._db.execute(
+                "SELECT target_event_id FROM event_links WHERE source_event_id = ?",
+                [current],
+            ) as cursor:
+                async for row in cursor:
+                    linked_ids.add(row[0])
+            async with self._db.execute(
+                "SELECT source_event_id FROM event_links WHERE target_event_id = ?",
+                [current],
+            ) as cursor:
+                async for row in cursor:
+                    linked_ids.add(row[0])
+            for lid in linked_ids:
+                if lid not in visited:
+                    visited.add(lid)
+                    queue.append(lid)
+
+        # 批量查询事件信息
+        if not visited:
+            return []
+        placeholders = ",".join("?" for _ in visited)
+        async with self._db.execute(
+            f"SELECT event_id, title_original, published_at FROM event_index "  # noqa: S608
+            f"WHERE event_id IN ({placeholders}) ORDER BY published_at ASC",
+            list(visited),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        for row in rows:
+            chain_events.append(
+                {
+                    "event_id": row[0],
+                    "title_original": row[1],
+                    "published_at": row[2],
+                }
+            )
+        return chain_events
+
+    async def get_active_chains(self, target_id: str) -> list[dict[str, Any]]:
+        """返回当前 target 的活跃追踪链（有 >=2 事件的链）。"""
+        if self._db is None:
+            return []
+        # 找出所有有 source 的 event_id（即链的根节点）
+        async with self._db.execute(
+            "SELECT DISTINCT el.source_event_id "
+            "FROM event_links el "
+            "WHERE el.target_id = ? "
+            "AND el.source_event_id NOT IN (SELECT target_event_id FROM event_links)",
+            [target_id],
+        ) as cursor:
+            root_rows = await cursor.fetchall()
+
+        # 如果没有纯根节点，找所有 source_event_id
+        if not root_rows:
+            async with self._db.execute(
+                "SELECT DISTINCT source_event_id FROM event_links WHERE target_id = ?",
+                [target_id],
+            ) as cursor:
+                root_rows = await cursor.fetchall()
+
+        chains: list[dict[str, Any]] = []
+        for (root_id,) in root_rows:
+            chain = await self.get_event_chain(root_id, depth=10)
+            if len(chain) >= 2:
+                latest = chain[-1]
+                chains.append(
+                    {
+                        "root_event_id": root_id,
+                        "event_count": len(chain),
+                        "latest_time": latest.get("published_at", ""),
+                        "latest_title": latest.get("title_original", ""),
+                    }
+                )
+        return sorted(chains, key=lambda c: c["latest_time"], reverse=True)

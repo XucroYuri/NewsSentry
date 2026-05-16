@@ -751,3 +751,192 @@ class TestEntityTracking:
         """查询不存在的实体返回 None。"""
         detail = await store.query_entity_detail(999)
         assert detail is None
+
+
+# ---------------------------------------------------------------------------
+# TestEventLinks
+# ---------------------------------------------------------------------------
+
+
+class TestEventLinks:
+    """Phase 35: event_links 表 + 关联查询方法。"""
+
+    @pytest.fixture
+    async def store_with_links(self, tmp_path: Path):
+        db_path = tmp_path / "state.db"
+        store = AsyncStore(db_path)
+        await store.initialize()
+        yield store
+        await store.close()
+
+    @pytest.mark.asyncio
+    async def test_event_links_table_created(self, store_with_links: AsyncStore):
+        """event_links 表在 initialize 时自动创建。"""
+        store = store_with_links
+        async with store._db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='event_links'"
+        ) as cursor:
+            row = await cursor.fetchone()
+        assert row is not None
+
+    @pytest.mark.asyncio
+    async def test_create_and_get_link(self, store_with_links: AsyncStore):
+        """create_link 写入关联，get_event_links 读回。"""
+        store = store_with_links
+        await store._db.execute(
+            "INSERT INTO event_index "
+            "(event_id, target_id, stage, created_at, entity_names, "
+            "topic_tags, title_original, published_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "evt-a",
+                "italy",
+                "drafts",
+                "2026-05-16T10:00:00+00:00",
+                "Meloni,EU",
+                "politics,eu",
+                "Meloni visits EU",
+                "2026-05-16T10:00:00+00:00",
+            ),
+        )
+        await store._db.execute(
+            "INSERT INTO event_index "
+            "(event_id, target_id, stage, created_at, entity_names, "
+            "topic_tags, title_original, published_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "evt-b",
+                "italy",
+                "drafts",
+                "2026-05-16T14:00:00+00:00",
+                "Meloni,EU",
+                "politics",
+                "EU responds to Meloni",
+                "2026-05-16T14:00:00+00:00",
+            ),
+        )
+        await store._db.commit()
+
+        await store.create_link(
+            source_event_id="evt-a",
+            target_event_id="evt-b",
+            link_type="followup",
+            strength=0.82,
+            signals={"entity_overlap": 0.8, "topic_match": 0.5, "time_proximity": 1.0},
+            target_id="italy",
+        )
+        links = await store.get_event_links("evt-a")
+        assert len(links) == 1
+        assert links[0]["linked_event_id"] == "evt-b"
+        assert links[0]["link_type"] == "followup"
+        assert links[0]["strength"] == pytest.approx(0.82)
+
+    @pytest.mark.asyncio
+    async def test_create_link_unique_constraint(self, store_with_links: AsyncStore):
+        """重复写入相同关联会被忽略。"""
+        store = store_with_links
+        await store._db.execute(
+            "INSERT INTO event_index (event_id, target_id, stage, created_at) VALUES (?, ?, ?, ?)",
+            ("evt-a", "italy", "drafts", "2026-05-16T10:00:00+00:00"),
+        )
+        await store._db.execute(
+            "INSERT INTO event_index (event_id, target_id, stage, created_at) VALUES (?, ?, ?, ?)",
+            ("evt-b", "italy", "drafts", "2026-05-16T14:00:00+00:00"),
+        )
+        await store._db.commit()
+
+        await store.create_link("evt-a", "evt-b", "followup", 0.8, {}, "italy")
+        await store.create_link("evt-a", "evt-b", "followup", 0.9, {}, "italy")  # 重复
+        links = await store.get_event_links("evt-a")
+        assert len(links) == 1
+
+    @pytest.mark.asyncio
+    async def test_find_candidates(self, store_with_links: AsyncStore):
+        """find_candidates 返回同一 target 最近 N 天的事件（排除自身）。"""
+        store = store_with_links
+        now = "2026-05-16T12:00:00+00:00"
+        await store._db.execute(
+            "INSERT INTO event_index "
+            "(event_id, target_id, stage, created_at, published_at, "
+            "entity_names, topic_tags) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("evt-old", "italy", "drafts", now, now, "Meloni", "politics"),
+        )
+        await store._db.execute(
+            "INSERT INTO event_index "
+            "(event_id, target_id, stage, created_at, published_at, "
+            "entity_names, topic_tags) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("evt-new", "italy", "drafts", now, now, "Meloni,EU", "politics,eu"),
+        )
+        await store._db.commit()
+
+        candidates = await store.find_candidates("italy", "evt-new", days=7)
+        assert len(candidates) == 1
+        assert candidates[0]["event_id"] == "evt-old"
+
+    @pytest.mark.asyncio
+    async def test_get_event_chain(self, store_with_links: AsyncStore):
+        """get_event_chain 向前向后遍历关联链。"""
+        store = store_with_links
+        now = "2026-05-16T12:00:00+00:00"
+        for eid in ("evt-1", "evt-2", "evt-3"):
+            await store._db.execute(
+                "INSERT INTO event_index "
+                "(event_id, target_id, stage, created_at, "
+                "published_at, title_original) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (eid, "italy", "drafts", now, now, f"Event {eid}"),
+            )
+        await store._db.commit()
+        await store.create_link("evt-1", "evt-2", "followup", 0.8, {}, "italy")
+        await store.create_link("evt-2", "evt-3", "followup", 0.7, {}, "italy")
+
+        chain = await store.get_event_chain("evt-2", depth=5)
+        event_ids = [e["event_id"] for e in chain]
+        assert "evt-1" in event_ids
+        assert "evt-2" in event_ids
+        assert "evt-3" in event_ids
+
+    @pytest.mark.asyncio
+    async def test_get_active_chains(self, store_with_links: AsyncStore):
+        """get_active_chains 返回有 >=2 事件的链。"""
+        store = store_with_links
+        now = "2026-05-16T12:00:00+00:00"
+        for eid in ("evt-1", "evt-2"):
+            await store._db.execute(
+                "INSERT INTO event_index "
+                "(event_id, target_id, stage, created_at, "
+                "published_at, title_original) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (eid, "italy", "drafts", now, now, f"Event {eid}"),
+            )
+        await store._db.commit()
+        await store.create_link("evt-1", "evt-2", "followup", 0.8, {}, "italy")
+
+        chains = await store.get_active_chains("italy")
+        assert len(chains) >= 1
+        root_ids = [c["root_event_id"] for c in chains]
+        assert "evt-1" in root_ids
+
+    @pytest.mark.asyncio
+    async def test_get_event_links_empty(self, store_with_links: AsyncStore):
+        """无关联事件时返回空列表。"""
+        store = store_with_links
+        links = await store.get_event_links("nonexistent")
+        assert links == []
+
+    @pytest.mark.asyncio
+    async def test_find_candidates_excludes_self(self, store_with_links: AsyncStore):
+        """find_candidates 排除事件自身。"""
+        store = store_with_links
+        now = "2026-05-16T12:00:00+00:00"
+        await store._db.execute(
+            "INSERT INTO event_index (event_id, target_id, stage, created_at, published_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("evt-only", "italy", "drafts", now, now),
+        )
+        await store._db.commit()
+
+        candidates = await store.find_candidates("italy", "evt-only", days=7)
+        assert candidates == []
