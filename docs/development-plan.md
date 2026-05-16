@@ -5,6 +5,7 @@
 > 当前版本: **v1.1.0** | 下一版本: **v1.3.0**
 > Phase 25-29 性能优化: ✅ 全部完成 (异步 pipeline + SQLite + AI 批处理/缓存/分级路由 + API SQLite 查询 + 多目标并发调度)
 > Phase 30 多语言 NLP: ✅ 全部完成 (规则引擎零成本基线 + AI 按需升级 + 5 种语言情感/实体词典)
+> Phase 31 NLP API: ✅ 全部完成 (Frontmatter + SQLite 索引 + API 过滤 + sentiment_breakdown)
 > 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](spec/README.md) 为准）
 > Cloud VPS 方案: [docs/deployment/cloud-vps-recommendations.md](./deployment/cloud-vps-recommendations.md)
 > 字段口径基准: [`docs/contracts-canonical.md`](./contracts-canonical.md)
@@ -1091,6 +1092,25 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P30.05 | NLPAnalyzer 编排器 | `core/nlp_analyzer.py` | P30.03, P30.04 | M | 7 编排器测试通过 | ✅ |
 | P30.06 | 集成 + 路由 + 修复 | `async_run.py` + `routes.yaml` + `rules_judge.py` + schema | P30.05 | S | 全量 1504 tests 通过 | ✅ |
 | P30.07 | 验证与清理 | development-plan.md 更新 | P30.06 | S | ruff=0, mypy=0, 92% coverage | ✅ |
+
+### Phase 31 · NLP API + SQLite 索引增强 ✅
+
+**目标：** 打通 frontmatter → SQLite → API 三层，让 Phase 30 产出的 NLP 数据完全可查询可消费。
+
+**核心交付：**
+- Frontmatter 写入完整 NLPAnalysis（sentiment/nlp_entities/topic_tags/event_relations）
+- SQLite event_index 增加 sentiment/entity_names/topic_tags 窄列 + migration + 索引
+- API `/api/v1/events` 支持 sentiment/entity/topic_tag 过滤参数
+- API `/api/v1/stats` 返回 sentiment_breakdown 分布
+- 1504 tests → 1511 tests, 92% coverage
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 | 状态 |
+|----|------|--------|------|------|--------|------|
+| P31.01 | Frontmatter NLP 写入 | `markdown_writer.py` | P30 | S | 3 frontmatter 测试通过 | ✅ |
+| P31.02 | SQLite 加列 + Migration | `async_store.py` DDL + migration + upsert | P30 | M | ruff=0, mypy=0, 零破坏 | ✅ |
+| P31.03 | SQLite 查询扩展 | `async_store.py` 过滤 + stats | P31.02 | M | NLP 过滤 + sentiment_breakdown | ✅ |
+| P31.04 | API Server 扩展 | `api_server.py` 过滤参数 + stats | P31.03 | M | 4 API 测试通过 | ✅ |
+| P31.05 | 验证与清理 | development-plan.md 更新 | P31.04 | S | 1511 tests, ruff=0, mypy=0, 92% | ✅ |
 
 ---
 
