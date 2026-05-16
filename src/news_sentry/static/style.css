@@ -1695,3 +1695,12 @@ a:hover {
 .alert-type { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; }
 .alert-message { font-size: 0.85rem; color: var(--text-primary); line-height: 1.4; }
 .alert-time { font-size: 0.7rem; color: var(--text-muted); margin-top: 4px; }
+
+/* ── Phase 39: Dashboard 增强 ───────────────────────── */
+.today-cards { margin-bottom: 16px; }
+.stat-diff { font-size: 0.75rem; margin-top: 4px; }
+.diff-up { color: #10b981; }
+.diff-down { color: #ef4444; }
+.top-events-table { margin-top: 8px; }
+.top-event-row:hover { background: var(--bg-hover); }
+.score-badge { font-weight: 600; }
