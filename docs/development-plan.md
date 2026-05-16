@@ -1,14 +1,22 @@
 # News Sentry — 开发计划
 
-> 版本: v2.4 | 日期: 2026-05-15
+> 版本: v2.5 | 日期: 2026-05-16
 > 状态: **路线图主权文档** — 本文档是多阶段开发计划与 TODO 矩阵的唯一权威来源
-> 当前版本: **v1.1.0** | 下一版本: **v1.3.0**
+> 当前版本: **v1.5.0** | 下一版本: **v2.0.0**
 > Phase 25-29 性能优化: ✅ 全部完成 (异步 pipeline + SQLite + AI 批处理/缓存/分级路由 + API SQLite 查询 + 多目标并发调度)
 > Phase 30 多语言 NLP: ✅ 全部完成 (规则引擎零成本基线 + AI 按需升级 + 5 种语言情感/实体词典)
 > Phase 31 NLP API: ✅ 全部完成 (Frontmatter + SQLite 索引 + API 过滤 + sentiment_breakdown)
 > Phase 32 Entity Tracking: ✅ 全部完成 (entities 表 + upsert 去重 + 查询 API + top_entities + async_run 集成)
 > Phase 33 Web UI NLP: ✅ 全部完成 (ES Modules 拆分 + Dashboard 情感/实体可视化 + 事件 NLP 筛选/展示 + Entity 浏览页)
 > Phase 34 运维仪表盘: ✅ 全部完成 (RunLog API + 信源健康 API + Pipeline 触发 + 运维 Web UI)
+> Phase 35 事件追踪链: ✅ 全部完成 (event_links 表 + BFS 链构建 + 3 API + chains.js UI)
+> Phase 36 时间线叙事: ✅ 全部完成 (chain_narratives 表 + LLM 生成 + GET/POST narrative API + 叙述卡片)
+> Phase 37 量化趋势分析: ✅ 全部完成 (topic/sentiment 日聚合 + Chart.js trends 页 + 3 趋势 API)
+> Phase 38 智能告警 2.0: ✅ 全部完成 (3 类告警 + 6 索引 + chains N+1 修复 + smart alerts API)
+> Phase 39 Dashboard 增强: ✅ 全部完成 (今日/昨日对比 + Top5 高价值 + 趋势概览 + 3 统计 API)
+> Phase 40 治理积压清理: ✅ 全部完成 (prune_old_data + backup_db + 降级策略 + 2 maintenance API)
+> Phase 41 反馈闭环 + 告警管理: ✅ 全部完成 (feedback/alert_history 表 + 5 API + alerts/feedback UI)
+> Phase 42 配置编辑: ✅ 全部完成 (5 config write 端点 + atomic YAML + 5 可编辑配置页)
 > 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](spec/README.md) 为准）
 > Cloud VPS 方案: [docs/deployment/cloud-vps-recommendations.md](./deployment/cloud-vps-recommendations.md)
 > 字段口径基准: [`docs/contracts-canonical.md`](./contracts-canonical.md)
@@ -1210,6 +1218,116 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P36.03 | API 端点 | api_server.py 2 端点 + 测试 | P36.01 | M | GET/POST narrative | ✅ |
 | P36.04 | 前端叙述展示 | chains.js + style.css | P36.03 | M | 叙述卡片 + 链列表摘要 | ✅ |
 
+### Phase 37 · 量化趋势分析 ✅
+
+> 设计: docs/plan-phase-37-trends.md | 实现: docs/plan-phase-37-impl.md
+
+**目标：** Dashboard 缺乏趋势维度，用户无法感知"主题热度上升/下降""情感波动"。引入按天聚合查询 + Chart.js 趋势可视化。
+
+**核心交付：**
+- AsyncStore 3 个聚合方法：get_sentiment_daily_counts、get_topic_daily_counts、get_top_topics
+- TrendAnalyzer 新增 compute_topic_trends()：分割 current/prev 区间，计算 rising/stable/falling 方向和 hotness
+- 2 个新 API：GET /trends/topics、GET /trends/sentiment
+- Web UI trends.js 页面（Chart.js 折线图 + 主题排行榜）+ 导航入口
+- Chart.js CDN 集成 + trends 页面 CSS 样式
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 | 状态 |
+|----|------|--------|------|------|--------|------|
+| P37.01 | 数据层 + 趋势计算 | async_store.py + trend_analyzer.py + 测试 | P36 | M | 3 聚合方法 + compute_topic_trends | ✅ |
+| P37.02 | API 端点 | api_server.py 2 端点 + 测试 | P37.01 | M | GET /trends/topics & /trends/sentiment | ✅ |
+| P37.03 | 前端趋势页 | trends.js + style.css + app.js + index.html | P37.02 | M | Chart.js 折线/面积图 + 主题排行 | ✅ |
+
+### Phase 38 · 智能告警 2.0 ✅
+
+> 设计: docs/plan-phase-38-smart-alerts.md | 实现: docs/plan-phase-38-impl.md
+
+**目标：** 原有告警仅基于阈值触发，无法感知"链更新""趋势变化""实体突增"等复合信号。引入 3 类智能告警 + N+1 查询修复。
+
+**核心交付：**
+- AsyncStore get_recent_links + get_entity_daily_mentions + 6 个 SQLite 索引
+- AlertPipeline.check_smart_alerts()：chain_update、trend_rising、entity_spike
+- async_run _run_judge_async 集成智能告警检查（非阻塞 try/except）
+- GET /api/v1/alerts/smart REST 端点
+- chains.js N+1 修复（narrative_summary 内嵌替代逐链 API 调用）
+- 运维详情页智能告警卡片
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 | 状态 |
+|----|------|--------|------|------|--------|------|
+| P38.01 | 数据层 + 索引 | async_store.py 2 方法 + 6 索引 + 测试 | P37 | M | 3 告警查询方法 | ✅ |
+| P38.02 | 告警逻辑 + Pipeline 集成 | alert_pipeline.py + async_run.py + 测试 | P38.01 | M | check_smart_alerts + pipeline 集成 | ✅ |
+| P38.03 | API + 前端 | api_server.py + chains.js + ops.js + 测试 | P38.02 | M | GET /alerts/smart + 告警卡片 + N+1 Fix | ✅ |
+
+### Phase 39 · Dashboard 增强 ✅
+
+> 设计: docs/plan-phase-39-dashboard.md
+
+**目标：** Dashboard 仅展示全时间聚合，缺少时间维度。增加今日/昨日对比、近期高价值事件 Top5、趋势概览。
+
+**核心交付：**
+- AsyncStore get_today_stats()（今日 vs 昨日）+ get_top_events()（7 天分数降序）
+- 2 个新 API：GET /stats/today、GET /events/top
+- dashboard.js 新增今日对比卡片行（含涨跌箭头）+ Top5 事件表 + 趋势概览 badges
+- 今日对比卡片 CSS 样式
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 | 状态 |
+|----|------|--------|------|------|--------|------|
+| P39.01 | 后端 | async_store.py + api_server.py + 测试 | P38 | M | 2 数据库方法 + 2 API | ✅ |
+| P39.02 | 前端 | dashboard.js + style.css | P39.01 | S | 今日对比 + Top5 + 趋势概览 | ✅ |
+
+### Phase 40 · 治理积压清理 ✅
+
+> 设计: docs/plan-phase-40-governance.md
+
+**目标：** 数据保留清理、source health 自动降级、SQLite 自动备份——治理 backlog 中最紧迫的 3 项。
+
+**核心交付：**
+- AsyncStore prune_old_data()（级联删除过期事件 + 孤儿 links + 旧 known_ids）
+- AsyncStore backup_db()（VACUUM INTO 一致性备份，保留最近 7 份）
+- SourceHealthChecker _degradation_policy()（3 次→degraded，7+次→unreachable）
+- 2 个 maintenance API：POST /maintenance/prune、POST /maintenance/backup
+- async_run 每 10 次 run 自动触发 prune（try/except 非阻塞）
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 | 状态 |
+|----|------|--------|------|------|--------|------|
+| P40.01 | 后端全栈 | async_store.py + source_health_checker.py + api_server.py + async_run.py + 测试 | P39 | M | prune + backup + 降级 + 2 API | ✅ |
+
+### Phase 41 · 反馈闭环 + 告警管理 ✅
+
+> 设计: docs/plan-phase-41-feedback-alerts.md
+
+**目标：** Phase 20 的 FeedbackCollector + RulesOptimizer 无 API 暴露、无 UI 入口。Phase 38 的智能告警无独立管理页。实现反馈闭环（事件详情提交→规则优化）和独立告警管理页。
+
+**核心交付：**
+- AsyncStore feedback 表 + alert_history 表 + 5 个 CRUD 方法
+- AlertPipeline.check_smart_alerts 自动写入 alert_history 持久化
+- 5 个 REST API：POST/GET /feedback、GET /feedback/stats、POST /rules/optimize、GET /alerts/history
+- Web UI alerts.js（活跃告警 + 历史告警 + 统计）+ feedback.js（统计 + 反馈列表 + 规则优化预览/应用）
+- 事件详情页反馈按钮（推荐发布/归档/评论）
+- 导航栏新增「告警中心」「反馈管理」两项
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 | 状态 |
+|----|------|--------|------|------|--------|------|
+| P41.01 | 后端 | async_store.py + alert_pipeline.py + api_server.py + 测试 | P40 | M | 2 表 + 6 方法 + 5 API + 11 tests | ✅ |
+| P41.02 | 前端 | alerts.js + feedback.js + events.js + app.js + index.html + style.css | P41.01 | M | 3 页面/功能 | ✅ |
+
+### Phase 42 · 配置编辑 ✅
+
+> 设计: docs/plan-phase-42-config-edit.md
+
+**目标：** 5 个配置页面（Target/Source/Filter/Output/Provider）全部只读——用户在 UI 查看配置后仍需 SSH 手动编辑 YAML。实现 Web UI 配置编辑闭环。
+
+**核心交付：**
+- 5 个 config write 端点（PUT /config/targets/{id}、PATCH /config/.../sources/{id}、PATCH /config/.../filters、PATCH /config/output/destinations/{id}、PATCH /config/provider/routes/{id}）
+- deep_merge + atomic_write_yaml（UUID tmp + os.replace）工具函数
+- api.js 新增 apiPut/apiPatch/showSuccess
+- 5 个配置页全部转为可编辑表单（input/select/toggle/关键词增删）+ 保存按钮
+- 编辑表单 CSS 样式
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 验收点 | 状态 |
+|----|------|--------|------|------|--------|------|
+| P42.01 | 后端 | api_server.py 5 端点 + deep_merge + atomic_write + 测试 | P41 | M | 5 写入端点 + 6 tests | ✅ |
+| P42.02 | 前端 | api.js + config.js + style.css | P42.01 | L | 5 可编辑配置页 | ✅ |
+
 ---
 
 ## §25. Cloud VPS 部署方案推荐
@@ -1321,6 +1439,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | ADR-0020 | 社媒 KOL 三级账号分级（L1/L2/L3）+ active/semi-active 双模式 | Phase 12 |
 | ADR-0021 | Docker 全栈零依赖部署（Chromium + Xvfb + Playwright MCP + Node.js） | Phase 12 |
 | ADR-0022 | 评估集基准测试与规则引擎准确率基线 | Phase 13 |
+| ADR-0023 | 内置 Web UI 随 Phase 31-42 演进为操作界面（嵌入 SPA 替代纯 Obsidian+推送终态）| Phase 31+ |
 
 ---
 
@@ -1336,18 +1455,19 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | `SCHEMA-VERSION-001` | `prompt_template_id` 和 `output_schema_id` 的版本治理（何时可以 deprecate 旧版本） | Phase 5 完成后 |
 | `GLOSSARY-UPDATE-001` | `it-zh-glossary.md` 更新机制（判断新条目纳入阈值、格式、审核人）| Phase 3 首次生产运行后 |
 | `HEALTH-POLICY-001` | source health 降级阈值（多少次失败后停止采集该信源，如何恢复） | Phase 3 运行稳定后 |
-| `MEMORY-RETENTION-001` | `known_item_ids` 保留策略（最大条目数、过期时间、清理方式）| Phase 3 实现时 |
-| `ARCHIVE-POLICY-001` | `archive/` 中被拒事件的保留周期（多久清理或迁移到冷存储）| Phase 4 稳定后 |
+| `MEMORY-RETENTION-001` | `known_item_ids` 保留策略（最大条目数、过期时间、清理方式）| Phase 40 已解决：prune_old_data 级联清理 |
+| `ARCHIVE-POLICY-001` | `archive/` 中被拒事件的保留周期（多久清理或迁移到冷存储）| Phase 40 已解决：prune_old_data + max_age_days 参数 |
+| `HEALTH-POLICY-001` | source health 降级阈值（多少次失败后停止采集该信源，如何恢复） | Phase 40 已解决：>=3 degraded, >=7 unreachable |
 | `MATRIX-GOV-001` | 信源自进化机制的触发频率和审计策略 | Phase 12 实现时 |
 | `SOCIAL-SESSION-001` | 社媒 session profile 的刷新周期和安全存储策略 | Phase 12 实现时 |
 | `BRIDGE-FALLBACK-001` | Computer Use 兜底的成本预算上限和告警阈值 | Phase 12 实现时 |
 | `EVAL-002` | 评估集更新机制（何时触发重新标注、标注者间一致性度量） | Phase 13 实现时 |
-| `DEPLOY-001` | Cloud VPS 部署的平台选择（GCP Cloud Run / AWS ECS / 自管 VM）和成本估算 | Phase 15 实现时 |
+| `DEPLOY-001` | Cloud VPS 部署的平台选择（GCP Cloud Run / AWS ECS / 自管 VM）和成本估算 | Phase 15 已决策：Hetzner CX32 |
 | `AI-JUDGE-001` | AI Judge 置信度路由阈值（news_value_score 什么范围走规则 vs AI）| Phase 14 实现时 |
 | `AI-JUDGE-002` | Hybrid 模式下 Rules→AI fallback 的判定逻辑 | Phase 14 实现时 |
 | `ALERT-001` | 告警去重窗口和阈值配置策略 | Phase 17 已决策：24h 去重窗口，阈值通过 destinations.yaml filter 配置 |
-| `MONITOR-001` | 监控方案选型（Prometheus vs 轻量自建） | Phase 18 实现时 |
-| `BACKUP-001` | 数据备份保留策略和恢复测试 | Phase 18 实现时 |
+| `MONITOR-001` | 监控方案选型（Prometheus vs 轻量自建） | Phase 34 已解决：自建运维仪表盘 |
+| `BACKUP-001` | 数据备份保留策略和恢复测试 | Phase 40 已解决：VACUUM INTO + 保留最近 7 份 |
 
 ---
 
