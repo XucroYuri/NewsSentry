@@ -255,6 +255,57 @@ class TriggerResponse(BaseModel):
     message: str
 
 
+class EventLinkInfo(BaseModel):
+    """事件关联条目。"""
+
+    linked_event_id: str
+    link_type: str
+    strength: float
+    direction: str
+    signals: dict[str, Any] = {}
+    linked_event_title: str | None = None
+    linked_event_time: str | None = None
+
+
+class EventLinksResponse(BaseModel):
+    """事件关联列表响应。"""
+
+    event_id: str
+    links: list[EventLinkInfo]
+
+
+class ChainEventInfo(BaseModel):
+    """链中事件条目。"""
+
+    event_id: str
+    title_original: str | None = None
+    published_at: str | None = None
+    link_type: str | None = None
+
+
+class EventChainResponse(BaseModel):
+    """事件追踪链响应。"""
+
+    chain_id: str
+    events: list[ChainEventInfo]
+    total: int
+
+
+class ChainSummaryInfo(BaseModel):
+    """追踪链摘要。"""
+
+    root_event_id: str
+    event_count: int
+    latest_time: str = ""
+    latest_title: str = ""
+
+
+class ChainListResponse(BaseModel):
+    """追踪链列表响应。"""
+
+    chains: list[ChainSummaryInfo]
+
+
 # ── API Key 认证 ───────────────────────────────────────
 
 _API_KEY_ENV = "NEWSSENTRY_API_KEY"
@@ -1073,6 +1124,77 @@ def create_app(
             )
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e)) from e
+
+    # ── Phase 35: 追踪链端点 ──────────────────────────────
+
+    @app.get("/api/v1/events/{event_id}/links", response_model=EventLinksResponse)
+    async def get_event_links(
+        event_id: str,
+        target_id: str = Query(..., description="目标标识"),
+    ) -> EventLinksResponse:
+        """获取某事件的关联事件列表。"""
+        if _store is None:
+            return EventLinksResponse(event_id=event_id, links=[])
+        links = await _store.get_event_links(event_id)
+        result_links: list[EventLinkInfo] = []
+        for link in links:
+            linked_id = link["linked_event_id"]
+            title = None
+            time_str = None
+            if _store._db is not None:
+                async with _store._db.execute(
+                    "SELECT title_original, published_at FROM event_index WHERE event_id = ?",
+                    [linked_id],
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    if row:
+                        title = row[0]
+                        time_str = row[1]
+            result_links.append(
+                EventLinkInfo(
+                    linked_event_id=linked_id,
+                    link_type=link["link_type"],
+                    strength=link["strength"],
+                    direction=link["direction"],
+                    signals=link.get("signals", {}),
+                    linked_event_title=title,
+                    linked_event_time=time_str,
+                )
+            )
+        return EventLinksResponse(event_id=event_id, links=result_links)
+
+    @app.get("/api/v1/events/{event_id}/chain", response_model=EventChainResponse)
+    async def get_event_chain(
+        event_id: str,
+        target_id: str = Query(..., description="目标标识"),
+    ) -> EventChainResponse:
+        """获取某事件的完整追踪链。"""
+        if _store is None:
+            return EventChainResponse(chain_id=event_id, events=[], total=0)
+        chain = await _store.get_event_chain(event_id, depth=5)
+        events: list[ChainEventInfo] = []
+        for ce in chain:
+            events.append(
+                ChainEventInfo(
+                    event_id=ce["event_id"],
+                    title_original=ce.get("title_original"),
+                    published_at=ce.get("published_at"),
+                    link_type=ce.get("link_type"),
+                )
+            )
+        return EventChainResponse(chain_id=event_id, events=events, total=len(events))
+
+    @app.get("/api/v1/chains", response_model=ChainListResponse)
+    async def list_chains(
+        target_id: str = Query(..., description="目标标识"),
+    ) -> ChainListResponse:
+        """列出当前 target 的活跃追踪链。"""
+        if _store is None:
+            return ChainListResponse(chains=[])
+        chains = await _store.get_active_chains(target_id)
+        return ChainListResponse(
+            chains=[ChainSummaryInfo(**c) for c in chains],
+        )
 
     # ── 静态文件（必须在所有 API 路由之后挂载）────────
     static_dir = Path(__file__).parent.parent / "static"

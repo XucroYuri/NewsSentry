@@ -1066,3 +1066,161 @@ class TestAPIServerSQLite:
         assert "top_entities" in data
         assert len(data["top_entities"]) >= 1
         assert data["top_entities"][0]["name"] == "Meloni"
+
+
+class TestOpsEndpoints:
+    """Phase 34: 运维 API 端点测试。"""
+
+    def _make_client(self, tmp_path: Path) -> TestClient:
+        app = create_app(data_dir=tmp_path)
+        return TestClient(app)
+
+    def test_list_runs_empty(self, tmp_path: Path) -> None:
+        client = self._make_client(tmp_path)
+        resp = client.get("/api/v1/runs", params={"target_id": "italy"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "runs" in data
+        assert isinstance(data["runs"], list)
+
+    def test_get_active_run_no_heartbeat(self, tmp_path: Path) -> None:
+        client = self._make_client(tmp_path)
+        resp = client.get("/api/v1/runs/active", params={"target_id": "italy"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "active" in data
+        assert data["active"] is False
+
+    def test_get_run_detail_not_found(self, tmp_path: Path) -> None:
+        client = self._make_client(tmp_path)
+        resp = client.get("/api/v1/runs/nonexistent_run_id", params={"target_id": "italy"})
+        assert resp.status_code == 404
+
+    def test_list_source_health(self, tmp_path: Path) -> None:
+        client = self._make_client(tmp_path)
+        resp = client.get("/api/v1/sources/health", params={"target_id": "italy"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "sources" in data
+        assert isinstance(data["sources"], list)
+
+    def test_trigger_run(self, tmp_path: Path) -> None:
+        client = self._make_client(tmp_path)
+        resp = client.post("/api/v1/runs/trigger", params={"target_id": "italy", "stage": "all"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "triggered"
+        assert "run_id" in data
+        assert "italy" in data["run_id"]
+
+    def test_list_runs_with_log(self, tmp_path: Path) -> None:
+        """测试读取实际 run log 文件。"""
+        import json
+
+        log_dir = tmp_path / "italy" / "logs"
+        log_dir.mkdir(parents=True)
+        (log_dir / "italy_20260516T120000Z_abc12345.json").write_text(
+            json.dumps(
+                {
+                    "run_id": "italy_20260516T120000Z_abc12345",
+                    "target_id": "italy",
+                    "started_at": "2026-05-16T12:00:00+00:00",
+                    "ended_at": "2026-05-16T12:01:00+00:00",
+                    "phases": [
+                        {
+                            "stage": "collect",
+                            "duration_ms": 5000,
+                            "items_count": 10,
+                            "errors_count": 0,
+                        }
+                    ],
+                    "errors_count": 0,
+                    "summary": {"total_events_collected": 10},
+                }
+            )
+        )
+        app2 = create_app(data_dir=str(tmp_path))
+        client2 = TestClient(app2)
+        resp = client2.get("/api/v1/runs", params={"target_id": "italy"})
+        assert resp.status_code == 200
+        runs = resp.json()["runs"]
+        assert len(runs) == 1
+        assert runs[0]["events_collected"] == 10
+        assert runs[0]["duration_ms"] == 5000
+
+
+class TestEventChainAPI:
+    """Phase 35: 事件追踪链 API 端点。"""
+
+    @pytest.fixture
+    async def client_with_links(self, tmp_path):
+        """创建带关联数据的测试客户端。"""
+        from news_sentry.core.async_store import AsyncStore
+
+        db_path = tmp_path / "state.db"
+        store = AsyncStore(db_path)
+        await store.initialize()
+
+        now = "2026-05-16T12:00:00+00:00"
+        for eid, title in [
+            ("evt-1", "Event One"),
+            ("evt-2", "Event Two"),
+            ("evt-3", "Event Three"),
+        ]:
+            await store._db.execute(
+                "INSERT INTO event_index "
+                "(event_id, target_id, stage, created_at, published_at, title_original) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (eid, "italy", "drafts", now, now, title),
+            )
+        await store._db.commit()
+
+        await store.create_link("evt-1", "evt-2", "followup", 0.8, {}, "italy")
+        await store.create_link("evt-2", "evt-3", "followup", 0.7, {}, "italy")
+
+        app = create_app(data_dir=str(tmp_path), store=store)
+        from httpx import ASGITransport, AsyncClient
+
+        transport = ASGITransport(app=app)
+        client = AsyncClient(transport=transport, base_url="http://test")
+        yield client, store
+        await client.aclose()
+        await store.close()
+
+    async def test_get_event_links(self, client_with_links):
+        """GET /api/v1/events/{event_id}/links 返回关联事件。"""
+        client, _ = client_with_links
+        resp = await client.get("/api/v1/events/evt-2/links", params={"target_id": "italy"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["event_id"] == "evt-2"
+        assert len(data["links"]) == 2  # 前后各一个
+
+    async def test_get_event_chain(self, client_with_links):
+        """GET /api/v1/events/{event_id}/chain 返回完整追踪链。"""
+        client, _ = client_with_links
+        resp = await client.get("/api/v1/events/evt-2/chain", params={"target_id": "italy"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 3
+        event_ids = [e["event_id"] for e in data["events"]]
+        assert "evt-1" in event_ids
+        assert "evt-2" in event_ids
+        assert "evt-3" in event_ids
+
+    async def test_list_chains(self, client_with_links):
+        """GET /api/v1/chains 返回活跃链列表。"""
+        client, _ = client_with_links
+        resp = await client.get("/api/v1/chains", params={"target_id": "italy"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["chains"]) >= 1
+        assert data["chains"][0]["event_count"] == 3
+
+    async def test_get_event_links_not_found(self, client_with_links):
+        """GET /api/v1/events/{event_id}/links 对不存在的事件返回空。"""
+        client, _ = client_with_links
+        resp = await client.get("/api/v1/events/nonexistent/links", params={"target_id": "italy"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["links"] == []
