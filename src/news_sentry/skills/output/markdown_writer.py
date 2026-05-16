@@ -105,6 +105,21 @@ class MarkdownWriter:
         if event.sentiment_score is not None:
             fm["sentiment_score"] = event.sentiment_score
 
+        # Phase 31: NLP 分析字段
+        if event.judge_result is not None and event.judge_result.nlp_analysis is not None:
+            nlp = event.judge_result.nlp_analysis
+            if nlp.sentiment is not None:
+                fm["sentiment"] = nlp.sentiment.value
+            if nlp.entities:
+                fm["nlp_entities"] = [
+                    {"name": e.name, "entity_type": e.entity_type, "relevance": e.relevance}
+                    for e in nlp.entities
+                ]
+            if nlp.topic_tags:
+                fm["topic_tags"] = nlp.topic_tags
+            if nlp.event_relations:
+                fm["event_relations"] = nlp.event_relations
+
         fm["pipeline_stage"] = event.pipeline_stage.value
         fm["run_id"] = event.run_id
 

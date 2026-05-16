@@ -560,3 +560,109 @@ def test_atomic_write_does_not_use_shared_tmp_name(
 
     assert target.read_text(encoding="utf-8") == "fresh"
     assert stale_tmp.read_text(encoding="utf-8") == "stale"
+
+
+class TestFrontmatterNLP:
+    """Phase 31: NLP 字段写入 frontmatter。"""
+
+    def test_frontmatter_contains_nlp_fields(self, writer: MarkdownWriter) -> None:
+        """完整 NLPAnalysis → frontmatter 包含
+        sentiment/nlp_entities/topic_tags/event_relations。
+        """
+        from news_sentry.models.newsevent import NLPAnalysis, NLPEntity, Sentiment
+
+        event = NewsEvent(
+            id="ne-nlp-test-001",
+            run_id="run-001",
+            source_id="ansa",
+            url="https://example.com",
+            title_original="Test",
+            content_original="Body",
+            language=Language.IT,
+            published_at="2026-05-16T00:00:00Z",
+            collected_at="2026-05-16T00:00:00Z",
+            pipeline_stage=PipelineStage.JUDGED,
+            judge_result=JudgeResult(
+                recommendation=JudgeRecommendation.PUBLISH,
+                rationale="test",
+                confidence=80,
+                nlp_analysis=NLPAnalysis(
+                    sentiment=Sentiment.NEGATIVE,
+                    sentiment_confidence=90,
+                    entities=[
+                        NLPEntity(name="Meloni", entity_type="person", relevance=80),
+                        NLPEntity(name="Roma", entity_type="location", relevance=50),
+                    ],
+                    topic_tags=["politics", "economy"],
+                    event_relations=["与上周预算案关联"],
+                ),
+            ),
+        )
+        path = writer.write(event)
+        fm = yaml.safe_load(path.read_text(encoding="utf-8").split("---\n")[1])
+
+        assert fm["sentiment"] == "negative"
+        assert "nlp_entities" in fm
+        assert len(fm["nlp_entities"]) == 2
+        assert fm["nlp_entities"][0]["name"] == "Meloni"
+        assert fm["topic_tags"] == ["politics", "economy"]
+        assert fm["event_relations"] == ["与上周预算案关联"]
+        # sentiment_confidence 不应写入
+        assert "sentiment_confidence" not in fm
+
+    def test_frontmatter_no_nlp_when_none(self, writer: MarkdownWriter) -> None:
+        """nlp_analysis 为 None → frontmatter 不含 NLP 字段。"""
+        event = NewsEvent(
+            id="ne-no-nlp-001",
+            run_id="run-001",
+            source_id="ansa",
+            url="https://example.com",
+            title_original="No NLP",
+            content_original="Body",
+            language=Language.IT,
+            published_at="2026-05-16T00:00:00Z",
+            collected_at="2026-05-16T00:00:00Z",
+            pipeline_stage=PipelineStage.JUDGED,
+            judge_result=JudgeResult(
+                recommendation=JudgeRecommendation.REVIEW,
+                rationale="test",
+                confidence=50,
+            ),
+        )
+        path = writer.write(event)
+        fm = yaml.safe_load(path.read_text(encoding="utf-8").split("---\n")[1])
+
+        assert "sentiment" not in fm
+        assert "nlp_entities" not in fm
+        assert "topic_tags" not in fm
+        assert "event_relations" not in fm
+
+    def test_frontmatter_nlp_empty_lists(self, writer: MarkdownWriter) -> None:
+        """NLPAnalysis 有 sentiment 但 entities/topic_tags 为空 → 只写 sentiment。"""
+        from news_sentry.models.newsevent import NLPAnalysis, Sentiment
+
+        event = NewsEvent(
+            id="ne-empty-nlp-001",
+            run_id="run-001",
+            source_id="ansa",
+            url="https://example.com",
+            title_original="Empty NLP",
+            content_original="Body",
+            language=Language.IT,
+            published_at="2026-05-16T00:00:00Z",
+            collected_at="2026-05-16T00:00:00Z",
+            pipeline_stage=PipelineStage.JUDGED,
+            judge_result=JudgeResult(
+                recommendation=JudgeRecommendation.REVIEW,
+                rationale="test",
+                confidence=50,
+                nlp_analysis=NLPAnalysis(sentiment=Sentiment.NEUTRAL),
+            ),
+        )
+        path = writer.write(event)
+        fm = yaml.safe_load(path.read_text(encoding="utf-8").split("---\n")[1])
+
+        assert fm["sentiment"] == "neutral"
+        assert "nlp_entities" not in fm
+        assert "topic_tags" not in fm
+        assert "event_relations" not in fm
