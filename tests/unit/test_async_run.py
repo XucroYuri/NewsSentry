@@ -523,3 +523,372 @@ class TestGenerateNarratives:
         assert narrative["model_used"] == "mock"
 
         await store.close()
+
+
+class TestRunJudgeAsync:
+    """Phase 44: _run_judge_async 覆盖率测试。"""
+
+    @pytest.mark.asyncio
+    async def test_judge_async_empty_events(self):
+        """空 evaluated 目录时提前返回。"""
+        from unittest.mock import MagicMock, patch
+
+        from news_sentry.core.async_run import _run_judge_async
+
+        config = MagicMock()
+        run_log = MagicMock()
+        file_writer = MagicMock()
+        memory = MagicMock()
+        ctx = MagicMock()
+
+        with patch("news_sentry.core.async_run._load_events_from_dir", return_value=[]):
+            await _run_judge_async(config, "test-run", run_log, file_writer, memory, ctx)
+
+        run_log.log_phase_start.assert_called_once_with("judge")
+        run_log.log_phase_end.assert_called_once_with("judge", 0, 0)
+
+    @pytest.mark.asyncio
+    async def test_judge_async_tiered_success(self):
+        """TieredConfidenceRouter 正常研判路径。"""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from news_sentry.core.async_run import _run_judge_async
+
+        config = MagicMock()
+        run_log = MagicMock()
+        file_writer = MagicMock()
+        memory = MagicMock()
+        ctx = MagicMock()
+
+        mock_event = MagicMock()
+        mock_event.pipeline_stage = None
+
+        mock_router = MagicMock()
+        mock_router.route_async = AsyncMock()
+        mock_tiered = MagicMock()
+        mock_tiered.judge_events_async = AsyncMock(return_value=[mock_event])
+        mock_tiered.stats = {"total": 1, "skipped": 0, "medium": 0, "high": 1}
+
+        with (
+            patch(
+                "news_sentry.core.async_run._load_events_from_dir",
+                return_value=[mock_event],
+            ),
+            patch(
+                "news_sentry.core.async_run._try_create_provider_router", return_value=mock_router
+            ),
+            patch(
+                "news_sentry.core.async_run.TieredConfidenceRouter",
+                return_value=mock_tiered,
+            ),
+            patch(
+                "news_sentry.core.async_run._find_project_root",
+                return_value=MagicMock(),
+            ),
+            patch("news_sentry.core.async_run._link_events", new_callable=AsyncMock),
+            patch("news_sentry.core.async_run._generate_narratives", new_callable=AsyncMock),
+            patch("news_sentry.core.alert_pipeline.AlertPipeline", autospec=True),
+        ):
+            await _run_judge_async(config, "test-run", run_log, file_writer, memory, ctx)
+
+        assert mock_event.pipeline_stage is not None
+        file_writer.write_event.assert_called()
+        assert ctx.events_judged == 1
+        run_log.log_phase_end.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_judge_async_fallback_to_sync(self):
+        """ProviderRouter 初始化失败时回退到同步 _run_judge。"""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from news_sentry.core.async_run import _run_judge_async
+
+        config = MagicMock()
+        config.classification_rules = {}
+        run_log = MagicMock()
+        file_writer = MagicMock()
+        memory = MagicMock()
+        ctx = MagicMock()
+
+        mock_event = MagicMock()
+
+        with (
+            patch(
+                "news_sentry.core.async_run._load_events_from_dir",
+                return_value=[mock_event],
+            ),
+            patch(
+                "news_sentry.core.async_run._try_create_provider_router",
+                return_value=None,
+            ),
+            patch("news_sentry.core.async_run._run_judge"),
+            patch(
+                "news_sentry.core.async_run.asyncio.to_thread",
+                new_callable=AsyncMock,
+            ) as mock_to_thread,
+        ):
+            await _run_judge_async(config, "test-run", run_log, file_writer, memory, ctx)
+
+        # 事件应被写回 evaluated 目录
+        file_writer.write_event.assert_called_with(mock_event)
+        # 应调用同步 _run_judge
+        mock_to_thread.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_judge_async_nlp_enrichment(self):
+        """NLP 增强成功调用。"""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from news_sentry.core.async_run import _run_judge_async
+
+        config = MagicMock()
+        run_log = MagicMock()
+        file_writer = MagicMock()
+        memory = MagicMock()
+        ctx = MagicMock()
+
+        mock_event = MagicMock()
+        mock_event.pipeline_stage = None
+
+        mock_router = MagicMock()
+        mock_router.route_async = AsyncMock()
+        mock_tiered = MagicMock()
+        mock_tiered.judge_events_async = AsyncMock(return_value=[mock_event])
+        mock_tiered.stats = {"total": 1, "skipped": 0, "medium": 1, "high": 0}
+
+        mock_nlp = MagicMock()
+        mock_nlp.enrich = AsyncMock(return_value=[mock_event])
+        mock_nlp.stats = {"rules_only": 1, "ai_upgraded": 0}
+
+        with (
+            patch(
+                "news_sentry.core.async_run._load_events_from_dir",
+                return_value=[mock_event],
+            ),
+            patch(
+                "news_sentry.core.async_run._try_create_provider_router",
+                return_value=mock_router,
+            ),
+            patch(
+                "news_sentry.core.async_run.TieredConfidenceRouter",
+                return_value=mock_tiered,
+            ),
+            patch(
+                "news_sentry.core.async_run._find_project_root",
+                return_value=MagicMock(),
+            ),
+            patch("news_sentry.core.async_run.NLPAnalyzer", return_value=mock_nlp) as mock_nlp_cls,
+            patch("news_sentry.core.async_run.NLPRulesAnalyzer"),
+            patch("news_sentry.core.async_run._link_events", new_callable=AsyncMock),
+            patch("news_sentry.core.async_run._generate_narratives", new_callable=AsyncMock),
+            patch("news_sentry.core.alert_pipeline.AlertPipeline", autospec=True),
+        ):
+            await _run_judge_async(config, "test-run", run_log, file_writer, memory, ctx)
+
+        mock_nlp_cls.assert_called_once()
+        mock_nlp.enrich.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_judge_async_entity_persistence(self):
+        """实体信息持久化到 store。"""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from news_sentry.core.async_run import _run_judge_async
+
+        config = MagicMock()
+        config.target_id = "italy"
+        run_log = MagicMock()
+        file_writer = MagicMock()
+        memory = MagicMock()
+        ctx = MagicMock()
+
+        # 构造带 NLP entities 的 event
+        mock_entity = MagicMock()
+        mock_entity.name = "Meloni"
+        mock_entity.entity_type = "PERSON"
+        mock_nlp_result = MagicMock()
+        mock_nlp_result.entities = [mock_entity]
+        mock_nlp_result.topic_tags = ["politics"]
+        mock_judge_result = MagicMock()
+        mock_judge_result.nlp_analysis = mock_nlp_result
+        mock_event = MagicMock()
+        mock_event.pipeline_stage = None
+        mock_event.judge_result = mock_judge_result
+
+        mock_store = AsyncMock()
+        mock_store.upsert_entity = AsyncMock()
+
+        mock_router = MagicMock()
+        mock_router.route_async = AsyncMock()
+        mock_tiered = MagicMock()
+        mock_tiered.judge_events_async = AsyncMock(return_value=[mock_event])
+        mock_tiered.stats = {"total": 1, "skipped": 0, "medium": 0, "high": 1}
+
+        project_root = MagicMock()
+        nlp_config = MagicMock()
+        nlp_config.is_dir.return_value = False
+        project_root.__truediv__.return_value = nlp_config
+
+        with (
+            patch(
+                "news_sentry.core.async_run._load_events_from_dir",
+                return_value=[mock_event],
+            ),
+            patch(
+                "news_sentry.core.async_run._try_create_provider_router",
+                return_value=mock_router,
+            ),
+            patch(
+                "news_sentry.core.async_run.TieredConfidenceRouter",
+                return_value=mock_tiered,
+            ),
+            patch(
+                "news_sentry.core.async_run._find_project_root",
+                return_value=project_root,
+            ),
+            patch("news_sentry.core.async_run._link_events", new_callable=AsyncMock),
+            patch("news_sentry.core.async_run._generate_narratives", new_callable=AsyncMock),
+            patch("news_sentry.core.alert_pipeline.AlertPipeline", autospec=True),
+        ):
+            await _run_judge_async(
+                config, "test-run", run_log, file_writer, memory, ctx, store=mock_store
+            )
+
+        mock_store.upsert_entity.assert_called()
+        call_args = mock_store.upsert_entity.call_args
+        assert call_args[0][0] == "Meloni"
+        assert call_args[0][1] == "PERSON"
+
+    @pytest.mark.asyncio
+    async def test_judge_async_smart_alerts(self):
+        """智能告警检查被调用。"""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from news_sentry.core.async_run import _run_judge_async
+
+        config = MagicMock()
+        config.target_id = "italy"
+        run_log = MagicMock()
+        file_writer = MagicMock()
+        memory = MagicMock()
+        ctx = MagicMock()
+
+        mock_event = MagicMock()
+        mock_event.pipeline_stage = None
+
+        mock_store = AsyncMock()
+        mock_router = MagicMock()
+        mock_router.route_async = AsyncMock()
+        mock_tiered = MagicMock()
+        mock_tiered.judge_events_async = AsyncMock(return_value=[mock_event])
+        mock_tiered.stats = {"total": 1, "skipped": 0, "medium": 1, "high": 0}
+
+        mock_alert_pipeline = MagicMock()
+        mock_alert_pipeline.check_smart_alerts = AsyncMock(
+            return_value=[{"type": "burst", "message": "test"}]
+        )
+
+        with (
+            patch(
+                "news_sentry.core.async_run._load_events_from_dir",
+                return_value=[mock_event],
+            ),
+            patch(
+                "news_sentry.core.async_run._try_create_provider_router",
+                return_value=mock_router,
+            ),
+            patch(
+                "news_sentry.core.async_run.TieredConfidenceRouter",
+                return_value=mock_tiered,
+            ),
+            patch(
+                "news_sentry.core.async_run._find_project_root",
+                return_value=MagicMock(),
+            ),
+            patch("news_sentry.core.async_run._link_events", new_callable=AsyncMock),
+            patch("news_sentry.core.async_run._generate_narratives", new_callable=AsyncMock),
+            patch(
+                "news_sentry.core.alert_pipeline.AlertPipeline",
+                return_value=mock_alert_pipeline,
+            ) as mock_alert_cls,
+        ):
+            await _run_judge_async(
+                config, "test-run", run_log, file_writer, memory, ctx, store=mock_store
+            )
+
+        mock_alert_cls.assert_called_once()
+        mock_alert_pipeline.check_smart_alerts.assert_called_once_with(mock_store, "italy")
+
+    @pytest.mark.asyncio
+    async def test_judge_async_nonblocking_failures(self):
+        """NLP/实体/告警失败不阻塞主流程。"""
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from news_sentry.core.async_run import _run_judge_async
+
+        config = MagicMock()
+        config.target_id = "italy"
+        run_log = MagicMock()
+        file_writer = MagicMock()
+        memory = MagicMock()
+        ctx = MagicMock()
+
+        mock_event = MagicMock()
+        mock_event.pipeline_stage = None
+
+        mock_store = AsyncMock()
+        mock_store.upsert_entity = AsyncMock(side_effect=RuntimeError("db error"))
+
+        mock_router = MagicMock()
+        mock_router.route_async = AsyncMock()
+        mock_tiered = MagicMock()
+        mock_tiered.judge_events_async = AsyncMock(return_value=[mock_event])
+        mock_tiered.stats = {"total": 1, "skipped": 0, "medium": 1, "high": 0}
+
+        # NLP 配置目录存在，但 enrich 失败
+        project_root = MagicMock()
+        nlp_config = MagicMock()
+        nlp_config.is_dir.return_value = True
+        project_root.__truediv__.return_value = nlp_config
+
+        mock_nlp = MagicMock()
+        mock_nlp.enrich = AsyncMock(side_effect=RuntimeError("NLP crashed"))
+        mock_nlp.stats = {}
+
+        mock_alert_pipeline = MagicMock()
+        mock_alert_pipeline.check_smart_alerts = AsyncMock(side_effect=RuntimeError("alert error"))
+
+        with (
+            patch(
+                "news_sentry.core.async_run._load_events_from_dir",
+                return_value=[mock_event],
+            ),
+            patch(
+                "news_sentry.core.async_run._try_create_provider_router",
+                return_value=mock_router,
+            ),
+            patch(
+                "news_sentry.core.async_run.TieredConfidenceRouter",
+                return_value=mock_tiered,
+            ),
+            patch(
+                "news_sentry.core.async_run._find_project_root",
+                return_value=project_root,
+            ),
+            patch("news_sentry.core.async_run.NLPAnalyzer", return_value=mock_nlp),
+            patch("news_sentry.core.async_run.NLPRulesAnalyzer"),
+            patch("news_sentry.core.async_run._link_events", new_callable=AsyncMock),
+            patch("news_sentry.core.async_run._generate_narratives", new_callable=AsyncMock),
+            patch(
+                "news_sentry.core.alert_pipeline.AlertPipeline",
+                return_value=mock_alert_pipeline,
+            ),
+        ):
+            # 不应抛出异常
+            await _run_judge_async(
+                config, "test-run", run_log, file_writer, memory, ctx, store=mock_store
+            )
+
+        # 主流程应正常完成
+        file_writer.write_event.assert_called()
+        run_log.log_phase_end.assert_called()
