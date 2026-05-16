@@ -172,6 +172,7 @@ docker run -d --name news-sentry \
 ### 方案 E: Cloudflare Containers（边缘容器）
 
 > 部署脚本: `docs/deployment/deploy-cloudflare.sh`
+> 架构: Durable Objects + Container Worker 代理 (非简单 Docker 托管)
 
 | 项目 | 规格 |
 |------|------|
@@ -186,11 +187,13 @@ docker run -d --name news-sentry \
 - 全球边缘部署，低延迟
 - Workers 生态集成
 - 按用量付费
+- Durable Objects 提供有状态容器管理
 
 **限制：**
 - 内存 ~1GB，**无法运行 Chromium headless**
-- 仅适合 API-only 模式
+- 仅适合 core 镜像 (RSS/API 采集 + AI 研判 + API Server)
 - 需 Workers Paid 计划 ($5/月)
+- 使用 Durable Objects 代理模型，非标准 Docker 托管
 
 ---
 
