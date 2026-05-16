@@ -101,6 +101,19 @@ CREATE TABLE IF NOT EXISTS event_links (
 )
 """
 
+_DDL_CHAIN_NARRATIVES = """
+CREATE TABLE IF NOT EXISTS chain_narratives (
+    chain_root_id TEXT PRIMARY KEY,
+    target_id TEXT NOT NULL,
+    narrative TEXT NOT NULL,
+    narrative_hash TEXT NOT NULL,
+    event_count INTEGER NOT NULL DEFAULT 0,
+    model_used TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+"""
+
 _DDL_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_known_ids_seen ON known_ids(seen_at)",
     "CREATE INDEX IF NOT EXISTS idx_event_target_stage ON event_index(target_id, stage)",
@@ -140,6 +153,7 @@ class AsyncStore:
         await self._db.execute(_DDL_EVENT_INDEX)
         await self._db.execute(_DDL_ENTITIES)
         await self._db.execute(_DDL_EVENT_LINKS)
+        await self._db.execute(_DDL_CHAIN_NARRATIVES)
         # Phase 31: 为已有数据库添加 NLP 列
         for col in ("sentiment", "entity_names", "topic_tags"):
             try:
@@ -934,7 +948,8 @@ class AsyncStore:
             return []
         placeholders = ",".join("?" for _ in visited)
         async with self._db.execute(
-            f"SELECT event_id, title_original, published_at FROM event_index "  # noqa: S608
+            f"SELECT event_id, title_original, published_at, sentiment, "  # noqa: S608
+            f"entity_names, topic_tags, news_value_score FROM event_index "
             f"WHERE event_id IN ({placeholders}) ORDER BY published_at ASC",
             list(visited),
         ) as cursor:
@@ -945,6 +960,10 @@ class AsyncStore:
                     "event_id": row[0],
                     "title_original": row[1],
                     "published_at": row[2],
+                    "sentiment": row[3],
+                    "entity_names": row[4],
+                    "topic_tags": row[5],
+                    "news_value_score": row[6],
                 }
             )
         return chain_events
@@ -985,3 +1004,80 @@ class AsyncStore:
                     }
                 )
         return sorted(chains, key=lambda c: c["latest_time"], reverse=True)
+
+    # ------------------------------------------------------------------
+    # Chain Narratives (Phase 36)
+    # ------------------------------------------------------------------
+
+    async def get_narrative(self, chain_root_id: str) -> dict[str, Any] | None:
+        """获取链的叙述。"""
+        if self._db is None:
+            return None
+        async with self._db.execute(
+            "SELECT chain_root_id, target_id, narrative, narrative_hash, "
+            "event_count, model_used, created_at, updated_at "
+            "FROM chain_narratives WHERE chain_root_id = ?",
+            [chain_root_id],
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        cols = (
+            "chain_root_id",
+            "target_id",
+            "narrative",
+            "narrative_hash",
+            "event_count",
+            "model_used",
+            "created_at",
+            "updated_at",
+        )
+        return dict(zip(cols, row, strict=True))
+
+    async def upsert_narrative(
+        self,
+        chain_root_id: str,
+        target_id: str,
+        narrative: str,
+        narrative_hash: str,
+        event_count: int,
+        model_used: str,
+    ) -> None:
+        """写入或更新链叙述。"""
+        if self._db is None:
+            return
+        now = datetime.now(UTC).isoformat()
+        await self._db.execute(
+            """INSERT INTO chain_narratives
+               (chain_root_id, target_id, narrative, narrative_hash,
+                event_count, model_used, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(chain_root_id) DO UPDATE SET
+                   narrative = excluded.narrative,
+                   narrative_hash = excluded.narrative_hash,
+                   event_count = excluded.event_count,
+                   model_used = excluded.model_used,
+                   updated_at = excluded.updated_at""",
+            (
+                chain_root_id,
+                target_id,
+                narrative,
+                narrative_hash,
+                event_count,
+                model_used,
+                now,
+                now,
+            ),
+        )
+        await self._db.commit()
+
+    @staticmethod
+    def compute_chain_hash(events: list[dict[str, Any]]) -> str:
+        """计算事件列表的 SHA-256 摘要。"""
+        from hashlib import sha256
+
+        parts = "|".join(
+            f"{e.get('event_id', '')}:{e.get('published_at', '')}:{e.get('title_original', '')}"
+            for e in sorted(events, key=lambda x: x.get("event_id", ""))
+        )
+        return sha256(parts.encode()).hexdigest()

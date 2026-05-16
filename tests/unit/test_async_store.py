@@ -940,3 +940,91 @@ class TestEventLinks:
 
         candidates = await store.find_candidates("italy", "evt-only", days=7)
         assert candidates == []
+
+
+class TestChainNarratives:
+    """Phase 36: chain_narratives 表 + 叙述方法。"""
+
+    @pytest.fixture
+    async def store_with_narratives(self, tmp_path):
+        db_path = tmp_path / "state.db"
+        store = AsyncStore(db_path)
+        await store.initialize()
+        yield store
+        await store.close()
+
+    async def test_chain_narratives_table_created(self, store_with_narratives):
+        store = store_with_narratives
+        async with store._db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='chain_narratives'"
+        ) as cursor:
+            row = await cursor.fetchone()
+        assert row is not None
+
+    async def test_upsert_and_get_narrative(self, store_with_narratives):
+        store = store_with_narratives
+        await store.upsert_narrative(
+            chain_root_id="evt-1",
+            target_id="italy",
+            narrative="意大利总理梅洛尼访问欧盟总部...",
+            narrative_hash="abc123",
+            event_count=3,
+            model_used="gpt-4o-mini",
+        )
+        result = await store.get_narrative("evt-1")
+        assert result is not None
+        assert result["narrative"] == "意大利总理梅洛尼访问欧盟总部..."
+        assert result["model_used"] == "gpt-4o-mini"
+        assert result["event_count"] == 3
+
+    async def test_upsert_narrative_updates_existing(self, store_with_narratives):
+        store = store_with_narratives
+        await store.upsert_narrative("evt-1", "italy", "叙述v1", "hash1", 3, "model-a")
+        await store.upsert_narrative("evt-1", "italy", "叙述v2", "hash2", 4, "model-b")
+        result = await store.get_narrative("evt-1")
+        assert result["narrative"] == "叙述v2"
+        assert result["event_count"] == 4
+
+    async def test_get_narrative_not_found(self, store_with_narratives):
+        store = store_with_narratives
+        result = await store.get_narrative("nonexistent")
+        assert result is None
+
+    async def test_get_event_chain_returns_extended_fields(self, store_with_narratives):
+        """get_event_chain 返回 sentiment, entity_names, topic_tags, news_value_score。"""
+        store = store_with_narratives
+        now = "2026-05-16T12:00:00+00:00"
+        await store._db.execute(
+            "INSERT INTO event_index (event_id, target_id, stage, created_at, published_at, "
+            "title_original, sentiment, entity_names, topic_tags, news_value_score) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "evt-1",
+                "italy",
+                "drafts",
+                now,
+                now,
+                "Event One",
+                "positive",
+                "Meloni,EU",
+                "politics",
+                75,
+            ),
+        )
+        await store._db.execute(
+            "INSERT INTO event_index (event_id, target_id, stage, created_at, published_at, "
+            "title_original, sentiment, entity_names, topic_tags, news_value_score) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("evt-2", "italy", "drafts", now, now, "Event Two", "negative", "Meloni", "eu", 60),
+        )
+        await store._db.commit()
+        await store.create_link("evt-1", "evt-2", "followup", 0.8, {}, "italy")
+
+        chain = await store.get_event_chain("evt-1", depth=5)
+        assert len(chain) == 2
+        first = chain[0]
+        assert "sentiment" in first
+        assert "entity_names" in first
+        assert "topic_tags" in first
+        assert "news_value_score" in first
+        assert first["sentiment"] == "positive"
