@@ -18,6 +18,7 @@ import os
 import smtplib
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -187,6 +188,113 @@ class AlertPipeline:
         expired = [k for k, v in self._alerted.items() if (now - v) >= self._dedup_window]
         for k in expired:
             del self._alerted[k]
+
+    async def check_smart_alerts(
+        self,
+        store: Any,  # noqa: ANN401
+        target_id: str,
+    ) -> list[dict[str, Any]]:
+        """检查智能告警条件，返回告警列表。
+
+        三类告警:
+          1. 链更新告警: followup + strength >= 0.7
+          2. 趋势变化告警: rising + hotness >= 60
+          3. 实体突增告警: 日提及 > 2x 7天日均
+        """
+        alerts: list[dict[str, Any]] = []
+        now_str = datetime.now(UTC).isoformat()
+
+        # 1. 链更新告警
+        try:
+            links = await store.get_recent_links(target_id, hours=24)
+            for link in links:
+                if link["link_type"] == "followup" and link["strength"] >= 0.7:
+                    title = link.get("title_original") or "未知事件"
+                    alerts.append(
+                        {
+                            "type": "chain_update",
+                            "severity": "high",
+                            "message": (
+                                f'追踪链新增后续事件: "{title}" (强度: {link["strength"]:.2f})'
+                            ),
+                            "details": {
+                                "chain_root_id": link["source_event_id"],
+                                "linked_event_id": link["target_event_id"],
+                                "strength": link["strength"],
+                                "link_type": link["link_type"],
+                            },
+                            "triggered_at": now_str,
+                        }
+                    )
+        except Exception as exc:
+            logger.warning("链更新告警检查失败: %s", exc)
+
+        # 2. 趋势变化告警
+        try:
+            from news_sentry.skills.analysis.trend_analyzer import compute_topic_trends
+
+            daily_counts = await store.get_topic_daily_counts(target_id, days=14)
+            top_topics = await store.get_top_topics(target_id, days=14, limit=10)
+            trends = compute_topic_trends(daily_counts, top_topics, total_days=14)
+            for trend in trends:
+                if trend.trend_direction == "rising" and trend.hotness >= 60:
+                    alerts.append(
+                        {
+                            "type": "trend_rising",
+                            "severity": "medium",
+                            "message": (
+                                f'"{trend.topic}" 主题热度快速上升 '
+                                f"(热度: {trend.hotness}, 近7天: {trend.current_count}次, "
+                                f"前7天: {trend.prev_count}次)"
+                            ),
+                            "details": {
+                                "topic": trend.topic,
+                                "hotness": trend.hotness,
+                                "current_count": trend.current_count,
+                                "prev_count": trend.prev_count,
+                            },
+                            "triggered_at": now_str,
+                        }
+                    )
+        except Exception as exc:
+            logger.warning("趋势变化告警检查失败: %s", exc)
+
+        # 3. 实体突增告警
+        try:
+            entities = await store.query_entities(
+                target_id=target_id,
+                min_mentions=2,
+                limit=20,
+            )
+            for entity in entities:
+                name = entity["canonical_name"]
+                mentions = await store.get_entity_daily_mentions(name, target_id, days=7)
+                if len(mentions) < 2:
+                    continue
+                today_count = mentions[-1]["count"]
+                prev_counts = [m["count"] for m in mentions[:-1]]
+                avg = sum(prev_counts) / len(prev_counts) if prev_counts else 0
+                if avg > 0 and today_count > avg * 2:
+                    alerts.append(
+                        {
+                            "type": "entity_spike",
+                            "severity": "medium",
+                            "message": (
+                                f'"{name}" 实体提及量突增 '
+                                f"(今日: {today_count}次, 7天日均: {avg:.1f}次)"
+                            ),
+                            "details": {
+                                "entity_name": name,
+                                "today_count": today_count,
+                                "avg_count": round(avg, 1),
+                            },
+                            "triggered_at": now_str,
+                        }
+                    )
+        except Exception as exc:
+            logger.warning("实体突增告警检查失败: %s", exc)
+
+        return alerts
 
     def _format_alert(self, event: NewsEvent, run_id: str) -> str:
         """格式化告警内容为 Markdown（无 tier 的默认格式）。"""

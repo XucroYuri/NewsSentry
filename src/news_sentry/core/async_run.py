@@ -508,6 +508,17 @@ async def _run_judge_async(
         except Exception as e:
             logger.warning("链叙述生成失败（非阻塞）: %s", e)
 
+    # Phase 38: 智能告警检查
+    try:
+        from news_sentry.core.alert_pipeline import AlertPipeline
+
+        alert_pipeline = AlertPipeline([])
+        smart_alerts = await alert_pipeline.check_smart_alerts(store, config.target_id)
+        if smart_alerts:
+            logger.info("智能告警: %d 条 [%s]", len(smart_alerts), config.target_id)
+    except Exception as exc:
+        logger.warning("智能告警检查失败 [%s]: %s", config.target_id, exc)
+
     # 写入研判结果
     for event in judged:
         event.pipeline_stage = PipelineStage.JUDGED

@@ -40,6 +40,9 @@ export const state = {
     min_score: 0,
     search: "",
     page: 1,
+    sentiment: "",
+    entity: "",
+    topic_tag: "",
   },
   // Dashboard 数据缓存
   statsCache: null,
@@ -123,6 +126,27 @@ export function showError(msg) {
 }
 
 /**
+ * POST 请求封装。
+ * @param {string} path  - API 路径
+ * @param {object} [params] - 查询参数
+ * @returns {Promise<any>}
+ */
+export async function apiPost(path, params = {}) {
+  const url = new URL(path, window.location.origin);
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== "" && v !== undefined && v !== null) {
+      url.searchParams.set(k, v);
+    }
+  });
+  const resp = await fetch(url.toString(), { method: "POST" });
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => "");
+    throw new Error(`API ${resp.status}: ${text || resp.statusText}`);
+  }
+  return resp.json();
+}
+
+/**
  * HTML 转义。
  */
 export function escapeHtml(str) {
@@ -174,4 +198,30 @@ export function sentimentGradient(s) {
   if (v >= 0.3) return "linear-gradient(90deg, var(--accent-green), #4ade80)";
   if (v <= -0.3) return "linear-gradient(90deg, var(--accent-red), #f87171)";
   return "linear-gradient(90deg, var(--accent-yellow), #facc15)";
+}
+
+/** sentiment label (positive/negative/neutral) color. */
+export function sentimentLabelColor(label) {
+  if (label === "positive") return "#22c55e";
+  if (label === "negative") return "#ef4444";
+  if (label === "neutral") return "#6b7280";
+  return "#374151";
+}
+
+/** Generate a small sentiment dot HTML. */
+export function sentimentDotHtml(sentiment) {
+  if (!sentiment) return "";
+  return `<span class="sentiment-dot" style="background:${sentimentLabelColor(sentiment)}" title="${escapeHtml(sentiment)}"></span>`;
+}
+
+/** Generate entity chips HTML from an entity list. */
+export function entityChipsHtml(entities, max = 3) {
+  if (!entities || !entities.length) return "";
+  const shown = entities.slice(0, max);
+  const extra = entities.length > max ? `<span class="chip chip-more">+${entities.length - max}</span>` : "";
+  const chips = shown.map((e) => {
+    const name = typeof e === "string" ? e : (e.name || "");
+    return `<span class="chip chip-entity">${escapeHtml(name)}</span>`;
+  }).join("");
+  return `<div class="chip-list">${chips}${extra}</div>`;
 }

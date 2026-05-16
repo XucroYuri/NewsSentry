@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from news_sentry.core.alert_pipeline import AlertPipeline
+from news_sentry.core.async_store import AsyncStore
 from news_sentry.models.newsevent import (
     JudgeRecommendation,
     JudgeResult,
@@ -827,3 +832,126 @@ class TestTierDestinations:
 
         assert mock_send.call_count == 1
         assert stats["alerts_sent"] == 1
+
+
+class TestSmartAlerts:
+    """Phase 38: 智能告警测试。"""
+
+    @pytest.fixture
+    async def alert_store(self, tmp_path: Path) -> AsyncStore:
+        """创建智能告警测试 store。"""
+        db_path = tmp_path / "state.db"
+        store = AsyncStore(db_path)
+        await store.initialize()
+
+        now = datetime.now(UTC).isoformat()
+        events = [
+            (
+                "s-evt-1",
+                "italy",
+                "judged",
+                "ansa",
+                80,
+                50,
+                "2026-05-01T10:00:00",
+                now,
+                "positive",
+                "immigration,Meloni",
+            ),
+            (
+                "s-evt-2",
+                "italy",
+                "judged",
+                "ansa",
+                85,
+                55,
+                "2026-05-01T12:00:00",
+                now,
+                "negative",
+                "immigration,elections",
+            ),
+            (
+                "s-evt-3",
+                "italy",
+                "judged",
+                "repubblica",
+                70,
+                40,
+                "2026-05-05T10:00:00",
+                now,
+                "positive",
+                "immigration",
+            ),
+            (
+                "s-evt-4",
+                "italy",
+                "judged",
+                "ansa",
+                90,
+                60,
+                "2026-05-05T12:00:00",
+                now,
+                "negative",
+                "elections,Meloni",
+            ),
+        ]
+        for eid, tid, stage, src, score, rel, pub, created, sent, tags in events:
+            await store._db.execute(  # noqa: SLF001
+                "INSERT OR REPLACE INTO event_index "
+                "(event_id, target_id, stage, source_id, news_value_score, "
+                "china_relevance, published_at, created_at, sentiment, topic_tags) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (eid, tid, stage, src, score, rel, pub, created, sent, tags),
+            )
+        await store._db.commit()
+
+        await store.create_link("s-evt-1", "s-evt-3", "followup", 0.85, {}, "italy")
+        await store.upsert_entity("Meloni", "person", "italy", "2026-05-01T10:00:00+00:00")
+        await store.upsert_entity("Meloni", "person", "italy", "2026-05-05T12:00:00+00:00")
+        await store.upsert_entity("Meloni", "person", "italy", "2026-05-05T12:00:00+00:00")
+
+        return store
+
+    @pytest.mark.asyncio
+    async def test_chain_update_alert(self, alert_store: AsyncStore) -> None:
+        """链更新告警触发。"""
+        pipeline = AlertPipeline([])
+        alerts = await pipeline.check_smart_alerts(alert_store, "italy")
+        chain_alerts = [a for a in alerts if a["type"] == "chain_update"]
+        assert len(chain_alerts) >= 1
+        assert chain_alerts[0]["severity"] == "high"
+        assert chain_alerts[0]["details"]["strength"] == 0.85
+
+    @pytest.mark.asyncio
+    async def test_smart_alerts_no_exception_on_empty(self, tmp_path: Path) -> None:
+        """空数据库不抛异常。"""
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        pipeline = AlertPipeline([])
+        alerts = await pipeline.check_smart_alerts(store, "nonexistent")
+        assert isinstance(alerts, list)
+        await store.close()
+
+    @pytest.mark.asyncio
+    async def test_alert_types_are_valid(self, alert_store: AsyncStore) -> None:
+        """所有告警类型合法。"""
+        pipeline = AlertPipeline([])
+        alerts = await pipeline.check_smart_alerts(alert_store, "italy")
+        valid_types = {"chain_update", "trend_rising", "entity_spike"}
+        for a in alerts:
+            assert a["type"] in valid_types
+            assert "message" in a
+            assert "severity" in a
+            assert "details" in a
+            assert "triggered_at" in a
+
+    @pytest.mark.asyncio
+    async def test_entity_spike_structure(self, alert_store: AsyncStore) -> None:
+        """实体突增告警结构正确。"""
+        pipeline = AlertPipeline([])
+        alerts = await pipeline.check_smart_alerts(alert_store, "italy")
+        entity_alerts = [a for a in alerts if a["type"] == "entity_spike"]
+        for a in entity_alerts:
+            assert "entity_name" in a["details"]
+            assert a["details"]["today_count"] > 0
+            assert a["details"]["avg_count"] > 0
