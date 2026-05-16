@@ -371,3 +371,76 @@ class TestAsyncStoreIntegration:
         assert db_path.exists()
         assert await store.is_known("ne-test-001") is True
         await store.close()
+
+
+class TestLinkEvents:
+    """Phase 35: link_events 协程测试。"""
+
+    @pytest.mark.asyncio
+    async def test_link_events_creates_links(self, tmp_path):
+        """link_events 对新事件执行关联扫描并写入 event_links。"""
+        from news_sentry.core.async_run import _link_events
+        from news_sentry.core.async_store import AsyncStore
+
+        db_path = tmp_path / "state.db"
+        store = AsyncStore(db_path)
+        await store.initialize()
+
+        now = "2026-05-16T12:00:00+00:00"
+        await store._db.execute(
+            "INSERT INTO event_index (event_id, target_id, stage, created_at, published_at, "
+            "entity_names, topic_tags, title_original) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "evt-old",
+                "italy",
+                "drafts",
+                now,
+                now,
+                "Meloni,EU",
+                "politics,eu",
+                "Meloni visits EU",
+            ),
+        )
+        await store._db.commit()
+
+        from unittest.mock import MagicMock
+
+        new_event = MagicMock()
+        new_event.id = "evt-new"
+        new_event.title_original = "EU responds to Meloni"
+        new_event.published_at = "2026-05-16T14:00:00+00:00"
+        judge_result = MagicMock()
+        nlp = MagicMock()
+        ent1 = MagicMock()
+        ent1.name = "Meloni"
+        ent2 = MagicMock()
+        ent2.name = "EU"
+        nlp.entities = [ent1, ent2]
+        nlp.topic_tags = ["politics", "eu"]
+        judge_result.nlp_analysis = nlp
+        new_event.judge_result = judge_result
+
+        await _link_events(store, [new_event], "italy")
+
+        links = await store.get_event_links("evt-new")
+        assert len(links) >= 1
+
+        await store.close()
+
+    @pytest.mark.asyncio
+    async def test_link_events_failure_nonblocking(self, tmp_path):
+        """link_events 失败时不抛异常。"""
+        from unittest.mock import MagicMock
+
+        from news_sentry.core.async_run import _link_events
+        from news_sentry.core.async_store import AsyncStore
+
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        await store.close()
+
+        new_event = MagicMock()
+        new_event.id = "evt-test"
+        # store 已关闭，操作应失败但不抛异常
+        await _link_events(store, [new_event], "italy")

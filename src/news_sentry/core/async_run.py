@@ -493,6 +493,13 @@ async def _run_judge_async(
         except Exception as e:
             logger.warning("实体持久化失败（非阻塞）: %s", e)
 
+    # P35: 事件关联扫描
+    if store is not None:
+        try:
+            await _link_events(store, judged, config.target_id)
+        except Exception as e:
+            logger.warning("事件关联扫描失败（非阻塞）: %s", e)
+
     # 写入研判结果
     for event in judged:
         event.pipeline_stage = PipelineStage.JUDGED
@@ -501,6 +508,94 @@ async def _run_judge_async(
     ctx.events_judged = len(judged)
     duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
     run_log.log_phase_end("judge", len(judged), duration_ms)
+
+
+async def _link_events(
+    store: AsyncStore,
+    events: list[NewsEvent],
+    target_id: str,
+) -> None:
+    """Phase 35: 对新事件执行关联扫描。
+
+    基于实体重叠 + 主题匹配 + 时间接近计算关联强度，
+    满足阈值则写入 event_links 表。失败不阻塞 pipeline。
+    """
+    if store._db is None or not events:
+        return
+    try:
+        for event in events:
+            candidates = await store.find_candidates(target_id, event.id, days=7)
+            if not candidates:
+                continue
+
+            nlp = getattr(event, "judge_result", None) and getattr(
+                event.judge_result, "nlp_analysis", None
+            )
+            if nlp is None:
+                continue
+
+            new_entities = {e.name for e in nlp.entities} if nlp.entities else set()
+            new_topics = set(nlp.topic_tags) if nlp.topic_tags else set()
+            new_time = (
+                datetime.fromisoformat(event.published_at)
+                if getattr(event, "published_at", None)
+                else datetime.now(UTC)
+            )
+
+            for candidate in candidates:
+                cand_entities = set(
+                    candidate["entity_names"].split(",") if candidate.get("entity_names") else []
+                )
+                cand_entities.discard("")
+                if not new_entities or not cand_entities:
+                    entity_overlap = 0.0
+                else:
+                    common = new_entities & cand_entities
+                    entity_overlap = len(common) / max(len(new_entities), len(cand_entities))
+
+                cand_topics = set(
+                    candidate["topic_tags"].split(",") if candidate.get("topic_tags") else []
+                )
+                cand_topics.discard("")
+                if not new_topics or not cand_topics:
+                    topic_match = 0.0
+                else:
+                    topic_match = len(new_topics & cand_topics) / len(new_topics | cand_topics)
+
+                cand_time_str = candidate.get("published_at")
+                if cand_time_str:
+                    try:
+                        cand_time = datetime.fromisoformat(cand_time_str)
+                        hours_diff = abs((new_time - cand_time).total_seconds()) / 3600
+                        time_proximity = max(0.0, 1.0 - hours_diff / 168)
+                    except (ValueError, TypeError):
+                        time_proximity = 0.0
+                else:
+                    time_proximity = 0.0
+
+                strength = entity_overlap * 0.4 + topic_match * 0.3 + time_proximity * 0.3
+
+                if strength >= 0.4:
+                    common_count = len(new_entities & cand_entities)
+                    if common_count >= 2 and strength >= 0.7:
+                        link_type = "followup"
+                    else:
+                        link_type = "related"
+
+                    await store.create_link(
+                        source_event_id=candidate["event_id"],
+                        target_event_id=event.id,
+                        link_type=link_type,
+                        strength=round(strength, 3),
+                        signals={
+                            "entity_overlap": round(entity_overlap, 3),
+                            "topic_match": round(topic_match, 3),
+                            "time_proximity": round(time_proximity, 3),
+                        },
+                        target_id=target_id,
+                    )
+    except Exception as e:
+        logger.warning("事件关联扫描失败（非阻塞）: %s", e)
 
 
 async def _run_output_async(
