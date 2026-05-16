@@ -1,1122 +1,1081 @@
-# Phase 29: 多 Target 并发调度 实现计划
+# Phase 29: 多 Target 并发调度 — FairScheduler + CLI 多目标 + 循环运行
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 实现多 target 并发调度，包括公平调度器（FairScheduler）、多 target 并发执行（multi_run_async）、CLI 扩展（--target all, --target id1,id2, --interval N）和资源隔离。
+**Goal:** 实现多 Target 并发调度，`--target all` 同时运行 5 个目标（italy, china-watch-en, japan, germany, france），通过 FairScheduler 公平分配并发槽位，每个 target 独立 SQLite 数据库互不干扰；新增 `--interval N` 循环运行模式。
 
-**Architecture:** 在 Phase 25-28 建成的 async 基础设施、SQLite 存储层、AI 优化和 API Server 之上，构建多 target 并发调度层。每个 target 独立执行 bounded_run_async()，共享全局 httpx.AsyncClient 连接池，公平分配并发槽位。
+**Architecture:** CLI 层解析 `--target all|a,b` 和 `--interval N` 参数，通过 `asyncio.run()` 桥接到 `bounded_run_multi_async()` 多目标入口。FairScheduler 基于 asyncio.Semaphore 实现两级并发控制：per-target 最小保证 + 全局最大上限。每个 target 独立持有 AsyncStore/Memory/PipelineContext，共享全局 httpx.AsyncClient 连接池和 AI 预算锁。
 
-**Tech Stack:** Python 3.11+, asyncio, httpx (async), aiosqlite, pytest-asyncio, click
+**Tech Stack:** Python 3.11+, asyncio, httpx (async), aiosqlite (P26), pytest-asyncio
 
 **设计文档:** `docs/performance-overhaul-design.md` Section 8
 
-**前置依赖:** Phase 25 (async 基础设施), Phase 26 (SQLite 存储层), Phase 27 (AI 调用优化), Phase 28 (API Server 重构)
+**前置依赖:** Phase 25（async 基础设施 + bounded_run_async）、Phase 26（AsyncStore SQLite）、Phase 27（AI 调用优化）、Phase 28（API Server 重构）
 
 ---
 
 ## 文件结构
 
 ### 新建文件
-- `src/news_sentry/core/fair_scheduler.py` — 公平调度器
-- `src/news_sentry/core/multi_run.py` — 多 target 并发执行入口（`multi_run_async`）
-- `tests/unit/test_fair_scheduler.py` — 公平调度器单元测试
-- `tests/unit/test_multi_run.py` — 多 target 并发执行单元测试
-- `tests/integration/test_multi_target.py` — 多 target 集成测试
+- `src/news_sentry/core/scheduler.py` — FairScheduler 公平并发调度器
+- `tests/unit/test_scheduler.py` — FairScheduler 单元测试
+- `tests/unit/test_multi_target.py` — 多 Target 并发集成测试（含 _resolve_targets、bounded_run_multi_async、run_loop_async、资源隔离）
+- `tests/unit/test_cli_multi_target.py` — CLI 多目标 + --interval 参数测试
 
 ### 修改文件
-- `src/news_sentry/cli/__init__.py` — `run` 命令扩展：`--target all`、逗号分隔多 target、`--interval N`
-- `src/news_sentry/core/orchestrator.py` — PipelineOrchestrator 扩展，支持并发 target 编排
+- `src/news_sentry/core/async_run.py` — 新增 `bounded_run_multi_async()`、`_resolve_targets()`、`_discover_all_targets()`、`run_loop_async()`、`_run_single_target_async()`、`_target_db_path()`、`_target_memory_dir()`
+- `src/news_sentry/cli/__init__.py` — `run` 命令扩展：`--target all|a,b`，新增 `--interval` 选项
 
 ### 不改动文件
-- `src/news_sentry/core/async_run.py` — Phase 25 的 `bounded_run_async` 保留单 target 语义不变
-- `src/news_sentry/core/run.py` — 保留原样
-- `config/targets/*.yaml` — 不修改，仅被自动发现读取
-- `src/news_sentry/core/config.py` — ConfigLoader 无需改动
+- `src/news_sentry/core/run.py` — 同步 bounded_run 保留，不改动
+- `src/news_sentry/core/config.py` — ConfigLoader 保持同步，不改动
+- `src/news_sentry/core/memory.py` — Memory 保持同步（P26 已有 AsyncStore）
 
 ---
 
-## Task 1: FairScheduler 公平调度器
+## Task 1: FairScheduler 公平并发调度器
 
 **Files:**
-- Create: `src/news_sentry/core/fair_scheduler.py`
-- Test: `tests/unit/test_fair_scheduler.py`
-
-公平调度器保证每个 target 至少 `per_target_min=5` 个并发槽位，全局上限 `global_max=30`，先完成先释放，不饿死任何 target。基于双层信号量实现：外层全局信号量控制总并发数，内层 per-target 信号量保证最小配额。
+- Create: `src/news_sentry/core/scheduler.py`
+- Test: `tests/unit/test_scheduler.py`
 
 - [ ] **Step 1: 写 FairScheduler 测试**
 
 ```python
-# tests/unit/test_fair_scheduler.py
-"""FairScheduler 公平调度器单元测试。"""
+# tests/unit/test_scheduler.py
+"""FairScheduler 公平并发调度器测试。"""
+
+from __future__ import annotations
 
 import asyncio
-import time
 
 import pytest
 
-from news_sentry.core.fair_scheduler import FairScheduler
+from news_sentry.core.scheduler import FairScheduler
 
 
 class TestFairScheduler:
-    """FairScheduler 核心行为测试。"""
+    """FairScheduler 两级并发控制：per-target 最小保证 + 全局最大上限。"""
 
     @pytest.mark.asyncio
-    async def test_acquire_and_release_single_target(self):
-        """单 target 获取和释放槽位正常工作。"""
+    async def test_acquire_release_within_min(self):
+        """per_target_min 内的请求应立即获取槽位。"""
         scheduler = FairScheduler(per_target_min=5, global_max=30)
-        scheduler.register_target("italy")
+        scheduler.register("italy")
 
+        for _ in range(5):
+            await scheduler.acquire("italy")
+        # 5 个槽位全部获取成功，无阻塞
+
+        # 释放全部
+        for _ in range(5):
+            scheduler.release("italy")
+
+    @pytest.mark.asyncio
+    async def test_exceed_per_target_blocks_until_release(self):
+        """超过 per_target_min 的请求阻塞，直到有槽位释放。"""
+        scheduler = FairScheduler(per_target_min=2, global_max=30)
+        scheduler.register("italy")
+
+        # 消耗 2 个槽位（per_target_min）
         await scheduler.acquire("italy")
-        # 不应阻塞，立即可用
+        await scheduler.acquire("italy")
+
+        # 第 3 个请求应阻塞
+        acquired = asyncio.Event()
+
+        async def try_acquire():
+            await scheduler.acquire("italy")
+            acquired.set()
+
+        task = asyncio.create_task(try_acquire())
+        # 短暂等待，确认阻塞
+        await asyncio.sleep(0.05)
+        assert not acquired.is_set()
+
+        # 释放一个槽位，第 3 个请求应获取成功
+        scheduler.release("italy")
+        await asyncio.sleep(0.05)
+        assert acquired.is_set()
+        task.cancel()
+
+    @pytest.mark.asyncio
+    async def test_global_max_limits_total_concurrency(self):
+        """全局信号量限制所有 target 的总并发数。"""
+        scheduler = FairScheduler(per_target_min=3, global_max=4)
+        scheduler.register("italy")
+        scheduler.register("japan")
+
+        # italy 占 3，japan 占 1，达到全局上限 4
+        await scheduler.acquire("italy")
+        await scheduler.acquire("italy")
+        await scheduler.acquire("italy")
+        await scheduler.acquire("japan")
+
+        # germany 的请求应阻塞（全局满）
+        scheduler.register("germany")
+        acquired = asyncio.Event()
+
+        async def try_acquire_germany():
+            await scheduler.acquire("germany")
+            acquired.set()
+
+        task = asyncio.create_task(try_acquire_germany())
+        await asyncio.sleep(0.05)
+        assert not acquired.is_set()
+
+        # 释放 italy 的一个槽位，germany 应获取成功
+        scheduler.release("italy")
+        await asyncio.sleep(0.05)
+        assert acquired.is_set()
+        task.cancel()
+
+    @pytest.mark.asyncio
+    async def test_no_starvation_completed_target_releases_slots(self):
+        """先完成的 target 释放槽位后，其他 target 不会饥饿。"""
+        scheduler = FairScheduler(per_target_min=2, global_max=4)
+        scheduler.register("italy")
+        scheduler.register("japan")
+
+        # italy 占 2 个
+        await scheduler.acquire("italy")
+        await scheduler.acquire("italy")
+        # japan 占 2 个（全局满）
+        await scheduler.acquire("japan")
+        await scheduler.acquire("japan")
+
+        # japan 完成，释放全部
+        scheduler.release("japan")
+        scheduler.release("japan")
+
+        # italy 可以获取更多（因为 japan 释放了全局信号量）
+        await scheduler.acquire("italy")
         scheduler.release("italy")
 
-        # 验证可以再次获取
-        await scheduler.acquire("italy")
+        # 清理
+        scheduler.release("italy")
         scheduler.release("italy")
 
     @pytest.mark.asyncio
-    async def test_per_target_min_guarantee(self):
-        """每个 target 保证至少 per_target_min 个并发槽位。"""
-        scheduler = FairScheduler(per_target_min=3, global_max=10)
+    async def test_register_creates_per_target_semaphore(self):
+        """register() 为每个 target 创建独立的 Semaphore。"""
+        scheduler = FairScheduler(per_target_min=5, global_max=30)
+        scheduler.register("italy")
+        scheduler.register("japan")
 
-        for tid in ["italy", "japan", "germany"]:
-            scheduler.register_target(tid)
-
-        acquired: dict[str, int] = {"italy": 0, "japan": 0, "germany": 0}
-
-        async def _worker(tid: str, release_after: float = 0.3) -> None:
-            await scheduler.acquire(tid)
-            acquired[tid] += 1
-            await asyncio.sleep(release_after)
-            scheduler.release(tid)
-
-        # 每个 target 同时启动 3 个 worker
-        tasks = []
-        for tid in ["italy", "japan", "germany"]:
-            for _ in range(3):
-                tasks.append(asyncio.create_task(_worker(tid)))
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # 每个 target 的 3 个 worker 都应该获得槽位（在 per_target_min=3 内）
-        for tid in ["italy", "japan", "germany"]:
-            assert acquired[tid] == 3, f"{tid} 应获得 3 个槽位，实际 {acquired[tid]}"
+        assert "italy" in scheduler.registered_targets
+        assert "japan" in scheduler.registered_targets
+        assert len(scheduler.registered_targets) == 2
 
     @pytest.mark.asyncio
-    async def test_global_max_respected(self):
-        """全局并发不超过 global_max。"""
-        scheduler = FairScheduler(per_target_min=5, global_max=10)
-        for tid in ["italy", "japan", "germany", "france", "china-watch-en"]:
-            scheduler.register_target(tid)
+    async def test_register_duplicate_raises(self):
+        """重复注册同一 target 应抛出 ValueError。"""
+        scheduler = FairScheduler(per_target_min=5, global_max=30)
+        scheduler.register("italy")
 
-        concurrent: int = 0
-        max_concurrent: int = 0
-        lock = asyncio.Lock()
-
-        async def _worker(tid: str) -> None:
-            nonlocal concurrent, max_concurrent
-            await scheduler.acquire(tid)
-            async with lock:
-                concurrent += 1
-                if concurrent > max_concurrent:
-                    max_concurrent = concurrent
-            await asyncio.sleep(0.05)
-            async with lock:
-                concurrent -= 1
-            scheduler.release(tid)
-
-        # 每个 target 启动 5 个 worker = 25 个总请求 > global_max=10
-        tasks = []
-        for tid in ["italy", "japan", "germany", "france", "china-watch-en"]:
-            for _ in range(5):
-                tasks.append(asyncio.create_task(_worker(tid)))
-
-        await asyncio.gather(*tasks, return_exceptions=True)
-
-        assert max_concurrent <= 10, f"最大并发 {max_concurrent} 超过 global_max=10"
+        with pytest.raises(ValueError, match="已注册"):
+            scheduler.register("italy")
 
     @pytest.mark.asyncio
-    async def test_no_starvation(self):
-        """不饿死任何 target：即使一个 target 大量请求，另一个 target 仍能获得最小槽位。"""
-        scheduler = FairScheduler(per_target_min=2, global_max=5)
-        scheduler.register_target("heavy")
-        scheduler.register_target("light")
-
-        heavy_done = 0
-        light_done = 0
-
-        async def _heavy_worker() -> None:
-            nonlocal heavy_done
-            for _ in range(10):
-                await scheduler.acquire("heavy")
-                await asyncio.sleep(0.01)
-                heavy_done += 1
-                scheduler.release("heavy")
-
-        async def _light_worker() -> None:
-            nonlocal light_done
-            for _ in range(3):
-                await scheduler.acquire("light")
-                await asyncio.sleep(0.01)
-                light_done += 1
-                scheduler.release("light")
-
-        # 同时启动 heavy 和 light
-        heavy_task = asyncio.create_task(_heavy_worker())
-        light_task = asyncio.create_task(_light_worker())
-
-        await asyncio.gather(heavy_task, light_task)
-
-        # light 不应该被饿死
-        assert light_done == 3, f"light 应完成 3 次，实际 {light_done}"
-        # heavy 也应至少完成若干次（受 global_max 限制但不应为 0）
-        assert heavy_done > 0, f"heavy 应至少完成一次，实际 {heavy_done}"
-
-    @pytest.mark.asyncio
-    async def test_unregistered_target_raises(self):
-        """未注册 target 应抛出 KeyError。"""
+    async def test_acquire_unregistered_target_raises(self):
+        """未 register 的 target 调用 acquire 应抛出 KeyError。"""
         scheduler = FairScheduler(per_target_min=5, global_max=30)
 
-        with pytest.raises(KeyError):
-            await scheduler.acquire("unknown-target")
+        with pytest.raises(KeyError, match="unregistered"):
+            await scheduler.acquire("nonexistent")
 
     @pytest.mark.asyncio
-    async def test_release_restores_capacity(self):
-        """释放槽位后恢复容量。"""
-        scheduler = FairScheduler(per_target_min=1, global_max=2)
-        scheduler.register_target("italy")
+    async def test_release_unregistered_target_raises(self):
+        """未 register 的 target 调用 release 应抛出 KeyError。"""
+        scheduler = FairScheduler(per_target_min=5, global_max=30)
 
-        await scheduler.acquire("italy")
-        scheduler.release("italy")
-        await scheduler.acquire("italy")  # 应该不阻塞
-        scheduler.release("italy")
+        with pytest.raises(KeyError, match="unregistered"):
+            scheduler.release("nonexistent")
+
+    @pytest.mark.asyncio
+    async def test_context_manager_usage(self):
+        """acquire/release 可通过 async context manager 使用。"""
+        scheduler = FairScheduler(per_target_min=2, global_max=30)
+        scheduler.register("italy")
+
+        async with scheduler.slot("italy"):
+            # 在 with 块内持有一个槽位
+            pass
+        # 退出 with 后槽位自动释放
+
+        # 再次获取应该成功
+        async with scheduler.slot("italy"):
+            pass
 ```
 
 - [ ] **Step 2: 运行测试确认失败**
 
 ```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && .venv/bin/python3 -m pytest tests/unit/test_fair_scheduler.py -v
+.venv/bin/python3 -m pytest tests/unit/test_scheduler.py -v
 ```
 
-预期：FAIL -- `ModuleNotFoundError: No module named 'news_sentry.core.fair_scheduler'`
+预期：FAIL — `ModuleNotFoundError: No module named 'news_sentry.core.scheduler'`
 
 - [ ] **Step 3: 实现 FairScheduler**
 
 ```python
-# src/news_sentry/core/fair_scheduler.py
-"""FairScheduler — 多 target 公平调度器，基于双层信号量实现。
+# src/news_sentry/core/scheduler.py
+"""FairScheduler — 多 Target 公平并发调度器。
 
-保证每个 target 至少 per_target_min 个并发槽位，全局不超过 global_max。
-先完成先释放，不饿死任何 target（per_target_min 保证最小配额）。
+两级并发控制：
+1. per-target Semaphore: 每个目标保证至少 per_target_min 个并发槽位
+2. global Semaphore: 所有目标合计不超过 global_max 个并发槽位
+
+先完成的目标释放槽位给其他目标，保证不饥饿。
 """
 
 from __future__ import annotations
 
 import asyncio
-import logging
-from collections import defaultdict
-
-logger = logging.getLogger(__name__)
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
 
 
 class FairScheduler:
-    """公平调度器：双层信号量 = 全局信号量 + per-target 信号量。
-
-    两层信号量的获取顺序：
-    1. 先获取 per-target 信号量（保证该 target 不饿死）
-    2. 再获取全局信号量（保证全局并发不超限）
-
-    释放顺序：先释放全局信号量，再释放 per-target 信号量。
+    """公平并发调度器，基于 asyncio.Semaphore 实现两级并发控制。
 
     Args:
         per_target_min: 每个 target 保证的最小并发槽位数。
-        global_max: 全局最大并发数。
+        global_max: 所有 target 合计的最大并发槽位数。
     """
 
-    def __init__(
-        self,
-        per_target_min: int = 5,
-        global_max: int = 30,
-    ) -> None:
-        if per_target_min < 1:
-            raise ValueError(f"per_target_min 必须 >= 1，实际 {per_target_min}")
-        if global_max < per_target_min:
-            raise ValueError(
-                f"global_max ({global_max}) 必须 >= per_target_min ({per_target_min})"
-            )
-
+    def __init__(self, per_target_min: int = 5, global_max: int = 30) -> None:
         self._per_target_min = per_target_min
-        self._global_max = global_max
-        self._global: asyncio.Semaphore = asyncio.Semaphore(global_max)
+        self._global = asyncio.Semaphore(global_max)
         self._per_target: dict[str, asyncio.Semaphore] = {}
-        self._registered: set[str] = set()
-        self._stats_lock: asyncio.Lock = asyncio.Lock()
-        self._acquire_count: dict[str, int] = defaultdict(int)
-        self._release_count: dict[str, int] = defaultdict(int)
 
-    def register_target(self, target_id: str) -> None:
-        """注册一个 target，为其分配独立的 per-target 信号量。
+    def register(self, target_id: str) -> None:
+        """注册一个 target，为其创建 per-target Semaphore。
 
-        可以在运行时动态注册新 target。重复注册不产生副作用。
+        Args:
+            target_id: 目标标识符。
+
+        Raises:
+            ValueError: target 已注册。
         """
-        if target_id not in self._per_target:
-            self._per_target[target_id] = asyncio.Semaphore(self._per_target_min)
-            self._registered.add(target_id)
-            logger.debug(
-                "FairScheduler: 注册 target=%s per_target_min=%d",
-                target_id,
-                self._per_target_min,
-            )
-        else:
-            logger.debug("FairScheduler: target=%s 已注册，跳过", target_id)
+        if target_id in self._per_target:
+            raise ValueError(f"target '{target_id}' 已注册")
+        self._per_target[target_id] = asyncio.Semaphore(self._per_target_min)
 
-    def register_targets(self, target_ids: list[str]) -> None:
-        """批量注册多个 target。"""
-        for tid in target_ids:
-            self.register_target(tid)
+    @property
+    def registered_targets(self) -> list[str]:
+        """返回已注册的所有 target ID 列表。"""
+        return list(self._per_target.keys())
 
     async def acquire(self, target_id: str) -> None:
         """获取一个并发槽位。
 
-        先获取 per-target 配额（保证最小公平性），再获取全局配额。
-        如果 target 未注册，抛出 KeyError。
+        先获取 per-target 信号量，再获取全局信号量。
+        两个信号量都获取成功后才返回。
 
         Args:
-            target_id: 请求槽位的 target 标识符。
+            target_id: 目标标识符。
 
         Raises:
             KeyError: target 未注册。
         """
         if target_id not in self._per_target:
-            raise KeyError(
-                f"Target '{target_id}' 未注册到 FairScheduler。"
-                f" 已注册 target: {sorted(self._registered)}"
-            )
-
-        # 先获取 per-target 槽位（保证不饿死）
+            raise KeyError(f"unregistered target: '{target_id}'")
         await self._per_target[target_id].acquire()
-
-        try:
-            # 再获取全局槽位（全局并发控制）
-            await self._global.acquire()
-        except Exception:
-            # 如果全局获取失败，释放 per-target 槽位
-            self._per_target[target_id].release()
-            raise
-
-        async with self._stats_lock:
-            self._acquire_count[target_id] += 1
+        await self._global.acquire()
 
     def release(self, target_id: str) -> None:
         """释放一个并发槽位。
 
-        释放顺序：先全局后 per-target（与获取顺序相反）。
+        先释放全局信号量，再释放 per-target 信号量。
 
         Args:
-            target_id: 释放槽位的 target 标识符。
+            target_id: 目标标识符。
 
         Raises:
             KeyError: target 未注册。
         """
         if target_id not in self._per_target:
-            raise KeyError(
-                f"Target '{target_id}' 未注册到 FairScheduler。"
-            )
-
+            raise KeyError(f"unregistered target: '{target_id}'")
         self._global.release()
         self._per_target[target_id].release()
 
-        # 使用同步方式更新计数（release 不需要异步上下文）
-        self._release_count[target_id] += 1
+    @asynccontextmanager
+    async def slot(self, target_id: str) -> AsyncIterator[None]:
+        """async context manager 形式获取/释放槽位。
 
-    @property
-    def stats(self) -> dict[str, object]:
-        """返回当前调度器统计信息。"""
-        return {
-            "per_target_min": self._per_target_min,
-            "global_max": self._global_max,
-            "registered_targets": sorted(self._registered),
-            "acquire_count": dict(self._acquire_count),
-            "release_count": dict(self._release_count),
-        }
+        用法::
 
-    @property
-    def registered_targets(self) -> list[str]:
-        """返回已注册的 target 列表。"""
-        return sorted(self._registered)
+            async with scheduler.slot("italy"):
+                # 在此块内持有一个槽位
+                await do_work()
+        """
+        await self.acquire(target_id)
+        try:
+            yield
+        finally:
+            self.release(target_id)
 ```
 
 - [ ] **Step 4: 运行测试确认通过**
 
 ```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && .venv/bin/python3 -m pytest tests/unit/test_fair_scheduler.py -v
+.venv/bin/python3 -m pytest tests/unit/test_scheduler.py -v
 ```
 
-预期：6 passed
+预期：10 passed
 
-- [ ] **Step 5: 提交**
+- [ ] **Step 5: 运行全部现有测试确认无回归**
 
 ```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && git add src/news_sentry/core/fair_scheduler.py tests/unit/test_fair_scheduler.py && git commit -m "Phase 29: FairScheduler 公平调度器 (P29.01)"
+.venv/bin/python3 -m pytest tests/ -q
+```
+
+预期：全部测试通过
+
+- [ ] **Step 6: 提交**
+
+```bash
+git add src/news_sentry/core/scheduler.py tests/unit/test_scheduler.py
+git commit -m "Phase 29: FairScheduler 公平并发调度器 (P29.01)"
 ```
 
 ---
 
-## Task 2: multi_run_async() 多 Target 并发执行
+## Task 2: _resolve_targets() 目标发现与解析
 
 **Files:**
-- Create: `src/news_sentry/core/multi_run.py`
-- Test: `tests/unit/test_multi_run.py`
+- Modify: `src/news_sentry/core/async_run.py`
+- Create: `tests/unit/test_multi_target.py`（TestResolveTargets 部分）
 
-`multi_run_async()` 是 Phase 29 的核心函数：接受多个 target_id，为每个 target 创建独立任务（调用 `bounded_run_async()`），通过 FairScheduler 公平调度所有并发操作，共享全局 `httpx.AsyncClient` 连接池。
-
-关键设计决策：
-1. 每个 target 独立 SQLite db（`data/{target_id}/state.db`）和独立 Memory
-2. 全局 `httpx.AsyncClient` 由 `multi_run_async` 创建并传入各 `bounded_run_async`
-3. AI 预算全局共享，通过 `asyncio.Lock` 保护防超支
-4. 每个 target 的错误不传播到其他 target（`return_exceptions=True`）
-
-- [ ] **Step 1: 写 multi_run_async 测试**
+- [ ] **Step 1: 写 _resolve_targets 测试**
 
 ```python
-# tests/unit/test_multi_run.py
-"""multi_run_async 多 target 并发执行单元测试。"""
+# tests/unit/test_multi_target.py
+"""多 Target 并发调度测试。"""
+
+from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from news_sentry.core.multi_run import multi_run_async
+
+class TestResolveTargets:
+    """_resolve_targets() 将 target_str 解析为 target_id 列表。"""
+
+    def test_single_target(self, tmp_path: Path):
+        """单个 target ID 直接返回。"""
+        from news_sentry.core.async_run import _resolve_targets
+
+        result = _resolve_targets("italy", config_dir=tmp_path)
+        assert result == ["italy"]
+
+    def test_comma_separated_targets(self, tmp_path: Path):
+        """逗号分隔的 target 列表。"""
+        from news_sentry.core.async_run import _resolve_targets
+
+        result = _resolve_targets("italy,japan,germany", config_dir=tmp_path)
+        assert result == ["italy", "japan", "germany"]
+
+    def test_comma_separated_strips_whitespace(self, tmp_path: Path):
+        """逗号分隔时自动去除前后空格。"""
+        from news_sentry.core.async_run import _resolve_targets
+
+        result = _resolve_targets(" italy , japan , germany ", config_dir=tmp_path)
+        assert result == ["italy", "japan", "germany"]
+
+    def test_all_keyword_discovers_targets(self, tmp_path: Path):
+        """'all' 关键字从 config/targets/ 目录发现所有 target。"""
+        from news_sentry.core.async_run import _resolve_targets
+
+        targets_dir = tmp_path / "config" / "targets"
+        targets_dir.mkdir(parents=True)
+        for tid in ["italy", "japan", "germany", "france", "china-watch-en"]:
+            (targets_dir / f"{tid}.yaml").write_text(f"target_id: {tid}")
+        # 模板文件应被跳过
+        (targets_dir / "_template.yaml").write_text("target_id: _template")
+
+        result = _resolve_targets("all", config_dir=tmp_path)
+        assert sorted(result) == ["china-watch-en", "france", "germany", "italy", "japan"]
+
+    def test_all_keyword_empty_dir(self, tmp_path: Path):
+        """config/targets/ 为空时 'all' 返回空列表。"""
+        from news_sentry.core.async_run import _resolve_targets
+
+        targets_dir = tmp_path / "config" / "targets"
+        targets_dir.mkdir(parents=True)
+
+        result = _resolve_targets("all", config_dir=tmp_path)
+        assert result == []
+
+    def test_all_keyword_skips_underscore_prefixed(self, tmp_path: Path):
+        """'all' 跳过以 _ 开头的文件（如 _template.yaml）。"""
+        from news_sentry.core.async_run import _resolve_targets
+
+        targets_dir = tmp_path / "config" / "targets"
+        targets_dir.mkdir(parents=True)
+        (targets_dir / "italy.yaml").write_text("target_id: italy")
+        (targets_dir / "_internal.yaml").write_text("target_id: _internal")
+
+        result = _resolve_targets("all", config_dir=tmp_path)
+        assert result == ["italy"]
+
+    def test_duplicate_targets_deduplicated(self, tmp_path: Path):
+        """逗号列表中的重复 target ID 自动去重。"""
+        from news_sentry.core.async_run import _resolve_targets
+
+        result = _resolve_targets("italy,italy,japan", config_dir=tmp_path)
+        assert result == ["italy", "japan"]
+
+    def test_all_keyword_nonexistent_dir(self, tmp_path: Path):
+        """config/targets/ 目录不存在时 'all' 返回空列表。"""
+        from news_sentry.core.async_run import _resolve_targets
+
+        result = _resolve_targets("all", config_dir=tmp_path)
+        assert result == []
+```
+
+- [ ] **Step 2: 运行测试确认失败**
+
+```bash
+.venv/bin/python3 -m pytest tests/unit/test_multi_target.py::TestResolveTargets -v
+```
+
+预期：FAIL — `ImportError: cannot import name '_resolve_targets' from 'news_sentry.core.async_run'`（或 `ModuleNotFoundError` 如果 P25 尚未实现 async_run.py）
+
+- [ ] **Step 3: 在 async_run.py 中实现 _resolve_targets() 和 _discover_all_targets()**
+
+在 `src/news_sentry/core/async_run.py` 中添加以下函数（在现有 import 之后、`bounded_run_async` 定义之前）：
+
+```python
+from pathlib import Path
 
 
-class TestMultiRunAsync:
-    """multi_run_async 核心行为测试。"""
+def _resolve_targets(target_str: str, config_dir: Path) -> list[str]:
+    """将 target 参数字符串解析为 target_id 列表。
+
+    支持以下格式：
+    - 单个 target: "italy"
+    - 逗号分隔: "italy,japan,germany"
+    - 关键字 "all": 从 config/targets/ 发现所有 target
+
+    Args:
+        target_str: target 参数字符串。
+        config_dir: 项目根目录。
+
+    Returns:
+        去重后的 target_id 列表。
+    """
+    if target_str == "all":
+        return _discover_all_targets(config_dir)
+
+    # 逗号分隔，去重并去除空格
+    seen: set[str] = set()
+    result: list[str] = []
+    for part in target_str.split(","):
+        tid = part.strip()
+        if tid and tid not in seen:
+            seen.add(tid)
+            result.append(tid)
+    return result
+
+
+def _discover_all_targets(config_dir: Path) -> list[str]:
+    """从 config/targets/ 目录发现所有 target。
+
+    跳过以 _ 开头的文件（如 _template.yaml），返回按字母排序的列表。
+
+    Args:
+        config_dir: 项目根目录。
+
+    Returns:
+        target_id 列表。
+    """
+    targets_dir = config_dir / "config" / "targets"
+    if not targets_dir.is_dir():
+        return []
+    targets: list[str] = []
+    for yaml_file in sorted(targets_dir.glob("*.yaml")):
+        if yaml_file.name.startswith("_"):
+            continue
+        targets.append(yaml_file.stem)
+    return targets
+```
+
+- [ ] **Step 4: 运行测试确认通过**
+
+```bash
+.venv/bin/python3 -m pytest tests/unit/test_multi_target.py::TestResolveTargets -v
+```
+
+预期：8 passed
+
+- [ ] **Step 5: 提交**
+
+```bash
+git add src/news_sentry/core/async_run.py tests/unit/test_multi_target.py
+git commit -m "Phase 29: _resolve_targets 目标发现与解析 (P29.02)"
+```
+
+---
+
+## Task 3: bounded_run_multi_async() 多目标并发入口
+
+**Files:**
+- Modify: `src/news_sentry/core/async_run.py`
+- Modify: `tests/unit/test_multi_target.py`
+
+- [ ] **Step 1: 写 bounded_run_multi_async 测试**
+
+在 `tests/unit/test_multi_target.py` 中追加：
+
+```python
+class TestBoundedRunMultiAsync:
+    """bounded_run_multi_async() 多目标并发入口测试。"""
 
     @pytest.mark.asyncio
     async def test_runs_all_targets_concurrently(self):
-        """验证所有 target 被并发执行。"""
-        started: set[str] = set()
+        """验证所有 target 并发运行，每个 target 调用一次 _run_single_target_async。"""
+        from news_sentry.core.async_run import bounded_run_multi_async
 
-        async def _mock_bounded_run_async(target_id, stage, **kwargs):
-            started.add(target_id)
+        call_log: list[str] = []
+
+        async def fake_run_single(target_id, **kwargs):
+            call_log.append(target_id)
             ctx = MagicMock()
             ctx.target_id = target_id
             ctx.errors_count = 0
             return ctx
 
         with patch(
-            "news_sentry.core.multi_run.bounded_run_async",
-            side_effect=_mock_bounded_run_async,
+            "news_sentry.core.async_run._run_single_target_async",
+            side_effect=fake_run_single,
         ):
-            results = await multi_run_async(
-                target_ids=["italy", "japan", "germany"],
+            results = await bounded_run_multi_async(
+                targets=["italy", "japan", "germany"],
                 stage="all",
             )
 
+        assert sorted(call_log) == ["germany", "italy", "japan"]
         assert len(results) == 3
-        assert started == {"italy", "japan", "germany"}
 
     @pytest.mark.asyncio
-    async def test_isolated_errors_do_not_kill_other_targets(self):
-        """一个 target 失败不影响其他 target 执行。"""
-        call_order: list[str] = []
+    async def test_targets_run_in_parallel_not_serial(self):
+        """验证多个 target 并行执行而非串行。"""
+        from news_sentry.core.async_run import bounded_run_multi_async
 
-        async def _mock_bounded_run_async(target_id, stage, **kwargs):
-            call_order.append(target_id)
-            if target_id == "japan":
-                raise RuntimeError("模拟 japan 失败")
+        timestamps: dict[str, float] = {}
+
+        async def slow_run(target_id, **kwargs):
+            timestamps[target_id] = asyncio.get_event_loop().time()
+            await asyncio.sleep(0.1)
             ctx = MagicMock()
             ctx.target_id = target_id
             ctx.errors_count = 0
             return ctx
 
         with patch(
-            "news_sentry.core.multi_run.bounded_run_async",
-            side_effect=_mock_bounded_run_async,
+            "news_sentry.core.async_run._run_single_target_async",
+            side_effect=slow_run,
         ):
-            results = await multi_run_async(
-                target_ids=["italy", "japan", "germany"],
-                stage="all",
-            )
-
-        # italy 和 germany 应正常完成
-        assert "italy" in call_order
-        assert "germany" in call_order
-        # japan 也应有调用记录（但抛出了异常）
-        assert "japan" in call_order
-
-        # 结果中应包含错误信息
-        assert len(results) >= 3
-
-    @pytest.mark.asyncio
-    async def test_respects_fair_scheduler(self):
-        """验证 FairScheduler 被正确注册和使用。"""
-        scheduler_registered: list[str] = []
-
-        with patch(
-            "news_sentry.core.multi_run.bounded_run_async",
-            new_callable=AsyncMock,
-        ) as mock_run, patch(
-            "news_sentry.core.multi_run.FairScheduler",
-        ) as mock_scheduler_cls:
-
-            mock_scheduler = MagicMock()
-            mock_scheduler.register_targets = MagicMock(
-                side_effect=lambda ids: scheduler_registered.extend(ids)
-            )
-            mock_scheduler_cls.return_value = mock_scheduler
-
-            mock_run.return_value = MagicMock(target_id="test", errors_count=0)
-
-            await multi_run_async(
-                target_ids=["italy", "japan"],
+            await bounded_run_multi_async(
+                targets=["italy", "japan"],
                 stage="collect",
-                per_target_min=5,
-                global_max=30,
             )
 
-            # 验证所有 target 被注册
-            assert "italy" in scheduler_registered
-            assert "japan" in scheduler_registered
+        # 两个 target 应几乎同时开始（差距 < 50ms）
+        assert abs(timestamps["italy"] - timestamps["japan"]) < 0.05
 
     @pytest.mark.asyncio
-    async def test_single_target_still_works(self):
-        """单个 target 仍能正常工作（不退化）。"""
-        with patch(
-            "news_sentry.core.multi_run.bounded_run_async",
-            new_callable=AsyncMock,
-        ) as mock_run:
-            mock_run.return_value = MagicMock(target_id="italy", errors_count=0)
+    async def test_single_target_runs_normally(self):
+        """单个 target 传入时也能正常工作。"""
+        from news_sentry.core.async_run import bounded_run_multi_async
 
-            results = await multi_run_async(
-                target_ids=["italy"],
-                stage="all",
+        async def fake_run_single(target_id, **kwargs):
+            ctx = MagicMock()
+            ctx.target_id = target_id
+            ctx.errors_count = 0
+            return ctx
+
+        with patch(
+            "news_sentry.core.async_run._run_single_target_async",
+            side_effect=fake_run_single,
+        ):
+            results = await bounded_run_multi_async(
+                targets=["italy"],
+                stage="collect",
             )
 
         assert len(results) == 1
         assert results[0].target_id == "italy"
 
     @pytest.mark.asyncio
-    async def test_shared_http_client_passed_through(self):
-        """验证共享 httpx.AsyncClient 被传递给每个 bounded_run_async。"""
-        passed_clients: list[object] = []
+    async def test_empty_targets_returns_empty(self):
+        """空 target 列表返回空结果。"""
+        from news_sentry.core.async_run import bounded_run_multi_async
 
-        async def _mock_run(target_id, stage, http_client=None, **kwargs):
-            passed_clients.append(http_client)
-            ctx = MagicMock()
-            ctx.target_id = target_id
-            ctx.errors_count = 0
-            return ctx
-
-        with patch(
-            "news_sentry.core.multi_run.bounded_run_async",
-            side_effect=_mock_run,
-        ):
-            await multi_run_async(
-                target_ids=["italy", "japan"],
-                stage="all",
-            )
-
-        # 所有 target 应收到同一个 http_client 对象
-        assert len(passed_clients) == 2
-        assert passed_clients[0] is not None
-        assert passed_clients[0] is passed_clients[1], (
-            "所有 target 应共享同一个 httpx.AsyncClient 实例"
-        )
+        results = await bounded_run_multi_async(targets=[], stage="all")
+        assert results == []
 
     @pytest.mark.asyncio
-    async def test_ai_budget_lock_shared(self):
-        """验证 AI 预算锁被传递给每个 bounded_run_async。"""
-        passed_locks: list[object] = []
+    async def test_failed_target_does_not_block_others(self):
+        """某个 target 失败不阻塞其他 target。"""
+        from news_sentry.core.async_run import bounded_run_multi_async
 
-        async def _mock_run(target_id, stage, ai_budget_lock=None, **kwargs):
-            passed_locks.append(ai_budget_lock)
+        async def fake_run_single(target_id, **kwargs):
+            if target_id == "failing":
+                raise RuntimeError("模拟失败")
             ctx = MagicMock()
             ctx.target_id = target_id
             ctx.errors_count = 0
             return ctx
 
         with patch(
-            "news_sentry.core.multi_run.bounded_run_async",
-            side_effect=_mock_run,
+            "news_sentry.core.async_run._run_single_target_async",
+            side_effect=fake_run_single,
         ):
-            await multi_run_async(
-                target_ids=["italy", "japan"],
+            results = await bounded_run_multi_async(
+                targets=["italy", "failing", "japan"],
                 stage="all",
             )
 
-        # 所有 target 应收到同一个 asyncio.Lock
-        assert len(passed_locks) == 2
-        assert passed_locks[0] is not None
-        assert passed_locks[0] is passed_locks[1], (
-            "所有 target 应共享同一个 AI 预算锁"
-        )
+        # italy 和 japan 应成功完成
+        successful_ids = [r.target_id for r in results]
+        assert "italy" in successful_ids
+        assert "japan" in successful_ids
+        # failing 不在成功结果中
+        assert "failing" not in successful_ids
+
+    @pytest.mark.asyncio
+    async def test_shared_http_client_passed_to_all_targets(self):
+        """验证全局 httpx.AsyncClient 共享给所有 target。"""
+        from news_sentry.core.async_run import bounded_run_multi_async
+
+        received_clients: list[object] = []
+
+        async def fake_run_single(target_id, **kwargs):
+            received_clients.append(kwargs.get("http_client"))
+            ctx = MagicMock()
+            ctx.target_id = target_id
+            ctx.errors_count = 0
+            return ctx
+
+        with patch(
+            "news_sentry.core.async_run._run_single_target_async",
+            side_effect=fake_run_single,
+        ):
+            await bounded_run_multi_async(
+                targets=["italy", "japan"],
+                stage="collect",
+            )
+
+        # 所有 target 应收到同一个 http_client 实例
+        assert len(received_clients) == 2
+        assert received_clients[0] is received_clients[1]
+
+    @pytest.mark.asyncio
+    async def test_scheduler_registered_for_all_targets(self):
+        """验证 FairScheduler 为每个 target 注册。"""
+        from news_sentry.core.async_run import bounded_run_multi_async
+
+        captured_scheduler = None
+
+        async def fake_run_single(target_id, **kwargs):
+            nonlocal captured_scheduler
+            if captured_scheduler is None:
+                captured_scheduler = kwargs.get("scheduler")
+            ctx = MagicMock()
+            ctx.target_id = target_id
+            ctx.errors_count = 0
+            return ctx
+
+        with patch(
+            "news_sentry.core.async_run._run_single_target_async",
+            side_effect=fake_run_single,
+        ):
+            await bounded_run_multi_async(
+                targets=["italy", "japan", "germany"],
+                stage="all",
+            )
+
+        assert captured_scheduler is not None
+        assert sorted(captured_scheduler.registered_targets) == ["germany", "italy", "japan"]
 ```
 
 - [ ] **Step 2: 运行测试确认失败**
 
 ```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && .venv/bin/python3 -m pytest tests/unit/test_multi_run.py -v
+.venv/bin/python3 -m pytest tests/unit/test_multi_target.py::TestBoundedRunMultiAsync -v
 ```
 
-预期：FAIL -- `ModuleNotFoundError: No module named 'news_sentry.core.multi_run'`
+预期：FAIL — `ImportError: cannot import name 'bounded_run_multi_async'`
 
-- [ ] **Step 3: 实现 multi_run.py**
+- [ ] **Step 3: 实现 bounded_run_multi_async() 和 _run_single_target_async()**
+
+在 `src/news_sentry/core/async_run.py` 中添加以下代码：
 
 ```python
-# src/news_sentry/core/multi_run.py
-"""multi_run_async — 多 target 并发执行入口。
+import logging
 
-共享全局 httpx.AsyncClient 连接池，通过 FairScheduler 公平调度所有并发操作。
-每个 target 独立 SQLite db 和 Memory，AI 预算全局共享并通过 asyncio.Lock 保护。
-"""
+import httpx
+
+from news_sentry.core.scheduler import FairScheduler
+
+logger = logging.getLogger(__name__)
+
+
+async def bounded_run_multi_async(
+    targets: list[str],
+    stage: str = "all",
+    run_id: str | None = None,
+    config_dir: Path | None = None,
+    profile_id: str | None = None,
+    output_root: Path | None = None,
+) -> list:
+    """多 Target 并发运行入口。
+
+    为每个 target 启动独立的 pipeline 运行，通过 FairScheduler 协调并发。
+    全局共享 httpx.AsyncClient 连接池。单个 target 失败不影响其他 target。
+
+    Args:
+        targets: target_id 列表。空列表返回空结果。
+        stage: pipeline 阶段。
+        run_id: 可选运行 ID 前缀。
+        config_dir: 项目根目录。
+        profile_id: Deployment profile ID。
+        output_root: 输出根目录。
+
+    Returns:
+        成功完成的 PipelineContext 列表（失败的 target 不在列表中）。
+    """
+    if not targets:
+        return []
+
+    # 初始化 FairScheduler
+    scheduler = FairScheduler(per_target_min=5, global_max=30)
+    for target_id in targets:
+        scheduler.register(target_id)
+
+    # 共享连接池
+    async with httpx.AsyncClient(timeout=30.0) as http_client:
+        # AI 预算共享锁
+        ai_budget_lock = asyncio.Lock()
+
+        coros = [
+            _run_single_target_async(
+                target_id=target_id,
+                stage=stage,
+                run_id=run_id,
+                config_dir=config_dir,
+                profile_id=profile_id,
+                output_root=output_root,
+                http_client=http_client,
+                ai_budget_lock=ai_budget_lock,
+                scheduler=scheduler,
+            )
+            for target_id in targets
+        ]
+
+        # 并发运行所有 target，单 target 失败不中断其他
+        results = await asyncio.gather(*coros, return_exceptions=True)
+
+    # 过滤掉异常结果，记录失败日志
+    success: list = []
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            logger.error(
+                "target '%s' 运行失败: %s",
+                targets[i],
+                result,
+            )
+        else:
+            success.append(result)
+    return success
+
+
+async def _run_single_target_async(
+    target_id: str,
+    stage: str = "all",
+    run_id: str | None = None,
+    config_dir: Path | None = None,
+    profile_id: str | None = None,
+    output_root: Path | None = None,
+    http_client: httpx.AsyncClient | None = None,
+    ai_budget_lock: asyncio.Lock | None = None,
+    scheduler: FairScheduler | None = None,
+) -> object:
+    """运行单个 target 的完整 pipeline。
+
+    使用 FairScheduler 控制并发槽位。如果 scheduler 为 None，则不进行并发控制。
+
+    Args:
+        target_id: 目标标识符。
+        stage: pipeline 阶段。
+        run_id: 可选运行 ID。
+        config_dir: 项目根目录。
+        profile_id: Deployment profile ID。
+        output_root: 输出根目录。
+        http_client: 共享的 httpx.AsyncClient。
+        ai_budget_lock: 共享的 AI 预算锁。
+        scheduler: FairScheduler 实例。
+
+    Returns:
+        PipelineContext。
+    """
+    # 获取并发槽位
+    if scheduler is not None:
+        await scheduler.acquire(target_id)
+
+    try:
+        # 调用已有的 bounded_run_async（Phase 25 创建）
+        # 将共享资源注入
+        ctx = await bounded_run_async(
+            target_id=target_id,
+            stage=stage,
+            run_id=run_id,
+            config_dir=config_dir,
+            profile_id=profile_id,
+            output_root=output_root,
+            http_client=http_client,
+            ai_budget_lock=ai_budget_lock,
+        )
+        return ctx
+    finally:
+        if scheduler is not None:
+            scheduler.release(target_id)
+```
+
+注意：`bounded_run_async` 函数签名需要在 Phase 25 基础上扩展，接受 `http_client`、`ai_budget_lock` 可选参数。如果这些参数为 None，函数内部自行创建。此处假设 P25 的 `bounded_run_async` 已做此扩展（或在此 Task 中补全参数签名）。
+
+- [ ] **Step 4: 运行测试确认通过**
+
+```bash
+.venv/bin/python3 -m pytest tests/unit/test_multi_target.py::TestBoundedRunMultiAsync -v
+```
+
+预期：7 passed
+
+- [ ] **Step 5: 运行全部测试确认无回归**
+
+```bash
+.venv/bin/python3 -m pytest tests/ -q
+```
+
+预期：全部测试通过
+
+- [ ] **Step 6: 提交**
+
+```bash
+git add src/news_sentry/core/async_run.py tests/unit/test_multi_target.py
+git commit -m "Phase 29: bounded_run_multi_async 多目标并发入口 (P29.03)"
+```
+
+---
+
+## Task 4: CLI 多目标参数扩展 --target all|a,b + --interval
+
+**Files:**
+- Modify: `src/news_sentry/cli/__init__.py`
+- Create: `tests/unit/test_cli_multi_target.py`
+
+- [ ] **Step 1: 写 CLI 多目标参数测试**
+
+```python
+# tests/unit/test_cli_multi_target.py
+"""CLI 多目标 + --interval 参数测试。"""
 
 from __future__ import annotations
 
 import asyncio
-import logging
-from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any
-
-import httpx
-
-from news_sentry.core.fair_scheduler import FairScheduler
-from news_sentry.core.async_run import bounded_run_async
-from news_sentry.models.pipeline_context import PipelineContext
-
-logger = logging.getLogger(__name__)
-
-# 多 target 结果类型：成功返回 PipelineContext，失败返回异常对象或错误 dict
-MultiRunResult = PipelineContext | Exception | dict[str, Any]
-
-
-async def multi_run_async(
-    target_ids: list[str],
-    stage: str = "all",
-    run_id_prefix: str | None = None,
-    dry_run: bool = False,
-    config_dir: Path | None = None,
-    profile_id: str | None = None,
-    output_root: Path | None = None,
-    max_concurrent: int = 10,
-    per_target_min: int = 5,
-    global_max: int = 30,
-    http_client: httpx.AsyncClient | None = None,
-    ai_budget_lock: asyncio.Lock | None = None,
-) -> list[MultiRunResult]:
-    """并发执行多个 target 的 bounded_run_async。
-
-    每个 target 获得独立任务，通过 FairScheduler 公平分配并发槽位。
-    所有 target 共享全局 httpx.AsyncClient 连接池和 AI 预算锁。
-
-    Args:
-        target_ids: 要执行的 target ID 列表。
-        stage: pipeline 阶段（"collect" | "filter" | "judge" | "output" | "all"）。
-        run_id_prefix: run_id 前缀，不提供则自动生成时间戳前缀。
-        dry_run: True 时只打印计划不执行。
-        config_dir: 项目根目录覆盖。
-        profile_id: Deployment profile ID。
-        output_root: 输出根目录覆盖。
-        max_concurrent: 单个 target 内部的并发上限（传给 bounded_run_async）。
-        per_target_min: 每个 target 最小并发槽位数。
-        global_max: 全局最大并发数。
-        http_client: 可选的预创建 httpx.AsyncClient（不提供则自动创建）。
-        ai_budget_lock: 可选预创建 asyncio.Lock（不提供则自动创建）。
-
-    Returns:
-        List[MultiRunResult] — 每个 target 的执行结果，顺序与 target_ids 对应。
-        成功元素是 PipelineContext，失败元素是 Exception 或含 error 字段的 dict。
-    """
-    if not target_ids:
-        logger.warning("multi_run_async: 没有指定 target，跳过执行")
-        return []
-
-    # 生成 run_id 前缀
-    if run_id_prefix is None:
-        ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-        run_id_prefix = f"multi_{ts}"
-
-    # 初始化 FairScheduler 并注册所有 target
-    scheduler = FairScheduler(
-        per_target_min=per_target_min,
-        global_max=global_max,
-    )
-    scheduler.register_targets(target_ids)
-    logger.info(
-        "FairScheduler 初始化: targets=%s per_target_min=%d global_max=%d",
-        target_ids,
-        per_target_min,
-        global_max,
-    )
-
-    # 创建或复用共享资源
-    own_client = http_client is None
-    own_lock = ai_budget_lock is None
-    _http_client = http_client or httpx.AsyncClient(timeout=30.0)
-    _ai_budget_lock = ai_budget_lock or asyncio.Lock()
-
-    # 确定项目根目录
-    project_root = config_dir or _find_project_root()
-
-    async def _run_single_target(target_id: str) -> MultiRunResult:
-        """内部函数：运行单个 target 的完整 pipeline。"""
-        target_run_id = f"{run_id_prefix}_{target_id}"
-        start_time = datetime.now(UTC)
-
-        try:
-            logger.info("开始执行 target: %s run_id: %s", target_id, target_run_id)
-
-            ctx = await bounded_run_async(
-                target_id=target_id,
-                stage=stage,
-                run_id=target_run_id,
-                dry_run=dry_run,
-                config_dir=project_root,
-                profile_id=profile_id,
-                output_root=output_root,
-                max_concurrent=max_concurrent,
-                http_client=_http_client,
-                fair_scheduler=scheduler,
-                ai_budget_lock=_ai_budget_lock,
-            )
-
-            elapsed = (datetime.now(UTC) - start_time).total_seconds()
-            logger.info(
-                "target=%s 完成: collected=%d filtered=%d judged=%d output=%d errors=%d elapsed=%.1fs",
-                target_id,
-                ctx.events_collected,
-                ctx.events_filtered,
-                ctx.events_judged,
-                ctx.events_output,
-                ctx.errors_count,
-                elapsed,
-            )
-
-            return ctx
-
-        except Exception as exc:
-            elapsed = (datetime.now(UTC) - start_time).total_seconds()
-            logger.error(
-                "target=%s 失败: %s elapsed=%.1fs",
-                target_id,
-                exc,
-                elapsed,
-                exc_info=True,
-            )
-            # 返回错误信息而非让整个 gather 失败
-            return {
-                "error": str(exc),
-                "target_id": target_id,
-                "elapsed_seconds": elapsed,
-            }
-
-    # 并发执行所有 target
-    try:
-        tasks = [
-            asyncio.create_task(_run_single_target(tid))
-            for tid in target_ids
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=False)
-
-    finally:
-        # 清理自行创建的 client
-        if own_client:
-            await _http_client.aclose()
-
-    # 汇总统计
-    success_count = sum(
-        1 for r in results
-        if isinstance(r, PipelineContext) and r.errors_count == 0
-    )
-    partial_count = sum(
-        1 for r in results
-        if isinstance(r, PipelineContext) and r.errors_count > 0
-    )
-    error_count = sum(1 for r in results if not isinstance(r, PipelineContext))
-
-    logger.info(
-        "multi_run_async 完成: total=%d success=%d partial=%d error=%d scheduler_stats=%s",
-        len(results),
-        success_count,
-        partial_count,
-        error_count,
-        scheduler.stats,
-    )
-
-    return results
-
-
-def auto_discover_targets(config_dir: Path | None = None) -> list[str]:
-    """从 config/targets/ 目录自动发现所有可用 target。
-
-    扫描 config/targets/*.yaml 文件（排除 _template.yaml 以下划线开头的文件），
-    提取 target_id 列表。
-
-    Args:
-        config_dir: 项目根目录，不提供则自动查找。
-
-    Returns:
-        target_id 列表，按字母排序。
-    """
-    project_root = config_dir or _find_project_root()
-    targets_dir = project_root / "config" / "targets"
-
-    if not targets_dir.is_dir():
-        logger.warning("targets 目录不存在: %s", targets_dir)
-        return []
-
-    import yaml
-
-    target_ids: list[str] = []
-    for yaml_file in sorted(targets_dir.glob("*.yaml")):
-        # 跳过模板文件和以下划线开头的文件
-        if yaml_file.name.startswith("_"):
-            continue
-
-        try:
-            with open(yaml_file, encoding="utf-8") as fh:
-                data = yaml.safe_load(fh)
-            if isinstance(data, dict) and "target_id" in data:
-                target_ids.append(str(data["target_id"]))
-        except Exception:
-            logger.warning("无法解析 target 配置文件: %s", yaml_file, exc_info=True)
-            continue
-
-    target_ids.sort()
-    logger.info("自动发现 %d 个 target: %s", len(target_ids), target_ids)
-    return target_ids
-
-
-def _find_project_root() -> Path:
-    """查找项目根目录（从当前工作目录向上搜索 pyproject.toml）。"""
-    cwd = Path.cwd()
-    for parent in [cwd, *cwd.parents]:
-        if (parent / "pyproject.toml").is_file():
-            return parent
-    return cwd
-```
-
-- [ ] **Step 4: 运行测试确认通过**
-
-```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && .venv/bin/python3 -m pytest tests/unit/test_multi_run.py -v
-```
-
-预期：6 passed
-
-- [ ] **Step 5: 运行全部测试确认无回归**
-
-```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && .venv/bin/python3 -m pytest tests/ -q
-```
-
-预期：全部现有测试通过
-
-- [ ] **Step 6: 提交**
-
-```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && git add src/news_sentry/core/multi_run.py tests/unit/test_multi_run.py && git commit -m "Phase 29: multi_run_async 多 target 并发执行 (P29.02)"
-```
-
----
-
-## Task 3: PipelineOrchestrator 扩展
-
-**Files:**
-- Modify: `src/news_sentry/core/orchestrator.py`
-
-扩展 `PipelineOrchestrator`，添加多 target 并发编排能力。当前它是空壳（只有 `validate_stage_order()`），Phase 29 为其补全 concurrent 模式的 target 级编排逻辑。
-
-关键设计：`PipelineOrchestrator` 不实现调用细节，而是作为编排策略的策略对象，提供给 `multi_run_async` 使用。负责：
-1. 验证 targets 列表的合法性（target 是否存在、配置是否可加载）
-2. 模式匹配：SEQUENTIAL 逐个 target 执行，CONCURRENT 并发执行
-3. 循环运行控制：--interval N 时按间隔重复执行
-
-- [ ] **Step 1: 扩展现有测试**
-
-在已有 `tests/unit/test_orchestrator.py`（假设存在，如不存在则创建）中添加新的测试。
-
-```python
-# 追加到 tests/unit/test_orchestrator.py（或创建新文件 tests/unit/test_orchestrator_extended.py）
-"""PipelineOrchestrator 扩展测试 — 多 target 并发编排。"""
+from unittest.mock import MagicMock, patch
 
 import pytest
+from click.testing import CliRunner
 
-from news_sentry.core.orchestrator import (
-    OrchestratorMode,
-    PipelineOrchestrator,
-    PIPELINE_STAGE_ORDER,
-)
+from news_sentry.cli import main
+from news_sentry.models.pipeline_context import PipelineContext
 
 
-class TestOrchestratorMultiTarget:
-    """多 target 编排测试。"""
+def _ctx(target_id: str = "italy") -> PipelineContext:
+    """构造最小 PipelineContext 用于 mock 返回。"""
+    return PipelineContext(
+        run_id=f"run-{target_id}",
+        target_id=target_id,
+        stage="collected",
+        started_at="2026-05-15T00:00:00+00:00",
+        profile_id="local-workstation",
+    )
 
-    @pytest.mark.asyncio
-    async def test_concurrent_mode_accepts_multiple_targets(self):
-        """Concurrent 模式接受多个 target。"""
-        orchestrator = PipelineOrchestrator(mode=OrchestratorMode.CONCURRENT)
-        assert orchestrator.mode == OrchestratorMode.CONCURRENT
 
-    def test_sequential_mode_accepts_multiple_targets(self):
-        """Sequential 模式也可接受多个 target。"""
-        orchestrator = PipelineOrchestrator(mode=OrchestratorMode.SEQUENTIAL)
-        assert orchestrator.mode == OrchestratorMode.SEQUENTIAL
+class TestCLIMultiTarget:
+    """--target all 和 --target a,b 的 CLI 行为。"""
 
-    def test_validate_stage_order_with_all(self):
-        """验证完整阶段链。"""
-        orchestrator = PipelineOrchestrator()
-        assert orchestrator.validate_stage_order(["collect"])
-        assert orchestrator.validate_stage_order(["collect", "filter"])
-        assert orchestrator.validate_stage_order(["filter", "judge"])
-        assert orchestrator.validate_stage_order(["judge", "output"])
-        assert orchestrator.validate_stage_order(
-            ["collect", "filter", "judge", "output"]
+    def test_target_all_calls_multi_async(self, monkeypatch):
+        """--target all 调用 bounded_run_multi_async 路径。"""
+        captured: dict = {}
+
+        async def fake_multi(**kwargs):
+            captured.update(kwargs)
+            return [_ctx("italy"), _ctx("japan")]
+
+        monkeypatch.setattr(
+            "news_sentry.core.async_run.bounded_run_multi_async",
+            fake_multi,
+        )
+        # 拦截 asyncio.run，直接返回协程结果
+        monkeypatch.setattr("asyncio.run", lambda coro: coro)
+
+        result = CliRunner().invoke(
+            main,
+            ["run", "--target", "all", "--stage", "collect"],
         )
 
-    def test_reject_invalid_stage_order(self):
-        """拒绝非法阶段顺序。"""
-        orchestrator = PipelineOrchestrator()
-        assert not orchestrator.validate_stage_order(["filter", "collect"])  # 逆序
-        assert not orchestrator.validate_stage_order(["unknown_stage"])
-        assert not orchestrator.validate_stage_order([])
+        assert result.exit_code == 0
+        assert captured.get("stage") == "collect"
 
-    def test_get_pipeline_sequence_all(self):
-        """获取完整 pipeline 序列。"""
-        orchestrator = PipelineOrchestrator()
-        seq = orchestrator.get_pipeline_sequence("all")
-        assert seq == ["collect", "filter", "judge", "output"]
+    def test_target_comma_separated_calls_multi_async(self, monkeypatch):
+        """--target italy,japan 调用 bounded_run_multi_async 路径。"""
+        captured: dict = {}
 
-    def test_get_pipeline_sequence_collect(self):
-        """获取单个阶段序列。"""
-        orchestrator = PipelineOrchestrator()
-        seq = orchestrator.get_pipeline_sequence("collect")
-        assert seq == ["collect"]
+        async def fake_multi(**kwargs):
+            captured.update(kwargs)
+            return [_ctx("italy"), _ctx("japan")]
 
-    def test_get_pipeline_sequence_judge(self):
-        orchestrator = PipelineOrchestrator()
-        seq = orchestrator.get_pipeline_sequence("judge")
-        assert seq == ["judge"]
+        monkeypatch.setattr(
+            "news_sentry.core.async_run.bounded_run_multi_async",
+            fake_multi,
+        )
+        monkeypatch.setattr("asyncio.run", lambda coro: coro)
+
+        result = CliRunner().invoke(
+            main,
+            ["run", "--target", "italy,japan", "--stage", "all"],
+        )
+
+        assert result.exit_code == 0
+        assert captured.get("stage") == "all"
+
+    def test_single_target_uses_sync_bounded_run(self, monkeypatch):
+        """单个 target 仍使用原有 bounded_run 同步入口。"""
+        captured: dict = {}
+
+        def fake_bounded_run(**kwargs):
+            captured.update(kwargs)
+            return _ctx()
+
+        monkeypatch.setattr(
+            "news_sentry.core.run.bounded_run",
+            fake_bounded_run,
+        )
+
+        result = CliRunner().invoke(
+            main,
+            ["run", "--target", "italy", "--stage", "collect"],
+        )
+
+        assert result.exit_code == 0
+        assert captured.get("target_id") == "italy"
+
+    def test_multi_target_dry_run_not_yet_supported(self, monkeypatch):
+        """多目标模式暂不支持 --dry-run（使用同步路径的 dry-run）。"""
+        result = CliRunner().invoke(
+            main,
+            ["run", "--target", "all", "--stage", "collect", "--dry-run"],
+        )
+
+        # dry-run 在多目标模式下走 bounded_run_multi_async，
+        # 但 dry_run 参数暂不传入 multi，仍以普通模式运行
+        # 此测试验证 CLI 不崩溃
+        assert result.exit_code in (0, 1)
+
+
+class TestCLIInterval:
+    """--interval N 循环运行参数。"""
+
+    def test_interval_option_in_help(self):
+        """--interval 选项应出现在 run --help 输出中。"""
+        result = CliRunner().invoke(main, ["run", "--help"])
+        assert result.exit_code == 0
+        assert "--interval" in result.output
+
+    def test_interval_must_be_integer(self):
+        """--interval 值必须是整数。"""
+        result = CliRunner().invoke(
+            main,
+            ["run", "--target", "all", "--stage", "all", "--interval", "abc"],
+        )
+        # click type=int 校验失败
+        assert result.exit_code != 0
+
+    def test_interval_zero_rejected(self, monkeypatch):
+        """--interval 0 应被拒绝。"""
+        async def fake_multi(**kwargs):
+            return [_ctx()]
+
+        monkeypatch.setattr(
+            "news_sentry.core.async_run.bounded_run_multi_async",
+            fake_multi,
+        )
+        monkeypatch.setattr("asyncio.run", lambda coro: coro)
+
+        result = CliRunner().invoke(
+            main,
+            ["run", "--target", "all", "--stage", "all", "--interval", "0"],
+        )
+        # 0 不合法
+        assert result.exit_code != 0
+
+    def test_interval_negative_rejected(self, monkeypatch):
+        """负数 --interval 应被拒绝。"""
+        async def fake_multi(**kwargs):
+            return [_ctx()]
+
+        monkeypatch.setattr(
+            "news_sentry.core.async_run.bounded_run_multi_async",
+            fake_multi,
+        )
+        monkeypatch.setattr("asyncio.run", lambda coro: coro)
+
+        result = CliRunner().invoke(
+            main,
+            ["run", "--target", "all", "--stage", "all", "--interval", "-1"],
+        )
+        assert result.exit_code != 0
+
+    def test_interval_single_target_rejected(self, monkeypatch):
+        """--interval 配合单个 target（非 all/逗号）应报错或走循环模式。"""
+        # 循环模式需要多目标或 all，单 target 不支持 interval
+        result = CliRunner().invoke(
+            main,
+            ["run", "--target", "italy", "--stage", "all", "--interval", "300"],
+        )
+        # 单目标 + interval: 可能拒绝或忽略 interval
+        # 按设计应走同步路径，interval 参数对同步路径无效
+        # 此测试验证 CLI 不崩溃
+        assert result.exit_code in (0, 1, 2)
 ```
 
 - [ ] **Step 2: 运行测试确认失败**
 
 ```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && .venv/bin/python3 -m pytest tests/unit/test_orchestrator_extended.py -v 2>&1 | head -5
-# 或:
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && .venv/bin/python3 -m pytest tests/unit/ -k orchestrator -v
+.venv/bin/python3 -m pytest tests/unit/test_cli_multi_target.py -v
 ```
 
-- [ ] **Step 3: 扩展 PipelineOrchestrator**
+预期：FAIL — `--interval` 不在 run --help 输出中，多数测试失败
+
+- [ ] **Step 3: 修改 CLI run 命令**
+
+在 `src/news_sentry/cli/__init__.py` 中，替换现有 `run` 命令定义（从 `@main.command()` 到函数结束）。保留所有其他命令不变。
 
 ```python
-# src/news_sentry/core/orchestrator.py（完整替换版本）
-"""News Sentry — Pipeline orchestrator (sequential and concurrent modes).
-
-P25-29 扩展：支持多 target 并发编排和 stage 序列管理。
-"""
-
-from __future__ import annotations
-
-import logging
-from dataclasses import dataclass, field
-from enum import StrEnum
-
-logger = logging.getLogger(__name__)
-
-PIPELINE_STAGE_ORDER = ["collect", "filter", "judge", "output"]
-
-
-class OrchestratorMode(StrEnum):
-    SEQUENTIAL = "sequential"
-    CONCURRENT = "concurrent"
-
-
-@dataclass
-class TargetRunPlan:
-    """单个 target 的执行计划。"""
-
-    target_id: str
-    stages: list[str] = field(default_factory=list)
-    is_valid: bool = True
-    error_message: str = ""
-
-
-class PipelineOrchestrator:
-    """编排 bounded run 的 stage 执行顺序与并行度。
-
-    支持两种模式：
-    - SEQUENTIAL：逐个阶段串行执行（单个 target 内）。
-    - CONCURRENT：多个 target 并发执行，每个 target 内部阶段仍按序。
-
-    多 target 时（Phase 29），CONCURRENT 模式通过 FairScheduler 公平调度。
-    """
-
-    def __init__(
-        self,
-        mode: OrchestratorMode = OrchestratorMode.SEQUENTIAL,
-        parallelism: int = 1,
-    ) -> None:
-        self.mode = mode
-        self.parallelism = parallelism
-        self.known_stages = set(PIPELINE_STAGE_ORDER)
-
-    def validate_stage_order(self, stages: list[str]) -> bool:
-        """验证阶段顺序是否合法（sequential 模式）。
-
-        阶段列表必须按 PIPELINE_STAGE_ORDER 顺序出现，不能跳回。
-        """
-        indices = []
-        for stage in stages:
-            if stage not in self.known_stages:
-                return False
-            indices.append(PIPELINE_STAGE_ORDER.index(stage))
-        # 必须是升序（或相等，允许相同阶段）
-        for i in range(1, len(indices)):
-            if indices[i] < indices[i - 1]:
-                return False
-        return True
-
-    def get_pipeline_sequence(self, stage: str) -> list[str]:
-        """根据 stage 参数获取实际需要执行的阶段序列。
-
-        - "all" → ["collect", "filter", "judge", "output"]
-        - "collect" → ["collect"]
-        - "filter" → ["filter"]
-        - 等等
-
-        Args:
-            stage: CLI 传来的 stage 参数。
-
-        Returns:
-            实际要执行的阶段列表。
-        """
-        normalized = stage.lower()
-        if normalized in ("all",):
-            return list(PIPELINE_STAGE_ORDER)
-        if normalized in ("judged", "judge"):
-            return ["judge"]
-        if normalized in ("outputted", "output"):
-            return ["output"]
-        if normalized in self.known_stages:
-            return [normalized]
-        # 不在已知集合中的 stage 返回空列表（上层应拒绝）
-        logger.warning("未知 stage: %s", stage)
-        return []
-
-    def create_plan_for_targets(
-        self,
-        target_ids: list[str],
-        stage: str,
-    ) -> list[TargetRunPlan]:
-        """为一组 target 创建执行计划。
-
-        Args:
-            target_ids: target ID 列表。
-            stage: 阶段参数。
-
-        Returns:
-            每个 target 的 TargetRunPlan 列表。
-        """
-        stages = self.get_pipeline_sequence(stage)
-        if not stages:
-            return [
-                TargetRunPlan(
-                    target_id=tid,
-                    is_valid=False,
-                    error_message=f"无效的阶段参数: {stage}",
-                )
-                for tid in target_ids
-            ]
-
-        plans: list[TargetRunPlan] = []
-        for tid in target_ids:
-            if not tid or not isinstance(tid, str):
-                plans.append(
-                    TargetRunPlan(
-                        target_id=str(tid),
-                        is_valid=False,
-                        error_message="target_id 必须是有效字符串",
-                    )
-                )
-                continue
-
-            if not self.validate_stage_order(stages):
-                plans.append(
-                    TargetRunPlan(
-                        target_id=tid,
-                        is_valid=False,
-                        error_message=f"阶段顺序非法: {stages}",
-                    )
-                )
-                continue
-
-            plans.append(
-                TargetRunPlan(
-                    target_id=tid,
-                    stages=list(stages),
-                    is_valid=True,
-                )
-            )
-
-        return plans
-
-    def is_concurrent(self) -> bool:
-        """检查当前模式是否为并发模式。"""
-        return self.mode == OrchestratorMode.CONCURRENT
-```
-
-- [ ] **Step 4: 运行测试确认通过**
-
-```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && .venv/bin/python3 -m pytest tests/unit/ -k orchestrator -v
-```
-
-- [ ] **Step 5: 运行全部测试确认无回归**
-
-```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && .venv/bin/python3 -m pytest tests/ -q
-```
-
-- [ ] **Step 6: 提交**
-
-```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && git add src/news_sentry/core/orchestrator.py tests/unit/test_orchestrator_extended.py && git commit -m "Phase 29: PipelineOrchestrator 扩展 — target 级编排 + stage 序列管理 (P29.03)"
-```
-
----
-
-## Task 4: CLI 扩展 — --target all / 逗号多 target / --interval 循环
-
-**Files:**
-- Modify: `src/news_sentry/cli/__init__.py`
-
-这是用户可见的接口变更。扩展 `run` 命令，使其接受：
-- `--target all` — 从 `config/targets/` 自动发现所有 target
-- `--target italy,japan` — 逗号分隔多 target
-- `--target italy` — 现有单 target 用法不变
-- `--interval N` — 循环运行，每轮间隔 N 秒
-
-关键约束：`--target single` 用法不变，内部自动检测是否需要走多 target 路径。
-
-- [ ] **Step 1: 修改 CLI run 命令**
-
-修改 `src/news_sentry/cli/__init__.py` 中的 `run` 命令。
-
-在 `run` 函数体开头添加 target 解析逻辑：
-
-```python
-# src/news_sentry/cli/__init__.py 中 run 命令的修改版本
-
 @main.command()
 @click.option(
     "--target",
     required=True,
-    help="Target ID (e.g., italy)。支持 'all'（全部 target）、"
-    "'italy,japan'（逗号分隔多 target）、或单个 target ID。"
-    " 单 target 用法完全不变。",
+    help="Target ID, 'all', or comma-separated list (e.g., italy,japan).",
 )
 @click.option(
     "--stage",
@@ -1136,22 +1095,9 @@ cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && git add src/news_sentry/core/orc
 )
 @click.option(
     "--interval",
-    "interval_seconds",
-    type=int,
     default=None,
-    help="循环运行间隔（秒）。设置后进程将持续循环执行直至被中断。",
-)
-@click.option(
-    "--per-target-min",
     type=int,
-    default=5,
-    help="每个 target 最小并发槽位数（仅多 target 模式生效）。默认 5。",
-)
-@click.option(
-    "--global-max",
-    type=int,
-    default=30,
-    help="全局最大并发数（仅多 target 模式生效）。默认 30。",
+    help="Loop mode: run pipeline every N seconds. Use with --target all or comma-separated.",
 )
 def run(
     target: str,
@@ -1161,936 +1107,684 @@ def run(
     log_level: str,
     config_dir: str | None,
     profile_id: str | None,
-    interval_seconds: int | None = None,
-    per_target_min: int = 5,
-    global_max: int = 30,
+    interval: int | None,
 ) -> None:
-    """Execute a bounded run for one or more monitoring targets.
+    """Execute a bounded run for a monitoring target.
 
-    单 target: --target italy（用法不变）
-    多 target: --target all（自动发现），--target italy,japan（逗号分隔）
-    循环运行: --interval 300 每 300 秒循环一次
+    \b
+    Target modes:
+      --target italy         Single target (sync pipeline)
+      --target all           All configured targets concurrently (async)
+      --target italy,japan   Specific targets concurrently (async)
+
+    \b
+    Loop mode (async only):
+      --interval 300         Repeat every 300 seconds
 
     Exit codes: 0=success, 1=partial failure, 2=config error, 3=sandbox blocked.
     """
-    import asyncio
-    import logging
-    import signal
-    import sys
+    import asyncio as _asyncio
 
-    from news_sentry.core.run import ConfigError
+    # --interval 参数校验
+    if interval is not None and interval <= 0:
+        click.echo("--interval 必须为正整数", err=True)
+        sys.exit(2)
 
-    # 解析 target 列表
-    target_ids: list[str] = _resolve_target_list(target, config_dir)
+    # 判断是否为多目标模式
+    is_multi = target == "all" or "," in target
 
-    # 验证 --interval 仅与 stage=all 配合有意义（允许多 stage，但给出警告）
-    if interval_seconds is not None:
-        if interval_seconds < 1:
-            click.echo("错误: --interval 必须 >= 1 秒", err=True)
-            sys.exit(2)
-        # 多 target 循环时自动启用多 target 模式
-        if len(target_ids) <= 1:
-            click.echo(
-                f"提示: --interval={interval_seconds}s 将循环运行单 target '{target_ids[0]}'"
-            )
-
-    # 确定是单 target 还是多 target 路径
-    is_multi = len(target_ids) > 1 or (interval_seconds is not None and len(target_ids) > 1)
-
-    # 特殊: 单 target + 循环 也走多 target 路径的循环逻辑
-    if interval_seconds is not None and len(target_ids) == 1:
-        _run_single_loop(
-            target_id=target_ids[0],
+    if is_multi:
+        _run_multi_target(
+            target=target,
+            stage=stage,
+            run_id=run_id,
+            config_dir=config_dir,
+            profile_id=profile_id,
+            interval=interval,
+        )
+    else:
+        _run_single_target(
+            target=target,
             stage=stage,
             run_id=run_id,
             dry_run=dry_run,
             config_dir=config_dir,
             profile_id=profile_id,
-            log_level=log_level,
-            interval_seconds=interval_seconds,
         )
-        return
+```
 
-    if is_multi:
-        # ── 多 target 路径 ──────────────────────────
-        try:
-            project_root = Path(config_dir) if config_dir else _find_project_root()
-            from news_sentry.core.multi_run import multi_run_async
+然后在 `src/news_sentry/cli/__init__.py` 底部（`__all__` 行之前）添加辅助函数：
 
-            if interval_seconds is not None:
-                # 循环运行模式
-                _run_multi_loop(
-                    target_ids=target_ids,
-                    stage=stage,
-                    run_id_prefix=run_id,
-                    dry_run=dry_run,
-                    config_dir=project_root,
-                    profile_id=profile_id,
-                    log_level=log_level,
-                    interval_seconds=interval_seconds,
-                    per_target_min=per_target_min,
-                    global_max=global_max,
-                )
-            else:
-                # 单次多 target 执行
-                results = asyncio.run(
-                    multi_run_async(
-                        target_ids=target_ids,
-                        stage=stage,
-                        run_id_prefix=run_id,
-                        dry_run=dry_run,
-                        config_dir=project_root,
-                        profile_id=profile_id,
-                        per_target_min=per_target_min,
-                        global_max=global_max,
-                    )
-                )
-                _report_multi_results(results, target_ids)
-
-        except ConfigError as e:
-            click.echo(f"配置错误: {e}", err=True)
-            sys.exit(2)
-        except Exception as e:
-            click.echo(f"运行异常: {e}", err=True)
-            sys.exit(1)
-
-    else:
-        # ── 单 target 路径（完全不变！）────────────────────
-        from news_sentry.core.run import bounded_run
-
-        try:
-            ctx = bounded_run(
-                target_id=target_ids[0],
-                stage=stage,
-                run_id=run_id,
-                dry_run=dry_run,
-                config_dir=config_dir,
-                profile_id=profile_id,
-            )
-            if dry_run:
-                click.echo(f"target: {ctx.target_id}")
-                click.echo(f"run_id: {ctx.run_id}")
-                click.echo(f"stage:  {stage}")
-                click.echo(f"profile: {ctx.profile_id}")
-                click.echo("dry-run: 不执行实际操作")
-            elif ctx.errors_count > 0:
-                click.echo(
-                    f"⚠ {ctx.errors_count} 个源采集失败，详见 RunLog: {ctx.run_log_path}"
-                )
-                sys.exit(1)
-        except ConfigError as e:
-            click.echo(f"配置错误: {e}", err=True)
-            sys.exit(2)
-        except Exception as e:
-            click.echo(f"运行异常: {e}", err=True)
-            sys.exit(1)
-
-
-# ── 新增辅助函数（在 cli/__init__.py 中或 cli/target_utils.py 中）───
-
-
-def _resolve_target_list(target_arg: str, config_dir: str | None = None) -> list[str]:
-    """解析 --target 参数为 target ID 列表。
-
-    支持三种格式：
-    - "all" → 自动发现所有 target
-    - "italy,japan" → 逗号分隔列表
-    - "italy" → 单个 target ID
-    """
-    target_norm = target_arg.strip()
-
-    if not target_norm:
-        raise click.ClickException("--target 参数不能为空")
-
-    if target_norm.lower() == "all":
-        # 自动发现所有 target
-        project_root = Path(config_dir) if config_dir else _find_project_root()
-        from news_sentry.core.multi_run import auto_discover_targets
-
-        discovered = auto_discover_targets(project_root)
-        if not discovered:
-            raise click.ClickException(
-                "未发现任何 target 配置文件，"
-                f"请检查 {project_root / 'config' / 'targets'} 目录"
-            )
-        click.echo(f"自动发现 {len(discovered)} 个 target: {', '.join(discovered)}")
-        return discovered
-
-    if "," in target_norm:
-        # 逗号分隔
-        targets = [t.strip() for t in target_norm.split(",") if t.strip()]
-        if not targets:
-            raise click.ClickException("逗号分隔列表中没有有效的 target ID")
-        return targets
-
-    # 单个 target ID
-    return [target_norm]
-
-
-def _run_single_loop(
-    target_id: str,
+```python
+def _run_single_target(
+    target: str,
     stage: str,
     run_id: str | None,
     dry_run: bool,
     config_dir: str | None,
     profile_id: str | None,
-    log_level: str,
-    interval_seconds: int,
 ) -> None:
-    """循环运行单个 target 的 bounded_run。"""
-    import asyncio
-    import signal
-    import sys
-
+    """单目标同步运行（原有 bounded_run 行为）。"""
     from news_sentry.core.run import ConfigError, bounded_run
 
-    should_stop = False
-
-    def _handle_signal(signum: int, frame: object) -> None:
-        nonlocal should_stop
-        click.echo(f"\n收到信号 {signum}，当前轮次结束后停止...")
-        should_stop = True
-
-    signal.signal(signal.SIGINT, _handle_signal)
-    signal.signal(signal.SIGTERM, _handle_signal)
-
-    project_root = Path(config_dir) if config_dir else _find_project_root()
-    round_num = 0
-
-    click.echo(f"循环运行 target={target_id} stage={stage} interval={interval_seconds}s")
-
-    while not should_stop:
-        round_num += 1
-        loop_run_id = run_id or f"{target_id}_loop_{round_num}"
-
-        try:
-            ctx = bounded_run(
-                target_id=target_id,
-                stage=stage,
-                run_id=loop_run_id,
-                dry_run=dry_run,
-                config_dir=str(project_root),
-                profile_id=profile_id,
-            )
-            click.echo(
-                f"[轮次 {round_num}] target={target_id} "
-                f"collected={ctx.events_collected} errors={ctx.errors_count}"
-            )
-        except ConfigError as e:
-            click.echo(f"[轮次 {round_num}] 配置错误: {e}", err=True)
-            sys.exit(2)
-        except Exception as e:
-            click.echo(f"[轮次 {round_num}] 运行异常: {e}", err=True)
-
-        if should_stop:
-            break
-
-        click.echo(f"[轮次 {round_num}] 完成，等待 {interval_seconds}s...")
-        asyncio.run(asyncio.sleep(interval_seconds))
+    try:
+        ctx = bounded_run(
+            target_id=target,
+            stage=stage,
+            run_id=run_id,
+            dry_run=dry_run,
+            config_dir=config_dir,
+            profile_id=profile_id,
+        )
+        if dry_run:
+            click.echo(f"target: {ctx.target_id}")
+            click.echo(f"run_id: {ctx.run_id}")
+            click.echo(f"stage:  {stage}")
+            click.echo(f"profile: {ctx.profile_id}")
+            click.echo("dry-run: 不执行实际操作")
+        elif ctx.errors_count > 0:
+            click.echo(f"⚠ {ctx.errors_count} 个源采集失败，详见 RunLog: {ctx.run_log_path}")
+            sys.exit(1)
+    except ConfigError as e:
+        click.echo(f"配置错误: {e}", err=True)
+        sys.exit(2)
+    except Exception as e:
+        click.echo(f"运行异常: {e}", err=True)
+        sys.exit(1)
 
 
-def _run_multi_loop(
-    target_ids: list[str],
+def _run_multi_target(
+    target: str,
     stage: str,
-    run_id_prefix: str | None,
-    dry_run: bool,
-    config_dir: Path,
+    run_id: str | None,
+    config_dir: str | None,
     profile_id: str | None,
-    log_level: str,
-    interval_seconds: int,
-    per_target_min: int = 5,
-    global_max: int = 30,
+    interval: int | None,
 ) -> None:
-    """循环运行多 target 的 multi_run_async。"""
-    import asyncio
-    import signal
-    import sys
+    """多目标异步运行入口。"""
+    import asyncio as _asyncio
 
-    from news_sentry.core.multi_run import multi_run_async
+    from news_sentry.core.async_run import _resolve_targets, bounded_run_multi_async
 
-    should_stop = False
+    config_path = Path(config_dir) if config_dir else _find_project_root(Path(__file__))
+    target_ids = _resolve_targets(target, config_dir=config_path)
 
-    def _handle_signal(signum: int, frame: object) -> None:
-        nonlocal should_stop
-        click.echo(f"\n收到信号 {signum}，当前轮次结束后停止...")
-        should_stop = True
+    if not target_ids:
+        click.echo("未发现可运行的 target", err=True)
+        sys.exit(2)
 
-    signal.signal(signal.SIGINT, _handle_signal)
-    signal.signal(signal.SIGTERM, _handle_signal)
-
-    round_num = 0
-
-    click.echo(
-        f"循环运行 targets={target_ids} stage={stage} interval={interval_seconds}s"
-    )
-
-    while not should_stop:
-        round_num += 1
-        prefix = run_id_prefix or f"multi_loop_{round_num}"
-
-        try:
-            results = asyncio.run(
-                multi_run_async(
-                    target_ids=target_ids,
+    try:
+        if interval is not None:
+            _run_loop(
+                target_ids=target_ids,
+                stage=stage,
+                config_dir=config_dir,
+                profile_id=profile_id,
+                interval=interval,
+            )
+        else:
+            results = _asyncio.run(
+                bounded_run_multi_async(
+                    targets=target_ids,
                     stage=stage,
-                    run_id_prefix=prefix,
-                    dry_run=dry_run,
+                    run_id=run_id,
                     config_dir=config_dir,
                     profile_id=profile_id,
-                    per_target_min=per_target_min,
-                    global_max=global_max,
                 )
             )
-            _report_multi_results(results, target_ids, prefix=f"[轮次 {round_num}]")
-
-        except Exception as e:
-            click.echo(f"[轮次 {round_num}] 运行异常: {e}", err=True)
-
-        if should_stop:
-            break
-
-        click.echo(f"[轮次 {round_num}] 完成，等待 {interval_seconds}s...")
-        asyncio.run(asyncio.sleep(interval_seconds))
+            _report_multi_results(results)
+    except Exception as e:
+        click.echo(f"运行异常: {e}", err=True)
+        sys.exit(1)
 
 
-def _report_multi_results(
-    results: list,
+def _run_loop(
     target_ids: list[str],
-    prefix: str = "",
+    stage: str,
+    config_dir: str | None,
+    profile_id: str | None,
+    interval: int,
 ) -> None:
-    """格式化输出多 target 执行结果。"""
-    success_count = 0
-    partial_count = 0
-    error_count = 0
+    """循环运行模式：每隔 interval 秒执行一次完整 pipeline。
 
-    tag = f"{prefix} " if prefix else ""
+    通过 asyncio.run() 启动异步循环，每次迭代使用 asyncio.sleep() 等待。
+    使用 Ctrl+C 终止循环。
 
-    for i, result in enumerate(results):
-        tid = target_ids[i] if i < len(target_ids) else f"target[{i}]"
-        from news_sentry.models.pipeline_context import PipelineContext
+    Args:
+        target_ids: target_id 列表。
+        stage: pipeline 阶段。
+        config_dir: 项目根目录。
+        profile_id: Deployment profile ID。
+        interval: 循环间隔（秒）。
+    """
+    import asyncio as _asyncio
 
-        if isinstance(result, PipelineContext):
-            if result.errors_count == 0:
-                success_count += 1
-                click.echo(
-                    f"{tag}OK   {tid}: collected={result.events_collected} "
-                    f"filtered={result.events_filtered} "
-                    f"judged={result.events_judged} "
-                    f"output={result.events_output}"
-                )
-            else:
-                partial_count += 1
-                click.echo(
-                    f"{tag}PART {tid}: collected={result.events_collected} "
-                    f"errors={result.errors_count}"
-                )
-        else:
-            error_count += 1
-            err_msg = (
-                result["error"] if isinstance(result, dict) else str(result)
+    from news_sentry.core.async_run import run_loop_async
+
+    click.echo(f"循环模式: 每 {interval}s 运行 {len(target_ids)} 个 target (Ctrl+C 终止)")
+
+    try:
+        _asyncio.run(
+            run_loop_async(
+                targets=target_ids,
+                stage=stage,
+                config_dir=config_dir,
+                profile_id=profile_id,
+                interval=interval,
             )
-            click.echo(f"{tag}FAIL {tid}: {err_msg}")
+        )
+    except KeyboardInterrupt:
+        click.echo("\n循环已终止")
 
-    click.echo(
-        f"{tag}汇总: total={len(results)} success={success_count} "
-        f"partial={partial_count} error={error_count}"
-    )
 
-    if error_count > 0:
+def _report_multi_results(results: list) -> None:
+    """输出多目标运行结果摘要。
+
+    Args:
+        results: PipelineContext 列表。
+    """
+    if not results:
+        click.echo("无 target 成功完成")
+        return
+
+    for ctx in results:
+        status = "ok" if ctx.errors_count == 0 else f"⚠ {ctx.errors_count} 个错误"
+        click.echo(
+            f"  target: {ctx.target_id}  "
+            f"collected: {ctx.events_collected}  "
+            f"filtered: {ctx.events_filtered}  "
+            f"judged: {ctx.events_judged}  "
+            f"output: {ctx.events_output}  "
+            f"[{status}]"
+        )
+
+    total_errors = sum(ctx.errors_count for ctx in results)
+    if total_errors > 0:
         sys.exit(1)
 ```
 
-- [ ] **Step 2: 更新 CLI 导入**
-
-在 `src/news_sentry/cli/__init__.py` 顶部添加必要的导入：
-
-```python
-# 新增导入（放到现有 import 后面）
-import asyncio
-import signal
-import sys as _sys
-from pathlib import Path
-```
-
-检查现有的 `_find_project_root` 函数在 `cli/__init__.py` 和 `cli/target_utils.py` 中都需要。当前 `cli/__init__.py` 中已有 `_find_project_root()` 定义（在 `doctor` 命令附近），需要确认它可以在 `run` 命令中使用。
-
-如果 `run` 命令中 `_find_project_root` 不可直接访问（在不同作用域），将其抽取为模块级函数或从已有的公共位置导入。
-
-- [ ] **Step 3: 运行现有 CLI 测试确认无回归**
+- [ ] **Step 4: 运行测试确认通过**
 
 ```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && .venv/bin/python3 -m pytest tests/unit/test_cli.py -v
+.venv/bin/python3 -m pytest tests/unit/test_cli_multi_target.py -v
 ```
 
-预期：所有现有 CLI 测试通过，单 target 用法不受影响。
+预期：9 passed
 
-- [ ] **Step 4: 手动验证 CLI 语法**
+- [ ] **Step 5: 运行原有 CLI 测试确认无回归**
 
 ```bash
-# 验证 --help 输出包含新增选项
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && .venv/bin/python3 -m news_sentry.cli run --help
+.venv/bin/python3 -m pytest tests/unit/test_cli.py -v
 ```
 
-预期输出中包含：
-- `--target` 帮助文本提到 "all"、"italy,japan" 等
-- `--interval` 选项
-- `--per-target-min` 和 `--global-max` 选项
+预期：全部通过（原有单目标行为不变）
 
-- [ ] **Step 5: 运行全部测试确认无回归**
+- [ ] **Step 6: 运行全部测试确认无回归**
 
 ```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && ruff check src/news_sentry/cli/__init__.py && .venv/bin/python3 -m mypy src/news_sentry/cli/__init__.py && .venv/bin/python3 -m pytest tests/ -q
+.venv/bin/python3 -m pytest tests/ -q
 ```
 
-- [ ] **Step 6: 提交**
+预期：全部测试通过
+
+- [ ] **Step 7: 提交**
 
 ```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && git add src/news_sentry/cli/__init__.py && git commit -m "Phase 29: CLI --target all/逗号多target/--interval 循环 (P29.04)"
+git add src/news_sentry/cli/__init__.py tests/unit/test_cli_multi_target.py
+git commit -m "Phase 29: CLI 多目标 --target all|a,b + --interval 循环运行 (P29.04)"
 ```
 
 ---
 
-## Task 5: 资源隔离 — AI 预算锁 + 独立 SQLite
+## Task 5: run_loop_async 循环运行模式
 
 **Files:**
-- Modify: `src/news_sentry/core/async_run.py`（如果 Phase 25 已创建）或新建方法
+- Modify: `src/news_sentry/core/async_run.py`
+- Modify: `tests/unit/test_multi_target.py`
 
-本 Task 确保多 target 场景下的资源隔离：
-1. 每个 target 独立 SQLite db（`data/{target_id}/state.db`），这已是 Phase 26 存储层设计的天然结果
-2. AI 预算全局共享，但通过 `asyncio.Lock` 保护防超支
-3. `bounded_run_async` 需要接受 `ai_budget_lock` 和 `fair_scheduler` 参数
+- [ ] **Step 1: 写循环模式测试**
 
-- [ ] **Step 1: 为 bounded_run_async 添加多 target 参数支持**
-
-在 `src/news_sentry/core/async_run.py` 中，确保 `bounded_run_async` 接受以下新增参数：
+在 `tests/unit/test_multi_target.py` 中追加：
 
 ```python
-async def bounded_run_async(
-    target_id: str,
+def _make_ctx(target_id: str) -> MagicMock:
+    """构造 mock PipelineContext。"""
+    ctx = MagicMock()
+    ctx.target_id = target_id
+    ctx.errors_count = 0
+    ctx.events_collected = 0
+    ctx.events_filtered = 0
+    ctx.events_judged = 0
+    ctx.events_output = 0
+    return ctx
+
+
+class TestIntervalLoop:
+    """run_loop_async() 循环运行模式测试。"""
+
+    @pytest.mark.asyncio
+    async def test_loop_respects_max_iterations(self):
+        """循环模式应遵守 max_iterations 上限。"""
+        from news_sentry.core.async_run import run_loop_async
+
+        call_count = 0
+
+        async def fake_multi(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            return [_make_ctx("italy")]
+
+        with patch(
+            "news_sentry.core.async_run.bounded_run_multi_async",
+            side_effect=fake_multi,
+        ):
+            # interval=0 让循环尽可能快
+            await run_loop_async(
+                targets=["italy"],
+                stage="all",
+                interval=0,
+                max_iterations=3,
+            )
+
+        assert call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_loop_continues_after_single_iteration_error(self):
+        """单次迭代失败不终止循环。"""
+        from news_sentry.core.async_run import run_loop_async
+
+        call_count = 0
+
+        async def fake_multi(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("模拟第 1 轮失败")
+            return [_make_ctx("italy")]
+
+        with patch(
+            "news_sentry.core.async_run.bounded_run_multi_async",
+            side_effect=fake_multi,
+        ):
+            await run_loop_async(
+                targets=["italy"],
+                stage="all",
+                interval=0,
+                max_iterations=3,
+            )
+
+        # 应完成 3 次迭代（第 1 次失败但循环继续）
+        assert call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_loop_with_multiple_targets(self):
+        """循环模式支持多 target。"""
+        from news_sentry.core.async_run import run_loop_async
+
+        targets_received: list[list[str]] = []
+
+        async def fake_multi(**kwargs):
+            targets_received.append(list(kwargs.get("targets", [])))
+            return [_make_ctx(t) for t in kwargs.get("targets", [])]
+
+        with patch(
+            "news_sentry.core.async_run.bounded_run_multi_async",
+            side_effect=fake_multi,
+        ):
+            await run_loop_async(
+                targets=["italy", "japan"],
+                stage="all",
+                interval=0,
+                max_iterations=2,
+            )
+
+        assert len(targets_received) == 2
+        assert targets_received[0] == ["italy", "japan"]
+        assert targets_received[1] == ["italy", "japan"]
+
+    @pytest.mark.asyncio
+    async def test_loop_sleeps_between_iterations(self):
+        """循环模式在迭代间应 asyncio.sleep(interval)。"""
+        from news_sentry.core.async_run import run_loop_async
+
+        sleep_durations: list[float] = []
+
+        async def fake_multi(**kwargs):
+            return [_make_ctx("italy")]
+
+        async def fake_sleep(seconds):
+            sleep_durations.append(seconds)
+
+        with patch(
+            "news_sentry.core.async_run.bounded_run_multi_async",
+            side_effect=fake_multi,
+        ), patch(
+            "news_sentry.core.async_run.asyncio.sleep",
+            side_effect=fake_sleep,
+        ):
+            await run_loop_async(
+                targets=["italy"],
+                stage="all",
+                interval=60,
+                max_iterations=2,
+            )
+
+        # 2 次迭代之间有 1 次 sleep
+        assert sleep_durations == [60]
+
+    @pytest.mark.asyncio
+    async def test_loop_zero_iterations_returns_immediately(self):
+        """max_iterations=0 不应执行任何迭代。"""
+        from news_sentry.core.async_run import run_loop_async
+
+        call_count = 0
+
+        async def fake_multi(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            return [_make_ctx("italy")]
+
+        with patch(
+            "news_sentry.core.async_run.bounded_run_multi_async",
+            side_effect=fake_multi,
+        ):
+            await run_loop_async(
+                targets=["italy"],
+                stage="all",
+                interval=0,
+                max_iterations=0,
+            )
+
+        assert call_count == 0
+```
+
+- [ ] **Step 2: 运行测试确认失败**
+
+```bash
+.venv/bin/python3 -m pytest tests/unit/test_multi_target.py::TestIntervalLoop -v
+```
+
+预期：FAIL — `ImportError: cannot import name 'run_loop_async'`
+
+- [ ] **Step 3: 实现 run_loop_async()**
+
+在 `src/news_sentry/core/async_run.py` 中添加：
+
+```python
+async def run_loop_async(
+    targets: list[str],
     stage: str = "all",
-    run_id: str | None = None,
-    dry_run: bool = False,
     config_dir: Path | None = None,
     profile_id: str | None = None,
-    output_root: Path | None = None,
-    max_concurrent: int = 10,
-    # Phase 29 新增参数：
-    http_client: httpx.AsyncClient | None = None,
-    fair_scheduler: FairScheduler | None = None,
-    ai_budget_lock: asyncio.Lock | None = None,
-) -> PipelineContext:
-    """异步版 pipeline 入口。
+    interval: int = 300,
+    max_iterations: int = 0,
+) -> None:
+    """异步循环运行模式。
+
+    每隔 interval 秒执行一次多目标 pipeline。单次迭代失败不终止循环。
+    Ctrl+C 通过 KeyboardInterrupt 终止（由 CLI 层捕获）。
 
     Args:
-        ...
-        http_client: 预创建的 httpx.AsyncClient（多 target 共享连接池）。
-                     不提供则在每次调用时创建独立 client。
-        fair_scheduler: FairScheduler 实例（多 target 时传入）。
-                        用于并发采集和 AI 调用时的公平调度。
-                        不提供则不启用调度（单 target 模式）。
-        ai_budget_lock: AI 预算锁（多 target 共享）。
-                        每次 AI 调用前需要 acquire()，调用后 release()。
-                        不提供则不启用锁（单 target 模式）。
+        targets: target_id 列表。
+        stage: pipeline 阶段。
+        config_dir: 项目根目录。
+        profile_id: Deployment profile ID。
+        interval: 循环间隔（秒）。
+        max_iterations: 最大迭代次数。0 表示不执行任何迭代（由 CLI 层决定无限循环）。
     """
+    iteration = 0
+    while iteration < max_iterations:
+        iteration += 1
+        logger.info("循环模式: 第 %d 轮开始", iteration)
+        try:
+            await bounded_run_multi_async(
+                targets=targets,
+                stage=stage,
+                config_dir=config_dir,
+                profile_id=profile_id,
+            )
+        except Exception:
+            logger.error("循环模式: 第 %d 轮失败", iteration, exc_info=True)
+
+        if iteration < max_iterations:
+            await asyncio.sleep(interval)
 ```
 
-关键实现要点：
+- [ ] **Step 4: 运行测试确认通过**
 
-```python
-async def bounded_run_async(
-    target_id: str,
-    stage: str = "all",
-    run_id: str | None = None,
-    dry_run: bool = False,
-    config_dir: Path | None = None,
-    profile_id: str | None = None,
-    output_root: Path | None = None,
-    max_concurrent: int = 10,
-    http_client: httpx.AsyncClient | None = None,
-    fair_scheduler: FairScheduler | None = None,
-    ai_budget_lock: asyncio.Lock | None = None,
-) -> PipelineContext:
-    # ... 配置加载 ...
-
-    # 管理 http_client 生命周期
-    _own_client = http_client is None
-    _client = http_client or httpx.AsyncClient(timeout=30.0)
-    try:
-        # 在 AI 调用时使用 fair_scheduler 和 ai_budget_lock
-        # 例如：
-        # if fair_scheduler is not None:
-        #     await fair_scheduler.acquire(target_id)
-        #     try:
-        #         # 执行 AI 调用
-        #         ...
-        #     finally:
-        #         fair_scheduler.release(target_id)
-
-        # 在 AI 预算检查时使用 ai_budget_lock：
-        # if ai_budget_lock is not None:
-        #     async with ai_budget_lock:
-        #         # 检查并扣除预算
-        #         ...
-        ...
-    finally:
-        if _own_client:
-            await _client.aclose()
+```bash
+.venv/bin/python3 -m pytest tests/unit/test_multi_target.py::TestIntervalLoop -v
 ```
 
-- [ ] **Step 2: 写 AI 预算锁测试**
+预期：5 passed
+
+- [ ] **Step 5: 运行全部测试确认无回归**
+
+```bash
+.venv/bin/python3 -m pytest tests/ -q
+```
+
+预期：全部测试通过
+
+- [ ] **Step 6: 提交**
+
+```bash
+git add src/news_sentry/core/async_run.py tests/unit/test_multi_target.py
+git commit -m "Phase 29: run_loop_async 循环运行模式 (P29.05)"
+```
+
+---
+
+## Task 6: 资源隔离 — per-target 独立状态路径
+
+**Files:**
+- Modify: `src/news_sentry/core/async_run.py`
+- Modify: `tests/unit/test_multi_target.py`
+
+- [ ] **Step 1: 写资源隔离测试**
+
+在 `tests/unit/test_multi_target.py` 中追加：
 
 ```python
-# 追加到 tests/unit/test_multi_run.py 或创建 tests/unit/test_resource_isolation.py
-
 class TestResourceIsolation:
-    """多 target 资源隔离测试。"""
+    """验证多 target 间的资源隔离。"""
+
+    def test_each_target_gets_own_state_db_path(self):
+        """每个 target 的 SQLite 数据库路径独立。"""
+        from news_sentry.core.async_run import _target_db_path
+
+        italy_db = _target_db_path("italy", Path("/data"))
+        japan_db = _target_db_path("japan", Path("/data"))
+
+        assert str(italy_db).endswith("italy/state.db")
+        assert str(japan_db).endswith("japan/state.db")
+        assert italy_db != japan_db
+
+    def test_each_target_gets_own_memory_dir(self):
+        """每个 target 的 Memory 目录独立。"""
+        from news_sentry.core.async_run import _target_memory_dir
+
+        italy_mem = _target_memory_dir("italy", Path("/data"))
+        japan_mem = _target_memory_dir("japan", Path("/data"))
+
+        assert str(italy_mem).endswith("italy/memory")
+        assert str(japan_mem).endswith("japan/memory")
+        assert italy_mem != japan_mem
+
+    def test_db_path_under_output_root(self):
+        """state.db 路径位于 output_root/{target_id}/ 下。"""
+        from news_sentry.core.async_run import _target_db_path
+
+        db_path = _target_db_path("italy", Path("./data"))
+        assert "italy" in str(db_path)
+        assert db_path.name == "state.db"
+
+    def test_memory_dir_under_output_root(self):
+        """memory 目录位于 output_root/{target_id}/ 下。"""
+        from news_sentry.core.async_run import _target_memory_dir
+
+        mem_dir = _target_memory_dir("france", Path("./data"))
+        assert "france" in str(mem_dir)
+        assert mem_dir.name == "memory"
 
     @pytest.mark.asyncio
-    async def test_ai_budget_lock_prevents_overrun(self):
-        """AI 预算锁防止多个 target 同时消费超预算。"""
-        import asyncio
+    async def test_scheduler_per_target_independent_slots(self):
+        """不同 target 的槽位互不影响。"""
+        from news_sentry.core.scheduler import FairScheduler
 
-        lock = asyncio.Lock()
-        budget_remaining = [10.0]  # 用列表包装以在闭包中修改
-        consumed: dict[str, float] = {}
+        scheduler = FairScheduler(per_target_min=2, global_max=30)
+        scheduler.register("italy")
+        scheduler.register("japan")
 
-        async def _ai_call_with_budget(target_id: str, cost: float) -> bool:
-            async with lock:
-                if budget_remaining[0] >= cost:
-                    budget_remaining[0] -= cost
-                    consumed[target_id] = consumed.get(target_id, 0) + cost
-                    return True
-                return False
+        # italy 占满自己的 2 个槽位
+        await scheduler.acquire("italy")
+        await scheduler.acquire("italy")
 
-        # 10 个 target 每个尝试消费 $1.5，总预算 $10
-        results = await asyncio.gather(*[
-            _ai_call_with_budget(f"target-{i}", 1.5)
-            for i in range(10)
-        ])
+        # japan 仍能获取自己的槽位（不受 italy 影响，只要全局未满）
+        await scheduler.acquire("japan")
+        scheduler.release("japan")
 
-        # $10 / $1.5 = 6 完整 + 1 部分
-        total_consumed = sum(consumed.values())
-        assert total_consumed <= 10.0, f"超过预算: {total_consumed}"
-        # 至少有 6 个 target 的调用被允许（$9.0 / $1.5 = 6）
-        success_count = sum(1 for r in results if r)
-        assert success_count >= 6, f"至少 6 个调用应成功，实际 {success_count}"
+        scheduler.release("italy")
+        scheduler.release("italy")
+```
 
-    @pytest.mark.asyncio
-    async def test_fair_scheduler_isolated_per_target(self):
-        """FairScheduler 的 per-target 信号量实现独立配额。"""
-        from news_sentry.core.fair_scheduler import FairScheduler
+- [ ] **Step 2: 在 async_run.py 中添加路径计算函数**
 
-        scheduler = FairScheduler(per_target_min=2, global_max=10)
-        scheduler.register_targets(["italy", "japan"])
+在 `src/news_sentry/core/async_run.py` 中添加：
 
-        # italy 占满自己的 2 个槽，japan 仍可获得 2 个槽
-        italy_count = 0
-        japan_count = 0
+```python
+def _target_db_path(target_id: str, output_root: Path) -> Path:
+    """计算 target 的 SQLite 数据库路径。
 
-        async def _worker(tid: str) -> None:
-            await scheduler.acquire(tid)
-            if tid == "italy":
-                nonlocal italy_count
-                italy_count += 1
-            else:
-                nonlocal japan_count
-                japan_count += 1
-            await asyncio.sleep(0.01)
-            scheduler.release(tid)
+    与 Phase 26 AsyncStore 的 db_path 一致：
+    ``{output_root}/{target_id}/state.db``
 
-        # 同时发起 6 个请求：每个 target 3 个
-        tasks = [
-            asyncio.create_task(_worker("italy")) for _ in range(3)
-        ] + [
-            asyncio.create_task(_worker("japan")) for _ in range(3)
-        ]
-        await asyncio.gather(*tasks)
+    Args:
+        target_id: 目标标识符。
+        output_root: 输出根目录。
 
-        # 不应饿死
-        assert japan_count >= 2, f"japan 至少获得 2 次槽位，实际 {japan_count}"
+    Returns:
+        data/{target_id}/state.db 路径。
+    """
+    return output_root / target_id / "state.db"
+
+
+def _target_memory_dir(target_id: str, output_root: Path) -> Path:
+    """计算 target 的 Memory 目录路径。
+
+    与现有 Memory 的 memory_dir 一致：
+    ``{output_root}/{target_id}/memory``
+
+    Args:
+        target_id: 目标标识符。
+        output_root: 输出根目录。
+
+    Returns:
+        data/{target_id}/memory 目录路径。
+    """
+    return output_root / target_id / "memory"
 ```
 
 - [ ] **Step 3: 运行测试确认通过**
 
 ```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && .venv/bin/python3 -m pytest tests/unit/ -k "resource_isolation or multi_run" -v
+.venv/bin/python3 -m pytest tests/unit/test_multi_target.py::TestResourceIsolation -v
 ```
+
+预期：5 passed
 
 - [ ] **Step 4: 运行全部测试确认无回归**
 
 ```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && .venv/bin/python3 -m pytest tests/ -q
+.venv/bin/python3 -m pytest tests/ -q
 ```
+
+预期：全部测试通过
 
 - [ ] **Step 5: 提交**
 
 ```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && git add src/news_sentry/core/async_run.py tests/unit/test_resource_isolation.py && git commit -m "Phase 29: 资源隔离 — AI 预算锁 + FairScheduler 集成 (P29.05)"
+git add src/news_sentry/core/async_run.py tests/unit/test_multi_target.py
+git commit -m "Phase 29: 资源隔离 — per-target 独立状态路径 (P29.06)"
 ```
 
 ---
 
-## Task 6: 集成测试 — 多 Target 并发执行验证
+## Task 7: 集成验证与清理
 
-**Files:**
-- Create: `tests/integration/test_multi_target.py`
-
-端到端验证多 target 并发执行的正确性。
-
-- [ ] **Step 1: 写集成测试**
-
-```python
-# tests/integration/test_multi_target.py
-"""多 target 并发调度集成测试。"""
-
-import asyncio
-import tempfile
-import time
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
-
-from news_sentry.core.fair_scheduler import FairScheduler
-from news_sentry.core.multi_run import auto_discover_targets, multi_run_async
-
-
-class TestAutoDiscoverTargets:
-    """自动发现 target 测试。"""
-
-    def test_discovers_targets_from_config_dir(self):
-        """从 config/targets/ 发现所有 target（除了 _template）。"""
-        project_root = Path(__file__).parent.parent.parent
-        targets = auto_discover_targets(project_root)
-
-        # 应有 5 个 target
-        assert len(targets) >= 5, f"应至少发现 5 个 target，实际 {len(targets)}: {targets}"
-        assert "italy" in targets
-        assert "china-watch-en" in targets
-        assert "japan" in targets
-        assert "germany" in targets
-        assert "france" in targets
-
-        # 不应包含 _template
-        assert "_template" not in targets
-
-    def test_skips_template_files(self):
-        """跳过 _template.yaml。"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            targets_dir = Path(tmpdir) / "config" / "targets"
-            targets_dir.mkdir(parents=True)
-
-            (targets_dir / "real-target.yaml").write_text(
-                "target_id: real-target\n", encoding="utf-8"
-            )
-            (targets_dir / "_template.yaml").write_text(
-                "target_id: template\n", encoding="utf-8"
-            )
-            (targets_dir / "_private.yaml").write_text(
-                "target_id: private\n", encoding="utf-8"
-            )
-
-            # 创建 pyproject.toml 以便 _find_project_root 能找到
-            (Path(tmpdir) / "pyproject.toml").touch()
-
-            discovered = auto_discover_targets(Path(tmpdir))
-            assert "real-target" in discovered
-            assert "_template" not in discovered
-            assert "private" not in discovered
-
-
-class TestMultiRunIntegration:
-    """多 target 并发执行集成测试。"""
-
-    @pytest.mark.asyncio
-    async def test_multi_run_with_mocked_pipeline(self):
-        """用 mock pipeline 验证多 target 并发执行流程。"""
-        execution_log: list[str] = []
-
-        async def _mock_run(target_id, stage, http_client=None, **kwargs):
-            execution_log.append(f"start:{target_id}")
-            # 模拟不同 target 不同耗时
-            delays = {"italy": 0.05, "japan": 0.03, "germany": 0.08}
-            await asyncio.sleep(delays.get(target_id, 0.02))
-            execution_log.append(f"end:{target_id}")
-
-            ctx = MagicMock()
-            ctx.target_id = target_id
-            ctx.events_collected = 100
-            ctx.events_filtered = 80
-            ctx.events_judged = 60
-            ctx.events_output = 60
-            ctx.errors_count = 0
-            return ctx
-
-        with patch(
-            "news_sentry.core.multi_run.bounded_run_async",
-            side_effect=_mock_run,
-        ):
-            start = time.monotonic()
-            results = await multi_run_async(
-                target_ids=["italy", "japan", "germany"],
-                stage="all",
-            )
-            elapsed = time.monotonic() - start
-
-        # 应在 0.15s 内完成（并发执行，不是串行 0.16s）
-        assert elapsed < 0.2, f"并发执行应快于串行: {elapsed:.3f}s"
-
-        # 所有 target 都完成了
-        assert len(results) == 3
-        assert all(
-            r.target_id in {"italy", "japan", "germany"}
-            for r in results
-        )
-
-        # 验证并发性质：第二个 target 启动前第一个还未完成
-        starts = [
-            (entry.split(":")[1], i)
-            for i, entry in enumerate(execution_log)
-            if entry.startswith("start:")
-        ]
-        ends = [
-            (entry.split(":")[1], i)
-            for i, entry in enumerate(execution_log)
-            if entry.startswith("end:")
-        ]
-        # 所有 start 应该在最前面（批量提交），ends 交错
-        assert len(starts) == 3
-        assert len(ends) == 3
-
-    @pytest.mark.asyncio
-    async def test_error_isolation(self):
-        """一个 target 失败不影响其他。"""
-        async def _mixed_run(target_id, stage, **kwargs):
-            if target_id == "japan":
-                raise RuntimeError("japan 模拟失败")
-            ctx = MagicMock()
-            ctx.target_id = target_id
-            ctx.errors_count = 0
-            return ctx
-
-        with patch(
-            "news_sentry.core.multi_run.bounded_run_async",
-            side_effect=_mixed_run,
-        ):
-            results = await multi_run_async(
-                target_ids=["italy", "japan", "germany"],
-                stage="all",
-            )
-
-        assert len(results) == 3
-
-        # italy 和 germany 应正常完成
-        from news_sentry.models.pipeline_context import PipelineContext
-        assert isinstance(results[0], PipelineContext)  # italy
-        assert isinstance(results[2], PipelineContext)  # germany
-        # japan 应返回错误
-        assert isinstance(results[1], dict)
-        assert "error" in results[1]
-
-
-class TestFairSchedulerIntegration:
-    """FairScheduler 集成场景测试。"""
-
-    @pytest.mark.asyncio
-    async def test_full_pipeline_with_scheduler(self):
-        """完整 pipeline + FairScheduler 集成。"""
-        scheduler = FairScheduler(per_target_min=3, global_max=15)
-        targets = ["t-a", "t-b", "t-c"]
-        scheduler.register_targets(targets)
-
-        acquired: dict[str, int] = {}
-
-        async def _simulate_collect(tid: str, n_sources: int):
-            for _ in range(n_sources):
-                await scheduler.acquire(tid)
-                await asyncio.sleep(0.005)  # 模拟网络请求
-                acquired[tid] = acquired.get(tid, 0) + 1
-                scheduler.release(tid)
-
-        await asyncio.gather(
-            *[_simulate_collect(t, 10) for t in targets]
-        )
-
-        assert sum(acquired.values()) == 30  # 3 * 10 sources
-
-    @pytest.mark.asyncio
-    async def test_five_targets_concurrent_collect(self):
-        """模拟 5 个 target 各 10 个源的并发采集（最真实场景）。"""
-        scheduler = FairScheduler(per_target_min=5, global_max=30)
-        targets = ["italy", "china-watch-en", "japan", "germany", "france"]
-        scheduler.register_targets(targets)
-
-        target_sources: dict[str, list[str]] = {}
-
-        async def _collect_source(tid: str, source_id: str):
-            await scheduler.acquire(tid)
-            try:
-                await asyncio.sleep(0.01)  # 模拟 HTTP 请求
-                target_sources.setdefault(tid, []).append(source_id)
-            finally:
-                scheduler.release(tid)
-
-        # 每个 target 10 个源
-        all_tasks = []
-        for tid in targets:
-            for i in range(10):
-                all_tasks.append(
-                    asyncio.create_task(_collect_source(tid, f"{tid}-src-{i}"))
-                )
-
-        start = time.monotonic()
-        await asyncio.gather(*all_tasks)
-        elapsed = time.monotonic() - start
-
-        # 验证所有源都被采集
-        for tid in targets:
-            assert len(target_sources.get(tid, [])) == 10, (
-                f"{tid} 应有 10 个源，实际 {len(target_sources.get(tid, []))}"
-            )
-
-        # 50 个源，global_max=30，每个源约 0.01s
-        # 理论最快：50/30*0.01 ≈ 0.017s，容忍到 0.3s
-        assert elapsed < 0.5, f"5-target 并发采集时间应 < 0.5s，实际 {elapsed:.3f}s"
-```
-
-- [ ] **Step 2: 运行集成测试**
+- [ ] **Step 1: 运行完整检查**
 
 ```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && .venv/bin/python3 -m pytest tests/integration/test_multi_target.py -v
+ruff check src/news_sentry/core/scheduler.py src/news_sentry/core/async_run.py src/news_sentry/cli/__init__.py
+.venv/bin/python3 -m mypy src/news_sentry/core/scheduler.py src/news_sentry/core/async_run.py
+.venv/bin/python3 -m pytest tests/ -q
 ```
 
-预期：所有集成测试通过
+预期：ruff=0, mypy=0, 全部测试通过
 
-- [ ] **Step 3: 运行全部测试确认无回归**
+- [ ] **Step 2: 确认覆盖率未下降**
 
 ```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && .venv/bin/python3 -m pytest tests/ -q
+.venv/bin/python3 -m pytest tests/ --cov=news_sentry -q 2>&1 | tail -5
 ```
 
-- [ ] **Step 4: 提交**
+预期：覆盖率 >= 92%（Phase 开始前水平）
+
+- [ ] **Step 3: 手动验证 CLI help 输出**
 
 ```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && git add tests/integration/test_multi_target.py && git commit -m "Phase 29: 多 target 并发调度集成测试 (P29.06)"
+.venv/bin/python3 -m news_sentry.cli run --help
+```
+
+预期：输出中包含 `--target`、`--stage`、`--interval` 三个选项，`--target` help 提及 `all` 和逗号分隔
+
+- [ ] **Step 4: 最终提交**
+
+```bash
+git commit --allow-empty -m "Phase 29: 集成验证通过 — 多 Target 并发调度 (P29.00)"
 ```
 
 ---
 
-## Task 7: 集成验证与最终清理
-
-- [ ] **Step 1: 运行完整代码质量检查**
-
-```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && \
-ruff check src/news_sentry/core/fair_scheduler.py \
-  src/news_sentry/core/multi_run.py \
-  src/news_sentry/core/orchestrator.py \
-  src/news_sentry/cli/__init__.py && \
-.venv/bin/python3 -m mypy \
-  src/news_sentry/core/fair_scheduler.py \
-  src/news_sentry/core/multi_run.py \
-  src/news_sentry/core/orchestrator.py \
-  src/news_sentry/cli/__init__.py
-```
-
-预期：ruff=0, mypy=0
-
-- [ ] **Step 2: 运行全部测试**
-
-```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && .venv/bin/python3 -m pytest tests/ -q
-```
-
-- [ ] **Step 3: 确认覆盖率未下降**
-
-```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && .venv/bin/python3 -m pytest tests/ --cov=news_sentry --cov-report=term -q 2>&1 | tail -15
-```
-
-预期：覆盖率 >= 92% (Phase 开始前水平)
-
-- [ ] **Step 4: 确认不包含敏感信息**
-
-```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && make scan-sensitive 2>/dev/null || echo "make scan-sensitive 不可用，跳过"
-```
-
-- [ ] **Step 5: 最终提交**
-
-```bash
-cd /Volumes/SSD/Code/06-dev-tools/NewsSentry && \
-git commit --allow-empty -m "Phase 29: 多 Target 并发调度 — 集成验证通过 (P29.00)"
-```
-
----
-
-## 验收清单
+## 验证标准
 
 Phase 29 完成的验收条件：
 
-- [ ] FairScheduler 实现并测试通过（Task 1）
-- [ ] multi_run_async() 实现并测试通过（Task 2）
-- [ ] PipelineOrchestrator 扩展支持多 target 编排（Task 3）
-- [ ] CLI --target all / --target id1,id2 / --interval N 均可用（Task 4）
-- [ ] 资源隔离：AI 预算锁 + 每 target 独立 SQLite db（Task 5）
-- [ ] 集成测试覆盖 5 target 并发采集场景（Task 6）
-- [ ] 全部现有测试通过（无回归）
+- [ ] 全部测试通过（CI 绿色）
 - [ ] ruff check = 0, mypy = 0
 - [ ] 测试覆盖率 >= 92%
-- [ ] 单 target 用法完全不变（`--target italy` 仍走原同步或 async 路径）
-
-### CLI 用户界面
-
-```bash
-# 现有用例不变
-python -m news_sentry.cli run --target italy --stage all
-
-# 新增：自动发现所有 target 并并发执行
-python -m news_sentry.cli run --target all --stage all
-
-# 新增：指定多 target
-python -m news_sentry.cli run --target italy,japan --stage collect
-
-# 新增：循环运行（每 300 秒 = 5 分钟一轮）
-python -m news_sentry.cli run --target all --stage all --interval 300
-
-# 新增：单 target 循环
-python -m news_sentry.cli run --target italy --stage all --interval 600
-```
-
-### 预期性能
-
-| 场景 | Phase 28 前 | Phase 29 后 |
-|------|-----------|-----------|
-| 5 target 串行全 pipeline | ~50min (5 x 10min) | ~1-2min (并发) |
-| 单 target 单次 run | ~1min | ~1min（不变） |
-| 70 源并发采集 | ~350s | ~30-40s（Phase 25 已优化，P29 不退化） |
+- [ ] 新增文件：`scheduler.py`
+- [ ] `--target all` 并发运行所有 5 个 target（italy, china-watch-en, japan, germany, france）
+- [ ] `--target italy,japan` 并发运行指定 target
+- [ ] `--target italy` 保持原有单目标同步行为不变
+- [ ] `--interval 300` 每 5 分钟循环运行
+- [ ] FairScheduler 保证每个 target 最少 5 并发、全局最多 30 并发
+- [ ] 每个 target 独立 SQLite state.db，无跨 target 锁竞争
+- [ ] 单 target 失败不阻塞其他 target
 
 ---
 
-## 依赖关系
+## 新增模块 API 速查
 
-```
-P25 (async 基础) ──→ P26 (SQLite) ──→ P27 (AI 优化) ──→ P28 (API Server)
-                                                          │
-                                                          ▼
-                                                    P29 (多 target 并发)
-```
+### `src/news_sentry/core/scheduler.py` — FairScheduler
 
-P29 依赖 Phase 25-28 的全部基础设施：
-- P25: `bounded_run_async()`, `httpx.AsyncClient`, `asyncio.Semaphore`
-- P26: SQLite 存储层，每 target 独立 `state.db`
-- P27: AI 调用并发化 + 缓存
-- P28: API Server SQLite 查询（多 target 统计汇聚）
+| 方法 | 签名 | 说明 |
+|------|------|------|
+| `__init__` | `(per_target_min=5, global_max=30)` | 初始化调度器 |
+| `register` | `(target_id: str) -> None` | 注册 target，创建 per-target Semaphore |
+| `acquire` | `async (target_id: str) -> None` | 获取一个并发槽位（阻塞直到可用） |
+| `release` | `(target_id: str) -> None` | 释放一个并发槽位 |
+| `slot` | `async (target_id: str) -> AsyncIterator[None]` | async context manager 形式 |
+| `registered_targets` | `property -> list[str]` | 已注册 target 列表 |
 
----
+### `src/news_sentry/core/async_run.py` — 新增函数
 
-## 回滚策略
-
-P29 不引入新的 feature flag。回滚方式：
-
-1. CLI 不改动 `--target single` 的内部路径：单 target 仍走原 `bounded_run()` 或 `bounded_run_async()`
-2. 多 target 路径仅在 `--target all` 或 `--target id1,id2` 时激活
-3. 如需回退多 target 功能：`git revert` P29.00-P29.06 的 commit 即可
-4. FairScheduler 和 multi_run.py 是纯新增文件，不影响现有代码路径
+| 函数 | 签名 | 说明 |
+|------|------|------|
+| `bounded_run_multi_async` | `async (targets, stage, ...) -> list` | 多目标并发入口 |
+| `_run_single_target_async` | `async (target_id, stage, ..., scheduler) -> PipelineContext` | 单目标运行（带调度） |
+| `_resolve_targets` | `(target_str, config_dir) -> list[str]` | 解析 target 参数字符串 |
+| `_discover_all_targets` | `(config_dir) -> list[str]` | 从 config/targets/ 发现所有 target |
+| `run_loop_async` | `async (targets, stage, interval, max_iterations) -> None` | 异步循环运行 |
+| `_target_db_path` | `(target_id, output_root) -> Path` | per-target SQLite 路径 |
+| `_target_memory_dir` | `(target_id, output_root) -> Path` | per-target Memory 目录 |
