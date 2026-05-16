@@ -1671,3 +1671,21 @@ a:hover {
 .narrative-text { color: var(--text-primary, #e0e0e0); line-height: 1.6; font-size: 14px; margin-bottom: 8px; }
 .narrative-meta { display: flex; gap: 16px; font-size: 11px; color: var(--text-secondary, #888); }
 .narrative-summary { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── Phase 37: 趋势分析 ─────────────────────────────── */
+
+.trends-page .trends-controls { display: flex; justify-content: flex-end; margin-bottom: 1rem; }
+.days-toggle { display: flex; gap: 0.25rem; background: var(--bg-secondary); border-radius: 6px; padding: 2px; }
+.btn-days { padding: 0.35rem 0.75rem; border: none; background: transparent; color: var(--text-muted); border-radius: 4px; cursor: pointer; font-size: 0.85rem; }
+.btn-days.active { background: var(--accent-blue); color: #fff; }
+.chart-section { margin-bottom: 1.5rem; }
+.chart-section h3 { margin-bottom: 0.5rem; color: var(--text-primary); font-size: 0.9rem; font-weight: 600; }
+.chart-container { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1rem; height: 300px; }
+.topic-table-section { margin-bottom: 1.5rem; }
+.topic-table-section h3 { margin-bottom: 0.5rem; color: var(--text-primary); font-size: 0.9rem; font-weight: 600; }
+.trend-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; font-weight: 500; }
+.badge-rising { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+.badge-stable { background: rgba(107, 114, 128, 0.2); color: #9ca3af; }
+.badge-falling { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+.hotness-bar { width: 100px; height: 8px; background: var(--bg-hover); border-radius: 4px; overflow: hidden; }
+.hotness-fill { height: 100%; background: var(--accent-blue); border-radius: 4px; transition: width 0.3s; }
