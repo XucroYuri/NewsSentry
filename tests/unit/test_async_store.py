@@ -685,3 +685,50 @@ class TestEntityTracking:
         assert row is not None
         parts = [p for p in row[0].split(",") if p]
         assert parts.count("italy") == 1
+
+    @pytest.mark.asyncio
+    async def test_query_entities_basic(self, store: AsyncStore):
+        """基本实体列表查询。"""
+        await store.upsert_entity("Meloni", "person", "italy", "2026-05-16T10:00:00+00:00")
+        await store.upsert_entity("EU", "organization", "italy", "2026-05-16T10:00:00+00:00")
+        await store.upsert_entity("Roma", "location", "italy", "2026-05-16T10:00:00+00:00")
+        await store.upsert_entity("Meloni", "person", "italy", "2026-05-17T10:00:00+00:00")
+        entities = await store.query_entities(limit=10)
+        assert len(entities) == 3
+        assert entities[0]["canonical_name"] == "Meloni"
+        assert entities[0]["mention_count"] == 2
+
+    @pytest.mark.asyncio
+    async def test_query_entities_filter_by_type(self, store: AsyncStore):
+        """按 entity_type 过滤实体。"""
+        await store.upsert_entity("Meloni", "person", "italy", "2026-05-16T10:00:00+00:00")
+        await store.upsert_entity("EU", "organization", "italy", "2026-05-16T10:00:00+00:00")
+        entities = await store.query_entities(entity_type="person")
+        assert len(entities) == 1
+        assert entities[0]["canonical_name"] == "Meloni"
+
+    @pytest.mark.asyncio
+    async def test_query_entities_min_mentions(self, store: AsyncStore):
+        """按最少提及次数过滤。"""
+        await store.upsert_entity("Meloni", "person", "italy", "2026-05-16T10:00:00+00:00")
+        await store.upsert_entity("Meloni", "person", "italy", "2026-05-17T10:00:00+00:00")
+        await store.upsert_entity("EU", "organization", "italy", "2026-05-16T10:00:00+00:00")
+        entities = await store.query_entities(min_mentions=2)
+        assert len(entities) == 1
+        assert entities[0]["canonical_name"] == "Meloni"
+
+    @pytest.mark.asyncio
+    async def test_query_entity_detail_found(self, store: AsyncStore):
+        """查询实体详情返回实体信息。"""
+        await store.upsert_entity("Meloni", "person", "italy", "2026-05-16T10:00:00+00:00")
+        detail = await store.query_entity_detail(1)
+        assert detail is not None
+        assert detail["canonical_name"] == "Meloni"
+        assert detail["entity_type"] == "person"
+        assert "recent_events" in detail
+
+    @pytest.mark.asyncio
+    async def test_query_entity_detail_not_found(self, store: AsyncStore):
+        """查询不存在的实体返回 None。"""
+        detail = await store.query_entity_detail(999)
+        assert detail is None

@@ -566,6 +566,7 @@ class AsyncStore:
                 "by_classification": {},
                 "by_source": {},
                 "sentiment_breakdown": {},
+                "top_entities": [],
             }
         async with self._db.execute(
             "SELECT COUNT(*) FROM event_index WHERE target_id = ?",
@@ -582,6 +583,7 @@ class AsyncStore:
                 "by_classification": {},
                 "by_source": {},
                 "sentiment_breakdown": {},
+                "top_entities": [],
             }
 
         async with self._db.execute(
@@ -624,6 +626,21 @@ class AsyncStore:
                 key = row[0] if row[0] is not None else "none"
                 sentiment_breakdown[key] = row[1]
 
+        # Phase 32: top entities
+        top_entities: list[dict[str, Any]] = []
+        async with self._db.execute(
+            "SELECT canonical_name, entity_type, mention_count "
+            "FROM entities ORDER BY mention_count DESC LIMIT 10"
+        ) as cursor:
+            async for row in cursor:
+                top_entities.append(
+                    {
+                        "name": row[0],
+                        "entity_type": row[1],
+                        "mention_count": row[2],
+                    }
+                )
+
         return {
             "total_events": total,
             "avg_news_value_score": round(avg_score, 2) if avg_score is not None else None,
@@ -631,6 +648,7 @@ class AsyncStore:
             "by_classification": by_classification,
             "by_source": by_source,
             "sentiment_breakdown": sentiment_breakdown,
+            "top_entities": top_entities,
         }
 
     async def get_event_file_path(self, event_id: str) -> str | None:
@@ -672,3 +690,79 @@ class AsyncStore:
             (name, entity_type, seen_at, seen_at, target_id),
         )
         await self._db.commit()
+
+    async def query_entities(
+        self,
+        entity_type: str | None = None,
+        target_id: str | None = None,
+        min_mentions: int = 1,
+        limit: int = 20,
+        sort: str = "mention_count",
+    ) -> list[dict[str, Any]]:
+        """查询实体列表，支持过滤和排序。"""
+        if self._db is None:
+            return []
+        conditions = ["mention_count >= ?"]
+        params: list[Any] = [min_mentions]
+        if entity_type is not None:
+            conditions.append("entity_type = ?")
+            params.append(entity_type)
+        if target_id is not None:
+            conditions.append("',' || target_ids || ',' LIKE '%,' || ? || ',%'")
+            params.append(target_id)
+        where = " AND ".join(conditions)
+        order = "mention_count DESC" if sort == "mention_count" else "last_seen DESC"
+        sql = (
+            f"SELECT id, canonical_name, entity_type, mention_count, "  # noqa: S608
+            f"first_seen, last_seen, target_ids "
+            f"FROM entities WHERE {where} ORDER BY {order} LIMIT ?"
+        )
+        async with self._db.execute(sql, params + [limit]) as cursor:
+            rows = await cursor.fetchall()
+        cols = (
+            "id",
+            "canonical_name",
+            "entity_type",
+            "mention_count",
+            "first_seen",
+            "last_seen",
+            "target_ids",
+        )
+        return [dict(zip(cols, row, strict=True)) for row in rows]
+
+    async def query_entity_detail(self, entity_id: int) -> dict[str, Any] | None:
+        """查询实体详情，附带最近关联事件。"""
+        if self._db is None:
+            return None
+        async with self._db.execute(
+            "SELECT id, canonical_name, entity_type, mention_count, "
+            "first_seen, last_seen, target_ids FROM entities WHERE id = ?",
+            [entity_id],
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        cols = (
+            "id",
+            "canonical_name",
+            "entity_type",
+            "mention_count",
+            "first_seen",
+            "last_seen",
+            "target_ids",
+        )
+        entity = dict(zip(cols, row, strict=True))
+        # 关联事件：从 event_index 的 entity_names LIKE 匹配
+        name = entity["canonical_name"]
+        recent_events: list[dict[str, Any]] = []
+        async with self._db.execute(
+            "SELECT event_id, title_original, published_at, sentiment, news_value_score "
+            "FROM event_index WHERE ',' || entity_names || ',' LIKE '%,' || ? || ',%' "
+            "ORDER BY published_at DESC LIMIT 10",
+            [name],
+        ) as cursor:
+            rows = await cursor.fetchall()
+        ev_cols = ("event_id", "title_original", "published_at", "sentiment", "news_value_score")
+        recent_events = [dict(zip(ev_cols, r, strict=True)) for r in rows]
+        entity["recent_events"] = recent_events
+        return entity
