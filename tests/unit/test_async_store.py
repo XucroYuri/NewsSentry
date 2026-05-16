@@ -233,6 +233,25 @@ class TestSourceHealth:
         await store2.close()
 
     @pytest.mark.asyncio
+    async def test_get_all_source_health(self, store: AsyncStore) -> None:
+        await store.record_source_health("src_a", "healthy", error_count=0)
+        await store.record_source_health(
+            "src_b", "degraded", error_count=3, metadata={"last_error": "timeout"}
+        )
+        results = await store.get_all_source_health()
+        assert len(results) == 2
+        ids = {r["source_id"] for r in results}
+        assert ids == {"src_a", "src_b"}
+        degraded = next(r for r in results if r["source_id"] == "src_b")
+        assert degraded["status"] == "degraded"
+        assert degraded["error_count"] == 3
+
+    @pytest.mark.asyncio
+    async def test_get_all_source_health_empty(self, store: AsyncStore) -> None:
+        results = await store.get_all_source_health()
+        assert results == []
+
+    @pytest.mark.asyncio
     async def test_is_source_degraded_consecutive_failures(self, store: AsyncStore):
         await store.record_source_health("src-deg-1", "error", metadata={"consecutive_failures": 7})
         assert await store.is_source_degraded("src-deg-1") is True

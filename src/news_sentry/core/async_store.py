@@ -210,6 +210,30 @@ class AsyncStore:
             result["metadata"] = {}
         return result
 
+    async def get_all_source_health(self) -> list[dict[str, Any]]:
+        """批量查询所有信源健康状态。"""
+        if self._db is None:
+            return []
+        rows = await self._db.execute_fetchall(
+            "SELECT source_id, status, last_check, error_count, metadata "
+            "FROM source_health ORDER BY source_id"
+        )
+        results: list[dict[str, Any]] = []
+        for r in rows:
+            entry: dict[str, Any] = {
+                "source_id": r[0],
+                "status": r[1],
+                "last_check": r[2],
+                "error_count": r[3],
+            }
+            if r[4]:
+                try:
+                    entry["metadata"] = json.loads(r[4])
+                except (json.JSONDecodeError, TypeError):
+                    entry["metadata"] = {}
+            results.append(entry)
+        return results
+
     async def record_source_health(
         self,
         source_id: str,
