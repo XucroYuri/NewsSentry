@@ -143,3 +143,16 @@ destinations:
     auto_translate: true
     auto_draft: true
     notes: "Phase 24 L3 飞书突发稿件"
+
+  # ── 驻意记者站通用 Webhook 告警 ──────────────────────────────────
+  # 用于对接编辑部内部系统，score>=90 的高价值事件实时推送
+  # 配置 ALERT_WEBHOOK_URL 环境变量后手动启用
+  - destination_id: bureau_webhook_high_value
+    type: generic_webhook
+    enabled: false
+    url: "${ALERT_WEBHOOK_URL}"
+    filter:
+      min_news_value_score: 90
+      recommendation: ["publish", "review"]
+    auto_translate: true
+    notes: "驻意记者站告警：score>=90 高价值事件 Webhook 推送"

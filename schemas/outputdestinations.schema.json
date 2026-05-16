@@ -27,8 +27,8 @@
         },
         "type": {
           "type": "string",
-          "enum": ["obsidian_markdown", "feishu_webhook", "email_smtp", "telegram_bot", "file"],
-          "description": "Output destination type; alerts (feishu/email/telegram) never publish content, only notifications"
+          "enum": ["obsidian_markdown", "feishu_webhook", "email_smtp", "telegram_bot", "generic_webhook", "file"],
+          "description": "Output destination type; alerts (feishu/email/telegram/generic_webhook) never publish content, only notifications"
         },
         "enabled": {
           "type": "boolean"

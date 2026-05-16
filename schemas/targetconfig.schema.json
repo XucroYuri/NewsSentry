@@ -75,6 +75,35 @@
           "default": []
         }
       }
+    },
+    "focus_areas": {
+      "type": "array",
+      "description": "Priority focus areas for the monitoring target, used to boost relevance scoring",
+      "items": {
+        "type": "object",
+        "required": ["id", "weight", "keywords"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "description": "Unique focus area identifier"
+          },
+          "weight": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 5.0,
+            "description": "Relevance weight multiplier (1.0 = default)"
+          },
+          "keywords": {
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1,
+            "description": "Keywords that identify this focus area"
+          }
+        }
+      },
+      "default": []
     }
   }
 }

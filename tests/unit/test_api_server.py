@@ -1844,3 +1844,163 @@ class TestConfigWriteEndpoints:
             assert resp.status_code == 401
         finally:
             del os.environ["NEWSSENTRY_API_KEY"]
+
+
+class TestImportEvents:
+    """POST /api/v1/events/import 端点测试。"""
+
+    def _make_client(self, tmp_path: Path) -> TestClient:
+        app = create_app(data_dir=tmp_path)
+        return TestClient(app)
+
+    def test_import_basic(self, tmp_path: Path) -> None:
+        """基本批量导入。"""
+        client = self._make_client(tmp_path)
+        resp = client.post(
+            "/api/v1/events/import",
+            json=[
+                {
+                    "target_id": "italy",
+                    "source_id": "social-twitter",
+                    "title_original": "Tweet from Roma",
+                    "url": "https://twitter.com/user/status/123",
+                    "collected_at": "2026-05-17T10:00:00+00:00",
+                },
+                {
+                    "target_id": "italy",
+                    "source_id": "social-telegram",
+                    "title_original": "Telegram post",
+                    "url": "https://t.me/channel/456",
+                    "collected_at": "2026-05-17T11:00:00+00:00",
+                },
+            ],
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["imported"] == 2
+        assert data["skipped"] == 0
+        assert data["errors"] == []
+
+        # 验证文件写入
+        raw_dir = tmp_path / "italy" / "raw"
+        assert raw_dir.is_dir()
+        files = list(raw_dir.glob("*.md"))
+        assert len(files) == 2
+
+    def test_import_with_optional_fields(self, tmp_path: Path) -> None:
+        """带可选字段的导入。"""
+        client = self._make_client(tmp_path)
+        resp = client.post(
+            "/api/v1/events/import",
+            json=[
+                {
+                    "target_id": "japan",
+                    "source_id": "rss-nhk",
+                    "title_original": "NHK News",
+                    "url": "https://nhk.or.jp/news/789",
+                    "collected_at": "2026-05-17T10:00:00+00:00",
+                    "content_original": "Full article text",
+                    "language": "ja",
+                    "classification": {"l0": "politics"},
+                    "published_at": "2026-05-17T09:00:00+00:00",
+                },
+            ],
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["imported"] == 1
+
+        # 验证文件内容
+        raw_dir = tmp_path / "japan" / "raw"
+        files = list(raw_dir.glob("*.md"))
+        assert len(files) == 1
+        content = files[0].read_text(encoding="utf-8")
+        assert "language: ja" in content
+        assert "Full article text" in content
+
+    def test_import_dedup_with_sqlite(self, tmp_path: Path) -> None:
+        """SQLite 去重：重复 event_id 被跳过。"""
+        db_path = tmp_path / "state.db"
+        store = AsyncStore(db_path)
+
+        async def _init_and_import() -> None:
+            await store.initialize()
+            app = create_app(data_dir=tmp_path, store=store)
+            client = TestClient(app)
+
+            payload = [
+                {
+                    "target_id": "italy",
+                    "source_id": "test-src",
+                    "title_original": "First import",
+                    "url": "https://example.com/dedup-test",
+                    "collected_at": "2026-05-17T10:00:00+00:00",
+                },
+            ]
+
+            # 第一次导入
+            resp = client.post("/api/v1/events/import", json=payload)
+            assert resp.status_code == 200
+            assert resp.json()["imported"] == 1
+            assert resp.json()["skipped"] == 0
+
+            # 第二次导入相同事件 → 跳过
+            resp = client.post("/api/v1/events/import", json=payload)
+            assert resp.status_code == 200
+            assert resp.json()["imported"] == 0
+            assert resp.json()["skipped"] == 1
+
+        import asyncio
+
+        asyncio.run(_init_and_import())
+
+    def test_import_auth_required(self, tmp_path: Path) -> None:
+        """导入端点要求 API key（配置时）。"""
+        os.environ["NEWSSENTRY_API_KEY"] = "secret123"
+        try:
+            client = self._make_client(tmp_path)
+            resp = client.post(
+                "/api/v1/events/import",
+                json=[
+                    {
+                        "target_id": "italy",
+                        "source_id": "src",
+                        "title_original": "Test",
+                        "url": "https://example.com",
+                        "collected_at": "2026-05-17T10:00:00+00:00",
+                    },
+                ],
+            )
+            assert resp.status_code == 401
+        finally:
+            del os.environ["NEWSSENTRY_API_KEY"]
+
+    def test_import_auth_with_valid_key(self, tmp_path: Path) -> None:
+        """有效 API key 允许导入。"""
+        os.environ["NEWSSENTRY_API_KEY"] = "secret123"
+        try:
+            client = self._make_client(tmp_path)
+            resp = client.post(
+                "/api/v1/events/import",
+                json=[
+                    {
+                        "target_id": "italy",
+                        "source_id": "src",
+                        "title_original": "Test",
+                        "url": "https://example.com",
+                        "collected_at": "2026-05-17T10:00:00+00:00",
+                    },
+                ],
+                headers={"X-API-Key": "secret123"},
+            )
+            assert resp.status_code == 200
+            assert resp.json()["imported"] == 1
+        finally:
+            del os.environ["NEWSSENTRY_API_KEY"]
+
+    def test_import_empty_array(self, tmp_path: Path) -> None:
+        """空数组导入返回 imported=0。"""
+        client = self._make_client(tmp_path)
+        resp = client.post("/api/v1/events/import", json=[])
+        assert resp.status_code == 200
+        assert resp.json()["imported"] == 0

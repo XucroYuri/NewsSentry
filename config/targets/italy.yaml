@@ -99,9 +99,18 @@ source_channel_refs:
   # ── 社媒信源（社媒采集独立管理，此处注册维度入口）──
   - social/twitter/A-politics-governance
   - social/twitter/B-economy-business
-  - social/twitter/C-diplomacy
+  - social/twitter/C-diplomacy-intl
+  - social/twitter/D-security-defense
+  - social/twitter/E-justice-law
+  - social/twitter/F-society-livelihood
+  - social/twitter/G-tech-digital
+  - social/twitter/H-environment-energy
+  - social/twitter/I-immigration-demographics
+  - social/twitter/J-culture-heritage
   - social/twitter/K-religion-vatican
+  - social/twitter/L-china-relations
   - social/twitter/L-china-topics
+  - social/twitter/M-other-open
 
 # 各子系统规则/路由配置的相对路径（相对于项目根目录）
 filter_rules_ref: config/filters/italy/default.yaml
@@ -137,3 +146,15 @@ classification:
     - "shanghai"
     - "xi jinping"
     - "brics"
+
+# 驻意记者站重点监测领域 — 中国视角优先级
+focus_areas:
+  - id: china-italy-relations
+    weight: 2.0
+    keywords: [cina, cinese, china, xi jinping, belt and road, via della seta]
+  - id: diplomacy
+    weight: 1.5
+    keywords: [diplomazia, ambasciata, trattato, summit, g7, g20]
+  - id: economy-trade
+    weight: 1.5
+    keywords: [export, import, commercio, dogana, bilaterale]

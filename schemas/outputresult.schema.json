@@ -14,7 +14,7 @@
         "destination_id": { "type": "string" },
         "type": {
           "type": "string",
-          "enum": ["obsidian_markdown", "feishu_webhook", "file"],
+          "enum": ["obsidian_markdown", "feishu_webhook", "generic_webhook", "file"],
           "description": "v1 output destinations only; no external publishing without explicit new decision"
         },
         "path": {

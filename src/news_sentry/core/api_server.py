@@ -8,6 +8,7 @@ API Server — FastAPI REST API 网关。
   - GET /api/v1/events — 查询事件列表（支持筛选）
   - GET /api/v1/events/{event_id} — 查询单个事件
   - POST /api/v1/webhook — 接收外部事件（Webhook 入站）
+  - POST /api/v1/events/import — 批量导入外部事件
   - GET /api/v1/health — 健康检查
   - GET /docs — OpenAPI/Swagger UI
   - GET / — 前端 Web UI（由静态文件提供）
@@ -65,6 +66,29 @@ class WebhookResponse(BaseModel):
     status: str
     event_id: str
     message: str
+
+
+class ImportEventItem(BaseModel):
+    """批量导入的单条事件。"""
+
+    target_id: str
+    source_id: str
+    title_original: str
+    url: str
+    collected_at: str
+    content_original: str = ""
+    language: str = "mixed"
+    classification: dict[str, Any] | None = None
+    pipeline_stage: str = "collected"
+    published_at: str = ""
+
+
+class ImportResponse(BaseModel):
+    """批量导入响应。"""
+
+    imported: int
+    skipped: int
+    errors: list[str]
 
 
 class TargetInfo(BaseModel):
@@ -1341,6 +1365,98 @@ def create_app(
             event_id=event_id,
             message=f"Event {event_id} saved to {target_id}/raw/",
         )
+
+    @app.post("/api/v1/events/import", response_model=ImportResponse)
+    async def import_events(
+        events: list[ImportEventItem],
+        x_api_key: str | None = Header(None, alias="X-API-Key"),
+    ) -> ImportResponse:
+        """批量导入外部事件。
+
+        接受 JSON 数组，逐条写入 data/{target_id}/raw/ 并索引到 SQLite。
+        已存在的事件（event_id 相同）会被跳过。
+        """
+        key = _verify_api_key(x_api_key)
+        if not _rate_limiter.check(key):
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+        imported = 0
+        skipped = 0
+        errors: list[str] = []
+
+        for i, item in enumerate(events):
+            try:
+                now = datetime.now(UTC)
+                # 确定性 event_id: sha256(source_id|url|collected_at)
+                event_id = (
+                    "ne-imp-"
+                    + sha256(
+                        f"{item.source_id}|{item.url}|{item.collected_at}".encode()
+                    ).hexdigest()[:12]
+                )
+
+                # 去重检查
+                if _store is not None and await _store.is_known(event_id):
+                    skipped += 1
+                    continue
+
+                published_at = item.published_at or now.isoformat()
+                event_data: dict[str, Any] = {
+                    "id": event_id,
+                    "run_id": "import",
+                    "source_id": item.source_id,
+                    "url": item.url,
+                    "title_original": item.title_original,
+                    "content_original": item.content_original,
+                    "language": item.language,
+                    "published_at": published_at,
+                    "collected_at": item.collected_at,
+                    "pipeline_stage": item.pipeline_stage,
+                }
+                if item.classification:
+                    event_data["metadata"] = {"classification": item.classification}
+
+                # 写入 raw/ 目录（YAML frontmatter）
+                raw_dir = _data_dir / item.target_id / "raw"
+                raw_dir.mkdir(parents=True, exist_ok=True)
+                filepath = raw_dir / f"collected_{item.source_id}_{event_id}.md"
+                fm = yaml.dump(
+                    event_data, allow_unicode=True, default_flow_style=False, sort_keys=False
+                )
+                body = f"# {item.title_original}\n\n{item.content_original}\n"
+                filepath.write_text(f"---\n{fm}---\n\n{body}", encoding="utf-8")
+
+                # 索引到 SQLite
+                if _store is not None and _store._db is not None:  # noqa: SLF001
+                    await _store.mark_known(event_id)
+                    classification_l0 = None
+                    if isinstance(item.classification, dict):
+                        classification_l0 = item.classification.get("l0")
+                    await _store._db.execute(  # noqa: SLF001
+                        """INSERT OR IGNORE INTO event_index
+                           (event_id, target_id, stage, source_id,
+                            classification_l0, title_original,
+                            published_at, file_path, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            event_id,
+                            item.target_id,
+                            item.pipeline_stage,
+                            item.source_id,
+                            classification_l0,
+                            item.title_original,
+                            published_at,
+                            str(filepath),
+                            now.isoformat(),
+                        ),
+                    )
+                    await _store._db.commit()  # noqa: SLF001
+
+                imported += 1
+            except Exception as exc:
+                errors.append(f"events[{i}]: {exc}")
+
+        return ImportResponse(imported=imported, skipped=skipped, errors=errors)
 
     @app.post("/api/v1/config/reload")
     async def reload_config(

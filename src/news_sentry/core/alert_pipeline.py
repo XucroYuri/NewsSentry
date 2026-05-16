@@ -409,6 +409,8 @@ class AlertPipeline:
             self._send_email(dest, body, event)
         elif dest_type == "telegram_bot":
             self._send_telegram(dest, body, event)
+        elif dest_type == "generic_webhook":
+            self._send_generic_webhook(dest, body, event)
         else:
             logger.warning("未知告警类型: %s", dest_type)
 
@@ -511,6 +513,34 @@ class AlertPipeline:
         with urlopen(req, timeout=10) as resp:  # noqa: S310
             if resp.status >= 300:
                 logger.warning("Telegram Bot 响应异常: status=%d", resp.status)
+
+    def _send_generic_webhook(self, dest: dict[str, Any], body: str, event: NewsEvent) -> None:
+        """发送通用 Webhook 告警（POST JSON 到指定 URL）。"""
+        url = self._resolve_env_var(dest.get("url", ""))
+        if not url:
+            logger.warning("通用 Webhook URL 未配置，跳过")
+            return
+
+        payload = {
+            "event_id": event.id,
+            "title": event.title_translated or event.title_original,
+            "news_value_score": event.news_value_score or 0,
+            "china_relevance": event.china_relevance or 0,
+            "source_id": event.source_id,
+            "url": event.url or "",
+            "body": body,
+        }
+
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        req = Request(  # noqa: S310
+            url,
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(req, timeout=10) as resp:  # noqa: S310
+            if resp.status >= 300:
+                logger.warning("通用 Webhook 响应异常: status=%d", resp.status)
 
     @staticmethod
     def _resolve_env_var(value: str) -> str:
