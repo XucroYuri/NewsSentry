@@ -1140,12 +1140,14 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
 def create_app(
     data_dir: str | Path | None = None,
     store: AsyncStore | None = None,
+    auto_store: bool = True,
 ) -> FastAPI:
     """创建 FastAPI 应用实例。
 
     Args:
         data_dir: 数据根目录，默认 ./data。
         store: AsyncStore 实例（Phase 28 新增，用于 SQLite 查询）。
+        auto_store: 无传入 store 时自动创建（Cloudflare/生产=True，测试=False）。
     """
     app = FastAPI(
         title="News Sentry API",
@@ -1158,8 +1160,10 @@ def create_app(
     global _store
     if store is not None:
         _store = store
-    elif _store is None:
+    elif _store is None and auto_store:
         _store = AsyncStore(_data_dir / "async_store.db")
+    elif not auto_store:
+        _store = None  # 显式禁用，测试环境重置
     _config_cache = ConfigCache(ttl=60, maxsize=128)
 
     # ── 公开端点（无需认证）─────────────────────────────

@@ -140,7 +140,7 @@ class TestAPIServer:
     """FastAPI 端点集成测试。"""
 
     def _make_client(self, tmp_path: Path) -> TestClient:
-        app = create_app(data_dir=tmp_path)
+        app = create_app(data_dir=tmp_path, auto_store=False)
         client = TestClient(app)
         # 获取 dev mode token 并设为默认 headers
         resp = client.post("/api/v1/auth/token", json={"api_key": ""})
@@ -251,7 +251,7 @@ class TestAPIServer:
         os.environ["NEWSSENTRY_API_KEY"] = "secret123"
         try:
             # 创建无默认 auth 的客户端
-            app = create_app(data_dir=tmp_path)
+            app = create_app(data_dir=tmp_path, auto_store=False)
             client = TestClient(app)
             # 无 token
             resp = client.get("/api/v1/events", params={"target_id": "italy"})
@@ -439,7 +439,7 @@ class TestConfigAPI:
     """配置读取 API 端点测试。"""
 
     def _make_client(self, tmp_path: Path) -> TestClient:
-        app = create_app(data_dir=tmp_path)
+        app = create_app(data_dir=tmp_path, auto_store=False)
         client = TestClient(app)
         # 获取 dev mode token 并设为默认 headers
         resp = client.post("/api/v1/auth/token", json={"api_key": ""})
@@ -1100,7 +1100,7 @@ class TestOpsEndpoints:
     """Phase 34: 运维 API 端点测试。"""
 
     def _make_client(self, tmp_path: Path) -> TestClient:
-        app = create_app(data_dir=tmp_path)
+        app = create_app(data_dir=tmp_path, auto_store=False)
         client = TestClient(app)
         # 获取 dev mode token 并设为默认 headers
         resp = client.post("/api/v1/auth/token", json={"api_key": ""})
@@ -1173,7 +1173,7 @@ class TestOpsEndpoints:
                 }
             )
         )
-        app2 = create_app(data_dir=str(tmp_path))
+        app2 = create_app(data_dir=str(tmp_path), auto_store=False)
         client2 = TestClient(app2)
         # 获取 dev mode token
         token_resp = client2.post("/api/v1/auth/token", json={"api_key": ""})
@@ -1327,7 +1327,7 @@ class TestChainNarrativeAPI:
 
     async def test_post_narrative_no_store(self, tmp_path):
         """无 store 时 POST 返回 503。"""
-        app = create_app(data_dir=str(tmp_path))
+        app = create_app(data_dir=str(tmp_path), auto_store=False)
         from httpx import ASGITransport, AsyncClient
 
         transport = ASGITransport(app=app)
@@ -1494,7 +1494,7 @@ class TestTrendAPI:
 
     async def test_trends_no_store(self, tmp_path):
         """无 store 时返回 503。"""
-        app = create_app(data_dir=str(tmp_path))
+        app = create_app(data_dir=str(tmp_path), auto_store=False)
         from httpx import ASGITransport, AsyncClient
 
         transport = ASGITransport(app=app)
@@ -1561,7 +1561,7 @@ class TestSmartAlertAPI:
 
     async def test_smart_alerts_no_store(self, tmp_path):
         """无 store 时返回 503。"""
-        app = create_app(data_dir=str(tmp_path))
+        app = create_app(data_dir=str(tmp_path), auto_store=False)
         from httpx import ASGITransport, AsyncClient
 
         transport = ASGITransport(app=app)
@@ -1813,7 +1813,7 @@ class TestConfigWriteEndpoints:
     """Phase 42: 配置写入端点测试。"""
 
     def _make_client(self, tmp_path: Path) -> TestClient:
-        app = create_app(data_dir=tmp_path)
+        app = create_app(data_dir=tmp_path, auto_store=False)
         client = TestClient(app)
         # 获取 dev mode token 并设为默认 headers
         resp = client.post("/api/v1/auth/token", json={"api_key": ""})
@@ -1928,7 +1928,7 @@ class TestConfigWriteEndpoints:
     def test_config_write_requires_auth(self, tmp_path: Path) -> None:
         """配置写入端点要求 Bearer token 认证。"""
         # 创建无默认 auth 的客户端
-        app = create_app(data_dir=tmp_path)
+        app = create_app(data_dir=tmp_path, auto_store=False)
         client = TestClient(app)
         resp = client.put(
             "/api/v1/config/targets/italy",
@@ -1941,7 +1941,7 @@ class TestImportEvents:
     """POST /api/v1/events/import 端点测试。"""
 
     def _make_client(self, tmp_path: Path) -> TestClient:
-        app = create_app(data_dir=tmp_path)
+        app = create_app(data_dir=tmp_path, auto_store=False)
         client = TestClient(app)
         # 获取 dev mode token 并设为默认 headers
         resp = client.post("/api/v1/auth/token", json={"api_key": ""})
@@ -2060,7 +2060,7 @@ class TestImportEvents:
         os.environ["NEWSSENTRY_API_KEY"] = "secret123"
         try:
             # 创建无默认 auth 的客户端
-            app = create_app(data_dir=tmp_path)
+            app = create_app(data_dir=tmp_path, auto_store=False)
             client = TestClient(app)
             resp = client.post(
                 "/api/v1/events/import",
@@ -2083,7 +2083,7 @@ class TestImportEvents:
         os.environ["NEWSSENTRY_API_KEY"] = "secret123"
         try:
             # 创建无默认 auth 的客户端，再手动获取 token
-            app = create_app(data_dir=tmp_path)
+            app = create_app(data_dir=tmp_path, auto_store=False)
             client = TestClient(app)
             # 交换 API Key 获取 token
             token_resp = client.post("/api/v1/auth/token", json={"api_key": "secret123"})
