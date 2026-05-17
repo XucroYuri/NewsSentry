@@ -5,7 +5,7 @@
 
 "use strict";
 
-import { state, dom, $, api, escapeHtml, showError } from "../api.js";
+import { state, api, apiPost, escapeHtml, formatDate, showSuccess, showError, scoreColor } from "../api.js";
 
 const LINK_TYPE_LABELS = {
   followup: "后续进展",
@@ -21,14 +21,14 @@ const LINK_TYPE_COLORS = {
   correction: "#ef4444",
 };
 
-export async function renderChainList() {
-  dom.pageContainer.innerHTML = '<div class="loading-spinner"><div class="spinner"></div><p>加载追踪链...</p></div>';
+export async function renderChainsTab(container) {
+  container.innerHTML = '<div class="loading-spinner"><div class="spinner"></div><p>加载追踪链...</p></div>';
 
   try {
     const data = await api(`/api/v1/chains?target_id=${state.currentTarget}`);
 
     if (!data.chains || data.chains.length === 0) {
-      dom.pageContainer.innerHTML = `
+      container.innerHTML = `
         <div class="empty-state">
           <p>暂无追踪链数据</p>
           <p class="hint">运行 pipeline 后，系统会自动发现事件间的关联关系</p>
@@ -65,7 +65,7 @@ export async function renderChainList() {
         <td class="narrative-summary">${narrativeMap[c.root_event_id] ? escapeHtml(narrativeMap[c.root_event_id]) : "-"}</td>
       </tr>`).join("");
 
-    dom.pageContainer.innerHTML = `
+    container.innerHTML = `
       ${statsHtml}
       <div class="section-card">
         <h3>追踪链列表</h3>
@@ -81,14 +81,14 @@ export async function renderChainList() {
   }
 }
 
-export async function renderChainDetail(rootEventId) {
-  dom.pageContainer.innerHTML = '<div class="loading-spinner"><div class="spinner"></div><p>加载追踪链详情...</p></div>';
+export async function renderChainDetail(container, rootEventId) {
+  container.innerHTML = '<div class="loading-spinner"><div class="spinner"></div><p>加载追踪链详情...</p></div>';
 
   try {
     const data = await api(`/api/v1/events/${encodeURIComponent(rootEventId)}/chain?target_id=${state.currentTarget}`);
 
     if (!data.events || data.events.length === 0) {
-      dom.pageContainer.innerHTML = '<div class="empty-state"><p>追踪链为空</p></div>';
+      container.innerHTML = '<div class="empty-state"><p>追踪链为空</p></div>';
       return;
     }
 
@@ -121,7 +121,7 @@ export async function renderChainDetail(rootEventId) {
         </div>`;
     }).join("");
 
-    dom.pageContainer.innerHTML = `
+    container.innerHTML = `
       ${headerHtml}
       <div class="timeline">${timelineHtml}</div>`;
 
@@ -142,18 +142,17 @@ export async function renderChainDetail(rootEventId) {
             <span>事件数: ${narrData.event_count}</span>
             <span>${narrData.generated_at ? new Date(narrData.generated_at).toLocaleString("zh-CN") : ""}</span>
           </div>`;
-        dom.pageContainer.querySelector(".chain-header")?.after(narrCard) || dom.pageContainer.insertBefore(narrCard, dom.pageContainer.firstChild);
+        container.querySelector(".chain-header")?.after(narrCard) || container.insertBefore(narrCard, container.firstChild);
 
         document.getElementById("btnRegenerate")?.addEventListener("click", async function() {
           this.disabled = true;
           this.textContent = "生成中...";
           try {
-            const resp = await fetch(
-              `/api/v1/chains/${encodeURIComponent(rootEventId)}/narrative?target_id=${state.currentTarget}`,
-              { method: "POST" }
+            const newData = await apiPost(
+              `/api/v1/chains/${encodeURIComponent(rootEventId)}/narrative`,
+              { target_id: state.currentTarget }
             );
-            if (resp.ok) {
-              const newData = await resp.json();
+            if (newData && newData.narrative) {
               narrCard.querySelector(".narrative-text").textContent = newData.narrative;
               this.textContent = "重新生成";
             } else {
