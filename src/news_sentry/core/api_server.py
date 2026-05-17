@@ -19,11 +19,15 @@ API Server — FastAPI REST API 网关。
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
 import time
 import uuid
 from collections import defaultdict
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
@@ -939,6 +943,80 @@ def _load_event_by_path(file_path: str | None) -> dict[str, Any] | None:
         return None
 
 
+# ── 后台自动采集循环 ──────────────────────────────────────
+
+_auto_collector_state: dict[str, Any] = {
+    "enabled": os.environ.get("NEWSSENTRY_AUTO_COLLECT", "1") == "1",
+    "target_id": os.environ.get("TARGET_ID", "italy"),
+    "interval_minutes": int(os.environ.get("NEWSSENTRY_COLLECT_INTERVAL", "15")),
+    "running": False,
+    "last_run_at": None,
+    "last_run_status": None,
+    "last_events_collected": 0,
+    "total_runs": 0,
+    "task": None,
+}
+
+_log = logging.getLogger("news_sentry.auto_collector")
+
+
+async def _auto_collect_loop() -> None:
+    """后台循环：每隔 interval_minutes 执行一轮 collect+filter。
+
+    仅采集 RSS/API 信源（纯 HTTP，无需浏览器），跳过 opencli_bridge。
+    不执行 judge/output — 这些由 Cron 触发的全流程 pipeline 处理。
+    """
+    interval = _auto_collector_state["interval_minutes"] * 60
+    target_id = _auto_collector_state["target_id"]
+    _auto_collector_state["running"] = True
+    _log.info("自动采集循环启动: target=%s, interval=%dmin", target_id, interval // 60)
+
+    while _auto_collector_state["enabled"]:
+        try:
+            from news_sentry.core.async_run import bounded_run_async
+
+            run_id = f"{target_id}_auto_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
+            _log.info("自动采集开始: run_id=%s", run_id)
+
+            await bounded_run_async(
+                target_id=target_id,
+                stage="collect",  # 仅采集，不做 judge/output
+                run_id=run_id,
+            )
+
+            _auto_collector_state["last_run_at"] = datetime.now(UTC).isoformat()
+            _auto_collector_state["last_run_status"] = "ok"
+            _auto_collector_state["total_runs"] += 1
+            _log.info("自动采集完成: run_id=%s", run_id)
+        except Exception:
+            _auto_collector_state["last_run_at"] = datetime.now(UTC).isoformat()
+            _auto_collector_state["last_run_status"] = "error"
+            _auto_collector_state["total_runs"] += 1
+            _log.error("自动采集失败", exc_info=True)
+
+        await asyncio.sleep(interval)
+
+    _auto_collector_state["running"] = False
+    _log.info("自动采集循环停止")
+
+
+@asynccontextmanager
+async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
+    """FastAPI lifespan: 启动后台采集循环，关闭时取消。"""
+    task = None
+    if _auto_collector_state["enabled"]:
+        task = asyncio.create_task(_auto_collect_loop())
+        _auto_collector_state["task"] = task
+    yield
+    if task is not None:
+        _auto_collector_state["enabled"] = False
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
 # ── FastAPI 应用 ────────────────────────────────────────
 
 
@@ -956,6 +1034,7 @@ def create_app(
         title="News Sentry API",
         version="0.1.0",
         description="News Sentry REST API — 事件查询、统计、Webhook 入站",
+        lifespan=_app_lifespan,
     )
 
     _data_dir = Path(data_dir) if data_dir else Path("./data")
@@ -967,6 +1046,19 @@ def create_app(
     @app.get("/api/v1/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/api/v1/collector/status")
+    async def collector_status() -> dict[str, Any]:
+        """返回后台自动采集循环的状态。"""
+        return {
+            "enabled": _auto_collector_state["enabled"],
+            "running": _auto_collector_state["running"],
+            "target_id": _auto_collector_state["target_id"],
+            "interval_minutes": _auto_collector_state["interval_minutes"],
+            "last_run_at": _auto_collector_state["last_run_at"],
+            "last_run_status": _auto_collector_state["last_run_status"],
+            "total_runs": _auto_collector_state["total_runs"],
+        }
 
     @app.get("/api/v1/targets", response_model=TargetListResponse)
     async def list_targets() -> TargetListResponse:
