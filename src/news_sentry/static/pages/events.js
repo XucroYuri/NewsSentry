@@ -1,19 +1,79 @@
 /**
  * News Sentry — 事件列表与详情页面
+ * 日期范围筛选 + 批量导入 + 复制摘要
  */
 
 "use strict";
 
-import { api, apiPost, state, dom, $, escapeHtml, showError, formatDate, scoreBar, scoreColor, scoreGradient, sentimentColor, sentimentPct, sentimentGradient, sentimentLabelColor, sentimentDotHtml, entityChipsHtml } from "../api.js";
+import { state, api, apiPost, escapeHtml, showError, showSuccess, formatDate, scoreColor, scoreGradient, scoreBar, sentimentColor, sentimentPct, sentimentGradient, sentimentLabelColor, sentimentDotHtml, entityChipsHtml, copyToClipboard, logAction } from "../api.js";
 
 const LINK_TYPE_LABELS = { followup: "后续进展", related: "相关", same_event: "同一事件", correction: "纠正" };
 const LINK_TYPE_COLORS = { followup: "#3b82f6", related: "#6b7280", same_event: "#10b981", correction: "#ef4444" };
 
+// ── 日期范围工具 ────────────────────────────────────────
+
+function getDateRange(type) {
+  const now = new Date();
+  const date_to = now.toISOString().split("T")[0];
+  let date_from = "";
+
+  if (type === "today") {
+    date_from = date_to;
+  } else if (type === "week") {
+    const week = new Date(now);
+    week.setDate(week.getDate() - 7);
+    date_from = week.toISOString().split("T")[0];
+  } else if (type === "month") {
+    const month = new Date(now);
+    month.setDate(month.getDate() - 30);
+    date_from = month.toISOString().split("T")[0];
+  }
+
+  return { date_from, date_to };
+}
+
+// ── 导入弹窗（直接操作 DOM，避免循环引用 app.js） ──────
+
+function showImportModal(onSubmit) {
+  const modal = document.getElementById("importModal");
+  if (!modal) return;
+  modal.style.display = "block";
+  modal.querySelectorAll(".modal-close, .modal-cancel, .modal-overlay").forEach((el) => {
+    el.onclick = () => { modal.style.display = "none"; };
+  });
+  const submitBtn = document.getElementById("importSubmit");
+  const fileBtn = document.getElementById("importFileBtn");
+  const fileInput = document.getElementById("importFile");
+  if (fileBtn && fileInput) {
+    fileBtn.onclick = () => fileInput.click();
+    fileInput.onchange = () => {
+      if (fileInput.files[0]) {
+        const reader = new FileReader();
+        reader.onload = (e) => { document.getElementById("importJson").value = e.target.result; };
+        reader.readAsText(fileInput.files[0]);
+      }
+    };
+  }
+  if (submitBtn) {
+    submitBtn.onclick = async () => {
+      const json = document.getElementById("importJson")?.value?.trim();
+      if (!json) return;
+      try {
+        const events = JSON.parse(json);
+        await onSubmit(events);
+        modal.style.display = "none";
+      } catch (err) {
+        showError("JSON 格式错误: " + err.message);
+      }
+    };
+  }
+}
+
 // ── 页面渲染：事件列表 ────────────────────────────────────
 
-export async function renderEventList() {
+export async function renderEventsTab(container) {
   if (!state.currentTarget) {
-    dom.pageContainer.innerHTML = `
+    container.innerHTML = `
       <div class="empty-state">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <circle cx="12" cy="12" r="10"/><path d="M8 15h8"/><circle cx="9" cy="9" r="1" fill="currentColor"/><circle cx="15" cy="9" r="1" fill="currentColor"/>
@@ -25,7 +85,7 @@ export async function renderEventList() {
   }
 
   // 先渲染筛选栏 + loading
-  dom.pageContainer.innerHTML = `
+  container.innerHTML = `
     <div class="filter-bar" id="filterBar"></div>
     <div id="eventListArea">
       <div class="loading-spinner"><div class="spinner"></div><p>正在加载事件...</p></div>
@@ -40,8 +100,11 @@ export async function renderEventList() {
   const sources = statsResp?.by_source ? Object.keys(statsResp.by_source).sort() : [];
   const classifications = statsResp?.by_classification ? Object.keys(statsResp.by_classification).sort() : [];
 
+  // 当前日期范围按钮高亮状态
+  const dateRangeType = state.filters._dateRangeType || "";
+
   // 渲染筛选栏
-  $("#filterBar").innerHTML = `
+  document.getElementById("filterBar").innerHTML = `
     <div class="filter-group">
       <label>来源</label>
       <select id="filterSource">
@@ -81,68 +144,136 @@ export async function renderEventList() {
       <label>主题</label>
       <input type="search" id="filterTopic" placeholder="主题标签..." value="${escapeHtml(state.filters.topic_tag || "")}">
     </div>
+    <div class="filter-group">
+      <label>日期范围</label>
+      <div class="date-range-btns">
+        <button class="btn-sm ${dateRangeType === "today" ? "active" : ""}" data-range="today">今天</button>
+        <button class="btn-sm ${dateRangeType === "week" ? "active" : ""}" data-range="week">本周</button>
+        <button class="btn-sm ${dateRangeType === "month" ? "active" : ""}" data-range="month">本月</button>
+        <button class="btn-sm ${dateRangeType === "custom" ? "active" : ""}" data-range="custom">自定义</button>
+      </div>
+      <div id="dateRangeCustom" style="display:${dateRangeType === "custom" ? "flex" : "none"};gap:6px;margin-top:4px;">
+        <input type="date" id="filterDateFrom" value="${escapeHtml(state.filters.date_from || "")}">
+        <span style="line-height:32px">~</span>
+        <input type="date" id="filterDateTo" value="${escapeHtml(state.filters.date_to || "")}">
+      </div>
+    </div>
+    <div class="filter-group" style="margin-left:auto">
+      <label>&nbsp;</label>
+      <button class="btn-secondary" id="importBtn">导入事件</button>
+    </div>
   `;
 
   // 绑定筛选事件
-  $("#filterSource").addEventListener("change", (e) => {
+  document.getElementById("filterSource").addEventListener("change", (e) => {
     state.filters.source_id = e.target.value;
     state.filters.page = 1;
-    loadEventList();
+    loadEventList(container);
   });
-  $("#filterClass").addEventListener("change", (e) => {
+  document.getElementById("filterClass").addEventListener("change", (e) => {
     state.filters.classification = e.target.value;
     state.filters.page = 1;
-    loadEventList();
+    loadEventList(container);
   });
-  $("#filterMinScore").addEventListener("input", (e) => {
+  document.getElementById("filterMinScore").addEventListener("input", (e) => {
     state.filters.min_score = Number(e.target.value);
-    $("#minScoreVal").textContent = state.filters.min_score;
+    document.getElementById("minScoreVal").textContent = state.filters.min_score;
   });
-  $("#filterMinScore").addEventListener("change", () => {
+  document.getElementById("filterMinScore").addEventListener("change", () => {
     state.filters.page = 1;
-    loadEventList();
+    loadEventList(container);
   });
   // 搜索防抖
   let searchTimer = null;
-  $("#filterSearch").addEventListener("input", (e) => {
+  document.getElementById("filterSearch").addEventListener("input", (e) => {
     state.filters.search = e.target.value;
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => {
       state.filters.page = 1;
-      loadEventList();
+      loadEventList(container);
     }, 350);
   });
   // NLP 筛选
-  $("#filterSentiment").addEventListener("change", (e) => {
+  document.getElementById("filterSentiment").addEventListener("change", (e) => {
     state.filters.sentiment = e.target.value;
     state.filters.page = 1;
-    loadEventList();
+    loadEventList(container);
   });
   let entityTimer = null;
-  $("#filterEntity").addEventListener("input", (e) => {
+  document.getElementById("filterEntity").addEventListener("input", (e) => {
     state.filters.entity = e.target.value;
     clearTimeout(entityTimer);
     entityTimer = setTimeout(() => {
       state.filters.page = 1;
-      loadEventList();
+      loadEventList(container);
     }, 350);
   });
   let topicTimer = null;
-  $("#filterTopic").addEventListener("input", (e) => {
+  document.getElementById("filterTopic").addEventListener("input", (e) => {
     state.filters.topic_tag = e.target.value;
     clearTimeout(topicTimer);
     topicTimer = setTimeout(() => {
       state.filters.page = 1;
-      loadEventList();
+      loadEventList(container);
     }, 350);
   });
 
+  // 日期范围按钮
+  document.querySelectorAll(".date-range-btns .btn-sm").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const type = btn.dataset.range;
+      state.filters._dateRangeType = type;
+      // 清除所有 active
+      document.querySelectorAll(".date-range-btns .btn-sm").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+
+      const customDiv = document.getElementById("dateRangeCustom");
+      if (type === "custom") {
+        customDiv.style.display = "flex";
+        // 使用已有的 date_from/date_to 或留空让用户填写
+        return;
+      }
+      customDiv.style.display = "none";
+      const range = getDateRange(type);
+      state.filters.date_from = range.date_from;
+      state.filters.date_to = range.date_to;
+      state.filters.page = 1;
+      loadEventList(container);
+    });
+  });
+
+  // 自定义日期输入
+  document.getElementById("filterDateFrom")?.addEventListener("change", (e) => {
+    state.filters.date_from = e.target.value;
+    state.filters.page = 1;
+    loadEventList(container);
+  });
+  document.getElementById("filterDateTo")?.addEventListener("change", (e) => {
+    state.filters.date_to = e.target.value;
+    state.filters.page = 1;
+    loadEventList(container);
+  });
+
+  // 导入按钮
+  document.getElementById("importBtn")?.addEventListener("click", () => {
+    showImportModal(async (events) => {
+      try {
+        await apiPost("/api/v1/events/import", { target_id: state.currentTarget }, { events });
+        showSuccess(`成功导入 ${events.length} 条事件`);
+        logAction("events.import", state.currentTarget, `imported ${events.length}`);
+        renderEventsTab(container);
+      } catch (err) {
+        showError("导入失败: " + err.message);
+      }
+    });
+  });
+
   // 加载事件列表
-  await loadEventList();
+  await loadEventList(container);
 }
 
-async function loadEventList() {
-  const area = $("#eventListArea");
+async function loadEventList(container) {
+  const area = document.getElementById("eventListArea");
   if (!area) return;
   area.innerHTML = '<div class="loading-spinner"><div class="spinner"></div><p>正在加载事件...</p></div>';
 
@@ -159,6 +290,8 @@ async function loadEventList() {
     if (state.filters.sentiment) params.sentiment = state.filters.sentiment;
     if (state.filters.entity) params.entity = state.filters.entity;
     if (state.filters.topic_tag) params.topic_tag = state.filters.topic_tag;
+    if (state.filters.date_from) params.date_from = state.filters.date_from;
+    if (state.filters.date_to) params.date_to = state.filters.date_to;
 
     const data = await api("/api/v1/events", params);
     const events = data.events || [];
@@ -215,20 +348,20 @@ async function loadEventList() {
     area.innerHTML = `<div class="event-list">${listHtml}</div>${paginationHtml}`;
 
     // 绑定分页事件
-    const prevBtn = $("#prevPage");
-    const nextBtn = $("#nextPage");
+    const prevBtn = document.getElementById("prevPage");
+    const nextBtn = document.getElementById("nextPage");
     if (prevBtn) {
       prevBtn.addEventListener("click", () => {
         if (state.filters.page > 1) {
           state.filters.page--;
-          loadEventList();
+          loadEventList(container);
         }
       });
     }
     if (nextBtn) {
       nextBtn.addEventListener("click", () => {
         state.filters.page++;
-        loadEventList();
+        loadEventList(container);
       });
     }
 
@@ -256,13 +389,13 @@ async function loadEventList() {
 
 // ── 页面渲染：事件详情 ────────────────────────────────────
 
-export async function renderEventDetail(eventId) {
-  dom.pageContainer.innerHTML = `
+export async function renderEventDetail(container, eventId) {
+  container.innerHTML = `
     <div class="loading-spinner"><div class="spinner"></div><p>正在加载事件详情...</p></div>
   `;
 
   if (!state.currentTarget) {
-    dom.pageContainer.innerHTML = `
+    container.innerHTML = `
       <div class="empty-state">
         <p>未选择监控目标，无法加载事件详情</p>
       </div>
@@ -276,7 +409,7 @@ export async function renderEventDetail(eventId) {
     });
 
     if (!ev) {
-      dom.pageContainer.innerHTML = `
+      container.innerHTML = `
         <div class="empty-state"><p>未找到该事件</p></div>
       `;
       return;
@@ -304,7 +437,7 @@ export async function renderEventDetail(eventId) {
       })
       .join("");
 
-    dom.pageContainer.innerHTML = `
+    container.innerHTML = `
       <div class="detail-back" id="detailBack">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/>
@@ -388,7 +521,14 @@ export async function renderEventDetail(eventId) {
             </div>
           ` : ""}
 
-          ${ev.url ? `
+          <div class="detail-actions" style="margin-top:16px;display:flex;gap:8px;">
+            <button class="btn-secondary" id="copySummaryBtn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px;">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+              </svg>
+              复制摘要
+            </button>
+            ${ev.url ? `
             <a class="detail-link" href="${escapeHtml(ev.url)}" target="_blank" rel="noopener noreferrer">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
@@ -396,7 +536,8 @@ export async function renderEventDetail(eventId) {
               </svg>
               查看原文
             </a>
-          ` : ""}
+            ` : ""}
+          </div>
 
           ${extraFields ? `
             <div class="detail-section" style="margin-top:24px">
@@ -409,8 +550,14 @@ export async function renderEventDetail(eventId) {
     `;
 
     // 返回按钮
-    $("#detailBack").addEventListener("click", () => {
+    document.getElementById("detailBack").addEventListener("click", () => {
       window.location.hash = "#/events";
+    });
+
+    // 复制摘要按钮
+    document.getElementById("copySummaryBtn")?.addEventListener("click", () => {
+      const summary = `${ev.title_original || ev.id || ""}\n分数: ${ev.news_value_score ?? "—"}\n来源: ${ev.source_id || "—"}\nURL: ${ev.url || "—"}`;
+      copyToClipboard(summary);
     });
 
     // Phase 35: 关联事件卡片
@@ -427,7 +574,7 @@ export async function renderEventDetail(eventId) {
         const card = document.createElement("div");
         card.className = "section-card linked-events-card";
         card.innerHTML = `<h3>关联事件 (${linksData.links.length})</h3><div class="links-list">${linksHtml}</div>`;
-        dom.pageContainer.querySelector(".nlp-section")?.after(card) || dom.pageContainer.appendChild(card);
+        container.querySelector(".nlp-section")?.after(card) || container.appendChild(card);
       }
     } catch { /* 非阻塞 */ }
 
@@ -446,10 +593,10 @@ export async function renderEventDetail(eventId) {
       </div>
       <div id="feedbackStatus" class="feedback-status"></div>
     `;
-    dom.pageContainer.appendChild(feedbackCard);
+    container.appendChild(feedbackCard);
 
     const submitFeedback = async (verdictType) => {
-      const statusEl = $("#feedbackStatus");
+      const statusEl = document.getElementById("feedbackStatus");
       try {
         await apiPost("/api/v1/feedback", {
           target_id: state.currentTarget,
@@ -464,10 +611,10 @@ export async function renderEventDetail(eventId) {
     };
 
     const submitComment = async () => {
-      const input = $("#feedbackComment");
+      const input = document.getElementById("feedbackComment");
       const comment = input.value.trim();
       if (!comment) return;
-      const statusEl = $("#feedbackStatus");
+      const statusEl = document.getElementById("feedbackStatus");
       try {
         await apiPost("/api/v1/feedback", {
           target_id: state.currentTarget,
@@ -482,12 +629,12 @@ export async function renderEventDetail(eventId) {
       }
     };
 
-    $("#btnPublish").addEventListener("click", () => submitFeedback("publish_override"));
-    $("#btnArchive").addEventListener("click", () => submitFeedback("archive_override"));
-    $("#btnComment").addEventListener("click", submitComment);
+    document.getElementById("btnPublish").addEventListener("click", () => submitFeedback("publish_override"));
+    document.getElementById("btnArchive").addEventListener("click", () => submitFeedback("archive_override"));
+    document.getElementById("btnComment").addEventListener("click", submitComment);
   } catch (err) {
     showError(`加载事件详情失败: ${err.message}`);
-    dom.pageContainer.innerHTML = `
+    container.innerHTML = `
       <div class="detail-back" onclick="window.location.hash='#/events'">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/>

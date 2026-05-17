@@ -1732,7 +1732,10 @@ a:hover {
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-secondary { background: var(--bg-hover); color: var(--text-primary); }
 .btn-secondary:hover { background: var(--border-color); }
-.btn-sm { padding: 4px 10px; font-size: 0.8rem; }
+.btn-sm { padding: 4px 10px; font-size: 0.8rem; border: 1px solid var(--border-color); background: var(--bg-secondary); color: var(--text-primary); cursor: pointer; border-radius: var(--radius-sm); }
+.btn-sm:hover { background: var(--bg-hover); }
+.btn-sm.active { background: var(--accent-blue); color: #fff; border-color: var(--accent-blue); }
+.date-range-btns { display: inline-flex; gap: 4px; }
 .btn-xs { padding: 2px 6px; font-size: 0.7rem; line-height: 1.2; }
 .btn-save { margin-top: 16px; width: 100%; max-width: 200px; }
 
