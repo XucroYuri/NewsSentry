@@ -1,20 +1,34 @@
 /**
- * News Sentry — Dashboard 页面
+ * News Sentry — Dashboard 概览 Tab
+ * 4 统计卡片 + 时间维度切换 + 重要事件列表 + 侧边栏 + 导出简报
  */
 
 "use strict";
 
-import { api, state, dom, $, escapeHtml, showError, scoreGradient, sentimentLabelColor } from "../api.js";
+import {
+  state, api, escapeHtml, formatDate, showSuccess, showError,
+  scoreColor, scoreGradient, scoreBar, entityChipsHtml, sentimentDotHtml,
+  copyToClipboard, exportBriefingMarkdown,
+} from "../api.js";
 
-// ── 页面渲染：Dashboard ──────────────────────────────────
+/** 当前选中的时间维度: 1 / 7 / 30 */
+let currentDays = 1;
 
-export async function renderDashboard() {
-  dom.pageContainer.innerHTML = `
-    <div class="loading-spinner"><div class="spinner"></div><p>正在加载概览数据...</p></div>
-  `;
+/** 缓存已加载的数据供导出使用 */
+let cachedStats = null;
+let cachedTopEvents = [];
+
+/**
+ * 渲染概览 Tab 到指定容器。
+ * @param {HTMLElement} container
+ */
+export async function renderOverviewTab(container) {
+  currentDays = 1;
+  cachedStats = null;
+  cachedTopEvents = [];
 
   if (!state.currentTarget) {
-    dom.pageContainer.innerHTML = `
+    container.innerHTML = `
       <div class="empty-state">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <circle cx="12" cy="12" r="10"/><path d="M8 15h8"/><circle cx="9" cy="9" r="1" fill="currentColor"/><circle cx="15" cy="9" r="1" fill="currentColor"/>
@@ -25,201 +39,327 @@ export async function renderDashboard() {
     return;
   }
 
+  container.innerHTML = `
+    <div class="dashboard">
+      <!-- 时间维度切换 -->
+      <div class="time-switcher">
+        <button class="btn-days active" data-days="1">今日</button>
+        <button class="btn-days" data-days="7">7 天</button>
+        <button class="btn-days" data-days="30">30 天</button>
+      </div>
+
+      <!-- 4 统计卡片 -->
+      <div class="stat-cards" id="dashStatCards">
+        <div class="stat-card"><div class="stat-value" id="statTotal">-</div><div class="stat-label">今日事件</div><div class="stat-diff" id="statTotalDiff"></div></div>
+        <div class="stat-card"><div class="stat-value accent-green" id="statHighValue">-</div><div class="stat-label">高价值事件</div><div class="stat-sub" id="statHighSub"></div></div>
+        <div class="stat-card"><div class="stat-value accent-blue" id="statChains">-</div><div class="stat-label">追踪链</div><div class="stat-sub" id="statChainsSub"></div></div>
+        <div class="stat-card"><div class="stat-value" id="statStatus">-</div><div class="stat-label">系统状态</div><div class="stat-sub" id="statHeartbeat"></div></div>
+      </div>
+
+      <!-- 双栏布局 -->
+      <div class="dashboard-grid">
+        <!-- 左栏: 重要事件列表 -->
+        <div class="dashboard-main">
+          <div class="card">
+            <div class="section-title">重要事件</div>
+            <div id="dashTopEvents">
+              <div class="loading-spinner"><div class="spinner"></div><p>正在加载...</p></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 右栏: 侧边栏 -->
+        <div class="dashboard-sidebar">
+          <div class="card">
+            <div class="section-title">热门实体</div>
+            <div id="dashEntities"><p style="color:var(--text-muted);font-size:0.85rem;">加载中...</p></div>
+          </div>
+          <div class="card">
+            <div class="section-title">主题趋势</div>
+            <div id="dashTopics"><p style="color:var(--text-muted);font-size:0.85rem;">加载中...</p></div>
+          </div>
+          <div class="card">
+            <div class="section-title">来源分布</div>
+            <div id="dashSourceDist"><p style="color:var(--text-muted);font-size:0.85rem;">加载中...</p></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 导出简报 -->
+      <div style="margin-top:1rem;">
+        <button class="btn-secondary" id="exportBriefing">导出今日简报</button>
+      </div>
+    </div>
+  `;
+
+  // 时间维度切换
+  container.querySelectorAll(".btn-days").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      container.querySelectorAll(".btn-days").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      currentDays = parseInt(btn.dataset.days, 10);
+      loadData(container);
+    });
+  });
+
+  // 导出简报
+  container.querySelector("#exportBriefing").addEventListener("click", () => {
+    handleExportBriefing();
+  });
+
+  await loadData(container);
+}
+
+// ── 数据加载 ─────────────────────────────────────────────
+
+async function loadData(container) {
+  const tid = state.currentTarget;
+  if (!tid) return;
+
   try {
-    const [statsResp, todayResp, topResp, trendsResp] = await Promise.all([
-      api("/api/v1/stats", { target_id: state.currentTarget }),
-      api(`/api/v1/stats/today?target_id=${state.currentTarget}`).catch(() => null),
-      api(`/api/v1/events/top?target_id=${state.currentTarget}&days=7&limit=5`).catch(() => null),
-      api(`/api/v1/trends/topics?target_id=${state.currentTarget}&days=14`).catch(() => null),
+    // 根据时间维度构建不同的 API 调用
+    const statsPath = currentDays === 1
+      ? `/api/v1/stats/today?target_id=${tid}`
+      : `/api/v1/stats?target_id=${tid}&days=${currentDays}`;
+
+    const [statsResp, eventsResp, topicsResp, entitiesResp, collectorResp] = await Promise.all([
+      api(statsPath).catch(() => null),
+      api("/api/v1/events", { target_id: tid, limit: 10, sort_by: "news_value_score", sort_order: "desc" }).catch(() => null),
+      api(`/api/v1/stats/trends/topics?target_id=${tid}&limit=10`).catch(() => null),
+      api("/api/v1/entities", { target_id: tid, limit: 10 }).catch(() => null),
+      api("/api/v1/collector/status").catch(() => null),
     ]);
 
-    const stats = statsResp;
-    const today = todayResp;
-    const topEvents = topResp?.events || [];
-    const trendingTopics = (trendsResp?.topics || []).filter(t => t.trend_direction === "rising").slice(0, 3);
+    cachedStats = statsResp;
+    cachedTopEvents = eventsResp?.events || eventsResp?.items || [];
 
-    // 今日对比卡片
-    let todayCardsHtml = "";
-    if (today) {
-      const diffCount = today.yesterday_count > 0
-        ? today.today_count - today.yesterday_count : 0;
-      const diffAvg = today.yesterday_avg_score != null && today.today_avg_score != null
-        ? (today.today_avg_score - today.yesterday_avg_score) : 0;
+    renderStatCards(container, statsResp, collectorResp);
+    renderTopEvents(container, cachedTopEvents);
+    renderEntities(container, entitiesResp);
+    renderTopics(container, topicsResp);
+    renderSourceDistribution(container, statsResp);
+  } catch (err) {
+    showError(`加载概览失败: ${err.message}`);
+  }
+}
 
-      todayCardsHtml = `
-        <div class="stat-cards today-cards">
-          <div class="stat-card">
-            <div class="stat-label">今日事件</div>
-            <div class="stat-value">${today.today_count || "—"}</div>
-            ${today.yesterday_count > 0 ? `<div class="stat-diff ${diffCount >= 0 ? "diff-up" : "diff-down"}">${diffCount >= 0 ? "↑" : "↓"}${Math.abs(diffCount)} vs 昨日</div>` : ""}
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">今日均分</div>
-            <div class="stat-value">${today.today_avg_score != null ? today.today_avg_score : "—"}</div>
-            ${diffAvg !== 0 ? `<div class="stat-diff ${diffAvg >= 0 ? "diff-up" : "diff-down"}">${diffAvg >= 0 ? "↑" : "↓"}${Math.abs(diffAvg).toFixed(1)}</div>` : ""}
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">今日高分</div>
-            <div class="stat-value accent-green">${today.today_max_score != null ? today.today_max_score : "—"}</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">趋势主题</div>
-            <div class="stat-value">${trendingTopics.length > 0
-              ? trendingTopics.map(t => `<span class="trend-badge badge-rising">${escapeHtml(t.topic)}</span>`).join(" ")
-              : "—"}</div>
+// ── 统计卡片 ─────────────────────────────────────────────
+
+function renderStatCards(container, stats, collector) {
+  const el = (id) => container.querySelector(`#${id}`);
+  if (!stats) {
+    el("statTotal").textContent = "—";
+    el("statHighValue").textContent = "—";
+    el("statChains").textContent = "—";
+    el("statStatus").textContent = "—";
+    return;
+  }
+
+  // 卡片 1: 事件总数 + 环比变化
+  if (currentDays === 1) {
+    const total = stats.today_count ?? stats.total_events ?? "—";
+    el("statTotal").textContent = total;
+    const diff = (stats.yesterday_count != null && stats.today_count != null)
+      ? stats.today_count - stats.yesterday_count : null;
+    if (diff != null && stats.yesterday_count > 0) {
+      el("statTotalDiff").className = `stat-diff ${diff >= 0 ? "diff-up" : "diff-down"}`;
+      el("statTotalDiff").textContent = `${diff >= 0 ? "↑" : "↓"}${Math.abs(diff)} vs 昨日`;
+    } else {
+      el("statTotalDiff").textContent = "";
+    }
+  } else {
+    el("statTotal").textContent = stats.total_events ?? "—";
+    el("statTotalDiff").textContent = currentDays === 7 ? "近 7 天" : "近 30 天";
+  }
+
+  // 卡片 2: 高价值事件 (score >= 80)
+  if (currentDays === 1) {
+    const highVal = stats.today_high_value ?? "—";
+    el("statHighValue").textContent = highVal;
+    el("statHighSub").textContent = stats.today_avg_score != null
+      ? `均分 ${Number(stats.today_avg_score).toFixed(1)}` : "";
+  } else {
+    const highCount = stats.high_value_count ?? "—";
+    el("statHighValue").textContent = highCount;
+    el("statHighSub").textContent = stats.avg_news_value_score != null
+      ? `均分 ${Number(stats.avg_news_value_score).toFixed(1)}` : "";
+  }
+
+  // 卡片 3: 追踪链
+  const chainCount = stats.tracking_chain_count ?? stats.active_chains ?? "—";
+  el("statChains").textContent = chainCount;
+  el("statChainsSub").textContent = "";
+
+  // 卡片 4: 系统状态 + 采集器心跳
+  if (collector) {
+    const isHealthy = collector.status === "running" || collector.status === "healthy";
+    el("statStatus").textContent = isHealthy ? "运行中" : (collector.status || "未知");
+    el("statStatus").style.color = isHealthy ? "var(--accent-green)" : "var(--accent-red)";
+    const lastRun = collector.last_run || collector.last_collect;
+    el("statHeartbeat").textContent = lastRun ? `上次采集: ${formatDate(lastRun)}` : "";
+  } else {
+    el("statStatus").textContent = "—";
+    el("statHeartbeat").textContent = "";
+  }
+}
+
+// ── 重要事件列表 ─────────────────────────────────────────
+
+function valueBarColor(score) {
+  const s = Number(score) || 0;
+  if (s >= 90) return "#f97316"; // orange
+  if (s >= 80) return "#3b82f6"; // blue
+  if (s >= 70) return "#10b981"; // green
+  return "var(--text-muted)";
+}
+
+function renderTopEvents(container, events) {
+  const area = container.querySelector("#dashTopEvents");
+  if (!area) return;
+
+  if (!events || events.length === 0) {
+    area.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">暂无高价值事件</p>';
+    return;
+  }
+
+  area.innerHTML = `<div class="top-events-list">
+    ${events.map((ev) => {
+      const score = ev.news_value_score || ev.importance_score || 0;
+      const title = ev.title_original || ev.title || ev.headline || "—";
+      const source = ev.source_id || ev.source || "—";
+      const time = ev.published_at || ev.collected_at;
+      const classification = ev.classification || ev.metadata?.classification;
+      const entities = ev.entities || ev.extracted_entities || [];
+      const chainId = ev.tracking_chain_id || ev.chain_id;
+      const sentiment = ev.sentiment || ev.metadata?.sentiment;
+
+      return `
+        <div class="top-event-row" onclick="location.hash='#/events/${encodeURIComponent(ev.event_id || ev.id)}'" style="cursor:pointer">
+          <div class="top-event-color-bar" style="background:${valueBarColor(score)}"></div>
+          <div class="top-event-content">
+            <div class="top-event-header">
+              <span class="top-event-title">${escapeHtml(title)}</span>
+              <span class="score-badge" style="background:${valueBarColor(score)}20;color:${valueBarColor(score)}">${score}</span>
+            </div>
+            <div class="top-event-meta">
+              ${classification ? `<span class="chip chip-classification">${escapeHtml(classification)}</span>` : ""}
+              ${sentiment ? sentimentDotHtml(sentiment) : ""}
+              <span class="meta-item">${escapeHtml(source)}</span>
+              <span class="meta-item">${time ? formatDate(time) : "—"}</span>
+            </div>
+            <div class="top-event-tags">
+              ${entityChipsHtml(entities, 3)}
+              ${chainId ? `<a class="chip chip-chain" href="#/chains/${encodeURIComponent(chainId)}" onclick="event.stopPropagation()">链 ${escapeHtml(String(chainId).slice(0, 8))}</a>` : ""}
+            </div>
           </div>
         </div>
       `;
-    }
+    }).join("")}
+  </div>`;
+}
 
-    // 统计卡片
-    const cardsHtml = `
-      <div class="stat-cards">
-        <div class="stat-card">
-          <div class="stat-label">事件总数</div>
-          <div class="stat-value accent-blue">${stats.total_events ?? "—"}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">平均新闻价值</div>
-          <div class="stat-value accent-green">
-            ${stats.avg_news_value_score != null ? Number(stats.avg_news_value_score).toFixed(1) : "—"}
-          </div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">平均中国相关度</div>
-          <div class="stat-value accent-orange">
-            ${stats.avg_china_relevance != null ? Number(stats.avg_china_relevance).toFixed(1) : "—"}
-          </div>
-        </div>
-      </div>
-    `;
+// ── 热门实体 (标签云) ───────────────────────────────────
 
-    // 近期高价值事件 Top5
-    const topEventsHtml = topEvents.length
-      ? `<div class="card">
-          <div class="section-title">近期高价值事件</div>
-          <table class="data-table top-events-table">
-            <thead><tr><th>标题</th><th>分数</th><th>来源</th><th>时间</th></tr></thead>
-            <tbody>
-              ${topEvents.map(e => `
-                <tr class="top-event-row" onclick="location.hash='#/events/${encodeURIComponent(e.event_id)}'" style="cursor:pointer">
-                  <td>${escapeHtml(e.title_original || "—")}</td>
-                  <td><span class="score-badge" style="color:${scoreGradient(e.news_value_score || 0)}">${e.news_value_score}</span></td>
-                  <td>${escapeHtml(e.source_id || "—")}</td>
-                  <td>${e.published_at ? new Date(e.published_at).toLocaleString("zh-CN") : "—"}</td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-        </div>`
-      : "";
+function renderEntities(container, resp) {
+  const area = container.querySelector("#dashEntities");
+  if (!area) return;
 
-    // 分类分布条形图
-    const byClass = stats.by_classification || {};
-    const classEntries = Object.entries(byClass).sort((a, b) => b[1] - a[1]);
-    const classMax = classEntries.length ? classEntries[0][1] : 1;
-    const classChartHtml = classEntries.length
-      ? classEntries
-          .map(
-            ([k, v]) => `
-          <div class="bar-chart-item">
-            <span class="bar-chart-label" title="${escapeHtml(k)}">${escapeHtml(k)}</span>
-            <div class="bar-chart-track">
-              <div class="bar-chart-fill" style="width:${(v / classMax) * 100}%"></div>
-            </div>
-            <span class="bar-chart-count">${v}</span>
-          </div>
-        `
-          )
-          .join("")
-      : '<p style="color:var(--text-muted);font-size:0.85rem;">暂无数据</p>';
-
-    // 来源分布条形图
-    const bySource = stats.by_source || {};
-    const sourceEntries = Object.entries(bySource).sort((a, b) => b[1] - a[1]).slice(0, 12);
-    const sourceMax = sourceEntries.length ? sourceEntries[0][1] : 1;
-    const sourceChartHtml = sourceEntries.length
-      ? sourceEntries
-          .map(
-            ([k, v]) => `
-          <div class="bar-chart-item">
-            <span class="bar-chart-label" title="${escapeHtml(k)}">${escapeHtml(k)}</span>
-            <div class="bar-chart-track">
-              <div class="bar-chart-fill" style="width:${(v / sourceMax) * 100}%"></div>
-            </div>
-            <span class="bar-chart-count">${v}</span>
-          </div>
-        `
-          )
-          .join("")
-      : '<p style="color:var(--text-muted);font-size:0.85rem;">暂无数据</p>';
-
-    // Phase 33: 情感分布条形图
-    const bySentiment = stats.sentiment_breakdown || {};
-    const sentimentEntries = Object.entries(bySentiment);
-    const sentimentMax = sentimentEntries.length ? Math.max(...sentimentEntries.map(([, v]) => v)) : 1;
-    const sentimentColors = { positive: "#22c55e", negative: "#ef4444", neutral: "#6b7280", none: "#374151" };
-    const sentimentLabels = { positive: "正面", negative: "负面", neutral: "中性", none: "无" };
-    const sentimentChartHtml = sentimentEntries.length
-      ? sentimentEntries
-          .map(([k, v]) => `
-          <div class="bar-chart-item">
-            <span class="bar-chart-label">${escapeHtml(sentimentLabels[k] || k)}</span>
-            <div class="bar-chart-track">
-              <div class="bar-chart-fill" style="width:${(v / sentimentMax) * 100}%;background:${sentimentColors[k] || "var(--accent-blue)"}"></div>
-            </div>
-            <span class="bar-chart-count">${v}</span>
-          </div>
-        `)
-          .join("")
-      : '<p style="color:var(--text-muted);font-size:0.85rem;">暂无数据</p>';
-
-    // Phase 33: 高频实体
-    const topEntities = stats.top_entities || [];
-    const topEntitiesHtml = topEntities.length
-      ? `<div class="top-entities-list">
-          ${topEntities.map((e) => `
-            <a class="top-entity-item" href="#/entities/${encodeURIComponent(e.name)}">
-              <span class="top-entity-name">${escapeHtml(e.name)}</span>
-              <span class="chip chip-entity">${escapeHtml(e.entity_type)}</span>
-              <span class="top-entity-count">${e.mention_count}</span>
-            </a>
-          `).join("")}
-        </div>`
-      : '<p style="color:var(--text-muted);font-size:0.85rem;">暂无实体数据</p>';
-
-    dom.pageContainer.innerHTML = `
-      ${todayCardsHtml}
-      ${cardsHtml}
-      ${topEventsHtml}
-      <div class="dashboard-grid">
-        <div class="card">
-          <div class="section-title">分类分布</div>
-          <div class="bar-chart">${classChartHtml}</div>
-        </div>
-        <div class="card">
-          <div class="section-title">来源分布</div>
-          <div class="bar-chart">${sourceChartHtml}</div>
-        </div>
-        <div class="card">
-          <div class="section-title">情感分布</div>
-          <div class="bar-chart">${sentimentChartHtml}</div>
-        </div>
-        <div class="card">
-          <div class="section-title">高频实体</div>
-          ${topEntitiesHtml}
-        </div>
-      </div>
-    `;
-  } catch (err) {
-    showError(`加载概览失败: ${err.message}`);
-    dom.pageContainer.innerHTML = `
-      <div class="empty-state">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-        </svg>
-        <p>加载数据失败，请检查 API 服务是否正常</p>
-      </div>
-    `;
+  const entities = resp?.entities || resp?.items || resp || [];
+  if (!Array.isArray(entities) || entities.length === 0) {
+    area.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">暂无实体数据</p>';
+    return;
   }
+
+  const maxMentions = Math.max(1, ...entities.map((e) => e.mention_count || e.count || 1));
+
+  area.innerHTML = `<div class="entity-cloud">
+    ${entities.map((e) => {
+      const name = e.name || e.entity_name || "—";
+      const type = e.entity_type || "";
+      const count = e.mention_count || e.count || 0;
+      const size = 0.75 + (count / maxMentions) * 0.5;
+      return `<a class="entity-tag" href="#/entities/${encodeURIComponent(name)}" style="font-size:${size}rem">${escapeHtml(name)}${type ? ` <small>${escapeHtml(type)}</small>` : ""}<sup>${count}</sup></a>`;
+    }).join(" ")}
+  </div>`;
+}
+
+// ── 主题趋势 (上升/下降箭头) ─────────────────────────────
+
+function renderTopics(container, resp) {
+  const area = container.querySelector("#dashTopics");
+  if (!area) return;
+
+  const topics = resp?.topics || resp?.items || [];
+  if (!Array.isArray(topics) || topics.length === 0) {
+    area.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">暂无趋势数据</p>';
+    return;
+  }
+
+  const dirIcons = { rising: "↑", stable: "→", falling: "↓" };
+  const dirClasses = { rising: "badge-rising", stable: "badge-stable", falling: "badge-falling" };
+
+  area.innerHTML = `<div class="topic-trend-list">
+    ${topics.map((t) => {
+      const topic = t.topic || t.name || "—";
+      const dir = t.trend_direction || "stable";
+      const count = t.current_count || t.count || 0;
+      return `<div class="topic-trend-item">
+        <span class="trend-badge ${dirClasses[dir]}">${dirIcons[dir]}</span>
+        <span class="topic-trend-name">${escapeHtml(topic)}</span>
+        <span class="topic-trend-count">${count}</span>
+      </div>`;
+    }).join("")}
+  </div>`;
+}
+
+// ── 来源分布 ─────────────────────────────────────────────
+
+function renderSourceDistribution(container, stats) {
+  const area = container.querySelector("#dashSourceDist");
+  if (!area) return;
+
+  const bySource = stats?.by_source || {};
+  const entries = Object.entries(bySource).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  if (entries.length === 0) {
+    area.innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">暂无来源数据</p>';
+    return;
+  }
+
+  const maxVal = entries[0][1];
+  area.innerHTML = `<div class="bar-chart">
+    ${entries.map(([k, v]) => `
+      <div class="bar-chart-item">
+        <span class="bar-chart-label" title="${escapeHtml(k)}">${escapeHtml(k)}</span>
+        <div class="bar-chart-track">
+          <div class="bar-chart-fill" style="width:${(v / maxVal) * 100}%"></div>
+        </div>
+        <span class="bar-chart-count">${v}</span>
+      </div>
+    `).join("")}
+  </div>`;
+}
+
+// ── 导出简报 ─────────────────────────────────────────────
+
+function handleExportBriefing() {
+  if (!cachedStats && cachedTopEvents.length === 0) {
+    showError("暂无数据可导出");
+    return;
+  }
+
+  const statsForExport = {};
+  if (cachedStats) {
+    if (currentDays === 1) {
+      statsForExport["今日事件"] = cachedStats.today_count ?? "—";
+      statsForExport["今日均分"] = cachedStats.today_avg_score ?? "—";
+      statsForExport["今日高分"] = cachedStats.today_max_score ?? "—";
+    } else {
+      statsForExport["事件总数"] = cachedStats.total_events ?? "—";
+      statsForExport["平均新闻价值"] = cachedStats.avg_news_value_score ?? "—";
+    }
+  }
+
+  const md = exportBriefingMarkdown(statsForExport, cachedTopEvents);
+  copyToClipboard(md);
+  showSuccess("简报已复制到剪贴板");
 }
