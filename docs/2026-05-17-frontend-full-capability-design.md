@@ -13,7 +13,7 @@
 
 | 决策 | 选择 | 理由 |
 |------|------|------|
-| 认证方案 | A+B 混合 | 首次全屏连接设置，侧边栏底部保留入口 |
+| 认证方案 | 用户自带 Key + Token 认证 | A+B 混合连接设置，API Key 换短期 Token，不存原始 Key |
 | 部署架构 | Cloudflare Pages 独立部署 | CDN 加速，容器内 StaticFiles 保留作后备 |
 | 导航架构 | 三层渐进式披露 | 降低认知负荷：看→管→配 |
 | 状态可视化 | 纯 CSS 动效 | 零 JS 开销，5 种 keyframes |
@@ -22,29 +22,69 @@
 
 ## 3. 认证系统
 
+### 3.0 认证模型：用户自带 API Key
+
+News Sentry 的认证模型不是「平台发放 Key」，而是「用户自带 Key」：
+
+- **当前阶段**：用户使用自己的 API Key（如 NEWSSENTRY_API_KEY，由部署者/管理员提供）连接到后端
+- **Phase 2**：每个用户拥有独立的 API Key，Key 关联到具体用户身份和角色
+- **Phase 3（商业化）**：用户自带的 Key 包括第三方服务密钥（Anthropic/OpenAI 等），平台按用户维度管理多个 Provider Key
+- **前端设计原则**：连接设置页始终允许用户输入自己的 Key，不预设「平台发放」的心智模型
+
 ### 3.1 连接设置页（首次访问）
 
 - 未检测到 `localStorage.ns_connection` 时显示全屏连接设置页
-- 包含：服务器地址（默认 `https://news-sentry.xuyu.workers.dev`）、API Key 输入框
-- 「验证并连接」按钮调用 `GET /api/v1/health` 验证
-- 成功：存入 `localStorage`，跳转新闻情报概览
-- 失败：显示错误提示，允许重试
+- 包含：
+  - **用户名**：用于标识操作者（Phase 2 扩展为完整用户账户）
+  - **服务器地址**（默认 `https://news-sentry.xuyu.workers.dev`）
+  - **API Key** 输入框（由用户提供，非平台发放）
+- 「验证并连接」按钮：
+  1. 调用 `POST /api/v1/auth/token` 用 API Key 换取短期 Token
+  2. 调用 `GET /api/v1/auth/me` 获取用户信息
+  3. 成功：Token + 用户信息存入 `localStorage`，跳转新闻情报概览
+  4. 失败：显示错误提示，允许重试
 
-### 3.2 连接状态
+### 3.2 Token 认证机制
+
+- **不直接存储原始 API Key**，而是换取短期 Token（TTL 24h）
+- 后端新增端点：
+  - `POST /api/v1/auth/token` — API Key → 短期 Token（JWT 或随机 Token）
+  - `GET /api/v1/auth/me` — 返回当前用户信息 `{username, role, permissions}`
+- Token 过期后前端自动重新认证（用户无感知，使用原 Key 换新 Token）
+- `localStorage.ns_connection` 存储：`{server, token, username, expiresAt}`
+
+### 3.3 连接状态
 
 - 侧边栏底部固定显示：
   - 连接状态圆点（绿色=正常，蓝色闪烁=运行中，红色=异常）
+  - 当前用户名
   - 上次采集时间文字
   - 「设置」链接（打开连接设置弹窗）
   - 微型心跳条（音频柱动效）
 
-### 3.3 API 请求封装
+### 3.4 API 请求封装
 
 - `api.js` 的 `api()` / `apiPost()` 等函数自动：
-  - 从 `localStorage.ns_connection` 读取 server 和 apiKey
-  - 附加 `X-API-Key` header
-  - 5 秒超时 + 2 次重试
+  - 从 `localStorage.ns_connection` 读取 server 和 token
+  - 附加 `Authorization: Bearer {token}` header
+  - 401 响应时自动尝试用原 Key 换新 Token（一次重试）
+  - 换 Token 失败则跳转连接设置页
+  - 5 秒超时 + 2 次重试（仅 GET）
   - 网络错误时侧边栏状态变红，不清空已加载内容
+
+### 3.5 安全增强
+
+- **前端速率限制**：请求队列最多 5 个并发；写入操作 300ms 防抖；触发类操作 5s 冷却期
+- **XSS 防护**：所有动态内容通过 textContent 而非 innerHTML 渲染；URL 参数严格校验；Worker 层注入 CSP header
+- **操作日志**：关键操作（触发采集、修改配置、导入事件、清理数据）记录到 localStorage，格式 `{timestamp, action, target, user, result}`，设置页可查看最近 100 条
+- **维护操作二次确认**：prune/backup/trigger 均需确认弹窗，显示影响范围
+
+### 3.6 多用户演进预留
+
+- `localStorage.ns_user` 存当前用户名，Phase 2 扩展为完整 user 对象
+- 侧边栏用户区域预留「计划」标签位（Phase 3 商业化）
+- auth 模块设计为可替换：Phase 2 扩展 login/logout/register，Phase 3 接 OAuth
+- 后端 audit API 预留：前端操作日志格式直接兼容后端存储
 
 ## 4. 导航架构
 
