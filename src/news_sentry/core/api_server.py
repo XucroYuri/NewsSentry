@@ -1116,7 +1116,10 @@ async def _bootstrap_users() -> None:
 @asynccontextmanager
 async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
     """FastAPI lifespan: 启动引导 + 后台采集循环。"""
-    await _bootstrap_users()
+    global _store
+    if _store is not None:
+        await _store.initialize()
+        await _bootstrap_users()
     task = None
     if _auto_collector_state["enabled"]:
         task = asyncio.create_task(_auto_collect_loop())
@@ -1153,7 +1156,10 @@ def create_app(
 
     _data_dir = Path(data_dir) if data_dir else Path("./data")
     global _store
-    _store = store
+    if store is not None:
+        _store = store
+    elif _store is None:
+        _store = AsyncStore(_data_dir / "async_store.db")
     _config_cache = ConfigCache(ttl=60, maxsize=128)
 
     # ── 公开端点（无需认证）─────────────────────────────
