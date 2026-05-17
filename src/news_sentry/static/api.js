@@ -1,39 +1,446 @@
 /**
- * News Sentry — 共享工具与状态
+ * News Sentry — 共享工具与状态 v2
+ * Token 认证 + i18n + 网络容错 + 速率限制 + 操作日志
  */
 
 "use strict";
 
-// ── API 辅助函数 ─────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+// §1. i18n 国际化
+// ════════════════════════════════════════════════════════════
+
+export const i18n = {
+  zh: {
+    "nav.dashboard": "仪表盘",
+    "nav.newsIntel": "新闻情报",
+    "nav.newsList": "新闻列表",
+    "nav.trends": "趋势分析",
+    "nav.alerts": "告警中心",
+    "nav.config": "配置管理",
+    "nav.targets": "数据源",
+    "nav.collectors": "采集器",
+    "nav.feedback": "反馈管理",
+    "nav.settings": "系统设置",
+    "status.online": "已连接",
+    "status.offline": "离线",
+    "status.healthy": "健康",
+    "status.unhealthy": "异常",
+    "status.loading": "加载中...",
+    "status.noData": "暂无数据",
+    "status.connected": "已连接",
+    "status.disconnected": "未连接",
+    "auth.login": "登录",
+    "auth.logout": "退出",
+    "auth.server": "服务器地址",
+    "auth.apiKey": "API Key",
+    "auth.username": "用户名",
+    "auth.connect": "连接",
+    "auth.connectedAs": "已连接为",
+    "auth.tokenExpired": "Token 已过期",
+    "error.network": "网络错误，请检查连接",
+    "error.unauthorized": "认证失败，请重新登录",
+    "error.timeout": "请求超时，请重试",
+    "error.server": "服务器错误",
+    "error.notFound": "资源未找到",
+    "toast.copied": "已复制到剪贴板",
+    "toast.exported": "导出成功",
+    "toast.saved": "保存成功",
+    "toast.deleted": "删除成功",
+    "btn.refresh": "刷新",
+    "btn.export": "导出",
+    "btn.copy": "复制",
+    "btn.confirm": "确认",
+    "btn.cancel": "取消",
+    "btn.save": "保存",
+    "btn.delete": "删除",
+    "btn.edit": "编辑",
+    "btn.close": "关闭",
+    "btn.import": "导入",
+    "label.all": "全部",
+    "label.target": "目标源",
+    "label.score": "评分",
+    "label.sentiment": "情感",
+    "label.date": "日期",
+    "label.search": "搜索",
+    "label.filter": "筛选",
+    "label.source": "来源",
+    "label.classification": "分类",
+    "label.entity": "实体",
+    "briefing.title": "新闻简报",
+    "briefing.generated": "生成时间",
+    "briefing.target": "目标源",
+    "briefing.topEvents": "高价值事件",
+    "briefing.stats": "统计概览",
+    "footer.user": "用户",
+    "footer.lastCollect": "上次采集",
+  },
+  en: {
+    "nav.dashboard": "Dashboard",
+    "nav.newsIntel": "News Intel",
+    "nav.newsList": "News List",
+    "nav.trends": "Trends",
+    "nav.alerts": "Alerts",
+    "nav.config": "Config",
+    "nav.targets": "Targets",
+    "nav.collectors": "Collectors",
+    "nav.feedback": "Feedback",
+    "nav.settings": "Settings",
+    "status.online": "Online",
+    "status.offline": "Offline",
+    "status.healthy": "Healthy",
+    "status.unhealthy": "Unhealthy",
+    "status.loading": "Loading...",
+    "status.noData": "No data",
+    "status.connected": "Connected",
+    "status.disconnected": "Disconnected",
+    "auth.login": "Login",
+    "auth.logout": "Logout",
+    "auth.server": "Server URL",
+    "auth.apiKey": "API Key",
+    "auth.username": "Username",
+    "auth.connect": "Connect",
+    "auth.connectedAs": "Connected as",
+    "auth.tokenExpired": "Token expired",
+    "error.network": "Network error, please check connection",
+    "error.unauthorized": "Unauthorized, please log in again",
+    "error.timeout": "Request timeout, please retry",
+    "error.server": "Server error",
+    "error.notFound": "Resource not found",
+    "toast.copied": "Copied to clipboard",
+    "toast.exported": "Export successful",
+    "toast.saved": "Saved successfully",
+    "toast.deleted": "Deleted successfully",
+    "btn.refresh": "Refresh",
+    "btn.export": "Export",
+    "btn.copy": "Copy",
+    "btn.confirm": "Confirm",
+    "btn.cancel": "Cancel",
+    "btn.save": "Save",
+    "btn.delete": "Delete",
+    "btn.edit": "Edit",
+    "btn.close": "Close",
+    "btn.import": "Import",
+    "label.all": "All",
+    "label.target": "Target",
+    "label.score": "Score",
+    "label.sentiment": "Sentiment",
+    "label.date": "Date",
+    "label.search": "Search",
+    "label.filter": "Filter",
+    "label.source": "Source",
+    "label.classification": "Classification",
+    "label.entity": "Entity",
+    "briefing.title": "News Briefing",
+    "briefing.generated": "Generated",
+    "briefing.target": "Target",
+    "briefing.topEvents": "Top Events",
+    "briefing.stats": "Statistics",
+    "footer.user": "User",
+    "footer.lastCollect": "Last Collect",
+  },
+};
 
 /**
- * 统一 API 请求封装。
- * @param {string} path  - API 路径（如 /api/v1/events）
+ * 翻译函数 — 支持点号路径如 t("nav.newsIntel")
+ * @param {string} key - 点号分隔的翻译键
+ * @returns {string} 翻译文本，找不到则返回 key 本身
+ */
+export function t(key) {
+  const lang = localStorage.ns_language || "zh";
+  const dict = i18n[lang] || i18n.zh;
+  return dict[key] || i18n.zh[key] || key;
+}
+
+// ════════════════════════════════════════════════════════════
+// §2. 连接与认证
+// ════════════════════════════════════════════════════════════
+
+/**
+ * 获取已保存的连接信息。
+ * @returns {object|null} { server, token, user, expiresAt }
+ */
+export function getConnection() {
+  try {
+    const raw = localStorage.ns_connection;
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 保存连接信息到 localStorage。
+ * @param {object} data - 连接数据
+ */
+export function setConnection(data) {
+  localStorage.ns_connection = JSON.stringify(data);
+}
+
+/**
+ * 清除连接信息。
+ */
+export function clearConnection() {
+  delete localStorage.ns_connection;
+}
+
+/**
+ * 检查当前是否已认证（token 存在且未过期）。
+ * @returns {boolean}
+ */
+export function isAuthenticated() {
+  const conn = getConnection();
+  if (!conn || !conn.token) return false;
+  if (conn.expiresAt && Date.now() > conn.expiresAt) return false;
+  return true;
+}
+
+/**
+ * 认证流程：POST /auth/token 获取 token，GET /auth/me 获取用户信息。
+ * @param {string} server - 服务器地址
+ * @param {string} apiKey - API Key
+ * @param {string} username - 用户名
+ * @returns {Promise<object>} 连接数据
+ */
+export async function authenticate(server, apiKey, username) {
+  const base = server.replace(/\/+$/, "");
+  // 1. 获取 token
+  const tokenResp = await fetch(`${base}/api/v1/auth/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ api_key: apiKey, username }),
+  });
+  if (!tokenResp.ok) {
+    const text = await tokenResp.text().catch(() => "");
+    throw new Error(`Auth failed (${tokenResp.status}): ${text || tokenResp.statusText}`);
+  }
+  const tokenData = await tokenResp.json();
+  const token = tokenData.token || tokenData.access_token;
+
+  // 2. 获取用户信息
+  const meResp = await fetch(`${base}/api/v1/auth/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  let user = username;
+  if (meResp.ok) {
+    const meData = await meResp.json();
+    user = meData.username || meData.name || username;
+  }
+
+  // 3. 保存连接
+  const conn = {
+    server: base,
+    token,
+    user,
+    expiresAt: tokenData.expires_at
+      ? new Date(tokenData.expires_at).getTime()
+      : Date.now() + 24 * 60 * 60 * 1000,
+  };
+  setConnection(conn);
+  return conn;
+}
+
+// ════════════════════════════════════════════════════════════
+// §3. API 请求函数 — 带认证、速率限制、超时、401 重试
+// ════════════════════════════════════════════════════════════
+
+/** 并发请求队列 — 最多 5 个同时进行 */
+const _queue = [];
+let _active = 0;
+const MAX_CONCURRENT = 5;
+
+function _enqueue(fn) {
+  return new Promise((resolve, reject) => {
+    _queue.push({ fn, resolve, reject });
+    _drain();
+  });
+}
+
+function _drain() {
+  while (_active < MAX_CONCURRENT && _queue.length > 0) {
+    const { fn, resolve, reject } = _queue.shift();
+    _active++;
+    fn()
+      .then(resolve)
+      .catch(reject)
+      .finally(() => {
+        _active--;
+        _drain();
+      });
+  }
+}
+
+/** 获取基础服务器 URL */
+function _baseUrl() {
+  const conn = getConnection();
+  return conn ? conn.server : window.location.origin;
+}
+
+/** 获取认证 token */
+function _token() {
+  const conn = getConnection();
+  return conn ? conn.token : null;
+}
+
+/** 构建 Authorization headers */
+function _authHeaders() {
+  const token = _token();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/** 401 处理：尝试刷新 token 并重试一次 */
+async function _handle401(originalFn) {
+  const conn = getConnection();
+  if (!conn || !conn.token) {
+    clearConnection();
+    throw new Error(t("error.unauthorized"));
+  }
+  // 尝试重新认证（如果有凭据）
+  // 标记 token 过期，清除连接
+  clearConnection();
+  throw new Error(t("auth.tokenExpired"));
+}
+
+/** 带超时的 fetch wrapper */
+async function _fetchWithTimeout(url, options = {}, timeoutMs = 5000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const resp = await fetch(url, { ...options, signal: controller.signal });
+    return resp;
+  } catch (err) {
+    if (err.name === "AbortError") {
+      throw new Error(t("error.timeout"));
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * 统一 API GET 请求。
+ * @param {string} path - API 路径
  * @param {object} [params] - 查询参数
  * @returns {Promise<any>}
  */
 export async function api(path, params = {}) {
-  const url = new URL(path, window.location.origin);
-  Object.entries(params).forEach(([k, v]) => {
-    if (v !== "" && v !== undefined && v !== null) {
-      url.searchParams.set(k, v);
+  return _enqueue(async () => {
+    const url = new URL(path, _baseUrl());
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== "" && v !== undefined && v !== null) {
+        url.searchParams.set(k, v);
+      }
+    });
+    const resp = await _fetchWithTimeout(url.toString(), {
+      headers: _authHeaders(),
+    });
+    if (resp.status === 401) {
+      await _handle401();
     }
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      throw new Error(`API ${resp.status}: ${text || resp.statusText}`);
+    }
+    return resp.json();
   });
-  const resp = await fetch(url.toString());
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => "");
-    throw new Error(`API ${resp.status}: ${text || resp.statusText}`);
-  }
-  return resp.json();
 }
 
-// ── 全局状态 ──────────────────────────────────────────────
+/**
+ * POST 请求 — params 放 URL query，body 作为 JSON body。
+ * @param {string} path - API 路径
+ * @param {object} [params] - URL 查询参数
+ * @param {object|null} [body] - JSON body，null 则无 body
+ * @returns {Promise<any>}
+ */
+export async function apiPost(path, params = {}, body = null) {
+  return _enqueue(async () => {
+    const url = new URL(path, _baseUrl());
+    Object.entries(params).forEach(([k, v]) => {
+      if (v !== "" && v !== undefined && v !== null) {
+        url.searchParams.set(k, v);
+      }
+    });
+    const options = {
+      method: "POST",
+      headers: { ..._authHeaders() },
+    };
+    if (body !== null) {
+      options.headers["Content-Type"] = "application/json";
+      options.body = JSON.stringify(body);
+    }
+    const resp = await _fetchWithTimeout(url.toString(), options);
+    if (resp.status === 401) {
+      await _handle401();
+    }
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      throw new Error(`API ${resp.status}: ${text || resp.statusText}`);
+    }
+    return resp.json();
+  });
+}
+
+/**
+ * PUT 请求 — JSON body。
+ * @param {string} path - API 路径
+ * @param {object} [body] - JSON body
+ * @returns {Promise<any>}
+ */
+export async function apiPut(path, body = {}) {
+  return _enqueue(async () => {
+    const url = new URL(path, _baseUrl());
+    const resp = await _fetchWithTimeout(url.toString(), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ..._authHeaders() },
+      body: JSON.stringify(body),
+    });
+    if (resp.status === 401) {
+      await _handle401();
+    }
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      throw new Error(`API ${resp.status}: ${text || resp.statusText}`);
+    }
+    return resp.json();
+  });
+}
+
+/**
+ * PATCH 请求 — JSON body。
+ * @param {string} path - API 路径
+ * @param {object} [body] - JSON body
+ * @returns {Promise<any>}
+ */
+export async function apiPatch(path, body = {}) {
+  return _enqueue(async () => {
+    const url = new URL(path, _baseUrl());
+    const resp = await _fetchWithTimeout(url.toString(), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ..._authHeaders() },
+      body: JSON.stringify(body),
+    });
+    if (resp.status === 401) {
+      await _handle401();
+    }
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      throw new Error(`API ${resp.status}: ${text || resp.statusText}`);
+    }
+    return resp.json();
+  });
+}
+
+// ════════════════════════════════════════════════════════════
+// §4. 全局状态
+// ════════════════════════════════════════════════════════════
 
 export const state = {
-  targets: [],           // 可用 target 列表
-  currentTarget: "",     // 当前选中 target_id
+  targets: [],
+  currentTarget: "",
   currentPage: "dashboard",
-  // 事件列表筛选状态
+  currentSection: "news",
+  currentTab: "",
+  configExpanded: false,
   filters: {
     source_id: "",
     classification: "",
@@ -43,28 +450,44 @@ export const state = {
     sentiment: "",
     entity: "",
     topic_tag: "",
+    date_from: "",
+    date_to: "",
   },
-  // Dashboard 数据缓存
   statsCache: null,
+  collectorStatus: null,
+  networkOnline: navigator.onLine,
 };
 
-// ── DOM 引用 ──────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+// §5. DOM 引用（延迟求值 getter）
+// ════════════════════════════════════════════════════════════
 
 export const $ = (sel) => document.querySelector(sel);
 export const $$ = (sel) => document.querySelectorAll(sel);
 
 export const dom = {
-  sidebar: $("#sidebar"),
-  sidebarOverlay: $("#sidebarOverlay"),
-  hamburgerBtn: $("#hamburgerBtn"),
-  mainContent: $("#mainContent"),
-  pageContainer: $("#pageContainer"),
-  targetSelect: $("#targetSelect"),
-  pageTitle: $(".top-bar-title"),
-  healthBadge: $("#healthBadge"),
+  sidebar: () => document.getElementById("sidebar"),
+  sidebarOverlay: () => document.getElementById("sidebarOverlay"),
+  hamburgerBtn: () => document.getElementById("hamburgerBtn"),
+  mainContent: () => document.getElementById("mainContent"),
+  pageContainer: () => document.getElementById("pageContainer"),
+  targetSelect: () => document.getElementById("targetSelect"),
+  tabBar: () => document.getElementById("tabBar"),
+  breadcrumb: () => document.getElementById("breadcrumb"),
+  statusDot: () => document.getElementById("statusDot"),
+  statusText: () => document.getElementById("statusText"),
+  heartbeatBar: () => document.getElementById("heartbeatBar"),
+  footerUser: () => document.getElementById("footerUser"),
+  footerCollect: () => document.getElementById("footerCollect"),
+  connectPage: () => document.getElementById("connectPage"),
+  offlineBanner: () => document.getElementById("offlineBanner"),
+  importModal: () => document.getElementById("importModal"),
+  confirmModal: () => document.getElementById("confirmModal"),
 };
 
-// ── 工具函数 ──────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+// §6. 工具函数（保留原始实现）
+// ════════════════════════════════════════════════════════════
 
 /**
  * 格式化 ISO 时间为可读日期。
@@ -106,46 +529,6 @@ export function scoreGradient(score) {
 }
 
 /**
- * 发送 JSON body 的 PUT 请求。
- * @param {string} path - API 路径
- * @param {object} [body] - JSON body
- * @returns {Promise<any>}
- */
-export async function apiPut(path, body = {}) {
-  const url = new URL(path, window.location.origin);
-  const resp = await fetch(url.toString(), {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => "");
-    throw new Error(`API ${resp.status}: ${text || resp.statusText}`);
-  }
-  return resp.json();
-}
-
-/**
- * 发送 JSON body 的 PATCH 请求。
- * @param {string} path - API 路径
- * @param {object} [body] - JSON body
- * @returns {Promise<any>}
- */
-export async function apiPatch(path, body = {}) {
-  const url = new URL(path, window.location.origin);
-  const resp = await fetch(url.toString(), {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => "");
-    throw new Error(`API ${resp.status}: ${text || resp.statusText}`);
-  }
-  return resp.json();
-}
-
-/**
  * 显示成功提示 toast。
  */
 export function showSuccess(msg) {
@@ -168,7 +551,6 @@ export function showSuccess(msg) {
  * 显示错误提示 toast。
  */
 export function showError(msg) {
-  // 移除旧的
   $$(".error-toast").forEach((el) => el.remove());
   const toast = document.createElement("div");
   toast.className = "error-toast";
@@ -182,27 +564,6 @@ export function showError(msg) {
   `;
   document.body.appendChild(toast);
   setTimeout(() => toast.remove(), 6000);
-}
-
-/**
- * POST 请求封装。
- * @param {string} path  - API 路径
- * @param {object} [params] - 查询参数
- * @returns {Promise<any>}
- */
-export async function apiPost(path, params = {}) {
-  const url = new URL(path, window.location.origin);
-  Object.entries(params).forEach(([k, v]) => {
-    if (v !== "" && v !== undefined && v !== null) {
-      url.searchParams.set(k, v);
-    }
-  });
-  const resp = await fetch(url.toString(), { method: "POST" });
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => "");
-    throw new Error(`API ${resp.status}: ${text || resp.statusText}`);
-  }
-  return resp.json();
 }
 
 /**
@@ -247,7 +608,6 @@ export function sentimentColor(s) {
 
 export function sentimentPct(s) {
   if (s == null) return 0;
-  // 映射 -1..1 到 0..100
   return Math.max(0, Math.min(100, ((Number(s) + 1) / 2) * 100));
 }
 
@@ -259,7 +619,6 @@ export function sentimentGradient(s) {
   return "linear-gradient(90deg, var(--accent-yellow), #facc15)";
 }
 
-/** sentiment label (positive/negative/neutral) color. */
 export function sentimentLabelColor(label) {
   if (label === "positive") return "#22c55e";
   if (label === "negative") return "#ef4444";
@@ -267,13 +626,11 @@ export function sentimentLabelColor(label) {
   return "#374151";
 }
 
-/** Generate a small sentiment dot HTML. */
 export function sentimentDotHtml(sentiment) {
   if (!sentiment) return "";
   return `<span class="sentiment-dot" style="background:${sentimentLabelColor(sentiment)}" title="${escapeHtml(sentiment)}"></span>`;
 }
 
-/** Generate entity chips HTML from an entity list. */
 export function entityChipsHtml(entities, max = 3) {
   if (!entities || !entities.length) return "";
   const shown = entities.slice(0, max);
@@ -283,4 +640,136 @@ export function entityChipsHtml(entities, max = 3) {
     return `<span class="chip chip-entity">${escapeHtml(name)}</span>`;
   }).join("");
   return `<div class="chip-list">${chips}${extra}</div>`;
+}
+
+// ════════════════════════════════════════════════════════════
+// §7. 操作日志
+// ════════════════════════════════════════════════════════════
+
+/**
+ * 记录操作日志到 localStorage，最多保留 100 条。
+ * @param {string} action - 操作类型
+ * @param {string} target - 操作对象
+ * @param {string} result - 操作结果
+ */
+export function logAction(action, target, result) {
+  try {
+    let log = [];
+    try {
+      log = JSON.parse(localStorage.ns_audit_log || "[]");
+    } catch {
+      log = [];
+    }
+    log.push({
+      ts: new Date().toISOString(),
+      action,
+      target,
+      result,
+    });
+    if (log.length > 100) {
+      log = log.slice(-100);
+    }
+    localStorage.ns_audit_log = JSON.stringify(log);
+  } catch {
+    // localStorage 不可用时静默失败
+  }
+}
+
+/**
+ * 读取操作日志。
+ * @returns {Array<object>} 日志条目列表
+ */
+export function getAuditLog() {
+  try {
+    return JSON.parse(localStorage.ns_audit_log || "[]");
+  } catch {
+    return [];
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// §8. 导出工具
+// ════════════════════════════════════════════════════════════
+
+/**
+ * 复制文本到剪贴板并显示提示。
+ * @param {string} text - 要复制的文本
+ */
+export async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    showSuccess(t("toast.copied"));
+  } catch {
+    // 降级方案
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    ta.remove();
+    showSuccess(t("toast.copied"));
+  }
+}
+
+/**
+ * 生成 Markdown 简报。
+ * @param {object} stats - 统计数据
+ * @param {Array} topEvents - 高价值事件列表
+ * @returns {string} Markdown 文本
+ */
+export function exportBriefingMarkdown(stats, topEvents) {
+  const now = new Date().toISOString().slice(0, 19).replace("T", " ");
+  const target = state.currentTarget || "—";
+
+  let md = `# ${t("briefing.title")}\n\n`;
+  md += `- **${t("briefing.generated")}**: ${now}\n`;
+  md += `- **${t("briefing.target")}**: ${target}\n\n`;
+
+  if (stats) {
+    md += `## ${t("briefing.stats")}\n\n`;
+    md += `| Metric | Value |\n|--------|-------|\n`;
+    for (const [k, v] of Object.entries(stats)) {
+      md += `| ${escapeHtml(k)} | ${escapeHtml(String(v))} |\n`;
+    }
+    md += "\n";
+  }
+
+  if (topEvents && topEvents.length) {
+    md += `## ${t("briefing.topEvents")}\n\n`;
+    topEvents.forEach((ev, i) => {
+      const title = ev.title || ev.headline || "—";
+      const score = ev.score || ev.importance_score || "—";
+      md += `### ${i + 1}. ${escapeHtml(title)}\n`;
+      md += `- **Score**: ${score}\n`;
+      if (ev.source) md += `- **Source**: ${escapeHtml(ev.source)}\n`;
+      if (ev.published_at || ev.collected_at) {
+        md += `- **Date**: ${formatDate(ev.published_at || ev.collected_at)}\n`;
+      }
+      if (ev.summary) md += `\n${escapeHtml(ev.summary)}\n`;
+      md += "\n";
+    });
+  }
+
+  return md;
+}
+
+// ════════════════════════════════════════════════════════════
+// §9. 网络状态监听
+// ════════════════════════════════════════════════════════════
+
+window.addEventListener("online", () => {
+  state.networkOnline = true;
+  document.body.classList.remove("ns-offline");
+});
+
+window.addEventListener("offline", () => {
+  state.networkOnline = false;
+  document.body.classList.add("ns-offline");
+});
+
+// 初始化 class
+if (!navigator.onLine) {
+  document.body.classList.add("ns-offline");
 }

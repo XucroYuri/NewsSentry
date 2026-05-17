@@ -23,6 +23,7 @@ import asyncio
 import json
 import logging
 import os
+import secrets
 import time
 import uuid
 from collections import defaultdict
@@ -34,7 +35,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from news_sentry.core.async_store import AsyncStore
@@ -634,6 +635,58 @@ class _RateLimiter:
 _rate_limiter = _RateLimiter()
 
 
+# ── Token 认证 ─────────────────────────────────────────
+
+_TOKEN_STORE: dict[str, dict[str, Any]] = {}
+_TOKEN_TTL = 86400  # 24 hours
+
+
+def _create_token(api_key: str) -> dict[str, Any] | None:
+    """用 API Key 换取短期 Token。"""
+    valid_keys = _get_valid_api_keys()
+    # 无配置 key 时为开发模式
+    if not valid_keys:
+        return {
+            "token": "dev-token",
+            "expires_at": int(time.time() + _TOKEN_TTL),
+            "username": "dev",
+        }
+    if api_key not in valid_keys:
+        return None
+    token = secrets.token_hex(32)
+    now = time.time()
+    _TOKEN_STORE[token] = {
+        "api_key": api_key,
+        "username": f"user_{api_key[:8]}",
+        "created_at": now,
+        "expires_at": now + _TOKEN_TTL,
+    }
+    return {
+        "token": token,
+        "expires_at": int(now + _TOKEN_TTL),
+        "username": f"user_{api_key[:8]}",
+    }
+
+
+def _verify_token(token: str) -> dict[str, Any] | None:
+    """验证 Token 有效性。"""
+    info = _TOKEN_STORE.get(token)
+    if not info:
+        return None
+    if time.time() > info["expires_at"]:
+        _TOKEN_STORE.pop(token, None)
+        return None
+    return info
+
+
+def _extract_bearer_token(request: Request) -> str | None:
+    """从 Authorization header 提取 Bearer token。"""
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:]
+    return None
+
+
 # ── 运行日志读取 ────────────────────────────────────────
 
 
@@ -1058,6 +1111,31 @@ def create_app(
             "last_run_at": _auto_collector_state["last_run_at"],
             "last_run_status": _auto_collector_state["last_run_status"],
             "total_runs": _auto_collector_state["total_runs"],
+        }
+
+    @app.post("/api/v1/auth/token")
+    async def auth_token(request: Request) -> dict[str, Any]:
+        """API Key 换取短期 Token。"""
+        body = await request.json()
+        api_key = body.get("api_key", "")
+        result = _create_token(api_key)
+        if not result:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+        return result
+
+    @app.get("/api/v1/auth/me")
+    async def auth_me(request: Request) -> dict[str, Any]:
+        """返回当前用户信息。"""
+        token = _extract_bearer_token(request)
+        if not token:
+            raise HTTPException(status_code=401, detail="Missing token")
+        info = _verify_token(token)
+        if not info:
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
+        return {
+            "username": info["username"],
+            "role": "admin",
+            "permissions": ["read", "write", "admin"],
         }
 
     @app.get("/api/v1/targets", response_model=TargetListResponse)
