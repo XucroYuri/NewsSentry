@@ -4,10 +4,52 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>News Sentry — 新闻情报监控</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src *;">
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 </head>
 <body>
+  <!-- 连接设置页（未认证时全屏显示） -->
+  <div id="connectPage" class="connect-page">
+    <div class="connect-card">
+      <div class="connect-logo">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+          <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+        </svg>
+      </div>
+      <h1 class="connect-title">News Sentry</h1>
+      <p class="connect-subtitle">新闻智能监控平台</p>
+      <div class="connect-form">
+        <div class="connect-field">
+          <label>用户名</label>
+          <input type="text" id="connectUsername" placeholder="输入用户名" autocomplete="username">
+        </div>
+        <div class="connect-field">
+          <label>服务器地址</label>
+          <input type="url" id="connectServer" value="https://news-sentry.xuyu.workers.dev">
+        </div>
+        <div class="connect-field">
+          <label>API Key</label>
+          <input type="password" id="connectApiKey" placeholder="输入 API Key">
+        </div>
+        <div class="connect-field">
+          <label>Language / 语言</label>
+          <select id="connectLanguage">
+            <option value="zh">中文</option>
+            <option value="en">English</option>
+          </select>
+        </div>
+        <button id="connectBtn" class="connect-btn">验证并连接</button>
+        <p class="connect-hint">API Key 可从系统管理员获取</p>
+        <p id="connectError" class="connect-error" style="display:none;"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 离线横幅 -->
+  <div id="offlineBanner" class="offline-banner" style="display:none;">网络连接已断开</div>
+
   <!-- 侧边栏遮罩（移动端） -->
   <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
@@ -24,113 +66,63 @@
     </div>
 
     <nav class="sidebar-nav">
-      <!-- 信息显示 -->
-      <div class="nav-section-label">信息显示</div>
-      <a href="#/dashboard" class="nav-item" data-page="dashboard">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="3" width="7" height="7" rx="1"/>
-          <rect x="14" y="3" width="7" height="7" rx="1"/>
-          <rect x="3" y="14" width="7" height="7" rx="1"/>
-          <rect x="14" y="14" width="7" height="7" rx="1"/>
-        </svg>
-        <span>概览</span>
+      <!-- 第一层：每日工作台 -->
+      <div class="nav-section-label">每日工作台</div>
+      <a href="#/news/overview" class="nav-item" data-section="news">
+        <span class="nav-icon">📰</span>
+        <span>新闻情报</span>
+        <span class="nav-badge" id="badgeNews" style="display:none;">0</span>
       </a>
-      <a href="#/events" class="nav-item" data-page="events">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-          <polyline points="14 2 14 8 20 8"/>
-          <line x1="16" y1="13" x2="8" y2="13"/>
-          <line x1="16" y1="17" x2="8" y2="17"/>
-          <polyline points="10 9 9 9 8 9"/>
-        </svg>
-        <span>事件列表</span>
-      </a>
-      <a href="#/chains" class="nav-item" data-page="chains">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
-        </svg>
-        <span>追踪链</span>
-      </a>
-      <a href="#/trends" class="nav-item" data-page="trends">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>
-        </svg>
-        <span>趋势分析</span>
-      </a>
-      <a href="#/entities" class="nav-item" data-page="entities">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>
-        </svg>
-        <span>实体追踪</span>
-      </a>
-      <a href="#/ops" class="nav-item" data-page="ops">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-        </svg>
-        <span>运维中心</span>
-      </a>
-      <a href="#/alerts" class="nav-item" data-page="alerts">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-        </svg>
-        <span>告警中心</span>
-      </a>
-      <a href="#/feedback" class="nav-item" data-page="feedback">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-        </svg>
-        <span>反馈管理</span>
+      <a href="#/alerts/live" class="nav-item" data-section="alerts">
+        <span class="nav-icon">🔔</span>
+        <span>告警通知</span>
+        <span class="nav-badge" id="badgeAlerts" style="display:none;">0</span>
       </a>
 
-      <!-- 分割线 -->
-      <div class="nav-divider"></div>
+      <!-- 第二层：系统管理 -->
+      <div class="nav-section-label">系统管理</div>
+      <a href="#/ops/status" class="nav-item" data-section="ops">
+        <span class="nav-icon">📊</span>
+        <span>运行监控</span>
+      </a>
+      <a href="#/feedback/records" class="nav-item" data-section="feedback">
+        <span class="nav-icon">💬</span>
+        <span>反馈优化</span>
+      </a>
 
-      <!-- 配置管理 -->
-      <div class="nav-section-label">配置管理</div>
-      <a href="#/config/target" class="nav-item" data-page="config-target">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-        </svg>
-        <span>Target 配置</span>
-      </a>
-      <a href="#/config/sources" class="nav-item" data-page="config-sources">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m9 9a9 9 0 0 1-9-9m9 9c1.66 0 3-4.03 3-9s-1.34-9-3-9m0 18c-1.66 0-3-4.03-3-9s1.34-9 3-9m-9 9a9 9 0 0 1 9-9"/>
-        </svg>
-        <span>Source 渠道</span>
-      </a>
-      <a href="#/config/filters" class="nav-item" data-page="config-filters">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
-        </svg>
-        <span>Filter 规则</span>
-      </a>
-      <a href="#/config/outputs" class="nav-item" data-page="config-outputs">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
-          <polyline points="22,6 12,13 2,6"/>
-        </svg>
-        <span>输出目的地</span>
-      </a>
-      <a href="#/config/provider" class="nav-item" data-page="config-provider">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
-        </svg>
-        <span>Provider 路由</span>
-      </a>
+      <!-- 第三层：高级配置（默认折叠） -->
+      <div class="nav-section-label nav-collapsible-toggle" id="configToggle">
+        高级配置 <span class="toggle-arrow">▼</span>
+      </div>
+      <div class="nav-collapsible" id="configNav" style="display:none;">
+        <a href="#/config/target" class="nav-item" data-section="config">
+          <span class="nav-icon">🔧</span>
+          <span>配置中心</span>
+        </a>
+      </div>
     </nav>
 
+    <!-- 侧边栏底部状态栏 -->
     <div class="sidebar-footer">
-      <div class="health-badge" id="healthBadge" title="API 连接状态">
-        <span class="health-dot"></span>
-        <span class="health-text">检测中...</span>
+      <div class="footer-status">
+        <span class="status-dot" id="statusDot"></span>
+        <span class="status-text" id="statusText">检测中...</span>
+      </div>
+      <div class="footer-heartbeat" id="heartbeatBar">
+        <span class="bar"></span><span class="bar"></span><span class="bar"></span>
+        <span class="bar"></span><span class="bar"></span><span class="bar"></span>
+        <span class="bar"></span><span class="bar"></span>
+      </div>
+      <div class="footer-meta">
+        <span class="footer-user" id="footerUser"></span>
+        <span class="footer-collect" id="footerCollect"></span>
+        <a href="#/connect" class="footer-settings">设置</a>
       </div>
     </div>
   </aside>
 
   <!-- 主内容区 -->
   <main class="main-content" id="mainContent">
-    <!-- 顶部栏 -->
     <header class="top-bar">
       <button class="hamburger-btn" id="hamburgerBtn" aria-label="打开菜单">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -139,7 +131,7 @@
           <line x1="3" y1="18" x2="21" y2="18"/>
         </svg>
       </button>
-      <div class="top-bar-title" id="pageTitle">概览</div>
+      <div class="breadcrumb" id="breadcrumb"></div>
       <div class="target-selector">
         <select id="targetSelect" aria-label="选择监控目标">
           <option value="">加载中...</option>
@@ -147,15 +139,58 @@
       </div>
     </header>
 
+    <!-- Tab 栏 -->
+    <div class="tab-bar" id="tabBar"></div>
+
     <!-- 页面内容容器 -->
     <div class="page-container" id="pageContainer">
-      <!-- 由 app.js 动态填充 -->
       <div class="loading-spinner" id="globalSpinner">
         <div class="spinner"></div>
-        <p>正在加载数据...</p>
+        <p>正在加载...</p>
       </div>
     </div>
   </main>
+
+  <!-- 导入弹窗 -->
+  <div id="importModal" class="modal" style="display:none;">
+    <div class="modal-overlay"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>批量导入事件</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="import-dropzone">
+          <p>拖放 JSON 文件到此处</p>
+          <input type="file" id="importFile" accept=".json" style="display:none;">
+          <button class="btn-secondary" id="importFileBtn">选择文件</button>
+        </div>
+        <textarea id="importJson" rows="8" placeholder='或粘贴 JSON 数组...'></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary modal-cancel">取消</button>
+        <button class="btn-primary" id="importSubmit">导入</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 确认弹窗 -->
+  <div id="confirmModal" class="modal" style="display:none;">
+    <div class="modal-overlay"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="confirmTitle">确认操作</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="confirmMessage"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary modal-cancel">取消</button>
+        <button class="btn-primary" id="confirmOk">确认</button>
+      </div>
+    </div>
+  </div>
 
   <script type="module" src="app.js"></script>
 </body>
