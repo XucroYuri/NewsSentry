@@ -5,14 +5,13 @@
 
 "use strict";
 
-import { state, dom, escapeHtml, api } from "../api.js";
+import { state, api, escapeHtml, formatDate, showError } from "../api.js";
 
 let topicChart = null;
 let sentimentChart = null;
 let currentDays = 14;
 
-export async function renderTrends() {
-  const container = dom.pageContainer;
+export async function renderTrendsTab(container) {
   currentDays = 14;
 
   container.innerHTML = `
@@ -54,14 +53,14 @@ export async function renderTrends() {
       container.querySelectorAll(".btn-days").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       currentDays = parseInt(btn.dataset.days, 10);
-      loadData();
+      loadData(container);
     });
   });
 
-  await loadData();
+  await loadData(container);
 }
 
-async function loadData() {
+async function loadData(container) {
   const targetId = state.currentTarget;
   if (!targetId) return;
 
@@ -71,26 +70,26 @@ async function loadData() {
       api(`/api/v1/trends/sentiment?target_id=${targetId}&days=${currentDays}`),
     ]);
 
-    renderStats(topicData);
-    renderTopicChart(topicData);
-    renderTopicTable(topicData);
-    renderSentimentChart(sentimentData);
+    renderStats(container, topicData);
+    renderTopicChart(container, topicData);
+    renderTopicTable(container, topicData);
+    renderSentimentChart(container, sentimentData);
   } catch (err) {
-    dom.pageContainer.querySelector(".trends-page").innerHTML +=
+    container.querySelector(".trends-page").innerHTML +=
       `<div class="error-msg">加载趋势数据失败: ${escapeHtml(err.message)}</div>`;
   }
 }
 
-function renderStats(data) {
+function renderStats(container, data) {
   const topics = data.topics || [];
-  const el = (id) => document.getElementById(id);
+  const el = (id) => container.querySelector(`#${id}`);
   el("topicCount").textContent = topics.length;
   el("risingCount").textContent = topics.filter((t) => t.trend_direction === "rising").length;
   el("fallingCount").textContent = topics.filter((t) => t.trend_direction === "falling").length;
   el("monitorDays").textContent = data.days;
 }
 
-function renderTopicChart(data) {
+function renderTopicChart(container, data) {
   const topics = data.topics || [];
   if (topicChart) topicChart.destroy();
 
@@ -113,7 +112,7 @@ function renderTopicChart(data) {
     fill: false,
   }));
 
-  const ctx = document.getElementById("topicChart");
+  const ctx = container.querySelector("#topicChart");
   if (!ctx) return;
   topicChart = new Chart(ctx, {
     type: "line",
@@ -130,9 +129,9 @@ function renderTopicChart(data) {
   });
 }
 
-function renderTopicTable(data) {
+function renderTopicTable(container, data) {
   const topics = data.topics || [];
-  const tbody = document.querySelector("#topicTable tbody");
+  const tbody = container.querySelector("#topicTable tbody");
   if (!tbody) return;
 
   const dirLabels = { rising: "↑ 上升", stable: "→ 稳定", falling: "↓ 下降" };
@@ -151,12 +150,12 @@ function renderTopicTable(data) {
     .join("");
 }
 
-function renderSentimentChart(data) {
+function renderSentimentChart(container, data) {
   const daily = data.daily_sentiment || [];
   if (sentimentChart) sentimentChart.destroy();
 
   const labels = daily.map((d) => d.day);
-  const ctx = document.getElementById("sentimentChart");
+  const ctx = container.querySelector("#sentimentChart");
   if (!ctx) return;
 
   sentimentChart = new Chart(ctx, {
