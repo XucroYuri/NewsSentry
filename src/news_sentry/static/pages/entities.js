@@ -4,14 +4,14 @@
 "use strict";
 
 import {
-  api, dom, $, escapeHtml, showError, formatDate,
+  state, api, $, escapeHtml, showError, formatDate,
   scoreColor, sentimentDotHtml,
 } from "../api.js";
 
 let entityFilters = { entity_type: "", min_mentions: 1, page: 1 };
 
-export async function renderEntityList() {
-  dom.pageContainer.innerHTML = `
+export async function renderEntitiesTab(container) {
+  container.innerHTML = `
     <div class="filter-bar" id="entityFilterBar"></div>
     <div id="entityListArea">
       <div class="loading-spinner"><div class="spinner"></div><p>正在加载实体...</p></div>
@@ -39,7 +39,7 @@ export async function renderEntityList() {
   $("#filterEntityType").addEventListener("change", (e) => {
     entityFilters.entity_type = e.target.value;
     entityFilters.page = 1;
-    loadEntityList();
+    loadEntityList(container);
   });
   $("#filterMinMentions").addEventListener("input", (e) => {
     entityFilters.min_mentions = Number(e.target.value);
@@ -47,13 +47,13 @@ export async function renderEntityList() {
   });
   $("#filterMinMentions").addEventListener("change", () => {
     entityFilters.page = 1;
-    loadEntityList();
+    loadEntityList(container);
   });
 
-  await loadEntityList();
+  await loadEntityList(container);
 }
 
-async function loadEntityList() {
+async function loadEntityList(container) {
   const area = $("#entityListArea");
   if (!area) return;
   area.innerHTML = '<div class="loading-spinner"><div class="spinner"></div><p>正在加载实体...</p></div>';
@@ -61,7 +61,9 @@ async function loadEntityList() {
   try {
     const params = {
       limit: 20,
+      offset: (entityFilters.page - 1) * 20,
     };
+    if (state.currentTarget) params.target_id = state.currentTarget;
     if (entityFilters.entity_type) params.entity_type = entityFilters.entity_type;
     if (entityFilters.min_mentions > 1) params.min_mentions = entityFilters.min_mentions;
 
@@ -94,30 +96,57 @@ async function loadEntityList() {
       </div>
     `).join("");
 
-    area.innerHTML = `<div class="entity-list">${listHtml}</div>`;
+    const totalPages = Math.ceil(total / 20) || 1;
+    const paginationHtml = `
+      <div class="pagination" style="display:flex;justify-content:center;gap:8px;margin-top:16px;">
+        <button class="btn-secondary" id="prevPage" ${entityFilters.page <= 1 ? "disabled" : ""}>上一页</button>
+        <span style="color:var(--text-secondary);font-size:13px;line-height:36px;">第 ${entityFilters.page} / ${totalPages} 页</span>
+        <button class="btn-secondary" id="nextPage" ${entityFilters.page >= totalPages ? "disabled" : ""}>下一页</button>
+      </div>
+    `;
 
-    // Click handlers
+    area.innerHTML = `<div class="entity-list">${listHtml}</div>${paginationHtml}`;
+
+    // Click handlers for entity cards
     area.querySelectorAll(".entity-card").forEach((card) => {
       card.addEventListener("click", () => {
         const eid = card.dataset.entityId;
         if (eid) window.location.hash = `#/entities/${eid}`;
       });
     });
+
+    // Pagination handlers
+    const prevBtn = $("#prevPage");
+    const nextBtn = $("#nextPage");
+    if (prevBtn) {
+      prevBtn.addEventListener("click", () => {
+        if (entityFilters.page > 1) {
+          entityFilters.page--;
+          loadEntityList(container);
+        }
+      });
+    }
+    if (nextBtn) {
+      nextBtn.addEventListener("click", () => {
+        entityFilters.page++;
+        loadEntityList(container);
+      });
+    }
   } catch (err) {
     showError(`加载实体列表失败: ${err.message}`);
     area.innerHTML = '<div class="empty-state"><p>加载失败</p></div>';
   }
 }
 
-export async function renderEntityDetail(entityId) {
-  dom.pageContainer.innerHTML = `
+export async function renderEntityDetail(container, entityId) {
+  container.innerHTML = `
     <div class="loading-spinner"><div class="spinner"></div><p>正在加载实体详情...</p></div>
   `;
 
   try {
     const data = await api(`/api/v1/entities/${encodeURIComponent(entityId)}`);
     if (!data || !data.entity) {
-      dom.pageContainer.innerHTML = '<div class="empty-state"><p>未找到该实体</p></div>';
+      container.innerHTML = '<div class="empty-state"><p>未找到该实体</p></div>';
       return;
     }
 
@@ -143,7 +172,7 @@ export async function renderEntityDetail(entityId) {
       `).join("")
       : '<p style="color:var(--text-muted);font-size:0.85rem;">暂无关联事件</p>';
 
-    dom.pageContainer.innerHTML = `
+    container.innerHTML = `
       <div class="detail-back" id="entityBack">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/>
@@ -174,7 +203,7 @@ export async function renderEntityDetail(entityId) {
     });
   } catch (err) {
     showError(`加载实体详情失败: ${err.message}`);
-    dom.pageContainer.innerHTML = `
+    container.innerHTML = `
       <div class="detail-back" onclick="window.location.hash='#/entities'">返回实体列表</div>
       <div class="empty-state"><p>加载失败</p></div>
     `;
