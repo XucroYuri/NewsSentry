@@ -4,7 +4,7 @@
 
 "use strict";
 
-import { api, apiPut, apiPatch, state, dom, $, $$, escapeHtml, showError, showSuccess, scoreColor } from "../api.js";
+import { api, apiPatch, apiPost, apiPut, state, $, $$, escapeHtml, showError, showSuccess, scoreColor } from "../api.js";
 
 // ── 共享 Helpers ──────────────────────────────────────────
 
@@ -70,9 +70,9 @@ function editableNumHtml(key, value, min = 0, max = 100) {
   return editableFieldHtml(key, value, `type="number" min="${min}" max="${max}"`);
 }
 
-function requireTarget() {
+function requireTarget(container) {
   if (!state.currentTarget) {
-    dom.pageContainer.innerHTML = `
+    container.innerHTML = `
       ${configNoticeHtml()}
       <div class="empty-state">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -125,12 +125,12 @@ function collectTagList(container, prefix) {
 
 // ── 页面渲染：Target 配置 ──────────────────────────────────
 
-export async function renderConfigTarget() {
-  dom.pageContainer.innerHTML = `
+export async function renderTargetTab(container) {
+  container.innerHTML = `
     ${configNoticeHtml()}
     <div class="loading-spinner"><div class="spinner"></div><p>正在加载 Target 配置...</p></div>
   `;
-  if (!requireTarget()) return;
+  if (!requireTarget(container)) return;
 
   try {
     const data = await api(`/api/v1/config/targets/${encodeURIComponent(state.currentTarget)}`);
@@ -173,7 +173,7 @@ export async function renderConfigTarget() {
       </div>
     `;
 
-    dom.pageContainer.innerHTML = `
+    container.innerHTML = `
       ${configNoticeHtml()}
       ${editSection}
       ${axesEditHtml}
@@ -183,7 +183,7 @@ export async function renderConfigTarget() {
     `;
 
     // 绑定 toggle 点击
-    dom.pageContainer.querySelectorAll(".toggle-clickable").forEach((el) => {
+    container.querySelectorAll(".toggle-clickable").forEach((el) => {
       el.addEventListener("click", () => {
         const cur = el.dataset.value === "true";
         const next = !cur;
@@ -194,7 +194,7 @@ export async function renderConfigTarget() {
     });
 
     // 绑定标签删除
-    dom.pageContainer.querySelectorAll(".tag-remove-btn").forEach((btn) => {
+    container.querySelectorAll(".tag-remove-btn").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
         btn.parentElement.remove();
@@ -202,8 +202,8 @@ export async function renderConfigTarget() {
     });
 
     // 添加关键词
-    $("#btnAddKeyword").addEventListener("click", () => {
-      const input = $("#newKeyword");
+    container.querySelector("#btnAddKeyword").addEventListener("click", () => {
+      const input = container.querySelector("#newKeyword");
       const val = input.value.trim();
       if (!val) return;
       const tag = document.createElement("span");
@@ -214,17 +214,17 @@ export async function renderConfigTarget() {
         e.stopPropagation();
         tag.remove();
       });
-      $("#keywordTags").appendChild(tag);
+      container.querySelector("#keywordTags").appendChild(tag);
       input.value = "";
     });
 
     // 保存
-    $("#btnSaveTarget").addEventListener("click", async () => {
-      const btn = $("#btnSaveTarget");
+    container.querySelector("#btnSaveTarget").addEventListener("click", async () => {
+      const btn = container.querySelector("#btnSaveTarget");
       btn.disabled = true;
       btn.textContent = "保存中...";
       try {
-        const edits = collectEdits(dom.pageContainer);
+        const edits = collectEdits(container);
         const body = { display_name: edits["display_name"], timezone: edits["timezone"] };
 
         // country_axes
@@ -240,7 +240,7 @@ export async function renderConfigTarget() {
         }
 
         // keywords
-        const tags = collectTagList(dom.pageContainer, "keyword");
+        const tags = collectTagList(container, "keyword");
         if (tags.length > 0) {
           body.classification = body.classification || {};
           body.classification.home_relevance_keywords = tags;
@@ -248,7 +248,7 @@ export async function renderConfigTarget() {
 
         await apiPut(`/api/v1/config/targets/${encodeURIComponent(state.currentTarget)}`, body);
         showSuccess("Target 配置已保存");
-        $("#saveStatus").innerHTML = '<span class="save-ok">已保存</span>';
+        container.querySelector("#saveStatus").innerHTML = '<span class="save-ok">已保存</span>';
       } catch (err) {
         showError(`保存失败: ${err.message}`);
       } finally {
@@ -258,18 +258,18 @@ export async function renderConfigTarget() {
     });
   } catch (err) {
     showError(`加载 Target 配置失败: ${err.message}`);
-    dom.pageContainer.innerHTML = `${configNoticeHtml()}<div class="empty-state"><p>加载失败，请稍后重试</p></div>`;
+    container.innerHTML = `${configNoticeHtml()}<div class="empty-state"><p>加载失败，请稍后重试</p></div>`;
   }
 }
 
 // ── 页面渲染：Source 渠道 ──────────────────────────────────
 
-export async function renderConfigSources() {
-  dom.pageContainer.innerHTML = `
+export async function renderSourcesTab(container) {
+  container.innerHTML = `
     ${configNoticeHtml()}
     <div class="loading-spinner"><div class="spinner"></div><p>正在加载 Source 渠道...</p></div>
   `;
-  if (!requireTarget()) return;
+  if (!requireTarget(container)) return;
 
   try {
     const data = await api(`/api/v1/config/targets/${encodeURIComponent(state.currentTarget)}/sources`);
@@ -292,7 +292,7 @@ export async function renderConfigSources() {
         <div class="source-card">
           <div class="source-card-header">
             <span class="source-card-name">${escapeHtml(s.display_name || s.source_id || "—")}</span>
-            <span class="toggle-switch toggle-clickable" data-key="enabled" data-value="${s.enabled !== false ? "true" : "false"}">
+            <span class="toggle-switch toggle-clickable" data-source-id="${escapeHtml(s.source_id)}" data-key="enabled" data-value="${s.enabled !== false ? "true" : "false"}">
               <span class="toggle-indicator ${s.enabled !== false ? "on" : "off"}"></span>
               <span class="toggle-label">${s.enabled !== false ? "启用" : "禁用"}</span>
             </span>
@@ -315,43 +315,43 @@ export async function renderConfigSources() {
       `).join("")}</div>`;
     }
 
-    dom.pageContainer.innerHTML = `
+    container.innerHTML = `
       ${configNoticeHtml()}
       ${filterBarHtml}
       <div id="sourceGridArea">${renderSourceGrid("all")}</div>
     `;
 
     // 绑定筛选事件
-    dom.pageContainer.querySelectorAll(".type-filter-btn").forEach((btn) => {
+    container.querySelectorAll(".type-filter-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
-        dom.pageContainer.querySelectorAll(".type-filter-btn").forEach((b) => b.classList.remove("active"));
+        container.querySelectorAll(".type-filter-btn").forEach((b) => b.classList.remove("active"));
         btn.classList.add("active");
-        const area = $("#sourceGridArea");
+        const area = container.querySelector("#sourceGridArea");
         if (area) area.innerHTML = renderSourceGrid(btn.dataset.type);
-        bindSourceEvents();
+        bindSourceEvents(container);
       });
     });
 
-    bindSourceEvents();
+    bindSourceEvents(container);
   } catch (err) {
     showError(`加载 Source 渠道失败: ${err.message}`);
-    dom.pageContainer.innerHTML = `${configNoticeHtml()}<div class="empty-state"><p>加载失败，请稍后重试</p></div>`;
+    container.innerHTML = `${configNoticeHtml()}<div class="empty-state"><p>加载失败，请稍后重试</p></div>`;
   }
 }
 
-function bindSourceEvents() {
-  dom.pageContainer.querySelectorAll(".btn-edit-source").forEach((btn) => {
+function bindSourceEvents(container) {
+  container.querySelectorAll(".btn-edit-source").forEach((btn) => {
     btn.addEventListener("click", () => {
-      const panel = $(`#edit-${btn.dataset.sid}`);
+      const panel = container.querySelector(`#edit-${btn.dataset.sid}`);
       panel.style.display = panel.style.display === "none" ? "block" : "none";
     });
   });
 
-  dom.pageContainer.querySelectorAll("[data-save-sid]").forEach((saveBtn) => {
+  container.querySelectorAll("[data-save-sid]").forEach((saveBtn) => {
     saveBtn.addEventListener("click", async () => {
       const sid = saveBtn.dataset.saveSid;
-      const panel = $(`#edit-${sid}`);
-      const statusEl = $(`[data-status-sid="${sid}"]`);
+      const panel = container.querySelector(`#edit-${sid}`);
+      const statusEl = container.querySelector(`[data-status-sid="${sid}"]`);
       const edits = collectEdits(panel);
       const body = {};
       if (edits["url"] !== undefined) body.url = edits["url"];
@@ -374,25 +374,40 @@ function bindSourceEvents() {
     });
   });
 
-  dom.pageContainer.querySelectorAll(".toggle-clickable").forEach((el) => {
-    el.addEventListener("click", () => {
-      const cur = el.dataset.value === "true";
-      const next = !cur;
-      el.dataset.value = String(next);
-      el.querySelector(".toggle-indicator").className = `toggle-indicator ${next ? "on" : "off"}`;
-      el.querySelector(".toggle-label").textContent = next ? "启用" : "禁用";
+  container.querySelectorAll(".toggle-clickable").forEach((toggle) => {
+    const sourceId = toggle.dataset.sourceId;
+    toggle.addEventListener("click", async () => {
+      const newValue = toggle.dataset.value === "true" ? "false" : "true";
+      toggle.dataset.value = newValue;
+      const isOn = newValue === "true";
+      toggle.querySelector(".toggle-indicator").className = `toggle-indicator ${isOn ? "on" : "off"}`;
+      toggle.querySelector(".toggle-label").textContent = isOn ? "启用" : "禁用";
+      if (sourceId) {
+        try {
+          await apiPatch(`/api/v1/config/targets/${encodeURIComponent(state.currentTarget)}/sources/${encodeURIComponent(sourceId)}`, { enabled: isOn });
+          showSuccess("信源状态已更新");
+        } catch (err) {
+          showError("更新失败: " + err.message);
+          // Revert toggle
+          const revertValue = isOn ? "false" : "true";
+          toggle.dataset.value = revertValue;
+          const revertOn = revertValue === "true";
+          toggle.querySelector(".toggle-indicator").className = `toggle-indicator ${revertOn ? "on" : "off"}`;
+          toggle.querySelector(".toggle-label").textContent = revertOn ? "启用" : "禁用";
+        }
+      }
     });
   });
 }
 
 // ── 页面渲染：Filter 规则 ─────────────────────────────────
 
-export async function renderConfigFilters() {
-  dom.pageContainer.innerHTML = `
+export async function renderFiltersTab(container) {
+  container.innerHTML = `
     ${configNoticeHtml()}
     <div class="loading-spinner"><div class="spinner"></div><p>正在加载 Filter 规则...</p></div>
   `;
-  if (!requireTarget()) return;
+  if (!requireTarget(container)) return;
 
   try {
     const data = await api(`/api/v1/config/targets/${encodeURIComponent(state.currentTarget)}/filters`);
@@ -435,7 +450,7 @@ export async function renderConfigFilters() {
       </div>
     `;
 
-    dom.pageContainer.innerHTML = `
+    container.innerHTML = `
       ${configNoticeHtml()}
       ${paramsEditHtml}
       ${keywordsHtml}
@@ -444,11 +459,11 @@ export async function renderConfigFilters() {
     `;
 
     // 关键词搜索筛选
-    const searchInput = $("#keywordSearch");
+    const searchInput = container.querySelector("#keywordSearch");
     if (searchInput) {
       searchInput.addEventListener("input", (e) => {
         const q = e.target.value.toLowerCase();
-        dom.pageContainer.querySelectorAll("#keywordTable tbody tr").forEach((tr) => {
+        container.querySelectorAll("#keywordTable tbody tr").forEach((tr) => {
           const kw = tr.dataset.keyword || "";
           tr.style.display = kw.includes(q) ? "" : "none";
         });
@@ -456,13 +471,13 @@ export async function renderConfigFilters() {
     }
 
     // 绑定删除按钮
-    dom.pageContainer.querySelectorAll(".btn-del-kw").forEach((btn) => {
+    container.querySelectorAll(".btn-del-kw").forEach((btn) => {
       btn.addEventListener("click", () => { btn.closest("tr").remove(); });
     });
 
     // 添加关键词
-    $("#btnAddKw").addEventListener("click", () => {
-      const tbody = dom.pageContainer.querySelector("#keywordTable tbody");
+    container.querySelector("#btnAddKw").addEventListener("click", () => {
+      const tbody = container.querySelector("#keywordTable tbody");
       const row = document.createElement("tr");
       row.className = "keyword-edit-row";
       row.innerHTML = `
@@ -476,21 +491,21 @@ export async function renderConfigFilters() {
     });
 
     // 保存
-    $("#btnSaveFilter").addEventListener("click", async () => {
-      const btn = $("#btnSaveFilter");
+    container.querySelector("#btnSaveFilter").addEventListener("click", async () => {
+      const btn = container.querySelector("#btnSaveFilter");
       btn.disabled = true;
       btn.textContent = "保存中...";
       try {
-        const paramsEdits = collectEdits(dom.pageContainer.querySelector("[data-config-section=\"params\"]"));
+        const paramsEdits = collectEdits(container.querySelector("[data-config-section=\"params\"]"));
         const body = {};
         if (paramsEdits["score_threshold"] !== undefined) body.score_threshold = parseInt(paramsEdits["score_threshold"]);
         if (paramsEdits["max_age_hours"] !== undefined) body.max_age_hours = parseInt(paramsEdits["max_age_hours"]);
         if (paramsEdits["dedup_window_hours"] !== undefined) body.dedup_window_hours = parseInt(paramsEdits["dedup_window_hours"]);
-        body.keyword_rules = collectKeywordRows(dom.pageContainer);
+        body.keyword_rules = collectKeywordRows(container);
 
         await apiPatch(`/api/v1/config/targets/${encodeURIComponent(state.currentTarget)}/filters`, body);
         showSuccess("Filter 规则已保存");
-        $("#saveStatus").innerHTML = '<span class="save-ok">已保存</span>';
+        container.querySelector("#saveStatus").innerHTML = '<span class="save-ok">已保存</span>';
       } catch (err) {
         showError(`保存失败: ${err.message}`);
       } finally {
@@ -500,14 +515,14 @@ export async function renderConfigFilters() {
     });
   } catch (err) {
     showError(`加载 Filter 规则失败: ${err.message}`);
-    dom.pageContainer.innerHTML = `${configNoticeHtml()}<div class="empty-state"><p>加载失败，请稍后重试</p></div>`;
+    container.innerHTML = `${configNoticeHtml()}<div class="empty-state"><p>加载失败，请稍后重试</p></div>`;
   }
 }
 
 // ── 页面渲染：Output 目的地 ───────────────────────────────
 
-export async function renderConfigOutputs() {
-  dom.pageContainer.innerHTML = `
+export async function renderOutputsTab(container) {
+  container.innerHTML = `
     ${configNoticeHtml()}
     <div class="loading-spinner"><div class="spinner"></div><p>正在加载输出目的地...</p></div>
   `;
@@ -517,7 +532,7 @@ export async function renderConfigOutputs() {
     const destinations = data.destinations || data || [];
 
     if (!destinations.length) {
-      dom.pageContainer.innerHTML = `${configNoticeHtml()}<div class="empty-state"><p>暂无输出目的地配置</p></div>`;
+      container.innerHTML = `${configNoticeHtml()}<div class="empty-state"><p>暂无输出目的地配置</p></div>`;
       return;
     }
 
@@ -549,13 +564,13 @@ export async function renderConfigOutputs() {
       `;
     }).join("");
 
-    dom.pageContainer.innerHTML = `
+    container.innerHTML = `
       ${configNoticeHtml()}
       ${cardsHtml}
     `;
 
     // 绑定 toggle
-    dom.pageContainer.querySelectorAll(".toggle-clickable").forEach((el) => {
+    container.querySelectorAll(".toggle-clickable").forEach((el) => {
       el.addEventListener("click", () => {
         const cur = el.dataset.value === "true";
         const next = !cur;
@@ -566,11 +581,11 @@ export async function renderConfigOutputs() {
     });
 
     // 绑定保存
-    dom.pageContainer.querySelectorAll("[data-save-dest]").forEach((btn) => {
+    container.querySelectorAll("[data-save-dest]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const destId = btn.dataset.saveDest;
-        const card = dom.pageContainer.querySelector(`[data-dest-card="${CSS.escape(destId)}"]`);
-        const statusEl = dom.pageContainer.querySelector(`[data-dest-status="${CSS.escape(destId)}"]`);
+        const card = container.querySelector(`[data-dest-card="${CSS.escape(destId)}"]`);
+        const statusEl = container.querySelector(`[data-dest-status="${CSS.escape(destId)}"]`);
         const toggle = card?.querySelector("[data-key=\"enabled\"]");
 
         const body = {};
@@ -596,14 +611,14 @@ export async function renderConfigOutputs() {
     });
   } catch (err) {
     showError(`加载输出目的地失败: ${err.message}`);
-    dom.pageContainer.innerHTML = `${configNoticeHtml()}<div class="empty-state"><p>加载失败，请稍后重试</p></div>`;
+    container.innerHTML = `${configNoticeHtml()}<div class="empty-state"><p>加载失败，请稍后重试</p></div>`;
   }
 }
 
-// ── 页面渲染：Provider 路由 ────────────────────────────────
+// ── 页面渲染：Provider 路由 (AI 配置) ──────────────────────
 
-export async function renderConfigProvider() {
-  dom.pageContainer.innerHTML = `
+export async function renderAITab(container) {
+  container.innerHTML = `
     ${configNoticeHtml()}
     <div class="loading-spinner"><div class="spinner"></div><p>正在加载 Provider 路由...</p></div>
   `;
@@ -613,7 +628,7 @@ export async function renderConfigProvider() {
     const routes = data.routes || data || [];
 
     if (!routes.length) {
-      dom.pageContainer.innerHTML = `${configNoticeHtml()}<div class="empty-state"><p>暂无 Provider 路由配置</p></div>`;
+      container.innerHTML = `${configNoticeHtml()}<div class="empty-state"><p>暂无 Provider 路由配置</p></div>`;
       return;
     }
 
@@ -638,13 +653,13 @@ export async function renderConfigProvider() {
       `;
     }).join("");
 
-    dom.pageContainer.innerHTML = `
+    container.innerHTML = `
       ${configNoticeHtml()}
       ${cardsHtml}
     `;
 
     // 绑定 toggle
-    dom.pageContainer.querySelectorAll(".toggle-clickable").forEach((el) => {
+    container.querySelectorAll(".toggle-clickable").forEach((el) => {
       el.addEventListener("click", () => {
         const cur = el.dataset.value === "true";
         const next = !cur;
@@ -655,11 +670,11 @@ export async function renderConfigProvider() {
     });
 
     // 绑定保存
-    dom.pageContainer.querySelectorAll("[data-save-route]").forEach((btn) => {
+    container.querySelectorAll("[data-save-route]").forEach((btn) => {
       btn.addEventListener("click", async () => {
         const routeId = btn.dataset.saveRoute;
-        const card = dom.pageContainer.querySelector(`[data-route-card="${CSS.escape(routeId)}"]`);
-        const statusEl = dom.pageContainer.querySelector(`[data-route-status="${CSS.escape(routeId)}"]`);
+        const card = container.querySelector(`[data-route-card="${CSS.escape(routeId)}"]`);
+        const statusEl = container.querySelector(`[data-route-status="${CSS.escape(routeId)}"]`);
         const edits = collectEdits(card?.querySelector(".route-edit-fields"));
 
         const body = {};
@@ -680,6 +695,47 @@ export async function renderConfigProvider() {
     });
   } catch (err) {
     showError(`加载 Provider 路由失败: ${err.message}`);
-    dom.pageContainer.innerHTML = `${configNoticeHtml()}<div class="empty-state"><p>加载失败，请稍后重试</p></div>`;
+    container.innerHTML = `${configNoticeHtml()}<div class="empty-state"><p>加载失败，请稍后重试</p></div>`;
   }
+}
+
+// ── 页面渲染：Webhook 测试 ────────────────────────────────
+
+export async function renderWebhookTab(container) {
+  container.innerHTML = `
+    <div class="config-section">
+      <h3>Webhook 测试</h3>
+      <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px;">发送测试 Webhook 请求</p>
+      <div class="form-group">
+        <label>Webhook URL</label>
+        <input type="url" id="webhookUrl" placeholder="https://example.com/webhook" style="width:100%;padding:8px 12px;background:var(--input-bg,#0d1117);border:1px solid var(--border,#30363d);border-radius:6px;color:var(--text,#e6edf3);font-size:14px;box-sizing:border-box;">
+      </div>
+      <div class="form-group" style="margin-top:12px;">
+        <label>JSON Payload</label>
+        <textarea id="webhookJson" rows="10" style="width:100%;padding:12px;background:var(--input-bg,#0d1117);border:1px solid var(--border,#30363d);border-radius:6px;color:var(--text,#e6edf3);font-family:monospace;font-size:12px;resize:vertical;box-sizing:border-box;">${escapeHtml(JSON.stringify({event: "test", target_id: state.currentTarget, message: "Test webhook from News Sentry"}, null, 2))}</textarea>
+      </div>
+      <div style="margin-top:16px;display:flex;gap:8px;align-items:center;">
+        <button class="btn-primary" id="webhookTestBtn">发送测试</button>
+        <span id="webhookResult" style="font-size:13px;"></span>
+      </div>
+    </div>
+  `;
+
+  container.querySelector("#webhookTestBtn")?.addEventListener("click", async () => {
+    const url = container.querySelector("#webhookUrl")?.value?.trim();
+    const json = container.querySelector("#webhookJson")?.value?.trim();
+    const resultEl = container.querySelector("#webhookResult");
+    if (!url || !json) {
+      if (resultEl) resultEl.textContent = "请填写 URL 和 JSON";
+      return;
+    }
+    try {
+      const payload = JSON.parse(json);
+      const data = await apiPost("/api/v1/webhook", {}, payload);
+      if (resultEl) resultEl.innerHTML = '<span style="color:#3fb950;">✓ 发送成功</span>';
+      showSuccess("Webhook 发送成功");
+    } catch (err) {
+      if (resultEl) resultEl.innerHTML = `<span style="color:#f85149;">✗ ${escapeHtml(err.message)}</span>`;
+    }
+  });
 }
