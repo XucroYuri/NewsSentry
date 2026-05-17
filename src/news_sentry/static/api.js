@@ -195,44 +195,53 @@ export function isAuthenticated() {
 }
 
 /**
- * 认证流程：POST /auth/token 获取 token，GET /auth/me 获取用户信息。
+ * 权限检查：根据角色判断是否有指定权限。
+ * @param {string} permission - 权限标识 (read, write, admin)
+ * @returns {boolean}
+ */
+export function hasPermission(permission) {
+  const conn = getConnection();
+  if (!conn) return false;
+  const role = conn.role || "reader";
+  const perms = {
+    reader: ["read"],
+    admin: ["read", "write", "admin"],
+  };
+  return (perms[role] || []).includes(permission);
+}
+
+/**
+ * 认证流程：POST /auth/login 获取 token 和用户信息。
  * @param {string} server - 服务器地址
- * @param {string} apiKey - API Key
  * @param {string} username - 用户名
+ * @param {string} password - 密码
  * @returns {Promise<object>} 连接数据
  */
-export async function authenticate(server, apiKey, username) {
+export async function authenticate(server, username, password) {
   const base = server.replace(/\/+$/, "");
-  // 1. 获取 token
-  const tokenResp = await fetch(`${base}/api/v1/auth/token`, {
+  // 1. 登录获取 token
+  const loginResp = await fetch(`${base}/api/v1/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ api_key: apiKey, username }),
+    body: JSON.stringify({ username, password }),
   });
-  if (!tokenResp.ok) {
-    const text = await tokenResp.text().catch(() => "");
-    throw new Error(`Auth failed (${tokenResp.status}): ${text || tokenResp.statusText}`);
+  if (!loginResp.ok) {
+    const text = await loginResp.text().catch(() => "");
+    throw new Error(`Login failed (${loginResp.status}): ${text || loginResp.statusText}`);
   }
-  const tokenData = await tokenResp.json();
-  const token = tokenData.token || tokenData.access_token;
+  const loginData = await loginResp.json();
+  const token = loginData.access_token;
 
-  // 2. 获取用户信息
-  const meResp = await fetch(`${base}/api/v1/auth/me`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  let user = username;
-  if (meResp.ok) {
-    const meData = await meResp.json();
-    user = meData.username || meData.name || username;
-  }
-
-  // 3. 保存连接
+  // 2. 保存连接数据
   const conn = {
     server: base,
     token,
-    user,
-    expiresAt: tokenData.expires_at
-      ? new Date(tokenData.expires_at).getTime()
+    user: loginData.username || username,
+    role: loginData.role || "reader",
+    hasApiKey: loginData.has_api_key || false,
+    mustChangePw: loginData.must_change_password || false,
+    expiresAt: loginData.expires_in
+      ? Date.now() + loginData.expires_in * 1000
       : Date.now() + 24 * 60 * 60 * 1000,
   };
   setConnection(conn);
@@ -287,16 +296,10 @@ function _authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-/** 401 处理：尝试刷新 token 并重试一次 */
+/** 401 处理：Token 过期，清除连接，让 app.js 处理重新登录 */
 async function _handle401(originalFn) {
-  const conn = getConnection();
-  if (!conn || !conn.token) {
-    clearConnection();
-    throw new Error(t("error.unauthorized"));
-  }
-  // 尝试重新认证（如果有凭据）
-  // 标记 token 过期，清除连接
   clearConnection();
+  window.location.hash = "#/connect";
   throw new Error(t("auth.tokenExpired"));
 }
 

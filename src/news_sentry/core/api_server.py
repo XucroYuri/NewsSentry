@@ -13,8 +13,8 @@ API Server — FastAPI REST API 网关。
   - GET /docs — OpenAPI/Swagger UI
   - GET / — 前端 Web UI（由静态文件提供）
 
-认证: API Key 通过 X-API-Key header 或 ?api_key= 查询参数。
-速率限制: 60 req/min per API key。
+认证: 用户名+密码登录 → Bearer Token（API Key 向后兼容）。
+速率限制: 60 req/min per user。
 """
 
 from __future__ import annotations
@@ -35,10 +35,11 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from news_sentry.core.async_store import AsyncStore
+from news_sentry.core.auth import hash_password, verify_password
 from news_sentry.core.config_cache import ConfigCache
 
 # ── Pydantic 模型 ──────────────────────────────────────
@@ -579,28 +580,12 @@ class AlertHistoryResponse(BaseModel):
     total: int
 
 
-# ── API Key 认证 ───────────────────────────────────────
+# ── 用户认证 ───────────────────────────────────────────
 
-_API_KEY_ENV = "NEWSSENTRY_API_KEY"
-
-
-def _get_valid_api_keys() -> set[str]:
-    """从环境变量加载有效 API Key（逗号分隔）。"""
-    raw = os.environ.get(_API_KEY_ENV, "")
-    if not raw:
-        return set()
-    return {k.strip() for k in raw.split(",") if k.strip()}
-
-
-def _verify_api_key(api_key: str | None) -> str:
-    """验证 API Key，返回有效的 key 或抛 401。"""
-    valid_keys = _get_valid_api_keys()
-    # 无配置 key 时允许所有请求（开发模式）
-    if not valid_keys:
-        return api_key or "dev"
-    if not api_key or api_key not in valid_keys:
-        raise HTTPException(status_code=401, detail="Invalid API key")
-    return api_key
+_PERMISSIONS: dict[str, set[str]] = {
+    "reader": {"read"},
+    "admin": {"read", "write", "admin"},
+}
 
 
 # ── 速率限制 ────────────────────────────────────────────
@@ -610,7 +595,7 @@ _RATE_LIMIT_MAX = 60  # requests per window
 
 
 class _RateLimiter:
-    """简易内存速率限制器（每 API key 独立计数）。"""
+    """简易内存速率限制器（每用户独立计数）。"""
 
     def __init__(
         self,
@@ -634,6 +619,9 @@ class _RateLimiter:
 
 _rate_limiter = _RateLimiter()
 
+# 登录暴力破解保护：每用户名 5 次/5 分钟
+_login_limiter = _RateLimiter(max_requests=5, window=300)
+
 
 # ── Token 认证 ─────────────────────────────────────────
 
@@ -641,30 +629,24 @@ _TOKEN_STORE: dict[str, dict[str, Any]] = {}
 _TOKEN_TTL = 86400  # 24 hours
 
 
-def _create_token(api_key: str) -> dict[str, Any] | None:
-    """用 API Key 换取短期 Token。"""
-    valid_keys = _get_valid_api_keys()
-    # 无配置 key 时为开发模式
-    if not valid_keys:
-        return {
-            "token": "dev-token",
-            "expires_at": int(time.time() + _TOKEN_TTL),
-            "username": "dev",
-        }
-    if api_key not in valid_keys:
-        return None
+def _create_token_for_user(username: str, role: str, has_api_key: bool) -> dict[str, Any]:
+    """为已认证用户创建 session token。"""
     token = secrets.token_hex(32)
     now = time.time()
     _TOKEN_STORE[token] = {
-        "api_key": api_key,
-        "username": f"user_{api_key[:8]}",
+        "username": username,
+        "role": role,
+        "has_api_key": has_api_key,
         "created_at": now,
         "expires_at": now + _TOKEN_TTL,
     }
     return {
-        "token": token,
-        "expires_at": int(now + _TOKEN_TTL),
-        "username": f"user_{api_key[:8]}",
+        "access_token": token,
+        "token_type": "Bearer",
+        "expires_in": _TOKEN_TTL,
+        "username": username,
+        "role": role,
+        "has_api_key": has_api_key,
     }
 
 
@@ -685,6 +667,59 @@ def _extract_bearer_token(request: Request) -> str | None:
     if auth.startswith("Bearer "):
         return auth[7:]
     return None
+
+
+# ── FastAPI 认证依赖 ───────────────────────────────────
+
+# _store 在 create_app() 内赋值，此处为模块级引用占位
+_store: AsyncStore | None = None
+
+logger = logging.getLogger(__name__)
+
+
+async def get_current_user(request: Request) -> dict[str, Any]:
+    """提取并验证 Bearer token，返回用户信息。"""
+    token = _extract_bearer_token(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing authentication")
+    info = _verify_token(token)
+    if not info:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    # 检查 store 中的最新 api_key 状态
+    if _store is not None:
+        user = await _store.get_user(info["username"])
+        if user:
+            info["has_api_key"] = bool(user.get("api_key"))
+            info["role"] = user.get("role", info["role"])
+    return info
+
+
+def require_permission(permission: str) -> Any:
+    """依赖工厂：检查用户权限。"""
+
+    async def _check(user: dict = Depends(get_current_user)) -> dict[str, Any]:
+        role = user.get("role", "reader")
+        if permission not in _PERMISSIONS.get(role, set()):
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+        if not _rate_limiter.check(user["username"]):
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        return user
+
+    return _check
+
+
+# ── API Key 向后兼容 ──────────────────────────────────
+
+_API_KEY_ENV = "NEWSSENTRY_API_KEY"
+
+
+def _get_valid_api_keys() -> set[str]:
+    """从环境变量 + 用户存储加载有效 API Key。"""
+    keys: set[str] = set()
+    raw = os.environ.get(_API_KEY_ENV, "")
+    if raw:
+        keys.update(k.strip() for k in raw.split(",") if k.strip())
+    return keys
 
 
 # ── 运行日志读取 ────────────────────────────────────────
@@ -1053,9 +1088,35 @@ async def _auto_collect_loop() -> None:
     _log.info("自动采集循环停止")
 
 
+async def _bootstrap_users() -> None:
+    """确保至少存在一个管理员用户。"""
+    if _store is None:
+        return
+    users = await _store.list_users()
+    if users:
+        return
+    admin_user = os.environ.get("NEWSSENTRY_ADMIN_USER", "admin")
+    admin_pass = os.environ.get("NEWSSENTRY_ADMIN_PASSWORD", "")
+    api_key = os.environ.get("NEWSSENTRY_API_KEY", "").split(",")[0].strip() or None
+    if not admin_pass:
+        admin_pass = secrets.token_urlsafe(16)
+        logger.warning("Generated admin password (first launch): %s", admin_pass)
+    pw_hash, salt = hash_password(admin_pass)
+    await _store.create_user(
+        username=admin_user,
+        password_hash=pw_hash,
+        salt=salt,
+        role="admin",
+        api_key=api_key,
+        must_change_pw=0 if os.environ.get("NEWSSENTRY_ADMIN_PASSWORD") else 1,
+    )
+    logger.info("Bootstrapped admin user: %s", admin_user)
+
+
 @asynccontextmanager
 async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
-    """FastAPI lifespan: 启动后台采集循环，关闭时取消。"""
+    """FastAPI lifespan: 启动引导 + 后台采集循环。"""
+    await _bootstrap_users()
     task = None
     if _auto_collector_state["enabled"]:
         task = asyncio.create_task(_auto_collect_loop())
@@ -1091,6 +1152,7 @@ def create_app(
     )
 
     _data_dir = Path(data_dir) if data_dir else Path("./data")
+    global _store
     _store = store
     _config_cache = ConfigCache(ttl=60, maxsize=128)
 
@@ -1113,33 +1175,151 @@ def create_app(
             "total_runs": _auto_collector_state["total_runs"],
         }
 
-    @app.post("/api/v1/auth/token")
-    async def auth_token(request: Request) -> dict[str, Any]:
-        """API Key 换取短期 Token。"""
+    @app.post("/api/v1/auth/login")
+    async def auth_login(request: Request) -> dict[str, Any]:
+        """用户名+密码登录。"""
         body = await request.json()
-        api_key = body.get("api_key", "")
-        result = _create_token(api_key)
-        if not result:
-            raise HTTPException(status_code=401, detail="Invalid API key")
+        username = body.get("username", "").strip()
+        password = body.get("password", "")
+
+        if not username or not password:
+            raise HTTPException(status_code=400, detail="Username and password required")
+
+        # 暴力破解保护
+        if not _login_limiter.check(f"login:{username}"):
+            raise HTTPException(status_code=429, detail="Too many login attempts")
+
+        # 验证用户
+        if _store is None:
+            raise HTTPException(status_code=503, detail="User store not available")
+        user = await _store.get_user(username)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        if not verify_password(password, user["password_hash"], user["salt"]):
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+
+        result = _create_token_for_user(username, user["role"], bool(user.get("api_key")))
+        result["must_change_password"] = bool(user.get("must_change_pw", 0))
         return result
 
+    @app.post("/api/v1/auth/token")
+    async def auth_token(request: Request) -> dict[str, Any]:
+        """API Key 换取短期 Token（向后兼容 CLI/cron）。"""
+        body = await request.json()
+        api_key = body.get("api_key", "")
+        valid_keys = _get_valid_api_keys()
+
+        # 也检查用户存储中的 API Key
+        if _store is not None and api_key:
+            users = await _store.list_users()
+            for u in users:
+                if u.get("api_key") == api_key:
+                    return _create_token_for_user(u["username"], u.get("role", "reader"), True)
+
+        if not valid_keys:
+            # 开发模式：无配置 key 时允许所有请求
+            return _create_token_for_user("dev", "admin", False)
+        if api_key not in valid_keys:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+        return _create_token_for_user(f"key_{api_key[:8]}", "admin", True)
+
     @app.get("/api/v1/auth/me")
-    async def auth_me(request: Request) -> dict[str, Any]:
+    async def auth_me(user: dict = Depends(get_current_user)) -> dict[str, Any]:
         """返回当前用户信息。"""
-        token = _extract_bearer_token(request)
-        if not token:
-            raise HTTPException(status_code=401, detail="Missing token")
-        info = _verify_token(token)
-        if not info:
-            raise HTTPException(status_code=401, detail="Invalid or expired token")
         return {
-            "username": info["username"],
-            "role": "admin",
-            "permissions": ["read", "write", "admin"],
+            "username": user["username"],
+            "role": user["role"],
+            "permissions": sorted(_PERMISSIONS.get(user["role"], set())),
+            "has_api_key": user.get("has_api_key", False),
         }
 
+    @app.post("/api/v1/auth/logout")
+    async def auth_logout(request: Request) -> dict[str, str]:
+        """注销当前 token。"""
+        token = _extract_bearer_token(request)
+        if token and token in _TOKEN_STORE:
+            del _TOKEN_STORE[token]
+        return {"status": "ok"}
+
+    @app.post("/api/v1/auth/change-password")
+    async def auth_change_password(
+        request: Request, user: dict = Depends(get_current_user)
+    ) -> dict[str, str]:
+        """修改当前用户密码。"""
+        body = await request.json()
+        current_pw = body.get("current_password", "")
+        new_pw = body.get("new_password", "")
+        if not current_pw or not new_pw:
+            raise HTTPException(status_code=400, detail="Current and new password required")
+        if len(new_pw) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+        if _store is None:
+            raise HTTPException(status_code=503, detail="User store not available")
+        user_record = await _store.get_user(user["username"])
+        if not user_record:
+            raise HTTPException(status_code=401, detail="User not found")
+        if not verify_password(current_pw, user_record["password_hash"], user_record["salt"]):
+            raise HTTPException(status_code=401, detail="Current password incorrect")
+
+        pw_hash, salt = hash_password(new_pw)
+        await _store.update_user_password(user["username"], pw_hash, salt)
+        return {"status": "ok"}
+
+    # ── API Key 设置 ─────────────────────────────────────
+
+    @app.get("/api/v1/settings/api-key")
+    async def get_api_key_setting(
+        user: dict = Depends(require_permission("admin")),
+    ) -> dict[str, Any]:
+        """获取当前用户的 API Key 设置。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not available")
+        user_record = await _store.get_user(user["username"])
+        api_key = user_record.get("api_key") if user_record else None
+        preview = f"{api_key[:4]}...{api_key[-4:]}" if api_key and len(api_key) >= 8 else ""
+        return {
+            "has_api_key": bool(api_key),
+            "api_key_preview": preview,
+        }
+
+    @app.put("/api/v1/settings/api-key")
+    async def set_api_key_setting(
+        request: Request,
+        user: dict = Depends(require_permission("admin")),
+    ) -> dict[str, str]:
+        """设置当前用户的 API Key。"""
+        body = await request.json()
+        api_key = body.get("api_key", "").strip()
+        if not api_key:
+            raise HTTPException(status_code=400, detail="API Key cannot be empty")
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not available")
+        await _store.update_user_api_key(user["username"], api_key)
+        # 更新 token 中的 has_api_key 状态
+        token = _extract_bearer_token(request)
+        if token and token in _TOKEN_STORE:
+            _TOKEN_STORE[token]["has_api_key"] = True
+        return {"status": "ok"}
+
+    @app.delete("/api/v1/settings/api-key")
+    async def delete_api_key_setting(
+        request: Request,
+        user: dict = Depends(require_permission("admin")),
+    ) -> dict[str, str]:
+        """删除当前用户的 API Key。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not available")
+        await _store.update_user_api_key(user["username"], None)
+        token = _extract_bearer_token(request)
+        if token and token in _TOKEN_STORE:
+            _TOKEN_STORE[token]["has_api_key"] = False
+        return {"status": "ok"}
+
     @app.get("/api/v1/targets", response_model=TargetListResponse)
-    async def list_targets() -> TargetListResponse:
+    async def list_targets(
+        user: dict = Depends(get_current_user),
+    ) -> TargetListResponse:
         """返回所有可用的 target 列表。"""
         configs = _load_target_configs()
         targets = [
@@ -1156,6 +1336,7 @@ def create_app(
     @app.get("/api/v1/stats", response_model=StatsResponse)
     async def get_stats(
         target_id: str = Query(..., description="目标标识"),
+        user: dict = Depends(get_current_user),
     ) -> StatsResponse:
         """返回指定 target 的事件统计（SQLite 聚合查询）。"""
         if _store is not None:
@@ -1214,7 +1395,10 @@ def create_app(
     # ── 配置读取端点（无需认证）─────────────────────────
 
     @app.get("/api/v1/config/targets/{target_id}")
-    async def get_target_config(target_id: str) -> dict[str, Any]:
+    async def get_target_config(
+        target_id: str,
+        user: dict = Depends(get_current_user),
+    ) -> dict[str, Any]:
         """读取指定 target 的完整配置。"""
         config_path = Path(f"config/targets/{target_id}.yaml")
         data = _config_cache.load_yaml(config_path)
@@ -1226,7 +1410,10 @@ def create_app(
         "/api/v1/config/targets/{target_id}/sources",
         response_model=SourceListResponse,
     )
-    async def list_sources(target_id: str) -> SourceListResponse:
+    async def list_sources(
+        target_id: str,
+        user: dict = Depends(get_current_user),
+    ) -> SourceListResponse:
         """列出指定 target 的所有源渠道。"""
         raw_sources = _load_source_configs(target_id)
         sources: list[SourceInfo] = []
@@ -1259,7 +1446,11 @@ def create_app(
         return SourceListResponse(target_id=target_id, sources=sources)
 
     @app.get("/api/v1/config/targets/{target_id}/sources/{source_id:path}")
-    async def get_source_config(target_id: str, source_id: str) -> dict[str, Any]:
+    async def get_source_config(
+        target_id: str,
+        source_id: str,
+        user: dict = Depends(get_current_user),
+    ) -> dict[str, Any]:
         """读取单个源渠道的完整配置。"""
         data = _load_single_source(target_id, source_id)
         if data is None:
@@ -1273,7 +1464,10 @@ def create_app(
         "/api/v1/config/targets/{target_id}/filters",
         response_model=FilterRulesResponse,
     )
-    async def get_filter_rules(target_id: str) -> FilterRulesResponse:
+    async def get_filter_rules(
+        target_id: str,
+        user: dict = Depends(get_current_user),
+    ) -> FilterRulesResponse:
         """读取指定 target 的过滤规则。"""
         filter_path = Path(f"config/filters/{target_id}/default.yaml")
         data = _config_cache.load_yaml(filter_path)
@@ -1298,7 +1492,9 @@ def create_app(
         "/api/v1/config/output/destinations",
         response_model=DestinationListResponse,
     )
-    async def list_destinations() -> DestinationListResponse:
+    async def list_destinations(
+        user: dict = Depends(get_current_user),
+    ) -> DestinationListResponse:
         """读取所有输出目的地配置。"""
         dest_path = Path("config/output/destinations.yaml")
         data = _config_cache.load_yaml(dest_path)
@@ -1331,7 +1527,9 @@ def create_app(
         "/api/v1/config/provider/routes",
         response_model=ProviderRoutesResponse,
     )
-    async def get_provider_routes() -> ProviderRoutesResponse:
+    async def get_provider_routes(
+        user: dict = Depends(get_current_user),
+    ) -> ProviderRoutesResponse:
         """读取 AI Provider 路由配置。"""
         routes_path = Path("config/provider/routes.yaml")
         data = _config_cache.load_yaml(routes_path)
@@ -1369,6 +1567,7 @@ def create_app(
         entity_type: str | None = Query(None, description="按实体类型过滤"),
         target_id: str | None = Query(None, description="按目标过滤"),
         min_mentions: int = Query(1, ge=1, description="最少提及次数"),
+        user: dict = Depends(get_current_user),
         limit: int = Query(20, ge=1, le=100, description="返回数量"),
         sort: str = Query("mention_count", description="排序: mention_count 或 last_seen"),
     ) -> EntityListResponse:
@@ -1388,7 +1587,10 @@ def create_app(
         )
 
     @app.get("/api/v1/entities/{entity_id}", response_model=EntityDetailResponse)
-    async def get_entity(entity_id: int) -> EntityDetailResponse:
+    async def get_entity(
+        entity_id: int,
+        user: dict = Depends(get_current_user),
+    ) -> EntityDetailResponse:
         """返回实体详情及关联事件。"""
         if _store is None:
             raise HTTPException(status_code=404, detail="Entity not found")
@@ -1406,6 +1608,7 @@ def create_app(
     @app.get("/api/v1/stats/today", response_model=TodayStatsResponse)
     async def get_today_stats_api(
         target_id: str = Query(..., description="目标标识"),
+        user: dict = Depends(get_current_user),
     ) -> TodayStatsResponse:
         """今日 vs 昨日对比统计。"""
         if _store is None:
@@ -1418,6 +1621,7 @@ def create_app(
         target_id: str = Query(..., description="目标标识"),
         days: int = Query(7, ge=1, le=30, description="天数"),
         limit: int = Query(5, ge=1, le=20, description="数量"),
+        user: dict = Depends(get_current_user),
     ) -> TopEventsResponse:
         """近期高价值事件。"""
         if _store is None:
@@ -1442,11 +1646,8 @@ def create_app(
         ),
         entity: str | None = Query(None, description="按实体名筛选"),
         topic_tag: str | None = Query(None, description="按主题标签筛选"),
-        x_api_key: str | None = Header(None, alias="X-API-Key"),
+        user: dict = Depends(get_current_user),
     ) -> EventResponse:
-        key = _verify_api_key(x_api_key)
-        if not _rate_limiter.check(key):
-            raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
         if _store is not None:
             offset = (page - 1) * page_size
@@ -1499,11 +1700,8 @@ def create_app(
     async def get_event(
         event_id: str,
         target_id: str = Query(..., description="目标标识"),
-        x_api_key: str | None = Header(None, alias="X-API-Key"),
+        user: dict = Depends(get_current_user),
     ) -> dict[str, Any]:
-        key = _verify_api_key(x_api_key)
-        if not _rate_limiter.check(key):
-            raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
         if _store is not None:
             file_path = await _store.get_event_file_path(event_id)
@@ -1524,11 +1722,8 @@ def create_app(
     async def receive_webhook(
         payload: WebhookPayload,
         target_id: str = Query(..., description="目标标识"),
-        x_api_key: str | None = Header(None, alias="X-API-Key"),
+        user: dict = Depends(require_permission("write")),
     ) -> WebhookResponse:
-        key = _verify_api_key(x_api_key)
-        if not _rate_limiter.check(key):
-            raise HTTPException(status_code=429, detail="Rate limit exceeded")
         event_id = _save_webhook_event(_data_dir, target_id, payload)
         return WebhookResponse(
             status="accepted",
@@ -1539,16 +1734,13 @@ def create_app(
     @app.post("/api/v1/events/import", response_model=ImportResponse)
     async def import_events(
         events: list[ImportEventItem],
-        x_api_key: str | None = Header(None, alias="X-API-Key"),
+        user: dict = Depends(require_permission("write")),
     ) -> ImportResponse:
         """批量导入外部事件。
 
         接受 JSON 数组，逐条写入 data/{target_id}/raw/ 并索引到 SQLite。
         已存在的事件（event_id 相同）会被跳过。
         """
-        key = _verify_api_key(x_api_key)
-        if not _rate_limiter.check(key):
-            raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
         imported = 0
         skipped = 0
@@ -1630,12 +1822,9 @@ def create_app(
 
     @app.post("/api/v1/config/reload")
     async def reload_config(
-        x_api_key: str | None = Header(None, alias="X-API-Key"),
+        user: dict = Depends(require_permission("write")),
     ) -> dict[str, str]:
         """清除配置缓存，下次请求时重新从文件加载。"""
-        key = _verify_api_key(x_api_key)
-        if not _rate_limiter.check(key):
-            raise HTTPException(status_code=429, detail="Rate limit exceeded")
         _config_cache.reload()
         return {"status": "ok", "message": "Configuration cache cleared"}
 
@@ -1645,12 +1834,9 @@ def create_app(
     async def update_target_config(
         target_id: str,
         body: TargetConfigUpdate,
-        x_api_key: str | None = Header(None, alias="X-API-Key"),
+        user: dict = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """更新 target 配置。"""
-        key = _verify_api_key(x_api_key)
-        if not _rate_limiter.check(key):
-            raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
         filepath = Path(f"config/targets/{target_id}.yaml")
         if not filepath.exists():
@@ -1673,12 +1859,9 @@ def create_app(
         target_id: str,
         source_id: str,
         body: SourceConfigUpdate,
-        x_api_key: str | None = Header(None, alias="X-API-Key"),
+        user: dict = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """更新 source 配置。"""
-        key = _verify_api_key(x_api_key)
-        if not _rate_limiter.check(key):
-            raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
         filepath = Path(f"config/sources/{target_id}/{source_id}.yaml")
         if not filepath.exists():
@@ -1700,12 +1883,9 @@ def create_app(
     async def update_filter_config(
         target_id: str,
         body: FilterConfigUpdate,
-        x_api_key: str | None = Header(None, alias="X-API-Key"),
+        user: dict = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """更新 filter 配置。"""
-        key = _verify_api_key(x_api_key)
-        if not _rate_limiter.check(key):
-            raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
         filepath = Path(f"config/filters/{target_id}/default.yaml")
         if not filepath.exists():
@@ -1727,12 +1907,9 @@ def create_app(
     async def update_destination_config(
         destination_id: str,
         body: DestinationConfigUpdate,
-        x_api_key: str | None = Header(None, alias="X-API-Key"),
+        user: dict = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """更新 output destination 配置。"""
-        key = _verify_api_key(x_api_key)
-        if not _rate_limiter.check(key):
-            raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
         filepath = Path("config/output/destinations.yaml")
         if not filepath.exists():
@@ -1765,12 +1942,9 @@ def create_app(
     async def update_provider_route(
         route_id: str,
         body: RouteConfigUpdate,
-        x_api_key: str | None = Header(None, alias="X-API-Key"),
+        user: dict = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """更新 provider route 配置。"""
-        key = _verify_api_key(x_api_key)
-        if not _rate_limiter.check(key):
-            raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
         filepath = Path("config/provider/routes.yaml")
         if not filepath.exists():
@@ -1805,6 +1979,7 @@ def create_app(
     async def list_runs(
         target_id: str = Query(..., description="目标标识"),
         limit: int = Query(20, ge=1, le=100),
+        user: dict = Depends(get_current_user),
     ) -> RunListResponse:
         runs = _load_run_logs(_data_dir, target_id, limit)
         return RunListResponse(runs=[RunInfo(**r) for r in runs])
@@ -1812,6 +1987,7 @@ def create_app(
     @app.get("/api/v1/runs/active", response_model=HeartbeatResponse)
     async def get_active_run(
         target_id: str = Query(..., description="目标标识"),
+        user: dict = Depends(get_current_user),
     ) -> HeartbeatResponse:
         data = _load_heartbeat(_data_dir, target_id)
         return HeartbeatResponse(**data)
@@ -1820,6 +1996,7 @@ def create_app(
     async def get_run_detail(
         run_id: str,
         target_id: str = Query(..., description="目标标识"),
+        user: dict = Depends(get_current_user),
     ) -> RunDetailResponse:
         data = _load_single_run_log(_data_dir, run_id, target_id)
         if data is None:
@@ -1838,6 +2015,7 @@ def create_app(
     @app.get("/api/v1/sources/health", response_model=SourceHealthListResponse)
     async def list_source_health(
         target_id: str = Query(..., description="目标标识"),
+        user: dict = Depends(get_current_user),
     ) -> SourceHealthListResponse:
         if _store is None:
             return SourceHealthListResponse(sources=[])
@@ -1848,11 +2026,8 @@ def create_app(
     async def trigger_run(
         target_id: str = Query(..., description="目标标识"),
         stage: str = Query("all", description="执行阶段"),
-        x_api_key: str | None = Header(None, alias="X-API-Key"),
+        user: dict = Depends(require_permission("write")),
     ) -> TriggerResponse:
-        key = _verify_api_key(x_api_key)
-        if not _rate_limiter.check(key):
-            raise HTTPException(status_code=429, detail="Rate limit exceeded")
         try:
             import asyncio
 
@@ -1874,6 +2049,7 @@ def create_app(
     async def get_event_links(
         event_id: str,
         target_id: str = Query(..., description="目标标识"),
+        user: dict = Depends(get_current_user),
     ) -> EventLinksResponse:
         """获取某事件的关联事件列表。"""
         if _store is None:
@@ -1910,6 +2086,7 @@ def create_app(
     async def get_event_chain(
         event_id: str,
         target_id: str = Query(..., description="目标标识"),
+        user: dict = Depends(get_current_user),
     ) -> EventChainResponse:
         """获取某事件的完整追踪链。"""
         if _store is None:
@@ -1930,6 +2107,7 @@ def create_app(
     @app.get("/api/v1/chains", response_model=ChainListResponse)
     async def list_chains(
         target_id: str = Query(..., description="目标标识"),
+        user: dict = Depends(get_current_user),
     ) -> ChainListResponse:
         """列出当前 target 的活跃追踪链。"""
         if _store is None:
@@ -1943,6 +2121,7 @@ def create_app(
     async def get_chain_narrative(
         root_id: str,
         target_id: str = Query(..., description="目标标识"),
+        user: dict = Depends(get_current_user),
     ) -> NarrativeResponse:
         """获取链的 AI 叙述。"""
         if _store is None:
@@ -1962,6 +2141,7 @@ def create_app(
     async def regenerate_chain_narrative(
         root_id: str,
         target_id: str = Query(..., description="目标标识"),
+        user: dict = Depends(require_permission("write")),
     ) -> NarrativeResponse:
         """手动重新生成链叙述。"""
         if _store is None:
@@ -1998,6 +2178,7 @@ def create_app(
     async def get_topic_trends(
         target_id: str = Query(..., description="目标标识"),
         days: int = Query(14, ge=7, le=30, description="天数"),
+        user: dict = Depends(get_current_user),
     ) -> TopicTrendsResponse:
         """主题热度趋势。"""
         if _store is None:
@@ -2021,6 +2202,7 @@ def create_app(
     async def get_sentiment_trends(
         target_id: str = Query(..., description="目标标识"),
         days: int = Query(14, ge=7, le=30, description="天数"),
+        user: dict = Depends(get_current_user),
     ) -> SentimentTrendsResponse:
         """情感分布趋势。"""
         if _store is None:
@@ -2054,6 +2236,7 @@ def create_app(
     @app.get("/api/v1/alerts/smart", response_model=SmartAlertsResponse)
     async def get_smart_alerts(
         target_id: str = Query(..., description="目标标识"),
+        user: dict = Depends(get_current_user),
     ) -> SmartAlertsResponse:
         """获取智能告警列表。"""
         if _store is None:
@@ -2077,6 +2260,7 @@ def create_app(
     async def maintenance_prune(
         target_id: str = Query(..., description="目标标识"),
         max_age_days: int = Query(30, ge=7, le=365, description="保留天数"),
+        user: dict = Depends(require_permission("write")),
     ) -> PruneResponse:
         """手动触发数据清理。"""
         if _store is None:
@@ -2085,7 +2269,9 @@ def create_app(
         return PruneResponse(target_id=target_id, **result)
 
     @app.post("/api/v1/maintenance/backup", response_model=BackupResponse)
-    async def maintenance_backup() -> BackupResponse:
+    async def maintenance_backup(
+        user: dict = Depends(require_permission("write")),
+    ) -> BackupResponse:
         """手动触发数据库备份。"""
         if _store is None:
             raise HTTPException(status_code=503, detail="Store not available")
@@ -2097,7 +2283,10 @@ def create_app(
     # ── 反馈闭环 + 告警管理 (Phase 41) ──────────────────
 
     @app.post("/api/v1/feedback", response_model=FeedbackSubmitResponse)
-    async def submit_feedback(req: FeedbackSubmitRequest) -> FeedbackSubmitResponse:
+    async def submit_feedback(
+        req: FeedbackSubmitRequest,
+        user: dict = Depends(require_permission("write")),
+    ) -> FeedbackSubmitResponse:
         """提交人工反馈。"""
         if _store is None:
             raise HTTPException(status_code=503, detail="Store not available")
@@ -2122,6 +2311,7 @@ def create_app(
     @app.get("/api/v1/feedback", response_model=FeedbackListResponse)
     async def list_feedback(
         target_id: str = Query(..., description="目标标识"),
+        user: dict = Depends(get_current_user),
     ) -> FeedbackListResponse:
         """获取反馈列表。"""
         if _store is None:
@@ -2146,6 +2336,7 @@ def create_app(
     @app.get("/api/v1/feedback/stats", response_model=FeedbackStatsResponse)
     async def feedback_stats(
         target_id: str = Query(..., description="目标标识"),
+        user: dict = Depends(get_current_user),
     ) -> FeedbackStatsResponse:
         """获取反馈统计。"""
         if _store is None:
@@ -2154,7 +2345,10 @@ def create_app(
         return FeedbackStatsResponse(**stats)
 
     @app.post("/api/v1/rules/optimize", response_model=RulesOptimizeResponse)
-    async def optimize_rules(req: RulesOptimizeRequest) -> RulesOptimizeResponse:
+    async def optimize_rules(
+        req: RulesOptimizeRequest,
+        user: dict = Depends(require_permission("write")),
+    ) -> RulesOptimizeResponse:
         """触发规则优化。"""
         config_dir = Path("config")
         filter_yaml = config_dir / f"filter-{req.target_id}.yaml"
@@ -2175,6 +2369,7 @@ def create_app(
     @app.get("/api/v1/alerts/history", response_model=AlertHistoryResponse)
     async def alert_history(
         target_id: str = Query(..., description="目标标识"),
+        user: dict = Depends(get_current_user),
     ) -> AlertHistoryResponse:
         """获取告警历史。"""
         if _store is None:

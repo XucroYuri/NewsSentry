@@ -140,6 +140,19 @@ CREATE TABLE IF NOT EXISTS alert_history (
 )
 """
 
+_DDL_USERS = """
+CREATE TABLE IF NOT EXISTS users (
+    username       TEXT PRIMARY KEY,
+    password_hash  TEXT NOT NULL,
+    salt           TEXT NOT NULL,
+    role           TEXT NOT NULL DEFAULT 'admin',
+    api_key        TEXT,
+    must_change_pw INTEGER NOT NULL DEFAULT 0,
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL
+)
+"""
+
 _DDL_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_known_ids_seen ON known_ids(seen_at)",
     "CREATE INDEX IF NOT EXISTS idx_event_target_stage ON event_index(target_id, stage)",
@@ -193,6 +206,7 @@ class AsyncStore:
         await self._db.execute(_DDL_CHAIN_NARRATIVES)
         await self._db.execute(_DDL_FEEDBACK)
         await self._db.execute(_DDL_ALERT_HISTORY)
+        await self._db.execute(_DDL_USERS)
         # Phase 31: 为已有数据库添加 NLP 列
         for col in ("sentiment", "entity_names", "topic_tags"):
             try:
@@ -1516,3 +1530,91 @@ class AsyncStore:
             row = await cursor.fetchone()
         self._db.row_factory = None
         return dict(row) if row else None
+
+    # ------------------------------------------------------------------
+    # Users
+    # ------------------------------------------------------------------
+
+    async def get_user(self, username: str) -> dict[str, Any] | None:
+        """获取用户信息。"""
+        if self._db is None:
+            return None
+        self._db.row_factory = aiosqlite.Row
+        async with self._db.execute(
+            "SELECT username, password_hash, salt, role, api_key, must_change_pw, "
+            "       created_at, updated_at FROM users WHERE username = ?",
+            (username,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        self._db.row_factory = None
+        return dict(row) if row else None
+
+    async def create_user(
+        self,
+        username: str,
+        password_hash: str,
+        salt: str,
+        role: str = "admin",
+        api_key: str | None = None,
+        must_change_pw: int = 0,
+    ) -> bool:
+        """创建用户，返回是否成功。"""
+        if self._db is None:
+            return False
+        now = datetime.now(UTC).isoformat()
+        try:
+            await self._db.execute(
+                "INSERT INTO users (username, password_hash, salt, role, api_key, "
+                "                   must_change_pw, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (username, password_hash, salt, role, api_key, must_change_pw, now, now),
+            )
+            await self._db.commit()
+            return True
+        except Exception:
+            return False
+
+    async def update_user_password(self, username: str, password_hash: str, salt: str) -> bool:
+        """更新用户密码。"""
+        if self._db is None:
+            return False
+        now = datetime.now(UTC).isoformat()
+        await self._db.execute(
+            "UPDATE users SET password_hash = ?, salt = ?, must_change_pw = 0, "
+            "                 updated_at = ? WHERE username = ?",
+            (password_hash, salt, now, username),
+        )
+        await self._db.commit()
+        return self._db.total_changes > 0
+
+    async def update_user_api_key(self, username: str, api_key: str | None) -> bool:
+        """更新用户的 API Key。"""
+        if self._db is None:
+            return False
+        now = datetime.now(UTC).isoformat()
+        await self._db.execute(
+            "UPDATE users SET api_key = ?, updated_at = ? WHERE username = ?",
+            (api_key, now, username),
+        )
+        await self._db.commit()
+        return self._db.total_changes > 0
+
+    async def list_users(self) -> list[dict[str, Any]]:
+        """列出所有用户。"""
+        if self._db is None:
+            return []
+        self._db.row_factory = aiosqlite.Row
+        async with self._db.execute(
+            "SELECT username, role, api_key, must_change_pw, created_at, updated_at FROM users"
+        ) as cursor:
+            rows = await cursor.fetchall()
+        self._db.row_factory = None
+        return [dict(r) for r in rows]
+
+    async def delete_user(self, username: str) -> bool:
+        """删除用户。"""
+        if self._db is None:
+            return False
+        await self._db.execute("DELETE FROM users WHERE username = ?", (username,))
+        await self._db.commit()
+        return self._db.total_changes > 0

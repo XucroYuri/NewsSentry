@@ -6,7 +6,7 @@
 
 import {
   state, $, $$, api, apiPost, escapeHtml, showError, showSuccess,
-  t, isAuthenticated, authenticate, getConnection, clearConnection,
+  t, isAuthenticated, hasPermission, authenticate, getConnection, clearConnection,
   setConnection, logAction,
 } from "./api.js";
 import { renderOverviewTab } from "./pages/dashboard.js";
@@ -17,7 +17,8 @@ import { renderTrendsTab } from "./pages/trends.js";
 import { renderLiveAlertsTab, renderAlertHistoryTab } from "./pages/alerts.js";
 import { renderRunStatusTab, renderCollectorTab, renderSourceHealthTab, renderRunHistoryTab, renderMaintenanceTab, renderOpsDetail } from "./pages/ops.js";
 import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedback.js";
-import { renderTargetTab, renderSourcesTab, renderFiltersTab, renderOutputsTab, renderAITab, renderWebhookTab } from "./pages/config.js";
+import { renderTargetTab, renderSourcesTab, renderFiltersTab, renderOutputsTab, renderAITab, renderWebhookTab, renderApiKeyTab } from "./pages/config.js";
+import { renderPasswordTab } from "./pages/settings.js";
 
 // ═══════════════════════════════════════════════════════════
 // §1. 路由表
@@ -110,6 +111,17 @@ const ROUTES = {
       return (tabMap[tab] || renderTargetTab)(container);
     },
   },
+  settings: {
+    icon: "⚙️",
+    tabs: [
+      { id: "password", label: "修改密码" },
+      { id: "apiKey", label: "API Key 管理" },
+    ],
+    render: (container, tab) => {
+      if (tab === "apiKey") return renderApiKeyTab(container);
+      return renderPasswordTab(container);
+    },
+  },
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -150,7 +162,7 @@ function updateBreadcrumb(section, tab, param) {
   const bc = document.getElementById("breadcrumb");
   if (!bc) return;
 
-  const sectionNames = { news: "新闻情报", alerts: "告警通知", ops: "运行监控", feedback: "反馈优化", config: "配置中心" };
+  const sectionNames = { news: "新闻情报", alerts: "告警通知", ops: "运行监控", feedback: "反馈优化", config: "配置中心", settings: "系统设置" };
   const route = ROUTES[section];
   const tabInfo = route?.tabs.find(t => t.id === tab);
 
@@ -240,30 +252,39 @@ async function handleConnect() {
   const btn = document.getElementById("connectBtn");
   const errEl = document.getElementById("connectError");
   const server = document.getElementById("connectServer")?.value?.trim();
-  const apiKey = document.getElementById("connectApiKey")?.value?.trim();
   const username = document.getElementById("connectUsername")?.value?.trim();
+  const password = document.getElementById("connectPassword")?.value;
   const lang = document.getElementById("connectLanguage")?.value || "zh";
 
-  if (!server) return;
+  if (!server || !username || !password) {
+    if (errEl) {
+      errEl.textContent = "请输入用户名和密码";
+      errEl.style.display = "block";
+    }
+    return;
+  }
 
-  if (btn) { btn.disabled = true; btn.textContent = "连接中..."; }
+  if (btn) { btn.disabled = true; btn.textContent = "登录中..."; }
   if (errEl) errEl.style.display = "none";
 
   localStorage.setItem("ns_language", lang);
 
-  const result = await authenticate(server, apiKey, username);
-
-  if (btn) { btn.disabled = false; btn.textContent = "验证并连接"; }
-
-  if (result.success) {
+  try {
+    const conn = await authenticate(server, username, password);
     logAction("login", server, "ok");
-    window.location.hash = "#/news/overview";
-  } else {
+    if (conn.mustChangePw) {
+      window.location.hash = "#/settings/password";
+    } else {
+      window.location.hash = "#/news/overview";
+    }
+  } catch (err) {
     if (errEl) {
-      errEl.textContent = "连接失败：API Key 无效或服务器不可达";
+      errEl.textContent = err.message || "登录失败：用户名或密码错误";
       errEl.style.display = "block";
     }
     logAction("login", server, "failed");
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "登录"; }
   }
 }
 

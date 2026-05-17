@@ -17,6 +17,8 @@ select = [
 ]
 ignore = [
     "S101",   # use of assert (allowed in tests)
+    "B008",   # function call in default argument (FastAPI Depends pattern)
+    "ANN401", # dynamically typed expressions (FastAPI dependency closures)
 ]
 
 [lint.per-file-ignores]

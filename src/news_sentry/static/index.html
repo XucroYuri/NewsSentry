@@ -30,8 +30,8 @@
           <input type="url" id="connectServer" value="https://news-sentry.xuyu.workers.dev">
         </div>
         <div class="connect-field">
-          <label>API Key</label>
-          <input type="password" id="connectApiKey" placeholder="输入 API Key">
+          <label>密码</label>
+          <input type="password" id="connectPassword" placeholder="输入密码" autocomplete="current-password">
         </div>
         <div class="connect-field">
           <label>Language / 语言</label>
@@ -40,8 +40,8 @@
             <option value="en">English</option>
           </select>
         </div>
-        <button id="connectBtn" class="connect-btn">验证并连接</button>
-        <p class="connect-hint">API Key 可从系统管理员获取</p>
+        <button id="connectBtn" class="connect-btn">登录</button>
+        <p class="connect-hint">首次登录请使用管理员账户</p>
         <p id="connectError" class="connect-error" style="display:none;"></p>
       </div>
     </div>

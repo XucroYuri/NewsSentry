@@ -11,9 +11,9 @@ import yaml
 from fastapi.testclient import TestClient
 
 from news_sentry.core.api_server import (
+    _get_valid_api_keys,
     _parse_frontmatter,
     _RateLimiter,
-    _verify_api_key,
     create_app,
 )
 from news_sentry.core.async_store import AsyncStore
@@ -97,28 +97,25 @@ class TestRateLimiter:
 class TestVerifyApiKey:
     """API Key 认证测试。"""
 
-    def test_no_config_keys_allows_all(self) -> None:
-        # 无环境变量时开发模式
+    def test_no_config_keys_returns_empty(self) -> None:
+        # 无环境变量时返回空集合
         os.environ.pop("NEWSSENTRY_API_KEY", None)
-        result = _verify_api_key("any")
-        assert result == "any"
+        result = _get_valid_api_keys()
+        assert result == set()
 
-    def test_valid_key_accepted(self) -> None:
+    def test_valid_keys_loaded(self) -> None:
         os.environ["NEWSSENTRY_API_KEY"] = "test-key-1,test-key-2"
         try:
-            result = _verify_api_key("test-key-1")
-            assert result == "test-key-1"
+            result = _get_valid_api_keys()
+            assert result == {"test-key-1", "test-key-2"}
         finally:
             del os.environ["NEWSSENTRY_API_KEY"]
 
-    def test_invalid_key_rejected(self) -> None:
+    def test_single_key_loaded(self) -> None:
         os.environ["NEWSSENTRY_API_KEY"] = "test-key-1"
         try:
-            from fastapi import HTTPException
-
-            with pytest.raises(HTTPException) as exc_info:
-                _verify_api_key("wrong-key")
-            assert exc_info.value.status_code == 401
+            result = _get_valid_api_keys()
+            assert result == {"test-key-1"}
         finally:
             del os.environ["NEWSSENTRY_API_KEY"]
 
@@ -144,7 +141,20 @@ class TestAPIServer:
 
     def _make_client(self, tmp_path: Path) -> TestClient:
         app = create_app(data_dir=tmp_path)
-        return TestClient(app)
+        client = TestClient(app)
+        # 获取 dev mode token 并设为默认 headers
+        resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert resp.status_code == 200, f"Auth token failed: {resp.text}"
+        token = resp.json()["access_token"]
+        client.headers["Authorization"] = f"Bearer {token}"
+        return client
+
+    def _auth_headers(self, client: TestClient) -> dict[str, str]:
+        """获取 dev mode Bearer token（无需配置 API Key）。"""
+        resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert resp.status_code == 200
+        token = resp.json()["access_token"]
+        return {"Authorization": f"Bearer {token}"}
 
     def test_health_endpoint(self, tmp_path: Path) -> None:
         client = self._make_client(tmp_path)
@@ -240,22 +250,28 @@ class TestAPIServer:
     def test_api_key_auth(self, tmp_path: Path) -> None:
         os.environ["NEWSSENTRY_API_KEY"] = "secret123"
         try:
-            client = self._make_client(tmp_path)
-            # 无 key
+            # 创建无默认 auth 的客户端
+            app = create_app(data_dir=tmp_path)
+            client = TestClient(app)
+            # 无 token
             resp = client.get("/api/v1/events", params={"target_id": "italy"})
             assert resp.status_code == 401
-            # 错误 key
+            # 错误 token
             resp = client.get(
                 "/api/v1/events",
                 params={"target_id": "italy"},
-                headers={"X-API-Key": "wrong"},
+                headers={"Authorization": "Bearer wrong-token"},
             )
             assert resp.status_code == 401
-            # 正确 key
+            # 通过 API Key 获取 token
+            resp = client.post("/api/v1/auth/token", json={"api_key": "secret123"})
+            assert resp.status_code == 200
+            token = resp.json()["access_token"]
+            # 使用正确 Bearer token
             resp = client.get(
                 "/api/v1/events",
                 params={"target_id": "italy"},
-                headers={"X-API-Key": "secret123"},
+                headers={"Authorization": f"Bearer {token}"},
             )
             assert resp.status_code == 200
         finally:
@@ -424,7 +440,13 @@ class TestConfigAPI:
 
     def _make_client(self, tmp_path: Path) -> TestClient:
         app = create_app(data_dir=tmp_path)
-        return TestClient(app)
+        client = TestClient(app)
+        # 获取 dev mode token 并设为默认 headers
+        resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert resp.status_code == 200, f"Auth token failed: {resp.text}"
+        token = resp.json()["access_token"]
+        client.headers["Authorization"] = f"Bearer {token}"
+        return client
 
     def _setup_config(
         self,
@@ -761,7 +783,13 @@ class TestAPIServerSQLite:
 
     def _make_client_with_store(self, tmp_path: Path, store: AsyncStore) -> TestClient:
         app = create_app(data_dir=tmp_path, store=store)
-        return TestClient(app)
+        client = TestClient(app)
+        # 获取 dev mode token 并设为默认 headers
+        resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert resp.status_code == 200, f"Auth token failed: {resp.text}"
+        token = resp.json()["access_token"]
+        client.headers["Authorization"] = f"Bearer {token}"
+        return client
 
     def test_stats_with_sqlite(
         self,
@@ -1073,7 +1101,13 @@ class TestOpsEndpoints:
 
     def _make_client(self, tmp_path: Path) -> TestClient:
         app = create_app(data_dir=tmp_path)
-        return TestClient(app)
+        client = TestClient(app)
+        # 获取 dev mode token 并设为默认 headers
+        resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert resp.status_code == 200, f"Auth token failed: {resp.text}"
+        token = resp.json()["access_token"]
+        client.headers["Authorization"] = f"Bearer {token}"
+        return client
 
     def test_list_runs_empty(self, tmp_path: Path) -> None:
         client = self._make_client(tmp_path)
@@ -1141,6 +1175,10 @@ class TestOpsEndpoints:
         )
         app2 = create_app(data_dir=str(tmp_path))
         client2 = TestClient(app2)
+        # 获取 dev mode token
+        token_resp = client2.post("/api/v1/auth/token", json={"api_key": ""})
+        assert token_resp.status_code == 200
+        client2.headers["Authorization"] = f"Bearer {token_resp.json()['access_token']}"
         resp = client2.get("/api/v1/runs", params={"target_id": "italy"})
         assert resp.status_code == 200
         runs = resp.json()["runs"]
@@ -1183,6 +1221,11 @@ class TestEventChainAPI:
 
         transport = ASGITransport(app=app)
         client = AsyncClient(transport=transport, base_url="http://test")
+        # 获取 dev mode token
+        token_resp = await client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert token_resp.status_code == 200
+        token = token_resp.json()["access_token"]
+        client.headers["Authorization"] = f"Bearer {token}"
         yield client, store
         await client.aclose()
         await store.close()
@@ -1256,6 +1299,11 @@ class TestChainNarrativeAPI:
 
         transport = ASGITransport(app=app)
         client = AsyncClient(transport=transport, base_url="http://test")
+        # 获取 dev mode token
+        token_resp = await client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert token_resp.status_code == 200
+        token = token_resp.json()["access_token"]
+        client.headers["Authorization"] = f"Bearer {token}"
         yield client, store
         await client.aclose()
         await store.close()
@@ -1284,6 +1332,10 @@ class TestChainNarrativeAPI:
 
         transport = ASGITransport(app=app)
         client = AsyncClient(transport=transport, base_url="http://test")
+        # 获取 dev mode token
+        token_resp = await client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert token_resp.status_code == 200
+        client.headers["Authorization"] = f"Bearer {token_resp.json()['access_token']}"
         resp = await client.post("/api/v1/chains/evt-1/narrative", params={"target_id": "italy"})
         assert resp.status_code == 503
         await client.aclose()
@@ -1399,6 +1451,11 @@ class TestTrendAPI:
 
         transport = ASGITransport(app=app)
         client = AsyncClient(transport=transport, base_url="http://test")
+        # 获取 dev mode token
+        token_resp = await client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert token_resp.status_code == 200
+        token = token_resp.json()["access_token"]
+        client.headers["Authorization"] = f"Bearer {token}"
         yield client, store
         await client.aclose()
         await store.close()
@@ -1442,6 +1499,10 @@ class TestTrendAPI:
 
         transport = ASGITransport(app=app)
         client = AsyncClient(transport=transport, base_url="http://test")
+        # 获取 dev mode token
+        token_resp = await client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert token_resp.status_code == 200
+        client.headers["Authorization"] = f"Bearer {token_resp.json()['access_token']}"
         resp = await client.get(
             "/api/v1/trends/topics",
             params={"target_id": "italy"},
@@ -1476,6 +1537,11 @@ class TestSmartAlertAPI:
 
         transport = ASGITransport(app=app)
         client = AsyncClient(transport=transport, base_url="http://test")
+        # 获取 dev mode token
+        token_resp = await client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert token_resp.status_code == 200
+        token = token_resp.json()["access_token"]
+        client.headers["Authorization"] = f"Bearer {token}"
         yield client, store
         await client.aclose()
         await store.close()
@@ -1500,6 +1566,10 @@ class TestSmartAlertAPI:
 
         transport = ASGITransport(app=app)
         client = AsyncClient(transport=transport, base_url="http://test")
+        # 获取 dev mode token
+        token_resp = await client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert token_resp.status_code == 200
+        client.headers["Authorization"] = f"Bearer {token_resp.json()['access_token']}"
         resp = await client.get(
             "/api/v1/alerts/smart",
             params={"target_id": "italy"},
@@ -1544,6 +1614,11 @@ class TestDashboardAPI:
 
         transport = ASGITransport(app=app)
         client = AsyncClient(transport=transport, base_url="http://test")
+        # 获取 dev mode token
+        token_resp = await client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert token_resp.status_code == 200
+        token = token_resp.json()["access_token"]
+        client.headers["Authorization"] = f"Bearer {token}"
         yield client, store
         await client.aclose()
         await store.close()
@@ -1590,6 +1665,11 @@ class TestMaintenanceAPI:
 
         transport = ASGITransport(app=app)
         client = AsyncClient(transport=transport, base_url="http://test")
+        # 获取 dev mode token
+        token_resp = await client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert token_resp.status_code == 200
+        token = token_resp.json()["access_token"]
+        client.headers["Authorization"] = f"Bearer {token}"
         yield client, store
         await client.aclose()
         await store.close()
@@ -1640,6 +1720,10 @@ class TestFeedbackAndAlertAPI:
         app = create_app(data_dir=str(tmp_path), store=store)
         transport = ASGITransport(app=app)
         client = AsyncClient(transport=transport, base_url="http://test")
+        # 获取 dev mode token
+        token_resp = await client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert token_resp.status_code == 200
+        client.headers["Authorization"] = f"Bearer {token_resp.json()['access_token']}"
         yield client, store
         await client.aclose()
         await store.close()
@@ -1730,11 +1814,20 @@ class TestConfigWriteEndpoints:
 
     def _make_client(self, tmp_path: Path) -> TestClient:
         app = create_app(data_dir=tmp_path)
-        return TestClient(app)
+        client = TestClient(app)
+        # 获取 dev mode token 并设为默认 headers
+        resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert resp.status_code == 200, f"Auth token failed: {resp.text}"
+        token = resp.json()["access_token"]
+        client.headers["Authorization"] = f"Bearer {token}"
+        return client
 
-    def _setup_auth(self) -> dict[str, str]:
+    def _setup_auth(self, client: TestClient) -> dict[str, str]:
         os.environ["NEWSSENTRY_API_KEY"] = "secret123"
-        return {"X-API-Key": "secret123"}
+        resp = client.post("/api/v1/auth/token", json={"api_key": "secret123"})
+        assert resp.status_code == 200
+        token = resp.json()["access_token"]
+        return {"Authorization": f"Bearer {token}"}
 
     def _teardown_auth(self) -> None:
         del os.environ["NEWSSENTRY_API_KEY"]
@@ -1743,9 +1836,9 @@ class TestConfigWriteEndpoints:
         """PUT /config/targets/{id} 更新 target 配置。"""
         filepath = Path("config/targets/italy.yaml")
         original = filepath.read_text(encoding="utf-8")
-        headers = self._setup_auth()
+        client = self._make_client(tmp_path)
+        headers = self._setup_auth(client)
         try:
-            client = self._make_client(tmp_path)
             resp = client.put(
                 "/api/v1/config/targets/italy",
                 json={"display_name": "意大利 (测试)"},
@@ -1762,9 +1855,9 @@ class TestConfigWriteEndpoints:
         """PATCH /config/targets/{id}/sources/{sid} 更新 source。"""
         filepath = Path("config/sources/italy/aci-stampa.yaml")
         original = filepath.read_text(encoding="utf-8")
-        headers = self._setup_auth()
+        client = self._make_client(tmp_path)
+        headers = self._setup_auth(client)
         try:
-            client = self._make_client(tmp_path)
             resp = client.patch(
                 "/api/v1/config/targets/italy/sources/aci-stampa",
                 json={"enabled": False},
@@ -1781,9 +1874,9 @@ class TestConfigWriteEndpoints:
         """PATCH /config/targets/{id}/filters 更新 filter。"""
         filepath = Path("config/filters/italy/default.yaml")
         original = filepath.read_text(encoding="utf-8")
-        headers = self._setup_auth()
+        client = self._make_client(tmp_path)
+        headers = self._setup_auth(client)
         try:
-            client = self._make_client(tmp_path)
             resp = client.patch(
                 "/api/v1/config/targets/italy/filters",
                 json={"score_threshold": 50},
@@ -1800,9 +1893,9 @@ class TestConfigWriteEndpoints:
         """PATCH /config/output/destinations/{id} 更新 destination。"""
         filepath = Path("config/output/destinations.yaml")
         original = filepath.read_text(encoding="utf-8")
-        headers = self._setup_auth()
+        client = self._make_client(tmp_path)
+        headers = self._setup_auth(client)
         try:
-            client = self._make_client(tmp_path)
             resp = client.patch(
                 "/api/v1/config/output/destinations/obsidian_target_drafts",
                 json={"enabled": False},
@@ -1817,9 +1910,9 @@ class TestConfigWriteEndpoints:
         """PATCH /config/provider/routes/{id} 更新 route。"""
         filepath = Path("config/provider/routes.yaml")
         original = filepath.read_text(encoding="utf-8")
-        headers = self._setup_auth()
+        client = self._make_client(tmp_path)
+        headers = self._setup_auth(client)
         try:
-            client = self._make_client(tmp_path)
             resp = client.patch(
                 "/api/v1/config/provider/routes/translate.fast",
                 json={"timeout_seconds": 45},
@@ -1833,17 +1926,15 @@ class TestConfigWriteEndpoints:
             self._teardown_auth()
 
     def test_config_write_requires_auth(self, tmp_path: Path) -> None:
-        """配置写入端点要求 API key 认证。"""
-        os.environ["NEWSSENTRY_API_KEY"] = "secret123"
-        try:
-            client = self._make_client(tmp_path)
-            resp = client.put(
-                "/api/v1/config/targets/italy",
-                json={"display_name": "test"},
-            )
-            assert resp.status_code == 401
-        finally:
-            del os.environ["NEWSSENTRY_API_KEY"]
+        """配置写入端点要求 Bearer token 认证。"""
+        # 创建无默认 auth 的客户端
+        app = create_app(data_dir=tmp_path)
+        client = TestClient(app)
+        resp = client.put(
+            "/api/v1/config/targets/italy",
+            json={"display_name": "test"},
+        )
+        assert resp.status_code == 401
 
 
 class TestImportEvents:
@@ -1851,7 +1942,13 @@ class TestImportEvents:
 
     def _make_client(self, tmp_path: Path) -> TestClient:
         app = create_app(data_dir=tmp_path)
-        return TestClient(app)
+        client = TestClient(app)
+        # 获取 dev mode token 并设为默认 headers
+        resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert resp.status_code == 200, f"Auth token failed: {resp.text}"
+        token = resp.json()["access_token"]
+        client.headers["Authorization"] = f"Bearer {token}"
+        return client
 
     def test_import_basic(self, tmp_path: Path) -> None:
         """基本批量导入。"""
@@ -1927,6 +2024,10 @@ class TestImportEvents:
             await store.initialize()
             app = create_app(data_dir=tmp_path, store=store)
             client = TestClient(app)
+            # 获取 dev mode token
+            token_resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+            assert token_resp.status_code == 200
+            client.headers["Authorization"] = f"Bearer {token_resp.json()['access_token']}"
 
             payload = [
                 {
@@ -1955,10 +2056,12 @@ class TestImportEvents:
         asyncio.run(_init_and_import())
 
     def test_import_auth_required(self, tmp_path: Path) -> None:
-        """导入端点要求 API key（配置时）。"""
+        """导入端点要求认证。"""
         os.environ["NEWSSENTRY_API_KEY"] = "secret123"
         try:
-            client = self._make_client(tmp_path)
+            # 创建无默认 auth 的客户端
+            app = create_app(data_dir=tmp_path)
+            client = TestClient(app)
             resp = client.post(
                 "/api/v1/events/import",
                 json=[
@@ -1976,10 +2079,17 @@ class TestImportEvents:
             del os.environ["NEWSSENTRY_API_KEY"]
 
     def test_import_auth_with_valid_key(self, tmp_path: Path) -> None:
-        """有效 API key 允许导入。"""
+        """有效 Bearer token 允许导入。"""
         os.environ["NEWSSENTRY_API_KEY"] = "secret123"
         try:
-            client = self._make_client(tmp_path)
+            # 创建无默认 auth 的客户端，再手动获取 token
+            app = create_app(data_dir=tmp_path)
+            client = TestClient(app)
+            # 交换 API Key 获取 token
+            token_resp = client.post("/api/v1/auth/token", json={"api_key": "secret123"})
+            assert token_resp.status_code == 200
+            token = token_resp.json()["access_token"]
+            headers = {"Authorization": f"Bearer {token}"}
             resp = client.post(
                 "/api/v1/events/import",
                 json=[
@@ -1991,7 +2101,7 @@ class TestImportEvents:
                         "collected_at": "2026-05-17T10:00:00+00:00",
                     },
                 ],
-                headers={"X-API-Key": "secret123"},
+                headers=headers,
             )
             assert resp.status_code == 200
             assert resp.json()["imported"] == 1

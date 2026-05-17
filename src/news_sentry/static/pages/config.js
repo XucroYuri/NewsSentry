@@ -4,7 +4,7 @@
 
 "use strict";
 
-import { api, apiPatch, apiPost, apiPut, state, $, $$, escapeHtml, showError, showSuccess, scoreColor } from "../api.js";
+import { api, apiPatch, apiPost, apiPut, state, $, $$, escapeHtml, showError, showSuccess, scoreColor, hasPermission, getConnection } from "../api.js";
 
 // ── 共享 Helpers ──────────────────────────────────────────
 
@@ -738,4 +738,88 @@ export async function renderWebhookTab(container) {
       if (resultEl) resultEl.innerHTML = `<span style="color:#f85149;">✗ ${escapeHtml(err.message)}</span>`;
     }
   });
+}
+
+// ── 页面渲染：API Key 管理 ────────────────────────────────
+
+export async function renderApiKeyTab(container) {
+  if (!hasPermission("admin")) {
+    container.innerHTML = '<div class="empty-state"><p>需要管理员权限</p></div>';
+    return;
+  }
+
+  let currentStatus = { has_api_key: false, api_key_preview: "" };
+  try {
+    currentStatus = await api("/api/v1/settings/api-key");
+  } catch (e) { /* ignore */ }
+
+  container.innerHTML = `
+    <div class="settings-page">
+      <h3>API Key 管理</h3>
+      <p class="settings-desc">API Key 用于 CLI 命令行工具和外部系统集成（如 cron 定时任务）。</p>
+
+      <div class="api-key-status">
+        <span class="status-label">状态：</span>
+        <span class="status-value ${currentStatus.has_api_key ? 'status-ok' : 'status-none'}">
+          ${currentStatus.has_api_key ? '已配置' : '未配置'}
+        </span>
+        ${currentStatus.has_api_key ? `<span class="status-preview"> (${currentStatus.api_key_preview})</span>` : ''}
+      </div>
+
+      <form id="apiKeyForm" class="settings-form">
+        <div class="form-field">
+          <label>API Key</label>
+          <input type="password" id="apiKeyInput" placeholder="${currentStatus.has_api_key ? '输入新的 API Key 以更新' : '输入 API Key'}">
+        </div>
+        <div id="apiKeyError" class="form-error" style="display:none;"></div>
+        <div id="apiKeySuccess" class="form-success" style="display:none;"></div>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary">${currentStatus.has_api_key ? '更新' : '保存'}</button>
+          ${currentStatus.has_api_key ? '<button type="button" id="deleteApiKeyBtn" class="btn-danger">删除</button>' : ''}
+        </div>
+      </form>
+    </div>
+  `;
+
+  const errEl = document.getElementById("apiKeyError");
+  const successEl = document.getElementById("apiKeySuccess");
+
+  document.getElementById("apiKeyForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    errEl.style.display = "none";
+    successEl.style.display = "none";
+    const key = document.getElementById("apiKeyInput").value.trim();
+    if (!key) {
+      errEl.textContent = "API Key 不能为空";
+      errEl.style.display = "block";
+      return;
+    }
+    try {
+      await apiPut("/api/v1/settings/api-key", { api_key: key });
+      successEl.textContent = "API Key 已保存";
+      successEl.style.display = "block";
+      setTimeout(() => renderApiKeyTab(container), 1000);
+    } catch (err) {
+      errEl.textContent = err.message || "保存失败";
+      errEl.style.display = "block";
+    }
+  });
+
+  const deleteBtn = document.getElementById("deleteApiKeyBtn");
+  if (deleteBtn) {
+    deleteBtn.addEventListener("click", async () => {
+      if (!confirm("确定要删除 API Key 吗？")) return;
+      try {
+        const conn = getConnection();
+        await fetch(`${conn.server}/api/v1/settings/api-key`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${conn.token}` },
+        });
+        renderApiKeyTab(container);
+      } catch (err) {
+        errEl.textContent = err.message || "删除失败";
+        errEl.style.display = "block";
+      }
+    });
+  }
 }
