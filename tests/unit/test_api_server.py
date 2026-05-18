@@ -162,6 +162,52 @@ class TestAPIServer:
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
 
+    def test_collector_status_returns_target_ids_list(self, tmp_path: Path) -> None:
+        """collector/status 返回 target_ids (list) + stage。"""
+        client = self._make_client(tmp_path)
+        resp = client.get("/api/v1/collector/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "target_ids" in data
+        assert isinstance(data["target_ids"], list)
+        assert "stage" in data
+        assert isinstance(data["stage"], str)
+
+    def test_collector_diagnostics_healthy(self, tmp_path: Path) -> None:
+        """有数据目录情况下 diagnostics 返回 overall=healthy。"""
+        import json as _json
+
+        target_dir = tmp_path / "italy"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        (target_dir / "source_health.json").write_text(
+            _json.dumps([{"source_id": "ansa", "healthy": True}]),
+            encoding="utf-8",
+        )
+
+        client = self._make_client(tmp_path)
+        resp = client.get("/api/v1/collector/diagnostics")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "overall" in data
+        assert "checks" in data
+        assert len(data["checks"]) == 5
+        for check in data["checks"]:
+            assert "name" in check
+            assert "ok" in check
+            assert "message" in check
+        source_check = [c for c in data["checks"] if c["name"] == "source_health"][0]
+        assert source_check["ok"] is True
+
+    def test_collector_diagnostics_empty_data_dir(self, tmp_path: Path) -> None:
+        """空数据目录下 diagnostics 返回 overall=attention_needed。"""
+        client = self._make_client(tmp_path)
+        resp = client.get("/api/v1/collector/diagnostics")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["overall"] == "attention_needed"
+        dd_check = [c for c in data["checks"] if c["name"] == "data_directory"][0]
+        assert dd_check["ok"] is False
+
     def test_list_events_empty(self, tmp_path: Path) -> None:
         client = self._make_client(tmp_path)
         resp = client.get("/api/v1/events", params={"target_id": "italy"})

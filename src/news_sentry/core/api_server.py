@@ -1265,6 +1265,94 @@ def create_app(
             "total_runs": _auto_collector_state["total_runs"],
         }
 
+    @app.get("/api/v1/collector/diagnostics")
+    async def collector_diagnostics() -> dict[str, Any]:
+        """返回采集系统诊断信息，帮助排查"无数据"问题。"""
+        checks: list[dict[str, Any]] = []
+
+        # 1. 自动采集是否启用
+        checks.append(
+            {
+                "name": "auto_collect_enabled",
+                "ok": _auto_collector_state["enabled"],
+                "message": (
+                    "已启用"
+                    if _auto_collector_state["enabled"]
+                    else "未启用 — 设置 NEWSSENTRY_AUTO_COLLECT=1"
+                ),
+            }
+        )
+
+        # 2. AI API Key 是否配置
+        has_ai_key = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY"))
+        checks.append(
+            {
+                "name": "ai_api_key",
+                "ok": has_ai_key,
+                "message": "已配置" if has_ai_key else "未配置 AI API Key — 研判/翻译将跳过",
+            }
+        )
+
+        # 3. 数据目录是否存在 + target 目录列表
+        data_exists = _data_dir.exists()
+        target_dirs = (
+            sorted([d.name for d in _data_dir.iterdir() if d.is_dir()]) if data_exists else []
+        )
+        checks.append(
+            {
+                "name": "data_directory",
+                "ok": data_exists and len(target_dirs) > 0,
+                "message": (
+                    f"数据目录: {_data_dir} — {len(target_dirs)} 个 target: "
+                    f"{', '.join(target_dirs) if target_dirs else '无'}"
+                ),
+            }
+        )
+
+        # 4. 信源健康概览
+        healthy = 0
+        unhealthy = 0
+        if data_exists:
+            for tid in target_dirs:
+                health_file = _data_dir / tid / "source_health.json"
+                if health_file.exists():
+                    try:
+                        health_data = json.loads(health_file.read_text())
+                        items = health_data if isinstance(health_data, list) else []
+                        for h in items:
+                            if h.get("healthy"):
+                                healthy += 1
+                            else:
+                                unhealthy += 1
+                    except Exception:  # noqa: S110
+                        pass
+        checks.append(
+            {
+                "name": "source_health",
+                "ok": (healthy + unhealthy) > 0,
+                "message": (
+                    f"健康: {healthy}, 异常: {unhealthy}"
+                    if (healthy + unhealthy) > 0
+                    else "暂无信源健康数据 — 运行一次采集后生成"
+                ),
+            }
+        )
+
+        # 5. 最近一次采集时间
+        last_run = _auto_collector_state["last_run_at"]
+        checks.append(
+            {
+                "name": "last_collection",
+                "ok": last_run is not None,
+                "message": (
+                    f"最后采集: {last_run}" if last_run else "尚未执行采集 — 等待首次采集周期"
+                ),
+            }
+        )
+
+        overall = all(c["ok"] for c in checks)
+        return {"overall": "healthy" if overall else "attention_needed", "checks": checks}
+
     @app.get("/api/v1/status")
     async def data_status() -> dict[str, Any]:
         """返回数据状态概览（用于诊断新部署/数据恢复场景）。
