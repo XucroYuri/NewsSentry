@@ -1351,18 +1351,20 @@ def create_app(
         """返回指定 target 的事件统计（SQLite 聚合查询）。"""
         if _store is not None:
             stats = await _store.get_stats_aggregated(target_id)
-            return StatsResponse(
-                target_id=target_id,
-                total_events=stats["total_events"],
-                avg_news_value_score=stats["avg_news_value_score"],
-                avg_china_relevance=stats["avg_china_relevance"],
-                by_classification=stats["by_classification"],
-                by_source=stats["by_source"],
-                sentiment_breakdown=stats.get("sentiment_breakdown", {}),
-                top_entities=stats.get("top_entities", []),
-            )
+            # 仅当 SQLite 有数据时才返回；空索引 → 回退到文件系统
+            if stats["total_events"] > 0:
+                return StatsResponse(
+                    target_id=target_id,
+                    total_events=stats["total_events"],
+                    avg_news_value_score=stats["avg_news_value_score"],
+                    avg_china_relevance=stats["avg_china_relevance"],
+                    by_classification=stats["by_classification"],
+                    by_source=stats["by_source"],
+                    sentiment_breakdown=stats.get("sentiment_breakdown", {}),
+                    top_entities=stats.get("top_entities", []),
+                )
 
-        # 降级路径：无 store 时走原始文件扫描
+        # 降级路径：无 store / store 为空 / 文件系统扫描
         events = _load_all_events(_data_dir, target_id)
 
         total = len(events)
@@ -1673,28 +1675,30 @@ def create_app(
                 entity_name=entity,
                 topic_tag=topic_tag,
             )
-            total = result["total"]
-            page_events: list[dict[str, Any]] = []
+            # 仅当 SQLite 有数据时才返回；空索引 → 回退到文件系统路径
+            if result["total"] > 0:
+                total = result["total"]
+                page_events: list[dict[str, Any]] = []
 
-            for row in result["rows"]:
-                event_fm = _load_event_by_path(row["file_path"])
-                if event_fm is None:
-                    continue
-                if search is not None:
-                    keyword = search.lower()
-                    if keyword not in (event_fm.get("title_original") or "").lower():
-                        total -= 1
+                for row in result["rows"]:
+                    event_fm = _load_event_by_path(row["file_path"])
+                    if event_fm is None:
                         continue
-                page_events.append(event_fm)
+                    if search is not None:
+                        keyword = search.lower()
+                        if keyword not in (event_fm.get("title_original") or "").lower():
+                            total -= 1
+                            continue
+                    page_events.append(event_fm)
 
-            return EventResponse(
-                total=total,
-                events=page_events,
-                page=page,
-                page_size=page_size,
-            )
+                return EventResponse(
+                    total=total,
+                    events=page_events,
+                    page=page,
+                    page_size=page_size,
+                )
 
-        # 降级路径
+        # 降级路径（无 store / store 为空 / 文件系统路径）
         return _load_events_from_data(
             _data_dir,
             target_id,
@@ -1715,14 +1719,12 @@ def create_app(
 
         if _store is not None:
             file_path = await _store.get_event_file_path(event_id)
-            if file_path is None:
-                raise HTTPException(status_code=404, detail="Event not found")
-            event = _load_event_by_path(file_path)
-            if event is None:
-                raise HTTPException(status_code=404, detail="Event file not found")
-            return event
+            if file_path is not None:
+                event = _load_event_by_path(file_path)
+                if event is not None:
+                    return event
 
-        # 降级路径
+        # 降级路径（无 store / store 中未找到 / 文件系统路径）
         event = _load_single_event(_data_dir, target_id, event_id)
         if event is None:
             raise HTTPException(status_code=404, detail="Event not found")
