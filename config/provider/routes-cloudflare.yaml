@@ -1,0 +1,101 @@
+# Schema: ../../schemas/providerconfig.schema.json
+# 契约: docs/contracts-canonical.md §7
+# ADR: ADR-0005
+#
+# Cloudflare 部署变体 — 使用 Cloudflare AI Gateway 作为 Anthropic 请求的代理层
+# 部署时需设置环境变量:
+#   ANTHROPIC_BASE_URL=https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/anthropic
+#   ANTHROPIC_API_KEY=<your-api-key>
+#   OPENAI_API_KEY=<your-api-key>  (如仍需 OpenAI 路由)
+routes_version: "2.1-cloudflare"
+
+routes:
+
+  # ── 翻译任务 ──────────────────────────────────────────
+
+  - route_id: translate.fast
+    task_type: translate
+    provider: openai
+    model: gpt-4o-mini
+    timeout_seconds: 30
+    max_cost_usd_per_call: 0.001
+    output_schema_ref: null
+    audit: false
+    notes: "collect 阶段快速预翻译标题（metadata.translation.title_pre）"
+
+  - route_id: translate.high
+    task_type: translate
+    provider: anthropic
+    model: claude-3-haiku-20240307
+    timeout_seconds: 60
+    max_cost_usd_per_call: 0.005
+    output_schema_ref: null
+    audit: true
+    fallback_route_ids:
+      - translate.fast
+    notes: "judge 阶段高质量翻译（title_translated / content_translated）"
+
+  # ── 判断任务 ──────────────────────────────────────────
+
+  - route_id: judge.primary
+    task_type: judge
+    provider: openai
+    model: gpt-4o
+    timeout_seconds: 60
+    max_cost_usd_per_call: 0.02
+    output_schema_ref: "schemas/toolrunresult.schema.json"
+    audit: true
+    fallback_route_ids:
+      - judge.anthropic
+    notes: "主研判路由：计算 news_value_score / china_relevance / recommendation"
+
+  - route_id: judge.anthropic
+    task_type: judge
+    provider: anthropic
+    model: claude-3-5-sonnet-20241022
+    timeout_seconds: 60
+    max_cost_usd_per_call: 0.02
+    output_schema_ref: "schemas/toolrunresult.schema.json"
+    audit: true
+    notes: "研判备用路由：OpenAI 主路由失败时切换"
+
+  # ── 分类任务 ──────────────────────────────────────────
+
+  - route_id: classify.primary
+    task_type: classify
+    provider: openai
+    model: gpt-4o-mini
+    timeout_seconds: 30
+    max_cost_usd_per_call: 0.003
+    output_schema_ref: "schemas/classification.schema.json"
+    audit: true
+    fallback_route_ids:
+      - fallback.local
+    notes: "LLM 分类路由（L0–L3），失败回退到规则引擎"
+
+  # ── NLP 分析任务 ──────────────────────────────────────────
+
+  - route_id: nlp.ai-fast
+    task_type: nlp
+    provider: openai
+    model: gpt-4o-mini
+    timeout_seconds: 30
+    max_cost_usd_per_call: 0.002
+    output_schema_ref: null
+    audit: false
+    notes: "NLP 深度分析路由：情感/实体/关联/摘要增强"
+
+  # ── 本地回退路由 ──────────────────────────────────────
+
+  - route_id: fallback.local
+    task_type: judge
+    provider: local
+    model: rules-engine
+    timeout_seconds: 120
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: false
+    notes: "最终回退：本地规则引擎，无 API 依赖，输出质量较低"
+
+# 所有路由失败时的最终回退
+fallback_route_id: fallback.local

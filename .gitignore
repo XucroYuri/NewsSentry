@@ -76,6 +76,12 @@ docs/architecture-overview.md
 config/**/*.local.yaml
 config/**/*.local.yml
 
+# Superpowers plugin cache (session-local, not project code)
+.superpowers/
+
+# Cloudflare Wrangler state (account info, not project code)
+.wrangler/
+
 # Chrome / browser profiles (Phase 6)
 **/Chrome/
 **/chromium/
