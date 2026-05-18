@@ -2361,3 +2361,79 @@ body.ns-offline .offline-banner {
     transform: rotate(90deg);
   }
 }
+
+/* ── 引导式空状态 ─────────────────────── */
+
+.empty-state-guided {
+  text-align: center;
+  padding: 3rem 2rem;
+  max-width: 480px;
+  margin: 2rem auto;
+}
+
+.empty-state-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.empty-state-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 1rem;
+}
+
+.empty-state-causes {
+  text-align: left;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  margin-bottom: 1.5rem;
+}
+
+.empty-state-label {
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+}
+
+.empty-state-causes ul {
+  padding-left: 1.25rem;
+}
+
+.empty-state-causes li {
+  margin-bottom: 0.25rem;
+}
+
+.empty-state-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+/* ── 诊断弹窗表格 ─────────────────────── */
+
+.diagnostics-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.diagnostics-table td {
+  padding: 0.5rem 0.5rem;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.diagnostics-table td:first-child {
+  width: 28px;
+  text-align: center;
+}
+
+.diagnostics-link {
+  color: var(--accent-blue);
+  text-decoration: none;
+  font-size: 0.8rem;
+}
+
+.diagnostics-link:hover {
+  text-decoration: underline;
+}

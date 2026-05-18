@@ -133,6 +133,53 @@ async function loadData(container) {
     cachedStats = statsResp;
     cachedTopEvents = eventsResp?.events || eventsResp?.items || [];
 
+    // 检测完全无数据状态 — 引导式空状态
+    const totalEvents = statsResp
+      ? (statsResp.today_count ?? statsResp.total_events ?? 0)
+      : 0;
+    const hasAnyData = totalEvents > 0
+      || (eventsResp?.events?.length || eventsResp?.items?.length || 0) > 0;
+
+    if (!hasAnyData && collectorResp) {
+      container.innerHTML = `
+        <div class="empty-state-guided">
+          <div class="empty-state-icon">&#x1F4E1;</div>
+          <h2 class="empty-state-title">尚未采集到新闻事件</h2>
+          <div class="empty-state-causes">
+            <p class="empty-state-label">可能原因：</p>
+            <ul>
+              <li>自动采集器尚未完成首次运行</li>
+              <li>AI API Key 未配置（<a href="#/config/apikey">点击配置</a>）</li>
+              <li>信源暂时不可达</li>
+            </ul>
+          </div>
+          <div class="empty-state-actions">
+            <button class="btn-secondary" id="btnOpenDiagnostics">查看诊断</button>
+            <button class="btn-primary" id="btnManualCollect">手动触发采集</button>
+          </div>
+        </div>
+      `;
+      container.querySelector("#btnOpenDiagnostics").addEventListener("click", async () => {
+        try {
+          const diagResp = await api("/api/v1/collector/diagnostics");
+          showDiagnosticsDialog(diagResp);
+        } catch (err) {
+          showError(`诊断失败: ${err.message}`);
+        }
+      });
+      container.querySelector("#btnManualCollect").addEventListener("click", async () => {
+        try {
+          const tid = state.currentTarget || "italy";
+          const resp = await api(`/api/v1/runs/trigger?target_id=${encodeURIComponent(tid)}&stage=all`, null, "POST");
+          showSuccess(`采集已触发: ${resp.run_id || "ok"}`);
+          setTimeout(() => loadData(container), 3000);
+        } catch (err) {
+          showError(`触发采集失败: ${err.message}`);
+        }
+      });
+      return;
+    }
+
     renderStatCards(container, statsResp, collectorResp);
     renderTopEvents(container, cachedTopEvents);
     renderEntities(container, entitiesResp);
@@ -190,16 +237,47 @@ function renderStatCards(container, stats, collector) {
   el("statChains").textContent = chainCount;
   el("statChainsSub").textContent = "";
 
-  // 卡片 4: 系统状态 + 采集器心跳
+  // 卡片 4: 系统状态 + 采集器心跳 + 健康入口
   if (collector) {
-    const isHealthy = collector.status === "running" || collector.status === "healthy";
-    el("statStatus").textContent = isHealthy ? "运行中" : (collector.status || "未知");
-    el("statStatus").style.color = isHealthy ? "var(--accent-green)" : "var(--accent-red)";
-    const lastRun = collector.last_run || collector.last_collect;
-    el("statHeartbeat").textContent = lastRun ? `上次采集: ${formatDate(lastRun)}` : "";
+    const running = collector.running;
+    const enabled = collector.enabled;
+    let statusText, statusColor;
+    if (running) {
+      statusText = "运行中";
+      statusColor = "var(--accent-green)";
+    } else if (enabled) {
+      statusText = "等待中";
+      statusColor = "var(--accent-yellow)";
+    } else {
+      statusText = "已停用";
+      statusColor = "var(--text-muted)";
+    }
+    el("statStatus").textContent = statusText;
+    el("statStatus").style.color = statusColor;
+
+    const lastRun = collector.last_run_at || collector.last_run || collector.last_collect;
+    const targets = collector.target_ids || [];
+    el("statHeartbeat").innerHTML = `
+      ${lastRun ? `上次采集: ${formatDate(lastRun)}` : ""}
+      <br><small>${targets.length} 个目标</small>
+      <br><a href="javascript:void(0)" class="diagnostics-link" id="dashboardDiagLink">查看诊断 →</a>
+    `;
+
+    const diagLink = container.querySelector("#dashboardDiagLink");
+    if (diagLink) {
+      diagLink.addEventListener("click", async (e) => {
+        e.preventDefault();
+        try {
+          const diagResp = await api("/api/v1/collector/diagnostics");
+          showDiagnosticsDialog(diagResp);
+        } catch (err) {
+          showError(`诊断失败: ${err.message}`);
+        }
+      });
+    }
   } else {
     el("statStatus").textContent = "—";
-    el("statHeartbeat").textContent = "";
+    el("statHeartbeat").textContent = "采集器状态未知";
   }
 }
 
@@ -362,4 +440,49 @@ function handleExportBriefing() {
   const md = exportBriefingMarkdown(statsForExport, cachedTopEvents);
   copyToClipboard(md);
   showSuccess("简报已复制到剪贴板");
+}
+
+// ── 诊断弹窗 ─────────────────────────────────────────────
+
+/**
+ * 显示采集诊断弹窗。
+ * @param {object} diagResp — /api/v1/collector/diagnostics 返回的数据
+ */
+function showDiagnosticsDialog(diagResp) {
+  const checks = diagResp?.checks || [];
+  const overall = diagResp?.overall || "unknown";
+  const overallIcon = overall === "healthy" ? "&#x2705;" : "&#x26A0;&#xFE0F;";
+  const overallLabel = overall === "healthy" ? "系统状态: 正常" : "系统状态: 需要关注";
+
+  const rows = checks
+    .map((c) => {
+      const icon = c.ok ? "&#x2705;" : "&#x274C;";
+      return `<tr>
+      <td>${icon}</td>
+      <td><strong>${escapeHtml(c.name)}</strong></td>
+      <td style="font-size:0.85rem;color:var(--text-muted)">${escapeHtml(c.message)}</td>
+    </tr>`;
+    })
+    .join("");
+
+  const dialog = document.createElement("div");
+  dialog.className = "modal-overlay";
+  dialog.innerHTML = `
+    <div class="modal-content" style="max-width:640px">
+      <div class="modal-header">
+        <span>${overallIcon} ${overallLabel}</span>
+        <button class="modal-close">&times;</button>
+      </div>
+      <table class="diagnostics-table">
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+
+  dialog.querySelector(".modal-close").addEventListener("click", () => dialog.remove());
+  dialog.addEventListener("click", (e) => {
+    if (e.target === dialog) dialog.remove();
+  });
+
+  document.body.appendChild(dialog);
 }
