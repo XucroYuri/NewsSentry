@@ -1680,6 +1680,84 @@ def create_app(
         _save_notifications(body)
         return {"status": "ok"}
 
+    # ── 简报邮件发送 ──────────────────────────────────────
+
+    @app.post("/api/v1/briefing/send")
+    async def send_briefing(
+        request: Request,
+        user: dict = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """生成简报并发送邮件。"""
+        body = await request.json()
+        target_id = body.get("target_id", "all")
+        recipients = body.get("recipients")
+
+        # 1. 读取通知配置获取 SMTP 设置
+        notif = _load_notifications()
+        email_ch = notif.get("channels", {}).get("email", {})
+        if not email_ch.get("enabled") or not email_ch.get("smtp_host"):
+            raise HTTPException(
+                status_code=400,
+                detail="Email notifications not configured. Enable in Settings > Notifications.",
+            )
+
+        to_addrs = recipients or email_ch.get("to_addresses", [])
+        if not to_addrs:
+            raise HTTPException(status_code=400, detail="No recipients specified")
+
+        # 2. 收集数据
+        events_data: list[dict[str, Any]] = []
+        if _store is not None:
+            try:
+                tids = [target_id] if target_id != "all" else ["italy"]
+                for tid in tids:
+                    evts = await _store.search_events(
+                        tid,
+                        limit=10,
+                        sort_by="news_value_score",
+                        sort_order="desc",
+                    )
+                    events_data.extend(evts)
+            except Exception as exc:
+                _log.warning("Briefing data collection error: %s", exc)
+
+        # 3. 生成 Markdown 简报
+        md_lines = ["# News Sentry 简报", ""]
+        md_lines.append("## 高价值事件")
+        for ev in events_data[:10]:
+            title = ev.get("title_original") or ev.get("title") or ev.get("event_id", "—")
+            score = ev.get("news_value_score", "—")
+            source = ev.get("source_id", "—")
+            md_lines.append(f"- [{score}] {title} — {source}")
+
+        md = "\n".join(md_lines)
+
+        # 4. 发送邮件
+        try:
+            import smtplib
+            from email.mime.text import MIMEText
+
+            smtp_host = email_ch["smtp_host"]
+            smtp_port = email_ch.get("smtp_port", 587)
+            from_addr = email_ch.get("from_address", "news-sentry@localhost")
+
+            msg = MIMEText(md, "plain", "utf-8")
+            msg["Subject"] = f"News Sentry 简报 — {target_id}"
+            msg["From"] = from_addr
+            msg["To"] = ", ".join(to_addrs)
+
+            with smtplib.SMTP(smtp_host, smtp_port) as server:
+                server.starttls()
+                server.sendmail(from_addr, to_addrs, msg.as_string())
+
+            return {
+                "status": "ok",
+                "recipients": to_addrs,
+                "events_count": len(events_data),
+            }
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to send email: {exc}") from exc
+
     @app.get("/api/v1/targets", response_model=TargetListResponse)
     async def list_targets(
         user: dict = Depends(get_current_user),

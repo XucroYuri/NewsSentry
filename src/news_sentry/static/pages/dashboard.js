@@ -6,7 +6,7 @@
 "use strict";
 
 import {
-  state, api, escapeHtml, formatDate, showSuccess, showError,
+  state, api, apiPost, escapeHtml, formatDate, showSuccess, showError,
   scoreColor, scoreGradient, scoreBar, entityChipsHtml, sentimentDotHtml,
   copyToClipboard, exportBriefingMarkdown,
 } from "../api.js";
@@ -92,8 +92,9 @@ export async function renderOverviewTab(container) {
       </div>
 
       <!-- 导出简报 -->
-      <div style="margin-top:1rem;">
+      <div style="margin-top:1rem;display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn-secondary" id="exportBriefing">导出今日简报</button>
+        <button class="btn-secondary" id="emailBriefing">邮件发送简报</button>
       </div>
     </div>
   `;
@@ -111,6 +112,19 @@ export async function renderOverviewTab(container) {
   // 导出简报
   container.querySelector("#exportBriefing").addEventListener("click", () => {
     handleExportBriefing();
+  });
+
+  // 邮件发送简报
+  container.querySelector("#emailBriefing")?.addEventListener("click", async () => {
+    try {
+      const resp = await apiPost("/api/v1/briefing/send", {}, {
+        target_id: state.currentTarget || "all",
+        days: currentDays,
+      });
+      showSuccess(`简报已发送至 ${resp.recipients?.join(", ") || "收件人"}`);
+    } catch (err) {
+      showError(`发送失败: ${err.message}`);
+    }
   });
 
   await loadData(container);
