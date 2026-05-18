@@ -1483,6 +1483,99 @@ def create_app(
         await _store.update_user_password(user["username"], pw_hash, salt)
         return {"status": "ok"}
 
+    # ── 用户管理 (admin) ──────────────────────────────────
+
+    @app.get("/api/v1/admin/users")
+    async def admin_list_users(
+        user: dict = Depends(require_permission("admin")),
+    ) -> dict[str, Any]:
+        """列出所有用户（不含 password_hash/salt）。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not available")
+        users = await _store.list_users()
+        safe_users = []
+        for u in users:
+            safe_users.append(
+                {
+                    "username": u["username"],
+                    "role": u["role"],
+                    "has_api_key": bool(u.get("api_key")),
+                    "must_change_pw": bool(u.get("must_change_pw", 0)),
+                    "created_at": u.get("created_at", ""),
+                    "updated_at": u.get("updated_at", ""),
+                }
+            )
+        return {"users": safe_users}
+
+    @app.post("/api/v1/admin/users")
+    async def admin_create_user(
+        request: Request,
+        user: dict = Depends(require_permission("admin")),
+    ) -> dict[str, Any]:
+        """创建新用户。"""
+        body = await request.json()
+        username = body.get("username", "").strip()
+        password = body.get("password", "")
+        role = body.get("role", "reader")
+
+        if not username or not password:
+            raise HTTPException(status_code=400, detail="Username and password required")
+        if len(password) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+        if role not in ("admin", "reader"):
+            raise HTTPException(status_code=400, detail="Role must be admin or reader")
+
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not available")
+
+        existing = await _store.get_user(username)
+        if existing:
+            raise HTTPException(status_code=409, detail=f"User '{username}' already exists")
+
+        pw_hash, salt = hash_password(password)
+        ok = await _store.create_user(username, pw_hash, salt, role=role, must_change_pw=1)
+        if not ok:
+            raise HTTPException(status_code=500, detail="Failed to create user")
+        return {"status": "ok", "username": username}
+
+    @app.delete("/api/v1/admin/users/{username}")
+    async def admin_delete_user(
+        username: str,
+        user: dict = Depends(require_permission("admin")),
+    ) -> dict[str, str]:
+        """删除用户。不能删除自己。"""
+        if username == user["username"]:
+            raise HTTPException(status_code=400, detail="Cannot delete yourself")
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not available")
+        ok = await _store.delete_user(username)
+        if not ok:
+            raise HTTPException(status_code=404, detail=f"User '{username}' not found")
+        return {"status": "ok"}
+
+    @app.post("/api/v1/admin/users/{username}/reset-password")
+    async def admin_reset_password(
+        username: str,
+        request: Request,
+        user: dict = Depends(require_permission("admin")),
+    ) -> dict[str, Any]:
+        """重置用户密码。"""
+        body = await request.json()
+        new_password = body.get("new_password", "")
+        if not new_password or len(new_password) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not available")
+
+        existing = await _store.get_user(username)
+        if not existing:
+            raise HTTPException(status_code=404, detail=f"User '{username}' not found")
+
+        pw_hash, salt = hash_password(new_password)
+        await _store.update_user_password(username, pw_hash, salt)
+        return {"status": "ok"}
+
     # ── API Key 设置 ─────────────────────────────────────
 
     @app.get("/api/v1/settings/api-key")

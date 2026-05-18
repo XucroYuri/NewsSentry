@@ -2160,3 +2160,111 @@ class TestImportEvents:
         resp = client.post("/api/v1/events/import", json=[])
         assert resp.status_code == 200
         assert resp.json()["imported"] == 0
+
+
+class TestAdminUserEndpoints:
+    """用户管理 CRUD 端点测试。"""
+
+    def _make_client(self, tmp_path: Path) -> TestClient:
+        db_path = tmp_path / "state.db"
+        store = AsyncStore(db_path)
+        import asyncio
+
+        asyncio.run(store.initialize())
+        app = create_app(data_dir=tmp_path, store=store)
+        client = TestClient(app)
+        resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert resp.status_code == 200
+        token = resp.json()["access_token"]
+        client.headers["Authorization"] = f"Bearer {token}"
+        return client
+
+    def test_admin_list_users(self, tmp_path: Path) -> None:
+        """GET /admin/users 返回用户列表（脱敏）。"""
+        client = self._make_client(tmp_path)
+        resp = client.get("/api/v1/admin/users")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "users" in data
+        assert isinstance(data["users"], list)
+        for u in data["users"]:
+            assert "password_hash" not in u
+            assert "salt" not in u
+            assert "username" in u
+            assert "role" in u
+
+    def test_admin_create_and_delete_user(self, tmp_path: Path) -> None:
+        """创建+删除用户全流程。"""
+        client = self._make_client(tmp_path)
+        # 创建用户
+        resp = client.post(
+            "/api/v1/admin/users",
+            json={
+                "username": "test_reader",
+                "password": "test123456",
+                "role": "reader",
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["username"] == "test_reader"
+
+        # 不能创建重复用户
+        resp2 = client.post(
+            "/api/v1/admin/users",
+            json={
+                "username": "test_reader",
+                "password": "test123456",
+                "role": "reader",
+            },
+        )
+        assert resp2.status_code == 409
+
+        # 删除用户
+        resp3 = client.delete("/api/v1/admin/users/test_reader")
+        assert resp3.status_code == 200
+
+    def test_admin_cannot_delete_self(self, tmp_path: Path) -> None:
+        """管理员不能删除自己。"""
+        client = self._make_client(tmp_path)
+        # dev mode username is "dev"
+        resp = client.delete("/api/v1/admin/users/dev")
+        assert resp.status_code == 400
+
+    def test_admin_reset_password(self, tmp_path: Path) -> None:
+        """重置用户密码。"""
+        client = self._make_client(tmp_path)
+        # 先创建用户
+        client.post(
+            "/api/v1/admin/users",
+            json={
+                "username": "reset_test",
+                "password": "old123456",
+                "role": "reader",
+            },
+        )
+        # 重置密码
+        resp = client.post(
+            "/api/v1/admin/users/reset_test/reset-password",
+            json={
+                "new_password": "new123456",
+            },
+        )
+        assert resp.status_code == 200
+        # 清理
+        client.delete("/api/v1/admin/users/reset_test")
+
+    def test_admin_create_user_validation(self, tmp_path: Path) -> None:
+        """创建用户参数校验。"""
+        client = self._make_client(tmp_path)
+        # 缺少用户名
+        resp = client.post("/api/v1/admin/users", json={"username": "", "password": "test123456"})
+        assert resp.status_code == 400
+        # 密码太短
+        resp = client.post("/api/v1/admin/users", json={"username": "shortpw", "password": "12345"})
+        assert resp.status_code == 400
+        # 无效角色
+        resp = client.post(
+            "/api/v1/admin/users",
+            json={"username": "badrole", "password": "test123456", "role": "superuser"},
+        )
+        assert resp.status_code == 400
