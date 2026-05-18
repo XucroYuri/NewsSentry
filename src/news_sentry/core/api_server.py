@@ -2041,26 +2041,33 @@ def create_app(
         user: dict = Depends(require_permission("write")),
     ) -> TriggerResponse:
         try:
+            import asyncio
+            import traceback
+
             from news_sentry.core.async_run import bounded_run_async
 
             run_id = f"{target_id}_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
-            ctx = await bounded_run_async(target_id=target_id, stage=stage, run_id=run_id)
+
+            async def _run_and_log() -> None:
+                try:
+                    await bounded_run_async(target_id=target_id, stage=stage, run_id=run_id)
+                except Exception:
+                    logger.exception(
+                        "Pipeline run failed: run_id=%s target=%s stage=%s\n%s",
+                        run_id,
+                        target_id,
+                        stage,
+                        traceback.format_exc(),
+                    )
+
+            asyncio.create_task(_run_and_log())
             return TriggerResponse(
-                status="completed",
+                status="triggered",
                 run_id=run_id,
-                message=(
-                    f"Pipeline finished: collected={ctx.summary.get('total_events_collected', 0)}, "
-                    f"output={ctx.summary.get('total_events_output', 0)}, "
-                    f"errors={ctx.errors_count}"
-                ),
+                message=f"Pipeline triggered for {target_id}/{stage}",
             )
         except Exception as e:
-            import traceback
-
-            raise HTTPException(
-                status_code=500,
-                detail={"error": str(e), "traceback": traceback.format_exc()},
-            ) from e
+            raise HTTPException(status_code=500, detail=str(e)) from e
 
     # ── Phase 35: 追踪链端点 ──────────────────────────────
 
