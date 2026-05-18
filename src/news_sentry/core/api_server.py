@@ -673,6 +673,9 @@ def _extract_bearer_token(request: Request) -> str | None:
 
 # _store 在 create_app() 内赋值，此处为模块级引用占位
 _store: AsyncStore | None = None
+_target_stores: dict[str, AsyncStore] = {}  # target_id → state.db 缓存
+_deployment_env: str = ""  # cloudflare|hetzner|docker|local|unknown
+_data_dir: Path = Path("./data")  # 默认值，create_app() 中覆盖
 
 logger = logging.getLogger(__name__)
 
@@ -1033,10 +1036,25 @@ def _load_event_by_path(file_path: str | None) -> dict[str, Any] | None:
 
 # ── 后台自动采集循环 ──────────────────────────────────────
 
+
+def _parse_target_ids(raw: str) -> list[str]:
+    """解析 target ID 字符串：'all' → 全量 targets，'a,b' → ['a','b']."""
+    if raw.strip().lower() == "all":
+        import news_sentry
+        from news_sentry.core.async_run import _resolve_targets
+
+        config_dir = Path(news_sentry.__file__).resolve().parent.parent / "config"
+        return _resolve_targets("all", config_dir)
+    return [t.strip() for t in raw.split(",") if t.strip()]
+
+
 _auto_collector_state: dict[str, Any] = {
     "enabled": os.environ.get("NEWSSENTRY_AUTO_COLLECT", "1") == "1",
-    "target_id": os.environ.get("TARGET_ID", "italy"),
+    "target_ids": _parse_target_ids(
+        os.environ.get("NEWSSENTRY_TARGET_ID", os.environ.get("TARGET_ID", "italy"))
+    ),
     "interval_minutes": int(os.environ.get("NEWSSENTRY_COLLECT_INTERVAL", "15")),
+    "stage": os.environ.get("NEWSSENTRY_COLLECT_STAGE", "collect"),
     "running": False,
     "last_run_at": None,
     "last_run_status": None,
@@ -1049,26 +1067,32 @@ _log = logging.getLogger("news_sentry.auto_collector")
 
 
 async def _auto_collect_loop() -> None:
-    """后台循环：每隔 interval_minutes 执行一轮 collect+filter。
+    """后台循环：每隔 interval_minutes 对每个 target 执行 pipeline 阶段。
 
-    仅采集 RSS/API 信源（纯 HTTP，无需浏览器），跳过 opencli_bridge。
-    不执行 judge/output — 这些由 Cron 触发的全流程 pipeline 处理。
+    通过 NEWSSENTRY_COLLECT_STAGE 控制执行的阶段（默认 collect），
+    通过 NEWSSENTRY_TARGET_ID 控制 target 范围（默认 italy，逗号分隔或 all）。
     """
     interval = _auto_collector_state["interval_minutes"] * 60
-    target_id = _auto_collector_state["target_id"]
+    target_ids = _auto_collector_state["target_ids"]
+    stage = _auto_collector_state["stage"]
     _auto_collector_state["running"] = True
-    _log.info("自动采集循环启动: target=%s, interval=%dmin", target_id, interval // 60)
+    _log.info(
+        "自动采集循环启动: targets=%s, stage=%s, interval=%dmin",
+        target_ids,
+        stage,
+        interval // 60,
+    )
 
     while _auto_collector_state["enabled"]:
         try:
-            from news_sentry.core.async_run import bounded_run_async
+            from news_sentry.core.async_run import bounded_run_multi_async
 
-            run_id = f"{target_id}_auto_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
-            _log.info("自动采集开始: run_id=%s", run_id)
+            run_id = f"auto_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
+            _log.info("自动采集开始: run_id=%s, targets=%s", run_id, target_ids)
 
-            await bounded_run_async(
-                target_id=target_id,
-                stage="collect",  # 仅采集，不做 judge/output
+            await bounded_run_multi_async(
+                targets=target_ids,
+                stage=stage,
                 run_id=run_id,
             )
 
@@ -1111,6 +1135,60 @@ async def _bootstrap_users() -> None:
         must_change_pw=0 if os.environ.get("NEWSSENTRY_ADMIN_PASSWORD") else 1,
     )
     logger.info("Bootstrapped admin user: %s", admin_user)
+
+
+def _detect_deployment_env() -> str:
+    """检测部署环境。
+
+    优先级：NEWSSENTRY_DEPLOYMENT_ENV > CF_ACCOUNT_ID 存在判断 > Docker 判断 > local。
+    返回: cloudflare | hetzner | docker | local | unknown
+    """
+    global _deployment_env
+    if _deployment_env:
+        return _deployment_env
+
+    env = os.environ.get("NEWSSENTRY_DEPLOYMENT_ENV", "").strip().lower()
+    if env:
+        _deployment_env = env
+        logger.info("Deployment env (explicit): %s", env)
+        return env
+
+    # 自动检测
+    if os.environ.get("CF_ACCOUNT_ID"):
+        _deployment_env = "cloudflare"
+    elif (
+        os.path.exists("/.dockerenv") or "docker" in (os.environ.get("container", "") or "").lower()
+    ):
+        _deployment_env = "docker"
+    else:
+        _deployment_env = "local"
+
+    logger.info("Deployment env (detected): %s", _deployment_env)
+    return _deployment_env
+
+
+def _target_db_path(target_id: str) -> Path:
+    """目标 state.db 路径: {data_dir}/{target_id}/state.db"""
+    return _data_dir / target_id / "state.db"
+
+
+async def _get_target_store(target_id: str) -> AsyncStore | None:
+    """获取 target 对应的 AsyncStore（优先使用 pipeline 的 state.db）。
+
+    缓存已打开的 store，避免重复初始化。
+    """
+    if target_id in _target_stores:
+        return _target_stores[target_id]
+
+    db_path = _target_db_path(target_id)
+    if db_path.exists():
+        store = AsyncStore(db_path)
+        await store.initialize()
+        _target_stores[target_id] = store
+        logger.debug("Opened target store: %s", db_path)
+        return store
+
+    return None
 
 
 @asynccontextmanager
@@ -1156,8 +1234,9 @@ def create_app(
         lifespan=_app_lifespan,
     )
 
-    _data_dir = Path(data_dir) if data_dir else Path("./data")
-    global _store
+    global _store, _data_dir
+    _data_dir = Path(data_dir or os.environ.get("NEWSSENTRY_DATA_DIR", "./data"))
+    _detect_deployment_env()
     if store is not None:
         _store = store
     elif _store is None and auto_store:
@@ -1178,11 +1257,51 @@ def create_app(
         return {
             "enabled": _auto_collector_state["enabled"],
             "running": _auto_collector_state["running"],
-            "target_id": _auto_collector_state["target_id"],
+            "target_ids": _auto_collector_state["target_ids"],
+            "stage": _auto_collector_state["stage"],
             "interval_minutes": _auto_collector_state["interval_minutes"],
             "last_run_at": _auto_collector_state["last_run_at"],
             "last_run_status": _auto_collector_state["last_run_status"],
             "total_runs": _auto_collector_state["total_runs"],
+        }
+
+    @app.get("/api/v1/status")
+    async def data_status() -> dict[str, Any]:
+        """返回数据状态概览（用于诊断新部署/数据恢复场景）。
+
+        返回 data_dir 状态、各 target 事件数（文件系统统计）、
+        store 可用性、部署环境信息。
+        """
+        target_events: dict[str, dict[str, Any]] = {}
+        total = 0
+
+        if _data_dir.exists():
+            for target_dir in sorted(_data_dir.iterdir()):
+                if not target_dir.is_dir():
+                    continue
+                tid = target_dir.name
+                # 统计 drafted 阶段事件（最终输出产物）
+                events = _load_all_events(_data_dir, tid)
+                count = len(events)
+                if count > 0:
+                    target_events[tid] = {
+                        "events": count,
+                        "has_state_db": (target_dir / "state.db").exists(),
+                    }
+                    total += count
+
+        return {
+            "data_dir": str(_data_dir),
+            "data_dir_exists": _data_dir.exists(),
+            "deployment_env": _detect_deployment_env(),
+            "store_available": _store is not None,
+            "target_stores_open": len(_target_stores),
+            "total_events_all_targets": total,
+            "targets": target_events,
+            "auto_collector": {
+                "enabled": _auto_collector_state["enabled"],
+                "last_run_at": _auto_collector_state["last_run_at"],
+            },
         }
 
     @app.post("/api/v1/auth/login")
@@ -1348,10 +1467,13 @@ def create_app(
         target_id: str = Query(..., description="目标标识"),
         user: dict = Depends(get_current_user),
     ) -> StatsResponse:
-        """返回指定 target 的事件统计（SQLite 聚合查询）。"""
-        if _store is not None:
-            stats = await _store.get_stats_aggregated(target_id)
-            # 仅当 SQLite 有数据时才返回；空索引 → 回退到文件系统
+        """返回指定 target 的事件统计（优先使用 target state.db）。"""
+        # 优先使用 target 自己的 state.db（与 pipeline 共享同一数据库）
+        target_store = await _get_target_store(target_id)
+        store_to_query = target_store if target_store is not None else _store
+
+        if store_to_query is not None:
+            stats = await store_to_query.get_stats_aggregated(target_id)
             if stats["total_events"] > 0:
                 return StatsResponse(
                     target_id=target_id,
@@ -1583,10 +1705,16 @@ def create_app(
         limit: int = Query(20, ge=1, le=100, description="返回数量"),
         sort: str = Query("mention_count", description="排序: mention_count 或 last_seen"),
     ) -> EntityListResponse:
-        """返回实体列表。"""
-        if _store is None:
+        """返回实体列表（优先使用 target state.db）。"""
+        # 如果指定了 target_id，优先使用 target 自己的 state.db
+        store_to_query = _store
+        if target_id is not None:
+            ts = await _get_target_store(target_id)
+            if ts is not None:
+                store_to_query = ts
+        if store_to_query is None:
             return EntityListResponse(total=0, entities=[])
-        entities = await _store.query_entities(
+        entities = await store_to_query.query_entities(
             entity_type=entity_type,
             target_id=target_id,
             min_mentions=min_mentions,
@@ -1635,10 +1763,12 @@ def create_app(
         limit: int = Query(5, ge=1, le=20, description="数量"),
         user: dict = Depends(get_current_user),
     ) -> TopEventsResponse:
-        """近期高价值事件。"""
-        if _store is None:
+        """近期高价值事件（优先使用 target state.db）。"""
+        target_store = await _get_target_store(target_id)
+        store_to_query = target_store if target_store is not None else _store
+        if store_to_query is None:
             raise HTTPException(status_code=503, detail="Store not available")
-        events = await _store.get_top_events(target_id, days=days, limit=limit)
+        events = await store_to_query.get_top_events(target_id, days=days, limit=limit)
         return TopEventsResponse(
             target_id=target_id,
             events=[TopEventInfo(**e) for e in events],
@@ -1661,9 +1791,13 @@ def create_app(
         user: dict = Depends(get_current_user),
     ) -> EventResponse:
 
-        if _store is not None:
+        # 优先使用 target 自己的 state.db（与 pipeline 共享同一数据库）
+        target_store = await _get_target_store(target_id)
+        store_to_query = target_store if target_store is not None else _store
+
+        if store_to_query is not None:
             offset = (page - 1) * page_size
-            result = await _store.query_events_paginated(
+            result = await store_to_query.query_events_paginated(
                 target_id=target_id,
                 stage="drafts",
                 limit=page_size,
@@ -1716,6 +1850,15 @@ def create_app(
         target_id: str = Query(..., description="目标标识"),
         user: dict = Depends(get_current_user),
     ) -> dict[str, Any]:
+
+        # 优先使用 target 自己的 state.db
+        target_store = await _get_target_store(target_id)
+        if target_store is not None:
+            file_path = await target_store.get_event_file_path(event_id)
+            if file_path is not None:
+                event = _load_event_by_path(file_path)
+                if event is not None:
+                    return event
 
         if _store is not None:
             file_path = await _store.get_event_file_path(event_id)
