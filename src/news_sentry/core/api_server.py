@@ -1626,6 +1626,60 @@ def create_app(
             _TOKEN_STORE[token]["has_api_key"] = False
         return {"status": "ok"}
 
+    # ── 通知设置 ──────────────────────────────────────────
+
+    _notifications_defaults: dict[str, Any] = {
+        "channels": {
+            "email": {
+                "enabled": False,
+                "smtp_host": "",
+                "smtp_port": 587,
+                "from_address": "",
+                "to_addresses": [],
+            },
+            "feishu": {"enabled": False, "webhook_url": ""},
+            "generic_webhook": {"enabled": False, "url": "", "secret": ""},
+        },
+        "rules": {
+            "min_score": 80,
+            "include_classifications": ["L1-breaking", "L2-significant"],
+            "quiet_hours": {"enabled": False, "start": "22:00", "end": "07:00"},
+        },
+    }
+
+    def _load_notifications() -> dict[str, Any]:
+        """读取通知配置，不存在则返回默认值。"""
+        nf = _data_dir / "notifications.json"
+        if nf.exists():
+            try:
+                return json.loads(nf.read_text(encoding="utf-8"))
+            except Exception as exc:
+                _log.warning("Failed to load notifications.json: %s", exc)
+        return dict(_notifications_defaults)
+
+    def _save_notifications(config: dict[str, Any]) -> None:
+        """写入通知配置。"""
+        _data_dir.mkdir(parents=True, exist_ok=True)
+        nf = _data_dir / "notifications.json"
+        nf.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    @app.get("/api/v1/settings/notifications")
+    async def get_notifications(
+        user: dict = Depends(require_permission("admin")),
+    ) -> dict[str, Any]:
+        """获取通知渠道配置。"""
+        return _load_notifications()
+
+    @app.put("/api/v1/settings/notifications")
+    async def update_notifications(
+        request: Request,
+        user: dict = Depends(require_permission("admin")),
+    ) -> dict[str, str]:
+        """更新通知渠道配置。"""
+        body = await request.json()
+        _save_notifications(body)
+        return {"status": "ok"}
+
     @app.get("/api/v1/targets", response_model=TargetListResponse)
     async def list_targets(
         user: dict = Depends(get_current_user),

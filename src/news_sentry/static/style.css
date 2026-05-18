@@ -2730,3 +2730,98 @@ body.ns-offline .offline-banner {
 .diagnostics-link:hover {
   text-decoration: underline;
 }
+
+/* ── 通知设置 / 用户管理 ─────────────────────────────── */
+
+.notif-section {
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.notif-section h4 {
+  font-size: var(--font-body);
+  font-weight: var(--weight-h3);
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.settings-form .form-field,
+.notif-section .form-field {
+  margin-bottom: 12px;
+}
+
+.settings-form .form-field label,
+.notif-section .form-field label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.settings-form .form-field input,
+.notif-section .form-field input,
+.notif-section .form-field select {
+  width: 100%;
+  max-width: 400px;
+  padding: 8px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  box-sizing: border-box;
+}
+
+.users-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.users-table th,
+.users-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.users-table th {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-sm:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
+
+.btn-sm.btn-danger:hover { border-color: var(--accent-red); color: var(--accent-red); }
+
+.form-error {
+  color: var(--accent-red);
+  font-size: 0.8rem;
+  margin-top: 8px;
+}
+
+.form-success {
+  color: var(--accent-green);
+  font-size: 0.8rem;
+  margin-top: 8px;
+}
+
+.save-ok {
+  color: var(--accent-green);
+  font-size: 0.85rem;
+}

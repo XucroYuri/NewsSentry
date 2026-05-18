@@ -18,7 +18,7 @@ import { renderLiveAlertsTab, renderAlertHistoryTab } from "./pages/alerts.js";
 import { renderRunStatusTab, renderCollectorTab, renderSourceHealthTab, renderRunHistoryTab, renderMaintenanceTab, renderOpsDetail } from "./pages/ops.js";
 import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedback.js";
 import { renderTargetTab, renderSourcesTab, renderFiltersTab, renderOutputsTab, renderAITab, renderWebhookTab, renderApiKeyTab } from "./pages/config.js";
-import { renderPasswordTab } from "./pages/settings.js";
+import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab } from "./pages/settings.js";
 
 // ═══════════════════════════════════════════════════════════
 // §1. 路由表
@@ -114,11 +114,15 @@ const ROUTES = {
   settings: {
     icon: "⚙️",
     tabs: [
-      { id: "password", label: "修改密码" },
-      { id: "apiKey", label: "API Key 管理" },
+      { id: "password", label: "个人设置" },
+      { id: "apiKey", label: "API Key" },
+      { id: "notifications", label: "通知设置" },
+      { id: "users", label: "用户管理" },
     ],
     render: (container, tab) => {
       if (tab === "apiKey") return renderApiKeyTab(container);
+      if (tab === "notifications") return renderNotificationsTab(container);
+      if (tab === "users") return renderUserMgmtTab(container);
       return renderPasswordTab(container);
     },
   },
