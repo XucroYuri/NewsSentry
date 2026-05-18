@@ -240,11 +240,68 @@ function navigate() {
 function showConnectPage() {
   const cp = document.getElementById("connectPage");
   if (cp) cp.style.display = "flex";
-  // Clear form if no saved connection
+
+  // 恢复保存的连接或使用默认值
   const conn = getConnection();
-  if (conn?.server) {
-    const serverInput = document.getElementById("connectServer");
-    if (serverInput) serverInput.value = conn.server;
+  const serverInput = document.getElementById("connectServer");
+  if (conn?.server && serverInput) {
+    serverInput.value = conn.server;
+    // 根据保存的 URL 判断模式
+    const isLocal = conn.server.includes("localhost") || conn.server.includes("127.0.0.1");
+    setConnectMode(isLocal ? "local" : "cloud");
+  } else {
+    setConnectMode("local");
+  }
+
+  // 检测服务器状态
+  checkServerStatus();
+}
+
+/** 设置连接模式 (local/cloud) */
+function setConnectMode(mode) {
+  const tabs = document.querySelectorAll(".mode-tab");
+  tabs.forEach(tab => tab.classList.toggle("active", tab.dataset.mode === mode));
+
+  const serverInput = document.getElementById("connectServer");
+  if (!serverInput) return;
+
+  if (mode === "local") {
+    if (!serverInput.value.includes("localhost") && !serverInput.value.includes("127.0.0.1")) {
+      serverInput.value = "http://localhost:8000";
+    }
+  } else {
+    if (serverInput.value.includes("localhost") || serverInput.value.includes("127.0.0.1")) {
+      serverInput.value = "https://news-sentry.xuyu.workers.dev";
+    }
+  }
+  checkServerStatus();
+}
+
+/** 检测服务器状态 */
+async function checkServerStatus() {
+  const dot = document.getElementById("connectStatusDot");
+  const text = document.getElementById("connectStatusText");
+  const server = document.getElementById("connectServer")?.value?.trim();
+  if (!dot || !text || !server) return;
+
+  dot.className = "status-dot";
+  text.textContent = "检测中...";
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const resp = await fetch(`${server}/api/v1/health`, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (resp.ok) {
+      dot.className = "status-dot ok";
+      text.textContent = "服务器在线";
+    } else {
+      dot.className = "status-dot error";
+      text.textContent = "服务器响应异常";
+    }
+  } catch {
+    dot.className = "status-dot error";
+    text.textContent = "无法连接服务器";
   }
 }
 
@@ -511,6 +568,21 @@ async function init() {
   if (connectForm) {
     connectForm.addEventListener("keydown", (e) => {
       if (e.key === "Enter") handleConnect();
+    });
+  }
+
+  // 模式切换标签
+  document.querySelectorAll(".mode-tab").forEach(tab => {
+    tab.addEventListener("click", () => setConnectMode(tab.dataset.mode));
+  });
+
+  // 服务器地址变化时重新检测
+  const serverInput = document.getElementById("connectServer");
+  if (serverInput) {
+    let serverCheckTimer = null;
+    serverInput.addEventListener("input", () => {
+      clearTimeout(serverCheckTimer);
+      serverCheckTimer = setTimeout(checkServerStatus, 600);
     });
   }
 

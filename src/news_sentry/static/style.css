@@ -1813,35 +1813,66 @@ a:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+  background: linear-gradient(135deg, #0a0d13 0%, #0f1117 40%, #161b22 100%);
 }
 
 .connect-card {
-  background: var(--card-bg, #161b22);
-  border: 1px solid var(--border, #30363d);
-  border-radius: 16px;
-  padding: 48px 40px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: 40px 36px 32px;
   width: 100%;
-  max-width: 420px;
+  max-width: 400px;
   text-align: center;
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* 模式切换 */
+.connect-mode-switch {
+  display: flex;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  margin-bottom: 28px;
+}
+
+.mode-tab {
+  flex: 1;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.mode-tab.active {
+  background: var(--accent-blue);
+  color: white;
+  box-shadow: 0 2px 8px rgba(79, 143, 247, 0.3);
 }
 
 .connect-logo {
-  margin-bottom: 16px;
-  color: #58a6ff;
+  margin-bottom: 12px;
+  color: var(--accent-blue);
 }
 
 .connect-title {
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--text, #e6edf3);
+  font-size: var(--font-h1);
+  font-weight: var(--weight-h1);
+  color: var(--text-title);
   margin: 0 0 4px;
 }
 
 .connect-subtitle {
-  font-size: 14px;
-  color: var(--text-secondary, #8b949e);
-  margin: 0 0 32px;
+  font-size: var(--font-caption);
+  color: var(--text-secondary);
+  margin: 0 0 28px;
 }
 
 .connect-form {
@@ -1849,14 +1880,14 @@ a:hover {
 }
 
 .connect-field {
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .connect-field label {
   display: block;
-  font-size: 13px;
+  font-size: 0.8rem;
   font-weight: 500;
-  color: var(--text-secondary, #8b949e);
+  color: var(--text-secondary);
   margin-bottom: 6px;
 }
 
@@ -1864,51 +1895,76 @@ a:hover {
 .connect-field select {
   width: 100%;
   padding: 10px 12px;
-  background: var(--input-bg, #0d1117);
-  border: 1px solid var(--border, #30363d);
-  border-radius: 8px;
-  color: var(--text, #e6edf3);
-  font-size: 14px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.875rem;
   box-sizing: border-box;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .connect-field input:focus,
 .connect-field select:focus {
   outline: none;
-  border-color: #58a6ff;
-  box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 3px var(--accent-blue-dim);
 }
 
 .connect-btn {
   width: 100%;
   padding: 12px;
-  background: linear-gradient(135deg, #238636, #2ea043);
+  background: linear-gradient(135deg, var(--accent-blue), #3a7bd5);
   color: white;
   border: none;
-  border-radius: 8px;
-  font-size: 15px;
+  border-radius: var(--radius-sm);
+  font-size: 0.95rem;
   font-weight: 600;
   cursor: pointer;
-  transition: opacity 0.2s;
+  transition: all var(--transition-fast);
   margin-top: 8px;
 }
 
-.connect-btn:hover { opacity: 0.9; }
+.connect-btn:hover { box-shadow: 0 4px 16px rgba(79, 143, 247, 0.3); }
 .connect-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .connect-hint {
-  font-size: 12px;
-  color: var(--text-secondary, #8b949e);
+  font-size: 0.75rem;
+  color: var(--text-muted);
   margin: 16px 0 0;
   text-align: center;
 }
 
 .connect-error {
-  color: #f85149;
-  font-size: 13px;
+  color: var(--accent-red);
+  font-size: 0.8rem;
   margin: 12px 0 0;
   text-align: center;
 }
+
+/* 服务器状态 */
+.connect-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.connect-status .status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.connect-status .status-dot.ok { background: var(--accent-green); }
+.connect-status .status-dot.error { background: var(--accent-red); }
 
 /* ── 三层导航 ────────────────────────────────────────── */
 
