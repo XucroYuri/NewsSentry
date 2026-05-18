@@ -207,7 +207,7 @@ function navigate() {
   // Update config collapse
   const configNav = document.getElementById("configNav");
   const configToggle = document.getElementById("configToggle");
-  if (section === "config") {
+  if (section === "config" || section === "settings") {
     if (configNav) configNav.style.display = "block";
     if (configToggle) configToggle.classList.add("expanded");
     state.configExpanded = true;
