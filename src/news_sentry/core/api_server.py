@@ -2041,19 +2041,26 @@ def create_app(
         user: dict = Depends(require_permission("write")),
     ) -> TriggerResponse:
         try:
-            import asyncio
-
             from news_sentry.core.async_run import bounded_run_async
 
             run_id = f"{target_id}_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
-            asyncio.create_task(bounded_run_async(target_id=target_id, stage=stage, run_id=run_id))
+            ctx = await bounded_run_async(target_id=target_id, stage=stage, run_id=run_id)
             return TriggerResponse(
-                status="triggered",
+                status="completed",
                 run_id=run_id,
-                message=f"Pipeline triggered for {target_id}/{stage}",
+                message=(
+                    f"Pipeline completed: {ctx.summary.get('total_events_collected', 0)} collected, "
+                    f"{ctx.summary.get('total_events_output', 0)} output, "
+                    f"{ctx.errors_count} errors"
+                ),
             )
         except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e)) from e
+            import traceback
+
+            raise HTTPException(
+                status_code=500,
+                detail={"error": str(e), "traceback": traceback.format_exc()},
+            ) from e
 
     # ── Phase 35: 追踪链端点 ──────────────────────────────
 
