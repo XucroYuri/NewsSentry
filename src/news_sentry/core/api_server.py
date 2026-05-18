@@ -2049,9 +2049,9 @@ def create_app(
                 status="completed",
                 run_id=run_id,
                 message=(
-                    f"Pipeline completed: {ctx.summary.get('total_events_collected', 0)} collected, "
-                    f"{ctx.summary.get('total_events_output', 0)} output, "
-                    f"{ctx.errors_count} errors"
+                    f"Pipeline finished: collected={ctx.summary.get('total_events_collected', 0)}, "
+                    f"output={ctx.summary.get('total_events_output', 0)}, "
+                    f"errors={ctx.errors_count}"
                 ),
             )
         except Exception as e:
