@@ -352,6 +352,76 @@ a:hover {
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* ── 骨架屏 ─────────────────────────────────────────── */
+
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+.skeleton {
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-sm);
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+/* 统计卡片骨架 */
+.skeleton-stat-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.skeleton-stat {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+}
+
+.skeleton-stat .skeleton-label {
+  width: 60%;
+  height: 12px;
+  margin-bottom: 14px;
+}
+
+.skeleton-stat .skeleton-value {
+  width: 40%;
+  height: 28px;
+}
+
+/* 事件卡片骨架 */
+.skeleton-event-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.skeleton-event {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 18px 22px;
+}
+
+.skeleton-event .skeleton-title {
+  width: 75%;
+  height: 16px;
+  margin-bottom: 10px;
+}
+
+.skeleton-event .skeleton-meta {
+  width: 45%;
+  height: 12px;
+  margin-bottom: 12px;
+}
+
+.skeleton-event .skeleton-bar {
+  width: 60%;
+  height: 8px;
+}
+
 /* 卡片 */
 .card {
   background: var(--bg-glass);

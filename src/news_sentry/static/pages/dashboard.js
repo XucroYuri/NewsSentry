@@ -50,10 +50,12 @@ export async function renderOverviewTab(container) {
 
       <!-- 4 统计卡片 -->
       <div class="stat-cards" id="dashStatCards">
-        <div class="stat-card"><div class="stat-value" id="statTotal">-</div><div class="stat-label">今日事件</div><div class="stat-diff" id="statTotalDiff"></div></div>
-        <div class="stat-card"><div class="stat-value accent-green" id="statHighValue">-</div><div class="stat-label">高价值事件</div><div class="stat-sub" id="statHighSub"></div></div>
-        <div class="stat-card"><div class="stat-value accent-blue" id="statChains">-</div><div class="stat-label">追踪链</div><div class="stat-sub" id="statChainsSub"></div></div>
-        <div class="stat-card"><div class="stat-value" id="statStatus">-</div><div class="stat-label">系统状态</div><div class="stat-sub" id="statHeartbeat"></div></div>
+        <div class="skeleton-stat-cards">
+          <div class="skeleton-stat"><div class="skeleton skeleton-label"></div><div class="skeleton skeleton-value"></div></div>
+          <div class="skeleton-stat"><div class="skeleton skeleton-label"></div><div class="skeleton skeleton-value"></div></div>
+          <div class="skeleton-stat"><div class="skeleton skeleton-label"></div><div class="skeleton skeleton-value"></div></div>
+          <div class="skeleton-stat"><div class="skeleton skeleton-label"></div><div class="skeleton skeleton-value"></div></div>
+        </div>
       </div>
 
       <!-- 双栏布局 -->
@@ -63,7 +65,11 @@ export async function renderOverviewTab(container) {
           <div class="card">
             <div class="section-title">重要事件</div>
             <div id="dashTopEvents">
-              <div class="loading-spinner"><div class="spinner"></div><p>正在加载...</p></div>
+              <div class="skeleton-event-list">
+                <div class="skeleton-event"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-meta"></div><div class="skeleton skeleton-bar"></div></div>
+                <div class="skeleton-event"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-meta"></div><div class="skeleton skeleton-bar"></div></div>
+                <div class="skeleton-event"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-meta"></div><div class="skeleton skeleton-bar"></div></div>
+              </div>
             </div>
           </div>
         </div>

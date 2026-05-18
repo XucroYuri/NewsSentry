@@ -570,6 +570,31 @@ export function showError(msg) {
 }
 
 /**
+ * 生成引导式空状态 HTML。
+ * @param {string} icon - emoji icon
+ * @param {string} title - 标题文字
+ * @param {string} description - 描述文字
+ * @param {Array<{label:string, href?:string, id?:string, primary?:boolean}>} actions - 操作按钮
+ */
+export function emptyStateHtml(icon, title, description, actions = []) {
+  const actionsHtml = actions.map(a => {
+    const cls = a.primary ? "btn-primary" : "btn-secondary";
+    if (a.href) return `<a href="${a.href}" class="${cls}">${a.label}</a>`;
+    if (a.id) return `<button class="${cls}" id="${a.id}">${a.label}</button>`;
+    return `<button class="${cls}">${a.label}</button>`;
+  }).join("");
+
+  return `
+    <div class="empty-state-guided">
+      <div class="empty-state-icon">${icon}</div>
+      <h2 class="empty-state-title">${escapeHtml(title)}</h2>
+      <p class="empty-state-causes">${escapeHtml(description)}</p>
+      ${actionsHtml ? `<div class="empty-state-actions">${actionsHtml}</div>` : ""}
+    </div>
+  `;
+}
+
+/**
  * HTML 转义。
  */
 export function escapeHtml(str) {

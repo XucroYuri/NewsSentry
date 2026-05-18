@@ -5,7 +5,7 @@
 
 "use strict";
 
-import { state, api, apiPost, escapeHtml, showError, showSuccess, formatDate, scoreColor, scoreGradient, scoreBar, sentimentColor, sentimentPct, sentimentGradient, sentimentLabelColor, sentimentDotHtml, entityChipsHtml, copyToClipboard, logAction } from "../api.js";
+import { state, api, apiPost, escapeHtml, showError, showSuccess, formatDate, scoreColor, scoreGradient, scoreBar, sentimentColor, sentimentPct, sentimentGradient, sentimentLabelColor, sentimentDotHtml, entityChipsHtml, copyToClipboard, logAction, emptyStateHtml } from "../api.js";
 
 const LINK_TYPE_LABELS = { followup: "后续进展", related: "相关", same_event: "同一事件", correction: "纠正" };
 const LINK_TYPE_COLORS = { followup: "#3b82f6", related: "#6b7280", same_event: "#10b981", correction: "#ef4444" };
@@ -88,7 +88,11 @@ export async function renderEventsTab(container) {
   container.innerHTML = `
     <div class="filter-bar" id="filterBar"></div>
     <div id="eventListArea">
-      <div class="loading-spinner"><div class="spinner"></div><p>正在加载事件...</p></div>
+      <div class="skeleton-event-list">
+        <div class="skeleton-event"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-meta"></div><div class="skeleton skeleton-bar"></div></div>
+        <div class="skeleton-event"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-meta"></div><div class="skeleton skeleton-bar"></div></div>
+        <div class="skeleton-event"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-meta"></div><div class="skeleton skeleton-bar"></div></div>
+      </div>
     </div>
   `;
 
@@ -275,7 +279,11 @@ export async function renderEventsTab(container) {
 async function loadEventList(container) {
   const area = document.getElementById("eventListArea");
   if (!area) return;
-  area.innerHTML = '<div class="loading-spinner"><div class="spinner"></div><p>正在加载事件...</p></div>';
+  area.innerHTML = `
+    <div class="skeleton-event-list">
+      ${Array.from({length: 6}, () => '<div class="skeleton-event"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-meta"></div><div class="skeleton skeleton-bar"></div></div>').join("")}
+    </div>
+  `;
 
   try {
     const params = {
@@ -300,14 +308,19 @@ async function loadEventList(container) {
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
     if (events.length === 0) {
-      area.innerHTML = `
-        <div class="empty-state">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
-          </svg>
-          <p>暂无匹配的事件</p>
-        </div>
-      `;
+      area.innerHTML = emptyStateHtml(
+        "📰",
+        "暂无匹配的事件",
+        "尝试调整筛选条件，或等待自动采集器完成下一轮采集",
+        [{ label: "清除筛选", id: "clearFilters" }, { label: "查看诊断", href: "#/ops/collector" }]
+      );
+      const clearBtn = area.querySelector("#clearFilters");
+      if (clearBtn) {
+        clearBtn.addEventListener("click", () => {
+          state.filters = { source_id: "", classification: "", min_score: 0, search: "", page: 1, sentiment: "", entity: "", topic_tag: "", date_from: "", date_to: "" };
+          renderEventsTab(container);
+        });
+      }
       return;
     }
 
