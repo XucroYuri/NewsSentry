@@ -314,23 +314,29 @@ async function loadEventList(container) {
     // 事件卡片列表
     const listHtml = events
       .map(
-        (ev, i) => `
+        (ev, i) => {
+          const score = ev.news_value_score ?? 0;
+          const scoreColor = score >= 80 ? "var(--accent-orange)" : score >= 60 ? "var(--accent-blue)" : "var(--text-muted)";
+          return `
       <div class="event-card" data-event-id="${escapeHtml(ev.id || "")}" style="animation-delay:${i * 40}ms">
         <div class="event-card-header">
-          <div class="event-card-title">${sentimentDotHtml(ev.sentiment)}${escapeHtml(ev.title_original || ev.id || "无标题")}</div>
-          <div class="event-card-time">${formatDate(ev.published_at)}</div>
+          <div class="event-card-title">${escapeHtml(ev.title_original || ev.id || "无标题")}</div>
+          <div class="event-card-score-badge" style="color:${scoreColor}">${score}</div>
         </div>
         <div class="event-card-meta">
-          <span class="tag tag-source">${escapeHtml(ev.source_id || "—")}</span>
-          ${ev.classification?.l0 ? `<span class="tag tag-classification">${escapeHtml(ev.classification.l0)}</span>` : ""}
+          ${sentimentDotHtml(ev.sentiment)}
+          <span class="tag-source">${escapeHtml(ev.source_id || "—")}</span>
+          ${ev.classification?.l0 ? `<span class="tag-classification">${escapeHtml(ev.classification.l0)}</span>` : ""}
+          <span>${formatDate(ev.published_at)}</span>
         </div>
         <div class="event-card-scores">
           ${scoreBar("新闻价值", ev.news_value_score)}
           ${scoreBar("中国相关度", ev.china_relevance)}
         </div>
-        ${ev.nlp_entities ? entityChipsHtml(ev.nlp_entities) : ""}
+        ${ev.nlp_entities ? `<div class="event-card-entities">${entityChipsHtml(ev.nlp_entities)}</div>` : ""}
       </div>
-    `
+    `;
+        }
       )
       .join("");
 

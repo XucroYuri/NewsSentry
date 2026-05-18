@@ -634,56 +634,100 @@ a:hover {
 }
 
 .event-card {
-  background: var(--bg-secondary);
+  background: var(--bg-glass);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  padding: 18px 22px;
+  border-radius: var(--radius-lg);
+  padding: 20px 24px;
   cursor: pointer;
   transition: all var(--transition-fast);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   animation: slideUp 0.3s ease both;
 }
 .event-card:hover {
   border-color: var(--accent-blue);
-  box-shadow: var(--shadow-md), 0 0 0 1px var(--accent-blue-dim);
-  transform: translateY(-1px);
+  box-shadow: var(--shadow-card), var(--accent-glow);
+  transform: translateY(-2px);
 }
 
+/* L1: 标题 + 分数 — 最高视觉权重 */
 .event-card-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .event-card-title {
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  line-height: 1.4;
+  font-size: var(--font-body);
+  font-weight: var(--weight-h3);
+  color: var(--text-title);
+  line-height: 1.5;
   flex: 1;
 }
 
+.event-card-score-badge {
+  font-size: var(--font-body);
+  font-weight: var(--weight-h1);
+  color: var(--accent-blue);
+  flex-shrink: 0;
+  min-width: 36px;
+  text-align: right;
+  font-family: var(--font-mono);
+}
+
 .event-card-time {
-  font-size: 0.78rem;
+  font-size: var(--font-caption);
   color: var(--text-muted);
   white-space: nowrap;
   font-family: var(--font-mono);
   flex-shrink: 0;
 }
 
+/* L2: 来源 + 时间 + 分类 — 中等视觉权重 */
 .event-card-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: var(--font-caption);
+  color: var(--text-secondary);
 }
 
+.event-card-meta .tag-source {
+  background: var(--accent-blue-dim);
+  color: var(--accent-blue);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.event-card-meta .tag-classification {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+}
+
+/* L3: 分数条 + 实体标签 — 最低视觉权重，移动端隐藏 */
 .event-card-scores {
   display: flex;
   gap: 20px;
   flex-wrap: wrap;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color);
+}
+
+.event-card-entities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
 }
 
 .event-score-item {
