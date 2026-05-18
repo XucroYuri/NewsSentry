@@ -1034,10 +1034,24 @@ a:hover {
 /* ============================================================
    响应式
    ============================================================ */
-@media (max-width: 768px) {
+/* ============================================================
+   响应式布局 — 三断点体系
+   Desktop ≥1024px | Tablet 768-1023px | Mobile <768px
+   ============================================================ */
+
+/* ── Tablet (768-1023px) ─────────────────────────────── */
+@media (min-width: 768px) and (max-width: 1023px) {
+  :root {
+    --sidebar-width: 0px;
+  }
+
   .sidebar {
     transform: translateX(-100%);
+    position: fixed;
+    z-index: 100;
+    transition: transform var(--transition-normal);
   }
+
   .sidebar.open {
     transform: translateX(0);
   }
@@ -1050,22 +1064,115 @@ a:hover {
     display: flex;
   }
 
-  .page-container {
-    padding: 20px 16px;
-  }
-
-  .top-bar {
-    padding: 0 16px;
-  }
-
   .dashboard-grid {
     grid-template-columns: 1fr;
   }
 
   .stat-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .connect-card {
+    margin: 16px;
+    padding: 32px 28px;
+  }
+}
+
+/* ── Mobile (<768px) ─────────────────────────────────── */
+@media (max-width: 767px) {
+  :root {
+    --sidebar-width: 0px;
+    --topbar-height: 48px;
+  }
+
+  .sidebar {
+    transform: translateX(-100%);
+    position: fixed;
+    z-index: 100;
+    width: 260px;
+    transition: transform var(--transition-normal);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  .main-content {
+    margin-left: 0;
+  }
+
+  .hamburger-btn {
+    display: flex;
+  }
+
+  /* Top bar */
+  .top-bar {
+    padding: 0 12px;
+    height: var(--topbar-height);
+  }
+
+  .target-selector select {
+    max-width: 120px;
+    font-size: 0.8rem;
+  }
+
+  /* Tab bar */
+  .tab-bar {
+    padding: 0 8px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tab-item {
+    padding: 8px 12px;
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+
+  /* Page container */
+  .page-container {
+    padding: 16px 12px;
+  }
+
+  /* Stat cards: stack */
+  .stat-cards {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .stat-card {
+    padding: 14px;
+  }
+
+  .stat-card .stat-value {
+    font-size: 1.4rem;
+  }
+
+  /* Event cards: hide L3 on mobile */
+  .event-card {
+    padding: 14px 16px;
+  }
+
+  .event-card-scores,
+  .event-card-entities {
+    display: none;
+  }
+
+  .event-card-header {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .event-card-title {
+    font-size: 0.875rem;
+  }
+
+  /* Dashboard grid */
+  .dashboard-grid {
     grid-template-columns: 1fr;
   }
 
+  /* Filter bar */
   .filter-bar {
     flex-direction: column;
     align-items: stretch;
@@ -1082,26 +1189,13 @@ a:hover {
     width: 100%;
   }
 
-  .event-card-header {
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .event-card-scores {
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .event-score-item {
-    min-width: auto;
-  }
-
+  /* Detail page */
   .detail-header {
-    padding: 20px 16px 16px;
+    padding: 16px 14px 14px;
   }
 
   .detail-body {
-    padding: 16px;
+    padding: 14px;
   }
 
   .detail-score-grid {
@@ -1113,15 +1207,34 @@ a:hover {
     gap: 2px;
   }
 
+  /* Pipeline stages */
+  .pipeline-stages {
+    flex-direction: column;
+  }
+
+  .stage-arrow {
+    transform: rotate(90deg);
+  }
+
+  /* Connect page */
+  .connect-card {
+    margin: 12px;
+    padding: 28px 20px;
+  }
+
+  .connect-mode-switch {
+    margin-bottom: 20px;
+  }
+
+  /* Bar chart */
   .bar-chart-item {
     grid-template-columns: 80px 1fr 36px;
     gap: 8px;
   }
-}
 
-@media (min-width: 769px) and (max-width: 1100px) {
-  .dashboard-grid {
-    grid-template-columns: 1fr;
+  /* Skeleton adjustments */
+  .skeleton-stat-cards {
+    grid-template-columns: 1fr 1fr;
   }
 }
 
@@ -2540,32 +2653,6 @@ body.ns-offline .offline-banner {
 .date-range-picker .date-sep {
   color: var(--text-secondary, #8b949e);
   font-size: 12px;
-}
-
-/* ── 响应式调整 ──────────────────────────────────────── */
-
-@media (max-width: 768px) {
-  .connect-card {
-    margin: 16px;
-    padding: 32px 24px;
-  }
-
-  .tab-bar {
-    padding: 0 12px;
-  }
-
-  .tab-item {
-    padding: 10px 14px;
-    font-size: 13px;
-  }
-
-  .pipeline-stages {
-    flex-direction: column;
-  }
-
-  .stage-arrow {
-    transform: rotate(90deg);
-  }
 }
 
 /* ── 引导式空状态 ─────────────────────── */
