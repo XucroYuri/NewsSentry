@@ -72,7 +72,7 @@ def _pid_alive(pid_path: Path) -> bool:
 
 
 def _setup_log_file(log_path: Path, log_dir: Path) -> None:
-    """Add a file handler so uvicorn/uvicorn.access logs are written to disk."""
+    """Add a file handler so uvicorn and news_sentry logs are written to disk."""
     log_dir.mkdir(parents=True, exist_ok=True)
     handler = logging.FileHandler(str(log_path), encoding="utf-8")
     fmt = logging.Formatter(
@@ -80,7 +80,7 @@ def _setup_log_file(log_path: Path, log_dir: Path) -> None:
         datefmt="%Y-%m-%dT%H:%M:%S",
     )
     handler.setFormatter(fmt)
-    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access", "news_sentry"):
         logging.getLogger(name).addHandler(handler)
 
 
