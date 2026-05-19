@@ -136,12 +136,19 @@ def _setup_log_file(log_path: Path, log_dir: Path) -> None:
     default=False,
     help="Run in foreground (default behavior; flag reserved for future daemon mode).",
 )
+@click.option(
+    "--log-level",
+    default="info",
+    type=click.Choice(["critical", "error", "warning", "info", "debug", "trace"]),
+    help="Log level for uvicorn and app logs (default: info).",
+)
 def serve(
     host: str,
     port: int,
     target: str,
     interval: int,
     stage: str,
+    log_level: str,
     profile: str | None,
     data_dir: str,
     log_dir: str,
@@ -210,10 +217,15 @@ def serve(
         )
         sys.exit(1)
 
-    # 9. Log file — uvicorn logs to disk via file handler
+    # 9. Set log level on app loggers before adding file handler
+    level = getattr(logging, log_level.upper(), logging.INFO)
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access", "news_sentry"):
+        logging.getLogger(name).setLevel(level)
+
+    # 10. Log file — uvicorn/app logs to disk via file handler
     _setup_log_file(log_file, log_path_dir)
 
-    # 10. Open browser unless --no-browser
+    # 11. Open browser unless --no-browser
     if not no_browser:
         display_host = "127.0.0.1" if host == "0.0.0.0" else host  # noqa: S104
         url = f"http://{display_host}:{port}"
@@ -237,6 +249,7 @@ def serve(
     if profile:
         click.echo(f"  Profile:  {profile}")
     click.echo(f"  Interval: {interval} min")
+    click.echo(f"  LogLevel: {log_level}")
     click.echo("  ─────────────────────────────────")
     click.echo("")
 
@@ -245,4 +258,5 @@ def serve(
         factory=True,
         host=host,
         port=port,
+        log_level=log_level,
     )

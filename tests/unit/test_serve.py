@@ -192,6 +192,7 @@ class TestServeCommandRegistration:
             "--target",
             "--interval",
             "--stage",
+            "--log-level",
             "--data-dir",
             "--no-browser",
         ):
@@ -418,6 +419,7 @@ class TestServeCommandBehavior:
             "--target",
             "--interval",
             "--stage",
+            "--log-level",
             "--profile",
             "--data-dir",
             "--log-dir",
