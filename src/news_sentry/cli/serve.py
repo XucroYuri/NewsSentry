@@ -173,7 +173,8 @@ def serve(
 
     # 8. Open browser unless --no-browser
     if not no_browser:
-        url = f"http://{host}:{port}"
+        display_host = "127.0.0.1" if host == "0.0.0.0" else host  # noqa: S104
+        url = f"http://{display_host}:{port}"
         click.echo(f"Opening browser: {url}")
         try:
             webbrowser.open(url)
