@@ -45,7 +45,7 @@
     <key>NEWSSENTRY_DATA_DIR</key>
     <string>/Users/REPLACE_ME/.news-sentry/data</string>
     <key>NEWSSENTRY_AUTO_COLLECT</key>
-    <string>true</string>
+    <string>1</string>
     <key>NEWSSENTRY_COLLECT_INTERVAL</key>
     <string>300</string>
   </dict>
