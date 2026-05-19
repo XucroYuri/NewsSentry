@@ -284,6 +284,37 @@ function _baseUrl() {
   return conn ? conn.server : window.location.origin;
 }
 
+// ── 离线检测 ───────────────────────────────────────────
+
+let _offlineBanner = null;
+
+function _showOfflineBanner(msg) {
+  if (_offlineBanner) return;
+  _offlineBanner = document.createElement("div");
+  _offlineBanner.className = "offline-banner";
+  _offlineBanner.textContent = msg;
+  document.body.prepend(_offlineBanner);
+}
+
+function _hideOfflineBanner() {
+  if (_offlineBanner) { _offlineBanner.remove(); _offlineBanner = null; }
+}
+
+function _setupOfflineDetection() {
+  window.addEventListener("offline", () => {
+    _showOfflineBanner("网络已断开 — 恢复连接后自动重连");
+  });
+  window.addEventListener("online", () => {
+    _hideOfflineBanner();
+    // Re-try pending page load
+    const hash = window.location.hash;
+    if (hash) { window.location.hash = ""; window.location.hash = hash; }
+  });
+}
+
+// Initialize on load
+if (typeof window !== "undefined") { _setupOfflineDetection(); }
+
 /** 获取认证 token */
 function _token() {
   const conn = getConnection();
@@ -303,20 +334,33 @@ async function _handle401(originalFn) {
   throw new Error(t("auth.tokenExpired"));
 }
 
-/** 带超时的 fetch wrapper */
-async function _fetchWithTimeout(url, options = {}, timeoutMs = 5000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const resp = await fetch(url, { ...options, signal: controller.signal });
-    return resp;
-  } catch (err) {
-    if (err.name === "AbortError") {
-      throw new Error(t("error.timeout"));
+/** 带超时 + 自动重试的 fetch wrapper */
+async function _fetchWithTimeout(url, options = {}, timeoutMs = 5000, retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const resp = await fetch(url, { ...options, signal: controller.signal });
+      _hideOfflineBanner();
+      return resp;
+    } catch (err) {
+      if (err.name === "AbortError") {
+        throw new Error(t("error.timeout"));
+      }
+      // Network error — retry with exponential backoff
+      if (attempt < retries) {
+        const delay = Math.pow(2, attempt) * 1000; // 1s, 2s
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      // All retries failed — show offline banner
+      _showOfflineBanner("服务连接失败 — 正在重试...");
+      throw err;
+    } finally {
+      clearTimeout(timer);
     }
-    throw err;
-  } finally {
-    clearTimeout(timer);
+  }
+}
   }
 }
 
@@ -531,42 +575,88 @@ export function scoreGradient(score) {
   return "linear-gradient(90deg, var(--accent-red), #f87171)";
 }
 
+// ── Toast 队列 ─────────────────────────────────────────
+
+const _toastQueue = [];
+const _MAX_TOASTS = 5;
+
+function _positionToasts() {
+  const toasts = document.querySelectorAll(".ns-toast");
+  toasts.forEach((t, i) => {
+    t.style.bottom = `${16 + i * 52}px`;
+  });
+}
+
+function _showToast(type, msg, duration = 4000) {
+  // Remove excess toasts
+  const existing = document.querySelectorAll(".ns-toast");
+  if (existing.length >= _MAX_TOASTS) {
+    existing[0].remove();
+  }
+
+  const icons = {
+    success: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="8 12 11 15 16 9"/></svg>',
+    error: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+    warning: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+    info: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+  };
+
+  const toast = document.createElement("div");
+  toast.className = `ns-toast ns-toast-${type}`;
+  toast.innerHTML = `
+    <span class="ns-toast-icon">${icons[type] || icons.info}</span>
+    <span class="ns-toast-msg">${escapeHtml(msg)}</span>
+    <button class="ns-toast-close">&times;</button>
+  `;
+  document.body.appendChild(toast);
+  _positionToasts();
+
+  toast.querySelector(".ns-toast-close").addEventListener("click", () => {
+    toast.classList.add("ns-toast-fadeout");
+    setTimeout(() => { toast.remove(); _positionToasts(); }, 200);
+  });
+
+  const timer = setTimeout(() => {
+    toast.classList.add("ns-toast-fadeout");
+    setTimeout(() => { toast.remove(); _positionToasts(); }, 200);
+  }, duration);
+
+  // Pause auto-close on hover
+  toast.addEventListener("mouseenter", () => clearTimeout(timer));
+  toast.addEventListener("mouseleave", () => {
+    setTimeout(() => {
+      toast.classList.add("ns-toast-fadeout");
+      setTimeout(() => { toast.remove(); _positionToasts(); }, 200);
+    }, 2000);
+  });
+}
+
 /**
  * 显示成功提示 toast。
  */
 export function showSuccess(msg) {
-  $$(".success-toast").forEach((el) => el.remove());
-  const toast = document.createElement("div");
-  toast.className = "success-toast";
-  toast.innerHTML = `
-    <span class="toast-icon">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="10"/><polyline points="8 12 11 15 16 9"/>
-      </svg>
-    </span>
-    <span>${escapeHtml(msg)}</span>
-  `;
-  document.body.appendChild(toast);
-  setTimeout(() => toast.remove(), 4000);
+  _showToast("success", msg, 5000);
 }
 
 /**
  * 显示错误提示 toast。
  */
 export function showError(msg) {
-  $$(".error-toast").forEach((el) => el.remove());
-  const toast = document.createElement("div");
-  toast.className = "error-toast";
-  toast.innerHTML = `
-    <span class="error-icon">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
-      </svg>
-    </span>
-    <span class="error-msg">${escapeHtml(msg)}</span>
-  `;
-  document.body.appendChild(toast);
-  setTimeout(() => toast.remove(), 6000);
+  _showToast("error", msg, 8000);
+}
+
+/**
+ * 显示警告提示 toast。
+ */
+export function showWarning(msg) {
+  _showToast("warning", msg, 6000);
+}
+
+/**
+ * 显示信息提示 toast。
+ */
+export function showInfo(msg) {
+  _showToast("info", msg, 4000);
 }
 
 /**

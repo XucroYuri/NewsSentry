@@ -459,14 +459,61 @@ async function refreshBadges() {
 // §10. 键盘快捷键
 // ═══════════════════════════════════════════════════════════
 
+let _shortcutPanelOpen = false;
+
+function toggleShortcutPanel() {
+  const existing = document.getElementById("shortcutPanel");
+  if (existing) {
+    existing.remove();
+    _shortcutPanelOpen = false;
+    return;
+  }
+  _shortcutPanelOpen = true;
+  const panel = document.createElement("div");
+  panel.id = "shortcutPanel";
+  panel.className = "shortcut-panel";
+  panel.innerHTML = `
+    <div class="shortcut-panel-header">
+      <span>⌨ 键盘快捷键</span>
+      <button class="shortcut-panel-close">&times;</button>
+    </div>
+    <div class="shortcut-panel-body">
+      <div class="shortcut-row"><kbd>1</kbd>-<kbd>6</kbd><span>切换 Section</span></div>
+      <div class="shortcut-row"><kbd>/</kbd><span>聚焦搜索</span></div>
+      <div class="shortcut-row"><kbd>Esc</kbd><span>关闭弹窗 / 返回</span></div>
+      <div class="shortcut-row"><kbd>?</kbd><span>显示 / 隐藏此面板</span></div>
+      <div class="shortcut-row"><kbd>r</kbd><span>刷新当前页面</span></div>
+      <div class="shortcut-row"><kbd>n</kbd><span>新建（上下文感知）</span></div>
+      <div class="shortcut-row"><kbd>Ctrl</kbd>+<kbd>Enter</kbd><span>触发采集</span></div>
+      <div class="shortcut-row"><kbd>j</kbd>/<kbd>k</kbd><span>事件列表上下移动</span></div>
+      <div class="shortcut-row"><kbd>←</kbd>/<kbd>→</kbd><span>翻页</span></div>
+    </div>
+  `;
+  document.body.appendChild(panel);
+  panel.querySelector(".shortcut-panel-close").addEventListener("click", () => {
+    panel.remove();
+    _shortcutPanelOpen = false;
+  });
+  panel.addEventListener("click", (e) => {
+    if (e.target === panel) { panel.remove(); _shortcutPanelOpen = false; }
+  });
+}
+
 function setupKeyboardShortcuts() {
   document.addEventListener("keydown", (e) => {
     // Don't trigger in inputs/textareas
-    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") return;
+    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") {
+      // Ctrl+Enter always works
+      if (e.ctrlKey && e.key === "Enter") {
+        e.preventDefault();
+        window.location.hash = "#/ops/collector";
+      }
+      return;
+    }
 
-    const sections = ["news", "alerts", "ops", "feedback", "config"];
+    const sections = ["news", "alerts", "ops", "feedback", "config", "settings"];
 
-    if (e.key >= "1" && e.key <= "5") {
+    if (e.key >= "1" && e.key <= "6") {
       e.preventDefault();
       const s = sections[parseInt(e.key) - 1];
       const defaultTab = ROUTES[s]?.tabs[0]?.id || "";
@@ -476,15 +523,54 @@ function setupKeyboardShortcuts() {
       const searchInput = document.querySelector(".event-search input, #eventSearch");
       if (searchInput) searchInput.focus();
     } else if (e.key === "Escape") {
-      // Close modals or go back
-      const openModal = document.querySelector('.modal[style*="display: block"], .modal[style*="display:block"]');
-      if (openModal) {
-        openModal.style.display = "none";
-      } else {
-        history.back();
+      // Close shortcut panel first
+      if (_shortcutPanelOpen) { toggleShortcutPanel(); return; }
+      // Close modals
+      const openModal = document.querySelector(".modal-overlay, .modal[style*='display: block']");
+      if (openModal) { openModal.remove(); return; }
+      history.back();
+    } else if (e.key === "?") {
+      e.preventDefault();
+      toggleShortcutPanel();
+    } else if (e.key === "r" && !e.ctrlKey) {
+      e.preventDefault();
+      navigate();
+    } else if (e.key === "n" && !e.ctrlKey) {
+      e.preventDefault();
+      // Context-aware: events page → import, config → new source
+      const hash = window.location.hash || "";
+      if (hash.includes("/events")) {
+        window.location.hash = "#/events/import";
+      } else if (hash.includes("/config")) {
+        showSuccess("请在配置中心手动添加");
       }
+    } else if (e.ctrlKey && e.key === "Enter") {
+      e.preventDefault();
+      window.location.hash = "#/ops/collector";
+    } else if (e.key === "j" || e.key === "k") {
+      e.preventDefault();
+      _navigateEventList(e.key === "j" ? 1 : -1);
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      // Pagination — only if not in an input
+      const pagBtn = e.key === "ArrowLeft"
+        ? document.querySelector(".pagination-prev")
+        : document.querySelector(".pagination-next");
+      if (pagBtn) { e.preventDefault(); pagBtn.click(); }
     }
   });
+}
+
+/** Navigate event list with j/k keys. */
+let _focusedEventIdx = -1;
+function _navigateEventList(direction) {
+  const rows = document.querySelectorAll(".event-card, .top-event-row");
+  if (rows.length === 0) return;
+  _focusedEventIdx += direction;
+  if (_focusedEventIdx < 0) _focusedEventIdx = 0;
+  if (_focusedEventIdx >= rows.length) _focusedEventIdx = rows.length - 1;
+  rows[_focusedEventIdx].focus({ preventScroll: false });
+  rows[_focusedEventIdx].scrollIntoView({ block: "nearest", behavior: "smooth" });
+  rows.forEach((r, i) => r.classList.toggle("keyboard-focus", i === _focusedEventIdx));
 }
 
 // ═══════════════════════════════════════════════════════════
