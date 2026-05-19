@@ -56,7 +56,7 @@ def _pid_alive(pid_path: Path) -> bool:
     if platform.system() == "Windows":
         import ctypes
 
-        kernel32 = ctypes.windll.kernel32
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
         synchronize = 0x100000
         handle = kernel32.OpenProcess(synchronize, False, pid)
         if handle:
