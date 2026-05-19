@@ -200,10 +200,20 @@ def serve(
         signal.signal(signal.SIGTERM, _handle_signal)
         signal.signal(signal.SIGINT, _handle_signal)
 
-    # 8. Log file — uvicorn logs to disk via file handler
+    # 8. Check uvicorn availability before proceeding
+    try:
+        import uvicorn  # noqa: F401 — verify uvicorn is importable
+    except ImportError:
+        click.echo(
+            "Error: uvicorn is not installed.\nInstall it with:\n  pip install 'news-sentry[api]'",
+            err=True,
+        )
+        sys.exit(1)
+
+    # 9. Log file — uvicorn logs to disk via file handler
     _setup_log_file(log_file, log_path_dir)
 
-    # 9. Open browser unless --no-browser
+    # 10. Open browser unless --no-browser
     if not no_browser:
         display_host = "127.0.0.1" if host == "0.0.0.0" else host  # noqa: S104
         url = f"http://{display_host}:{port}"
@@ -227,8 +237,6 @@ def serve(
     click.echo(f"  Interval: {interval} min")
     click.echo("  ─────────────────────────────────")
     click.echo("")
-
-    import uvicorn
 
     uvicorn.run(
         "news_sentry.core.api_server:create_app",

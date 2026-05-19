@@ -467,6 +467,42 @@ class TestServeCommandBehavior:
         result = runner.invoke(main, ["serve", "--stage", "invalid"])
         assert result.exit_code != 0
 
+    def test_serve_exits_with_error_when_uvicorn_missing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """uvicorn 未安装时应给出友好错误提示。"""
+        pid_file = tmp_path / "serve.pid"
+        _setup_serve_mocks(monkeypatch)
+
+        # 模拟 uvicorn 未安装
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "uvicorn":
+                raise ImportError("No module named 'uvicorn'")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=fake_import):
+            runner = CliRunner()
+            result = runner.invoke(
+                main,
+                [
+                    "serve",
+                    "--data-dir",
+                    str(tmp_path / "data"),
+                    "--log-dir",
+                    str(tmp_path / "logs"),
+                    "--pid-file",
+                    str(pid_file),
+                    "--no-browser",
+                    "--foreground",
+                ],
+            )
+        assert result.exit_code == 1
+        assert "uvicorn" in result.output
+
     def test_serve_accepts_valid_stage_values(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
