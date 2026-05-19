@@ -675,7 +675,7 @@ def _extract_bearer_token(request: Request) -> str | None:
 _store: AsyncStore | None = None
 _target_stores: dict[str, AsyncStore] = {}  # target_id → state.db 缓存
 _deployment_env: str = ""  # cloudflare|hetzner|docker|local|unknown
-_data_dir: Path = Path("./data")  # 默认值，create_app() 中覆盖
+_data_dir: Path = Path(os.environ.get("NEWSSENTRY_DATA_DIR", "./data"))
 
 logger = logging.getLogger(__name__)
 

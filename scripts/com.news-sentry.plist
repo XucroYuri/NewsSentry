@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  News Sentry — macOS LaunchAgent (登录后自动启动，后台常驻)
+
+  安装（用户级，无需 sudo）：
+    cp scripts/com.news-sentry.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.news-sentry.plist
+
+  常用命令：
+    launchctl list com.news-sentry          # 查看状态
+    launchctl unload ~/Library/LaunchAgents/com.news-sentry.plist  # 停止
+    launchctl load ~/Library/LaunchAgents/com.news-sentry.plist    # 重新加载
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.news-sentry</string>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>exec $HOME/.news-sentry/venv/bin/python -m news_sentry.cli serve --foreground</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/REPLACE_ME/.news-sentry</string>
+
+  <key>StandardOutPath</key>
+  <string>/Users/REPLACE_ME/.news-sentry/logs/serve.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/REPLACE_ME/.news-sentry/logs/serve.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>NEWSSENTRY_DATA_DIR</key>
+    <string>/Users/REPLACE_ME/.news-sentry/data</string>
+    <key>NEWSSENTRY_AUTO_COLLECT</key>
+    <string>true</string>
+    <key>NEWSSENTRY_COLLECT_INTERVAL</key>
+    <string>300</string>
+  </dict>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+</dict>
+</plist>
