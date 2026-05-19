@@ -247,8 +247,9 @@ python -m news_sentry.cli run --target italy --stage all --dry-run
 python -m news_sentry.cli run --target italy --stage all --profile cloud-vps
 
 # 后台常驻服务
-news-sentry serve                           # 默认配置, localhost:8000
+news-sentry serve                           # 默认配置, localhost:8000, 全管道
 news-sentry serve --target italy            # 单 target
+news-sentry serve --stage collect           # 仅采集（不研判，零 token）
 news-sentry serve --port 8080 --interval 30 # 自定义端口和采集间隔
 news-sentry serve --foreground              # 前台调试 (Ctrl+C 退出)
 news-sentry serve --no-browser              # 不自动打开浏览器
