@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.5.0-blue.svg" alt="version" />
+  <img src="https://img.shields.io/badge/version-1.6.0-blue.svg" alt="version" />
   <img src="https://img.shields.io/badge/python-3.11+-3776AB.svg?logo=python&logoColor=white" alt="python" />
   <img src="https://img.shields.io/badge/tests-1629%20passed-brightgreen.svg" alt="tests" />
   <img src="https://img.shields.io/badge/coverage-92%25-green.svg" alt="coverage" />

@@ -225,7 +225,9 @@ def serve(
 
     # 10. Startup banner
     click.echo("")
-    click.echo("  News Sentry v1.6.0 — local server")
+    from importlib.metadata import version as _pkg_version
+
+    click.echo(f"  News Sentry v{_pkg_version('news-sentry')} — local server")
     click.echo("  ─────────────────────────────────")
     click.echo(f"  API:      http://{host}:{port}")
     click.echo(f"  Data:     {data_path}")
