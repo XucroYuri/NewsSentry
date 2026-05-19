@@ -460,3 +460,46 @@ class TestServeCommandBehavior:
         assert result.exit_code == 0
         assert captured["target"] == "all"
         assert captured["stage"] == "all"
+
+    def test_serve_rejects_invalid_stage(self) -> None:
+        """--stage 不接受无效值。"""
+        runner = CliRunner()
+        result = runner.invoke(main, ["serve", "--stage", "invalid"])
+        assert result.exit_code != 0
+
+    def test_serve_accepts_valid_stage_values(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--stage 接受所有有效阶段值。"""
+        pid_file = tmp_path / "serve.pid"
+        _setup_serve_mocks(monkeypatch)
+
+        for stage in ("collect", "filter", "judge", "output", "all"):
+            captured: dict[str, str] = {}
+
+            def make_fake_uvicorn(cap: dict[str, str]) -> object:
+                def fake_uvicorn_run(*args: object, **kwargs: object) -> None:
+                    cap["stage"] = os.environ.get("NEWSSENTRY_COLLECT_STAGE", "")
+
+                return fake_uvicorn_run
+
+            with patch("uvicorn.run", side_effect=make_fake_uvicorn(captured)):
+                runner = CliRunner()
+                result = runner.invoke(
+                    main,
+                    [
+                        "serve",
+                        "--data-dir",
+                        str(tmp_path / "data"),
+                        "--log-dir",
+                        str(tmp_path / "logs"),
+                        "--pid-file",
+                        str(pid_file),
+                        "--stage",
+                        stage,
+                        "--no-browser",
+                        "--foreground",
+                    ],
+                )
+            assert result.exit_code == 0, f"--stage {stage} should be accepted"
+            assert captured["stage"] == stage

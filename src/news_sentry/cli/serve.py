@@ -101,6 +101,7 @@ def _setup_log_file(log_path: Path, log_dir: Path) -> None:
 @click.option(
     "--stage",
     default="all",
+    type=click.Choice(["collect", "filter", "judge", "output", "all"]),
     help="Pipeline stage for auto-collect loop (default: all). Sets NEWSSENTRY_COLLECT_STAGE.",
 )
 @click.option(
