@@ -94,7 +94,8 @@ railway variables set \
     TARGET_ID=italy \
     RUN_STAGE=all \
     NEWSSENTRY_AI_BUDGET_USD=1.0 \
-    NEWSSENTRY_PROFILE=cloud-vps 2>/dev/null || true
+    NEWSSENTRY_PROFILE=cloud-vps \
+    NEWSSENTRY_DEPLOYMENT_ENV=railway 2>/dev/null || true
 
 # 从 env-file 设置
 if [[ -n "$ENV_FILE" && -f "$ENV_FILE" ]]; then

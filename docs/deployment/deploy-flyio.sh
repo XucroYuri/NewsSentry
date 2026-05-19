@@ -82,6 +82,7 @@ primary_region = "${REGION}"
   RUN_STAGE = "all"
   NEWSSENTRY_AI_BUDGET_USD = "1.0"
   NEWSSENTRY_PROFILE = "cloud-vps"
+  NEWSSENTRY_DEPLOYMENT_ENV = "flyio"
 
 [vm]
   size = "${VM_SIZE}"

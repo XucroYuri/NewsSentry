@@ -291,6 +291,7 @@ $SSH_CMD "sudo docker run -d \
     -e TARGET_ID=italy \
     -e RUN_STAGE=all \
     -e NEWSSENTRY_AI_BUDGET_USD=1.0 \
+    -e NEWSSENTRY_DEPLOYMENT_ENV=oracle \
     -v /opt/news-sentry/data:/app/data \
     ${GHCR_IMAGE}:${VERSION}-${IMAGE_TYPE} \
     run --target italy --stage all --profile cloud-vps"

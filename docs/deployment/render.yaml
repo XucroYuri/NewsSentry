@@ -34,6 +34,8 @@ services:
         value: cloud-vps
       - key: NEWSSENTRY_AI_BUDGET_USD
         value: "1.0"
+      - key: NEWSSENTRY_DEPLOYMENT_ENV
+        value: "render"
       - key: OPENAI_API_KEY
         sync: false  # 手动设置
       - key: ANTHROPIC_API_KEY
@@ -51,6 +53,8 @@ services:
     startCommand: "uvicorn news_sentry.core.api_server:create_app --factory --host 0.0.0.0 --port $PORT"
     healthCheckPath: /api/v1/health
     envVars:
+      - key: NEWSSENTRY_DEPLOYMENT_ENV
+        value: "render"
       - key: NEWSSENTRY_API_MODE
         value: "true"
       - key: NEWSSENTRY_API_KEY
