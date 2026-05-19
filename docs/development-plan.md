@@ -24,6 +24,7 @@
 > Phase 49.5 应用产品化: ✅ 全部完成 (4层17task: 数据可靠性+视觉翻新+关键功能+交互打磨)
 > Phase 50 本地客户端 v1: ✅ 全部完成 (serve 命令 + os 服务集成 + 跨平台安装脚本)
 > Phase 51 serve 生产加固: ✅ 全部完成 (全管道默认 + --stage/--log-level/stop + atexit/pid/log/uvicorn 检查)
+> Phase 52 本地客户端 v2: ✅ 全部完成 (install/status/logs/restart/uninstall + install.sh --api/--proxy/--with-service)
 > 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](spec/README.md) 为准）
 > Cloud VPS 方案: [docs/deployment/cloud-vps-recommendations.md](./deployment/cloud-vps-recommendations.md)
 > 字段口径基准: [`docs/contracts-canonical.md`](./contracts-canonical.md)

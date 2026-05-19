@@ -3,10 +3,14 @@
 # News Sentry — 一键安装脚本
 # =============================================================================
 # 用法:
-#   bash install.sh            # 安装生产依赖
-#   bash install.sh --dev      # 安装生产 + 开发依赖
-#   bash install.sh --check    # 安装 + 运行测试
-#   bash install.sh --help     # 显示帮助
+#   bash install.sh                 # 安装生产依赖
+#   bash install.sh --dev           # 安装生产 + 开发依赖
+#   bash install.sh --check         # 安装 + 运行测试
+#   bash install.sh --dev --api     # 安装开发依赖 + API 服务 (uvicorn)
+#   bash install.sh --proxy --api   # 安装代理支持 + API 服务
+#   bash install.sh --with-service  # 安装后注册为 OS 服务
+#   bash install.sh -y --dev        # 非交互模式
+#   bash install.sh --help          # 显示帮助
 # =============================================================================
 set -euo pipefail
 
@@ -19,23 +23,40 @@ NC='\033[0m'
 PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 DEV_MODE=false
 CHECK_MODE=false
+YES_MODE=false
+API_MODE=false
+PROXY_MODE=false
+WITH_SERVICE=false
 
 # ── 参数解析 ─────────────────────────────────────────────────────────────────
 
 for arg in "$@"; do
     case $arg in
-        --dev)   DEV_MODE=true ;;
-        --check) CHECK_MODE=true; DEV_MODE=true ;;
+        --dev)    DEV_MODE=true ;;
+        --check)  CHECK_MODE=true; DEV_MODE=true ;;
+        --api)    API_MODE=true ;;
+        --proxy)  PROXY_MODE=true ;;
+        --with-service) WITH_SERVICE=true ;;
+        --yes|-y) YES_MODE=true ;;
         --help|-h)
             echo "News Sentry — 一键安装脚本"
             echo ""
             echo "用法: bash install.sh [选项]"
             echo ""
             echo "选项:"
-            echo "  (无)        安装生产依赖"
-            echo "  --dev       安装生产 + 开发依赖 (pytest, mypy, ruff)"
-            echo "  --check     安装全部依赖 + 运行测试"
-            echo "  --help      显示此帮助"
+            echo "  (无)             安装生产依赖"
+            echo "  --dev             安装生产 + 开发依赖 (pytest, mypy, ruff)"
+            echo "  --check           安装全部依赖 + 运行测试"
+            echo "  --api             安装 API 服务依赖 (uvicorn, FastAPI)"
+            echo "  --proxy           安装 SOCKS5 代理支持 (httpx[socks])"
+            echo "  --with-service    安装后自动注册为 OS 后台服务 (LaunchAgent/systemd)"
+            echo "  --yes, -y         非交互模式 (自动重建已有虚拟环境)"
+            echo "  --help            显示此帮助"
+            echo ""
+            echo "示例:"
+            echo "  bash install.sh --dev --api          # 开发 + API 服务"
+            echo "  bash install.sh --proxy --api        # 代理 + API + 生产部署"
+            echo "  bash install.sh -y --dev --with-service  # 一键全自动安装"
             echo ""
             echo "前置条件:"
             echo "  - Python >= 3.11"
@@ -126,12 +147,17 @@ fi
 
 VENV="$PROJECT_ROOT/.venv"
 if [ -d "$VENV" ]; then
-    echo -n "发现已有虚拟环境，重建? [y/N] "
-    read -r yn
-    case $yn in
-        [Yy]*) rm -rf "$VENV"; echo "已删除旧虚拟环境" ;;
-        *)     echo "使用现有虚拟环境"; echo ""; exit 0 ;;
-    esac
+    if $YES_MODE; then
+        rm -rf "$VENV"
+        echo "已删除旧虚拟环境 (--yes 非交互模式)"
+    else
+        echo -n "发现已有虚拟环境，重建? [y/N] "
+        read -r yn
+        case $yn in
+            [Yy]*) rm -rf "$VENV"; echo "已删除旧虚拟环境" ;;
+            *)     echo "使用现有虚拟环境"; echo ""; exit 0 ;;
+        esac
+    fi
 fi
 
 echo -n "创建虚拟环境 ($VENV) ... "
@@ -144,9 +170,16 @@ echo -n "升级 pip ... "
 "$VENV/bin/pip" install --upgrade pip setuptools wheel -q
 echo -e "${GREEN}OK${NC}"
 
-if $DEV_MODE; then
-    echo -n "安装 News Sentry + 开发依赖 ... "
-    "$VENV/bin/pip" install -e "$PROJECT_ROOT[dev]" -q
+# Build extras list (e.g. "dev,api,proxy" or just "api")
+EXTRAS=""
+$DEV_MODE && EXTRAS="${EXTRAS}dev,"
+$API_MODE && EXTRAS="${EXTRAS}api,"
+$PROXY_MODE && EXTRAS="${EXTRAS}proxy,"
+EXTRAS="${EXTRAS%,}"  # strip trailing comma
+
+if [ -n "$EXTRAS" ]; then
+    echo -n "安装 News Sentry [$EXTRAS] ... "
+    "$VENV/bin/pip" install -e "$PROJECT_ROOT[$EXTRAS]" -q
 else
     echo -n "安装 News Sentry (生产依赖) ... "
     "$VENV/bin/pip" install -e "$PROJECT_ROOT" -q
@@ -193,10 +226,29 @@ check_tool "git"     "版本控制"                    "macOS: brew install git 
 check_tool "gh"      "GitHub CLI (可选)"           "brew install gh"
 
 echo ""
+
+# ── 可选: 注册为 OS 服务 ──────────────────────────────────────────────────────
+
+if $WITH_SERVICE; then
+    echo "注册 News Sentry 为 OS 后台服务..."
+    if ! "$VENV/bin/pip" show uvicorn &>/dev/null; then
+        echo -e "${YELLOW}警告: uvicorn 未安装。已自动追加 --api extras${NC}"
+        "$VENV/bin/pip" install -e "$PROJECT_ROOT[api]" -q
+        echo -e "${GREEN}  uvicorn 安装完成${NC}"
+    fi
+    "$VENV/bin/python" -m news_sentry.cli install --force \
+        --data-dir ~/.news-sentry/data \
+        --log-dir ~/.news-sentry/logs
+    echo ""
+fi
+
 echo "下一步:"
 echo "  cd $PROJECT_ROOT"
 echo "  source .venv/bin/activate        # 激活虚拟环境"
 echo "  make dry-run                      # 验证配置"
+if $WITH_SERVICE; then
+    echo "  news-sentry status                # 查看服务状态"
+fi
 
 if $CHECK_MODE; then
     echo ""
