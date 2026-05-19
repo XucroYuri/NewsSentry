@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import atexit
+import logging
 import os
 import platform
 import signal
@@ -69,6 +71,19 @@ def _pid_alive(pid_path: Path) -> bool:
             return False
 
 
+def _setup_log_file(log_path: Path, log_dir: Path) -> None:
+    """Add a file handler so uvicorn/uvicorn.access logs are written to disk."""
+    log_dir.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(str(log_path), encoding="utf-8")
+    fmt = logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
+    )
+    handler.setFormatter(fmt)
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        logging.getLogger(name).addHandler(handler)
+
+
 @main.command("serve")
 @click.option("--host", default="127.0.0.1", help="Bind address.")
 @click.option("--port", default=8000, type=int, help="Bind port.")
@@ -130,12 +145,13 @@ def serve(
     """Start API Server with background auto-collect loop."""
     # 1. Expand paths
     data_path = Path(data_dir).expanduser().resolve()
-    log_path = Path(log_dir).expanduser().resolve()
+    log_path_dir = Path(log_dir).expanduser().resolve()
     pid_path = Path(pid_file).expanduser().resolve()
+    log_file = log_path_dir / "serve.log"
 
     # 2. Create directories
     data_path.mkdir(parents=True, exist_ok=True)
-    log_path.mkdir(parents=True, exist_ok=True)
+    log_path_dir.mkdir(parents=True, exist_ok=True)
     pid_path.parent.mkdir(parents=True, exist_ok=True)
 
     # 3. Auto-load ~/.news-sentry/env
@@ -159,19 +175,27 @@ def serve(
     # 6. Write PID file
     pid_path.write_text(str(os.getpid()))
 
-    # 7. Signal handlers — cleanup PID file on exit (Unix only)
-    def _cleanup(signum: int, frame: object) -> None:
+    # 7. PID cleanup — atexit (guaranteed) + signal (best-effort for Unix)
+    def _cleanup_pid() -> None:
         try:
             pid_path.unlink(missing_ok=True)
         except Exception:  # noqa: S110 — best-effort cleanup
             pass
-        sys.exit(0)
+
+    atexit.register(_cleanup_pid)
 
     if platform.system() != "Windows":
-        signal.signal(signal.SIGTERM, _cleanup)
-        signal.signal(signal.SIGINT, _cleanup)
 
-    # 8. Open browser unless --no-browser
+        def _handle_signal(signum: int, frame: object) -> None:
+            sys.exit(0)
+
+        signal.signal(signal.SIGTERM, _handle_signal)
+        signal.signal(signal.SIGINT, _handle_signal)
+
+    # 8. Log file — uvicorn logs to disk via file handler
+    _setup_log_file(log_file, log_path_dir)
+
+    # 9. Open browser unless --no-browser
     if not no_browser:
         display_host = "127.0.0.1" if host == "0.0.0.0" else host  # noqa: S104
         url = f"http://{display_host}:{port}"
@@ -181,14 +205,19 @@ def serve(
         except Exception:  # noqa: S110 — browser open is best-effort on headless servers
             pass
 
-    # 9. Start uvicorn
-    click.echo(f"News Sentry API Server starting at http://{host}:{port}")
-    click.echo(f"Data dir:  {data_path}")
-    click.echo(f"Log dir:   {log_path}")
-    click.echo(f"Target:    {target}")
-    click.echo(f"Interval:  {interval} minutes")
+    # 10. Startup banner
+    click.echo("")
+    click.echo("  News Sentry v1.6.0 — local server")
+    click.echo("  ─────────────────────────────────")
+    click.echo(f"  API:      http://{host}:{port}")
+    click.echo(f"  Data:     {data_path}")
+    click.echo(f"  Log:      {log_file}")
+    click.echo(f"  Target:   {target}")
     if profile:
-        click.echo(f"Profile:   {profile}")
+        click.echo(f"  Profile:  {profile}")
+    click.echo(f"  Interval: {interval} min")
+    click.echo("  ─────────────────────────────────")
+    click.echo("")
 
     import uvicorn
 
