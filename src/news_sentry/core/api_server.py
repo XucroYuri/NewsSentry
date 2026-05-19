@@ -2130,7 +2130,19 @@ def create_app(
                 for row in result["rows"]:
                     event_fm = _load_event_by_path(row["file_path"])
                     if event_fm is None:
-                        continue
+                        # 文件不存在时用 SQLite 索引字段构造基础事件
+                        event_fm = {
+                            "event_id": row["event_id"],
+                            "title_original": row["title_original"],
+                            "importance_score": row["news_value_score"],
+                            "china_relevance": row["china_relevance"],
+                            "classification": {"l0": row["classification_l0"]},
+                            "source_id": row["source_id"],
+                            "published_at": row["published_at"],
+                            "sentiment": row["sentiment"],
+                            "entity_names": row["entity_names"],
+                            "topic_tags": row["topic_tags"],
+                        }
                     if search is not None:
                         keyword = search.lower()
                         if keyword not in (event_fm.get("title_original") or "").lower():
