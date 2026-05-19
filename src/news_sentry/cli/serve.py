@@ -260,3 +260,50 @@ def serve(
         port=port,
         log_level=log_level,
     )
+
+
+@main.command("stop")
+@click.option(
+    "--pid-file",
+    default="~/.news-sentry/serve.pid",
+    help="PID file path of the running server.",
+)
+def stop(pid_file: str) -> None:
+    """Stop a running News Sentry server (by PID file)."""
+    pid_path = Path(pid_file).expanduser().resolve()
+
+    if not pid_path.is_file():
+        click.echo(f"No PID file found at {pid_path}. Server may not be running.")
+        return
+
+    pid_str = pid_path.read_text().strip()
+    try:
+        pid = int(pid_str)
+    except (ValueError, OSError):
+        click.echo(f"Invalid PID file content: {pid_str}", err=True)
+        pid_path.unlink(missing_ok=True)
+        return
+
+    if not _pid_alive(pid_path):
+        click.echo(f"PID {pid} is not alive. Removing stale PID file.")
+        pid_path.unlink(missing_ok=True)
+        return
+
+    click.echo(f"Stopping News Sentry (PID: {pid})...")
+    try:
+        if platform.system() == "Windows":
+            import ctypes
+
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            handle = kernel32.OpenProcess(0x0001, False, pid)  # PROCESS_TERMINATE
+            if handle:
+                kernel32.TerminateProcess(handle, 0)
+                kernel32.CloseHandle(handle)
+        else:
+            os.kill(pid, signal.SIGTERM)
+    except OSError as exc:
+        click.echo(f"Failed to send signal to PID {pid}: {exc}", err=True)
+        sys.exit(1)
+
+    pid_path.unlink(missing_ok=True)
+    click.echo(f"Server stopped (PID: {pid}).")

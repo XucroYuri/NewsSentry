@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import signal
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -541,3 +542,71 @@ class TestServeCommandBehavior:
                 )
             assert result.exit_code == 0, f"--stage {stage} should be accepted"
             assert captured["stage"] == stage
+
+
+# ------------------------------------------------------------------
+# stop 命令
+# ------------------------------------------------------------------
+
+
+class TestStopCommand:
+    """news-sentry stop 命令测试。"""
+
+    def test_stop_appears_in_main_commands(self) -> None:
+        cmd_names = list(main.commands.keys())
+        assert "stop" in cmd_names
+
+    def test_stop_no_pid_file(self, tmp_path: Path) -> None:
+        """PID 文件不存在时正常退出，无报错。"""
+        nonexistent = tmp_path / "nonexistent.pid"
+        runner = CliRunner()
+        result = runner.invoke(main, ["stop", "--pid-file", str(nonexistent)])
+        assert result.exit_code == 0
+        assert "No PID file found" in result.output
+
+    def test_stop_stale_pid(self, tmp_path: Path) -> None:
+        """PID 文件存在但进程已不存在时应清理 PID 文件。"""
+        pid_file = tmp_path / "serve.pid"
+        pid_file.write_text("12345")
+        # _pid_alive 会返回 False（文件内容不匹配真实进程）
+        runner = CliRunner()
+        result = runner.invoke(main, ["stop", "--pid-file", str(pid_file)])
+        assert result.exit_code == 0
+        assert "not alive" in result.output
+        assert not pid_file.is_file()  # stale PID file removed
+
+    def test_stop_invalid_pid_content(self, tmp_path: Path) -> None:
+        """PID 文件内容非法时应清理并正常退出。"""
+        pid_file = tmp_path / "serve.pid"
+        pid_file.write_text("not-a-pid")
+        runner = CliRunner()
+        result = runner.invoke(main, ["stop", "--pid-file", str(pid_file)])
+        assert result.exit_code == 0
+        assert not pid_file.is_file()
+
+    def test_stop_sends_signal(self, tmp_path: Path) -> None:
+        """Unix: 进程存活的 PID 文件应触发 kill + 清理。"""
+        if sys.platform == "win32":
+            pytest.skip("Unix-specific signal test")
+        pid_file = tmp_path / "serve.pid"
+        pid_file.write_text("12345")
+        with patch("news_sentry.cli.serve._pid_alive", return_value=True):
+            with patch("os.kill") as mock_kill:
+                runner = CliRunner()
+                result = runner.invoke(main, ["stop", "--pid-file", str(pid_file)])
+        assert result.exit_code == 0
+        mock_kill.assert_called_once_with(12345, signal.SIGTERM)
+        assert not pid_file.is_file()
+
+    def test_stop_handles_kill_failure(self, tmp_path: Path) -> None:
+        """kill 调用失败时应报错退出。"""
+        if sys.platform == "win32":
+            pytest.skip("Unix-specific signal test")
+        pid_file = tmp_path / "serve.pid"
+        pid_file.write_text("12345")
+        with patch("news_sentry.cli.serve._pid_alive", return_value=True):
+            with patch("os.kill", side_effect=OSError("Permission denied")):
+                runner = CliRunner()
+                result = runner.invoke(main, ["stop", "--pid-file", str(pid_file)])
+        assert result.exit_code == 1
+        assert "Failed to send signal" in result.output
