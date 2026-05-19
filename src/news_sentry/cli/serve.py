@@ -99,6 +99,11 @@ def _setup_log_file(log_path: Path, log_dir: Path) -> None:
     help="Auto-collect interval in minutes (default 15). Sets NEWSSENTRY_COLLECT_INTERVAL.",
 )
 @click.option(
+    "--stage",
+    default="all",
+    help="Pipeline stage for auto-collect loop (default: all). Sets NEWSSENTRY_COLLECT_STAGE.",
+)
+@click.option(
     "--profile",
     default=None,
     help="Deployment profile ID. Sets NEWSSENTRY_PROFILE.",
@@ -135,6 +140,7 @@ def serve(
     port: int,
     target: str,
     interval: int,
+    stage: str,
     profile: str | None,
     data_dir: str,
     log_dir: str,
@@ -168,6 +174,7 @@ def serve(
     os.environ["NEWSSENTRY_DATA_DIR"] = str(data_path)
     os.environ["NEWSSENTRY_AUTO_COLLECT"] = "1"
     os.environ["NEWSSENTRY_COLLECT_INTERVAL"] = str(interval)
+    os.environ["NEWSSENTRY_COLLECT_STAGE"] = stage
     os.environ["NEWSSENTRY_TARGET_ID"] = target
     if profile:
         os.environ["NEWSSENTRY_PROFILE"] = profile
@@ -213,6 +220,7 @@ def serve(
     click.echo(f"  Data:     {data_path}")
     click.echo(f"  Log:      {log_file}")
     click.echo(f"  Target:   {target}")
+    click.echo(f"  Stage:    {stage}")
     if profile:
         click.echo(f"  Profile:  {profile}")
     click.echo(f"  Interval: {interval} min")

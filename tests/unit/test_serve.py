@@ -186,7 +186,15 @@ class TestServeCommandRegistration:
         runner = CliRunner()
         result = runner.invoke(main, ["serve", "--help"])
         assert result.exit_code == 0
-        for opt in ("--host", "--port", "--target", "--interval", "--data-dir", "--no-browser"):
+        for opt in (
+            "--host",
+            "--port",
+            "--target",
+            "--interval",
+            "--stage",
+            "--data-dir",
+            "--no-browser",
+        ):
             assert opt in result.output
 
     def test_serve_help_mentions_api_server(self) -> None:
@@ -305,6 +313,8 @@ class TestServeCommandBehavior:
             captured_env["data_dir"] = os.environ.get("NEWSSENTRY_DATA_DIR", "")
             captured_env["auto_collect"] = os.environ.get("NEWSSENTRY_AUTO_COLLECT", "")
             captured_env["target_id"] = os.environ.get("NEWSSENTRY_TARGET_ID", "")
+            captured_env["collect_stage"] = os.environ.get("NEWSSENTRY_COLLECT_STAGE", "")
+            captured_env["collect_interval"] = os.environ.get("NEWSSENTRY_COLLECT_INTERVAL", "")
 
         with patch("uvicorn.run", side_effect=fake_uvicorn_run):
             runner = CliRunner()
@@ -322,6 +332,8 @@ class TestServeCommandBehavior:
                     "italy,japan",
                     "--interval",
                     "10",
+                    "--stage",
+                    "all",
                     "--profile",
                     "cloud-vps",
                     "--no-browser",
@@ -331,6 +343,8 @@ class TestServeCommandBehavior:
         assert result.exit_code == 0
         assert captured_env["auto_collect"] == "1"
         assert captured_env["target_id"] == "italy,japan"
+        assert captured_env["collect_stage"] == "all"
+        assert captured_env["collect_interval"] == "10"
         assert str(tmp_path / "data") in captured_env["data_dir"]
 
     def test_serve_writes_pid_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -403,6 +417,7 @@ class TestServeCommandBehavior:
             "--port",
             "--target",
             "--interval",
+            "--stage",
             "--profile",
             "--data-dir",
             "--log-dir",
@@ -416,14 +431,15 @@ class TestServeCommandBehavior:
     def test_serve_with_target_default(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """未指定 --target 时默认值为 all。"""
+        """未指定 --target/--stage 时默认值分别为 all 和 all。"""
         pid_file = tmp_path / "serve.pid"
         _setup_serve_mocks(monkeypatch)
 
-        captured_target: dict[str, str] = {}
+        captured: dict[str, str] = {}
 
         def fake_uvicorn_run(*args, **kwargs):  # noqa: ARG001
-            captured_target["target"] = os.environ.get("NEWSSENTRY_TARGET_ID", "")
+            captured["target"] = os.environ.get("NEWSSENTRY_TARGET_ID", "")
+            captured["stage"] = os.environ.get("NEWSSENTRY_COLLECT_STAGE", "")
 
         with patch("uvicorn.run", side_effect=fake_uvicorn_run):
             runner = CliRunner()
@@ -442,4 +458,5 @@ class TestServeCommandBehavior:
                 ],
             )
         assert result.exit_code == 0
-        assert captured_target["target"] == "all"
+        assert captured["target"] == "all"
+        assert captured["stage"] == "all"
