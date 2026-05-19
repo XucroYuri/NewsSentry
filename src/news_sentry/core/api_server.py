@@ -2065,7 +2065,7 @@ def create_app(
     ) -> TodayStatsResponse:
         """今日 vs 昨日对比统计。"""
         if _store is None:
-            raise HTTPException(status_code=503, detail="Store not available")
+            return TodayStatsResponse(target_id=target_id)
         stats = await _store.get_today_stats(target_id)
         return TodayStatsResponse(target_id=target_id, **stats)
 
@@ -2077,11 +2077,11 @@ def create_app(
         user: dict = Depends(get_current_user),
     ) -> TopEventsResponse:
         """近期高价值事件（优先使用 target state.db）。"""
+        events: list[dict[str, Any]] = []
         target_store = await _get_target_store(target_id)
         store_to_query = target_store if target_store is not None else _store
-        if store_to_query is None:
-            raise HTTPException(status_code=503, detail="Store not available")
-        events = await store_to_query.get_top_events(target_id, days=days, limit=limit)
+        if store_to_query is not None:
+            events = await store_to_query.get_top_events(target_id, days=days, limit=limit)
         return TopEventsResponse(
             target_id=target_id,
             events=[TopEventInfo(**e) for e in events],
@@ -2676,7 +2676,12 @@ def create_app(
     ) -> TopicTrendsResponse:
         """主题热度趋势。"""
         if _store is None:
-            raise HTTPException(status_code=503, detail="Store not available")
+            return TopicTrendsResponse(
+                target_id=target_id,
+                days=days,
+                topics=[],
+                generated_at=datetime.now(UTC).isoformat(),
+            )
         try:
             daily_counts = await _store.get_topic_daily_counts(target_id, days=days)
             top_topics = await _store.get_top_topics(target_id, days=days, limit=10)
@@ -2700,7 +2705,12 @@ def create_app(
     ) -> SentimentTrendsResponse:
         """情感分布趋势。"""
         if _store is None:
-            raise HTTPException(status_code=503, detail="Store not available")
+            return SentimentTrendsResponse(
+                target_id=target_id,
+                days=days,
+                daily_sentiment=[],
+                generated_at=datetime.now(UTC).isoformat(),
+            )
         try:
             raw = await _store.get_sentiment_daily_counts(target_id, days=days)
             # 转换为按天聚合
@@ -2734,7 +2744,7 @@ def create_app(
     ) -> SmartAlertsResponse:
         """获取智能告警列表。"""
         if _store is None:
-            raise HTTPException(status_code=503, detail="Store not available")
+            return SmartAlertsResponse(target_id=target_id, alerts=[], total=0)
         try:
             from news_sentry.core.alert_pipeline import AlertPipeline
 
@@ -2809,7 +2819,7 @@ def create_app(
     ) -> FeedbackListResponse:
         """获取反馈列表。"""
         if _store is None:
-            raise HTTPException(status_code=503, detail="Store not available")
+            return FeedbackListResponse(feedback=[], total=0)
         items = await _store.get_feedback(target_id)
         feedback = [
             FeedbackItem(
@@ -2834,7 +2844,7 @@ def create_app(
     ) -> FeedbackStatsResponse:
         """获取反馈统计。"""
         if _store is None:
-            raise HTTPException(status_code=503, detail="Store not available")
+            return FeedbackStatsResponse(total=0, publish_override=0, archive_override=0, comment=0)
         stats = await _store.get_feedback_stats(target_id)
         return FeedbackStatsResponse(**stats)
 
@@ -2867,7 +2877,7 @@ def create_app(
     ) -> AlertHistoryResponse:
         """获取告警历史。"""
         if _store is None:
-            raise HTTPException(status_code=503, detail="Store not available")
+            return AlertHistoryResponse(alerts=[], total=0)
         items = await _store.get_alert_history(target_id)
         alerts = [
             AlertHistoryItem(
