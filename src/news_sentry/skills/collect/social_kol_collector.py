@@ -7,6 +7,7 @@ SocialKOLCollector — KOL 社媒内容采集器（Phase 12 升级版）。
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -14,6 +15,8 @@ from typing import Any
 from news_sentry.core.sandbox import SandboxEnforcer, SandboxViolationError
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
 from news_sentry.skills.collect.browser_fallback import BrowserFallback
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -121,8 +124,14 @@ class SocialKOLCollector:
             try:
                 account_events = self._fetch_account_page(account, run_id)
                 events.extend(account_events[: account.fetch_max_per_run])
-            except Exception:  # noqa: S112 — skip failed account, continue with remaining
-                continue
+            except Exception:
+                _log.warning(
+                    "KOL active collect failed for %s/%s on %s",
+                    account.handle,
+                    account.tier,
+                    self.platform,
+                    exc_info=True,
+                )
 
         return events
 
@@ -148,8 +157,13 @@ class SocialKOLCollector:
                 author = event.metadata.get("collection", {}).get("author_handle", "")
                 if author in monitored_handles:
                     events.append(event)
-        except Exception:  # noqa: S110 — timeline fetch failure is non-fatal, return empty list
-            pass
+        except Exception:
+            _log.warning(
+                "KOL semi-active timeline fetch failed for %s (accounts: %d)",
+                self.platform,
+                len(semi_accounts),
+                exc_info=True,
+            )
 
         return events
 
@@ -162,9 +176,27 @@ class SocialKOLCollector:
         Returns:
             合并后的 NewsEvent 列表。
         """
+        _log.info(
+            "KOL collect start: platform=%s, dimension=%s, accounts=%d (active=%d, semi=%d)",
+            self.platform,
+            self.dimension,
+            len(self.accounts),
+            len(self.get_accounts_by_mode("active")),
+            len(self.get_accounts_by_mode("semi_active")),
+        )
         events: list[NewsEvent] = []
         events.extend(self.collect_active(run_id))
         events.extend(self.collect_semi_active(run_id))
+
+        # 更新 kol_state 用于诊断
+        self._kol_state["last_collect_at"] = datetime.now(UTC).isoformat()
+        self._kol_state["last_platform"] = self.platform
+        self._kol_state["last_event_count"] = len(events)
+        _log.info(
+            "KOL collect done: platform=%s, events=%d",
+            self.platform,
+            len(events),
+        )
         return events
 
     # ── 兼容 Phase 6 Stub 方法 ────────────────────────
@@ -441,6 +473,11 @@ class SocialKOLCollector:
 
         当前返回 None，完整实现需在 Agent 环境可用时接入。
         """
+        _log.debug(
+            "Layer 3 (Computer Use) not available for %s/%s — skipping",
+            account.handle,
+            self.platform,
+        )
         return None
 
     def _build_events(
