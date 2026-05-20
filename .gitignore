@@ -59,7 +59,6 @@ data/
 docs/_archive/
 docs/development/
 docs/spec/
-docs/adr/
 docs/testing/
 docs/brainstorming/
 docs/superpowers/

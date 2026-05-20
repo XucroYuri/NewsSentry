@@ -51,10 +51,14 @@ class JudgeSkill:
         router: ProviderRouter,
         provider_factory: Callable[[str], AIProvider | None],
         sandbox_enforcer: Any = None,  # noqa: ANN401
+        target_display_name: str = "Italian news",
+        target_language: str = "Italian",
     ) -> None:
         self._router = router
         self._provider_factory = provider_factory
         self._sandbox_enforcer = sandbox_enforcer
+        self._target_display_name = target_display_name
+        self._target_language = target_language
 
     def judge(self, event: NewsEvent, run_id: str) -> NewsEvent:
         """调用 judge.primary AI 路由，填充 event.judge_result 和翻译字段。
@@ -154,20 +158,19 @@ class JudgeSkill:
 
     # ── prompt 构建 ───────────────────────────────────────────────
 
-    @staticmethod
-    def _build_judge_prompt(event: NewsEvent) -> str:
+    def _build_judge_prompt(self, event: NewsEvent) -> str:
         """构建结构化研判 prompt（英文，LLM 对英文 prompt 响应最稳定）。
 
         要求 LLM 同时产出：新闻价值评分、中国关联度、推荐级别、理由、情感评分、
         简体中文译文（标题 + 正文）、分类 l0、标记列表。
         """
-        return f"""You are a professional news analyst specializing in Italian news.
+        return f"""You are a professional news analyst specializing in {self._target_display_name}.
 Evaluate the following news article and provide a structured JSON result.
 
-Article Title (original Italian):
+Article Title (original {self._target_language}):
 {event.title_original}
 
-Article Content (original Italian):
+Article Content (original {self._target_language}):
 {event.content_original}
 
 Instructions:

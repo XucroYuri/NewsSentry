@@ -10,10 +10,10 @@ import asyncio
 import json
 import logging
 from typing import Any
-from unittest.mock import MagicMock
 
 from news_sentry.models.newsevent import (
     JudgeRecommendation,
+    JudgeResult,
     NewsEvent,
 )
 from news_sentry.skills.judge.rules_judge import RulesJudgeSkill
@@ -267,7 +267,7 @@ class TieredConfidenceRouter:
             f"Judge this news event. Rules engine gave: "
             f"recommendation={recommendation}, confidence={confidence:.2f}.\n"
             f"Title: {title}\n"
-            'Respond in JSON: {"recommendation": "escalate|monitor|dismiss", '
+            'Respond in JSON: {"recommendation": "publish|review|archive|discard|monitor", '
             '"confidence": 0.0-1.0, "rationale": "..."}'
         )
 
@@ -280,11 +280,15 @@ class TieredConfidenceRouter:
         content = ai_result.get("content", "")
         try:
             data = json.loads(content)
-            result = MagicMock()
-            rec = data.get("recommendation", "monitor")
-            result.recommendation = MagicMock(value=rec)
-            result.confidence = data.get("confidence", 0.5)
-            result.rationale = data.get("rationale", "")
-            event.judge_result = result
+            rec_str = data.get("recommendation", "monitor")
+            try:
+                recommendation = JudgeRecommendation(rec_str)
+            except ValueError:
+                recommendation = JudgeRecommendation.MONITOR
+            event.judge_result = JudgeResult(
+                recommendation=recommendation,
+                confidence=int(data.get("confidence", 0.5) * 100),
+                rationale=data.get("rationale", ""),
+            )
         except (json.JSONDecodeError, KeyError):
             logger.warning("AI 研判结果解析失败")

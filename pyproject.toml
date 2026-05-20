@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "news-sentry"
-version = "1.6.0"
+version = "1.7.0"
 description = "Framework-neutral Agent Skill Pack for continuous news monitoring — Italy Breaking News reference target"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -79,3 +79,11 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 exclude = ["tests/"]
+
+[[tool.mypy.overrides]]
+module = "feedparser"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "yaml"
+ignore_missing_imports = true

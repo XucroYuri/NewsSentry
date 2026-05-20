@@ -387,7 +387,11 @@ def _run_judge(
 
     # Phase 14: 置信度路由 — 规则先跑，低置信度升级 AI
     rules_judge = RulesJudgeSkill(config.classification_rules, memory)
-    ai_judge = _init_ai_judge()
+    target_ctx = config.target
+    ai_judge = _init_ai_judge(
+        target_display_name=target_ctx.get("display_name", "Italian news"),
+        target_language=target_ctx.get("language_scope", {}).get("primary", "Italian"),
+    )
     router = ConfidenceRouter(rules_judge, ai_judge)
     judged = router.judge(events, run_id)
 
@@ -443,7 +447,10 @@ def _run_all(
 # ── 辅助函数 ───────────────────────────────────────────────────
 
 
-def _init_ai_judge() -> JudgeSkill | None:
+def _init_ai_judge(
+    target_display_name: str = "Italian news",
+    target_language: str = "Italian",
+) -> JudgeSkill | None:
     """尝试初始化 AI 研判器（Phase 5 多 Provider 路由）。
 
     从 config/provider/routes.yaml 加载路由配置，创建 ProviderRouter，
@@ -483,14 +490,29 @@ def _init_ai_judge() -> JudgeSkill | None:
             if fallback_route is not None:
                 fb_provider = factory(fallback_route.provider)
                 if fb_provider is not None and fb_provider.health_check():
-                    return JudgeSkill(router, factory)
+                    return JudgeSkill(
+                        router,
+                        factory,
+                        target_display_name=target_display_name,
+                        target_language=target_language,
+                    )
 
             # 至少 local provider 总可用
             if factory("local") is not None:
-                return JudgeSkill(router, factory)
+                return JudgeSkill(
+                    router,
+                    factory,
+                    target_display_name=target_display_name,
+                    target_language=target_language,
+                )
             return None
 
-        return JudgeSkill(router, factory)
+        return JudgeSkill(
+            router,
+            factory,
+            target_display_name=target_display_name,
+            target_language=target_language,
+        )
 
     except Exception:  # noqa: S110 — AI unavailable is a normal fallback path
         logger.warning("AI 研判初始化失败，回退到规则引擎", exc_info=True)

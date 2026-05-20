@@ -153,6 +153,30 @@ CREATE TABLE IF NOT EXISTS users (
 )
 """
 
+# Schema 迁移 — 版本化 DDL 变更，确保已有数据库自动升级
+_DDL_SCHEMA_VERSION = """
+CREATE TABLE IF NOT EXISTS schema_version (
+    version     INTEGER PRIMARY KEY,
+    description TEXT NOT NULL,
+    applied_at  TEXT NOT NULL DEFAULT (datetime('now'))
+)
+"""
+
+_SCHEMA_MIGRATIONS: list[tuple[int, str, list[str]]] = [
+    # v1: 初始 schema（已由各 CREATE TABLE IF NOT EXISTS 覆盖，此处仅记录）
+    (1, "Initial schema — 11 tables", []),
+    # v2: Phase 31 NLP 列（之前用 try/except ALTER TABLE 处理）
+    (
+        2,
+        "Add NLP columns to event_index",
+        [
+            "ALTER TABLE event_index ADD COLUMN sentiment TEXT",
+            "ALTER TABLE event_index ADD COLUMN entity_names TEXT",
+            "ALTER TABLE event_index ADD COLUMN topic_tags TEXT",
+        ],
+    ),
+]
+
 _DDL_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_known_ids_seen ON known_ids(seen_at)",
     "CREATE INDEX IF NOT EXISTS idx_event_target_stage ON event_index(target_id, stage)",
@@ -207,18 +231,36 @@ class AsyncStore:
         await self._db.execute(_DDL_FEEDBACK)
         await self._db.execute(_DDL_ALERT_HISTORY)
         await self._db.execute(_DDL_USERS)
-        # Phase 31: 为已有数据库添加 NLP 列
-        for col in ("sentiment", "entity_names", "topic_tags"):
-            try:
-                await self._db.execute(
-                    f"ALTER TABLE event_index ADD COLUMN {col} TEXT"  # noqa: S608
-                )
-            except Exception:  # noqa: S110
-                pass  # 列已存在
+        await self._db.execute(_DDL_SCHEMA_VERSION)
+        await self._migrate_schema()
         for idx_sql in _DDL_INDEXES:
             await self._db.execute(idx_sql)
         await self._db.commit()
         logger.info("AsyncStore 初始化完成: %s", self._db_path)
+
+    async def _migrate_schema(self) -> None:
+        """按版本顺序执行 schema 迁移，确保已有数据库自动升级。"""
+        assert self._db is not None
+        # 读取当前版本
+        async with self._db.execute("SELECT MAX(version) FROM schema_version") as cur:
+            row = await cur.fetchone()
+        current = row[0] if row and row[0] is not None else 0
+
+        for version_num, description, ddl_list in _SCHEMA_MIGRATIONS:
+            if version_num <= current:
+                continue
+            logger.info("执行 schema 迁移 v%d: %s", version_num, description)
+            for ddl in ddl_list:
+                try:
+                    await self._db.execute(ddl)
+                except Exception:  # noqa: S110
+                    # 列/索引可能已存在（新数据库已包含，旧数据库需要此迁移）
+                    pass
+            await self._db.execute(
+                "INSERT INTO schema_version (version, description) VALUES (?, ?)",
+                (version_num, description),
+            )
+            await self._db.commit()
 
     async def close(self) -> None:
         if self._db is not None:

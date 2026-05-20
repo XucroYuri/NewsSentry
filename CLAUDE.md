@@ -116,7 +116,7 @@ LLM 能力分布是锯齿状的——某些维度超人，某些维度犯蠢：
 
 修改架构、schema、pipeline 行为、权限、provider 路由或工具执行前，必读：
 - `docs/contracts-canonical.md` — 口径规范唯一权威
-- `docs/adr/` — ADR-0001 至 ADR-0016
+- `docs/adr/` — ADR-0001 至 ADR-0025
 - `schemas/` — 13 份 JSON Schema 2020-12（与 contracts-canonical.md 双向绑定）
 - `config/` — 运行时配置骨架
 
@@ -127,7 +127,7 @@ LLM 能力分布是锯齿状的——某些维度超人，某些维度犯蠢：
 - **NewsEvent 为唯一数据对象**：不引入竞争 schema
 - **0-100 分值**（除 sentiment_score: -1.0~1.0 和 ValueDimension.weight 外）
 - **外部项目只 install 不 vendor**：不 fork、不 submodule
-- **永不做专用前端**：可视化走 Obsidian Markdown + 飞书/邮件/推送
+- **前端可选**：默认可视化为 Obsidian Markdown + 飞书/邮件/推送；可选 API 服务器 (FastAPI) + Web UI (Vanilla JS)，由 `[api]` extras 控制（ADR-0025）
 - **新闻分类走 metadata.classification**：不进 schema 顶层
 - **Python 3.11+ / Pydantic v2**：`src/news_sentry/` 全栈
 - **配置走 config/**：禁止硬编码意大利参数到 src/

@@ -1234,6 +1234,25 @@ def create_app(
         lifespan=_app_lifespan,
     )
 
+    # CORS 中间件 — 从环境变量读取允许的源
+    from fastapi.middleware.cors import CORSMiddleware
+
+    allowed_origins = [
+        o.strip()
+        for o in os.environ.get(
+            "CORS_ALLOWED_ORIGINS",
+            "http://localhost:8000,http://localhost:3000",
+        ).split(",")
+        if o.strip()
+    ]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
+
     global _store, _data_dir
     _data_dir = Path(data_dir or os.environ.get("NEWSSENTRY_DATA_DIR", "./data"))
     _detect_deployment_env()
