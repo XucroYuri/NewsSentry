@@ -1299,6 +1299,15 @@ def create_app(
         _store = store
     elif _store is None and auto_store:
         _store = AsyncStore(_data_dir / "async_store.db")
+        # 确保 SQLite 连接在端点接收请求前就绪。
+        # 生产环境（uvicorn）下生命周期会调用 initialize()，此处仅
+        # 在没有运行中事件循环时（如某些测试场景）做同步初始化兜底。
+        if _store._db is None:
+            try:
+                asyncio.get_running_loop()
+                # 事件循环已运行（uvicorn），由生命周期处理初始化。
+            except RuntimeError:
+                asyncio.run(_store.initialize())
     elif not auto_store:
         _store = None  # 显式禁用，测试环境重置
     _config_cache = ConfigCache(ttl=60, maxsize=128)

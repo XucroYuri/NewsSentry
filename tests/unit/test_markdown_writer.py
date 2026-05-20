@@ -287,6 +287,40 @@ def test_frontmatter_contains_classification(
     fm = _parse_frontmatter(path)
     assert fm["classification"]["l0"] == "economy"
     assert fm["classification"]["l1"] == ["trade", "investment"]
+    assert "l2" not in fm["classification"]  # l2 不写入
+
+
+def test_frontmatter_contains_filter_keywords(
+    writer: MarkdownWriter,
+    base_dir: Path,
+) -> None:
+    """filter_matched_keywords 应写入 frontmatter。"""
+    event = NewsEvent(
+        id="ne-fkw-test-001",
+        run_id="run-fkw",
+        source_id="ansa",
+        url="https://example.com",
+        title_original="Filtered news",
+        content_original="Body.",
+        language=Language.IT,
+        published_at="2026-05-09T00:00:00Z",
+        collected_at="2026-05-09T00:00:00Z",
+        pipeline_stage=PipelineStage.JUDGED,
+        metadata={"filter_matched_keywords": ["economia", "cina"]},
+    )
+    path = writer.write(event)
+    fm = _parse_frontmatter(path)
+    assert fm["filter_matched_keywords"] == ["economia", "cina"]
+
+
+def test_frontmatter_omits_filter_keywords_when_empty(
+    writer: MarkdownWriter,
+    minimal_event: NewsEvent,
+) -> None:
+    """filter_matched_keywords 为 None 或空时不出现在 frontmatter。"""
+    path = writer.write(minimal_event)
+    fm = _parse_frontmatter(path)
+    assert "filter_matched_keywords" not in fm
 
 
 def test_frontmatter_omits_classification_when_missing(
@@ -308,6 +342,39 @@ def test_frontmatter_excludes_content_fields(
     fm = _parse_frontmatter(path)
     assert "content_original" not in fm
     assert "content_translated" not in fm
+
+
+def test_frontmatter_contains_human_verdict(
+    writer: MarkdownWriter,
+    base_dir: Path,
+) -> None:
+    """human_verdict 元数据应写入 frontmatter。"""
+    event = NewsEvent(
+        id="ne-hv-test-001",
+        run_id="run-hv",
+        source_id="ansa",
+        url="https://example.com",
+        title_original="Human reviewed",
+        content_original="Body.",
+        language=Language.IT,
+        published_at="2026-05-09T00:00:00Z",
+        collected_at="2026-05-09T00:00:00Z",
+        pipeline_stage=PipelineStage.JUDGED,
+        metadata={"human_verdict": "confirmed"},
+    )
+    path = writer.write(event)
+    fm = _parse_frontmatter(path)
+    assert fm["human_verdict"] == "confirmed"
+
+
+def test_frontmatter_omits_human_verdict_when_none(
+    writer: MarkdownWriter,
+    minimal_event: NewsEvent,
+) -> None:
+    """human_verdict 为 None 时不出现在 frontmatter。"""
+    path = writer.write(minimal_event)
+    fm = _parse_frontmatter(path)
+    assert "human_verdict" not in fm
 
 
 # ------------------------------------------------------------------
