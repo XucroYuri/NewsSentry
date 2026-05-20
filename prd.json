@@ -1,0 +1,92 @@
+{
+  "title": "Phase 55 — 全面质量加固 + 方向 B 实时通知与桌面壳",
+  "description": "在用户睡眠期间自主推进：文档自然语言重写、SSE 实时通知、PWA 支持、桌面壳、项目全面审查",
+  "stories": [
+    {
+      "id": "US-001",
+      "title": "文档自然语言重写 + Mermaid 图表化",
+      "description": "全面审查并重写关键引用文档（AGENTS.md, ADR 核心, contracts-canonical.md, development-plan.md），使用自然人类语言风格，复杂逻辑用 Mermaid 流程图/时序图/架构图可视化，使 Agent 和人类都能高效理解",
+      "acceptanceCriteria": [
+        "AGENTS.md 使用自然语言重写，核心概念配 Mermaid 图（架构图、流程图）",
+        "development-plan.md 现状检查，确保与代码库实际状态一致",
+        "所有 ADR 文件中引用统一更新，过时信息标注或清理",
+        "添加 README 级的架构概览 mermaid 图（至少在 AGENTS.md 中）",
+        "语言风格自然流畅，避免过度技术堆砌",
+        "所有 .md 文件在重写后仍可被 Agent 正确解析"
+      ],
+      "passes": false
+    },
+    {
+      "id": "US-002",
+      "title": "SSE 实时事件推送",
+      "description": "向 API Server 添加 Server-Sent Events 端点，Dashboard 自动接收新事件通知，替代当前 30s 轮询",
+      "acceptanceCriteria": [
+        "GET /api/v1/events/stream 返回 text/event-stream（StreamingResponse）",
+        "sse-starlette 或原生 StreamingResponse 实现，无额外重量级依赖",
+        "前端 Dashboard 通过 EventSource 连接并实时显示新事件",
+        "新增事件时前端 Toast 提示（非侵入式）",
+        "连接断开自动重连（EventSource 内置行为）",
+        "存量 30s 轮询保留为 fallback，SSE 断开后自动降级",
+        "服务端资源消耗可控（连接数上限 + 超时断开）"
+      ],
+      "passes": false
+    },
+    {
+      "id": "US-003",
+      "title": "PWA 支持 + 浏览器通知",
+      "description": "添加 PWA 清单文件、Service Worker、浏览器桌面通知，使 Web UI 可安装为独立应用",
+      "acceptanceCriteria": [
+        "manifest.json 端点返回完整 PWA 清单（名称、图标、主题色、display: standalone）",
+        "index.html 引用 manifest.json + theme-color meta",
+        "Service Worker 注册成功，提供基础离线缓存策略",
+        "浏览器桌面通知权限请求 + 新事件通知推送（Permission API + Notification API）",
+        "基础离线页显示（网络不可用时的友好提示）",
+        "无外部依赖（纯 Vanilla JS + 静态资源）"
+      ],
+      "passes": false
+    },
+    {
+      "id": "US-004",
+      "title": "pywebview 桌面壳 CLI 命令",
+      "description": "添加 news-sentry desktop 命令，通过 pywebview 启动原生桌面窗口包装 API Server",
+      "acceptanceCriteria": [
+        "news-sentry desktop 命令存在，启动 pywebview 原生窗口",
+        "桌面窗口加载本地 API Server URL",
+        "可选的 --port --window-width --window-height 参数",
+        "pywebview 列为 [desktop] 可选 extras",
+        "桌面壳仅打包核心功能（本机运行，非远程连接）",
+        "macOS 窗口标题 + 系统菜单栏基本功能"
+      ],
+      "passes": false
+    },
+    {
+      "id": "US-005",
+      "title": "项目质量全面审查与修复",
+      "description": "从宏观审查整个项目：测试覆盖率缺口、死代码、已知问题、配置一致性，逐一修复",
+      "acceptanceCriteria": [
+        "当前失败的测试项记录并修复（如有）",
+        "已知的 'Store not available' 等悬而未决问题已彻底解决",
+        "ruff check --all 零错误",
+        "mypy --strict 零错误或在已知例外中有合理解释",
+        "无残留的 NotImplementedError stub 类（已清理的 OpenClawAdapter 除外）",
+        "git status 干净，无非预期文件",
+        "issue/已知 bug 已编目（统一保存到 docs/known-issues.md）"
+      ],
+      "passes": false
+    },
+    {
+      "id": "US-006",
+      "title": "分阶段 GitHub 推送",
+      "description": "每完成 1-2 个 US 后向 GitHub 推送一次，确保进度可回溯",
+      "acceptanceCriteria": [
+        "US-001 完成后首次推送（文档重写）",
+        "US-002 完成后第二次推送（SSE）",
+        "US-003 完成后第三次推送（PWA）",
+        "US-004 完成后第四次推送（桌面壳）",
+        "US-005 完成后第五次推送（质量审查）",
+        "每次推送含合理粒度、描述清晰的 commit message"
+      ],
+      "passes": false
+    }
+  ]
+}
