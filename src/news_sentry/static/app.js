@@ -481,6 +481,10 @@ function connectSSE() {
     try {
       const data = JSON.parse(e.data);
       showInfo(`📰 新事件: ${data.event_id?.substring(0, 20) || ""}...`);
+      // 后台标签页时弹桌面通知
+      if (document.hidden) {
+        _sendDesktopNotification("News Sentry — 新事件", `${data.source || "未知来源"} 事件已到达`);
+      }
       // 如果在首页，自动刷新
       if (window.location.hash.startsWith("#/news/overview")) {
         refreshBadges();
@@ -492,6 +496,9 @@ function connectSSE() {
     try {
       const data = JSON.parse(e.data);
       showInfo(`🚨 ${data.message || "新告警"}`);
+      if (document.hidden) {
+        _sendDesktopNotification("News Sentry — 告警", data.message || "新告警");
+      }
     } catch {}
   });
 
@@ -499,6 +506,37 @@ function connectSSE() {
     // EventSource 自动重连，我们只记录
     console.warn("SSE 连接断开，自动重连中...");
   };
+}
+
+// ═══════════════════════════════════════════════════════════
+// §9.6 PWA Service Worker + 桌面通知
+// ═══════════════════════════════════════════════════════════
+
+function _registerSW() {
+  if (!("serviceWorker" in navigator)) return;
+  navigator.serviceWorker.register("/sw.js").catch(() => {
+    // SW 注册失败不阻塞主功能
+  });
+}
+
+function _requestNotificationPermission() {
+  if (!("Notification" in window)) return;
+  if (Notification.permission === "default") {
+    Notification.requestPermission().catch(() => {});
+  }
+}
+
+function _sendDesktopNotification(title, body) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  try {
+    const n = new Notification(title, {
+      body,
+      icon: "/icons/icon-192.svg",
+      tag: "news-sentry",
+      requireInteraction: false,
+    });
+    setTimeout(() => n.close(), 5000);
+  } catch {}
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -755,6 +793,8 @@ async function init() {
     updateStatus();
     connectSSE();
     setInterval(updateStatus, 30000);
+    _registerSW();
+    _requestNotificationPermission();
     // target 切换时重新连接 SSE
     const targetSelect = document.getElementById("targetSelect");
     if (targetSelect) {
