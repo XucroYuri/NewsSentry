@@ -1707,8 +1707,23 @@ def create_app(
         },
     }
 
-    def _load_notifications() -> dict[str, Any]:
-        """读取通知配置，不存在则返回默认值。"""
+    async def _load_notifications() -> dict[str, Any]:
+        """读取通知配置 — SQLite 优先，JSON 文件作为回退并自动迁移。"""
+        if _store is not None:
+            config = await _store.get_notifications()
+            if config:
+                return config
+            # SQLite 中不存在，尝试从 JSON 文件迁移
+            nf = _data_dir / "notifications.json"
+            if nf.exists():
+                try:
+                    file_config: dict[str, Any] = json.loads(nf.read_text(encoding="utf-8"))
+                    await _store.save_notifications(file_config)
+                    _log.info("通知设置已从 notifications.json 迁移到 SQLite")
+                    return file_config
+                except Exception as exc:
+                    _log.warning("Failed to migrate notifications.json: %s", exc)
+        # 回退：直接读 JSON 文件
         nf = _data_dir / "notifications.json"
         if nf.exists():
             try:
@@ -1718,8 +1733,11 @@ def create_app(
                 _log.warning("Failed to load notifications.json: %s", exc)
         return dict(_notifications_defaults)
 
-    def _save_notifications(config: dict[str, Any]) -> None:
-        """写入通知配置。"""
+    async def _save_notifications(config: dict[str, Any]) -> None:
+        """写入通知配置 — SQLite 为主，JSON 文件作为备份。"""
+        if _store is not None:
+            await _store.save_notifications(config)
+        # 也写一份 JSON 文件作为可读备份
         _data_dir.mkdir(parents=True, exist_ok=True)
         nf = _data_dir / "notifications.json"
         nf.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1729,7 +1747,7 @@ def create_app(
         user: dict[str, Any] = Depends(require_permission("admin")),
     ) -> dict[str, Any]:
         """获取通知渠道配置。"""
-        return _load_notifications()
+        return await _load_notifications()
 
     @app.put("/api/v1/settings/notifications")
     async def update_notifications(
@@ -1738,7 +1756,7 @@ def create_app(
     ) -> dict[str, str]:
         """更新通知渠道配置。"""
         body = await request.json()
-        _save_notifications(body)
+        await _save_notifications(body)
         return {"status": "ok"}
 
     # ── 简报邮件发送 ──────────────────────────────────────
@@ -1754,7 +1772,7 @@ def create_app(
         recipients = body.get("recipients")
 
         # 1. 读取通知配置获取 SMTP 设置
-        notif = _load_notifications()
+        notif = await _load_notifications()
         email_ch = notif.get("channels", {}).get("email", {})
         if not email_ch.get("enabled") or not email_ch.get("smtp_host"):
             raise HTTPException(
@@ -2736,12 +2754,7 @@ def create_app(
     ) -> TopicTrendsResponse:
         """主题热度趋势。"""
         if _store is None:
-            return TopicTrendsResponse(
-                target_id=target_id,
-                days=days,
-                topics=[],
-                generated_at=datetime.now(UTC).isoformat(),
-            )
+            raise HTTPException(status_code=503, detail="Store not available")
         try:
             daily_counts = await _store.get_topic_daily_counts(target_id, days=days)
             top_topics = await _store.get_top_topics(target_id, days=days, limit=10)
@@ -2765,12 +2778,7 @@ def create_app(
     ) -> SentimentTrendsResponse:
         """情感分布趋势。"""
         if _store is None:
-            return SentimentTrendsResponse(
-                target_id=target_id,
-                days=days,
-                daily_sentiment=[],
-                generated_at=datetime.now(UTC).isoformat(),
-            )
+            raise HTTPException(status_code=503, detail="Store not available")
         try:
             raw = await _store.get_sentiment_daily_counts(target_id, days=days)
             # 转换为按天聚合
@@ -2804,7 +2812,7 @@ def create_app(
     ) -> SmartAlertsResponse:
         """获取智能告警列表。"""
         if _store is None:
-            return SmartAlertsResponse(target_id=target_id, alerts=[], total=0)
+            raise HTTPException(status_code=503, detail="Store not available")
         try:
             from news_sentry.core.alert_pipeline import AlertPipeline
 

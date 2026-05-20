@@ -165,6 +165,14 @@ CREATE TABLE IF NOT EXISTS sessions (
 )
 """
 
+_DDL_NOTIFICATIONS = """
+CREATE TABLE IF NOT EXISTS notifications (
+    id        INTEGER PRIMARY KEY CHECK (id = 1),
+    config    TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+"""
+
 # Schema 迁移 — 版本化 DDL 变更，确保已有数据库自动升级
 _DDL_SCHEMA_VERSION = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -189,6 +197,8 @@ _SCHEMA_MIGRATIONS: list[tuple[int, str, list[str]]] = [
     ),
     # v3: Token 持久化 — sessions 表
     (3, "Add sessions table for token persistence", []),
+    # v4: 通知设置 — notifications 表（替代 notifications.json）
+    (4, "Add notifications table for settings persistence", []),
 ]
 
 _DDL_INDEXES = (
@@ -246,6 +256,7 @@ class AsyncStore:
         await self._db.execute(_DDL_ALERT_HISTORY)
         await self._db.execute(_DDL_USERS)
         await self._db.execute(_DDL_SESSIONS)
+        await self._db.execute(_DDL_NOTIFICATIONS)
         await self._db.execute(_DDL_SCHEMA_VERSION)
         await self._migrate_schema()
         for idx_sql in _DDL_INDEXES:
@@ -1750,3 +1761,31 @@ class AsyncStore:
             rows = await cursor.fetchall()
         self._db.row_factory = None
         return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Notifications — 通知设置持久化（替代 notifications.json）
+    # ------------------------------------------------------------------
+
+    async def get_notifications(self) -> dict[str, Any]:
+        """获取通知设置，不存在则返回空 dict。"""
+        if self._db is None:
+            return {}
+        async with self._db.execute("SELECT config FROM notifications WHERE id = 1") as cursor:
+            row = await cursor.fetchone()
+        if row is None:
+            return {}
+        try:
+            return json.loads(row[0])  # type: ignore[no-any-return]
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    async def save_notifications(self, config: dict[str, Any]) -> None:
+        """写入通知设置。"""
+        if self._db is None:
+            return
+        config_json = json.dumps(config, ensure_ascii=False)
+        await self._db.execute(
+            "INSERT OR REPLACE INTO notifications (id, config) VALUES (1, ?)",
+            (config_json,),
+        )
+        await self._db.commit()
