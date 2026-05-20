@@ -630,16 +630,27 @@ _TOKEN_TTL = 86400  # 24 hours
 
 
 def _create_token_for_user(username: str, role: str, has_api_key: bool) -> dict[str, Any]:
-    """为已认证用户创建 session token。"""
+    """为已认证用户创建 session token（内存 + SQLite 双写）。"""
     token = secrets.token_hex(32)
     now = time.time()
-    _TOKEN_STORE[token] = {
+    info = {
         "username": username,
         "role": role,
         "has_api_key": has_api_key,
         "created_at": now,
         "expires_at": now + _TOKEN_TTL,
     }
+    _TOKEN_STORE[token] = info
+
+    # 持久化到 SQLite
+    if _store is not None:
+        try:
+            asyncio.ensure_future(
+                _store.create_session(token, username, role, has_api_key, _TOKEN_TTL)
+            )
+        except RuntimeError:
+            pass  # 无事件循环时跳过持久化
+
     return {
         "access_token": token,
         "token_type": "Bearer",
@@ -651,14 +662,32 @@ def _create_token_for_user(username: str, role: str, has_api_key: bool) -> dict[
 
 
 def _verify_token(token: str) -> dict[str, Any] | None:
-    """验证 Token 有效性。"""
+    """验证 Token 有效性（内存优先，SQLite 回退）。"""
     info = _TOKEN_STORE.get(token)
-    if not info:
-        return None
-    if time.time() > info["expires_at"]:
-        _TOKEN_STORE.pop(token, None)
-        return None
-    return info
+    if info:
+        if time.time() > info["expires_at"]:
+            _TOKEN_STORE.pop(token, None)
+            return None
+        return info
+    return None
+
+
+async def _verify_token_async(token: str) -> dict[str, Any] | None:
+    """异步验证 Token（含 SQLite 回退 + 内存回填）。"""
+    info = _verify_token(token)
+    if info:
+        return info
+    # SQLite 回退：服务重启后内存为空，从持久化存储恢复
+    if _store is not None:
+        session = await _store.get_session(token)
+        if session:
+            if time.time() > session["expires_at"]:
+                await _store.delete_session(token)
+                return None
+            # 回填到内存
+            _TOKEN_STORE[token] = session
+            return session
+    return None
 
 
 def _extract_bearer_token(request: Request) -> str | None:
@@ -681,11 +710,11 @@ logger = logging.getLogger(__name__)
 
 
 async def get_current_user(request: Request) -> dict[str, Any]:
-    """提取并验证 Bearer token，返回用户信息。"""
+    """提取并验证 Bearer token，返回用户信息（内存 + SQLite 回退）。"""
     token = _extract_bearer_token(request)
     if not token:
         raise HTTPException(status_code=401, detail="Missing authentication")
-    info = _verify_token(token)
+    info = await _verify_token_async(token)
     if not info:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     # 检查 store 中的最新 api_key 状态
@@ -1191,6 +1220,15 @@ async def _get_target_store(target_id: str) -> AsyncStore | None:
     return None
 
 
+async def _restore_sessions() -> None:
+    """启动时清理过期 session。活跃 token 通过请求时 SQLite 回退恢复。"""
+    if _store is None:
+        return
+    deleted = await _store.delete_expired_sessions()
+    if deleted:
+        logger.info("清理过期 session: %d 条", deleted)
+
+
 @asynccontextmanager
 async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
     """FastAPI lifespan: 启动引导 + 后台采集循环。"""
@@ -1198,6 +1236,7 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
     if _store is not None:
         await _store.initialize()
         await _bootstrap_users()
+        await _restore_sessions()
     task = None
     if _auto_collector_state["enabled"]:
         task = asyncio.create_task(_auto_collect_loop())
@@ -1471,10 +1510,12 @@ def create_app(
 
     @app.post("/api/v1/auth/logout")
     async def auth_logout(request: Request) -> dict[str, str]:
-        """注销当前 token。"""
+        """注销当前 token（内存 + SQLite 双删）。"""
         token = _extract_bearer_token(request)
-        if token and token in _TOKEN_STORE:
-            del _TOKEN_STORE[token]
+        if token:
+            _TOKEN_STORE.pop(token, None)
+            if _store is not None:
+                await _store.delete_session(token)
         return {"status": "ok"}
 
     @app.post("/api/v1/auth/change-password")

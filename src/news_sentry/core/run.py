@@ -10,6 +10,7 @@ import logging
 import os
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -52,36 +53,40 @@ from news_sentry.skills.output.markdown_writer import MarkdownWriter
 logger = logging.getLogger(__name__)
 
 
-def bounded_run(
+@dataclass
+class RunBootstrap:
+    """_bootstrap_run() 返回的初始化组件容器。"""
+
+    run_id: str
+    target_id: str
+    stage_str: str
+    config: ResolvedConfig
+    project_root: Path
+    data_dir: Path
+    memory: Memory
+    log_dir: Path
+    run_log: RunLog
+    file_writer: FileWriter
+    sandbox_policy: SandboxPolicy
+    sandbox: SandboxEnforcer
+    ctx: PipelineContext
+
+
+def _bootstrap_run(
     target_id: str,
-    stage: PipelineStage | str,
+    stage: str,
     run_id: str | None = None,
     dry_run: bool = False,
     config_dir: str | None = None,
     profile_id: str | None = None,
     output_root: str | Path | None = None,
-) -> PipelineContext:
-    """执行单次 bounded run，包含一个 target 和一个 stage。
+) -> RunBootstrap:
+    """共享初始化逻辑 — 同步/异步 pipeline 的公共前置步骤。
 
-    生成 run_id（如果未提供），加载配置，调度相应技能，写入运行日志。
-    永不无限运行 —— 受 config.budget_policy 限制。
-
-    退出码（供 CLI 使用）: 0=成功, 1=部分失败, 2=配置错误, 3=沙箱拦截。
-
-    Args:
-        target_id: 目标标识符（如 "italy"）。
-        stage: pipeline 阶段（"collect" | "filter" | "judge" | "output" | "all"）。
-        run_id: 可选运行 ID，不提供则自动生成。
-        dry_run: True 时只打印计划不执行。
-        config_dir: 项目根目录覆盖，默认使用当前项目根。
-        profile_id: Deployment profile ID。优先级高于 NEWSSENTRY_PROFILE。
-        output_root: 输出根目录覆盖。优先级高于 NEWSSENTRY_DATA_DIR。
-
-    Returns:
-        PipelineContext 含运行统计信息。
+    完成参数规范化、配置加载、数据目录创建、运行时组件初始化，
+    返回包含所有已初始化组件的 RunBootstrap 容器。
     """
     # ── 规范化参数 ──────────────────────────────────────────
-    stage_str = stage if isinstance(stage, str) else stage.value
     supported_stages = {
         "collect",
         "filter",
@@ -91,8 +96,8 @@ def bounded_run(
         "outputted",
         "all",
     }
-    if stage_str not in supported_stages:
-        raise ValueError(f"不支持的阶段: {stage_str}")
+    if stage not in supported_stages:
+        raise ValueError(f"不支持的阶段: {stage}")
     if run_id is None:
         ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         run_id = f"{target_id}_{ts}_{uuid.uuid4().hex[:8]}"
@@ -134,7 +139,7 @@ def bounded_run(
     file_writer = FileWriter(data_dir)
     file_writer.ensure_dirs()
 
-    # 沙箱策略 — 使用 SandboxPolicy.from_yaml_dict() 加载嵌套 YAML
+    # 沙箱策略
     if sp := config.sandbox_policy:
         sandbox_policy = SandboxPolicy.from_yaml_dict(sp)
     else:
@@ -145,7 +150,7 @@ def bounded_run(
     ctx = PipelineContext(
         run_id=run_id,
         target_id=target_id,
-        stage=PipelineStage.COLLECTED,  # 上下文默认从 collected 开始
+        stage=PipelineStage.COLLECTED,
         started_at=datetime.now(UTC).isoformat(),
         config_snapshot={
             "profile_id": config.profile_id,
@@ -155,40 +160,74 @@ def bounded_run(
         profile_id=config.profile_id,
     )
 
+    return RunBootstrap(
+        run_id=run_id,
+        target_id=target_id,
+        stage_str=stage,
+        config=config,
+        project_root=project_root,
+        data_dir=data_dir,
+        memory=memory,
+        log_dir=log_dir,
+        run_log=run_log,
+        file_writer=file_writer,
+        sandbox_policy=sandbox_policy,
+        sandbox=sandbox,
+        ctx=ctx,
+    )
+
+
+def bounded_run(
+    target_id: str,
+    stage: PipelineStage | str,
+    run_id: str | None = None,
+    dry_run: bool = False,
+    config_dir: str | None = None,
+    profile_id: str | None = None,
+    output_root: str | Path | None = None,
+) -> PipelineContext:
+    """执行单次 bounded run，包含一个 target 和一个 stage。
+
+    生成 run_id（如果未提供），加载配置，调度相应技能，写入运行日志。
+    永不无限运行 —— 受 config.budget_policy 限制。
+
+    退出码（供 CLI 使用）: 0=成功, 1=部分失败, 2=配置错误, 3=沙箱拦截。
+    """
+    stage_str = stage if isinstance(stage, str) else stage.value
+    b = _bootstrap_run(target_id, stage_str, run_id, dry_run, config_dir, profile_id, output_root)
     if dry_run:
-        return ctx
+        return b.ctx
 
     # ── 写入初始心跳 ───────────────────────────────────────
-    write_heartbeat(log_dir, run_id, "starting")
+    write_heartbeat(b.log_dir, b.run_id, "starting")
 
     # ── 阶段调度 ────────────────────────────────────────────
-    if stage_str == "collect":
-        _run_collect(config, run_id, run_log, file_writer, sandbox, memory, ctx)
-    elif stage_str == "filter":
-        _run_filter(config, run_id, run_log, file_writer, memory, ctx)
-    elif stage_str == "output" or stage_str == "outputted":
-        _run_output(config, run_id, run_log, file_writer, ctx)
-    elif stage_str == "judge" or stage_str == "judged":
-        _run_judge(config, run_id, run_log, file_writer, memory, ctx)
-    elif stage_str == "all":
-        _run_all(config, run_id, run_log, file_writer, sandbox, memory, ctx)
+    if b.stage_str == "collect":
+        _run_collect(b.config, b.run_id, b.run_log, b.file_writer, b.sandbox, b.memory, b.ctx)
+    elif b.stage_str == "filter":
+        _run_filter(b.config, b.run_id, b.run_log, b.file_writer, b.memory, b.ctx)
+    elif b.stage_str in ("output", "outputted"):
+        _run_output(b.config, b.run_id, b.run_log, b.file_writer, b.ctx)
+    elif b.stage_str in ("judge", "judged"):
+        _run_judge(b.config, b.run_id, b.run_log, b.file_writer, b.memory, b.ctx)
+    elif b.stage_str == "all":
+        _run_all(b.config, b.run_id, b.run_log, b.file_writer, b.sandbox, b.memory, b.ctx)
 
     # ── 阶段完成后更新心跳 ──────────────────────────────────
-    write_heartbeat(log_dir, run_id, stage_str, status="completed")
+    write_heartbeat(b.log_dir, b.run_id, b.stage_str, status="completed")
 
     # ── 写入运行日志 ────────────────────────────────────────
-    log_path = run_log.write()
-    _prune_old_logs(log_dir, keep=100)
-    ctx.run_log_path = str(log_path)
-    ctx.errors_count = run_log.errors_count
+    log_path = b.run_log.write()
+    _prune_old_logs(b.log_dir, keep=100)
+    b.ctx.run_log_path = str(log_path)
+    b.ctx.errors_count = b.run_log.errors_count
 
     # ── 内存维护 ────────────────────────────────────────────
-    # MEMORY-RETENTION-001: 清理超过 30 天的已知 ID 条目
-    pruned = memory.prune_old_ids(ttl_days=30)
+    pruned = b.memory.prune_old_ids(ttl_days=30)
     if pruned > 0:
-        run_log.log_event("memory", "prune", f"cleaned {pruned} stale known_ids")
+        b.run_log.log_event("memory", "prune", f"cleaned {pruned} stale known_ids")
 
-    return ctx
+    return b.ctx
 
 
 # ── 阶段执行函数 ───────────────────────────────────────────────

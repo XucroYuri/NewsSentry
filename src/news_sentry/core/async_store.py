@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -153,6 +154,17 @@ CREATE TABLE IF NOT EXISTS users (
 )
 """
 
+_DDL_SESSIONS = """
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash     TEXT PRIMARY KEY,
+    username       TEXT NOT NULL,
+    role           TEXT NOT NULL,
+    has_api_key    INTEGER NOT NULL DEFAULT 0,
+    created_at     REAL NOT NULL,
+    expires_at     REAL NOT NULL
+)
+"""
+
 # Schema 迁移 — 版本化 DDL 变更，确保已有数据库自动升级
 _DDL_SCHEMA_VERSION = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -175,6 +187,8 @@ _SCHEMA_MIGRATIONS: list[tuple[int, str, list[str]]] = [
             "ALTER TABLE event_index ADD COLUMN topic_tags TEXT",
         ],
     ),
+    # v3: Token 持久化 — sessions 表
+    (3, "Add sessions table for token persistence", []),
 ]
 
 _DDL_INDEXES = (
@@ -231,6 +245,7 @@ class AsyncStore:
         await self._db.execute(_DDL_FEEDBACK)
         await self._db.execute(_DDL_ALERT_HISTORY)
         await self._db.execute(_DDL_USERS)
+        await self._db.execute(_DDL_SESSIONS)
         await self._db.execute(_DDL_SCHEMA_VERSION)
         await self._migrate_schema()
         for idx_sql in _DDL_INDEXES:
@@ -1660,3 +1675,78 @@ class AsyncStore:
         await self._db.execute("DELETE FROM users WHERE username = ?", (username,))
         await self._db.commit()
         return self._db.total_changes > 0
+
+    # ------------------------------------------------------------------
+    # Sessions — Token 持久化
+    # ------------------------------------------------------------------
+
+    async def create_session(
+        self, token: str, username: str, role: str, has_api_key: bool, ttl: float
+    ) -> None:
+        """创建或刷新 session token。"""
+        if self._db is None:
+            return
+        import hashlib
+
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        now = time.time()
+        await self._db.execute(
+            "INSERT OR REPLACE INTO sessions (token_hash, username, role, has_api_key, "
+            "        created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (token_hash, username, role, int(has_api_key), now, now + ttl),
+        )
+        await self._db.commit()
+
+    async def get_session(self, token: str) -> dict[str, Any] | None:
+        """根据 token 查询 session。"""
+        if self._db is None:
+            return None
+        import hashlib
+
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        self._db.row_factory = aiosqlite.Row
+        async with self._db.execute(
+            "SELECT username, role, has_api_key, created_at, expires_at "
+            "FROM sessions WHERE token_hash = ?",
+            (token_hash,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        self._db.row_factory = None
+        if row is None:
+            return None
+        info = dict(row)
+        info["has_api_key"] = bool(info["has_api_key"])
+        return info
+
+    async def delete_session(self, token: str) -> bool:
+        """删除单个 session。"""
+        if self._db is None:
+            return False
+        import hashlib
+
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        await self._db.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
+        await self._db.commit()
+        return self._db.total_changes > 0
+
+    async def delete_expired_sessions(self) -> int:
+        """清理过期 session，返回删除数。"""
+        if self._db is None:
+            return 0
+        cur = await self._db.execute("DELETE FROM sessions WHERE expires_at < ?", (time.time(),))
+        await self._db.commit()
+        return cur.rowcount
+
+    async def list_active_sessions(self) -> list[dict[str, Any]]:
+        """列出所有未过期的 session。"""
+        if self._db is None:
+            return []
+        self._db.row_factory = aiosqlite.Row
+        async with self._db.execute(
+            "SELECT username, role, has_api_key, created_at, expires_at "
+            "FROM sessions WHERE expires_at >= ?",
+            (time.time(),),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        self._db.row_factory = None
+        return [dict(r) for r in rows]

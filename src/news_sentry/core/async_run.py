@@ -7,7 +7,6 @@ _run_filter_async/_run_output_async 通过 asyncio.to_thread
 
 import asyncio
 import logging
-import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -16,28 +15,24 @@ import httpx
 
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.confidence_router import TieredConfidenceRouter
-from news_sentry.core.config import ConfigLoader, ResolvedConfig
+from news_sentry.core.config import ResolvedConfig
 from news_sentry.core.file_writer import FileWriter
 from news_sentry.core.llm_cache_manager import LLMCacheManager
 from news_sentry.core.memory import Memory
 from news_sentry.core.nlp_analyzer import NLPAnalyzer
 from news_sentry.core.nlp_rules import NLPRulesAnalyzer
 from news_sentry.core.run import (
-    ConfigError,
-    _allow_external_output_root,
+    _bootstrap_run,
     _find_project_root,
     _load_events_from_dir,
-    _portable_project_path,
     _prune_old_logs,
-    _resolve_output_root_override,
-    _resolve_profile_id,
     _run_filter,
     _run_judge,
     _run_output,
     _translate_collected_titles,
 )
 from news_sentry.core.run_log import RunLog, write_heartbeat
-from news_sentry.core.sandbox import SandboxEnforcer, SandboxPolicy
+from news_sentry.core.sandbox import SandboxEnforcer
 from news_sentry.core.scheduler import FairScheduler
 from news_sentry.core.translation_batcher import TranslationBatcher
 from news_sentry.core.yaml_migration import migrate_yaml_to_sqlite, should_migrate
@@ -90,156 +85,98 @@ async def bounded_run_async(
     output_root: str | Path | None = None,
     max_concurrent: int = 10,
 ) -> PipelineContext:
-    """异步版 pipeline 入口。"""
-    supported_stages = {
-        "collect",
-        "filter",
-        "judge",
-        "judged",
-        "output",
-        "outputted",
-        "all",
-    }
-    if stage not in supported_stages:
-        raise ValueError(f"不支持的阶段: {stage}")
-    if run_id is None:
-        ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-        run_id = f"{target_id}_{ts}_{uuid.uuid4().hex[:8]}"
-
-    project_root = Path(config_dir) if config_dir else _find_project_root()
-    selected_profile_id = _resolve_profile_id(profile_id)
-    selected_output_root = _resolve_output_root_override(output_root)
-
-    # 加载配置
-    try:
-        loader = ConfigLoader(project_root)
-        config = loader.load_target(
-            target_id,
-            profile_id=selected_profile_id,
-            output_root_override=selected_output_root,
-            allow_external_output_root=_allow_external_output_root(),
-        )
-    except FileNotFoundError as e:
-        raise ConfigError(f"配置加载失败: {e}") from e
-    except Exception as e:
-        raise ConfigError(f"配置加载异常: {e}") from e
-
-    # 数据目录
-    data_dir = config.output_root / target_id
-    data_dir.mkdir(parents=True, exist_ok=True)
-
-    # 初始化运行时组件
-    memory = Memory(data_dir / "memory")
-    store = await _init_async_store_for_target(data_dir)
-    log_dir = data_dir / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    portable_output_root = _portable_project_path(config.output_root, project_root)
-    run_log = RunLog(
-        log_dir,
-        run_id,
-        target_id=target_id,
-        profile_id=config.profile_id,
-        output_root=portable_output_root,
-    )
-    file_writer = FileWriter(data_dir)
-    file_writer.ensure_dirs()
-
-    # 沙箱策略
-    if config.sandbox_policy:
-        sandbox_policy = SandboxPolicy.from_yaml_dict(config.sandbox_policy)
-    else:
-        sandbox_policy = SandboxPolicy(policy_id="default")
-    sandbox = SandboxEnforcer(sandbox_policy, audit_log_path=data_dir / "logs")
-
-    # 上下文
-    ctx = PipelineContext(
-        run_id=run_id,
-        target_id=target_id,
-        stage=PipelineStage.COLLECTED,
-        started_at=datetime.now(UTC).isoformat(),
-        config_snapshot={
-            "profile_id": config.profile_id,
-            "output_root": portable_output_root,
-            "target_id": config.target_id,
-        },
-        profile_id=config.profile_id,
-    )
-
+    """异步版 pipeline 入口 — 共享同步 bootstrap + 异步存储/缓存叠加。"""
+    b = _bootstrap_run(target_id, stage, run_id, dry_run, config_dir, profile_id, output_root)
     if dry_run:
-        return ctx
+        return b.ctx
 
-    # P27: LLM 缓存管理器
+    # ── 异步层：SQLite 存储 + LLM 缓存 ───────────────────────
+    store = await _init_async_store_for_target(b.data_dir)
     cache_mgr = LLMCacheManager(store)
 
-    write_heartbeat(log_dir, run_id, "starting")
+    write_heartbeat(b.log_dir, b.run_id, "starting")
 
     try:
-        # 阶段调度
-        if stage == "collect":
+        # ── 阶段调度 ────────────────────────────────────────────
+        if b.stage_str == "collect":
             await _run_collect_async(
-                config,
-                run_id,
-                run_log,
-                file_writer,
-                sandbox,
-                memory,
-                ctx,
+                b.config,
+                b.run_id,
+                b.run_log,
+                b.file_writer,
+                b.sandbox,
+                b.memory,
+                b.ctx,
                 max_concurrent=max_concurrent,
                 cache_mgr=cache_mgr,
             )
-        elif stage == "filter":
-            await _run_filter_async(config, run_id, run_log, file_writer, memory, ctx)
-        elif stage in ("output", "outputted"):
-            await _run_output_async(config, run_id, run_log, file_writer, ctx, store=store)
-        elif stage in ("judge", "judged"):
+        elif b.stage_str == "filter":
+            await _run_filter_async(b.config, b.run_id, b.run_log, b.file_writer, b.memory, b.ctx)
+        elif b.stage_str in ("output", "outputted"):
+            await _run_output_async(
+                b.config,
+                b.run_id,
+                b.run_log,
+                b.file_writer,
+                b.ctx,
+                store=store,
+            )
+        elif b.stage_str in ("judge", "judged"):
             await _run_judge_async(
-                config,
-                run_id,
-                run_log,
-                file_writer,
-                memory,
-                ctx,
+                b.config,
+                b.run_id,
+                b.run_log,
+                b.file_writer,
+                b.memory,
+                b.ctx,
                 cache_mgr=cache_mgr,
                 store=store,
             )
-        elif stage == "all":
+        elif b.stage_str == "all":
             await _run_collect_async(
-                config,
-                run_id,
-                run_log,
-                file_writer,
-                sandbox,
-                memory,
-                ctx,
+                b.config,
+                b.run_id,
+                b.run_log,
+                b.file_writer,
+                b.sandbox,
+                b.memory,
+                b.ctx,
                 max_concurrent=max_concurrent,
                 cache_mgr=cache_mgr,
             )
-            await _run_filter_async(config, run_id, run_log, file_writer, memory, ctx)
+            await _run_filter_async(b.config, b.run_id, b.run_log, b.file_writer, b.memory, b.ctx)
             await _run_judge_async(
-                config,
-                run_id,
-                run_log,
-                file_writer,
-                memory,
-                ctx,
+                b.config,
+                b.run_id,
+                b.run_log,
+                b.file_writer,
+                b.memory,
+                b.ctx,
                 cache_mgr=cache_mgr,
                 store=store,
             )
-            await _run_output_async(config, run_id, run_log, file_writer, ctx, store=store)
+            await _run_output_async(
+                b.config,
+                b.run_id,
+                b.run_log,
+                b.file_writer,
+                b.ctx,
+                store=store,
+            )
 
-        write_heartbeat(log_dir, run_id, stage, status="completed")
-        log_path = run_log.write()
-        _prune_old_logs(log_dir, keep=100)
-        ctx.run_log_path = str(log_path)
-        ctx.errors_count = run_log.errors_count
+        write_heartbeat(b.log_dir, b.run_id, b.stage_str, status="completed")
+        log_path = b.run_log.write()
+        _prune_old_logs(b.log_dir, keep=100)
+        b.ctx.run_log_path = str(log_path)
+        b.ctx.errors_count = b.run_log.errors_count
 
         pruned = await store.prune_old_ids(max_age_days=30)
         if pruned > 0:
-            run_log.log_event("store", "prune", f"cleaned {pruned} stale known_ids")
+            b.run_log.log_event("store", "prune", f"cleaned {pruned} stale known_ids")
     finally:
         await store.close()
 
-    return ctx
+    return b.ctx
 
 
 def _try_create_provider_router() -> Any:  # noqa: ANN401
