@@ -778,6 +778,46 @@ class TestInstallCommand:
         assert result.exit_code == 1
         assert "Unsupported OS" in result.output
 
+    def test_install_windows_creates_launcher_and_task(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Windows 上 install 应创建 launcher.ps1 并注册 Scheduled Task。"""
+        if sys.platform != "win32":
+            monkeypatch.setattr(platform, "system", lambda: "Windows")
+        fake_home = tmp_path
+        monkeypatch.setattr(Path, "home", lambda: fake_home)
+
+        from unittest.mock import MagicMock
+
+        mock_run = MagicMock(return_value=MagicMock(returncode=0, stderr=""))
+        monkeypatch.setattr(subprocess, "run", mock_run)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            main,
+            [
+                "install",
+                "--data-dir",
+                str(fake_home / ".news-sentry/data"),
+                "--log-dir",
+                str(fake_home / ".news-sentry/logs"),
+            ],
+        )
+        assert result.exit_code == 0
+        # Verify launcher.ps1 was written
+        launcher = fake_home / ".news-sentry" / "launcher.ps1"
+        assert launcher.is_file()
+        content = launcher.read_text(encoding="utf-8")
+        assert "news_sentry.cli serve" in content
+        assert "--data-dir" in content
+        # Verify schtasks was called (Delete old + Create new + Run)
+        all_args: list[str] = []
+        for call in mock_run.call_args_list:
+            args = call[0][0] if call[0] else call.kwargs.get("args", [])
+            all_args.extend(str(a) for a in args)
+        assert "schtasks" in " ".join(all_args), "schtasks not called"
+        assert "/Create" in " ".join(all_args), "schtasks /Create not called"
+
     def test_install_passes_serve_options_to_plist(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1107,6 +1147,43 @@ class TestUninstallCommand:
         assert result.exit_code == 0
         assert not unit_path.is_file()
         assert "Uninstall complete" in result.output
+
+    def test_uninstall_windows_removes_task(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Windows 上 uninstall 应删除 Scheduled Task 和 launcher。"""
+        if sys.platform != "win32":
+            monkeypatch.setattr(platform, "system", lambda: "Windows")
+        fake_home = tmp_path
+        monkeypatch.setattr(Path, "home", lambda: fake_home)
+        monkeypatch.setattr("news_sentry.cli.serve._pid_alive", lambda _path: False)
+
+        launcher = fake_home / ".news-sentry" / "launcher.ps1"
+        launcher.parent.mkdir(parents=True)
+        launcher.write_text("fake launcher")
+
+        schtasks_calls: list[list[str]] = []
+
+        def _mock_run(args: list[str], **kwargs: object) -> None:
+            schtasks_calls.append(args)
+
+        monkeypatch.setattr(subprocess, "run", _mock_run)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            main,
+            [
+                "uninstall",
+                "--pid-file",
+                str(tmp_path / "serve.pid"),
+            ],
+        )
+        assert result.exit_code == 0
+        assert "Uninstall complete" in result.output
+        assert not launcher.is_file()
+        # schtasks /Delete should have been called
+        all_cmds = " ".join(" ".join(c) for c in schtasks_calls)
+        assert "schtasks" in all_cmds, "schtasks /Delete not called"
 
     def test_uninstall_purge_removes_data(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

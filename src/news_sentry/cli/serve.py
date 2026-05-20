@@ -586,6 +586,73 @@ def install(  # noqa: PLR0913
                 f"  systemctl --user enable --now news-sentry"
             )
 
+    elif system == "Windows":
+        # Register as a Scheduled Task triggered at logon.
+        launcher_ps1 = Path.home() / ".news-sentry" / "launcher.ps1"
+        launcher_ps1.parent.mkdir(parents=True, exist_ok=True)
+
+        # Build the serve command line for the launcher script.
+        serve_cmd = (
+            f"& '{sys.executable}' -m news_sentry.cli serve "
+            f"--host {host} --port {port} --target {target} "
+            f"--interval {interval} --stage {stage} --log-level {log_level} "
+            f"--data-dir '{data_path}' --log-dir '{log_path_dir}' "
+            f"--pid-file '{Path(pid_file).expanduser().resolve()}' "
+            f"--foreground"
+        )
+        if profile:
+            serve_cmd += f" --profile {profile}"
+        if no_browser:
+            serve_cmd += " --no-browser"
+        ps_content = (
+            f"# News Sentry launcher — triggered by Scheduled Task at logon\n"
+            f"Set-Location '{launcher_ps1.parent}'\n"
+            f"{serve_cmd} *>> '{log_file}'\n"
+        )
+        launcher_ps1.write_text(ps_content, encoding="utf-8")
+        click.echo(f"Launcher written → {launcher_ps1}")
+
+        # Remove old task if it exists, then create new one.
+        subprocess.run(  # noqa: S603
+            ["schtasks", "/Delete", "/TN", "NewsSentry", "/F"],  # noqa: S607
+            capture_output=True,
+        )
+        try:
+            ps_args = (
+                "powershell.exe -NoProfile -WindowStyle Hidden "
+                f'-ExecutionPolicy Bypass -File "{launcher_ps1}"'
+            )
+            subprocess.run(  # noqa: S603
+                [  # noqa: S607
+                    "schtasks",
+                    "/Create",
+                    "/TN",
+                    "NewsSentry",
+                    "/TR",
+                    ps_args,
+                    "/SC",
+                    "ONLOGON",
+                    "/IT",
+                    "/F",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            click.echo("Scheduled Task 'NewsSentry' created (runs at logon).")
+        except subprocess.CalledProcessError as exc:
+            click.echo(
+                f"Note: schtasks failed ({exc.stderr.strip()}). "
+                f"Create the task manually or use a Scheduled Task trigger."
+            )
+
+        # Start the task immediately.
+        subprocess.run(  # noqa: S603
+            ["schtasks", "/Run", "/TN", "NewsSentry"],  # noqa: S607
+            capture_output=True,
+        )
+        click.echo("Task started. Check status with: news-sentry status")
+
     else:
         click.echo(f"Unsupported OS: {system}. Manual setup required.", err=True)
         sys.exit(1)
@@ -835,6 +902,14 @@ def uninstall(pid_file: str, purge: bool) -> None:
             click.echo(f"Removed: {unit_path}")
         else:
             click.echo("No systemd unit file found.")
+    elif system == "Windows":
+        subprocess.run(  # noqa: S603
+            ["schtasks", "/Delete", "/TN", "NewsSentry", "/F"],  # noqa: S607
+            capture_output=True,
+        )
+        launcher = Path.home() / ".news-sentry" / "launcher.ps1"
+        launcher.unlink(missing_ok=True)
+        click.echo("Scheduled Task 'NewsSentry' removed.")
     else:
         click.echo(f"Manual cleanup required for {system}.")
 
