@@ -72,7 +72,7 @@
         "git status 干净，无非预期文件",
         "issue/已知 bug 已编目（统一保存到 docs/known-issues.md）"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-006",
@@ -86,7 +86,7 @@
         "US-005 完成后第五次推送（质量审查）",
         "每次推送含合理粒度、描述清晰的 commit message"
       ],
-      "passes": false
+      "passes": true
     }
   ]
 }

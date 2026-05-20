@@ -709,7 +709,7 @@ _data_dir: Path = Path(os.environ.get("NEWSSENTRY_DATA_DIR", "./data"))
 
 # SSE 实时推送 — 每个 target_id 对应一组客户端队列
 # 当新事件到达时，通知所有监听该 target 的 SSE 连接
-_sse_queues: dict[str, list[asyncio.Queue]] = defaultdict(list)
+_sse_queues: dict[str, list[asyncio.Queue[Any]]] = defaultdict(list)
 _sse_lock = asyncio.Lock()
 
 
@@ -2328,7 +2328,7 @@ def create_app(
         if not info:
             raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-        queue: asyncio.Queue = asyncio.Queue()
+        queue: asyncio.Queue[Any] = asyncio.Queue()
         async with _sse_lock:
             _sse_queues[target_id].append(queue)
 
@@ -2367,8 +2367,8 @@ def create_app(
         user: dict[str, Any] = Depends(require_permission("write")),
     ) -> WebhookResponse:
         event_id = _save_webhook_event(_data_dir, target_id, payload)
-        payload = {"event_id": event_id, "source": "webhook"}
-        asyncio.ensure_future(_notify_sse_clients(target_id, "new_event", payload))
+        sse_data: dict[str, Any] = {"event_id": event_id, "source": "webhook"}
+        asyncio.ensure_future(_notify_sse_clients(target_id, "new_event", sse_data))
         return WebhookResponse(
             status="accepted",
             event_id=event_id,

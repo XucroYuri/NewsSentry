@@ -43,7 +43,7 @@ def desktop(port: int, window_width: int, window_height: int) -> None:
     需要安装 pywebview：pip install 'news-sentry[desktop]'
     """
     try:
-        import webview  # noqa: F401 — verify pywebview is installed
+        import webview as wv  # type: ignore[import-not-found]
     except ImportError:
         click.echo(
             "Error: pywebview is not installed.\n"
@@ -63,8 +63,6 @@ def desktop(port: int, window_width: int, window_height: int) -> None:
 
     click.echo(f"Starting desktop window → http://127.0.0.1:{port}")
     click.echo("Close the window to stop the server.")
-
-    import webview as wv
 
     wv.create_window(
         "News Sentry — 新闻情报监控",
