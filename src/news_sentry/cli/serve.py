@@ -74,6 +74,26 @@ def _pid_alive(pid_path: Path) -> bool:
             return False
 
 
+def _kill_process(pid: int) -> bool:
+    """Cross-platform process termination. Returns True on success."""
+    if platform.system() == "Windows":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        handle = kernel32.OpenProcess(0x0001, False, pid)  # PROCESS_TERMINATE
+        if handle:
+            kernel32.TerminateProcess(handle, 0)
+            kernel32.CloseHandle(handle)
+            return True
+        return False
+    else:
+        try:
+            os.kill(pid, signal.SIGTERM)
+            return True
+        except OSError:
+            return False
+
+
 def _setup_log_file(log_path: Path, log_dir: Path) -> None:
     """Add a file handler so uvicorn and news_sentry logs are written to disk."""
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -293,19 +313,8 @@ def stop(pid_file: str) -> None:
         return
 
     click.echo(f"Stopping News Sentry (PID: {pid})...")
-    try:
-        if platform.system() == "Windows":
-            import ctypes
-
-            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-            handle = kernel32.OpenProcess(0x0001, False, pid)  # PROCESS_TERMINATE
-            if handle:
-                kernel32.TerminateProcess(handle, 0)
-                kernel32.CloseHandle(handle)
-        else:
-            os.kill(pid, signal.SIGTERM)
-    except OSError as exc:
-        click.echo(f"Failed to send signal to PID {pid}: {exc}", err=True)
+    if not _kill_process(pid):
+        click.echo(f"Failed to send signal to PID {pid}", err=True)
         sys.exit(1)
 
     pid_path.unlink(missing_ok=True)
@@ -578,9 +587,7 @@ def install(  # noqa: PLR0913
             )
 
     else:
-        click.echo(
-            f"Unsupported OS: {system}. Manual setup required — see scripts/ directory.", err=True
-        )
+        click.echo(f"Unsupported OS: {system}. Manual setup required.", err=True)
         sys.exit(1)
 
 
@@ -722,19 +729,7 @@ def restart(  # noqa: PLR0913
     if _pid_alive(pid_path):
         pid = int(pid_path.read_text().strip())
         click.echo(f"Stopping server (PID: {pid})...")
-        try:
-            if platform.system() == "Windows":
-                import ctypes
-
-                kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-                handle = kernel32.OpenProcess(0x0001, False, pid)
-                if handle:
-                    kernel32.TerminateProcess(handle, 0)
-                    kernel32.CloseHandle(handle)
-            else:
-                os.kill(pid, signal.SIGTERM)
-        except OSError:
-            click.echo("Warning: Failed to send signal to old process.", err=True)
+        _kill_process(pid)
 
         # Wait up to 10 seconds for the old process to exit.
         waited = 0.0
@@ -808,19 +803,7 @@ def uninstall(pid_file: str, purge: bool) -> None:
     if _pid_alive(pid_path):
         pid = int(pid_path.read_text().strip())
         click.echo(f"Stopping server (PID: {pid})...")
-        try:
-            if platform.system() == "Windows":
-                import ctypes
-
-                kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-                handle = kernel32.OpenProcess(0x0001, False, pid)
-                if handle:
-                    kernel32.TerminateProcess(handle, 0)
-                    kernel32.CloseHandle(handle)
-            else:
-                os.kill(pid, signal.SIGTERM)
-        except OSError:
-            pass
+        _kill_process(pid)
         time.sleep(0.5)
         pid_path.unlink(missing_ok=True)
         click.echo("Server stopped.")
