@@ -158,20 +158,41 @@ class JudgeSkill:
 
     # ── prompt 构建 ───────────────────────────────────────────────
 
+    @staticmethod
+    def _sanitize_prompt_input(text: str, max_len: int = 100000) -> str:
+        """消毒注入 LLM prompt 的外部文本。
+
+        1. 类型防护（非字符串转为字符串）
+        2. 截断到 max_len 字符
+        3. 剥离控制字符（保留常见 Unicode 空白）
+        """
+        import re
+
+        if not isinstance(text, str):
+            text = str(text) if text else ""
+        truncated = text[:max_len]
+        stripped = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", truncated)
+        return stripped
+
     def _build_judge_prompt(self, event: NewsEvent) -> str:
         """构建结构化研判 prompt（英文，LLM 对英文 prompt 响应最稳定）。
 
         要求 LLM 同时产出：新闻价值评分、中国关联度、推荐级别、理由、情感评分、
         简体中文译文（标题 + 正文）、分类 l0、标记列表。
+
+        外部输入（标题/正文）经消毒处理：长度截断 + 控制字符剥离。
         """
+        title = self._sanitize_prompt_input(event.title_original, max_len=2000)
+        content = self._sanitize_prompt_input(event.content_original, max_len=100000)
+
         return f"""You are a professional news analyst specializing in {self._target_display_name}.
 Evaluate the following news article and provide a structured JSON result.
 
 Article Title (original {self._target_language}):
-{event.title_original}
+{title}
 
 Article Content (original {self._target_language}):
-{event.content_original}
+{content}
 
 Instructions:
 1. Rate news value 0-100: relevance, timeliness, impact, prominence, controversy.

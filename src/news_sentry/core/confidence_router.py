@@ -254,13 +254,23 @@ class TieredConfidenceRouter:
         )
         return [r for r in results if not isinstance(r, Exception)]
 
+    @staticmethod
+    def _sanitize_prompt_input(text: str, max_len: int = 100000) -> str:
+        """消毒注入 LLM prompt 的外部文本。"""
+        import re
+
+        if not isinstance(text, str):
+            text = str(text) if text else ""
+        stripped = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", text[:max_len])
+        return stripped
+
     def _build_judge_prompt(
         self,
         event: Any,  # noqa: ANN401
         rules_result: Any,  # noqa: ANN401
     ) -> str:
-        """构建研判 prompt。"""
-        title = getattr(event, "title_original", "")
+        """构建研判 prompt（外部输入经消毒处理）。"""
+        title = self._sanitize_prompt_input(getattr(event, "title_original", ""), max_len=2000)
         recommendation = getattr(rules_result, "recommendation", "")
         confidence = getattr(rules_result, "confidence", 0)
         return (

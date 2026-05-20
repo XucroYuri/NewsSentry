@@ -63,5 +63,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh /usr/local/bin/verify-bridge.sh
 WORKDIR /app
 USER appuser
 ENV PYTHONUNBUFFERED=1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["python", "-m", "news_sentry.cli", "run", "--target", "italy", "--stage", "all"]
