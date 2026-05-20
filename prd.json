@@ -43,7 +43,7 @@
         "基础离线页显示（网络不可用时的友好提示）",
         "无外部依赖（纯 Vanilla JS + 静态资源）"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-004",

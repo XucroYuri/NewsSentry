@@ -52,6 +52,9 @@ api = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
 ]
+desktop = [
+    "pywebview>=5.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/XucroYuri/NewsSentry"

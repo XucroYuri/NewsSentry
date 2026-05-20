@@ -18,3 +18,15 @@
 - Webhook 和 Import 端点已接入 SSE 通知
 - 0 ruff errors, 1448 测试通过
 - 30s 轮询保留为 fallback
+
+### 2026-05-21 US-003 PWA + 浏览器通知完成
+- manifest.json（SVG 图标，standalone display，theme-color）
+- sw.js（cache-first 静态资源，network-first API，离线降级）
+- Service Worker 注册 + 桌面通知集成 SSE（后台标签页时自动推送）
+- HTML 添加 PWA meta tags、apple-mobile-web-app 标签
+
+### 2026-05-21 US-004 pywebview 桌面壳完成
+- src/news_sentry/cli/desktop.py — desktop 命令
+- pyproject.toml 添加 [desktop] extras (pywebview>=5.0)
+- cli/__init__.py 添加延迟导入
+- CLI --help 显示 desktop 命令及选项

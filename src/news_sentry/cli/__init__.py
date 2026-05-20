@@ -576,5 +576,5 @@ def _extract_module_doc(filepath: Path) -> str:
 
 __all__ = ["main"]
 
-# 延迟导入：main group 已完整定义，serve 模块通过 @main.command() 注册其子命令
-from news_sentry.cli import serve  # noqa: F401, E402
+# 延迟导入：main group 已完整定义，serve/desktop 模块通过 @main.command() 注册其子命令
+from news_sentry.cli import desktop, serve  # noqa: F401, E402
