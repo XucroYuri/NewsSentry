@@ -27,7 +27,7 @@ import secrets
 import time
 import uuid
 from collections import defaultdict
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -36,6 +36,7 @@ from typing import Any
 
 import yaml
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from news_sentry.core.async_store import AsyncStore
@@ -705,6 +706,20 @@ _store: AsyncStore | None = None
 _target_stores: dict[str, AsyncStore] = {}  # target_id → state.db 缓存
 _deployment_env: str = ""  # cloudflare|hetzner|docker|local|unknown
 _data_dir: Path = Path(os.environ.get("NEWSSENTRY_DATA_DIR", "./data"))
+
+# SSE 实时推送 — 每个 target_id 对应一组客户端队列
+# 当新事件到达时，通知所有监听该 target 的 SSE 连接
+_sse_queues: dict[str, list[asyncio.Queue]] = defaultdict(list)
+_sse_lock = asyncio.Lock()
+
+
+async def _notify_sse_clients(target_id: str, event: str, payload: dict[str, Any]) -> None:
+    """向指定 target 的所有 SSE 客户端推送消息。"""
+    async with _sse_lock:
+        queues = _sse_queues.get(target_id, [])
+        for q in queues:
+            await q.put({"event": event, "payload": payload})
+
 
 logger = logging.getLogger(__name__)
 
@@ -2285,6 +2300,66 @@ def create_app(
             raise HTTPException(status_code=404, detail="Event not found")
         return event
 
+    # ── SSE 实时推送 ─────────────────────────────────────
+
+    @app.get("/api/v1/events/stream")
+    async def event_stream(
+        request: Request,
+        target_id: str = Query(..., description="目标标识"),
+        token: str | None = Query(None, description="EventSource lacks Authorization header"),
+    ) -> StreamingResponse:
+        """SSE 端点：推送新事件通知到浏览器。
+
+        EventSource 无法设置 Authorization 头，因此支持 token 查询参数。
+        优先使用 Authorization 头，无头时检查 token 参数。
+
+        客户端通过 EventSource 连接，每 15s 发送心跳保活。
+        当有新事件通过 Webhook 或 Import 到达时，推送事件摘要。
+        """
+
+        # 手动认证：支持 Authorization 头 和 token 查询参数两种方式
+        auth_header = request.headers.get("Authorization", "")
+        bearer = auth_header.replace("Bearer ", "").strip()
+        actual_token = bearer or token or ""
+        if not actual_token:
+            raise HTTPException(status_code=401, detail="Missing authentication")
+
+        info = await _verify_token_async(actual_token)
+        if not info:
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+        queue: asyncio.Queue = asyncio.Queue()
+        async with _sse_lock:
+            _sse_queues[target_id].append(queue)
+
+        async def _cleanup() -> None:
+            async with _sse_lock:
+                queues = _sse_queues.get(target_id, [])
+                if queue in queues:
+                    queues.remove(queue)
+
+        async def _generate() -> AsyncGenerator[str, None]:
+            try:
+                while True:
+                    try:
+                        data = await asyncio.wait_for(queue.get(), timeout=15)
+                        payload = json.dumps(data["payload"], ensure_ascii=False)
+                        yield f"event: {data['event']}\ndata: {payload}\n\n"
+                    except TimeoutError:
+                        yield ": heartbeat\n\n"  # 心跳保活
+            finally:
+                await _cleanup()
+
+        return StreamingResponse(
+            _generate(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     @app.post("/api/v1/webhook", response_model=WebhookResponse)
     async def receive_webhook(
         payload: WebhookPayload,
@@ -2292,6 +2367,8 @@ def create_app(
         user: dict[str, Any] = Depends(require_permission("write")),
     ) -> WebhookResponse:
         event_id = _save_webhook_event(_data_dir, target_id, payload)
+        payload = {"event_id": event_id, "source": "webhook"}
+        asyncio.ensure_future(_notify_sse_clients(target_id, "new_event", payload))
         return WebhookResponse(
             status="accepted",
             event_id=event_id,
@@ -2380,6 +2457,10 @@ def create_app(
                         ),
                     )
                     await _store._db.commit()  # noqa: SLF001
+
+                # SSE 通知
+                sse_payload = {"event_id": event_id, "source": "import"}
+                asyncio.ensure_future(_notify_sse_clients(item.target_id, "new_event", sse_payload))
 
                 imported += 1
             except Exception as exc:

@@ -5,7 +5,7 @@
 "use strict";
 
 import {
-  state, $, $$, api, apiPost, escapeHtml, showError, showSuccess,
+  state, $, $$, api, apiPost, escapeHtml, showError, showSuccess, showInfo,
   t, isAuthenticated, hasPermission, authenticate, getConnection, clearConnection,
   setConnection, logAction,
 } from "./api.js";
@@ -456,6 +456,52 @@ async function refreshBadges() {
 }
 
 // ═══════════════════════════════════════════════════════════
+// §9.5 SSE 实时连接
+// ═══════════════════════════════════════════════════════════
+
+let _sseConnections = [];
+
+function connectSSE() {
+  // 关闭旧连接
+  _sseConnections.forEach(sse => sse.close());
+  _sseConnections = [];
+
+  const conn = getConnection();
+  if (!conn || !conn.token) return;
+  if (!state.currentTarget) return;
+
+  // 为当前 target 建立 SSE 连接
+  const base = conn.server || window.location.origin;
+  const url = `${base}/api/v1/events/stream?target_id=${encodeURIComponent(state.currentTarget)}&token=${encodeURIComponent(conn.token)}`;
+
+  const sse = new EventSource(url);
+  _sseConnections.push(sse);
+
+  sse.addEventListener("new_event", (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      showInfo(`📰 新事件: ${data.event_id?.substring(0, 20) || ""}...`);
+      // 如果在首页，自动刷新
+      if (window.location.hash.startsWith("#/news/overview")) {
+        refreshBadges();
+      }
+    } catch {}
+  });
+
+  sse.addEventListener("alert", (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      showInfo(`🚨 ${data.message || "新告警"}`);
+    } catch {}
+  });
+
+  sse.onerror = () => {
+    // EventSource 自动重连，我们只记录
+    console.warn("SSE 连接断开，自动重连中...");
+  };
+}
+
+// ═══════════════════════════════════════════════════════════
 // §10. 键盘快捷键
 // ═══════════════════════════════════════════════════════════
 
@@ -707,7 +753,15 @@ async function init() {
   if (isAuthenticated()) {
     await loadTargets();
     updateStatus();
+    connectSSE();
     setInterval(updateStatus, 30000);
+    // target 切换时重新连接 SSE
+    const targetSelect = document.getElementById("targetSelect");
+    if (targetSelect) {
+      targetSelect.addEventListener("change", () => {
+        setTimeout(connectSSE, 100);
+      });
+    }
   }
 
   // Routing

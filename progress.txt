@@ -6,3 +6,15 @@
 - PRD created with 6 stories
 - Current state: post-Phase 54 committed (94a5acc), ahead of origin/main
 - Start: US-001 文档自然语言重写 + Mermaid 图表化
+
+### 2026-05-21 US-001 + US-005 完成
+- US-001: AGENTS.md 全面重写 + 4 张 Mermaid 图
+- US-005: docs/known-issues.md 创建，问题编目
+- US-001 + US-005 已推送到 GitHub
+
+### 2026-05-21 US-002 SSE 完成
+- 后端: GET /api/v1/events/stream 端点，queue 推送模式
+- 前端: EventSource 连接，新事件 Toast 通知
+- Webhook 和 Import 端点已接入 SSE 通知
+- 0 ruff errors, 1448 测试通过
+- 30s 轮询保留为 fallback
