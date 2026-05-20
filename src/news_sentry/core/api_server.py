@@ -700,7 +700,7 @@ async def get_current_user(request: Request) -> dict[str, Any]:
 def require_permission(permission: str) -> Any:
     """依赖工厂：检查用户权限。"""
 
-    async def _check(user: dict = Depends(get_current_user)) -> dict[str, Any]:
+    async def _check(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
         role = user.get("role", "reader")
         if permission not in _PERMISSIONS.get(role, set()):
             raise HTTPException(status_code=403, detail="Insufficient permissions")
@@ -1441,7 +1441,7 @@ def create_app(
         return _create_token_for_user(f"key_{api_key[:8]}", "admin", True)
 
     @app.get("/api/v1/auth/me")
-    async def auth_me(user: dict = Depends(get_current_user)) -> dict[str, Any]:
+    async def auth_me(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
         """返回当前用户信息。"""
         return {
             "username": user["username"],
@@ -1460,7 +1460,7 @@ def create_app(
 
     @app.post("/api/v1/auth/change-password")
     async def auth_change_password(
-        request: Request, user: dict = Depends(get_current_user)
+        request: Request, user: dict[str, Any] = Depends(get_current_user)
     ) -> dict[str, str]:
         """修改当前用户密码。"""
         body = await request.json()
@@ -1487,7 +1487,7 @@ def create_app(
 
     @app.get("/api/v1/admin/users")
     async def admin_list_users(
-        user: dict = Depends(require_permission("admin")),
+        user: dict[str, Any] = Depends(require_permission("admin")),
     ) -> dict[str, Any]:
         """列出所有用户（不含 password_hash/salt）。"""
         if _store is None:
@@ -1510,7 +1510,7 @@ def create_app(
     @app.post("/api/v1/admin/users")
     async def admin_create_user(
         request: Request,
-        user: dict = Depends(require_permission("admin")),
+        user: dict[str, Any] = Depends(require_permission("admin")),
     ) -> dict[str, Any]:
         """创建新用户。"""
         body = await request.json()
@@ -1541,7 +1541,7 @@ def create_app(
     @app.delete("/api/v1/admin/users/{username}")
     async def admin_delete_user(
         username: str,
-        user: dict = Depends(require_permission("admin")),
+        user: dict[str, Any] = Depends(require_permission("admin")),
     ) -> dict[str, str]:
         """删除用户。不能删除自己。"""
         if username == user["username"]:
@@ -1557,7 +1557,7 @@ def create_app(
     async def admin_reset_password(
         username: str,
         request: Request,
-        user: dict = Depends(require_permission("admin")),
+        user: dict[str, Any] = Depends(require_permission("admin")),
     ) -> dict[str, Any]:
         """重置用户密码。"""
         body = await request.json()
@@ -1580,7 +1580,7 @@ def create_app(
 
     @app.get("/api/v1/settings/api-key")
     async def get_api_key_setting(
-        user: dict = Depends(require_permission("admin")),
+        user: dict[str, Any] = Depends(require_permission("admin")),
     ) -> dict[str, Any]:
         """获取当前用户的 API Key 设置。"""
         if _store is None:
@@ -1596,7 +1596,7 @@ def create_app(
     @app.put("/api/v1/settings/api-key")
     async def set_api_key_setting(
         request: Request,
-        user: dict = Depends(require_permission("admin")),
+        user: dict[str, Any] = Depends(require_permission("admin")),
     ) -> dict[str, str]:
         """设置当前用户的 API Key。"""
         body = await request.json()
@@ -1615,7 +1615,7 @@ def create_app(
     @app.delete("/api/v1/settings/api-key")
     async def delete_api_key_setting(
         request: Request,
-        user: dict = Depends(require_permission("admin")),
+        user: dict[str, Any] = Depends(require_permission("admin")),
     ) -> dict[str, str]:
         """删除当前用户的 API Key。"""
         if _store is None:
@@ -1652,7 +1652,8 @@ def create_app(
         nf = _data_dir / "notifications.json"
         if nf.exists():
             try:
-                return json.loads(nf.read_text(encoding="utf-8"))
+                result: dict[str, Any] = json.loads(nf.read_text(encoding="utf-8"))
+                return result
             except Exception as exc:
                 _log.warning("Failed to load notifications.json: %s", exc)
         return dict(_notifications_defaults)
@@ -1665,7 +1666,7 @@ def create_app(
 
     @app.get("/api/v1/settings/notifications")
     async def get_notifications(
-        user: dict = Depends(require_permission("admin")),
+        user: dict[str, Any] = Depends(require_permission("admin")),
     ) -> dict[str, Any]:
         """获取通知渠道配置。"""
         return _load_notifications()
@@ -1673,7 +1674,7 @@ def create_app(
     @app.put("/api/v1/settings/notifications")
     async def update_notifications(
         request: Request,
-        user: dict = Depends(require_permission("admin")),
+        user: dict[str, Any] = Depends(require_permission("admin")),
     ) -> dict[str, str]:
         """更新通知渠道配置。"""
         body = await request.json()
@@ -1685,7 +1686,7 @@ def create_app(
     @app.post("/api/v1/briefing/send")
     async def send_briefing(
         request: Request,
-        user: dict = Depends(require_permission("write")),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """生成简报并发送邮件。"""
         body = await request.json()
@@ -1711,11 +1712,10 @@ def create_app(
             try:
                 tids = [target_id] if target_id != "all" else ["italy"]
                 for tid in tids:
-                    evts = await _store.search_events(
+                    evts = await _store.query_events(
                         tid,
+                        "evaluated",
                         limit=10,
-                        sort_by="news_value_score",
-                        sort_order="desc",
                     )
                     events_data.extend(evts)
             except Exception as exc:
@@ -1760,7 +1760,7 @@ def create_app(
 
     @app.get("/api/v1/targets", response_model=TargetListResponse)
     async def list_targets(
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> TargetListResponse:
         """返回所有可用的 target 列表。"""
         configs = _load_target_configs()
@@ -1778,7 +1778,7 @@ def create_app(
     @app.get("/api/v1/stats", response_model=StatsResponse)
     async def get_stats(
         target_id: str = Query(..., description="目标标识"),
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> StatsResponse:
         """返回指定 target 的事件统计（优先使用 target state.db）。"""
         # 优先使用 target 自己的 state.db（与 pipeline 共享同一数据库）
@@ -1844,7 +1844,7 @@ def create_app(
     @app.get("/api/v1/config/targets/{target_id}")
     async def get_target_config(
         target_id: str,
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
         """读取指定 target 的完整配置。"""
         config_path = Path(f"config/targets/{target_id}.yaml")
@@ -1859,7 +1859,7 @@ def create_app(
     )
     async def list_sources(
         target_id: str,
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> SourceListResponse:
         """列出指定 target 的所有源渠道。"""
         raw_sources = _load_source_configs(target_id)
@@ -1896,7 +1896,7 @@ def create_app(
     async def get_source_config(
         target_id: str,
         source_id: str,
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
         """读取单个源渠道的完整配置。"""
         data = _load_single_source(target_id, source_id)
@@ -1913,7 +1913,7 @@ def create_app(
     )
     async def get_filter_rules(
         target_id: str,
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> FilterRulesResponse:
         """读取指定 target 的过滤规则。"""
         filter_path = Path(f"config/filters/{target_id}/default.yaml")
@@ -1940,7 +1940,7 @@ def create_app(
         response_model=DestinationListResponse,
     )
     async def list_destinations(
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> DestinationListResponse:
         """读取所有输出目的地配置。"""
         dest_path = Path("config/output/destinations.yaml")
@@ -1975,7 +1975,7 @@ def create_app(
         response_model=ProviderRoutesResponse,
     )
     async def get_provider_routes(
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> ProviderRoutesResponse:
         """读取 AI Provider 路由配置。"""
         routes_path = Path("config/provider/routes.yaml")
@@ -2014,7 +2014,7 @@ def create_app(
         entity_type: str | None = Query(None, description="按实体类型过滤"),
         target_id: str | None = Query(None, description="按目标过滤"),
         min_mentions: int = Query(1, ge=1, description="最少提及次数"),
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
         limit: int = Query(20, ge=1, le=100, description="返回数量"),
         sort: str = Query("mention_count", description="排序: mention_count 或 last_seen"),
     ) -> EntityListResponse:
@@ -2042,7 +2042,7 @@ def create_app(
     @app.get("/api/v1/entities/{entity_id}", response_model=EntityDetailResponse)
     async def get_entity(
         entity_id: int,
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> EntityDetailResponse:
         """返回实体详情及关联事件。"""
         if _store is None:
@@ -2061,7 +2061,7 @@ def create_app(
     @app.get("/api/v1/stats/today", response_model=TodayStatsResponse)
     async def get_today_stats_api(
         target_id: str = Query(..., description="目标标识"),
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> TodayStatsResponse:
         """今日 vs 昨日对比统计。"""
         if _store is None:
@@ -2074,7 +2074,7 @@ def create_app(
         target_id: str = Query(..., description="目标标识"),
         days: int = Query(7, ge=1, le=30, description="天数"),
         limit: int = Query(5, ge=1, le=20, description="数量"),
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> TopEventsResponse:
         """近期高价值事件（优先使用 target state.db）。"""
         events: list[dict[str, Any]] = []
@@ -2101,7 +2101,7 @@ def create_app(
         ),
         entity: str | None = Query(None, description="按实体名筛选"),
         topic_tag: str | None = Query(None, description="按主题标签筛选"),
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> EventResponse:
 
         # 优先使用 target 自己的 state.db（与 pipeline 共享同一数据库）
@@ -2173,7 +2173,7 @@ def create_app(
     async def get_event(
         event_id: str,
         target_id: str = Query(..., description="目标标识"),
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
 
         # 优先使用 target 自己的 state.db
@@ -2202,7 +2202,7 @@ def create_app(
     async def receive_webhook(
         payload: WebhookPayload,
         target_id: str = Query(..., description="目标标识"),
-        user: dict = Depends(require_permission("write")),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> WebhookResponse:
         event_id = _save_webhook_event(_data_dir, target_id, payload)
         return WebhookResponse(
@@ -2214,7 +2214,7 @@ def create_app(
     @app.post("/api/v1/events/import", response_model=ImportResponse)
     async def import_events(
         events: list[ImportEventItem],
-        user: dict = Depends(require_permission("write")),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> ImportResponse:
         """批量导入外部事件。
 
@@ -2302,7 +2302,7 @@ def create_app(
 
     @app.post("/api/v1/config/reload")
     async def reload_config(
-        user: dict = Depends(require_permission("write")),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, str]:
         """清除配置缓存，下次请求时重新从文件加载。"""
         _config_cache.reload()
@@ -2314,7 +2314,7 @@ def create_app(
     async def update_target_config(
         target_id: str,
         body: TargetConfigUpdate,
-        user: dict = Depends(require_permission("write")),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """更新 target 配置。"""
 
@@ -2339,7 +2339,7 @@ def create_app(
         target_id: str,
         source_id: str,
         body: SourceConfigUpdate,
-        user: dict = Depends(require_permission("write")),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """更新 source 配置。"""
 
@@ -2363,7 +2363,7 @@ def create_app(
     async def update_filter_config(
         target_id: str,
         body: FilterConfigUpdate,
-        user: dict = Depends(require_permission("write")),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """更新 filter 配置。"""
 
@@ -2387,7 +2387,7 @@ def create_app(
     async def update_destination_config(
         destination_id: str,
         body: DestinationConfigUpdate,
-        user: dict = Depends(require_permission("write")),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """更新 output destination 配置。"""
 
@@ -2422,7 +2422,7 @@ def create_app(
     async def update_provider_route(
         route_id: str,
         body: RouteConfigUpdate,
-        user: dict = Depends(require_permission("write")),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """更新 provider route 配置。"""
 
@@ -2459,7 +2459,7 @@ def create_app(
     async def list_runs(
         target_id: str = Query(..., description="目标标识"),
         limit: int = Query(20, ge=1, le=100),
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> RunListResponse:
         runs = _load_run_logs(_data_dir, target_id, limit)
         return RunListResponse(runs=[RunInfo(**r) for r in runs])
@@ -2467,7 +2467,7 @@ def create_app(
     @app.get("/api/v1/runs/active", response_model=HeartbeatResponse)
     async def get_active_run(
         target_id: str = Query(..., description="目标标识"),
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> HeartbeatResponse:
         data = _load_heartbeat(_data_dir, target_id)
         return HeartbeatResponse(**data)
@@ -2476,7 +2476,7 @@ def create_app(
     async def get_run_detail(
         run_id: str,
         target_id: str = Query(..., description="目标标识"),
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> RunDetailResponse:
         data = _load_single_run_log(_data_dir, run_id, target_id)
         if data is None:
@@ -2495,7 +2495,7 @@ def create_app(
     @app.get("/api/v1/sources/health", response_model=SourceHealthListResponse)
     async def list_source_health(
         target_id: str = Query(..., description="目标标识"),
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> SourceHealthListResponse:
         if _store is None:
             return SourceHealthListResponse(sources=[])
@@ -2506,7 +2506,7 @@ def create_app(
     async def trigger_run(
         target_id: str = Query(..., description="目标标识"),
         stage: str = Query("all", description="执行阶段"),
-        user: dict = Depends(require_permission("write")),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> TriggerResponse:
         try:
             import asyncio
@@ -2543,7 +2543,7 @@ def create_app(
     async def get_event_links(
         event_id: str,
         target_id: str = Query(..., description="目标标识"),
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> EventLinksResponse:
         """获取某事件的关联事件列表。"""
         if _store is None:
@@ -2580,7 +2580,7 @@ def create_app(
     async def get_event_chain(
         event_id: str,
         target_id: str = Query(..., description="目标标识"),
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> EventChainResponse:
         """获取某事件的完整追踪链。"""
         if _store is None:
@@ -2601,7 +2601,7 @@ def create_app(
     @app.get("/api/v1/chains", response_model=ChainListResponse)
     async def list_chains(
         target_id: str = Query(..., description="目标标识"),
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> ChainListResponse:
         """列出当前 target 的活跃追踪链。"""
         if _store is None:
@@ -2615,7 +2615,7 @@ def create_app(
     async def get_chain_narrative(
         root_id: str,
         target_id: str = Query(..., description="目标标识"),
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> NarrativeResponse:
         """获取链的 AI 叙述。"""
         if _store is None:
@@ -2635,7 +2635,7 @@ def create_app(
     async def regenerate_chain_narrative(
         root_id: str,
         target_id: str = Query(..., description="目标标识"),
-        user: dict = Depends(require_permission("write")),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> NarrativeResponse:
         """手动重新生成链叙述。"""
         if _store is None:
@@ -2672,7 +2672,7 @@ def create_app(
     async def get_topic_trends(
         target_id: str = Query(..., description="目标标识"),
         days: int = Query(14, ge=7, le=30, description="天数"),
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> TopicTrendsResponse:
         """主题热度趋势。"""
         if _store is None:
@@ -2701,7 +2701,7 @@ def create_app(
     async def get_sentiment_trends(
         target_id: str = Query(..., description="目标标识"),
         days: int = Query(14, ge=7, le=30, description="天数"),
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> SentimentTrendsResponse:
         """情感分布趋势。"""
         if _store is None:
@@ -2740,7 +2740,7 @@ def create_app(
     @app.get("/api/v1/alerts/smart", response_model=SmartAlertsResponse)
     async def get_smart_alerts(
         target_id: str = Query(..., description="目标标识"),
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> SmartAlertsResponse:
         """获取智能告警列表。"""
         if _store is None:
@@ -2764,7 +2764,7 @@ def create_app(
     async def maintenance_prune(
         target_id: str = Query(..., description="目标标识"),
         max_age_days: int = Query(30, ge=7, le=365, description="保留天数"),
-        user: dict = Depends(require_permission("write")),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> PruneResponse:
         """手动触发数据清理。"""
         if _store is None:
@@ -2774,7 +2774,7 @@ def create_app(
 
     @app.post("/api/v1/maintenance/backup", response_model=BackupResponse)
     async def maintenance_backup(
-        user: dict = Depends(require_permission("write")),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> BackupResponse:
         """手动触发数据库备份。"""
         if _store is None:
@@ -2789,7 +2789,7 @@ def create_app(
     @app.post("/api/v1/feedback", response_model=FeedbackSubmitResponse)
     async def submit_feedback(
         req: FeedbackSubmitRequest,
-        user: dict = Depends(require_permission("write")),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> FeedbackSubmitResponse:
         """提交人工反馈。"""
         if _store is None:
@@ -2815,7 +2815,7 @@ def create_app(
     @app.get("/api/v1/feedback", response_model=FeedbackListResponse)
     async def list_feedback(
         target_id: str = Query(..., description="目标标识"),
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> FeedbackListResponse:
         """获取反馈列表。"""
         if _store is None:
@@ -2840,7 +2840,7 @@ def create_app(
     @app.get("/api/v1/feedback/stats", response_model=FeedbackStatsResponse)
     async def feedback_stats(
         target_id: str = Query(..., description="目标标识"),
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> FeedbackStatsResponse:
         """获取反馈统计。"""
         if _store is None:
@@ -2851,7 +2851,7 @@ def create_app(
     @app.post("/api/v1/rules/optimize", response_model=RulesOptimizeResponse)
     async def optimize_rules(
         req: RulesOptimizeRequest,
-        user: dict = Depends(require_permission("write")),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> RulesOptimizeResponse:
         """触发规则优化。"""
         config_dir = Path("config")
@@ -2873,7 +2873,7 @@ def create_app(
     @app.get("/api/v1/alerts/history", response_model=AlertHistoryResponse)
     async def alert_history(
         target_id: str = Query(..., description="目标标识"),
-        user: dict = Depends(get_current_user),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> AlertHistoryResponse:
         """获取告警历史。"""
         if _store is None:
