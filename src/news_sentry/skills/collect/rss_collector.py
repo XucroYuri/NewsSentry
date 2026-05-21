@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import calendar
+import logging
 import time
 import traceback
 from collections.abc import Callable
@@ -21,6 +22,8 @@ import httpx
 
 from news_sentry.core.ratelimit import RateLimiter
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+
+logger = logging.getLogger(__name__)
 
 
 def _retry_fetch(
@@ -307,8 +310,8 @@ class RSSCollector:
             try:
                 ts = calendar.timegm(published_parsed)
                 return datetime.fromtimestamp(ts, tz=UTC).isoformat()
-            except Exception:  # noqa: S110
-                pass
+            except Exception as exc:  # noqa: S110
+                logger.warning("published_parsed 解析失败: exc=%s", exc)
 
         # 尝试 published 字符串
         published_str = entry.get("published", "")
@@ -318,8 +321,8 @@ class RSSCollector:
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=UTC)
                 return dt.isoformat()
-            except Exception:  # noqa: S110
-                pass
+            except Exception as exc:  # noqa: S110
+                logger.warning("published 字符串解析失败: published=%s exc=%s", published_str, exc)
 
         # 尝试 updated_parsed（struct_time，UTC）
         updated_parsed = entry.get("updated_parsed")
@@ -327,8 +330,8 @@ class RSSCollector:
             try:
                 ts = calendar.timegm(updated_parsed)
                 return datetime.fromtimestamp(ts, tz=UTC).isoformat()
-            except Exception:  # noqa: S110
-                pass
+            except Exception as exc:  # noqa: S110
+                logger.warning("updated_parsed 解析失败: exc=%s", exc)
 
         # 尝试 updated 字符串
         updated_str = entry.get("updated", "")
@@ -338,8 +341,8 @@ class RSSCollector:
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=UTC)
                 return dt.isoformat()
-            except Exception:  # noqa: S110
-                pass
+            except Exception as exc:  # noqa: S110
+                logger.warning("updated 字符串解析失败: updated=%s exc=%s", updated_str, exc)
 
         # 全部缺失，使用当前时间
         return datetime.now(UTC).isoformat()

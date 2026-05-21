@@ -266,8 +266,8 @@ Output ONLY valid JSON, no markdown, no extra text. Use this exact format:
 
         try:
             return json.loads(text)  # type: ignore[no-any-return]
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as exc:
+            logger.debug("直接 JSON 解析失败，尝试提取花括号块: event_id=%s exc=%s", event_id, exc)
 
         # 尝试查找第一个 { 到最后一个 }
         start = text.find("{")
@@ -275,8 +275,8 @@ Output ONLY valid JSON, no markdown, no extra text. Use this exact format:
         if start != -1 and end != -1 and end > start:
             try:
                 return json.loads(text[start : end + 1])  # type: ignore[no-any-return]
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as exc:
+                logger.debug("花括号块 JSON 解析失败: event_id=%s exc=%s", event_id, exc)
 
         logger.warning("无法解析 AI 响应 JSON: event_id=%s", event_id)
         return {}

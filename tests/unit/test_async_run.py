@@ -256,7 +256,7 @@ class TestBoundedRunAsync:
         mock_store.close = AsyncMock()
 
         with (
-            patch("news_sentry.core.async_run.ConfigLoader") as mock_loader,
+            patch("news_sentry.core.run.ConfigLoader") as mock_loader,
             patch(
                 "news_sentry.core.async_run._init_async_store_for_target",
                 new_callable=AsyncMock,
@@ -280,7 +280,7 @@ class TestBoundedRunAsync:
             ) as mock_output,
             patch("news_sentry.core.async_run.write_heartbeat"),
             patch(
-                "news_sentry.core.async_run._find_project_root",
+                "news_sentry.core.run._find_project_root",
                 return_value=MagicMock(),
             ),
         ):
@@ -313,7 +313,7 @@ class TestBoundedRunAsync:
         mock_store.close = AsyncMock()
 
         with (
-            patch("news_sentry.core.async_run.ConfigLoader") as mock_loader,
+            patch("news_sentry.core.run.ConfigLoader") as mock_loader,
             patch(
                 "news_sentry.core.async_run._init_async_store_for_target",
                 new_callable=AsyncMock,
@@ -324,7 +324,7 @@ class TestBoundedRunAsync:
                 new_callable=AsyncMock,
             ) as mock_collect,
             patch(
-                "news_sentry.core.async_run._find_project_root",
+                "news_sentry.core.run._find_project_root",
                 return_value=MagicMock(),
             ),
         ):

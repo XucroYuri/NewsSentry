@@ -156,7 +156,7 @@ export async function renderRunStatusTab(container) {
         ${runsTableHtml}
       </div>`;
 
-    // Trigger button — BUG FIX: showSuccess not showError
+    // Trigger button
     document.getElementById("triggerBtn").addEventListener("click", async () => {
       const stage = document.getElementById("triggerStage").value;
       const btn = document.getElementById("triggerBtn");

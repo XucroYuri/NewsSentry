@@ -32,7 +32,11 @@ def main() -> None:
 )
 @click.option("--run-id", default=None, help="Specify run_id. Auto-generated if not provided.")
 @click.option("--dry-run", is_flag=True, default=False, help="Print plan without executing.")
-@click.option("--log-level", default="INFO", type=click.Choice(["DEBUG", "INFO", "WARNING"]))
+@click.option(
+    "--log-level",
+    default="INFO",
+    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]),
+)
 @click.option("--config-dir", default=None, help="Override project root directory.")
 @click.option(
     "--profile",

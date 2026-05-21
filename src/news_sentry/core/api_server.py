@@ -1295,7 +1295,7 @@ def create_app(
         o.strip()
         for o in os.environ.get(
             "CORS_ALLOWED_ORIGINS",
-            "http://localhost:8000,http://localhost:3000",
+            "http://localhost:8000,http://127.0.0.1:8000,http://localhost:3000",
         ).split(",")
         if o.strip()
     ]
@@ -1575,7 +1575,7 @@ def create_app(
     ) -> dict[str, Any]:
         """列出所有用户（不含 password_hash/salt）。"""
         if _store is None:
-            raise HTTPException(status_code=503, detail="Store not available")
+            return {"users": [], "total": 0}
         users = await _store.list_users()
         safe_users = []
         for u in users:
@@ -1668,7 +1668,7 @@ def create_app(
     ) -> dict[str, Any]:
         """获取当前用户的 API Key 设置。"""
         if _store is None:
-            raise HTTPException(status_code=503, detail="Store not available")
+            return {"has_api_key": False, "api_key_preview": ""}
         user_record = await _store.get_user(user["username"])
         api_key = user_record.get("api_key") if user_record else None
         preview = f"{api_key[:4]}...{api_key[-4:]}" if api_key and len(api_key) >= 8 else ""
@@ -2844,7 +2844,12 @@ def create_app(
     ) -> TopicTrendsResponse:
         """主题热度趋势。"""
         if _store is None:
-            raise HTTPException(status_code=503, detail="Store not available")
+            return TopicTrendsResponse(
+                target_id=target_id,
+                days=days,
+                topics=[],
+                generated_at=datetime.now(UTC).isoformat(),
+            )
         try:
             daily_counts = await _store.get_topic_daily_counts(target_id, days=days)
             top_topics = await _store.get_top_topics(target_id, days=days, limit=10)
@@ -2868,7 +2873,12 @@ def create_app(
     ) -> SentimentTrendsResponse:
         """情感分布趋势。"""
         if _store is None:
-            raise HTTPException(status_code=503, detail="Store not available")
+            return SentimentTrendsResponse(
+                target_id=target_id,
+                days=days,
+                daily_sentiment=[],
+                generated_at=datetime.now(UTC).isoformat(),
+            )
         try:
             raw = await _store.get_sentiment_daily_counts(target_id, days=days)
             # 转换为按天聚合
@@ -2902,7 +2912,7 @@ def create_app(
     ) -> SmartAlertsResponse:
         """获取智能告警列表。"""
         if _store is None:
-            raise HTTPException(status_code=503, detail="Store not available")
+            return SmartAlertsResponse(target_id=target_id, alerts=[], total=0)
         try:
             from news_sentry.core.alert_pipeline import AlertPipeline
 

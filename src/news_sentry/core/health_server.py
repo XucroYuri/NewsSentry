@@ -7,6 +7,7 @@ Uses stdlib http.server — no external dependencies.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import threading
@@ -14,6 +15,8 @@ from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -47,8 +50,8 @@ def _collect_health() -> dict[str, Any]:
         mem_info["disk_used_gb"] = round(usage.used / 1024**3, 1)
         mem_info["disk_free_gb"] = round(usage.free / 1024**3, 1)
         mem_info["disk_pct"] = round(usage.used / usage.total * 100, 1)
-    except OSError:
-        pass
+    except OSError as exc:
+        logger.warning("无法获取根目录磁盘使用情况: %s", exc)
 
     # Data directory
     data_dir = os.environ.get("NEWSSENTRY_DATA_DIR", "./data")
@@ -59,8 +62,8 @@ def _collect_health() -> dict[str, Any]:
             du = shutil.disk_usage(data_path)
             data_info["disk_pct"] = round(du.used / du.total * 100, 1)
             data_info["disk_free_gb"] = round(du.free / 1024**3, 1)
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.warning("无法获取数据目录磁盘使用情况: %s", exc)
 
     # Recent run logs
     logs_dir = data_path / "logs"
@@ -71,8 +74,8 @@ def _collect_health() -> dict[str, Any]:
                 [p.name for p in logs_dir.glob("run-*.json")],
                 reverse=True,
             )[:5]
-        except OSError:
-            pass
+        except OSError as exc:
+            logger.warning("无法读取运行日志目录: %s", exc)
 
     # Environment indicators
     env_status: dict[str, bool] = {

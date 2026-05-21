@@ -92,3 +92,8 @@ config/**/*.local.yml
 # Session profiles (credentials, 不进 Git)
 config/session-profiles/italy/*.yaml
 config/session-profiles/italy/*.json
+
+# P56 build artifacts
+prd.json
+progress.txt
+src/news_sentry/static/diagnose.html

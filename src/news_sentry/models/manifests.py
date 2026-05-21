@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 class RuntimeCompatibility(StrEnum):
     HERMES = "hermes"
-    OPENCLAW = "openclaw"
+    OPENCLAW = "openclaw"  # noqa: ERA001 — reserved, not yet implemented
     CLI = "cli"
 
 
