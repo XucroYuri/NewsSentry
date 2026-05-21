@@ -29,7 +29,7 @@
 > Phase 54 质量加固: ✅ 全部完成 (Store 同步初始化修复 + markdown_writer 100% 覆盖 + AGENTS.md 同步)
 > Phase 55 桌面壳: ✅ 全部完成 (pywebview 6.x API 适配 + 系统托盘 + 配置持久化 + SSE/PWA + Gtk macOS 窗口 + 6 US PRD)
 > Phase 56 技术债清理: ✅ 全部完成 (测试修复 + 端点降级 + 静默异常加日志 + 日志级别 + 清理工件)
-> Phase 57 桌面壳跨平台: 🔧 进行中 (Linux/Windows 适配 ✅ + PyInstaller 打包 ✅)
+> Phase 57 桌面壳跨平台: ✅ 全部完成 (跨平台适配 + PyInstaller 打包 + 开机自启 + 通知统一 + 更新检测)
 > 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](spec/README.md) 为准）
 > Cloud VPS 方案: [docs/deployment/cloud-vps-recommendations.md](./deployment/cloud-vps-recommendations.md)
 > 字段口径基准: [`docs/contracts-canonical.md`](./contracts-canonical.md)
@@ -1437,24 +1437,27 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P56.05 | OpenClaw 枚举注释 | manifests.py | S | ✅ |
 | P56.06 | known-issues 更新 | known-issues.md | S | ✅ |
 
-### Phase 57 · 桌面壳跨平台适配 🔧
+### Phase 57 · 桌面壳跨平台适配 ✅
 
-**目标：** 将 pywebview 桌面壳从 macOS-only 扩展为 macOS/Linux/Windows 三平台可用，并支持 PyInstaller 打包。
+**目标：** 将 pywebview 桌面壳从 macOS-only 扩展为 macOS/Linux/Windows 三平台可用，并支持 PyInstaller 打包、开机自启动、原生通知、自动更新检测。
 
 **核心交付：**
 - Linux 桌面适配：`_os_info()` 跨平台信息 + 统一 `os._exit()` 退出 + xdg-open 已覆盖
 - Windows 系统托盘验证：`_on_quit` 加 `_stop_tray()` 清理 + `pywin32` 依赖
 - Pillow 显式依赖加入 desktop extras
 - PyInstaller 打包：`news-sentry.spec` onefile 配置，27MB arm64 macOS 构建成功
+- 开机自启动：`desktop --autostart/--no-autostart`，macOS LaunchAgent + Linux XDG autostart + Windows 注册表
+- 桌面通知统一：pywebview JS bridge `_NativeNotifyApi` + 前端 Notification API 降级
+- 自动更新检测：GitHub Releases API 检查新版本 + CLI 提示 + 前端更新横幅
 
 | ID | 内容 | 输出物 | 规模 | 状态 |
 |----|------|--------|------|------|
 | P57.01 | Linux 桌面适配 | desktop.py `_os_info()` + 统一退出 | M | ✅ |
 | P57.02 | Windows 系统托盘验证 | desktop.py `_on_quit` 清理 + pywin32 依赖 | M | ✅ |
 | P57.03 | PyInstaller 打包 | news-sentry.spec onefile | L | ✅ |
-| P57.04 | 开机自启动配置 | macOS/Linux/Windows 自启动 | M | 🔲 |
-| P57.05 | 桌面通知统一 | SSE → 原生通知 | M | 🔲 |
-| P57.06 | 自动更新检测 | GitHub Releases 检查 | S | 🔲 |
+| P57.04 | 开机自启动配置 | desktop --autostart 三平台 | M | ✅ |
+| P57.05 | 桌面通知统一 | JS bridge 原生通知 + 前端降级 | M | ✅ |
+| P57.06 | 自动更新检测 | GitHub Releases + 横幅 | S | ✅ |
 
 ---
 
