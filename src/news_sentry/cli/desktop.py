@@ -571,7 +571,7 @@ def desktop(
 
         def _on_closing() -> None:
             """关闭窗口 → 隐藏到托盘。"""
-            window.hide()  # type: ignore[union-attr]
+            window.hide()  # type: ignore
 
         if window is not None:
             window.events.closing += _on_closing
@@ -604,8 +604,8 @@ def desktop(
     def _on_window_closed() -> None:
         _save_desktop_config(
             {
-                "window_width": window.width,  # type: ignore[union-attr]
-                "window_height": window.height,  # type: ignore[union-attr]
+                "window_width": window.width,  # type: ignore
+                "window_height": window.height,  # type: ignore
                 "port": port,
             }
         )
