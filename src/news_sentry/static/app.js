@@ -465,11 +465,30 @@ async function refreshBadges() {
 // ═══════════════════════════════════════════════════════════
 
 let _sseConnections = [];
+let _sseRetryCount = 0;
+let _sseRetryTimer = null;
+const _SSE_MAX_RETRY = 5;
+const _SSE_BASE_DELAY = 1000;
+
+function _updateSSEStatus(status) {
+  // status: "connected" | "connecting" | "disconnected"
+  let bar = document.getElementById("sse-status-bar");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "sse-status-bar";
+    bar.style.cssText = "position:fixed;top:0;left:0;right:0;height:3px;z-index:10000;transition:opacity 0.3s,background 0.3s;pointer-events:none;";
+    document.body.appendChild(bar);
+  }
+  const colors = { connected: "#22c55e", connecting: "#eab308", disconnected: "#ef4444" };
+  bar.style.background = colors[status] || colors.disconnected;
+  bar.style.opacity = status === "connected" ? "0.6" : "1";
+}
 
 function connectSSE() {
   // 关闭旧连接
   _sseConnections.forEach(sse => sse.close());
   _sseConnections = [];
+  clearTimeout(_sseRetryTimer);
 
   const conn = getConnection();
   if (!conn || !conn.token) return;
@@ -479,8 +498,14 @@ function connectSSE() {
   const base = conn.server || window.location.origin;
   const url = `${base}/api/v1/events/stream?target_id=${encodeURIComponent(state.currentTarget)}&token=${encodeURIComponent(conn.token)}`;
 
+  _updateSSEStatus("connecting");
   const sse = new EventSource(url);
   _sseConnections.push(sse);
+
+  sse.onopen = () => {
+    _sseRetryCount = 0;
+    _updateSSEStatus("connected");
+  };
 
   sse.addEventListener("new_event", (e) => {
     try {
@@ -508,8 +533,21 @@ function connectSSE() {
   });
 
   sse.onerror = () => {
-    // EventSource 自动重连，我们只记录
-    console.warn("SSE 连接断开，自动重连中...");
+    if (sse.readyState === EventSource.CLOSED) {
+      // EventSource 不再自动重连，手动指数退避重连
+      _updateSSEStatus("disconnected");
+      if (_sseRetryCount < _SSE_MAX_RETRY) {
+        const delay = _SSE_BASE_DELAY * Math.pow(2, _sseRetryCount);
+        _sseRetryCount++;
+        console.warn(`SSE 连接关闭，${delay}ms 后手动重连 (${_sseRetryCount}/${_SSE_MAX_RETRY})`);
+        _sseRetryTimer = setTimeout(connectSSE, delay);
+      } else {
+        console.warn("SSE 重连次数已达上限，停止重连");
+      }
+    } else {
+      // CONNECTING 状态 — EventSource 内置重连中
+      _updateSSEStatus("connecting");
+    }
   };
 }
 

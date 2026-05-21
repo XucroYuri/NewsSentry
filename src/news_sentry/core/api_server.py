@@ -705,6 +705,7 @@ def _extract_bearer_token(request: Request) -> str | None:
 _store: AsyncStore | None = None
 _target_stores: dict[str, AsyncStore] = {}  # target_id → state.db 缓存
 _deployment_env: str = ""  # cloudflare|hetzner|docker|local|unknown
+_skip_lifespan: bool = False  # 测试时跳过 lifespan 异步操作（避免 aiosqlite 跨 loop 挂起）
 _data_dir: Path = Path(os.environ.get("NEWSSENTRY_DATA_DIR", "./data"))
 
 # SSE 实时推送 — 每个 target_id 对应一组客户端队列
@@ -1248,12 +1249,12 @@ async def _restore_sessions() -> None:
 async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
     """FastAPI lifespan: 启动引导 + 后台采集循环。"""
     global _store
-    if _store is not None:
+    if _store is not None and not _skip_lifespan:
         await _store.initialize()
         await _bootstrap_users()
         await _restore_sessions()
     task = None
-    if _auto_collector_state["enabled"]:
+    if _auto_collector_state["enabled"] and not _skip_lifespan:
         task = asyncio.create_task(_auto_collect_loop())
         _auto_collector_state["task"] = task
     yield
@@ -1273,6 +1274,7 @@ def create_app(
     data_dir: str | Path | None = None,
     store: AsyncStore | None = None,
     auto_store: bool = True,
+    skip_lifespan: bool = False,
 ) -> FastAPI:
     """创建 FastAPI 应用实例。
 
@@ -1280,7 +1282,10 @@ def create_app(
         data_dir: 数据根目录，默认 ./data。
         store: AsyncStore 实例（Phase 28 新增，用于 SQLite 查询）。
         auto_store: 无传入 store 时自动创建（Cloudflare/生产=True，测试=False）。
+        skip_lifespan: 跳过 lifespan 中的异步初始化（测试场景，避免 aiosqlite 跨 loop 挂起）。
     """
+    global _skip_lifespan
+    _skip_lifespan = skip_lifespan
     app = FastAPI(
         title="News Sentry API",
         version="0.1.0",

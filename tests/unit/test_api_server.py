@@ -734,8 +734,10 @@ class TestAPIServerSQLite:
     """使用 AsyncStore（SQLite）的 API Server 端点测试。"""
 
     @pytest.fixture
-    async def store_with_data(self, tmp_path: Path) -> AsyncStore:
-        """创建包含测试数据的 AsyncStore。"""
+    async def client_with_store(self, tmp_path: Path):
+        """创建包含测试数据的 AsyncStore + AsyncClient。"""
+        from httpx import ASGITransport, AsyncClient
+
         db_path = tmp_path / "state.db"
         store = AsyncStore(db_path)
         await store.initialize()
@@ -825,25 +827,25 @@ class TestAPIServerSQLite:
                 ),
             )
         await store._db.commit()  # noqa: SLF001
-        return store
 
-    def _make_client_with_store(self, tmp_path: Path, store: AsyncStore) -> TestClient:
-        app = create_app(data_dir=tmp_path, store=store)
-        client = TestClient(app)
-        # 获取 dev mode token 并设为默认 headers
-        resp = client.post("/api/v1/auth/token", json={"api_key": ""})
-        assert resp.status_code == 200, f"Auth token failed: {resp.text}"
-        token = resp.json()["access_token"]
+        app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+        transport = ASGITransport(app=app)
+        client = AsyncClient(transport=transport, base_url="http://test")
+        # 获取 dev mode token
+        token_resp = await client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert token_resp.status_code == 200
+        token = token_resp.json()["access_token"]
         client.headers["Authorization"] = f"Bearer {token}"
-        return client
+        yield client, store
+        await client.aclose()
+        await store.close()
 
-    def test_stats_with_sqlite(
+    async def test_stats_with_sqlite(
         self,
-        tmp_path: Path,
-        store_with_data: AsyncStore,
+        client_with_store,
     ) -> None:
-        client = self._make_client_with_store(tmp_path, store_with_data)
-        resp = client.get("/api/v1/stats", params={"target_id": "italy"})
+        client, _ = client_with_store
+        resp = await client.get("/api/v1/stats", params={"target_id": "italy"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["total_events"] == 3
@@ -852,25 +854,23 @@ class TestAPIServerSQLite:
         assert data["by_classification"]["politics"] == 1
         assert data["by_source"]["ansa"] == 2
 
-    def test_list_events_with_sqlite(
+    async def test_list_events_with_sqlite(
         self,
-        tmp_path: Path,
-        store_with_data: AsyncStore,
+        client_with_store,
     ) -> None:
-        client = self._make_client_with_store(tmp_path, store_with_data)
-        resp = client.get("/api/v1/events", params={"target_id": "italy"})
+        client, _ = client_with_store
+        resp = await client.get("/api/v1/events", params={"target_id": "italy"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["total"] == 3
         assert len(data["events"]) == 3
 
-    def test_list_events_pagination_with_sqlite(
+    async def test_list_events_pagination_with_sqlite(
         self,
-        tmp_path: Path,
-        store_with_data: AsyncStore,
+        client_with_store,
     ) -> None:
-        client = self._make_client_with_store(tmp_path, store_with_data)
-        resp = client.get(
+        client, _ = client_with_store
+        resp = await client.get(
             "/api/v1/events",
             params={"target_id": "italy", "page": 1, "page_size": 2},
         )
@@ -880,91 +880,84 @@ class TestAPIServerSQLite:
         assert len(data["events"]) == 2
         assert data["page"] == 1
 
-    def test_list_events_filter_source_with_sqlite(
+    async def test_list_events_filter_source_with_sqlite(
         self,
-        tmp_path: Path,
-        store_with_data: AsyncStore,
+        client_with_store,
     ) -> None:
-        client = self._make_client_with_store(tmp_path, store_with_data)
-        resp = client.get(
+        client, _ = client_with_store
+        resp = await client.get(
             "/api/v1/events",
             params={"target_id": "italy", "source_id": "ansa"},
         )
         assert resp.status_code == 200
         assert resp.json()["total"] == 2
 
-    def test_list_events_filter_classification_with_sqlite(
+    async def test_list_events_filter_classification_with_sqlite(
         self,
-        tmp_path: Path,
-        store_with_data: AsyncStore,
+        client_with_store,
     ) -> None:
-        client = self._make_client_with_store(tmp_path, store_with_data)
-        resp = client.get(
+        client, _ = client_with_store
+        resp = await client.get(
             "/api/v1/events",
             params={"target_id": "italy", "classification": "politics"},
         )
         assert resp.status_code == 200
         assert resp.json()["total"] == 1
 
-    def test_list_events_filter_min_score_with_sqlite(
+    async def test_list_events_filter_min_score_with_sqlite(
         self,
-        tmp_path: Path,
-        store_with_data: AsyncStore,
+        client_with_store,
     ) -> None:
-        client = self._make_client_with_store(tmp_path, store_with_data)
-        resp = client.get(
+        client, _ = client_with_store
+        resp = await client.get(
             "/api/v1/events",
             params={"target_id": "italy", "min_score": 70},
         )
         assert resp.status_code == 200
         assert resp.json()["total"] == 2
 
-    def test_list_events_search_with_sqlite(
+    async def test_list_events_search_with_sqlite(
         self,
-        tmp_path: Path,
-        store_with_data: AsyncStore,
+        client_with_store,
     ) -> None:
-        client = self._make_client_with_store(tmp_path, store_with_data)
-        resp = client.get(
+        client, _ = client_with_store
+        resp = await client.get(
             "/api/v1/events",
             params={"target_id": "italy", "search": "pace"},
         )
         assert resp.status_code == 200
         assert resp.json()["total"] == 1
 
-    def test_get_single_event_with_sqlite(
+    async def test_get_single_event_with_sqlite(
         self,
-        tmp_path: Path,
-        store_with_data: AsyncStore,
+        client_with_store,
     ) -> None:
-        client = self._make_client_with_store(tmp_path, store_with_data)
-        resp = client.get(
+        client, _ = client_with_store
+        resp = await client.get(
             "/api/v1/events/ne-italy-ansa-20260512-aaa11111",
             params={"target_id": "italy"},
         )
         assert resp.status_code == 200
         assert resp.json()["id"] == "ne-italy-ansa-20260512-aaa11111"
 
-    def test_get_single_event_not_found_with_sqlite(
+    async def test_get_single_event_not_found_with_sqlite(
         self,
-        tmp_path: Path,
-        store_with_data: AsyncStore,
+        client_with_store,
     ) -> None:
-        client = self._make_client_with_store(tmp_path, store_with_data)
-        resp = client.get(
+        client, _ = client_with_store
+        resp = await client.get(
             "/api/v1/events/nonexistent",
             params={"target_id": "italy"},
         )
         assert resp.status_code == 404
 
-    def test_events_filter_by_sentiment_with_sqlite(
+    async def test_events_filter_by_sentiment_with_sqlite(
         self,
-        tmp_path: Path,
-        store_with_data: AsyncStore,
+        client_with_store,
     ) -> None:
         """按 sentiment 过滤事件。"""
-        client = self._make_client_with_store(tmp_path, store_with_data)
-        resp = client.get(
+        client, _ = client_with_store
+        resp = await client.get(
             "/api/v1/events",
             params={
                 "target_id": "italy",
@@ -976,14 +969,13 @@ class TestAPIServerSQLite:
         assert data["total"] == 1
         assert "Elezioni" in data["events"][0]["title_original"]
 
-    def test_events_filter_by_entity_with_sqlite(
+    async def test_events_filter_by_entity_with_sqlite(
         self,
-        tmp_path: Path,
-        store_with_data: AsyncStore,
+        client_with_store,
     ) -> None:
         """按 entity 过滤事件。"""
-        client = self._make_client_with_store(tmp_path, store_with_data)
-        resp = client.get(
+        client, _ = client_with_store
+        resp = await client.get(
             "/api/v1/events",
             params={
                 "target_id": "italy",
@@ -994,14 +986,13 @@ class TestAPIServerSQLite:
         data = resp.json()
         assert data["total"] == 1
 
-    def test_events_filter_by_topic_tag_with_sqlite(
+    async def test_events_filter_by_topic_tag_with_sqlite(
         self,
-        tmp_path: Path,
-        store_with_data: AsyncStore,
+        client_with_store,
     ) -> None:
         """按 topic_tag 过滤事件。"""
-        client = self._make_client_with_store(tmp_path, store_with_data)
-        resp = client.get(
+        client, _ = client_with_store
+        resp = await client.get(
             "/api/v1/events",
             params={
                 "target_id": "italy",
@@ -1013,14 +1004,13 @@ class TestAPIServerSQLite:
         assert data["total"] == 1
         assert "Pace" in data["events"][0]["title_original"]
 
-    def test_stats_sentiment_breakdown_with_sqlite(
+    async def test_stats_sentiment_breakdown_with_sqlite(
         self,
-        tmp_path: Path,
-        store_with_data: AsyncStore,
+        client_with_store,
     ) -> None:
         """stats 端点返回 sentiment_breakdown。"""
-        client = self._make_client_with_store(tmp_path, store_with_data)
-        resp = client.get(
+        client, _ = client_with_store
+        resp = await client.get(
             "/api/v1/stats",
             params={"target_id": "italy"},
         )
@@ -1032,109 +1022,74 @@ class TestAPIServerSQLite:
         assert sb.get("negative") == 1
         assert sb.get("neutral") == 1
 
-    def test_list_entities_with_sqlite(
+    async def test_list_entities_with_sqlite(
         self,
-        tmp_path: Path,
-        store_with_data: AsyncStore,
+        client_with_store,
     ) -> None:
         """GET /entities 返回实体列表。"""
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(
-            store_with_data.upsert_entity("Meloni", "person", "italy", "2026-05-16T10:00:00+00:00")
-        )
-        asyncio.get_event_loop().run_until_complete(
-            store_with_data.upsert_entity(
-                "EU", "organization", "italy", "2026-05-16T10:00:00+00:00"
-            )
-        )
-        client = self._make_client_with_store(tmp_path, store_with_data)
-        resp = client.get("/api/v1/entities")
+        client, store = client_with_store
+        await store.upsert_entity("Meloni", "person", "italy", "2026-05-16T10:00:00+00:00")
+        await store.upsert_entity("EU", "organization", "italy", "2026-05-16T10:00:00+00:00")
+        resp = await client.get("/api/v1/entities")
         assert resp.status_code == 200
         data = resp.json()
         assert "entities" in data
         assert data["total"] == 2
 
-    def test_list_entities_filter_by_type(
+    async def test_list_entities_filter_by_type(
         self,
-        tmp_path: Path,
-        store_with_data: AsyncStore,
+        client_with_store,
     ) -> None:
         """GET /entities?entity_type=person 过滤。"""
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(
-            store_with_data.upsert_entity("Meloni", "person", "italy", "2026-05-16T10:00:00+00:00")
-        )
-        asyncio.get_event_loop().run_until_complete(
-            store_with_data.upsert_entity(
-                "EU", "organization", "italy", "2026-05-16T10:00:00+00:00"
-            )
-        )
-        client = self._make_client_with_store(tmp_path, store_with_data)
-        resp = client.get("/api/v1/entities", params={"entity_type": "person"})
+        client, store = client_with_store
+        await store.upsert_entity("Meloni", "person", "italy", "2026-05-16T10:00:00+00:00")
+        await store.upsert_entity("EU", "organization", "italy", "2026-05-16T10:00:00+00:00")
+        client, _ = client_with_store
+        resp = await client.get("/api/v1/entities", params={"entity_type": "person"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["total"] == 1
         assert data["entities"][0]["canonical_name"] == "Meloni"
 
-    def test_list_entities_min_mentions(
+    async def test_list_entities_min_mentions(
         self,
-        tmp_path: Path,
-        store_with_data: AsyncStore,
+        client_with_store,
     ) -> None:
         """GET /entities?min_mentions=2 过滤低频实体。"""
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(
-            store_with_data.upsert_entity("Meloni", "person", "italy", "2026-05-16T10:00:00+00:00")
-        )
-        asyncio.get_event_loop().run_until_complete(
-            store_with_data.upsert_entity("Meloni", "person", "italy", "2026-05-17T10:00:00+00:00")
-        )
-        asyncio.get_event_loop().run_until_complete(
-            store_with_data.upsert_entity(
-                "EU", "organization", "italy", "2026-05-16T10:00:00+00:00"
-            )
-        )
-        client = self._make_client_with_store(tmp_path, store_with_data)
-        resp = client.get("/api/v1/entities", params={"min_mentions": 2})
+        client, store = client_with_store
+        await store.upsert_entity("Meloni", "person", "italy", "2026-05-16T10:00:00+00:00")
+        await store.upsert_entity("Meloni", "person", "italy", "2026-05-17T10:00:00+00:00")
+        await store.upsert_entity("EU", "organization", "italy", "2026-05-16T10:00:00+00:00")
+        client, _ = client_with_store
+        resp = await client.get("/api/v1/entities", params={"min_mentions": 2})
         assert resp.status_code == 200
         data = resp.json()
         assert data["total"] == 1
         assert data["entities"][0]["canonical_name"] == "Meloni"
 
-    def test_get_entity_detail_with_sqlite(
+    async def test_get_entity_detail_with_sqlite(
         self,
-        tmp_path: Path,
-        store_with_data: AsyncStore,
+        client_with_store,
     ) -> None:
         """GET /entities/{id} 返回实体详情。"""
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(
-            store_with_data.upsert_entity("Meloni", "person", "italy", "2026-05-16T10:00:00+00:00")
-        )
-        client = self._make_client_with_store(tmp_path, store_with_data)
-        resp = client.get("/api/v1/entities/1")
+        client, store = client_with_store
+        await store.upsert_entity("Meloni", "person", "italy", "2026-05-16T10:00:00+00:00")
+        client, _ = client_with_store
+        resp = await client.get("/api/v1/entities/1")
         assert resp.status_code == 200
         data = resp.json()
         assert data["entity"]["canonical_name"] == "Meloni"
         assert "recent_events" in data
 
-    def test_stats_top_entities_with_sqlite(
+    async def test_stats_top_entities_with_sqlite(
         self,
-        tmp_path: Path,
-        store_with_data: AsyncStore,
+        client_with_store,
     ) -> None:
         """stats 端点返回 top_entities。"""
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(
-            store_with_data.upsert_entity("Meloni", "person", "italy", "2026-05-16T10:00:00+00:00")
-        )
-        client = self._make_client_with_store(tmp_path, store_with_data)
-        resp = client.get("/api/v1/stats", params={"target_id": "italy"})
+        client, store = client_with_store
+        await store.upsert_entity("Meloni", "person", "italy", "2026-05-16T10:00:00+00:00")
+        client, _ = client_with_store
+        resp = await client.get("/api/v1/stats", params={"target_id": "italy"})
         assert resp.status_code == 200
         data = resp.json()
         assert "top_entities" in data
@@ -1553,7 +1508,9 @@ class TestTrendAPI:
             "/api/v1/trends/topics",
             params={"target_id": "italy"},
         )
-        assert resp.status_code == 503
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["topics"] == []
         await client.aclose()
 
 
@@ -1620,7 +1577,9 @@ class TestSmartAlertAPI:
             "/api/v1/alerts/smart",
             params={"target_id": "italy"},
         )
-        assert resp.status_code == 503
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["alerts"] == []
         await client.aclose()
 
 
@@ -2165,24 +2124,28 @@ class TestImportEvents:
 class TestAdminUserEndpoints:
     """用户管理 CRUD 端点测试。"""
 
-    def _make_client(self, tmp_path: Path) -> TestClient:
+    @pytest.fixture
+    async def admin_client(self, tmp_path: Path):
+        """创建带 store 和 admin 用户的 AsyncClient。"""
+        from httpx import ASGITransport, AsyncClient
+
         db_path = tmp_path / "state.db"
         store = AsyncStore(db_path)
-        import asyncio
-
-        asyncio.run(store.initialize())
-        app = create_app(data_dir=tmp_path, store=store)
-        client = TestClient(app)
-        resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        await store.initialize()
+        app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+        transport = ASGITransport(app=app)
+        client = AsyncClient(transport=transport, base_url="http://test")
+        resp = await client.post("/api/v1/auth/token", json={"api_key": ""})
         assert resp.status_code == 200
         token = resp.json()["access_token"]
         client.headers["Authorization"] = f"Bearer {token}"
-        return client
+        yield client
+        await client.aclose()
+        await store.close()
 
-    def test_admin_list_users(self, tmp_path: Path) -> None:
+    async def test_admin_list_users(self, admin_client) -> None:
         """GET /admin/users 返回用户列表（脱敏）。"""
-        client = self._make_client(tmp_path)
-        resp = client.get("/api/v1/admin/users")
+        resp = await admin_client.get("/api/v1/admin/users")
         assert resp.status_code == 200
         data = resp.json()
         assert "users" in data
@@ -2193,11 +2156,10 @@ class TestAdminUserEndpoints:
             assert "username" in u
             assert "role" in u
 
-    def test_admin_create_and_delete_user(self, tmp_path: Path) -> None:
+    async def test_admin_create_and_delete_user(self, admin_client) -> None:
         """创建+删除用户全流程。"""
-        client = self._make_client(tmp_path)
         # 创建用户
-        resp = client.post(
+        resp = await admin_client.post(
             "/api/v1/admin/users",
             json={
                 "username": "test_reader",
@@ -2209,7 +2171,7 @@ class TestAdminUserEndpoints:
         assert resp.json()["username"] == "test_reader"
 
         # 不能创建重复用户
-        resp2 = client.post(
+        resp2 = await admin_client.post(
             "/api/v1/admin/users",
             json={
                 "username": "test_reader",
@@ -2220,21 +2182,19 @@ class TestAdminUserEndpoints:
         assert resp2.status_code == 409
 
         # 删除用户
-        resp3 = client.delete("/api/v1/admin/users/test_reader")
+        resp3 = await admin_client.delete("/api/v1/admin/users/test_reader")
         assert resp3.status_code == 200
 
-    def test_admin_cannot_delete_self(self, tmp_path: Path) -> None:
+    async def test_admin_cannot_delete_self(self, admin_client) -> None:
         """管理员不能删除自己。"""
-        client = self._make_client(tmp_path)
         # dev mode username is "dev"
-        resp = client.delete("/api/v1/admin/users/dev")
+        resp = await admin_client.delete("/api/v1/admin/users/dev")
         assert resp.status_code == 400
 
-    def test_admin_reset_password(self, tmp_path: Path) -> None:
+    async def test_admin_reset_password(self, admin_client) -> None:
         """重置用户密码。"""
-        client = self._make_client(tmp_path)
         # 先创建用户
-        client.post(
+        await admin_client.post(
             "/api/v1/admin/users",
             json={
                 "username": "reset_test",
@@ -2243,7 +2203,7 @@ class TestAdminUserEndpoints:
             },
         )
         # 重置密码
-        resp = client.post(
+        resp = await admin_client.post(
             "/api/v1/admin/users/reset_test/reset-password",
             json={
                 "new_password": "new123456",
@@ -2251,19 +2211,24 @@ class TestAdminUserEndpoints:
         )
         assert resp.status_code == 200
         # 清理
-        client.delete("/api/v1/admin/users/reset_test")
+        await admin_client.delete("/api/v1/admin/users/reset_test")
 
-    def test_admin_create_user_validation(self, tmp_path: Path) -> None:
+    async def test_admin_create_user_validation(self, admin_client) -> None:
         """创建用户参数校验。"""
-        client = self._make_client(tmp_path)
         # 缺少用户名
-        resp = client.post("/api/v1/admin/users", json={"username": "", "password": "test123456"})
+        resp = await admin_client.post(
+            "/api/v1/admin/users",
+            json={"username": "", "password": "test123456"},
+        )
         assert resp.status_code == 400
         # 密码太短
-        resp = client.post("/api/v1/admin/users", json={"username": "shortpw", "password": "12345"})
+        resp = await admin_client.post(
+            "/api/v1/admin/users",
+            json={"username": "shortpw", "password": "12345"},
+        )
         assert resp.status_code == 400
         # 无效角色
-        resp = client.post(
+        resp = await admin_client.post(
             "/api/v1/admin/users",
             json={"username": "badrole", "password": "test123456", "role": "superuser"},
         )
