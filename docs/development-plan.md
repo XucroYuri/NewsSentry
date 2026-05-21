@@ -31,6 +31,7 @@
 > Phase 56 技术债清理: ✅ 全部完成 (测试修复 + 端点降级 + 静默异常加日志 + 日志级别 + 清理工件)
 > Phase 57 桌面壳跨平台: ✅ 全部完成 (跨平台适配 + PyInstaller 打包 + 开机自启 + 通知统一 + 更新检测)
 > Phase 58 本地客户端体验打磨: ✅ 全部完成 (测试挂起修复 + SSE 重连 + 快捷键确认 + PWA offline + 在线检测)
+> Phase 59 前端模块化重构 + 代码质量: 🔄 进行中
 > 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](spec/README.md) 为准）
 > Cloud VPS 方案: [docs/deployment/cloud-vps-recommendations.md](./deployment/cloud-vps-recommendations.md)
 > 字段口径基准: [`docs/contracts-canonical.md`](./contracts-canonical.md)
