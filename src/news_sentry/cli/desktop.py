@@ -62,7 +62,7 @@ _stop_server = False
 
 def _run_server(host: str, port: int) -> None:
     """在后台线程启动 uvicorn。"""
-    import uvicorn  # type: ignore[import-not-found]
+    import uvicorn
 
     uvicorn.run(
         "news_sentry.core.api_server:create_app",
@@ -94,7 +94,7 @@ _tray_icon: Any = None  # pystray.Icon
 
 def _create_tray_menu(window: Any, port: int) -> Any:
     """创建系统托盘右键菜单。"""
-    import pystray  # type: ignore[import-untyped]
+    import pystray
 
     def _on_open(icon: object, item: object) -> None:  # noqa: ARG001
         window.show()
@@ -175,7 +175,7 @@ def _check_update() -> str | None:
         req = urllib.request.Request(url, headers={"User-Agent": "news-sentry"})  # noqa: S310
         with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310
             data = json.loads(resp.read())
-        latest = data.get("tag_name", "").lstrip("v")
+        latest: str = str(data.get("tag_name", "")).lstrip("v")
         if not latest:
             return None
         # 比较版本号
@@ -407,10 +407,10 @@ X-GNOME-Autostart-enabled=true
 
         key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
         try:
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)  # type: ignore[attr-defined]
             cmd = f'"{exe_path}" -m news_sentry.cli desktop --port {port}'
-            winreg.SetValueEx(key, "NewsSentry", 0, winreg.REG_SZ, cmd)
-            winreg.CloseKey(key)
+            winreg.SetValueEx(key, "NewsSentry", 0, winreg.REG_SZ, cmd)  # type: ignore[attr-defined]
+            winreg.CloseKey(key)  # type: ignore[attr-defined]
             click.echo("Windows 注册表启动项已安装 → HKCU\\...\\Run\\NewsSentry")
         except OSError as exc:
             click.echo(f"Windows 注册表写入失败: {exc}", err=True)
@@ -446,9 +446,9 @@ def _autostart_uninstall() -> None:
 
         key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
         try:
-            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
-            winreg.DeleteValue(key, "NewsSentry")
-            winreg.CloseKey(key)
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)  # type: ignore[attr-defined]
+            winreg.DeleteValue(key, "NewsSentry")  # type: ignore[attr-defined]
+            winreg.CloseKey(key)  # type: ignore[attr-defined]
             click.echo("已移除 Windows 注册表启动项。")
         except OSError:
             click.echo("未找到 Windows 注册表启动项。")
