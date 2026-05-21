@@ -1,30 +1,34 @@
 # News Sentry — 开发计划
 
-> 版本: v2.7 | 日期: 2026-05-16
+> 版本: v2.8 | 日期: 2026-05-21
 > 状态: **路线图主权文档** — 本文档是多阶段开发计划与 TODO 矩阵的唯一权威来源
-> 当前版本: **v1.6.0** (14 commits 待推送) | 下一版本: **v2.0.0**
-> Phase 25-29 性能优化: ✅ 全部完成 (异步 pipeline + SQLite + AI 批处理/缓存/分级路由 + API SQLite 查询 + 多目标并发调度)
-> Phase 30 多语言 NLP: ✅ 全部完成 (规则引擎零成本基线 + AI 按需升级 + 5 种语言情感/实体词典)
-> Phase 31 NLP API: ✅ 全部完成 (Frontmatter + SQLite 索引 + API 过滤 + sentiment_breakdown)
-> Phase 32 Entity Tracking: ✅ 全部完成 (entities 表 + upsert 去重 + 查询 API + top_entities + async_run 集成)
-> Phase 33 Web UI NLP: ✅ 全部完成 (ES Modules 拆分 + Dashboard 情感/实体可视化 + 事件 NLP 筛选/展示 + Entity 浏览页)
-> Phase 34 运维仪表盘: ✅ 全部完成 (RunLog API + 信源健康 API + Pipeline 触发 + 运维 Web UI)
-> Phase 35 事件追踪链: ✅ 全部完成 (event_links 表 + BFS 链构建 + 3 API + chains.js UI)
-> Phase 36 时间线叙事: ✅ 全部完成 (chain_narratives 表 + LLM 生成 + GET/POST narrative API + 叙述卡片)
-> Phase 37 量化趋势分析: ✅ 全部完成 (topic/sentiment 日聚合 + Chart.js trends 页 + 3 趋势 API)
-> Phase 38 智能告警 2.0: ✅ 全部完成 (3 类告警 + 6 索引 + chains N+1 修复 + smart alerts API)
-> Phase 39 Dashboard 增强: ✅ 全部完成 (今日/昨日对比 + Top5 高价值 + 趋势概览 + 3 统计 API)
-> Phase 40 治理积压清理: ✅ 全部完成 (prune_old_data + backup_db + 降级策略 + 2 maintenance API)
-> Phase 41 反馈闭环 + 告警管理: ✅ 全部完成 (feedback/alert_history 表 + 5 API + alerts/feedback UI)
-> Phase 42 配置编辑: ✅ 全部完成 (5 config write 端点 + atomic YAML + 5 可编辑配置页)
-> Phase 43 文档同步: ✅ 全部完成 (development-plan v2.4→v2.5 + ADR-0023)
-> Phase 44 评估集扩展: ✅ 全部完成 (eval-set 210→250 + _run_judge_async 7 测试)
-> Phase 45 CI/CD 整合: ✅ 全部完成 (3 workflow 文件 零重叠)
-> Phase 46 治理 backlog 收尾: ✅ 全部完成 (MATRIX-GOV-001 + SOCIAL-SESSION-001)
-> Phase 49.5 应用产品化: ✅ 全部完成 (4层17task: 数据可靠性+视觉翻新+关键功能+交互打磨)
-> Phase 50 本地客户端 v1: ✅ 全部完成 (serve 命令 + os 服务集成 + 跨平台安装脚本)
-> Phase 51 serve 生产加固: ✅ 全部完成 (全管道默认 + --stage/--log-level/stop + atexit/pid/log/uvicorn 检查)
-> Phase 52 本地客户端 v2: ✅ 全部完成 (install/status/logs/restart/uninstall + install.sh --api/--proxy/--with-service)
+> 当前版本: **v1.7.0** | 下一版本: **v2.0.0**
+> Phase 25-29 性能优化: ✅ 全部完成
+> Phase 30 多语言 NLP: ✅ 全部完成
+> Phase 31 NLP API: ✅ 全部完成
+> Phase 32 Entity Tracking: ✅ 全部完成
+> Phase 33 Web UI NLP: ✅ 全部完成
+> Phase 34 运维仪表盘: ✅ 全部完成
+> Phase 35 事件追踪链: ✅ 全部完成
+> Phase 36 时间线叙事: ✅ 全部完成
+> Phase 37 量化趋势分析: ✅ 全部完成
+> Phase 38 智能告警 2.0: ✅ 全部完成
+> Phase 39 Dashboard 增强: ✅ 全部完成
+> Phase 40 治理积压清理: ✅ 全部完成
+> Phase 41 反馈闭环 + 告警管理: ✅ 全部完成
+> Phase 42 配置编辑: ✅ 全部完成
+> Phase 43 文档同步: ✅ 全部完成
+> Phase 44 评估集扩展: ✅ 全部完成
+> Phase 45 CI/CD 整合: ✅ 全部完成
+> Phase 46 治理 backlog 收尾: ✅ 全部完成
+> Phase 49.5 应用产品化: ✅ 全部完成
+> Phase 50 本地客户端 v1: ✅ 全部完成
+> Phase 51 serve 生产加固: ✅ 全部完成
+> Phase 52 本地客户端 v2: ✅ 全部完成
+> Phase 53 Windows 安装支持: ✅ 全部完成 (安装脚本 + kill 命令跨平台 + 代码清理)
+> Phase 54 质量加固: ✅ 全部完成 (Store 同步初始化修复 + markdown_writer 100% 覆盖 + AGENTS.md 同步)
+> Phase 55 桌面壳: ✅ 全部完成 (pywebview 6.x API 适配 + 系统托盘 + 配置持久化 + SSE/PWA + Gtk macOS 窗口 + 6 US PRD)
+> Phase 56 技术债清理: ✅ 全部完成 (测试修复 + 端点降级 + 静默异常加日志 + 日志级别 + 清理工件)
 > 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](spec/README.md) 为准）
 > Cloud VPS 方案: [docs/deployment/cloud-vps-recommendations.md](./deployment/cloud-vps-recommendations.md)
 > 字段口径基准: [`docs/contracts-canonical.md`](./contracts-canonical.md)
@@ -1338,6 +1342,102 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 ---
 
+### Phase 53 · Windows 安装支持 ✅
+
+**目标：** 实现 Windows 平台安装支持，包括 install/uninstall 命令 PowerShell 脚本、kill 命令跨平台适配、代码清理。
+
+**核心交付：**
+- 32fc8f3 Windows 安装脚本 (`install.ps1` + `install.sh` --windows 模式)
+- kill 命令提取复用代码（减少 39 行重复）
+- 遗留 `scripts/` 目录清理
+- P2 通知设置 JSON → SQLite 迁移
+- P3 AI prompt 消毒 + conftest 共享 fixtures + Docker HEALTHCHECK + logrotate
+- P2 Token 持久化 + run.py/async_run.py 共享初始化提取
+- P0/P1 架构缺陷批量修复 + ADR 目录纳入版本追踪
+- api_server.py 57 个 mypy 类型错误修复 (dict → dict[str, Any])
+
+| ID | 内容 | 输出物 | 规模 | 状态 |
+|----|------|--------|------|------|
+| P53.01 | Windows install 脚本 | `install.ps1` + `install.sh` 扩展 | M | ✅ |
+| P53.02 | kill 命令跨平台 | kill.py 去重 + 39 行精简 | S | ✅ |
+| P53.03 | 遗留 scripts/ 清理 | 目录删除 | S | ✅ |
+| P53.04 | 通知设置 JSON→SQLite | 数据迁移 | M | ✅ |
+| P53.05 | AI prompt 消毒 + 共享 fixtures | conftest.py 重构 | M | ✅ |
+| P53.06 | Docker HEALTHCHECK + logrotate | 容器监控 | S | ✅ |
+| P53.07 | Token 持久化 | run.py/async_run.py 共享初始化 | M | ✅ |
+| P53.08 | P0/P1 架构缺陷批量修复 | ADR 目录追踪 | L | ✅ |
+| P53.09 | mypy 类型修复 | 57 errors → 0 | M | ✅ |
+
+### Phase 54 · 质量加固 ✅
+
+**目标：** 集中修复 Store 初始化问题、同步 AGENTS.md 架构文档、提升 markdown_writer 测试覆盖率至 100%。
+
+**核心交付：**
+- `create_app()` 同步初始化兜底（Store None → 503 降级）
+- 只读数据端点 store 不可用时返回空结果而非 503
+- AGENTS.md 全面翻新 + Mermaid 架构图
+- markdown_writer 100% 测试覆盖
+- 文档自然语言重写第一阶段
+
+| ID | 内容 | 输出物 | 规模 | 状态 |
+|----|------|--------|------|------|
+| P54.01 | Store 初始化修复 | `api_server.py` create_app 同步兜底 | M | ✅ |
+| P54.02 | 端点优雅降级 | 503 → [] 空结果返回 | M | ✅ |
+| P54.03 | AGENTS.md 翻新 + Mermaid | 架构图重绘 | L | ✅ |
+| P54.04 | markdown_writer 100% 覆盖 | 测试扩展 | M | ✅ |
+
+### Phase 55 · 桌面壳 (pywebview + PWA + SSE) ✅
+
+**目标：** 将 Web UI 封装为桌面原生窗口应用，支持 PWA 离线访问、SSE 实时推送，提供接近原生桌面应用的体验。
+
+**核心交付：**
+- `news-sentry desktop` 命令 — pywebview 6.x API 封装 Web UI
+- 系统托盘图标 + 菜单（显示/隐藏/退出）
+- 窗口配置持久化（位置/大小/是否最大化）
+- PWA 支持：`manifest.json` + Service Worker + 离线缓存 + 桌面图标
+- SSE 实时事件推送：`GET /api/v1/events/stream`
+- 前端 EventSource 连接 + 实时事件卡片
+- 浏览器桌面通知（SSE 事件 → Notification API）
+- Gtk macOS 窗口适配
+- mypy 零错误贯穿
+
+| ID | 内容 | 输出物 | 规模 | 状态 |
+|----|------|--------|------|------|
+| P55.01 | pywebview 桌面壳 | `cli/desktop.py` + `core/desktop_app.py` | L | ✅ |
+| P55.02 | 系统托盘 | 窗口隐藏/显示 + 退出 | M | ✅ |
+| P55.03 | 窗口配置持久化 | JSON 保存/恢复 | S | ✅ |
+| P55.04 | PWA 支持 | manifest.json + sw.js + 离线缓存 | M | ✅ |
+| P55.05 | SSE 端点 | `GET /api/v1/events/stream` | M | ✅ |
+| P55.06 | 前端 SSE 连接 | EventSource + 实时卡片 + 桌面通知 | M | ✅ |
+| P55.07 | Gtk macOS 适配 | 窗口标题 + 最小大小 | S | ✅ |
+| P55.08 | mypy 零错误 | 全类型检查通过 | M | ✅ |
+| P55.09 | PRD 完成 | 全部 6 US + 质量审查 | M | ✅ |
+
+### Phase 56 · 技术债清理 Sprint ✅
+
+**目标：** 集中清理 known-issues.md 中积累的技术债，使 CI 全绿、端点优雅降级、日志可观测。
+
+**核心交付：**
+- test_async_run.py 2 个持久失败修复（patch 目标 `async_run`→`run`）
+- 5 个读端点 503 → 优雅降级（趋势×2、智能告警、用户列表、API Key 查询）
+- 9 处静默 `except: pass` → logger.warning/debug
+- `--log-level` 补齐 ERROR/CRITICAL
+- 前端注释清理 + prd.json/progress.txt 入 .gitignore
+- OpenClaw 枚举加注释说明
+- known-issues.md 全部更新
+- 1612 tests ✅, ruff=0
+
+| ID | 内容 | 输出物 | 规模 | 状态 |
+|----|------|--------|------|------|
+| P56.01 | 静默异常加日志 | health_server + rss_collector + judge_skill | S | ✅ |
+| P56.02 | 读端点优雅降级 | api_server.py 5 端点 | M | ✅ |
+| P56.03 | 日志级别补齐 | cli/__init__.py | S | ✅ |
+| P56.04 | 清理工件 | .gitignore + ops.js | S | ✅ |
+| P56.05 | OpenClaw 枚举注释 | manifests.py | S | ✅ |
+| P56.06 | known-issues 更新 | known-issues.md | S | ✅ |
+
+---
+
 ## §25. Cloud VPS 部署方案推荐
 
 > 替代/补充 Phase 15 的 Hetzner 方案。以下为 2026 年可用的主流 Cloud VPS 对比。
@@ -1448,6 +1548,9 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | ADR-0021 | Docker 全栈零依赖部署（Chromium + Xvfb + Playwright MCP + Node.js） | Phase 12 |
 | ADR-0022 | 评估集基准测试与规则引擎准确率基线 | Phase 13 |
 | ADR-0023 | 内置 Web UI 随 Phase 31-42 演进为操作界面（嵌入 SPA 替代纯 Obsidian+推送终态）| Phase 31+ |
+| ADR-0024 | Schema 版本治理策略 | Phase 47 |
+| ADR-0025 | API Server 嵌入式 SPA 架构 (FastAPI + Vanilla JS) | Phase 50+ |
+| ADR-0026 | 三阶段客户端架构演进路线 (pywebiew → Tauri → 云端集群+分布式) | Phase 56 |
 
 ---
 

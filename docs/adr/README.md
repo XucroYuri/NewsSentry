@@ -46,6 +46,9 @@
 | [ADR-0020](./adr-0020.md) | 多 Agent 编排模式 | Accepted | 2026-05-11 |
 | [ADR-0021](./adr-0021.md) | 信源矩阵 13 维分类框架 + 多层浏览器兜底架构 | Accepted | 2026-05-11 |
 | [ADR-0022](./adr-0022.md) | 评估集基准测试与规则引擎准确率基线 | Accepted | 2026-05-12 |
+| [ADR-0024](./adr-0024.md) | Schema 版本治理策略 | Accepted | 2026-05-16 |
+| [ADR-0025](./adr-0025.md) | API Server 嵌入式 SPA 架构 | Accepted | 2026-05-18 |
+| [ADR-0026](./adr-0026.md) | 三阶段客户端架构演进路线 (pywebview → Tauri → 云端集群+分布式) | Accepted | 2026-05-21 |
 
 ## 引用方式
 
