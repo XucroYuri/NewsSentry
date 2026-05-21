@@ -13,13 +13,11 @@ _(无)_
 
 ## 🟡 Medium
 
-### 1. 测试套件中 api_server 全量运行会挂起
+### 1. ~~测试套件中 api_server 全量运行会挂起~~ ✅ 已修复
 
-`tests/unit/test_api_server.py` 全量 106 个测试在 CI/管道中运行会挂起超时。单个测试类（TestConfigAPI、TestEventChainAPI 等）正常运行。
+~~`tests/unit/test_api_server.py` 全量 106 个测试在 CI/管道中运行会挂起超时。单个测试类（TestConfigAPI、TestEventChainAPI 等）正常运行。~~
 
-**根因**：可能是某个集成测试在清理时未正确关闭异步资源，导致 pytest 等待事件循环。
-
-**影响**：需要跳过全量测试或拆分运行脚本。
+**Phase 58 修复**: 根因是 aiosqlite 跨 event loop 挂起。`TestAPIServerSQLite` 和 `TestAdminUserEndpoints` 改为 async + `httpx.AsyncClient` + `ASGITransport`，与 `TestEventChainAPI` 等统一模式。新增 `skip_lifespan` 参数避免 TestClient lifespan 中的异步操作。106 tests now pass in 6.17s。
 
 ### 2. 广泛使用 `# type: ignore` 和 `# noqa: ANN401`
 
