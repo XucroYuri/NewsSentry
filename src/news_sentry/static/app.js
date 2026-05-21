@@ -255,6 +255,11 @@ function showConnectPage() {
     setConnectMode(isLocal ? "local" : "cloud");
   } else {
     setConnectMode("local");
+    // 使用当前页面 origin 作为默认服务器地址
+    const serverInput = document.getElementById("connectServer");
+    if (serverInput && !serverInput.value) {
+      serverInput.value = window.location.origin;
+    }
   }
 
   // 检测服务器状态
@@ -270,8 +275,8 @@ function setConnectMode(mode) {
   if (!serverInput) return;
 
   if (mode === "local") {
-    if (!serverInput.value.includes("localhost") && !serverInput.value.includes("127.0.0.1")) {
-      serverInput.value = "http://localhost:8000";
+    if (!serverInput.value) {
+      serverInput.value = window.location.origin;
     }
   } else {
     if (serverInput.value.includes("localhost") || serverInput.value.includes("127.0.0.1")) {

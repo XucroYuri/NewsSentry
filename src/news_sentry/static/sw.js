@@ -1,7 +1,7 @@
 /* News Sentry — Service Worker v1 */
 "use strict";
 
-const CACHE = "news-sentry-v1";
+const CACHE = "news-sentry-v2";
 const STATIC_URLS = [
   "/",
   "/app.js",
