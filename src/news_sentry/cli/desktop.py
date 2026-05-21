@@ -266,6 +266,121 @@ def _do_quit(window: Any, data_dir: str) -> None:
     os._exit(0)
 
 
+# ── 开机自启动 ──────────────────────────────────────────
+
+
+def _autostart_install(port: int) -> None:
+    """注册开机自启动（用户登录后自动启动桌面窗口）。"""
+    system = platform.system()
+    exe_path = Path(sys.executable).resolve()
+
+    if system == "Darwin":
+        plist_path = Path.home() / "Library/LaunchAgents/com.news-sentry.desktop.plist"
+        plist_path.parent.mkdir(parents=True, exist_ok=True)
+        plist_content = f"""\
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.news-sentry.desktop</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{exe_path}</string>
+        <string>-m</string>
+        <string>news_sentry.cli</string>
+        <string>desktop</string>
+        <string>--port</string>
+        <string>{port}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>{Path.home() / ".news-sentry" / "logs" / "desktop-stdout.log"}</string>
+    <key>StandardErrorPath</key>
+    <string>{Path.home() / ".news-sentry" / "logs" / "desktop-stderr.log"}</string>
+</dict>
+</plist>
+"""
+        plist_path.write_text(plist_content, encoding="utf-8")
+        subprocess.run(  # noqa: S603
+            ["launchctl", "load", str(plist_path)],  # noqa: S607
+            capture_output=True,
+        )
+        click.echo(f"macOS LaunchAgent 已安装 → {plist_path}")
+
+    elif system == "Linux":
+        autostart_dir = Path.home() / ".config" / "autostart"
+        autostart_dir.mkdir(parents=True, exist_ok=True)
+        desktop_entry = f"""\
+[Desktop Entry]
+Type=Application
+Name=News Sentry
+Comment=新闻情报监控桌面客户端
+Exec={exe_path} -m news_sentry.cli desktop --port {port}
+Terminal=false
+Hidden=false
+X-GNOME-Autostart-enabled=true
+"""
+        entry_path = autostart_dir / "news-sentry.desktop"
+        entry_path.write_text(desktop_entry, encoding="utf-8")
+        click.echo(f"Linux autostart 已安装 → {entry_path}")
+
+    elif system == "Windows":
+        import winreg
+
+        key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
+            cmd = f'"{exe_path}" -m news_sentry.cli desktop --port {port}'
+            winreg.SetValueEx(key, "NewsSentry", 0, winreg.REG_SZ, cmd)
+            winreg.CloseKey(key)
+            click.echo("Windows 注册表启动项已安装 → HKCU\\...\\Run\\NewsSentry")
+        except OSError as exc:
+            click.echo(f"Windows 注册表写入失败: {exc}", err=True)
+            sys.exit(1)
+
+
+def _autostart_uninstall() -> None:
+    """移除开机自启动。"""
+    system = platform.system()
+
+    if system == "Darwin":
+        plist_path = Path.home() / "Library/LaunchAgents/com.news-sentry.desktop.plist"
+        if plist_path.is_file():
+            subprocess.run(  # noqa: S603
+                ["launchctl", "unload", str(plist_path)],  # noqa: S607
+                capture_output=True,
+            )
+            plist_path.unlink()
+            click.echo(f"已移除: {plist_path}")
+        else:
+            click.echo("未找到 macOS LaunchAgent。")
+
+    elif system == "Linux":
+        entry_path = Path.home() / ".config" / "autostart" / "news-sentry.desktop"
+        if entry_path.is_file():
+            entry_path.unlink()
+            click.echo(f"已移除: {entry_path}")
+        else:
+            click.echo("未找到 Linux autostart 文件。")
+
+    elif system == "Windows":
+        import winreg
+
+        key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE)
+            winreg.DeleteValue(key, "NewsSentry")
+            winreg.CloseKey(key)
+            click.echo("已移除 Windows 注册表启动项。")
+        except OSError:
+            click.echo("未找到 Windows 注册表启动项。")
+
+
 # ── 主命令 ──────────────────────────────────────────────
 
 
@@ -276,6 +391,14 @@ def _do_quit(window: Any, data_dir: str) -> None:
 @click.option("--data-dir", default="~/.news-sentry/data", help="数据根目录")
 @click.option("--log-dir", default="~/.news-sentry/logs", help="日志目录")
 @click.option("--no-tray", is_flag=True, default=False, help="禁用系统托盘")
+@click.option("--autostart", is_flag=True, default=False, help="注册开机自启动并退出")
+@click.option(
+    "--no-autostart",
+    "remove_autostart",
+    is_flag=True,
+    default=False,
+    help="移除开机自启动并退出",
+)
 def desktop(
     port: int,
     window_width: int,
@@ -283,6 +406,8 @@ def desktop(
     data_dir: str,
     log_dir: str,
     no_tray: bool,
+    autostart: bool,
+    remove_autostart: bool,
 ) -> None:
     """Launch native desktop window wrapping the API Server.
 
@@ -291,6 +416,14 @@ def desktop(
 
     需要安装桌面依赖：pip install 'news-sentry[desktop]'
     """
+    # 0. 自启动管理（不需要 pywebview）
+    if autostart:
+        _autostart_install(port)
+        return
+    if remove_autostart:
+        _autostart_uninstall()
+        return
+
     # 1. 检查 pywebview
     try:
         import webview as wv
