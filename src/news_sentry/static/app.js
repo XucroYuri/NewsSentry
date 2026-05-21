@@ -562,6 +562,22 @@ function _registerSW() {
   });
 }
 
+function _setupOnlineDetection() {
+  function updateOnlineStatus() {
+    if (navigator.onLine) {
+      _updateSSEStatus("connecting"); // 会由 SSE onopen 改为 connected
+      // 恢复在线后重新连接 SSE
+      connectSSE();
+      showSuccess("网络连接已恢复");
+    } else {
+      _updateSSEStatus("disconnected");
+      showInfo("网络连接已断开 — 离线模式");
+    }
+  }
+  window.addEventListener("online", updateOnlineStatus);
+  window.addEventListener("offline", updateOnlineStatus);
+}
+
 function _requestNotificationPermission() {
   if (!("Notification" in window)) return;
   if (Notification.permission === "default") {
@@ -867,6 +883,7 @@ async function init() {
     setInterval(updateStatus, 30000);
     _registerSW();
     _requestNotificationPermission();
+    _setupOnlineDetection();
     _checkDesktopUpdate();
     // target 切换时重新连接 SSE
     const targetSelect = document.getElementById("targetSelect");

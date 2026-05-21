@@ -1,6 +1,6 @@
 # News Sentry — 开发计划
 
-> 版本: v2.8 | 日期: 2026-05-21
+> 版本: v2.9 | 日期: 2026-05-22
 > 状态: **路线图主权文档** — 本文档是多阶段开发计划与 TODO 矩阵的唯一权威来源
 > 当前版本: **v1.7.0** | 下一版本: **v2.0.0**
 > Phase 25-29 性能优化: ✅ 全部完成
@@ -30,6 +30,7 @@
 > Phase 55 桌面壳: ✅ 全部完成 (pywebview 6.x API 适配 + 系统托盘 + 配置持久化 + SSE/PWA + Gtk macOS 窗口 + 6 US PRD)
 > Phase 56 技术债清理: ✅ 全部完成 (测试修复 + 端点降级 + 静默异常加日志 + 日志级别 + 清理工件)
 > Phase 57 桌面壳跨平台: ✅ 全部完成 (跨平台适配 + PyInstaller 打包 + 开机自启 + 通知统一 + 更新检测)
+> Phase 58 本地客户端体验打磨: 🔄 进行中 (测试挂起修复 + SSE 重连 + 桌面快捷键 + PWA offline + 前端拆分)
 > 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](spec/README.md) 为准）
 > Cloud VPS 方案: [docs/deployment/cloud-vps-recommendations.md](./deployment/cloud-vps-recommendations.md)
 > 字段口径基准: [`docs/contracts-canonical.md`](./contracts-canonical.md)
@@ -1458,6 +1459,25 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P57.04 | 开机自启动配置 | desktop --autostart 三平台 | M | ✅ |
 | P57.05 | 桌面通知统一 | JS bridge 原生通知 + 前端降级 | M | ✅ |
 | P57.06 | 自动更新检测 | GitHub Releases + 横幅 | S | ✅ |
+
+### Phase 58 · 本地客户端体验打磨 🔄
+
+**目标：** 根据 ADR-0026 Phase 1 路线，继续打磨 pywebview 桌面客户端到「本地完全体」，聚焦前端交互增强 + 桌面体验闭环 + 测试覆盖提升。
+
+**核心交付：**
+- test_api_server 挂起修复：aiosqlite 跨 event loop 根因 + async/AsyncClient 统一 + skip_lifespan 参数
+- SSE 断线重连：指数退避手动重连 + 连接状态指示器（顶部 3px 横条）
+- 桌面快捷键绑定：全局导航 + 页面内操作
+- PWA offline 增强：缓存策略 + 离线提示
+- 前端代码拆分：app.js / style.css 模块化
+
+| ID | 内容 | 输出物 | 规模 | 状态 |
+|----|------|--------|------|------|
+| P58.01 | 修复 test_api_server 挂起 | async/AsyncClient 统一 + skip_lifespan | L | ✅ |
+| P58.02 | SSE 断线重连 + 状态指示器 | 指数退避 + 顶部状态条 | M | ✅ |
+| P58.03 | 桌面快捷键绑定 | 全局导航 + 页面内操作 | M | ✅ (已有完整实现) |
+| P58.04 | PWA offline 增强 | 缓存策略 + 离线提示 | M | ✅ |
+| P58.05 | 前端代码拆分 | app.js/style.css 模块化 | L | ⬜ |
 
 ---
 
