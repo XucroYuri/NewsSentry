@@ -54,6 +54,7 @@ api = [
 ]
 desktop = [
     "pywebview>=5.0",
+    "pystray>=0.19",
 ]
 
 [project.urls]

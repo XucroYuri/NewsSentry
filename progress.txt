@@ -44,3 +44,10 @@
 - Push 4: cc94680 pywebview 桌面壳
 - Push 5: (当前) 最终质量修复 + PRD 更新
 - 全部 6 个 US 完成 ✅
+
+### 2026-05-21 Direction B 持续推进：桌面壳修复 + 架构文档
+- **pywebview 6.x API 修复**: MenuAction/MenuSeparator 从 webview.menu 导入；Window.events.closing/closed 确认可用；list[Any] 返回类型
+- **ruff 修复**: S606 os.startfile() → 正确 noqa；导入排序自动化
+- **mypy 修复**: 29 errors → 0；dict[str, Any] 配置类型；Any 用于 pywebview/pystray 动态模块
+- **None 安全**: create_window() → None 判断；active_window() → None 保护；闭包中 window 类型收紧
+- **架构文档**: docs/local-client-architecture.md — 三阶段路线图、当前架构图、Tauri 迁移计划、sidecar 策略
