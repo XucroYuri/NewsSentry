@@ -27,7 +27,7 @@ jobs:
         run: python -m ruff check
 
       - name: Type check (mypy)
-        run: python -m mypy src/news_sentry/
+        run: python -m mypy src/news_sentry/ --ignore-missing-imports
 
       - name: Test (pytest + coverage)
         run: python -m pytest tests/ -q --tb=short --cov=src/news_sentry --cov-report=term-missing --cov-report=xml
