@@ -7,6 +7,54 @@
 
 ---
 
+## [1.7.0] — 2026-05-22
+
+### 新增
+- Phase 55: pywebview 桌面壳 — `news-sentry desktop` 命令，原生窗口 + 系统托盘 + 配置持久化
+- Phase 55: SSE 实时事件推送 — `GET /api/v1/events/stream` + 前端 EventSource 连接
+- Phase 55: PWA 支持 — Service Worker 缓存 + 浏览器桌面通知 + manifest.json
+- Phase 57: 跨平台桌面适配 — Linux/Windows 系统托盘 + `_os_info()` + 统一退出
+- Phase 57: PyInstaller 打包 — `news-sentry.spec` onefile 配置 (27MB arm64 macOS)
+- Phase 57: 开机自启动 — `desktop --autostart/--no-autostart` (macOS LaunchAgent + Linux XDG + Windows 注册表)
+- Phase 57: 桌面通知统一 — pywebview JS bridge `_NativeNotifyApi` + 前端 Notification API 降级
+- Phase 57: 自动更新检测 — GitHub Releases API + CLI 提示 + 前端更新横幅
+- Phase 58: SSE 断线重连 + 连接状态指示器 — 指数退避 (1s→16s, 最多 5 次) + 顶部 3px 状态条
+- Phase 58: PWA offline 增强 — SW v3 缓存所有 page modules + 离线 HTML fallback + 在线/离线检测
+- ADR-0026: 三阶段客户端架构演进路线 (pywebview → Tauri → 云端集群 + 分布式)
+
+### 变更
+- Phase 56: 5 个读端点从 503 改为优雅降级（趋势、智能告警、用户列表、API Key 查询）
+- Phase 56: 9 处静默 `except:pass` 添加 `logger.warning/debug` 日志
+- Phase 56: `--log-level` 扩展为 5 级 (DEBUG/INFO/WARNING/ERROR/CRITICAL)
+- Phase 58: `test_api_server.py` 从全量挂起修复为 106 tests in 6.17s (async + `httpx.AsyncClient`)
+- 1718 tests (+106), ruff=0, mypy=0, 85% coverage
+
+### 修复
+- Phase 56: `test_async_run` 2 个持久失败 — patch 目标 `async_run`→`run` 修正
+- Phase 57: desktop.py 4 个 mypy 错误 — winreg/pystray/uvicorn type ignore + json.loads 返回值类型
+
+## [1.6.0] — 2026-05-17
+
+### 新增
+- Phase 48: 驻意记者站场景 — `events/import` API + SocialKOLCollector + 492 X.com accounts (14 维度)
+- Phase 49.5: 应用产品化 — 设计系统升级 + 登录品牌化 + 响应式布局 + 骨架屏 + 快捷键面板
+- Phase 49.5: 用户管理 CRUD + 通知设置 + 简报邮件 + Toast 队列 + 离线检测
+- Phase 50: 本地客户端 v1 — `news-sentry serve` 命令 + OS 服务集成 + 跨平台安装脚本
+- Phase 51: serve 生产加固 — 自动采集 + `--stage` 选项 + PID 文件 + 日志分级 + `stop` 命令
+- Phase 52: 本地客户端 v2 — CLI 命令完善 + 安装体验打磨
+- Phase 53: Windows 安装支持 + kill 命令跨平台
+- Phase 54: 质量加固 — Store 同步初始化修复 + markdown_writer 100% 覆盖
+- 前端 v2 重写: 三层路由 + Token 认证 + Tab 系统 + 23 tabs + Chart.js 可视化
+- 认证系统: 用户名+密码登录 + Bearer Token (24h TTL) + reader/admin 角色
+- Token 持久化 + AI prompt 消毒 + Docker 三层镜像 (core/browser/full)
+- 部署方案: Cloudflare Worker + Container + Cron + AI Gateway + Pages + GCP + 5 平台脚本
+
+### 变更
+- 版本号推进至 1.6.0
+- 1635 tests, ruff=0, mypy=0, 91% coverage
+
+---
+
 ## [1.5.0] — 2026-05-16
 
 ### 新增
