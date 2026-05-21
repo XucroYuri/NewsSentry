@@ -161,6 +161,43 @@ def _stop_tray() -> None:
         _tray_icon = None
 
 
+# ── 原生通知（JS bridge）─────────────────────────────────────
+
+
+class _NativeNotifyApi:
+    """pywebview JS bridge — 原生系统通知。"""
+
+    def notify(self, title: str, body: str) -> None:
+        """通过平台原生方式发送桌面通知。"""
+        system = platform.system()
+        try:
+            if system == "Darwin":
+                # macOS: osascript 显示通知中心弹窗
+                subprocess.Popen(  # noqa: S603
+                    [  # noqa: S607
+                        "osascript",
+                        "-e",
+                        f"display notification {json.dumps(body)} with title {json.dumps(title)}",
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            elif system == "Linux":
+                # Linux: notify-send (libnotify)
+                subprocess.Popen(  # noqa: S603
+                    ["notify-send", title, body],  # noqa: S607
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            elif system == "Windows":
+                # Windows: 用 win32api 弹气球通知（通过 pystray 图标）
+                global _tray_icon
+                if _tray_icon is not None:
+                    _tray_icon.notify(body, title)
+        except Exception:  # noqa: S110
+            pass  # 通知失败不影响主流程
+
+
 # ── 原生菜单 ──────────────────────────────────────────────
 
 
@@ -472,6 +509,8 @@ def desktop(
         vibrancy=True,
         # 自定义菜单
         menu=menu,
+        # JS bridge — 原生通知
+        js_api=_NativeNotifyApi(),
     )
 
     # 8. 系统托盘（可选）

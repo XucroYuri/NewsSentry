@@ -532,15 +532,26 @@ function _requestNotificationPermission() {
 }
 
 function _sendDesktopNotification(title, body) {
-  if (!("Notification" in window) || Notification.permission !== "granted") return;
-  try {
-    const n = new Notification(title, {
-      body,
-      icon: "/icons/icon-192.svg",
-      tag: "news-sentry",
-      requireInteraction: false,
-    });
-    setTimeout(() => n.close(), 5000);
+  // 优先使用 Web Notification API
+  if ("Notification" in window && Notification.permission === "granted") {
+    try {
+      const n = new Notification(title, {
+        body,
+        icon: "/icons/icon-192.svg",
+        tag: "news-sentry",
+        requireInteraction: false,
+      });
+      setTimeout(() => n.close(), 5000);
+      return;
+    } catch {}
+  }
+  // 降级：pywebview JS bridge → 原生通知
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.notify) {
+    try {
+      window.pywebview.api.notify(title, body);
+    } catch {}
+  }
+}
   } catch {}
 }
 
