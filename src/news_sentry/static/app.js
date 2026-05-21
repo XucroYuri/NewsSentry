@@ -556,6 +556,24 @@ function _sendDesktopNotification(title, body) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// §9.7 桌面版更新检测
+// ═══════════════════════════════════════════════════════════
+
+function _checkDesktopUpdate() {
+  if (!window.pywebview || !window.pywebview.api) return;
+  try {
+    const ver = window.pywebview.api.latest_version;
+    if (ver) {
+      const banner = document.createElement("div");
+      banner.className = "update-banner";
+      banner.innerHTML = `🆕 新版本 <strong>v${ver}</strong> 可用 — <a href="https://github.com/XucroYuri/NewsSentry/releases/latest" target="_blank">下载</a>`;
+      document.body.prepend(banner);
+      setTimeout(() => banner.remove(), 30000);
+    }
+  } catch {}
+}
+
+// ═══════════════════════════════════════════════════════════
 // §10. 键盘快捷键
 // ═══════════════════════════════════════════════════════════
 
@@ -811,6 +829,7 @@ async function init() {
     setInterval(updateStatus, 30000);
     _registerSW();
     _requestNotificationPermission();
+    _checkDesktopUpdate();
     // target 切换时重新连接 SSE
     const targetSelect = document.getElementById("targetSelect");
     if (targetSelect) {

@@ -161,11 +161,47 @@ def _stop_tray() -> None:
         _tray_icon = None
 
 
+# ── 版本更新检测 ────────────────────────────────────────
+
+_GITHUB_REPO = "XucroYuri/NewsSentry"
+
+
+def _check_update() -> str | None:
+    """检查 GitHub Releases 是否有新版本。返回新版本号或 None。"""
+    import urllib.request
+
+    try:
+        url = f"https://api.github.com/repos/{_GITHUB_REPO}/releases/latest"
+        req = urllib.request.Request(url, headers={"User-Agent": "news-sentry"})  # noqa: S310
+        with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310
+            data = json.loads(resp.read())
+        latest = data.get("tag_name", "").lstrip("v")
+        if not latest:
+            return None
+        # 比较版本号
+        current = "1.7.0"  # 与 pyproject.toml 保持同步
+        if _parse_version(latest) > _parse_version(current):
+            return latest
+    except Exception:  # noqa: S110
+        pass
+    return None
+
+
+def _parse_version(v: str) -> tuple[int, ...]:
+    """简单版本号解析（'1.7.0' → (1, 7, 0)）。"""
+    try:
+        return tuple(int(x) for x in v.split(".")[:3])
+    except (ValueError, AttributeError):
+        return (0, 0, 0)
+
+
 # ── 原生通知（JS bridge）─────────────────────────────────────
 
 
 class _NativeNotifyApi:
-    """pywebview JS bridge — 原生系统通知。"""
+    """pywebview JS bridge — 原生系统通知 + 更新检测。"""
+
+    latest_version: str | None = None
 
     def notify(self, title: str, body: str) -> None:
         """通过平台原生方式发送桌面通知。"""
@@ -493,10 +529,15 @@ def desktop(
     _start_server("127.0.0.1", port)
     time.sleep(0.5)
 
-    # 6. 原生菜单
+    # 6. 检查更新（非阻塞）
+    new_ver = _check_update()
+
+    # 7. 原生菜单
     menu = _build_native_menu(str(data_path), str(log_path))
 
     # 7. 创建桌面窗口
+    _js_api = _NativeNotifyApi()
+    _js_api.latest_version = new_ver
     window = wv.create_window(
         "News Sentry — 新闻情报监控",
         f"http://127.0.0.1:{port}",
@@ -509,8 +550,8 @@ def desktop(
         vibrancy=True,
         # 自定义菜单
         menu=menu,
-        # JS bridge — 原生通知
-        js_api=_NativeNotifyApi(),
+        # JS bridge — 原生通知 + 更新检测
+        js_api=_js_api,
     )
 
     # 8. 系统托盘（可选）
@@ -552,6 +593,12 @@ def desktop(
     click.echo("  ─────────────────────────────")
     click.echo('  Close window or click tray "退出" to quit.')
     click.echo("")
+
+    # 更新提示
+    if new_ver:
+        click.echo(f"  🆕 新版本可用: v{new_ver}")
+        click.echo(f"     https://github.com/{_GITHUB_REPO}/releases/latest")
+        click.echo("")
 
     # 10. 窗口关闭回调：保存配置
     def _on_window_closed() -> None:

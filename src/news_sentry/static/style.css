@@ -1066,6 +1066,23 @@ a:hover {
   animation: slideDown 0.2s ease;
 }
 
+/* ── 更新提示横幅 ──────────────────────────────────────── */
+.update-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10000;
+  padding: 8px 16px;
+  background: linear-gradient(90deg, #1e40af, #7c3aed);
+  color: #fff;
+  font-size: 0.85rem;
+  text-align: center;
+  animation: slideDown 0.3s;
+}
+.update-banner a { color: #fde68a; font-weight: 600; }
+.update-banner strong { color: #fde68a; }
+
 @keyframes slideDown {
   from { transform: translateY(-100%); }
   to { transform: translateY(0); }
