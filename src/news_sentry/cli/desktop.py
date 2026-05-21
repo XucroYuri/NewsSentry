@@ -106,6 +106,7 @@ def _create_tray_menu(window: Any, port: int) -> Any:
     def _on_quit(icon: object, item: object) -> None:  # noqa: ARG001
         icon.stop()  # type: ignore[attr-defined]
         window.destroy()
+        _stop_tray()
         os._exit(0)
 
     return pystray.Menu(
@@ -200,6 +201,25 @@ def _build_native_menu(data_dir: str, log_dir: str) -> list[Any]:
     ]
 
 
+def _os_info() -> str:
+    """返回跨平台 OS 描述字符串。"""
+    system = platform.system()
+    if system == "Darwin":
+        return f"macOS {platform.mac_ver()[0]}"
+    if system == "Windows":
+        return f"Windows {platform.release()}"
+    # Linux — 尝试读取 /etc/os-release
+    os_info = f"Linux {platform.release()}"
+    try:
+        for line in Path("/etc/os-release").read_text().splitlines():
+            if line.startswith("PRETTY_NAME="):
+                os_info = line.split("=", 1)[1].strip('"')
+                break
+    except (OSError, ValueError):
+        pass
+    return os_info
+
+
 def _show_about() -> None:
     """显示关于对话框。"""
     from importlib.metadata import version as _pkg_version
@@ -220,7 +240,7 @@ def _show_about() -> None:
         f"News Sentry v{ver}\n\n"
         "新闻智能监控平台\n\n"
         f"Python {platform.python_version()}\n"
-        f"macOS {platform.mac_ver()[0] if platform.system() == 'Darwin' else ''}\n"
+        f"{_os_info()}\n"
         f"pywebview 6.x",
     )
 
@@ -242,10 +262,8 @@ def _do_quit(window: Any, data_dir: str) -> None:
 
     _stop_tray()
 
-    if platform.system() == "Darwin":
-        os._exit(0)
-    else:
-        sys.exit(0)
+    # pystray 后台线程可能导致 sys.exit 挂起，统一用 os._exit 强制退出
+    os._exit(0)
 
 
 # ── 主命令 ──────────────────────────────────────────────

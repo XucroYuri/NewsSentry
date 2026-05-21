@@ -55,6 +55,8 @@ api = [
 desktop = [
     "pywebview>=5.0",
     "pystray>=0.19",
+    "Pillow>=10.0",
+    "pywin32>=305; sys_platform == 'win32'",
 ]
 
 [project.urls]
