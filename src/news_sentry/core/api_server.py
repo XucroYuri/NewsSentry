@@ -1265,6 +1265,9 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
             await task
         except asyncio.CancelledError:
             pass
+    if _store is not None:
+        await _store.close()
+        _store = None
 
 
 # ── FastAPI 应用 ────────────────────────────────────────

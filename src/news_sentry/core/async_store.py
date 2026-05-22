@@ -12,6 +12,22 @@ from typing import Any
 
 import aiosqlite
 
+# aiosqlite worker 线程默认非 daemon，导致 create_app() 后进程无法退出。
+# aiosqlite 内部使用 `from threading import Thread` 缓存了原始引用，
+# 必须 patch aiosqlite.core.Thread。
+import aiosqlite.core as _aiosqlite_core
+
+_OrigThread = _aiosqlite_core.Thread  # type: ignore[attr-defined]
+
+
+class _DaemonThread(_OrigThread):  # type: ignore[misc, valid-type]
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        kwargs.setdefault("daemon", True)
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+
+
+_aiosqlite_core.Thread = _DaemonThread  # type: ignore[assignment, attr-defined]
+
 logger = logging.getLogger(__name__)
 
 _PRAGMA_SETUP = (

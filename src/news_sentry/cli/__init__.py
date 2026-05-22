@@ -318,7 +318,7 @@ def validate(config: str) -> None:
 
 @main.command()
 @click.option("--json", "as_json", is_flag=True, default=False, help="Output as JSON")
-@click.option("--target", default="italy", help="监控目标 ID")
+@click.option("--target", default="all", help="监控目标 ID")
 @click.option("--data-root", default="data", help="数据根目录")
 def doctor(as_json: bool, target: str, data_root: str) -> None:
     """运行项目健康检查 — schema/目录/信源/Provider。"""
