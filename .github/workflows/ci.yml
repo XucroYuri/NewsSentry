@@ -30,7 +30,7 @@ jobs:
         run: python -m mypy src/news_sentry/ --ignore-missing-imports
 
       - name: Test (pytest + coverage)
-        run: python -m pytest tests/ -q --tb=short --cov=src/news_sentry --cov-report=term-missing --cov-report=xml
+        run: python -m pytest tests/ -q --tb=short --timeout=300 --cov=src/news_sentry --cov-report=term-missing --cov-report=xml
 
       - name: Security scan (sensitive keywords)
         run: python tools/scan_sensitive_data.py
