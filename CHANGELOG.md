@@ -7,6 +7,20 @@
 
 ---
 
+## [1.7.1] — 2026-05-22
+
+### 新增
+- Phase 61: CI 多平台 PyInstaller 构建 — macOS arm64 + Windows x64 + Linux x64 (release.yml matrix)
+- Phase 61: pytest-timeout 集成 — CI `--timeout=300` 防止测试无限挂起
+- Phase 61: 本地客户端路线图 Phase 62-65 (development-plan.md)
+
+### 修复
+- Phase 60: CI mypy 兼容 — `warn_unused_ignores` 禁用 + desktop.py 通用 suppress
+- Phase 60: 消除 8 处意大利硬编码 — CI hardcoded target scan 通过
+- Phase 61: `doctor --target` 默认值 `'italy'` → `'all'`
+- Phase 61: `create_app()` 退出挂起 — atexit 清理 aiosqlite 连接 (生产) + skip_lifespan + store.close() (测试)
+- Phase 61: `test_import_dedup_with_sqlite` 300s 超时修复
+
 ## [1.7.0] — 2026-05-22
 
 ### 新增

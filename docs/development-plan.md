@@ -33,7 +33,7 @@
 > Phase 58 本地客户端体验打磨: ✅ 全部完成 (测试挂起修复 + SSE 重连 + 快捷键确认 + PWA offline + 在线检测)
 > Phase 59 前端模块化重构 + 代码质量: ✅ 全部完成 (CSS 目录索引 + 开发计划更新)
 > Phase 60 CI 修复 + PyPI 发布: ✅ 全部完成 (mypy CI 兼容 + release workflow + Trusted Publisher)
-> Phase 61 本地客户端发布准备: 🔄 进行中 (CI 多平台构建 + doctor 硬编码 + 退出挂起修复)
+> Phase 61 本地客户端发布准备: ✅ 全部完成 (v1.7.1 patch release)
 > 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](spec/README.md) 为准）
 > Cloud VPS 方案: [docs/deployment/cloud-vps-recommendations.md](./deployment/cloud-vps-recommendations.md)
 > 字段口径基准: [`docs/contracts-canonical.md`](./contracts-canonical.md)
