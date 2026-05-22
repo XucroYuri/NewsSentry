@@ -33,6 +33,7 @@
 > Phase 58 本地客户端体验打磨: ✅ 全部完成 (测试挂起修复 + SSE 重连 + 快捷键确认 + PWA offline + 在线检测)
 > Phase 59 前端模块化重构 + 代码质量: ✅ 全部完成 (CSS 目录索引 + 开发计划更新)
 > Phase 60 CI 修复 + PyPI 发布: ✅ 全部完成 (mypy CI 兼容 + release workflow + Trusted Publisher)
+> Phase 61 本地客户端发布准备: 🔄 进行中 (CI 多平台构建 + doctor 硬编码 + 退出挂起修复)
 > 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](spec/README.md) 为准）
 > Cloud VPS 方案: [docs/deployment/cloud-vps-recommendations.md](./deployment/cloud-vps-recommendations.md)
 > 字段口径基准: [`docs/contracts-canonical.md`](./contracts-canonical.md)
@@ -1508,6 +1509,67 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 |----|------|--------|------|------|
 | P60.01 | CI mypy 兼容修复 | ci.yml + pyproject.toml + desktop.py | M | ✅ |
 | P60.02 | PyPI 发布工作流 | .github/workflows/release.yml | M | ✅ |
+
+### Phase 61 · 本地客户端发布准备 🔧
+
+**目标：** 打磨本地客户端到可分发状态，完成 CI 多平台构建 + GitHub Release 分发。
+
+**核心交付：**
+- CI 多平台构建: macOS arm64 + Windows x64 + Linux x64 PyInstaller onefile
+- doctor --target 硬编码消除
+- create_app() 退出挂起修复（aiosqlite daemon thread）
+- GitHub Release 自动上传构建产物
+
+| ID | 内容 | 输出物 | 规模 | 状态 |
+|----|------|--------|------|------|
+| P61.01 | CI 多平台 PyInstaller 构建 | release.yml 扩展 | M | ✅ |
+| P61.02 | doctor --target 默认值修复 | cli/__init__.py | S | ✅ |
+| P61.03 | create_app 退出挂起修复 | async_store.py monkey-patch | M | ✅ |
+| P61.04 | lifespan shutdown store.close() | api_server.py | S | ✅ |
+
+### Phase 62 · 桌面客户端体验完善 ⬜
+
+**目标：** 新用户首次启动体验 + 桌面应用图标 + 基础引导。
+
+| ID | 内容 | 输出物 | 规模 | 状态 |
+|----|------|--------|------|------|
+| P62.01 | 应用图标 (.ico/.icns/.svg) | static/icons/ | S | ⬜ |
+| P62.02 | PyInstaller spec 引用图标 | news-sentry.spec | S | ⬜ |
+| P62.03 | 首次启动引导（创建管理员账户） | 前端引导页 | M | ⬜ |
+| P62.04 | dark mode 支持 | style.css + CSS 变量 | L | ⬜ |
+| P62.05 | desktop.py 测试覆盖提升 (17%→60%+) | test_desktop.py | L | ⬜ |
+
+### Phase 63 · 自动更新与分发 ⬜
+
+**目标：** 实现桌面应用自动更新机制。
+
+| ID | 内容 | 输出物 | 规模 | 状态 |
+|----|------|--------|------|------|
+| P63.01 | 更新清单文件 (update manifest) | update.json on GitHub | S | ⬜ |
+| P63.02 | 桌面应用自动下载更新 | desktop.py 更新逻辑 | L | ⬜ |
+| P63.03 | Windows 代码签名（可选） | signtool | M | ⬜ |
+| P63.04 | macOS 公证（可选） | notarytool | M | ⬜ |
+
+### Phase 64 · 前端功能补齐 ⬜
+
+**目标：** 补齐前端缺失功能入口。
+
+| ID | 内容 | 输出物 | 规模 | 状态 |
+|----|------|--------|------|------|
+| P64.01 | 数据备份/恢复 UI | settings.js | M | ⬜ |
+| P64.02 | api_server.py 覆盖率提升 (73%→85%+) | test_api_server.py | L | ⬜ |
+| P64.03 | 系统通知偏好设置 UI | settings.js | M | ⬜ |
+
+### Phase 65 · v2.0 规划与 Tauri 原型 ⬜
+
+**目标：** 评估 Tauri 技术方案，制作最小原型验证可行性。
+
+| ID | 内容 | 输出物 | 规模 | 状态 |
+|----|------|--------|------|------|
+| P65.01 | Tauri + Rust 环境搭建 | Cargo.toml + tauri.conf.json | M | ⬜ |
+| P65.02 | 前端迁移验证 | 现有 SPA 在 Tauri webview 中运行 | M | ⬜ |
+| P65.03 | 原生 API 调用验证 | Tauri commands (系统托盘/通知/自启) | L | ⬜ |
+| P65.04 | 性能基准对比 | 启动时间/内存占用对比 pywebview | S | ⬜ |
 
 ---
 
