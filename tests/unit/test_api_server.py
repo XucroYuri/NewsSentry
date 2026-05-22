@@ -2055,6 +2055,7 @@ class TestImportEvents:
             assert resp.status_code == 200
             assert resp.json()["imported"] == 0
             assert resp.json()["skipped"] == 1
+            await store.close()
 
         import asyncio
 
