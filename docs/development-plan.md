@@ -31,7 +31,8 @@
 > Phase 56 技术债清理: ✅ 全部完成 (测试修复 + 端点降级 + 静默异常加日志 + 日志级别 + 清理工件)
 > Phase 57 桌面壳跨平台: ✅ 全部完成 (跨平台适配 + PyInstaller 打包 + 开机自启 + 通知统一 + 更新检测)
 > Phase 58 本地客户端体验打磨: ✅ 全部完成 (测试挂起修复 + SSE 重连 + 快捷键确认 + PWA offline + 在线检测)
-> Phase 59 前端模块化重构 + 代码质量: 🔄 进行中
+> Phase 59 前端模块化重构 + 代码质量: ✅ 全部完成 (CSS 目录索引 + 开发计划更新)
+> Phase 60 CI 修复 + PyPI 发布: ✅ 全部完成 (mypy CI 兼容 + release workflow + Trusted Publisher)
 > 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](spec/README.md) 为准）
 > Cloud VPS 方案: [docs/deployment/cloud-vps-recommendations.md](./deployment/cloud-vps-recommendations.md)
 > 字段口径基准: [`docs/contracts-canonical.md`](./contracts-canonical.md)
@@ -1479,6 +1480,34 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P58.03 | 桌面快捷键绑定 | 全局导航 + 页面内操作 | M | ✅ (已有完整实现) |
 | P58.04 | PWA offline 增强 | 缓存策略 + 离线提示 | M | ✅ |
 | P58.05 | 前端代码拆分 | app.js/style.css 模块化 | L | ⬜ |
+
+
+### Phase 59 · 前端模块化重构 + 代码质量 ✅
+
+**目标：** CSS 目录索引 + 开发计划状态同步更新。
+
+**核心交付：**
+- CSS 目录索引：`style.css` 添加 TOC 目录注释，便于大型 CSS 文件导航
+- 开发计划 v2.9 状态同步更新
+
+| ID | 内容 | 输出物 | 规模 | 状态 |
+|----|------|--------|------|------|
+| P59.01 | CSS 目录索引 | style.css TOC 注释 | S | ✅ |
+
+### Phase 60 · CI 修复 + PyPI 发布工作流 ✅
+
+**目标：** 修复 CI 环境下 mypy 类型检查失败，并建立 tag 驱动的自动 PyPI 发布流程。
+
+**核心交付：**
+- CI mypy `--ignore-missing-imports` — 匹配本地开发配置，解决 CI 无 pywebview/pystray 时的 import 错误
+- GitHub Actions release workflow — tag 发布自动构建 + PyPI publish (Trusted Publisher)
+- desktop.py type: ignore 兼容 CI（通用 suppress）
+- pyproject.toml mypy 禁用 `warn_unused_ignores`
+
+| ID | 内容 | 输出物 | 规模 | 状态 |
+|----|------|--------|------|------|
+| P60.01 | CI mypy 兼容修复 | ci.yml + pyproject.toml + desktop.py | M | ✅ |
+| P60.02 | PyPI 发布工作流 | .github/workflows/release.yml | M | ✅ |
 
 ---
 

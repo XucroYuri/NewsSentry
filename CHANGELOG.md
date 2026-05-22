@@ -33,6 +33,13 @@
 - Phase 56: `test_async_run` 2 个持久失败 — patch 目标 `async_run`→`run` 修正
 - Phase 57: desktop.py 4 个 mypy 错误 — winreg/pystray/uvicorn type ignore + json.loads 返回值类型
 
+### 新增 (Phase 59-60)
+- Phase 59: CSS 目录索引 — `style.css` 添加 TOC 目录注释
+- Phase 60: PyPI 自动发布工作流 — `.github/workflows/release.yml` (tag 驱动 + Trusted Publisher)
+
+### 修复 (Phase 60)
+- Phase 60: CI mypy 兼容 — `--ignore-missing-imports` + `warn_unused_ignores` 禁用 + desktop.py 通用 suppress
+
 ## [1.6.0] — 2026-05-17
 
 ### 新增
