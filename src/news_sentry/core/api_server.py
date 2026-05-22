@@ -1331,6 +1331,19 @@ def create_app(
                 # 事件循环已运行（uvicorn），由生命周期处理初始化。
             except RuntimeError:
                 asyncio.run(_store.initialize())
+                # atexit: CLI 单次调用场景关闭 aiosqlite 连接，防止进程挂起
+                import atexit as _atexit
+
+                _s = _store
+
+                def _cleanup() -> None:
+                    try:
+                        if _s._db is not None:
+                            asyncio.run(_s.close())
+                    except Exception:  # noqa: S110
+                        pass
+
+                _atexit.register(_cleanup)
     elif not auto_store:
         _store = None  # 显式禁用，测试环境重置
     _config_cache = ConfigCache(ttl=60, maxsize=128)
