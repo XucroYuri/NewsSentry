@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import UTC, datetime
 from pathlib import Path
@@ -2024,9 +2025,8 @@ class TestImportEvents:
         """SQLite 去重：重复 event_id 被跳过。"""
         db_path = tmp_path / "state.db"
         store = AsyncStore(db_path)
-
-        async def _init_and_import() -> None:
-            await store.initialize()
+        asyncio.run(store.initialize())
+        try:
             app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
             client = TestClient(app)
             # 获取 dev mode token
@@ -2055,11 +2055,8 @@ class TestImportEvents:
             assert resp.status_code == 200
             assert resp.json()["imported"] == 0
             assert resp.json()["skipped"] == 1
-            await store.close()
-
-        import asyncio
-
-        asyncio.run(_init_and_import())
+        finally:
+            asyncio.run(store.close())
 
     def test_import_auth_required(self, tmp_path: Path) -> None:
         """导入端点要求认证。"""
