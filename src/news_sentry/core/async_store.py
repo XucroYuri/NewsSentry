@@ -5,6 +5,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+
+# aiosqlite worker 线程默认非 daemon，导致 create_app() 后进程无法退出。
+# 在非测试环境中 patch aiosqlite.core.Thread 使 worker 为 daemon。
+# 测试中不 patch，因为 pytest 的 per-test event loop 依赖 worker 线程正常关闭。
+import os as _os
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -12,21 +17,17 @@ from typing import Any
 
 import aiosqlite
 
-# aiosqlite worker 线程默认非 daemon，导致 create_app() 后进程无法退出。
-# aiosqlite 内部使用 `from threading import Thread` 缓存了原始引用，
-# 必须 patch aiosqlite.core.Thread。
-import aiosqlite.core as _aiosqlite_core
+if not _os.environ.get("PYTEST_CURRENT_TEST"):
+    import aiosqlite.core as _aiosqlite_core
 
-_OrigThread = _aiosqlite_core.Thread  # type: ignore[attr-defined]
+    _OrigThread = _aiosqlite_core.Thread  # type: ignore[attr-defined]
 
+    class _DaemonThread(_OrigThread):  # type: ignore[misc, valid-type]
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            kwargs.setdefault("daemon", True)
+            super().__init__(*args, **kwargs)  # type: ignore[arg-type]
 
-class _DaemonThread(_OrigThread):  # type: ignore[misc, valid-type]
-    def __init__(self, *args: object, **kwargs: object) -> None:
-        kwargs.setdefault("daemon", True)
-        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
-
-
-_aiosqlite_core.Thread = _DaemonThread  # type: ignore[assignment, attr-defined]
+    _aiosqlite_core.Thread = _DaemonThread  # type: ignore[assignment, attr-defined]
 
 logger = logging.getLogger(__name__)
 
