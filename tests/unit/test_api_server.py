@@ -2027,7 +2027,7 @@ class TestImportEvents:
 
         async def _init_and_import() -> None:
             await store.initialize()
-            app = create_app(data_dir=tmp_path, store=store)
+            app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
             client = TestClient(app)
             # 获取 dev mode token
             token_resp = client.post("/api/v1/auth/token", json={"api_key": ""})
