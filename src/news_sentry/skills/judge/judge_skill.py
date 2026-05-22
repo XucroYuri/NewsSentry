@@ -50,9 +50,9 @@ class JudgeSkill:
         self,
         router: ProviderRouter,
         provider_factory: Callable[[str], AIProvider | None],
+        target_display_name: str = "",
+        target_language: str = "",
         sandbox_enforcer: Any = None,  # noqa: ANN401
-        target_display_name: str = "Italian news",
-        target_language: str = "Italian",
     ) -> None:
         self._router = router
         self._provider_factory = provider_factory

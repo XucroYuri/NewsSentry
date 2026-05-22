@@ -1096,7 +1096,7 @@ def _parse_target_ids(raw: str) -> list[str]:
 _auto_collector_state: dict[str, Any] = {
     "enabled": os.environ.get("NEWSSENTRY_AUTO_COLLECT", "1") == "1",
     "target_ids": _parse_target_ids(
-        os.environ.get("NEWSSENTRY_TARGET_ID", os.environ.get("TARGET_ID", "italy"))
+        os.environ.get("NEWSSENTRY_TARGET_ID", os.environ.get("TARGET_ID", "all"))
     ),
     "interval_minutes": int(os.environ.get("NEWSSENTRY_COLLECT_INTERVAL", "15")),
     "stage": os.environ.get("NEWSSENTRY_COLLECT_STAGE", "collect"),
@@ -1115,7 +1115,7 @@ async def _auto_collect_loop() -> None:
     """后台循环：每隔 interval_minutes 对每个 target 执行 pipeline 阶段。
 
     通过 NEWSSENTRY_COLLECT_STAGE 控制执行的阶段（默认 collect），
-    通过 NEWSSENTRY_TARGET_ID 控制 target 范围（默认 italy，逗号分隔或 all）。
+    通过 NEWSSENTRY_TARGET_ID 控制 target 范围（默认 all，逗号分隔或 all）。
     """
     interval = _auto_collector_state["interval_minutes"] * 60
     target_ids = _auto_collector_state["target_ids"]
@@ -1817,7 +1817,11 @@ def create_app(
         events_data: list[dict[str, Any]] = []
         if _store is not None:
             try:
-                tids = [target_id] if target_id != "all" else ["italy"]
+                tids = (
+                    [target_id]
+                    if target_id != "all"
+                    else _auto_collector_state.get("target_ids", [])
+                )
                 for tid in tids:
                     evts = await _store.query_events(
                         tid,

@@ -428,8 +428,8 @@ def _run_judge(
     rules_judge = RulesJudgeSkill(config.classification_rules, memory)
     target_ctx = config.target
     ai_judge = _init_ai_judge(
-        target_display_name=target_ctx.get("display_name", "Italian news"),
-        target_language=target_ctx.get("language_scope", {}).get("primary", "Italian"),
+        target_display_name=target_ctx.get("display_name", ""),
+        target_language=target_ctx.get("language_scope", {}).get("primary", ""),
     )
     router = ConfidenceRouter(rules_judge, ai_judge)
     judged = router.judge(events, run_id)
@@ -487,8 +487,8 @@ def _run_all(
 
 
 def _init_ai_judge(
-    target_display_name: str = "Italian news",
-    target_language: str = "Italian",
+    target_display_name: str = "",
+    target_language: str = "",
 ) -> JudgeSkill | None:
     """尝试初始化 AI 研判器（Phase 5 多 Provider 路由）。
 
