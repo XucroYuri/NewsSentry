@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 from datetime import UTC, datetime
 from pathlib import Path
@@ -2021,42 +2020,46 @@ class TestImportEvents:
         assert "language: ja" in content
         assert "Full article text" in content
 
-    def test_import_dedup_with_sqlite(self, tmp_path: Path) -> None:
+    async def test_import_dedup_with_sqlite(self, tmp_path: Path) -> None:
         """SQLite 去重：重复 event_id 被跳过。"""
+        from httpx import ASGITransport, AsyncClient
+
         db_path = tmp_path / "state.db"
         store = AsyncStore(db_path)
-        asyncio.run(store.initialize())
-        try:
-            app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
-            client = TestClient(app)
-            # 获取 dev mode token
-            token_resp = client.post("/api/v1/auth/token", json={"api_key": ""})
-            assert token_resp.status_code == 200
-            client.headers["Authorization"] = f"Bearer {token_resp.json()['access_token']}"
+        await store.initialize()
+        app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+        transport = ASGITransport(app=app)
+        client = AsyncClient(transport=transport, base_url="http://test")
 
-            payload = [
-                {
-                    "target_id": "italy",
-                    "source_id": "test-src",
-                    "title_original": "First import",
-                    "url": "https://example.com/dedup-test",
-                    "collected_at": "2026-05-17T10:00:00+00:00",
-                },
-            ]
+        # 获取 dev mode token
+        token_resp = await client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert token_resp.status_code == 200
+        client.headers["Authorization"] = f"Bearer {token_resp.json()['access_token']}"
 
-            # 第一次导入
-            resp = client.post("/api/v1/events/import", json=payload)
-            assert resp.status_code == 200
-            assert resp.json()["imported"] == 1
-            assert resp.json()["skipped"] == 0
+        payload = [
+            {
+                "target_id": "italy",
+                "source_id": "test-src",
+                "title_original": "First import",
+                "url": "https://example.com/dedup-test",
+                "collected_at": "2026-05-17T10:00:00+00:00",
+            },
+        ]
 
-            # 第二次导入相同事件 → 跳过
-            resp = client.post("/api/v1/events/import", json=payload)
-            assert resp.status_code == 200
-            assert resp.json()["imported"] == 0
-            assert resp.json()["skipped"] == 1
-        finally:
-            asyncio.run(store.close())
+        # 第一次导入
+        resp = await client.post("/api/v1/events/import", json=payload)
+        assert resp.status_code == 200
+        assert resp.json()["imported"] == 1
+        assert resp.json()["skipped"] == 0
+
+        # 第二次导入相同事件 → 跳过
+        resp = await client.post("/api/v1/events/import", json=payload)
+        assert resp.status_code == 200
+        assert resp.json()["imported"] == 0
+        assert resp.json()["skipped"] == 1
+
+        await client.aclose()
+        await store.close()
 
     def test_import_auth_required(self, tmp_path: Path) -> None:
         """导入端点要求认证。"""
