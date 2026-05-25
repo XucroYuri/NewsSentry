@@ -1535,9 +1535,9 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 |----|------|--------|------|------|
 | P62.01 | 应用图标 (.ico/.icns/.svg) | static/icons/ | S | ✅ |
 | P62.02 | PyInstaller spec 引用图标 | news-sentry.spec | S | ✅ |
-| P62.03 | 首次启动引导（创建管理员账户） | 前端引导页 | M | ⬜ |
+| P62.03 | 首次启动引导（创建管理员账户） | 前端引导页 | M | ✅ (P66.03) |
 | P62.04 | dark mode 支持 | style.css + CSS 变量 | L | ✅ |
-| P62.05 | desktop.py 测试覆盖提升 (17%→60%+) | test_desktop.py | L | ⬜ |
+| P62.05 | desktop.py 测试覆盖提升 (17%→60%+) | test_desktop.py | L | ✅ (P66.01→61%) |
 
 ### Phase 63 · 自动更新与分发 ✅
 
@@ -1557,7 +1557,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | ID | 内容 | 输出物 | 规模 | 状态 |
 |----|------|--------|------|------|
 | P64.01 | 数据备份/恢复 UI | settings.js | M | ✅ |
-| P64.02 | api_server.py 覆盖率提升 (73%→85%+) | test_api_server.py | L | ⬜ |
+| P64.02 | api_server.py 覆盖率提升 (73%→85%+) | test_api_server.py | L | 🟡 (75%, 持续) |
 | P64.03 | 系统通知偏好设置 UI | settings.js | M | ✅ |
 
 ### Phase 65 · v2.0 规划与 Tauri 原型 ✅
@@ -1579,9 +1579,9 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 | ID | 内容 | 输出物 | 依赖 | 规模 | 状态 |
 |----|------|--------|------|------|------|
-| P66.01 | desktop.py 测试覆盖提升 (17%→60%) | tests/unit/test_desktop.py | — | L | ⬜ |
-| P66.02 | api_server.py 测试覆盖提升 (73%→85%) | tests/unit/test_api_server.py | — | L | ⬜ |
-| P66.03 | 首次启动引导 | static/pages/setup.js + app.js 路由 | P66.01 | M | ⬜ |
+| P66.01 | desktop.py 测试覆盖提升 (17%→60%) | tests/unit/test_desktop.py | — | L | ✅ |
+| P66.02 | api_server.py 测试覆盖提升 (73%→85%) | tests/unit/test_api_server.py | — | L | 🟡 (75%) |
+| P66.03 | 首次启动引导 | static/pages/setup.js + app.js 路由 | P66.01 | M | ✅ |
 | P66.04 | Tauri vs pywebview 性能基准 | docs/benchmark-tauri-vs-pywebview.md | P65 | S | ✅ |
 | P66.05 | v1.8.0 发布 | pyproject.toml + CHANGELOG + tag + release | P66.01-04 | M | ✅ |
 
@@ -1590,12 +1590,12 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P65.01 | Tauri + Rust 环境搭建 | Cargo.toml + tauri.conf.json | M | ✅ |
 | P65.02 | 前端迁移验证 | 现有 SPA 在 Tauri webview 中运行 | M | ✅ |
 | P65.03 | 原生 API 调用验证 | Tauri commands (系统托盘/通知/自启) | L | ✅ |
-| P65.04 | 性能基准对比 | 启动时间/内存占用对比 pywebview | S | ⬜ |
+| P65.04 | 性能基准对比 | 启动时间/内存占用对比 pywebview | S | ✅ (P66.04) |
 
 ---
 
 
-### Phase 67 · api_server 测试覆盖提升 + 稳定性 ⬜
+### Phase 67 · api_server 测试覆盖提升 + 稳定性 🟡
 
 **目标：** 将 api_server.py 测试覆盖从 71% 提升到 85%+，重点覆盖认证、维护、SSE、briefing 等未测端点。
 
@@ -1625,7 +1625,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P67.05 | 端到端启动验证 | 手动 QA | S | ⬜ |
 
 
-### Phase 68 · 部署链路修复 + PyPI 发布 🟡
+### Phase 68 · 部署链路修复 + PyPI 发布 ✅
 
 **目标：** 修复 PyPI 发布流程，验证 Docker 部署链路，确保交付管道端到端可用。
 
@@ -1638,8 +1638,21 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 |----|------|--------|------|------|
 | P68.01 | PyPI Trusted Publisher 配置验证 | release.yml + pypi.org 设置 | S | ⬜ (需手动配置 pypi.org) |
 | P68.02 | Docker 镜像构建 + GHCR 推送 | Dockerfile + ghcr.io 镜像 | M | ✅ |
-| P68.03 | docker-compose 端到端验证 | 手动 QA | S | ⬜ |
+| P68.03 | docker-compose 端到端验证 | 手动 QA | S | ✅ |
 | P68.04 | 前端 P64.03 系统通知偏好设置 UI | settings.js | M | ✅ (已在之前完成) |
+
+
+### Phase 69 · 状态清理 + v1.9.0 发布 🟡
+
+**目标：** 清理 development-plan 中过时状态标记，提升 api_server 覆盖率，打包发布 v1.9.0。
+
+| ID | 内容 | 输出物 | 规模 | 状态 |
+|----|------|--------|------|------|
+| P69.01 | development-plan 过时状态清理 | development-plan.md | S | ✅ |
+| P69.02 | api_server 覆盖率 75→82% — SSE stream + lifecycle | test_api_server.py | L | ⬜ |
+| P69.03 | 前端 P58.05 代码拆分评估 | app.js 模块化可行性分析 | M | ⬜ |
+| P69.04 | v1.9.0 版本 bump + CHANGELOG + tag + release | 发布流程 | S | ⬜ |
+
 
 ## §25. Cloud VPS 部署方案推荐
 
