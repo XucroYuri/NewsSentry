@@ -3,7 +3,7 @@
  * Phase 73: 来源人格化 + 标签扁平化 + 多视图切换
  */
 
-import { state, api, escapeHtml, scoreColor } from "../api.js?v=20260526c";
+import { state, api, escapeHtml, scoreColor, isAuthenticated } from "../api.js?v=20260526c";
 import { CHANNELS, filterGroups, countEvents } from "./feed_filters.js?v=20260526c";
 
 // ── 推荐标签映射 ──
@@ -18,15 +18,22 @@ const REC_LABELS = {
 const _sourceMaps = new Map();
 
 async function loadSourceMap(targetId) {
+  if (!isAuthenticated()) return {};
   if (_sourceMaps.has(targetId)) return _sourceMaps.get(targetId);
   const sourceMap = {};
+  const targetPath = encodeURIComponent(targetId);
   try {
     // 尝试通过配置 API 获取 source 列表
-    const targetCfg = await api(`/api/v1/config/targets/${targetId}`);
+    const targetCfg = await api(`/api/v1/config/targets/${targetPath}`);
     const refs = targetCfg.source_channel_refs || [];
     // 并行获取每个 source 的配置
     const results = await Promise.allSettled(
-      refs.map((ref) => api(`/api/v1/config/targets/${targetId}/sources/${ref}`).then((s) => ({ ref, ...s })).catch(() => null))
+      refs.map((ref) => {
+        const sourcePath = encodeURIComponent(ref);
+        return api(`/api/v1/config/targets/${targetPath}/sources/${sourcePath}`)
+          .then((s) => ({ ref, ...s }))
+          .catch(() => null);
+      })
     );
     for (const r of results) {
       if (r.status === "fulfilled" && r.value) {
@@ -39,7 +46,8 @@ async function loadSourceMap(targetId) {
       }
     }
   } catch {
-    // 降级: 无配置时用 source_id 本身
+    // 降级: 无配置时用 source_id 本身；不要缓存顶层失败。
+    return {};
   }
   _sourceMaps.set(targetId, sourceMap);
   return sourceMap;
@@ -47,8 +55,9 @@ async function loadSourceMap(targetId) {
 
 function sourceAvatar(sourceId, sourceInfo) {
   const name = sourceInfo?.name || sourceId || "—";
-  const initial = name.charAt(0).toUpperCase();
-  const cred = sourceInfo?.credibility || 0;
+  const initial = escapeHtml(name.charAt(0).toUpperCase());
+  const rawCred = Number(sourceInfo?.credibility);
+  const cred = Number.isFinite(rawCred) ? rawCred : 0;
   // 可信度颜色: 高(绿) 中(黄) 低(灰)
   let credColor = "#6e6e78";
   if (cred >= 0.85) credColor = "#2e8b57";

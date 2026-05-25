@@ -1,27 +1,28 @@
 /* News Sentry — Service Worker v3 */
 "use strict";
 
-const CACHE = "news-sentry-v6";
+const CACHE = "news-sentry-v7";
 const STATIC_URLS = [
   "/",
   "/index.html",
-  "/app.js",
-  "/api.js",
-  "/style.css",
   "/manifest.json",
   "/icons/icon-192.svg",
   "/icons/icon-512.svg",
-  "/pages/feed.js",
-  "/pages/feed_filters.js",
-  "/pages/dashboard.js",
-  "/pages/events.js",
-  "/pages/alerts.js",
-  "/pages/chains.js",
-  "/pages/ops.js",
-  "/pages/feedback.js",
-  "/pages/config.js",
-  "/pages/settings.js",
-  "/pages/trends.js",
+  "/app.js?v=20260526c",
+  "/api.js?v=20260526c",
+  "/style.css?v=20260526c",
+  "/pages/feed.js?v=20260526c",
+  "/pages/feed_filters.js?v=20260526c",
+  "/pages/dashboard.js?v=20260526c",
+  "/pages/events.js?v=20260526c",
+  "/pages/entities.js?v=20260526c",
+  "/pages/alerts.js?v=20260526c",
+  "/pages/chains.js?v=20260526c",
+  "/pages/ops.js?v=20260526c",
+  "/pages/feedback.js?v=20260526c",
+  "/pages/config.js?v=20260526c",
+  "/pages/settings.js?v=20260526c",
+  "/pages/trends.js?v=20260526c",
   "https://cdn.jsdelivr.net/npm/chart.js@4",
 ];
 
@@ -110,8 +111,10 @@ async function cacheFirst(request) {
     return resp;
   } catch {
     // 离线且无缓存
-    const fallback = await caches.match("/");
-    return fallback || new Response("Offline", { status: 503 });
+    return new Response("Offline", {
+      status: 503,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
   }
 }
 
