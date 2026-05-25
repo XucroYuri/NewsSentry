@@ -10,19 +10,13 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="News Sentry">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src *;">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=20260526b">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 </head>
 <body>
   <!-- 连接设置页（未认证时全屏显示） -->
-  <div id="connectPage" class="connect-page">
+  <div id="connectPage" class="connect-page" style="display:none;">
     <div class="connect-card">
-      <!-- 模式切换标签 -->
-      <div class="connect-mode-switch">
-        <button class="mode-tab active" data-mode="local">本地服务</button>
-        <button class="mode-tab" data-mode="cloud">云端服务</button>
-      </div>
-
       <!-- Logo -->
       <div class="connect-logo">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -31,38 +25,22 @@
         </svg>
       </div>
       <h1 class="connect-title">News Sentry</h1>
-      <p class="connect-subtitle">新闻智能监控平台</p>
+      <p class="connect-subtitle">管理后台登录</p>
 
       <!-- 表单 -->
       <div class="connect-form">
         <div class="connect-field">
-          <label>👤 用户名</label>
+          <label>用户名</label>
           <input type="text" id="connectUsername" placeholder="输入用户名" autocomplete="username">
         </div>
+        <input type="hidden" id="connectServer">
         <div class="connect-field">
-          <label>🌐 服务器地址</label>
-          <input type="url" id="connectServer" placeholder="http://localhost:8000">
-        </div>
-        <div class="connect-field">
-          <label>🔒 密码</label>
+          <label>密码</label>
           <input type="password" id="connectPassword" placeholder="输入密码" autocomplete="current-password">
         </div>
-        <div class="connect-field">
-          <label>🌍 Language / 语言</label>
-          <select id="connectLanguage">
-            <option value="zh">中文</option>
-            <option value="en">English</option>
-          </select>
-        </div>
         <button id="connectBtn" class="connect-btn">登录</button>
-        <p class="connect-hint">首次使用？请使用管理员账户登录</p>
+        <p class="connect-hint">新闻情报可直接浏览；配置、运维和写操作需要管理员账户。</p>
         <p id="connectError" class="connect-error" style="display:none;"></p>
-      </div>
-
-      <!-- 服务器状态 -->
-      <div class="connect-status" id="connectStatus">
-        <span class="status-dot" id="connectStatusDot"></span>
-        <span id="connectStatusText">检测中...</span>
       </div>
     </div>
   </div>
@@ -88,13 +66,13 @@
     <nav class="sidebar-nav">
       <!-- 第一层：每日工作台 -->
       <div class="nav-section-label">每日工作台</div>
-      <a href="#/news/overview" class="nav-item" data-section="news">
-        <span class="nav-icon">📰</span>
+      <a href="#/news/feed" class="nav-item" data-section="news">
+        <span class="nav-icon">N</span>
         <span>新闻情报</span>
         <span class="nav-badge" id="badgeNews" style="display:none;">0</span>
       </a>
       <a href="#/alerts/live" class="nav-item" data-section="alerts">
-        <span class="nav-icon">🔔</span>
+        <span class="nav-icon">A</span>
         <span>告警通知</span>
         <span class="nav-badge" id="badgeAlerts" style="display:none;">0</span>
       </a>
@@ -102,11 +80,11 @@
       <!-- 第二层：系统管理 -->
       <div class="nav-section-label">系统管理</div>
       <a href="#/ops/status" class="nav-item" data-section="ops">
-        <span class="nav-icon">📊</span>
+        <span class="nav-icon">O</span>
         <span>运行监控</span>
       </a>
       <a href="#/feedback/records" class="nav-item" data-section="feedback">
-        <span class="nav-icon">💬</span>
+        <span class="nav-icon">F</span>
         <span>反馈优化</span>
       </a>
 
@@ -116,11 +94,11 @@
       </div>
       <div class="nav-collapsible" id="configNav" style="display:none;">
         <a href="#/config/target" class="nav-item" data-section="config">
-          <span class="nav-icon">🔧</span>
+          <span class="nav-icon">C</span>
           <span>配置中心</span>
         </a>
         <a href="#/settings/password" class="nav-item" data-section="settings">
-          <span class="nav-icon">⚙️</span>
+          <span class="nav-icon">S</span>
           <span>系统设置</span>
         </a>
       </div>
@@ -216,6 +194,6 @@
     </div>
   </div>
 
-  <script type="module" src="app.js"></script>
+  <script type="module" src="app.js?v=20260526b"></script>
 </body>
 </html>

@@ -13,6 +13,7 @@
     "/style.css",
     "/sw.js",
     "/pages/feed.js",
+    "/pages/feed_filters.js",
     "/pages/dashboard.js",
     "/pages/events.js",
     "/pages/entities.js",
