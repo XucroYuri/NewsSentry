@@ -1582,7 +1582,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P66.01 | desktop.py 测试覆盖提升 (17%→60%) | tests/unit/test_desktop.py | — | L | ⬜ |
 | P66.02 | api_server.py 测试覆盖提升 (73%→85%) | tests/unit/test_api_server.py | — | L | ⬜ |
 | P66.03 | 首次启动引导 | static/pages/setup.js + app.js 路由 | P66.01 | M | ⬜ |
-| P66.04 | Tauri vs pywebview 性能基准 | docs/benchmark-tauri-vs-pywebview.md | P65 | S | ⬜ |
+| P66.04 | Tauri vs pywebview 性能基准 | docs/benchmark-tauri-vs-pywebview.md | P65 | S | ✅ |
 | P66.05 | v1.8.0 发布 | pyproject.toml + CHANGELOG + tag + release | P66.01-04 | M | ⬜ |
 
 
