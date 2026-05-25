@@ -1545,8 +1545,8 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 | ID | 内容 | 输出物 | 规模 | 状态 |
 |----|------|--------|------|------|
-| P63.01 | 更新清单文件 (update manifest) | update.json on GitHub | S | ⬜ |
-| P63.02 | 桌面应用自动下载更新 | desktop.py 更新逻辑 | L | ⬜ |
+| P63.01 | 更新清单文件 (update manifest) | update.json on GitHub | S | ✅ |
+| P63.02 | 桌面应用自动下载更新 | desktop.py 更新逻辑 | L | ✅ |
 | P63.03 | Windows 代码签名（可选） | signtool | M | ⬜ |
 | P63.04 | macOS 公证（可选） | notarytool | M | ⬜ |
 

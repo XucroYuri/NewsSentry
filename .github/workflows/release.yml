@@ -90,3 +90,36 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/${{ matrix.asset-name }}
+
+  # ── 更新清单 ──────────────────────────────────────────
+  publish-manifest:
+    name: Publish update manifest
+    runs-on: ubuntu-latest
+    needs: build-desktop
+    permissions:
+      contents: write
+
+    steps:
+      - name: Generate update.json
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          cat > update.json << EOF
+          {
+            "version": "${VERSION}",
+            "tag": "${TAG}",
+            "released_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "url": "https://github.com/XucroYuri/NewsSentry/releases/tag/${TAG}",
+            "assets": {
+              "macos-arm64": "https://github.com/XucroYuri/NewsSentry/releases/download/${TAG}/news-sentry-macos-arm64",
+              "windows-x64": "https://github.com/XucroYuri/NewsSentry/releases/download/${TAG}/news-sentry-windows-x64.exe",
+              "linux-x64": "https://github.com/XucroYuri/NewsSentry/releases/download/${TAG}/news-sentry-linux-x64"
+            }
+          }
+          EOF
+          cat update.json
+
+      - name: Upload manifest to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: update.json

@@ -621,11 +621,28 @@ function _checkDesktopUpdate() {
     if (ver) {
       const banner = document.createElement("div");
       banner.className = "update-banner";
-      banner.innerHTML = `🆕 新版本 <strong>v${ver}</strong> 可用 — <a href="https://github.com/XucroYuri/NewsSentry/releases/latest" target="_blank">下载</a>`;
+      banner.id = "updateBanner";
+      banner.innerHTML = `🆕 新版本 <strong>v${ver}</strong> 可用 —
+        <button onclick="_doDesktopUpdate()" style="margin-left:8px;padding:4px 12px;border-radius:4px;background:var(--accent-blue);color:#fff;border:none;cursor:pointer;font-size:0.85rem;">一键更新</button>
+        <a href="https://github.com/XucroYuri/NewsSentry/releases/latest" target="_blank" style="margin-left:8px;color:var(--text-accent);">手动下载</a>`;
       document.body.prepend(banner);
-      setTimeout(() => banner.remove(), 30000);
+      setTimeout(() => { if (document.getElementById("updateBanner")) banner.remove(); }, 60000);
     }
   } catch {}
+}
+
+async function _doDesktopUpdate() {
+  const banner = document.getElementById("updateBanner");
+  if (!banner) return;
+  banner.innerHTML = "⏳ 正在下载更新...";
+  try {
+    const result = await window.pywebview.api.download_and_install();
+    banner.innerHTML = result.includes("Restarting")
+      ? "✅ 更新完成，正在重启..."
+      : `❌ 更新失败: ${result}`;
+  } catch (e) {
+    banner.innerHTML = `❌ 更新失败: ${e.message}`;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════

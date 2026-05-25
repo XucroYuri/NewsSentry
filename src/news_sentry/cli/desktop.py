@@ -27,6 +27,7 @@ from typing import Any
 
 import click
 
+from news_sentry import __version__
 from news_sentry.cli import main
 
 # ── 配置 ──────────────────────────────────────────────────
@@ -179,7 +180,7 @@ def _check_update() -> str | None:
         if not latest:
             return None
         # 比较版本号
-        current = "1.7.0"  # 与 pyproject.toml 保持同步
+        current = __version__
         if _parse_version(latest) > _parse_version(current):
             return latest
     except Exception:  # noqa: S110
@@ -195,6 +196,88 @@ def _parse_version(v: str) -> tuple[int, ...]:
         return (0, 0, 0)
 
 
+def _download_update(version: str, dest_dir: Path | None = None) -> Path | None:
+    """下载新版本到临时目录。返回文件路径或 None。"""
+    import tempfile
+    import urllib.request
+
+    system = platform.system()
+    if system == "Darwin":
+        asset_key = "macos-arm64"
+        suffix = ""
+    elif system == "Windows":
+        asset_key = "windows-x64"
+        suffix = ".exe"
+    else:
+        asset_key = "linux-x64"
+        suffix = ""
+
+    tag = f"v{version}"
+    download_url = (
+        f"https://github.com/{_GITHUB_REPO}/releases/download/{tag}/news-sentry-{asset_key}{suffix}"
+    )
+
+    if dest_dir is None:
+        dest_dir = Path(tempfile.mkdtemp(prefix="news-sentry-update-"))
+
+    dest_file = dest_dir / f"news-sentry-{asset_key}{suffix}"
+    click.echo(f"正在下载 v{version} ({asset_key}) ...")
+
+    try:
+        req = urllib.request.Request(download_url, headers={"User-Agent": "news-sentry"})  # noqa: S310
+        with urllib.request.urlopen(req, timeout=120) as resp:  # noqa: S310
+            with open(dest_file, "wb") as f:
+                while True:
+                    chunk = resp.read(8192)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+        if system != "Windows":
+            dest_file.chmod(0o755)
+        click.echo(f"下载完成: {dest_file}")
+        return dest_file
+    except Exception as e:
+        click.echo(f"下载失败: {e}")
+        return None
+
+
+def _install_update(binary_path: Path) -> None:
+    """替换当前二进制文件并重启。
+
+    策略：将下载的新版本复制到当前可执行文件路径，然后重启。
+    """
+    import shutil
+
+    current_exe = Path(__file__).resolve()
+    # 向上找到包根目录的上一级（site-packages 中的位置）
+    # 对于 PyInstaller onefile，直接替换 sys.executable
+    if getattr(sys, "frozen", False):
+        current_exe = Path(sys.executable)
+
+    if not current_exe.exists():
+        click.echo(f"当前可执行文件不存在: {current_exe}")
+        return
+
+    # 创建备份
+    backup = current_exe.with_suffix(current_exe.suffix + ".bak")
+    try:
+        shutil.copy2(str(current_exe), str(backup))
+    except Exception:  # noqa: S110
+        pass  # 备份失败不阻塞
+
+    try:
+        shutil.copy2(str(binary_path), str(current_exe))
+        if not sys.platform == "win32":
+            current_exe.chmod(0o755)
+        click.echo("更新安装完成，正在重启...")
+        os.execv(str(current_exe), [str(current_exe)] + sys.argv[1:])  # noqa: S606
+    except Exception as e:
+        # 回滚
+        if backup.exists():
+            shutil.copy2(str(backup), str(current_exe))
+        click.echo(f"安装失败（已回滚）: {e}")
+
+
 # ── 原生通知（JS bridge）─────────────────────────────────────
 
 
@@ -202,6 +285,16 @@ class _NativeNotifyApi:
     """pywebview JS bridge — 原生系统通知 + 更新检测。"""
 
     latest_version: str | None = None
+
+    def download_and_install(self) -> str:
+        """JS bridge: 下载并安装更新。返回状态消息。"""
+        if not self.latest_version:
+            return "No update available"
+        binary = _download_update(self.latest_version)
+        if binary is None:
+            return "Download failed"
+        _install_update(binary)
+        return "Restarting..."
 
     def notify(self, title: str, body: str) -> None:
         """通过平台原生方式发送桌面通知。"""

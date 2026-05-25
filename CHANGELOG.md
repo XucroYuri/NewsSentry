@@ -27,6 +27,9 @@
 - Phase 62: PyInstaller spec 平台感知图标引用 (`_icon_path()`)
 - Phase 62: Light mode 主题切换 — CSS 变量 + `[data-theme="light"]` + `prefers-color-scheme` 跟随系统
 - Phase 62: 设置页「外观主题」tab — 深色/浅色/跟随系统切换 + 预览卡片
+- Phase 63: update.json manifest — release workflow 自动生成
+- Phase 63: 桌面应用一键更新 — 下载 + 替换 + 重启 (pywebview JS bridge)
+- Phase 63: `_check_update` 版本号从 `__version__` 动态读取（消除硬编码）
 
 ## [1.7.0] — 2026-05-22
 
