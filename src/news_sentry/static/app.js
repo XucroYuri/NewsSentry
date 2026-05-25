@@ -18,7 +18,7 @@ import { renderLiveAlertsTab, renderAlertHistoryTab } from "./pages/alerts.js";
 import { renderRunStatusTab, renderCollectorTab, renderSourceHealthTab, renderRunHistoryTab, renderMaintenanceTab, renderOpsDetail } from "./pages/ops.js";
 import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedback.js";
 import { renderTargetTab, renderSourcesTab, renderFiltersTab, renderOutputsTab, renderAITab, renderWebhookTab, renderApiKeyTab } from "./pages/config.js";
-import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab } from "./pages/settings.js";
+import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab, renderThemeTab, initTheme } from "./pages/settings.js";
 
 // ═══════════════════════════════════════════════════════════
 // §1. 路由表
@@ -118,6 +118,7 @@ const ROUTES = {
       { id: "apiKey", label: "API Key" },
       { id: "notifications", label: "通知设置" },
       { id: "users", label: "用户管理" },
+      { id: "theme", label: "外观主题" },
     ],
     render: (container, tab) => {
       if (tab === "apiKey") return renderApiKeyTab(container);
@@ -884,6 +885,7 @@ async function init() {
     _registerSW();
     _requestNotificationPermission();
     _setupOnlineDetection();
+  initTheme();
     _checkDesktopUpdate();
     // target 切换时重新连接 SSE
     const targetSelect = document.getElementById("targetSelect");

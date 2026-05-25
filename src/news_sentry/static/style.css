@@ -77,6 +77,68 @@
   --weight-caption: 400;
 }
 
+/* ── Light Mode ───────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg-primary: #f5f6fa;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #eef0f6;
+  --bg-hover: #e2e5f0;
+  --bg-active: #d5d9e8;
+
+  --text-primary: #1a1d27;
+  --text-secondary: #5c6280;
+  --text-muted: #9399b2;
+  --text-accent: #2d6fd4;
+  --text-title: #0f1117;
+
+  --accent-blue: #2d6fd4;
+  --accent-blue-dim: rgba(45, 111, 212, 0.12);
+
+  --border-color: #d5d9e8;
+  --border-light: #e2e5f0;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+
+  --bg-glass: rgba(255, 255, 255, 0.7);
+  --bg-card-hover: #f0f2f8;
+  --accent-glow: 0 0 20px rgba(45, 111, 212, 0.1);
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.06), 0 8px 32px rgba(0, 0, 0, 0.08);
+}
+
+/* 系统偏好: 未手动设置时跟随系统 */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg-primary: #f5f6fa;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #eef0f6;
+    --bg-hover: #e2e5f0;
+    --bg-active: #d5d9e8;
+
+    --text-primary: #1a1d27;
+    --text-secondary: #5c6280;
+    --text-muted: #9399b2;
+    --text-accent: #2d6fd4;
+    --text-title: #0f1117;
+
+    --accent-blue: #2d6fd4;
+    --accent-blue-dim: rgba(45, 111, 212, 0.12);
+
+    --border-color: #d5d9e8;
+    --border-light: #e2e5f0;
+
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+
+    --bg-glass: rgba(255, 255, 255, 0.7);
+    --bg-card-hover: #f0f2f8;
+    --accent-glow: 0 0 20px rgba(45, 111, 212, 0.1);
+    --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.06), 0 8px 32px rgba(0, 0, 0, 0.08);
+  }
+}
+
 /* ── 全局重置 ───────────────────────────────────────────── */
 *,
 *::before,

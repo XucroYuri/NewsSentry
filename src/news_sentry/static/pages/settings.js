@@ -348,3 +348,60 @@ export async function renderUserMgmtTab(container) {
     });
   });
 }
+
+
+export function renderThemeTab(container) {
+  const saved = localStorage.getItem("news-sentry-theme") || "";
+  container.innerHTML = `
+    <div class="settings-page">
+      <h3>主题设置</h3>
+      <div class="form-field">
+        <label>外观模式</label>
+        <select id="themeSelect" class="settings-form select">
+          <option value="" ${!saved ? "selected" : ""}>跟随系统</option>
+          <option value="dark" ${saved === "dark" ? "selected" : ""}>深色模式</option>
+          <option value="light" ${saved === "light" ? "selected" : ""}>浅色模式</option>
+        </select>
+      </div>
+      <div class="theme-preview" style="margin-top:16px;display:flex;gap:12px;">
+        <div class="theme-card" data-preview="dark" style="flex:1;padding:16px;border-radius:var(--radius-md);cursor:pointer;border:2px solid ${!saved || saved === 'dark' ? 'var(--accent-blue)' : 'var(--border-color)'};background:#0f1117;">
+          <div style="color:#e4e6ef;font-weight:600;margin-bottom:8px;">深色</div>
+          <div style="color:#9399b2;font-size:0.8rem;">经典暗色主题</div>
+        </div>
+        <div class="theme-card" data-preview="light" style="flex:1;padding:16px;border-radius:var(--radius-md);cursor:pointer;border:2px solid ${saved === 'light' ? 'var(--accent-blue)' : 'var(--border-color)'};background:#f5f6fa;">
+          <div style="color:#1a1d27;font-weight:600;margin-bottom:8px;">浅色</div>
+          <div style="color:#5c6280;font-size:0.8rem;">明亮清爽</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById("themeSelect").addEventListener("change", (e) => {
+    applyTheme(e.target.value);
+  });
+
+  container.querySelectorAll(".theme-card").forEach((card) => {
+    card.addEventListener("click", () => {
+      const theme = card.dataset.preview;
+      document.getElementById("themeSelect").value = theme;
+      applyTheme(theme);
+    });
+  });
+}
+
+export function applyTheme(theme) {
+  if (theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("news-sentry-theme", theme);
+  } else {
+    document.documentElement.removeAttribute("data-theme");
+    localStorage.removeItem("news-sentry-theme");
+  }
+}
+
+export function initTheme() {
+  const saved = localStorage.getItem("news-sentry-theme");
+  if (saved) {
+    document.documentElement.setAttribute("data-theme", saved);
+  }
+}

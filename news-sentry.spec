@@ -14,6 +14,18 @@ from pathlib import Path
 
 block_cipher = None
 
+def _icon_path() -> str | None:
+    """根据平台选择图标文件。"""
+    icons_dir = static_dir / "icons"
+    if sys.platform == "win32":
+        p = icons_dir / "news-sentry.ico"
+    elif sys.platform == "darwin":
+        p = icons_dir / "news-sentry.icns"
+    else:
+        return None  # Linux 不嵌入图标
+    return str(p) if p.exists() else None
+
+
 # ── 数据文件 ──────────────────────────────────────────
 
 static_dir = Path("src/news_sentry/static")
@@ -149,7 +161,7 @@ exe = EXE(
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,
-    icon=None,  # TODO: 添加 .ico/.icns 图标
+    icon=_icon_path(),  # .ico (Windows) / .icns (macOS)
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
