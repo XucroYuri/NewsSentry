@@ -1625,7 +1625,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P67.05 | 端到端启动验证 | 手动 QA | S | ⬜ |
 
 
-### Phase 68 · 部署链路修复 + PyPI 发布 ⬜
+### Phase 68 · 部署链路修复 + PyPI 发布 🟡
 
 **目标：** 修复 PyPI 发布流程，验证 Docker 部署链路，确保交付管道端到端可用。
 
@@ -1636,8 +1636,8 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 | ID | 内容 | 输出物 | 规模 | 状态 |
 |----|------|--------|------|------|
-| P68.01 | PyPI Trusted Publisher 配置验证 | release.yml + pypi.org 设置 | S | ⬜ |
-| P68.02 | Docker 镜像构建 + GHCR 推送 | Dockerfile + ghcr.io 镜像 | M | ⬜ |
+| P68.01 | PyPI Trusted Publisher 配置验证 | release.yml + pypi.org 设置 | S | ⬜ (需手动配置 pypi.org) |
+| P68.02 | Docker 镜像构建 + GHCR 推送 | Dockerfile + ghcr.io 镜像 | M | ✅ |
 | P68.03 | docker-compose 端到端验证 | 手动 QA | S | ⬜ |
 | P68.04 | 前端 P64.03 系统通知偏好设置 UI | settings.js | M | ✅ (已在之前完成) |
 
