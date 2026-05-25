@@ -854,7 +854,7 @@ class TestEventLinks:
     async def test_find_candidates(self, store_with_links: AsyncStore):
         """find_candidates 返回同一 target 最近 N 天的事件（排除自身）。"""
         store = store_with_links
-        now = "2026-05-16T12:00:00+00:00"
+        now = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
         await store._db.execute(
             "INSERT INTO event_index "
             "(event_id, target_id, stage, created_at, published_at, "

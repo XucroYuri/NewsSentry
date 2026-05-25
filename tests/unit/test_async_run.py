@@ -1,6 +1,7 @@
 """P25.04: async_run.py 异步 pipeline 核心单元测试。"""
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -386,7 +387,7 @@ class TestLinkEvents:
         store = AsyncStore(db_path)
         await store.initialize()
 
-        now = "2026-05-16T12:00:00+00:00"
+        now = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
         await store._db.execute(
             "INSERT INTO event_index (event_id, target_id, stage, created_at, published_at, "
             "entity_names, topic_tags, title_original) "
@@ -458,7 +459,7 @@ class TestGenerateNarratives:
         store = AsyncStore(db_path)
         await store.initialize()
 
-        now = "2026-05-16T12:00:00+00:00"
+        now = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
         for eid in ("evt-1", "evt-2"):
             await store._db.execute(
                 "INSERT INTO event_index "
@@ -485,7 +486,7 @@ class TestGenerateNarratives:
         store = AsyncStore(db_path)
         await store.initialize()
 
-        now = "2026-05-16T12:00:00+00:00"
+        now = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
         for eid in ("evt-1", "evt-2"):
             await store._db.execute(
                 "INSERT INTO event_index "
