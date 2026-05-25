@@ -605,25 +605,25 @@ export async function renderEventDetail(container, eventId) {
       copyToClipboard(summary);
     });
 
-    // Phase 35: 关联事件卡片
-    try {
-      const linksData = await api(`/api/v1/events/${encodeURIComponent(eventId)}/links?target_id=${state.currentTarget}`);
-      if (linksData.links && linksData.links.length > 0) {
-        const linksHtml = linksData.links.map(l => `
-          <a class="link-item" href="#/news/events/${encodeURIComponent(l.linked_event_id)}">
-            <span class="link-direction">${l.direction === "forward" ? "\u2192" : "\u2190"}</span>
-            <span class="link-type-badge" style="background:${LINK_TYPE_COLORS[l.link_type] || '#6b7280'}">${LINK_TYPE_LABELS[l.link_type] || l.link_type}</span>
-            <span class="link-title">${escapeHtml(l.linked_event_title || l.linked_event_id)}</span>
-            <span class="link-strength">${(l.strength * 100).toFixed(0)}%</span>
-          </a>`).join("");
-        const card = document.createElement("div");
-        card.className = "section-card linked-events-card";
-        card.innerHTML = `<h3>关联事件 (${linksData.links.length})</h3><div class="links-list">${linksHtml}</div>`;
-        container.querySelector(".nlp-section")?.after(card) || container.appendChild(card);
-      }
-    } catch { /* 非阻塞 */ }
-
     if (authenticated) {
+      // Phase 35: 关联事件卡片
+      try {
+        const linksData = await api(`/api/v1/events/${encodeURIComponent(eventId)}/links?target_id=${state.currentTarget}`);
+        if (linksData.links && linksData.links.length > 0) {
+          const linksHtml = linksData.links.map(l => `
+            <a class="link-item" href="#/news/events/${encodeURIComponent(l.linked_event_id)}">
+              <span class="link-direction">${l.direction === "forward" ? "\u2192" : "\u2190"}</span>
+              <span class="link-type-badge" style="background:${LINK_TYPE_COLORS[l.link_type] || '#6b7280'}">${LINK_TYPE_LABELS[l.link_type] || l.link_type}</span>
+              <span class="link-title">${escapeHtml(l.linked_event_title || l.linked_event_id)}</span>
+              <span class="link-strength">${(l.strength * 100).toFixed(0)}%</span>
+            </a>`).join("");
+          const card = document.createElement("div");
+          card.className = "section-card linked-events-card";
+          card.innerHTML = `<h3>关联事件 (${linksData.links.length})</h3><div class="links-list">${linksHtml}</div>`;
+          container.querySelector(".nlp-section")?.after(card) || container.appendChild(card);
+        }
+      } catch { /* 非阻塞 */ }
+
       // Phase 41: 反馈操作区
       const feedbackCard = document.createElement("div");
       feedbackCard.className = "card feedback-card";
