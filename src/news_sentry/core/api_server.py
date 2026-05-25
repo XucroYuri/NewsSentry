@@ -1590,6 +1590,45 @@ def create_app(
 
     # ── 用户管理 (admin) ──────────────────────────────────
 
+    @app.get("/api/v1/auth/setup-status")
+    async def auth_setup_status() -> dict[str, Any]:
+        """检查是否已完成初始设置（创建管理员）。"""
+        if _store is None:
+            return {"setup_completed": False, "error": "store_not_available"}
+        users = await _store.list_users()
+        if not users:
+            return {"setup_completed": False, "needs_setup": True}
+        # 如果所有用户都是 must_change_pw，说明还没完成首次设置
+        all_must_change = all(bool(u.get("must_change_pw", 0)) for u in users)
+        return {"setup_completed": not all_must_change, "needs_setup": all_must_change}
+
+    @app.post("/api/v1/auth/setup")
+    async def auth_setup(request: Request) -> dict[str, Any]:
+        """首次设置：创建管理员账户（仅在无用户时可用）。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not available")
+        users = await _store.list_users()
+        if users:
+            raise HTTPException(status_code=409, detail="Setup already completed")
+        body = await request.json()
+        username = body.get("username", "").strip()
+        password = body.get("password", "")
+        if not username or not password:
+            raise HTTPException(status_code=400, detail="Username and password required")
+        if len(password) < 6:
+            raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+        pw_hash, salt = hash_password(password)
+        await _store.create_user(
+            username=username,
+            password_hash=pw_hash,
+            salt=salt,
+            role="admin",
+            must_change_pw=0,
+        )
+        logger.info("Initial setup completed: admin user '%s' created", username)
+        result = _create_token_for_user(username, "admin", False)
+        return result
+
     @app.get("/api/v1/admin/users")
     async def admin_list_users(
         user: dict[str, Any] = Depends(require_permission("admin")),

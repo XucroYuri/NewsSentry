@@ -1565,7 +1565,28 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 **目标：** 评估 Tauri 技术方案，制作最小原型验证可行性。
 
 | ID | 内容 | 输出物 | 规模 | 状态 |
-|----|------|--------|------|------|
+|
+### Phase 66 · 质量打磨 + v1.8.0 发布 ⬜
+
+**目标：** 收尾 Phase 62-65 遗留项，提升测试覆盖，打磨发布质量，发布 v1.8.0。
+
+**核心交付：**
+- desktop.py 测试覆盖 17%→60%（桌面核心逻辑可验证）
+- api_server.py 测试覆盖 73%→85%（备份/恢复/SSE/新端点）
+- 首次启动引导页（创建管理员 → 进入主界面）
+- Tauri vs pywebview 性能基准对比报告
+- 版本 bump v1.8.0 + CHANGELOG + tag + release
+
+| ID | 内容 | 输出物 | 依赖 | 规模 | 状态 |
+|----|------|--------|------|------|------|
+| P66.01 | desktop.py 测试覆盖提升 (17%→60%) | tests/unit/test_desktop.py | — | L | ⬜ |
+| P66.02 | api_server.py 测试覆盖提升 (73%→85%) | tests/unit/test_api_server.py | — | L | ⬜ |
+| P66.03 | 首次启动引导 | static/pages/setup.js + app.js 路由 | P66.01 | M | ⬜ |
+| P66.04 | Tauri vs pywebview 性能基准 | docs/benchmark-tauri-vs-pywebview.md | P65 | S | ⬜ |
+| P66.05 | v1.8.0 发布 | pyproject.toml + CHANGELOG + tag + release | P66.01-04 | M | ⬜ |
+
+
+----|------|--------|------|------|
 | P65.01 | Tauri + Rust 环境搭建 | Cargo.toml + tauri.conf.json | M | ✅ |
 | P65.02 | 前端迁移验证 | 现有 SPA 在 Tauri webview 中运行 | M | ✅ |
 | P65.03 | 原生 API 调用验证 | Tauri commands (系统托盘/通知/自启) | L | ✅ |

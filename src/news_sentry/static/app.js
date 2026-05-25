@@ -838,6 +838,11 @@ async function init() {
   // Check auth
   if (!isAuthenticated()) {
     showConnectPage();
+    // Auto-detect setup mode (first launch)
+    const savedServer = localStorage.getItem("ns_server") || "http://localhost:8000";
+    checkSetupMode(savedServer).then(needsSetup => {
+      if (needsSetup) switchToSetupMode();
+    });
   }
 
   // Connect form handler
