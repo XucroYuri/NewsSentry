@@ -6,7 +6,7 @@
 import {
   state, api, $, escapeHtml, showError, formatDate,
   scoreColor, sentimentDotHtml,
-} from "../api.js?v=20260526c";
+} from "../api.js?v=20260526d";
 
 let entityFilters = { entity_type: "", min_mentions: 1, page: 1 };
 

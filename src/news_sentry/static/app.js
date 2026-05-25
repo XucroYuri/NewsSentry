@@ -8,18 +8,18 @@ import {
   state, $, $$, api, apiPost, escapeHtml, showError, showSuccess, showInfo,
   t, isAuthenticated, hasPermission, authenticate, getConnection, clearConnection,
   setConnection, logAction,
-} from "./api.js?v=20260526c";
-import { renderFeedTab } from "./pages/feed.js?v=20260526c";
-import { renderOverviewTab } from "./pages/dashboard.js?v=20260526c";
-import { renderEventsTab, renderEventDetail } from "./pages/events.js?v=20260526c";
-import { renderEntitiesTab, renderEntityDetail } from "./pages/entities.js?v=20260526c";
-import { renderChainsTab, renderChainDetail } from "./pages/chains.js?v=20260526c";
-import { renderTrendsTab } from "./pages/trends.js?v=20260526c";
-import { renderLiveAlertsTab, renderAlertHistoryTab } from "./pages/alerts.js?v=20260526c";
-import { renderRunStatusTab, renderCollectorTab, renderSourceHealthTab, renderRunHistoryTab, renderMaintenanceTab, renderOpsDetail } from "./pages/ops.js?v=20260526c";
-import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedback.js?v=20260526c";
-import { renderTargetTab, renderSourcesTab, renderFiltersTab, renderOutputsTab, renderAITab, renderWebhookTab, renderApiKeyTab } from "./pages/config.js?v=20260526c";
-import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab, renderThemeTab, renderBackupTab, initTheme } from "./pages/settings.js?v=20260526c";
+} from "./api.js?v=20260526d";
+import { renderFeedTab } from "./pages/feed.js?v=20260526d";
+import { renderOverviewTab } from "./pages/dashboard.js?v=20260526d";
+import { renderEventsTab, renderEventDetail } from "./pages/events.js?v=20260526d";
+import { renderEntitiesTab, renderEntityDetail } from "./pages/entities.js?v=20260526d";
+import { renderChainsTab, renderChainDetail } from "./pages/chains.js?v=20260526d";
+import { renderTrendsTab } from "./pages/trends.js?v=20260526d";
+import { renderLiveAlertsTab, renderAlertHistoryTab } from "./pages/alerts.js?v=20260526d";
+import { renderRunStatusTab, renderCollectorTab, renderSourceHealthTab, renderRunHistoryTab, renderMaintenanceTab, renderOpsDetail } from "./pages/ops.js?v=20260526d";
+import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedback.js?v=20260526d";
+import { renderTargetTab, renderSourcesTab, renderFiltersTab, renderOutputsTab, renderAITab, renderWebhookTab, renderApiKeyTab } from "./pages/config.js?v=20260526d";
+import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab, renderThemeTab, renderBackupTab, initTheme } from "./pages/settings.js?v=20260526d";
 
 // ═══════════════════════════════════════════════════════════
 // §1. 路由表
