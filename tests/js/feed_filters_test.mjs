@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   CHANNELS,
+  eventTerms,
   eventMatchesChannel,
   eventMatchesSearch,
   filterGroups,
@@ -46,6 +47,9 @@ assert.equal(eventMatchesChannel(groups[0].events[1], "tech"), true);
 assert.equal(eventMatchesChannel(groups[0].events[1], "risk"), false);
 assert.equal(eventMatchesSearch(groups[0].events[0], "compliance"), true);
 assert.equal(eventMatchesSearch(groups[0].events[1], "reuters"), false);
+assert.equal(eventMatchesSearch({ title: "Fallback Title", source: "Wire" }, "fallback"), true);
+assert.equal(eventMatchesSearch({ title: "Fallback Title", source: "Wire" }, "wire"), true);
+assert.deepEqual(eventTerms({ flat_tags: [0] }), ["0"]);
 
 const policyGroups = filterGroups(groups, { channelId: "policy", query: "" });
 assert.equal(countEvents(policyGroups), 1);
