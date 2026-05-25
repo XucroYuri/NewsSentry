@@ -1594,6 +1594,36 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 ---
 
+
+### Phase 67 · api_server 测试覆盖提升 + 稳定性 ⬜
+
+**目标：** 将 api_server.py 测试覆盖从 71% 提升到 85%+，重点覆盖认证、维护、SSE、briefing 等未测端点。
+
+**当前缺口分析（468 行未覆盖）：**
+
+| 未覆盖函数 | 行数 | 优先级 |
+|-----------|------|--------|
+| send_briefing | 72 | 高 |
+| _auto_collect_loop | 38 | 中 |
+| event_stream (SSE) | 33 | 高 |
+| regenerate_chain_narrative | 27 | 中 |
+| create_app 生命周期 | 23 | 中 |
+| auth_login | 23 | 高 |
+| auth_setup (首次引导) | 23 | 高 |
+| _load_notifications | 23 | 中 |
+| restore_backup | 22 | 高 |
+| _bootstrap_users | 21 | 中 |
+| auth_change_password | 19 | 高 |
+| data_status | 19 | 中 |
+
+| ID | 内容 | 输出物 | 规模 | 状态 |
+|----|------|--------|------|------|
+| P67.01 | 认证端点测试 (login/setup/change-pw/logout) | test_api_server.py | L | ⬜ |
+| P67.02 | 维护端点测试 (backup/restore/prune/list-backups) | test_api_server.py | M | ⬜ |
+| P67.03 | SSE + 通知 + briefing 测试 | test_api_server.py | L | ⬜ |
+| P67.04 | 辅助函数测试 (create_app/lifespan/bootstrap) | test_api_server.py | M | ⬜ |
+| P67.05 | 端到端启动验证 | 手动 QA | S | ⬜ |
+
 ## §25. Cloud VPS 部署方案推荐
 
 > 替代/补充 Phase 15 的 Hetzner 方案。以下为 2026 年可用的主流 Cloud VPS 对比。

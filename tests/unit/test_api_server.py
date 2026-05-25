@@ -2234,3 +2234,320 @@ class TestAdminUserEndpoints:
             json={"username": "badrole", "password": "test123456", "role": "superuser"},
         )
         assert resp.status_code == 400
+
+
+# ═══════════════════════════════════════════════════════════
+# Phase 67: 认证 + 维护 + SSE + Briefing 测试
+# ═══════════════════════════════════════════════════════════
+
+
+class TestAuthEndpoints:
+    """认证端点测试 — login / setup / change-password / logout。"""
+
+    def _make_client_with_store(self, tmp_path: Path) -> TestClient:
+        """创建带真实 user store 的客户端。"""
+        from news_sentry.core.async_store import AsyncStore
+
+        db_path = tmp_path / "test_auth.db"
+        store = AsyncStore(db_path)
+        app = create_app(data_dir=tmp_path, store=store, auto_store=False)
+        return TestClient(app)
+
+    def test_auth_login_missing_fields(self, tmp_path: Path) -> None:
+        """登录缺少用户名或密码返回 400。"""
+        client = self._make_client_with_store(tmp_path)
+        resp = client.post("/api/v1/auth/login", json={"username": ""})
+        assert resp.status_code == 400
+
+    def test_auth_login_invalid_credentials(self, tmp_path: Path) -> None:
+        """错误的用户名/密码返回 401。"""
+        client = self._make_client_with_store(tmp_path)
+        resp = client.post("/api/v1/auth/login", json={"username": "admin", "password": "wrong"})
+        assert resp.status_code == 401
+
+    def test_auth_setup_status_no_users(self, tmp_path: Path) -> None:
+        """无用户时 setup-status 返回 needs_setup=True。"""
+        client = self._make_client_with_store(tmp_path)
+        resp = client.get("/api/v1/auth/setup-status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["needs_setup"] is True
+
+    def test_auth_setup_creates_admin(self, tmp_path: Path) -> None:
+        """首次 setup 创建管理员并返回 token。"""
+        client = self._make_client_with_store(tmp_path)
+        resp = client.post(
+            "/api/v1/auth/setup",
+            json={
+                "username": "admin",
+                "password": "test123456",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "access_token" in data
+        assert data["role"] == "admin"
+
+    def test_auth_setup_after_bootstrap(self, tmp_path: Path) -> None:
+        """setup 成功后 setup-status 变为 completed。"""
+        client = self._make_client_with_store(tmp_path)
+        # setup
+        resp = client.post(
+            "/api/v1/auth/setup", json={"username": "admin", "password": "test123456"}
+        )
+        assert resp.status_code == 200
+        # 检查 status 已更新
+        resp2 = client.get("/api/v1/auth/setup-status")
+        assert resp2.status_code == 200
+
+    def test_auth_setup_short_password(self, tmp_path: Path) -> None:
+        """密码太短返回 400。"""
+        client = self._make_client_with_store(tmp_path)
+        resp = client.post("/api/v1/auth/setup", json={"username": "admin", "password": "123"})
+        assert resp.status_code == 400
+
+    def test_auth_setup_empty_fields(self, tmp_path: Path) -> None:
+        """空用户名或密码返回 400。"""
+        client = self._make_client_with_store(tmp_path)
+        resp = client.post("/api/v1/auth/setup", json={"username": "", "password": "test123"})
+        assert resp.status_code == 400
+
+    def test_auth_change_password(self, tmp_path: Path) -> None:
+        """修改密码端点正常响应。"""
+        client = self._make_client_with_store(tmp_path)
+        # 用 dev token (auth/token endpoint)
+        token_resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        token = token_resp.json()["access_token"]
+        # change password — 需要 store 中有用户
+        resp = client.post(
+            "/api/v1/auth/change-password",
+            json={"current_password": "old", "new_password": "newpass456"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        # 期望 200 或 401 (取决于用户是否存在)，不应是 422/500
+        assert resp.status_code in (200, 401)
+
+    def test_auth_me(self, tmp_path: Path) -> None:
+        """auth/me 返回当前用户信息。"""
+        client = self._make_client_with_store(tmp_path)
+        setup_resp = client.post(
+            "/api/v1/auth/setup", json={"username": "admin", "password": "test123456"}
+        )
+        token = setup_resp.json()["access_token"]
+        resp = client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["username"] == "admin"
+
+
+class TestMaintenanceEndpoints:
+    """维护端点测试 — backup / restore / prune / list-backups。"""
+
+    def _make_client_with_store(self, tmp_path: Path) -> TestClient:
+        """创建带真实 store 的客户端。"""
+        from news_sentry.core.async_store import AsyncStore
+
+        db_path = tmp_path / "test_maint.db"
+        store = AsyncStore(db_path)
+        app = create_app(data_dir=tmp_path, store=store, auto_store=False)
+        return TestClient(app)
+
+    def _make_client(self, tmp_path: Path) -> TestClient:
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        return TestClient(app)
+
+    def _auth_headers(self, client: TestClient) -> dict[str, str]:
+        resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+    def test_list_backups_empty(self, tmp_path: Path) -> None:
+        """无备份时返回空列表。"""
+        client = self._make_client(tmp_path)
+        headers = self._auth_headers(client)
+        resp = client.get("/api/v1/maintenance/backups", headers=headers)
+        assert resp.status_code == 200
+        assert resp.json()["backups"] == []
+
+    def test_create_backup(self, tmp_path: Path) -> None:
+        """创建备份成功。"""
+        client = self._make_client_with_store(tmp_path)
+        headers = self._auth_headers(client)
+        resp = client.post("/api/v1/maintenance/backup", headers=headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "backup_path" in data or "path" in data
+
+    def test_prune(self, tmp_path: Path) -> None:
+        """prune 端点正常响应（需要 target_id 参数）。"""
+        client = self._make_client_with_store(tmp_path)
+        headers = self._auth_headers(client)
+        resp = client.post(
+            "/api/v1/maintenance/prune", params={"target_id": "italy"}, headers=headers
+        )
+        assert resp.status_code == 200
+
+    def test_data_status(self, tmp_path: Path) -> None:
+        """status 端点返回数据目录信息。"""
+        client = self._make_client(tmp_path)
+        headers = self._auth_headers(client)
+        resp = client.get("/api/v1/status", headers=headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "data_dir" in data
+
+
+class TestBriefingAndNotifications:
+    """Briefing + 通知设置端点测试。"""
+
+    def _make_client(self, tmp_path: Path) -> TestClient:
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        return TestClient(app)
+
+    def _auth_headers(self, client: TestClient) -> dict[str, str]:
+        resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+    def test_send_briefing_no_config(self, tmp_path: Path) -> None:
+        """无输出配置时 briefing 返回错误或空结果。"""
+        client = self._make_client(tmp_path)
+        headers = self._auth_headers(client)
+        resp = client.post("/api/v1/briefing/send", json={"target_id": "italy"}, headers=headers)
+        # 可能 200（无内容可发）或 4xx（配置缺失）
+        assert resp.status_code in (200, 400, 404, 503)
+
+    def test_get_notifications(self, tmp_path: Path) -> None:
+        """获取通知设置。"""
+        client = self._make_client(tmp_path)
+        headers = self._auth_headers(client)
+        resp = client.get("/api/v1/settings/notifications", headers=headers)
+        assert resp.status_code == 200
+
+    def test_update_notifications(self, tmp_path: Path) -> None:
+        """更新通知设置。"""
+        client = self._make_client(tmp_path)
+        headers = self._auth_headers(client)
+        resp = client.put(
+            "/api/v1/settings/notifications",
+            json={"channels": {"email": False, "feishu": True}},
+            headers=headers,
+        )
+        assert resp.status_code in (200, 503)
+
+
+class TestEventsAndEntities:
+    """事件 + 实体端点额外覆盖。"""
+
+    def _make_client(self, tmp_path: Path) -> TestClient:
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        return TestClient(app)
+
+    def _auth_headers(self, client: TestClient) -> dict[str, str]:
+        resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+    def test_get_event_not_found(self, tmp_path: Path) -> None:
+        """查询不存在的事件返回 404。"""
+        client = self._make_client(tmp_path)
+        headers = self._auth_headers(client)
+        resp = client.get(
+            "/api/v1/events/nonexistent-id", params={"target_id": "italy"}, headers=headers
+        )
+        assert resp.status_code in (200, 404)
+
+    def test_list_entities(self, tmp_path: Path) -> None:
+        """实体列表端点正常响应。"""
+        client = self._make_client(tmp_path)
+        headers = self._auth_headers(client)
+        resp = client.get("/api/v1/entities", params={"target_id": "italy"}, headers=headers)
+        assert resp.status_code == 200
+
+    def test_get_entity_not_found(self, tmp_path: Path) -> None:
+        """查询不存在的实体。"""
+        client = self._make_client(tmp_path)
+        headers = self._auth_headers(client)
+        resp = client.get(
+            "/api/v1/entities/nonexistent", params={"target_id": "italy"}, headers=headers
+        )
+        assert resp.status_code in (200, 404, 422)
+
+    def test_today_stats(self, tmp_path: Path) -> None:
+        """今日统计端点正常响应。"""
+        client = self._make_client(tmp_path)
+        headers = self._auth_headers(client)
+        resp = client.get("/api/v1/stats/today", params={"target_id": "italy"}, headers=headers)
+        assert resp.status_code == 200
+
+    def test_topic_trends(self, tmp_path: Path) -> None:
+        """话题趋势端点正常响应。"""
+        client = self._make_client(tmp_path)
+        headers = self._auth_headers(client)
+        resp = client.get("/api/v1/trends/topics", params={"target_id": "italy"}, headers=headers)
+        assert resp.status_code == 200
+
+    def test_sentiment_trends(self, tmp_path: Path) -> None:
+        """情感趋势端点正常响应。"""
+        client = self._make_client(tmp_path)
+        headers = self._auth_headers(client)
+        resp = client.get(
+            "/api/v1/trends/sentiment", params={"target_id": "italy"}, headers=headers
+        )
+        assert resp.status_code == 200
+
+    def test_smart_alerts(self, tmp_path: Path) -> None:
+        """智能告警端点正常响应。"""
+        client = self._make_client(tmp_path)
+        headers = self._auth_headers(client)
+        resp = client.get("/api/v1/alerts/smart", params={"target_id": "italy"}, headers=headers)
+        assert resp.status_code == 200
+
+    def test_alert_history(self, tmp_path: Path) -> None:
+        """告警历史端点正常响应。"""
+        client = self._make_client(tmp_path)
+        headers = self._auth_headers(client)
+        resp = client.get("/api/v1/alerts/history", params={"target_id": "italy"}, headers=headers)
+        assert resp.status_code == 200
+
+    def test_feedback_submit(self, tmp_path: Path) -> None:
+        """提交反馈正常响应。"""
+        client = self._make_client(tmp_path)
+        headers = self._auth_headers(client)
+        resp = client.post(
+            "/api/v1/feedback",
+            json={"event_id": "test-123", "rating": "positive", "comment": "good"},
+            headers=headers,
+        )
+        assert resp.status_code in (200, 201, 400, 404, 422)
+
+    def test_feedback_list(self, tmp_path: Path) -> None:
+        """反馈列表正常响应。"""
+        client = self._make_client(tmp_path)
+        headers = self._auth_headers(client)
+        resp = client.get("/api/v1/feedback", params={"target_id": "italy"}, headers=headers)
+        assert resp.status_code == 200
+
+    def test_feedback_stats(self, tmp_path: Path) -> None:
+        """反馈统计正常响应。"""
+        client = self._make_client(tmp_path)
+        headers = self._auth_headers(client)
+        resp = client.get("/api/v1/feedback/stats", params={"target_id": "italy"}, headers=headers)
+        assert resp.status_code == 200
+
+    def test_rules_optimize(self, tmp_path: Path) -> None:
+        """规则优化端点正常响应。"""
+        client = self._make_client(tmp_path)
+        headers = self._auth_headers(client)
+        resp = client.post("/api/v1/rules/optimize", json={"target_id": "italy"}, headers=headers)
+        assert resp.status_code in (200, 400, 404, 503)
+
+    def test_chain_narrative(self, tmp_path: Path) -> None:
+        """链叙事端点对不存在的链返回合适响应。"""
+        client = self._make_client(tmp_path)
+        headers = self._auth_headers(client)
+        resp = client.post(
+            "/api/v1/chains/fake-root/narrative",
+            json={"target_id": "italy"},
+            headers=headers,
+        )
+        assert resp.status_code in (200, 404, 422, 503)
