@@ -9,7 +9,7 @@ export const CHANNELS = [
 ];
 
 function tagText(value) {
-  if (!value) return "";
+  if (value === null || value === undefined || value === "") return "";
   if (typeof value === "string" || typeof value === "number") return String(value);
   if (typeof value === "object") {
     return String(value.code || value.name || value.label || value.title || "");
@@ -61,9 +61,11 @@ export function eventMatchesSearch(ev, query) {
   if (!q) return true;
   const haystack = [
     ev.display_title,
+    ev.title,
     ev.title_translated,
     ev.title_original,
     ev.source_display_name,
+    ev.source,
     ev.source_id,
     ev.summary,
     ev.ai_reason,
