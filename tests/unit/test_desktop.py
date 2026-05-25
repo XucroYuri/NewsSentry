@@ -282,8 +282,9 @@ class TestOsInfo:
 
         with patch("platform.system", return_value="Linux"):
             with patch("platform.release", return_value="6.1.0"):
-                result = _os_info()
-                assert "Linux" in result
+                with patch("builtins.open", side_effect=OSError("no os-release")):
+                    result = _os_info()
+                    assert "Linux" in result
 
     def test_linux_with_os_release(self, tmp_path: Path) -> None:
         from news_sentry.cli.desktop import _os_info
