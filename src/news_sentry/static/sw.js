@@ -1,7 +1,7 @@
-/* News Sentry — Service Worker v2 */
+/* News Sentry — Service Worker v3 */
 "use strict";
 
-const CACHE = "news-sentry-v3";
+const CACHE = "news-sentry-v5";
 const STATIC_URLS = [
   "/",
   "/index.html",
@@ -11,6 +11,8 @@ const STATIC_URLS = [
   "/manifest.json",
   "/icons/icon-192.svg",
   "/icons/icon-512.svg",
+  "/pages/feed.js",
+  "/pages/feed_filters.js",
   "/pages/dashboard.js",
   "/pages/events.js",
   "/pages/alerts.js",
