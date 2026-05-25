@@ -1,46 +1,28 @@
+# docker-compose.yml — News Sentry 部署
+#
+# 使用方法:
+#   docker compose up -d              # 启动 core 镜像
+#   docker compose up -d --profile full  # 启动 full 镜像（含浏览器）
+#
+# 首次启动请设置 ANTHROPIC_API_KEY:
+#   echo "ANTHROPIC_API_KEY=sk-ant-..." > .env
+
 services:
-  # 核心服务（RSS/API 采集 + 研判 + API Server，无浏览器）
   news-sentry:
-    build:
-      context: .
-      dockerfile: Dockerfile.core
     image: ghcr.io/xucroyuri/news-sentry:core
-    env_file:
-      - .env
-    environment:
-      - TARGET_ID=italy
-      - RUN_STAGE=all
-    volumes:
-      - ./data:/app/data
-      - ./config:/app/config
     ports:
       - "8000:8000"
-    tmpfs:
-      - /tmp
-    restart: "no"
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+    volumes:
+      - news-sentry-data:/app/data
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
 
-  # 浏览器服务（社媒/KOL/OpenCLI 采集，需要 ≥4GB RAM）
-  # 取消注释以启用浏览器采集:
-  # news-sentry-browser:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile.browser
-  #   image: ghcr.io/xucroyuri/news-sentry:browser
-  #   env_file:
-  #     - .env
-  #   environment:
-  #     - TARGET_ID=italy
-  #     - RUN_STAGE=all
-  #   volumes:
-  #     - ./data:/app/data
-  #     - ./config:/app/config
-  #     - ./session-profiles:/app/session-profiles
-  #     - ./chrome-data:/home/appuser/.config/chromium
-  #   tmpfs:
-  #     - /tmp
-  #   restart: "no"
+volumes:
+  news-sentry-data:

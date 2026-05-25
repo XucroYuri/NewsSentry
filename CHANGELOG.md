@@ -20,8 +20,21 @@
 - Phase 65: 原生 API commands — check_update / open_url (Tauri invoke handler)
 - Phase 65: 平台图标 — .ico/.icns/.png for Tauri bundle targets
 
+### 新增 (Phase 67)
+- Phase 67: api_server 测试覆盖 71%→75% — 29 新端点测试（认证/维护/通知/事件）
+- Phase 67: TestAuthEndpoints 9 tests + TestMaintenanceEndpoints 4 tests + TestBriefingAndNotifications 3 tests + TestEventsAndEntities 13 tests
+
+### 新增 (Phase 68)
+- Phase 68: Docker 镜像构建 + GHCR 推送成功 — core/browser/full 三级镜像
+- Phase 68: docker-compose.yml 一键部署文件
+- Phase 68: docker.yml workflow_dispatch 版本 fallback (dev-{sha7})
+
+### 修复
+- Phase 68: test_linux mock Path.read_text 替代无效的 builtins.open mock (CI Ubuntu 兼容)
+- Phase 68: docker.yml tag 格式修复 — 非法 `refs/heads/main-core` → 合法 semver/dev tag
+
 ### 变更
-- 全量测试 1764 passed, 86% coverage (从 1718 tests / 84% 提升)
+- 全量测试 1793 passed, 87% coverage (从 1718 tests / 84% 提升)
 - API 端点总数 71 (从 69 增加 2 个 setup 端点)
 - 总代码 20,151 行 Python + 9,268 行前端
 
