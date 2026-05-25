@@ -2335,35 +2335,6 @@ def create_app(
             search=search,
         )
 
-    @app.get("/api/v1/events/{event_id}")
-    async def get_event(
-        event_id: str,
-        target_id: str = Query(..., description="目标标识"),
-        user: dict[str, Any] = Depends(get_current_user),
-    ) -> dict[str, Any]:
-
-        # 优先使用 target 自己的 state.db
-        target_store = await _get_target_store(target_id)
-        if target_store is not None:
-            file_path = await target_store.get_event_file_path(event_id)
-            if file_path is not None:
-                event = _load_event_by_path(file_path)
-                if event is not None:
-                    return event
-
-        if _store is not None:
-            file_path = await _store.get_event_file_path(event_id)
-            if file_path is not None:
-                event = _load_event_by_path(file_path)
-                if event is not None:
-                    return event
-
-        # 降级路径（无 store / store 中未找到 / 文件系统路径）
-        event = _load_single_event(_data_dir, target_id, event_id)
-        if event is None:
-            raise HTTPException(status_code=404, detail="Event not found")
-        return event
-
     # ── SSE 实时推送 ─────────────────────────────────────
 
     @app.get("/api/v1/events/stream")
@@ -2423,6 +2394,35 @@ def create_app(
                 "X-Accel-Buffering": "no",
             },
         )
+
+    @app.get("/api/v1/events/{event_id}")
+    async def get_event(
+        event_id: str,
+        target_id: str = Query(..., description="目标标识"),
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+
+        # 优先使用 target 自己的 state.db
+        target_store = await _get_target_store(target_id)
+        if target_store is not None:
+            file_path = await target_store.get_event_file_path(event_id)
+            if file_path is not None:
+                event = _load_event_by_path(file_path)
+                if event is not None:
+                    return event
+
+        if _store is not None:
+            file_path = await _store.get_event_file_path(event_id)
+            if file_path is not None:
+                event = _load_event_by_path(file_path)
+                if event is not None:
+                    return event
+
+        # 降级路径（无 store / store 中未找到 / 文件系统路径）
+        event = _load_single_event(_data_dir, target_id, event_id)
+        if event is None:
+            raise HTTPException(status_code=404, detail="Event not found")
+        return event
 
     @app.post("/api/v1/webhook", response_model=WebhookResponse)
     async def receive_webhook(

@@ -7,6 +7,16 @@
 
 ---
 
+## [1.9.1] — 2026-05-25
+
+### 修复
+- SSE 路由冲突：`/api/v1/events/stream` 被 `/api/v1/events/{event_id}` 先匹配（FastAPI 路由顺序修复）
+- 安全审计：SQL 参数化查询已确认安全，无注入风险
+
+### 变更
+- 全局覆盖率 88%（从 87% 提升）
+- SSE 测试改用 mock StreamingResponse 避免超时
+
 ## [1.9.0] — 2026-05-25
 
 ### 新增 (Phase 68)

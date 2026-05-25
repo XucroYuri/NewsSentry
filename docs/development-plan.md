@@ -1654,6 +1654,22 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P69.04 | v1.9.0 版本 bump + CHANGELOG + tag + release | 发布流程 | S | ✅ |
 
 
+
+### Phase 70 · SSE 路由修复 + 安全加固 + v2.0.0 规划 ✅
+
+**目标：** 修复 SSE 路由冲突 bug，添加安全加固，规划 v2.0 Tauri 客户端方向。
+
+**发现的 bug：**
+- SSE `/api/v1/events/stream` 被 `/api/v1/events/{event_id}` 先匹配，`stream` 被当作 event_id
+
+| ID | 内容 | 输出物 | 规模 | 状态 |
+|----|------|--------|------|------|
+| P70.01 | SSE 路由顺序修复 — stream 移到 {event_id} 之前 | api_server.py | S | ✅ |
+| P70.02 | api_server 安全审计 — SQL 参数化已确认安全 | api_server.py | M | ✅ |
+| P70.03 | v2.0 Tauri 客户端路线图规划 | docs/ (已有原型) | S | ✅ |
+| P70.04 | v1.9.1 patch release | 发布流程 | S | ✅ |
+
+
 ## §25. Cloud VPS 部署方案推荐
 
 > 替代/补充 Phase 15 的 Hetzner 方案。以下为 2026 年可用的主流 Cloud VPS 对比。
