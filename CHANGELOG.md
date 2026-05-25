@@ -7,6 +7,27 @@
 
 ---
 
+## [1.9.0] — 2026-05-25
+
+### 新增 (Phase 68)
+- Phase 68: Docker 镜像构建 + GHCR 推送成功 — core/browser/full 三级镜像
+- Phase 68: docker-compose.yml 一键部署 + config volume mount
+- Phase 68: docker.yml workflow_dispatch 版本 fallback (dev-{sha7})
+
+### 新增 (Phase 69)
+- Phase 69: api_server 测试覆盖 75→80% — 14 新测试（SSE/API Key/备份恢复/简报/生命周期）
+- Phase 69: development-plan 状态清理 — 8 处过时标记 ✅ 化
+
+### 修复
+- Phase 68: test_linux mock Path.read_text (CI Ubuntu 兼容)
+- Phase 68: docker.yml tag 格式修复 + full image tags
+- Phase 68: docker-compose.yml config volume mount
+
+### 变更
+- 全量测试 1807 passed, 87% coverage (从 1793 tests 提升)
+- api_server.py 覆盖率 80% (从 75% 提升)
+- 前端已为 ES modules 架构，无需进一步拆分
+
 ## [1.8.0] — 2026-05-25
 
 ### 新增 (Phase 66)

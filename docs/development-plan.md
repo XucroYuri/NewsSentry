@@ -1642,16 +1642,16 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P68.04 | 前端 P64.03 系统通知偏好设置 UI | settings.js | M | ✅ (已在之前完成) |
 
 
-### Phase 69 · 状态清理 + v1.9.0 发布 🟡
+### Phase 69 · 状态清理 + v1.9.0 发布 ✅
 
 **目标：** 清理 development-plan 中过时状态标记，提升 api_server 覆盖率，打包发布 v1.9.0。
 
 | ID | 内容 | 输出物 | 规模 | 状态 |
 |----|------|--------|------|------|
 | P69.01 | development-plan 过时状态清理 | development-plan.md | S | ✅ |
-| P69.02 | api_server 覆盖率 75→82% — SSE stream + lifecycle | test_api_server.py | L | ⬜ |
-| P69.03 | 前端 P58.05 代码拆分评估 | app.js 模块化可行性分析 | M | ⬜ |
-| P69.04 | v1.9.0 版本 bump + CHANGELOG + tag + release | 发布流程 | S | ⬜ |
+| P69.02 | api_server 覆盖率 75→80% — SSE/API Key/备份恢复/简报/生命周期 | test_api_server.py | L | ✅ |
+| P69.03 | 前端 P58.05 代码拆分评估 | 已是 ES modules 架构 | M | ✅ |
+| P69.04 | v1.9.0 版本 bump + CHANGELOG + tag + release | 发布流程 | S | ✅ |
 
 
 ## §25. Cloud VPS 部署方案推荐
