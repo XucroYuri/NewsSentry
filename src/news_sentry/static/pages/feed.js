@@ -3,8 +3,8 @@
  * Phase 73: 来源人格化 + 标签扁平化 + 多视图切换
  */
 
-import { state, api, escapeHtml, scoreColor } from "../api.js?v=20260526b";
-import { CHANNELS, filterGroups, countEvents } from "./feed_filters.js?v=20260526b";
+import { state, api, escapeHtml, scoreColor } from "../api.js?v=20260526c";
+import { CHANNELS, filterGroups, countEvents } from "./feed_filters.js?v=20260526c";
 
 // ── 推荐标签映射 ──
 const REC_LABELS = {
@@ -15,11 +15,11 @@ const REC_LABELS = {
 };
 
 // ── 来源人格化缓存 ──
-let _sourceMap = null;
+const _sourceMaps = new Map();
 
 async function loadSourceMap(targetId) {
-  if (_sourceMap) return _sourceMap;
-  _sourceMap = {};
+  if (_sourceMaps.has(targetId)) return _sourceMaps.get(targetId);
+  const sourceMap = {};
   try {
     // 尝试通过配置 API 获取 source 列表
     const targetCfg = await api(`/api/v1/config/targets/${targetId}`);
@@ -31,7 +31,7 @@ async function loadSourceMap(targetId) {
     for (const r of results) {
       if (r.status === "fulfilled" && r.value) {
         const s = r.value;
-        _sourceMap[s.source_id || s.ref] = {
+        sourceMap[s.source_id || s.ref] = {
           name: s.display_name || s.source_id || s.ref,
           credibility: s.credibility_base || 0.5,
           type: s.type || "rss",
@@ -41,7 +41,8 @@ async function loadSourceMap(targetId) {
   } catch {
     // 降级: 无配置时用 source_id 本身
   }
-  return _sourceMap;
+  _sourceMaps.set(targetId, sourceMap);
+  return sourceMap;
 }
 
 function sourceAvatar(sourceId, sourceInfo) {
@@ -255,10 +256,11 @@ export async function renderFeedTab(container) {
 
   let groups = [];
   let visibleGroups = [];
+  let sourceMap = {};
+  let totalCount = 0;
 
   const render = () => {
     const renderer = VIEW_RENDERERS[currentView] || renderTimeline;
-    const sourceMap = _sourceMap || {};
     visibleGroups = filterGroups(groups, { channelId: currentChannel, query: searchQuery });
     const visibleCount = countEvents(visibleGroups);
     countEl.textContent = visibleCount ? `${visibleCount} 条` : "";
@@ -278,6 +280,8 @@ export async function renderFeedTab(container) {
       return;
     }
     body.innerHTML = visibleGroups.map((g) => renderer(g.date, g.events, sourceMap)).join("");
+    footer.innerHTML = totalCount > 100
+      ? `<span class="feed-more">显示前 100 条，共 ${totalCount} 条</span>` : "";
   };
 
   const loadFeed = async () => {
@@ -288,15 +292,15 @@ export async function renderFeedTab(container) {
 
     try {
       // 并行加载 source 信息和 feed 数据
-      const [, data] = await Promise.all([
+      const [loadedSourceMap, data] = await Promise.all([
         loadSourceMap(targetId),
         api(`/api/v1/events/feed?${params}`),
       ]);
+      sourceMap = loadedSourceMap;
       groups = data.groups || [];
+      totalCount = data.total || 0;
 
       render();
-      footer.innerHTML = data.total > 100
-        ? `<span class="feed-more">显示前 100 条，共 ${data.total} 条</span>` : "";
     } catch (err) {
       body.innerHTML = `<div class="feed-error">加载失败: ${escapeHtml(err.message)}</div>`;
     }
