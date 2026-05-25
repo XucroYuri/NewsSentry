@@ -323,6 +323,8 @@ a:hover {
 .main-content {
   margin-left: var(--sidebar-width);
   flex: 1;
+  min-width: 0;
+  max-width: 100%;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -337,6 +339,8 @@ a:hover {
   align-items: center;
   gap: 16px;
   padding: 0 28px;
+  min-width: 0;
+  max-width: 100%;
   background: rgba(15, 17, 23, 0.85);
     border-bottom: 1px solid var(--border-color);
   z-index: 50;
@@ -360,10 +364,15 @@ a:hover {
   font-size: 1.05rem;
   font-weight: 600;
   color: var(--text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .target-selector {
   margin-left: auto;
+  min-width: 0;
 }
 
 .target-selector select {
@@ -394,6 +403,8 @@ a:hover {
 .page-container {
   flex: 1;
   padding: 28px;
+  min-width: 0;
+  max-width: 100%;
   animation: fadeIn var(--transition-slow);
 }
 
@@ -1216,6 +1227,7 @@ a:hover {
 
   .main-content {
     margin-left: 0;
+    width: 100%;
   }
 
   .hamburger-btn {
@@ -1257,6 +1269,7 @@ a:hover {
 
   .main-content {
     margin-left: 0;
+    width: 100%;
   }
 
   .hamburger-btn {
@@ -1267,6 +1280,7 @@ a:hover {
   .top-bar {
     padding: 0 12px;
     height: var(--topbar-height);
+    gap: 10px;
   }
 
   .target-selector select {
