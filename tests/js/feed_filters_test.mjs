@@ -50,6 +50,7 @@ assert.equal(eventMatchesSearch(groups[0].events[1], "reuters"), false);
 assert.equal(eventMatchesSearch({ title: "Fallback Title", source: "Wire" }, "fallback"), true);
 assert.equal(eventMatchesSearch({ title: "Fallback Title", source: "Wire" }, "wire"), true);
 assert.deepEqual(eventTerms({ flat_tags: [0] }), ["0"]);
+assert.deepEqual(eventTerms({ flat_tags: [{ code: 0 }] }), ["0"]);
 
 const policyGroups = filterGroups(groups, { channelId: "policy", query: "" });
 assert.equal(countEvents(policyGroups), 1);
