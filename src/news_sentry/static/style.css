@@ -3216,6 +3216,11 @@ body.ns-offline .offline-banner {
   font-size: var(--font-caption);
   color: var(--text-secondary);
   font-weight: 500;
+  min-width: 0;
+  max-width: min(280px, 42vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── 分类标签 (扁平化) ── */
@@ -3279,6 +3284,7 @@ body.ns-offline .offline-banner {
   align-items: center;
   gap: 7px;
   margin-bottom: 6px;
+  min-width: 0;
 }
 
 .feed-item-title {
@@ -3325,36 +3331,50 @@ body.ns-offline .offline-banner {
 
 /* ── 紧凑视图 ── */
 .feed-compact .feed-compact-row {
-  display: grid;
-  grid-template-columns: 42px 88px minmax(0, 1fr) auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 6px 0;
   border-bottom: 1px solid var(--border-color);
   font-size: var(--font-caption);
+  min-width: 0;
 }
 
 .feed-compact-time {
   color: var(--text-muted);
   font-family: var(--font-mono);
-  min-width: 36px;
+  flex: 0 0 42px;
 }
 
 .feed-compact-src {
   color: var(--text-secondary);
-  min-width: 80px;
+  flex: 0 1 88px;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .feed-compact-title {
-  flex: 1;
+  flex: 1 1 180px;
+  min-width: 0;
   color: var(--text-primary);
   text-decoration: none;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.feed-compact .flat-tag {
+  flex: 0 1 auto;
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.feed-compact .score-label {
+  flex: 0 0 auto;
 }
 
 .feed-compact-title:hover {
@@ -3440,7 +3460,16 @@ body.ns-offline .offline-banner {
   }
 
   .feed-compact .feed-compact-row {
-    grid-template-columns: 38px minmax(0, 1fr) auto;
+    column-gap: 8px;
+    row-gap: 5px;
+  }
+
+  .feed-compact-time {
+    flex-basis: 38px;
+  }
+
+  .feed-compact-title {
+    flex-basis: calc(100% - 46px);
   }
 
   .feed-compact-src {
