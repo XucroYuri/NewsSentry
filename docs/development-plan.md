@@ -1556,7 +1556,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 | ID | 内容 | 输出物 | 规模 | 状态 |
 |----|------|--------|------|------|
-| P64.01 | 数据备份/恢复 UI | settings.js | M | ⬜ |
+| P64.01 | 数据备份/恢复 UI | settings.js | M | ✅ |
 | P64.02 | api_server.py 覆盖率提升 (73%→85%+) | test_api_server.py | L | ⬜ |
 | P64.03 | 系统通知偏好设置 UI | settings.js | M | ⬜ |
 

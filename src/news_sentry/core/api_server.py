@@ -2977,6 +2977,56 @@ def create_app(
         size = backup_path.stat().st_size if backup_path.exists() else 0
         return BackupResponse(backup_path=str(backup_path), size_bytes=size)
 
+    @app.get("/api/v1/maintenance/backups")
+    async def list_backups(
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """列出可用备份。"""
+        if _store is None:
+            return {"backups": []}
+        backup_dir = _store.db_path.parent / "backups"
+        if not backup_dir.exists():
+            return {"backups": []}
+        backups = []
+        for f in sorted(backup_dir.glob("state_*.db"), reverse=True):
+            backups.append(
+                {
+                    "filename": f.name,
+                    "size_bytes": f.stat().st_size,
+                    "created_at": f.stat().st_ctime,
+                }
+            )
+        return {"backups": backups}
+
+    @app.post("/api/v1/maintenance/restore")
+    async def restore_backup(
+        filename: str = Query(..., description="备份文件名"),
+        user: dict[str, Any] = Depends(require_permission("admin")),
+    ) -> dict[str, Any]:
+        """从备份恢复数据库（需 admin 权限）。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not available")
+        backup_dir = _store.db_path.parent / "backups"
+        backup_path = backup_dir / filename
+        if not backup_path.exists() or not filename.startswith("state_"):
+            raise HTTPException(status_code=404, detail="Backup not found")
+        # 安全检查：防止路径遍历
+        if ".." in filename or "/" in filename:
+            raise HTTPException(status_code=400, detail="Invalid filename")
+        import shutil
+
+        # 先备份当前数据库
+        ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        current_backup = _store.db_path.parent / f"state_pre_restore_{ts}.db"
+        shutil.copy2(str(_store.db_path), str(current_backup))
+        # 关闭当前连接
+        await _store.close()
+        # 替换数据库文件
+        shutil.copy2(str(backup_path), str(_store.db_path))
+        # 重新初始化
+        await _store.initialize()
+        return {"status": "restored", "restored_from": filename}
+
     # ── 反馈闭环 + 告警管理 (Phase 41) ──────────────────
 
     @app.post("/api/v1/feedback", response_model=FeedbackSubmitResponse)

@@ -405,3 +405,75 @@ export function initTheme() {
     document.documentElement.setAttribute("data-theme", saved);
   }
 }
+
+
+export async function renderBackupTab(container) {
+  container.innerHTML = `
+    <div class="settings-page">
+      <h3>数据备份与恢复</h3>
+      <div style="margin-bottom:16px;display:flex;gap:8px;">
+        <button id="btnBackup" class="btn-primary">立即备份</button>
+        <button id="btnRefreshBackups" class="btn-primary" style="background:var(--bg-active);">刷新列表</button>
+      </div>
+      <div id="backupStatus" style="margin-bottom:12px;"></div>
+      <table class="data-table" style="width:100%;">
+        <thead>
+          <tr><th>备份文件</th><th>大小</th><th>时间</th><th>操作</th></tr>
+        </thead>
+        <tbody id="backupList">
+          <tr><td colspan="4" style="text-align:center;color:var(--text-muted);">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  document.getElementById("btnBackup").addEventListener("click", doBackup);
+  document.getElementById("btnRefreshBackups").addEventListener("click", loadBackups);
+  loadBackups();
+}
+
+async function doBackup() {
+  const status = document.getElementById("backupStatus");
+  status.innerHTML = '<span style="color:var(--accent-yellow);">正在备份...</span>';
+  try {
+    const res = await apiPost("/api/v1/maintenance/backup");
+    status.innerHTML = `<span style="color:var(--accent-green);">✅ 备份成功: ${res.backup_path} (${(res.size_bytes / 1024).toFixed(1)} KB)</span>`;
+    loadBackups();
+  } catch (e) {
+    status.innerHTML = `<span style="color:var(--accent-red);">❌ 备份失败: ${e.message}</span>`;
+  }
+}
+
+async function loadBackups() {
+  const tbody = document.getElementById("backupList");
+  try {
+    const data = await api("/api/v1/maintenance/backups");
+    if (!data.backups || data.backups.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);">暂无备份</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.backups.map(b => `
+      <tr>
+        <td style="font-family:var(--font-mono);font-size:0.8rem;">${escapeHtml(b.filename)}</td>
+        <td>${(b.size_bytes / 1024).toFixed(1)} KB</td>
+        <td>${new Date(b.created_at * 1000).toLocaleString()}</td>
+        <td><button onclick="doRestore('${b.filename}')" style="padding:2px 8px;border-radius:4px;background:var(--accent-orange);color:#fff;border:none;cursor:pointer;font-size:0.8rem;">恢复</button></td>
+      </tr>
+    `).join("");
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="4" style="color:var(--accent-red);">加载失败: ${e.message}</td></tr>`;
+  }
+}
+
+async function doRestore(filename) {
+  if (!confirm(`确定要从 ${filename} 恢复吗？当前数据将被替换。`)) return;
+  const status = document.getElementById("backupStatus");
+  status.innerHTML = '<span style="color:var(--accent-yellow);">正在恢复...</span>';
+  try {
+    const res = await apiPost(`/api/v1/maintenance/restore?filename=${encodeURIComponent(filename)}`);
+    status.innerHTML = `<span style="color:var(--accent-green);">✅ 已从 ${res.restored_from} 恢复</span>`;
+    loadBackups();
+  } catch (e) {
+    status.innerHTML = `<span style="color:var(--accent-red);">❌ 恢复失败: ${e.message}</span>`;
+  }
+}

@@ -31,6 +31,10 @@
 - Phase 63: 桌面应用一键更新 — 下载 + 替换 + 重启 (pywebview JS bridge)
 - Phase 63: `_check_update` 版本号从 `__version__` 动态读取（消除硬编码）
 
+### 新增 (Phase 64)
+- Phase 64: 备份列表 API (`GET /api/v1/maintenance/backups`) + 恢复 API (`POST /api/v1/maintenance/restore`)
+- Phase 64: 前端备份恢复 tab — 立即备份 + 备份列表 + 一键恢复
+
 ## [1.7.0] — 2026-05-22
 
 ### 新增
