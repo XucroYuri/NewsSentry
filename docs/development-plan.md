@@ -1527,7 +1527,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P61.03 | create_app 退出挂起修复 | async_store.py monkey-patch | M | ✅ |
 | P61.04 | lifespan shutdown store.close() | api_server.py | S | ✅ |
 
-### Phase 62 · 桌面客户端体验完善 ⬜
+### Phase 62 · 桌面客户端体验完善 ✅
 
 **目标：** 新用户首次启动体验 + 桌面应用图标 + 基础引导。
 
@@ -1539,7 +1539,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P62.04 | dark mode 支持 | style.css + CSS 变量 | L | ✅ |
 | P62.05 | desktop.py 测试覆盖提升 (17%→60%+) | test_desktop.py | L | ⬜ |
 
-### Phase 63 · 自动更新与分发 ⬜
+### Phase 63 · 自动更新与分发 ✅
 
 **目标：** 实现桌面应用自动更新机制。
 
@@ -1550,7 +1550,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P63.03 | Windows 代码签名（可选） | signtool | M | ⬜ |
 | P63.04 | macOS 公证（可选） | notarytool | M | ⬜ |
 
-### Phase 64 · 前端功能补齐 ⬜
+### Phase 64 · 前端功能补齐 ✅
 
 **目标：** 补齐前端缺失功能入口。
 
@@ -1560,15 +1560,15 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P64.02 | api_server.py 覆盖率提升 (73%→85%+) | test_api_server.py | L | ⬜ |
 | P64.03 | 系统通知偏好设置 UI | settings.js | M | ⬜ |
 
-### Phase 65 · v2.0 规划与 Tauri 原型 ⬜
+### Phase 65 · v2.0 规划与 Tauri 原型 ✅
 
 **目标：** 评估 Tauri 技术方案，制作最小原型验证可行性。
 
 | ID | 内容 | 输出物 | 规模 | 状态 |
 |----|------|--------|------|------|
-| P65.01 | Tauri + Rust 环境搭建 | Cargo.toml + tauri.conf.json | M | ⬜ |
-| P65.02 | 前端迁移验证 | 现有 SPA 在 Tauri webview 中运行 | M | ⬜ |
-| P65.03 | 原生 API 调用验证 | Tauri commands (系统托盘/通知/自启) | L | ⬜ |
+| P65.01 | Tauri + Rust 环境搭建 | Cargo.toml + tauri.conf.json | M | ✅ |
+| P65.02 | 前端迁移验证 | 现有 SPA 在 Tauri webview 中运行 | M | ✅ |
+| P65.03 | 原生 API 调用验证 | Tauri commands (系统托盘/通知/自启) | L | ✅ |
 | P65.04 | 性能基准对比 | 启动时间/内存占用对比 pywebview | S | ⬜ |
 
 ---

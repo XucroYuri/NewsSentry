@@ -7,7 +7,7 @@
 
 ---
 
-## [1.7.1] — 2026-05-22
+## [1.7.1] — 2026-05-25
 
 ### 新增
 - Phase 61: CI 多平台 PyInstaller 构建 — macOS arm64 + Windows x64 + Linux x64 (release.yml matrix)
@@ -34,6 +34,11 @@
 ### 新增 (Phase 64)
 - Phase 64: 备份列表 API (`GET /api/v1/maintenance/backups`) + 恢复 API (`POST /api/v1/maintenance/restore`)
 - Phase 64: 前端备份恢复 tab — 立即备份 + 备份列表 + 一键恢复
+- Phase 65: Tauri 桌面客户端原型 — clients/tauri/ 目录
+- Phase 65: Rust 核心 — Cargo.toml + lib.rs + main.rs + build.rs
+- Phase 65: 前端迁移验证 — tauri.conf.json 指向现有 SPA (frontendDist)
+- Phase 65: 原生 API commands — check_update / open_url (Tauri invoke handler)
+- Phase 65: 平台图标 — .ico/.icns/.png for Tauri bundle targets
 
 ## [1.7.0] — 2026-05-22
 
