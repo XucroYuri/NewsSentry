@@ -20,6 +20,13 @@
 - Phase 61: `doctor --target` 默认值 `'italy'` → `'all'`
 - Phase 61: `create_app()` 退出挂起 — atexit 清理 aiosqlite 连接 (生产) + skip_lifespan + store.close() (测试)
 - Phase 61: `test_import_dedup_with_sqlite` 300s 超时修复
+- Phase 61: event_links 测试使用相对时间 — 修复超过 7 天窗口导致的失败
+
+### 新增 (Phase 62)
+- Phase 62: 应用图标 — `.ico` (Windows) + `.icns` (macOS) + `.iconset` + PNG
+- Phase 62: PyInstaller spec 平台感知图标引用 (`_icon_path()`)
+- Phase 62: Light mode 主题切换 — CSS 变量 + `[data-theme="light"]` + `prefers-color-scheme` 跟随系统
+- Phase 62: 设置页「外观主题」tab — 深色/浅色/跟随系统切换 + 预览卡片
 
 ## [1.7.0] — 2026-05-22
 

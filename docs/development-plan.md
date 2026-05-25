@@ -1533,10 +1533,10 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 | ID | 内容 | 输出物 | 规模 | 状态 |
 |----|------|--------|------|------|
-| P62.01 | 应用图标 (.ico/.icns/.svg) | static/icons/ | S | ⬜ |
-| P62.02 | PyInstaller spec 引用图标 | news-sentry.spec | S | ⬜ |
+| P62.01 | 应用图标 (.ico/.icns/.svg) | static/icons/ | S | ✅ |
+| P62.02 | PyInstaller spec 引用图标 | news-sentry.spec | S | ✅ |
 | P62.03 | 首次启动引导（创建管理员账户） | 前端引导页 | M | ⬜ |
-| P62.04 | dark mode 支持 | style.css + CSS 变量 | L | ⬜ |
+| P62.04 | dark mode 支持 | style.css + CSS 变量 | L | ✅ |
 | P62.05 | desktop.py 测试覆盖提升 (17%→60%+) | test_desktop.py | L | ⬜ |
 
 ### Phase 63 · 自动更新与分发 ⬜
