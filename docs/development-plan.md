@@ -1558,7 +1558,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 |----|------|--------|------|------|
 | P64.01 | 数据备份/恢复 UI | settings.js | M | ✅ |
 | P64.02 | api_server.py 覆盖率提升 (73%→85%+) | test_api_server.py | L | ⬜ |
-| P64.03 | 系统通知偏好设置 UI | settings.js | M | ⬜ |
+| P64.03 | 系统通知偏好设置 UI | settings.js | M | ✅ |
 
 ### Phase 65 · v2.0 规划与 Tauri 原型 ✅
 
@@ -1639,7 +1639,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P68.01 | PyPI Trusted Publisher 配置验证 | release.yml + pypi.org 设置 | S | ⬜ |
 | P68.02 | Docker 镜像构建 + GHCR 推送 | Dockerfile + ghcr.io 镜像 | M | ⬜ |
 | P68.03 | docker-compose 端到端验证 | 手动 QA | S | ⬜ |
-| P68.04 | 前端 P64.03 系统通知偏好设置 UI | settings.js | M | ⬜ |
+| P68.04 | 前端 P64.03 系统通知偏好设置 UI | settings.js | M | ✅ (已在之前完成) |
 
 ## §25. Cloud VPS 部署方案推荐
 
