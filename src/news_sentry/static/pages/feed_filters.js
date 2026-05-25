@@ -63,11 +63,14 @@ export function eventMatchesSearch(ev, query) {
   const q = String(query || "").trim().toLowerCase();
   if (!q) return true;
   const haystack = [
+    ev.id,
+    ev.event_id,
     ev.display_title,
     ev.title,
     ev.title_translated,
     ev.title_original,
     ev.source_display_name,
+    ev.source_name,
     ev.source,
     ev.source_id,
     ev.summary,
