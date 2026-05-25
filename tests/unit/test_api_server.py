@@ -311,6 +311,87 @@ class TestAPIServer:
         assert len(data["events"]) == 2
         assert data["page"] == 1
 
+    def test_events_feed_adds_display_fields_from_frontmatter(self, tmp_path: Path) -> None:
+        """GET /events/feed 返回新闻流展示字段，不修改 NewsEvent 契约。"""
+        drafts = tmp_path / "italy" / "drafts"
+        drafts.mkdir(parents=True, exist_ok=True)
+        event = {
+            "id": "ne-italy-ansa-20260526-feed0001",
+            "source_id": "ansa",
+            "url": "https://example.com/news",
+            "title_original": "Original title",
+            "title_translated": "中文标题",
+            "content_original": "Original content fallback preview.",
+            "published_at": "2026-05-26T08:15:00+08:00",
+            "news_value_score": 86,
+            "metadata": {
+                "classification": {
+                    "l0": "politics",
+                    "l1": [{"code": "china-relations", "confidence": 0.92}],
+                },
+                "topic_tags": ["DeepSeek", "行业动态"],
+            },
+            "judge_result": {
+                "rationale": "API 长期降价会改变模型调用成本结构。第二句不应进入摘要。",
+                "recommendation": "review",
+            },
+        }
+        fm = yaml.dump(event, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        (drafts / "event.md").write_text(f"---\n{fm}---\n\n# 中文标题\n", encoding="utf-8")
+        client = self._make_client(tmp_path)
+
+        resp = client.get("/api/v1/events/feed", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        item = resp.json()["groups"][0]["events"][0]
+        assert item["event_id"] == "ne-italy-ansa-20260526-feed0001"
+        assert item["display_title"] == "中文标题"
+        assert item["score"] == 86
+        assert item["summary"] == "Original content fallback preview."
+        assert item["flat_tags"] == ["politics", "china-relations", "DeepSeek", "行业动态"]
+        assert item["ai_reason"] == "API 长期降价会改变模型调用成本结构。"
+        assert item["recommendation"] == "review"
+        assert item["source_display_name"] == "ansa"
+        assert item["related_count"] == 0
+
+    def test_public_news_feed_without_auth(self, tmp_path: Path) -> None:
+        """新闻工作台只读入口不要求登录。"""
+        _write_draft(
+            tmp_path,
+            "italy",
+            "ne-italy-src-20260526-public01",
+            title="Public feed story",
+            news_value_score=75,
+        )
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/events/feed", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+        assert data["groups"][0]["events"][0]["display_title"] == "Public feed story"
+
+    def test_public_targets_without_auth(self, tmp_path: Path) -> None:
+        """匿名用户可以读取 target 列表以初始化新闻工作台。"""
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/targets")
+
+        assert resp.status_code == 200
+        assert "targets" in resp.json()
+
+    def test_admin_users_still_requires_auth(self, tmp_path: Path) -> None:
+        """公共新闻工作台不放开管理后台。"""
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/admin/users")
+
+        assert resp.status_code == 401
+
     def test_get_event_found(self, tmp_path: Path) -> None:
         event_id = "ne-italy-src-20260512-abc12345"
         _write_draft(tmp_path, "italy", event_id)
@@ -367,12 +448,11 @@ class TestAPIServer:
             app = create_app(data_dir=tmp_path, auto_store=False)
             client = TestClient(app)
             # 无 token
-            resp = client.get("/api/v1/events", params={"target_id": "italy"})
+            resp = client.get("/api/v1/admin/users")
             assert resp.status_code == 401
             # 错误 token
             resp = client.get(
-                "/api/v1/events",
-                params={"target_id": "italy"},
+                "/api/v1/admin/users",
                 headers={"Authorization": "Bearer wrong-token"},
             )
             assert resp.status_code == 401
@@ -382,8 +462,7 @@ class TestAPIServer:
             token = resp.json()["access_token"]
             # 使用正确 Bearer token
             resp = client.get(
-                "/api/v1/events",
-                params={"target_id": "italy"},
+                "/api/v1/auth/me",
                 headers={"Authorization": f"Bearer {token}"},
             )
             assert resp.status_code == 200
@@ -407,6 +486,7 @@ class TestAPIServer:
         config_dir = tmp_path / "config" / "targets"
         _write_target_config(config_dir, "italy", "意大利新闻监控", "it", 5)
         _write_target_config(config_dir, "japan", "日本新闻监控", "ja", 3)
+        _write_draft(tmp_path, "italy", "evt-1", "ANSA", 70)
         monkeypatch.chdir(tmp_path)
         client = self._make_client(tmp_path)
         resp = client.get("/api/v1/targets")
@@ -417,6 +497,7 @@ class TestAPIServer:
         assert italy["display_name"] == "意大利新闻监控"
         assert italy["primary_language"] == "it"
         assert italy["source_count"] == 5
+        assert italy["event_count"] == 1
 
     def test_stats_endpoint(self, tmp_path: Path) -> None:
         _write_draft(

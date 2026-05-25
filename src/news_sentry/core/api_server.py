@@ -110,6 +110,7 @@ class TargetInfo(BaseModel):
     display_name: str
     primary_language: str
     source_count: int
+    event_count: int = 0
 
 
 class TargetListResponse(BaseModel):
@@ -932,12 +933,24 @@ def _group_events_by_date(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         date_key = pub[:10] if pub else "unknown"
         if date_key not in groups:
             groups[date_key] = []
-        groups[date_key].append(ev)
+        groups[date_key].append(_feed_event_payload(ev))
     # 按日期降序排列
     result = []
     for date_key in sorted(groups.keys(), reverse=True):
         result.append({"date": date_key, "events": groups[date_key]})
     return result
+
+
+def _first_sentence(text: str, max_chars: int = 60) -> str:
+    """提取适合新闻流展示的第一句摘要。"""
+    compact = " ".join(text.split())
+    for sep in ("。", "！", "？", ".", "!", "?"):
+        if sep in compact:
+            compact = compact.split(sep, 1)[0] + sep
+            break
+    if len(compact) > max_chars:
+        return compact[:max_chars].rstrip() + "..."
+    return compact
 
 
 def _event_matches_date(event: dict[str, Any], date: str | None) -> bool:
@@ -1159,10 +1172,31 @@ def _event_flat_tags(ev: dict[str, Any]) -> list[str]:
     return deduped[:4]
 
 
+def _event_ai_reason(ev: dict[str, Any]) -> str:
+    judge = ev.get("judge_result")
+    rationale = judge.get("rationale") if isinstance(judge, dict) else None
+    if isinstance(rationale, str) and rationale.strip():
+        return _first_sentence(rationale)
+    for key in ("content_translated", "content_original"):
+        value = ev.get(key)
+        if isinstance(value, str) and value.strip():
+            return _first_sentence(value)
+    return ""
+
+
+def _event_summary(ev: dict[str, Any]) -> str:
+    for key in ("summary", "description", "content_translated", "content_original"):
+        value = ev.get(key)
+        if isinstance(value, str) and value.strip():
+            return _first_sentence(value, max_chars=96)
+    return ""
+
+
 def _feed_event_payload(ev: dict[str, Any]) -> dict[str, Any]:
     """为新闻流补充展示字段；不改变 NewsEvent 存储契约。"""
     event_id = ev.get("event_id") or ev.get("id") or ""
     source_id = ev.get("source_id") or ""
+    judge = ev.get("judge_result") if isinstance(ev.get("judge_result"), dict) else {}
     payload = dict(ev)
     payload["event_id"] = event_id
     payload.setdefault("id", event_id)
@@ -1170,6 +1204,10 @@ def _feed_event_payload(ev: dict[str, Any]) -> dict[str, Any]:
     payload["score"] = _event_score(ev)
     payload["source_display_name"] = ev.get("source_display_name") or source_id
     payload["flat_tags"] = _event_flat_tags(ev)
+    payload["ai_reason"] = _event_ai_reason(ev)
+    payload["summary"] = _event_summary(ev)
+    payload["recommendation"] = ev.get("recommendation") or judge.get("recommendation")
+    payload["related_count"] = ev.get("related_count") or 0
     return payload
 
 
@@ -2594,9 +2632,7 @@ def create_app(
             raise HTTPException(status_code=500, detail=f"Failed to send email: {exc}") from exc
 
     @app.get("/api/v1/targets", response_model=TargetListResponse)
-    async def list_targets(
-        user: dict[str, Any] = Depends(get_current_user),
-    ) -> TargetListResponse:
+    async def list_targets() -> TargetListResponse:
         """返回所有可用的 target 列表。"""
         configs = _load_target_configs()
         targets = [
@@ -2605,6 +2641,7 @@ def create_app(
                 display_name=c.get("display_name", ""),
                 primary_language=c.get("language_scope", {}).get("primary", ""),
                 source_count=len(c.get("source_channel_refs", [])),
+                event_count=len(_load_all_events(_data_dir, c.get("target_id", ""))),
             )
             for c in configs
         ]
@@ -2613,7 +2650,6 @@ def create_app(
     @app.get("/api/v1/stats", response_model=StatsResponse)
     async def get_stats(
         target_id: str = Query(..., description="目标标识"),
-        user: dict[str, Any] = Depends(get_current_user),
     ) -> StatsResponse:
         """返回指定 target 的事件统计（优先使用 target state.db）。"""
         # 优先使用 target 自己的 state.db（与 pipeline 共享同一数据库）
@@ -2849,7 +2885,6 @@ def create_app(
         entity_type: str | None = Query(None, description="按实体类型过滤"),
         target_id: str | None = Query(None, description="按目标过滤"),
         min_mentions: int = Query(1, ge=1, description="最少提及次数"),
-        user: dict[str, Any] = Depends(get_current_user),
         limit: int = Query(20, ge=1, le=100, description="返回数量"),
         sort: str = Query("mention_count", description="排序: mention_count 或 last_seen"),
     ) -> EntityListResponse:
@@ -2877,7 +2912,6 @@ def create_app(
     @app.get("/api/v1/entities/{entity_id}", response_model=EntityDetailResponse)
     async def get_entity(
         entity_id: int,
-        user: dict[str, Any] = Depends(get_current_user),
     ) -> EntityDetailResponse:
         """返回实体详情及关联事件。"""
         if _store is None:
@@ -2896,7 +2930,6 @@ def create_app(
     @app.get("/api/v1/stats/today", response_model=TodayStatsResponse)
     async def get_today_stats_api(
         target_id: str = Query(..., description="目标标识"),
-        user: dict[str, Any] = Depends(get_current_user),
     ) -> TodayStatsResponse:
         """今日 vs 昨日对比统计。"""
         if _store is None:
@@ -2909,7 +2942,6 @@ def create_app(
         target_id: str = Query(..., description="目标标识"),
         days: int = Query(7, ge=1, le=30, description="天数"),
         limit: int = Query(5, ge=1, le=20, description="数量"),
-        user: dict[str, Any] = Depends(get_current_user),
     ) -> TopEventsResponse:
         """近期高价值事件（优先使用 target state.db）。"""
         events: list[dict[str, Any]] = []
@@ -2936,7 +2968,6 @@ def create_app(
         ),
         entity: str | None = Query(None, description="按实体名筛选"),
         topic_tag: str | None = Query(None, description="按主题标签筛选"),
-        user: dict[str, Any] = Depends(get_current_user),
     ) -> EventResponse:
 
         # 优先使用 target 自己的 state.db（与 pipeline 共享同一数据库）
@@ -2990,7 +3021,6 @@ def create_app(
         date: str | None = Query(None, description="日期筛选 YYYY-MM-DD"),
         page: int = Query(1, ge=1),
         page_size: int = Query(30, ge=1, le=100),
-        user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
         """新闻流接口 — 按日期分组返回事件，含 AI 推荐标签。"""
         target_store = await _get_target_store(target_id)
@@ -3100,7 +3130,6 @@ def create_app(
     async def get_event(
         event_id: str,
         target_id: str = Query(..., description="目标标识"),
-        user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
 
         # 优先使用 target 自己的 state.db
@@ -3488,7 +3517,6 @@ def create_app(
     async def get_event_links(
         event_id: str,
         target_id: str = Query(..., description="目标标识"),
-        user: dict[str, Any] = Depends(get_current_user),
     ) -> EventLinksResponse:
         """获取某事件的关联事件列表。"""
         if _store is None:
@@ -3525,7 +3553,6 @@ def create_app(
     async def get_event_chain(
         event_id: str,
         target_id: str = Query(..., description="目标标识"),
-        user: dict[str, Any] = Depends(get_current_user),
     ) -> EventChainResponse:
         """获取某事件的完整追踪链。"""
         if _store is None:
@@ -3546,7 +3573,6 @@ def create_app(
     @app.get("/api/v1/chains", response_model=ChainListResponse)
     async def list_chains(
         target_id: str = Query(..., description="目标标识"),
-        user: dict[str, Any] = Depends(get_current_user),
     ) -> ChainListResponse:
         """列出当前 target 的活跃追踪链。"""
         if _store is None:
@@ -3560,7 +3586,6 @@ def create_app(
     async def get_chain_narrative(
         root_id: str,
         target_id: str = Query(..., description="目标标识"),
-        user: dict[str, Any] = Depends(get_current_user),
     ) -> NarrativeResponse:
         """获取链的 AI 叙述。"""
         if _store is None:
@@ -3617,7 +3642,6 @@ def create_app(
     async def get_topic_trends(
         target_id: str = Query(..., description="目标标识"),
         days: int = Query(14, ge=7, le=30, description="天数"),
-        user: dict[str, Any] = Depends(get_current_user),
     ) -> TopicTrendsResponse:
         """主题热度趋势。"""
         if _store is None:
@@ -3646,7 +3670,6 @@ def create_app(
     async def get_sentiment_trends(
         target_id: str = Query(..., description="目标标识"),
         days: int = Query(14, ge=7, le=30, description="天数"),
-        user: dict[str, Any] = Depends(get_current_user),
     ) -> SentimentTrendsResponse:
         """情感分布趋势。"""
         if _store is None:
