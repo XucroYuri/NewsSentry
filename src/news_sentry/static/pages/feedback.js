@@ -4,7 +4,7 @@
 
 "use strict";
 
-import { state, api, apiPost, escapeHtml, formatDate, showSuccess, showError, scoreColor, sentimentLabelColor } from "../api.js";
+import { state, api, apiPost, escapeHtml, formatDate, showSuccess, showError, scoreColor, sentimentLabelColor } from "../api.js?v=20260526c";
 
 const VERDICT_LABELS = {
   publish_override: "推荐发布",
