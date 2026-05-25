@@ -1670,6 +1670,19 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P70.04 | v1.9.1 patch release | 发布流程 | S | ✅ |
 
 
+
+### Phase 71 · api_server 覆盖率 80→82% + 独立函数测试 ✅
+
+**目标：** 覆盖可测试的独立函数和端点，将 api_server.py 覆盖率从 80% 提升到 85%。
+
+| ID | 内容 | 输出物 | 规模 | 状态 |
+|----|------|--------|------|------|
+| P71.01 | 辅助函数测试 — heartbeat/log/data_status (10 tests) | test_api_server.py | M | ✅ |
+| P71.02 | restore_backup 完整流程 + 安全检查 (4 tests) | test_api_server.py | M | ✅ |
+| P71.03 | regenerate_chain_narrative (3 tests) | test_api_server.py | M | ✅ |
+| P71.04 | v1.9.2 patch release | 发布流程 | S | ✅ (skip — 与 P70 合并) |
+
+
 ## §25. Cloud VPS 部署方案推荐
 
 > 替代/补充 Phase 15 的 Hetzner 方案。以下为 2026 年可用的主流 Cloud VPS 对比。

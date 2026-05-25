@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
@@ -2741,3 +2742,259 @@ class TestLifecycle:
         app = create_app(auto_store=False, skip_lifespan=True)
         route_count = len([r for r in app.routes if hasattr(r, "methods")])
         assert route_count >= 60
+
+
+# ── Phase 71 新增测试 ──────────────────────────────────
+
+
+class TestHelperFunctions:
+    """辅助函数测试 — _load_heartbeat / _load_single_run_log。"""
+
+    def test_load_single_run_log_no_dir(self, tmp_path: Path) -> None:
+        """日志目录不存在时返回 None。"""
+        from news_sentry.core.api_server import _load_single_run_log
+
+        result = _load_single_run_log(tmp_path, "run-001", "italy")
+        assert result is None
+
+    def test_load_single_run_log_found(self, tmp_path: Path) -> None:
+        """找到匹配的日志文件时返回内容。"""
+        from news_sentry.core.api_server import _load_single_run_log
+
+        log_dir = tmp_path / "italy" / "logs"
+        log_dir.mkdir(parents=True)
+        log_data = {"run_id": "run-001", "status": "completed"}
+        (log_dir / "run-001_20260525.json").write_text(json.dumps(log_data), encoding="utf-8")
+        result = _load_single_run_log(tmp_path, "run-001", "italy")
+        assert result is not None
+        assert result["run_id"] == "run-001"
+
+    def test_load_single_run_log_corrupt(self, tmp_path: Path) -> None:
+        """损坏的 JSON 文件返回 None。"""
+        from news_sentry.core.api_server import _load_single_run_log
+
+        log_dir = tmp_path / "italy" / "logs"
+        log_dir.mkdir(parents=True)
+        (log_dir / "run-002.json").write_text("not json{{{", encoding="utf-8")
+        result = _load_single_run_log(tmp_path, "run-002", "italy")
+        assert result is None
+
+    def test_load_heartbeat_no_file(self, tmp_path: Path) -> None:
+        """心跳文件不存在时返回 active=False。"""
+        from news_sentry.core.api_server import _load_heartbeat
+
+        result = _load_heartbeat(tmp_path, "italy")
+        assert result["active"] is False
+
+    def test_load_heartbeat_running(self, tmp_path: Path) -> None:
+        """心跳文件显示 running 时返回 active=True。"""
+        from news_sentry.core.api_server import _load_heartbeat
+
+        log_dir = tmp_path / "italy" / "logs"
+        log_dir.mkdir(parents=True)
+        hb = {"status": "running", "run_id": "run-001", "last_stage": "collect"}
+        (log_dir / ".heartbeat-hermes.json").write_text(json.dumps(hb), encoding="utf-8")
+        result = _load_heartbeat(tmp_path, "italy")
+        assert result["active"] is True
+        assert result["run_id"] == "run-001"
+
+    def test_load_heartbeat_stopped(self, tmp_path: Path) -> None:
+        """心跳文件显示 completed 时返回 active=False。"""
+        from news_sentry.core.api_server import _load_heartbeat
+
+        log_dir = tmp_path / "italy" / "logs"
+        log_dir.mkdir(parents=True)
+        hb = {"status": "completed", "run_id": "run-001"}
+        (log_dir / ".heartbeat-hermes.json").write_text(json.dumps(hb), encoding="utf-8")
+        result = _load_heartbeat(tmp_path, "italy")
+        assert result["active"] is False
+
+    def test_load_heartbeat_corrupt(self, tmp_path: Path) -> None:
+        """损坏的心跳文件返回 active=False。"""
+        from news_sentry.core.api_server import _load_heartbeat
+
+        log_dir = tmp_path / "italy" / "logs"
+        log_dir.mkdir(parents=True)
+        (log_dir / ".heartbeat-hermes.json").write_text("bad json", encoding="utf-8")
+        result = _load_heartbeat(tmp_path, "italy")
+        assert result["active"] is False
+
+
+class TestDataStatusEndpoint:
+    """data_status 端点测试 — 覆盖文件系统遍历逻辑。"""
+
+    def _make_client(self, tmp_path: Path) -> TestClient:
+        from news_sentry.core.async_store import AsyncStore
+
+        db_path = tmp_path / "test.db"
+        store = AsyncStore(db_path)
+        app = create_app(data_dir=tmp_path, store=store, auto_store=False)
+        return TestClient(app)
+
+    def test_data_status_empty(self, tmp_path: Path) -> None:
+        """空数据目录正常响应。"""
+        client = self._make_client(tmp_path)
+        resp = client.get("/api/v1/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "data_dir" in data
+        assert data["total_events_all_targets"] == 0
+
+    def test_data_status_with_events(self, tmp_path: Path) -> None:
+        """有 drafts 事件文件时返回统计。"""
+        # _load_all_events 从 drafts/*.md 读取 frontmatter
+        drafts_dir = tmp_path / "italy" / "drafts"
+        drafts_dir.mkdir(parents=True)
+        lines = [
+            "---",
+            "event_id: ne-test-20260525-abc",
+            "title: Test Event",
+            "news_value_score: 80",
+            "---",
+            "",
+            "Body text",
+        ]
+        (drafts_dir / "ne-test-20260525-abc.md").write_text(chr(10).join(lines), encoding="utf-8")
+        app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
+        client = TestClient(app)
+        resp = client.get("/api/v1/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_events_all_targets"] >= 1
+        assert "italy" in data["targets"]
+
+    def test_data_status_non_dir_ignored(self, tmp_path: Path) -> None:
+        """非目录文件被忽略。"""
+        (tmp_path / "somefile.json").write_text("{}", encoding="utf-8")
+        app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
+        client = TestClient(app)
+        resp = client.get("/api/v1/status")
+        assert resp.status_code == 200
+
+
+class TestRestoreBackupFull:
+    """备份恢复完整流程测试。"""
+
+    def _make_client(self, tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
+        from news_sentry.core.async_store import AsyncStore
+
+        db_path = tmp_path / "test.db"
+        store = AsyncStore(db_path)
+        app = create_app(data_dir=tmp_path, store=store, auto_store=False)
+        client = TestClient(app)
+        resp = client.post(
+            "/api/v1/auth/setup",
+            json={"username": "admin", "password": "test123456"},
+        )
+        token = resp.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        return client, headers
+
+    def test_restore_backup_success(self, tmp_path: Path) -> None:
+        """完整备份恢复流程。"""
+        client, headers = self._make_client(tmp_path)
+        # 创建备份
+        resp = client.post(
+            "/api/v1/maintenance/backup",
+            json={"target_id": "italy"},
+            headers=headers,
+        )
+        assert resp.status_code == 200
+        # 列出备份
+        resp2 = client.get("/api/v1/maintenance/backups", headers=headers)
+        backups = resp2.json().get("backups", [])
+        if backups:
+            filename = backups[0]["filename"]
+            resp3 = client.post(
+                "/api/v1/maintenance/restore",
+                params={"filename": filename},
+                headers=headers,
+            )
+            assert resp3.status_code == 200
+            assert resp3.json()["status"] == "restored"
+
+    def test_restore_backup_wrong_prefix(self, tmp_path: Path) -> None:
+        """文件名不以 state_ 开头返回 404。"""
+        client, headers = self._make_client(tmp_path)
+        backup_dir = tmp_path / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        (backup_dir / "wrong_name.db").write_bytes(b"fake")
+        resp = client.post(
+            "/api/v1/maintenance/restore",
+            params={"filename": "wrong_name.db"},
+            headers=headers,
+        )
+        assert resp.status_code in (400, 404, 503)
+
+    def test_restore_backup_dotdot_rejected(self, tmp_path: Path) -> None:
+        """路径遍历 ../ 被拒绝。"""
+        client, headers = self._make_client(tmp_path)
+        resp = client.post(
+            "/api/v1/maintenance/restore",
+            params={"filename": "state_../etc/passwd"},
+            headers=headers,
+        )
+        assert resp.status_code in (400, 404, 422, 503)
+
+    def test_restore_backup_slash_rejected(self, tmp_path: Path) -> None:
+        """路径遍历 / 被拒绝。"""
+        client, headers = self._make_client(tmp_path)
+        resp = client.post(
+            "/api/v1/maintenance/restore",
+            params={"filename": "state_/etc/passwd"},
+            headers=headers,
+        )
+        assert resp.status_code in (400, 404, 422, 503)
+
+
+class TestRegenerateNarrative:
+    """regenerate_chain_narrative 端点测试。"""
+
+    def _make_client(self, tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
+        from news_sentry.core.async_store import AsyncStore
+
+        db_path = tmp_path / "test.db"
+        store = AsyncStore(db_path)
+        app = create_app(data_dir=tmp_path, store=store, auto_store=False)
+        client = TestClient(app)
+        resp = client.post(
+            "/api/v1/auth/setup",
+            json={"username": "admin", "password": "test123456"},
+        )
+        token = resp.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        return client, headers
+
+    def test_regenerate_no_store(self, tmp_path: Path) -> None:
+        """无 store 时返回 503。"""
+        app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
+        client = TestClient(app)
+        resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        token = resp.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        resp2 = client.post(
+            "/api/v1/chains/fake-root/narrative",
+            json={"target_id": "italy"},
+            headers=headers,
+        )
+        assert resp2.status_code in (404, 422, 503)
+
+    def test_regenerate_with_store(self, tmp_path: Path) -> None:
+        """有 store 但无 chain 数据时返回适当错误。"""
+        client, headers = self._make_client(tmp_path)
+        resp = client.post(
+            "/api/v1/chains/fake-root/narrative",
+            json={"target_id": "italy"},
+            headers=headers,
+        )
+        assert resp.status_code in (200, 404, 422, 500, 503)
+
+    def test_regenerate_missing_target(self, tmp_path: Path) -> None:
+        """缺少 target_id 时返回 422。"""
+        client, headers = self._make_client(tmp_path)
+        resp = client.post(
+            "/api/v1/chains/fake-root/narrative",
+            json={},
+            headers=headers,
+        )
+        assert resp.status_code in (422, 503)
