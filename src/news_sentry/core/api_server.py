@@ -896,6 +896,22 @@ def _load_events_from_data(
     )
 
 
+def _group_events_by_date(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """将事件列表按 published_at 日期分组。"""
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for ev in events:
+        pub = ev.get("published_at", "")
+        date_key = pub[:10] if pub else "unknown"
+        if date_key not in groups:
+            groups[date_key] = []
+        groups[date_key].append(ev)
+    # 按日期降序排列
+    result = []
+    for date_key in sorted(groups.keys(), reverse=True):
+        result.append({"date": date_key, "events": groups[date_key]})
+    return result
+
+
 def _load_single_event(data_dir: Path, target_id: str, event_id: str) -> dict[str, Any] | None:
     """查找单个事件。"""
     drafts_dir = data_dir / target_id / "drafts"
@@ -2334,6 +2350,70 @@ def create_app(
             min_score=min_score,
             search=search,
         )
+
+    # ── 新闻流 Feed API ─────────────────────────────────────
+
+    @app.get("/api/v1/events/feed")
+    async def events_feed(
+        target_id: str = Query(..., description="目标标识"),
+        date: str | None = Query(None, description="日期筛选 YYYY-MM-DD"),
+        page: int = Query(1, ge=1),
+        page_size: int = Query(30, ge=1, le=100),
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """新闻流接口 — 按日期分组返回事件，含 AI 推荐标签。"""
+        target_store = await _get_target_store(target_id)
+        store_to_query = target_store if target_store is not None else _store
+
+        if store_to_query is not None:
+            offset = (page - 1) * page_size
+            result = await store_to_query.query_events_paginated(
+                target_id=target_id,
+                stage="drafts",
+                limit=page_size,
+                offset=offset,
+            )
+            if result["total"] > 0:
+                events = []
+                for row in result["rows"]:
+                    event_fm = _load_event_by_path(row["file_path"])
+                    if event_fm is None:
+                        event_fm = {
+                            "event_id": row["event_id"],
+                            "title_original": row["title_original"],
+                            "importance_score": row["news_value_score"],
+                            "classification": {"l0": row["classification_l0"]},
+                            "source_id": row["source_id"],
+                            "published_at": row["published_at"],
+                            "sentiment": row["sentiment"],
+                        }
+                    # 日期筛选
+                    if date:
+                        pub = event_fm.get("published_at", "")
+                        if not pub.startswith(date):
+                            continue
+                    events.append(event_fm)
+                # 按日期分组
+                grouped = _group_events_by_date(events)
+                return {
+                    "total": result["total"],
+                    "page": page,
+                    "page_size": page_size,
+                    "groups": grouped,
+                }
+
+        # 降级: 文件系统
+        all_events_resp = _load_events_from_data(_data_dir, target_id, 1, 1000)
+        events = all_events_resp.events
+        if date:
+            events = [e for e in events if (e.get("published_at") or "").startswith(date)]
+        grouped = _group_events_by_date(events)
+        return {
+            "total": len(events),
+            "page": page,
+            "page_size": page_size,
+            "groups": grouped,
+        }
 
     # ── SSE 实时推送 ─────────────────────────────────────
 

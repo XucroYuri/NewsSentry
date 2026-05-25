@@ -1,6 +1,6 @@
 /* ============================================================
-   News Sentry — 暗色主题样式 (2966 行)
-   背景: #0f1117  卡片: #1a1d27  强调: #4f8ff7
+   News Sentry — 专业通讯社风格 (纯色设计)
+   背景: #1a1a1e  卡片: #242428  强调: #ff8000
 
    目录:
      §1  CSS 变量 (L6)        §2  全局重置 (L69)       §3  滚动条 (L103)
@@ -16,34 +16,41 @@
 
 /* ── CSS 变量 ────────────────────────────────────────────── */
 :root {
-  --bg-primary: #0f1117;
-  --bg-secondary: #1a1d27;
-  --bg-tertiary: #222636;
-  --bg-hover: #2a2e3f;
-  --bg-active: #333850;
+  /* ── 专业通讯社纯色设计 ── */
+  --bg-primary: #1a1a1e;
+  --bg-secondary: #242428;
+  --bg-tertiary: #2e2e33;
+  --bg-hover: #363640;
+  --bg-active: #404048;
+  --bg-card: #1e1e22;
 
-  --text-primary: #e4e6ef;
-  --text-secondary: #9399b2;
-  --text-muted: #5c6280;
-  --text-accent: #4f8ff7;
+  --text-primary: #f0f0f0;
+  --text-secondary: #a0a0a8;
+  --text-muted: #6e6e78;
+  --text-accent: #ff8000;
+  --text-title: #f5f5f5;
 
-  --accent-blue: #4f8ff7;
-  --accent-blue-dim: rgba(79, 143, 247, 0.15);
-  --accent-green: #22c55e;
-  --accent-yellow: #eab308;
-  --accent-red: #ef4444;
-  --accent-orange: #f97316;
+  --accent-primary: #ff8000;
+  --accent-secondary: #e03030;
+  --accent-tertiary: #2e8b57;
+  --accent-blue: #ff8000;
+  --accent-blue-dim: rgba(255, 128, 0, 0.1);
+  --accent-green: #2e8b57;
+  --accent-yellow: #d4a017;
+  --accent-red: #e03030;
+  --accent-orange: #ff8000;
 
-  --border-color: #2a2e3f;
-  --border-light: #333850;
+  --border-color: #3a3a40;
+  --border-light: #444448;
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.3);
 
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 4px;
 
   --sidebar-width: 220px;
   --topbar-height: 56px;
@@ -56,18 +63,15 @@
     "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
   --font-mono: "SF Mono", "Fira Code", "Cascadia Code", "Consolas", monospace;
 
-  /* ── Phase 49.5b: 设计系统升级 ── */
-  --bg-glass: rgba(26, 29, 39, 0.7);
-  --bg-card-hover: #252a3b;
-  --accent-glow: 0 0 20px rgba(79, 143, 247, 0.15);
-  --text-title: #f0f1f5;
-  --radius-xl: 18px;
-  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.3), 0 8px 32px rgba(0, 0, 0, 0.2);
+  --bg-glass: var(--bg-secondary);
+  --bg-card-hover: #2a2a30;
+  --accent-glow: none;
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.3);
 
   /* 排版层级 */
-  --font-h1: 1.75rem;
-  --font-h2: 1.25rem;
-  --font-h3: 1rem;
+  --font-h1: 1.5rem;
+  --font-h2: 1.125rem;
+  --font-h3: 0.9375rem;
   --font-body: 0.875rem;
   --font-caption: 0.75rem;
   --weight-h1: 700;
@@ -79,63 +83,71 @@
 
 /* ── Light Mode ───────────────────────────────────────────── */
 [data-theme="light"] {
-  --bg-primary: #f5f6fa;
+  --bg-primary: #f8f8f8;
   --bg-secondary: #ffffff;
-  --bg-tertiary: #eef0f6;
-  --bg-hover: #e2e5f0;
-  --bg-active: #d5d9e8;
+  --bg-tertiary: #eeeeee;
+  --bg-hover: #e5e5e5;
+  --bg-active: #dcdcdc;
+  --bg-card: #ffffff;
 
-  --text-primary: #1a1d27;
-  --text-secondary: #5c6280;
-  --text-muted: #9399b2;
-  --text-accent: #2d6fd4;
-  --text-title: #0f1117;
+  --text-primary: #1a1a1e;
+  --text-secondary: #555555;
+  --text-muted: #888888;
+  --text-accent: #cc6600;
+  --text-title: #111111;
 
-  --accent-blue: #2d6fd4;
-  --accent-blue-dim: rgba(45, 111, 212, 0.12);
+  --accent-primary: #cc6600;
+  --accent-secondary: #cc2020;
+  --accent-tertiary: #256d45;
+  --accent-blue: #cc6600;
+  --accent-blue-dim: rgba(204, 102, 0, 0.08);
 
-  --border-color: #d5d9e8;
-  --border-light: #e2e5f0;
+  --border-color: #d0d0d0;
+  --border-light: #e0e0e0;
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.1);
 
-  --bg-glass: rgba(255, 255, 255, 0.7);
-  --bg-card-hover: #f0f2f8;
-  --accent-glow: 0 0 20px rgba(45, 111, 212, 0.1);
-  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.06), 0 8px 32px rgba(0, 0, 0, 0.08);
+  --bg-glass: #ffffff;
+  --bg-card-hover: #f5f5f5;
+  --accent-glow: none;
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
 /* 系统偏好: 未手动设置时跟随系统 */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) {
-    --bg-primary: #f5f6fa;
+    --bg-primary: #f8f8f8;
     --bg-secondary: #ffffff;
-    --bg-tertiary: #eef0f6;
-    --bg-hover: #e2e5f0;
-    --bg-active: #d5d9e8;
+    --bg-tertiary: #eeeeee;
+    --bg-hover: #e5e5e5;
+    --bg-active: #dcdcdc;
+    --bg-card: #ffffff;
 
-    --text-primary: #1a1d27;
-    --text-secondary: #5c6280;
-    --text-muted: #9399b2;
-    --text-accent: #2d6fd4;
-    --text-title: #0f1117;
+    --text-primary: #1a1a1e;
+    --text-secondary: #555555;
+    --text-muted: #888888;
+    --text-accent: #cc6600;
+    --text-title: #111111;
 
-    --accent-blue: #2d6fd4;
-    --accent-blue-dim: rgba(45, 111, 212, 0.12);
+    --accent-primary: #cc6600;
+    --accent-secondary: #cc2020;
+    --accent-tertiary: #256d45;
+    --accent-blue: #cc6600;
+    --accent-blue-dim: rgba(204, 102, 0, 0.08);
 
-    --border-color: #d5d9e8;
-    --border-light: #e2e5f0;
+    --border-color: #d0d0d0;
+    --border-light: #e0e0e0;
 
-    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
-    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1);
-    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+    --shadow-md: 0 2px 6px rgba(0, 0, 0, 0.08);
+    --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.1);
 
-    --bg-glass: rgba(255, 255, 255, 0.7);
-    --bg-card-hover: #f0f2f8;
-    --accent-glow: 0 0 20px rgba(45, 111, 212, 0.1);
-    --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.06), 0 8px 32px rgba(0, 0, 0, 0.08);
+    --bg-glass: #ffffff;
+    --bg-card-hover: #f5f5f5;
+    --accent-glow: none;
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.08);
   }
 }
 
@@ -300,8 +312,7 @@ a:hover {
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
   z-index: 99;
-  backdrop-filter: blur(2px);
-}
+  }
 .sidebar-overlay.visible {
   display: block;
 }
@@ -327,8 +338,7 @@ a:hover {
   gap: 16px;
   padding: 0 28px;
   background: rgba(15, 17, 23, 0.85);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-color);
   z-index: 50;
 }
 
@@ -502,9 +512,7 @@ a:hover {
   border-radius: var(--radius-lg);
   padding: 20px;
   box-shadow: var(--shadow-card);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+    -webkit-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 .card:hover {
   border-color: var(--border-light);
@@ -532,9 +540,7 @@ a:hover {
   border-radius: var(--radius-lg);
   padding: 20px;
   box-shadow: var(--shadow-card);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  transition: all var(--transition-fast);
+    -webkit-  transition: all var(--transition-fast);
 }
 .stat-card:hover {
   border-color: var(--accent-blue);
@@ -606,7 +612,7 @@ a:hover {
 }
 
 .tag-source {
-  background: rgba(79, 143, 247, 0.12);
+  background: rgba(255, 128, 0, 0.08);
   color: var(--accent-blue);
 }
 
@@ -649,7 +655,7 @@ a:hover {
 .bar-chart-fill {
   height: 100%;
   border-radius: 4px;
-  background: linear-gradient(90deg, var(--accent-blue), #7aabff);
+  background: var(--accent-primary);
   transition: width var(--transition-slow);
   min-width: 2px;
 }
@@ -784,9 +790,7 @@ a:hover {
   cursor: pointer;
   transition: all var(--transition-fast);
   box-shadow: var(--shadow-card);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  animation: slideUp 0.3s ease both;
+    -webkit-  animation: slideUp 0.3s ease both;
 }
 .event-card:hover {
   border-color: var(--accent-blue);
@@ -1069,7 +1073,7 @@ a:hover {
   transition: all var(--transition-fast);
 }
 .detail-link:hover {
-  background: rgba(79, 143, 247, 0.25);
+  background: rgba(255, 128, 0, 0.15);
   color: #7aabff;
 }
 
@@ -1147,7 +1151,7 @@ a:hover {
   right: 0;
   z-index: 10000;
   padding: 8px 16px;
-  background: linear-gradient(90deg, #1e40af, #7c3aed);
+  background: var(--accent-primary);
   color: #fff;
   font-size: 0.85rem;
   text-align: center;
@@ -1415,7 +1419,7 @@ a:hover {
    ============================================================ */
 .config-notice {
   background: var(--accent-blue-dim);
-  border: 1px solid rgba(79, 143, 247, 0.2);
+  border: 1px solid rgba(255, 128, 0, 0.15);
   border-radius: var(--radius-sm);
   padding: 10px 16px;
   margin-bottom: 24px;
@@ -1672,7 +1676,7 @@ a:hover {
 }
 
 .chip-entity {
-  background: rgba(79, 143, 247, 0.15);
+  background: rgba(255, 128, 0, 0.08);
   color: var(--accent-blue);
 }
 
@@ -2067,7 +2071,7 @@ a:hover {
 .link-strength { font-family: var(--font-mono); color: var(--text-secondary, #9399b2); }
 
 .chain-row { cursor: pointer; }
-.chain-row:hover { background: rgba(79, 143, 247, 0.1); }
+.chain-row:hover { background: rgba(255, 128, 0, 0.06); }
 .badge-count { background: var(--accent-blue, #4f8ff7); color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
 
 .section-card { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 20px; margin-top: 16px; }
@@ -2190,7 +2194,7 @@ a:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #0a0d13 0%, #0f1117 40%, #161b22 100%);
+  background: var(--bg-primary);
 }
 
 .connect-card {
@@ -2202,9 +2206,7 @@ a:hover {
   max-width: 400px;
   text-align: center;
   box-shadow: var(--shadow-card);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-}
+    -webkit-}
 
 /* 模式切换 */
 .connect-mode-switch {
@@ -2231,7 +2233,7 @@ a:hover {
 .mode-tab.active {
   background: var(--accent-blue);
   color: white;
-  box-shadow: 0 2px 8px rgba(79, 143, 247, 0.3);
+  box-shadow: 0 1px 3px rgba(255, 128, 0, 0.2);
 }
 
 .connect-logo {
@@ -2291,7 +2293,7 @@ a:hover {
 .connect-btn {
   width: 100%;
   padding: 12px;
-  background: linear-gradient(135deg, var(--accent-blue), #3a7bd5);
+  background: var(--accent-primary);
   color: white;
   border: none;
   border-radius: var(--radius-sm);
@@ -2302,7 +2304,7 @@ a:hover {
   margin-top: 8px;
 }
 
-.connect-btn:hover { box-shadow: 0 4px 16px rgba(79, 143, 247, 0.3); }
+.connect-btn:hover { box-shadow: 0 2px 8px rgba(255, 128, 0, 0.2); }
 .connect-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .connect-hint {
@@ -2552,8 +2554,8 @@ a:hover {
 }
 
 @keyframes stage-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(79, 143, 247, 0.4); }
-  50% { box-shadow: 0 0 12px 4px rgba(79, 143, 247, 0.2); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 128, 0, 0.3); }
+  50% { box-shadow: 0 0 8px 2px rgba(255, 128, 0, 0.15); }
 }
 
 @keyframes blink {
@@ -2595,7 +2597,7 @@ a:hover {
 }
 
 .stage-active {
-  background: linear-gradient(135deg, #4f8ff720, #a371f720);
+  background: var(--bg-tertiary);
   color: #58a6ff;
   border: 1px solid #4f8ff740;
   animation: stage-pulse 2s infinite;
@@ -3036,4 +3038,261 @@ body.ns-offline .offline-banner {
   font-family: inherit;
   color: var(--text-primary);
   margin: 0 2px;
+}
+
+/* ── §27 新闻流 Feed ────────────────────────────────────── */
+
+.feed-container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+.feed-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 16px;
+}
+
+.feed-toolbar-left {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.feed-title {
+  font-size: var(--font-h2);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.feed-count {
+  font-size: var(--font-caption);
+  color: var(--text-muted);
+}
+
+.feed-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.feed-date-input {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 4px 8px;
+  font-size: var(--font-caption);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-stack);
+}
+
+.feed-btn {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  padding: 4px 12px;
+  font-size: var(--font-caption);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font-stack);
+}
+
+.feed-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* 日期分组 */
+.feed-date-group {
+  margin-bottom: 20px;
+}
+
+.feed-date-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.feed-date-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border-color);
+}
+
+.feed-date-text {
+  font-size: var(--font-caption);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+/* 新闻条目 */
+.feed-item {
+  display: flex;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-color);
+  gap: 12px;
+  transition: background var(--transition-fast);
+}
+
+.feed-item:hover {
+  background: var(--bg-hover);
+  margin: 0 -8px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.feed-item-time {
+  font-size: var(--font-caption);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  min-width: 40px;
+  padding-top: 2px;
+}
+
+.feed-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.feed-item-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.feed-cat-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.feed-item-title {
+  color: var(--text-primary);
+  font-size: var(--font-body);
+  font-weight: 500;
+  text-decoration: none;
+  line-height: 1.4;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.feed-item-title:hover {
+  color: var(--accent-primary);
+  text-decoration: underline;
+}
+
+/* 推荐标签 */
+.rec-badge {
+  font-size: 0.65rem;
+  padding: 1px 5px;
+  border-radius: 2px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.rec-publish {
+  background: rgba(255, 128, 0, 0.15);
+  color: #ff9933;
+}
+
+.rec-review {
+  background: rgba(46, 139, 87, 0.15);
+  color: #4cb882;
+}
+
+.rec-archive {
+  background: rgba(160, 160, 168, 0.12);
+  color: var(--text-muted);
+}
+
+.rec-discard {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.score-label {
+  font-size: var(--font-caption);
+  font-weight: 700;
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+
+/* 元信息行 */
+.feed-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+  flex-wrap: wrap;
+}
+
+.feed-source {
+  font-size: var(--font-caption);
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.feed-tag {
+  font-size: 0.65rem;
+  padding: 1px 5px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border-radius: 2px;
+}
+
+.sent-label {
+  font-size: 0.65rem;
+  padding: 1px 5px;
+  border-radius: 2px;
+  font-weight: 500;
+}
+
+.sent-pos { background: rgba(46, 139, 87, 0.12); color: #4cb882; }
+.sent-neg { background: rgba(224, 48, 48, 0.12); color: #e05050; }
+.sent-neu { background: rgba(160, 160, 168, 0.08); color: var(--text-muted); }
+
+.feed-rationale {
+  font-size: 0.65rem;
+  padding: 1px 5px;
+  background: rgba(255, 128, 0, 0.08);
+  color: var(--accent-primary);
+  border-radius: 2px;
+  cursor: help;
+}
+
+/* 状态提示 */
+.feed-loading,
+.feed-empty,
+.feed-error {
+  text-align: center;
+  padding: 40px 0;
+  color: var(--text-muted);
+  font-size: var(--font-body);
+}
+
+.feed-error { color: var(--accent-secondary); }
+
+.feed-footer {
+  text-align: center;
+  padding: 12px 0;
+}
+
+.feed-more {
+  font-size: var(--font-caption);
+  color: var(--text-muted);
 }

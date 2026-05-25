@@ -9,6 +9,7 @@ import {
   t, isAuthenticated, hasPermission, authenticate, getConnection, clearConnection,
   setConnection, logAction,
 } from "./api.js";
+import { renderFeedTab } from "./pages/feed.js";
 import { renderOverviewTab } from "./pages/dashboard.js";
 import { renderEventsTab, renderEventDetail } from "./pages/events.js";
 import { renderEntitiesTab, renderEntityDetail } from "./pages/entities.js";
@@ -28,6 +29,7 @@ const ROUTES = {
   news: {
     icon: "📰",
     tabs: [
+      { id: "feed", label: "新闻流" },
       { id: "overview", label: "概览" },
       { id: "events", label: "事件" },
       { id: "chains", label: "追踪链" },
@@ -39,13 +41,14 @@ const ROUTES = {
       if (tab === "entities" && param) return renderEntityDetail(container, param);
       if (tab === "chains" && param) return renderChainDetail(container, param);
       const tabMap = {
+        feed: renderFeedTab,
         overview: renderOverviewTab,
         events: renderEventsTab,
         chains: renderChainsTab,
         entities: renderEntitiesTab,
         trends: renderTrendsTab,
       };
-      return (tabMap[tab] || renderOverviewTab)(container);
+      return (tabMap[tab] || renderFeedTab)(container);
     },
   },
   alerts: {
