@@ -280,9 +280,11 @@ class TestOsInfo:
     def test_linux(self) -> None:
         from news_sentry.cli.desktop import _os_info
 
+        mock_path = MagicMock()
+        mock_path.read_text.side_effect = OSError("no os-release")
         with patch("platform.system", return_value="Linux"):
             with patch("platform.release", return_value="6.1.0"):
-                with patch("builtins.open", side_effect=OSError("no os-release")):
+                with patch("news_sentry.cli.desktop.Path", return_value=mock_path):
                     result = _os_info()
                     assert "Linux" in result
 
