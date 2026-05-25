@@ -12,7 +12,10 @@ function tagText(value) {
   if (value === null || value === undefined || value === "") return "";
   if (typeof value === "string" || typeof value === "number") return String(value);
   if (typeof value === "object") {
-    return String(value.code || value.name || value.label || value.title || "");
+    const tagValue = [value.code, value.name, value.label, value.title].find(
+      (item) => item !== null && item !== undefined && item !== "",
+    );
+    return tagValue === undefined ? "" : String(tagValue);
   }
   return "";
 }
