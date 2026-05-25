@@ -8,24 +8,22 @@ import {
   state, $, $$, api, apiPost, escapeHtml, showError, showSuccess, showInfo,
   t, isAuthenticated, hasPermission, authenticate, getConnection, clearConnection,
   setConnection, logAction,
-} from "./api.js?v=20260526b";
-import { renderFeedTab } from "./pages/feed.js?v=20260526b";
-import { renderOverviewTab } from "./pages/dashboard.js?v=20260526b";
-import { renderEventsTab, renderEventDetail } from "./pages/events.js?v=20260526b";
-import { renderEntitiesTab, renderEntityDetail } from "./pages/entities.js?v=20260526b";
-import { renderChainsTab, renderChainDetail } from "./pages/chains.js?v=20260526b";
-import { renderTrendsTab } from "./pages/trends.js?v=20260526b";
-import { renderLiveAlertsTab, renderAlertHistoryTab } from "./pages/alerts.js?v=20260526b";
-import { renderRunStatusTab, renderCollectorTab, renderSourceHealthTab, renderRunHistoryTab, renderMaintenanceTab, renderOpsDetail } from "./pages/ops.js?v=20260526b";
-import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedback.js?v=20260526b";
-import { renderTargetTab, renderSourcesTab, renderFiltersTab, renderOutputsTab, renderAITab, renderWebhookTab, renderApiKeyTab } from "./pages/config.js?v=20260526b";
-import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab, renderThemeTab, renderBackupTab, initTheme } from "./pages/settings.js?v=20260526b";
+} from "./api.js?v=20260526c";
+import { renderFeedTab } from "./pages/feed.js?v=20260526c";
+import { renderOverviewTab } from "./pages/dashboard.js?v=20260526c";
+import { renderEventsTab, renderEventDetail } from "./pages/events.js?v=20260526c";
+import { renderEntitiesTab, renderEntityDetail } from "./pages/entities.js?v=20260526c";
+import { renderChainsTab, renderChainDetail } from "./pages/chains.js?v=20260526c";
+import { renderTrendsTab } from "./pages/trends.js?v=20260526c";
+import { renderLiveAlertsTab, renderAlertHistoryTab } from "./pages/alerts.js?v=20260526c";
+import { renderRunStatusTab, renderCollectorTab, renderSourceHealthTab, renderRunHistoryTab, renderMaintenanceTab, renderOpsDetail } from "./pages/ops.js?v=20260526c";
+import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedback.js?v=20260526c";
+import { renderTargetTab, renderSourcesTab, renderFiltersTab, renderOutputsTab, renderAITab, renderWebhookTab, renderApiKeyTab } from "./pages/config.js?v=20260526c";
+import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab, renderThemeTab, renderBackupTab, initTheme } from "./pages/settings.js?v=20260526c";
 
 // ═══════════════════════════════════════════════════════════
 // §1. 路由表
 // ═══════════════════════════════════════════════════════════
-
-const PUBLIC_SECTIONS = new Set(["news"]);
 
 const ROUTES = {
   news: {
@@ -148,8 +146,20 @@ function parseHash() {
 
   const section = parts[0] || "news";
   const tab = parts[1] || (ROUTES[section]?.tabs[0]?.id || "");
-  const param = parts[2] || "";
+  const param = safeDecodeHashParam(parts[2] || "");
   return { section, tab, param };
+}
+
+function safeDecodeHashParam(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function isPublicRoute({ section, tab, param }) {
+  return section === "news" && (tab === "feed" || (tab === "events" && Boolean(param)));
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -188,11 +198,11 @@ function updateBreadcrumb(section, tab, param) {
 // ═══════════════════════════════════════════════════════════
 
 function navigate() {
-  const { section, tab, param } = parseHash();
-  const isPublicRoute = PUBLIC_SECTIONS.has(section);
+  const routeInfo = parseHash();
+  const { section, tab, param } = routeInfo;
 
-  // Auth gate: news is public read-only; management areas require login.
-  if (section !== "connect" && !isAuthenticated() && !isPublicRoute) {
+  // Auth gate: public news feed/articles are readable; admin surfaces require login.
+  if (section !== "connect" && !isAuthenticated() && !isPublicRoute(routeInfo)) {
     showConnectPage();
     return;
   }
@@ -823,7 +833,7 @@ async function init() {
 
   const initialRoute = parseHash();
   const initialNeedsLogin = initialRoute.section !== "connect"
-    && !PUBLIC_SECTIONS.has(initialRoute.section)
+    && !isPublicRoute(initialRoute)
     && !isAuthenticated();
 
   // Protected routes show the admin login immediately; target loading is optional.

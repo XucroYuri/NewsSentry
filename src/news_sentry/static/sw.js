@@ -1,7 +1,7 @@
 /* News Sentry — Service Worker v3 */
 "use strict";
 
-const CACHE = "news-sentry-v5";
+const CACHE = "news-sentry-v6";
 const STATIC_URLS = [
   "/",
   "/index.html",
