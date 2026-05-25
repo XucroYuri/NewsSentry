@@ -447,6 +447,9 @@ class TestAPIServer:
         app = create_app(data_dir=tmp_path, auto_store=False)
         client = TestClient(app)
         protected_gets = [
+            ("/api/v1/status", {}),
+            ("/api/v1/collector/status", {}),
+            ("/api/v1/collector/diagnostics", {}),
             ("/api/v1/stats", {"target_id": "italy"}),
             ("/api/v1/stats/today", {"target_id": "italy"}),
             ("/api/v1/events", {"target_id": "italy"}),
@@ -4167,10 +4170,15 @@ class TestDataStatusEndpoint:
         app = create_app(data_dir=tmp_path, store=store, auto_store=False)
         return TestClient(app)
 
+    def _auth_headers(self, client: TestClient) -> dict[str, str]:
+        resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert resp.status_code == 200
+        return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
     def test_data_status_empty(self, tmp_path: Path) -> None:
         """空数据目录正常响应。"""
         client = self._make_client(tmp_path)
-        resp = client.get("/api/v1/status")
+        resp = client.get("/api/v1/status", headers=self._auth_headers(client))
         assert resp.status_code == 200
         data = resp.json()
         assert "data_dir" in data
@@ -4193,7 +4201,7 @@ class TestDataStatusEndpoint:
         (drafts_dir / "ne-test-20260525-abc.md").write_text(chr(10).join(lines), encoding="utf-8")
         app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
         client = TestClient(app)
-        resp = client.get("/api/v1/status")
+        resp = client.get("/api/v1/status", headers=self._auth_headers(client))
         assert resp.status_code == 200
         data = resp.json()
         assert data["total_events_all_targets"] >= 1
@@ -4204,7 +4212,7 @@ class TestDataStatusEndpoint:
         (tmp_path / "somefile.json").write_text("{}", encoding="utf-8")
         app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
         client = TestClient(app)
-        resp = client.get("/api/v1/status")
+        resp = client.get("/api/v1/status", headers=self._auth_headers(client))
         assert resp.status_code == 200
 
 

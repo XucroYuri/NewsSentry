@@ -2026,7 +2026,9 @@ def create_app(
         return {"status": "ok"}
 
     @app.get("/api/v1/collector/status")
-    async def collector_status() -> dict[str, Any]:
+    async def collector_status(
+        _user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
         """返回后台自动采集循环的状态。"""
         return _collector_payload()
 
@@ -2076,7 +2078,9 @@ def create_app(
         return _collector_payload()
 
     @app.get("/api/v1/collector/diagnostics")
-    async def collector_diagnostics() -> dict[str, Any]:
+    async def collector_diagnostics(
+        _user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
         """返回采集系统诊断信息，帮助排查"无数据"问题。"""
         checks: list[dict[str, Any]] = []
 
@@ -2164,7 +2168,9 @@ def create_app(
         return {"overall": "healthy" if overall else "attention_needed", "checks": checks}
 
     @app.get("/api/v1/status")
-    async def data_status() -> dict[str, Any]:
+    async def data_status(
+        _user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
         """返回数据状态概览（用于诊断新部署/数据恢复场景）。
 
         返回 data_dir 状态、各 target 事件数（文件系统统计）、
