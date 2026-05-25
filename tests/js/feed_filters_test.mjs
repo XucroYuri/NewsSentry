@@ -49,6 +49,8 @@ assert.equal(eventMatchesSearch(groups[0].events[0], "compliance"), true);
 assert.equal(eventMatchesSearch(groups[0].events[1], "reuters"), false);
 assert.equal(eventMatchesSearch({ title: "Fallback Title", source: "Wire" }, "fallback"), true);
 assert.equal(eventMatchesSearch({ title: "Fallback Title", source: "Wire" }, "wire"), true);
+assert.equal(eventMatchesSearch({ id: "fallback-id-001" }, "fallback-id"), true);
+assert.equal(eventMatchesSearch({ source_name: "Wire Desk" }, "wire desk"), true);
 assert.deepEqual(eventTerms({ flat_tags: [0] }), ["0"]);
 assert.deepEqual(eventTerms({ flat_tags: [{ code: 0 }] }), ["0"]);
 
