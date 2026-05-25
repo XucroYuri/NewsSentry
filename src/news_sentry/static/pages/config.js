@@ -4,7 +4,7 @@
 
 "use strict";
 
-import { api, apiPatch, apiPost, apiPut, state, $, $$, escapeHtml, showError, showSuccess, scoreColor, hasPermission, getConnection } from "../api.js?v=20260526c";
+import { api, apiPatch, apiPost, apiPut, state, $, $$, escapeHtml, showError, showSuccess, scoreColor, hasPermission, getConnection } from "../api.js?v=20260526d";
 
 // ── 共享 Helpers ──────────────────────────────────────────
 

@@ -3,8 +3,8 @@
  * Phase 73: 来源人格化 + 标签扁平化 + 多视图切换
  */
 
-import { state, api, escapeHtml, scoreColor, isAuthenticated } from "../api.js?v=20260526c";
-import { CHANNELS, filterGroups, countEvents } from "./feed_filters.js?v=20260526c";
+import { state, api, escapeHtml, scoreColor, isAuthenticated } from "../api.js?v=20260526d";
+import { CHANNELS, filterGroups, countEvents } from "./feed_filters.js?v=20260526d";
 
 // ── 推荐标签映射 ──
 const REC_LABELS = {
@@ -289,7 +289,8 @@ export async function renderFeedTab(container) {
       return;
     }
     body.innerHTML = visibleGroups.map((g) => renderer(g.date, g.events, sourceMap)).join("");
-    footer.innerHTML = totalCount > 100
+    const hasClientFilter = currentChannel !== "all" || searchQuery.trim();
+    footer.innerHTML = !hasClientFilter && totalCount > 100
       ? `<span class="feed-more">显示前 100 条，共 ${totalCount} 条</span>` : "";
   };
 

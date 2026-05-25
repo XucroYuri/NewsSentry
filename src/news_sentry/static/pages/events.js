@@ -5,10 +5,33 @@
 
 "use strict";
 
-import { state, api, apiPost, escapeHtml, showError, showSuccess, formatDate, scoreColor, scoreGradient, scoreBar, sentimentColor, sentimentPct, sentimentGradient, sentimentLabelColor, sentimentDotHtml, entityChipsHtml, copyToClipboard, logAction, emptyStateHtml, isAuthenticated } from "../api.js?v=20260526c";
+import { state, api, apiPost, escapeHtml, showError, showSuccess, formatDate, scoreColor, scoreGradient, scoreBar, sentimentColor, sentimentPct, sentimentGradient, sentimentLabelColor, sentimentDotHtml, entityChipsHtml, copyToClipboard, logAction, emptyStateHtml, isAuthenticated } from "../api.js?v=20260526d";
 
 const LINK_TYPE_LABELS = { followup: "后续进展", related: "相关", same_event: "同一事件", correction: "纠正" };
 const LINK_TYPE_COLORS = { followup: "#3b82f6", related: "#6b7280", same_event: "#10b981", correction: "#ef4444" };
+
+function safeHttpUrl(value) {
+  if (!value) return "";
+  try {
+    const url = new URL(String(value));
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+
+function entityChipHtml(entity, authenticated) {
+  const name = escapeHtml(entity?.name || entity?.text || entity?.entity || "实体");
+  const type = escapeHtml(entity?.entity_type || entity?.type || "");
+  const typeHtml = type ? ` <span class="chip-type">${type}</span>` : "";
+  const title = entity?.relevance != null ? ` title="相关性: ${escapeHtml(String(entity.relevance))}"` : "";
+  const id = entity?.id || entity?.entity_id || entity?.entityId || entity?.canonical_id || entity?.canonicalId;
+
+  if (authenticated && id) {
+    return `<a class="chip chip-entity chip-link" href="#/news/entities/${encodeURIComponent(String(id))}"${title}>${name}${typeHtml}</a>`;
+  }
+  return `<span class="chip chip-entity"${title}>${name}${typeHtml}</span>`;
+}
 
 // ── 日期范围工具 ────────────────────────────────────────
 
@@ -409,7 +432,8 @@ async function loadEventList(container) {
 // ── 页面渲染：事件详情 ────────────────────────────────────
 
 export async function renderEventDetail(container, eventId) {
-  const detailBackHref = isAuthenticated() ? "#/news/events" : "#/news/feed";
+  const authenticated = isAuthenticated();
+  const detailBackHref = authenticated ? "#/news/events" : "#/news/feed";
   container.innerHTML = `
     <div class="loading-spinner"><div class="spinner"></div><p>正在加载事件详情...</p></div>
   `;
@@ -456,6 +480,7 @@ export async function renderEventDetail(container, eventId) {
         `;
       })
       .join("");
+    const originalUrl = safeHttpUrl(ev.url);
 
     container.innerHTML = `
       <div class="detail-back" id="detailBack">
@@ -520,7 +545,7 @@ export async function renderEventDetail(container, eventId) {
                 <div class="nlp-field">
                   <span class="nlp-label">实体</span>
                   <div class="chip-list">
-                    ${ev.nlp_entities.map((e) => `<a class="chip chip-entity chip-link" href="#/news/entities/${encodeURIComponent(e.name)}" title="相关性: ${e.relevance}">${escapeHtml(e.name)} <span class="chip-type">${escapeHtml(e.entity_type)}</span></a>`).join("")}
+                    ${ev.nlp_entities.map((e) => entityChipHtml(e, authenticated)).join("")}
                   </div>
                 </div>
               ` : ""}
@@ -548,8 +573,8 @@ export async function renderEventDetail(container, eventId) {
               </svg>
               复制摘要
             </button>
-            ${ev.url ? `
-            <a class="detail-link" href="${escapeHtml(ev.url)}" target="_blank" rel="noopener noreferrer">
+            ${originalUrl ? `
+            <a class="detail-link" href="${escapeHtml(originalUrl)}" target="_blank" rel="noopener noreferrer">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
                 <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
@@ -598,7 +623,7 @@ export async function renderEventDetail(container, eventId) {
       }
     } catch { /* 非阻塞 */ }
 
-    if (isAuthenticated()) {
+    if (authenticated) {
       // Phase 41: 反馈操作区
       const feedbackCard = document.createElement("div");
       feedbackCard.className = "card feedback-card";
