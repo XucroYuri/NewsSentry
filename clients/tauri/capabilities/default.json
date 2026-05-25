@@ -1,0 +1,15 @@
+{
+  "identifier": "default",
+  "description": "Default permissions for News Sentry",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "shell:allow-open",
+    "core:window:default",
+    "core:window:allow-center",
+    "core:window:allow-set-title",
+    "core:window:allow-close"
+  ]
+}

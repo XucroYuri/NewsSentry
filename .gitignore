@@ -97,3 +97,7 @@ config/session-profiles/italy/*.json
 prd.json
 progress.txt
 src/news_sentry/static/diagnose.html
+
+# Tauri
+clients/tauri/target/
+clients/tauri/gen/
