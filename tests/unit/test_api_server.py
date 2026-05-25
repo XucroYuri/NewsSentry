@@ -18,6 +18,7 @@ from news_sentry.core.api_server import (
     _get_valid_api_keys,
     _parse_frontmatter,
     _RateLimiter,
+    _tag_text,
     create_app,
 )
 from news_sentry.core.async_store import AsyncStore
@@ -138,6 +139,14 @@ class TestParseFrontmatter:
 
     def test_unclosed_frontmatter(self) -> None:
         assert _parse_frontmatter("---\nid: ne-1") is None
+
+
+class TestFeedTagText:
+    """新闻流标签文本提取测试。"""
+
+    def test_preserves_numeric_zero_values(self) -> None:
+        assert _tag_text({"code": 0}) == "0"
+        assert _tag_text(0) == "0"
 
 
 class TestAPIServer:
@@ -354,6 +363,35 @@ class TestAPIServer:
         assert item["source_display_name"] == "ansa"
         assert item["related_count"] == 0
 
+    def test_events_feed_preserves_numeric_flat_tags(self, tmp_path: Path) -> None:
+        """新闻流服务端扁平标签不能丢弃 0 这类有效分类值。"""
+        drafts = tmp_path / "italy" / "drafts"
+        drafts.mkdir(parents=True, exist_ok=True)
+        event = {
+            "id": "ne-italy-ansa-20260526-feed0002",
+            "source_id": "ansa",
+            "title_original": "Numeric tag story",
+            "published_at": "2026-05-26T09:15:00+08:00",
+            "metadata": {
+                "classification": {
+                    "l0": "policy",
+                    "l1": [{"code": 0}],
+                },
+            },
+            "nlp_entities": [{"name": 0}],
+        }
+        fm = yaml.dump(event, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        (drafts / "numeric-tags.md").write_text(
+            f"---\n{fm}---\n\n# Numeric tag story\n", encoding="utf-8"
+        )
+        client = self._make_client(tmp_path)
+
+        resp = client.get("/api/v1/events/feed", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        item = resp.json()["groups"][0]["events"][0]
+        assert item["flat_tags"] == ["policy", "0"]
+
     def test_public_news_feed_without_auth(self, tmp_path: Path) -> None:
         """新闻工作台只读入口不要求登录。"""
         _write_draft(
@@ -373,6 +411,18 @@ class TestAPIServer:
         assert data["total"] == 1
         assert data["groups"][0]["events"][0]["display_title"] == "Public feed story"
 
+    def test_public_event_detail_without_auth(self, tmp_path: Path) -> None:
+        """匿名用户可以打开新闻流里的单篇只读详情。"""
+        event_id = "ne-italy-src-20260526-public02"
+        _write_draft(tmp_path, "italy", event_id, title="Public detail story")
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get(f"/api/v1/events/{event_id}", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        assert resp.json()["id"] == event_id
+
     def test_public_targets_without_auth(self, tmp_path: Path) -> None:
         """匿名用户可以读取 target 列表以初始化新闻工作台。"""
         app = create_app(data_dir=tmp_path, auto_store=False)
@@ -391,6 +441,29 @@ class TestAPIServer:
         resp = client.get("/api/v1/admin/users")
 
         assert resp.status_code == 401
+
+    def test_non_public_news_apis_require_auth(self, tmp_path: Path) -> None:
+        """新闻流以外的分析/管理读接口仍需要登录。"""
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+        protected_gets = [
+            ("/api/v1/stats", {"target_id": "italy"}),
+            ("/api/v1/stats/today", {"target_id": "italy"}),
+            ("/api/v1/events", {"target_id": "italy"}),
+            ("/api/v1/events/top", {"target_id": "italy"}),
+            ("/api/v1/events/example/links", {"target_id": "italy"}),
+            ("/api/v1/events/example/chain", {"target_id": "italy"}),
+            ("/api/v1/entities", {}),
+            ("/api/v1/entities/1", {}),
+            ("/api/v1/chains", {"target_id": "italy"}),
+            ("/api/v1/chains/example/narrative", {"target_id": "italy"}),
+            ("/api/v1/trends/topics", {"target_id": "italy"}),
+            ("/api/v1/trends/sentiment", {"target_id": "italy"}),
+        ]
+
+        for path, params in protected_gets:
+            resp = client.get(path, params=params)
+            assert resp.status_code == 401, path
 
     def test_get_event_found(self, tmp_path: Path) -> None:
         event_id = "ne-italy-src-20260512-abc12345"

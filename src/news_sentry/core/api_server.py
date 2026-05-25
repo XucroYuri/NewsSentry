@@ -2650,6 +2650,7 @@ def create_app(
     @app.get("/api/v1/stats", response_model=StatsResponse)
     async def get_stats(
         target_id: str = Query(..., description="目标标识"),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> StatsResponse:
         """返回指定 target 的事件统计（优先使用 target state.db）。"""
         # 优先使用 target 自己的 state.db（与 pipeline 共享同一数据库）
@@ -2887,6 +2888,7 @@ def create_app(
         min_mentions: int = Query(1, ge=1, description="最少提及次数"),
         limit: int = Query(20, ge=1, le=100, description="返回数量"),
         sort: str = Query("mention_count", description="排序: mention_count 或 last_seen"),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> EntityListResponse:
         """返回实体列表（优先使用 target state.db）。"""
         # 如果指定了 target_id，优先使用 target 自己的 state.db
@@ -2912,6 +2914,7 @@ def create_app(
     @app.get("/api/v1/entities/{entity_id}", response_model=EntityDetailResponse)
     async def get_entity(
         entity_id: int,
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> EntityDetailResponse:
         """返回实体详情及关联事件。"""
         if _store is None:
@@ -2930,6 +2933,7 @@ def create_app(
     @app.get("/api/v1/stats/today", response_model=TodayStatsResponse)
     async def get_today_stats_api(
         target_id: str = Query(..., description="目标标识"),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> TodayStatsResponse:
         """今日 vs 昨日对比统计。"""
         if _store is None:
@@ -2942,6 +2946,7 @@ def create_app(
         target_id: str = Query(..., description="目标标识"),
         days: int = Query(7, ge=1, le=30, description="天数"),
         limit: int = Query(5, ge=1, le=20, description="数量"),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> TopEventsResponse:
         """近期高价值事件（优先使用 target state.db）。"""
         events: list[dict[str, Any]] = []
@@ -2968,6 +2973,7 @@ def create_app(
         ),
         entity: str | None = Query(None, description="按实体名筛选"),
         topic_tag: str | None = Query(None, description="按主题标签筛选"),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> EventResponse:
 
         # 优先使用 target 自己的 state.db（与 pipeline 共享同一数据库）
@@ -3517,6 +3523,7 @@ def create_app(
     async def get_event_links(
         event_id: str,
         target_id: str = Query(..., description="目标标识"),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> EventLinksResponse:
         """获取某事件的关联事件列表。"""
         if _store is None:
@@ -3553,6 +3560,7 @@ def create_app(
     async def get_event_chain(
         event_id: str,
         target_id: str = Query(..., description="目标标识"),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> EventChainResponse:
         """获取某事件的完整追踪链。"""
         if _store is None:
@@ -3573,6 +3581,7 @@ def create_app(
     @app.get("/api/v1/chains", response_model=ChainListResponse)
     async def list_chains(
         target_id: str = Query(..., description="目标标识"),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> ChainListResponse:
         """列出当前 target 的活跃追踪链。"""
         if _store is None:
@@ -3586,6 +3595,7 @@ def create_app(
     async def get_chain_narrative(
         root_id: str,
         target_id: str = Query(..., description="目标标识"),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> NarrativeResponse:
         """获取链的 AI 叙述。"""
         if _store is None:
@@ -3642,6 +3652,7 @@ def create_app(
     async def get_topic_trends(
         target_id: str = Query(..., description="目标标识"),
         days: int = Query(14, ge=7, le=30, description="天数"),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> TopicTrendsResponse:
         """主题热度趋势。"""
         if _store is None:
@@ -3670,6 +3681,7 @@ def create_app(
     async def get_sentiment_trends(
         target_id: str = Query(..., description="目标标识"),
         days: int = Query(14, ge=7, le=30, description="天数"),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> SentimentTrendsResponse:
         """情感分布趋势。"""
         if _store is None:
