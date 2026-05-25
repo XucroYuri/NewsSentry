@@ -1624,6 +1624,23 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P67.04 | 辅助函数测试 (create_app/lifespan/bootstrap) | test_api_server.py | M | ⬜ |
 | P67.05 | 端到端启动验证 | 手动 QA | S | ⬜ |
 
+
+### Phase 68 · 部署链路修复 + PyPI 发布 ⬜
+
+**目标：** 修复 PyPI 发布流程，验证 Docker 部署链路，确保交付管道端到端可用。
+
+**当前问题：**
+- release.yml publish job 连续失败 (v1.7.1, v1.8.0) — PyPI Trusted Publisher 未配置
+- Docker 镜像未实际推送到 GHCR
+- 端到端部署验证缺失
+
+| ID | 内容 | 输出物 | 规模 | 状态 |
+|----|------|--------|------|------|
+| P68.01 | PyPI Trusted Publisher 配置验证 | release.yml + pypi.org 设置 | S | ⬜ |
+| P68.02 | Docker 镜像构建 + GHCR 推送 | Dockerfile + ghcr.io 镜像 | M | ⬜ |
+| P68.03 | docker-compose 端到端验证 | 手动 QA | S | ⬜ |
+| P68.04 | 前端 P64.03 系统通知偏好设置 UI | settings.js | M | ⬜ |
+
 ## §25. Cloud VPS 部署方案推荐
 
 > 替代/补充 Phase 15 的 Hetzner 方案。以下为 2026 年可用的主流 Cloud VPS 对比。
