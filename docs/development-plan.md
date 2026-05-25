@@ -1618,9 +1618,9 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 | ID | 内容 | 输出物 | 规模 | 状态 |
 |----|------|--------|------|------|
-| P67.01 | 认证端点测试 (login/setup/change-pw/logout) | test_api_server.py | L | ⬜ |
-| P67.02 | 维护端点测试 (backup/restore/prune/list-backups) | test_api_server.py | M | ⬜ |
-| P67.03 | SSE + 通知 + briefing 测试 | test_api_server.py | L | ⬜ |
+| P67.01 | 认证端点测试 (login/setup/change-pw/logout) | test_api_server.py | L | ✅ |
+| P67.02 | 维护端点测试 (backup/restore/prune/list-backups) | test_api_server.py | M | ✅ |
+| P67.03 | SSE + 通知 + briefing 测试 | test_api_server.py | L | ✅ |
 | P67.04 | 辅助函数测试 (create_app/lifespan/bootstrap) | test_api_server.py | M | ⬜ |
 | P67.05 | 端到端启动验证 | 手动 QA | S | ⬜ |
 
