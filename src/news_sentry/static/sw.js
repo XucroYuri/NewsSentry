@@ -120,8 +120,10 @@ async function cacheFirst(request) {
     return resp;
   } catch {
     // 离线且无缓存
-    const fallback = await caches.match("/");
-    return fallback || new Response("Offline", { status: 503 });
+    return new Response("Offline", {
+      status: 503,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
   }
 }
 
