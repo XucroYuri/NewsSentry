@@ -7,7 +7,27 @@
 
 ---
 
-## [1.7.1] — 2026-05-25
+## [1.8.0] — 2026-05-25
+
+### 新增 (Phase 66)
+- Phase 66: desktop.py 测试覆盖 17%→61% — 46 个新测试（配置/版本/更新/通知/自启动/退出）
+- Phase 66: 首次启动引导 API — `GET /api/v1/auth/setup-status` + `POST /api/v1/auth/setup`
+- Phase 66: 前端自动检测首次使用 — 登录页 ↔ 创建管理员模式切换
+- Phase 66: Tauri vs pywebview 性能基准对比报告 — 启动速度 5-8x / 内存减少 60% / 体积缩小 3-5x
+
+### 新增 (Phase 65)
+- Phase 65: Tauri 桌面客户端原型 — clients/tauri/ (Rust + tauri v2)
+- Phase 65: 原生 API commands — check_update / open_url (Tauri invoke handler)
+- Phase 65: 平台图标 — .ico/.icns/.png for Tauri bundle targets
+
+### 变更
+- 全量测试 1764 passed, 86% coverage (从 1718 tests / 84% 提升)
+- API 端点总数 71 (从 69 增加 2 个 setup 端点)
+- 总代码 20,151 行 Python + 9,268 行前端
+
+---
+
+## [1.7.1] — 2026-05-22
 
 ### 新增
 - Phase 61: CI 多平台 PyInstaller 构建 — macOS arm64 + Windows x64 + Linux x64 (release.yml matrix)

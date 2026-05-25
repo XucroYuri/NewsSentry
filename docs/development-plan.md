@@ -1566,7 +1566,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 | ID | 内容 | 输出物 | 规模 | 状态 |
 |
-### Phase 66 · 质量打磨 + v1.8.0 发布 ⬜
+### Phase 66 · 质量打磨 + v1.8.0 发布 ✅
 
 **目标：** 收尾 Phase 62-65 遗留项，提升测试覆盖，打磨发布质量，发布 v1.8.0。
 
@@ -1583,7 +1583,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | P66.02 | api_server.py 测试覆盖提升 (73%→85%) | tests/unit/test_api_server.py | — | L | ⬜ |
 | P66.03 | 首次启动引导 | static/pages/setup.js + app.js 路由 | P66.01 | M | ⬜ |
 | P66.04 | Tauri vs pywebview 性能基准 | docs/benchmark-tauri-vs-pywebview.md | P65 | S | ✅ |
-| P66.05 | v1.8.0 发布 | pyproject.toml + CHANGELOG + tag + release | P66.01-04 | M | ⬜ |
+| P66.05 | v1.8.0 发布 | pyproject.toml + CHANGELOG + tag + release | P66.01-04 | M | ✅ |
 
 
 ----|------|--------|------|------|
