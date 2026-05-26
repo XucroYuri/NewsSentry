@@ -5,7 +5,7 @@
 
 import {
   state, api, apiPost, escapeHtml, formatDate, showSuccess, showError, scoreColor,
-} from "../api.js";
+} from "../api.js?v=20260526d";
 
 // ════════════════════════════════════════════════════════════
 // §0. 确认弹窗 (避免与 app.js 循环依赖)

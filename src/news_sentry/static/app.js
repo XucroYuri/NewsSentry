@@ -8,18 +8,18 @@ import {
   state, $, $$, api, apiPost, escapeHtml, showError, showSuccess, showInfo,
   t, isAuthenticated, hasPermission, authenticate, getConnection, clearConnection,
   setConnection, logAction,
-} from "./api.js";
-import { renderFeedTab } from "./pages/feed.js";
-import { renderOverviewTab } from "./pages/dashboard.js";
-import { renderEventsTab, renderEventDetail } from "./pages/events.js";
-import { renderEntitiesTab, renderEntityDetail } from "./pages/entities.js";
-import { renderChainsTab, renderChainDetail } from "./pages/chains.js";
-import { renderTrendsTab } from "./pages/trends.js";
-import { renderLiveAlertsTab, renderAlertHistoryTab } from "./pages/alerts.js";
-import { renderRunStatusTab, renderCollectorTab, renderSourceHealthTab, renderRunHistoryTab, renderMaintenanceTab, renderOpsDetail } from "./pages/ops.js";
-import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedback.js";
-import { renderTargetTab, renderSourcesTab, renderFiltersTab, renderOutputsTab, renderAITab, renderWebhookTab, renderApiKeyTab } from "./pages/config.js";
-import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab, renderThemeTab, renderBackupTab, initTheme } from "./pages/settings.js";
+} from "./api.js?v=20260526d";
+import { renderFeedTab } from "./pages/feed.js?v=20260526d";
+import { renderOverviewTab } from "./pages/dashboard.js?v=20260526d";
+import { renderEventsTab, renderEventDetail } from "./pages/events.js?v=20260526d";
+import { renderEntitiesTab, renderEntityDetail } from "./pages/entities.js?v=20260526d";
+import { renderChainsTab, renderChainDetail } from "./pages/chains.js?v=20260526d";
+import { renderTrendsTab } from "./pages/trends.js?v=20260526d";
+import { renderLiveAlertsTab, renderAlertHistoryTab } from "./pages/alerts.js?v=20260526d";
+import { renderRunStatusTab, renderCollectorTab, renderSourceHealthTab, renderRunHistoryTab, renderMaintenanceTab, renderOpsDetail } from "./pages/ops.js?v=20260526d";
+import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedback.js?v=20260526d";
+import { renderTargetTab, renderSourcesTab, renderFiltersTab, renderOutputsTab, renderAITab, renderWebhookTab, renderApiKeyTab } from "./pages/config.js?v=20260526d";
+import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab, renderThemeTab, renderBackupTab, initTheme } from "./pages/settings.js?v=20260526d";
 
 // ═══════════════════════════════════════════════════════════
 // §1. 路由表
@@ -27,7 +27,7 @@ import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab, renderThe
 
 const ROUTES = {
   news: {
-    icon: "📰",
+    icon: "N",
     tabs: [
       { id: "feed", label: "新闻流" },
       { id: "overview", label: "概览" },
@@ -52,7 +52,7 @@ const ROUTES = {
     },
   },
   alerts: {
-    icon: "🔔",
+    icon: "A",
     tabs: [
       { id: "live", label: "实时告警" },
       { id: "history", label: "历史记录" },
@@ -62,7 +62,7 @@ const ROUTES = {
     },
   },
   ops: {
-    icon: "📊",
+    icon: "O",
     tabs: [
       { id: "status", label: "运行状态" },
       { id: "collector", label: "采集器" },
@@ -83,7 +83,7 @@ const ROUTES = {
     },
   },
   feedback: {
-    icon: "💬",
+    icon: "F",
     tabs: [
       { id: "records", label: "反馈记录" },
       { id: "optimize", label: "规则优化" },
@@ -93,7 +93,7 @@ const ROUTES = {
     },
   },
   config: {
-    icon: "🔧",
+    icon: "C",
     tabs: [
       { id: "target", label: "目标" },
       { id: "sources", label: "信源" },
@@ -115,7 +115,7 @@ const ROUTES = {
     },
   },
   settings: {
-    icon: "⚙️",
+    icon: "S",
     tabs: [
       { id: "password", label: "个人设置" },
       { id: "apiKey", label: "API Key" },
@@ -138,7 +138,7 @@ const ROUTES = {
 // ═══════════════════════════════════════════════════════════
 
 function parseHash() {
-  const hash = (window.location.hash || "#/news/overview").slice(1);
+  const hash = (window.location.hash || "#/news/feed").slice(1);
   const parts = hash.replace(/^\//, "").split("/");
 
   // Special: connect page
@@ -146,8 +146,20 @@ function parseHash() {
 
   const section = parts[0] || "news";
   const tab = parts[1] || (ROUTES[section]?.tabs[0]?.id || "");
-  const param = parts[2] || "";
+  const param = safeDecodeHashParam(parts[2] || "");
   return { section, tab, param };
+}
+
+function safeDecodeHashParam(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function isPublicRoute({ section, tab, param }) {
+  return section === "news" && (tab === "feed" || (tab === "events" && Boolean(param)));
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -186,10 +198,11 @@ function updateBreadcrumb(section, tab, param) {
 // ═══════════════════════════════════════════════════════════
 
 function navigate() {
-  const { section, tab, param } = parseHash();
+  const routeInfo = parseHash();
+  const { section, tab, param } = routeInfo;
 
-  // Auth gate: if not on connect page and not authenticated
-  if (section !== "connect" && !isAuthenticated()) {
+  // Auth gate: public news feed/articles are readable; admin surfaces require login.
+  if (section !== "connect" && !isAuthenticated() && !isPublicRoute(routeInfo)) {
     showConnectPage();
     return;
   }
@@ -250,84 +263,19 @@ function showConnectPage() {
   const cp = document.getElementById("connectPage");
   if (cp) cp.style.display = "flex";
 
-  // 恢复保存的连接或使用默认值
-  const conn = getConnection();
+  // 管理登录默认使用当前服务 origin。
   const serverInput = document.getElementById("connectServer");
-  if (conn?.server && serverInput) {
-    serverInput.value = conn.server;
-    // 根据保存的 URL 判断模式
-    const isLocal = conn.server.includes("localhost") || conn.server.includes("127.0.0.1");
-    setConnectMode(isLocal ? "local" : "cloud");
-  } else {
-    setConnectMode("local");
-    // 使用当前页面 origin 作为默认服务器地址
-    const serverInput = document.getElementById("connectServer");
-    if (serverInput && !serverInput.value) {
-      serverInput.value = window.location.origin;
-    }
-  }
-
-  // 检测服务器状态
-  checkServerStatus();
-}
-
-/** 设置连接模式 (local/cloud) */
-function setConnectMode(mode) {
-  const tabs = document.querySelectorAll(".mode-tab");
-  tabs.forEach(tab => tab.classList.toggle("active", tab.dataset.mode === mode));
-
-  const serverInput = document.getElementById("connectServer");
-  if (!serverInput) return;
-
-  if (mode === "local") {
-    if (!serverInput.value) {
-      serverInput.value = window.location.origin;
-    }
-  } else {
-    if (serverInput.value.includes("localhost") || serverInput.value.includes("127.0.0.1")) {
-      serverInput.value = "https://news-sentry.xuyu.workers.dev";
-    }
-  }
-  checkServerStatus();
-}
-
-/** 检测服务器状态 */
-async function checkServerStatus() {
-  const dot = document.getElementById("connectStatusDot");
-  const text = document.getElementById("connectStatusText");
-  const server = document.getElementById("connectServer")?.value?.trim();
-  if (!dot || !text || !server) return;
-
-  dot.className = "status-dot";
-  text.textContent = "检测中...";
-
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    const resp = await fetch(`${server}/api/v1/health`, { signal: controller.signal });
-    clearTimeout(timeout);
-    if (resp.ok) {
-      dot.className = "status-dot ok";
-      text.textContent = "服务器在线";
-    } else {
-      dot.className = "status-dot error";
-      text.textContent = "服务器响应异常";
-    }
-  } catch {
-    dot.className = "status-dot error";
-    text.textContent = "无法连接服务器";
-  }
+  if (serverInput) serverInput.value = window.location.origin;
 }
 
 async function handleConnect() {
   const btn = document.getElementById("connectBtn");
   const errEl = document.getElementById("connectError");
-  const server = document.getElementById("connectServer")?.value?.trim();
+  const server = document.getElementById("connectServer")?.value?.trim() || window.location.origin;
   const username = document.getElementById("connectUsername")?.value?.trim();
   const password = document.getElementById("connectPassword")?.value;
-  const lang = document.getElementById("connectLanguage")?.value || "zh";
 
-  if (!server || !username || !password) {
+  if (!username || !password) {
     if (errEl) {
       errEl.textContent = "请输入用户名和密码";
       errEl.style.display = "block";
@@ -338,15 +286,13 @@ async function handleConnect() {
   if (btn) { btn.disabled = true; btn.textContent = "登录中..."; }
   if (errEl) errEl.style.display = "none";
 
-  localStorage.setItem("ns_language", lang);
-
   try {
     const conn = await authenticate(server, username, password);
     logAction("login", server, "ok");
     if (conn.mustChangePw) {
       window.location.hash = "#/settings/password";
     } else {
-      window.location.hash = "#/news/overview";
+      window.location.hash = "#/news/feed";
     }
   } catch (err) {
     if (errEl) {
@@ -387,15 +333,22 @@ async function loadTargets() {
     state.targets = data.targets || [];
     const sel = document.getElementById("targetSelect");
     if (!sel) return;
+
+    const savedTarget = localStorage.ns_target_id || "";
+    if (savedTarget && state.targets.some(t => t.target_id === savedTarget)) {
+      state.currentTarget = savedTarget;
+    }
+    if (!state.currentTarget && state.targets.length) {
+      const targetWithData = state.targets.find(t => Number(t.event_count || 0) > 0);
+      state.currentTarget = (targetWithData || state.targets[0]).target_id;
+    }
+
     sel.innerHTML = state.targets.length
       ? state.targets.map(t =>
           `<option value="${escapeHtml(t.target_id)}" ${t.target_id === state.currentTarget ? "selected" : ""}>${escapeHtml(t.display_name || t.target_id)}</option>`
         ).join("")
       : '<option value="">无可用目标</option>';
-    if (!state.currentTarget && state.targets.length) {
-      state.currentTarget = state.targets[0].target_id;
-      sel.value = state.currentTarget;
-    }
+    if (state.currentTarget) sel.value = state.currentTarget;
   } catch (err) {
     const sel = document.getElementById("targetSelect");
     if (sel) sel.innerHTML = '<option value="">加载失败</option>';
@@ -500,7 +453,7 @@ function connectSSE() {
   if (!state.currentTarget) return;
 
   // 为当前 target 建立 SSE 连接
-  const base = conn.server || window.location.origin;
+  const base = window.location.origin;
   const url = `${base}/api/v1/events/stream?target_id=${encodeURIComponent(state.currentTarget)}&token=${encodeURIComponent(conn.token)}`;
 
   _updateSSEStatus("connecting");
@@ -515,13 +468,13 @@ function connectSSE() {
   sse.addEventListener("new_event", (e) => {
     try {
       const data = JSON.parse(e.data);
-      showInfo(`📰 新事件: ${data.event_id?.substring(0, 20) || ""}...`);
+      showInfo(`新事件: ${data.event_id?.substring(0, 20) || ""}...`);
       // 后台标签页时弹桌面通知
       if (document.hidden) {
         _sendDesktopNotification("News Sentry — 新事件", `${data.source || "未知来源"} 事件已到达`);
       }
-      // 如果在首页，自动刷新
-      if (window.location.hash.startsWith("#/news/overview")) {
+      // 如果在新闻区，自动刷新计数
+      if (window.location.hash.startsWith("#/news/")) {
         refreshBadges();
       }
     } catch {}
@@ -530,7 +483,7 @@ function connectSSE() {
   sse.addEventListener("alert", (e) => {
     try {
       const data = JSON.parse(e.data);
-      showInfo(`🚨 ${data.message || "新告警"}`);
+      showInfo(data.message || "新告警");
       if (document.hidden) {
         _sendDesktopNotification("News Sentry — 告警", data.message || "新告警");
       }
@@ -610,8 +563,6 @@ function _sendDesktopNotification(title, body) {
       window.pywebview.api.notify(title, body);
     } catch {}
   }
-}
-  } catch {}
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -838,15 +789,7 @@ export function showConfirmModal(title, message) {
 // ═══════════════════════════════════════════════════════════
 
 async function init() {
-  // Check auth
-  if (!isAuthenticated()) {
-    showConnectPage();
-    // Auto-detect setup mode (first launch)
-    const savedServer = localStorage.getItem("ns_server") || "http://localhost:8000";
-    checkSetupMode(savedServer).then(needsSetup => {
-      if (needsSetup) switchToSetupMode();
-    });
-  }
+  initTheme();
 
   // Connect form handler
   const connectBtn = document.getElementById("connectBtn");
@@ -857,21 +800,6 @@ async function init() {
   if (connectForm) {
     connectForm.addEventListener("keydown", (e) => {
       if (e.key === "Enter") handleConnect();
-    });
-  }
-
-  // 模式切换标签
-  document.querySelectorAll(".mode-tab").forEach(tab => {
-    tab.addEventListener("click", () => setConnectMode(tab.dataset.mode));
-  });
-
-  // 服务器地址变化时重新检测
-  const serverInput = document.getElementById("connectServer");
-  if (serverInput) {
-    let serverCheckTimer = null;
-    serverInput.addEventListener("input", () => {
-      clearTimeout(serverCheckTimer);
-      serverCheckTimer = setTimeout(checkServerStatus, 600);
     });
   }
 
@@ -897,21 +825,33 @@ async function init() {
   if (targetSel) {
     targetSel.addEventListener("change", (e) => {
       state.currentTarget = e.target.value;
+      localStorage.ns_target_id = state.currentTarget;
       state.filters = { source_id: "", classification: "", min_score: 0, search: "", page: 1, sentiment: "", entity: "", topic_tag: "", date_from: "", date_to: "" };
       navigate();
     });
   }
 
-  // Load targets and status
-  if (isAuthenticated()) {
+  const initialRoute = parseHash();
+  const initialNeedsLogin = initialRoute.section !== "connect"
+    && !isPublicRoute(initialRoute)
+    && !isAuthenticated();
+
+  // Protected routes show the admin login immediately; target loading is optional.
+  if (initialNeedsLogin || initialRoute.section === "connect") {
+    navigate();
+    loadTargets();
+  } else {
     await loadTargets();
+  }
+
+  // Management status/SSE only after login.
+  if (isAuthenticated()) {
     updateStatus();
     connectSSE();
     setInterval(updateStatus, 30000);
     _registerSW();
     _requestNotificationPermission();
     _setupOnlineDetection();
-  initTheme();
     _checkDesktopUpdate();
     // target 切换时重新连接 SSE
     const targetSelect = document.getElementById("targetSelect");
@@ -924,7 +864,9 @@ async function init() {
 
   // Routing
   window.addEventListener("hashchange", navigate);
-  navigate();
+  if (!initialNeedsLogin && initialRoute.section !== "connect") {
+    navigate();
+  }
 
   // Keyboard shortcuts
   setupKeyboardShortcuts();

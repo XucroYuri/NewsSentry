@@ -17,6 +17,7 @@ from news_sentry.core.api_server import (
     _get_valid_api_keys,
     _parse_frontmatter,
     _RateLimiter,
+    _tag_text,
     create_app,
 )
 from news_sentry.core.async_store import AsyncStore
@@ -139,6 +140,14 @@ class TestParseFrontmatter:
         assert _parse_frontmatter("---\nid: ne-1") is None
 
 
+class TestFeedTagText:
+    """新闻流标签文本提取测试。"""
+
+    def test_preserves_numeric_zero_values(self) -> None:
+        assert _tag_text({"code": 0}) == "0"
+        assert _tag_text(0) == "0"
+
+
 class TestAPIServer:
     """FastAPI 端点集成测试。"""
 
@@ -247,6 +256,154 @@ class TestAPIServer:
         assert len(data["events"]) == 2
         assert data["page"] == 1
 
+    def test_events_feed_adds_display_fields_from_frontmatter(self, tmp_path: Path) -> None:
+        """GET /events/feed 返回新闻流展示字段，不修改 NewsEvent 契约。"""
+        drafts = tmp_path / "italy" / "drafts"
+        drafts.mkdir(parents=True, exist_ok=True)
+        event = {
+            "id": "ne-italy-ansa-20260526-feed0001",
+            "source_id": "ansa",
+            "url": "https://example.com/news",
+            "title_original": "Original title",
+            "title_translated": "中文标题",
+            "content_original": "Original content fallback preview.",
+            "published_at": "2026-05-26T08:15:00+08:00",
+            "news_value_score": 86,
+            "metadata": {
+                "classification": {
+                    "l0": "politics",
+                    "l1": [{"code": "china-relations", "confidence": 0.92}],
+                },
+                "topic_tags": ["DeepSeek", "行业动态"],
+            },
+            "judge_result": {
+                "rationale": "API 长期降价会改变模型调用成本结构。第二句不应进入摘要。",
+                "recommendation": "review",
+            },
+        }
+        fm = yaml.dump(event, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        (drafts / "event.md").write_text(f"---\n{fm}---\n\n# 中文标题\n", encoding="utf-8")
+        client = self._make_client(tmp_path)
+
+        resp = client.get("/api/v1/events/feed", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        item = resp.json()["groups"][0]["events"][0]
+        assert item["event_id"] == "ne-italy-ansa-20260526-feed0001"
+        assert item["display_title"] == "中文标题"
+        assert item["score"] == 86
+        assert item["summary"] == "Original content fallback preview."
+        assert item["flat_tags"] == ["politics", "china-relations", "DeepSeek", "行业动态"]
+        assert item["ai_reason"] == "API 长期降价会改变模型调用成本结构。"
+        assert item["recommendation"] == "review"
+        assert item["source_display_name"] == "ansa"
+        assert item["related_count"] == 0
+
+    def test_events_feed_preserves_numeric_flat_tags(self, tmp_path: Path) -> None:
+        """新闻流服务端扁平标签不能丢弃 0 这类有效分类值。"""
+        drafts = tmp_path / "italy" / "drafts"
+        drafts.mkdir(parents=True, exist_ok=True)
+        event = {
+            "id": "ne-italy-ansa-20260526-feed0002",
+            "source_id": "ansa",
+            "title_original": "Numeric tag story",
+            "published_at": "2026-05-26T09:15:00+08:00",
+            "metadata": {
+                "classification": {
+                    "l0": "policy",
+                    "l1": [{"code": 0}],
+                },
+            },
+            "nlp_entities": [{"name": 0}],
+        }
+        fm = yaml.dump(event, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        (drafts / "numeric-tags.md").write_text(
+            f"---\n{fm}---\n\n# Numeric tag story\n", encoding="utf-8"
+        )
+        client = self._make_client(tmp_path)
+
+        resp = client.get("/api/v1/events/feed", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        item = resp.json()["groups"][0]["events"][0]
+        assert item["flat_tags"] == ["policy", "0"]
+
+    def test_public_news_feed_without_auth(self, tmp_path: Path) -> None:
+        """新闻工作台只读入口不要求登录。"""
+        _write_draft(
+            tmp_path,
+            "italy",
+            "ne-italy-src-20260526-public01",
+            title="Public feed story",
+            news_value_score=75,
+        )
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/events/feed", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+        assert data["groups"][0]["events"][0]["display_title"] == "Public feed story"
+
+    def test_public_event_detail_without_auth(self, tmp_path: Path) -> None:
+        """匿名用户可以打开新闻流里的单篇只读详情。"""
+        event_id = "ne-italy-src-20260526-public02"
+        _write_draft(tmp_path, "italy", event_id, title="Public detail story")
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get(f"/api/v1/events/{event_id}", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        assert resp.json()["id"] == event_id
+
+    def test_public_targets_without_auth(self, tmp_path: Path) -> None:
+        """匿名用户可以读取 target 列表以初始化新闻工作台。"""
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/targets")
+
+        assert resp.status_code == 200
+        assert "targets" in resp.json()
+
+    def test_admin_users_still_requires_auth(self, tmp_path: Path) -> None:
+        """公共新闻工作台不放开管理后台。"""
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/admin/users")
+
+        assert resp.status_code == 401
+
+    def test_non_public_news_apis_require_auth(self, tmp_path: Path) -> None:
+        """新闻流以外的分析/管理读接口仍需要登录。"""
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+        protected_gets = [
+            ("/api/v1/status", {}),
+            ("/api/v1/collector/status", {}),
+            ("/api/v1/collector/diagnostics", {}),
+            ("/api/v1/stats", {"target_id": "italy"}),
+            ("/api/v1/stats/today", {"target_id": "italy"}),
+            ("/api/v1/events", {"target_id": "italy"}),
+            ("/api/v1/events/top", {"target_id": "italy"}),
+            ("/api/v1/events/example/links", {"target_id": "italy"}),
+            ("/api/v1/events/example/chain", {"target_id": "italy"}),
+            ("/api/v1/entities", {}),
+            ("/api/v1/entities/1", {}),
+            ("/api/v1/chains", {"target_id": "italy"}),
+            ("/api/v1/chains/example/narrative", {"target_id": "italy"}),
+            ("/api/v1/trends/topics", {"target_id": "italy"}),
+            ("/api/v1/trends/sentiment", {"target_id": "italy"}),
+        ]
+
+        for path, params in protected_gets:
+            resp = client.get(path, params=params)
+            assert resp.status_code == 401, path
+
     def test_get_event_found(self, tmp_path: Path) -> None:
         event_id = "ne-italy-src-20260512-abc12345"
         _write_draft(tmp_path, "italy", event_id)
@@ -303,12 +460,11 @@ class TestAPIServer:
             app = create_app(data_dir=tmp_path, auto_store=False)
             client = TestClient(app)
             # 无 token
-            resp = client.get("/api/v1/events", params={"target_id": "italy"})
+            resp = client.get("/api/v1/admin/users")
             assert resp.status_code == 401
             # 错误 token
             resp = client.get(
-                "/api/v1/events",
-                params={"target_id": "italy"},
+                "/api/v1/admin/users",
                 headers={"Authorization": "Bearer wrong-token"},
             )
             assert resp.status_code == 401
@@ -318,8 +474,7 @@ class TestAPIServer:
             token = resp.json()["access_token"]
             # 使用正确 Bearer token
             resp = client.get(
-                "/api/v1/events",
-                params={"target_id": "italy"},
+                "/api/v1/auth/me",
                 headers={"Authorization": f"Bearer {token}"},
             )
             assert resp.status_code == 200
@@ -343,6 +498,7 @@ class TestAPIServer:
         config_dir = tmp_path / "config" / "targets"
         _write_target_config(config_dir, "italy", "意大利新闻监控", "it", 5)
         _write_target_config(config_dir, "japan", "日本新闻监控", "ja", 3)
+        _write_draft(tmp_path, "italy", "evt-1", "ANSA", 70)
         monkeypatch.chdir(tmp_path)
         client = self._make_client(tmp_path)
         resp = client.get("/api/v1/targets")
@@ -353,6 +509,7 @@ class TestAPIServer:
         assert italy["display_name"] == "意大利新闻监控"
         assert italy["primary_language"] == "it"
         assert italy["source_count"] == 5
+        assert italy["event_count"] == 1
 
     def test_stats_endpoint(self, tmp_path: Path) -> None:
         _write_draft(
@@ -2831,10 +2988,15 @@ class TestDataStatusEndpoint:
         app = create_app(data_dir=tmp_path, store=store, auto_store=False)
         return TestClient(app)
 
+    def _auth_headers(self, client: TestClient) -> dict[str, str]:
+        resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert resp.status_code == 200
+        return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
     def test_data_status_empty(self, tmp_path: Path) -> None:
         """空数据目录正常响应。"""
         client = self._make_client(tmp_path)
-        resp = client.get("/api/v1/status")
+        resp = client.get("/api/v1/status", headers=self._auth_headers(client))
         assert resp.status_code == 200
         data = resp.json()
         assert "data_dir" in data
@@ -2857,7 +3019,7 @@ class TestDataStatusEndpoint:
         (drafts_dir / "ne-test-20260525-abc.md").write_text(chr(10).join(lines), encoding="utf-8")
         app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
         client = TestClient(app)
-        resp = client.get("/api/v1/status")
+        resp = client.get("/api/v1/status", headers=self._auth_headers(client))
         assert resp.status_code == 200
         data = resp.json()
         assert data["total_events_all_targets"] >= 1
@@ -2868,7 +3030,7 @@ class TestDataStatusEndpoint:
         (tmp_path / "somefile.json").write_text("{}", encoding="utf-8")
         app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
         client = TestClient(app)
-        resp = client.get("/api/v1/status")
+        resp = client.get("/api/v1/status", headers=self._auth_headers(client))
         assert resp.status_code == 200
 
 

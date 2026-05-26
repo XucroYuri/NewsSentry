@@ -9,7 +9,7 @@ import {
   state, api, apiPost, escapeHtml, formatDate, showSuccess, showError,
   scoreColor, scoreGradient, scoreBar, entityChipsHtml, sentimentDotHtml,
   copyToClipboard, exportBriefingMarkdown,
-} from "../api.js";
+} from "../api.js?v=20260526d";
 
 /** 当前选中的时间维度: 1 / 7 / 30 */
 let currentDays = 1;

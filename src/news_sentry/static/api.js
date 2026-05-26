@@ -146,9 +146,14 @@ export const i18n = {
  * @returns {string} 翻译文本，找不到则返回 key 本身
  */
 export function t(key) {
-  const lang = localStorage.ns_language || "zh";
+  const lang = localStorage.ns_language || _browserLanguage();
   const dict = i18n[lang] || i18n.zh;
   return dict[key] || i18n.zh[key] || key;
+}
+
+function _browserLanguage() {
+  const lang = navigator.language || navigator.userLanguage || "zh";
+  return lang.toLowerCase().startsWith("en") ? "en" : "zh";
 }
 
 // ════════════════════════════════════════════════════════════
@@ -162,7 +167,12 @@ export function t(key) {
 export function getConnection() {
   try {
     const raw = localStorage.ns_connection;
-    return raw ? JSON.parse(raw) : null;
+    const conn = raw ? JSON.parse(raw) : null;
+    if (!conn) return null;
+    return {
+      ...conn,
+      server: window.location.origin,
+    };
   } catch {
     return null;
   }
@@ -173,7 +183,10 @@ export function getConnection() {
  * @param {object} data - 连接数据
  */
 export function setConnection(data) {
-  localStorage.ns_connection = JSON.stringify(data);
+  localStorage.ns_connection = JSON.stringify({
+    ...data,
+    server: window.location.origin,
+  });
 }
 
 /**
@@ -280,8 +293,7 @@ function _drain() {
 
 /** 获取基础服务器 URL */
 function _baseUrl() {
-  const conn = getConnection();
-  return conn ? conn.server : window.location.origin;
+  return window.location.origin;
 }
 
 // ── 离线检测 ───────────────────────────────────────────
@@ -361,8 +373,6 @@ async function _fetchWithTimeout(url, options = {}, timeoutMs = 5000, retries = 
     }
   }
 }
-  }
-}
 
 /**
  * 统一 API GET 请求。
@@ -382,7 +392,7 @@ export async function api(path, params = {}) {
       headers: _authHeaders(),
     });
     if (resp.status === 401) {
-      await _handle401();
+      throw new Error("需要登录后访问");
     }
     if (!resp.ok) {
       const text = await resp.text().catch(() => "");
