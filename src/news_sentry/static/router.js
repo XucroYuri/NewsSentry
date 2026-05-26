@@ -49,6 +49,17 @@ export function parseRouteHash(hash) {
     }
     if (second === "target") {
       const targetId = safeDecodeHashParam(parts[2] || "");
+      if (parts[3] === "analysis") {
+        return {
+          name: "publicTargetAnalysis",
+          scope: "public",
+          section: "news",
+          tab: "analysis",
+          param: targetId,
+          targetId,
+          parts,
+        };
+      }
       if (parts[3] === "events") {
         const eventId = safeDecodeHashParam(parts[4] || "");
         return {

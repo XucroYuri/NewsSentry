@@ -8,7 +8,7 @@ import {
   state, $, $$, api, apiPost, escapeHtml, showError, showSuccess, showInfo,
   t, isAuthenticated, hasPermission, authenticate, getConnection, clearConnection,
   setConnection, logAction,
-} from "./api.js?v=20260527a";
+} from "./api.js?v=20260527b";
 import {
   adminHashForLegacyRoute,
   isAdminLoginRoute,
@@ -16,19 +16,20 @@ import {
   isPublicRoute,
   normalizeAdminRoute,
   parseRouteHash,
-} from "./router.js?v=20260527a";
-import { renderFeedTab, renderPublicHome } from "./pages/feed.js?v=20260527a";
-import { targetPortalHref } from "./pages/public_portal.js?v=20260527a";
-import { renderOverviewTab } from "./pages/dashboard.js?v=20260527a";
-import { renderEventsTab, renderEventDetail } from "./pages/events.js?v=20260527a";
-import { renderEntitiesTab, renderEntityDetail } from "./pages/entities.js?v=20260527a";
-import { renderChainsTab, renderChainDetail } from "./pages/chains.js?v=20260527a";
-import { renderTrendsTab } from "./pages/trends.js?v=20260527a";
-import { renderLiveAlertsTab, renderAlertHistoryTab } from "./pages/alerts.js?v=20260527a";
-import { renderRunStatusTab, renderCollectorTab, renderSourceHealthTab, renderRunHistoryTab, renderMaintenanceTab, renderOpsDetail } from "./pages/ops.js?v=20260527a";
-import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedback.js?v=20260527a";
-import { renderTargetTab, renderSourcesTab, renderFiltersTab, renderOutputsTab, renderAITab, renderWebhookTab, renderApiKeyTab } from "./pages/config.js?v=20260527a";
-import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab, renderThemeTab, renderBackupTab, initTheme } from "./pages/settings.js?v=20260527a";
+} from "./router.js?v=20260527b";
+import { renderFeedTab, renderPublicHome } from "./pages/feed.js?v=20260527b";
+import { renderPublicAnalysis } from "./pages/public_analysis.js?v=20260527b";
+import { targetPortalHref } from "./pages/public_portal.js?v=20260527b";
+import { renderOverviewTab } from "./pages/dashboard.js?v=20260527b";
+import { renderEventsTab, renderEventDetail } from "./pages/events.js?v=20260527b";
+import { renderEntitiesTab, renderEntityDetail } from "./pages/entities.js?v=20260527b";
+import { renderChainsTab, renderChainDetail } from "./pages/chains.js?v=20260527b";
+import { renderTrendsTab } from "./pages/trends.js?v=20260527b";
+import { renderLiveAlertsTab, renderAlertHistoryTab } from "./pages/alerts.js?v=20260527b";
+import { renderRunStatusTab, renderCollectorTab, renderSourceHealthTab, renderRunHistoryTab, renderMaintenanceTab, renderOpsDetail } from "./pages/ops.js?v=20260527b";
+import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedback.js?v=20260527b";
+import { renderTargetTab, renderSourcesTab, renderFiltersTab, renderOutputsTab, renderAITab, renderWebhookTab, renderApiKeyTab } from "./pages/config.js?v=20260527b";
+import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab, renderThemeTab, renderBackupTab, initTheme } from "./pages/settings.js?v=20260527b";
 
 // ═══════════════════════════════════════════════════════════
 // §1. 路由表
@@ -240,6 +241,11 @@ function renderPublicRoute(routeInfo) {
     localStorage.ns_target_id = routeInfo.targetId;
     const sel = document.getElementById("targetSelect");
     if (sel) sel.value = routeInfo.targetId;
+  }
+
+  if (routeInfo.name === "publicTargetAnalysis") {
+    renderPublicAnalysis(container, routeInfo.targetId);
+    return;
   }
 
   if (routeInfo.name === "publicTargetFeed") {

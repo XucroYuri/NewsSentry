@@ -11,6 +11,10 @@ export function targetPortalHref(targetId) {
   return `#/news/target/${encodeHashPart(targetId)}`;
 }
 
+export function targetAnalysisHref(targetId) {
+  return `${targetPortalHref(targetId)}/analysis`;
+}
+
 export function channelPortalHref(targetId, channelId) {
   const base = targetPortalHref(targetId);
   return !channelId || channelId === "all" ? base : `${base}/${encodeHashPart(channelId)}`;

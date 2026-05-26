@@ -3,9 +3,9 @@
  * Phase 73: 来源人格化 + 标签扁平化 + 多视图切换
  */
 
-import { state, api, escapeHtml, scoreColor, isAuthenticated } from "../api.js?v=20260527a";
-import { CHANNELS, filterGroups, countEvents } from "./feed_filters.js?v=20260527a";
-import { adminEventHref, channelPortalHref, targetEventHref, targetPortalHref } from "./public_portal.js?v=20260527a";
+import { state, api, escapeHtml, scoreColor, isAuthenticated } from "../api.js?v=20260527b";
+import { CHANNELS, filterGroups, countEvents } from "./feed_filters.js?v=20260527b";
+import { adminEventHref, channelPortalHref, targetAnalysisHref, targetEventHref, targetPortalHref } from "./public_portal.js?v=20260527b";
 
 // ── 推荐标签映射 ──
 const REC_LABELS = {
@@ -288,6 +288,7 @@ export async function renderFeedTab(container, options = {}) {
           <span class="feed-count" id="feed-count"></span>
         </div>
         <div class="feed-toolbar-right">
+          ${publicMode ? `<a class="feed-btn feed-btn-link" href="${targetAnalysisHref(targetId)}">态势分析</a>` : ""}
           <div class="feed-view-toggle" id="feed-view-toggle">
             <button class="view-btn active" data-view="timeline" title="推荐理由视图">☰</button>
             <button class="view-btn" data-view="compact" title="紧凑视图">≡</button>

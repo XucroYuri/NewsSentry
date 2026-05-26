@@ -29,15 +29,15 @@ import uuid
 from collections import defaultdict
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import yaml
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, BeforeValidator, Field
 
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.auth import hash_password, verify_password
@@ -435,6 +435,64 @@ class SentimentTrendsResponse(BaseModel):
     target_id: str
     days: int
     daily_sentiment: list[DailySentimentCount]
+    generated_at: str
+
+
+class PublicAnalysisSummary(BaseModel):
+    """公开分析快照的摘要统计。"""
+
+    total_events: int = 0
+    high_value_events: int = 0
+    avg_news_value_score: float | None = None
+    avg_china_relevance: float | None = None
+
+
+class PublicDistributionItem(BaseModel):
+    """公开聚合分布条目。"""
+
+    name: str
+    count: int
+
+
+class PublicSourceDistributionItem(BaseModel):
+    """公开信源分布条目。"""
+
+    source_id: str
+    display_name: str
+    count: int
+
+
+class PublicEntityItem(BaseModel):
+    """公开实体聚合条目。"""
+
+    name: str
+    entity_type: str = ""
+    mention_count: int = 0
+
+
+class PublicChainItem(BaseModel):
+    """公开追踪链摘要。"""
+
+    root_event_id: str
+    event_count: int
+    latest_time: str = ""
+    latest_title: str = ""
+    narrative_summary: str = ""
+
+
+class PublicAnalysisResponse(BaseModel):
+    """公开 target 分析快照。"""
+
+    target_id: str
+    target_name: str
+    days: int
+    summary: PublicAnalysisSummary
+    classification_distribution: list[PublicDistributionItem] = Field(default_factory=list)
+    source_distribution: list[PublicSourceDistributionItem] = Field(default_factory=list)
+    top_entities: list[PublicEntityItem] = Field(default_factory=list)
+    topic_trends: list[TopicTrendItem] = Field(default_factory=list)
+    sentiment_trend: list[DailySentimentCount] = Field(default_factory=list)
+    active_chains: list[PublicChainItem] = Field(default_factory=list)
     generated_at: str
 
 
@@ -1025,6 +1083,352 @@ def _feed_event_payload(ev: dict[str, Any]) -> dict[str, Any]:
     payload["recommendation"] = ev.get("recommendation") or judge.get("recommendation")
     payload["related_count"] = ev.get("related_count") or 0
     return payload
+
+
+def _avg_or_none(values: list[int | float]) -> float | None:
+    """计算公开快照均值，空集合返回 None。"""
+    if not values:
+        return None
+    return round(sum(values) / len(values), 2)
+
+
+def _distribution_items(
+    counts: dict[str, int],
+    *,
+    limit: int = 10,
+) -> list[PublicDistributionItem]:
+    """按 count 降序、key 升序输出公开分布。"""
+    pairs = [(str(name), int(count)) for name, count in counts.items() if name and count > 0]
+    pairs.sort(key=lambda item: (-item[1], item[0]))
+    return [PublicDistributionItem(name=name, count=count) for name, count in pairs[:limit]]
+
+
+def _source_distribution_items(
+    counts: dict[str, int],
+    *,
+    limit: int = 10,
+) -> list[PublicSourceDistributionItem]:
+    """输出公开信源分布，display_name 默认使用 source_id。"""
+    pairs = [
+        (str(source_id), int(count))
+        for source_id, count in counts.items()
+        if source_id and count > 0
+    ]
+    pairs.sort(key=lambda item: (-item[1], item[0]))
+    return [
+        PublicSourceDistributionItem(source_id=source_id, display_name=source_id, count=count)
+        for source_id, count in pairs[:limit]
+    ]
+
+
+def _public_summary_from_events(events: list[dict[str, Any]]) -> PublicAnalysisSummary:
+    """从 draft frontmatter 聚合公开摘要。"""
+    scores = [score for ev in events if (score := _event_score(ev)) is not None]
+    relevances = [
+        relevance
+        for ev in events
+        if isinstance((relevance := ev.get("china_relevance")), (int, float))
+    ]
+    return PublicAnalysisSummary(
+        total_events=len(events),
+        high_value_events=sum(1 for score in scores if score >= 70),
+        avg_news_value_score=_avg_or_none(scores),
+        avg_china_relevance=_avg_or_none(relevances),
+    )
+
+
+def _public_distributions_from_events(
+    events: list[dict[str, Any]],
+) -> tuple[list[PublicDistributionItem], list[PublicSourceDistributionItem]]:
+    """从 draft frontmatter 聚合公开分类和信源分布。"""
+    by_classification: dict[str, int] = defaultdict(int)
+    by_source: dict[str, int] = defaultdict(int)
+    for ev in events:
+        classification = _event_classification(ev)
+        if classification:
+            l0 = classification.get("l0")
+            if l0:
+                by_classification[str(l0)] += 1
+        source_id = ev.get("source_id")
+        if source_id:
+            by_source[str(source_id)] += 1
+    return _distribution_items(by_classification), _source_distribution_items(by_source)
+
+
+def _parse_published_at_utc(value: Any) -> datetime | None:
+    """解析事件发布时间；缺失或不可解析时返回 None。"""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _public_events_within_window(
+    events: list[dict[str, Any]],
+    days: int,
+) -> list[dict[str, Any]]:
+    """过滤公开分析时间窗口；无时间戳草稿保留以兼容旧数据。"""
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    filtered: list[dict[str, Any]] = []
+    for event in events:
+        published_at = event.get("published_at")
+        if not published_at:
+            filtered.append(event)
+            continue
+        parsed = _parse_published_at_utc(published_at)
+        if parsed is None or parsed >= cutoff:
+            filtered.append(event)
+    return filtered
+
+
+def _target_display_name(target_id: str) -> str:
+    """读取公开 target 名称，缺失时回退到 target_id。"""
+    for config in _load_target_configs():
+        if config.get("target_id") == target_id:
+            display_name = config.get("display_name")
+            if isinstance(display_name, str) and display_name.strip():
+                return display_name
+            return target_id
+    return target_id
+
+
+_PUBLIC_ANALYSIS_STAGE = "drafts"
+_PUBLIC_ANALYSIS_CHAIN_LIMIT = 10
+
+
+def _split_store_list(value: Any) -> list[str]:
+    """拆分 store 中逗号分隔的 NLP 字段。"""
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    return []
+
+
+def _store_day(value: Any) -> str:
+    """从 ISO 日期字符串取 YYYY-MM-DD。"""
+    text = str(value or "")
+    return text[:10] if len(text) >= 10 else ""
+
+
+async def _public_event_rows_from_store(
+    target_id: str,
+    days: int,
+    store: AsyncStore,
+) -> list[dict[str, Any]]:
+    """读取公开新闻流可见事件索引；仅 drafts stage 对匿名端可见。"""
+    if store._db is None:  # noqa: SLF001
+        return []
+    async with store._db.execute(  # noqa: SLF001
+        "SELECT event_id, source_id, news_value_score, china_relevance, "
+        "classification_l0, published_at, sentiment, entity_names, topic_tags "
+        "FROM event_index "
+        "WHERE target_id = ? AND stage = ? "
+        "AND (published_at IS NULL OR published_at = '' "
+        "OR published_at >= date('now', ? || ' days')) "
+        "ORDER BY published_at DESC",
+        [target_id, _PUBLIC_ANALYSIS_STAGE, f"-{days}"],
+    ) as cursor:
+        rows = await cursor.fetchall()
+    cols = (
+        "event_id",
+        "source_id",
+        "news_value_score",
+        "china_relevance",
+        "classification_l0",
+        "published_at",
+        "sentiment",
+        "entity_names",
+        "topic_tags",
+    )
+    return [dict(zip(cols, row, strict=True)) for row in rows]
+
+
+async def _public_active_chains_from_store(
+    target_id: str,
+    store: AsyncStore,
+    *,
+    limit: int = _PUBLIC_ANALYSIS_CHAIN_LIMIT,
+) -> list[PublicChainItem]:
+    """读取公开追踪链摘要，并在 root 查询阶段硬性限量。"""
+    if store._db is None:  # noqa: SLF001
+        return []
+
+    async with store._db.execute(  # noqa: SLF001
+        "SELECT DISTINCT el.source_event_id, source.published_at "
+        "FROM event_links el "
+        "JOIN event_index source ON source.event_id = el.source_event_id "
+        "WHERE el.target_id = ? AND source.target_id = ? AND source.stage = ? "
+        "ORDER BY source.published_at DESC LIMIT ?",
+        [target_id, target_id, _PUBLIC_ANALYSIS_STAGE, limit],
+    ) as cursor:
+        root_rows = await cursor.fetchall()
+    root_ids = [str(row[0]) for row in root_rows if row[0]]
+    if not root_ids:
+        return []
+
+    placeholders = ",".join("?" for _ in root_ids)
+    narrative_map: dict[str, str] = {}
+    async with store._db.execute(  # noqa: SLF001
+        f"SELECT chain_root_id, narrative FROM chain_narratives "  # noqa: S608
+        f"WHERE chain_root_id IN ({placeholders})",
+        root_ids,
+    ) as cursor:
+        async for row in cursor:
+            narrative_map[str(row[0])] = str(row[1] or "")
+
+    chains: list[PublicChainItem] = []
+    for root_id in root_ids:
+        async with store._db.execute(  # noqa: SLF001
+            "SELECT DISTINCT ei.event_id, ei.title_original, ei.published_at "
+            "FROM event_index ei "
+            "WHERE ei.target_id = ? AND ei.stage = ? "
+            "AND (ei.event_id = ? "
+            "OR ei.event_id IN ("
+            "SELECT target_event_id FROM event_links "
+            "WHERE target_id = ? AND source_event_id = ?"
+            ") "
+            "OR ei.event_id IN ("
+            "SELECT source_event_id FROM event_links "
+            "WHERE target_id = ? AND target_event_id = ?"
+            ")) "
+            "ORDER BY ei.published_at ASC",
+            [
+                target_id,
+                _PUBLIC_ANALYSIS_STAGE,
+                root_id,
+                target_id,
+                root_id,
+                target_id,
+                root_id,
+            ],
+        ) as cursor:
+            chain_rows = await cursor.fetchall()
+        if len(chain_rows) < 2:
+            continue
+        latest = chain_rows[-1]
+        narrative = narrative_map.get(root_id, "")
+        chains.append(
+            PublicChainItem(
+                root_event_id=root_id,
+                event_count=len(chain_rows),
+                latest_time=str(latest[2] or ""),
+                latest_title=str(latest[1] or ""),
+                narrative_summary=narrative[:50] + "..." if len(narrative) > 50 else narrative,
+            )
+        )
+    chains.sort(key=lambda chain: chain.latest_time, reverse=True)
+    return chains[:limit]
+
+
+async def _public_analysis_from_store(
+    target_id: str,
+    days: int,
+    store: AsyncStore,
+) -> PublicAnalysisResponse | None:
+    """从 SQLite store 聚合公开分析快照；空 store 交给文件系统降级。"""
+    public_rows = await _public_event_rows_from_store(target_id, days, store)
+    total_events = len(public_rows)
+    if total_events == 0:
+        return None
+
+    scores = [
+        score
+        for event in public_rows
+        if isinstance((score := event.get("news_value_score")), (int, float))
+    ]
+    relevances = [
+        relevance
+        for event in public_rows
+        if isinstance((relevance := event.get("china_relevance")), (int, float))
+    ]
+    by_classification: dict[str, int] = defaultdict(int)
+    by_source: dict[str, int] = defaultdict(int)
+    entity_counts: dict[str, int] = defaultdict(int)
+    topic_counts: dict[str, int] = defaultdict(int)
+    topic_daily: dict[tuple[str, str], int] = defaultdict(int)
+    sentiment_by_day: dict[str, DailySentimentCount] = {}
+
+    for event in public_rows:
+        classification = event.get("classification_l0")
+        if classification:
+            by_classification[str(classification)] += 1
+        source_id = event.get("source_id")
+        if source_id:
+            by_source[str(source_id)] += 1
+
+        for entity_name in _split_store_list(event.get("entity_names")):
+            entity_counts[entity_name] += 1
+
+        day = _store_day(event.get("published_at"))
+        for topic in _split_store_list(event.get("topic_tags")):
+            topic_counts[topic] += 1
+            if day:
+                topic_daily[(topic, day)] += 1
+
+        sentiment = event.get("sentiment")
+        if day and sentiment in {"positive", "negative", "neutral"}:
+            sentiment_item = sentiment_by_day.setdefault(day, DailySentimentCount(day=day))
+            if sentiment == "positive":
+                sentiment_item.positive += 1
+            elif sentiment == "negative":
+                sentiment_item.negative += 1
+            elif sentiment == "neutral":
+                sentiment_item.neutral += 1
+
+    topic_daily_counts = [
+        {"topic": topic, "day": day, "count": count}
+        for (topic, day), count in sorted(topic_daily.items())
+    ]
+    top_topics = [
+        {"topic": topic, "count": count}
+        for topic, count in sorted(topic_counts.items(), key=lambda item: (-item[1], item[0]))[:10]
+    ]
+    active_chains = await _public_active_chains_from_store(target_id, store)
+
+    from news_sentry.skills.analysis.trend_analyzer import compute_topic_trends
+
+    topic_trends = [
+        TopicTrendItem(**trend.model_dump())
+        for trend in compute_topic_trends(topic_daily_counts, top_topics, total_days=days)
+    ]
+
+    summary = PublicAnalysisSummary(
+        total_events=total_events,
+        high_value_events=sum(1 for score in scores if score >= 70),
+        avg_news_value_score=_avg_or_none(scores),
+        avg_china_relevance=_avg_or_none(relevances),
+    )
+
+    return PublicAnalysisResponse(
+        target_id=target_id,
+        target_name=_target_display_name(target_id),
+        days=days,
+        summary=summary,
+        classification_distribution=_distribution_items(by_classification),
+        source_distribution=_source_distribution_items(by_source),
+        top_entities=[
+            PublicEntityItem(
+                name=name,
+                mention_count=count,
+            )
+            for name, count in sorted(entity_counts.items(), key=lambda item: (-item[1], item[0]))[
+                :10
+            ]
+        ],
+        topic_trends=topic_trends,
+        sentiment_trend=sorted(sentiment_by_day.values(), key=lambda item: item.day),
+        active_chains=active_chains,
+        generated_at=datetime.now(UTC).isoformat(),
+    )
 
 
 def _load_single_event(data_dir: Path, target_id: str, event_id: str) -> dict[str, Any] | None:
@@ -2076,6 +2480,48 @@ def create_app(
             for c in configs
         ]
         return TargetListResponse(targets=targets)
+
+    @app.get(
+        "/api/v1/public/targets/{target_id}/analysis",
+        response_model=PublicAnalysisResponse,
+    )
+    async def get_public_target_analysis(
+        target_id: str,
+        days: Annotated[
+            Literal[7, 14, 30],
+            Query(description="分析窗口天数"),
+            BeforeValidator(int),
+        ] = 14,
+    ) -> PublicAnalysisResponse:
+        """公开匿名只读分析快照。"""
+        target_store = await _get_target_store(target_id)
+        store_to_query = target_store if target_store is not None else _store
+        if store_to_query is not None:
+            try:
+                store_response = await _public_analysis_from_store(target_id, days, store_to_query)
+                if store_response is not None:
+                    return store_response
+            except Exception:
+                logger.debug(
+                    "Public analysis store aggregation failed; falling back to filesystem",
+                    exc_info=True,
+                )
+
+        events = _public_events_within_window(_load_all_events(_data_dir, target_id), days)
+        classification_distribution, source_distribution = _public_distributions_from_events(events)
+        return PublicAnalysisResponse(
+            target_id=target_id,
+            target_name=_target_display_name(target_id),
+            days=days,
+            summary=_public_summary_from_events(events),
+            classification_distribution=classification_distribution,
+            source_distribution=source_distribution,
+            top_entities=[],
+            topic_trends=[],
+            sentiment_trend=[],
+            active_chains=[],
+            generated_at=datetime.now(UTC).isoformat(),
+        )
 
     @app.get("/api/v1/stats", response_model=StatsResponse)
     async def get_stats(
