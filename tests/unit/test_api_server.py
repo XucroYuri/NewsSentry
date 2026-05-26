@@ -369,6 +369,77 @@ class TestAPIServer:
         assert resp.status_code == 200
         assert "targets" in resp.json()
 
+    def test_public_analysis_without_auth_uses_filesystem_fallback(self, tmp_path: Path) -> None:
+        """公开分析快照匿名可读，并能从 draft frontmatter 降级聚合。"""
+        _write_draft(
+            tmp_path,
+            "italy",
+            "ne-italy-ansa-20260526-analysis01",
+            title="Policy story",
+            source_id="ansa",
+            news_value_score=86,
+            china_relevance=55,
+            classification_l0="politics",
+        )
+        _write_draft(
+            tmp_path,
+            "italy",
+            "ne-italy-reuters-20260526-analysis02",
+            title="Market story",
+            source_id="reuters",
+            news_value_score=64,
+            china_relevance=10,
+            classification_l0="economy",
+        )
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/public/targets/italy/analysis", params={"days": 14})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["target_id"] == "italy"
+        assert data["days"] == 14
+        assert data["summary"]["total_events"] == 2
+        assert data["summary"]["high_value_events"] == 1
+        assert data["summary"]["avg_news_value_score"] == 75.0
+        assert data["summary"]["avg_china_relevance"] == 32.5
+        assert data["classification_distribution"] == [
+            {"name": "economy", "count": 1},
+            {"name": "politics", "count": 1},
+        ]
+        assert data["source_distribution"] == [
+            {"source_id": "ansa", "display_name": "ansa", "count": 1},
+            {"source_id": "reuters", "display_name": "reuters", "count": 1},
+        ]
+        assert data["top_entities"] == []
+        assert data["topic_trends"] == []
+        assert data["sentiment_trend"] == []
+        assert data["active_chains"] == []
+
+    def test_public_analysis_rejects_unsupported_days(self, tmp_path: Path) -> None:
+        """公开分析第一版只允许 7 / 14 / 30 天。"""
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/public/targets/italy/analysis", params={"days": 8})
+
+        assert resp.status_code == 422
+
+    def test_public_analysis_empty_target_without_auth(self, tmp_path: Path) -> None:
+        """空 target 返回稳定空快照，不把公开页面卡在加载态。"""
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/public/targets/empty/analysis")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["target_id"] == "empty"
+        assert data["summary"]["total_events"] == 0
+        assert data["classification_distribution"] == []
+        assert data["source_distribution"] == []
+
     def test_admin_users_still_requires_auth(self, tmp_path: Path) -> None:
         """公共新闻工作台不放开管理后台。"""
         app = create_app(data_dir=tmp_path, auto_store=False)

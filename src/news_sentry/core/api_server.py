@@ -32,12 +32,12 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import yaml
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, BeforeValidator, Field
 
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.auth import hash_password, verify_password
@@ -435,6 +435,64 @@ class SentimentTrendsResponse(BaseModel):
     target_id: str
     days: int
     daily_sentiment: list[DailySentimentCount]
+    generated_at: str
+
+
+class PublicAnalysisSummary(BaseModel):
+    """公开分析快照的摘要统计。"""
+
+    total_events: int = 0
+    high_value_events: int = 0
+    avg_news_value_score: float | None = None
+    avg_china_relevance: float | None = None
+
+
+class PublicDistributionItem(BaseModel):
+    """公开聚合分布条目。"""
+
+    name: str
+    count: int
+
+
+class PublicSourceDistributionItem(BaseModel):
+    """公开信源分布条目。"""
+
+    source_id: str
+    display_name: str
+    count: int
+
+
+class PublicEntityItem(BaseModel):
+    """公开实体聚合条目。"""
+
+    name: str
+    entity_type: str = ""
+    mention_count: int = 0
+
+
+class PublicChainItem(BaseModel):
+    """公开追踪链摘要。"""
+
+    root_event_id: str
+    event_count: int
+    latest_time: str = ""
+    latest_title: str = ""
+    narrative_summary: str = ""
+
+
+class PublicAnalysisResponse(BaseModel):
+    """公开 target 分析快照。"""
+
+    target_id: str
+    target_name: str
+    days: int
+    summary: PublicAnalysisSummary
+    classification_distribution: list[PublicDistributionItem] = Field(default_factory=list)
+    source_distribution: list[PublicSourceDistributionItem] = Field(default_factory=list)
+    top_entities: list[PublicEntityItem] = Field(default_factory=list)
+    topic_trends: list[TopicTrendItem] = Field(default_factory=list)
+    sentiment_trend: list[DailySentimentCount] = Field(default_factory=list)
+    active_chains: list[PublicChainItem] = Field(default_factory=list)
     generated_at: str
 
 
@@ -1025,6 +1083,173 @@ def _feed_event_payload(ev: dict[str, Any]) -> dict[str, Any]:
     payload["recommendation"] = ev.get("recommendation") or judge.get("recommendation")
     payload["related_count"] = ev.get("related_count") or 0
     return payload
+
+
+def _avg_or_none(values: list[int | float]) -> float | None:
+    """计算公开快照均值，空集合返回 None。"""
+    if not values:
+        return None
+    return round(sum(values) / len(values), 2)
+
+
+def _distribution_items(
+    counts: dict[str, int],
+    *,
+    limit: int = 10,
+) -> list[PublicDistributionItem]:
+    """按 count 降序、key 升序输出公开分布。"""
+    pairs = [(str(name), int(count)) for name, count in counts.items() if name and count > 0]
+    pairs.sort(key=lambda item: (-item[1], item[0]))
+    return [PublicDistributionItem(name=name, count=count) for name, count in pairs[:limit]]
+
+
+def _source_distribution_items(
+    counts: dict[str, int],
+    *,
+    limit: int = 10,
+) -> list[PublicSourceDistributionItem]:
+    """输出公开信源分布，display_name 默认使用 source_id。"""
+    pairs = [
+        (str(source_id), int(count))
+        for source_id, count in counts.items()
+        if source_id and count > 0
+    ]
+    pairs.sort(key=lambda item: (-item[1], item[0]))
+    return [
+        PublicSourceDistributionItem(source_id=source_id, display_name=source_id, count=count)
+        for source_id, count in pairs[:limit]
+    ]
+
+
+def _public_summary_from_events(events: list[dict[str, Any]]) -> PublicAnalysisSummary:
+    """从 draft frontmatter 聚合公开摘要。"""
+    scores = [score for ev in events if (score := _event_score(ev)) is not None]
+    relevances = [
+        relevance
+        for ev in events
+        if isinstance((relevance := ev.get("china_relevance")), (int, float))
+    ]
+    return PublicAnalysisSummary(
+        total_events=len(events),
+        high_value_events=sum(1 for score in scores if score >= 70),
+        avg_news_value_score=_avg_or_none(scores),
+        avg_china_relevance=_avg_or_none(relevances),
+    )
+
+
+def _public_distributions_from_events(
+    events: list[dict[str, Any]],
+) -> tuple[list[PublicDistributionItem], list[PublicSourceDistributionItem]]:
+    """从 draft frontmatter 聚合公开分类和信源分布。"""
+    by_classification: dict[str, int] = defaultdict(int)
+    by_source: dict[str, int] = defaultdict(int)
+    for ev in events:
+        classification = _event_classification(ev)
+        if classification:
+            l0 = classification.get("l0")
+            if l0:
+                by_classification[str(l0)] += 1
+        source_id = ev.get("source_id")
+        if source_id:
+            by_source[str(source_id)] += 1
+    return _distribution_items(by_classification), _source_distribution_items(by_source)
+
+
+def _target_display_name(target_id: str) -> str:
+    """读取公开 target 名称，缺失时回退到 target_id。"""
+    for config in _load_target_configs():
+        if config.get("target_id") == target_id:
+            display_name = config.get("display_name")
+            if isinstance(display_name, str) and display_name.strip():
+                return display_name
+            return target_id
+    return target_id
+
+
+async def _public_analysis_from_store(
+    target_id: str,
+    days: int,
+    store: AsyncStore,
+) -> PublicAnalysisResponse | None:
+    """从 SQLite store 聚合公开分析快照；空 store 交给文件系统降级。"""
+    stats = await store.get_stats_aggregated(target_id)
+    total_events = int(stats.get("total_events") or 0)
+    if total_events == 0:
+        return None
+
+    top_events = await store.get_top_events(target_id, days=days, limit=100)
+    entities = await store.query_entities(target_id=target_id, limit=10)
+    topic_daily_counts = await store.get_topic_daily_counts(target_id, days=days)
+    top_topics = await store.get_top_topics(target_id, days=days, limit=10)
+    sentiment_counts = await store.get_sentiment_daily_counts(target_id, days=days)
+    chains = await store.get_active_chains(target_id)
+
+    from news_sentry.skills.analysis.trend_analyzer import compute_topic_trends
+
+    topic_trends = compute_topic_trends(topic_daily_counts, top_topics, total_days=days)
+
+    sentiment_by_day: dict[str, DailySentimentCount] = {}
+    for entry in sentiment_counts:
+        day = str(entry.get("day") or "")
+        if not day:
+            continue
+        item = sentiment_by_day.setdefault(day, DailySentimentCount(day=day))
+        count = int(entry.get("count") or 0)
+        sentiment = entry.get("sentiment")
+        if sentiment == "positive":
+            item.positive = count
+        elif sentiment == "negative":
+            item.negative = count
+        elif sentiment == "neutral":
+            item.neutral = count
+
+    avg_score = stats.get("avg_news_value_score")
+    avg_relevance = stats.get("avg_china_relevance")
+    summary = PublicAnalysisSummary(
+        total_events=total_events,
+        high_value_events=sum(
+            1
+            for event in top_events
+            if isinstance(event.get("news_value_score"), (int, float))
+            and event["news_value_score"] >= 70
+        ),
+        avg_news_value_score=round(avg_score, 2) if isinstance(avg_score, (int, float)) else None,
+        avg_china_relevance=round(avg_relevance, 2)
+        if isinstance(avg_relevance, (int, float))
+        else None,
+    )
+
+    return PublicAnalysisResponse(
+        target_id=target_id,
+        target_name=_target_display_name(target_id),
+        days=days,
+        summary=summary,
+        classification_distribution=_distribution_items(stats.get("by_classification", {})),
+        source_distribution=_source_distribution_items(stats.get("by_source", {})),
+        top_entities=[
+            PublicEntityItem(
+                name=str(entity.get("canonical_name") or ""),
+                entity_type=str(entity.get("entity_type") or ""),
+                mention_count=int(entity.get("mention_count") or 0),
+            )
+            for entity in entities
+            if entity.get("canonical_name")
+        ],
+        topic_trends=topic_trends,
+        sentiment_trend=sorted(sentiment_by_day.values(), key=lambda item: item.day),
+        active_chains=[
+            PublicChainItem(
+                root_event_id=str(chain.get("root_event_id") or ""),
+                event_count=int(chain.get("event_count") or 0),
+                latest_time=str(chain.get("latest_time") or ""),
+                latest_title=str(chain.get("latest_title") or ""),
+                narrative_summary=str(chain.get("narrative_summary") or ""),
+            )
+            for chain in chains
+            if chain.get("root_event_id")
+        ],
+        generated_at=datetime.now(UTC).isoformat(),
+    )
 
 
 def _load_single_event(data_dir: Path, target_id: str, event_id: str) -> dict[str, Any] | None:
@@ -2076,6 +2301,48 @@ def create_app(
             for c in configs
         ]
         return TargetListResponse(targets=targets)
+
+    @app.get(
+        "/api/v1/public/targets/{target_id}/analysis",
+        response_model=PublicAnalysisResponse,
+    )
+    async def get_public_target_analysis(
+        target_id: str,
+        days: Annotated[
+            Literal[7, 14, 30],
+            Query(description="分析窗口天数"),
+            BeforeValidator(int),
+        ] = 14,
+    ) -> PublicAnalysisResponse:
+        """公开匿名只读分析快照。"""
+        target_store = await _get_target_store(target_id)
+        store_to_query = target_store if target_store is not None else _store
+        if store_to_query is not None:
+            try:
+                store_response = await _public_analysis_from_store(target_id, days, store_to_query)
+                if store_response is not None:
+                    return store_response
+            except Exception:
+                logger.debug(
+                    "Public analysis store aggregation failed; falling back to filesystem",
+                    exc_info=True,
+                )
+
+        events = _load_all_events(_data_dir, target_id)
+        classification_distribution, source_distribution = _public_distributions_from_events(events)
+        return PublicAnalysisResponse(
+            target_id=target_id,
+            target_name=_target_display_name(target_id),
+            days=days,
+            summary=_public_summary_from_events(events),
+            classification_distribution=classification_distribution,
+            source_distribution=source_distribution,
+            top_entities=[],
+            topic_trends=[],
+            sentiment_trend=[],
+            active_chains=[],
+            generated_at=datetime.now(UTC).isoformat(),
+        )
 
     @app.get("/api/v1/stats", response_model=StatsResponse)
     async def get_stats(
