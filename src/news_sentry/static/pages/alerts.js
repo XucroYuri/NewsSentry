@@ -4,7 +4,7 @@
 
 "use strict";
 
-import { api, state, escapeHtml, showError, formatDate, scoreColor } from "../api.js?v=20260526d";
+import { api, state, escapeHtml, showError, formatDate, scoreColor } from "../api.js";
 
 const SEVERITY_COLORS = { high: "#ef4444", medium: "#f59e0b", low: "#22c55e" };
 const SEVERITY_LABELS = { high: "高", medium: "中", low: "低" };

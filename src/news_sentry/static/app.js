@@ -8,18 +8,27 @@ import {
   state, $, $$, api, apiPost, escapeHtml, showError, showSuccess, showInfo,
   t, isAuthenticated, hasPermission, authenticate, getConnection, clearConnection,
   setConnection, logAction,
-} from "./api.js?v=20260526d";
-import { renderFeedTab } from "./pages/feed.js?v=20260526d";
-import { renderOverviewTab } from "./pages/dashboard.js?v=20260526d";
-import { renderEventsTab, renderEventDetail } from "./pages/events.js?v=20260526d";
-import { renderEntitiesTab, renderEntityDetail } from "./pages/entities.js?v=20260526d";
-import { renderChainsTab, renderChainDetail } from "./pages/chains.js?v=20260526d";
-import { renderTrendsTab } from "./pages/trends.js?v=20260526d";
-import { renderLiveAlertsTab, renderAlertHistoryTab } from "./pages/alerts.js?v=20260526d";
-import { renderRunStatusTab, renderCollectorTab, renderSourceHealthTab, renderRunHistoryTab, renderMaintenanceTab, renderOpsDetail } from "./pages/ops.js?v=20260526d";
-import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedback.js?v=20260526d";
-import { renderTargetTab, renderSourcesTab, renderFiltersTab, renderOutputsTab, renderAITab, renderWebhookTab, renderApiKeyTab } from "./pages/config.js?v=20260526d";
-import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab, renderThemeTab, renderBackupTab, initTheme } from "./pages/settings.js?v=20260526d";
+} from "./api.js";
+import {
+  adminHashForLegacyRoute,
+  isAdminLoginRoute,
+  isLegacyProtectedRoute,
+  isPublicRoute,
+  normalizeAdminRoute,
+  parseRouteHash,
+} from "./router.js";
+import { renderFeedTab, renderPublicHome } from "./pages/feed.js";
+import { targetPortalHref } from "./pages/public_portal.js";
+import { renderOverviewTab } from "./pages/dashboard.js";
+import { renderEventsTab, renderEventDetail } from "./pages/events.js";
+import { renderEntitiesTab, renderEntityDetail } from "./pages/entities.js";
+import { renderChainsTab, renderChainDetail } from "./pages/chains.js";
+import { renderTrendsTab } from "./pages/trends.js";
+import { renderLiveAlertsTab, renderAlertHistoryTab } from "./pages/alerts.js";
+import { renderRunStatusTab, renderCollectorTab, renderSourceHealthTab, renderRunHistoryTab, renderMaintenanceTab, renderOpsDetail } from "./pages/ops.js";
+import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedback.js";
+import { renderTargetTab, renderSourcesTab, renderFiltersTab, renderOutputsTab, renderAITab, renderWebhookTab, renderApiKeyTab } from "./pages/config.js";
+import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab, renderThemeTab, renderBackupTab, initTheme } from "./pages/settings.js";
 
 // ═══════════════════════════════════════════════════════════
 // §1. 路由表
@@ -37,11 +46,15 @@ const ROUTES = {
       { id: "trends", label: "趋势" },
     ],
     render: (container, tab, param) => {
-      if (tab === "events" && param) return renderEventDetail(container, param);
+      if (tab === "events" && param) return renderEventDetail(container, param, {
+        targetId: state.currentTarget,
+        publicMode: false,
+        backHref: "#/admin/news/events",
+      });
       if (tab === "entities" && param) return renderEntityDetail(container, param);
       if (tab === "chains" && param) return renderChainDetail(container, param);
       const tabMap = {
-        feed: renderFeedTab,
+        feed: (el) => renderFeedTab(el, { targetId: state.currentTarget, publicMode: false }),
         overview: renderOverviewTab,
         events: renderEventsTab,
         chains: renderChainsTab,
@@ -138,28 +151,7 @@ const ROUTES = {
 // ═══════════════════════════════════════════════════════════
 
 function parseHash() {
-  const hash = (window.location.hash || "#/news/feed").slice(1);
-  const parts = hash.replace(/^\//, "").split("/");
-
-  // Special: connect page
-  if (parts[0] === "connect") return { section: "connect", tab: "", param: "" };
-
-  const section = parts[0] || "news";
-  const tab = parts[1] || (ROUTES[section]?.tabs[0]?.id || "");
-  const param = safeDecodeHashParam(parts[2] || "");
-  return { section, tab, param };
-}
-
-function safeDecodeHashParam(value) {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-function isPublicRoute({ section, tab, param }) {
-  return section === "news" && (tab === "feed" || (tab === "events" && Boolean(param)));
+  return parseRouteHash(window.location.hash || "#/news/feed");
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -171,7 +163,7 @@ function renderTabBar(section, activeTab) {
   if (!tabBar || !ROUTES[section]) { if (tabBar) tabBar.innerHTML = ""; return; }
 
   tabBar.innerHTML = ROUTES[section].tabs.map(tab =>
-    `<a href="#/${section}/${tab.id}" class="tab-item${tab.id === activeTab ? " tab-active" : ""}">${tab.label}</a>`
+    `<a href="#/admin/${section}/${tab.id}" class="tab-item${tab.id === activeTab ? " tab-active" : ""}">${tab.label}</a>`
   ).join("");
 }
 
@@ -197,32 +189,110 @@ function updateBreadcrumb(section, tab, param) {
 // §5. 导航
 // ═══════════════════════════════════════════════════════════
 
-function navigate() {
-  const routeInfo = parseHash();
-  const { section, tab, param } = routeInfo;
+function setShellMode(mode) {
+  document.body.classList.toggle("public-shell", mode === "public");
+  document.body.classList.toggle("admin-shell", mode === "admin");
+  document.body.classList.toggle("login-shell", mode === "login");
 
-  // Auth gate: public news feed/articles are readable; admin surfaces require login.
-  if (section !== "connect" && !isAuthenticated() && !isPublicRoute(routeInfo)) {
-    showConnectPage();
-    return;
+  const sidebar = document.getElementById("sidebar");
+  const publicTopBar = document.getElementById("publicTopBar");
+  const adminTopBar = document.getElementById("adminTopBar");
+  const tabBar = document.getElementById("tabBar");
+  const mainContent = document.getElementById("mainContent");
+
+  if (sidebar) sidebar.style.display = mode === "admin" ? "flex" : "none";
+  if (publicTopBar) publicTopBar.style.display = mode === "public" ? "flex" : "none";
+  if (adminTopBar) adminTopBar.style.display = mode === "admin" ? "flex" : "none";
+  if (tabBar) tabBar.style.display = mode === "admin" ? "flex" : "none";
+  if (mainContent) mainContent.classList.toggle("main-content-public", mode === "public");
+
+  const adminBtn = document.getElementById("publicAdminBtn");
+  if (adminBtn) {
+    adminBtn.href = isAuthenticated() ? "#/admin/ops/status" : "#/admin/login";
   }
 
-  // Connect page
-  if (section === "connect") {
-    showConnectPage();
-    return;
-  }
+  if (mode !== "admin") closeSidebar();
+}
 
-  // Hide connect page, show app
+function defaultAdminTab(section) {
+  return ROUTES[section]?.tabs?.[0]?.id || "";
+}
+
+function renderPublicRoute(routeInfo) {
+  setShellMode("public");
+
   const cp = document.getElementById("connectPage");
   if (cp) cp.style.display = "none";
 
-  // Update sidebar active state
+  state.currentSection = "news";
+  state.currentTab = routeInfo.tab || "feed";
+  const container = document.getElementById("pageContainer");
+  if (!container) return;
+  container.innerHTML = "";
+
+  if (routeInfo.name === "publicNewsHome") {
+    renderPublicHome(container, state.targets || []);
+    return;
+  }
+
+  if (routeInfo.targetId) {
+    state.currentTarget = routeInfo.targetId;
+    localStorage.ns_target_id = routeInfo.targetId;
+    const sel = document.getElementById("targetSelect");
+    if (sel) sel.value = routeInfo.targetId;
+  }
+
+  if (routeInfo.name === "publicTargetFeed") {
+    renderFeedTab(container, {
+      targetId: routeInfo.targetId,
+      channelId: routeInfo.channelId || "all",
+      publicMode: true,
+    });
+    return;
+  }
+
+  if (routeInfo.name === "publicTargetEventDetail") {
+    renderEventDetail(container, routeInfo.eventId, {
+      targetId: routeInfo.targetId,
+      publicMode: true,
+      backHref: targetPortalHref(routeInfo.targetId),
+    });
+    return;
+  }
+
+  if (routeInfo.name === "publicLegacyEventDetail") {
+    const fallbackTarget = state.currentTarget || state.targets?.[0]?.target_id || "";
+    renderEventDetail(container, routeInfo.eventId, {
+      targetId: fallbackTarget,
+      publicMode: true,
+      backHref: fallbackTarget ? targetPortalHref(fallbackTarget) : "#/news/feed",
+    });
+    return;
+  }
+
+  container.innerHTML = "<p>页面不存在</p>";
+}
+
+function renderAdminRoute(routeInfo) {
+  const section = routeInfo.section || "ops";
+  const route = ROUTES[section];
+  if (!route) {
+    window.location.hash = "#/admin/ops/status";
+    return;
+  }
+  const normalizedRoute = normalizeAdminRoute(routeInfo, route.tabs.map((item) => item.id));
+  const tab = normalizedRoute.tab || defaultAdminTab(section);
+  const param = normalizedRoute.param || "";
+
+  setShellMode("admin");
+
+  const cp = document.getElementById("connectPage");
+  if (cp) cp.style.display = "none";
+
   $$(".nav-item").forEach(el => {
     el.classList.toggle("active", el.dataset.section === section);
   });
 
-  // Update config collapse
   const configNav = document.getElementById("configNav");
   const configToggle = document.getElementById("configToggle");
   if (section === "config" || section === "settings") {
@@ -231,28 +301,55 @@ function navigate() {
     state.configExpanded = true;
   }
 
-  // Close mobile sidebar
   closeSidebar();
 
-  // Update state
   state.currentSection = section;
   state.currentTab = tab;
 
-  // Render tab bar, breadcrumb, page content
   renderTabBar(section, tab);
   updateBreadcrumb(section, tab, param);
 
   const container = document.getElementById("pageContainer");
   if (!container) return;
   container.innerHTML = "";
+  route.render(container, tab, param);
+}
 
-  // Call section render function
-  const route = ROUTES[section];
-  if (route && route.render) {
-    route.render(container, tab, param);
-  } else {
-    container.innerHTML = "<p>页面不存在</p>";
+function navigate() {
+  const routeInfo = parseHash();
+
+  if (isLegacyProtectedRoute(routeInfo)) {
+    const nextHash = adminHashForLegacyRoute(routeInfo);
+    if (!isAuthenticated()) {
+      sessionStorage.ns_admin_return = nextHash;
+      window.location.hash = "#/admin/login";
+    } else {
+      window.location.hash = nextHash;
+    }
+    return;
   }
+
+  if (isAdminLoginRoute(routeInfo)) {
+    if ((window.location.hash || "") === "#/connect") {
+      window.location.hash = "#/admin/login";
+      return;
+    }
+    showConnectPage();
+    return;
+  }
+
+  if (!isPublicRoute(routeInfo) && !isAuthenticated()) {
+    sessionStorage.ns_admin_return = adminHashForLegacyRoute(routeInfo);
+    window.location.hash = "#/admin/login";
+    return;
+  }
+
+  if (routeInfo.scope === "public") {
+    renderPublicRoute(routeInfo);
+    return;
+  }
+
+  renderAdminRoute(routeInfo);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -260,6 +357,7 @@ function navigate() {
 // ═══════════════════════════════════════════════════════════
 
 function showConnectPage() {
+  setShellMode("login");
   const cp = document.getElementById("connectPage");
   if (cp) cp.style.display = "flex";
 
@@ -289,10 +387,14 @@ async function handleConnect() {
   try {
     const conn = await authenticate(server, username, password);
     logAction("login", server, "ok");
+    await loadTargets();
+    startAdminServices();
     if (conn.mustChangePw) {
-      window.location.hash = "#/settings/password";
+      window.location.hash = "#/admin/settings/password";
     } else {
-      window.location.hash = "#/news/feed";
+      const nextHash = sessionStorage.ns_admin_return || "#/admin/ops/status";
+      delete sessionStorage.ns_admin_return;
+      window.location.hash = nextHash;
     }
   } catch (err) {
     if (errEl) {
@@ -600,6 +702,27 @@ async function _doDesktopUpdate() {
   }
 }
 
+let _adminServicesStarted = false;
+
+function startAdminServices() {
+  if (_adminServicesStarted || !isAuthenticated()) return;
+  _adminServicesStarted = true;
+  updateStatus();
+  connectSSE();
+  setInterval(updateStatus, 30000);
+  _registerSW();
+  _requestNotificationPermission();
+  _setupOnlineDetection();
+  _checkDesktopUpdate();
+
+  const targetSelect = document.getElementById("targetSelect");
+  if (targetSelect) {
+    targetSelect.addEventListener("change", () => {
+      setTimeout(connectSSE, 100);
+    });
+  }
+}
+
 // ═══════════════════════════════════════════════════════════
 // §10. 键盘快捷键
 // ═══════════════════════════════════════════════════════════
@@ -651,7 +774,7 @@ function setupKeyboardShortcuts() {
       // Ctrl+Enter always works
       if (e.ctrlKey && e.key === "Enter") {
         e.preventDefault();
-        window.location.hash = "#/ops/collector";
+        window.location.hash = "#/admin/ops/collector";
       }
       return;
     }
@@ -662,7 +785,7 @@ function setupKeyboardShortcuts() {
       e.preventDefault();
       const s = sections[parseInt(e.key) - 1];
       const defaultTab = ROUTES[s]?.tabs[0]?.id || "";
-      window.location.hash = `#/${s}/${defaultTab}`;
+      window.location.hash = `#/admin/${s}/${defaultTab}`;
     } else if (e.key === "/") {
       e.preventDefault();
       const searchInput = document.querySelector(".event-search input, #eventSearch");
@@ -685,13 +808,13 @@ function setupKeyboardShortcuts() {
       // Context-aware: events page → import, config → new source
       const hash = window.location.hash || "";
       if (hash.includes("/events")) {
-        window.location.hash = "#/events/import";
+        window.location.hash = "#/admin/news/events/import";
       } else if (hash.includes("/config")) {
         showSuccess("请在配置中心手动添加");
       }
     } else if (e.ctrlKey && e.key === "Enter") {
       e.preventDefault();
-      window.location.hash = "#/ops/collector";
+      window.location.hash = "#/admin/ops/collector";
     } else if (e.key === "j" || e.key === "k") {
       e.preventDefault();
       _navigateEventList(e.key === "j" ? 1 : -1);
@@ -827,17 +950,21 @@ async function init() {
       state.currentTarget = e.target.value;
       localStorage.ns_target_id = state.currentTarget;
       state.filters = { source_id: "", classification: "", min_score: 0, search: "", page: 1, sentiment: "", entity: "", topic_tag: "", date_from: "", date_to: "" };
-      navigate();
+      if ((window.location.hash || "").startsWith("#/news/target/")) {
+        window.location.hash = targetPortalHref(state.currentTarget);
+      } else {
+        navigate();
+      }
     });
   }
 
   const initialRoute = parseHash();
-  const initialNeedsLogin = initialRoute.section !== "connect"
+  const initialNeedsLogin = !isAdminLoginRoute(initialRoute)
     && !isPublicRoute(initialRoute)
     && !isAuthenticated();
 
   // Protected routes show the admin login immediately; target loading is optional.
-  if (initialNeedsLogin || initialRoute.section === "connect") {
+  if (initialNeedsLogin || isAdminLoginRoute(initialRoute)) {
     navigate();
     loadTargets();
   } else {
@@ -845,28 +972,11 @@ async function init() {
   }
 
   // Management status/SSE only after login.
-  if (isAuthenticated()) {
-    updateStatus();
-    connectSSE();
-    setInterval(updateStatus, 30000);
-    _registerSW();
-    _requestNotificationPermission();
-    _setupOnlineDetection();
-    _checkDesktopUpdate();
-    // target 切换时重新连接 SSE
-    const targetSelect = document.getElementById("targetSelect");
-    if (targetSelect) {
-      targetSelect.addEventListener("change", () => {
-        setTimeout(connectSSE, 100);
-      });
-    }
-  }
+  startAdminServices();
 
   // Routing
   window.addEventListener("hashchange", navigate);
-  if (!initialNeedsLogin && initialRoute.section !== "connect") {
-    navigate();
-  }
+  navigate();
 
   // Keyboard shortcuts
   setupKeyboardShortcuts();

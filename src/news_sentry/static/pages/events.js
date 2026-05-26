@@ -5,7 +5,8 @@
 
 "use strict";
 
-import { state, api, apiPost, escapeHtml, showError, showSuccess, formatDate, scoreColor, scoreGradient, scoreBar, sentimentColor, sentimentPct, sentimentGradient, sentimentLabelColor, sentimentDotHtml, entityChipsHtml, copyToClipboard, logAction, emptyStateHtml, isAuthenticated } from "../api.js?v=20260526d";
+import { state, api, apiPost, escapeHtml, showError, showSuccess, formatDate, scoreColor, scoreGradient, scoreBar, sentimentColor, sentimentPct, sentimentGradient, sentimentLabelColor, sentimentDotHtml, entityChipsHtml, copyToClipboard, logAction, emptyStateHtml, isAuthenticated } from "../api.js";
+import { adminEventHref, targetPortalHref } from "./public_portal.js";
 
 const LINK_TYPE_LABELS = { followup: "后续进展", related: "相关", same_event: "同一事件", correction: "纠正" };
 const LINK_TYPE_COLORS = { followup: "#3b82f6", related: "#6b7280", same_event: "#10b981", correction: "#ef4444" };
@@ -28,7 +29,7 @@ function entityChipHtml(entity, authenticated) {
   const id = entity?.id || entity?.entity_id || entity?.entityId || entity?.canonical_id || entity?.canonicalId;
 
   if (authenticated && id) {
-    return `<a class="chip chip-entity chip-link" href="#/news/entities/${encodeURIComponent(String(id))}"${title}>${name}${typeHtml}</a>`;
+    return `<a class="chip chip-entity chip-link" href="#/admin/news/entities/${encodeURIComponent(String(id))}"${title}>${name}${typeHtml}</a>`;
   }
   return `<span class="chip chip-entity"${title}>${name}${typeHtml}</span>`;
 }
@@ -335,7 +336,7 @@ async function loadEventList(container) {
         "📰",
         "暂无匹配的事件",
         "尝试调整筛选条件，或等待自动采集器完成下一轮采集",
-        [{ label: "清除筛选", id: "clearFilters" }, { label: "查看诊断", href: "#/ops/collector" }]
+        [{ label: "清除筛选", id: "clearFilters" }, { label: "查看诊断", href: "#/admin/ops/collector" }]
       );
       const clearBtn = area.querySelector("#clearFilters");
       if (clearBtn) {
@@ -412,7 +413,7 @@ async function loadEventList(container) {
       card.addEventListener("click", () => {
         const eid = card.dataset.eventId;
         if (eid) {
-          window.location.hash = `#/news/events/${encodeURIComponent(eid)}`;
+          window.location.hash = adminEventHref(eid);
         }
       });
     });
@@ -431,14 +432,19 @@ async function loadEventList(container) {
 
 // ── 页面渲染：事件详情 ────────────────────────────────────
 
-export async function renderEventDetail(container, eventId) {
+export async function renderEventDetail(container, eventId, options = {}) {
   const authenticated = isAuthenticated();
-  const detailBackHref = authenticated ? "#/news/events" : "#/news/feed";
+  const publicMode = Boolean(options.publicMode);
+  const targetId = options.targetId || state.currentTarget;
+  const detailBackHref = options.backHref || (publicMode
+    ? (targetId ? targetPortalHref(targetId) : "#/news/feed")
+    : "#/admin/news/events");
+  const allowAdminControls = authenticated && !publicMode;
   container.innerHTML = `
     <div class="loading-spinner"><div class="spinner"></div><p>正在加载事件详情...</p></div>
   `;
 
-  if (!state.currentTarget) {
+  if (!targetId) {
     container.innerHTML = `
       <div class="empty-state">
         <p>未选择监控目标，无法加载事件详情</p>
@@ -449,7 +455,7 @@ export async function renderEventDetail(container, eventId) {
 
   try {
     const ev = await api(`/api/v1/events/${encodeURIComponent(eventId)}`, {
-      target_id: state.currentTarget,
+      target_id: targetId,
     });
 
     if (!ev) {
@@ -545,7 +551,7 @@ export async function renderEventDetail(container, eventId) {
                 <div class="nlp-field">
                   <span class="nlp-label">实体</span>
                   <div class="chip-list">
-                    ${ev.nlp_entities.map((e) => entityChipHtml(e, authenticated)).join("")}
+                    ${ev.nlp_entities.map((e) => entityChipHtml(e, allowAdminControls)).join("")}
                   </div>
                 </div>
               ` : ""}
@@ -605,13 +611,13 @@ export async function renderEventDetail(container, eventId) {
       copyToClipboard(summary);
     });
 
-    if (authenticated) {
+    if (allowAdminControls) {
       // Phase 35: 关联事件卡片
       try {
-        const linksData = await api(`/api/v1/events/${encodeURIComponent(eventId)}/links?target_id=${state.currentTarget}`);
+        const linksData = await api(`/api/v1/events/${encodeURIComponent(eventId)}/links?target_id=${targetId}`);
         if (linksData.links && linksData.links.length > 0) {
           const linksHtml = linksData.links.map(l => `
-            <a class="link-item" href="#/news/events/${encodeURIComponent(l.linked_event_id)}">
+            <a class="link-item" href="${adminEventHref(l.linked_event_id)}">
               <span class="link-direction">${l.direction === "forward" ? "\u2192" : "\u2190"}</span>
               <span class="link-type-badge" style="background:${LINK_TYPE_COLORS[l.link_type] || '#6b7280'}">${LINK_TYPE_LABELS[l.link_type] || l.link_type}</span>
               <span class="link-title">${escapeHtml(l.linked_event_title || l.linked_event_id)}</span>
@@ -645,7 +651,7 @@ export async function renderEventDetail(container, eventId) {
         const statusEl = document.getElementById("feedbackStatus");
         try {
           await apiPost("/api/v1/feedback", {
-            target_id: state.currentTarget,
+            target_id: targetId,
             event_id: eventId,
             verdict_type: verdictType,
             comment: "",
@@ -663,7 +669,7 @@ export async function renderEventDetail(container, eventId) {
         const statusEl = document.getElementById("feedbackStatus");
         try {
           await apiPost("/api/v1/feedback", {
-            target_id: state.currentTarget,
+            target_id: targetId,
             event_id: eventId,
             verdict_type: "comment",
             comment,

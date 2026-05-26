@@ -6,7 +6,7 @@
 import {
   state, api, $, escapeHtml, showError, formatDate,
   scoreColor, sentimentDotHtml,
-} from "../api.js?v=20260526d";
+} from "../api.js";
 
 let entityFilters = { entity_type: "", min_mentions: 1, page: 1 };
 
@@ -111,7 +111,7 @@ async function loadEntityList(container) {
     area.querySelectorAll(".entity-card").forEach((card) => {
       card.addEventListener("click", () => {
         const eid = card.dataset.entityId;
-        if (eid) window.location.hash = `#/entities/${eid}`;
+        if (eid) window.location.hash = `#/admin/news/entities/${eid}`;
       });
     });
 
@@ -199,12 +199,12 @@ export async function renderEntityDetail(container, entityId) {
     `;
 
     $("#entityBack").addEventListener("click", () => {
-      window.location.hash = "#/entities";
+      window.location.hash = "#/admin/news/entities";
     });
   } catch (err) {
     showError(`加载实体详情失败: ${err.message}`);
     container.innerHTML = `
-      <div class="detail-back" onclick="window.location.hash='#/entities'">返回实体列表</div>
+      <div class="detail-back" onclick="window.location.hash='#/admin/news/entities'">返回实体列表</div>
       <div class="empty-state"><p>加载失败</p></div>
     `;
   }
