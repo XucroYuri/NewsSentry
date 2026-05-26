@@ -18,6 +18,12 @@ assert.equal(targetFeed.targetId, "italy");
 assert.equal(targetFeed.channelId, "all");
 assert.equal(isPublicRoute(targetFeed), true);
 
+const targetAnalysis = parseRouteHash("#/news/target/italy/analysis");
+assert.equal(targetAnalysis.name, "publicTargetAnalysis");
+assert.equal(targetAnalysis.targetId, "italy");
+assert.equal(targetAnalysis.tab, "analysis");
+assert.equal(isPublicRoute(targetAnalysis), true);
+
 const targetPolicy = parseRouteHash("#/news/target/italy/policy");
 assert.equal(targetPolicy.name, "publicTargetFeed");
 assert.equal(targetPolicy.channelId, "policy");
