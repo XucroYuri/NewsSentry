@@ -9,7 +9,7 @@ import {
   state, api, apiPost, escapeHtml, formatDate, showSuccess, showError,
   scoreColor, scoreGradient, scoreBar, entityChipsHtml, sentimentDotHtml,
   copyToClipboard, exportBriefingMarkdown,
-} from "../api.js?v=20260526d";
+} from "../api.js?v=20260527a";
 
 /** 当前选中的时间维度: 1 / 7 / 30 */
 let currentDays = 1;
@@ -169,7 +169,7 @@ async function loadData(container) {
             <p class="empty-state-label">可能原因：</p>
             <ul>
               <li>自动采集器尚未完成首次运行</li>
-              <li>AI API Key 未配置（<a href="#/config/apikey">点击配置</a>）</li>
+              <li>AI API Key 未配置（<a href="#/admin/settings/apiKey">点击配置</a>）</li>
               <li>信源暂时不可达</li>
             </ul>
           </div>
@@ -332,7 +332,7 @@ function renderTopEvents(container, events) {
       const sentiment = ev.sentiment || ev.metadata?.sentiment;
 
       return `
-        <div class="top-event-row" onclick="location.hash='#/events/${encodeURIComponent(ev.event_id || ev.id)}'" style="cursor:pointer">
+        <div class="top-event-row" onclick="location.hash='#/admin/news/events/${encodeURIComponent(ev.event_id || ev.id)}'" style="cursor:pointer">
           <div class="top-event-color-bar" style="background:${valueBarColor(score)}"></div>
           <div class="top-event-content">
             <div class="top-event-header">
@@ -347,7 +347,7 @@ function renderTopEvents(container, events) {
             </div>
             <div class="top-event-tags">
               ${entityChipsHtml(entities, 3)}
-              ${chainId ? `<a class="chip chip-chain" href="#/chains/${encodeURIComponent(chainId)}" onclick="event.stopPropagation()">链 ${escapeHtml(String(chainId).slice(0, 8))}</a>` : ""}
+              ${chainId ? `<a class="chip chip-chain" href="#/admin/news/chains/${encodeURIComponent(chainId)}" onclick="event.stopPropagation()">链 ${escapeHtml(String(chainId).slice(0, 8))}</a>` : ""}
             </div>
           </div>
         </div>
@@ -376,7 +376,7 @@ function renderEntities(container, resp) {
       const type = e.entity_type || "";
       const count = e.mention_count || e.count || 0;
       const size = 0.75 + (count / maxMentions) * 0.5;
-      return `<a class="entity-tag" href="#/entities/${encodeURIComponent(name)}" style="font-size:${size}rem">${escapeHtml(name)}${type ? ` <small>${escapeHtml(type)}</small>` : ""}<sup>${count}</sup></a>`;
+      return `<a class="entity-tag" href="#/admin/news/entities/${encodeURIComponent(name)}" style="font-size:${size}rem">${escapeHtml(name)}${type ? ` <small>${escapeHtml(type)}</small>` : ""}<sup>${count}</sup></a>`;
     }).join(" ")}
   </div>`;
 }

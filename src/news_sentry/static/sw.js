@@ -1,28 +1,31 @@
-/* News Sentry — Service Worker v3 */
+/* News Sentry — Service Worker v4 */
 "use strict";
 
-const CACHE = "news-sentry-v8";
+const CACHE = "news-sentry-v9";
 const STATIC_URLS = [
   "/",
   "/index.html",
   "/manifest.json",
   "/icons/icon-192.svg",
   "/icons/icon-512.svg",
-  "/app.js?v=20260526d",
-  "/api.js?v=20260526d",
+  "/app.js?v=20260527a",
+  "/api.js?v=20260527a",
   "/style.css?v=20260526d",
-  "/pages/feed.js?v=20260526d",
-  "/pages/feed_filters.js?v=20260526d",
-  "/pages/dashboard.js?v=20260526d",
-  "/pages/events.js?v=20260526d",
-  "/pages/entities.js?v=20260526d",
-  "/pages/alerts.js?v=20260526d",
-  "/pages/chains.js?v=20260526d",
-  "/pages/ops.js?v=20260526d",
-  "/pages/feedback.js?v=20260526d",
-  "/pages/config.js?v=20260526d",
-  "/pages/settings.js?v=20260526d",
-  "/pages/trends.js?v=20260526d",
+  "/public.css?v=20260527a",
+  "/router.js?v=20260527a",
+  "/pages/public_portal.js?v=20260527a",
+  "/pages/feed.js?v=20260527a",
+  "/pages/feed_filters.js?v=20260527a",
+  "/pages/dashboard.js?v=20260527a",
+  "/pages/events.js?v=20260527a",
+  "/pages/entities.js?v=20260527a",
+  "/pages/alerts.js?v=20260527a",
+  "/pages/chains.js?v=20260527a",
+  "/pages/ops.js?v=20260527a",
+  "/pages/feedback.js?v=20260527a",
+  "/pages/config.js?v=20260527a",
+  "/pages/settings.js?v=20260527a",
+  "/pages/trends.js?v=20260527a",
   "https://cdn.jsdelivr.net/npm/chart.js@4",
 ];
 

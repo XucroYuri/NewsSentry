@@ -3,8 +3,9 @@
  * Phase 73: 来源人格化 + 标签扁平化 + 多视图切换
  */
 
-import { state, api, escapeHtml, scoreColor, isAuthenticated } from "../api.js?v=20260526d";
-import { CHANNELS, filterGroups, countEvents } from "./feed_filters.js?v=20260526d";
+import { state, api, escapeHtml, scoreColor, isAuthenticated } from "../api.js?v=20260527a";
+import { CHANNELS, filterGroups, countEvents } from "./feed_filters.js?v=20260527a";
+import { adminEventHref, channelPortalHref, targetEventHref, targetPortalHref } from "./public_portal.js?v=20260527a";
 
 // ── 推荐标签映射 ──
 const REC_LABELS = {
@@ -138,6 +139,59 @@ function eventReason(ev) {
   return `<div class="feed-ai-reason">${escapeHtml(reason)}</div>`;
 }
 
+function targetName(targetId) {
+  const target = (state.targets || []).find((item) => item.target_id === targetId);
+  return target?.display_name || targetId || "新闻目标";
+}
+
+export function eventHref(ev, targetId, publicMode = true) {
+  const eventId = ev?.event_id || ev?.id || "";
+  return publicMode ? targetEventHref(targetId, eventId) : adminEventHref(eventId);
+}
+
+export function renderPublicHome(container, targets = state.targets || []) {
+  const sortedTargets = [...targets].sort((a, b) => Number(b.event_count || 0) - Number(a.event_count || 0));
+
+  if (!sortedTargets.length) {
+    container.innerHTML = `
+      <section class="public-home">
+        <div class="public-home-head">
+          <p class="public-kicker">News Sentry</p>
+          <h1>新闻情报频道</h1>
+          <p>当前还没有可浏览的监控目标。</p>
+        </div>
+      </section>`;
+    return;
+  }
+
+  container.innerHTML = `
+    <section class="public-home">
+      <div class="public-home-head">
+        <p class="public-kicker">News Sentry</p>
+        <h1>新闻情报频道</h1>
+        <p>选择一个监控目标，直接进入频道化新闻流。</p>
+      </div>
+      <div class="public-target-grid">
+        ${sortedTargets.map((target) => {
+          const href = targetPortalHref(target.target_id);
+          const eventCount = Number(target.event_count || 0);
+          return `
+            <a class="public-target-card" href="${href}">
+              <div class="public-target-card-main">
+                <span class="public-target-id">${escapeHtml(target.target_id)}</span>
+                <h2>${escapeHtml(target.display_name || target.target_id)}</h2>
+                <p>${escapeHtml(target.primary_language || "mixed")} · ${Number(target.source_count || 0)} 个信源</p>
+              </div>
+              <div class="public-target-count">
+                <strong>${eventCount}</strong>
+                <span>事件</span>
+              </div>
+            </a>`;
+        }).join("")}
+      </div>
+    </section>`;
+}
+
 // ── 视图渲染 ──
 
 function displayDate(date) {
@@ -148,7 +202,7 @@ function displayDate(date) {
   return date;
 }
 
-function renderTimeline(date, events, sourceMap) {
+function renderTimeline(date, events, sourceMap, options = {}) {
   const dateDisplay = displayDate(date);
 
   const items = events.map((ev) => {
@@ -157,7 +211,7 @@ function renderTimeline(date, events, sourceMap) {
     const summary = eventSummary(ev);
     const sid = ev.source_id || "";
     const si = sourceInfoFor(ev, sourceMap);
-    const href = `#/news/events/${encodeURIComponent(ev.event_id || ev.id || "")}`;
+    const href = eventHref(ev, options.targetId, options.publicMode !== false);
 
     return `<div class="feed-timeline-row" data-score="${score || 0}">
       <div class="feed-timeline-time">${eventTime(ev)}</div>
@@ -186,13 +240,13 @@ function renderTimeline(date, events, sourceMap) {
     <div class="feed-timeline">${items}</div></section>`;
 }
 
-function renderCompact(date, events, sourceMap) {
+function renderCompact(date, events, sourceMap, options = {}) {
   const rows = events.map((ev) => {
     const score = eventScore(ev);
     const title = eventTitle(ev);
     const sid = ev.source_id || "";
     const si = sourceInfoFor(ev, sourceMap);
-    const href = `#/news/events/${encodeURIComponent(ev.event_id || ev.id || "")}`;
+    const href = eventHref(ev, options.targetId, options.publicMode !== false);
 
     return `<div class="feed-compact-row">
       <span class="feed-compact-time">${eventTime(ev)}</span>
@@ -212,23 +266,25 @@ function renderCompact(date, events, sourceMap) {
 
 const VIEW_RENDERERS = { timeline: renderTimeline, compact: renderCompact };
 
-export async function renderFeedTab(container) {
-  const targetId = state.currentTarget;
+export async function renderFeedTab(container, options = {}) {
+  const targetId = options.targetId || state.currentTarget;
+  const publicMode = Boolean(options.publicMode);
   if (!targetId) {
-    container.innerHTML = '<div class="feed-empty">请先选择目标 (Target)</div>';
+    container.innerHTML = '<div class="feed-empty">请先选择目标</div>';
     return;
   }
 
   // 当前视图状态
   let currentView = "timeline";
-  let currentChannel = "all";
+  let currentChannel = options.channelId || "all";
   let searchQuery = "";
+  const heading = publicMode ? targetName(targetId) : "新闻流";
 
   container.innerHTML = `
-    <div class="feed-container">
+    <div class="feed-container${publicMode ? " feed-container-public" : ""}">
       <div class="feed-toolbar">
         <div class="feed-toolbar-left">
-          <h2 class="feed-title">新闻流</h2>
+          <h2 class="feed-title">${escapeHtml(heading)}</h2>
           <span class="feed-count" id="feed-count"></span>
         </div>
         <div class="feed-toolbar-right">
@@ -242,11 +298,10 @@ export async function renderFeedTab(container) {
         </div>
       </div>
       <div class="feed-channel-bar" id="feed-channel-bar">
-        ${CHANNELS.map((channel) => `
-          <button class="feed-channel${channel.id === "all" ? " active" : ""}" data-channel="${channel.id}">
-            ${channel.label}
-          </button>
-        `).join("")}
+        ${CHANNELS.map((channel) => publicMode
+          ? `<a class="feed-channel${channel.id === currentChannel ? " active" : ""}" href="${channelPortalHref(targetId, channel.id)}" data-channel="${channel.id}">${channel.label}</a>`
+          : `<button class="feed-channel${channel.id === currentChannel ? " active" : ""}" data-channel="${channel.id}">${channel.label}</button>`
+        ).join("")}
       </div>
       <div class="feed-body" id="feed-body">
         <div class="feed-loading">加载中...</div>
@@ -261,7 +316,7 @@ export async function renderFeedTab(container) {
   const refreshBtn = container.querySelector("#feed-refresh");
   const toggleBtns = container.querySelectorAll(".view-btn");
   const searchInput = container.querySelector("#feed-search");
-  const channelBtns = container.querySelectorAll(".feed-channel");
+  const channelBtns = container.querySelectorAll("button.feed-channel");
 
   let groups = [];
   let visibleGroups = [];
@@ -288,7 +343,7 @@ export async function renderFeedTab(container) {
       });
       return;
     }
-    body.innerHTML = visibleGroups.map((g) => renderer(g.date, g.events, sourceMap)).join("");
+    body.innerHTML = visibleGroups.map((g) => renderer(g.date, g.events, sourceMap, { targetId, publicMode })).join("");
     const hasClientFilter = currentChannel !== "all" || searchQuery.trim();
     footer.innerHTML = !hasClientFilter && totalCount > 100
       ? `<span class="feed-more">显示前 100 条，共 ${totalCount} 条</span>` : "";
@@ -303,7 +358,7 @@ export async function renderFeedTab(container) {
     try {
       // 并行加载 source 信息和 feed 数据
       const [loadedSourceMap, data] = await Promise.all([
-        loadSourceMap(targetId),
+        publicMode ? Promise.resolve({}) : loadSourceMap(targetId),
         api(`/api/v1/events/feed?${params}`),
       ]);
       sourceMap = loadedSourceMap;
