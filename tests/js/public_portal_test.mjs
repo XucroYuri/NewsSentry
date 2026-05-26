@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  allowEventAdminControls,
   channelPortalHref,
   targetEventHref,
   targetPortalHref,
@@ -15,5 +16,10 @@ assert.equal(channelPortalHref("italy", ""), "#/news/target/italy");
 assert.equal(targetEventHref("italy", "evt/001"), "#/news/target/italy/events/evt%2F001");
 assert.equal(targetEventHref("italy", "evt 001"), "#/news/target/italy/events/evt%20001");
 assert.equal(targetEventHref("", "evt 001"), "#/news/events/evt%20001");
+
+assert.equal(allowEventAdminControls({ authenticated: false, publicMode: true }), false);
+assert.equal(allowEventAdminControls({ authenticated: true, publicMode: true }), false);
+assert.equal(allowEventAdminControls({ authenticated: false, publicMode: false }), false);
+assert.equal(allowEventAdminControls({ authenticated: true, publicMode: false }), true);
 
 console.log("public portal tests passed");

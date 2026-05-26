@@ -6,7 +6,7 @@
 "use strict";
 
 import { state, api, apiPost, escapeHtml, showError, showSuccess, formatDate, scoreColor, scoreGradient, scoreBar, sentimentColor, sentimentPct, sentimentGradient, sentimentLabelColor, sentimentDotHtml, entityChipsHtml, copyToClipboard, logAction, emptyStateHtml, isAuthenticated } from "../api.js?v=20260527a";
-import { adminEventHref, targetPortalHref } from "./public_portal.js?v=20260527a";
+import { adminEventHref, allowEventAdminControls, targetPortalHref } from "./public_portal.js?v=20260527a";
 
 const LINK_TYPE_LABELS = { followup: "后续进展", related: "相关", same_event: "同一事件", correction: "纠正" };
 const LINK_TYPE_COLORS = { followup: "#3b82f6", related: "#6b7280", same_event: "#10b981", correction: "#ef4444" };
@@ -439,7 +439,7 @@ export async function renderEventDetail(container, eventId, options = {}) {
   const detailBackHref = options.backHref || (publicMode
     ? (targetId ? targetPortalHref(targetId) : "#/news/feed")
     : "#/admin/news/events");
-  const allowAdminControls = authenticated && !publicMode;
+  const allowAdminControls = allowEventAdminControls({ authenticated, publicMode });
   container.innerHTML = `
     <div class="loading-spinner"><div class="spinner"></div><p>正在加载事件详情...</p></div>
   `;
