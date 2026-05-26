@@ -1166,57 +1166,210 @@ def _target_display_name(target_id: str) -> str:
     return target_id
 
 
+_PUBLIC_ANALYSIS_STAGE = "drafts"
+_PUBLIC_ANALYSIS_CHAIN_LIMIT = 10
+
+
+def _split_store_list(value: Any) -> list[str]:
+    """拆分 store 中逗号分隔的 NLP 字段。"""
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    return []
+
+
+def _store_day(value: Any) -> str:
+    """从 ISO 日期字符串取 YYYY-MM-DD。"""
+    text = str(value or "")
+    return text[:10] if len(text) >= 10 else ""
+
+
+async def _public_event_rows_from_store(
+    target_id: str,
+    days: int,
+    store: AsyncStore,
+) -> list[dict[str, Any]]:
+    """读取公开新闻流可见事件索引；仅 drafts stage 对匿名端可见。"""
+    if store._db is None:  # noqa: SLF001
+        return []
+    async with store._db.execute(  # noqa: SLF001
+        "SELECT event_id, source_id, news_value_score, china_relevance, "
+        "classification_l0, published_at, sentiment, entity_names, topic_tags "
+        "FROM event_index "
+        "WHERE target_id = ? AND stage = ? "
+        "AND (published_at IS NULL OR published_at = '' "
+        "OR published_at >= date('now', ? || ' days')) "
+        "ORDER BY published_at DESC",
+        [target_id, _PUBLIC_ANALYSIS_STAGE, f"-{days}"],
+    ) as cursor:
+        rows = await cursor.fetchall()
+    cols = (
+        "event_id",
+        "source_id",
+        "news_value_score",
+        "china_relevance",
+        "classification_l0",
+        "published_at",
+        "sentiment",
+        "entity_names",
+        "topic_tags",
+    )
+    return [dict(zip(cols, row, strict=True)) for row in rows]
+
+
+async def _public_active_chains_from_store(
+    target_id: str,
+    store: AsyncStore,
+    *,
+    limit: int = _PUBLIC_ANALYSIS_CHAIN_LIMIT,
+) -> list[PublicChainItem]:
+    """读取公开追踪链摘要，并在 root 查询阶段硬性限量。"""
+    if store._db is None:  # noqa: SLF001
+        return []
+
+    async with store._db.execute(  # noqa: SLF001
+        "SELECT DISTINCT el.source_event_id, source.published_at "
+        "FROM event_links el "
+        "JOIN event_index source ON source.event_id = el.source_event_id "
+        "WHERE el.target_id = ? AND source.target_id = ? AND source.stage = ? "
+        "ORDER BY source.published_at DESC LIMIT ?",
+        [target_id, target_id, _PUBLIC_ANALYSIS_STAGE, limit],
+    ) as cursor:
+        root_rows = await cursor.fetchall()
+    root_ids = [str(row[0]) for row in root_rows if row[0]]
+    if not root_ids:
+        return []
+
+    placeholders = ",".join("?" for _ in root_ids)
+    narrative_map: dict[str, str] = {}
+    async with store._db.execute(  # noqa: SLF001
+        f"SELECT chain_root_id, narrative FROM chain_narratives "  # noqa: S608
+        f"WHERE chain_root_id IN ({placeholders})",
+        root_ids,
+    ) as cursor:
+        async for row in cursor:
+            narrative_map[str(row[0])] = str(row[1] or "")
+
+    chains: list[PublicChainItem] = []
+    for root_id in root_ids:
+        async with store._db.execute(  # noqa: SLF001
+            "SELECT DISTINCT ei.event_id, ei.title_original, ei.published_at "
+            "FROM event_index ei "
+            "WHERE ei.target_id = ? AND ei.stage = ? "
+            "AND (ei.event_id = ? "
+            "OR ei.event_id IN ("
+            "SELECT target_event_id FROM event_links "
+            "WHERE target_id = ? AND source_event_id = ?"
+            ") "
+            "OR ei.event_id IN ("
+            "SELECT source_event_id FROM event_links "
+            "WHERE target_id = ? AND target_event_id = ?"
+            ")) "
+            "ORDER BY ei.published_at ASC",
+            [
+                target_id,
+                _PUBLIC_ANALYSIS_STAGE,
+                root_id,
+                target_id,
+                root_id,
+                target_id,
+                root_id,
+            ],
+        ) as cursor:
+            chain_rows = await cursor.fetchall()
+        if len(chain_rows) < 2:
+            continue
+        latest = chain_rows[-1]
+        narrative = narrative_map.get(root_id, "")
+        chains.append(
+            PublicChainItem(
+                root_event_id=root_id,
+                event_count=len(chain_rows),
+                latest_time=str(latest[2] or ""),
+                latest_title=str(latest[1] or ""),
+                narrative_summary=narrative[:50] + "..." if len(narrative) > 50 else narrative,
+            )
+        )
+    chains.sort(key=lambda chain: chain.latest_time, reverse=True)
+    return chains[:limit]
+
+
 async def _public_analysis_from_store(
     target_id: str,
     days: int,
     store: AsyncStore,
 ) -> PublicAnalysisResponse | None:
     """从 SQLite store 聚合公开分析快照；空 store 交给文件系统降级。"""
-    stats = await store.get_stats_aggregated(target_id)
-    total_events = int(stats.get("total_events") or 0)
+    public_rows = await _public_event_rows_from_store(target_id, days, store)
+    total_events = len(public_rows)
     if total_events == 0:
         return None
 
-    top_events = await store.get_top_events(target_id, days=days, limit=100)
-    entities = await store.query_entities(target_id=target_id, limit=10)
-    topic_daily_counts = await store.get_topic_daily_counts(target_id, days=days)
-    top_topics = await store.get_top_topics(target_id, days=days, limit=10)
-    sentiment_counts = await store.get_sentiment_daily_counts(target_id, days=days)
-    chains = await store.get_active_chains(target_id)
+    scores = [
+        score
+        for event in public_rows
+        if isinstance((score := event.get("news_value_score")), (int, float))
+    ]
+    relevances = [
+        relevance
+        for event in public_rows
+        if isinstance((relevance := event.get("china_relevance")), (int, float))
+    ]
+    by_classification: dict[str, int] = defaultdict(int)
+    by_source: dict[str, int] = defaultdict(int)
+    entity_counts: dict[str, int] = defaultdict(int)
+    topic_counts: dict[str, int] = defaultdict(int)
+    topic_daily: dict[tuple[str, str], int] = defaultdict(int)
+    sentiment_by_day: dict[str, DailySentimentCount] = {}
+
+    for event in public_rows:
+        classification = event.get("classification_l0")
+        if classification:
+            by_classification[str(classification)] += 1
+        source_id = event.get("source_id")
+        if source_id:
+            by_source[str(source_id)] += 1
+
+        for entity_name in _split_store_list(event.get("entity_names")):
+            entity_counts[entity_name] += 1
+
+        day = _store_day(event.get("published_at"))
+        for topic in _split_store_list(event.get("topic_tags")):
+            topic_counts[topic] += 1
+            if day:
+                topic_daily[(topic, day)] += 1
+
+        sentiment = event.get("sentiment")
+        if day and sentiment in {"positive", "negative", "neutral"}:
+            sentiment_item = sentiment_by_day.setdefault(day, DailySentimentCount(day=day))
+            if sentiment == "positive":
+                sentiment_item.positive += 1
+            elif sentiment == "negative":
+                sentiment_item.negative += 1
+            elif sentiment == "neutral":
+                sentiment_item.neutral += 1
+
+    topic_daily_counts = [
+        {"topic": topic, "day": day, "count": count}
+        for (topic, day), count in sorted(topic_daily.items())
+    ]
+    top_topics = [
+        {"topic": topic, "count": count}
+        for topic, count in sorted(topic_counts.items(), key=lambda item: (-item[1], item[0]))[:10]
+    ]
+    active_chains = await _public_active_chains_from_store(target_id, store)
 
     from news_sentry.skills.analysis.trend_analyzer import compute_topic_trends
 
-    topic_trends = compute_topic_trends(topic_daily_counts, top_topics, total_days=days)
+    topic_trends = [
+        TopicTrendItem(**trend.model_dump())
+        for trend in compute_topic_trends(topic_daily_counts, top_topics, total_days=days)
+    ]
 
-    sentiment_by_day: dict[str, DailySentimentCount] = {}
-    for entry in sentiment_counts:
-        day = str(entry.get("day") or "")
-        if not day:
-            continue
-        item = sentiment_by_day.setdefault(day, DailySentimentCount(day=day))
-        count = int(entry.get("count") or 0)
-        sentiment = entry.get("sentiment")
-        if sentiment == "positive":
-            item.positive = count
-        elif sentiment == "negative":
-            item.negative = count
-        elif sentiment == "neutral":
-            item.neutral = count
-
-    avg_score = stats.get("avg_news_value_score")
-    avg_relevance = stats.get("avg_china_relevance")
     summary = PublicAnalysisSummary(
         total_events=total_events,
-        high_value_events=sum(
-            1
-            for event in top_events
-            if isinstance(event.get("news_value_score"), (int, float))
-            and event["news_value_score"] >= 70
-        ),
-        avg_news_value_score=round(avg_score, 2) if isinstance(avg_score, (int, float)) else None,
-        avg_china_relevance=round(avg_relevance, 2)
-        if isinstance(avg_relevance, (int, float))
-        else None,
+        high_value_events=sum(1 for score in scores if score >= 70),
+        avg_news_value_score=_avg_or_none(scores),
+        avg_china_relevance=_avg_or_none(relevances),
     )
 
     return PublicAnalysisResponse(
@@ -1224,30 +1377,20 @@ async def _public_analysis_from_store(
         target_name=_target_display_name(target_id),
         days=days,
         summary=summary,
-        classification_distribution=_distribution_items(stats.get("by_classification", {})),
-        source_distribution=_source_distribution_items(stats.get("by_source", {})),
+        classification_distribution=_distribution_items(by_classification),
+        source_distribution=_source_distribution_items(by_source),
         top_entities=[
             PublicEntityItem(
-                name=str(entity.get("canonical_name") or ""),
-                entity_type=str(entity.get("entity_type") or ""),
-                mention_count=int(entity.get("mention_count") or 0),
+                name=name,
+                mention_count=count,
             )
-            for entity in entities
-            if entity.get("canonical_name")
+            for name, count in sorted(entity_counts.items(), key=lambda item: (-item[1], item[0]))[
+                :10
+            ]
         ],
         topic_trends=topic_trends,
         sentiment_trend=sorted(sentiment_by_day.values(), key=lambda item: item.day),
-        active_chains=[
-            PublicChainItem(
-                root_event_id=str(chain.get("root_event_id") or ""),
-                event_count=int(chain.get("event_count") or 0),
-                latest_time=str(chain.get("latest_time") or ""),
-                latest_title=str(chain.get("latest_title") or ""),
-                narrative_summary=str(chain.get("narrative_summary") or ""),
-            )
-            for chain in chains
-            if chain.get("root_event_id")
-        ],
+        active_chains=active_chains,
         generated_at=datetime.now(UTC).isoformat(),
     )
 

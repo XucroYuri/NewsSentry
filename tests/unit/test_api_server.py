@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 from news_sentry.core.api_server import (
     _get_valid_api_keys,
     _parse_frontmatter,
+    _public_analysis_from_store,
     _RateLimiter,
     _tag_text,
     create_app,
@@ -74,6 +75,51 @@ def _write_target_config(
     content = yaml.dump(data, allow_unicode=True, default_flow_style=False, sort_keys=False)
     filepath.write_text(content, encoding="utf-8")
     return filepath
+
+
+async def _insert_index_event(
+    store: AsyncStore,
+    *,
+    event_id: str,
+    target_id: str = "italy",
+    stage: str = "drafts",
+    source_id: str = "ansa",
+    news_value_score: int | None = 80,
+    china_relevance: int | None = 50,
+    classification_l0: str | None = "politics",
+    title_original: str = "Store event",
+    published_at: str | None = None,
+    sentiment: str | None = None,
+    entity_names: str | None = None,
+    topic_tags: str | None = None,
+) -> None:
+    """辅助：写入 event_index 行。"""
+    assert store._db is not None  # noqa: SLF001
+    now = datetime.now(UTC).isoformat()
+    await store._db.execute(  # noqa: SLF001
+        "INSERT OR REPLACE INTO event_index "
+        "(event_id, target_id, stage, source_id, news_value_score, "
+        "china_relevance, classification_l0, title_original, "
+        "published_at, file_path, created_at, sentiment, entity_names, topic_tags) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            event_id,
+            target_id,
+            stage,
+            source_id,
+            news_value_score,
+            china_relevance,
+            classification_l0,
+            title_original,
+            published_at or now,
+            None,
+            now,
+            sentiment,
+            entity_names,
+            topic_tags,
+        ),
+    )
+    await store._db.commit()  # noqa: SLF001
 
 
 class TestRateLimiter:
@@ -439,6 +485,136 @@ class TestAPIServer:
         assert data["summary"]["total_events"] == 0
         assert data["classification_distribution"] == []
         assert data["source_distribution"] == []
+
+    @pytest.mark.asyncio
+    async def test_public_analysis_store_uses_only_public_draft_rows(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """SQLite 公开快照只聚合新闻流可见 drafts，并转换趋势模型。"""
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        now = datetime.now(UTC).isoformat()
+        try:
+            await _insert_index_event(
+                store,
+                event_id="public-policy",
+                source_id="ansa",
+                news_value_score=90,
+                china_relevance=80,
+                classification_l0="politics",
+                title_original="Public policy",
+                published_at=now,
+                sentiment="positive",
+                entity_names="Italy,China",
+                topic_tags="policy,china",
+            )
+            await _insert_index_event(
+                store,
+                event_id="public-market",
+                source_id="reuters",
+                news_value_score=60,
+                china_relevance=20,
+                classification_l0="economy",
+                title_original="Public market",
+                published_at=now,
+                sentiment="neutral",
+                entity_names="Italy",
+                topic_tags="economy",
+            )
+            await _insert_index_event(
+                store,
+                event_id="internal-raw",
+                stage="raw",
+                source_id="secret",
+                news_value_score=100,
+                china_relevance=100,
+                classification_l0="internal",
+                title_original="Internal raw",
+                published_at=now,
+                sentiment="negative",
+                entity_names="Secret",
+                topic_tags="secret",
+            )
+
+            data = await _public_analysis_from_store("italy", 14, store)
+
+            assert data is not None
+            assert data.summary.total_events == 2
+            assert data.summary.high_value_events == 1
+            assert data.summary.avg_news_value_score == 75.0
+            assert [item.model_dump() for item in data.classification_distribution] == [
+                {"name": "economy", "count": 1},
+                {"name": "politics", "count": 1},
+            ]
+            assert [item.model_dump() for item in data.source_distribution] == [
+                {"source_id": "ansa", "display_name": "ansa", "count": 1},
+                {"source_id": "reuters", "display_name": "reuters", "count": 1},
+            ]
+            assert {entity.name: entity.mention_count for entity in data.top_entities} == {
+                "Italy": 2,
+                "China": 1,
+            }
+            assert "secret" not in {topic.topic for topic in data.topic_trends}
+            assert all(isinstance(trend.daily_counts, list) for trend in data.topic_trends)
+            assert data.sentiment_trend[0].positive == 1
+            assert data.sentiment_trend[0].neutral == 1
+            assert data.sentiment_trend[0].negative == 0
+        finally:
+            await store.close()
+
+    @pytest.mark.asyncio
+    async def test_public_analysis_store_limits_public_active_chains(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """匿名公开快照在 root 查询阶段限制追踪链数量。"""
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        now = datetime.now(UTC).isoformat()
+        try:
+            for index in range(12):
+                root_id = f"public-root-{index:02d}"
+                child_id = f"public-child-{index:02d}"
+                await _insert_index_event(
+                    store,
+                    event_id=root_id,
+                    title_original=f"Root {index}",
+                    published_at=now,
+                )
+                await _insert_index_event(
+                    store,
+                    event_id=child_id,
+                    title_original=f"Child {index}",
+                    published_at=now,
+                )
+                await store.create_link(root_id, child_id, "followup", 0.8, {}, "italy")
+
+            await _insert_index_event(
+                store,
+                event_id="internal-root",
+                stage="raw",
+                title_original="Internal root",
+                published_at=now,
+            )
+            await _insert_index_event(
+                store,
+                event_id="internal-child",
+                stage="raw",
+                title_original="Internal child",
+                published_at=now,
+            )
+            await store.create_link("internal-root", "internal-child", "followup", 0.8, {}, "italy")
+
+            data = await _public_analysis_from_store("italy", 14, store)
+
+            assert data is not None
+            assert len(data.active_chains) == 10
+            assert all(
+                not chain.root_event_id.startswith("internal") for chain in data.active_chains
+            )
+        finally:
+            await store.close()
 
     def test_admin_users_still_requires_auth(self, tmp_path: Path) -> None:
         """公共新闻工作台不放开管理后台。"""
