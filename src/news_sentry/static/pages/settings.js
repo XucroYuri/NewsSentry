@@ -3,7 +3,7 @@
  */
 "use strict";
 
-import { api, apiPost, apiPut, escapeHtml, showError, showSuccess, hasPermission, formatDate } from "../api.js?v=20260526d";
+import { api, apiPost, apiPut, escapeHtml, showError, showSuccess, hasPermission, formatDate } from "../api.js?v=20260527a";
 
 export async function renderPasswordTab(container) {
   container.innerHTML = `

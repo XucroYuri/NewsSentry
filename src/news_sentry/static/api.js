@@ -342,7 +342,7 @@ function _authHeaders() {
 /** 401 处理：Token 过期，清除连接，让 app.js 处理重新登录 */
 async function _handle401(originalFn) {
   clearConnection();
-  window.location.hash = "#/connect";
+  window.location.hash = "#/admin/login";
   throw new Error(t("auth.tokenExpired"));
 }
 
@@ -392,7 +392,7 @@ export async function api(path, params = {}) {
       headers: _authHeaders(),
     });
     if (resp.status === 401) {
-      throw new Error("需要登录后访问");
+      await _handle401();
     }
     if (!resp.ok) {
       const text = await resp.text().catch(() => "");

@@ -5,7 +5,7 @@
 
 import {
   state, api, apiPost, escapeHtml, formatDate, showSuccess, showError, scoreColor,
-} from "../api.js?v=20260526d";
+} from "../api.js?v=20260527a";
 
 // ════════════════════════════════════════════════════════════
 // §0. 确认弹窗 (避免与 app.js 循环依赖)
@@ -191,7 +191,7 @@ export async function renderRunStatusTab(container) {
     container.querySelectorAll(".ops-run-row").forEach((row) => {
       row.addEventListener("click", () => {
         const rid = row.dataset.runId;
-        if (rid) window.location.hash = `#/ops/${encodeURIComponent(rid)}`;
+        if (rid) window.location.hash = `#/admin/ops/${encodeURIComponent(rid)}`;
       });
     });
   } catch (err) {
@@ -341,7 +341,7 @@ export async function renderRunHistoryTab(container) {
     container.querySelectorAll(".ops-run-row").forEach((row) => {
       row.addEventListener("click", () => {
         const rid = row.dataset.runId;
-        if (rid) window.location.hash = `#/ops/${encodeURIComponent(rid)}`;
+        if (rid) window.location.hash = `#/admin/ops/${encodeURIComponent(rid)}`;
       });
     });
   } catch (err) {
@@ -526,7 +526,7 @@ export async function renderOpsDetail(container, runId) {
       </div>`;
 
     document.getElementById("opsBack").addEventListener("click", () => {
-      window.location.hash = "#/ops";
+      window.location.hash = "#/admin/ops/status";
     });
 
     // Smart alerts (Phase 38)
@@ -556,6 +556,6 @@ export async function renderOpsDetail(container, runId) {
       <div class="detail-back" id="opsBackFallback">\u8fd4\u56de\u8fd0\u7ef4\u4e2d\u5fc3</div>
       <div class="empty-state"><p>\u52a0\u8f7d\u5931\u8d25</p></div>`;
     const fallback = document.getElementById("opsBackFallback");
-    if (fallback) fallback.addEventListener("click", () => { window.location.hash = "#/ops"; });
+    if (fallback) fallback.addEventListener("click", () => { window.location.hash = "#/admin/ops/status"; });
   }
 }
