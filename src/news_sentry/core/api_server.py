@@ -29,7 +29,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -1153,6 +1153,42 @@ def _public_distributions_from_events(
         if source_id:
             by_source[str(source_id)] += 1
     return _distribution_items(by_classification), _source_distribution_items(by_source)
+
+
+def _parse_published_at_utc(value: Any) -> datetime | None:
+    """解析事件发布时间；缺失或不可解析时返回 None。"""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _public_events_within_window(
+    events: list[dict[str, Any]],
+    days: int,
+) -> list[dict[str, Any]]:
+    """过滤公开分析时间窗口；无时间戳草稿保留以兼容旧数据。"""
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    filtered: list[dict[str, Any]] = []
+    for event in events:
+        published_at = event.get("published_at")
+        if not published_at:
+            filtered.append(event)
+            continue
+        parsed = _parse_published_at_utc(published_at)
+        if parsed is None or parsed >= cutoff:
+            filtered.append(event)
+    return filtered
 
 
 def _target_display_name(target_id: str) -> str:
@@ -2471,7 +2507,7 @@ def create_app(
                     exc_info=True,
                 )
 
-        events = _load_all_events(_data_dir, target_id)
+        events = _public_events_within_window(_load_all_events(_data_dir, target_id), days)
         classification_distribution, source_distribution = _public_distributions_from_events(events)
         return PublicAnalysisResponse(
             target_id=target_id,

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import AsyncGenerator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -33,6 +33,7 @@ def _write_draft(
     news_value_score: int | None = None,
     china_relevance: int | None = None,
     classification_l0: str | None = None,
+    published_at: str | None = None,
 ) -> Path:
     """辅助：写入一个 draft 事件文件。"""
     drafts = data_dir / target_id / "drafts"
@@ -50,6 +51,8 @@ def _write_draft(
         data["china_relevance"] = china_relevance
     if classification_l0 is not None:
         data["classification"] = {"l0": classification_l0}
+    if published_at is not None:
+        data["published_at"] = published_at
     fm = yaml.dump(data, allow_unicode=True, default_flow_style=False, sort_keys=False)
     filepath = drafts / f"2026-05-12-{source_id}-{event_id}.md"
     filepath.write_text(f"---\n{fm}---\n\n# {title}\n\nBody\n", encoding="utf-8")
@@ -462,6 +465,49 @@ class TestAPIServer:
         assert data["topic_trends"] == []
         assert data["sentiment_trend"] == []
         assert data["active_chains"] == []
+
+    def test_public_analysis_filesystem_fallback_honors_days_window(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """文件系统降级路径也按 days 过滤旧 draft。"""
+        recent = datetime.now(UTC).isoformat()
+        old = (datetime.now(UTC) - timedelta(days=45)).isoformat()
+        _write_draft(
+            tmp_path,
+            "italy",
+            "ne-italy-ansa-20260526-recent",
+            title="Recent policy story",
+            source_id="ansa",
+            news_value_score=82,
+            china_relevance=50,
+            classification_l0="politics",
+            published_at=recent,
+        )
+        _write_draft(
+            tmp_path,
+            "italy",
+            "ne-italy-archive-20260401-old",
+            title="Old archive story",
+            source_id="archive",
+            news_value_score=99,
+            china_relevance=99,
+            classification_l0="internal",
+            published_at=old,
+        )
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/public/targets/italy/analysis", params={"days": 14})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["summary"]["total_events"] == 1
+        assert data["summary"]["avg_news_value_score"] == 82.0
+        assert data["classification_distribution"] == [{"name": "politics", "count": 1}]
+        assert data["source_distribution"] == [
+            {"source_id": "ansa", "display_name": "ansa", "count": 1}
+        ]
 
     def test_public_analysis_rejects_unsupported_days(self, tmp_path: Path) -> None:
         """公开分析第一版只允许 7 / 14 / 30 天。"""
