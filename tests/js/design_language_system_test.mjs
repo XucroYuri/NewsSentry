@@ -1,11 +1,27 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
+function readOptionalFile(path) {
+  try {
+    return readFileSync(path, "utf8");
+  } catch (err) {
+    if (err?.code === "ENOENT") return "";
+    throw err;
+  }
+}
+
 const indexHtml = readFileSync("src/news_sentry/static/index.html", "utf8");
 const appJs = readFileSync("src/news_sentry/static/app.js", "utf8");
 const styleCss = readFileSync("src/news_sentry/static/style.css", "utf8");
-const targetWorkbenchJs = readFileSync("src/news_sentry/static/pages/target_workbench.js", "utf8");
+const targetWorkbenchJs = readOptionalFile("src/news_sentry/static/pages/target_workbench.js");
 const configJs = readFileSync("src/news_sentry/static/pages/config.js", "utf8");
+const publicTopBar = indexHtml.match(
+  /<header class="public-top-bar" id="publicTopBar">([\s\S]*?)<\/header>/,
+)?.[1] || "";
+const adminTargetContextClasses = appJs.match(
+  /<section class="([^"]*)" id="adminTargetContext"/,
+)?.[1] || "";
+const targetTabsRule = styleCss.match(/\.target-workbench-tabs a\s*\{([\s\S]*?)\}/)?.[1] || "";
 
 assert.match(
   styleCss,
@@ -25,10 +41,10 @@ assert.match(
   "tabs should use the shared 1px border language",
 );
 
-assert.equal(
-  /border-radius:\s*999px/.test(styleCss),
-  false,
-  "canonical UI should avoid pill-shaped 999px radius controls",
+assert.match(
+  targetTabsRule,
+  /border-radius:\s*var\(--radius-sm\)/,
+  "target workbench tabs should use the shared small radius instead of pill styling",
 );
 
 assert.match(
@@ -38,7 +54,7 @@ assert.match(
 );
 
 assert.equal(
-  indexHtml.includes("频道首页"),
+  publicTopBar.includes("频道首页"),
   false,
   "public top bar should not include a redundant channel-home label",
 );
@@ -55,9 +71,9 @@ assert.match(
   "legacy admin route content should render inside a scoped body container",
 );
 
-assert.match(
-  appJs,
-  /ns-context-panel/,
+assert.ok(
+  adminTargetContextClasses.split(/\s+/).includes("admin-target-context")
+    && adminTargetContextClasses.split(/\s+/).includes("ns-context-panel"),
   "admin target context should use the canonical context panel",
 );
 

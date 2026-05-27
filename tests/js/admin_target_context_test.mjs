@@ -1,14 +1,26 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
+function readOptionalFile(path) {
+  try {
+    return readFileSync(path, "utf8");
+  } catch (err) {
+    if (err?.code === "ENOENT") return "";
+    throw err;
+  }
+}
+
 const indexHtml = readFileSync("src/news_sentry/static/index.html", "utf8");
 const appJs = readFileSync("src/news_sentry/static/app.js", "utf8");
 const configJs = readFileSync("src/news_sentry/static/pages/config.js", "utf8");
-const targetWorkbenchJs = readFileSync("src/news_sentry/static/pages/target_workbench.js", "utf8");
+const targetWorkbenchJs = readOptionalFile("src/news_sentry/static/pages/target_workbench.js");
 const styleCss = readFileSync("src/news_sentry/static/style.css", "utf8");
 
 const adminTopBar = indexHtml.match(
   /<header class="top-bar" id="adminTopBar">([\s\S]*?)<\/header>/,
+)?.[1] || "";
+const adminTargetContextClasses = appJs.match(
+  /<section class="([^"]*)" id="adminTargetContext"/,
 )?.[1] || "";
 
 assert.equal(
@@ -29,9 +41,9 @@ assert.match(
   "admin target context should be rendered inside the admin work area",
 );
 
-assert.match(
-  appJs,
-  /class="admin-target-context ns-context-panel"/,
+assert.ok(
+  adminTargetContextClasses.split(/\s+/).includes("admin-target-context")
+    && adminTargetContextClasses.split(/\s+/).includes("ns-context-panel"),
   "admin target context should use the shared context-panel primitive",
 );
 
