@@ -7,8 +7,8 @@
 import {
   state, $, $$, api, apiPost, escapeHtml, showError, showSuccess, showInfo,
   t, isAuthenticated, hasPermission, authenticate, getConnection, clearConnection,
-  setConnection, logAction,
-} from "./api.js?v=20260527b";
+  isLocalApp, setConnection, logAction,
+} from "./api.js?v=20260527c";
 import {
   adminHashForLegacyRoute,
   isAdminLoginRoute,
@@ -16,133 +16,121 @@ import {
   isPublicRoute,
   normalizeAdminRoute,
   parseRouteHash,
-} from "./router.js?v=20260527b";
-import { renderFeedTab, renderPublicHome } from "./pages/feed.js?v=20260527b";
+  targetWorkbenchHashForLegacyRoute,
+} from "./router.js?v=20260527e";
+import { renderFeedTab, renderPublicHome } from "./pages/feed.js?v=20260527h";
 import { renderPublicAnalysis } from "./pages/public_analysis.js?v=20260527b";
-import { targetPortalHref } from "./pages/public_portal.js?v=20260527b";
-import { renderOverviewTab } from "./pages/dashboard.js?v=20260527b";
-import { renderEventsTab, renderEventDetail } from "./pages/events.js?v=20260527b";
+import { targetPortalHref } from "./pages/public_portal.js?v=20260527d";
+import { renderTargetsHome, renderTargetWorkbench } from "./pages/target_workbench.js?v=20260527b";
+import { renderManagementOverviewTab } from "./pages/dashboard.js?v=20260527e";
+import { renderEventsTab, renderEventDetail } from "./pages/events.js?v=20260527e";
 import { renderEntitiesTab, renderEntityDetail } from "./pages/entities.js?v=20260527b";
 import { renderChainsTab, renderChainDetail } from "./pages/chains.js?v=20260527b";
 import { renderTrendsTab } from "./pages/trends.js?v=20260527b";
-import { renderLiveAlertsTab, renderAlertHistoryTab } from "./pages/alerts.js?v=20260527b";
-import { renderRunStatusTab, renderCollectorTab, renderSourceHealthTab, renderRunHistoryTab, renderMaintenanceTab, renderOpsDetail } from "./pages/ops.js?v=20260527b";
-import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedback.js?v=20260527b";
-import { renderTargetTab, renderSourcesTab, renderFiltersTab, renderOutputsTab, renderAITab, renderWebhookTab, renderApiKeyTab } from "./pages/config.js?v=20260527b";
-import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab, renderThemeTab, renderBackupTab, initTheme } from "./pages/settings.js?v=20260527b";
+import { renderLiveAlertsTab, renderAlertHistoryTab } from "./pages/alerts.js?v=20260527e";
+import { renderRunStatusTab, renderCollectorTab, renderSourceHealthTab, renderRunHistoryTab, renderMaintenanceTab, renderOpsDetail } from "./pages/ops.js?v=20260527e";
+import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedback.js?v=20260527e";
+import { renderTargetTab, renderSourcesTab, renderFiltersTab, renderOutputsTab, renderAITab, renderWebhookTab, renderApiKeyTab } from "./pages/config.js?v=20260527g";
+import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab, renderThemeTab, renderBackupTab, initTheme } from "./pages/settings.js?v=20260527c";
+
+const STATIC_BUILD = "20260527k";
 
 // ═══════════════════════════════════════════════════════════
 // §1. 路由表
 // ═══════════════════════════════════════════════════════════
 
 const ROUTES = {
-  news: {
-    icon: "N",
+  home: {
+    icon: "H",
     tabs: [
-      { id: "feed", label: "新闻流" },
-      { id: "overview", label: "概览" },
-      { id: "events", label: "事件" },
-      { id: "chains", label: "追踪链" },
-      { id: "entities", label: "实体" },
-      { id: "trends", label: "趋势" },
+      { id: "overview", label: "管理总览" },
     ],
-    render: (container, tab, param) => {
-      if (tab === "events" && param) return renderEventDetail(container, param, {
-        targetId: state.currentTarget,
-        publicMode: false,
-        backHref: "#/admin/news/events",
-      });
-      if (tab === "entities" && param) return renderEntityDetail(container, param);
-      if (tab === "chains" && param) return renderChainDetail(container, param);
-      const tabMap = {
-        feed: (el) => renderFeedTab(el, { targetId: state.currentTarget, publicMode: false }),
-        overview: renderOverviewTab,
-        events: renderEventsTab,
-        chains: renderChainsTab,
-        entities: renderEntitiesTab,
-        trends: renderTrendsTab,
-      };
-      return (tabMap[tab] || renderFeedTab)(container);
-    },
+    render: (container) => renderManagementOverviewTab(container),
   },
-  alerts: {
-    icon: "A",
+  collection: {
+    icon: "C",
     tabs: [
-      { id: "live", label: "实时告警" },
-      { id: "history", label: "历史记录" },
+      { id: "control", label: "采集控制" },
+      { id: "sources", label: "信源维护" },
+      { id: "targets", label: "目标管理" },
+      { id: "health", label: "信源健康" },
     ],
     render: (container, tab) => {
-      return (tab === "history" ? renderAlertHistoryTab : renderLiveAlertsTab)(container);
+      const tabMap = {
+        control: renderCollectorTab,
+        sources: renderSourcesTab,
+        targets: renderTargetTab,
+        health: renderSourceHealthTab,
+      };
+      return (tabMap[tab] || renderCollectorTab)(container);
+    },
+  },
+  review: {
+    icon: "R",
+    tabs: [
+      { id: "queue", label: "审核队列" },
+      { id: "feedback", label: "反馈记录" },
+      { id: "rules", label: "规则优化" },
+      { id: "alerts", label: "告警确认" },
+    ],
+    render: (container, tab, param) => {
+      if (tab === "queue" && param) return renderEventDetail(container, param, {
+        targetId: state.currentTarget,
+        publicMode: false,
+        backHref: "#/admin/review/queue",
+      });
+      const tabMap = {
+        queue: renderEventsTab,
+        feedback: renderFeedbackRecordsTab,
+        rules: renderRuleOptimizeTab,
+        alerts: renderLiveAlertsTab,
+      };
+      return (tabMap[tab] || renderEventsTab)(container);
     },
   },
   ops: {
     icon: "O",
     tabs: [
-      { id: "status", label: "运行状态" },
-      { id: "collector", label: "采集器" },
-      { id: "health", label: "信源健康" },
-      { id: "history", label: "运行历史" },
+      { id: "runs", label: "运行历史" },
       { id: "maintenance", label: "数据维护" },
+      { id: "backup", label: "备份恢复" },
+      { id: "notifications", label: "通知设置" },
     ],
     render: (container, tab, param) => {
-      if (param) return renderOpsDetail(container, param);
+      if (tab === "runs" && param) return renderOpsDetail(container, param);
       const tabMap = {
-        status: renderRunStatusTab,
-        collector: renderCollectorTab,
-        health: renderSourceHealthTab,
-        history: renderRunHistoryTab,
+        runs: renderRunHistoryTab,
         maintenance: renderMaintenanceTab,
+        backup: renderBackupTab,
+        notifications: renderNotificationsTab,
       };
-      return (tabMap[tab] || renderRunStatusTab)(container);
+      return (tabMap[tab] || renderRunHistoryTab)(container);
     },
   },
-  feedback: {
-    icon: "F",
+  advanced: {
+    icon: "A",
     tabs: [
-      { id: "records", label: "反馈记录" },
-      { id: "optimize", label: "规则优化" },
-    ],
-    render: (container, tab) => {
-      return (tab === "optimize" ? renderRuleOptimizeTab : renderFeedbackRecordsTab)(container);
-    },
-  },
-  config: {
-    icon: "C",
-    tabs: [
-      { id: "target", label: "目标" },
-      { id: "sources", label: "信源" },
       { id: "filters", label: "过滤规则" },
       { id: "outputs", label: "输出" },
-      { id: "ai", label: "AI 设置" },
+      { id: "ai", label: "AI Provider" },
       { id: "webhook", label: "Webhook" },
+      { id: "api-key", label: "API Key" },
+      { id: "users", label: "用户管理" },
+      { id: "account", label: "账号密码" },
+      { id: "theme", label: "外观主题" },
     ],
     render: (container, tab) => {
       const tabMap = {
-        target: renderTargetTab,
-        sources: renderSourcesTab,
         filters: renderFiltersTab,
         outputs: renderOutputsTab,
         ai: renderAITab,
         webhook: renderWebhookTab,
+        "api-key": renderApiKeyTab,
+        users: renderUserMgmtTab,
+        account: renderPasswordTab,
+        theme: renderThemeTab,
       };
-      return (tabMap[tab] || renderTargetTab)(container);
-    },
-  },
-  settings: {
-    icon: "S",
-    tabs: [
-      { id: "password", label: "个人设置" },
-      { id: "apiKey", label: "API Key" },
-      { id: "notifications", label: "通知设置" },
-      { id: "users", label: "用户管理" },
-      { id: "theme", label: "外观主题" },
-      { id: "backup", label: "备份恢复" },
-    ],
-    render: (container, tab) => {
-      if (tab === "apiKey") return renderApiKeyTab(container);
-      if (tab === "notifications") return renderNotificationsTab(container);
-      if (tab === "users") return renderUserMgmtTab(container);
-      return renderPasswordTab(container);
+      return (tabMap[tab] || renderFiltersTab)(container);
     },
   },
 };
@@ -176,7 +164,13 @@ function updateBreadcrumb(section, tab, param) {
   const bc = document.getElementById("breadcrumb");
   if (!bc) return;
 
-  const sectionNames = { news: "新闻情报", alerts: "告警通知", ops: "运行监控", feedback: "反馈优化", config: "配置中心", settings: "系统设置" };
+  const sectionNames = {
+    home: "管理总览",
+    collection: "采集与信源",
+    review: "审核与反馈",
+    ops: "系统运维",
+    advanced: "高级管理",
+  };
   const route = ROUTES[section];
   const tabInfo = route?.tabs.find(t => t.id === tab);
 
@@ -209,7 +203,7 @@ function setShellMode(mode) {
 
   const adminBtn = document.getElementById("publicAdminBtn");
   if (adminBtn) {
-    adminBtn.href = isAuthenticated() ? "#/admin/ops/status" : "#/admin/login";
+    adminBtn.href = isAuthenticated() ? "#/admin/targets" : "#/admin/login";
   }
 
   if (mode !== "admin") closeSidebar();
@@ -217,6 +211,103 @@ function setShellMode(mode) {
 
 function defaultAdminTab(section) {
   return ROUTES[section]?.tabs?.[0]?.id || "";
+}
+
+function resetTargetScopedState() {
+  state.filters = {
+    source_id: "",
+    classification: "",
+    min_score: 0,
+    search: "",
+    page: 1,
+    sentiment: "",
+    entity: "",
+    topic_tag: "",
+    date_from: "",
+    date_to: "",
+  };
+}
+
+function currentTargetMeta() {
+  return (state.targets || []).find((target) => target.target_id === state.currentTarget) || null;
+}
+
+function shouldShowAdminTargetContext(section, tab, param) {
+  if (param || !(state.targets || []).length) return false;
+  const scopedTabs = new Set([
+    "home:overview",
+    "collection:control",
+    "collection:sources",
+    "collection:targets",
+    "collection:health",
+    "review:queue",
+    "review:feedback",
+    "review:rules",
+    "review:alerts",
+    "ops:runs",
+    "ops:maintenance",
+    "advanced:filters",
+    "advanced:outputs",
+    "advanced:ai",
+    "advanced:webhook",
+  ]);
+  return scopedTabs.has(`${section}:${tab}`);
+}
+
+function renderAdminTargetContext(container, section, tab, param) {
+  if (!shouldShowAdminTargetContext(section, tab, param)) return container;
+
+  const current = currentTargetMeta() || state.targets[0];
+  if (current && current.target_id !== state.currentTarget) {
+    state.currentTarget = current.target_id;
+    localStorage.ns_target_id = current.target_id;
+  }
+
+  const chips = (state.targets || []).map((target) => {
+    const id = target.target_id || "";
+    const active = id === state.currentTarget;
+    return `
+      <button class="admin-target-chip${active ? " active" : ""}" data-target-id="${escapeHtml(id)}" type="button">
+        <span class="admin-target-chip-title">${escapeHtml(target.display_name || id)}</span>
+        <span class="admin-target-chip-meta">${escapeHtml(target.primary_language || "mixed")} · ${Number(target.source_count || 0)} 源</span>
+      </button>
+    `;
+  }).join("");
+
+  container.innerHTML = `
+    <section class="admin-target-context" id="adminTargetContext">
+      <div class="admin-target-context-head">
+        <div>
+          <div class="admin-target-eyebrow">当前管理目标</div>
+          <div class="admin-target-title">${escapeHtml(current?.display_name || current?.target_id || "未选择目标")}</div>
+        </div>
+        <div class="admin-target-summary">
+          <span>${escapeHtml(current?.primary_language || "mixed")}</span>
+          <span>${Number(current?.source_count || 0)} 个信源</span>
+          <span>${Number(current?.event_count || 0)} 个事件</span>
+        </div>
+      </div>
+      <div class="admin-target-chips" role="list" aria-label="切换管理目标">
+        ${chips}
+      </div>
+    </section>
+    <div class="admin-route-content" id="adminRouteContent"></div>
+  `;
+
+  container.querySelectorAll(".admin-target-chip").forEach((button) => {
+    button.addEventListener("click", () => {
+      const nextTarget = button.dataset.targetId || "";
+      if (!nextTarget || nextTarget === state.currentTarget) return;
+      state.currentTarget = nextTarget;
+      localStorage.ns_target_id = nextTarget;
+      resetTargetScopedState();
+      updateStatus();
+      connectSSE();
+      navigate();
+    });
+  });
+
+  return container.querySelector("#adminRouteContent") || container;
 }
 
 function renderPublicRoute(routeInfo) {
@@ -239,8 +330,6 @@ function renderPublicRoute(routeInfo) {
   if (routeInfo.targetId) {
     state.currentTarget = routeInfo.targetId;
     localStorage.ns_target_id = routeInfo.targetId;
-    const sel = document.getElementById("targetSelect");
-    if (sel) sel.value = routeInfo.targetId;
   }
 
   if (routeInfo.name === "publicTargetAnalysis") {
@@ -280,15 +369,50 @@ function renderPublicRoute(routeInfo) {
 }
 
 function renderAdminRoute(routeInfo) {
-  const section = routeInfo.section || "ops";
+  if (routeInfo.name === "adminTargets" || routeInfo.name === "adminTargetWorkbench") {
+    setShellMode("admin");
+    const cp = document.getElementById("connectPage");
+    if (cp) cp.style.display = "none";
+    $$(".nav-item").forEach(el => {
+      el.classList.toggle("active", el.dataset.section === "targets");
+    });
+    closeSidebar();
+    state.currentSection = "targets";
+    state.currentTab = routeInfo.tab || "list";
+    const tabBar = document.getElementById("tabBar");
+    if (tabBar) tabBar.innerHTML = "";
+    const bc = document.getElementById("breadcrumb");
+    if (bc) {
+      bc.innerHTML = routeInfo.name === "adminTargets"
+        ? `<span class="bc-section">目标工作台</span>`
+        : `<span class="bc-section">目标工作台</span> <span class="bc-sep">›</span> <span class="bc-tab">${escapeHtml(routeInfo.targetId || "")}</span>`;
+    }
+    const container = document.getElementById("pageContainer");
+    if (!container) return;
+    container.innerHTML = "";
+    if (routeInfo.name === "adminTargets") {
+      renderTargetsHome(container);
+    } else {
+      renderTargetWorkbench(container, routeInfo.targetId, routeInfo.tab || "overview");
+    }
+    return;
+  }
+
+  const section = routeInfo.section || "home";
   const route = ROUTES[section];
   if (!route) {
-    window.location.hash = "#/admin/ops/status";
+    window.location.hash = "#/admin/home/overview";
     return;
   }
   const normalizedRoute = normalizeAdminRoute(routeInfo, route.tabs.map((item) => item.id));
   const tab = normalizedRoute.tab || defaultAdminTab(section);
   const param = normalizedRoute.param || "";
+
+  const targetRedirect = targetWorkbenchHashForLegacyRoute(normalizedRoute, state.currentTarget);
+  if (targetRedirect && targetRedirect !== (window.location.hash || "")) {
+    window.location.hash = targetRedirect;
+    return;
+  }
 
   setShellMode("admin");
 
@@ -298,14 +422,6 @@ function renderAdminRoute(routeInfo) {
   $$(".nav-item").forEach(el => {
     el.classList.toggle("active", el.dataset.section === section);
   });
-
-  const configNav = document.getElementById("configNav");
-  const configToggle = document.getElementById("configToggle");
-  if (section === "config" || section === "settings") {
-    if (configNav) configNav.style.display = "block";
-    if (configToggle) configToggle.classList.add("expanded");
-    state.configExpanded = true;
-  }
 
   closeSidebar();
 
@@ -318,7 +434,8 @@ function renderAdminRoute(routeInfo) {
   const container = document.getElementById("pageContainer");
   if (!container) return;
   container.innerHTML = "";
-  route.render(container, tab, param);
+  const renderContainer = renderAdminTargetContext(container, section, tab, param);
+  route.render(renderContainer, tab, param);
 }
 
 function navigate() {
@@ -336,6 +453,12 @@ function navigate() {
   }
 
   if (isAdminLoginRoute(routeInfo)) {
+    if (isAuthenticated()) {
+      const nextHash = sessionStorage.ns_admin_return || "#/admin/targets";
+      delete sessionStorage.ns_admin_return;
+      window.location.hash = nextHash;
+      return;
+    }
     if ((window.location.hash || "") === "#/connect") {
       window.location.hash = "#/admin/login";
       return;
@@ -345,7 +468,9 @@ function navigate() {
   }
 
   if (!isPublicRoute(routeInfo) && !isAuthenticated()) {
-    sessionStorage.ns_admin_return = adminHashForLegacyRoute(routeInfo);
+    sessionStorage.ns_admin_return = routeInfo.name === "adminSection"
+      ? (window.location.hash || "#/admin/targets")
+      : adminHashForLegacyRoute(routeInfo);
     window.location.hash = "#/admin/login";
     return;
   }
@@ -396,9 +521,9 @@ async function handleConnect() {
     await loadTargets();
     startAdminServices();
     if (conn.mustChangePw) {
-      window.location.hash = "#/admin/settings/password";
+      window.location.hash = "#/admin/advanced/account";
     } else {
-      const nextHash = sessionStorage.ns_admin_return || "#/admin/ops/status";
+      const nextHash = sessionStorage.ns_admin_return || "#/admin/targets";
       delete sessionStorage.ns_admin_return;
       window.location.hash = nextHash;
     }
@@ -439,27 +564,20 @@ async function loadTargets() {
   try {
     const data = await api("/api/v1/targets");
     state.targets = data.targets || [];
-    const sel = document.getElementById("targetSelect");
-    if (!sel) return;
 
     const savedTarget = localStorage.ns_target_id || "";
     if (savedTarget && state.targets.some(t => t.target_id === savedTarget)) {
       state.currentTarget = savedTarget;
     }
+    if (state.currentTarget && !state.targets.some(t => t.target_id === state.currentTarget)) {
+      state.currentTarget = "";
+    }
     if (!state.currentTarget && state.targets.length) {
       const targetWithData = state.targets.find(t => Number(t.event_count || 0) > 0);
       state.currentTarget = (targetWithData || state.targets[0]).target_id;
     }
-
-    sel.innerHTML = state.targets.length
-      ? state.targets.map(t =>
-          `<option value="${escapeHtml(t.target_id)}" ${t.target_id === state.currentTarget ? "selected" : ""}>${escapeHtml(t.display_name || t.target_id)}</option>`
-        ).join("")
-      : '<option value="">无可用目标</option>';
-    if (state.currentTarget) sel.value = state.currentTarget;
   } catch (err) {
-    const sel = document.getElementById("targetSelect");
-    if (sel) sel.innerHTML = '<option value="">加载失败</option>';
+    state.targets = [];
   }
 }
 
@@ -557,15 +675,17 @@ function connectSSE() {
   clearTimeout(_sseRetryTimer);
 
   const conn = getConnection();
-  if (!conn || !conn.token) return;
+  if (!conn || (!conn.token && !isLocalApp())) return;
   if (!state.currentTarget) return;
 
   // 为当前 target 建立 SSE 连接
   const base = window.location.origin;
-  const url = `${base}/api/v1/events/stream?target_id=${encodeURIComponent(state.currentTarget)}&token=${encodeURIComponent(conn.token)}`;
+  const url = new URL("/api/v1/events/stream", base);
+  url.searchParams.set("target_id", state.currentTarget);
+  if (conn.token) url.searchParams.set("token", conn.token);
 
   _updateSSEStatus("connecting");
-  const sse = new EventSource(url);
+  const sse = new EventSource(url.toString());
   _sseConnections.push(sse);
 
   sse.onopen = () => {
@@ -623,9 +743,54 @@ function connectSSE() {
 
 function _registerSW() {
   if (!("serviceWorker" in navigator)) return;
-  navigator.serviceWorker.register("/sw.js").catch(() => {
+  navigator.serviceWorker.register("/sw.js").then((registration) => {
+    registration.update().catch(() => {});
+    if (registration.waiting) {
+      registration.waiting.postMessage({ type: "SKIP_WAITING" });
+    }
+  }).catch(() => {
     // SW 注册失败不阻塞主功能
   });
+}
+
+async function ensureFreshStaticAssets() {
+  const storageKey = "ns_static_build";
+  let previousBuild = "";
+  try {
+    previousBuild = localStorage.getItem(storageKey) || "";
+  } catch {}
+
+  if (previousBuild === STATIC_BUILD) return false;
+
+  try {
+    if ("caches" in window) {
+      const cacheNames = await caches.keys();
+      await Promise.all(
+        cacheNames
+          .filter((name) => name.startsWith("news-sentry-"))
+          .map((name) => caches.delete(name)),
+      );
+    }
+  } catch {}
+
+  try {
+    if ("serviceWorker" in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.update().catch(() => {})));
+    }
+  } catch {}
+
+  try {
+    localStorage.setItem(storageKey, STATIC_BUILD);
+    const reloadKey = `ns_static_reload_${STATIC_BUILD}`;
+    if (sessionStorage.getItem(reloadKey) !== "1") {
+      sessionStorage.setItem(reloadKey, "1");
+      window.location.reload();
+      return true;
+    }
+  } catch {}
+
+  return false;
 }
 
 function _setupOnlineDetection() {
@@ -720,13 +885,6 @@ function startAdminServices() {
   _requestNotificationPermission();
   _setupOnlineDetection();
   _checkDesktopUpdate();
-
-  const targetSelect = document.getElementById("targetSelect");
-  if (targetSelect) {
-    targetSelect.addEventListener("change", () => {
-      setTimeout(connectSSE, 100);
-    });
-  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -752,7 +910,7 @@ function toggleShortcutPanel() {
       <button class="shortcut-panel-close">&times;</button>
     </div>
     <div class="shortcut-panel-body">
-      <div class="shortcut-row"><kbd>1</kbd>-<kbd>6</kbd><span>切换 Section</span></div>
+      <div class="shortcut-row"><kbd>1</kbd>-<kbd>5</kbd><span>切换后台分区</span></div>
       <div class="shortcut-row"><kbd>/</kbd><span>聚焦搜索</span></div>
       <div class="shortcut-row"><kbd>Esc</kbd><span>关闭弹窗 / 返回</span></div>
       <div class="shortcut-row"><kbd>?</kbd><span>显示 / 隐藏此面板</span></div>
@@ -780,14 +938,14 @@ function setupKeyboardShortcuts() {
       // Ctrl+Enter always works
       if (e.ctrlKey && e.key === "Enter") {
         e.preventDefault();
-        window.location.hash = "#/admin/ops/collector";
+        window.location.hash = "#/admin/collection/control";
       }
       return;
     }
 
-    const sections = ["news", "alerts", "ops", "feedback", "config", "settings"];
+    const sections = ["home", "collection", "review", "ops", "advanced"];
 
-    if (e.key >= "1" && e.key <= "6") {
+    if (e.key >= "1" && e.key <= "5") {
       e.preventDefault();
       const s = sections[parseInt(e.key) - 1];
       const defaultTab = ROUTES[s]?.tabs[0]?.id || "";
@@ -813,14 +971,14 @@ function setupKeyboardShortcuts() {
       e.preventDefault();
       // Context-aware: events page → import, config → new source
       const hash = window.location.hash || "";
-      if (hash.includes("/events")) {
-        window.location.hash = "#/admin/news/events/import";
-      } else if (hash.includes("/config")) {
-        showSuccess("请在配置中心手动添加");
+      if (hash.includes("/review/queue")) {
+        showSuccess("请在审核队列中选择事件后处理");
+      } else if (hash.includes("/collection")) {
+        showSuccess("请在采集与信源区手动添加");
       }
     } else if (e.ctrlKey && e.key === "Enter") {
       e.preventDefault();
-      window.location.hash = "#/admin/ops/collector";
+      window.location.hash = "#/admin/collection/control";
     } else if (e.key === "j" || e.key === "k") {
       e.preventDefault();
       _navigateEventList(e.key === "j" ? 1 : -1);
@@ -918,6 +1076,7 @@ export function showConfirmModal(title, message) {
 // ═══════════════════════════════════════════════════════════
 
 async function init() {
+  if (await ensureFreshStaticAssets()) return;
   initTheme();
 
   // Connect form handler
@@ -946,21 +1105,6 @@ async function init() {
       state.configExpanded = !state.configExpanded;
       configNav.style.display = state.configExpanded ? "block" : "none";
       configToggle.classList.toggle("expanded", state.configExpanded);
-    });
-  }
-
-  // Target select
-  const targetSel = document.getElementById("targetSelect");
-  if (targetSel) {
-    targetSel.addEventListener("change", (e) => {
-      state.currentTarget = e.target.value;
-      localStorage.ns_target_id = state.currentTarget;
-      state.filters = { source_id: "", classification: "", min_score: 0, search: "", page: 1, sentiment: "", entity: "", topic_tag: "", date_from: "", date_to: "" };
-      if ((window.location.hash || "").startsWith("#/news/target/")) {
-        window.location.hash = targetPortalHref(state.currentTarget);
-      } else {
-        navigate();
-      }
     });
   }
 

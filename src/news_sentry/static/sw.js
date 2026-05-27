@@ -1,31 +1,32 @@
 /* News Sentry — Service Worker v4 */
 "use strict";
 
-const CACHE = "news-sentry-v10";
+const CACHE_NAME = "news-sentry-v23";
 const STATIC_URLS = [
   "/",
   "/index.html",
   "/manifest.json",
   "/icons/icon-192.svg",
   "/icons/icon-512.svg",
-  "/app.js?v=20260527b",
-  "/api.js?v=20260527b",
-  "/style.css?v=20260526d",
-  "/public.css?v=20260527b",
-  "/router.js?v=20260527b",
-  "/pages/public_portal.js?v=20260527b",
+  "/app.js?v=20260527k",
+  "/api.js?v=20260527c",
+  "/style.css?v=20260527k",
+  "/public.css?v=20260527d",
+  "/router.js?v=20260527e",
+  "/pages/public_portal.js?v=20260527d",
   "/pages/public_analysis.js?v=20260527b",
-  "/pages/feed.js?v=20260527b",
+  "/pages/feed.js?v=20260527h",
+  "/pages/target_workbench.js?v=20260527b",
   "/pages/feed_filters.js?v=20260527b",
-  "/pages/dashboard.js?v=20260527b",
-  "/pages/events.js?v=20260527b",
+  "/pages/dashboard.js?v=20260527e",
+  "/pages/events.js?v=20260527e",
   "/pages/entities.js?v=20260527b",
-  "/pages/alerts.js?v=20260527b",
+  "/pages/alerts.js?v=20260527e",
   "/pages/chains.js?v=20260527b",
-  "/pages/ops.js?v=20260527b",
-  "/pages/feedback.js?v=20260527b",
-  "/pages/config.js?v=20260527b",
-  "/pages/settings.js?v=20260527b",
+  "/pages/ops.js?v=20260527e",
+  "/pages/feedback.js?v=20260527e",
+  "/pages/config.js?v=20260527g",
+  "/pages/settings.js?v=20260527c",
   "/pages/trends.js?v=20260527b",
   "https://cdn.jsdelivr.net/npm/chart.js@4",
 ];
@@ -45,7 +46,7 @@ button:hover{background:#2563eb}</style></head>
 /* 安装：预缓存静态资源 */
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => {
+    caches.open(CACHE_NAME).then((cache) => {
       // Chart.js CDN 可能失败，不影响主应用
       return cache.addAll(STATIC_URLS).catch(() => {});
     }),
@@ -59,12 +60,18 @@ self.addEventListener("activate", (event) => {
     caches.keys().then((names) =>
       Promise.all(
         names
-          .filter((n) => n !== CACHE)
+          .filter((n) => n !== CACHE_NAME)
           .map((n) => caches.delete(n)),
       ),
     ),
   );
   self.clients.claim();
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
 /* 请求拦截：Cache-First for static, Network-First for API */
@@ -89,7 +96,7 @@ async function navigationFallback(request) {
   try {
     const resp = await fetch(request);
     if (resp.ok) {
-      const cache = await caches.open(CACHE);
+      const cache = await caches.open(CACHE_NAME);
       cache.put(request, resp.clone());
     }
     return resp;
@@ -109,7 +116,7 @@ async function cacheFirst(request) {
   try {
     const resp = await fetch(request);
     if (resp.ok) {
-      const cache = await caches.open(CACHE);
+      const cache = await caches.open(CACHE_NAME);
       cache.put(request, resp.clone());
     }
     return resp;
@@ -126,7 +133,7 @@ async function networkFirst(request) {
   try {
     const resp = await fetch(request);
     if (resp.ok && resp.type === "basic") {
-      const cache = await caches.open(CACHE);
+      const cache = await caches.open(CACHE_NAME);
       cache.put(request, resp.clone());
     }
     return resp;
