@@ -33,7 +33,7 @@ import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedbac
 import { renderTargetTab, renderSourcesTab, renderFiltersTab, renderOutputsTab, renderAITab, renderWebhookTab, renderApiKeyTab } from "./pages/config.js?v=20260527g";
 import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab, renderThemeTab, renderBackupTab, initTheme } from "./pages/settings.js?v=20260527c";
 
-const STATIC_BUILD = "20260527k";
+const STATIC_BUILD = "20260527m";
 
 // ═══════════════════════════════════════════════════════════
 // §1. 路由表

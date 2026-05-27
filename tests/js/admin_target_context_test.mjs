@@ -63,19 +63,19 @@ assert.match(
 // Exact cache versions intentionally lock this implementation batch's cache-bust step from the plan.
 assert.match(
   indexHtml,
-  /app\.js\?v=20260527k/,
+  /app\.js\?v=20260527m/,
   "index should reference the latest app build so stale admin navigation is not reused",
 );
 
 assert.match(
   indexHtml,
-  /style\.css\?v=20260527k/,
+  /style\.css\?v=20260527m/,
   "index should reference the latest style build so stale admin layout is not reused",
 );
 
 assert.match(
   appJs,
-  /STATIC_BUILD = "20260527k"/,
+  /STATIC_BUILD = "20260527m"/,
   "app should clear old service-worker caches when the static build changes",
 );
 

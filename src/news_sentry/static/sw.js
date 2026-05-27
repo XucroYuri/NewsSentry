@@ -1,16 +1,16 @@
 /* News Sentry — Service Worker v4 */
 "use strict";
 
-const CACHE_NAME = "news-sentry-v23";
+const CACHE_NAME = "news-sentry-v25";
 const STATIC_URLS = [
   "/",
   "/index.html",
   "/manifest.json",
   "/icons/icon-192.svg",
   "/icons/icon-512.svg",
-  "/app.js?v=20260527k",
+  "/app.js?v=20260527m",
   "/api.js?v=20260527c",
-  "/style.css?v=20260527k",
+  "/style.css?v=20260527m",
   "/public.css?v=20260527d",
   "/router.js?v=20260527e",
   "/pages/public_portal.js?v=20260527d",

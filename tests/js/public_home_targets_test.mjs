@@ -8,13 +8,13 @@ const swJs = readFileSync("src/news_sentry/static/sw.js", "utf8");
 // Exact cache versions intentionally lock this implementation batch's cache-bust step from the plan.
 assert.match(
   appJs,
-  /STATIC_BUILD = "20260527k"/,
+  /STATIC_BUILD = "20260527m"/,
   "static build should change when the design language system changes",
 );
 
 assert.match(
   swJs,
-  /news-sentry-v23/,
+  /news-sentry-v25/,
   "service worker cache should change when the design language system changes",
 );
 
