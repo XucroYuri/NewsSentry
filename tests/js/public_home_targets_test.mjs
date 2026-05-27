@@ -5,6 +5,7 @@ const appJs = readFileSync("src/news_sentry/static/app.js", "utf8");
 const feedJs = readFileSync("src/news_sentry/static/pages/feed.js", "utf8");
 const swJs = readFileSync("src/news_sentry/static/sw.js", "utf8");
 
+// Exact cache versions intentionally lock this implementation batch's cache-bust step from the plan.
 assert.match(
   appJs,
   /STATIC_BUILD = "20260527k"/,

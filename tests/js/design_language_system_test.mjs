@@ -10,6 +10,15 @@ function readOptionalFile(path) {
   }
 }
 
+function extractTagById(html, id) {
+  const pattern = new RegExp(`<[^>]*\\bid=["']${id}["'][^>]*>`, "i");
+  return html.match(pattern)?.[0] || "";
+}
+
+function classListFromTag(tag) {
+  return tag.match(/class=["']([^"']*)["']/)?.[1]?.split(/\s+/).filter(Boolean) || [];
+}
+
 const indexHtml = readFileSync("src/news_sentry/static/index.html", "utf8");
 const appJs = readFileSync("src/news_sentry/static/app.js", "utf8");
 const styleCss = readFileSync("src/news_sentry/static/style.css", "utf8");
@@ -18,9 +27,7 @@ const configJs = readFileSync("src/news_sentry/static/pages/config.js", "utf8");
 const publicTopBar = indexHtml.match(
   /<header class="public-top-bar" id="publicTopBar">([\s\S]*?)<\/header>/,
 )?.[1] || "";
-const adminTargetContextClasses = appJs.match(
-  /<section class="([^"]*)" id="adminTargetContext"/,
-)?.[1] || "";
+const adminTargetContextClasses = classListFromTag(extractTagById(appJs, "adminTargetContext"));
 const targetTabsRule = styleCss.match(/\.target-workbench-tabs a\s*\{([\s\S]*?)\}/)?.[1] || "";
 
 assert.match(
@@ -72,8 +79,8 @@ assert.match(
 );
 
 assert.ok(
-  adminTargetContextClasses.split(/\s+/).includes("admin-target-context")
-    && adminTargetContextClasses.split(/\s+/).includes("ns-context-panel"),
+  adminTargetContextClasses.includes("admin-target-context")
+    && adminTargetContextClasses.includes("ns-context-panel"),
   "admin target context should use the canonical context panel",
 );
 

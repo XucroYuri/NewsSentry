@@ -10,6 +10,15 @@ function readOptionalFile(path) {
   }
 }
 
+function extractTagById(html, id) {
+  const pattern = new RegExp(`<[^>]*\\bid=["']${id}["'][^>]*>`, "i");
+  return html.match(pattern)?.[0] || "";
+}
+
+function classListFromTag(tag) {
+  return tag.match(/class=["']([^"']*)["']/)?.[1]?.split(/\s+/).filter(Boolean) || [];
+}
+
 const indexHtml = readFileSync("src/news_sentry/static/index.html", "utf8");
 const appJs = readFileSync("src/news_sentry/static/app.js", "utf8");
 const configJs = readFileSync("src/news_sentry/static/pages/config.js", "utf8");
@@ -19,9 +28,7 @@ const styleCss = readFileSync("src/news_sentry/static/style.css", "utf8");
 const adminTopBar = indexHtml.match(
   /<header class="top-bar" id="adminTopBar">([\s\S]*?)<\/header>/,
 )?.[1] || "";
-const adminTargetContextClasses = appJs.match(
-  /<section class="([^"]*)" id="adminTargetContext"/,
-)?.[1] || "";
+const adminTargetContextClasses = classListFromTag(extractTagById(appJs, "adminTargetContext"));
 
 assert.equal(
   adminTopBar.includes('id="targetSelect"'),
@@ -42,8 +49,8 @@ assert.match(
 );
 
 assert.ok(
-  adminTargetContextClasses.split(/\s+/).includes("admin-target-context")
-    && adminTargetContextClasses.split(/\s+/).includes("ns-context-panel"),
+  adminTargetContextClasses.includes("admin-target-context")
+    && adminTargetContextClasses.includes("ns-context-panel"),
   "admin target context should use the shared context-panel primitive",
 );
 
@@ -53,6 +60,7 @@ assert.match(
   "shared context panel styles should exist for admin scoped target context",
 );
 
+// Exact cache versions intentionally lock this implementation batch's cache-bust step from the plan.
 assert.match(
   indexHtml,
   /app\.js\?v=20260527k/,
