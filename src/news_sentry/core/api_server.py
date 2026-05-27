@@ -3266,7 +3266,7 @@ def create_app(
     @app.post("/api/v1/admin/targets")
     async def create_admin_target(
         payload: TargetCreateRequest,
-        user: dict[str, Any] = Depends(get_current_user),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """通过模板或克隆创建完整 target 配置骨架。"""
         _validate_target_slug(payload.target_id)
@@ -3325,7 +3325,7 @@ def create_app(
     async def patch_admin_target(
         target_id: str,
         payload: TargetPatchRequest,
-        user: dict[str, Any] = Depends(get_current_user),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """更新 target 基础资料。"""
         data = _ensure_target_exists(target_id)
@@ -3340,7 +3340,7 @@ def create_app(
     async def archive_admin_target(
         target_id: str,
         payload: ArchiveRequest | None = None,
-        user: dict[str, Any] = Depends(get_current_user),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """归档 target：公开首页隐藏，历史数据保留。"""
         data = _ensure_target_exists(target_id)
@@ -3358,7 +3358,7 @@ def create_app(
     @app.post("/api/v1/admin/targets/{target_id}/restore")
     async def restore_admin_target(
         target_id: str,
-        user: dict[str, Any] = Depends(get_current_user),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """恢复 target：重新进入公开首页和后台列表，但不自动启动采集。"""
         data = _ensure_target_exists(target_id)
@@ -3435,7 +3435,7 @@ def create_app(
     async def create_admin_target_source(
         target_id: str,
         payload: SourceCreateRequest,
-        user: dict[str, Any] = Depends(get_current_user),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """新增标准信源，并写入 target source_channel_refs。"""
         _ensure_target_exists(target_id)
@@ -3455,7 +3455,7 @@ def create_app(
         target_id: str,
         source_ref: str,
         payload: SourcePatchRequest,
-        user: dict[str, Any] = Depends(get_current_user),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """编辑标准信源。"""
         _ensure_target_exists(target_id)
@@ -3480,7 +3480,7 @@ def create_app(
         target_id: str,
         source_ref: str,
         payload: ArchiveRequest | None = None,
-        user: dict[str, Any] = Depends(get_current_user),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """归档标准信源：禁用但保留 YAML 和历史事件。"""
         _ensure_target_exists(target_id)
@@ -3502,7 +3502,7 @@ def create_app(
     async def restore_admin_target_source(
         target_id: str,
         source_ref: str,
-        user: dict[str, Any] = Depends(get_current_user),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """恢复已归档标准信源。"""
         _ensure_target_exists(target_id)
@@ -3534,7 +3534,7 @@ def create_app(
     async def create_admin_social_dimension(
         target_id: str,
         payload: SocialDimensionCreateRequest,
-        user: dict[str, Any] = Depends(get_current_user),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """新增社媒维度。"""
         _ensure_target_exists(target_id)
@@ -3571,7 +3571,7 @@ def create_app(
         target_id: str,
         dimension: str,
         payload: SocialDimensionPatchRequest,
-        user: dict[str, Any] = Depends(get_current_user),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """编辑社媒维度。"""
         _ensure_target_exists(target_id)
@@ -3591,7 +3591,7 @@ def create_app(
         target_id: str,
         dimension: str,
         payload: SocialAccountCreateRequest,
-        user: dict[str, Any] = Depends(get_current_user),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """新增社媒账号。"""
         _ensure_target_exists(target_id)
@@ -3623,7 +3623,7 @@ def create_app(
         dimension: str,
         handle: str,
         payload: SocialAccountPatchRequest,
-        user: dict[str, Any] = Depends(get_current_user),
+        user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
         """编辑或归档社媒账号。"""
         _ensure_target_exists(target_id)

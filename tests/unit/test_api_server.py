@@ -2620,6 +2620,14 @@ class TestTargetLifecycleWorkbenchAPI:
             encoding="utf-8",
         )
 
+    def _reader_headers(self) -> dict[str, str]:
+        token = api_server_module._create_token_for_user(
+            "reader-target-workbench",
+            "reader",
+            False,
+        )
+        return {"Authorization": f"Bearer {token['access_token']}"}
+
     def _setup_target_tree(
         self,
         tmp_path: Path,
@@ -2691,6 +2699,110 @@ class TestTargetLifecycleWorkbenchAPI:
         (tmp_path / "data" / "italy" / "drafts").mkdir(parents=True, exist_ok=True)
         (tmp_path / "data" / "italy" / "drafts" / "old.md").write_text("draft", encoding="utf-8")
         return client
+
+    def test_reader_can_view_target_workbench_read_endpoints(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = self._setup_target_tree(tmp_path, monkeypatch)
+        headers = self._reader_headers()
+
+        for method, path in [
+            ("GET", "/api/v1/admin/targets"),
+            ("GET", "/api/v1/admin/targets/italy/overview"),
+            ("GET", "/api/v1/admin/targets/italy/sources"),
+            ("GET", "/api/v1/admin/targets/italy/social"),
+            ("POST", "/api/v1/admin/targets/italy/validate"),
+        ]:
+            resp = client.request(method, path, headers=headers)
+            assert resp.status_code == 200, f"{method} {path}: {resp.text}"
+
+    @pytest.mark.parametrize(
+        ("method", "path", "json_body"),
+        [
+            (
+                "POST",
+                "/api/v1/admin/targets",
+                {
+                    "mode": "template",
+                    "target_id": "spain",
+                    "display_name": "西班牙新闻监控",
+                    "language_scope": {"primary": "es", "secondary": ["en"], "output": "zh"},
+                    "timezone": "Europe/Madrid",
+                },
+            ),
+            ("PATCH", "/api/v1/admin/targets/italy", {"display_name": "Italy Updated"}),
+            ("POST", "/api/v1/admin/targets/italy/archive", {"reason": "reader forbidden"}),
+            ("POST", "/api/v1/admin/targets/italy/restore", {}),
+            (
+                "POST",
+                "/api/v1/admin/targets/italy/sources",
+                {
+                    "source_id": "rai-news",
+                    "display_name": "RAI News",
+                    "type": "rss",
+                    "url": "https://www.rainews.it/rss.xml",
+                    "credibility_base": 0.82,
+                    "fetch_interval_minutes": 30,
+                    "max_items_per_run": 15,
+                    "timeout_seconds": 20,
+                },
+            ),
+            (
+                "PATCH",
+                "/api/v1/admin/targets/italy/sources/ansa",
+                {"display_name": "ANSA Updated"},
+            ),
+            (
+                "POST",
+                "/api/v1/admin/targets/italy/sources/ansa/archive",
+                {"reason": "reader forbidden"},
+            ),
+            ("POST", "/api/v1/admin/targets/italy/sources/ansa/restore", {}),
+            (
+                "POST",
+                "/api/v1/admin/targets/italy/social/dimensions",
+                {
+                    "platform": "twitter",
+                    "dimension": "economy",
+                    "collect_mode": "opencli_bridge",
+                    "session_profile_ref": "config/session-profiles/italy/twitter.session.yaml",
+                },
+            ),
+            (
+                "PATCH",
+                "/api/v1/admin/targets/italy/social/dimensions/politics",
+                {"notes": "reader forbidden"},
+            ),
+            (
+                "POST",
+                "/api/v1/admin/targets/italy/social/dimensions/politics/accounts",
+                {
+                    "handle": "@MEF_GOV",
+                    "display_name": "Ministero Economia",
+                    "url": "https://x.com/MEF_GOV",
+                    "tier": "L2",
+                    "category": "economy",
+                    "monitor_mode": "active",
+                },
+            ),
+            (
+                "PATCH",
+                "/api/v1/admin/targets/italy/social/dimensions/politics/accounts/%40Palazzo_Chigi",
+                {"notes": "reader forbidden"},
+            ),
+        ],
+    )
+    def test_reader_cannot_mutate_target_workbench(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        method: str,
+        path: str,
+        json_body: dict,
+    ) -> None:
+        client = self._setup_target_tree(tmp_path, monkeypatch)
+        resp = client.request(method, path, headers=self._reader_headers(), json=json_body)
+        assert resp.status_code == 403, f"{method} {path}: {resp.text}"
 
     def test_target_archive_restore_changes_public_visibility(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
