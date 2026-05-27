@@ -139,7 +139,7 @@ function renderTargetCreateForm(targets) {
             <small>从模板创建或克隆现有配置骨架</small>
           </span>
         </summary>
-        <form class="target-form target-create-form" id="targetCreateForm">
+        <form class="target-form target-create-form ns-form-grid" id="targetCreateForm">
           <label>
             创建方式
             <select name="mode" id="targetCreateMode">
@@ -182,12 +182,12 @@ export async function renderTargetsHome(container) {
     const data = await api("/api/v1/admin/targets", { include_archived: true });
     const targets = data.targets || [];
     container.innerHTML = `
-      <section class="target-workbench-page">
-        <div class="target-page-head">
+      <section class="target-workbench-page ns-page">
+        <div class="target-page-head ns-page-head">
           <div>
-            <p class="target-eyebrow">Targets</p>
-            <h1>目标工作台</h1>
-            <p>按监控目标管理信源、社媒矩阵、规则、采集、审核与维护。</p>
+            <p class="target-eyebrow ns-page-kicker">Target Lifecycle</p>
+            <h1 class="ns-page-title">目标工作台</h1>
+            <p class="ns-page-subtitle">先管理监控目标，再沿目标管理信源、社媒矩阵、规则、采集、审核与维护。</p>
           </div>
           ${renderTargetSummary(targets)}
         </div>
@@ -264,21 +264,21 @@ async function firstWorkbenchTarget() {
 function renderWorkbenchShell(container, targetId, tab, overview) {
   const target = overview.target || {};
   container.innerHTML = `
-    <section class="target-workbench-page" data-target-id="${escapeHtml(targetId)}">
-      <div class="target-workbench-hero">
+    <section class="target-workbench-page ns-page" data-target-id="${escapeHtml(targetId)}">
+      <div class="target-workbench-hero ns-page-head">
         <div>
-          <p class="target-eyebrow">Target Workbench</p>
-          <h1>${escapeHtml(target.display_name || targetId)}</h1>
-          <p>${escapeHtml(targetId)} · ${escapeHtml(target.primary_language || "mixed")} · ${Number(target.source_count || 0)} 个信源</p>
+          <p class="target-eyebrow ns-page-kicker">Target Workbench</p>
+          <h1 class="ns-page-title">${escapeHtml(target.display_name || targetId)}</h1>
+          <p class="ns-page-subtitle">${escapeHtml(targetId)} · ${escapeHtml(target.primary_language || "mixed")} · ${Number(target.source_count || 0)} 个信源</p>
         </div>
-        <div class="target-hero-actions">
+        <div class="target-hero-actions ns-action-row">
           ${lifecycleBadge(target)}
           ${validationBadge(overview.validation)}
           <a class="btn-secondary" href="#/news/target/${encodeURIComponent(targetId)}">公开页</a>
           <a class="btn-secondary" href="#/admin/targets">全部目标</a>
         </div>
       </div>
-      <nav class="target-workbench-tabs">
+      <nav class="target-workbench-tabs ns-tabs">
         ${TARGET_TABS.map((item) => `
           <a class="${item.id === tab ? "active" : ""}" href="${targetHref(targetId, item.id)}">${item.label}</a>
         `).join("")}
@@ -389,7 +389,7 @@ async function renderProfile(container, targetId, overview) {
         <h2>基础资料</h2>
         <p>这些字段决定公开展示、采集语言范围和后续配置引用。</p>
       </div>
-      <form class="target-form" id="targetProfileForm">
+      <form class="target-form ns-form-grid" id="targetProfileForm">
         <label>
           显示名称
           <input name="display_name" value="${escapeHtml(profile.display_name || "")}" required>
@@ -473,8 +473,8 @@ async function renderSources(container, targetId) {
         <h2>标准信源</h2>
         <p>管理 RSS、API 和 OpenCLI 信源。归档只停用，不删除 YAML 和历史事件。</p>
       </div>
-      <div class="target-table-wrap">
-        <table class="target-table">
+      <div class="target-table-wrap ns-table-wrap">
+        <table class="target-table ns-table">
           <thead><tr><th>信源</th><th>类型</th><th>状态</th><th>URL</th><th>操作</th></tr></thead>
           <tbody>
             ${sources.map((source) => `
@@ -498,7 +498,7 @@ async function renderSources(container, targetId) {
       <div class="target-panel-head">
         <h2>新增信源</h2>
       </div>
-      <form class="target-form" id="targetSourceForm">
+      <form class="target-form ns-form-grid" id="targetSourceForm">
         <label>Source ID<input name="source_id" placeholder="rai-news" required pattern="[a-z][a-z0-9_-]*"></label>
         <label>显示名称<input name="display_name" placeholder="RAI News" required></label>
         <label>
@@ -590,7 +590,7 @@ async function renderSocial(container, targetId) {
                 </div>
               `).join("") || "<p>暂无账号。</p>"}
             </div>
-            <form class="target-form compact social-account-form" data-dimension="${escapeHtml(dim.dimension)}">
+            <form class="target-form compact social-account-form ns-form-grid" data-dimension="${escapeHtml(dim.dimension)}">
               <label>Handle<input name="handle" placeholder="@account" required></label>
               <label>名称<input name="display_name" placeholder="Display name"></label>
               <label>URL<input name="url" placeholder="https://x.com/account"></label>
@@ -603,7 +603,7 @@ async function renderSocial(container, targetId) {
     </section>
     <section class="target-panel">
       <div class="target-panel-head"><h2>新增维度</h2></div>
-      <form class="target-form" id="socialDimensionForm">
+      <form class="target-form ns-form-grid" id="socialDimensionForm">
         <label>平台<input name="platform" value="twitter" required></label>
         <label>维度<input name="dimension" placeholder="economy" required></label>
         <label class="target-form-wide">会话配置<input name="session_profile_ref" placeholder="config/session-profiles/${escapeHtml(targetId)}/twitter.session.yaml"></label>
@@ -674,7 +674,7 @@ async function renderRules(container, targetId) {
         <h2>过滤规则</h2>
         <p>默认以表单方式编辑关键阈值，保存前可先看链路预检。</p>
       </div>
-      <form class="target-form" id="targetRulesForm">
+      <form class="target-form ns-form-grid" id="targetRulesForm">
         <label>入选分值<input name="score_threshold" type="number" min="0" max="100" value="${Number(filters?.score_threshold || 35)}"></label>
         <label>最大时效小时<input name="max_age_hours" type="number" min="1" value="${Number(filters?.max_age_hours || 72)}"></label>
         <label>去重窗口小时<input name="dedup_window_hours" type="number" min="1" value="${Number(filters?.dedup_window_hours || 24)}"></label>
@@ -808,8 +808,8 @@ async function renderReview(container, targetId) {
         <h2>审核与反馈</h2>
         <p>这里聚焦需要人工确认的事件和反馈闭环，公开阅读入口不在后台重复展开。</p>
       </div>
-      <div class="target-table-wrap">
-        <table class="target-table">
+      <div class="target-table-wrap ns-table-wrap">
+        <table class="target-table ns-table">
           <thead><tr><th>事件</th><th>分值</th><th>来源</th><th>操作</th></tr></thead>
           <tbody>
             ${(data.events || []).map((event) => `

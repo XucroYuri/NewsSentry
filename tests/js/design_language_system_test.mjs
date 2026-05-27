@@ -28,7 +28,7 @@ const publicTopBar = indexHtml.match(
   /<header class="public-top-bar" id="publicTopBar">([\s\S]*?)<\/header>/,
 )?.[1] || "";
 const adminTargetContextClasses = classListFromTag(extractTagById(appJs, "adminTargetContext"));
-const targetTabsRule = styleCss.match(/\.target-workbench-tabs a\s*\{([\s\S]*?)\}/)?.[1] || "";
+const canonicalTabsRule = styleCss.match(/\.ns-tabs a,\s*\.ns-tabs button\s*\{([\s\S]*?)\}/)?.[1] || "";
 
 assert.match(
   styleCss,
@@ -49,9 +49,9 @@ assert.match(
 );
 
 assert.match(
-  targetTabsRule,
+  canonicalTabsRule,
   /border-radius:\s*var\(--radius-sm\)/,
-  "target workbench tabs should use the shared small radius instead of pill styling",
+  "canonical tabs should use the shared small radius instead of pill styling",
 );
 
 assert.match(
@@ -88,6 +88,12 @@ assert.match(
   targetWorkbenchJs,
   /ns-page-head/,
   "target workbench should use the canonical page head primitive",
+);
+
+assert.match(
+  targetWorkbenchJs,
+  /target-workbench-tabs ns-tabs/,
+  "target workbench tabs should use canonical tab styling",
 );
 
 assert.match(

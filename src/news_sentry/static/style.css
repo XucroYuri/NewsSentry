@@ -4036,21 +4036,14 @@ body.ns-offline .offline-banner {
 /* Target lifecycle workbench */
 .target-workbench-page {
   width: 100%;
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 22px 20px 40px;
 }
 
-.target-page-head,
-.target-workbench-hero,
 .target-panel {
   border-bottom: 1px solid var(--border-color);
   margin-bottom: 16px;
   padding-bottom: 14px;
 }
 
-.target-page-head,
-.target-workbench-hero,
 .target-panel-head {
   display: flex;
   align-items: flex-start;
@@ -4058,25 +4051,16 @@ body.ns-offline .offline-banner {
   gap: 18px;
 }
 
-.target-page-head h1,
-.target-workbench-hero h1,
 .target-panel h2 {
   margin: 0;
   color: var(--text-primary);
 }
 
-.target-page-head h1 {
-  font-size: 1.65rem;
-}
-
-.target-page-head p,
-.target-workbench-hero p,
 .target-panel-head p {
   margin: 6px 0 0;
   color: var(--text-muted);
 }
 
-.target-eyebrow,
 .target-card-id {
   margin: 0 0 8px;
   color: var(--text-muted);
@@ -4269,34 +4253,10 @@ body.ns-offline .offline-banner {
   font-size: 0.78rem;
 }
 
-.target-workbench-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin: 0 0 var(--space-5);
-}
-
-.target-workbench-tabs a,
 .target-action-card,
 .target-action-card.as-button {
   color: var(--text-primary);
   text-decoration: none;
-}
-
-.target-workbench-tabs a {
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 7px 10px;
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  font-size: 0.84rem;
-}
-
-.target-workbench-tabs a.active {
-  border-color: var(--accent-primary);
-  background: var(--accent-blue-dim);
-  color: var(--accent-primary);
-  font-weight: 700;
 }
 
 .target-action-grid {
@@ -4328,13 +4288,6 @@ body.ns-offline .offline-banner {
   font-size: 13px;
 }
 
-.target-form {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 14px;
-  align-items: end;
-}
-
 .target-form.compact {
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   margin-top: 12px;
@@ -4362,24 +4315,6 @@ body.ns-offline .offline-banner {
 
 .target-form-wide {
   grid-column: 1 / -1;
-}
-
-.target-table-wrap {
-  overflow-x: auto;
-}
-
-.target-table {
-  width: 100%;
-  border-collapse: collapse;
-  min-width: 680px;
-}
-
-.target-table th,
-.target-table td {
-  border-bottom: 1px solid var(--border-color);
-  padding: 10px 8px;
-  text-align: left;
-  vertical-align: top;
 }
 
 .target-table small,
@@ -4446,12 +4381,6 @@ body.ns-offline .offline-banner {
 }
 
 @media (max-width: 760px) {
-  .target-workbench-page {
-    padding: 18px 12px 36px;
-  }
-
-  .target-page-head,
-  .target-workbench-hero,
   .target-panel-head,
   .target-card-head,
   .target-card-actions,
