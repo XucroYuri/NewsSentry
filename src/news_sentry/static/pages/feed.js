@@ -185,14 +185,24 @@ export function renderPublicHome(container, targets = state.targets || [], optio
     }
 
     container.innerHTML = `
-      <section class="public-home">
-        <div class="public-home-head">
-          <p class="public-kicker">News Sentry</p>
-          <h1>新闻情报频道</h1>
-          <p>当前还没有可浏览的监控目标。</p>
-          <button class="btn-secondary" id="publicTargetsRetry" type="button">重新加载</button>
+      <section class="public-home ns-page">
+        <div class="public-home-head ns-page-head">
+          <div>
+            <p class="public-kicker ns-page-kicker">News Sentry</p>
+            <h1 class="ns-page-title">新闻情报频道</h1>
+            <p class="ns-page-subtitle">当前还没有可浏览的监控目标。</p>
+          </div>
         </div>
-      </section>`;
+        <div class="ns-empty-state">
+          <h2>暂无公开目标</h2>
+          <p>公开首页只展示 active target。可以进入管理后台创建新目标，或恢复已归档目标。</p>
+          <div class="ns-empty-state-actions">
+            <a class="ns-button ns-button-primary" href="#/admin/targets">进入目标工作台</a>
+            <button class="ns-button ns-button-secondary" id="publicTargetsRetry" type="button">重新加载</button>
+          </div>
+        </div>
+      </section>
+    `;
     container.querySelector("#publicTargetsRetry")?.addEventListener("click", () => {
       renderPublicHome(container, [], { afterFallback: false });
     });

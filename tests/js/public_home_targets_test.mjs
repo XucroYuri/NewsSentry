@@ -35,4 +35,16 @@ assert.match(
   "app should import the cache-busted public feed module",
 );
 
+assert.match(
+  feedJs,
+  /ns-empty-state/,
+  "public home should use the shared actionable empty state",
+);
+
+assert.match(
+  feedJs,
+  /#\/admin\/targets/,
+  "public home empty state should offer a path to target management",
+);
+
 console.log("public home target fallback tests passed");

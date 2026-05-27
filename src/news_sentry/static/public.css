@@ -13,13 +13,13 @@ body.login-shell {
 .public-top-bar {
   position: sticky;
   top: 0;
-  height: 56px;
+  min-height: 56px;
   display: flex;
   align-items: center;
-  gap: 18px;
-  padding: 0 28px;
+  gap: var(--space-4);
+  padding: 0 var(--space-5);
   border-bottom: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--bg-primary) 92%, transparent);
+  background: var(--bg-primary);
   z-index: 60;
 }
 
@@ -65,10 +65,10 @@ body.login-shell {
   margin-left: auto;
   border: 1px solid var(--border-light);
   border-radius: var(--radius-sm);
-  padding: 7px 12px;
+  padding: 7px 11px;
   color: var(--text-primary);
-  background: var(--bg-tertiary);
-  font-size: 0.86rem;
+  background: var(--bg-secondary);
+  font-size: 0.84rem;
   white-space: nowrap;
 }
 
