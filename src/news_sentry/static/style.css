@@ -2406,7 +2406,7 @@ a:hover {
 .config-input { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 7px 10px; font-size: 0.85rem; font-family: var(--font-stack); width: 100%; max-width: 360px; }
 .config-input:focus { border-color: var(--accent-blue); outline: none; }
 .config-input-sm { width: auto; max-width: 200px; padding: 4px 8px; }
-.config-select { cursor: pointer; }
+.config-select { cursor: pointer; border-radius: var(--radius-sm); }
 .toggle-clickable { cursor: pointer; user-select: none; }
 .toggle-clickable:hover { opacity: 0.85; }
 .config-tag-removable { display: inline-flex; align-items: center; gap: 4px; }
