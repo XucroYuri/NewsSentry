@@ -5,7 +5,7 @@
 
 import { state, api, escapeHtml, scoreColor, isAuthenticated } from "../api.js?v=20260527c";
 import { CHANNELS, filterGroups, countEvents } from "./feed_filters.js?v=20260527b";
-import { adminEventHref, channelPortalHref, targetAnalysisHref, targetEventHref, targetPortalHref } from "./public_portal.js?v=20260527b";
+import { adminEventHref, channelPortalHref, targetAnalysisHref, targetEventHref, targetPortalHref } from "./public_portal.js?v=20260527d";
 
 // ── 推荐标签映射 ──
 const REC_LABELS = {
