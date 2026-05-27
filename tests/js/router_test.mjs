@@ -6,6 +6,7 @@ import {
   isPublicRoute,
   normalizeAdminRoute,
   parseRouteHash,
+  targetWorkbenchHashForLegacyRoute,
 } from "../../src/news_sentry/static/router.js";
 
 const publicHome = parseRouteHash("#/news/feed");
@@ -44,31 +45,71 @@ const adminLogin = parseRouteHash("#/admin/login");
 assert.equal(isAdminLoginRoute(adminLogin), true);
 assert.equal(isPublicRoute(adminLogin), true);
 
+const adminDefault = parseRouteHash("#/admin");
+assert.equal(adminDefault.name, "adminTargets");
+assert.equal(adminDefault.section, "targets");
+assert.equal(adminDefault.tab, "list");
+
+const adminHome = parseRouteHash("#/admin/home/overview");
+assert.equal(adminHome.name, "adminSection");
+assert.equal(adminHome.section, "home");
+assert.equal(adminHome.tab, "overview");
+
+const adminCollection = parseRouteHash("#/admin/collection/control");
+assert.equal(adminCollection.name, "adminSection");
+assert.equal(adminCollection.section, "collection");
+assert.equal(adminCollection.tab, "control");
+
+const adminTargets = parseRouteHash("#/admin/targets");
+assert.equal(adminTargets.name, "adminTargets");
+assert.equal(adminTargets.section, "targets");
+assert.equal(adminTargets.tab, "list");
+assert.equal(isPublicRoute(adminTargets), false);
+
+const adminTargetSources = parseRouteHash("#/admin/targets/italy/sources");
+assert.equal(adminTargetSources.name, "adminTargetWorkbench");
+assert.equal(adminTargetSources.targetId, "italy");
+assert.equal(adminTargetSources.tab, "sources");
+
+const adminTargetDefault = parseRouteHash("#/admin/targets/italy");
+assert.equal(adminTargetDefault.name, "adminTargetWorkbench");
+assert.equal(adminTargetDefault.targetId, "italy");
+assert.equal(adminTargetDefault.tab, "overview");
+
+assert.equal(
+  targetWorkbenchHashForLegacyRoute(parseRouteHash("#/admin/collection/sources"), "italy"),
+  "#/admin/targets/italy/sources",
+);
+assert.equal(
+  targetWorkbenchHashForLegacyRoute(parseRouteHash("#/admin/advanced/filters"), "italy"),
+  "#/admin/targets/italy/rules",
+);
+
 const adminOps = parseRouteHash("#/admin/ops/status");
-assert.equal(adminOps.name, "adminSection");
-assert.equal(adminOps.section, "ops");
-assert.equal(adminOps.tab, "status");
+assert.equal(isLegacyProtectedRoute(adminOps), true);
+assert.equal(adminHashForLegacyRoute(adminOps), "#/admin/collection/control");
 assert.equal(isPublicRoute(adminOps), false);
 
 const adminOpsRun = parseRouteHash("#/admin/ops/run-001");
-assert.equal(adminOpsRun.name, "adminSection");
-assert.equal(adminOpsRun.section, "ops");
-assert.equal(adminOpsRun.tab, "run-001");
-assert.equal(adminOpsRun.param, "");
-const normalizedOpsRun = normalizeAdminRoute(adminOpsRun, ["status", "collector", "health", "history", "maintenance"]);
-assert.equal(normalizedOpsRun.tab, "status");
+assert.equal(isLegacyProtectedRoute(adminOpsRun), true);
+const normalizedOpsRun = normalizeAdminRoute(parseRouteHash("#/admin/ops/runs/run-001"), ["runs", "maintenance", "backup", "notifications"]);
+assert.equal(normalizedOpsRun.tab, "runs");
 assert.equal(normalizedOpsRun.param, "run-001");
 
 const legacyOps = parseRouteHash("#/ops/status");
 assert.equal(isLegacyProtectedRoute(legacyOps), true);
-assert.equal(adminHashForLegacyRoute(legacyOps), "#/admin/ops/status");
+assert.equal(adminHashForLegacyRoute(legacyOps), "#/admin/collection/control");
 
 const legacyConfig = parseRouteHash("#/config/target");
 assert.equal(isLegacyProtectedRoute(legacyConfig), true);
-assert.equal(adminHashForLegacyRoute(legacyConfig), "#/admin/config/target");
+assert.equal(adminHashForLegacyRoute(legacyConfig), "#/admin/collection/targets");
 
 const protectedNewsList = parseRouteHash("#/news/events");
 assert.equal(isLegacyProtectedRoute(protectedNewsList), true);
-assert.equal(adminHashForLegacyRoute(protectedNewsList), "#/admin/news/events");
+assert.equal(adminHashForLegacyRoute(protectedNewsList), "#/admin/review/queue");
+
+const oldFeedback = parseRouteHash("#/admin/feedback/records");
+assert.equal(isLegacyProtectedRoute(oldFeedback), true);
+assert.equal(adminHashForLegacyRoute(oldFeedback), "#/admin/review/feedback");
 
 console.log("router tests passed");

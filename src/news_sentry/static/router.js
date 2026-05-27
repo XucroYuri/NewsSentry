@@ -3,7 +3,28 @@
  */
 "use strict";
 
-const ADMIN_SECTIONS = new Set(["news", "alerts", "ops", "feedback", "config", "settings"]);
+const ADMIN_SECTIONS = new Set(["home", "collection", "review", "ops", "advanced"]);
+const TARGET_WORKBENCH_TABS = new Set([
+  "overview",
+  "profile",
+  "sources",
+  "social",
+  "rules",
+  "collection",
+  "review",
+  "maintenance",
+]);
+const ADMIN_TABS = {
+  home: new Set(["overview"]),
+  collection: new Set(["control", "sources", "targets", "health"]),
+  review: new Set(["queue", "feedback", "rules", "alerts"]),
+  ops: new Set(["runs", "maintenance", "backup", "notifications"]),
+  advanced: new Set(["filters", "outputs", "ai", "webhook", "api-key", "users", "account", "theme"]),
+};
+const LEGACY_ADMIN_SECTIONS = new Set(["news", "alerts", "feedback", "config", "settings"]);
+const LEGACY_ADMIN_TABS = {
+  ops: new Set(["status", "collector", "health", "history"]),
+};
 const BARE_NEWS_LEGACY_SECTIONS = new Set(["events", "entities", "chains", "trends"]);
 
 function safeDecodeHashParam(value) {
@@ -33,12 +54,39 @@ export function parseRouteHash(hash) {
   }
 
   if (first === "admin") {
-    if ((parts[1] || "login") === "login") {
+    if ((parts[1] || "") === "login") {
       return { name: "adminLogin", scope: "admin", section: "admin", tab: "login", param: "", parts };
     }
-    const section = parts[1] || "ops";
+    if (!parts[1]) {
+      return { name: "adminTargets", scope: "admin", section: "targets", tab: "list", param: "", parts };
+    }
+    if ((parts[1] || "") === "targets") {
+      const targetId = safeDecodeHashParam(parts[2] || "");
+      if (!targetId) {
+        return { name: "adminTargets", scope: "admin", section: "targets", tab: "list", param: "", parts };
+      }
+      const requestedTab = safeDecodeHashParam(parts[3] || "overview") || "overview";
+      const tab = TARGET_WORKBENCH_TABS.has(requestedTab) ? requestedTab : "overview";
+      const param = safeDecodeHashParam(parts[4] || "");
+      return {
+        name: "adminTargetWorkbench",
+        scope: "admin",
+        section: "targets",
+        tab,
+        param,
+        targetId,
+        parts,
+      };
+    }
+    const section = parts[1] || "home";
     const tab = parts[2] || "";
     const param = safeDecodeHashParam(parts[3] || "");
+    if (LEGACY_ADMIN_SECTIONS.has(section) || LEGACY_ADMIN_TABS[section]?.has(tab)) {
+      return { name: "legacyProtected", scope: "legacy", section, tab, param, parts };
+    }
+    if (ADMIN_SECTIONS.has(section) && tab && ADMIN_TABS[section] && !ADMIN_TABS[section].has(tab)) {
+      return { name: "legacyProtected", scope: "legacy", section, tab, param, parts };
+    }
     return { name: "adminSection", scope: "admin", section, tab, param, parts };
   }
 
@@ -152,13 +200,102 @@ export function isPublicRoute(route) {
 }
 
 export function adminHashForLegacyRoute(route) {
-  if (!route || !route.section) return "#/admin/ops/status";
+  if (!route || !route.section) return "#/admin/home/overview";
   const section = route.section;
   const tab = route.tab || (section === "news" ? "overview" : "");
-  const chunks = ["#/admin", encodeHashPart(section)];
-  if (tab) chunks.push(encodeHashPart(tab));
-  if (route.param) chunks.push(encodeHashPart(route.param));
-  return chunks.join("/");
+  const detail = route.param ? `/${encodeHashPart(route.param)}` : "";
+
+  const mapped = {
+    news: {
+      overview: "#/admin/home/overview",
+      events: route.param ? `#/admin/review/queue${detail}` : "#/admin/review/queue",
+      entities: "#/admin/advanced/filters",
+      chains: "#/admin/review/queue",
+      trends: "#/admin/home/overview",
+    },
+    events: { "": "#/admin/review/queue" },
+    entities: { "": "#/admin/advanced/filters" },
+    chains: { "": "#/admin/review/queue" },
+    trends: { "": "#/admin/home/overview" },
+    alerts: {
+      live: "#/admin/review/alerts",
+      history: "#/admin/review/alerts",
+      rules: "#/admin/advanced/filters",
+    },
+    feedback: {
+      records: "#/admin/review/feedback",
+      optimize: "#/admin/review/rules",
+    },
+    ops: {
+      status: "#/admin/collection/control",
+      collector: "#/admin/collection/control",
+      health: "#/admin/collection/health",
+      history: "#/admin/ops/runs",
+      maintenance: "#/admin/ops/maintenance",
+    },
+    config: {
+      target: "#/admin/collection/targets",
+      sources: "#/admin/collection/sources",
+      filters: "#/admin/advanced/filters",
+      output: "#/admin/advanced/outputs",
+      ai: "#/admin/advanced/ai",
+      routes: "#/admin/advanced/ai",
+      webhooks: "#/admin/advanced/webhook",
+    },
+    settings: {
+      password: "#/admin/advanced/account",
+      users: "#/admin/advanced/users",
+      apiKey: "#/admin/advanced/api-key",
+      theme: "#/admin/advanced/theme",
+      backup: "#/admin/ops/backup",
+    },
+  };
+  return mapped[section]?.[tab] || mapped[section]?.[""] || "#/admin/home/overview";
+}
+
+export function targetWorkbenchHashForLegacyRoute(route, targetId = "") {
+  if (!route || !route.section) return "#/admin/targets";
+  const encodedTarget = encodeHashPart(targetId || "");
+  const targetBase = encodedTarget ? `#/admin/targets/${encodedTarget}` : "#/admin/targets";
+  const scoped = (tab) => encodedTarget ? `${targetBase}/${tab}` : "#/admin/targets";
+  const section = route.section;
+  const tab = route.tab || "";
+  const map = {
+    collection: {
+      control: scoped("collection"),
+      sources: scoped("sources"),
+      targets: "#/admin/targets",
+      health: scoped("collection"),
+    },
+    review: {
+      queue: scoped("review"),
+      feedback: scoped("review"),
+      rules: scoped("review"),
+      alerts: scoped("review"),
+    },
+    ops: {
+      runs: scoped("maintenance"),
+      maintenance: scoped("maintenance"),
+      backup: scoped("maintenance"),
+      notifications: "#/admin/ops/notifications",
+    },
+    advanced: {
+      filters: scoped("rules"),
+      outputs: scoped("maintenance"),
+      ai: "#/admin/advanced/ai",
+      webhook: "#/admin/advanced/webhook",
+      "api-key": "#/admin/advanced/api-key",
+      users: "#/admin/advanced/users",
+      account: "#/admin/advanced/account",
+      theme: "#/admin/advanced/theme",
+    },
+    config: {
+      target: "#/admin/targets",
+      sources: scoped("sources"),
+      filters: scoped("rules"),
+    },
+  };
+  return map[section]?.[tab] || map[section]?.[""] || "";
 }
 
 export function normalizeAdminRoute(route, validTabs = []) {

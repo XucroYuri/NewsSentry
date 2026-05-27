@@ -2313,28 +2313,6 @@ a:hover {
 .btn-green:hover { background: #16a34a; }
 .btn-red { background: #ef4444; color: #fff; }
 .btn-red:hover { background: #dc2626; }
-.btn-primary { background: var(--accent-blue); color: #fff; }
-.btn-primary:hover { background: #2563eb; }
-.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 32px;
-  padding: 6px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font-size: 0.85rem;
-  line-height: 1.2;
-  text-decoration: none;
-  cursor: pointer;
-}
-.btn-secondary:hover {
-  background: var(--bg-hover);
-  border-color: var(--accent-primary);
-}
 .admin-form-grid {
   display: grid;
   gap: 14px;
@@ -3801,6 +3779,20 @@ body.ns-offline .offline-banner {
   border-color: var(--status-danger);
   background: rgba(179, 38, 45, 0.08);
   color: var(--status-danger);
+}
+
+.ns-button:disabled,
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-sm.btn-danger {
+  min-height: auto;
+  padding: 4px 10px;
+  font-size: 0.75rem;
 }
 
 .ns-tabs {
