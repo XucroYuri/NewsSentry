@@ -167,7 +167,8 @@ function _browserLanguage() {
 export function isLocalAppOrigin(origin = window.location.origin) {
   try {
     const url = new URL(origin);
-    return ["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(url.hostname);
+    const hostname = url.hostname.replace(/^\[(.*)\]$/, "$1");
+    return ["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(hostname);
   } catch {
     return false;
   }

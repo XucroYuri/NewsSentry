@@ -19,7 +19,7 @@ import {
   targetWorkbenchHashForLegacyRoute,
 } from "./router.js?v=20260527e";
 import { renderFeedTab, renderPublicHome } from "./pages/feed.js?v=20260527h";
-import { renderPublicAnalysis } from "./pages/public_analysis.js?v=20260527b";
+import { renderPublicAnalysis } from "./pages/public_analysis.js?v=20260527c";
 import { targetPortalHref } from "./pages/public_portal.js?v=20260527d";
 import { renderTargetsHome, renderTargetWorkbench } from "./pages/target_workbench.js?v=20260527b";
 import { renderManagementOverviewTab } from "./pages/dashboard.js?v=20260527e";

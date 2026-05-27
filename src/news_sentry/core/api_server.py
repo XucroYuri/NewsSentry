@@ -33,6 +33,7 @@ from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -914,9 +915,34 @@ async def _notify_sse_clients(target_id: str, event: str, payload: dict[str, Any
 logger = logging.getLogger(__name__)
 
 
-def _local_auth_bypass_enabled() -> bool:
+def _is_loopback_host(host: str | None) -> bool:
+    """判断主机名/IP 是否为本机回环地址。"""
+    value = (host or "").split(",", 1)[0].strip().lower()
+    if not value:
+        return False
+    if value.startswith("[") and "]" in value:
+        value = value[1 : value.index("]")]
+    elif value.count(":") == 1:
+        value = value.split(":", 1)[0]
+    if value == "localhost":
+        return True
+    try:
+        return ip_address(value).is_loopback
+    except ValueError:
+        return False
+
+
+def _is_loopback_request(request: Request) -> bool:
+    """优先使用真实客户端地址，TestClient 回退到 Host。"""
+    client_host = request.client.host if request.client else ""
+    if client_host and client_host != "testclient":
+        return _is_loopback_host(client_host)
+    return _is_loopback_host(request.headers.get("host"))
+
+
+def _local_auth_bypass_enabled(request: Request) -> bool:
     """本地桌面/开发模式下跳过账号密码认证。"""
-    return _detect_deployment_env() == "local"
+    return _detect_deployment_env() == "local" and _is_loopback_request(request)
 
 
 def _local_admin_user() -> dict[str, Any]:
@@ -942,10 +968,10 @@ async def get_current_user(request: Request) -> dict[str, Any]:
                     info["has_api_key"] = bool(user.get("api_key"))
                     info["role"] = user.get("role", info["role"])
             return info
-        if not _local_auth_bypass_enabled():
+        if not _local_auth_bypass_enabled(request):
             raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-    if _local_auth_bypass_enabled():
+    if _local_auth_bypass_enabled(request):
         return _local_admin_user()
 
     if not token:
@@ -4194,7 +4220,7 @@ def create_app(
         bearer = auth_header.replace("Bearer ", "").strip()
         actual_token = bearer or token or ""
 
-        if not _local_auth_bypass_enabled():
+        if not _local_auth_bypass_enabled(request):
             if not actual_token:
                 raise HTTPException(status_code=401, detail="Missing authentication")
 

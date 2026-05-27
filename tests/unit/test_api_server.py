@@ -230,7 +230,7 @@ class TestLocalAuthBypass:
     ) -> None:
         _force_deployment_env(monkeypatch, "local")
         app = create_app(data_dir=tmp_path, auto_store=False)
-        client = TestClient(app)
+        client = TestClient(app, base_url="http://127.0.0.1")
 
         me_resp = client.get("/api/v1/auth/me")
         users_resp = client.get("/api/v1/admin/users")
@@ -239,6 +239,17 @@ class TestLocalAuthBypass:
         assert me_resp.json()["username"] == "local-admin"
         assert me_resp.json()["role"] == "admin"
         assert users_resp.status_code == 200
+
+    def test_local_env_rejects_non_loopback_without_bearer(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _force_deployment_env(monkeypatch, "local")
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app, base_url="http://news.example.com")
+
+        resp = client.get("/api/v1/admin/users")
+
+        assert resp.status_code == 401
 
     def test_cloud_env_still_requires_bearer(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -321,7 +332,7 @@ class TestAPIServer:
         """collector/start 与 collector/stop 提供后台启停闭环。"""
         monkeypatch.chdir(tmp_path)
         app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
-        client = TestClient(app)
+        client = TestClient(app, base_url="http://127.0.0.1")
 
         stop_resp = client.post("/api/v1/collector/stop")
         assert stop_resp.status_code == 200
@@ -1747,7 +1758,7 @@ class TestOpsEndpoints:
                 ]
 
         app = create_app(data_dir=tmp_path, store=FakeStore(), skip_lifespan=True)
-        client = TestClient(app)
+        client = TestClient(app, base_url="http://127.0.0.1")
 
         resp = client.get("/api/v1/sources/health", params={"target_id": "italy"})
 
