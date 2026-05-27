@@ -23,7 +23,9 @@ import asyncio
 import json
 import logging
 import os
+import re
 import secrets
+import shutil
 import time
 import uuid
 from collections import defaultdict
@@ -106,6 +108,8 @@ class TargetInfo(BaseModel):
     primary_language: str
     source_count: int
     event_count: int = 0
+    lifecycle: dict[str, Any] = Field(default_factory=dict)
+    archived: bool = False
 
 
 class TargetListResponse(BaseModel):
@@ -131,9 +135,13 @@ class SourceInfo(BaseModel):
     """源渠道摘要信息。"""
 
     source_id: str
+    source_ref: str | None = None
     display_name: str
     type: str  # rss | api | opencli | social
     enabled: bool
+    archived: bool = False
+    deprecated: bool = False
+    deprecated_reason: str | None = None
     credibility_base: float | None = None
     health_last_success: str | None = None
     health_consecutive_failures: int | None = None
@@ -244,6 +252,128 @@ class RouteConfigUpdate(BaseModel):
     max_cost_usd_per_call: float | None = None
     audit: bool | None = None
     fallback_route_ids: list[str] | None = None
+
+
+class CollectorConfigUpdate(BaseModel):
+    """自动采集器运行配置更新请求。"""
+
+    enabled: bool | None = None
+    target_ids: list[str] | str | None = None
+    interval_minutes: int | None = Field(default=None, ge=1, le=1440)
+    stage: str | None = None
+
+
+class TargetCreateRequest(BaseModel):
+    """Target 创建请求。"""
+
+    mode: Literal["template", "clone"]
+    target_id: str
+    display_name: str
+    language_scope: dict[str, Any]
+    timezone: str
+    source_target_id: str | None = None
+    template_id: str | None = None
+
+
+class TargetPatchRequest(BaseModel):
+    """Target 生命周期工作台内的基础资料更新。"""
+
+    display_name: str | None = None
+    language_scope: dict[str, Any] | None = None
+    timezone: str | None = None
+    classification: dict[str, Any] | None = None
+    focus_areas: list[dict[str, Any]] | None = None
+    lifecycle: dict[str, Any] | None = None
+
+
+class ArchiveRequest(BaseModel):
+    """归档操作请求。"""
+
+    reason: str | None = None
+
+
+class SourceCreateRequest(BaseModel):
+    """标准信源创建请求。"""
+
+    source_id: str
+    display_name: str
+    type: Literal["rss", "api", "opencli"]
+    source_ref: str | None = None
+    url: str | None = None
+    endpoint: dict[str, Any] | None = None
+    api_mapping: dict[str, Any] | None = None
+    tool_ref: str | None = None
+    tool_params: dict[str, Any] | None = None
+    opencli_command: str | None = None
+    sandbox_profile_ref: str | None = None
+    credibility_base: float = Field(default=0.75, ge=0.0, le=1.0)
+    fetch_interval_minutes: int = Field(default=30, ge=1)
+    max_items_per_run: int = Field(default=20, ge=1)
+    timeout_seconds: int = Field(default=20, ge=1, le=300)
+    enabled: bool = True
+    notes: str | None = None
+
+
+class SourcePatchRequest(BaseModel):
+    """标准信源编辑请求。"""
+
+    display_name: str | None = None
+    url: str | None = None
+    endpoint: dict[str, Any] | None = None
+    api_mapping: dict[str, Any] | None = None
+    tool_ref: str | None = None
+    tool_params: dict[str, Any] | None = None
+    opencli_command: str | None = None
+    sandbox_profile_ref: str | None = None
+    credibility_base: float | None = Field(default=None, ge=0.0, le=1.0)
+    fetch_interval_minutes: int | None = Field(default=None, ge=1)
+    max_items_per_run: int | None = Field(default=None, ge=1)
+    timeout_seconds: int | None = Field(default=None, ge=1, le=300)
+    enabled: bool | None = None
+    notes: str | None = None
+
+
+class SocialDimensionCreateRequest(BaseModel):
+    """社媒维度创建请求。"""
+
+    platform: str = "twitter"
+    dimension: str
+    collect_mode: str = "opencli_bridge"
+    session_profile_ref: str | None = None
+    notes: str | None = None
+
+
+class SocialDimensionPatchRequest(BaseModel):
+    """社媒维度编辑请求。"""
+
+    collect_mode: str | None = None
+    session_profile_ref: str | None = None
+    notes: str | None = None
+
+
+class SocialAccountCreateRequest(BaseModel):
+    """社媒账号创建请求。"""
+
+    handle: str
+    display_name: str | None = None
+    url: str | None = None
+    tier: str | None = None
+    category: str | None = None
+    monitor_mode: str = "active"
+    fetch_max_per_run: int | None = Field(default=None, ge=1)
+    notes: str | None = None
+
+
+class SocialAccountPatchRequest(BaseModel):
+    """社媒账号编辑请求。"""
+
+    display_name: str | None = None
+    url: str | None = None
+    tier: str | None = None
+    category: str | None = None
+    monitor_mode: str | None = None
+    fetch_max_per_run: int | None = Field(default=None, ge=1)
+    notes: str | None = None
 
 
 class EntityInfo(BaseModel):
@@ -784,21 +914,43 @@ async def _notify_sse_clients(target_id: str, event: str, payload: dict[str, Any
 logger = logging.getLogger(__name__)
 
 
+def _local_auth_bypass_enabled() -> bool:
+    """本地桌面/开发模式下跳过账号密码认证。"""
+    return _detect_deployment_env() == "local"
+
+
+def _local_admin_user() -> dict[str, Any]:
+    """本地免登录模式使用的虚拟管理员。"""
+    return {
+        "username": "local-admin",
+        "role": "admin",
+        "has_api_key": False,
+        "local": True,
+    }
+
+
 async def get_current_user(request: Request) -> dict[str, Any]:
     """提取并验证 Bearer token，返回用户信息（内存 + SQLite 回退）。"""
     token = _extract_bearer_token(request)
+    if token:
+        info = await _verify_token_async(token)
+        if info:
+            # 检查 store 中的最新 api_key 状态
+            if _store is not None:
+                user = await _store.get_user(info["username"])
+                if user:
+                    info["has_api_key"] = bool(user.get("api_key"))
+                    info["role"] = user.get("role", info["role"])
+            return info
+        if not _local_auth_bypass_enabled():
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    if _local_auth_bypass_enabled():
+        return _local_admin_user()
+
     if not token:
         raise HTTPException(status_code=401, detail="Missing authentication")
-    info = await _verify_token_async(token)
-    if not info:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    # 检查 store 中的最新 api_key 状态
-    if _store is not None:
-        user = await _store.get_user(info["username"])
-        if user:
-            info["has_api_key"] = bool(user.get("api_key"))
-            info["role"] = user.get("role", info["role"])
-    return info
+    raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
 def require_permission(permission: str) -> Any:
@@ -1546,6 +1698,35 @@ def _load_source_configs(target_id: str) -> list[dict[str, Any]]:
     return sources
 
 
+def _source_ids_for_target(target_id: str) -> set[str]:
+    """返回 target 配置中声明的信源 ID，用于后台健康状态过滤。"""
+    ids: set[str] = set()
+    for source in _load_source_configs(target_id):
+        for key in ("source_id", "id", "_source_id"):
+            value = source.get(key)
+            if value:
+                normalized = str(value).strip()
+                ids.add(normalized)
+                ids.add(Path(normalized).name)
+    return ids
+
+
+def _filter_source_health_records(
+    target_id: str,
+    records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """按当前 target 的信源配置过滤健康记录；无配置时保留原结果。"""
+    source_ids = _source_ids_for_target(target_id)
+    if not source_ids:
+        return records
+    filtered: list[dict[str, Any]] = []
+    for record in records:
+        source_id = str(record.get("source_id", "")).strip()
+        if source_id in source_ids or Path(source_id).name in source_ids:
+            filtered.append(record)
+    return filtered
+
+
 def _load_single_source(target_id: str, source_id: str) -> dict[str, Any] | None:
     """读取单个源渠道配置。"""
     sources_dir = Path(f"config/sources/{target_id}")
@@ -1584,6 +1765,432 @@ def _atomic_write_yaml(filepath: Path, data: dict[str, Any]) -> None:
             tmp.unlink(missing_ok=True)
 
 
+_TARGET_SLUG_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+_SOURCE_SLUG_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+
+
+def _target_config_path(target_id: str) -> Path:
+    return Path("config/targets") / f"{target_id}.yaml"
+
+
+def _source_config_path(target_id: str, source_ref: str) -> Path:
+    safe_ref = _normalize_source_ref(source_ref)
+    return Path("config/sources") / target_id / f"{safe_ref}.yaml"
+
+
+def _normalize_source_ref(source_ref: str) -> str:
+    """规范化 config/sources/{target}/ 下的相对引用。"""
+    ref = str(source_ref or "").replace("\\", "/").strip("/")
+    if not ref or ref.startswith(".") or "/../" in f"/{ref}/" or Path(ref).is_absolute():
+        raise HTTPException(status_code=400, detail="Invalid source ref")
+    if any(not part or part.startswith(".") for part in ref.split("/")):
+        raise HTTPException(status_code=400, detail="Invalid source ref")
+    return ref
+
+
+def _validate_target_slug(target_id: str) -> None:
+    if not _TARGET_SLUG_RE.match(target_id):
+        raise HTTPException(status_code=400, detail="Invalid target_id")
+
+
+def _validate_source_slug(source_id: str) -> None:
+    if not _SOURCE_SLUG_RE.match(source_id):
+        raise HTTPException(status_code=400, detail="Invalid source_id")
+
+
+def _load_target_config(target_id: str) -> dict[str, Any] | None:
+    return _load_yaml_file(_target_config_path(target_id))
+
+
+def _target_lifecycle(data: dict[str, Any]) -> dict[str, Any]:
+    lifecycle = data.get("lifecycle")
+    if not isinstance(lifecycle, dict):
+        return {"status": "active"}
+    status = lifecycle.get("status") or "active"
+    return {**lifecycle, "status": status}
+
+
+def _target_is_archived(data: dict[str, Any]) -> bool:
+    return _target_lifecycle(data).get("status") == "archived"
+
+
+def _target_info_from_config(data: dict[str, Any], data_dir: Path) -> TargetInfo:
+    target_id = data.get("target_id", "")
+    lifecycle = _target_lifecycle(data)
+    refs = [ref for ref in data.get("source_channel_refs", []) if isinstance(ref, str)]
+    return TargetInfo(
+        target_id=target_id,
+        display_name=data.get("display_name", ""),
+        primary_language=data.get("language_scope", {}).get("primary", "")
+        if isinstance(data.get("language_scope"), dict)
+        else "",
+        source_count=len(refs),
+        event_count=len(_load_all_events(data_dir, target_id)),
+        lifecycle=lifecycle,
+        archived=lifecycle.get("status") == "archived",
+    )
+
+
+def _source_is_standard(source: dict[str, Any]) -> bool:
+    return source.get("type") in {"rss", "api", "opencli"}
+
+
+def _source_is_archived(source: dict[str, Any]) -> bool:
+    return (
+        bool(source.get("deprecated"))
+        or source.get("enabled") is False
+        and bool(source.get("deprecated_reason"))
+    )
+
+
+def _source_info_from_config(source: dict[str, Any]) -> SourceInfo:
+    url_val = source.get("url")
+    if url_val is None:
+        endpoint = source.get("endpoint")
+        if isinstance(endpoint, dict):
+            url_val = endpoint.get("url")
+    health = source.get("health")
+    health_last = None
+    health_failures = None
+    if isinstance(health, dict):
+        health_last = health.get("last_success_at")
+        health_failures = health.get("consecutive_failures")
+    source_ref = source.get("_source_id") or source.get("source_ref") or source.get("source_id")
+    return SourceInfo(
+        source_id=source.get("source_id", source_ref),
+        source_ref=source_ref,
+        display_name=source.get("display_name", ""),
+        type=source.get("type", "unknown"),
+        enabled=source.get("enabled", True),
+        archived=_source_is_archived(source),
+        deprecated=bool(source.get("deprecated", False)),
+        deprecated_reason=source.get("deprecated_reason"),
+        credibility_base=source.get("credibility_base"),
+        health_last_success=health_last,
+        health_consecutive_failures=health_failures,
+        url=url_val,
+    )
+
+
+def _ensure_target_exists(target_id: str) -> dict[str, Any]:
+    data = _load_target_config(target_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"Target '{target_id}' not found")
+    return data
+
+
+def _append_source_ref(target_id: str, source_ref: str) -> None:
+    data = _ensure_target_exists(target_id)
+    refs = data.get("source_channel_refs")
+    if not isinstance(refs, list):
+        refs = []
+    if source_ref not in refs:
+        refs.append(source_ref)
+    data["source_channel_refs"] = refs
+    _atomic_write_yaml(_target_config_path(target_id), data)
+
+
+def _default_filter_config(target_id: str) -> dict[str, Any]:
+    return {
+        "target_id": target_id,
+        "score_threshold": 35,
+        "max_age_hours": 72,
+        "dedup_window_hours": 24,
+        "keyword_rules": [],
+    }
+
+
+def _default_classification_config(target_id: str) -> dict[str, Any]:
+    return {
+        "target_id": target_id,
+        "axes": [
+            {"id": "policy", "label": "政策"},
+            {"id": "industry", "label": "产业"},
+            {"id": "technology", "label": "技术"},
+            {"id": "risk", "label": "风险"},
+        ],
+    }
+
+
+def _ensure_global_config_defaults() -> None:
+    if not Path("config/sandbox/default.yaml").is_file():
+        _atomic_write_yaml(Path("config/sandbox/default.yaml"), {"profile": "default"})
+    if not Path("config/provider/routes.yaml").is_file():
+        _atomic_write_yaml(
+            Path("config/provider/routes.yaml"),
+            {"routes_version": "1", "routes": []},
+        )
+    if not Path("config/output/destinations.yaml").is_file():
+        _atomic_write_yaml(Path("config/output/destinations.yaml"), {"destinations": []})
+
+
+def _template_target_config(
+    *,
+    target_id: str,
+    display_name: str,
+    language_scope: dict[str, Any],
+    timezone: str,
+    source_refs: list[str] | None = None,
+) -> dict[str, Any]:
+    refs = source_refs if source_refs is not None else ["rss-template"]
+    return {
+        "target_id": target_id,
+        "display_name": display_name,
+        "language_scope": language_scope,
+        "timezone": timezone,
+        "source_channel_refs": refs,
+        "filter_rules_ref": f"config/filters/{target_id}/default.yaml",
+        "classification_rules_ref": f"config/classification/rules-{target_id}.yaml",
+        "sandbox_profile_ref": "config/sandbox/default.yaml",
+        "provider_routes_ref": "config/provider/routes.yaml",
+        "output_destinations_ref": "config/output/destinations.yaml",
+        "classification": {"country_axes": {}},
+        "focus_areas": [],
+        "lifecycle": {"status": "active"},
+    }
+
+
+def _default_template_source(target_id: str) -> dict[str, Any]:
+    return {
+        "source_id": "rss-template",
+        "display_name": f"{target_id} RSS Template",
+        "type": "rss",
+        "url": f"https://example.com/{target_id}/rss.xml",
+        "credibility_base": 0.7,
+        "fetch_interval_minutes": 60,
+        "max_items_per_run": 20,
+        "timeout_seconds": 20,
+        "enabled": False,
+        "deprecated": True,
+        "deprecated_reason": "模板占位，启用前请替换为真实信源",
+    }
+
+
+def _copy_target_config_skeleton(source_target_id: str, target_id: str) -> list[str]:
+    """复制 target 的配置骨架，不复制 data/ 历史数据。"""
+    source_sources = Path("config/sources") / source_target_id
+    target_sources = Path("config/sources") / target_id
+    if source_sources.is_dir():
+        shutil.copytree(source_sources, target_sources, dirs_exist_ok=True)
+
+    source_filter = Path("config/filters") / source_target_id
+    target_filter = Path("config/filters") / target_id
+    if source_filter.is_dir():
+        shutil.copytree(source_filter, target_filter, dirs_exist_ok=True)
+    else:
+        _atomic_write_yaml(target_filter / "default.yaml", _default_filter_config(target_id))
+
+    source_classification = Path("config/classification") / f"rules-{source_target_id}.yaml"
+    target_classification = Path("config/classification") / f"rules-{target_id}.yaml"
+    if source_classification.is_file():
+        data = _load_yaml_file(source_classification) or {}
+        if "target_id" in data:
+            data["target_id"] = target_id
+        _atomic_write_yaml(target_classification, data)
+    else:
+        _atomic_write_yaml(target_classification, _default_classification_config(target_id))
+
+    target_data = _ensure_target_exists(source_target_id)
+    refs = target_data.get("source_channel_refs", [])
+    return [str(ref) for ref in refs if isinstance(ref, str)]
+
+
+def _stop_target_in_collector_config(target_id: str) -> None:
+    config_path = Path("config/runtime/collector.yaml")
+    data = _load_yaml_file(config_path)
+    if not data:
+        return
+    target_ids = data.get("target_ids")
+    changed = False
+    if isinstance(target_ids, list) and target_id in target_ids:
+        data["target_ids"] = [item for item in target_ids if item != target_id]
+        changed = True
+    elif isinstance(target_ids, str) and target_ids == target_id:
+        data["target_ids"] = []
+        changed = True
+    if changed:
+        _atomic_write_yaml(config_path, data)
+
+
+def _build_source_config(payload: SourceCreateRequest) -> tuple[str, dict[str, Any]]:
+    _validate_source_slug(payload.source_id)
+    source_ref = _normalize_source_ref(payload.source_ref or payload.source_id)
+    data: dict[str, Any] = {
+        "source_id": payload.source_id,
+        "display_name": payload.display_name,
+        "type": payload.type,
+        "credibility_base": payload.credibility_base,
+        "fetch_interval_minutes": payload.fetch_interval_minutes,
+        "max_items_per_run": payload.max_items_per_run,
+        "timeout_seconds": payload.timeout_seconds,
+        "enabled": payload.enabled,
+    }
+    if payload.notes:
+        data["notes"] = payload.notes
+    if payload.type == "rss":
+        if not payload.url:
+            raise HTTPException(status_code=400, detail="RSS source requires url")
+        data["url"] = payload.url
+    elif payload.type == "api":
+        endpoint = payload.endpoint or {"url": payload.url, "method": "GET"}
+        if not endpoint.get("url"):
+            raise HTTPException(status_code=400, detail="API source requires endpoint.url")
+        data["endpoint"] = endpoint
+        data["api_mapping"] = payload.api_mapping or {}
+    elif payload.type == "opencli":
+        tool_ref = payload.tool_ref or payload.opencli_command
+        if not tool_ref:
+            raise HTTPException(status_code=400, detail="OpenCLI source requires tool_ref")
+        data["tool_ref"] = tool_ref
+        data["opencli_command"] = tool_ref
+        data["tool_params"] = payload.tool_params or {}
+        if payload.sandbox_profile_ref:
+            data["sandbox_profile_ref"] = payload.sandbox_profile_ref
+    return source_ref, data
+
+
+def _social_dimensions(target_id: str) -> list[dict[str, Any]]:
+    root = Path("config/sources") / target_id / "social"
+    if not root.is_dir():
+        return []
+    items: list[dict[str, Any]] = []
+    for path in sorted(root.rglob("*.yaml")):
+        data = _load_yaml_file(path)
+        if not data:
+            continue
+        rel = path.relative_to(Path("config/sources") / target_id).with_suffix("")
+        accounts = data.get("accounts")
+        if not isinstance(accounts, list):
+            accounts = []
+        data["_source_ref"] = str(rel)
+        data["_file_path"] = str(path)
+        data["accounts"] = accounts
+        data["account_count"] = len(accounts)
+        data["archived_count"] = sum(
+            1
+            for account in accounts
+            if isinstance(account, dict) and account.get("monitor_mode") == "archived"
+        )
+        items.append(data)
+    return items
+
+
+def _find_social_dimension_path(target_id: str, dimension: str) -> Path | None:
+    for item in _social_dimensions(target_id):
+        if item.get("dimension") == dimension:
+            file_path = item.get("_file_path")
+            return Path(file_path) if file_path else None
+    return None
+
+
+def _validate_target_config(target_id: str) -> dict[str, Any]:
+    """返回 target 配置链路预检结果。"""
+    checks: list[dict[str, Any]] = []
+    data = _load_target_config(target_id)
+    if data is None:
+        return {
+            "target_id": target_id,
+            "ok": False,
+            "checks": [
+                {
+                    "id": "target_config",
+                    "label": "Target 配置",
+                    "ok": False,
+                    "severity": "error",
+                    "message": "Target 配置文件不存在",
+                    "items": [],
+                }
+            ],
+        }
+
+    refs = [str(ref) for ref in data.get("source_channel_refs", []) if isinstance(ref, str)]
+    duplicate_refs = sorted({ref for ref in refs if refs.count(ref) > 1})
+    missing_refs = [
+        ref for ref in refs if not (Path("config/sources") / target_id / f"{ref}.yaml").is_file()
+    ]
+    checks.append(
+        {
+            "id": "source_refs",
+            "label": "信源引用",
+            "ok": not duplicate_refs and not missing_refs,
+            "severity": "error" if duplicate_refs or missing_refs else "ok",
+            "message": "信源引用完整"
+            if not duplicate_refs and not missing_refs
+            else "存在重复或缺失的信源引用",
+            "items": [{"type": "duplicate", "ref": ref} for ref in duplicate_refs]
+            + [{"type": "missing", "ref": ref} for ref in missing_refs],
+        }
+    )
+
+    ref_fields = [
+        ("filter_rules_ref", "过滤规则"),
+        ("classification_rules_ref", "分类规则"),
+        ("sandbox_profile_ref", "沙箱配置"),
+        ("provider_routes_ref", "Provider 路由"),
+        ("output_destinations_ref", "输出配置"),
+    ]
+    for field, label in ref_fields:
+        ref = data.get(field)
+        exists = bool(ref) and Path(str(ref)).is_file()
+        checks.append(
+            {
+                "id": field,
+                "label": label,
+                "ok": exists,
+                "severity": "error" if not exists else "ok",
+                "message": "引用文件存在" if exists else f"{label}引用缺失",
+                "items": [] if exists else [{"ref": ref}],
+            }
+        )
+
+    bad_urls: list[dict[str, str]] = []
+    for source in _load_source_configs(target_id):
+        if not _source_is_standard(source):
+            continue
+        url_val = source.get("url")
+        if url_val is None and isinstance(source.get("endpoint"), dict):
+            url_val = source["endpoint"].get("url")
+        if (
+            source.get("type") != "opencli"
+            and url_val
+            and not str(url_val).startswith(("http://", "https://"))
+        ):
+            bad_urls.append({"source_ref": str(source.get("_source_id", "")), "url": str(url_val)})
+    checks.append(
+        {
+            "id": "source_urls",
+            "label": "信源 URL",
+            "ok": not bad_urls,
+            "severity": "error" if bad_urls else "ok",
+            "message": "URL 格式可用" if not bad_urls else "存在非 HTTP(S) URL",
+            "items": bad_urls,
+        }
+    )
+
+    missing_sessions: list[dict[str, str]] = []
+    for social in _social_dimensions(target_id):
+        ref = social.get("session_profile_ref")
+        if ref and not Path(str(ref)).is_file():
+            missing_sessions.append(
+                {"dimension": str(social.get("dimension", "")), "session_profile_ref": str(ref)}
+            )
+    checks.append(
+        {
+            "id": "social_sessions",
+            "label": "社媒会话",
+            "ok": not missing_sessions,
+            "severity": "warning" if missing_sessions else "ok",
+            "message": "社媒会话配置存在" if not missing_sessions else "部分社媒会话配置缺失",
+            "items": missing_sessions,
+        }
+    )
+    return {
+        "target_id": target_id,
+        "ok": all(check["ok"] or check["severity"] == "warning" for check in checks),
+        "checks": checks,
+    }
+
+
 def _load_all_events(data_dir: Path, target_id: str) -> list[dict[str, Any]]:
     """从 data/{target_id}/drafts/ 读取所有事件（不分页）。"""
     drafts_dir = data_dir / target_id / "drafts"
@@ -1620,11 +2227,10 @@ def _load_event_by_path(file_path: str | None) -> dict[str, Any] | None:
 def _parse_target_ids(raw: str) -> list[str]:
     """解析 target ID 字符串：'all' → 全量 targets，'a,b' → ['a','b']."""
     if raw.strip().lower() == "all":
-        import news_sentry
         from news_sentry.core.async_run import _resolve_targets
+        from news_sentry.core.run import _find_project_root
 
-        config_dir = Path(news_sentry.__file__).resolve().parent.parent / "config"
-        return _resolve_targets("all", config_dir)
+        return _resolve_targets("all", _find_project_root())
     return [t.strip() for t in raw.split(",") if t.strip()]
 
 
@@ -1639,11 +2245,111 @@ _auto_collector_state: dict[str, Any] = {
     "last_run_at": None,
     "last_run_status": None,
     "last_events_collected": 0,
+    "last_error": None,
+    "next_run_at": None,
     "total_runs": 0,
     "task": None,
 }
 
 _log = logging.getLogger("news_sentry.auto_collector")
+
+_COLLECTOR_STAGES = {"all", "collect", "filter", "judge", "output"}
+
+
+def _collector_config_path() -> Path:
+    """返回本地持久化的采集器配置路径。"""
+    return Path("config/runtime/collector.yaml")
+
+
+def _collector_env_defaults() -> dict[str, Any]:
+    """从环境变量构造采集器默认值。"""
+    try:
+        interval = int(os.environ.get("NEWSSENTRY_COLLECT_INTERVAL", "15"))
+    except ValueError:
+        interval = 15
+    return {
+        "enabled": os.environ.get("NEWSSENTRY_AUTO_COLLECT", "1") == "1",
+        "target_ids": _parse_target_ids(
+            os.environ.get("NEWSSENTRY_TARGET_ID", os.environ.get("TARGET_ID", "all"))
+        ),
+        "interval_minutes": interval,
+        "stage": os.environ.get("NEWSSENTRY_COLLECT_STAGE", "collect"),
+    }
+
+
+def _normalize_collector_config(raw: dict[str, Any]) -> dict[str, Any]:
+    """规范化采集器配置，保证 API 与 YAML 使用同一形状。"""
+    defaults = _collector_env_defaults()
+    data = {**defaults, **{k: v for k, v in raw.items() if v is not None}}
+
+    target_ids_raw = data.get("target_ids", defaults["target_ids"])
+    if isinstance(target_ids_raw, str):
+        target_ids = _parse_target_ids(target_ids_raw)
+    elif isinstance(target_ids_raw, list):
+        target_ids = [str(t).strip() for t in target_ids_raw if str(t).strip()]
+    else:
+        target_ids = defaults["target_ids"]
+
+    stage = str(data.get("stage") or defaults["stage"]).strip().lower()
+    if stage not in _COLLECTOR_STAGES:
+        stage = defaults["stage"] if defaults["stage"] in _COLLECTOR_STAGES else "collect"
+
+    try:
+        interval = int(data.get("interval_minutes", defaults["interval_minutes"]))
+    except (TypeError, ValueError):
+        interval = int(defaults["interval_minutes"])
+    interval = max(1, min(interval, 1440))
+
+    return {
+        "enabled": bool(data.get("enabled")),
+        "target_ids": target_ids,
+        "interval_minutes": interval,
+        "stage": stage,
+    }
+
+
+def _load_collector_config() -> dict[str, Any]:
+    """读取采集器配置；没有 YAML 时使用环境变量默认值。"""
+    path = _collector_config_path()
+    loaded: dict[str, Any] = {}
+    if path.is_file():
+        loaded = _load_yaml_file(path) or {}
+    return _normalize_collector_config(loaded)
+
+
+def _save_collector_config(config: dict[str, Any]) -> None:
+    """持久化采集器配置到 config/runtime/collector.yaml。"""
+    normalized = _normalize_collector_config(config)
+    path = _collector_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write_yaml(path, normalized)
+
+
+def _apply_collector_config(config: dict[str, Any]) -> dict[str, Any]:
+    """应用采集器配置到内存状态并返回规范化结果。"""
+    normalized = _normalize_collector_config(config)
+    _auto_collector_state["enabled"] = normalized["enabled"]
+    _auto_collector_state["target_ids"] = normalized["target_ids"]
+    _auto_collector_state["interval_minutes"] = normalized["interval_minutes"]
+    _auto_collector_state["stage"] = normalized["stage"]
+    return normalized
+
+
+def _collector_payload() -> dict[str, Any]:
+    """返回统一的采集器状态响应。"""
+    return {
+        "enabled": _auto_collector_state["enabled"],
+        "running": _auto_collector_state["running"],
+        "target_ids": _auto_collector_state["target_ids"],
+        "stage": _auto_collector_state["stage"],
+        "interval_minutes": _auto_collector_state["interval_minutes"],
+        "last_run_at": _auto_collector_state["last_run_at"],
+        "last_run_status": _auto_collector_state["last_run_status"],
+        "last_events_collected": _auto_collector_state.get("last_events_collected", 0),
+        "last_error": _auto_collector_state.get("last_error"),
+        "next_run_at": _auto_collector_state.get("next_run_at"),
+        "total_runs": _auto_collector_state["total_runs"],
+    }
 
 
 async def _auto_collect_loop() -> None:
@@ -1652,21 +2358,20 @@ async def _auto_collect_loop() -> None:
     通过 NEWSSENTRY_COLLECT_STAGE 控制执行的阶段（默认 collect），
     通过 NEWSSENTRY_TARGET_ID 控制 target 范围（默认 all，逗号分隔或 all）。
     """
-    interval = _auto_collector_state["interval_minutes"] * 60
-    target_ids = _auto_collector_state["target_ids"]
-    stage = _auto_collector_state["stage"]
     _auto_collector_state["running"] = True
     _log.info(
         "自动采集循环启动: targets=%s, stage=%s, interval=%dmin",
-        target_ids,
-        stage,
-        interval // 60,
+        _auto_collector_state["target_ids"],
+        _auto_collector_state["stage"],
+        _auto_collector_state["interval_minutes"],
     )
 
     while _auto_collector_state["enabled"]:
         try:
             from news_sentry.core.async_run import bounded_run_multi_async
 
+            target_ids = _auto_collector_state["target_ids"]
+            stage = _auto_collector_state["stage"]
             run_id = f"auto_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
             _log.info("自动采集开始: run_id=%s, targets=%s", run_id, target_ids)
 
@@ -1678,17 +2383,24 @@ async def _auto_collect_loop() -> None:
 
             _auto_collector_state["last_run_at"] = datetime.now(UTC).isoformat()
             _auto_collector_state["last_run_status"] = "ok"
+            _auto_collector_state["last_error"] = None
             _auto_collector_state["total_runs"] += 1
             _log.info("自动采集完成: run_id=%s", run_id)
-        except Exception:
+        except Exception as exc:
             _auto_collector_state["last_run_at"] = datetime.now(UTC).isoformat()
             _auto_collector_state["last_run_status"] = "error"
+            _auto_collector_state["last_error"] = str(exc)
             _auto_collector_state["total_runs"] += 1
             _log.error("自动采集失败", exc_info=True)
 
+        interval = _auto_collector_state["interval_minutes"] * 60
+        _auto_collector_state["next_run_at"] = (
+            datetime.now(UTC) + timedelta(seconds=interval)
+        ).isoformat()
         await asyncio.sleep(interval)
 
     _auto_collector_state["running"] = False
+    _auto_collector_state["next_run_at"] = None
     _log.info("自动采集循环停止")
 
 
@@ -1882,6 +2594,7 @@ def create_app(
     elif not auto_store:
         _store = None  # 显式禁用，测试环境重置
     _config_cache = ConfigCache(ttl=60, maxsize=128)
+    _apply_collector_config(_load_collector_config())
 
     # ── 公开端点（无需认证）─────────────────────────────
 
@@ -1894,16 +2607,52 @@ def create_app(
         _user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
         """返回后台自动采集循环的状态。"""
-        return {
-            "enabled": _auto_collector_state["enabled"],
-            "running": _auto_collector_state["running"],
-            "target_ids": _auto_collector_state["target_ids"],
-            "stage": _auto_collector_state["stage"],
-            "interval_minutes": _auto_collector_state["interval_minutes"],
-            "last_run_at": _auto_collector_state["last_run_at"],
-            "last_run_status": _auto_collector_state["last_run_status"],
-            "total_runs": _auto_collector_state["total_runs"],
-        }
+        return _collector_payload()
+
+    @app.get("/api/v1/collector/config")
+    async def collector_config(
+        _user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """返回可编辑的自动采集配置与当前运行状态。"""
+        return _collector_payload()
+
+    @app.put("/api/v1/collector/config")
+    async def update_collector_config(
+        config: CollectorConfigUpdate,
+        _user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """更新自动采集配置并持久化到 config/runtime/collector.yaml。"""
+        current = _collector_payload()
+        update = config.model_dump(exclude_none=True)
+        normalized = _apply_collector_config({**current, **update})
+        _save_collector_config(normalized)
+        return _collector_payload()
+
+    @app.post("/api/v1/collector/start")
+    async def start_collector(
+        _user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """启用自动采集；非测试生命周期下会启动后台循环。"""
+        normalized = _apply_collector_config({**_collector_payload(), "enabled": True})
+        _save_collector_config(normalized)
+        task = _auto_collector_state.get("task")
+        if not _skip_lifespan and (task is None or task.done()):
+            _auto_collector_state["task"] = asyncio.create_task(_auto_collect_loop())
+        return _collector_payload()
+
+    @app.post("/api/v1/collector/stop")
+    async def stop_collector(
+        _user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """停用自动采集并取消正在等待的后台循环。"""
+        normalized = _apply_collector_config({**_collector_payload(), "enabled": False})
+        _save_collector_config(normalized)
+        task = _auto_collector_state.get("task")
+        if task is not None and not task.done():
+            task.cancel()
+        _auto_collector_state["running"] = False
+        _auto_collector_state["next_run_at"] = None
+        return _collector_payload()
 
     @app.get("/api/v1/collector/diagnostics")
     async def collector_diagnostics(
@@ -2467,19 +3216,462 @@ def create_app(
 
     @app.get("/api/v1/targets", response_model=TargetListResponse)
     async def list_targets() -> TargetListResponse:
-        """返回所有可用的 target 列表。"""
+        """返回公开可浏览的 active target 列表。"""
         configs = _load_target_configs()
         targets = [
-            TargetInfo(
-                target_id=c.get("target_id", ""),
-                display_name=c.get("display_name", ""),
-                primary_language=c.get("language_scope", {}).get("primary", ""),
-                source_count=len(c.get("source_channel_refs", [])),
-                event_count=len(_load_all_events(_data_dir, c.get("target_id", ""))),
-            )
-            for c in configs
+            _target_info_from_config(c, _data_dir) for c in configs if not _target_is_archived(c)
         ]
         return TargetListResponse(targets=targets)
+
+    @app.get("/api/v1/admin/targets")
+    async def list_admin_targets(
+        include_archived: bool = Query(False, description="是否包含已归档 target"),
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """管理后台 target 全生命周期列表。"""
+        configs = _load_target_configs()
+        targets = [
+            _target_info_from_config(config, _data_dir).model_dump()
+            for config in configs
+            if include_archived or not _target_is_archived(config)
+        ]
+        return {"targets": targets}
+
+    @app.post("/api/v1/admin/targets")
+    async def create_admin_target(
+        payload: TargetCreateRequest,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """通过模板或克隆创建完整 target 配置骨架。"""
+        _validate_target_slug(payload.target_id)
+        target_path = _target_config_path(payload.target_id)
+        if target_path.exists():
+            raise HTTPException(
+                status_code=409,
+                detail=f"Target '{payload.target_id}' already exists",
+            )
+        _ensure_global_config_defaults()
+
+        if payload.mode == "template":
+            target_data = _template_target_config(
+                target_id=payload.target_id,
+                display_name=payload.display_name,
+                language_scope=payload.language_scope,
+                timezone=payload.timezone,
+            )
+            _atomic_write_yaml(
+                _source_config_path(payload.target_id, "rss-template"),
+                _default_template_source(payload.target_id),
+            )
+            _atomic_write_yaml(
+                Path("config/filters") / payload.target_id / "default.yaml",
+                _default_filter_config(payload.target_id),
+            )
+            _atomic_write_yaml(
+                Path("config/classification") / f"rules-{payload.target_id}.yaml",
+                _default_classification_config(payload.target_id),
+            )
+        else:
+            if not payload.source_target_id:
+                raise HTTPException(status_code=400, detail="clone mode requires source_target_id")
+            source_target = _ensure_target_exists(payload.source_target_id)
+            source_refs = _copy_target_config_skeleton(payload.source_target_id, payload.target_id)
+            target_data = _template_target_config(
+                target_id=payload.target_id,
+                display_name=payload.display_name,
+                language_scope=payload.language_scope,
+                timezone=payload.timezone,
+                source_refs=source_refs,
+            )
+            for key in ("sandbox_profile_ref", "provider_routes_ref", "output_destinations_ref"):
+                if source_target.get(key):
+                    target_data[key] = source_target[key]
+            if isinstance(source_target.get("classification"), dict):
+                target_data["classification"] = source_target["classification"]
+            if isinstance(source_target.get("focus_areas"), list):
+                target_data["focus_areas"] = source_target["focus_areas"]
+
+        _atomic_write_yaml(target_path, target_data)
+        _config_cache.clear()
+        return _target_info_from_config(target_data, _data_dir).model_dump()
+
+    @app.patch("/api/v1/admin/targets/{target_id}")
+    async def patch_admin_target(
+        target_id: str,
+        payload: TargetPatchRequest,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """更新 target 基础资料。"""
+        data = _ensure_target_exists(target_id)
+        updates = payload.model_dump(exclude_unset=True)
+        data = _deep_merge(data, updates)
+        data["target_id"] = target_id
+        _atomic_write_yaml(_target_config_path(target_id), data)
+        _config_cache.clear()
+        return data
+
+    @app.post("/api/v1/admin/targets/{target_id}/archive")
+    async def archive_admin_target(
+        target_id: str,
+        payload: ArchiveRequest | None = None,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """归档 target：公开首页隐藏，历史数据保留。"""
+        data = _ensure_target_exists(target_id)
+        data["lifecycle"] = {
+            **_target_lifecycle(data),
+            "status": "archived",
+            "archived_at": datetime.now(UTC).isoformat(),
+            "archive_reason": payload.reason if payload else None,
+        }
+        _atomic_write_yaml(_target_config_path(target_id), data)
+        _stop_target_in_collector_config(target_id)
+        _config_cache.clear()
+        return data
+
+    @app.post("/api/v1/admin/targets/{target_id}/restore")
+    async def restore_admin_target(
+        target_id: str,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """恢复 target：重新进入公开首页和后台列表，但不自动启动采集。"""
+        data = _ensure_target_exists(target_id)
+        lifecycle = _target_lifecycle(data)
+        lifecycle["status"] = "active"
+        lifecycle.pop("archive_reason", None)
+        data["lifecycle"] = lifecycle
+        _atomic_write_yaml(_target_config_path(target_id), data)
+        _config_cache.clear()
+        return data
+
+    @app.get("/api/v1/admin/targets/{target_id}/overview")
+    async def admin_target_overview(
+        target_id: str,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """单个 target 工作台总览。"""
+        target_data = _ensure_target_exists(target_id)
+        sources = [
+            source for source in _load_source_configs(target_id) if _source_is_standard(source)
+        ]
+        social_dimensions = _social_dimensions(target_id)
+        source_archived = sum(1 for source in sources if _source_is_archived(source))
+        social_accounts = sum(len(item.get("accounts", [])) for item in social_dimensions)
+        social_archived = sum(item.get("archived_count", 0) for item in social_dimensions)
+        events = _load_all_events(_data_dir, target_id)
+        validation = _validate_target_config(target_id)
+        recent_runs = _load_run_logs(_data_dir, target_id, 5)
+        return {
+            "target": _target_info_from_config(target_data, _data_dir).model_dump(),
+            "profile": target_data,
+            "sources": {
+                "total": len(sources),
+                "active": len(sources) - source_archived,
+                "archived": source_archived,
+            },
+            "social": {
+                "dimensions": len(social_dimensions),
+                "accounts": social_accounts,
+                "archived_accounts": social_archived,
+            },
+            "events": {"total": len(events)},
+            "recent_runs": recent_runs,
+            "validation": validation,
+            "collector": _collector_payload(),
+        }
+
+    @app.post("/api/v1/admin/targets/{target_id}/validate")
+    async def validate_admin_target(
+        target_id: str,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """预检 target 配置链路。"""
+        return _validate_target_config(target_id)
+
+    @app.get("/api/v1/admin/targets/{target_id}/sources")
+    async def list_admin_target_sources(
+        target_id: str,
+        include_archived: bool = Query(False, description="是否包含已归档信源"),
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """列出 target 的标准 RSS/API/OpenCLI 信源。"""
+        _ensure_target_exists(target_id)
+        sources = []
+        for source in _load_source_configs(target_id):
+            if not _source_is_standard(source):
+                continue
+            if not include_archived and _source_is_archived(source):
+                continue
+            sources.append(_source_info_from_config(source).model_dump())
+        return {"target_id": target_id, "sources": sources}
+
+    @app.post("/api/v1/admin/targets/{target_id}/sources")
+    async def create_admin_target_source(
+        target_id: str,
+        payload: SourceCreateRequest,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """新增标准信源，并写入 target source_channel_refs。"""
+        _ensure_target_exists(target_id)
+        source_ref, data = _build_source_config(payload)
+        path = _source_config_path(target_id, source_ref)
+        if path.exists():
+            raise HTTPException(status_code=409, detail=f"Source '{source_ref}' already exists")
+        _atomic_write_yaml(path, data)
+        _append_source_ref(target_id, source_ref)
+        _config_cache.clear()
+        data["_source_id"] = source_ref
+        data["_file_path"] = str(path)
+        return _source_info_from_config(data).model_dump()
+
+    @app.patch("/api/v1/admin/targets/{target_id}/sources/{source_ref:path}")
+    async def patch_admin_target_source(
+        target_id: str,
+        source_ref: str,
+        payload: SourcePatchRequest,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """编辑标准信源。"""
+        _ensure_target_exists(target_id)
+        normalized_ref = _normalize_source_ref(source_ref)
+        path = _source_config_path(target_id, normalized_ref)
+        data = _load_yaml_file(path)
+        if data is None:
+            raise HTTPException(status_code=404, detail=f"Source '{normalized_ref}' not found")
+        updates = payload.model_dump(exclude_unset=True)
+        for key, value in updates.items():
+            if value is None:
+                continue
+            data[key] = value
+        _atomic_write_yaml(path, data)
+        _config_cache.clear()
+        data["_source_id"] = normalized_ref
+        data["_file_path"] = str(path)
+        return _source_info_from_config(data).model_dump()
+
+    @app.post("/api/v1/admin/targets/{target_id}/sources/{source_ref:path}/archive")
+    async def archive_admin_target_source(
+        target_id: str,
+        source_ref: str,
+        payload: ArchiveRequest | None = None,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """归档标准信源：禁用但保留 YAML 和历史事件。"""
+        _ensure_target_exists(target_id)
+        normalized_ref = _normalize_source_ref(source_ref)
+        path = _source_config_path(target_id, normalized_ref)
+        data = _load_yaml_file(path)
+        if data is None:
+            raise HTTPException(status_code=404, detail=f"Source '{normalized_ref}' not found")
+        data["enabled"] = False
+        data["deprecated"] = True
+        data["deprecated_reason"] = payload.reason if payload else "archived"
+        _atomic_write_yaml(path, data)
+        _config_cache.clear()
+        data["_source_id"] = normalized_ref
+        data["_file_path"] = str(path)
+        return _source_info_from_config(data).model_dump()
+
+    @app.post("/api/v1/admin/targets/{target_id}/sources/{source_ref:path}/restore")
+    async def restore_admin_target_source(
+        target_id: str,
+        source_ref: str,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """恢复已归档标准信源。"""
+        _ensure_target_exists(target_id)
+        normalized_ref = _normalize_source_ref(source_ref)
+        path = _source_config_path(target_id, normalized_ref)
+        data = _load_yaml_file(path)
+        if data is None:
+            raise HTTPException(status_code=404, detail=f"Source '{normalized_ref}' not found")
+        data["enabled"] = True
+        data["deprecated"] = False
+        data.pop("deprecated_reason", None)
+        _atomic_write_yaml(path, data)
+        _config_cache.clear()
+        data["_source_id"] = normalized_ref
+        data["_file_path"] = str(path)
+        return _source_info_from_config(data).model_dump()
+
+    @app.get("/api/v1/admin/targets/{target_id}/social")
+    async def get_admin_target_social(
+        target_id: str,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """读取 target 社媒矩阵。"""
+        _ensure_target_exists(target_id)
+        dimensions = _social_dimensions(target_id)
+        return {"target_id": target_id, "dimensions": dimensions}
+
+    @app.post("/api/v1/admin/targets/{target_id}/social/dimensions")
+    async def create_admin_social_dimension(
+        target_id: str,
+        payload: SocialDimensionCreateRequest,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """新增社媒维度。"""
+        _ensure_target_exists(target_id)
+        platform = _normalize_source_ref(payload.platform)
+        dimension = _normalize_source_ref(payload.dimension)
+        source_ref = f"social/{platform}/{dimension}"
+        path = _source_config_path(target_id, source_ref)
+        if path.exists():
+            raise HTTPException(
+                status_code=409,
+                detail=f"Social dimension '{dimension}' already exists",
+            )
+        data = {
+            "platform": platform,
+            "dimension": dimension,
+            "collect_mode": payload.collect_mode,
+            "session_profile_ref": payload.session_profile_ref
+            or f"config/session-profiles/{target_id}/{platform}.session.yaml",
+            "accounts": [],
+        }
+        if payload.notes:
+            data["notes"] = payload.notes
+        _atomic_write_yaml(path, data)
+        _append_source_ref(target_id, source_ref)
+        _config_cache.clear()
+        data["_source_ref"] = source_ref
+        data["_file_path"] = str(path)
+        data["account_count"] = 0
+        data["archived_count"] = 0
+        return data
+
+    @app.patch("/api/v1/admin/targets/{target_id}/social/dimensions/{dimension}")
+    async def patch_admin_social_dimension(
+        target_id: str,
+        dimension: str,
+        payload: SocialDimensionPatchRequest,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """编辑社媒维度。"""
+        _ensure_target_exists(target_id)
+        path = _find_social_dimension_path(target_id, dimension)
+        if path is None:
+            raise HTTPException(status_code=404, detail=f"Social dimension '{dimension}' not found")
+        data = _load_yaml_file(path) or {}
+        for key, value in payload.model_dump(exclude_unset=True).items():
+            if value is not None:
+                data[key] = value
+        _atomic_write_yaml(path, data)
+        _config_cache.clear()
+        return data
+
+    @app.post("/api/v1/admin/targets/{target_id}/social/dimensions/{dimension}/accounts")
+    async def create_admin_social_account(
+        target_id: str,
+        dimension: str,
+        payload: SocialAccountCreateRequest,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """新增社媒账号。"""
+        _ensure_target_exists(target_id)
+        path = _find_social_dimension_path(target_id, dimension)
+        if path is None:
+            raise HTTPException(status_code=404, detail=f"Social dimension '{dimension}' not found")
+        data = _load_yaml_file(path) or {}
+        accounts = data.get("accounts")
+        if not isinstance(accounts, list):
+            accounts = []
+        if any(
+            isinstance(account, dict) and account.get("handle") == payload.handle
+            for account in accounts
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Account '{payload.handle}' already exists",
+            )
+        account = payload.model_dump(exclude_none=True)
+        accounts.append(account)
+        data["accounts"] = accounts
+        _atomic_write_yaml(path, data)
+        _config_cache.clear()
+        return account
+
+    @app.patch("/api/v1/admin/targets/{target_id}/social/dimensions/{dimension}/accounts/{handle}")
+    async def patch_admin_social_account(
+        target_id: str,
+        dimension: str,
+        handle: str,
+        payload: SocialAccountPatchRequest,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """编辑或归档社媒账号。"""
+        _ensure_target_exists(target_id)
+        path = _find_social_dimension_path(target_id, dimension)
+        if path is None:
+            raise HTTPException(status_code=404, detail=f"Social dimension '{dimension}' not found")
+        data = _load_yaml_file(path) or {}
+        accounts = data.get("accounts")
+        if not isinstance(accounts, list):
+            accounts = []
+        for account in accounts:
+            if isinstance(account, dict) and account.get("handle") == handle:
+                for key, value in payload.model_dump(exclude_unset=True).items():
+                    if value is not None:
+                        account[key] = value
+                _atomic_write_yaml(path, data)
+                _config_cache.clear()
+                return account
+        raise HTTPException(status_code=404, detail=f"Account '{handle}' not found")
+
+    @app.get("/api/v1/admin/overview")
+    async def admin_overview(
+        target_id: str | None = Query(None, description="目标标识"),
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """管理后台总览聚合：目标、采集、诊断、健康、反馈与告警。"""
+        targets_response = await list_targets()
+        targets = [target.model_dump() for target in targets_response.targets]
+        selected_target = target_id or (targets[0]["target_id"] if targets else "")
+
+        diagnostics = await collector_diagnostics(user)
+        source_health_records: list[dict[str, Any]] = []
+        if _store is not None and selected_target:
+            raw_health = await _store.get_all_source_health()
+            source_health_records = _filter_source_health_records(selected_target, raw_health)
+
+        feedback: dict[str, Any] = {
+            "total": 0,
+            "publish_override": 0,
+            "archive_override": 0,
+            "comment": 0,
+        }
+        alerts: dict[str, Any] = {"total": 0, "items": []}
+        if _store is not None and selected_target:
+            try:
+                feedback = await _store.get_feedback_stats(selected_target)
+            except AttributeError:
+                feedback = dict(feedback)
+            try:
+                alert_items = await _store.get_alert_history(selected_target)
+                alerts = {"total": len(alert_items), "items": alert_items[:5]}
+            except AttributeError:
+                alerts = {"total": 0, "items": []}
+
+        recent_runs = _load_run_logs(_data_dir, selected_target, 5) if selected_target else []
+        return {
+            "target_id": selected_target,
+            "targets": targets,
+            "collector": _collector_payload(),
+            "diagnostics": diagnostics,
+            "source_health": {
+                "total": len(source_health_records),
+                "unhealthy": sum(
+                    1
+                    for item in source_health_records
+                    if item.get("status") not in {"ok", "healthy"}
+                ),
+                "items": source_health_records[:8],
+            },
+            "recent_runs": recent_runs,
+            "feedback": feedback,
+            "alerts": alerts,
+            "generated_at": datetime.now(UTC).isoformat(),
+        }
 
     @app.get(
         "/api/v1/public/targets/{target_id}/analysis",
@@ -3001,12 +4193,14 @@ def create_app(
         auth_header = request.headers.get("Authorization", "")
         bearer = auth_header.replace("Bearer ", "").strip()
         actual_token = bearer or token or ""
-        if not actual_token:
-            raise HTTPException(status_code=401, detail="Missing authentication")
 
-        info = await _verify_token_async(actual_token)
-        if not info:
-            raise HTTPException(status_code=401, detail="Invalid or expired token")
+        if not _local_auth_bypass_enabled():
+            if not actual_token:
+                raise HTTPException(status_code=401, detail="Missing authentication")
+
+            info = await _verify_token_async(actual_token)
+            if not info:
+                raise HTTPException(status_code=401, detail="Invalid or expired token")
 
         queue: asyncio.Queue[Any] = asyncio.Queue()
         async with _sse_lock:
@@ -3376,6 +4570,7 @@ def create_app(
         if _store is None:
             return SourceHealthListResponse(sources=[])
         records = await _store.get_all_source_health()
+        records = _filter_source_health_records(target_id, records)
         return SourceHealthListResponse(sources=[SourceHealthInfo(**r) for r in records])
 
     @app.post("/api/v1/runs/trigger", response_model=TriggerResponse)
@@ -3780,8 +4975,7 @@ def create_app(
         user: dict[str, Any] = Depends(require_permission("write")),
     ) -> RulesOptimizeResponse:
         """触发规则优化。"""
-        config_dir = Path("config")
-        filter_yaml = config_dir / f"filter-{req.target_id}.yaml"
+        filter_yaml = (Path("config") / "filters" / req.target_id / "default.yaml").resolve()
         if not filter_yaml.exists():
             raise HTTPException(status_code=404, detail=f"Filter config not found: {filter_yaml}")
         from news_sentry.core.rules_optimizer import RulesOptimizer

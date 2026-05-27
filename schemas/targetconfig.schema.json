@@ -104,6 +104,26 @@
         }
       },
       "default": []
+    },
+    "lifecycle": {
+      "type": "object",
+      "description": "Target lifecycle state. Missing lifecycle means active for backwards compatibility.",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["active", "archived"],
+          "default": "active"
+        },
+        "archived_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "archive_reason": {
+          "type": ["string", "null"]
+        }
+      },
+      "default": { "status": "active" }
     }
   }
 }

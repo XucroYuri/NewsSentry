@@ -3,9 +3,21 @@
  */
 "use strict";
 
-import { api, apiPost, apiPut, escapeHtml, showError, showSuccess, hasPermission, formatDate } from "../api.js?v=20260527a";
+import { api, apiPost, apiPut, escapeHtml, showError, showSuccess, hasPermission, formatDate, isLocalApp } from "../api.js?v=20260527c";
 
 export async function renderPasswordTab(container) {
+  if (isLocalApp()) {
+    container.innerHTML = `
+      <div class="settings-page">
+        <h3>账号密码</h3>
+        <div class="empty-state">
+          <p>本地应用模式无需账号密码。账号登录与密码管理将在云端部署模式中启用。</p>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
   container.innerHTML = `
     <div class="settings-page">
       <h3>修改密码</h3>
@@ -215,6 +227,18 @@ export async function renderNotificationsTab(container) {
 }
 
 export async function renderUserMgmtTab(container) {
+  if (isLocalApp()) {
+    container.innerHTML = `
+      <div class="settings-page">
+        <h3>用户管理</h3>
+        <div class="empty-state">
+          <p>本地应用模式默认使用本地管理员身份。用户管理将在云端部署模式中启用。</p>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
   if (!hasPermission("admin")) {
     container.innerHTML = '<div class="empty-state"><p>需要管理员权限</p></div>';
     return;

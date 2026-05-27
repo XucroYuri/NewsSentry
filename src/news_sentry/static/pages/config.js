@@ -4,7 +4,7 @@
 
 "use strict";
 
-import { api, apiPatch, apiPost, apiPut, state, $, $$, escapeHtml, showError, showSuccess, scoreColor, hasPermission, getConnection } from "../api.js?v=20260527a";
+import { api, apiPatch, apiPost, apiPut, state, $, $$, escapeHtml, showError, showSuccess, scoreColor, hasPermission, getConnection } from "../api.js?v=20260527c";
 
 // ── 共享 Helpers ──────────────────────────────────────────
 
@@ -14,7 +14,7 @@ function configNoticeHtml() {
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
       </svg>
-     配置管理 — 可编辑视图，修改后请点击「保存」
+      <span><strong>高级配置</strong> 表单化编辑本地配置，保存后写入对应配置文件并在下一次采集中生效。</span>
     </div>
   `;
 }
@@ -70,7 +70,24 @@ function editableNumHtml(key, value, min = 0, max = 100) {
   return editableFieldHtml(key, value, `type="number" min="${min}" max="${max}"`);
 }
 
+function selectDefaultConfigTarget() {
+  if (state.currentTarget) return state.currentTarget;
+
+  const targets = state.targets || [];
+  if (!targets.length) return "";
+
+  const savedTarget = localStorage.ns_target_id || "";
+  const saved = targets.find((target) => target.target_id === savedTarget);
+  const withData = targets.find((target) => Number(target.event_count || 0) > 0);
+  const fallback = saved || withData || targets[0];
+
+  state.currentTarget = fallback?.target_id || "";
+  if (state.currentTarget) localStorage.ns_target_id = state.currentTarget;
+  return state.currentTarget;
+}
+
 function requireTarget(container) {
+  selectDefaultConfigTarget();
   if (!state.currentTarget) {
     container.innerHTML = `
       ${configNoticeHtml()}
@@ -78,7 +95,7 @@ function requireTarget(container) {
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <circle cx="12" cy="12" r="10"/><path d="M8 15h8"/><circle cx="9" cy="9" r="1" fill="currentColor"/><circle cx="15" cy="9" r="1" fill="currentColor"/>
         </svg>
-        <p>请先在顶部选择一个监控目标</p>
+        <p>未加载到可配置的监控目标，请先在目标管理中启用一个目标。</p>
       </div>
     `;
     return false;

@@ -5,7 +5,7 @@
 
 "use strict";
 
-import { state, api, escapeHtml, formatDate, showError } from "../api.js?v=20260527a";
+import { state, api, escapeHtml, formatDate, showError } from "../api.js?v=20260527c";
 
 let topicChart = null;
 let sentimentChart = null;

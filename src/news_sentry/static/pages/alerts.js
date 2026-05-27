@@ -4,7 +4,7 @@
 
 "use strict";
 
-import { api, state, escapeHtml, showError, formatDate, scoreColor } from "../api.js?v=20260527a";
+import { api, state, escapeHtml, showError, formatDate, scoreColor } from "../api.js?v=20260527c";
 
 const SEVERITY_COLORS = { high: "#ef4444", medium: "#f59e0b", low: "#22c55e" };
 const SEVERITY_LABELS = { high: "高", medium: "中", low: "低" };
@@ -44,7 +44,7 @@ export async function renderLiveAlertsTab(container) {
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <circle cx="12" cy="12" r="10"/><path d="M8 15h8"/><circle cx="9" cy="9" r="1" fill="currentColor"/><circle cx="15" cy="9" r="1" fill="currentColor"/>
         </svg>
-        <p>请先在顶部选择一个监控目标</p>
+        <p>请在当前管理目标中选择一个监控目标</p>
       </div>
     `;
     return;
@@ -140,7 +140,7 @@ export async function renderAlertHistoryTab(container) {
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <circle cx="12" cy="12" r="10"/><path d="M8 15h8"/><circle cx="9" cy="9" r="1" fill="currentColor"/><circle cx="15" cy="9" r="1" fill="currentColor"/>
         </svg>
-        <p>请先在顶部选择一个监控目标</p>
+        <p>请在当前管理目标中选择一个监控目标</p>
       </div>
     `;
     return;

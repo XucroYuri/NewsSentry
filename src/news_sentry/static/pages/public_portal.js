@@ -27,7 +27,7 @@ export function targetEventHref(targetId, eventId) {
 }
 
 export function adminEventHref(eventId) {
-  return `#/admin/news/events/${encodeHashPart(eventId)}`;
+  return `#/admin/review/queue/${encodeHashPart(eventId)}`;
 }
 
 export function allowEventAdminControls({ authenticated = false, publicMode = false } = {}) {

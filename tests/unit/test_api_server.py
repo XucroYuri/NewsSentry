@@ -13,15 +13,22 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
+from news_sentry.core import api_server as api_server_module
 from news_sentry.core.api_server import (
     _get_valid_api_keys,
     _parse_frontmatter,
+    _parse_target_ids,
     _public_analysis_from_store,
     _RateLimiter,
     _tag_text,
     create_app,
 )
 from news_sentry.core.async_store import AsyncStore
+
+
+def _force_deployment_env(monkeypatch: pytest.MonkeyPatch, env: str) -> None:
+    monkeypatch.setenv("NEWSSENTRY_DEPLOYMENT_ENV", env)
+    monkeypatch.setattr(api_server_module, "_deployment_env", "")
 
 
 def _write_draft(
@@ -197,6 +204,54 @@ class TestFeedTagText:
         assert _tag_text(0) == "0"
 
 
+class TestAutoCollectorTargets:
+    """自动采集 target 解析测试。"""
+
+    def test_all_discovers_targets_from_current_project_root(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        targets_dir = tmp_path / "config" / "targets"
+        targets_dir.mkdir(parents=True)
+        (tmp_path / "pyproject.toml").write_text("[project]\nname = 'tmp'\n", encoding="utf-8")
+        (targets_dir / "italy.yaml").write_text("target_id: italy\n", encoding="utf-8")
+        (targets_dir / "japan.yaml").write_text("target_id: japan\n", encoding="utf-8")
+        (targets_dir / "_template.yaml").write_text("target_id: _template\n", encoding="utf-8")
+
+        monkeypatch.chdir(tmp_path)
+
+        assert _parse_target_ids("all") == ["italy", "japan"]
+
+
+class TestLocalAuthBypass:
+    """本地应用免登录，云端部署继续强制登录。"""
+
+    def test_local_env_allows_admin_without_bearer(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _force_deployment_env(monkeypatch, "local")
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        me_resp = client.get("/api/v1/auth/me")
+        users_resp = client.get("/api/v1/admin/users")
+
+        assert me_resp.status_code == 200
+        assert me_resp.json()["username"] == "local-admin"
+        assert me_resp.json()["role"] == "admin"
+        assert users_resp.status_code == 200
+
+    def test_cloud_env_still_requires_bearer(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _force_deployment_env(monkeypatch, "cloudflare")
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/admin/users")
+
+        assert resp.status_code == 401
+
+
 class TestAPIServer:
     """FastAPI 端点集成测试。"""
 
@@ -234,6 +289,48 @@ class TestAPIServer:
         assert "stage" in data
         assert isinstance(data["stage"], str)
 
+    def test_collector_config_put_persists_runtime_yaml(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """collector/config 可保存非技术用户在后台调整的采集调度。"""
+        monkeypatch.chdir(tmp_path)
+        client = self._make_client(tmp_path)
+
+        resp = client.put(
+            "/api/v1/collector/config",
+            json={
+                "enabled": False,
+                "target_ids": ["italy", "japan"],
+                "interval_minutes": 30,
+                "stage": "all",
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["enabled"] is False
+        assert data["target_ids"] == ["italy", "japan"]
+        assert data["interval_minutes"] == 30
+        assert data["stage"] == "all"
+        persisted = yaml.safe_load((tmp_path / "config" / "runtime" / "collector.yaml").read_text())
+        assert persisted["target_ids"] == ["italy", "japan"]
+
+    def test_collector_start_stop_toggle_enabled_state(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """collector/start 与 collector/stop 提供后台启停闭环。"""
+        monkeypatch.chdir(tmp_path)
+        app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
+        client = TestClient(app)
+
+        stop_resp = client.post("/api/v1/collector/stop")
+        assert stop_resp.status_code == 200
+        assert stop_resp.json()["enabled"] is False
+
+        start_resp = client.post("/api/v1/collector/start")
+        assert start_resp.status_code == 200
+        assert start_resp.json()["enabled"] is True
+
     def test_collector_diagnostics_healthy(self, tmp_path: Path) -> None:
         """有数据目录情况下 diagnostics 返回 overall=healthy。"""
         import json as _json
@@ -268,6 +365,27 @@ class TestAPIServer:
         assert data["overall"] == "attention_needed"
         dd_check = [c for c in data["checks"] if c["name"] == "data_directory"][0]
         assert dd_check["ok"] is False
+
+    def test_admin_overview_aggregates_management_state(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """admin/overview 为管理总览提供 targets、采集、诊断和待处理状态。"""
+        monkeypatch.chdir(tmp_path)
+        _write_target_config(tmp_path / "config" / "targets", "italy", "意大利新闻监控", "it", 2)
+        client = self._make_client(tmp_path)
+
+        resp = client.get("/api/v1/admin/overview", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["target_id"] == "italy"
+        assert data["targets"][0]["target_id"] == "italy"
+        assert "collector" in data
+        assert "diagnostics" in data
+        assert "source_health" in data
+        assert "recent_runs" in data
+        assert "feedback" in data
+        assert "alerts" in data
 
     def test_list_events_empty(self, tmp_path: Path) -> None:
         client = self._make_client(tmp_path)
@@ -662,8 +780,11 @@ class TestAPIServer:
         finally:
             await store.close()
 
-    def test_admin_users_still_requires_auth(self, tmp_path: Path) -> None:
-        """公共新闻工作台不放开管理后台。"""
+    def test_cloud_admin_users_still_requires_auth(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """云端部署仍不放开管理后台。"""
+        _force_deployment_env(monkeypatch, "cloudflare")
         app = create_app(data_dir=tmp_path, auto_store=False)
         client = TestClient(app)
 
@@ -671,8 +792,11 @@ class TestAPIServer:
 
         assert resp.status_code == 401
 
-    def test_non_public_news_apis_require_auth(self, tmp_path: Path) -> None:
-        """新闻流以外的分析/管理读接口仍需要登录。"""
+    def test_cloud_non_public_news_apis_require_auth(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """云端部署中，新闻流以外的分析/管理读接口仍需要登录。"""
+        _force_deployment_env(monkeypatch, "cloudflare")
         app = create_app(data_dir=tmp_path, auto_store=False)
         client = TestClient(app)
         protected_gets = [
@@ -746,7 +870,8 @@ class TestAPIServer:
         )
         assert resp.status_code == 200
 
-    def test_api_key_auth(self, tmp_path: Path) -> None:
+    def test_api_key_auth(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _force_deployment_env(monkeypatch, "cloudflare")
         os.environ["NEWSSENTRY_API_KEY"] = "secret123"
         try:
             # 创建无默认 auth 的客户端
@@ -1592,6 +1717,43 @@ class TestOpsEndpoints:
         assert "sources" in data
         assert isinstance(data["sources"], list)
 
+    def test_list_source_health_filters_by_target_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """信源健康只返回当前 target 配置中存在的 source。"""
+        monkeypatch.chdir(tmp_path)
+        italy_sources = tmp_path / "config" / "sources" / "italy"
+        japan_sources = tmp_path / "config" / "sources" / "japan"
+        italy_sources.mkdir(parents=True, exist_ok=True)
+        japan_sources.mkdir(parents=True, exist_ok=True)
+        (italy_sources / "ansa.yaml").write_text("source_id: ansa\n", encoding="utf-8")
+        (japan_sources / "nhk.yaml").write_text("source_id: nhk\n", encoding="utf-8")
+
+        class FakeStore:
+            async def get_all_source_health(self) -> list[dict[str, object]]:
+                return [
+                    {
+                        "source_id": "ansa",
+                        "status": "healthy",
+                        "last_check": "now",
+                        "error_count": 0,
+                    },
+                    {
+                        "source_id": "nhk",
+                        "status": "healthy",
+                        "last_check": "now",
+                        "error_count": 0,
+                    },
+                ]
+
+        app = create_app(data_dir=tmp_path, store=FakeStore(), skip_lifespan=True)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/sources/health", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        assert [item["source_id"] for item in resp.json()["sources"]] == ["ansa"]
+
     def test_trigger_run(self, tmp_path: Path) -> None:
         client = self._make_client(tmp_path)
         resp = client.post("/api/v1/runs/trigger", params={"target_id": "italy", "stage": "all"})
@@ -2266,6 +2428,32 @@ class TestFeedbackAndAlertAPI:
         )
         assert resp.status_code == 404
 
+    async def test_rules_optimize_uses_target_default_filter_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, client_with_feedback
+    ):
+        """规则优化读取 config/filters/{target}/default.yaml。"""
+        monkeypatch.chdir(tmp_path)
+        filter_dir = tmp_path / "config" / "filters" / "italy"
+        filter_dir.mkdir(parents=True, exist_ok=True)
+        filter_path = filter_dir / "default.yaml"
+        filter_path.write_text("target_id: italy\nkeyword_rules: []\n", encoding="utf-8")
+        client, _ = client_with_feedback
+
+        with patch("news_sentry.core.rules_optimizer.RulesOptimizer") as optimizer_cls:
+            optimizer_cls.return_value.optimize.return_value = {
+                "total_verdicts": 1,
+                "adjustments": 0,
+                "adjustments_detail": [],
+                "written": False,
+            }
+            resp = await client.post(
+                "/api/v1/rules/optimize",
+                json={"target_id": "italy", "dry_run": True},
+            )
+
+        assert resp.status_code == 200
+        assert Path(optimizer_cls.call_args.args[0]) == filter_path
+
 
 class TestConfigWriteEndpoints:
     """Phase 42: 配置写入端点测试。"""
@@ -2383,8 +2571,11 @@ class TestConfigWriteEndpoints:
             filepath.write_text(original, encoding="utf-8")
             self._teardown_auth()
 
-    def test_config_write_requires_auth(self, tmp_path: Path) -> None:
-        """配置写入端点要求 Bearer token 认证。"""
+    def test_config_write_requires_auth(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """云端部署中，配置写入端点要求 Bearer token 认证。"""
+        _force_deployment_env(monkeypatch, "cloudflare")
         # 创建无默认 auth 的客户端
         app = create_app(data_dir=tmp_path, auto_store=False)
         client = TestClient(app)
@@ -2393,6 +2584,280 @@ class TestConfigWriteEndpoints:
             json={"display_name": "test"},
         )
         assert resp.status_code == 401
+
+
+class TestTargetLifecycleWorkbenchAPI:
+    """Target 全生命周期管理工作台 API。"""
+
+    def _make_client(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> TestClient:
+        monkeypatch.chdir(tmp_path)
+        app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
+        client = TestClient(app)
+        resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert resp.status_code == 200, f"Auth token failed: {resp.text}"
+        client.headers["Authorization"] = f"Bearer {resp.json()['access_token']}"
+        return client
+
+    def _write_yaml(self, path: Path, data: dict) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            yaml.dump(data, allow_unicode=True, default_flow_style=False, sort_keys=False),
+            encoding="utf-8",
+        )
+
+    def _setup_target_tree(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> TestClient:
+        client = self._make_client(tmp_path, monkeypatch)
+        self._write_yaml(
+            tmp_path / "config" / "targets" / "italy.yaml",
+            {
+                "target_id": "italy",
+                "display_name": "意大利新闻监控",
+                "language_scope": {"primary": "it", "secondary": ["en"], "output": "zh"},
+                "timezone": "Europe/Rome",
+                "source_channel_refs": ["ansa", "social/twitter/politics"],
+                "filter_rules_ref": "config/filters/italy/default.yaml",
+                "classification_rules_ref": "config/classification/rules-italy.yaml",
+                "sandbox_profile_ref": "config/sandbox/default.yaml",
+                "provider_routes_ref": "config/provider/routes.yaml",
+                "output_destinations_ref": "config/output/destinations.yaml",
+                "classification": {"country_axes": {"politics": True}},
+                "focus_areas": [{"id": "policy", "weight": 1.0, "keywords": ["governo"]}],
+            },
+        )
+        self._write_yaml(
+            tmp_path / "config" / "sources" / "italy" / "ansa.yaml",
+            {
+                "source_id": "ansa",
+                "display_name": "ANSA",
+                "type": "rss",
+                "url": "https://www.ansa.it/rss.xml",
+                "credibility_base": 0.9,
+                "fetch_interval_minutes": 30,
+                "max_items_per_run": 20,
+                "timeout_seconds": 20,
+                "enabled": True,
+            },
+        )
+        self._write_yaml(
+            tmp_path / "config" / "sources" / "italy" / "social" / "twitter" / "politics.yaml",
+            {
+                "platform": "twitter",
+                "dimension": "politics",
+                "collect_mode": "opencli_bridge",
+                "session_profile_ref": "config/session-profiles/italy/twitter.session.yaml",
+                "accounts": [
+                    {
+                        "handle": "@Palazzo_Chigi",
+                        "display_name": "Palazzo Chigi",
+                        "url": "https://x.com/Palazzo_Chigi",
+                        "tier": "L1",
+                        "category": "government",
+                        "monitor_mode": "active",
+                        "fetch_max_per_run": 20,
+                    }
+                ],
+            },
+        )
+        self._write_yaml(
+            tmp_path / "config" / "filters" / "italy" / "default.yaml",
+            {"target_id": "italy", "score_threshold": 35, "keyword_rules": []},
+        )
+        self._write_yaml(
+            tmp_path / "config" / "classification" / "rules-italy.yaml",
+            {"target_id": "italy", "axes": []},
+        )
+        self._write_yaml(tmp_path / "config" / "sandbox" / "default.yaml", {"profile": "default"})
+        self._write_yaml(tmp_path / "config" / "provider" / "routes.yaml", {"routes": []})
+        self._write_yaml(tmp_path / "config" / "output" / "destinations.yaml", {"destinations": []})
+        (tmp_path / "data" / "italy" / "drafts").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "data" / "italy" / "drafts" / "old.md").write_text("draft", encoding="utf-8")
+        return client
+
+    def test_target_archive_restore_changes_public_visibility(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = self._setup_target_tree(tmp_path, monkeypatch)
+
+        resp = client.post(
+            "/api/v1/admin/targets/italy/archive",
+            json={"reason": "暂停监控"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["lifecycle"]["status"] == "archived"
+
+        public_resp = client.get("/api/v1/targets")
+        assert public_resp.status_code == 200
+        assert [item["target_id"] for item in public_resp.json()["targets"]] == []
+
+        admin_resp = client.get("/api/v1/admin/targets", params={"include_archived": True})
+        assert admin_resp.status_code == 200
+        assert admin_resp.json()["targets"][0]["archived"] is True
+
+        restore_resp = client.post("/api/v1/admin/targets/italy/restore")
+        assert restore_resp.status_code == 200
+        assert restore_resp.json()["lifecycle"]["status"] == "active"
+        assert client.get("/api/v1/targets").json()["targets"][0]["target_id"] == "italy"
+
+    def test_create_template_and_clone_targets_build_config_chain(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = self._setup_target_tree(tmp_path, monkeypatch)
+
+        template_resp = client.post(
+            "/api/v1/admin/targets",
+            json={
+                "mode": "template",
+                "target_id": "spain",
+                "display_name": "西班牙新闻监控",
+                "language_scope": {"primary": "es", "secondary": ["en"], "output": "zh"},
+                "timezone": "Europe/Madrid",
+            },
+        )
+        assert template_resp.status_code == 200
+        assert (tmp_path / "config" / "targets" / "spain.yaml").is_file()
+        assert (tmp_path / "config" / "filters" / "spain" / "default.yaml").is_file()
+        assert (tmp_path / "config" / "classification" / "rules-spain.yaml").is_file()
+        assert (tmp_path / "config" / "sources" / "spain" / "rss-template.yaml").is_file()
+
+        clone_resp = client.post(
+            "/api/v1/admin/targets",
+            json={
+                "mode": "clone",
+                "source_target_id": "italy",
+                "target_id": "france",
+                "display_name": "法国新闻监控",
+                "language_scope": {"primary": "fr", "secondary": ["en"], "output": "zh"},
+                "timezone": "Europe/Paris",
+            },
+        )
+        assert clone_resp.status_code == 200
+        clone_data = yaml.safe_load(
+            (tmp_path / "config" / "targets" / "france.yaml").read_text(encoding="utf-8")
+        )
+        assert clone_data["target_id"] == "france"
+        assert clone_data["source_channel_refs"] == ["ansa", "social/twitter/politics"]
+        assert not (tmp_path / "data" / "france").exists()
+
+    def test_source_lifecycle_endpoints_update_refs_and_archival(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = self._setup_target_tree(tmp_path, monkeypatch)
+
+        create_resp = client.post(
+            "/api/v1/admin/targets/italy/sources",
+            json={
+                "source_id": "rai-news",
+                "display_name": "RAI News",
+                "type": "rss",
+                "url": "https://www.rainews.it/rss.xml",
+                "credibility_base": 0.82,
+                "fetch_interval_minutes": 30,
+                "max_items_per_run": 15,
+                "timeout_seconds": 20,
+            },
+        )
+        assert create_resp.status_code == 200
+        assert (tmp_path / "config" / "sources" / "italy" / "rai-news.yaml").is_file()
+        target_data = yaml.safe_load(
+            (tmp_path / "config" / "targets" / "italy.yaml").read_text(encoding="utf-8")
+        )
+        assert "rai-news" in target_data["source_channel_refs"]
+
+        archive_resp = client.post(
+            "/api/v1/admin/targets/italy/sources/rai-news/archive",
+            json={"reason": "停止更新"},
+        )
+        assert archive_resp.status_code == 200
+        archived = yaml.safe_load(
+            (tmp_path / "config" / "sources" / "italy" / "rai-news.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert archived["enabled"] is False
+        assert archived["deprecated"] is True
+        assert "rai-news" not in [
+            item["source_id"]
+            for item in client.get("/api/v1/admin/targets/italy/sources").json()["sources"]
+        ]
+        assert "rai-news" in [
+            item["source_id"]
+            for item in client.get(
+                "/api/v1/admin/targets/italy/sources",
+                params={"include_archived": True},
+            ).json()["sources"]
+        ]
+
+        restore_resp = client.post("/api/v1/admin/targets/italy/sources/rai-news/restore")
+        assert restore_resp.status_code == 200
+        restored = yaml.safe_load(
+            (tmp_path / "config" / "sources" / "italy" / "rai-news.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+        assert restored["enabled"] is True
+        assert restored["deprecated"] is False
+
+    def test_social_dimension_account_lifecycle(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = self._setup_target_tree(tmp_path, monkeypatch)
+
+        dimension_resp = client.post(
+            "/api/v1/admin/targets/italy/social/dimensions",
+            json={
+                "platform": "twitter",
+                "dimension": "economy",
+                "collect_mode": "opencli_bridge",
+                "session_profile_ref": "config/session-profiles/italy/twitter.session.yaml",
+            },
+        )
+        assert dimension_resp.status_code == 200
+
+        account_resp = client.post(
+            "/api/v1/admin/targets/italy/social/dimensions/economy/accounts",
+            json={
+                "handle": "@MEF_GOV",
+                "display_name": "Ministero Economia",
+                "url": "https://x.com/MEF_GOV",
+                "tier": "L2",
+                "category": "economy",
+                "monitor_mode": "active",
+            },
+        )
+        assert account_resp.status_code == 200
+
+        patch_resp = client.patch(
+            "/api/v1/admin/targets/italy/social/dimensions/economy/accounts/%40MEF_GOV",
+            json={"monitor_mode": "archived", "notes": "暂停"},
+        )
+        assert patch_resp.status_code == 200
+        social = client.get("/api/v1/admin/targets/italy/social").json()
+        economy = next(item for item in social["dimensions"] if item["dimension"] == "economy")
+        assert economy["accounts"][0]["monitor_mode"] == "archived"
+
+    def test_target_validate_reports_missing_refs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = self._setup_target_tree(tmp_path, monkeypatch)
+        target_path = tmp_path / "config" / "targets" / "italy.yaml"
+        data = yaml.safe_load(target_path.read_text(encoding="utf-8"))
+        data["source_channel_refs"].append("missing-source")
+        data["provider_routes_ref"] = "config/provider/missing.yaml"
+        self._write_yaml(target_path, data)
+
+        resp = client.post("/api/v1/admin/targets/italy/validate")
+        assert resp.status_code == 200
+        checks = {item["id"]: item for item in resp.json()["checks"]}
+        assert checks["source_refs"]["ok"] is False
+        assert checks["provider_routes_ref"]["ok"] is False
 
 
 class TestImportEvents:
@@ -2514,8 +2979,9 @@ class TestImportEvents:
         await client.aclose()
         await store.close()
 
-    def test_import_auth_required(self, tmp_path: Path) -> None:
-        """导入端点要求认证。"""
+    def test_import_auth_required(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """云端部署中，导入端点要求认证。"""
+        _force_deployment_env(monkeypatch, "cloudflare")
         os.environ["NEWSSENTRY_API_KEY"] = "secret123"
         try:
             # 创建无默认 auth 的客户端
@@ -2537,8 +3003,11 @@ class TestImportEvents:
         finally:
             del os.environ["NEWSSENTRY_API_KEY"]
 
-    def test_import_auth_with_valid_key(self, tmp_path: Path) -> None:
-        """有效 Bearer token 允许导入。"""
+    def test_import_auth_with_valid_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """云端部署中，有效 Bearer token 允许导入。"""
+        _force_deployment_env(monkeypatch, "cloudflare")
         os.environ["NEWSSENTRY_API_KEY"] = "secret123"
         try:
             # 创建无默认 auth 的客户端，再手动获取 token
@@ -3027,14 +3496,18 @@ def _make_store_client(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
 class TestSSEStream:
     """SSE event_stream 端点测试。"""
 
-    def test_event_stream_no_auth(self, tmp_path: Path) -> None:
-        """SSE 无认证返回 401。"""
+    def test_event_stream_no_auth(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """云端部署中，SSE 无认证返回 401。"""
+        _force_deployment_env(monkeypatch, "cloudflare")
         client, _ = _make_store_client(tmp_path)
         resp = client.get("/api/v1/events/stream", params={"target_id": "italy"})
         assert resp.status_code == 401
 
-    def test_event_stream_invalid_token(self, tmp_path: Path) -> None:
-        """SSE 无效 token 返回 401。"""
+    def test_event_stream_invalid_token(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """云端部署中，SSE 无效 token 返回 401。"""
+        _force_deployment_env(monkeypatch, "cloudflare")
         client, _ = _make_store_client(tmp_path)
         resp = client.get(
             "/api/v1/events/stream",

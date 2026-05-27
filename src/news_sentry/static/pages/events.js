@@ -5,8 +5,8 @@
 
 "use strict";
 
-import { state, api, apiPost, escapeHtml, showError, showSuccess, formatDate, scoreColor, scoreGradient, scoreBar, sentimentColor, sentimentPct, sentimentGradient, sentimentLabelColor, sentimentDotHtml, entityChipsHtml, copyToClipboard, logAction, emptyStateHtml, isAuthenticated } from "../api.js?v=20260527a";
-import { adminEventHref, allowEventAdminControls, targetPortalHref } from "./public_portal.js?v=20260527a";
+import { state, api, apiPost, escapeHtml, showError, showSuccess, formatDate, scoreColor, scoreGradient, scoreBar, sentimentColor, sentimentPct, sentimentGradient, sentimentLabelColor, sentimentDotHtml, entityChipsHtml, copyToClipboard, logAction, emptyStateHtml, isAuthenticated } from "../api.js?v=20260527c";
+import { adminEventHref, allowEventAdminControls, targetPortalHref } from "./public_portal.js?v=20260527d";
 
 const LINK_TYPE_LABELS = { followup: "后续进展", related: "相关", same_event: "同一事件", correction: "纠正" };
 const LINK_TYPE_COLORS = { followup: "#3b82f6", related: "#6b7280", same_event: "#10b981", correction: "#ef4444" };
@@ -29,7 +29,7 @@ function entityChipHtml(entity, authenticated) {
   const id = entity?.id || entity?.entity_id || entity?.entityId || entity?.canonical_id || entity?.canonicalId;
 
   if (authenticated && id) {
-    return `<a class="chip chip-entity chip-link" href="#/admin/news/entities/${encodeURIComponent(String(id))}"${title}>${name}${typeHtml}</a>`;
+    return `<span class="chip chip-entity"${title}>${name}${typeHtml}</span>`;
   }
   return `<span class="chip chip-entity"${title}>${name}${typeHtml}</span>`;
 }
@@ -102,7 +102,7 @@ export async function renderEventsTab(container) {
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <circle cx="12" cy="12" r="10"/><path d="M8 15h8"/><circle cx="9" cy="9" r="1" fill="currentColor"/><circle cx="15" cy="9" r="1" fill="currentColor"/>
         </svg>
-        <p>请先在顶部选择一个监控目标</p>
+        <p>请在当前管理目标中选择一个监控目标</p>
       </div>
     `;
     return;
@@ -336,7 +336,7 @@ async function loadEventList(container) {
         "📰",
         "暂无匹配的事件",
         "尝试调整筛选条件，或等待自动采集器完成下一轮采集",
-        [{ label: "清除筛选", id: "clearFilters" }, { label: "查看诊断", href: "#/admin/ops/collector" }]
+        [{ label: "清除筛选", id: "clearFilters" }, { label: "查看诊断", href: "#/admin/collection/control" }]
       );
       const clearBtn = area.querySelector("#clearFilters");
       if (clearBtn) {
@@ -438,7 +438,7 @@ export async function renderEventDetail(container, eventId, options = {}) {
   const targetId = options.targetId || state.currentTarget;
   const detailBackHref = options.backHref || (publicMode
     ? (targetId ? targetPortalHref(targetId) : "#/news/feed")
-    : "#/admin/news/events");
+    : "#/admin/review/queue");
   const allowAdminControls = allowEventAdminControls({ authenticated, publicMode });
   container.innerHTML = `
     <div class="loading-spinner"><div class="spinner"></div><p>正在加载事件详情...</p></div>

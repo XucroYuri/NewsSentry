@@ -3,7 +3,7 @@
  * Phase 73: 来源人格化 + 标签扁平化 + 多视图切换
  */
 
-import { state, api, escapeHtml, scoreColor, isAuthenticated } from "../api.js?v=20260527b";
+import { state, api, escapeHtml, scoreColor, isAuthenticated } from "../api.js?v=20260527c";
 import { CHANNELS, filterGroups, countEvents } from "./feed_filters.js?v=20260527b";
 import { adminEventHref, channelPortalHref, targetAnalysisHref, targetEventHref, targetPortalHref } from "./public_portal.js?v=20260527b";
 
@@ -149,18 +149,53 @@ export function eventHref(ev, targetId, publicMode = true) {
   return publicMode ? targetEventHref(targetId, eventId) : adminEventHref(eventId);
 }
 
-export function renderPublicHome(container, targets = state.targets || []) {
+async function ensurePublicTargets() {
+  try {
+    const data = await api("/api/v1/targets");
+    const targets = Array.isArray(data?.targets) ? data.targets : [];
+    state.targets = targets;
+    if (!state.currentTarget && targets.length) {
+      const withData = targets.find((target) => Number(target.event_count || 0) > 0);
+      state.currentTarget = (withData || targets[0]).target_id || "";
+      if (state.currentTarget) localStorage.ns_target_id = state.currentTarget;
+    }
+    return targets;
+  } catch {
+    return [];
+  }
+}
+
+export function renderPublicHome(container, targets = state.targets || [], options = {}) {
   const sortedTargets = [...targets].sort((a, b) => Number(b.event_count || 0) - Number(a.event_count || 0));
 
   if (!sortedTargets.length) {
+    if (!options.afterFallback) {
+      container.innerHTML = `
+        <section class="public-home">
+          <div class="public-home-head">
+            <p class="public-kicker">News Sentry</p>
+            <h1>新闻情报频道</h1>
+            <p>正在加载监控目标...</p>
+          </div>
+        </section>`;
+      ensurePublicTargets().then((loadedTargets) => {
+        renderPublicHome(container, loadedTargets, { afterFallback: true });
+      });
+      return;
+    }
+
     container.innerHTML = `
       <section class="public-home">
         <div class="public-home-head">
           <p class="public-kicker">News Sentry</p>
           <h1>新闻情报频道</h1>
           <p>当前还没有可浏览的监控目标。</p>
+          <button class="btn-secondary" id="publicTargetsRetry" type="button">重新加载</button>
         </div>
       </section>`;
+    container.querySelector("#publicTargetsRetry")?.addEventListener("click", () => {
+      renderPublicHome(container, [], { afterFallback: false });
+    });
     return;
   }
 
