@@ -26,7 +26,7 @@ const targetWorkbenchJs = readOptionalFile("src/news_sentry/static/pages/target_
 const styleCss = readFileSync("src/news_sentry/static/style.css", "utf8");
 
 const adminTopBar = indexHtml.match(
-  /<header class="top-bar" id="adminTopBar">([\s\S]*?)<\/header>/,
+  /<header class="top-bar admin-page-topbar" id="adminTopBar">([\s\S]*?)<\/header>/,
 )?.[1] || "";
 const adminTargetContextClasses = classListFromTag(extractTagById(appJs, "adminTargetContext"));
 

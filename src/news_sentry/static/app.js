@@ -273,18 +273,27 @@ function renderAdminTargetContext(container, section, tab, param) {
       </button>
     `;
   }).join("");
+  const currentId = current?.target_id || "";
+  const workbenchHref = currentId
+    ? `#/admin/targets/${encodeURIComponent(currentId)}/overview`
+    : "#/admin/targets";
 
   container.innerHTML = `
-    <section class="admin-target-context" id="adminTargetContext">
+    <section class="admin-target-context ns-context-panel" id="adminTargetContext">
       <div class="admin-target-context-head">
-        <div>
+        <div class="admin-target-heading">
           <div class="admin-target-eyebrow">当前管理目标</div>
           <div class="admin-target-title">${escapeHtml(current?.display_name || current?.target_id || "未选择目标")}</div>
+          <div class="admin-target-summary">
+            <span>ID: ${escapeHtml(currentId || "未选择")}</span>
+            <span>${escapeHtml(current?.primary_language || "mixed")}</span>
+            <span>${escapeHtml(current?.timezone || "UTC")}</span>
+            <span>${Number(current?.source_count || 0)} 个信源</span>
+            <span>${Number(current?.event_count || 0)} 个事件</span>
+          </div>
         </div>
-        <div class="admin-target-summary">
-          <span>${escapeHtml(current?.primary_language || "mixed")}</span>
-          <span>${Number(current?.source_count || 0)} 个信源</span>
-          <span>${Number(current?.event_count || 0)} 个事件</span>
+        <div class="admin-target-actions">
+          <a class="ns-button ns-button-secondary" href="${workbenchHref}">进入工作台</a>
         </div>
       </div>
       <div class="admin-target-chips" role="list" aria-label="切换管理目标">

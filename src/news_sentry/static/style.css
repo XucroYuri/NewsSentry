@@ -378,6 +378,11 @@ a:hover {
   z-index: 50;
 }
 
+.admin-page-topbar {
+  flex: 0 0 var(--topbar-height);
+  padding-inline: 24px;
+}
+
 .hamburger-btn {
   display: none;
   background: none;
@@ -412,20 +417,29 @@ a:hover {
 }
 
 .admin-target-context {
+  min-width: 0;
+}
+
+.admin-target-context.ns-context-panel {
   display: grid;
-  gap: 14px;
-  margin-bottom: 18px;
-  padding: 16px 20px;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
   border: 1px solid var(--border-color);
   background: var(--bg-secondary);
-  box-shadow: var(--shadow-card);
+  border-radius: var(--radius-md);
+  box-shadow: none;
 }
 
 .admin-target-context-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
+  min-width: 0;
+}
+
+.admin-target-heading {
   min-width: 0;
 }
 
@@ -433,22 +447,39 @@ a:hover {
   color: var(--text-muted);
   font-size: var(--font-caption);
   margin-bottom: 4px;
+  line-height: 1.2;
 }
 
 .admin-target-title {
   color: var(--text-primary);
   font-size: 1.05rem;
   font-weight: 700;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .admin-target-summary {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
+  gap: 8px 10px;
+  margin-top: 6px;
   color: var(--text-muted);
   font-size: var(--font-caption);
   flex-wrap: wrap;
+  min-width: 0;
+}
+
+.admin-target-summary span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.admin-target-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex: 0 0 auto;
 }
 
 .admin-target-chips {
@@ -456,6 +487,7 @@ a:hover {
   gap: 8px;
   overflow-x: auto;
   padding-bottom: 2px;
+  max-width: 100%;
   scrollbar-width: thin;
 }
 
@@ -471,6 +503,7 @@ a:hover {
   color: var(--text-secondary);
   text-align: left;
   cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
 }
 
 .admin-target-chip:hover {
@@ -498,6 +531,7 @@ a:hover {
 
 .admin-route-content {
   min-width: 0;
+  max-width: 100%;
 }
 
 /* ============================================================
@@ -1389,7 +1423,8 @@ a:hover {
     white-space: nowrap;
   }
 
-  .admin-target-context {
+  .admin-target-context,
+  .admin-target-context.ns-context-panel {
     padding: 12px;
     margin-bottom: 14px;
   }
@@ -1397,9 +1432,14 @@ a:hover {
   .admin-target-context-head {
     display: grid;
     gap: 8px;
+    align-items: stretch;
   }
 
   .admin-target-summary {
+    justify-content: flex-start;
+  }
+
+  .admin-target-actions {
     justify-content: flex-start;
   }
 
