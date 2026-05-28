@@ -8,13 +8,13 @@ const swJs = readFileSync("src/news_sentry/static/sw.js", "utf8");
 // Exact cache versions intentionally lock this implementation batch's cache-bust step from the plan.
 assert.match(
   appJs,
-  /STATIC_BUILD = "20260527m"/,
+  /STATIC_BUILD = "20260529a"/,
   "static build should change when the design language system changes",
 );
 
 assert.match(
   swJs,
-  /news-sentry-v25/,
+  /news-sentry-v28/,
   "service worker cache should change when the design language system changes",
 );
 
@@ -31,7 +31,7 @@ assert.ok(
 
 assert.match(
   appJs,
-  /pages\/feed\.js\?v=20260527h/,
+  /pages\/feed\.js\?v=20260529a/,
   "app should import the cache-busted public feed module",
 );
 

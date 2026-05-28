@@ -1,10 +1,76 @@
 export const CHANNELS = [
   { id: "all", label: "全部", terms: [] },
   { id: "featured", label: "精选", terms: [] },
-  { id: "policy", label: "政策", terms: ["politics", "policy", "regulation", "government", "diplomacy"] },
-  { id: "industry", label: "产业", terms: ["industry", "business", "market", "investment", "company", "economy"] },
-  { id: "tech", label: "技术", terms: ["technology", "model", "chip", "infrastructure", "research", "open-source"] },
-  { id: "risk", label: "风险", terms: ["security", "safety", "risk", "conflict", "sanction", "supply-chain"] },
+  {
+    id: "policy",
+    label: "政策",
+    terms: ["politics", "policy", "regulation", "government", "diplomacy", "govt_coalition"],
+  },
+  {
+    id: "industry",
+    label: "产业",
+    terms: [
+      "industry",
+      "business",
+      "market",
+      "investment",
+      "company",
+      "economy",
+      "economic",
+      "economics",
+      "environment_energy",
+      "energy_transition",
+      "labor_market",
+      "trade",
+    ],
+  },
+  {
+    id: "tech",
+    label: "技术",
+    terms: [
+      "technology",
+      "tech",
+      "ai",
+      "model",
+      "chip",
+      "semiconductor",
+      "infrastructure",
+      "research",
+      "open-source",
+      "digital",
+    ],
+  },
+  {
+    id: "risk",
+    label: "风险",
+    terms: [
+      "security",
+      "safety",
+      "risk",
+      "conflict",
+      "sanction",
+      "sanctions",
+      "supply-chain",
+      "supply_chain",
+      "defense",
+      "military",
+    ],
+    textTerms: [
+      "attack",
+      "attacc",
+      "conflict",
+      "crisi",
+      "crisis",
+      "guerra",
+      "iran",
+      "missile",
+      "nuclear",
+      "sanzion",
+      "sanction",
+      "ucraina",
+      "ukraine",
+    ],
+  },
   { id: "china", label: "中国相关", terms: ["china", "chinese", "china-relations"] },
 ];
 
@@ -72,7 +138,11 @@ export function eventMatchesChannel(ev, channelId) {
   if (channelId === "china" && CHINA_TEXT_TERMS.some((term) => eventText(ev).includes(term))) {
     return true;
   }
-  return channel.terms.some((term) => terms.includes(term));
+  if (channel.terms.some((term) => terms.includes(term))) {
+    return true;
+  }
+  const text = eventText(ev);
+  return Array.isArray(channel.textTerms) && channel.textTerms.some((term) => text.includes(term));
 }
 
 export function eventMatchesSearch(ev, query) {
@@ -109,4 +179,17 @@ export function filterGroups(groups, { channelId = "all", query = "" } = {}) {
 
 export function countEvents(groups) {
   return (groups || []).reduce((sum, group) => sum + (group.events || []).length, 0);
+}
+
+export function channelsWithCounts(groups, { currentChannel = "all", includeEmpty = false } = {}) {
+  return CHANNELS.map((channel) => {
+    const channelGroups = filterGroups(groups, { channelId: channel.id, query: "" });
+    return { ...channel, count: countEvents(channelGroups) };
+  }).filter((channel) => (
+    includeEmpty
+    || channel.id === "all"
+    || channel.id === "featured"
+    || channel.id === currentChannel
+    || channel.count > 0
+  ));
 }

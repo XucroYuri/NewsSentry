@@ -4,7 +4,7 @@
  */
 
 import { state, api, escapeHtml, scoreColor, isAuthenticated } from "../api.js?v=20260527c";
-import { CHANNELS, filterGroups, countEvents } from "./feed_filters.js?v=20260528a";
+import { CHANNELS, filterGroups, countEvents, channelsWithCounts } from "./feed_filters.js?v=20260529a";
 import { adminEventHref, channelPortalHref, targetAnalysisHref, targetEventHref, targetPortalHref } from "./public_portal.js?v=20260527d";
 
 // ── 推荐标签映射 ──
@@ -142,6 +142,32 @@ function eventReason(ev) {
 function targetName(targetId) {
   const target = (state.targets || []).find((item) => item.target_id === targetId);
   return target?.display_name || targetId || "新闻目标";
+}
+
+function channelLabel(channel, showCount = false) {
+  const count = Number(channel.count || 0);
+  const countHtml = showCount && count > 0 ? `<span class="feed-channel-count">${count}</span>` : "";
+  return `${escapeHtml(channel.label)}${countHtml}`;
+}
+
+function renderChannelBarHtml(channels, { currentChannel, publicMode, targetId, showCount = false }) {
+  return channels.map((channel) => publicMode
+    ? `<a class="feed-channel${channel.id === currentChannel ? " active" : ""}" href="${channelPortalHref(targetId, channel.id)}" data-channel="${channel.id}">${channelLabel(channel, showCount)}</a>`
+    : `<button class="feed-channel${channel.id === currentChannel ? " active" : ""}" data-channel="${channel.id}">${channelLabel(channel, showCount)}</button>`
+  ).join("");
+}
+
+export function renderFeedToolbarActions({ publicMode = false, targetId = "" } = {}) {
+  return `
+    <input type="search" id="feed-search" class="feed-search-input" placeholder="搜索标题/摘要/来源..." />
+    <input type="date" id="feed-date-filter" class="feed-date-input" />
+    <div class="feed-view-toggle" id="feed-view-toggle" aria-label="视图切换">
+      <button class="view-btn active" data-view="timeline" title="推荐理由视图">☰</button>
+      <button class="view-btn" data-view="compact" title="紧凑视图">≡</button>
+    </div>
+    <button class="feed-btn feed-btn-refresh" id="feed-refresh">刷新</button>
+    ${publicMode ? `<a class="feed-btn feed-btn-link feed-analysis-link" id="feed-analysis-link" href="${targetAnalysisHref(targetId)}">态势分析</a>` : ""}
+  `;
 }
 
 export function eventHref(ev, targetId, publicMode = true) {
@@ -333,21 +359,11 @@ export async function renderFeedTab(container, options = {}) {
           <span class="feed-count" id="feed-count"></span>
         </div>
         <div class="feed-toolbar-right">
-          ${publicMode ? `<a class="feed-btn feed-btn-link" href="${targetAnalysisHref(targetId)}">态势分析</a>` : ""}
-          <div class="feed-view-toggle" id="feed-view-toggle">
-            <button class="view-btn active" data-view="timeline" title="推荐理由视图">☰</button>
-            <button class="view-btn" data-view="compact" title="紧凑视图">≡</button>
-          </div>
-          <input type="date" id="feed-date-filter" class="feed-date-input" />
-          <input type="search" id="feed-search" class="feed-search-input" placeholder="搜索标题/摘要/来源..." />
-          <button class="feed-btn feed-btn-refresh" id="feed-refresh">刷新</button>
+          ${renderFeedToolbarActions({ publicMode, targetId })}
         </div>
       </div>
       <div class="feed-channel-bar" id="feed-channel-bar">
-        ${CHANNELS.map((channel) => publicMode
-          ? `<a class="feed-channel${channel.id === currentChannel ? " active" : ""}" href="${channelPortalHref(targetId, channel.id)}" data-channel="${channel.id}">${channel.label}</a>`
-          : `<button class="feed-channel${channel.id === currentChannel ? " active" : ""}" data-channel="${channel.id}">${channel.label}</button>`
-        ).join("")}
+        ${renderChannelBarHtml(CHANNELS, { currentChannel, publicMode, targetId })}
       </div>
       <div class="feed-body" id="feed-body">
         <div class="feed-loading">加载中...</div>
@@ -358,6 +374,7 @@ export async function renderFeedTab(container, options = {}) {
   const body = container.querySelector("#feed-body");
   const footer = container.querySelector("#feed-footer");
   const countEl = container.querySelector("#feed-count");
+  const channelBar = container.querySelector("#feed-channel-bar");
   const dateInput = container.querySelector("#feed-date-filter");
   const refreshBtn = container.querySelector("#feed-refresh");
   const toggleBtns = container.querySelectorAll(".view-btn");
@@ -368,6 +385,17 @@ export async function renderFeedTab(container, options = {}) {
   let visibleGroups = [];
   let sourceMap = {};
   let totalCount = 0;
+
+  const refreshPublicChannels = () => {
+    if (!publicMode || !channelBar) return;
+    const visibleChannels = channelsWithCounts(groups, { currentChannel });
+    channelBar.innerHTML = renderChannelBarHtml(visibleChannels, {
+      currentChannel,
+      publicMode,
+      targetId,
+      showCount: true,
+    });
+  };
 
   const render = () => {
     const renderer = VIEW_RENDERERS[currentView] || renderTimeline;
@@ -411,6 +439,7 @@ export async function renderFeedTab(container, options = {}) {
       groups = data.groups || [];
       totalCount = data.total || 0;
 
+      refreshPublicChannels();
       render();
     } catch (err) {
       body.innerHTML = `<div class="feed-error">加载失败: ${escapeHtml(err.message)}</div>`;
