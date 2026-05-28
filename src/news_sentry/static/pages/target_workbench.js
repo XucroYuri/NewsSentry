@@ -70,6 +70,38 @@ function validationBadge(validation) {
     : `<span class="status-pill warn">需要处理</span>`;
 }
 
+function classificationLabel(label) {
+  const normalized = String(label || "").trim();
+  return normalized && normalized !== "uncategorized" ? normalized : "未分类";
+}
+
+export function classificationDiagnosticsHtml(diagnostics = {}) {
+  const distribution = diagnostics.distribution || {};
+  const rows = Object.entries(distribution)
+    .map(([label, count]) => [label, Number(count || 0)])
+    .sort((a, b) => b[1] - a[1]);
+  const uncategorizedCount = Number(diagnostics.uncategorized_count || distribution.uncategorized || 0);
+  return `
+    <section class="target-panel target-classification-diagnostics">
+      <div class="target-panel-head">
+        <h2>分类诊断</h2>
+        <p>按 L0 分类快速检查规则覆盖情况。</p>
+      </div>
+      <div class="target-kpi-grid">
+        ${stat("未分类", String(uncategorizedCount), "需要补齐分类规则")}
+      </div>
+      <div class="target-check-list">
+        ${rows.map(([label, count]) => `
+          <div class="target-check ${classificationLabel(label) === "未分类" ? "warn" : "ok"}">
+            <strong>${escapeHtml(classificationLabel(label))}</strong>
+            <span>${escapeHtml(String(count))}</span>
+          </div>
+        `).join("") || "<p>暂无分类样本。</p>"}
+      </div>
+    </section>
+  `;
+}
+
 function lifecycleBadge(target) {
   return target?.archived || target?.lifecycle?.status === "archived"
     ? `<span class="status-pill warn">已归档</span>`
@@ -663,12 +695,13 @@ async function renderSocial(container, targetId) {
   });
 }
 
-async function renderRules(container, targetId) {
+async function renderRules(container, targetId, overview = {}) {
   const [filters, validation] = await Promise.all([
     api(`/api/v1/config/targets/${encodeURIComponent(targetId)}/filters`).catch(() => null),
     apiPost(`/api/v1/admin/targets/${encodeURIComponent(targetId)}/validate`).catch(() => null),
   ]);
   container.innerHTML = `
+    ${classificationDiagnosticsHtml(overview.classification_diagnostics)}
     <section class="target-panel">
       <div class="target-panel-head">
         <h2>过滤规则</h2>

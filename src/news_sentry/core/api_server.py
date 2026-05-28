@@ -1178,6 +1178,49 @@ def _event_classification(ev: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def _classification_l0_label(value: Any) -> str:
+    label = str(value).strip() if value is not None else ""
+    return label or "uncategorized"
+
+
+def _classification_diagnostics_from_events(events: list[dict[str, Any]]) -> dict[str, Any]:
+    distribution: dict[str, int] = defaultdict(int)
+    for ev in events:
+        classification = _event_classification(ev) or {}
+        distribution[_classification_l0_label(classification.get("l0"))] += 1
+    result = dict(distribution)
+    return {
+        "distribution": result,
+        "uncategorized_count": result.get("uncategorized", 0),
+    }
+
+
+async def _classification_diagnostics_from_store(
+    target_id: str,
+    store: AsyncStore | None,
+) -> dict[str, Any] | None:
+    if store is None or store._db is None:  # noqa: SLF001
+        return None
+    try:
+        async with store._db.execute(  # noqa: SLF001
+            "SELECT COALESCE(NULLIF(TRIM(classification_l0), ''), 'uncategorized') AS label, "
+            "COUNT(*) AS count "
+            "FROM event_index "
+            "WHERE target_id = ? "
+            "GROUP BY label",
+            (target_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+    except Exception:  # noqa: S112
+        logger.exception("Failed to load classification diagnostics from store")
+        return None
+    distribution = {str(row[0]): int(row[1]) for row in rows}
+    return {
+        "distribution": distribution,
+        "uncategorized_count": distribution.get("uncategorized", 0),
+    }
+
+
 def _event_topic_tags(ev: dict[str, Any]) -> list[str]:
     raw = ev.get("topic_tags")
     metadata = ev.get("metadata")
@@ -3437,6 +3480,14 @@ def create_app(
         social_accounts = sum(len(item.get("accounts", [])) for item in social_dimensions)
         social_archived = sum(item.get("archived_count", 0) for item in social_dimensions)
         events = _load_all_events(_data_dir, target_id)
+        classification_diagnostics = await _classification_diagnostics_from_store(
+            target_id,
+            await _get_target_store(target_id),
+        )
+        if classification_diagnostics is None or (
+            not classification_diagnostics.get("distribution") and events
+        ):
+            classification_diagnostics = _classification_diagnostics_from_events(events)
         validation = _validate_target_config(target_id)
         recent_runs = _load_run_logs(_data_dir, target_id, 5)
         return {
@@ -3453,6 +3504,7 @@ def create_app(
                 "archived_accounts": social_archived,
             },
             "events": {"total": len(events)},
+            "classification_diagnostics": classification_diagnostics,
             "recent_runs": recent_runs,
             "validation": validation,
             "collector": _collector_payload(),

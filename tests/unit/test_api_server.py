@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from collections.abc import AsyncGenerator
@@ -2849,6 +2850,94 @@ class TestTargetLifecycleWorkbenchAPI:
         ]:
             resp = client.request(method, path, headers=headers)
             assert resp.status_code == 200, f"{method} {path}: {resp.text}"
+
+    def test_admin_target_overview_includes_classification_diagnostics(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = self._setup_target_tree(tmp_path, monkeypatch)
+        _write_draft(
+            tmp_path,
+            "italy",
+            "classified-1",
+            title="Classified story",
+            classification_l0="international-relations",
+        )
+        _write_draft(tmp_path, "italy", "uncategorized-1", title="Uncategorized story")
+
+        resp = client.get("/api/v1/admin/targets/italy/overview")
+
+        assert resp.status_code == 200
+        diagnostics = resp.json()["classification_diagnostics"]
+        assert diagnostics["distribution"]["international-relations"] == 1
+        assert diagnostics["distribution"]["uncategorized"] == 1
+        assert diagnostics["uncategorized_count"] == 1
+
+    def test_admin_target_overview_uses_store_classification_diagnostics(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = self._setup_target_tree(tmp_path, monkeypatch)
+        _write_draft(tmp_path, "italy", "draft-only", classification_l0="draft-only")
+        api_server_module._target_stores.clear()
+
+        async def seed_store() -> None:
+            store = AsyncStore(tmp_path / "italy" / "state.db")
+            await store.initialize()
+            try:
+                await _insert_index_event(
+                    store,
+                    event_id="store-classified",
+                    classification_l0="international-relations",
+                )
+                await _insert_index_event(
+                    store,
+                    event_id="store-null",
+                    classification_l0=None,
+                )
+                await _insert_index_event(
+                    store,
+                    event_id="store-empty",
+                    classification_l0="",
+                )
+            finally:
+                await store.close()
+
+        asyncio.run(seed_store())
+
+        resp = client.get("/api/v1/admin/targets/italy/overview")
+
+        assert resp.status_code == 200
+        diagnostics = resp.json()["classification_diagnostics"]
+        assert diagnostics["distribution"] == {
+            "international-relations": 1,
+            "uncategorized": 2,
+        }
+        assert diagnostics["uncategorized_count"] == 2
+
+    def test_admin_target_overview_falls_back_when_store_has_no_classification_rows(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = self._setup_target_tree(tmp_path, monkeypatch)
+        _write_draft(
+            tmp_path,
+            "italy",
+            "draft-classified",
+            classification_l0="international-relations",
+        )
+        api_server_module._target_stores.clear()
+
+        async def create_empty_store() -> None:
+            store = AsyncStore(tmp_path / "italy" / "state.db")
+            await store.initialize()
+            await store.close()
+
+        asyncio.run(create_empty_store())
+
+        resp = client.get("/api/v1/admin/targets/italy/overview")
+
+        assert resp.status_code == 200
+        diagnostics = resp.json()["classification_diagnostics"]
+        assert diagnostics["distribution"]["international-relations"] == 1
+        assert diagnostics["uncategorized_count"] == 0
 
     @pytest.mark.parametrize(
         ("method", "path", "json_body"),
