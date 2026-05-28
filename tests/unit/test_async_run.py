@@ -475,7 +475,7 @@ class TestAsyncStoreIntegration:
             assert row["classification_l0"] == "international"
             assert row["file_path"] is not None
             assert Path(row["file_path"]).is_file()
-            assert Path(row["file_path"]).name.startswith("2026-05-28-repubblica-")
+            assert Path(row["file_path"]).name == "ne-italy-repubblica-20260528-51db8e48.md"
         finally:
             await store.close()
 

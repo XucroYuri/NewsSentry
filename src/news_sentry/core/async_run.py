@@ -747,9 +747,7 @@ async def _run_output_async(
             if isinstance(event.metadata, dict):
                 file_path = event.metadata.get("_file_path")
             if not file_path:
-                date_str = event.published_at[:10]
-                id_short = event.id[:12]
-                file_name = f"{date_str}-{getattr(event, 'source_id', 'unknown')}-{id_short}.md"
+                file_name = f"{event.id}.md"
                 file_path = str(file_writer.base_dir / "drafts" / file_name)
             await store.index_event(event, target_id, "drafts", file_path=file_path)
         if events:

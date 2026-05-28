@@ -450,6 +450,16 @@ class TestEventIndex:
         assert count == 3
 
     @pytest.mark.asyncio
+    async def test_get_target_event_count_counts_all_stages(self, store: AsyncStore):
+        await store.index_event(self._make_event(event_id="evt-draft"), "italy", "drafts")
+        await store.index_event(self._make_event(event_id="evt-arch"), "italy", "archive")
+        await store.index_event(self._make_event(event_id="evt-other"), "japan", "drafts")
+
+        assert await store.get_target_event_count("italy") == 2
+        assert await store.get_target_event_count("japan") == 1
+        assert await store.get_target_event_count("germany") == 0
+
+    @pytest.mark.asyncio
     async def test_get_stats(self, store: AsyncStore):
         for i in range(3):
             event = self._make_event(
