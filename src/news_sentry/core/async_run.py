@@ -743,8 +743,14 @@ async def _run_output_async(
         events = _load_events_from_dir(file_writer.base_dir / "drafts")
         target_id = config.target_id
         for event in events:
-            file_name = f"outputted_{getattr(event, 'source_id', 'unknown')}_{event.id}.md"
-            file_path = str(file_writer.base_dir / "drafts" / file_name)
+            file_path = None
+            if isinstance(event.metadata, dict):
+                file_path = event.metadata.get("_file_path")
+            if not file_path:
+                date_str = event.published_at[:10]
+                id_short = event.id[:12]
+                file_name = f"{date_str}-{getattr(event, 'source_id', 'unknown')}-{id_short}.md"
+                file_path = str(file_writer.base_dir / "drafts" / file_name)
             await store.index_event(event, target_id, "drafts", file_path=file_path)
         if events:
             logger.info("event_index 写入 %d 条事件", len(events))
