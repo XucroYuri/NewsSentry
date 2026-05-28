@@ -18,10 +18,10 @@ import {
   parseRouteHash,
   targetWorkbenchHashForLegacyRoute,
 } from "./router.js?v=20260527e";
-import { renderFeedTab, renderPublicHome } from "./pages/feed.js?v=20260529a";
+import { renderFeedTab, renderPublicHome } from "./pages/feed.js?v=20260529b";
 import { renderPublicAnalysis } from "./pages/public_analysis.js?v=20260527c";
 import { targetPortalHref } from "./pages/public_portal.js?v=20260527d";
-import { renderTargetsHome, renderTargetWorkbench } from "./pages/target_workbench.js?v=20260527b";
+import { renderTargetsHome, renderTargetWorkbench } from "./pages/target_workbench.js?v=20260529b";
 import { renderManagementOverviewTab } from "./pages/dashboard.js?v=20260527e";
 import { renderEventsTab, renderEventDetail } from "./pages/events.js?v=20260527e";
 import { renderEntitiesTab, renderEntityDetail } from "./pages/entities.js?v=20260527b";
@@ -33,7 +33,7 @@ import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedbac
 import { renderTargetTab, renderSourcesTab, renderFiltersTab, renderOutputsTab, renderAITab, renderWebhookTab, renderApiKeyTab } from "./pages/config.js?v=20260527g";
 import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab, renderThemeTab, renderBackupTab, initTheme } from "./pages/settings.js?v=20260527c";
 
-const STATIC_BUILD = "20260529a";
+const STATIC_BUILD = "20260529b";
 
 // ═══════════════════════════════════════════════════════════
 // §1. 路由表
