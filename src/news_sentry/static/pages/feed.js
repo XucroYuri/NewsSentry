@@ -4,7 +4,7 @@
  */
 
 import { state, api, escapeHtml, scoreColor, isAuthenticated } from "../api.js";
-import { CHANNELS, filterGroups, countEvents } from "./feed_filters.js";
+import { CHANNELS, filterGroups, countEvents, channelsWithCounts } from "./feed_filters.js";
 import { adminEventHref, channelPortalHref, targetEventHref, targetPortalHref } from "./public_portal.js";
 
 // ── 推荐标签映射 ──
@@ -144,23 +144,92 @@ function targetName(targetId) {
   return target?.display_name || targetId || "新闻目标";
 }
 
+function channelLabel(channel, showCount = false) {
+  const count = Number(channel.count || 0);
+  const countHtml = showCount && count > 0 ? `<span class="feed-channel-count">${count}</span>` : "";
+  return `${escapeHtml(channel.label)}${countHtml}`;
+}
+
+function renderChannelBarHtml(channels, { currentChannel, publicMode, targetId, showCount = false }) {
+  return channels.map((channel) => publicMode
+    ? `<a class="feed-channel${channel.id === currentChannel ? " active" : ""}" href="${channelPortalHref(targetId, channel.id)}" data-channel="${channel.id}">${channelLabel(channel, showCount)}</a>`
+    : `<button class="feed-channel${channel.id === currentChannel ? " active" : ""}" data-channel="${channel.id}">${channelLabel(channel, showCount)}</button>`
+  ).join("");
+}
+
+export function renderFeedToolbarActions({ publicMode = false, targetId = "" } = {}) {
+  return `
+    <input type="search" id="feed-search" class="feed-search-input" placeholder="搜索标题/摘要/来源..." />
+    <input type="date" id="feed-date-filter" class="feed-date-input" />
+    <div class="feed-view-toggle" id="feed-view-toggle" aria-label="视图切换">
+      <button class="view-btn active" data-view="timeline" title="推荐理由视图">☰</button>
+      <button class="view-btn" data-view="compact" title="紧凑视图">≡</button>
+    </div>
+    <button class="feed-btn feed-btn-refresh" id="feed-refresh">刷新</button>
+  `;
+}
+
 export function eventHref(ev, targetId, publicMode = true) {
   const eventId = ev?.event_id || ev?.id || "";
   return publicMode ? targetEventHref(targetId, eventId) : adminEventHref(eventId);
 }
 
-export function renderPublicHome(container, targets = state.targets || []) {
+async function ensurePublicTargets() {
+  try {
+    const data = await api("/api/v1/targets");
+    const targets = Array.isArray(data?.targets) ? data.targets : [];
+    state.targets = targets;
+    if (!state.currentTarget && targets.length) {
+      const withData = targets.find((target) => Number(target.event_count || 0) > 0);
+      state.currentTarget = (withData || targets[0]).target_id || "";
+      if (state.currentTarget) localStorage.ns_target_id = state.currentTarget;
+    }
+    return targets;
+  } catch {
+    return [];
+  }
+}
+
+export function renderPublicHome(container, targets = state.targets || [], options = {}) {
   const sortedTargets = [...targets].sort((a, b) => Number(b.event_count || 0) - Number(a.event_count || 0));
 
   if (!sortedTargets.length) {
+    if (!options.afterFallback) {
+      container.innerHTML = `
+        <section class="public-home">
+          <div class="public-home-head">
+            <p class="public-kicker">News Sentry</p>
+            <h1>新闻情报频道</h1>
+            <p>正在加载监控目标...</p>
+          </div>
+        </section>`;
+      ensurePublicTargets().then((loadedTargets) => {
+        renderPublicHome(container, loadedTargets, { afterFallback: true });
+      });
+      return;
+    }
+
     container.innerHTML = `
-      <section class="public-home">
-        <div class="public-home-head">
-          <p class="public-kicker">News Sentry</p>
-          <h1>新闻情报频道</h1>
-          <p>当前还没有可浏览的监控目标。</p>
+      <section class="public-home ns-page">
+        <div class="public-home-head ns-page-head">
+          <div>
+            <p class="public-kicker ns-page-kicker">News Sentry</p>
+            <h1 class="ns-page-title">新闻情报频道</h1>
+            <p class="ns-page-subtitle">当前还没有可浏览的监控目标。</p>
+          </div>
+        </div>
+        <div class="ns-empty-state">
+          <h2>暂无公开目标</h2>
+          <p>公开首页只展示 active target。可以进入管理后台配置目标，或恢复已归档目标。</p>
+          <div class="ns-empty-state-actions">
+            <a class="ns-button ns-button-primary" href="#/admin/config/target">进入目标配置</a>
+            <button class="ns-button ns-button-secondary" id="publicTargetsRetry" type="button">重新加载</button>
+          </div>
         </div>
       </section>`;
+    container.querySelector("#publicTargetsRetry")?.addEventListener("click", () => {
+      renderPublicHome(container, [], { afterFallback: false });
+    });
     return;
   }
 
@@ -288,20 +357,11 @@ export async function renderFeedTab(container, options = {}) {
           <span class="feed-count" id="feed-count"></span>
         </div>
         <div class="feed-toolbar-right">
-          <div class="feed-view-toggle" id="feed-view-toggle">
-            <button class="view-btn active" data-view="timeline" title="推荐理由视图">☰</button>
-            <button class="view-btn" data-view="compact" title="紧凑视图">≡</button>
-          </div>
-          <input type="date" id="feed-date-filter" class="feed-date-input" />
-          <input type="search" id="feed-search" class="feed-search-input" placeholder="搜索标题/摘要/来源..." />
-          <button class="feed-btn feed-btn-refresh" id="feed-refresh">刷新</button>
+          ${renderFeedToolbarActions({ publicMode, targetId })}
         </div>
       </div>
       <div class="feed-channel-bar" id="feed-channel-bar">
-        ${CHANNELS.map((channel) => publicMode
-          ? `<a class="feed-channel${channel.id === currentChannel ? " active" : ""}" href="${channelPortalHref(targetId, channel.id)}" data-channel="${channel.id}">${channel.label}</a>`
-          : `<button class="feed-channel${channel.id === currentChannel ? " active" : ""}" data-channel="${channel.id}">${channel.label}</button>`
-        ).join("")}
+        ${renderChannelBarHtml(CHANNELS, { currentChannel, publicMode, targetId })}
       </div>
       <div class="feed-body" id="feed-body">
         <div class="feed-loading">加载中...</div>
@@ -312,6 +372,7 @@ export async function renderFeedTab(container, options = {}) {
   const body = container.querySelector("#feed-body");
   const footer = container.querySelector("#feed-footer");
   const countEl = container.querySelector("#feed-count");
+  const channelBar = container.querySelector("#feed-channel-bar");
   const dateInput = container.querySelector("#feed-date-filter");
   const refreshBtn = container.querySelector("#feed-refresh");
   const toggleBtns = container.querySelectorAll(".view-btn");
@@ -322,6 +383,17 @@ export async function renderFeedTab(container, options = {}) {
   let visibleGroups = [];
   let sourceMap = {};
   let totalCount = 0;
+
+  const refreshPublicChannels = () => {
+    if (!publicMode || !channelBar) return;
+    const visibleChannels = channelsWithCounts(groups, { currentChannel });
+    channelBar.innerHTML = renderChannelBarHtml(visibleChannels, {
+      currentChannel,
+      publicMode,
+      targetId,
+      showCount: true,
+    });
+  };
 
   const render = () => {
     const renderer = VIEW_RENDERERS[currentView] || renderTimeline;
@@ -365,6 +437,7 @@ export async function renderFeedTab(container, options = {}) {
       groups = data.groups || [];
       totalCount = data.total || 0;
 
+      refreshPublicChannels();
       render();
     } catch (err) {
       body.innerHTML = `<div class="feed-error">加载失败: ${escapeHtml(err.message)}</div>`;
