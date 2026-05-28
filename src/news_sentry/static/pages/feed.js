@@ -4,7 +4,7 @@
  */
 
 import { state, api, escapeHtml, scoreColor, isAuthenticated } from "../api.js?v=20260527c";
-import { CHANNELS, filterGroups, countEvents, channelsWithCounts } from "./feed_filters.js?v=20260529a";
+import { CHANNELS, filterGroups, countEvents, channelsWithCounts } from "./feed_filters.js?v=20260529b";
 import { adminEventHref, channelPortalHref, targetAnalysisHref, targetEventHref, targetPortalHref } from "./public_portal.js?v=20260527d";
 
 // ── 推荐标签映射 ──
@@ -94,6 +94,7 @@ function flatTags(ev) {
 export function storyBadge(ev) {
   if (!ev?.story_id) return "";
   const type = ev.clustering?.cluster_type;
+  if (type === "single_event") return "";
   let label = "相关聚类";
   if (type === "same_event") label = "同一事件";
   else if (type === "storyline") label = "故事线";

@@ -44,6 +44,13 @@ assert.match(
   }),
   /故事线/,
 );
+assert.equal(
+  storyBadge({
+    story_id: "story-single",
+    clustering: { cluster_type: "single_event" },
+  }),
+  "",
+);
 assert.equal(storyBadge({ clustering: { cluster_type: "same_event" } }), "");
 
 console.log("feed story badge tests passed");

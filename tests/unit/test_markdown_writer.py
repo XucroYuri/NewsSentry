@@ -290,6 +290,32 @@ def test_frontmatter_contains_classification(
     assert "l2" not in fm["classification"]  # l2 不写入
 
 
+def test_frontmatter_contains_clustering_fields(
+    writer: MarkdownWriter,
+    judged_event: NewsEvent,
+) -> None:
+    """聚类字段应保留到 draft frontmatter，供公开 feed 展示。"""
+    judged_event.cluster_id = "cluster-italy-abc"
+    judged_event.story_id = "story-italy-ukraine"
+    judged_event.metadata["clustering"] = {
+        "cluster_type": "same_event",
+        "cluster_size": 2,
+        "confidence": 84,
+        "matched_by": ["title_similarity", "source_diversity"],
+    }
+
+    path = writer.write(judged_event)
+    fm = _parse_frontmatter(path)
+
+    assert fm["cluster_id"] == "cluster-italy-abc"
+    assert fm["story_id"] == "story-italy-ukraine"
+    assert fm["metadata"]["clustering"]["cluster_type"] == "same_event"
+    assert fm["metadata"]["clustering"]["matched_by"] == [
+        "title_similarity",
+        "source_diversity",
+    ]
+
+
 def test_frontmatter_contains_filter_keywords(
     writer: MarkdownWriter,
     base_dir: Path,
