@@ -10,6 +10,7 @@ import logging
 # 在非测试环境中 patch aiosqlite.core.Thread 使 worker 为 daemon。
 # 测试中不 patch，因为 pytest 的 per-test event loop 依赖 worker 线程正常关闭。
 import os as _os
+import sqlite3
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -1472,10 +1473,9 @@ class AsyncStore:
         backup_path = backup_dir / f"state_{timestamp}.db"
 
         if self._db is not None:
-            # 使用 VACUUM INTO 创建一致性备份
-            await self._db.execute(
-                f"VACUUM INTO '{backup_path}'"  # noqa: S608
-            )
+            await self._db.commit()
+            with sqlite3.connect(backup_path) as target:
+                await self._db.backup(target)
 
         # 清理旧备份（保留最近 7 个）
         backups = sorted(backup_dir.glob("state_*.db"))

@@ -60,6 +60,56 @@ class TestRunCollectAsync:
         assert len(events) == 2
 
     @pytest.mark.asyncio
+    async def test_collect_translation_uses_provider_factory(self):
+        """批量翻译应拿到真实 provider_factory，而不是 None。"""
+        config = MagicMock()
+        config.target_id = "italy"
+        config.target = {
+            "language_scope": {"primary": "it"},
+            "source_channel_refs": [],
+        }
+        config.sources = [
+            {
+                "channel_id": "rss-1",
+                "type": "rss",
+                "url": "https://a.com/feed",
+                "source_id": "rss-1",
+            }
+        ]
+
+        event = MagicMock()
+        event.title_original = "Titolo"
+        memory = MagicMock()
+        memory.is_source_degraded.return_value = False
+        batcher = MagicMock()
+        batcher.translate = AsyncMock(return_value=1)
+
+        with (
+            patch("news_sentry.core.async_run.RSSCollector") as mock_rss_cls,
+            patch(
+                "news_sentry.core.async_run._try_create_provider_router",
+                return_value=MagicMock(),
+            ),
+            patch("news_sentry.core.async_run.TranslationBatcher", return_value=batcher),
+        ):
+            collector = MagicMock()
+            collector.collect_async = AsyncMock(return_value=[event])
+            mock_rss_cls.return_value = collector
+
+            await _run_collect_async(
+                config=config,
+                run_id="test-run",
+                run_log=MagicMock(),
+                file_writer=MagicMock(),
+                sandbox=MagicMock(),
+                memory=memory,
+                ctx=MagicMock(),
+            )
+
+        provider_factory = batcher.translate.call_args.args[2]
+        assert callable(provider_factory)
+
+    @pytest.mark.asyncio
     async def test_concurrent_collect_respects_semaphore(self):
         """验证并发上限被信号量控制。"""
         config = MagicMock()
@@ -596,6 +646,8 @@ class TestRunJudgeAsync:
         file_writer.write_event.assert_called()
         assert ctx.events_judged == 1
         run_log.log_phase_end.assert_called()
+        provider_factory = mock_tiered.judge_events_async.call_args.args[1]
+        assert callable(provider_factory)
 
     @pytest.mark.asyncio
     async def test_judge_async_fallback_to_sync(self):
