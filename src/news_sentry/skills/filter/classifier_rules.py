@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from news_sentry.models.newsevent import NewsEvent
+from news_sentry.skills.filter.classification_taxonomy import canonical_l0
 
 
 class ClassifierRules:
@@ -66,6 +67,7 @@ class ClassifierRules:
         event.metadata["classification"] = {
             "l0": l0_result["domain"],
             "confidence": l0_result["confidence"],
+            "candidates": l0_result.get("candidates", []),
             "l1": l1_results,
             "l2": l2_results,
             "l3": [],
@@ -110,10 +112,11 @@ class ClassifierRules:
             dict with "domain" (str) and "confidence" (int 0-100)。
         """
         if not self._l0_domains:
-            return {"domain": "uncategorized", "confidence": 0}
+            return {"domain": "uncategorized", "confidence": 0, "candidates": []}
 
         best_domain = "uncategorized"
         best_count = 0
+        scores: list[dict[str, Any]] = []
 
         for domain in self._l0_domains:
             count = 0
@@ -121,19 +124,29 @@ class ClassifierRules:
                 for kw in domain.get(lang_key, []):
                     if kw.lower() in text:
                         count += 1
+            canonical_domain = canonical_l0(domain["code"])
+            if count > 0:
+                scores.append({"code": canonical_domain, "hits": count})
             if count > best_count:
                 best_count = count
-                best_domain = domain["code"]
+                best_domain = canonical_domain
 
         # 置信度：命中数 / 该域总关键词数，映射到 0-100
         confidence = 0
         if best_domain != "uncategorized":
-            best_def = next((d for d in self._l0_domains if d["code"] == best_domain), None)
+            best_def = next(
+                (d for d in self._l0_domains if canonical_l0(d["code"]) == best_domain),
+                None,
+            )
             if best_def:
                 total_kw = sum(len(best_def.get(k, [])) for k in self._keyword_keys(best_def))
                 confidence = min(round(best_count / total_kw * 100), 100) if total_kw > 0 else 0
 
-        return {"domain": best_domain, "confidence": confidence}
+        return {
+            "domain": best_domain,
+            "confidence": confidence,
+            "candidates": sorted(scores, key=lambda item: item["hits"], reverse=True)[:3],
+        }
 
     def _classify_l1(self, text: str, l0_domain: str) -> list[dict[str, Any]]:
         """L1 子议题匹配：在指定 L0 域下查找匹配的主题。
@@ -146,9 +159,10 @@ class ClassifierRules:
             匹配到的 L1 主题列表，每项含 code 和 confidence。
         """
         results: list[dict[str, Any]] = []
+        canonical_domain = canonical_l0(l0_domain)
 
         for topic in self._l1_topics:
-            if topic.get("l0_domain") != l0_domain:
+            if canonical_l0(topic.get("l0_domain")) != canonical_domain:
                 continue
 
             hits = 0
