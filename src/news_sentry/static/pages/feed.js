@@ -91,6 +91,15 @@ function flatTags(ev) {
   return tags.slice(0, 4).map(flatTag).join("");
 }
 
+export function storyBadge(ev) {
+  if (!ev?.story_id) return "";
+  const type = ev.clustering?.cluster_type;
+  let label = "相关聚类";
+  if (type === "same_event") label = "同一事件";
+  else if (type === "storyline") label = "故事线";
+  return `<span class="flat-tag story-tag">${escapeHtml(label)}</span>`;
+}
+
 function recBadge(ev) {
   const rec = ev.recommendation || ev.ai_recommendation;
   if (!rec || !REC_LABELS[rec]) return "";
@@ -295,6 +304,7 @@ function renderTimeline(date, events, sourceMap, options = {}) {
         ${summary ? `<div class="feed-item-summary">${summary}</div>` : ""}
         <div class="feed-item-meta">
           ${flatTags(ev)}
+          ${storyBadge(ev)}
           ${sentimentLabel(ev.sentiment)}
         </div>
         ${eventReason(ev)}
@@ -322,6 +332,7 @@ function renderCompact(date, events, sourceMap, options = {}) {
       <span class="feed-compact-src">${escapeHtml((si?.name || sid || "—").substring(0, 12))}</span>
       <a class="feed-compact-title" href="${href}">${title}</a>
       ${flatTags(ev)}
+      ${storyBadge(ev)}
       ${scoreLabel(score)}
     </div>`;
   }).join("");

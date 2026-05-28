@@ -1239,6 +1239,9 @@ def _feed_event_payload(ev: dict[str, Any]) -> dict[str, Any]:
     event_id = ev.get("event_id") or ev.get("id") or ""
     source_id = ev.get("source_id") or ""
     judge = ev.get("judge_result") if isinstance(ev.get("judge_result"), dict) else {}
+    metadata = ev.get("metadata") if isinstance(ev.get("metadata"), dict) else {}
+    clustering = metadata.get("clustering") if isinstance(metadata.get("clustering"), dict) else {}
+    classification = _event_classification(ev) or {}
     payload = dict(ev)
     payload["event_id"] = event_id
     payload.setdefault("id", event_id)
@@ -1246,6 +1249,10 @@ def _feed_event_payload(ev: dict[str, Any]) -> dict[str, Any]:
     payload["score"] = _event_score(ev)
     payload["source_display_name"] = ev.get("source_display_name") or source_id
     payload["flat_tags"] = _event_flat_tags(ev)
+    payload["cluster_id"] = ev.get("cluster_id")
+    payload["story_id"] = ev.get("story_id")
+    payload["clustering"] = clustering
+    payload["classification"] = classification
     payload["ai_reason"] = _event_ai_reason(ev)
     payload["summary"] = _event_summary(ev)
     payload["recommendation"] = ev.get("recommendation") or judge.get("recommendation")

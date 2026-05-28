@@ -364,6 +364,56 @@ class TestAPIServer:
         assert item["source_display_name"] == "ansa"
         assert item["related_count"] == 0
 
+    def test_events_feed_exposes_story_cluster_and_metadata_classification(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """新闻流公开 Task 3 产生的 story/cluster 字段和 metadata 分类。"""
+        drafts = tmp_path / "italy" / "drafts"
+        drafts.mkdir(parents=True, exist_ok=True)
+        event = {
+            "id": "ne-italy-ansa-20260526-cluster0001",
+            "source_id": "ansa",
+            "url": "https://example.com/cluster",
+            "title_original": "Russia Ukraine talks",
+            "published_at": "2026-05-26T10:15:00+08:00",
+            "cluster_id": "cluster-same-event-001",
+            "story_id": "story-ukraine-001",
+            "metadata": {
+                "classification": {
+                    "l0": "international-relations",
+                    "l1": ["russia-ukraine"],
+                },
+                "clustering": {
+                    "cluster_type": "same_event",
+                    "confidence": 82,
+                    "matched_by": ["title_similarity", "entity_overlap"],
+                    "reason": "同一事件多信源报道。",
+                },
+            },
+        }
+        fm = yaml.dump(event, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        (drafts / "cluster.md").write_text(
+            f"---\n{fm}---\n\n# Russia Ukraine talks\n",
+            encoding="utf-8",
+        )
+        client = self._make_client(tmp_path)
+
+        resp = client.get("/api/v1/events/feed", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        item = resp.json()["groups"][0]["events"][0]
+        assert item["cluster_id"] == "cluster-same-event-001"
+        assert item["story_id"] == "story-ukraine-001"
+        assert item["clustering"] == {
+            "cluster_type": "same_event",
+            "confidence": 82,
+            "matched_by": ["title_similarity", "entity_overlap"],
+            "reason": "同一事件多信源报道。",
+        }
+        assert item["classification"]["l0"] == "international-relations"
+        assert item["classification"]["l1"] == ["russia-ukraine"]
+
     def test_events_feed_preserves_numeric_flat_tags(self, tmp_path: Path) -> None:
         """新闻流服务端扁平标签不能丢弃 0 这类有效分类值。"""
         drafts = tmp_path / "italy" / "drafts"
