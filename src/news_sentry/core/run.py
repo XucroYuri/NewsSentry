@@ -45,6 +45,7 @@ from news_sentry.skills.collect.api_collector import APICollector
 from news_sentry.skills.collect.opencli_collector import OpenCLICollector
 from news_sentry.skills.collect.rss_collector import RSSCollector
 from news_sentry.skills.filter.classifier_rules import ClassifierRules
+from news_sentry.skills.filter.event_clustering import assign_lightweight_clusters
 from news_sentry.skills.filter.rules_filter import RulesFilter
 from news_sentry.skills.judge.judge_skill import JudgeSkill
 from news_sentry.skills.judge.rules_judge import RulesJudgeSkill
@@ -342,6 +343,8 @@ def _run_filter(
     classifier = ClassifierRules(config.classification_rules)
     for event in filtered:
         classifier.classify(event)
+
+    assign_lightweight_clusters(filtered, target_id=config.target_id)
 
     # 写入 evaluated/
     for event in filtered:
