@@ -3562,6 +3562,13 @@ body.ns-offline .offline-banner {
   white-space: nowrap;
 }
 
+.story-tag {
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  color: var(--accent-primary);
+  border-color: color-mix(in srgb, var(--accent-primary) 32%, var(--border-color));
+  font-weight: 600;
+}
+
 .feed-timeline {
   display: flex;
   flex-direction: column;
