@@ -23,6 +23,7 @@ from news_sentry.core.nlp_analyzer import NLPAnalyzer
 from news_sentry.core.nlp_rules import NLPRulesAnalyzer
 from news_sentry.core.run import (
     _bootstrap_run,
+    _build_provider_factory,
     _find_project_root,
     _load_events_from_dir,
     _prune_old_logs,
@@ -303,7 +304,7 @@ async def _run_collect_async(
                 translated = await batcher.translate(
                     all_events,
                     router,
-                    None,
+                    _build_provider_factory(),
                     language=lang_primary,
                 )
                 logger.info("批处理翻译完成: %d/%d", translated, len(all_events))
@@ -440,7 +441,7 @@ async def _run_judge_async(
 
         judged = await tiered.judge_events_async(
             events,
-            None,
+            _build_provider_factory(),
             run_id=run_id,
             max_concurrent=5,
         )
