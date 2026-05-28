@@ -725,6 +725,16 @@ async def _notify_sse_clients(target_id: str, event: str, payload: dict[str, Any
 logger = logging.getLogger(__name__)
 
 
+VISIBLE_INDEX_QUERY_BATCH_SIZE = 1000
+
+
+class InvisibleIndexedEvent:
+    """Sentinel for an indexed event that exists but is not public-visible."""
+
+
+_INVISIBLE_INDEXED_EVENT = InvisibleIndexedEvent()
+
+
 async def get_current_user(request: Request) -> dict[str, Any]:
     """提取并验证 Bearer token，返回用户信息（内存 + SQLite 回退）。"""
     token = _extract_bearer_token(request)
@@ -910,6 +920,171 @@ def _group_events_by_date(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for date_key in sorted(groups.keys(), reverse=True):
         result.append({"date": date_key, "events": groups[date_key]})
     return result
+
+
+def _event_matches_date(event: dict[str, Any], date: str | None) -> bool:
+    if date is None:
+        return True
+    return (event.get("published_at") or "").startswith(date)
+
+
+def _event_matches_search(event: dict[str, Any], search: str | None) -> bool:
+    if search is None:
+        return True
+    keyword = search.lower()
+    return keyword in (event.get("title_original") or "").lower()
+
+
+def _visible_index_event_from_row(
+    data_dir: Path,
+    target_id: str,
+    stage: str,
+    row: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not _indexed_file_path_is_visible_in_stage(
+        data_dir,
+        target_id,
+        stage,
+        row.get("file_path"),
+    ):
+        return None
+    event = _load_indexed_event_frontmatter(data_dir, target_id, stage, row)
+    if event is None:
+        event = _event_from_index_row(row)
+    return event
+
+
+async def _visible_index_events_page(
+    store: Any,
+    data_dir: Path,
+    target_id: str,
+    *,
+    stage: str,
+    page: int,
+    page_size: int,
+    date: str | None = None,
+    search: str | None = None,
+    source_id: str | None = None,
+    classification_l0: str | None = None,
+    min_score: int | None = None,
+    sentiment: str | None = None,
+    entity_name: str | None = None,
+    topic_tag: str | None = None,
+) -> dict[str, Any]:
+    """读取可公开展示的 index 事件，再分页，避免 stale 行占据页面。"""
+    start = (page - 1) * page_size
+    end = start + page_size
+    offset = 0
+    index_total = 0
+    visible_total = 0
+    page_events: list[dict[str, Any]] = []
+
+    while True:
+        result = await store.query_events_paginated(
+            target_id=target_id,
+            stage=stage,
+            limit=VISIBLE_INDEX_QUERY_BATCH_SIZE,
+            offset=offset,
+            source_id=source_id,
+            classification_l0=classification_l0,
+            min_score=min_score,
+            sentiment=sentiment,
+            entity_name=entity_name,
+            topic_tag=topic_tag,
+        )
+        index_total = result["total"]
+        rows = result["rows"]
+        if not rows:
+            break
+
+        for row in rows:
+            event = _visible_index_event_from_row(data_dir, target_id, stage, row)
+            if event is None:
+                continue
+            if not _event_matches_date(event, date):
+                continue
+            if not _event_matches_search(event, search):
+                continue
+            if start <= visible_total < end:
+                page_events.append(event)
+            visible_total += 1
+
+        offset += len(rows)
+        if offset >= index_total:
+            break
+
+    return {
+        "index_total": index_total,
+        "total": visible_total,
+        "events": page_events,
+    }
+
+
+async def _store_has_target_event_index(store: Any, target_id: str) -> bool:
+    get_count = getattr(store, "get_target_event_count", None)
+    if get_count is None:
+        return False
+    return await get_count(target_id) > 0
+
+
+def _event_score(ev: dict[str, Any]) -> int | float | None:
+    score = ev.get("news_value_score", ev.get("importance_score"))
+    return score if isinstance(score, (int, float)) else None
+
+
+def _event_classification(ev: dict[str, Any]) -> dict[str, Any] | None:
+    direct = ev.get("classification")
+    if isinstance(direct, dict):
+        return direct
+    metadata = ev.get("metadata")
+    if isinstance(metadata, dict):
+        classification = metadata.get("classification")
+        if isinstance(classification, dict):
+            return classification
+    return None
+
+
+def _classification_l0_label(value: Any) -> str:
+    label = str(value).strip() if value is not None else ""
+    return label or "uncategorized"
+
+
+def _classification_diagnostics_from_events(events: list[dict[str, Any]]) -> dict[str, Any]:
+    distribution: dict[str, int] = defaultdict(int)
+    for ev in events:
+        classification = _event_classification(ev) or {}
+        distribution[_classification_l0_label(classification.get("l0"))] += 1
+    result = dict(distribution)
+    return {
+        "distribution": result,
+        "uncategorized_count": result.get("uncategorized", 0),
+    }
+
+
+async def _classification_diagnostics_from_store(
+    target_id: str,
+    store: AsyncStore | None,
+) -> dict[str, Any] | None:
+    if store is None or store._db is None:  # noqa: SLF001
+        return None
+    try:
+        async with store._db.execute(  # noqa: SLF001
+            "SELECT COALESCE(NULLIF(TRIM(classification_l0), ''), 'uncategorized') AS label, "
+            "COUNT(*) AS count "
+            "FROM event_index "
+            "WHERE target_id = ? "
+            "GROUP BY label",
+            (target_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+    except Exception:  # noqa: S112
+        logger.exception("Failed to load classification diagnostics from store")
+        return None
+    distribution = {str(row[0]): int(row[1]) for row in rows}
+    return {
+        "distribution": distribution,
+        "uncategorized_count": distribution.get("uncategorized", 0),
+    }
 
 
 def _load_single_event(data_dir: Path, target_id: str, event_id: str) -> dict[str, Any] | None:
@@ -1123,6 +1298,95 @@ def _load_event_by_id_from_stage(
         if event and (event.get("event_id") or event.get("id")) == event_id:
             return event
     return None
+
+
+def _event_id_from_frontmatter(event: dict[str, Any] | None) -> str | None:
+    if not event:
+        return None
+    value = event.get("event_id") or event.get("id")
+    return str(value) if value else None
+
+
+def _event_from_index_row(row: dict[str, Any]) -> dict[str, Any]:
+    """当事件文件失效时，用 SQLite 索引行构造最小事件数据。"""
+    event_id = row.get("event_id") or row.get("id") or ""
+    event: dict[str, Any] = {
+        "id": event_id,
+        "event_id": event_id,
+        "source_id": row.get("source_id"),
+        "title_original": row.get("title_original"),
+        "published_at": row.get("published_at"),
+        "created_at": row.get("created_at"),
+        "news_value_score": row.get("news_value_score"),
+        "china_relevance": row.get("china_relevance"),
+        "sentiment": row.get("sentiment"),
+    }
+    classification_l0 = row.get("classification_l0")
+    if classification_l0:
+        event["classification"] = {"l0": classification_l0}
+    return {key: value for key, value in event.items() if value is not None}
+
+
+def _indexed_file_path_is_visible_in_stage(
+    data_dir: Path,
+    target_id: str,
+    stage: str,
+    file_path: str | None,
+) -> bool:
+    """file_path 为空允许索引兜底；记录路径时必须位于预期 stage 目录。"""
+    if not file_path:
+        return True
+    path = Path(file_path)
+    try:
+        path.resolve().relative_to((data_dir / target_id / stage).resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def _load_indexed_event_frontmatter(
+    data_dir: Path,
+    target_id: str,
+    stage: str,
+    row: dict[str, Any],
+) -> dict[str, Any] | None:
+    """读取 SQLite 索引行对应的 frontmatter，并防止旧碰撞 file_path 污染展示。"""
+    event_id = row.get("event_id")
+    event_fm = _load_event_by_path(row.get("file_path"))
+    if event_fm is not None and _event_id_from_frontmatter(event_fm) != event_id:
+        event_fm = None
+    if event_fm is None:
+        event_fm = _load_event_by_id_from_stage(data_dir, target_id, stage, event_id)
+    return event_fm
+
+
+async def _load_indexed_event_detail(
+    data_dir: Path,
+    target_id: str,
+    store: Any,
+    event_id: str,
+) -> dict[str, Any] | InvisibleIndexedEvent | None:
+    """从 store 读取详情，并校验 file_path 指向的 frontmatter 属于该事件。"""
+    get_row = getattr(store, "get_event_index_row", None)
+    if get_row is None:
+        return None
+    row = await get_row(target_id, event_id)
+    if row is None or row.get("stage") != "drafts":
+        return _INVISIBLE_INDEXED_EVENT if row is not None else None
+
+    file_path = row.get("file_path")
+    if not _indexed_file_path_is_visible_in_stage(data_dir, target_id, "drafts", file_path):
+        return _INVISIBLE_INDEXED_EVENT
+
+    if file_path is not None:
+        event = _load_event_by_path(file_path)
+        if _event_id_from_frontmatter(event) == event_id:
+            return event
+        event = _load_event_by_id_from_stage(data_dir, target_id, "drafts", event_id)
+        if event is not None:
+            return event
+
+    return _event_from_index_row(row)
 
 
 # ── 后台自动采集循环 ──────────────────────────────────────
@@ -2336,53 +2600,31 @@ def create_app(
         store_to_query = target_store if target_store is not None else _store
 
         if store_to_query is not None:
-            offset = (page - 1) * page_size
-            result = await store_to_query.query_events_paginated(
-                target_id=target_id,
+            result = await _visible_index_events_page(
+                store_to_query,
+                _data_dir,
                 stage="drafts",
-                limit=page_size,
-                offset=offset,
+                target_id=target_id,
+                page=page,
+                page_size=page_size,
                 source_id=source_id,
                 classification_l0=classification,
                 min_score=min_score,
                 sentiment=sentiment,
                 entity_name=entity,
                 topic_tag=topic_tag,
+                search=search,
             )
-            # 仅当 SQLite 有数据时才返回；空索引 → 回退到文件系统路径
-            if result["total"] > 0:
-                total = result["total"]
-                page_events: list[dict[str, Any]] = []
-
-                for row in result["rows"]:
-                    event_fm = _load_event_by_path(row["file_path"])
-                    if event_fm is None:
-                        # 文件不存在时用 SQLite 索引字段构造基础事件
-                        event_fm = {
-                            "event_id": row["event_id"],
-                            "title_original": row["title_original"],
-                            "importance_score": row["news_value_score"],
-                            "china_relevance": row["china_relevance"],
-                            "classification": {"l0": row["classification_l0"]},
-                            "source_id": row["source_id"],
-                            "published_at": row["published_at"],
-                            "sentiment": row["sentiment"],
-                            "entity_names": row["entity_names"],
-                            "topic_tags": row["topic_tags"],
-                        }
-                    if search is not None:
-                        keyword = search.lower()
-                        if keyword not in (event_fm.get("title_original") or "").lower():
-                            total -= 1
-                            continue
-                    page_events.append(event_fm)
-
+            # target 已进入索引模式后，SQLite 是权威来源；只有全空 legacy target 才回退。
+            if result["index_total"] > 0:
                 return EventResponse(
-                    total=total,
-                    events=page_events,
+                    total=result["total"],
+                    events=result["events"],
                     page=page,
                     page_size=page_size,
                 )
+            if await _store_has_target_event_index(store_to_query, target_id):
+                return EventResponse(total=0, events=[], page=page, page_size=page_size)
 
         # 降级路径（无 store / store 为空 / 文件系统路径）
         return _load_events_from_data(
@@ -2411,47 +2653,30 @@ def create_app(
         store_to_query = target_store if target_store is not None else _store
 
         if store_to_query is not None:
-            offset = (page - 1) * page_size
-            result = await store_to_query.query_events_paginated(
-                target_id=target_id,
+            result = await _visible_index_events_page(
+                store_to_query,
+                _data_dir,
                 stage="drafts",
-                limit=page_size,
-                offset=offset,
+                target_id=target_id,
+                page=page,
+                page_size=page_size,
+                date=date,
             )
-            if result["total"] > 0:
-                events = []
-                for row in result["rows"]:
-                    event_fm = _load_event_by_path(row["file_path"])
-                    if event_fm is None:
-                        event_fm = _load_event_by_id_from_stage(
-                            _data_dir,
-                            target_id,
-                            "drafts",
-                            row["event_id"],
-                        )
-                    if event_fm is None:
-                        event_fm = {
-                            "event_id": row["event_id"],
-                            "title_original": row["title_original"],
-                            "importance_score": row["news_value_score"],
-                            "classification": {"l0": row["classification_l0"]},
-                            "source_id": row["source_id"],
-                            "published_at": row["published_at"],
-                            "sentiment": row["sentiment"],
-                        }
-                    # 日期筛选
-                    if date:
-                        pub = event_fm.get("published_at", "")
-                        if not pub.startswith(date):
-                            continue
-                    events.append(event_fm)
+            if result["index_total"] > 0:
                 # 按日期分组
-                grouped = _group_events_by_date(events)
+                grouped = _group_events_by_date(result["events"])
                 return {
                     "total": result["total"],
                     "page": page,
                     "page_size": page_size,
                     "groups": grouped,
+                }
+            if await _store_has_target_event_index(store_to_query, target_id):
+                return {
+                    "total": 0,
+                    "page": page,
+                    "page_size": page_size,
+                    "groups": [],
                 }
 
         # 降级: 文件系统
@@ -2537,18 +2762,32 @@ def create_app(
         # 优先使用 target 自己的 state.db
         target_store = await _get_target_store(target_id)
         if target_store is not None:
-            file_path = await target_store.get_event_file_path(event_id)
-            if file_path is not None:
-                event = _load_event_by_path(file_path)
-                if event is not None:
-                    return event
+            event = await _load_indexed_event_detail(
+                _data_dir,
+                target_id,
+                target_store,
+                event_id,
+            )
+            if event is _INVISIBLE_INDEXED_EVENT:
+                raise HTTPException(status_code=404, detail="Event not found")
+            if event is not None:
+                return event
+            if await _store_has_target_event_index(target_store, target_id):
+                raise HTTPException(status_code=404, detail="Event not found")
 
         if _store is not None:
-            file_path = await _store.get_event_file_path(event_id)
-            if file_path is not None:
-                event = _load_event_by_path(file_path)
-                if event is not None:
-                    return event
+            event = await _load_indexed_event_detail(
+                _data_dir,
+                target_id,
+                _store,
+                event_id,
+            )
+            if event is _INVISIBLE_INDEXED_EVENT:
+                raise HTTPException(status_code=404, detail="Event not found")
+            if event is not None:
+                return event
+            if await _store_has_target_event_index(_store, target_id):
+                raise HTTPException(status_code=404, detail="Event not found")
 
         # 降级路径（无 store / store 中未找到 / 文件系统路径）
         event = _load_single_event(_data_dir, target_id, event_id)

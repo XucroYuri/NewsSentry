@@ -1,7 +1,7 @@
 """Implements: docs/spec/phase-3-kernel-mvp.md §3.6
 
 MarkdownWriter — writes judged NewsEvents to Obsidian-compatible Markdown.
-Output: {output_base_dir}/{target_id}/drafts/{date}-{source_id}-{id_short}.md.
+Output: {output_base_dir}/{target_id}/drafts/{event.id}.md.
 """
 
 from __future__ import annotations
@@ -21,9 +21,7 @@ class MarkdownWriter:
     """将经过研判（JUDGED）的 NewsEvent 写入 Obsidian 兼容的 Markdown 文件。
 
     输出目录: {output_base_dir}/{target_id}/drafts/
-    文件命名: {date}-{source_id}-{id_short}.md
-    其中 date 取自 event.published_at 前 10 位（YYYY-MM-DD），
-    id_short 取 event.id 前 12 位。
+    文件命名: {event.id}.md，使用完整事件 ID 保证同日同信源多事件不会互相覆盖。
     """
 
     def __init__(self, output_config: dict[str, Any]) -> None:
@@ -53,9 +51,7 @@ class MarkdownWriter:
         Returns:
             写入的文件路径
         """
-        date_str = event.published_at[:10]
-        id_short = event.id[:12]
-        filename = f"{date_str}-{event.source_id}-{id_short}.md"
+        filename = f"{event.id}.md"
 
         target_dir = self._output_base_dir / self._target_id / "drafts"
         target_dir.mkdir(parents=True, exist_ok=True)

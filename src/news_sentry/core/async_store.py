@@ -643,6 +643,17 @@ class AsyncStore:
             row = await cursor.fetchone()
         return row[0] if row else 0
 
+    async def get_target_event_count(self, target_id: str) -> int:
+        """统计 target 在 event_index 中的所有阶段事件数。"""
+        if self._db is None:
+            return 0
+        async with self._db.execute(
+            "SELECT COUNT(*) FROM event_index WHERE target_id = ?",
+            (target_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        return row[0] if row else 0
+
     async def get_stats(self, target_id: str) -> dict[str, Any]:
         if self._db is None:
             return {"total_events": 0, "stage_counts": {}, "avg_news_value_score": 0.0}
@@ -856,6 +867,40 @@ class AsyncStore:
         ) as cursor:
             row = await cursor.fetchone()
             return row[0] if row else None
+
+    async def get_event_index_row(self, target_id: str, event_id: str) -> dict[str, Any] | None:
+        """按 target_id + event_id 读取 event_index 行。"""
+        if self._db is None:
+            return None
+        async with self._db.execute(
+            """SELECT event_id, target_id, stage, source_id,
+                      news_value_score, china_relevance, classification_l0,
+                      title_original, published_at, file_path, sentiment,
+                      entity_names, topic_tags, created_at
+               FROM event_index
+               WHERE target_id = ? AND event_id = ?""",
+            (target_id, event_id),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        cols = (
+            "event_id",
+            "target_id",
+            "stage",
+            "source_id",
+            "news_value_score",
+            "china_relevance",
+            "classification_l0",
+            "title_original",
+            "published_at",
+            "file_path",
+            "sentiment",
+            "entity_names",
+            "topic_tags",
+            "created_at",
+        )
+        return dict(zip(cols, row, strict=True))
 
     # ------------------------------------------------------------------
     # Entity Tracking (Phase 32)
