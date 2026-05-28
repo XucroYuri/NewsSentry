@@ -43,6 +43,10 @@ assert.equal(CHANNELS[0].id, "all");
 assert.equal(eventMatchesChannel(groups[0].events[0], "featured"), true);
 assert.equal(eventMatchesChannel(groups[0].events[0], "policy"), true);
 assert.equal(eventMatchesChannel(groups[0].events[0], "china"), true);
+assert.equal(
+  eventMatchesChannel({ title_original: "Pechino chiede un compromesso su Iran" }, "china"),
+  true,
+);
 assert.equal(eventMatchesChannel(groups[0].events[1], "tech"), true);
 assert.equal(eventMatchesChannel(groups[0].events[1], "risk"), false);
 assert.equal(eventMatchesSearch(groups[0].events[0], "compliance"), true);

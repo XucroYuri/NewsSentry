@@ -10,6 +10,7 @@ import yaml
 from news_sentry.core.async_run import (
     _init_async_store_for_target,
     _run_collect_async,
+    _run_output_async,
     bounded_run_async,
 )
 
@@ -422,6 +423,61 @@ class TestAsyncStoreIntegration:
         assert db_path.exists()
         assert await store.is_known("ne-test-001") is True
         await store.close()
+
+    @pytest.mark.asyncio
+    async def test_output_async_indexes_existing_draft_path_and_classification(self, tmp_path):
+        """输出阶段写入 event_index 时应使用真实 draft 文件路径并保留分类。"""
+        from pathlib import Path
+
+        from news_sentry.core.async_store import AsyncStore
+        from news_sentry.core.file_writer import FileWriter
+        from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+
+        target_dir = tmp_path / "italy"
+        file_writer = FileWriter(target_dir)
+        file_writer.ensure_dirs()
+        event = NewsEvent(
+            id="ne-italy-repubblica-20260528-51db8e48",
+            run_id="run-output-index",
+            source_id="repubblica",
+            url="https://example.com/news",
+            title_original="Guerra in Iran",
+            content_original="Body",
+            language=Language.IT,
+            published_at="2026-05-28T00:18:47+00:00",
+            collected_at="2026-05-28T00:20:00+00:00",
+            pipeline_stage=PipelineStage.FILTERED,
+            news_value_score=100,
+            metadata={"classification": {"l0": "international"}},
+        )
+        file_writer.write_event(event)
+
+        store = AsyncStore(target_dir / "state.db")
+        await store.initialize()
+        config = MagicMock()
+        config.target_id = "italy"
+        config.output_root = tmp_path
+        config.output_destinations = {}
+
+        try:
+            await _run_output_async(
+                config=config,
+                run_id="run-output-index",
+                run_log=MagicMock(),
+                file_writer=file_writer,
+                ctx=MagicMock(),
+                store=store,
+            )
+
+            result = await store.query_events_paginated("italy", "drafts", limit=10)
+            assert result["total"] == 1
+            row = result["rows"][0]
+            assert row["classification_l0"] == "international"
+            assert row["file_path"] is not None
+            assert Path(row["file_path"]).is_file()
+            assert Path(row["file_path"]).name.startswith("2026-05-28-repubblica-")
+        finally:
+            await store.close()
 
 
 class TestLinkEvents:

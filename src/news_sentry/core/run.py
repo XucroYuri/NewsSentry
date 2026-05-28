@@ -694,6 +694,17 @@ def _load_events_from_dir(directory: Path) -> list[NewsEvent]:
             if frontmatter is None:
                 continue
 
+            metadata = frontmatter.get("metadata", {})
+            if not isinstance(metadata, dict):
+                metadata = {}
+            else:
+                metadata = dict(metadata)
+            if isinstance(frontmatter.get("classification"), dict) and not isinstance(
+                metadata.get("classification"), dict
+            ):
+                metadata["classification"] = frontmatter["classification"]
+            metadata["_file_path"] = str(md_file)
+
             # 使用 NewsEvent 构造器重建对象
             event = NewsEvent(
                 id=frontmatter.get("id", ""),
@@ -713,7 +724,7 @@ def _load_events_from_dir(directory: Path) -> list[NewsEvent]:
                 sentiment_score=frontmatter.get("sentiment_score"),
                 cluster_id=frontmatter.get("cluster_id"),
                 story_id=frontmatter.get("story_id"),
-                metadata=frontmatter.get("metadata", {}),
+                metadata=metadata,
             )
             events.append(event)
         except Exception:  # noqa: S112

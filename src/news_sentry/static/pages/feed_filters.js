@@ -8,6 +8,8 @@ export const CHANNELS = [
   { id: "china", label: "中国相关", terms: ["china", "chinese", "china-relations"] },
 ];
 
+const CHINA_TEXT_TERMS = ["china", "chinese", "cina", "cinese", "pechino", "beijing", "中国"];
+
 function tagText(value) {
   if (value === null || value === undefined || value === "") return "";
   if (typeof value === "string" || typeof value === "number") return String(value);
@@ -43,6 +45,17 @@ export function eventTerms(ev) {
   return terms.map(lower).filter(Boolean);
 }
 
+function eventText(ev) {
+  return [
+    ev.display_title,
+    ev.title,
+    ev.title_translated,
+    ev.title_original,
+    ev.summary,
+    ev.ai_reason,
+  ].map((value) => String(value || "").toLowerCase()).join(" ");
+}
+
 export function eventMatchesChannel(ev, channelId) {
   if (!channelId || channelId === "all") return true;
   const score = Number(ev.score ?? ev.news_value_score ?? ev.importance_score ?? 0);
@@ -56,6 +69,9 @@ export function eventMatchesChannel(ev, channelId) {
   const channel = CHANNELS.find((item) => item.id === channelId);
   if (!channel) return true;
   const terms = eventTerms(ev);
+  if (channelId === "china" && CHINA_TEXT_TERMS.some((term) => eventText(ev).includes(term))) {
+    return true;
+  }
   return channel.terms.some((term) => terms.includes(term));
 }
 

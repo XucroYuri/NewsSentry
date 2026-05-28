@@ -342,6 +342,24 @@ class TestAPIServer:
         assert start_resp.status_code == 200
         assert start_resp.json()["enabled"] is True
 
+    def test_collector_run_metrics_sum_successful_target_contexts(self) -> None:
+        """自动采集完成后，collector/status 应汇总各 target 的采集数量。"""
+        old_count = api_server_module._auto_collector_state["last_events_collected"]
+        try:
+            api_server_module._auto_collector_state["last_events_collected"] = 0
+
+            api_server_module._update_collector_run_metrics(
+                [
+                    MagicMock(events_collected=82),
+                    MagicMock(events_collected=100),
+                    MagicMock(events_collected=0),
+                ]
+            )
+
+            assert api_server_module._auto_collector_state["last_events_collected"] == 182
+        finally:
+            api_server_module._auto_collector_state["last_events_collected"] = old_count
+
     def test_collector_diagnostics_healthy(self, tmp_path: Path) -> None:
         """有数据目录情况下 diagnostics 返回 overall=healthy。"""
         import json as _json
@@ -1453,6 +1471,72 @@ class TestAPIServerSQLite:
         data = resp.json()
         assert data["total"] == 3
         assert len(data["events"]) == 3
+
+    async def test_events_feed_recovers_frontmatter_when_index_path_is_stale(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """SQLite file_path 失效时，公开 feed 应从 drafts 文件恢复展示字段。"""
+        from httpx import ASGITransport, AsyncClient
+
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        drafts_dir = tmp_path / "italy" / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        event_id = "ne-italy-repubblica-20260528-51db8e48"
+        actual_path = drafts_dir / "2026-05-28-repubblica-ne-italy-rep.md"
+        stale_path = drafts_dir / "outputted_repubblica_ne-italy-repubblica-20260528-51db8e48.md"
+        fm = yaml.dump(
+            {
+                "id": event_id,
+                "source_id": "repubblica",
+                "url": "https://example.com/news",
+                "title_original": "Guerra in Iran",
+                "published_at": "2026-05-28T00:18:47+00:00",
+                "news_value_score": 100,
+                "classification": {"l0": "international"},
+                "pipeline_stage": "outputted",
+            },
+            allow_unicode=True,
+            default_flow_style=False,
+            sort_keys=False,
+        )
+        actual_path.write_text(f"---\n{fm}---\n\n# Guerra in Iran\n", encoding="utf-8")
+        now = datetime.now(UTC).isoformat()
+        try:
+            await store._db.execute(  # noqa: SLF001
+                "INSERT OR REPLACE INTO event_index "
+                "(event_id, target_id, stage, source_id, news_value_score, "
+                "china_relevance, classification_l0, title_original, "
+                "published_at, file_path, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    event_id,
+                    "italy",
+                    "drafts",
+                    "repubblica",
+                    100,
+                    None,
+                    None,
+                    "Guerra in Iran",
+                    "2026-05-28T00:18:47+00:00",
+                    str(stale_path),
+                    now,
+                ),
+            )
+            await store._db.commit()  # noqa: SLF001
+
+            app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.get("/api/v1/events/feed", params={"target_id": "italy"})
+
+            assert resp.status_code == 200
+            item = resp.json()["groups"][0]["events"][0]
+            assert item["event_id"] == event_id
+            assert item["flat_tags"] == ["international"]
+        finally:
+            await store.close()
 
     async def test_list_events_pagination_with_sqlite(
         self,

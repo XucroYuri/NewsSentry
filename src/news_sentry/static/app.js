@@ -18,7 +18,7 @@ import {
   parseRouteHash,
   targetWorkbenchHashForLegacyRoute,
 } from "./router.js?v=20260527e";
-import { renderFeedTab, renderPublicHome } from "./pages/feed.js?v=20260527h";
+import { renderFeedTab, renderPublicHome } from "./pages/feed.js?v=20260528a";
 import { renderPublicAnalysis } from "./pages/public_analysis.js?v=20260527c";
 import { targetPortalHref } from "./pages/public_portal.js?v=20260527d";
 import { renderTargetsHome, renderTargetWorkbench } from "./pages/target_workbench.js?v=20260527b";

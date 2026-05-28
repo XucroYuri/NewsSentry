@@ -2247,6 +2247,36 @@ def _load_event_by_path(file_path: str | None) -> dict[str, Any] | None:
         return None
 
 
+def _load_event_by_id_from_stage(
+    data_dir: Path,
+    target_id: str,
+    stage: str,
+    event_id: str | None,
+) -> dict[str, Any] | None:
+    """当 SQLite file_path 失效时，从目标 stage 目录按事件 ID 找回 frontmatter。"""
+    if not event_id:
+        return None
+    stage_dir = data_dir / target_id / stage
+    if not stage_dir.is_dir():
+        return None
+
+    candidates: list[Path] = []
+    id_short = event_id[:12]
+    if id_short:
+        candidates.extend(sorted(stage_dir.glob(f"*{id_short}*.md")))
+    candidates.extend(sorted(stage_dir.glob("*.md")))
+
+    seen: set[Path] = set()
+    for path in candidates:
+        if path in seen:
+            continue
+        seen.add(path)
+        event = _load_event_by_path(str(path))
+        if event and (event.get("event_id") or event.get("id")) == event_id:
+            return event
+    return None
+
+
 # ── 后台自动采集循环 ──────────────────────────────────────
 
 
@@ -2378,6 +2408,20 @@ def _collector_payload() -> dict[str, Any]:
     }
 
 
+def _update_collector_run_metrics(contexts: Any) -> None:
+    """把多 target pipeline 上下文汇总到采集器状态。"""
+    if contexts is None:
+        context_items: list[Any] = []
+    elif isinstance(contexts, (list, tuple, set)):
+        context_items = list(contexts)
+    else:
+        context_items = [contexts]
+
+    _auto_collector_state["last_events_collected"] = sum(
+        int(getattr(ctx, "events_collected", 0) or 0) for ctx in context_items
+    )
+
+
 async def _auto_collect_loop() -> None:
     """后台循环：每隔 interval_minutes 对每个 target 执行 pipeline 阶段。
 
@@ -2401,11 +2445,12 @@ async def _auto_collect_loop() -> None:
             run_id = f"auto_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
             _log.info("自动采集开始: run_id=%s, targets=%s", run_id, target_ids)
 
-            await bounded_run_multi_async(
+            contexts = await bounded_run_multi_async(
                 targets=target_ids,
                 stage=stage,
                 run_id=run_id,
             )
+            _update_collector_run_metrics(contexts)
 
             _auto_collector_state["last_run_at"] = datetime.now(UTC).isoformat()
             _auto_collector_state["last_run_status"] = "ok"
@@ -4160,6 +4205,13 @@ def create_app(
                 events = []
                 for row in result["rows"]:
                     event_fm = _load_event_by_path(row["file_path"])
+                    if event_fm is None:
+                        event_fm = _load_event_by_id_from_stage(
+                            _data_dir,
+                            target_id,
+                            "drafts",
+                            row["event_id"],
+                        )
                     if event_fm is None:
                         event_fm = {
                             "event_id": row["event_id"],
