@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -343,6 +344,56 @@ Trade agreement between Italy and China signed today.
         # 运行日志应已写入
         log_files = list((tmp_path / "data" / "test-target" / "logs").glob("*.json"))
         assert len(log_files) > 0
+
+    def test_filter_stage_assigns_lightweight_clusters(self, tmp_path: Path, monkeypatch):
+        """filter 阶段：分类后为同批相似事件写入 cluster_id/story_id。"""
+        _setup_minimal_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        now = datetime.now(UTC).isoformat()
+        raw_dir = tmp_path / "data" / "test-target" / "raw"
+        raw_dir.mkdir(parents=True)
+        for event_id, source_id, title in [
+            ("evt-cluster-en", "source-a", "Italian contractor killed in Ukraine"),
+            ("evt-cluster-it", "source-b", "Contractor italiano ucciso in Ucraina"),
+        ]:
+            (raw_dir / f"collected_{source_id}_{event_id}.md").write_text(
+                f"""---
+id: {event_id}
+run_id: run-x
+source_id: {source_id}
+url: https://example.com/{event_id}
+title_original: "{title}"
+content_original: "Trade economy context keeps this event in the filter stage."
+language: it
+published_at: "{now}"
+collected_at: "{now}"
+pipeline_stage: collected
+---
+
+# {title}
+Trade economy context keeps this event in the filter stage.
+""",
+                encoding="utf-8",
+            )
+
+        ctx = bounded_run("test-target", "filter", config_dir=str(tmp_path))
+
+        assert ctx.events_filtered == 2
+        evaluated = list((tmp_path / "data" / "test-target" / "evaluated").glob("*.md"))
+        assert len(evaluated) == 2
+        frontmatters = []
+        for path in evaluated:
+            text = path.read_text(encoding="utf-8")
+            frontmatters.append(yaml.safe_load(text.split("---", 2)[1]))
+        cluster_ids = {frontmatter["cluster_id"] for frontmatter in frontmatters}
+        story_ids = {frontmatter["story_id"] for frontmatter in frontmatters}
+        assert len(cluster_ids) == 1
+        assert len(story_ids) == 1
+        assert all(
+            "source_diversity" in frontmatter["metadata"]["clustering"]["matched_by"]
+            for frontmatter in frontmatters
+        )
 
     def test_output_stage_empty_evaluated_dir(self, tmp_path: Path, monkeypatch):
         """evaluated/ 目录为空时 output 应正常返回而不崩溃。"""
