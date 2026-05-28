@@ -1,21 +1,21 @@
 /* News Sentry — Service Worker v6 */
 "use strict";
 
-const CACHE_NAME = "news-sentry-v29";
+const CACHE_NAME = "news-sentry-v30";
 const STATIC_URLS = [
   "/",
   "/index.html",
   "/manifest.json",
   "/icons/icon-192.svg",
   "/icons/icon-512.svg",
-  "/app.js?v=20260529b",
+  "/app.js?v=20260529c",
   "/api.js?v=20260527c",
-  "/style.css?v=20260529b",
+  "/style.css?v=20260529c",
   "/public.css?v=20260527d",
   "/router.js?v=20260527e",
   "/pages/public_portal.js?v=20260527d",
   "/pages/public_analysis.js?v=20260527c",
-  "/pages/feed.js?v=20260529b",
+  "/pages/feed.js?v=20260529c",
   "/pages/target_workbench.js?v=20260529b",
   "/pages/feed_filters.js?v=20260529b",
   "/pages/dashboard.js?v=20260527e",

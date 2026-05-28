@@ -18,7 +18,7 @@ import {
   parseRouteHash,
   targetWorkbenchHashForLegacyRoute,
 } from "./router.js?v=20260527e";
-import { renderFeedTab, renderPublicHome } from "./pages/feed.js?v=20260529b";
+import { renderFeedTab, renderPublicHome } from "./pages/feed.js?v=20260529c";
 import { renderPublicAnalysis } from "./pages/public_analysis.js?v=20260527c";
 import { targetPortalHref } from "./pages/public_portal.js?v=20260527d";
 import { renderTargetsHome, renderTargetWorkbench } from "./pages/target_workbench.js?v=20260529b";
@@ -33,7 +33,7 @@ import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedbac
 import { renderTargetTab, renderSourcesTab, renderFiltersTab, renderOutputsTab, renderAITab, renderWebhookTab, renderApiKeyTab } from "./pages/config.js?v=20260527g";
 import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab, renderThemeTab, renderBackupTab, initTheme } from "./pages/settings.js?v=20260527c";
 
-const STATIC_BUILD = "20260529b";
+const STATIC_BUILD = "20260529c";
 
 // ═══════════════════════════════════════════════════════════
 // §1. 路由表
