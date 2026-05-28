@@ -11,110 +11,334 @@ l0_domains:
   - code: politics
     label_zh: "政治"
     label_it: "Politica"
-    keywords_it: [governo, parlamento, elezioni, partito, ministro, premier, senato, camera, coalizione, opposizione]
-    keywords_en: [government, parliament, election, party, minister, senate, coalition, opposition]
-    keywords_zh: [政府, 议会, 选举, 政党, 部长, 联合政府]
+    keywords_it: [governo, parlamento, elezioni, partito, ministro, premier, senato, camera, coalizione, opposizione, legge, decreto]
+    keywords_en: [government, parliament, election, party, minister, senate, coalition, opposition, law, decree]
+    keywords_zh: [政府, 议会, 选举, 政党, 部长, 法律, 法令]
 
-  - code: economics
+  - code: economy
     label_zh: "经济"
     label_it: "Economia"
-    keywords_it: [economia, PIL, inflazione, banca, mercato, lavoro, occupazione, export, spread, debito, bilancio]
-    keywords_en: [economy, GDP, inflation, bank, market, employment, trade, deficit, budget]
-    keywords_zh: [经济, GDP, 通胀, 银行, 市场, 就业, 贸易, 预算]
+    keywords_it: [economia, PIL, inflazione, banca, mercato, lavoro, occupazione, export, spread, debito, bilancio, industria, impresa]
+    keywords_en: [economy, GDP, inflation, bank, market, employment, trade, deficit, budget, industry, company]
+    keywords_zh: [经济, GDP, 通胀, 银行, 市场, 就业, 贸易, 预算, 企业]
 
-  - code: security
-    label_zh: "安全与司法"
-    label_it: "Sicurezza e Giustizia"
-    keywords_it: [criminalità, mafia, polizia, carabinieri, tribunale, arresto, indagine, corruzione, magistratura]
-    keywords_en: [crime, police, court, arrest, investigation, mafia, corruption, judiciary]
-    keywords_zh: [犯罪, 警察, 法院, 逮捕, 调查, 黑手党, 腐败, 司法]
+  - code: society
+    label_zh: "社会"
+    label_it: "Società"
+    keywords_it: [società, scuola, istruzione, welfare, migranti, immigrazione, lavoro, famiglia, diritti]
+    keywords_en: [society, school, education, welfare, migrants, immigration, family, rights]
+    keywords_zh: [社会, 教育, 福利, 移民, 家庭, 权利]
 
-  - code: international
+  - code: tech
+    label_zh: "科技"
+    label_it: "Tecnologia"
+    keywords_it: [tecnologia, digitale, intelligenza artificiale, semiconduttori, cyber, ricerca, innovazione]
+    keywords_en: [technology, digital, artificial intelligence, ai, semiconductor, cyber, research, innovation]
+    keywords_zh: [科技, 数字, 人工智能, 半导体, 网络安全, 科研]
+
+  - code: culture
+    label_zh: "文化"
+    label_it: "Cultura"
+    keywords_it: [cultura, arte, museo, cinema, musica, chiesa, religione, patrimonio]
+    keywords_en: [culture, art, museum, cinema, music, church, religion, heritage]
+    keywords_zh: [文化, 艺术, 博物馆, 电影, 音乐, 宗教, 遗产]
+
+  - code: sports
+    label_zh: "体育"
+    label_it: "Sport"
+    keywords_it: [calcio, sport, serie a, olimpiadi, tennis, formula 1]
+    keywords_en: [football, sport, olympics, tennis, formula 1]
+    keywords_zh: [体育, 足球, 奥运, 网球]
+
+  - code: disaster
+    label_zh: "灾害"
+    label_it: "Disastri"
+    keywords_it: [terremoto, alluvione, incendio, frana, emergenza, incidente, crollo]
+    keywords_en: [earthquake, flood, wildfire, landslide, emergency, accident, collapse]
+    keywords_zh: [地震, 洪水, 火灾, 山体滑坡, 事故]
+
+  - code: public-safety
+    label_zh: "公共安全"
+    label_it: "Sicurezza Pubblica"
+    keywords_it: [mafia, criminalità, polizia, carabinieri, arresto, indagine, terrorismo, sicurezza]
+    keywords_en: [mafia, crime, police, arrest, investigation, terrorism, security]
+    keywords_zh: [黑手党, 犯罪, 警察, 逮捕, 调查, 恐怖主义, 安全]
+
+  - code: health
+    label_zh: "卫生健康"
+    label_it: "Sanità"
+    keywords_it: [sanità, salute, ospedale, medico, farmaco, vaccino, epidemia]
+    keywords_en: [health, hospital, doctor, medicine, vaccine, epidemic]
+    keywords_zh: [健康, 医院, 医生, 药品, 疫苗, 疫情]
+
+  - code: environment
+    label_zh: "环境"
+    label_it: "Ambiente"
+    keywords_it: [ambiente, clima, energia, rinnovabili, gas, petrolio, transizione, emissioni, inquinamento]
+    keywords_en: [environment, climate, energy, renewable, gas, oil, transition, emissions, pollution]
+    keywords_zh: [环境, 气候, 能源, 可再生, 排放, 污染]
+
+  - code: international-relations
     label_zh: "国际关系"
     label_it: "Relazioni Internazionali"
-    keywords_it: [esteri, diplomatici, ambasciata, accordo, trattato, NATO, UE, Cina, Russia, USA]
-    keywords_en: [foreign, diplomatic, embassy, agreement, treaty, NATO, EU, China, Russia]
-    keywords_zh: [外交, 大使馆, 协议, 条约, 北约, 欧盟, 中国, 俄罗斯]
+    keywords_it: [esteri, diplomatici, ambasciata, accordo, trattato, NATO, UE, Cina, Russia, USA, Ucraina, Iran, sanzioni, guerra]
+    keywords_en: [foreign, diplomatic, embassy, agreement, treaty, NATO, EU, China, Russia, Ukraine, Iran, sanctions, war]
+    keywords_zh: [外交, 大使馆, 协议, 条约, 北约, 欧盟, 中国, 俄罗斯, 乌克兰, 伊朗, 制裁, 战争]
 
-  - code: culture_society
-    label_zh: "文化与社会"
-    label_it: "Cultura e Società"
-    keywords_it: [cultura, arte, università, istruzione, sanità, immigrazione, religione, chiesa]
-    keywords_en: [culture, art, university, education, health, immigration, religion, church]
-    keywords_zh: [文化, 艺术, 教育, 医疗, 移民, 宗教]
-
-  - code: environment_energy
-    label_zh: "环境与能源"
-    label_it: "Ambiente ed Energia"
-    keywords_it: [ambiente, clima, energia, rinnovabili, gas, petrolio, transizione, emissioni]
-    keywords_en: [environment, climate, energy, renewable, gas, oil, transition, emissions]
-    keywords_zh: [环境, 气候, 能源, 可再生, 天然气, 石油, 转型, 排放]
+  - code: china-related
+    label_zh: "中国相关"
+    label_it: "Cina"
+    keywords_it: [Cina, cinese, Pechino, Via della Seta, BRI, comunità cinese]
+    keywords_en: [China, Chinese, Beijing, Belt and Road, BRI, Chinese community]
+    keywords_zh: [中国, 北京, 一带一路, 中资, 华人]
 
 # L1 子议题定义，归属 l0_domain
 l1_topics:
-  - code: govt_coalition
+  - code: election
     l0_domain: politics
-    label_zh: "执政联盟动态"
-    keywords_it: [coalizione, governo, maggioranza, opposizione, fiducia, crisi di governo]
+    label_zh: "选举"
+    keywords_it: [elezioni, voto, campagna elettorale, regionali, comunali]
+    keywords_en: [election, vote, electoral campaign, regional election, local election]
 
-  - code: eu_policy
+  - code: coalition
     l0_domain: politics
-    label_zh: "欧盟政策"
+    label_zh: "执政联盟"
+    keywords_it: [coalizione, maggioranza, opposizione, fiducia, crisi di governo]
+    keywords_en: [coalition, majority, opposition, confidence vote, government crisis]
+
+  - code: cabinet
+    l0_domain: politics
+    label_zh: "内阁"
+    keywords_it: [governo, ministro, premier, consiglio dei ministri, sottosegretario]
+    keywords_en: [government, minister, prime minister, cabinet, undersecretary]
+
+  - code: parliament
+    l0_domain: politics
+    label_zh: "议会"
+    keywords_it: [parlamento, senato, camera, deputati, emendamento]
+    keywords_en: [parliament, senate, chamber, deputies, amendment]
+
+  - code: eu-affairs
+    l0_domain: politics
+    label_zh: "欧盟事务"
     keywords_it: [Bruxelles, regolamento, direttiva, commissione europea, consiglio europeo, Von der Leyen]
     keywords_en: [Brussels, regulation, directive, European Commission, European Council]
 
-  - code: regional_elections
+  - code: migration-policy
     l0_domain: politics
-    label_zh: "地方选举"
-    keywords_it: [regionali, comunali, sindaco, presidente di regione, voto locale]
+    label_zh: "移民政策"
+    keywords_it: [migranti, immigrazione, sbarchi, Lampedusa, asilo, rimpatri, decreto flussi]
+    keywords_en: [migrants, immigration, landings, asylum, deportation, migration decree]
 
-  - code: fiscal_policy
-    l0_domain: economics
+  - code: justice-reform
+    l0_domain: politics
+    label_zh: "司法改革"
+    keywords_it: [riforma della giustizia, magistratura, CSM, prescrizione]
+    keywords_en: [justice reform, judicial reform, magistracy, statute of limitations]
+
+  - code: fiscal-policy
+    l0_domain: economy
     label_zh: "财政政策"
     keywords_it: [manovra, legge di bilancio, deficit, debito pubblico, Fitch, Moody, S&P]
     keywords_en: [budget law, deficit, public debt, fiscal policy]
 
-  - code: labor_market
-    l0_domain: economics
+  - code: trade
+    l0_domain: economy
+    label_zh: "贸易"
+    keywords_it: [commercio, export, import, dazi, dogane, mercato estero]
+    keywords_en: [trade, export, import, tariffs, customs, foreign market]
+
+  - code: energy
+    l0_domain: economy
+    label_zh: "能源经济"
+    keywords_it: [energia, gas, petrolio, elettricità, bollette, forniture]
+    keywords_en: [energy, gas, oil, electricity, bills, supplies]
+
+  - code: labor-market
+    l0_domain: economy
     label_zh: "劳动力市场"
     keywords_it: [occupazione, disoccupazione, lavoro, contratto, sciopero, sindacato]
     keywords_en: [employment, unemployment, labor, strike, union]
 
-  - code: energy_transition
-    l0_domain: environment_energy
-    label_zh: "能源与绿色转型"
-    keywords_it: [energia, rinnovabili, gas, petrolio, transizione ecologica, PNRR]
-    keywords_en: [energy, renewable, gas, oil, green transition, PNRR]
+  - code: financial-markets
+    l0_domain: economy
+    label_zh: "金融市场"
+    keywords_it: [borsa, spread, banca, tassi, obbligazioni, mercato finanziario]
+    keywords_en: [stock market, spread, bank, rates, bonds, financial market]
 
-  - code: immigration_policy
-    l0_domain: culture_society
-    label_zh: "移民政策"
-    keywords_it: [migranti, immigrazione, sbarchi, Lampedusa, asilo, rimpatri, decreto flussi]
-    keywords_en: [migrants, immigration, landings, asylum, deportation]
+  - code: corporate
+    l0_domain: economy
+    label_zh: "企业"
+    keywords_it: [impresa, azienda, industria, gruppo, investimento, produzione]
+    keywords_en: [company, corporate, industry, group, investment, production]
 
-  - code: eu_migration
-    l0_domain: culture_society
-    label_zh: "欧盟移民协调"
-    keywords_it: [patto migrazione, ricollocamento, frontiere UE, Dublino]
-    keywords_en: [migration pact, relocation, EU borders, Dublin regulation]
+  - code: infrastructure
+    l0_domain: economy
+    label_zh: "基础设施"
+    keywords_it: [infrastrutture, porto, ferrovia, autostrada, logistica, trasporti]
+    keywords_en: [infrastructure, port, railway, highway, logistics, transport]
 
-  - code: organized_crime
-    l0_domain: security
+  - code: us-italy
+    l0_domain: international-relations
+    label_zh: "美意关系"
+    keywords_it: [USA, Stati Uniti, Washington, Italia USA, Meloni Trump]
+    keywords_en: [USA, United States, Washington, US Italy, Italy US]
+
+  - code: china-eu
+    l0_domain: international-relations
+    label_zh: "中欧关系"
+    keywords_it: [Cina UE, Bruxelles Cina, dazi Cina, veicoli elettrici cinesi]
+    keywords_en: [China EU, EU China, China tariffs, Chinese electric vehicles]
+
+  - code: russia-ukraine
+    l0_domain: international-relations
+    label_zh: "俄乌战争"
+    keywords_it: [Russia, Ucraina, Kiev, Mosca, guerra in Ucraina]
+    keywords_en: [Russia, Ukraine, Kyiv, Moscow, war in Ukraine]
+
+  - code: nato
+    l0_domain: international-relations
+    label_zh: "北约"
+    keywords_it: [NATO, alleanza atlantica, difesa atlantica]
+    keywords_en: [NATO, Atlantic alliance, Atlantic defense]
+
+  - code: sanctions
+    l0_domain: international-relations
+    label_zh: "制裁"
+    keywords_it: [sanzioni, embargo, restrizioni, congelamento beni]
+    keywords_en: [sanctions, embargo, restrictions, asset freeze]
+
+  - code: africa-med
+    l0_domain: international-relations
+    label_zh: "非洲与地中海"
+    keywords_it: [Africa, Mediterraneo, Libia, Tunisia, piano Mattei]
+    keywords_en: [Africa, Mediterranean, Libya, Tunisia, Mattei plan]
+
+  - code: china-italy-bilateral
+    l0_domain: china-related
+    label_zh: "中意双边关系"
+    keywords_it: [Cina, cinese, Belt and Road, Via della Seta, Pechino, accordo Cina-Italia]
+    keywords_en: [China, Chinese, BRI, Belt Road, Beijing, China-Italy]
+
+  - code: bri-italy
+    l0_domain: china-related
+    label_zh: "一带一路与意大利"
+    keywords_it: [Via della Seta, memorandum, BRI, infrastrutture Cina]
+    keywords_en: [Belt and Road, BRI, memorandum, China infrastructure]
+
+  - code: chinese-investment
+    l0_domain: china-related
+    label_zh: "中国投资"
+    keywords_it: [investimenti cinesi, azienda cinese, capitale cinese, acquisizione cinese]
+    keywords_en: [Chinese investment, Chinese company, Chinese capital, Chinese acquisition]
+
+  - code: china-eu-policy
+    l0_domain: china-related
+    label_zh: "欧盟对华政策"
+    keywords_it: [dazi Cina, Bruxelles Cina, politica UE Cina, veicoli elettrici cinesi]
+    keywords_en: [China tariffs, EU China policy, Chinese electric vehicles]
+
+  - code: chinese-community
+    l0_domain: china-related
+    label_zh: "华人社区"
+    keywords_it: [comunità cinese, cittadini cinesi, diaspora cinese, Prato cinese]
+    keywords_en: [Chinese community, Chinese citizens, Chinese diaspora]
+
+  - code: ai
+    l0_domain: tech
+    label_zh: "人工智能"
+    keywords_it: [intelligenza artificiale, AI, algoritmo, modello]
+    keywords_en: [artificial intelligence, ai, algorithm, model]
+
+  - code: semiconductor
+    l0_domain: tech
+    label_zh: "半导体"
+    keywords_it: [semiconduttori, chip, microchip, wafer]
+    keywords_en: [semiconductor, chip, microchip, wafer]
+
+  - code: digital-policy
+    l0_domain: tech
+    label_zh: "数字政策"
+    keywords_it: [digitale, dati, piattaforma, regolamento digitale]
+    keywords_en: [digital, data, platform, digital regulation]
+
+  - code: cybersecurity
+    l0_domain: tech
+    label_zh: "网络安全"
+    keywords_it: [cyber, cybersicurezza, hacker, attacco informatico]
+    keywords_en: [cyber, cybersecurity, hacker, cyberattack]
+
+  - code: research
+    l0_domain: tech
+    label_zh: "科研"
+    keywords_it: [ricerca, università, laboratorio, innovazione scientifica]
+    keywords_en: [research, university, laboratory, scientific innovation]
+
+  - code: tech-industry
+    l0_domain: tech
+    label_zh: "科技产业"
+    keywords_it: [startup, tecnologia, innovazione, impresa tecnologica]
+    keywords_en: [startup, technology, innovation, tech company]
+
+  - code: organized-crime
+    l0_domain: public-safety
     label_zh: "有组织犯罪"
     keywords_it: [mafia, camorra, ndrangheta, cosa nostra, boss, clan, latitante]
     keywords_en: [mafia, organized crime, boss, clan, fugitive]
 
-  - code: corruption
-    l0_domain: security
-    label_zh: "腐败与反腐"
-    keywords_it: [corruzione, tangenti, mazzette, ANAC, concussione]
-    keywords_en: [corruption, bribery, anti-corruption]
+  - code: terrorism
+    l0_domain: public-safety
+    label_zh: "恐怖主义"
+    keywords_it: [terrorismo, attentato, radicalizzazione, jihad]
+    keywords_en: [terrorism, attack, radicalization, jihad]
 
-  - code: judicial_reform
-    l0_domain: security
-    label_zh: "司法改革"
-    keywords_it: [riforma della giustizia, magistratura, CSM, prescrizione]
-    keywords_en: [judicial reform, magistracy, prescription]
+  - code: policing
+    l0_domain: public-safety
+    label_zh: "警务"
+    keywords_it: [polizia, carabinieri, questura, pattuglia, sicurezza]
+    keywords_en: [police, carabinieri, police headquarters, patrol, security]
+
+  - code: judicial-case
+    l0_domain: public-safety
+    label_zh: "司法案件"
+    keywords_it: [tribunale, processo, procura, indagine, arresto]
+    keywords_en: [court, trial, prosecutor, investigation, arrest]
+
+  - code: public-order
+    l0_domain: public-safety
+    label_zh: "公共秩序"
+    keywords_it: [ordine pubblico, manifestazione, scontri, sicurezza urbana]
+    keywords_en: [public order, protest, clashes, urban security]
+
+  - code: climate
+    l0_domain: environment
+    label_zh: "气候"
+    keywords_it: [clima, cambiamento climatico, riscaldamento globale]
+    keywords_en: [climate, climate change, global warming]
+
+  - code: energy-transition
+    l0_domain: environment
+    label_zh: "能源转型"
+    keywords_it: [energia, rinnovabili, transizione ecologica, PNRR]
+    keywords_en: [energy, renewable, green transition, PNRR]
+
+  - code: pollution
+    l0_domain: environment
+    label_zh: "污染"
+    keywords_it: [inquinamento, emissioni, smog, qualità dell'aria]
+    keywords_en: [pollution, emissions, smog, air quality]
+
+  - code: extreme-weather
+    l0_domain: environment
+    label_zh: "极端天气"
+    keywords_it: [maltempo, ondata di calore, siccità, alluvione]
+    keywords_en: [extreme weather, heat wave, drought, flood]
+
+  - code: biodiversity
+    l0_domain: environment
+    label_zh: "生物多样性"
+    keywords_it: [biodiversità, fauna, parco naturale, habitat]
+    keywords_en: [biodiversity, wildlife, natural park, habitat]
 
 # country_axes 与 l1_topics 的映射关系
 # enabled: true 时 classify 阶段会激活对应子轴
@@ -122,19 +346,34 @@ l1_topics:
 country_axes:
   politics:
     enabled: true
-    sub_axes: [govt_coalition, eu_policy, regional_elections]
-  economics:
+    sub_axes: [election, coalition, cabinet, parliament, eu-affairs, migration-policy, justice-reform]
+  economy:
     enabled: true
-    sub_axes: [fiscal_policy, labor_market, energy_transition]
+    sub_axes: [fiscal-policy, trade, energy, labor-market, financial-markets, corporate, infrastructure]
   eu_relations:
     enabled: true
-    sub_axes: [eu_policy, eu_migration]
+    sub_axes: [eu-affairs, china-eu, china-eu-policy]
   immigration:
     enabled: true
-    sub_axes: [immigration_policy, eu_migration]
+    sub_axes: [migration-policy, africa-med]
   judicial:
     enabled: true
-    sub_axes: [corruption, organized_crime, judicial_reform]
+    sub_axes: [justice-reform, organized-crime, judicial-case]
   energy:
     enabled: true
-    sub_axes: [energy_transition]
+    sub_axes: [energy, energy-transition]
+  international_relations:
+    enabled: true
+    sub_axes: [us-italy, china-eu, russia-ukraine, nato, sanctions, africa-med]
+  china_italy_relations:
+    enabled: true
+    sub_axes: [china-italy-bilateral, bri-italy, chinese-investment, china-eu-policy, chinese-community]
+  technology:
+    enabled: true
+    sub_axes: [ai, semiconductor, digital-policy, cybersecurity, research, tech-industry]
+  public_safety:
+    enabled: true
+    sub_axes: [organized-crime, terrorism, policing, judicial-case, public-order]
+  environment:
+    enabled: true
+    sub_axes: [climate, energy-transition, pollution, extreme-weather, biodiversity]

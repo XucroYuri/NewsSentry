@@ -86,6 +86,35 @@ assert.equal(eventMatchesChannel(groups[0].events[2], "industry"), true);
 assert.equal(eventMatchesChannel(groups[0].events[3], "industry"), true);
 assert.equal(eventMatchesChannel(groups[0].events[4], "risk"), true);
 assert.equal(eventMatchesChannel(groups[0].events[5], "risk"), true);
+assert.equal(
+  eventMatchesChannel({
+    classification: { l0: "economy", l1: ["trade"] },
+    flat_tags: [],
+    score: 55,
+  }, "industry"),
+  true,
+);
+assert.equal(
+  eventMatchesChannel({
+    classification: { l0: "international-relations", l1: ["sanctions"] },
+    display_title: "EU sanctions debate",
+  }, "risk"),
+  true,
+);
+assert.equal(
+  eventMatchesChannel({
+    classification: { l0: "tech", l1: ["ai"] },
+    display_title: "AI policy for data centers",
+  }, "tech"),
+  true,
+);
+assert.equal(
+  eventMatchesChannel({
+    classification: { l0: "china-related", l1: ["china-italy-bilateral"] },
+    china_relevance: 10,
+  }, "china"),
+  true,
+);
 assert.equal(eventMatchesSearch(groups[0].events[0], "compliance"), true);
 assert.equal(eventMatchesSearch(groups[0].events[1], "reuters"), false);
 assert.equal(eventMatchesSearch({ title: "Fallback Title", source: "Wire" }, "fallback"), true);
