@@ -325,7 +325,7 @@ async function loadData(container) {
       container.querySelector("#btnManualCollect").addEventListener("click", async () => {
         try {
           const tid = state.currentTarget || "italy";
-          const resp = await api(`/api/v1/runs/trigger?target_id=${encodeURIComponent(tid)}&stage=all`, null, "POST");
+          const resp = await apiPost("/api/v1/runs/trigger", { target_id: tid, stage: "all" });
           showSuccess(`采集已触发: ${resp.run_id || "ok"}`);
           setTimeout(() => loadData(container), 3000);
         } catch (err) {

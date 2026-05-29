@@ -1181,6 +1181,39 @@ class TestTrendQueries:
             assert result[i]["count"] >= result[i + 1]["count"]
 
     @pytest.mark.asyncio
+    async def test_trend_queries_include_real_draft_index_stage(self, tmp_path: Path) -> None:
+        """真实运行写入 drafts 索引时，趋势查询仍应产出数据。"""
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        now = datetime.now(UTC).isoformat()
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
+        await store._db.execute(  # noqa: SLF001
+            "INSERT OR REPLACE INTO event_index "
+            "(event_id, target_id, stage, source_id, news_value_score, "
+            "published_at, sentiment, topic_tags, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "draft-trend-1",
+                "italy",
+                "drafts",
+                "ansa",
+                88,
+                f"{today}T10:00:00",
+                "negative",
+                "runtime-health",
+                now,
+            ),
+        )
+        await store._db.commit()  # noqa: SLF001
+
+        topics = await store.get_top_topics("italy", days=7, limit=5)
+        sentiment = await store.get_sentiment_daily_counts("italy", days=7)
+
+        assert topics == [{"topic": "runtime-health", "count": 1}]
+        assert sentiment == [{"day": today, "sentiment": "negative", "count": 1}]
+        await store.close()
+
+    @pytest.mark.asyncio
     async def test_get_sentiment_daily_counts_empty(self, tmp_path: Path) -> None:
         """空数据库返回空列表。"""
         store = AsyncStore(tmp_path / "state.db")
@@ -1330,6 +1363,30 @@ class TestDashboardQueries:
         assert result[0]["news_value_score"] == 95
         assert result[1]["news_value_score"] == 85
         assert result[2]["news_value_score"] == 70
+        await store.close()
+
+    @pytest.mark.asyncio
+    async def test_dashboard_queries_include_real_draft_index_stage(self, tmp_path: Path) -> None:
+        """真实运行写入 drafts 索引时，管理总览统计仍应可用。"""
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        now = datetime.now(UTC).isoformat()
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
+        await store._db.execute(  # noqa: SLF001
+            "INSERT OR REPLACE INTO event_index "
+            "(event_id, target_id, stage, news_value_score, published_at, "
+            "created_at, title_original) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("draft-dashboard-1", "italy", "drafts", 91, f"{today}T10:00:00", now, "Draft Top"),
+        )
+        await store._db.commit()  # noqa: SLF001
+
+        stats = await store.get_today_stats("italy")
+        top_events = await store.get_top_events("italy", days=7, limit=3)
+
+        assert stats["today_count"] == 1
+        assert stats["today_avg_score"] == 91.0
+        assert top_events[0]["event_id"] == "draft-dashboard-1"
         await store.close()
 
 

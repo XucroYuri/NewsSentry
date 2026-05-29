@@ -263,6 +263,19 @@ class TestLocalAuthBypass:
 
         assert resp.status_code == 401
 
+    def test_cloud_env_without_api_key_rejects_dev_token(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """云端环境缺少 API Key 时不能签发本地 dev/admin token。"""
+        _force_deployment_env(monkeypatch, "cloudflare")
+        monkeypatch.delenv("NEWSSENTRY_API_KEY", raising=False)
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app, base_url="https://news.example")
+
+        resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+
+        assert resp.status_code == 503
+
 
 class TestAPIServer:
     """FastAPI 端点集成测试。"""
@@ -300,6 +313,41 @@ class TestAPIServer:
         assert isinstance(data["target_ids"], list)
         assert "stage" in data
         assert isinstance(data["stage"], str)
+
+    def test_collector_status_falls_back_to_run_logs_after_restart(self, tmp_path: Path) -> None:
+        """服务重启后 collector/status 应从真实 run logs 恢复最近运行摘要。"""
+        log_dir = tmp_path / "italy" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        (log_dir / "italy_20260529T010000Z.json").write_text(
+            json.dumps(
+                {
+                    "run_id": "italy_20260529T010000Z",
+                    "target_id": "italy",
+                    "started_at": "2026-05-29T01:00:00+00:00",
+                    "ended_at": "2026-05-29T01:03:00+00:00",
+                    "phases": [],
+                    "summary": {"total_events_collected": 42},
+                    "errors_count": 0,
+                }
+            ),
+            encoding="utf-8",
+        )
+        old = dict(api_server_module._auto_collector_state)
+        try:
+            api_server_module._auto_collector_state["last_run_at"] = None
+            api_server_module._auto_collector_state["last_run_status"] = None
+            api_server_module._auto_collector_state["last_events_collected"] = 0
+            client = self._make_client(tmp_path)
+
+            resp = client.get("/api/v1/collector/status")
+
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["last_run_at"] == "2026-05-29T01:03:00+00:00"
+            assert data["last_run_status"] == "completed"
+            assert data["last_events_collected"] == 42
+        finally:
+            api_server_module._auto_collector_state.update(old)
 
     def test_collector_config_put_persists_runtime_yaml(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -385,6 +433,35 @@ class TestAPIServer:
             assert "message" in check
         source_check = [c for c in data["checks"] if c["name"] == "source_health"][0]
         assert source_check["ok"] is True
+
+    def test_collector_diagnostics_reads_memory_source_health_yaml(self, tmp_path: Path) -> None:
+        """diagnostics 应读取真实采集写入的 memory/source_health.yaml。"""
+        memory_dir = tmp_path / "italy" / "memory"
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        (memory_dir / "source_health.yaml").write_text(
+            yaml.dump(
+                {
+                    "ansa": {
+                        "last_success_at": "2026-05-29T00:42:52+00:00",
+                        "last_failure_at": None,
+                        "consecutive_failures": 0,
+                        "last_error": None,
+                        "total_runs": 12,
+                        "total_failures": 0,
+                    }
+                },
+                allow_unicode=True,
+            ),
+            encoding="utf-8",
+        )
+
+        client = self._make_client(tmp_path)
+        resp = client.get("/api/v1/collector/diagnostics")
+
+        assert resp.status_code == 200
+        source_check = [c for c in resp.json()["checks"] if c["name"] == "source_health"][0]
+        assert source_check["ok"] is True
+        assert "健康: 1" in source_check["message"]
 
     def test_collector_diagnostics_empty_data_dir(self, tmp_path: Path) -> None:
         """空数据目录下 diagnostics 返回 overall=attention_needed。"""
@@ -2766,6 +2843,41 @@ class TestOpsEndpoints:
         assert resp.status_code == 200
         assert [item["source_id"] for item in resp.json()["sources"]] == ["ansa"]
 
+    def test_list_source_health_reads_target_memory_yaml(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """信源健康列表应读取真实采集写入的 target memory/source_health.yaml。"""
+        monkeypatch.chdir(tmp_path)
+        italy_sources = tmp_path / "config" / "sources" / "italy"
+        italy_sources.mkdir(parents=True, exist_ok=True)
+        (italy_sources / "ansa.yaml").write_text("source_id: ansa\n", encoding="utf-8")
+        memory_dir = tmp_path / "italy" / "memory"
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        (memory_dir / "source_health.yaml").write_text(
+            yaml.dump(
+                {
+                    "ansa": {
+                        "last_success_at": "2026-05-29T00:42:52+00:00",
+                        "last_failure_at": None,
+                        "consecutive_failures": 0,
+                        "last_error": None,
+                        "total_runs": 12,
+                        "total_failures": 0,
+                    }
+                },
+                allow_unicode=True,
+            ),
+            encoding="utf-8",
+        )
+        client = self._make_client(tmp_path)
+
+        resp = client.get("/api/v1/sources/health", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        assert resp.json()["sources"][0]["source_id"] == "ansa"
+        assert resp.json()["sources"][0]["status"] == "healthy"
+        assert resp.json()["sources"][0]["error_count"] == 0
+
     def test_trigger_run(self, tmp_path: Path) -> None:
         client = self._make_client(tmp_path)
         resp = client.post("/api/v1/runs/trigger", params={"target_id": "italy", "stage": "all"})
@@ -3140,6 +3252,55 @@ class TestTrendAPI:
         assert data["topics"] == []
         await client.aclose()
 
+    async def test_topic_trends_uses_target_state_db_without_global_store(self, tmp_path):
+        """趋势 API 应优先读取 data/{target}/state.db，而不是只看全局 store。"""
+        target_dir = tmp_path / "italy"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        api_server_module._target_stores.clear()
+        store = AsyncStore(target_dir / "state.db")
+        await store.initialize()
+        try:
+            now = datetime.now(UTC).isoformat()
+            today = datetime.now(UTC).strftime("%Y-%m-%d")
+            await store._db.execute(
+                "INSERT OR REPLACE INTO event_index "
+                "(event_id, target_id, stage, source_id, news_value_score, "
+                "published_at, created_at, sentiment, topic_tags) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "target-topic-1",
+                    "italy",
+                    "drafts",
+                    "ansa",
+                    82,
+                    f"{today}T10:00:00",
+                    now,
+                    "positive",
+                    "target-store-topic",
+                ),
+            )
+            await store._db.commit()
+        finally:
+            await store.close()
+
+        app = create_app(data_dir=str(tmp_path), auto_store=False)
+        from httpx import ASGITransport, AsyncClient
+
+        transport = ASGITransport(app=app)
+        client = AsyncClient(transport=transport, base_url="http://test")
+        token_resp = await client.post("/api/v1/auth/token", json={"api_key": ""})
+        client.headers["Authorization"] = f"Bearer {token_resp.json()['access_token']}"
+
+        resp = await client.get(
+            "/api/v1/trends/topics",
+            params={"target_id": "italy", "days": 7},
+        )
+
+        assert resp.status_code == 200
+        assert [item["topic"] for item in resp.json()["topics"]] == ["target-store-topic"]
+        await client.aclose()
+        api_server_module._target_stores.clear()
+
 
 class TestSmartAlertAPI:
     """Phase 38: 智能告警 API 端点。"""
@@ -3280,6 +3441,42 @@ class TestDashboardAPI:
         assert data["target_id"] == "italy"
         assert len(data["events"]) == 3
         assert data["events"][0]["news_value_score"] == 90
+
+    async def test_today_stats_uses_target_state_db_without_global_store(self, tmp_path):
+        """今日统计 API 应读取真实 target state.db。"""
+        target_dir = tmp_path / "italy"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        api_server_module._target_stores.clear()
+        store = AsyncStore(target_dir / "state.db")
+        await store.initialize()
+        try:
+            now = datetime.now(UTC).isoformat()
+            today = datetime.now(UTC).strftime("%Y-%m-%d")
+            await store._db.execute(
+                "INSERT OR REPLACE INTO event_index "
+                "(event_id, target_id, stage, news_value_score, published_at, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                ("target-stats-1", "italy", "drafts", 87, f"{today}T10:00:00", now),
+            )
+            await store._db.commit()
+        finally:
+            await store.close()
+
+        app = create_app(data_dir=str(tmp_path), auto_store=False)
+        from httpx import ASGITransport, AsyncClient
+
+        transport = ASGITransport(app=app)
+        client = AsyncClient(transport=transport, base_url="http://test")
+        token_resp = await client.post("/api/v1/auth/token", json={"api_key": ""})
+        client.headers["Authorization"] = f"Bearer {token_resp.json()['access_token']}"
+
+        resp = await client.get("/api/v1/stats/today", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        assert resp.json()["today_count"] == 1
+        assert resp.json()["today_max_score"] == 87
+        await client.aclose()
+        api_server_module._target_stores.clear()
 
 
 class TestMaintenanceAPI:

@@ -822,7 +822,7 @@ export async function renderWebhookTab(container) {
     }
     try {
       const payload = JSON.parse(json);
-      const data = await apiPost("/api/v1/webhook", {}, payload);
+      const data = await apiPost("/api/v1/webhook", { target_id: state.currentTarget }, payload);
       if (resultEl) resultEl.innerHTML = '<span style="color:#3fb950;">✓ 发送成功</span>';
       showSuccess("Webhook 发送成功");
     } catch (err) {

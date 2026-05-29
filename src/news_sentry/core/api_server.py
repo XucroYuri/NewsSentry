@@ -934,7 +934,7 @@ def _is_loopback_host(host: str | None) -> bool:
         value = value[1 : value.index("]")]
     elif value.count(":") == 1:
         value = value.split(":", 1)[0]
-    if value == "localhost":
+    if value in {"localhost", "testserver"}:
         return True
     try:
         return ip_address(value).is_loopback
@@ -1071,6 +1071,20 @@ def _load_single_run_log(
             except (json.JSONDecodeError, OSError):
                 return None
     return None
+
+
+def _latest_run_log_summary(data_dir: Path) -> dict[str, Any] | None:
+    """从所有 target 日志中找最近一次真实运行，用于服务重启后的状态恢复。"""
+    if not data_dir.is_dir():
+        return None
+    candidates: list[dict[str, Any]] = []
+    for target_dir in sorted(data_dir.iterdir()):
+        if not target_dir.is_dir():
+            continue
+        candidates.extend(_load_run_logs(data_dir, target_dir.name, 1))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: item.get("ended_at") or item.get("started_at") or "")
 
 
 def _load_heartbeat(
@@ -1918,6 +1932,68 @@ def _filter_source_health_records(
     return filtered
 
 
+def _source_health_status_from_memory(entry: dict[str, Any]) -> str:
+    """把 Memory source_health.yaml 形状归一为 API 状态。"""
+    failures = int(entry.get("consecutive_failures") or 0)
+    total_runs = int(entry.get("total_runs") or 0)
+    total_failures = int(entry.get("total_failures") or 0)
+    if failures >= 10:
+        return "dead"
+    if failures >= 3:
+        return "degraded"
+    if total_runs > 0 and total_failures >= total_runs:
+        return "degraded"
+    return "healthy"
+
+
+def _source_health_error_count_from_memory(entry: dict[str, Any]) -> int:
+    """优先使用连续失败数；没有时退回总失败数。"""
+    return int(entry.get("consecutive_failures") or entry.get("total_failures") or 0)
+
+
+def _load_memory_source_health_records(target_id: str | None = None) -> list[dict[str, Any]]:
+    """读取真实采集写入的 memory/source_health.yaml 并转成 API 响应形状。"""
+    target_ids: list[str]
+    if target_id:
+        target_ids = [target_id]
+    elif _data_dir.exists():
+        target_ids = sorted(d.name for d in _data_dir.iterdir() if d.is_dir())
+    else:
+        target_ids = []
+
+    records: list[dict[str, Any]] = []
+    for tid in target_ids:
+        path = _data_dir / tid / "memory" / "source_health.yaml"
+        if not path.is_file():
+            continue
+        data = _load_yaml_file(path)
+        if not isinstance(data, dict):
+            continue
+        for source_id, entry in data.items():
+            if not isinstance(entry, dict):
+                continue
+            records.append(
+                {
+                    "source_id": str(source_id),
+                    "status": _source_health_status_from_memory(entry),
+                    "last_check": entry.get("last_success_at")
+                    or entry.get("last_failure_at")
+                    or "",
+                    "error_count": _source_health_error_count_from_memory(entry),
+                    "metadata": {
+                        "target_id": tid,
+                        "last_success_at": entry.get("last_success_at"),
+                        "last_failure_at": entry.get("last_failure_at"),
+                        "last_error": entry.get("last_error"),
+                        "total_runs": entry.get("total_runs", 0),
+                        "total_failures": entry.get("total_failures", 0),
+                        "consecutive_failures": entry.get("consecutive_failures", 0),
+                    },
+                }
+            )
+    return records
+
+
 def _load_single_source(target_id: str, source_id: str) -> dict[str, Any] | None:
     """读取单个源渠道配置。"""
     sources_dir = Path(f"config/sources/{target_id}")
@@ -2647,15 +2723,23 @@ def _apply_collector_config(config: dict[str, Any]) -> dict[str, Any]:
 
 def _collector_payload() -> dict[str, Any]:
     """返回统一的采集器状态响应。"""
+    latest_log = _latest_run_log_summary(_data_dir)
+    last_run_at = _auto_collector_state["last_run_at"]
+    last_run_status = _auto_collector_state["last_run_status"]
+    last_events_collected = _auto_collector_state.get("last_events_collected", 0)
+    if latest_log and not last_run_at:
+        last_run_at = latest_log.get("ended_at") or latest_log.get("started_at")
+        last_run_status = latest_log.get("status")
+        last_events_collected = latest_log.get("events_collected", 0)
     return {
         "enabled": _auto_collector_state["enabled"],
         "running": _auto_collector_state["running"],
         "target_ids": _auto_collector_state["target_ids"],
         "stage": _auto_collector_state["stage"],
         "interval_minutes": _auto_collector_state["interval_minutes"],
-        "last_run_at": _auto_collector_state["last_run_at"],
-        "last_run_status": _auto_collector_state["last_run_status"],
-        "last_events_collected": _auto_collector_state.get("last_events_collected", 0),
+        "last_run_at": last_run_at,
+        "last_run_status": last_run_status,
+        "last_events_collected": last_events_collected,
         "last_error": _auto_collector_state.get("last_error"),
         "next_run_at": _auto_collector_state.get("next_run_at"),
         "total_runs": _auto_collector_state["total_runs"],
@@ -2806,6 +2890,25 @@ async def _get_target_store(target_id: str) -> AsyncStore | None:
         return store
 
     return None
+
+
+async def _source_health_records_for_target(target_id: str) -> list[dict[str, Any]]:
+    """按优先级读取 target 信源健康：target SQLite、全局 SQLite、真实 memory YAML。"""
+    records: list[dict[str, Any]] = []
+    target_store = await _get_target_store(target_id)
+    if target_store is not None:
+        records = await target_store.get_all_source_health()
+    if not records and _store is not None:
+        records = await _store.get_all_source_health()
+    if not records:
+        records = _load_memory_source_health_records(target_id)
+    return _filter_source_health_records(target_id, records)
+
+
+async def _store_for_target(target_id: str) -> AsyncStore | None:
+    """优先返回 target state.db；没有时退回全局 store。"""
+    target_store = await _get_target_store(target_id)
+    return target_store if target_store is not None else _store
 
 
 async def _restore_sessions() -> None:
@@ -3030,6 +3133,14 @@ def create_app(
         unhealthy = 0
         if data_exists:
             for tid in target_dirs:
+                memory_health = _load_memory_source_health_records(tid)
+                if memory_health:
+                    for h in memory_health:
+                        if h.get("status") == "healthy":
+                            healthy += 1
+                        else:
+                            unhealthy += 1
+                    continue
                 health_file = _data_dir / tid / "source_health.json"
                 if health_file.exists():
                     try:
@@ -3055,7 +3166,7 @@ def create_app(
         )
 
         # 5. 最近一次采集时间
-        last_run = _auto_collector_state["last_run_at"]
+        last_run = _collector_payload()["last_run_at"]
         checks.append(
             {
                 "name": "last_collection",
@@ -3152,8 +3263,12 @@ def create_app(
                     return _create_token_for_user(u["username"], u.get("role", "reader"), True)
 
         if not valid_keys:
-            # 开发模式：无配置 key 时允许所有请求
-            return _create_token_for_user("dev", "admin", False)
+            if _local_auth_bypass_enabled(request):
+                return _create_token_for_user("dev", "admin", False)
+            raise HTTPException(
+                status_code=503,
+                detail="API key is required outside local mode",
+            )
         if api_key not in valid_keys:
             raise HTTPException(status_code=401, detail="Invalid API key")
         return _create_token_for_user(f"key_{api_key[:8]}", "admin", True)
@@ -3964,9 +4079,8 @@ def create_app(
 
         diagnostics = await collector_diagnostics(user)
         source_health_records: list[dict[str, Any]] = []
-        if _store is not None and selected_target:
-            raw_health = await _store.get_all_source_health()
-            source_health_records = _filter_source_health_records(selected_target, raw_health)
+        if selected_target:
+            source_health_records = await _source_health_records_for_target(selected_target)
 
         feedback: dict[str, Any] = {
             "total": 0,
@@ -4338,9 +4452,10 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> TodayStatsResponse:
         """今日 vs 昨日对比统计。"""
-        if _store is None:
+        store_to_query = await _store_for_target(target_id)
+        if store_to_query is None:
             return TodayStatsResponse(target_id=target_id)
-        stats = await _store.get_today_stats(target_id)
+        stats = await store_to_query.get_today_stats(target_id)
         return TodayStatsResponse(target_id=target_id, **stats)
 
     @app.get("/api/v1/events/top", response_model=TopEventsResponse)
@@ -4352,8 +4467,7 @@ def create_app(
     ) -> TopEventsResponse:
         """近期高价值事件（优先使用 target state.db）。"""
         events: list[dict[str, Any]] = []
-        target_store = await _get_target_store(target_id)
-        store_to_query = target_store if target_store is not None else _store
+        store_to_query = await _store_for_target(target_id)
         if store_to_query is not None:
             events = await store_to_query.get_top_events(target_id, days=days, limit=limit)
         return TopEventsResponse(
@@ -4883,10 +4997,7 @@ def create_app(
         target_id: str = Query(..., description="目标标识"),
         user: dict[str, Any] = Depends(get_current_user),
     ) -> SourceHealthListResponse:
-        if _store is None:
-            return SourceHealthListResponse(sources=[])
-        records = await _store.get_all_source_health()
-        records = _filter_source_health_records(target_id, records)
+        records = await _source_health_records_for_target(target_id)
         return SourceHealthListResponse(sources=[SourceHealthInfo(**r) for r in records])
 
     @app.post("/api/v1/runs/trigger", response_model=TriggerResponse)
@@ -5062,7 +5173,8 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> TopicTrendsResponse:
         """主题热度趋势。"""
-        if _store is None:
+        store_to_query = await _store_for_target(target_id)
+        if store_to_query is None:
             return TopicTrendsResponse(
                 target_id=target_id,
                 days=days,
@@ -5070,8 +5182,8 @@ def create_app(
                 generated_at=datetime.now(UTC).isoformat(),
             )
         try:
-            daily_counts = await _store.get_topic_daily_counts(target_id, days=days)
-            top_topics = await _store.get_top_topics(target_id, days=days, limit=10)
+            daily_counts = await store_to_query.get_topic_daily_counts(target_id, days=days)
+            top_topics = await store_to_query.get_top_topics(target_id, days=days, limit=10)
             from news_sentry.skills.analysis.trend_analyzer import compute_topic_trends
 
             topics = compute_topic_trends(daily_counts, top_topics, total_days=days)
@@ -5091,7 +5203,8 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> SentimentTrendsResponse:
         """情感分布趋势。"""
-        if _store is None:
+        store_to_query = await _store_for_target(target_id)
+        if store_to_query is None:
             return SentimentTrendsResponse(
                 target_id=target_id,
                 days=days,
@@ -5099,7 +5212,7 @@ def create_app(
                 generated_at=datetime.now(UTC).isoformat(),
             )
         try:
-            raw = await _store.get_sentiment_daily_counts(target_id, days=days)
+            raw = await store_to_query.get_sentiment_daily_counts(target_id, days=days)
             # 转换为按天聚合
             day_map: dict[str, DailySentimentCount] = {}
             for entry in raw:
@@ -5130,13 +5243,14 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> SmartAlertsResponse:
         """获取智能告警列表。"""
-        if _store is None:
+        store_to_query = await _store_for_target(target_id)
+        if store_to_query is None:
             return SmartAlertsResponse(target_id=target_id, alerts=[], total=0)
         try:
             from news_sentry.core.alert_pipeline import AlertPipeline
 
             pipeline = AlertPipeline([])
-            alerts = await pipeline.check_smart_alerts(_store, target_id)
+            alerts = await pipeline.check_smart_alerts(store_to_query, target_id)
             return SmartAlertsResponse(
                 target_id=target_id,
                 alerts=[SmartAlertItem(**a) for a in alerts],

@@ -32,6 +32,8 @@ if not _os.environ.get("PYTEST_CURRENT_TEST"):
 
 logger = logging.getLogger(__name__)
 
+_ANALYSIS_STAGES = ("judged", "drafts", "outputted")
+
 _PRAGMA_SETUP = (
     "PRAGMA journal_mode=WAL",
     "PRAGMA synchronous=NORMAL",
@@ -1286,11 +1288,11 @@ class AsyncStore:
         async with self._db.execute(
             "SELECT date(published_at) AS day, sentiment, COUNT(*) AS cnt "
             "FROM event_index "
-            "WHERE target_id = ? AND stage = 'judged' "
+            "WHERE target_id = ? AND stage IN (?, ?, ?) "
             "AND published_at >= date('now', ? || ' days') "
             "AND sentiment IS NOT NULL "
             "GROUP BY day, sentiment ORDER BY day",
-            [target_id, f"-{days}"],
+            [target_id, *_ANALYSIS_STAGES, f"-{days}"],
         ) as cursor:
             rows = await cursor.fetchall()
         return [{"day": r[0], "sentiment": r[1], "count": r[2]} for r in rows]
@@ -1302,10 +1304,10 @@ class AsyncStore:
         async with self._db.execute(
             "SELECT date(published_at) AS day, topic_tags "
             "FROM event_index "
-            "WHERE target_id = ? AND stage = 'judged' "
+            "WHERE target_id = ? AND stage IN (?, ?, ?) "
             "AND published_at >= date('now', ? || ' days') "
             "AND topic_tags IS NOT NULL AND topic_tags != ''",
-            [target_id, f"-{days}"],
+            [target_id, *_ANALYSIS_STAGES, f"-{days}"],
         ) as cursor:
             rows = await cursor.fetchall()
         # Python 层拆分 topic_tags 并按 (topic, day) 聚合
@@ -1329,10 +1331,10 @@ class AsyncStore:
             return []
         async with self._db.execute(
             "SELECT topic_tags FROM event_index "
-            "WHERE target_id = ? AND stage = 'judged' "
+            "WHERE target_id = ? AND stage IN (?, ?, ?) "
             "AND published_at >= date('now', ? || ' days') "
             "AND topic_tags IS NOT NULL AND topic_tags != ''",
-            [target_id, f"-{days}"],
+            [target_id, *_ANALYSIS_STAGES, f"-{days}"],
         ) as cursor:
             rows = await cursor.fetchall()
         topic_counts: dict[str, int] = {}
@@ -1383,11 +1385,11 @@ class AsyncStore:
         async with self._db.execute(
             "SELECT date(published_at) AS day, COUNT(*) AS cnt "
             "FROM event_index "
-            "WHERE target_id = ? AND stage = 'judged' "
+            "WHERE target_id = ? AND stage IN (?, ?, ?) "
             "AND published_at >= date('now', ? || ' days') "
             "AND ',' || entity_names || ',' LIKE ? "
             "GROUP BY day ORDER BY day",
-            [target_id, f"-{days}", pattern],
+            [target_id, *_ANALYSIS_STAGES, f"-{days}", pattern],
         ) as cursor:
             rows = await cursor.fetchall()
         return [{"day": r[0], "count": r[1]} for r in rows]
@@ -1411,9 +1413,9 @@ class AsyncStore:
         # 今日统计
         async with self._db.execute(
             "SELECT COUNT(*), AVG(news_value_score), MAX(news_value_score) "
-            "FROM event_index WHERE target_id = ? AND stage = 'judged' "
+            "FROM event_index WHERE target_id = ? AND stage IN (?, ?, ?) "
             "AND date(published_at) = date('now')",
-            [target_id],
+            [target_id, *_ANALYSIS_STAGES],
         ) as cursor:
             row = await cursor.fetchone()
         today_count = row[0] if row else 0
@@ -1423,9 +1425,9 @@ class AsyncStore:
         # 昨日统计
         async with self._db.execute(
             "SELECT COUNT(*), AVG(news_value_score) "
-            "FROM event_index WHERE target_id = ? AND stage = 'judged' "
+            "FROM event_index WHERE target_id = ? AND stage IN (?, ?, ?) "
             "AND date(published_at) = date('now', '-1 day')",
-            [target_id],
+            [target_id, *_ANALYSIS_STAGES],
         ) as cursor:
             row = await cursor.fetchone()
         yesterday_count = row[0] if row else 0
@@ -1448,10 +1450,10 @@ class AsyncStore:
         async with self._db.execute(
             "SELECT event_id, title_original, news_value_score, source_id, published_at "
             "FROM event_index "
-            "WHERE target_id = ? AND stage = 'judged' "
+            "WHERE target_id = ? AND stage IN (?, ?, ?) "
             "AND published_at >= date('now', ? || ' days') "
             "ORDER BY news_value_score DESC LIMIT ?",
-            [target_id, f"-{days}", limit],
+            [target_id, *_ANALYSIS_STAGES, f"-{days}", limit],
         ) as cursor:
             rows = await cursor.fetchall()
         cols = ("event_id", "title_original", "news_value_score", "source_id", "published_at")

@@ -130,7 +130,7 @@ export async function renderRuleOptimizeTab(container) {
     btnDryRun.disabled = true;
     btnDryRun.textContent = "预览中...";
     try {
-      const result = await apiPost("/api/v1/rules/optimize", {
+      const result = await apiPost("/api/v1/rules/optimize", {}, {
         target_id: state.currentTarget,
         dry_run: true,
       });
@@ -170,7 +170,7 @@ export async function renderRuleOptimizeTab(container) {
     btnApply.disabled = true;
     btnApply.textContent = "应用中...";
     try {
-      const result = await apiPost("/api/v1/rules/optimize", {
+      const result = await apiPost("/api/v1/rules/optimize", {}, {
         target_id: state.currentTarget,
         dry_run: false,
       });

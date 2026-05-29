@@ -3,7 +3,7 @@
  */
 "use strict";
 
-import { api, apiPost, apiPut, escapeHtml, showError, showSuccess, hasPermission, formatDate, isLocalApp } from "../api.js?v=20260527c";
+import { api, apiDelete, apiPost, apiPut, escapeHtml, showError, showSuccess, hasPermission, formatDate, isLocalApp } from "../api.js?v=20260527c";
 
 export async function renderPasswordTab(container) {
   if (isLocalApp()) {
@@ -363,7 +363,7 @@ export async function renderUserMgmtTab(container) {
       const username = btn.dataset.deleteUser;
       if (!confirm(`确定要删除用户 ${username} 吗？`)) return;
       try {
-        await api(`/api/v1/admin/users/${encodeURIComponent(username)}`, null, "DELETE");
+        await apiDelete(`/api/v1/admin/users/${encodeURIComponent(username)}`);
         showSuccess(`用户 ${username} 已删除`);
         renderUserMgmtTab(container);
       } catch (err) {
@@ -481,9 +481,12 @@ async function loadBackups() {
         <td style="font-family:var(--font-mono);font-size:0.8rem;">${escapeHtml(b.filename)}</td>
         <td>${(b.size_bytes / 1024).toFixed(1)} KB</td>
         <td>${new Date(b.created_at * 1000).toLocaleString()}</td>
-        <td><button onclick="doRestore('${b.filename}')" style="padding:2px 8px;border-radius:4px;background:var(--accent-orange);color:#fff;border:none;cursor:pointer;font-size:0.8rem;">恢复</button></td>
+        <td><button type="button" data-restore-backup="${escapeHtml(b.filename)}" style="padding:2px 8px;border-radius:4px;background:var(--accent-orange);color:#fff;border:none;cursor:pointer;font-size:0.8rem;">恢复</button></td>
       </tr>
     `).join("");
+    tbody.querySelectorAll("[data-restore-backup]").forEach((btn) => {
+      btn.addEventListener("click", () => doRestore(btn.dataset.restoreBackup));
+    });
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="4" style="color:var(--accent-red);">加载失败: ${e.message}</td></tr>`;
   }

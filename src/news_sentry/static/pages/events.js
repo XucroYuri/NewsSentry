@@ -286,9 +286,13 @@ export async function renderEventsTab(container) {
   document.getElementById("importBtn")?.addEventListener("click", () => {
     showImportModal(async (events) => {
       try {
-        await apiPost("/api/v1/events/import", { target_id: state.currentTarget }, { events });
-        showSuccess(`成功导入 ${events.length} 条事件`);
-        logAction("events.import", state.currentTarget, `imported ${events.length}`);
+        const eventList = Array.isArray(events) ? events : events?.events;
+        if (!Array.isArray(eventList)) {
+          throw new Error("导入内容必须是事件数组");
+        }
+        await apiPost("/api/v1/events/import", {}, eventList);
+        showSuccess(`成功导入 ${eventList.length} 条事件`);
+        logAction("events.import", state.currentTarget, `imported ${eventList.length}`);
         renderEventsTab(container);
       } catch (err) {
         showError("导入失败: " + err.message);
@@ -650,7 +654,7 @@ export async function renderEventDetail(container, eventId, options = {}) {
       const submitFeedback = async (verdictType) => {
         const statusEl = document.getElementById("feedbackStatus");
         try {
-          await apiPost("/api/v1/feedback", {
+          await apiPost("/api/v1/feedback", {}, {
             target_id: targetId,
             event_id: eventId,
             verdict_type: verdictType,
@@ -668,7 +672,7 @@ export async function renderEventDetail(container, eventId, options = {}) {
         if (!comment) return;
         const statusEl = document.getElementById("feedbackStatus");
         try {
-          await apiPost("/api/v1/feedback", {
+          await apiPost("/api/v1/feedback", {}, {
             target_id: targetId,
             event_id: eventId,
             verdict_type: "comment",

@@ -412,7 +412,7 @@ async function _fetchWithTimeout(url, options = {}, timeoutMs = 5000, retries = 
 export async function api(path, params = {}) {
   return _enqueue(async () => {
     const url = new URL(path, _baseUrl());
-    Object.entries(params).forEach(([k, v]) => {
+    Object.entries(params || {}).forEach(([k, v]) => {
       if (v !== "" && v !== undefined && v !== null) {
         url.searchParams.set(k, v);
       }
@@ -441,7 +441,7 @@ export async function api(path, params = {}) {
 export async function apiPost(path, params = {}, body = null) {
   return _enqueue(async () => {
     const url = new URL(path, _baseUrl());
-    Object.entries(params).forEach(([k, v]) => {
+    Object.entries(params || {}).forEach(([k, v]) => {
       if (v !== "" && v !== undefined && v !== null) {
         url.searchParams.set(k, v);
       }
@@ -455,6 +455,35 @@ export async function apiPost(path, params = {}, body = null) {
       options.body = JSON.stringify(body);
     }
     const resp = await _fetchWithTimeout(url.toString(), options);
+    if (resp.status === 401) {
+      await _handle401();
+    }
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      throw new Error(`API ${resp.status}: ${text || resp.statusText}`);
+    }
+    return resp.json();
+  });
+}
+
+/**
+ * DELETE 请求 — params 放 URL query。
+ * @param {string} path - API 路径
+ * @param {object} [params] - URL 查询参数
+ * @returns {Promise<any>}
+ */
+export async function apiDelete(path, params = {}) {
+  return _enqueue(async () => {
+    const url = new URL(path, _baseUrl());
+    Object.entries(params || {}).forEach(([k, v]) => {
+      if (v !== "" && v !== undefined && v !== null) {
+        url.searchParams.set(k, v);
+      }
+    });
+    const resp = await _fetchWithTimeout(url.toString(), {
+      method: "DELETE",
+      headers: _authHeaders(),
+    });
     if (resp.status === 401) {
       await _handle401();
     }
