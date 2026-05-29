@@ -13,6 +13,7 @@ from news_sentry.core.async_run import (
     _run_output_async,
     bounded_run_async,
 )
+from news_sentry.models.newsevent import PipelineStage
 
 
 class TestRunCollectAsync:
@@ -435,6 +436,52 @@ class TestBoundedRunAsync:
         with pytest.raises(ValueError, match="不支持的阶段"):
             await bounded_run_async(target_id="test", stage="invalid")
 
+    @pytest.mark.asyncio
+    async def test_all_stage_does_not_reprocess_historical_events(self, tmp_path, monkeypatch):
+        """异步 all-run 第二次没有新采集时，不应重复过滤、研判、输出历史事件。"""
+        from tests.unit.test_run import _setup_minimal_project
+
+        from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+
+        _setup_minimal_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        calls = {"count": 0}
+        now = datetime.now(UTC).isoformat()
+
+        async def collect_once(_collector, run_id: str, http_client=None):
+            calls["count"] += 1
+            if calls["count"] > 1:
+                return []
+            return [
+                NewsEvent(
+                    id="evt-async-delta-001",
+                    run_id=run_id,
+                    source_id="test-source",
+                    url="https://example.com/evt-async-delta-001",
+                    title_original="Italy China trade economy update",
+                    content_original="Trade agreement with China affects the economy.",
+                    language=Language.IT,
+                    published_at=now,
+                    collected_at=now,
+                    pipeline_stage=PipelineStage.COLLECTED,
+                )
+            ]
+
+        monkeypatch.setattr("news_sentry.core.async_run.RSSCollector.collect_async", collect_once)
+
+        first = await bounded_run_async("test-target", "all", config_dir=str(tmp_path))
+        second = await bounded_run_async("test-target", "all", config_dir=str(tmp_path))
+
+        assert first.events_collected == 1
+        assert first.events_filtered == 1
+        assert first.events_judged == 1
+        assert first.events_output == 1
+        assert second.events_collected == 0
+        assert second.events_filtered == 0
+        assert second.events_judged == 0
+        assert second.events_output == 0
+
 
 class TestAsyncStoreIntegration:
     """验证 AsyncStore 在 async_run pipeline 中替代 Memory。"""
@@ -489,7 +536,7 @@ class TestAsyncStoreIntegration:
             language=Language.IT,
             published_at="2026-05-28T00:18:47+00:00",
             collected_at="2026-05-28T00:20:00+00:00",
-            pipeline_stage=PipelineStage.FILTERED,
+            pipeline_stage=PipelineStage.JUDGED,
             news_value_score=100,
             metadata={"classification": {"l0": "international"}},
         )
@@ -763,7 +810,7 @@ class TestRunJudgeAsync:
         memory = MagicMock()
         ctx = MagicMock()
 
-        with patch("news_sentry.core.async_run._load_events_from_dir", return_value=[]):
+        with patch("news_sentry.core.async_run._load_pending_judge_events", return_value=[]):
             await _run_judge_async(config, "test-run", run_log, file_writer, memory, ctx)
 
         run_log.log_phase_start.assert_called_once_with("judge")
@@ -783,7 +830,7 @@ class TestRunJudgeAsync:
         ctx = MagicMock()
 
         mock_event = MagicMock()
-        mock_event.pipeline_stage = None
+        mock_event.pipeline_stage = PipelineStage.FILTERED
 
         mock_router = MagicMock()
         mock_router.route_async = AsyncMock()
@@ -793,7 +840,7 @@ class TestRunJudgeAsync:
 
         with (
             patch(
-                "news_sentry.core.async_run._load_events_from_dir",
+                "news_sentry.core.async_run._load_pending_judge_events",
                 return_value=[mock_event],
             ),
             patch(
@@ -835,10 +882,11 @@ class TestRunJudgeAsync:
         ctx = MagicMock()
 
         mock_event = MagicMock()
+        mock_event.pipeline_stage = PipelineStage.FILTERED
 
         with (
             patch(
-                "news_sentry.core.async_run._load_events_from_dir",
+                "news_sentry.core.async_run._load_pending_judge_events",
                 return_value=[mock_event],
             ),
             patch(
@@ -853,9 +901,6 @@ class TestRunJudgeAsync:
         ):
             await _run_judge_async(config, "test-run", run_log, file_writer, memory, ctx)
 
-        # 事件应被写回 evaluated 目录
-        file_writer.write_event.assert_called_with(mock_event)
-        # 应调用同步 _run_judge
         mock_to_thread.assert_called_once()
 
     @pytest.mark.asyncio
@@ -872,7 +917,7 @@ class TestRunJudgeAsync:
         ctx = MagicMock()
 
         mock_event = MagicMock()
-        mock_event.pipeline_stage = None
+        mock_event.pipeline_stage = PipelineStage.FILTERED
 
         mock_router = MagicMock()
         mock_router.route_async = AsyncMock()
@@ -886,7 +931,7 @@ class TestRunJudgeAsync:
 
         with (
             patch(
-                "news_sentry.core.async_run._load_events_from_dir",
+                "news_sentry.core.async_run._load_pending_judge_events",
                 return_value=[mock_event],
             ),
             patch(
@@ -936,7 +981,7 @@ class TestRunJudgeAsync:
         mock_judge_result = MagicMock()
         mock_judge_result.nlp_analysis = mock_nlp_result
         mock_event = MagicMock()
-        mock_event.pipeline_stage = None
+        mock_event.pipeline_stage = PipelineStage.FILTERED
         mock_event.judge_result = mock_judge_result
 
         mock_store = AsyncMock()
@@ -955,7 +1000,7 @@ class TestRunJudgeAsync:
 
         with (
             patch(
-                "news_sentry.core.async_run._load_events_from_dir",
+                "news_sentry.core.async_run._load_pending_judge_events",
                 return_value=[mock_event],
             ),
             patch(
@@ -998,7 +1043,7 @@ class TestRunJudgeAsync:
         ctx = MagicMock()
 
         mock_event = MagicMock()
-        mock_event.pipeline_stage = None
+        mock_event.pipeline_stage = PipelineStage.FILTERED
 
         mock_store = AsyncMock()
         mock_router = MagicMock()
@@ -1014,7 +1059,7 @@ class TestRunJudgeAsync:
 
         with (
             patch(
-                "news_sentry.core.async_run._load_events_from_dir",
+                "news_sentry.core.async_run._load_pending_judge_events",
                 return_value=[mock_event],
             ),
             patch(
@@ -1058,7 +1103,7 @@ class TestRunJudgeAsync:
         ctx = MagicMock()
 
         mock_event = MagicMock()
-        mock_event.pipeline_stage = None
+        mock_event.pipeline_stage = PipelineStage.FILTERED
 
         mock_store = AsyncMock()
         mock_store.upsert_entity = AsyncMock(side_effect=RuntimeError("db error"))
@@ -1084,7 +1129,7 @@ class TestRunJudgeAsync:
 
         with (
             patch(
-                "news_sentry.core.async_run._load_events_from_dir",
+                "news_sentry.core.async_run._load_pending_judge_events",
                 return_value=[mock_event],
             ),
             patch(

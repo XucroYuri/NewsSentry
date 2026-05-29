@@ -245,7 +245,7 @@ def _run_collect(
     sandbox: SandboxEnforcer,
     memory: Memory,
     ctx: PipelineContext,
-) -> None:
+) -> list[NewsEvent]:
     """执行采集阶段 — 从各 RSS 源抓取新闻事件。"""
     run_log.log_phase_start("collect")
     t0 = datetime.now(UTC)
@@ -318,6 +318,7 @@ def _run_collect(
     ctx.events_collected = len(all_events)
     duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
     run_log.log_phase_end("collect", len(all_events), duration_ms)
+    return all_events
 
 
 def _run_filter(
@@ -327,14 +328,16 @@ def _run_filter(
     file_writer: FileWriter,
     memory: Memory,
     ctx: PipelineContext,
-) -> None:
+    input_events: list[NewsEvent] | None = None,
+) -> list[NewsEvent]:
     """执行过滤阶段 — 关键词过滤 + L0-L2 分类。"""
-    # 从 raw/ 目录读取已采集事件
-    events = _load_events_from_dir(file_writer.base_dir / "raw")
+    # all-run 直接传递本次采集事件；单独运行 filter 时只读取尚未进入
+    # evaluated/archive 的 collected 事件，避免历史 raw 被反复过滤。
+    events = input_events if input_events is not None else _load_pending_filter_events(file_writer)
     if not events:
         run_log.log_phase_start("filter")
         run_log.log_phase_end("filter", 0, 0)
-        return
+        return []
 
     run_log.log_phase_start("filter")
     t0 = datetime.now(UTC)
@@ -363,6 +366,7 @@ def _run_filter(
     ctx.events_filtered = len(filtered)
     duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
     run_log.log_phase_end("filter", len(filtered), duration_ms)
+    return filtered
 
 
 def _run_output(
@@ -371,13 +375,17 @@ def _run_output(
     run_log: RunLog,
     file_writer: FileWriter,
     ctx: PipelineContext,
-) -> None:
+    input_events: list[NewsEvent] | None = None,
+) -> list[NewsEvent]:
     """执行输出阶段 — 将 judged 事件写入 Markdown。"""
-    events = _load_events_from_dir(file_writer.base_dir / "evaluated")
+    # all-run 只输出本次 judge 的事件；单独运行 output 时只补写尚未
+    # 出现在 drafts 的 judged 事件，避免历史 evaluated 被反复输出。
+    events = input_events if input_events is not None else _load_pending_output_events(file_writer)
+    events = [event for event in events if event.pipeline_stage == PipelineStage.JUDGED]
     if not events:
         run_log.log_phase_start("output")
         run_log.log_phase_end("output", 0, 0)
-        return
+        return []
 
     run_log.log_phase_start("output")
     t0 = datetime.now(UTC)
@@ -386,22 +394,24 @@ def _run_output(
     output_config["target_id"] = config.target_id
     output_config["output_base_dir"] = str(config.output_root)
     writer = MarkdownWriter(output_config)
-    count = 0
+    outputted: list[NewsEvent] = []
     for event in events:
         try:
-            writer.write(event)
-            count += 1
+            output_path = writer.write(event)
+            event.metadata["_file_path"] = str(output_path)
+            outputted.append(event)
             run_log.log_event("output", event.id, "outputted")
         except Exception as e:
             run_log.log_error("output", str(e), event_id=event.id)
 
+    count = len(outputted)
     ctx.events_output = count
 
     # Phase 17: 告警管道 — 对满足条件的 judged 事件推送告警
     dests_list = dict(config.output_destinations).get("destinations", [])
     if dests_list:
         alert_pipeline = AlertPipeline(destinations=dests_list)
-        alert_stats = alert_pipeline.process(events, run_id)
+        alert_stats = alert_pipeline.process(outputted, run_id)
         if alert_stats["alerts_sent"] > 0 or alert_stats["alerts_failed"] > 0:
             logger.info(
                 "告警统计: sent=%d deduped=%d failed=%d",
@@ -412,6 +422,7 @@ def _run_output(
 
     duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
     run_log.log_phase_end("output", count, duration_ms)
+    return outputted
 
 
 def _run_judge(
@@ -421,17 +432,21 @@ def _run_judge(
     file_writer: FileWriter,
     memory: Memory,
     ctx: PipelineContext,
-) -> None:
+    input_events: list[NewsEvent] | None = None,
+) -> list[NewsEvent]:
     """执行研判阶段 — Phase 14 置信度路由混合模式。
 
     工作流：规则引擎先跑全部 → 低置信度升级到 AI → 写入事件。
     AI 不可用时全部走规则引擎（向后兼容）。
     """
-    events = _load_events_from_dir(file_writer.base_dir / "evaluated")
+    # all-run 只研判本次 filter 的事件；单独运行 judge 时只读取尚未
+    # 产生 judged/draft 状态的 filtered 事件。
+    events = input_events if input_events is not None else _load_pending_judge_events(file_writer)
+    events = [event for event in events if event.pipeline_stage == PipelineStage.FILTERED]
     if not events:
         run_log.log_phase_start("judge")
         run_log.log_phase_end("judge", 0, 0)
-        return
+        return []
 
     run_log.log_phase_start("judge")
     t0 = datetime.now(UTC)
@@ -477,6 +492,7 @@ def _run_judge(
     ctx.events_judged = len(events)
     duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
     run_log.log_phase_end("judge", len(events), duration_ms)
+    return judged
 
 
 def _run_all(
@@ -489,10 +505,76 @@ def _run_all(
     ctx: PipelineContext,
 ) -> None:
     """执行完整 pipeline: collect → filter → judge → output。"""
-    _run_collect(config, run_id, run_log, file_writer, sandbox, memory, ctx)
-    _run_filter(config, run_id, run_log, file_writer, memory, ctx)
-    _run_judge(config, run_id, run_log, file_writer, memory, ctx)
-    _run_output(config, run_id, run_log, file_writer, ctx)
+    collected = _run_collect(config, run_id, run_log, file_writer, sandbox, memory, ctx)
+    filtered = _run_filter(
+        config,
+        run_id,
+        run_log,
+        file_writer,
+        memory,
+        ctx,
+        input_events=collected,
+    )
+    judged = _run_judge(
+        config,
+        run_id,
+        run_log,
+        file_writer,
+        memory,
+        ctx,
+        input_events=filtered,
+    )
+    _run_output(config, run_id, run_log, file_writer, ctx, input_events=judged)
+
+
+def _load_events_for_stage(directory: Path, stage: PipelineStage) -> list[NewsEvent]:
+    """读取目录中 frontmatter pipeline_stage 匹配的事件。"""
+    return [event for event in _load_events_from_dir(directory) if event.pipeline_stage == stage]
+
+
+def _event_ids_in_dir(directory: Path, stage: PipelineStage | None = None) -> set[str]:
+    """读取目录中的事件 id；传入 stage 时只统计对应 pipeline_stage。"""
+    events = _load_events_from_dir(directory)
+    if stage is not None:
+        events = [event for event in events if event.pipeline_stage == stage]
+    return {event.id for event in events if event.id}
+
+
+def _load_pending_filter_events(file_writer: FileWriter) -> list[NewsEvent]:
+    """读取尚未进入 evaluated/archive 的 collected 事件。"""
+    base_dir = file_writer.base_dir
+    processed_ids = _event_ids_in_dir(base_dir / "evaluated") | _event_ids_in_dir(
+        base_dir / "archive"
+    )
+    return [
+        event
+        for event in _load_events_for_stage(base_dir / "raw", PipelineStage.COLLECTED)
+        if event.id not in processed_ids
+    ]
+
+
+def _load_pending_judge_events(file_writer: FileWriter) -> list[NewsEvent]:
+    """读取尚未产生 judged 文件或 draft 输出的 filtered 事件。"""
+    base_dir = file_writer.base_dir
+    judged_ids = _event_ids_in_dir(base_dir / "evaluated", PipelineStage.JUDGED)
+    drafted_ids = _event_ids_in_dir(base_dir / "drafts")
+    processed_ids = judged_ids | drafted_ids
+    return [
+        event
+        for event in _load_events_for_stage(base_dir / "evaluated", PipelineStage.FILTERED)
+        if event.id not in processed_ids
+    ]
+
+
+def _load_pending_output_events(file_writer: FileWriter) -> list[NewsEvent]:
+    """读取尚未写入 drafts 的 judged 事件。"""
+    base_dir = file_writer.base_dir
+    drafted_ids = _event_ids_in_dir(base_dir / "drafts")
+    return [
+        event
+        for event in _load_events_for_stage(base_dir / "evaluated", PipelineStage.JUDGED)
+        if event.id not in drafted_ids
+    ]
 
 
 # ── 辅助函数 ───────────────────────────────────────────────────

@@ -474,6 +474,53 @@ Testing outputted alias.
         ctx = bounded_run("test-target", "all", config_dir=str(tmp_path))
         assert ctx is not None
 
+    def test_all_stage_does_not_reprocess_historical_events(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ):
+        """第二次 all-run 没有新采集时，不应重复过滤、研判、输出历史事件。"""
+        from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+
+        _setup_minimal_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        calls = {"count": 0}
+        now = datetime.now(UTC).isoformat()
+
+        def collect_once(_collector, run_id: str):
+            calls["count"] += 1
+            if calls["count"] > 1:
+                return []
+            return [
+                NewsEvent(
+                    id="evt-delta-001",
+                    run_id=run_id,
+                    source_id="test-source",
+                    url="https://example.com/evt-delta-001",
+                    title_original="Italy China trade economy update",
+                    content_original="Trade agreement with China affects the economy.",
+                    language=Language.IT,
+                    published_at=now,
+                    collected_at=now,
+                    pipeline_stage=PipelineStage.COLLECTED,
+                )
+            ]
+
+        monkeypatch.setattr("news_sentry.core.run.RSSCollector.collect", collect_once)
+
+        first = bounded_run("test-target", "all", config_dir=str(tmp_path))
+        second = bounded_run("test-target", "all", config_dir=str(tmp_path))
+
+        assert first.events_collected == 1
+        assert first.events_filtered == 1
+        assert first.events_judged == 1
+        assert first.events_output == 1
+        assert second.events_collected == 0
+        assert second.events_filtered == 0
+        assert second.events_judged == 0
+        assert second.events_output == 0
+
 
 def _make_event_markdown(
     event_id: str,
