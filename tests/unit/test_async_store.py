@@ -1575,11 +1575,7 @@ class TestFeedbackAndAlertHistory:
 
 
 @pytest.mark.asyncio
-async def test_canonical_shadow_tables_created(tmp_path):
-    db_path = tmp_path / "store.sqlite3"
-    store = AsyncStore(db_path)
-    await store.initialize()
-
+async def test_canonical_shadow_tables_created(store: AsyncStore):
     async with store._connect() as conn:
         rows = await conn.execute_fetchall("SELECT name FROM sqlite_master WHERE type = 'table'")
 
@@ -1596,11 +1592,7 @@ async def test_canonical_shadow_tables_created(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_upsert_canonical_event_is_idempotent(tmp_path):
-    db_path = tmp_path / "store.sqlite3"
-    store = AsyncStore(db_path)
-    await store.initialize()
-
+async def test_upsert_canonical_event_is_idempotent(store: AsyncStore):
     payload = {
         "canonical_event_id": "ce_italy_001",
         "target_id": "italy",
@@ -1622,11 +1614,7 @@ async def test_upsert_canonical_event_is_idempotent(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_upsert_event_mention_is_idempotent(tmp_path):
-    db_path = tmp_path / "store.sqlite3"
-    store = AsyncStore(db_path)
-    await store.initialize()
-
+async def test_upsert_event_mention_is_idempotent(store: AsyncStore):
     await store.upsert_canonical_event(
         {
             "canonical_event_id": "ce_italy_001",
@@ -1661,11 +1649,7 @@ async def test_upsert_event_mention_is_idempotent(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_upsert_canonical_relation_is_idempotent(tmp_path):
-    db_path = tmp_path / "store.sqlite3"
-    store = AsyncStore(db_path)
-    await store.initialize()
-
+async def test_upsert_canonical_relation_is_idempotent(store: AsyncStore):
     for canonical_event_id in ("ce_source", "ce_target"):
         await store.upsert_canonical_event(
             {
