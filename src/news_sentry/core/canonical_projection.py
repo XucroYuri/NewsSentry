@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from news_sentry.core.async_store import AsyncStore
-from news_sentry.skills.filter.classification_taxonomy import canonical_l0
+from news_sentry.skills.filter.classification_taxonomy import CANONICAL_L0, canonical_l0
 
 
 @dataclass(frozen=True)
@@ -194,6 +194,8 @@ class CanonicalProjectionService:
         if not raw:
             return None
         canonical = canonical_l0(raw)
+        if canonical not in CANONICAL_L0:
+            canonical = "uncategorized"
         if raw != canonical:
             diagnostics.legacy_taxonomy[raw] = canonical
         assignment_key = f"{canonical_event_id}:l0:{canonical}".encode()
@@ -211,6 +213,6 @@ class CanonicalProjectionService:
         }
 
     def _run_id(self, options: ProjectionOptions) -> str:
-        timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+        timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S%f")
         mode = "apply" if options.apply else "dryrun"
         return f"projection_{options.target_id}_{mode}_{timestamp}"

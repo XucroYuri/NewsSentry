@@ -75,6 +75,7 @@ async def test_projection_normalizes_legacy_taxonomy_labels(store: AsyncStore):
     await _insert_event_index_row(store, event_id="it_003", l0_category="security")
     await _insert_event_index_row(store, event_id="it_004", l0_category="technology")
     await _insert_event_index_row(store, event_id="it_005", l0_category="environment_energy")
+    await _insert_event_index_row(store, event_id="it_006", l0_category="alien_taxonomy")
 
     diagnostics = await CanonicalProjectionService(store).project(
         ProjectionOptions(target_id="italy", apply=False)
@@ -86,6 +87,7 @@ async def test_projection_normalizes_legacy_taxonomy_labels(store: AsyncStore):
         "environment_energy": "environment",
         "security": "public-safety",
         "technology": "tech",
+        "alien_taxonomy": "uncategorized",
     }
     assert diagnostics.taxonomy_distribution == {
         "economy": 1,
@@ -93,6 +95,7 @@ async def test_projection_normalizes_legacy_taxonomy_labels(store: AsyncStore):
         "public-safety": 1,
         "society": 1,
         "tech": 1,
+        "uncategorized": 1,
     }
 
 
@@ -150,25 +153,67 @@ async def test_projection_title_fallback_uses_full_published_at(store: AsyncStor
 
 
 @pytest.mark.asyncio
-async def test_projection_apply_rolls_back_partial_writes_on_failure(
+async def test_apply_canonical_projection_rolls_back_partial_writes_on_failure(
     store: AsyncStore,
-    monkeypatch: pytest.MonkeyPatch,
 ):
-    await _insert_event_index_row(store, event_id="it_001")
-    service = CanonicalProjectionService(store)
-
-    def bad_taxonomy_row(*_args):
-        return {
-            "subject_type": "canonical_event",
-            "subject_id": "broken",
-            "target_id": "italy",
-            "taxonomy_level": "l0",
-            "taxonomy_value": "economy",
-        }
-
-    monkeypatch.setattr(service, "_taxonomy_row", bad_taxonomy_row)
-
     with pytest.raises(KeyError):
-        await service.project(ProjectionOptions(target_id="italy", apply=True))
+        await store.apply_canonical_projection(
+            candidates=[
+                {
+                    "canonical_event_id": "ce_italy_rollback",
+                    "target_id": "italy",
+                    "title": "Rollback candidate",
+                    "summary": "",
+                    "event_time": "2026-05-30T08:00:00Z",
+                    "status": "active",
+                    "confidence": 90,
+                    "metadata": {},
+                    "mention_rows": [],
+                    "taxonomy_rows": [
+                        {
+                            "subject_type": "canonical_event",
+                            "subject_id": "ce_italy_rollback",
+                            "target_id": "italy",
+                            "taxonomy_level": "l0",
+                            "taxonomy_value": "economy",
+                        }
+                    ],
+                }
+            ],
+            projection_run={
+                "projection_run_id": "projection_rollback",
+                "target_id": "italy",
+                "mode": "apply",
+                "input_events": 1,
+                "canonical_events": 1,
+                "mentions": 0,
+                "auto_merged": 0,
+                "needs_review": 0,
+                "unprojectable": 0,
+                "diagnostics": {},
+            },
+        )
 
     assert await store.list_canonical_events(target_id="italy", limit=20) == []
+
+
+@pytest.mark.asyncio
+async def test_projection_apply_writes_canonical_rows(store: AsyncStore):
+    await _insert_event_index_row(store, event_id="it_001", l0_category="economics")
+
+    diagnostics = await CanonicalProjectionService(store).project(
+        ProjectionOptions(
+            target_id="italy",
+            apply=True,
+            projection_run_id="projection_test_apply",
+        )
+    )
+    events = await store.list_canonical_events(target_id="italy", limit=20)
+    mentions = await store.list_event_mentions(events[0]["canonical_event_id"])
+
+    assert diagnostics.mode == "apply"
+    assert diagnostics.input_events == 1
+    assert diagnostics.canonical_events == 1
+    assert len(events) == 1
+    assert len(mentions) == 1
+    assert mentions[0]["event_id"] == "it_001"
