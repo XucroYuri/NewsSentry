@@ -746,6 +746,68 @@ class TestLinkEvents:
         await store.close()
 
     @pytest.mark.asyncio
+    async def test_link_events_caps_strongest_links_per_event(self):
+        """单个新事件只写入最强的有限数量 links。"""
+        from news_sentry.core.async_run import _link_events
+
+        now = datetime.now(UTC).replace(microsecond=0)
+
+        class FakeStore:
+            _db = object()
+
+            def __init__(self):
+                self.find_calls = []
+                self.created_links = []
+
+            async def find_candidates(self, target_id, event_id, days=7, limit=100):
+                self.find_calls.append(
+                    {
+                        "target_id": target_id,
+                        "event_id": event_id,
+                        "days": days,
+                        "limit": limit,
+                    }
+                )
+                return [
+                    {
+                        "event_id": f"evt-cand-{idx}",
+                        "entity_names": "Meloni,EU",
+                        "topic_tags": "politics,eu",
+                        "published_at": (now - timedelta(hours=idx)).isoformat(),
+                        "title_original": f"Candidate {idx}",
+                    }
+                    for idx in range(5)
+                ]
+
+            async def create_link(self, **kwargs):
+                self.created_links.append(kwargs)
+
+        new_event = MagicMock()
+        new_event.id = "evt-new"
+        new_event.published_at = now.isoformat()
+        judge_result = MagicMock()
+        nlp = MagicMock()
+        ent1 = MagicMock()
+        ent1.name = "Meloni"
+        ent2 = MagicMock()
+        ent2.name = "EU"
+        nlp.entities = [ent1, ent2]
+        nlp.topic_tags = ["politics", "eu"]
+        judge_result.nlp_analysis = nlp
+        new_event.judge_result = judge_result
+
+        store = FakeStore()
+        await _link_events(store, [new_event], "italy", max_links_per_event=2)
+
+        assert store.find_calls == [
+            {"target_id": "italy", "event_id": "evt-new", "days": 7, "limit": 100}
+        ]
+        assert [link["source_event_id"] for link in store.created_links] == [
+            "evt-cand-0",
+            "evt-cand-1",
+        ]
+
+    @pytest.mark.asyncio
     async def test_link_events_failure_nonblocking(self, tmp_path):
         """link_events 失败时不抛异常。"""
         from unittest.mock import MagicMock
@@ -1079,7 +1141,7 @@ class TestRunJudgeAsync:
     @pytest.mark.asyncio
     async def test_judge_async_smart_alerts(self):
         """智能告警检查被调用。"""
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
         from news_sentry.core.async_run import _run_judge_async
 
@@ -1134,7 +1196,9 @@ class TestRunJudgeAsync:
             )
 
         mock_alert_cls.assert_called_once()
-        mock_alert_pipeline.check_smart_alerts.assert_called_once_with(mock_store, "italy")
+        mock_alert_pipeline.check_smart_alerts.assert_called_once_with(
+            mock_store, "italy", since=ANY, limit=500
+        )
 
     @pytest.mark.asyncio
     async def test_judge_async_nonblocking_failures(self):
