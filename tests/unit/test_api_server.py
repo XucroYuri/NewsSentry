@@ -5543,10 +5543,23 @@ def test_canonical_event_detail_returns_404_for_missing_event(
 ):
     client, _store = canonical_client
 
-    response = client.get("/api/v1/canonical/events/ce_missing")
+    response = client.get(
+        "/api/v1/canonical/events/ce_missing",
+        params={"target_id": "italy"},
+    )
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Canonical event not found"
+
+
+def test_canonical_event_detail_requires_target_scope(
+    canonical_client: tuple[TestClient, AsyncStore],
+):
+    client, _store = canonical_client
+
+    response = client.get("/api/v1/canonical/events/ce_missing")
+
+    assert response.status_code == 422
 
 
 def test_canonical_backfill_apply_makes_event_queryable(
@@ -5655,3 +5668,73 @@ def test_canonical_event_detail_enforces_target_scope(
     assert same_target.json()["target_id"] == "italy"
     assert other_target.status_code == 404
     assert other_target.json()["detail"] == "Canonical event not found"
+
+
+def test_canonical_event_mentions_and_relations_enforce_target_scope(
+    canonical_client: tuple[TestClient, AsyncStore],
+):
+    client, store = canonical_client
+
+    async def seed_event() -> None:
+        async with store._connect() as conn:
+            await conn.execute(
+                """
+                INSERT INTO event_index (
+                    event_id, target_id, source_id, title_original, url, published_at,
+                    stage, news_value_score, china_relevance,
+                    classification_l0, metadata_json, file_path, created_at
+                ) VALUES (
+                    'it_api_nested_scope_001', 'italy', 'ansa', 'Nested scoped story',
+                    'https://example.com/nested-scoped-story', '2026-05-30T10:00:00Z',
+                    'judged', 88, 25, 'politics', '{}', 'drafts/it_api_nested_scope_001.md',
+                    CURRENT_TIMESTAMP
+                )
+                """
+            )
+            await conn.commit()
+
+    asyncio.run(seed_event())
+    backfill = client.post(
+        "/api/v1/canonical/backfill",
+        json={
+            "target_id": "italy",
+            "limit": 10,
+            "apply": True,
+            "projection_run_id": "projection_api_nested_scope_test",
+        },
+    )
+    assert backfill.status_code == 200
+    listed = client.get("/api/v1/canonical/events", params={"target_id": "italy"})
+    canonical_event_id = listed.json()["events"][0]["canonical_event_id"]
+
+    mentions_same_target = client.get(
+        f"/api/v1/canonical/events/{canonical_event_id}/mentions",
+        params={"target_id": "italy"},
+    )
+    mentions_other_target = client.get(
+        f"/api/v1/canonical/events/{canonical_event_id}/mentions",
+        params={"target_id": "japan"},
+    )
+    mentions_missing_target = client.get(f"/api/v1/canonical/events/{canonical_event_id}/mentions")
+    relations_same_target = client.get(
+        f"/api/v1/canonical/events/{canonical_event_id}/relations",
+        params={"target_id": "italy"},
+    )
+    relations_other_target = client.get(
+        f"/api/v1/canonical/events/{canonical_event_id}/relations",
+        params={"target_id": "japan"},
+    )
+    relations_missing_target = client.get(
+        f"/api/v1/canonical/events/{canonical_event_id}/relations"
+    )
+
+    assert mentions_same_target.status_code == 200
+    assert len(mentions_same_target.json()["mentions"]) == 1
+    assert mentions_other_target.status_code == 404
+    assert mentions_other_target.json()["detail"] == "Canonical event not found"
+    assert mentions_missing_target.status_code == 422
+    assert relations_same_target.status_code == 200
+    assert relations_same_target.json()["relations"] == []
+    assert relations_other_target.status_code == 404
+    assert relations_other_target.json()["detail"] == "Canonical event not found"
+    assert relations_missing_target.status_code == 422

@@ -164,9 +164,8 @@ class CanonicalProjectionService:
         if url:
             return f"url:{url}"
         title = str(row.get("title") or "").strip().lower()
-        published_at = str(row.get("published_at") or "").strip()
         if title:
-            return f"title:{published_at}:{title}"
+            return f"event:{row['target_id']}:{row['event_id']}"
         return ""
 
     def _canonical_event_id(self, row: dict[str, Any]) -> str:
