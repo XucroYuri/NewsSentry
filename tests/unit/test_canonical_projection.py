@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from news_sentry.core import async_store as async_store_module
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.canonical_projection import CanonicalProjectionService, ProjectionOptions
 
@@ -182,6 +183,87 @@ async def test_apply_canonical_projection_rolls_back_partial_writes_on_failure(
             ],
             projection_run={
                 "projection_run_id": "projection_rollback",
+                "target_id": "italy",
+                "mode": "apply",
+                "input_events": 1,
+                "canonical_events": 1,
+                "mentions": 0,
+                "auto_merged": 0,
+                "needs_review": 0,
+                "unprojectable": 0,
+                "diagnostics": {},
+            },
+        )
+
+    assert await store.list_canonical_events(target_id="italy", limit=20) == []
+
+
+@pytest.mark.asyncio
+async def test_apply_canonical_projection_shared_commit_cannot_commit_partial_rows(
+    store: AsyncStore,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    original_connect = async_store_module.aiosqlite.connect
+
+    class InstrumentedConnection:
+        def __init__(self, conn):
+            self._conn = conn
+
+        async def execute(self, sql, parameters=None):
+            cursor = await self._conn.execute(sql, parameters or ())
+            if "INSERT INTO canonical_events" in sql:
+                assert store._db is not None
+                await store._db.commit()
+            return cursor
+
+        async def commit(self):
+            return await self._conn.commit()
+
+        async def rollback(self):
+            return await self._conn.rollback()
+
+    class InstrumentedConnect:
+        def __init__(self, *args, **kwargs):
+            self._args = args
+            self._kwargs = kwargs
+            self._conn = None
+
+        async def __aenter__(self):
+            self._conn = await original_connect(*self._args, **self._kwargs)
+            return InstrumentedConnection(self._conn)
+
+        async def __aexit__(self, exc_type, exc, tb):
+            assert self._conn is not None
+            await self._conn.close()
+
+    monkeypatch.setattr(async_store_module.aiosqlite, "connect", InstrumentedConnect)
+
+    with pytest.raises(KeyError):
+        await store.apply_canonical_projection(
+            candidates=[
+                {
+                    "canonical_event_id": "ce_italy_shared_commit",
+                    "target_id": "italy",
+                    "title": "Shared commit candidate",
+                    "summary": "",
+                    "event_time": "2026-05-30T08:00:00Z",
+                    "status": "active",
+                    "confidence": 90,
+                    "metadata": {},
+                    "mention_rows": [],
+                    "taxonomy_rows": [
+                        {
+                            "subject_type": "canonical_event",
+                            "subject_id": "ce_italy_shared_commit",
+                            "target_id": "italy",
+                            "taxonomy_level": "l0",
+                            "taxonomy_value": "economy",
+                        }
+                    ],
+                }
+            ],
+            projection_run={
+                "projection_run_id": "projection_shared_commit",
                 "target_id": "italy",
                 "mode": "apply",
                 "input_events": 1,
