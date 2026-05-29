@@ -25,6 +25,9 @@ class Language(StrEnum):
     IT = "it"
     EN = "en"
     ZH = "zh"
+    JA = "ja"
+    DE = "de"
+    FR = "fr"
     MIXED = "mixed"
 
 

@@ -30,6 +30,10 @@
       "format": "uri",
       "description": "Feed or API endpoint URL; null for opencli type"
     },
+    "language": {
+      "type": "string",
+      "description": "Resolved source language. Defaults to target.language_scope.primary when omitted."
+    },
     "opencli_command": {
       "type": ["string", "null"],
       "description": "OpenCLI tool_id reference; null for rss/api types. Must match a ToolManifest tool_id."
@@ -124,7 +128,8 @@
         "title": { "type": "string", "description": "Field name for the title" },
         "url": { "type": "string", "description": "Field name for the URL/link" },
         "content": { "type": "string", "description": "Field name for the content/body" },
-        "published_at": { "type": "string", "description": "Field name for the publication date" }
+        "published_at": { "type": "string", "description": "Field name for the publication date" },
+        "language": { "type": "string", "description": "Field name for the language/locale" }
       }
     }
   }

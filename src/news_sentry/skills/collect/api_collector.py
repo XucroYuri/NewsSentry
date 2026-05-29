@@ -18,6 +18,7 @@ import httpx
 
 from news_sentry.core.ratelimit import RateLimiter
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+from news_sentry.skills.collect.language_utils import coerce_language
 
 
 def _retry_fetch(
@@ -75,6 +76,7 @@ class APICollector:
         self._rate_limiter = rate_limiter or RateLimiter()
         self._target_id: str = config["target_id"]
         self._source_id: str = config["source_id"]
+        self._language: Language = coerce_language(config.get("language"))
         self._timeout: float = float(config.get("timeout_seconds", 30))
         self._max_items: int = int(config.get("max_items_per_run", 50))
         # 可选：JSON 响应到 NewsEvent 的字段映射
@@ -210,16 +212,17 @@ class APICollector:
             )
             or ""
         )
-        lang_str = str(
-            item.get(language_key, item.get("language", item.get("lang", "mixed"))) or "mixed"
-        )
+        raw_language = None
+        if language_key:
+            raw_language = item.get(language_key)
+        if raw_language is None:
+            raw_language = item.get("language", item.get("lang"))
 
         if not published_at:
             published_at = datetime.now(UTC).isoformat()
         collected_at = datetime.now(UTC).isoformat()
 
-        lang_map = {"it": Language.IT, "en": Language.EN, "zh": Language.ZH}
-        language = lang_map.get(lang_str[:2].lower(), Language.MIXED)
+        language = coerce_language(raw_language, self._language)
 
         event_id = NewsEvent.make_id(self._target_id, self._source_id, url, published_at)
 

@@ -54,6 +54,40 @@ class TestSourceChannelSchema:
         data = _load_yaml(source_file)
         validate(data, schema)
 
+    def test_source_channel_accepts_optional_language(self) -> None:
+        schema = _load_schema("sourcechannel.schema.json")
+        data = {
+            "source_id": "test-fr",
+            "display_name": "Test France",
+            "type": "rss",
+            "url": "https://example.com/rss.xml",
+            "language": "fr",
+            "credibility_base": 0.8,
+            "fetch_interval_minutes": 15,
+            "max_items_per_run": 20,
+            "timeout_seconds": 30,
+            "enabled": True,
+        }
+
+        validate(data, schema)
+
+    def test_api_mapping_accepts_language_field_mapping(self) -> None:
+        schema = _load_schema("sourcechannel.schema.json")
+        data = {
+            "source_id": "test-api",
+            "display_name": "Test API",
+            "type": "api",
+            "endpoint": {"url": "https://example.com/api"},
+            "api_mapping": {"items_key": "items", "language": "locale"},
+            "credibility_base": 0.8,
+            "fetch_interval_minutes": 15,
+            "max_items_per_run": 20,
+            "timeout_seconds": 30,
+            "enabled": True,
+        }
+
+        validate(data, schema)
+
 
 # ── TargetConfig ───────────────────────────────────────────────
 
