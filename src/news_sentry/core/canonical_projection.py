@@ -131,20 +131,21 @@ class CanonicalProjectionService:
                 diagnostics.auto_merged += len(group_rows) - 1
             primary = group_rows[0]
             has_url = bool(str(primary.get("url") or "").strip())
+            title = str(primary.get("title") or "").strip() or primary["event_id"]
             if not has_url:
                 diagnostics.needs_review += 1
                 diagnostics.review_samples.append(
                     {
                         "event_id": primary["event_id"],
                         "reason": "missing_url_low_confidence_group",
-                        "title": primary.get("title") or primary["event_id"],
+                        "title": title,
                     }
                 )
             canonical_id = self._canonical_event_id(primary)
             candidate = ProjectionCandidate(
                 canonical_event_id=canonical_id,
                 target_id=primary["target_id"],
-                title=primary.get("title") or primary["event_id"],
+                title=title,
                 summary="",
                 event_time=primary.get("published_at"),
                 confidence=90.0 if has_url else 72.0,
@@ -163,8 +164,7 @@ class CanonicalProjectionService:
         url = str(row.get("url") or "").strip().lower()
         if url:
             return f"url:{url}"
-        title = str(row.get("title") or "").strip().lower()
-        if title:
+        if row.get("target_id") and row.get("event_id"):
             return f"event:{row['target_id']}:{row['event_id']}"
         return ""
 
@@ -183,7 +183,7 @@ class CanonicalProjectionService:
             "target_id": row["target_id"],
             "source_id": row.get("source_id"),
             "url": row.get("url"),
-            "title": row.get("title") or event_id,
+            "title": str(row.get("title") or "").strip() or event_id,
             "published_at": row.get("published_at"),
             "metadata": {
                 "pipeline_stage": row.get("pipeline_stage"),
