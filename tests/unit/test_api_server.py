@@ -453,7 +453,7 @@ class TestAPIServer:
         assert data["total_events"] == 3
         assert data["avg_news_value_score"] == pytest.approx(76.67, rel=0.01)
         assert data["avg_china_relevance"] == pytest.approx(23.33, rel=0.01)
-        assert data["by_classification"]["international"] == 2
+        assert data["by_classification"]["international-relations"] == 2
         assert data["by_classification"]["politics"] == 1
         assert data["by_source"]["ansa"] == 2
         assert data["by_source"]["repubblica"] == 1
@@ -473,7 +473,7 @@ class TestAPIServer:
         client = self._make_client(tmp_path)
         resp = client.get(
             "/api/v1/events",
-            params={"target_id": "italy", "classification": "international"},
+            params={"target_id": "italy", "classification": "international-relations"},
         )
         assert resp.status_code == 200
         assert resp.json()["total"] == 1
@@ -914,7 +914,7 @@ class TestAPIServerSQLite:
         data = resp.json()
         assert data["total_events"] == 3
         assert data["avg_news_value_score"] is not None
-        assert data["by_classification"]["international"] == 2
+        assert data["by_classification"]["international-relations"] == 2
         assert data["by_classification"]["politics"] == 1
         assert data["by_source"]["ansa"] == 2
 
@@ -991,7 +991,7 @@ class TestAPIServerSQLite:
             assert resp.status_code == 200
             item = resp.json()["groups"][0]["events"][0]
             assert item["event_id"] == event_id
-            assert item["flat_tags"] == ["international"]
+            assert item["flat_tags"] == ["international-relations"]
         finally:
             await store.close()
 

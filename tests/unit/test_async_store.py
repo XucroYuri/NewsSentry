@@ -579,6 +579,15 @@ class TestEventIndexQueries:
         )
         assert result["total"] == 2
 
+        legacy_result = await store_with_events.query_events_paginated(
+            target_id="italy",
+            stage="drafts",
+            classification_l0="international-relations",
+            limit=10,
+            offset=0,
+        )
+        assert legacy_result["total"] == 3
+
     @pytest.mark.asyncio
     async def test_query_events_filter_by_min_score(
         self,
@@ -605,7 +614,7 @@ class TestEventIndexQueries:
         assert stats["avg_news_value_score"] is not None
         assert 60 <= stats["avg_news_value_score"] <= 85
         assert stats["avg_china_relevance"] is not None
-        assert stats["by_classification"]["international"] == 3
+        assert stats["by_classification"]["international-relations"] == 3
         assert stats["by_classification"]["politics"] == 2
         assert stats["by_source"]["ansa"] == 3
         assert stats["by_source"]["repubblica"] == 2

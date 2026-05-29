@@ -272,6 +272,12 @@ def test_canonical_l0_maps_legacy_runtime_labels() -> None:
     assert canonical_l0("international") == "international-relations"
     assert canonical_l0("culture_society") == "society"
     assert canonical_l0("environment_energy") == "environment"
+    assert canonical_l0("political") == "politics"
+    assert canonical_l0("technology") == "tech"
+    assert canonical_l0("energy") == "environment"
+    assert canonical_l0("china_related") == "china-related"
+    assert canonical_l0("breaking_news") == "uncategorized"
+    assert canonical_l0("other") == "uncategorized"
 
 
 def test_public_channel_for_terms_uses_canonical_taxonomy() -> None:

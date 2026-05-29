@@ -42,6 +42,11 @@ from pydantic import BaseModel, Field
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.auth import hash_password, verify_password
 from news_sentry.core.config_cache import ConfigCache
+from news_sentry.skills.filter.classification_taxonomy import (
+    canonical_l0,
+    l0_query_values,
+    normalize_classification,
+)
 
 # ── Pydantic 模型 ──────────────────────────────────────
 
@@ -875,11 +880,12 @@ def _load_events_from_data(
 
     # 筛选
     if classification is not None:
+        accepted = l0_query_values(classification)
         events = [
             e
             for e in events
             if isinstance(e.get("classification"), dict)
-            and e["classification"].get("l0") == classification
+            and canonical_l0(e["classification"].get("l0")) in accepted
         ]
     if source_id is not None:
         events = [e for e in events if e.get("source_id") == source_id]
@@ -1035,17 +1041,17 @@ def _event_score(ev: dict[str, Any]) -> int | float | None:
 def _event_classification(ev: dict[str, Any]) -> dict[str, Any] | None:
     direct = ev.get("classification")
     if isinstance(direct, dict):
-        return direct
+        return normalize_classification(direct)
     metadata = ev.get("metadata")
     if isinstance(metadata, dict):
         classification = metadata.get("classification")
         if isinstance(classification, dict):
-            return classification
+            return normalize_classification(classification)
     return None
 
 
 def _classification_l0_label(value: Any) -> str:
-    label = str(value).strip() if value is not None else ""
+    label = canonical_l0(str(value).strip()) if value is not None else ""
     return label or "uncategorized"
 
 
@@ -1080,7 +1086,9 @@ async def _classification_diagnostics_from_store(
     except Exception:  # noqa: S112
         logger.exception("Failed to load classification diagnostics from store")
         return None
-    distribution = {str(row[0]): int(row[1]) for row in rows}
+    distribution: dict[str, int] = defaultdict(int)
+    for row in rows:
+        distribution[_classification_l0_label(row[0])] += int(row[1])
     return {
         "distribution": distribution,
         "uncategorized_count": distribution.get("uncategorized", 0),
@@ -2315,7 +2323,7 @@ def create_app(
             if isinstance(cls_data, dict):
                 l0 = cls_data.get("l0")
                 if l0:
-                    by_classification[l0] += 1
+                    by_classification[canonical_l0(l0)] += 1
             src = e.get("source_id")
             if src:
                 by_source[src] += 1
