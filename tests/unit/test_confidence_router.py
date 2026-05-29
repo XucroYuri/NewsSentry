@@ -253,6 +253,27 @@ class TestTieredConfidenceRouter:
         return event
 
     @pytest.mark.asyncio
+    async def test_real_rules_judge_returns_judged_events(self):
+        """真实 RulesJudgeSkill 只有批量 judge() 时，异步路由仍应返回 NewsEvent。"""
+        from news_sentry.core.confidence_router import TieredConfidenceRouter
+
+        rules_judge = _make_rules_judge()
+        mock_router = MagicMock()
+        mock_router.route_async = AsyncMock()
+        tiered = TieredConfidenceRouter(rules_judge, mock_router)
+        event = _make_event(
+            "ne-real-rules-001",
+            title="Cina e Italia firmano accordo commerciale",
+            content="La Cina e l'Italia hanno firmato un accordo commerciale.",
+        )
+
+        result = await tiered.judge_events_async([event], MagicMock())
+
+        assert result == [event]
+        assert result[0].judge_result is not None
+        assert result[0].pipeline_stage == PipelineStage.JUDGED
+
+    @pytest.mark.asyncio
     async def test_high_confidence_skips_llm(self):
         """confidence >= 0.85 应跳过 LLM 调用。"""
         from news_sentry.core.confidence_router import TieredConfidenceRouter

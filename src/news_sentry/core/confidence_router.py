@@ -189,6 +189,24 @@ class TieredConfidenceRouter:
         self._threshold_low = confidence_threshold_low
         self.stats: dict[str, int] = {"total": 0, "skipped": 0, "medium": 0, "high": 0}
 
+    def _judge_with_rules(
+        self,
+        event: Any,  # noqa: ANN401
+        run_id: str,
+    ) -> tuple[Any, Any]:  # noqa: ANN401
+        """兼容单事件和批量规则研判器，并返回事件本体与 JudgeResult。"""
+        judge_event = getattr(self._rules_judge, "judge_event", None)
+        if callable(judge_event):
+            raw_result = judge_event(event, run_id)
+            judged_event = raw_result if isinstance(raw_result, NewsEvent) else event
+            rules_result = getattr(judged_event, "judge_result", None) or raw_result
+            return judged_event, rules_result
+
+        judged_events = self._rules_judge.judge([event], run_id)
+        judged_event = judged_events[0] if judged_events else event
+        rules_result = getattr(judged_event, "judge_result", None)
+        return judged_event, rules_result
+
     async def judge_event_async(
         self,
         event: Any,  # noqa: ANN401
@@ -199,13 +217,13 @@ class TieredConfidenceRouter:
         self.stats["total"] += 1
 
         # 1) 规则引擎先跑
-        rules_result = self._rules_judge.judge_event(event, run_id)
+        event, rules_result = self._judge_with_rules(event, run_id)
         confidence = getattr(rules_result, "confidence", 0.5)
 
         # 2) 高置信度 → 直接通过
         if confidence >= self._threshold_high:
             self.stats["skipped"] += 1
-            return rules_result
+            return event
 
         # 3) 选择模型
         tier = "high" if confidence < self._threshold_low else "medium"
@@ -228,7 +246,7 @@ class TieredConfidenceRouter:
                 getattr(event, "id", "?"),
             )
 
-        return getattr(event, "judge_result", rules_result)
+        return event
 
     async def judge_events_async(
         self,
