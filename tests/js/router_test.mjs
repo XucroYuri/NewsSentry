@@ -76,6 +76,11 @@ assert.equal(adminTargetDefault.name, "adminTargetWorkbench");
 assert.equal(adminTargetDefault.targetId, "italy");
 assert.equal(adminTargetDefault.tab, "overview");
 
+const adminTargetCanonical = parseRouteHash("#/admin/targets/italy/canonical");
+assert.equal(adminTargetCanonical.type, "admin-target");
+assert.equal(adminTargetCanonical.targetId, "italy");
+assert.equal(adminTargetCanonical.tab, "canonical");
+
 assert.equal(
   targetWorkbenchHashForLegacyRoute(parseRouteHash("#/admin/collection/sources"), "italy"),
   "#/admin/targets/italy/sources",

@@ -12,6 +12,7 @@ const TARGET_WORKBENCH_TABS = new Set([
   "rules",
   "collection",
   "review",
+  "canonical",
   "maintenance",
 ]);
 const ADMIN_TABS = {
@@ -70,6 +71,7 @@ export function parseRouteHash(hash) {
       const param = safeDecodeHashParam(parts[4] || "");
       return {
         name: "adminTargetWorkbench",
+        type: "admin-target",
         scope: "admin",
         section: "targets",
         tab,

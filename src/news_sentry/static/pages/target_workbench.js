@@ -23,6 +23,7 @@ const TARGET_TABS = [
   { id: "rules", label: "规则" },
   { id: "collection", label: "采集" },
   { id: "review", label: "审核" },
+  { id: "canonical", label: "事实投影" },
   { id: "maintenance", label: "维护" },
 ];
 
@@ -393,6 +394,7 @@ export async function renderTargetWorkbench(container, targetId, tab = "overview
       rules: renderRules,
       collection: renderCollection,
       review: renderReview,
+      canonical: renderCanonicalProjection,
       maintenance: renderMaintenance,
     };
     await (renderers[tab] || renderOverview)(body, resolvedTarget, overview);
@@ -906,6 +908,80 @@ async function renderReview(container, targetId) {
       </div>
     </section>
   `;
+}
+
+async function renderCanonicalProjection(container, targetId) {
+  const diagnostics = await api("/api/v1/canonical/diagnostics", { target_id: targetId, limit: 500 });
+  container.innerHTML = `
+    <section class="target-panel">
+      <div class="target-panel-head">
+        <h2>事实投影</h2>
+        <p>从当前事件索引生成 shadow canonical 视图；不会改变采集、过滤、研判和输出写路径。</p>
+      </div>
+      <div class="target-kpi-grid">
+        ${stat("输入事件", String(diagnostics.input_events || 0))}
+        ${stat("事实事件", String(diagnostics.canonical_events || 0))}
+        ${stat("事件提及", String(diagnostics.mentions || 0))}
+        ${stat("需复核", String(diagnostics.needs_review || 0))}
+      </div>
+      <div class="target-actions">
+        <button class="btn-secondary" id="canonicalDryRunBtn" type="button">重新诊断</button>
+        <button class="btn-primary" id="canonicalApplyBtn" type="button">显式回填</button>
+      </div>
+    </section>
+    <section class="target-panel">
+      <div class="target-panel-head">
+        <h2>分类映射</h2>
+        <p>legacy 分类会映射到 canonical taxonomy，未映射项会在这里暴露。</p>
+      </div>
+      <div class="target-check-list">
+        ${Object.entries(diagnostics.taxonomy_distribution || {}).map(([label, count]) => `
+          <div class="target-check ok">
+            <strong>${escapeHtml(label)}</strong>
+            <span>${escapeHtml(String(count))}</span>
+          </div>
+        `).join("") || "<p>暂无可投影分类。</p>"}
+      </div>
+    </section>
+    <section class="target-panel">
+      <div class="target-panel-head">
+        <h2>复核样本</h2>
+        <p>低置信度合并不会自动进入事实池，需要人工确认策略。</p>
+      </div>
+      <div class="target-check-list">
+        ${(diagnostics.review_samples || []).map((sample) => `
+          <div class="target-check warn">
+            <strong>${escapeHtml(sample.title || sample.event_id)}</strong>
+            <span>${escapeHtml(sample.reason || "")}</span>
+          </div>
+        `).join("") || "<p>暂无需复核样本。</p>"}
+      </div>
+    </section>
+  `;
+  container.querySelector("#canonicalDryRunBtn")?.addEventListener("click", () => {
+    renderTargetWorkbench(document.getElementById("pageContainer"), targetId, "canonical");
+  });
+  container.querySelector("#canonicalApplyBtn")?.addEventListener("click", async (event) => {
+    if (!window.confirm("将当前 target 的事件索引投影到 shadow canonical 表。此操作不会修改 pipeline 原始数据。是否继续？")) {
+      return;
+    }
+    const button = event.currentTarget;
+    button.disabled = true;
+    button.textContent = "回填中...";
+    try {
+      const result = await apiPost("/api/v1/canonical/backfill", {}, {
+        target_id: targetId,
+        limit: 500,
+        apply: true,
+      });
+      showSuccess(`已投影 ${Number(result.canonical_events || 0)} 个事实事件`);
+      renderTargetWorkbench(document.getElementById("pageContainer"), targetId, "canonical");
+    } catch (err) {
+      button.disabled = false;
+      button.textContent = "显式回填";
+      showError(err.message || "事实投影失败");
+    }
+  });
 }
 
 async function renderMaintenance(container, targetId, overview) {

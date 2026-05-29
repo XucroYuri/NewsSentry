@@ -81,3 +81,15 @@ assert.match(
   /apiPost\("\/api\/v1\/maintenance\/archive-duplicate-drafts",\s*\{\s*target_id:\s*targetId/s,
   "Target 工作台维护页必须能归档重复 draft 副本，形成诊断后的处置闭环",
 );
+
+assert.match(
+  targetWorkbenchJs,
+  /api\("\/api\/v1\/canonical\/diagnostics",\s*\{\s*target_id:\s*targetId,\s*limit:\s*500\s*\}\)/s,
+  "Target 工作台事实投影页必须使用 dry-run diagnostics 读取投影状态",
+);
+
+assert.match(
+  targetWorkbenchJs,
+  /apiPost\("\/api\/v1\/canonical\/backfill",\s*\{\s*\},\s*\{\s*target_id:\s*targetId,\s*limit:\s*500,\s*apply:\s*true/s,
+  "Target 工作台事实投影回填必须用 JSON body 显式传 apply:true",
+);
