@@ -820,6 +820,59 @@ class AsyncStore:
         )
         return [dict(zip(cols, row, strict=True)) for row in rows]
 
+    async def list_event_index_rows_for_projection(
+        self,
+        *,
+        target_id: str,
+        limit: int = 500,
+        since: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """读取 event_index rows for shadow canonical projection."""
+        params: list[Any] = [target_id]
+        if since:
+            params.append(since)
+            query = """
+                SELECT event_id, target_id, source_id, title_original, NULL, published_at,
+                       stage, news_value_score, china_relevance,
+                       classification_l0, NULL, file_path
+                FROM event_index
+                WHERE target_id = ? AND COALESCE(published_at, created_at) >= ?
+                ORDER BY COALESCE(published_at, created_at) DESC
+                LIMIT ?
+                """
+        else:
+            query = """
+                SELECT event_id, target_id, source_id, title_original, NULL, published_at,
+                       stage, news_value_score, china_relevance,
+                       classification_l0, NULL, file_path
+                FROM event_index
+                WHERE target_id = ?
+                ORDER BY COALESCE(published_at, created_at) DESC
+                LIMIT ?
+                """
+        params.append(int(limit))
+        async with self._connect() as conn:
+            rows = await conn.execute_fetchall(query, params)
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            result.append(
+                {
+                    "event_id": row[0],
+                    "target_id": row[1],
+                    "source_id": row[2],
+                    "title": row[3],
+                    "url": row[4],
+                    "published_at": row[5],
+                    "pipeline_stage": row[6],
+                    "news_value_score": row[7],
+                    "china_relevance": row[8],
+                    "l0_category": row[9],
+                    "metadata": self._json_loads(row[10]),
+                    "file_path": row[11],
+                }
+            )
+        return result
+
     async def get_event_count(self, target_id: str, stage: str) -> int:
         if self._db is None:
             return 0
