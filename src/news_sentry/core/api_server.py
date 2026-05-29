@@ -44,6 +44,7 @@ from pydantic import BaseModel, BeforeValidator, Field
 
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.auth import hash_password, verify_password
+from news_sentry.core.canonical_projection import CanonicalProjectionService, ProjectionOptions
 from news_sentry.core.config_cache import ConfigCache
 from news_sentry.core.source_inventory import SourceInventoryService
 from news_sentry.skills.filter.classification_taxonomy import (
@@ -268,6 +269,14 @@ class CollectorConfigUpdate(BaseModel):
     target_ids: list[str] | str | None = None
     interval_minutes: int | None = Field(default=None, ge=1, le=1440)
     stage: str | None = None
+
+
+class CanonicalBackfillRequest(BaseModel):
+    target_id: str
+    since: str | None = None
+    limit: int = Field(default=500, ge=1, le=5000)
+    apply: bool = False
+    projection_run_id: str | None = None
 
 
 class TargetCreateRequest(BaseModel):
@@ -5571,6 +5580,107 @@ def create_app(
             )
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e)) from e
+
+    # ── Canonical projection endpoints ─────────────────
+
+    @app.get("/api/v1/canonical/diagnostics")
+    async def canonical_diagnostics(
+        target_id: str,
+        since: str | None = None,
+        limit: int = 500,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        store = await _store_for_target(target_id)
+        if store is None:
+            raise HTTPException(status_code=503, detail="Event store unavailable")
+        service = CanonicalProjectionService(store)
+        diagnostics = await service.project(
+            ProjectionOptions(target_id=target_id, since=since, limit=limit, apply=False)
+        )
+        return diagnostics.to_dict()
+
+    @app.post("/api/v1/canonical/backfill")
+    async def canonical_backfill(
+        payload: CanonicalBackfillRequest,
+        user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        store = await _store_for_target(payload.target_id)
+        if store is None:
+            raise HTTPException(status_code=503, detail="Event store unavailable")
+        service = CanonicalProjectionService(store)
+        diagnostics = await service.project(
+            ProjectionOptions(
+                target_id=payload.target_id,
+                since=payload.since,
+                limit=payload.limit,
+                apply=payload.apply,
+                projection_run_id=payload.projection_run_id,
+            )
+        )
+        return diagnostics.to_dict()
+
+    @app.get("/api/v1/canonical/events")
+    async def list_canonical_events(
+        target_id: str,
+        limit: int = 50,
+        offset: int = 0,
+        status: str | None = None,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        store = await _store_for_target(target_id)
+        if store is None:
+            raise HTTPException(status_code=503, detail="Event store unavailable")
+        events = await store.list_canonical_events(
+            target_id=target_id,
+            limit=limit,
+            offset=offset,
+            status=status,
+        )
+        return {"events": events, "limit": limit, "offset": offset}
+
+    @app.get("/api/v1/canonical/events/{canonical_event_id}")
+    async def get_canonical_event(
+        canonical_event_id: str,
+        target_id: str | None = None,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        store = await _store_for_target(target_id) if target_id else _store
+        if store is None:
+            raise HTTPException(status_code=404, detail="Canonical event not found")
+        event = await store.get_canonical_event(canonical_event_id)
+        if not event:
+            raise HTTPException(status_code=404, detail="Canonical event not found")
+        return event
+
+    @app.get("/api/v1/canonical/events/{canonical_event_id}/mentions")
+    async def list_canonical_event_mentions(
+        canonical_event_id: str,
+        target_id: str | None = None,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        store = await _store_for_target(target_id) if target_id else _store
+        if store is None:
+            raise HTTPException(status_code=404, detail="Canonical event not found")
+        event = await store.get_canonical_event(canonical_event_id)
+        if not event:
+            raise HTTPException(status_code=404, detail="Canonical event not found")
+        mentions = await store.list_event_mentions(canonical_event_id)
+        return {"canonical_event_id": canonical_event_id, "mentions": mentions}
+
+    @app.get("/api/v1/canonical/events/{canonical_event_id}/relations")
+    async def list_canonical_event_relations(
+        canonical_event_id: str,
+        target_id: str | None = None,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        store = await _store_for_target(target_id) if target_id else _store
+        if store is None:
+            raise HTTPException(status_code=404, detail="Canonical event not found")
+        event = await store.get_canonical_event(canonical_event_id)
+        if not event:
+            raise HTTPException(status_code=404, detail="Canonical event not found")
+        relations = await store.list_canonical_relations(canonical_event_id)
+        return {"canonical_event_id": canonical_event_id, "relations": relations}
 
     # ── 维护端点 (Phase 40) ─────────────────────────────
 
