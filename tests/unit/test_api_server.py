@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -4490,8 +4490,20 @@ def _make_canonical_client(tmp_path: Path) -> tuple[TestClient, AsyncStore]:
     return TestClient(app), store
 
 
-def test_canonical_backfill_defaults_to_dry_run(tmp_path):
-    client, _store = _make_canonical_client(tmp_path)
+@pytest.fixture
+def canonical_client(tmp_path: Path) -> Iterator[tuple[TestClient, AsyncStore]]:
+    client, store = _make_canonical_client(tmp_path)
+    try:
+        yield client, store
+    finally:
+        client.close()
+        asyncio.run(store.close())
+
+
+def test_canonical_backfill_defaults_to_dry_run(
+    canonical_client: tuple[TestClient, AsyncStore],
+):
+    client, _store = canonical_client
 
     response = client.post(
         "/api/v1/canonical/backfill",
@@ -4505,8 +4517,10 @@ def test_canonical_backfill_defaults_to_dry_run(tmp_path):
     assert "input_events" in body
 
 
-def test_canonical_diagnostics_uses_dry_run(tmp_path):
-    client, _store = _make_canonical_client(tmp_path)
+def test_canonical_diagnostics_uses_dry_run(
+    canonical_client: tuple[TestClient, AsyncStore],
+):
+    client, _store = canonical_client
 
     response = client.get("/api/v1/canonical/diagnostics", params={"target_id": "italy"})
 
@@ -4516,8 +4530,10 @@ def test_canonical_diagnostics_uses_dry_run(tmp_path):
     assert body["target_id"] == "italy"
 
 
-def test_canonical_event_detail_returns_404_for_missing_event(tmp_path):
-    client, _store = _make_canonical_client(tmp_path)
+def test_canonical_event_detail_returns_404_for_missing_event(
+    canonical_client: tuple[TestClient, AsyncStore],
+):
+    client, _store = canonical_client
 
     response = client.get("/api/v1/canonical/events/ce_missing")
 
@@ -4525,8 +4541,10 @@ def test_canonical_event_detail_returns_404_for_missing_event(tmp_path):
     assert response.json()["detail"] == "Canonical event not found"
 
 
-def test_canonical_backfill_apply_makes_event_queryable(tmp_path):
-    client, store = _make_canonical_client(tmp_path)
+def test_canonical_backfill_apply_makes_event_queryable(
+    canonical_client: tuple[TestClient, AsyncStore],
+):
+    client, store = canonical_client
 
     async def seed_event() -> None:
         async with store._connect() as conn:
@@ -4564,3 +4582,68 @@ def test_canonical_backfill_apply_makes_event_queryable(tmp_path):
     events = listed.json()["events"]
     assert len(events) == 1
     assert events[0]["title"] == "API story"
+
+
+def test_canonical_event_list_rejects_negative_limit(
+    canonical_client: tuple[TestClient, AsyncStore],
+):
+    client, _store = canonical_client
+
+    response = client.get(
+        "/api/v1/canonical/events",
+        params={"target_id": "italy", "limit": -1},
+    )
+
+    assert response.status_code == 422
+
+
+def test_canonical_event_detail_enforces_target_scope(
+    canonical_client: tuple[TestClient, AsyncStore],
+):
+    client, store = canonical_client
+
+    async def seed_event() -> None:
+        async with store._connect() as conn:
+            await conn.execute(
+                """
+                INSERT INTO event_index (
+                    event_id, target_id, source_id, title_original, url, published_at,
+                    stage, news_value_score, china_relevance,
+                    classification_l0, metadata_json, file_path, created_at
+                ) VALUES (
+                    'it_api_scope_001', 'italy', 'ansa', 'Scoped API story',
+                    'https://example.com/scoped-api-story', '2026-05-30T09:00:00Z',
+                    'judged', 88, 25, 'politics', '{}', 'drafts/it_api_scope_001.md',
+                    CURRENT_TIMESTAMP
+                )
+                """
+            )
+            await conn.commit()
+
+    asyncio.run(seed_event())
+    backfill = client.post(
+        "/api/v1/canonical/backfill",
+        json={
+            "target_id": "italy",
+            "limit": 10,
+            "apply": True,
+            "projection_run_id": "projection_api_scope_test",
+        },
+    )
+    assert backfill.status_code == 200
+    listed = client.get("/api/v1/canonical/events", params={"target_id": "italy"})
+    canonical_event_id = listed.json()["events"][0]["canonical_event_id"]
+
+    same_target = client.get(
+        f"/api/v1/canonical/events/{canonical_event_id}",
+        params={"target_id": "italy"},
+    )
+    other_target = client.get(
+        f"/api/v1/canonical/events/{canonical_event_id}",
+        params={"target_id": "japan"},
+    )
+
+    assert same_target.status_code == 200
+    assert same_target.json()["target_id"] == "italy"
+    assert other_target.status_code == 404
+    assert other_target.json()["detail"] == "Canonical event not found"
