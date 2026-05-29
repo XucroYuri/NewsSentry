@@ -21,14 +21,14 @@ import {
 import { renderFeedTab, renderPublicHome } from "./pages/feed.js?v=20260529c";
 import { renderPublicAnalysis } from "./pages/public_analysis.js?v=20260527c";
 import { targetPortalHref } from "./pages/public_portal.js?v=20260527d";
-import { renderTargetsHome, renderTargetWorkbench } from "./pages/target_workbench.js?v=20260529c";
+import { renderTargetsHome, renderTargetWorkbench } from "./pages/target_workbench.js?v=20260529d";
 import { renderManagementOverviewTab } from "./pages/dashboard.js?v=20260527e";
 import { renderEventsTab, renderEventDetail } from "./pages/events.js?v=20260527e";
 import { renderEntitiesTab, renderEntityDetail } from "./pages/entities.js?v=20260527b";
 import { renderChainsTab, renderChainDetail } from "./pages/chains.js?v=20260527b";
 import { renderTrendsTab } from "./pages/trends.js?v=20260527b";
 import { renderLiveAlertsTab, renderAlertHistoryTab } from "./pages/alerts.js?v=20260527e";
-import { renderRunStatusTab, renderCollectorTab, renderSourceHealthTab, renderRunHistoryTab, renderMaintenanceTab, renderOpsDetail } from "./pages/ops.js?v=20260529a";
+import { renderRunStatusTab, renderCollectorTab, renderSourceHealthTab, renderRunHistoryTab, renderMaintenanceTab, renderOpsDetail } from "./pages/ops.js?v=20260529b";
 import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedback.js?v=20260527e";
 import { renderTargetTab, renderSourcesTab, renderFiltersTab, renderOutputsTab, renderAITab, renderWebhookTab, renderApiKeyTab } from "./pages/config.js?v=20260527g";
 import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab, renderThemeTab, renderBackupTab, initTheme } from "./pages/settings.js?v=20260527c";

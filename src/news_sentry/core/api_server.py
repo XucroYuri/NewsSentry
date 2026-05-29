@@ -2622,6 +2622,129 @@ async def _draft_diagnostics(data_dir: Path, target_id: str) -> dict[str, Any]:
     }
 
 
+def _relative_to_data_dir(data_dir: Path, path: Path) -> str:
+    """返回面向 API 的 data_dir 相对路径。"""
+    try:
+        return str(path.relative_to(data_dir))
+    except ValueError:
+        return str(path)
+
+
+def _duplicate_draft_keep_path(
+    data_dir: Path,
+    target_id: str,
+    event_id: str,
+    items: list[dict[str, Any]],
+    index_rows: list[dict[str, Any]],
+) -> Path:
+    """从重复 draft 文件中选择要保留的 canonical 文件。"""
+    candidate_paths = [data_dir / str(item["path"]) for item in items if item.get("path")]
+    candidate_lookup = {path.resolve(strict=False): path for path in candidate_paths}
+    drafts_dir = data_dir / target_id / "drafts"
+    for row in index_rows:
+        if row.get("event_id") != event_id or not row.get("file_path"):
+            continue
+        indexed_path = Path(str(row["file_path"]))
+        if not indexed_path.is_absolute():
+            indexed_path = data_dir / indexed_path
+        try:
+            indexed_path.relative_to(drafts_dir)
+        except ValueError:
+            continue
+        kept = candidate_lookup.get(indexed_path.resolve(strict=False))
+        if kept is not None:
+            return kept
+
+    canonical_name = f"{event_id}.md"
+    for path in sorted(candidate_paths, key=lambda p: str(p)):
+        if path.name == canonical_name:
+            return path
+    return sorted(candidate_paths, key=lambda p: str(p))[0]
+
+
+def _unique_archive_path(archive_dir: Path, source_path: Path) -> Path:
+    """避免归档目录内同名文件互相覆盖。"""
+    candidate = archive_dir / source_path.name
+    if not candidate.exists():
+        return candidate
+    suffix = uuid.uuid4().hex[:8]
+    return archive_dir / f"{source_path.stem}-{suffix}{source_path.suffix}"
+
+
+async def _archive_duplicate_drafts(
+    data_dir: Path,
+    target_id: str,
+    *,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """将重复 event_id 的多余 draft 文件安全移动到 archive，不硬删除。"""
+    _validate_target_slug(target_id)
+    draft_files = _draft_file_records(data_dir, target_id)
+    store = await _store_for_target(target_id)
+    index_rows = await _draft_index_rows_for_target(store, target_id)
+    grouped_files: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for item in draft_files:
+        event_id = item.get("event_id") or ""
+        if event_id:
+            grouped_files[event_id].append(item)
+
+    duplicate_groups = {
+        event_id: items for event_id, items in grouped_files.items() if len(items) > 1
+    }
+    archive_batch = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    archive_dir = data_dir / target_id / "archive" / "duplicate-drafts" / archive_batch
+    archived_files: list[dict[str, Any]] = []
+    skipped_files: list[dict[str, Any]] = []
+
+    for event_id, items in sorted(duplicate_groups.items()):
+        keep_path = _duplicate_draft_keep_path(data_dir, target_id, event_id, items, index_rows)
+        for item in sorted(items, key=lambda value: str(value.get("path") or "")):
+            source_path = data_dir / str(item["path"])
+            if source_path.resolve(strict=False) == keep_path.resolve(strict=False):
+                continue
+            destination = _unique_archive_path(archive_dir, source_path)
+            record = {
+                "event_id": event_id,
+                "source_path": _relative_to_data_dir(data_dir, source_path),
+                "archived_path": _relative_to_data_dir(data_dir, destination),
+                "kept_path": _relative_to_data_dir(data_dir, keep_path),
+            }
+            if dry_run:
+                archived_files.append(record)
+                continue
+            if not source_path.is_file():
+                skipped_files.append({**record, "reason": "source_missing"})
+                continue
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(source_path), str(destination))
+            archived_files.append(record)
+
+    if archived_files and not dry_run:
+        manifest_path = archive_dir / "manifest.json"
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "target_id": target_id,
+                    "created_at": datetime.now(UTC).isoformat(),
+                    "archived_files": archived_files,
+                    "skipped_files": skipped_files,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+    return {
+        "target_id": target_id,
+        "dry_run": dry_run,
+        "duplicate_group_count": len(duplicate_groups),
+        "archived_count": len(archived_files),
+        "archived_files": archived_files,
+        "skipped_files": skipped_files,
+    }
+
+
 def _load_event_by_path(file_path: str | None) -> dict[str, Any] | None:
     """根据 file_path 读取单个 .md 文件的 frontmatter。"""
     if file_path is None:
@@ -5433,6 +5556,15 @@ def create_app(
     ) -> dict[str, Any]:
         """只读诊断 draft 文件与运行时索引的一致性。"""
         return await _draft_diagnostics(_data_dir, target_id)
+
+    @app.post("/api/v1/maintenance/archive-duplicate-drafts")
+    async def maintenance_archive_duplicate_drafts(
+        target_id: str = Query(..., description="目标标识"),
+        dry_run: bool = Query(False, description="仅返回计划，不移动文件"),
+        user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """将重复 event_id 的多余 draft 文件归档，保留可公开读取的 canonical 文件。"""
+        return await _archive_duplicate_drafts(_data_dir, target_id, dry_run=dry_run)
 
     @app.post("/api/v1/maintenance/prune", response_model=PruneResponse)
     async def maintenance_prune(

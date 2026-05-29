@@ -528,6 +528,7 @@ function draftDiagnosticsHtml(data) {
       <div class="ops-health-stat ${duplicates.length ? "ops-health-warn" : "ops-health-ok"}"><strong>${duplicates.length}</strong> 重复事件</div>
       <div class="ops-health-stat ${missing.length ? "ops-health-warn" : "ops-health-ok"}"><strong>${missing.length}</strong> 缺失文件</div>
     </div>
+    ${duplicates.length ? `<button class="ops-trigger-btn" id="archiveDuplicateDraftsBtn" type="button" style="margin-top:12px;">归档重复副本</button>` : ""}
     ${orphanTable}`;
 }
 
@@ -586,6 +587,28 @@ export async function renderMaintenanceTab(container) {
     label.textContent = `${slider.value} \u5929`;
   });
 
+  const bindArchiveDuplicateDrafts = (target, result) => {
+    result.querySelector("#archiveDuplicateDraftsBtn")?.addEventListener("click", async (event) => {
+      if (!window.confirm("将重复 event_id 的多余 draft 移动到 archive，保留一个公开可读文件。是否继续？")) {
+        return;
+      }
+      const archiveBtn = event.currentTarget;
+      archiveBtn.disabled = true;
+      archiveBtn.textContent = "归档中...";
+      try {
+        const archiveResult = await apiPost("/api/v1/maintenance/archive-duplicate-drafts", { target_id: target });
+        showSuccess(`已归档 ${Number(archiveResult.archived_count || 0)} 个重复副本`);
+        const refreshed = await api("/api/v1/maintenance/draft-diagnostics", { target_id: target });
+        result.innerHTML = draftDiagnosticsHtml(refreshed);
+        bindArchiveDuplicateDrafts(target, result);
+      } catch (err) {
+        archiveBtn.disabled = false;
+        archiveBtn.textContent = "归档重复副本";
+        showError(err.message || "归档失败");
+      }
+    });
+  };
+
   document.getElementById("draftDiagnosticsBtn").addEventListener("click", async () => {
     const target = document.getElementById("diagnosticTarget").value;
     const result = document.getElementById("draftDiagnosticsResult");
@@ -600,6 +623,7 @@ export async function renderMaintenanceTab(container) {
     try {
       const data = await api("/api/v1/maintenance/draft-diagnostics", { target_id: target });
       result.innerHTML = draftDiagnosticsHtml(data);
+      bindArchiveDuplicateDrafts(target, result);
     } catch (err) {
       result.innerHTML = `<span style="color:var(--accent-red,#b42318);">诊断失败: ${escapeHtml(err.message)}</span>`;
     } finally {

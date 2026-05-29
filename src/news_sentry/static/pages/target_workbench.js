@@ -129,9 +129,12 @@ function draftDiagnosticsPanel(diagnostics) {
           <h2>Draft 索引诊断</h2>
           <p>检查当前 target 的草稿文件、运行时索引和公开可见事件是否一致。</p>
         </div>
-        <span class="status-pill ${orphanFiles.length || duplicates.length || missingFiles.length ? "warn" : "ok"}">
-          ${orphanFiles.length || duplicates.length || missingFiles.length ? "需要处理" : "一致"}
-        </span>
+        <div class="target-actions">
+          ${duplicates.length ? `<button class="btn-secondary" id="archiveDuplicateDraftsBtn" type="button">归档重复副本</button>` : ""}
+          <span class="status-pill ${orphanFiles.length || duplicates.length || missingFiles.length ? "warn" : "ok"}">
+            ${orphanFiles.length || duplicates.length || missingFiles.length ? "需要处理" : "一致"}
+          </span>
+        </div>
       </div>
       <div class="target-kpi-grid">
         ${stat("draft 文件", String(Number(diagnostics.draft_file_count || 0)), "文件系统中存在的草稿")}
@@ -945,6 +948,23 @@ async function renderMaintenance(container, targetId, overview) {
       renderTargetWorkbench(document.getElementById("pageContainer"), targetId, "maintenance");
     } catch (err) {
       showError(err.message || "预检失败");
+    }
+  });
+  container.querySelector("#archiveDuplicateDraftsBtn")?.addEventListener("click", async (event) => {
+    if (!window.confirm("将重复 event_id 的多余 draft 移动到 archive，保留一个公开可读文件。是否继续？")) {
+      return;
+    }
+    const button = event.currentTarget;
+    button.disabled = true;
+    button.textContent = "归档中...";
+    try {
+      const result = await apiPost("/api/v1/maintenance/archive-duplicate-drafts", { target_id: targetId });
+      showSuccess(`已归档 ${Number(result.archived_count || 0)} 个重复副本`);
+      renderTargetWorkbench(document.getElementById("pageContainer"), targetId, "maintenance");
+    } catch (err) {
+      button.disabled = false;
+      button.textContent = "归档重复副本";
+      showError(err.message || "归档失败");
     }
   });
   container.querySelector("#targetMaintenanceArchive")?.addEventListener("click", async () => {

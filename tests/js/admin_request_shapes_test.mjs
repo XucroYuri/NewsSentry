@@ -65,7 +65,19 @@ assert.match(
 );
 
 assert.match(
+  opsJs,
+  /apiPost\("\/api\/v1\/maintenance\/archive-duplicate-drafts",\s*\{\s*target_id:\s*target/s,
+  "数据维护页必须提供重复 draft 副本的安全归档操作",
+);
+
+assert.match(
   targetWorkbenchJs,
   /api\("\/api\/v1\/maintenance\/draft-diagnostics",\s*\{\s*target_id:\s*targetId/s,
   "Target 工作台维护页必须展示当前 target 的 draft/index 一致性诊断",
+);
+
+assert.match(
+  targetWorkbenchJs,
+  /apiPost\("\/api\/v1\/maintenance\/archive-duplicate-drafts",\s*\{\s*target_id:\s*targetId/s,
+  "Target 工作台维护页必须能归档重复 draft 副本，形成诊断后的处置闭环",
 );

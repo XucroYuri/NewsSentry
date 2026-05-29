@@ -4797,6 +4797,35 @@ class TestMaintenanceEndpoints:
         ]
         assert orphan_path.exists()
 
+    def test_archive_duplicate_drafts_moves_extra_files_without_deleting(
+        self, tmp_path: Path
+    ) -> None:
+        """重复 draft 归档只移动副本，保留一个可公开读取的 canonical 文件。"""
+        event_id = "dup-event-1"
+        old_path = _write_draft(tmp_path, "italy", event_id, title="Duplicated")
+        canonical_path = tmp_path / "italy" / "drafts" / f"{event_id}.md"
+        canonical_path.write_text(old_path.read_text(encoding="utf-8"), encoding="utf-8")
+        client = self._make_client(tmp_path)
+        headers = self._auth_headers(client)
+
+        resp = client.post(
+            "/api/v1/maintenance/archive-duplicate-drafts",
+            params={"target_id": "italy"},
+            headers=headers,
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["duplicate_group_count"] == 1
+        assert data["archived_count"] == 1
+        assert canonical_path.exists()
+        assert not old_path.exists()
+        archived_path = tmp_path / data["archived_files"][0]["archived_path"]
+        assert archived_path.is_file()
+        assert archived_path.read_text(encoding="utf-8") == canonical_path.read_text(
+            encoding="utf-8"
+        )
+
     def test_data_status(self, tmp_path: Path) -> None:
         """status 端点返回数据目录信息。"""
         client = self._make_client(tmp_path)
