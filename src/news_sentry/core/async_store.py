@@ -13,6 +13,8 @@ import os as _os
 import sqlite3
 import time
 from collections import defaultdict
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -195,6 +197,114 @@ CREATE TABLE IF NOT EXISTS notifications (
 )
 """
 
+_DDL_CANONICAL_EVENTS = """
+CREATE TABLE IF NOT EXISTS canonical_events (
+    canonical_event_id TEXT PRIMARY KEY,
+    target_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL DEFAULT '',
+    event_time TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    confidence REAL NOT NULL DEFAULT 0,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
+_DDL_EVENT_MENTIONS = """
+CREATE TABLE IF NOT EXISTS event_mentions (
+    mention_id TEXT PRIMARY KEY,
+    canonical_event_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    source_id TEXT,
+    url TEXT,
+    title TEXT NOT NULL,
+    published_at TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (canonical_event_id) REFERENCES canonical_events(canonical_event_id)
+)
+"""
+
+_DDL_CANONICAL_EVENT_RELATIONS = """
+CREATE TABLE IF NOT EXISTS canonical_event_relations (
+    relation_id TEXT PRIMARY KEY,
+    source_canonical_event_id TEXT NOT NULL,
+    target_canonical_event_id TEXT NOT NULL,
+    relation_type TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 0,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (source_canonical_event_id) REFERENCES canonical_events(canonical_event_id),
+    FOREIGN KEY (target_canonical_event_id) REFERENCES canonical_events(canonical_event_id)
+)
+"""
+
+_DDL_TAXONOMY_ASSIGNMENTS = """
+CREATE TABLE IF NOT EXISTS taxonomy_assignments (
+    assignment_id TEXT PRIMARY KEY,
+    subject_type TEXT NOT NULL,
+    subject_id TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    taxonomy_level TEXT NOT NULL,
+    taxonomy_value TEXT NOT NULL,
+    confidence REAL NOT NULL DEFAULT 0,
+    source TEXT NOT NULL DEFAULT 'projection',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
+_DDL_CANONICAL_ENTITY_LINKS = """
+CREATE TABLE IF NOT EXISTS canonical_entity_links (
+    link_id TEXT PRIMARY KEY,
+    canonical_event_id TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    entity_name TEXT NOT NULL,
+    entity_type TEXT,
+    confidence REAL NOT NULL DEFAULT 0,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (canonical_event_id) REFERENCES canonical_events(canonical_event_id)
+)
+"""
+
+_DDL_RESEARCH_ARTIFACTS = """
+CREATE TABLE IF NOT EXISTS research_artifacts (
+    artifact_id TEXT PRIMARY KEY,
+    target_id TEXT NOT NULL,
+    artifact_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL DEFAULT '',
+    canonical_event_ids_json TEXT NOT NULL DEFAULT '[]',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
+_DDL_PROJECTION_RUNS = """
+CREATE TABLE IF NOT EXISTS projection_runs (
+    projection_run_id TEXT PRIMARY KEY,
+    target_id TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    input_events INTEGER NOT NULL DEFAULT 0,
+    canonical_events INTEGER NOT NULL DEFAULT 0,
+    mentions INTEGER NOT NULL DEFAULT 0,
+    auto_merged INTEGER NOT NULL DEFAULT 0,
+    needs_review INTEGER NOT NULL DEFAULT 0,
+    unprojectable INTEGER NOT NULL DEFAULT 0,
+    diagnostics_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
 # Schema 迁移 — 版本化 DDL 变更，确保已有数据库自动升级
 _DDL_SCHEMA_VERSION = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -231,6 +341,19 @@ _SCHEMA_MIGRATIONS: list[tuple[int, str, list[str]]] = [
             "ON alert_history(target_id, alert_key)",
         ],
     ),
+    (
+        6,
+        "create shadow canonical projection tables",
+        [
+            _DDL_CANONICAL_EVENTS,
+            _DDL_EVENT_MENTIONS,
+            _DDL_CANONICAL_EVENT_RELATIONS,
+            _DDL_TAXONOMY_ASSIGNMENTS,
+            _DDL_CANONICAL_ENTITY_LINKS,
+            _DDL_RESEARCH_ARTIFACTS,
+            _DDL_PROJECTION_RUNS,
+        ],
+    ),
 ]
 
 _DDL_INDEXES = (
@@ -253,6 +376,26 @@ _DDL_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_event_created ON event_index(created_at)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_history_key "
     "ON alert_history(target_id, alert_key)",
+    "CREATE INDEX IF NOT EXISTS idx_canonical_events_target_status_time "
+    "ON canonical_events(target_id, status, event_time)",
+    "CREATE INDEX IF NOT EXISTS idx_event_mentions_canonical ON event_mentions(canonical_event_id)",
+    "CREATE INDEX IF NOT EXISTS idx_event_mentions_target_event "
+    "ON event_mentions(target_id, event_id)",
+    "CREATE INDEX IF NOT EXISTS idx_event_mentions_url ON event_mentions(url)",
+    "CREATE INDEX IF NOT EXISTS idx_canonical_relations_source "
+    "ON canonical_event_relations(source_canonical_event_id)",
+    "CREATE INDEX IF NOT EXISTS idx_canonical_relations_target "
+    "ON canonical_event_relations(target_canonical_event_id)",
+    "CREATE INDEX IF NOT EXISTS idx_taxonomy_assignments_subject "
+    "ON taxonomy_assignments(subject_type, subject_id)",
+    "CREATE INDEX IF NOT EXISTS idx_taxonomy_assignments_target_value "
+    "ON taxonomy_assignments(target_id, taxonomy_level, taxonomy_value)",
+    "CREATE INDEX IF NOT EXISTS idx_canonical_entity_links_event "
+    "ON canonical_entity_links(canonical_event_id)",
+    "CREATE INDEX IF NOT EXISTS idx_research_artifacts_target_type "
+    "ON research_artifacts(target_id, artifact_type)",
+    "CREATE INDEX IF NOT EXISTS idx_projection_runs_target_created "
+    "ON projection_runs(target_id, created_at)",
 )
 
 __all__ = ["AsyncStore"]
@@ -327,6 +470,31 @@ class AsyncStore:
             await self._db.close()
             self._db = None
             logger.info("AsyncStore 连接已关闭: %s", self._db_path)
+
+    @asynccontextmanager
+    async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
+        """返回当前 AsyncStore 连接，供底层存储测试和内部查询复用。"""
+        if self._db is None:
+            await self.initialize()
+        assert self._db is not None
+        yield self._db
+
+    def _json_dumps(self, value: Any) -> str:  # noqa: ANN401
+        return json.dumps(value or {}, ensure_ascii=False, sort_keys=True)
+
+    def _json_loads(self, value: str | None) -> dict[str, Any]:
+        if not value:
+            return {}
+        try:
+            parsed = json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    def _row_with_metadata(self, columns: tuple[str, ...], row: Any) -> dict[str, Any]:  # noqa: ANN401
+        item = dict(zip(columns, row, strict=True))
+        item["metadata"] = self._json_loads(item.pop("metadata_json", None))
+        return item
 
     # ------------------------------------------------------------------
     # Known IDs
@@ -920,6 +1088,302 @@ class AsyncStore:
             "created_at",
         )
         return dict(zip(cols, row, strict=True))
+
+    # ------------------------------------------------------------------
+    # Shadow Canonical Store
+    # ------------------------------------------------------------------
+
+    async def upsert_canonical_event(self, row: dict[str, Any]) -> str:
+        """插入或更新 shadow canonical event，返回 canonical_event_id。"""
+        canonical_event_id = str(row["canonical_event_id"])
+        if self._db is None:
+            return canonical_event_id
+        await self._db.execute(
+            """INSERT INTO canonical_events
+               (canonical_event_id, target_id, title, summary, event_time,
+                status, confidence, metadata_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(canonical_event_id) DO UPDATE SET
+                   target_id = excluded.target_id,
+                   title = excluded.title,
+                   summary = excluded.summary,
+                   event_time = excluded.event_time,
+                   status = excluded.status,
+                   confidence = excluded.confidence,
+                   metadata_json = excluded.metadata_json,
+                   updated_at = CURRENT_TIMESTAMP""",
+            (
+                canonical_event_id,
+                row["target_id"],
+                row["title"],
+                row.get("summary", ""),
+                row.get("event_time"),
+                row.get("status", "active"),
+                row.get("confidence", 0),
+                self._json_dumps(row.get("metadata")),
+            ),
+        )
+        await self._db.commit()
+        return canonical_event_id
+
+    async def upsert_event_mention(self, row: dict[str, Any]) -> str:
+        """插入或更新 canonical event mention，返回 mention_id。"""
+        mention_id = str(row["mention_id"])
+        if self._db is None:
+            return mention_id
+        await self._db.execute(
+            """INSERT INTO event_mentions
+               (mention_id, canonical_event_id, event_id, target_id, source_id,
+                url, title, published_at, metadata_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(mention_id) DO UPDATE SET
+                   canonical_event_id = excluded.canonical_event_id,
+                   event_id = excluded.event_id,
+                   target_id = excluded.target_id,
+                   source_id = excluded.source_id,
+                   url = excluded.url,
+                   title = excluded.title,
+                   published_at = excluded.published_at,
+                   metadata_json = excluded.metadata_json,
+                   updated_at = CURRENT_TIMESTAMP""",
+            (
+                mention_id,
+                row["canonical_event_id"],
+                row["event_id"],
+                row["target_id"],
+                row.get("source_id"),
+                row.get("url"),
+                row["title"],
+                row.get("published_at"),
+                self._json_dumps(row.get("metadata")),
+            ),
+        )
+        await self._db.commit()
+        return mention_id
+
+    async def upsert_canonical_relation(self, row: dict[str, Any]) -> str:
+        """插入或更新 canonical event relation，返回 relation_id。"""
+        relation_id = str(row["relation_id"])
+        if self._db is None:
+            return relation_id
+        await self._db.execute(
+            """INSERT INTO canonical_event_relations
+               (relation_id, source_canonical_event_id, target_canonical_event_id,
+                relation_type, confidence, metadata_json)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(relation_id) DO UPDATE SET
+                   source_canonical_event_id = excluded.source_canonical_event_id,
+                   target_canonical_event_id = excluded.target_canonical_event_id,
+                   relation_type = excluded.relation_type,
+                   confidence = excluded.confidence,
+                   metadata_json = excluded.metadata_json,
+                   updated_at = CURRENT_TIMESTAMP""",
+            (
+                relation_id,
+                row["source_canonical_event_id"],
+                row["target_canonical_event_id"],
+                row["relation_type"],
+                row.get("confidence", 0),
+                self._json_dumps(row.get("metadata")),
+            ),
+        )
+        await self._db.commit()
+        return relation_id
+
+    async def upsert_taxonomy_assignment(self, row: dict[str, Any]) -> str:
+        """插入或更新 taxonomy assignment，返回 assignment_id。"""
+        assignment_id = str(row["assignment_id"])
+        if self._db is None:
+            return assignment_id
+        await self._db.execute(
+            """INSERT INTO taxonomy_assignments
+               (assignment_id, subject_type, subject_id, target_id, taxonomy_level,
+                taxonomy_value, confidence, source, metadata_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(assignment_id) DO UPDATE SET
+                   subject_type = excluded.subject_type,
+                   subject_id = excluded.subject_id,
+                   target_id = excluded.target_id,
+                   taxonomy_level = excluded.taxonomy_level,
+                   taxonomy_value = excluded.taxonomy_value,
+                   confidence = excluded.confidence,
+                   source = excluded.source,
+                   metadata_json = excluded.metadata_json,
+                   updated_at = CURRENT_TIMESTAMP""",
+            (
+                assignment_id,
+                row["subject_type"],
+                row["subject_id"],
+                row["target_id"],
+                row["taxonomy_level"],
+                row["taxonomy_value"],
+                row.get("confidence", 0),
+                row.get("source", "projection"),
+                self._json_dumps(row.get("metadata")),
+            ),
+        )
+        await self._db.commit()
+        return assignment_id
+
+    async def record_projection_run(self, row: dict[str, Any]) -> str:
+        """记录 shadow projection run，返回 projection_run_id。"""
+        projection_run_id = str(row["projection_run_id"])
+        if self._db is None:
+            return projection_run_id
+        await self._db.execute(
+            """INSERT INTO projection_runs
+               (projection_run_id, target_id, mode, input_events, canonical_events,
+                mentions, auto_merged, needs_review, unprojectable, diagnostics_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(projection_run_id) DO UPDATE SET
+                   target_id = excluded.target_id,
+                   mode = excluded.mode,
+                   input_events = excluded.input_events,
+                   canonical_events = excluded.canonical_events,
+                   mentions = excluded.mentions,
+                   auto_merged = excluded.auto_merged,
+                   needs_review = excluded.needs_review,
+                   unprojectable = excluded.unprojectable,
+                   diagnostics_json = excluded.diagnostics_json""",
+            (
+                projection_run_id,
+                row["target_id"],
+                row["mode"],
+                row.get("input_events", 0),
+                row.get("canonical_events", 0),
+                row.get("mentions", 0),
+                row.get("auto_merged", 0),
+                row.get("needs_review", 0),
+                row.get("unprojectable", 0),
+                self._json_dumps(row.get("diagnostics")),
+            ),
+        )
+        await self._db.commit()
+        return projection_run_id
+
+    async def list_canonical_events(
+        self,
+        *,
+        target_id: str,
+        limit: int = 50,
+        offset: int = 0,
+        status: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """列出 target 下的 canonical events。"""
+        if self._db is None:
+            return []
+        if status is not None:
+            rows = await self._db.execute_fetchall(
+                """SELECT canonical_event_id, target_id, title, summary, event_time, status,
+                          confidence, metadata_json, created_at, updated_at
+                   FROM canonical_events
+                   WHERE target_id = ? AND status = ?
+                   ORDER BY COALESCE(event_time, updated_at) DESC
+                   LIMIT ? OFFSET ?""",
+                (target_id, status, limit, offset),
+            )
+        else:
+            rows = await self._db.execute_fetchall(
+                """SELECT canonical_event_id, target_id, title, summary, event_time, status,
+                          confidence, metadata_json, created_at, updated_at
+                   FROM canonical_events
+                   WHERE target_id = ?
+                   ORDER BY COALESCE(event_time, updated_at) DESC
+                   LIMIT ? OFFSET ?""",
+                (target_id, limit, offset),
+            )
+        columns = (
+            "canonical_event_id",
+            "target_id",
+            "title",
+            "summary",
+            "event_time",
+            "status",
+            "confidence",
+            "metadata_json",
+            "created_at",
+            "updated_at",
+        )
+        return [self._row_with_metadata(columns, row) for row in rows]
+
+    async def get_canonical_event(self, canonical_event_id: str) -> dict[str, Any] | None:
+        """读取单个 canonical event。"""
+        if self._db is None:
+            return None
+        async with self._db.execute(
+            """SELECT canonical_event_id, target_id, title, summary, event_time, status,
+                      confidence, metadata_json, created_at, updated_at
+               FROM canonical_events
+               WHERE canonical_event_id = ?""",
+            (canonical_event_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        columns = (
+            "canonical_event_id",
+            "target_id",
+            "title",
+            "summary",
+            "event_time",
+            "status",
+            "confidence",
+            "metadata_json",
+            "created_at",
+            "updated_at",
+        )
+        return self._row_with_metadata(columns, row)
+
+    async def list_event_mentions(self, canonical_event_id: str) -> list[dict[str, Any]]:
+        """列出 canonical event 的 mentions。"""
+        if self._db is None:
+            return []
+        rows = await self._db.execute_fetchall(
+            """SELECT mention_id, canonical_event_id, event_id, target_id, source_id,
+                      url, title, published_at, metadata_json, created_at, updated_at
+               FROM event_mentions
+               WHERE canonical_event_id = ?
+               ORDER BY COALESCE(published_at, updated_at) DESC""",
+            (canonical_event_id,),
+        )
+        columns = (
+            "mention_id",
+            "canonical_event_id",
+            "event_id",
+            "target_id",
+            "source_id",
+            "url",
+            "title",
+            "published_at",
+            "metadata_json",
+            "created_at",
+            "updated_at",
+        )
+        return [self._row_with_metadata(columns, row) for row in rows]
+
+    async def list_canonical_relations(self, canonical_event_id: str) -> list[dict[str, Any]]:
+        """列出 source 或 target 匹配的 canonical event relations。"""
+        if self._db is None:
+            return []
+        rows = await self._db.execute_fetchall(
+            """SELECT relation_id, source_canonical_event_id, target_canonical_event_id,
+                      relation_type, confidence, metadata_json, created_at, updated_at
+               FROM canonical_event_relations
+               WHERE source_canonical_event_id = ? OR target_canonical_event_id = ?
+               ORDER BY updated_at DESC""",
+            (canonical_event_id, canonical_event_id),
+        )
+        columns = (
+            "relation_id",
+            "source_canonical_event_id",
+            "target_canonical_event_id",
+            "relation_type",
+            "confidence",
+            "metadata_json",
+            "created_at",
+            "updated_at",
+        )
+        return [self._row_with_metadata(columns, row) for row in rows]
 
     # ------------------------------------------------------------------
     # Entity Tracking (Phase 32)
