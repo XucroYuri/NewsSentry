@@ -562,10 +562,58 @@ class TestAsyncStoreIntegration:
             result = await store.query_events_paginated("italy", "drafts", limit=10)
             assert result["total"] == 1
             row = result["rows"][0]
-            assert row["classification_l0"] == "international"
+            assert row["classification_l0"] == "international-relations"
             assert row["file_path"] is not None
             assert Path(row["file_path"]).is_file()
             assert Path(row["file_path"]).name == "ne-italy-repubblica-20260528-51db8e48.md"
+        finally:
+            await store.close()
+
+    @pytest.mark.asyncio
+    async def test_output_async_indexes_canonical_classification_l0(self, tmp_path):
+        """输出索引应保存 canonical L0，而不是 legacy 分类别名。"""
+        from news_sentry.core.async_store import AsyncStore
+        from news_sentry.core.file_writer import FileWriter
+        from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+
+        target_dir = tmp_path / "italy"
+        file_writer = FileWriter(target_dir)
+        file_writer.ensure_dirs()
+        event = NewsEvent(
+            id="ne-italy-repubblica-20260528-economy001",
+            run_id="run-output-index-canonical",
+            source_id="repubblica",
+            url="https://example.com/economy",
+            title_original="Economia e mercati",
+            content_original="Body",
+            language=Language.IT,
+            published_at="2026-05-28T00:18:47+00:00",
+            collected_at="2026-05-28T00:20:00+00:00",
+            pipeline_stage=PipelineStage.JUDGED,
+            news_value_score=80,
+            metadata={"classification": {"l0": "economics"}},
+        )
+        file_writer.write_event(event)
+
+        store = AsyncStore(target_dir / "state.db")
+        await store.initialize()
+        config = MagicMock()
+        config.target_id = "italy"
+        config.output_root = tmp_path
+        config.output_destinations = {}
+
+        try:
+            await _run_output_async(
+                config=config,
+                run_id="run-output-index-canonical",
+                run_log=MagicMock(),
+                file_writer=file_writer,
+                ctx=MagicMock(),
+                store=store,
+            )
+            result = await store.query_events_paginated("italy", "drafts", limit=10)
+            row = result["rows"][0]
+            assert row["classification_l0"] == "economy"
         finally:
             await store.close()
 
