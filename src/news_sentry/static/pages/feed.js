@@ -3,9 +3,9 @@
  * Phase 73: 来源人格化 + 标签扁平化 + 多视图切换
  */
 
-import { state, api, escapeHtml, scoreColor, isAuthenticated } from "../api.js?v=20260527c";
-import { CHANNELS, filterGroups, countEvents, channelsWithCounts } from "./feed_filters.js?v=20260529b";
-import { adminEventHref, channelPortalHref, targetAnalysisHref, targetEventHref, targetPortalHref } from "./public_portal.js?v=20260527d";
+import { state, api, escapeHtml, scoreColor, isAuthenticated } from "../api.js";
+import { CHANNELS, filterGroups, countEvents, channelsWithCounts } from "./feed_filters.js";
+import { adminEventHref, channelPortalHref, targetAnalysisHref, targetEventHref, targetPortalHref } from "./public_portal.js";
 
 // ── 推荐标签映射 ──
 const REC_LABELS = {

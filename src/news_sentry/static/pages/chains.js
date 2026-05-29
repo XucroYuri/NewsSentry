@@ -5,7 +5,7 @@
 
 "use strict";
 
-import { state, api, apiPost, escapeHtml, formatDate, showSuccess, showError, scoreColor } from "../api.js?v=20260527c";
+import { state, api, apiPost, escapeHtml, formatDate, showSuccess, showError, scoreColor } from "../api.js";
 
 const LINK_TYPE_LABELS = {
   followup: "后续进展",

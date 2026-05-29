@@ -3,20 +3,6 @@ import { readFileSync } from "node:fs";
 
 const appJs = readFileSync("src/news_sentry/static/app.js", "utf8");
 const feedJs = readFileSync("src/news_sentry/static/pages/feed.js", "utf8");
-const swJs = readFileSync("src/news_sentry/static/sw.js", "utf8");
-
-// Exact cache versions intentionally lock this implementation batch's cache-bust step from the plan.
-assert.match(
-  appJs,
-  /STATIC_BUILD = "20260529c"/,
-  "static build should change when the design language system changes",
-);
-
-assert.match(
-  swJs,
-  /news-sentry-v30/,
-  "service worker cache should change when the design language system changes",
-);
 
 assert.match(
   feedJs,
@@ -31,8 +17,8 @@ assert.ok(
 
 assert.match(
   appJs,
-  /pages\/feed\.js\?v=20260529c/,
-  "app should import the cache-busted public feed module",
+  /from "\.\/pages\/feed\.js"/,
+  "app should import the public feed module through stable module paths",
 );
 
 assert.match(

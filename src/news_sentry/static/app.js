@@ -8,7 +8,7 @@ import {
   state, $, $$, api, apiPost, escapeHtml, showError, showSuccess, showInfo,
   t, isAuthenticated, hasPermission, authenticate, getConnection, clearConnection,
   isLocalApp, setConnection, logAction,
-} from "./api.js?v=20260527c";
+} from "./api.js";
 import {
   adminHashForLegacyRoute,
   isAdminLoginRoute,
@@ -17,23 +17,41 @@ import {
   normalizeAdminRoute,
   parseRouteHash,
   targetWorkbenchHashForLegacyRoute,
-} from "./router.js?v=20260527e";
-import { renderFeedTab, renderPublicHome } from "./pages/feed.js?v=20260529c";
-import { renderPublicAnalysis } from "./pages/public_analysis.js?v=20260527c";
-import { targetPortalHref } from "./pages/public_portal.js?v=20260527d";
-import { renderTargetsHome, renderTargetWorkbench } from "./pages/target_workbench.js?v=20260529d";
-import { renderManagementOverviewTab } from "./pages/dashboard.js?v=20260527e";
-import { renderEventsTab, renderEventDetail } from "./pages/events.js?v=20260527e";
-import { renderEntitiesTab, renderEntityDetail } from "./pages/entities.js?v=20260527b";
-import { renderChainsTab, renderChainDetail } from "./pages/chains.js?v=20260527b";
-import { renderTrendsTab } from "./pages/trends.js?v=20260527b";
-import { renderLiveAlertsTab, renderAlertHistoryTab } from "./pages/alerts.js?v=20260527e";
-import { renderRunStatusTab, renderCollectorTab, renderSourceHealthTab, renderRunHistoryTab, renderMaintenanceTab, renderOpsDetail } from "./pages/ops.js?v=20260529b";
-import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedback.js?v=20260527e";
-import { renderTargetTab, renderSourcesTab, renderFiltersTab, renderOutputsTab, renderAITab, renderWebhookTab, renderApiKeyTab } from "./pages/config.js?v=20260527g";
-import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab, renderThemeTab, renderBackupTab, initTheme } from "./pages/settings.js?v=20260527c";
+} from "./router.js";
+import { renderFeedTab, renderPublicHome } from "./pages/feed.js";
+import { renderPublicAnalysis } from "./pages/public_analysis.js";
+import { targetPortalHref } from "./pages/public_portal.js";
+import { renderTargetsHome, renderTargetWorkbench } from "./pages/target_workbench.js";
+import { renderManagementOverviewTab } from "./pages/dashboard.js";
+import { renderEventsTab, renderEventDetail } from "./pages/events.js";
+import { renderEntitiesTab, renderEntityDetail } from "./pages/entities.js";
+import { renderChainsTab, renderChainDetail } from "./pages/chains.js";
+import { renderTrendsTab } from "./pages/trends.js";
+import { renderLiveAlertsTab, renderAlertHistoryTab } from "./pages/alerts.js";
+import { renderRunStatusTab, renderCollectorTab, renderSourceHealthTab, renderRunHistoryTab, renderMaintenanceTab, renderOpsDetail } from "./pages/ops.js";
+import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedback.js";
+import { renderTargetTab, renderSourcesTab, renderFiltersTab, renderOutputsTab, renderAITab, renderWebhookTab, renderApiKeyTab } from "./pages/config.js";
+import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab, renderThemeTab, renderBackupTab, initTheme } from "./pages/settings.js";
 
-const STATIC_BUILD = "20260529c";
+const BUILD_MANIFEST_URL = "/build_manifest.json";
+let _staticBuildManifestPromise = null;
+
+async function readStaticBuildManifest() {
+  if (_staticBuildManifestPromise) return _staticBuildManifestPromise;
+  _staticBuildManifestPromise = fetch(`${BUILD_MANIFEST_URL}?t=${Date.now()}`, {
+    cache: "no-store",
+  })
+    .then((response) => {
+      if (!response.ok) throw new Error(`build manifest ${response.status}`);
+      return response.json();
+    })
+    .catch(() => ({
+      build: "development",
+      cacheName: "news-sentry-development",
+      assets: [],
+    }));
+  return _staticBuildManifestPromise;
+}
 
 // ═══════════════════════════════════════════════════════════
 // §1. 路由表
@@ -763,13 +781,15 @@ function _registerSW() {
 }
 
 async function ensureFreshStaticAssets() {
+  const manifest = await readStaticBuildManifest();
+  const staticBuild = manifest.build || "development";
   const storageKey = "ns_static_build";
   let previousBuild = "";
   try {
     previousBuild = localStorage.getItem(storageKey) || "";
   } catch {}
 
-  if (previousBuild === STATIC_BUILD) return false;
+  if (previousBuild === staticBuild) return false;
 
   try {
     if ("caches" in window) {
@@ -790,8 +810,8 @@ async function ensureFreshStaticAssets() {
   } catch {}
 
   try {
-    localStorage.setItem(storageKey, STATIC_BUILD);
-    const reloadKey = `ns_static_reload_${STATIC_BUILD}`;
+    localStorage.setItem(storageKey, staticBuild);
+    const reloadKey = `ns_static_reload_${staticBuild}`;
     if (sessionStorage.getItem(reloadKey) !== "1") {
       sessionStorage.setItem(reloadKey, "1");
       window.location.reload();

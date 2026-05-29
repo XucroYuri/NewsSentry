@@ -3,8 +3,8 @@
  */
 "use strict";
 
-import { state, api, escapeHtml } from "../api.js?v=20260527c";
-import { targetPortalHref } from "./public_portal.js?v=20260527d";
+import { state, api, escapeHtml } from "../api.js";
+import { targetPortalHref } from "./public_portal.js";
 
 const DAY_OPTIONS = [7, 14, 30];
 

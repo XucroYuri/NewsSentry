@@ -3,7 +3,7 @@
  */
 "use strict";
 
-import { api, apiDelete, apiPost, apiPut, escapeHtml, showError, showSuccess, hasPermission, formatDate, isLocalApp } from "../api.js?v=20260527c";
+import { api, apiDelete, apiPost, apiPut, escapeHtml, showError, showSuccess, hasPermission, formatDate, isLocalApp } from "../api.js";
 
 export async function renderPasswordTab(container) {
   if (isLocalApp()) {

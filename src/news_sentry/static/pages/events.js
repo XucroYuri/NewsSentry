@@ -5,8 +5,8 @@
 
 "use strict";
 
-import { state, api, apiPost, escapeHtml, showError, showSuccess, formatDate, scoreColor, scoreGradient, scoreBar, sentimentColor, sentimentPct, sentimentGradient, sentimentLabelColor, sentimentDotHtml, entityChipsHtml, copyToClipboard, logAction, emptyStateHtml, isAuthenticated } from "../api.js?v=20260527c";
-import { adminEventHref, allowEventAdminControls, targetPortalHref } from "./public_portal.js?v=20260527d";
+import { state, api, apiPost, escapeHtml, showError, showSuccess, formatDate, scoreColor, scoreGradient, scoreBar, sentimentColor, sentimentPct, sentimentGradient, sentimentLabelColor, sentimentDotHtml, entityChipsHtml, copyToClipboard, logAction, emptyStateHtml, isAuthenticated } from "../api.js";
+import { adminEventHref, allowEventAdminControls, targetPortalHref } from "./public_portal.js";
 
 const LINK_TYPE_LABELS = { followup: "后续进展", related: "相关", same_event: "同一事件", correction: "纠正" };
 const LINK_TYPE_COLORS = { followup: "#3b82f6", related: "#6b7280", same_event: "#10b981", correction: "#ef4444" };

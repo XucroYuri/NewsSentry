@@ -1,35 +1,35 @@
-/* News Sentry — Service Worker v6 */
+/* News Sentry — Service Worker v7 */
 "use strict";
 
-const CACHE_NAME = "news-sentry-v33";
-const STATIC_URLS = [
-  "/",
-  "/index.html",
-  "/manifest.json",
-  "/icons/icon-192.svg",
-  "/icons/icon-512.svg",
-  "/app.js?v=20260529e",
-  "/api.js?v=20260527c",
-  "/style.css?v=20260529c",
-  "/public.css?v=20260527d",
-  "/router.js?v=20260527e",
-  "/pages/public_portal.js?v=20260527d",
-  "/pages/public_analysis.js?v=20260527c",
-  "/pages/feed.js?v=20260529c",
-  "/pages/target_workbench.js?v=20260529d",
-  "/pages/feed_filters.js?v=20260529b",
-  "/pages/dashboard.js?v=20260527e",
-  "/pages/events.js?v=20260527e",
-  "/pages/entities.js?v=20260527b",
-  "/pages/alerts.js?v=20260527e",
-  "/pages/chains.js?v=20260527b",
-  "/pages/ops.js?v=20260529b",
-  "/pages/feedback.js?v=20260527e",
-  "/pages/config.js?v=20260527g",
-  "/pages/settings.js?v=20260527c",
-  "/pages/trends.js?v=20260527b",
-  "https://cdn.jsdelivr.net/npm/chart.js@4",
-];
+const BUILD_MANIFEST_URL = "/build_manifest.json";
+const FALLBACK_MANIFEST = {
+  build: "development",
+  cacheName: "news-sentry-development",
+  assets: ["/", "/index.html", "/app.js", "/style.css", "/public.css"],
+};
+let _buildManifestPromise = null;
+
+async function loadBuildManifest() {
+  if (_buildManifestPromise) return _buildManifestPromise;
+  _buildManifestPromise = fetch(`${BUILD_MANIFEST_URL}?t=${Date.now()}`, { cache: "no-store" })
+    .then((response) => {
+      if (!response.ok) throw new Error(`build manifest ${response.status}`);
+      return response.json();
+    })
+    .then((manifest) => {
+      const build = manifest.build || FALLBACK_MANIFEST.build;
+      const assets = Array.isArray(manifest.assets) && manifest.assets.length
+        ? manifest.assets
+        : FALLBACK_MANIFEST.assets;
+      return {
+        build,
+        cacheName: manifest.cacheName || `news-sentry-${build}`,
+        assets,
+      };
+    })
+    .catch(() => FALLBACK_MANIFEST);
+  return _buildManifestPromise;
+}
 
 /* 离线 fallback 页面 */
 const OFFLINE_HTML = `<!DOCTYPE html>
@@ -46,10 +46,10 @@ button:hover{background:#2563eb}</style></head>
 /* 安装：预缓存静态资源 */
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
+    loadBuildManifest().then((manifest) => caches.open(manifest.cacheName).then((cache) => {
       // Chart.js CDN 可能失败，不影响主应用
-      return cache.addAll(STATIC_URLS).catch(() => {});
-    }),
+      return cache.addAll(manifest.assets).catch(() => {});
+    })),
   );
   self.skipWaiting();
 });
@@ -57,11 +57,13 @@ self.addEventListener("install", (event) => {
 /* 激活：清理旧缓存 */
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((names) =>
-      Promise.all(
-        names
-          .filter((n) => n !== CACHE_NAME)
-          .map((n) => caches.delete(n)),
+    loadBuildManifest().then((manifest) =>
+      caches.keys().then((names) =>
+        Promise.all(
+          names
+            .filter((n) => n.startsWith("news-sentry-") && n !== manifest.cacheName)
+            .map((n) => caches.delete(n)),
+        ),
       ),
     ),
   );
@@ -96,7 +98,8 @@ async function navigationFallback(request) {
   try {
     const resp = await fetch(request);
     if (resp.ok) {
-      const cache = await caches.open(CACHE_NAME);
+      const manifest = await loadBuildManifest();
+      const cache = await caches.open(manifest.cacheName);
       cache.put(request, resp.clone());
     }
     return resp;
@@ -116,7 +119,8 @@ async function cacheFirst(request) {
   try {
     const resp = await fetch(request);
     if (resp.ok) {
-      const cache = await caches.open(CACHE_NAME);
+      const manifest = await loadBuildManifest();
+      const cache = await caches.open(manifest.cacheName);
       cache.put(request, resp.clone());
     }
     return resp;
@@ -133,7 +137,8 @@ async function networkFirst(request) {
   try {
     const resp = await fetch(request);
     if (resp.ok && resp.type === "basic") {
-      const cache = await caches.open(CACHE_NAME);
+      const manifest = await loadBuildManifest();
+      const cache = await caches.open(manifest.cacheName);
       cache.put(request, resp.clone());
     }
     return resp;

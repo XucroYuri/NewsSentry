@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const source = readFileSync("src/news_sentry/static/pages/target_workbench.js", "utf8")
-  .replace(/import\s*\{[\s\S]*?\}\s*from\s+["']\.\.\/api\.js\?v=[^"']+["'];/, `
+  .replace(/import\s*\{[\s\S]*?\}\s*from\s+["']\.\.\/api\.js(?:\?v=[^"']+)?["'];/, `
 const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;")
   .replaceAll("<", "&lt;")

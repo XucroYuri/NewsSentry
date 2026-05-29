@@ -13,7 +13,7 @@ import {
   showInfo,
   showSuccess,
   state,
-} from "../api.js?v=20260527c";
+} from "../api.js";
 
 const TARGET_TABS = [
   { id: "overview", label: "总览" },
