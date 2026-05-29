@@ -22,6 +22,7 @@ import httpx
 
 from news_sentry.core.ratelimit import RateLimiter
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+from news_sentry.skills.collect.language_utils import coerce_language
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,7 @@ class RSSCollector:
         self._target_id: str = config["target_id"]
         self._source_id: str = config["source_id"]
         self._url: str = config.get("url", "") or ""
+        self._language: Language = coerce_language(config.get("language"))
         self._timeout: float = float(config.get("timeout_seconds", 30))
         self._max_items: int = int(config.get("max_items_per_run", 50))
         # 注册当前源的速率限制间隔
@@ -256,7 +258,7 @@ class RSSCollector:
             url=url,
             title_original=title,
             content_original=content,
-            language=Language.IT,
+            language=self._language,
             published_at=published_at,
             collected_at=collected_at,
             pipeline_stage=PipelineStage.COLLECTED,

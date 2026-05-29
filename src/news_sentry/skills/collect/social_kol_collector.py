@@ -15,6 +15,7 @@ from typing import Any
 from news_sentry.core.sandbox import SandboxEnforcer, SandboxViolationError
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
 from news_sentry.skills.collect.browser_fallback import BrowserFallback
+from news_sentry.skills.collect.language_utils import coerce_language
 
 _log = logging.getLogger(__name__)
 
@@ -76,6 +77,8 @@ class SocialKOLCollector:
         self._config = config or {}
         self._fallback = fallback or BrowserFallback(config or {})
 
+        self._target_id: str = self._config.get("target_id", "social")
+        self._language: Language = coerce_language(self._config.get("language"))
         self.platform: str = self._config.get("platform", "unknown")
         self.dimension: str = self._config.get("dimension", "unknown")
         self.session_profile_ref: str = self._config.get("session_profile_ref", "")
@@ -217,13 +220,13 @@ class SocialKOLCollector:
         """
         collected_at = datetime.now(UTC).isoformat()
         event = NewsEvent(
-            id=NewsEvent.make_id("kol", "twitter", f"trends/{locale}", collected_at),
+            id=NewsEvent.make_id(self._target_id, "twitter", f"trends/{locale}", collected_at),
             run_id=context or "kol-twitter",
             source_id="twitter",
             url=f"https://twitter.com/explore/tabs/trends?locale={locale}",
             title_original=f"Twitter Trends: {locale}",
             content_original="",
-            language=Language.IT,
+            language=self._language,
             published_at=collected_at,
             collected_at=collected_at,
             pipeline_stage=PipelineStage.COLLECTED,
@@ -377,13 +380,13 @@ class SocialKOLCollector:
         """构造采集阶段的 NewsEvent。"""
         collected_at = datetime.now(UTC).isoformat()
         return NewsEvent(
-            id=NewsEvent.make_id("social", self.platform, url, collected_at),
+            id=NewsEvent.make_id(self._target_id, self.platform, url, collected_at),
             run_id=run_id,
             source_id=source_id,
             url=url,
             title_original=title,
             content_original=content,
-            language=Language.IT,
+            language=self._language,
             published_at=collected_at,
             collected_at=collected_at,
             pipeline_stage=PipelineStage.COLLECTED,

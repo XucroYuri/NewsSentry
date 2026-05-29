@@ -27,6 +27,7 @@ def _make_minimal_config(**overrides) -> dict:
         "display_name": "测试源",
         "type": "rss",
         "url": "https://example.com/rss",
+        "language": "it",
         "credibility_base": 0.8,
         "fetch_interval_minutes": 15,
         "max_items_per_run": 50,
@@ -227,6 +228,20 @@ class TestCollect:
             or "+00:00" in event.collected_at
         )
         assert has_collected_tz
+
+    def test_entry_uses_configured_language(self):
+        config = _make_minimal_config(language="de")
+        collector = RSSCollector(config, None)
+
+        entry = _build_rss_entry(
+            title="Bundestag News",
+            link="https://example.de/news/1",
+            summary="German source content.",
+        )
+
+        event = collector._entry_to_event(entry, "run-001", "German Feed")
+
+        assert str(event.language) == "de"
 
     def test_id_format(self):
         config = _make_minimal_config(source_id="ansa")

@@ -37,6 +37,7 @@ def source_config() -> dict:
     return {
         "source_id": "hackernews-top",
         "target_id": "italy",
+        "language": "en",
         "type": "opencli",
         "tool_ref": "opencli.hackernews.top",
         "validated_args": {"n": 5},
@@ -247,6 +248,59 @@ class TestCollectProducesNewsEvents:
         assert len(events) == 1
         assert "OpenCLI output:" in events[0].title_original
         assert events[0].content_original == "not valid json {{{"
+
+    @mock.patch("subprocess.run")
+    @mock.patch("news_sentry.adapters.tools.opencli.SandboxEnforcer")
+    def test_collect_fallback_text_uses_configured_target_id_and_language(
+        self,
+        mock_sandbox_class: mock.Mock,
+        mock_run: mock.Mock,
+        source_config: dict,
+        tmp_manifest: Path,
+    ) -> None:
+        mock_sandbox = mock_sandbox_class.return_value
+        mock_sandbox.check_tool_allowed.return_value = True
+        mock_run.return_value = mock.Mock(returncode=0, stdout="plain output", stderr="")
+
+        source_config = {**source_config, "target_id": "france", "language": "fr"}
+        adapter = OpenCLIToolAdapter(
+            manifest_path=str(tmp_manifest),
+            sandbox_enforcer=mock_sandbox,
+        )
+        collector = OpenCLICollector(source_config, adapter, sandbox_enforcer=mock_sandbox)
+
+        events = collector.collect("test-run-fr")
+
+        assert len(events) == 1
+        assert events[0].id.startswith("ne-france-hackernews-top-")
+        assert str(events[0].language) == "fr"
+
+    @mock.patch("subprocess.run")
+    @mock.patch("news_sentry.adapters.tools.opencli.SandboxEnforcer")
+    def test_collect_json_uses_configured_target_id_and_language(
+        self,
+        mock_sandbox_class: mock.Mock,
+        mock_run: mock.Mock,
+        source_config: dict,
+        sample_news_json: str,
+        tmp_manifest: Path,
+    ) -> None:
+        mock_sandbox = mock_sandbox_class.return_value
+        mock_sandbox.check_tool_allowed.return_value = True
+        mock_run.return_value = mock.Mock(returncode=0, stdout=sample_news_json, stderr="")
+
+        source_config = {**source_config, "target_id": "germany", "language": "de"}
+        adapter = OpenCLIToolAdapter(
+            manifest_path=str(tmp_manifest),
+            sandbox_enforcer=mock_sandbox,
+        )
+        collector = OpenCLICollector(source_config, adapter, sandbox_enforcer=mock_sandbox)
+
+        events = collector.collect("test-run-de")
+
+        assert events
+        assert all(event.id.startswith("ne-germany-") for event in events)
+        assert {str(event.language) for event in events} == {"de"}
 
 
 class TestCollectNewsEventMetadata:

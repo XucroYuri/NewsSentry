@@ -388,14 +388,15 @@ class TestCollect:
         event_zh = collector._item_to_event(item_zh, "run-001")
         assert event_zh.language == Language.ZH
 
-        # 未知语言 → MIXED
-        item_unknown = _make_mock_api_item(
-            title="Notizie",
-            url="https://example.com/1",
-            language="fr",
-        )
-        event_unknown = collector._item_to_event(item_unknown, "run-001")
-        assert event_unknown.language == Language.MIXED
+        # 法语/德语/日语 target 语言应真实保留
+        for lang in ["fr", "de", "ja"]:
+            item = _make_mock_api_item(
+                title=f"News {lang}",
+                url=f"https://example.com/{lang}",
+                language=lang,
+            )
+            event = collector._item_to_event(item, "run-001")
+            assert str(event.language) == lang
 
     def test_item_to_event_language_detection_via_lang_field(self):
         """验证通过 lang 字段检测语言（无 language 字段）。"""
@@ -414,8 +415,8 @@ class TestCollect:
         assert event.language == Language.EN
 
     def test_item_to_event_language_mixed_when_no_lang_fields(self):
-        """无语言字段时默认为 MIXED。"""
-        config = _make_minimal_config()
+        """无语言字段时使用 source/target 配置语言。"""
+        config = _make_minimal_config(language="ja")
         collector = APICollector(config, None)
 
         item = {
@@ -424,7 +425,7 @@ class TestCollect:
             "id": "no-lang",
         }
         event = collector._item_to_event(item, "run-001")
-        assert event.language == Language.MIXED
+        assert str(event.language) == "ja"
 
     def test_item_to_event_language_via_api_mapping(self):
         """通过 api_mapping 指定语言字段名。"""
