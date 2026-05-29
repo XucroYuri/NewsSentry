@@ -128,7 +128,59 @@ async def test_projection_duplicate_url_group_reports_auto_merge(store: AsyncSto
 
 
 @pytest.mark.asyncio
-async def test_projection_title_fallback_uses_full_published_at(store: AsyncStore):
+async def test_projection_missing_url_duplicate_title_never_auto_merges(store: AsyncStore):
+    await _insert_event_index_row(
+        store,
+        event_id="it_no_url_001",
+        title="Same wire headline",
+        url="",
+        published_at="2026-05-30T08:00:00Z",
+    )
+    await _insert_event_index_row(
+        store,
+        event_id="it_no_url_002",
+        title="Same wire headline",
+        url="   ",
+        published_at="2026-05-30T08:00:00Z",
+    )
+
+    diagnostics = await CanonicalProjectionService(store).project(
+        ProjectionOptions(target_id="italy", apply=False)
+    )
+
+    assert diagnostics.input_events == 2
+    assert diagnostics.canonical_events == 2
+    assert diagnostics.mentions == 2
+    assert diagnostics.auto_merged == 0
+    assert diagnostics.needs_review == 2
+    assert diagnostics.review_samples == [
+        {
+            "event_id": "it_no_url_001",
+            "reason": "missing_url_low_confidence_group",
+            "title": "Same wire headline",
+        },
+        {
+            "event_id": "it_no_url_002",
+            "reason": "missing_url_low_confidence_group",
+            "title": "Same wire headline",
+        },
+    ]
+
+    await CanonicalProjectionService(store).project(
+        ProjectionOptions(
+            target_id="italy",
+            apply=True,
+            projection_run_id="projection_test_missing_url_no_merge",
+        )
+    )
+    events = await store.list_canonical_events(target_id="italy", limit=20)
+
+    assert len(events) == 2
+    assert {event["confidence"] for event in events} == {72.0}
+
+
+@pytest.mark.asyncio
+async def test_projection_missing_url_different_times_never_auto_merges(store: AsyncStore):
     await _insert_event_index_row(
         store,
         event_id="it_001",
