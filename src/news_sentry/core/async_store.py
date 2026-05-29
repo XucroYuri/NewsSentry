@@ -820,7 +820,6 @@ class AsyncStore:
 
     async def list_event_index_rows_for_projection(
         self,
-        *,
         target_id: str,
         limit: int = 500,
         since: str | None = None,
