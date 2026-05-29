@@ -180,6 +180,59 @@ async def test_projection_missing_url_duplicate_title_never_auto_merges(store: A
 
 
 @pytest.mark.asyncio
+async def test_projection_missing_url_blank_title_uses_event_key_for_review(store: AsyncStore):
+    await _insert_event_index_row(
+        store,
+        event_id="it_blank_url_title_001",
+        url="",
+        title="   ",
+        published_at="2026-05-30T08:00:00Z",
+    )
+    await _insert_event_index_row(
+        store,
+        event_id="it_blank_url_title_002",
+        url="   ",
+        title="",
+        published_at="2026-05-30T08:00:00Z",
+    )
+
+    diagnostics = await CanonicalProjectionService(store).project(
+        ProjectionOptions(target_id="italy", apply=False)
+    )
+
+    assert diagnostics.input_events == 2
+    assert diagnostics.canonical_events == 2
+    assert diagnostics.mentions == 2
+    assert diagnostics.auto_merged == 0
+    assert diagnostics.needs_review == 2
+    assert diagnostics.unprojectable == 0
+    assert diagnostics.review_samples == [
+        {
+            "event_id": "it_blank_url_title_001",
+            "reason": "missing_url_low_confidence_group",
+            "title": "it_blank_url_title_001",
+        },
+        {
+            "event_id": "it_blank_url_title_002",
+            "reason": "missing_url_low_confidence_group",
+            "title": "it_blank_url_title_002",
+        },
+    ]
+
+    await CanonicalProjectionService(store).project(
+        ProjectionOptions(
+            target_id="italy",
+            apply=True,
+            projection_run_id="projection_test_blank_url_title",
+        )
+    )
+    events = await store.list_canonical_events(target_id="italy", limit=20)
+
+    assert len(events) == 2
+    assert {event["confidence"] for event in events} == {72.0}
+
+
+@pytest.mark.asyncio
 async def test_projection_missing_url_different_times_never_auto_merges(store: AsyncStore):
     await _insert_event_index_row(
         store,
