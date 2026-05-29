@@ -45,6 +45,7 @@ from pydantic import BaseModel, BeforeValidator, Field
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.auth import hash_password, verify_password
 from news_sentry.core.config_cache import ConfigCache
+from news_sentry.core.source_inventory import SourceInventoryService
 from news_sentry.skills.filter.classification_taxonomy import (
     canonical_l0,
     l0_query_values,
@@ -4080,13 +4081,14 @@ def create_app(
     ) -> dict[str, Any]:
         """单个 target 工作台总览。"""
         target_data = _ensure_target_exists(target_id)
-        sources = [
-            source for source in _load_source_configs(target_id) if _source_is_standard(source)
+        inventory = SourceInventoryService(Path.cwd(), _data_dir).build_target_inventory(target_id)
+        inventory_summary = inventory["summary"]
+        inventory_sources = inventory["sources"]
+        standard_inventory_sources = [
+            item
+            for item in inventory_sources
+            if item.get("type") in {"rss", "api", "opencli"} and not item.get("missing_file")
         ]
-        social_dimensions = _social_dimensions(target_id)
-        source_archived = sum(1 for source in sources if _source_is_archived(source))
-        social_accounts = sum(len(item.get("accounts", [])) for item in social_dimensions)
-        social_archived = sum(item.get("archived_count", 0) for item in social_dimensions)
         target_info = await _target_info_from_config_for_response(target_data, _data_dir)
         target_store = await _get_target_store(target_id)
         events: list[dict[str, Any]] = []
@@ -4109,14 +4111,20 @@ def create_app(
             "target": target_info.model_dump(),
             "profile": target_data,
             "sources": {
-                "total": len(sources),
-                "active": len(sources) - source_archived,
-                "archived": source_archived,
+                "total": inventory_summary["standard_sources"],
+                "active": sum(1 for item in standard_inventory_sources if not item["archived"]),
+                "archived": sum(1 for item in standard_inventory_sources if item["archived"]),
+                "missing_refs": inventory_summary["missing_refs"],
+                "unreferenced_files": inventory_summary["unreferenced_files"],
             },
             "social": {
-                "dimensions": len(social_dimensions),
-                "accounts": social_accounts,
-                "archived_accounts": social_archived,
+                "dimensions": inventory_summary["social_dimensions"],
+                "accounts": inventory_summary["social_accounts"],
+                "archived_accounts": sum(
+                    int(item.get("archived_account_count") or 0)
+                    for item in inventory_sources
+                    if item.get("type") == "social"
+                ),
             },
             "events": {"total": target_info.event_count},
             "classification_diagnostics": classification_diagnostics,
@@ -4132,6 +4140,15 @@ def create_app(
     ) -> dict[str, Any]:
         """预检 target 配置链路。"""
         return _validate_target_config(target_id)
+
+    @app.get("/api/v1/admin/targets/{target_id}/inventory")
+    async def admin_target_inventory(
+        target_id: str,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """返回 target 信源统一对账视图。"""
+        _ensure_target_exists(target_id)
+        return SourceInventoryService(Path.cwd(), _data_dir).build_target_inventory(target_id)
 
     @app.get("/api/v1/admin/targets/{target_id}/sources")
     async def list_admin_target_sources(

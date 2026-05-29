@@ -3940,6 +3940,7 @@ class TestTargetLifecycleWorkbenchAPI:
         for method, path in [
             ("GET", "/api/v1/admin/targets"),
             ("GET", "/api/v1/admin/targets/italy/overview"),
+            ("GET", "/api/v1/admin/targets/italy/inventory"),
             ("GET", "/api/v1/admin/targets/italy/sources"),
             ("GET", "/api/v1/admin/targets/italy/social"),
             ("POST", "/api/v1/admin/targets/italy/validate"),
@@ -4034,6 +4035,52 @@ class TestTargetLifecycleWorkbenchAPI:
         diagnostics = resp.json()["classification_diagnostics"]
         assert diagnostics["distribution"]["international-relations"] == 1
         assert diagnostics["uncategorized_count"] == 0
+
+    def test_admin_target_inventory_reports_source_drift(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = self._setup_target_tree(tmp_path, monkeypatch)
+        target_path = tmp_path / "config" / "targets" / "italy.yaml"
+        target_data = yaml.safe_load(target_path.read_text(encoding="utf-8"))
+        target_data["source_channel_refs"].append("missing-source")
+        self._write_yaml(target_path, target_data)
+        self._write_yaml(
+            tmp_path / "config" / "sources" / "italy" / "orphan.yaml",
+            {
+                "source_id": "orphan",
+                "display_name": "Orphan",
+                "type": "rss",
+                "url": "https://example.com/orphan.xml",
+                "enabled": True,
+            },
+        )
+        self._write_yaml(
+            tmp_path / "italy" / "memory" / "source_health.yaml",
+            {
+                "ansa": {
+                    "last_success_at": "2026-05-29T00:00:00+00:00",
+                    "total_runs": 1,
+                },
+                "ghost": {
+                    "consecutive_failures": 11,
+                    "total_runs": 11,
+                    "total_failures": 11,
+                },
+            },
+        )
+
+        resp = client.get("/api/v1/admin/targets/italy/inventory")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["summary"]["missing_refs"] == 1
+        assert data["summary"]["unreferenced_files"] == 1
+        assert data["summary"]["health_unmatched"] == 1
+        by_ref = {item["source_ref"]: item for item in data["sources"]}
+        assert by_ref["missing-source"]["missing_file"] is True
+        assert by_ref["orphan"]["unreferenced"] is True
+        assert by_ref["ansa"]["health"]["status"] == "healthy"
+        assert data["diagnostics"]["unmatched_health"][0]["source_id"] == "ghost"
 
     @pytest.mark.parametrize(
         ("method", "path", "json_body"),
