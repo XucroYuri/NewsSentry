@@ -1,0 +1,28 @@
+{
+  "build": "20260529f",
+  "cacheName": "news-sentry-20260529f",
+  "assets": [
+    "/",
+    "/index.html",
+    "/build_manifest.json",
+    "/manifest.json",
+    "/icons/icon-192.svg",
+    "/icons/icon-512.svg",
+    "/app.js",
+    "/api.js",
+    "/style.css",
+    "/sw.js",
+    "/pages/feed.js",
+    "/pages/dashboard.js",
+    "/pages/events.js",
+    "/pages/entities.js",
+    "/pages/alerts.js",
+    "/pages/chains.js",
+    "/pages/ops.js",
+    "/pages/feedback.js",
+    "/pages/config.js",
+    "/pages/settings.js",
+    "/pages/trends.js",
+    "https://cdn.jsdelivr.net/npm/chart.js@4"
+  ]
+}

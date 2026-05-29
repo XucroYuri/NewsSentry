@@ -1,27 +1,35 @@
-/* News Sentry — Service Worker v2 */
+/* News Sentry — Service Worker v3 */
 "use strict";
 
-const CACHE = "news-sentry-v3";
-const STATIC_URLS = [
-  "/",
-  "/index.html",
-  "/app.js",
-  "/api.js",
-  "/style.css",
-  "/manifest.json",
-  "/icons/icon-192.svg",
-  "/icons/icon-512.svg",
-  "/pages/dashboard.js",
-  "/pages/events.js",
-  "/pages/alerts.js",
-  "/pages/chains.js",
-  "/pages/ops.js",
-  "/pages/feedback.js",
-  "/pages/config.js",
-  "/pages/settings.js",
-  "/pages/trends.js",
-  "https://cdn.jsdelivr.net/npm/chart.js@4",
-];
+const BUILD_MANIFEST_URL = "/build_manifest.json";
+const FALLBACK_MANIFEST = {
+  build: "development",
+  cacheName: "news-sentry-development",
+  assets: ["/", "/index.html", "/app.js", "/api.js", "/style.css"],
+};
+let _buildManifestPromise = null;
+
+async function loadBuildManifest() {
+  if (_buildManifestPromise) return _buildManifestPromise;
+  _buildManifestPromise = fetch(`${BUILD_MANIFEST_URL}?t=${Date.now()}`, { cache: "no-store" })
+    .then((response) => {
+      if (!response.ok) throw new Error(`build manifest ${response.status}`);
+      return response.json();
+    })
+    .then((manifest) => {
+      const build = manifest.build || FALLBACK_MANIFEST.build;
+      const assets = Array.isArray(manifest.assets) && manifest.assets.length
+        ? manifest.assets
+        : FALLBACK_MANIFEST.assets;
+      return {
+        build,
+        cacheName: manifest.cacheName || `news-sentry-${build}`,
+        assets,
+      };
+    })
+    .catch(() => FALLBACK_MANIFEST);
+  return _buildManifestPromise;
+}
 
 /* 离线 fallback 页面 */
 const OFFLINE_HTML = `<!DOCTYPE html>
@@ -38,10 +46,10 @@ button:hover{background:#2563eb}</style></head>
 /* 安装：预缓存静态资源 */
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => {
+    loadBuildManifest().then((manifest) => caches.open(manifest.cacheName).then((cache) => {
       // Chart.js CDN 可能失败，不影响主应用
-      return cache.addAll(STATIC_URLS).catch(() => {});
-    }),
+      return cache.addAll(manifest.assets).catch(() => {});
+    })),
   );
   self.skipWaiting();
 });
@@ -49,11 +57,13 @@ self.addEventListener("install", (event) => {
 /* 激活：清理旧缓存 */
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((names) =>
-      Promise.all(
-        names
-          .filter((n) => n !== CACHE)
-          .map((n) => caches.delete(n)),
+    loadBuildManifest().then((manifest) =>
+      caches.keys().then((names) =>
+        Promise.all(
+          names
+            .filter((name) => name.startsWith("news-sentry-") && name !== manifest.cacheName)
+            .map((name) => caches.delete(name)),
+        ),
       ),
     ),
   );
@@ -78,11 +88,16 @@ self.addEventListener("fetch", (event) => {
   }
 });
 
+async function openStaticCache() {
+  const manifest = await loadBuildManifest();
+  return caches.open(manifest.cacheName);
+}
+
 async function navigationFallback(request) {
   try {
     const resp = await fetch(request);
     if (resp.ok) {
-      const cache = await caches.open(CACHE);
+      const cache = await openStaticCache();
       cache.put(request, resp.clone());
     }
     return resp;
@@ -102,7 +117,7 @@ async function cacheFirst(request) {
   try {
     const resp = await fetch(request);
     if (resp.ok) {
-      const cache = await caches.open(CACHE);
+      const cache = await openStaticCache();
       cache.put(request, resp.clone());
     }
     return resp;
@@ -117,7 +132,7 @@ async function networkFirst(request) {
   try {
     const resp = await fetch(request);
     if (resp.ok && resp.type === "basic") {
-      const cache = await caches.open(CACHE);
+      const cache = await openStaticCache();
       cache.put(request, resp.clone());
     }
     return resp;
