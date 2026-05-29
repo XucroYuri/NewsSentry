@@ -1682,6 +1682,53 @@ async def test_list_event_index_rows_for_projection_filters_by_target(store: Asy
 
 
 @pytest.mark.asyncio
+async def test_list_event_index_rows_for_projection_normalizes_since_and_limit(
+    store: AsyncStore,
+):
+    async with store._connect() as conn:
+        await conn.execute(
+            """
+            INSERT INTO event_index (
+                event_id, target_id, source_id, title_original, url, published_at,
+                stage, news_value_score, china_relevance, classification_l0,
+                metadata_json, file_path, created_at
+            ) VALUES
+            (
+                'it_space_time', 'italy', 'ansa', 'Space timestamp',
+                'https://example.com/space', NULL, 'judged', 82, 12, 'politics',
+                '{}', 'drafts/it_space_time.md', '2026-05-30 08:00:00'
+            ),
+            (
+                'it_later', 'italy', 'ansa', 'Later timestamp',
+                'https://example.com/later', NULL, 'judged', 81, 10, 'economics',
+                '{}', 'drafts/it_later.md', '2026-05-30 09:00:00'
+            ),
+            (
+                'it_old', 'italy', 'ansa', 'Old timestamp',
+                'https://example.com/old', NULL, 'judged', 80, 8, 'economics',
+                '{}', 'drafts/it_old.md', '2026-05-29 23:59:59'
+            )
+            """
+        )
+        await conn.commit()
+
+    rows = await store.list_event_index_rows_for_projection(
+        target_id="italy",
+        since="2026-05-30T00:00:00Z",
+        limit=20,
+    )
+    limited_rows = await store.list_event_index_rows_for_projection(
+        target_id="italy",
+        since="2026-05-30T00:00:00Z",
+        limit=-1,
+    )
+
+    assert {row["event_id"] for row in rows} == {"it_later", "it_space_time"}
+    assert len(limited_rows) == 1
+    assert limited_rows[0]["event_id"] == "it_later"
+
+
+@pytest.mark.asyncio
 async def test_upsert_canonical_event_is_idempotent(store: AsyncStore):
     payload = {
         "canonical_event_id": "ce_italy_001",

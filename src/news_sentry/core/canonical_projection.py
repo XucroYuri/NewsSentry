@@ -13,22 +13,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from news_sentry.core.async_store import AsyncStore
-
-LEGACY_L0_TO_CANONICAL = {
-    "economics": "economy",
-    "international": "international-relations",
-    "international_relations": "international-relations",
-    "international-relations": "international-relations",
-    "culture_society": "society",
-    "culture-society": "society",
-    "environment_energy": "environment-energy",
-    "environment-energy": "environment-energy",
-    "politics": "politics",
-    "security": "security",
-    "tech": "technology",
-    "technology": "technology",
-    "uncategorized": "uncategorized",
-}
+from news_sentry.skills.filter.classification_taxonomy import canonical_l0
 
 
 @dataclass(frozen=True)
@@ -103,25 +88,16 @@ class CanonicalProjectionService:
         diagnostics.taxonomy_distribution = dict(sorted(Counter(taxonomy_values).items()))
 
         if options.apply:
-            for candidate in candidates:
-                await self.store.upsert_canonical_event(
+            await self.store.apply_canonical_projection(
+                candidates=[
                     {
-                        "canonical_event_id": candidate.canonical_event_id,
-                        "target_id": candidate.target_id,
-                        "title": candidate.title,
-                        "summary": candidate.summary,
-                        "event_time": candidate.event_time,
+                        **candidate.to_dict(),
                         "status": "active",
-                        "confidence": candidate.confidence,
                         "metadata": {"projection_run_id": run_id},
                     }
-                )
-                for mention in candidate.mention_rows:
-                    await self.store.upsert_event_mention(mention)
-                for taxonomy in candidate.taxonomy_rows:
-                    await self.store.upsert_taxonomy_assignment(taxonomy)
-            await self.store.record_projection_run(
-                {
+                    for candidate in candidates
+                ],
+                projection_run={
                     "projection_run_id": run_id,
                     "target_id": options.target_id,
                     "mode": diagnostics.mode,
@@ -132,7 +108,7 @@ class CanonicalProjectionService:
                     "needs_review": diagnostics.needs_review,
                     "unprojectable": diagnostics.unprojectable,
                     "diagnostics": diagnostics.to_dict(),
-                }
+                },
             )
         return diagnostics
 
@@ -163,11 +139,13 @@ class CanonicalProjectionService:
                 event_time=primary.get("published_at"),
                 confidence=90.0 if primary.get("url") else 72.0,
             )
+            taxonomy_ids: set[str] = set()
             for row in group_rows:
                 candidate.mention_rows.append(self._mention_row(canonical_id, row))
                 taxonomy = self._taxonomy_row(canonical_id, row, diagnostics)
-                if taxonomy:
+                if taxonomy and taxonomy["assignment_id"] not in taxonomy_ids:
                     candidate.taxonomy_rows.append(taxonomy)
+                    taxonomy_ids.add(taxonomy["assignment_id"])
             candidates.append(candidate)
         return candidates
 
@@ -176,7 +154,7 @@ class CanonicalProjectionService:
         if url:
             return f"url:{url}"
         title = str(row.get("title") or "").strip().lower()
-        published_at = str(row.get("published_at") or "")[:10]
+        published_at = str(row.get("published_at") or "").strip()
         if title:
             return f"title:{published_at}:{title}"
         return ""
@@ -215,7 +193,7 @@ class CanonicalProjectionService:
         raw = str(row.get("l0_category") or "").strip()
         if not raw:
             return None
-        canonical = LEGACY_L0_TO_CANONICAL.get(raw, raw)
+        canonical = canonical_l0(raw)
         if raw != canonical:
             diagnostics.legacy_taxonomy[raw] = canonical
         assignment_key = f"{canonical_event_id}:l0:{canonical}".encode()

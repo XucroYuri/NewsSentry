@@ -6,6 +6,16 @@ from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.canonical_projection import CanonicalProjectionService, ProjectionOptions
 
 
+@pytest.fixture
+async def store(tmp_path):
+    projection_store = AsyncStore(tmp_path / "store.sqlite3")
+    await projection_store.initialize()
+    try:
+        yield projection_store
+    finally:
+        await projection_store.close()
+
+
 async def _insert_event_index_row(
     store: AsyncStore,
     *,
@@ -44,9 +54,7 @@ async def _insert_event_index_row(
 
 
 @pytest.mark.asyncio
-async def test_projection_dry_run_does_not_write_rows(tmp_path):
-    store = AsyncStore(tmp_path / "store.sqlite3")
-    await store.initialize()
+async def test_projection_dry_run_does_not_write_rows(store: AsyncStore):
     await _insert_event_index_row(store, event_id="it_001")
 
     service = CanonicalProjectionService(store)
@@ -58,29 +66,38 @@ async def test_projection_dry_run_does_not_write_rows(tmp_path):
     assert diagnostics.canonical_events == 1
     assert diagnostics.mentions == 1
     assert rows == []
-    await store.close()
 
 
 @pytest.mark.asyncio
-async def test_projection_normalizes_legacy_taxonomy_labels(tmp_path):
-    store = AsyncStore(tmp_path / "store.sqlite3")
-    await store.initialize()
+async def test_projection_normalizes_legacy_taxonomy_labels(store: AsyncStore):
     await _insert_event_index_row(store, event_id="it_001", l0_category="economics")
     await _insert_event_index_row(store, event_id="it_002", l0_category="culture_society")
+    await _insert_event_index_row(store, event_id="it_003", l0_category="security")
+    await _insert_event_index_row(store, event_id="it_004", l0_category="technology")
+    await _insert_event_index_row(store, event_id="it_005", l0_category="environment_energy")
 
     diagnostics = await CanonicalProjectionService(store).project(
         ProjectionOptions(target_id="italy", apply=False)
     )
 
-    assert diagnostics.legacy_taxonomy == {"economics": "economy", "culture_society": "society"}
-    assert diagnostics.taxonomy_distribution == {"economy": 1, "society": 1}
-    await store.close()
+    assert diagnostics.legacy_taxonomy == {
+        "economics": "economy",
+        "culture_society": "society",
+        "environment_energy": "environment",
+        "security": "public-safety",
+        "technology": "tech",
+    }
+    assert diagnostics.taxonomy_distribution == {
+        "economy": 1,
+        "environment": 1,
+        "public-safety": 1,
+        "society": 1,
+        "tech": 1,
+    }
 
 
 @pytest.mark.asyncio
-async def test_projection_duplicate_url_group_reports_auto_merge(tmp_path):
-    store = AsyncStore(tmp_path / "store.sqlite3")
-    await store.initialize()
+async def test_projection_duplicate_url_group_reports_auto_merge(store: AsyncStore):
     await _insert_event_index_row(
         store,
         event_id="it_001",
@@ -103,4 +120,55 @@ async def test_projection_duplicate_url_group_reports_auto_merge(tmp_path):
     assert diagnostics.mentions == 2
     assert diagnostics.auto_merged == 1
     assert diagnostics.needs_review == 0
-    await store.close()
+    assert diagnostics.taxonomy_distribution == {"economy": 1}
+
+
+@pytest.mark.asyncio
+async def test_projection_title_fallback_uses_full_published_at(store: AsyncStore):
+    await _insert_event_index_row(
+        store,
+        event_id="it_001",
+        title="Same title",
+        url="",
+        published_at="2026-05-30T08:00:00Z",
+    )
+    await _insert_event_index_row(
+        store,
+        event_id="it_002",
+        title="Same title",
+        url="",
+        published_at="2026-05-30T09:00:00Z",
+    )
+
+    diagnostics = await CanonicalProjectionService(store).project(
+        ProjectionOptions(target_id="italy", apply=False)
+    )
+
+    assert diagnostics.input_events == 2
+    assert diagnostics.canonical_events == 2
+    assert diagnostics.auto_merged == 0
+
+
+@pytest.mark.asyncio
+async def test_projection_apply_rolls_back_partial_writes_on_failure(
+    store: AsyncStore,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    await _insert_event_index_row(store, event_id="it_001")
+    service = CanonicalProjectionService(store)
+
+    def bad_taxonomy_row(*_args):
+        return {
+            "subject_type": "canonical_event",
+            "subject_id": "broken",
+            "target_id": "italy",
+            "taxonomy_level": "l0",
+            "taxonomy_value": "economy",
+        }
+
+    monkeypatch.setattr(service, "_taxonomy_row", bad_taxonomy_row)
+
+    with pytest.raises(KeyError):
+        await service.project(ProjectionOptions(target_id="italy", apply=True))
+
+    assert await store.list_canonical_events(target_id="italy", limit=20) == []
