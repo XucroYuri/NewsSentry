@@ -299,3 +299,44 @@ async def test_projection_apply_writes_canonical_rows(store: AsyncStore):
     assert len(events) == 1
     assert len(mentions) == 1
     assert mentions[0]["event_id"] == "it_001"
+
+
+@pytest.mark.asyncio
+async def test_projection_apply_is_idempotent_for_same_input(store: AsyncStore):
+    await _insert_event_index_row(store, event_id="it_001", url="https://example.com/stable")
+
+    service = CanonicalProjectionService(store)
+    await service.project(
+        ProjectionOptions(target_id="italy", apply=True, projection_run_id="projection_test_1")
+    )
+    await service.project(
+        ProjectionOptions(target_id="italy", apply=True, projection_run_id="projection_test_2")
+    )
+
+    events = await store.list_canonical_events(target_id="italy", limit=20)
+    mentions = await store.list_event_mentions(events[0]["canonical_event_id"])
+    assert len(events) == 1
+    assert len(mentions) == 1
+
+
+@pytest.mark.asyncio
+async def test_projection_without_url_uses_review_sample_for_lower_confidence(store: AsyncStore):
+    await _insert_event_index_row(
+        store,
+        event_id="it_001",
+        title="Wire story without URL",
+        url="",
+    )
+
+    diagnostics = await CanonicalProjectionService(store).project(
+        ProjectionOptions(target_id="italy", apply=False)
+    )
+
+    assert diagnostics.needs_review == 1
+    assert diagnostics.review_samples == [
+        {
+            "event_id": "it_001",
+            "reason": "missing_url_low_confidence_group",
+            "title": "Wire story without URL",
+        }
+    ]

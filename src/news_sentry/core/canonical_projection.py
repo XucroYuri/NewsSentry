@@ -130,6 +130,15 @@ class CanonicalProjectionService:
             if len(group_rows) > 1:
                 diagnostics.auto_merged += len(group_rows) - 1
             primary = group_rows[0]
+            if not primary.get("url"):
+                diagnostics.needs_review += 1
+                diagnostics.review_samples.append(
+                    {
+                        "event_id": primary["event_id"],
+                        "reason": "missing_url_low_confidence_group",
+                        "title": primary.get("title") or primary["event_id"],
+                    }
+                )
             canonical_id = self._canonical_event_id(primary)
             candidate = ProjectionCandidate(
                 canonical_event_id=canonical_id,
