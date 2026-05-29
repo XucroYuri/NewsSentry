@@ -410,6 +410,32 @@ class TestEventIndex:
         assert rows[0]["classification_l0"] == "economy"
 
     @pytest.mark.asyncio
+    async def test_index_event_ignores_mock_url_and_non_dict_metadata(
+        self,
+        store: AsyncStore,
+    ):
+        event = MagicMock()
+        event.id = "evt-partial"
+        event.source_id = "ansa"
+        event.news_value_score = 82
+        event.china_relevance = 10
+        event.title_original = "Partial mock"
+        event.published_at = "2026-05-30T08:00:00Z"
+        event.metadata = MagicMock()
+
+        await store.index_event(event, "italy", "judge")
+
+        async with store._connect() as conn:
+            async with conn.execute(
+                "SELECT url, metadata_json FROM event_index WHERE event_id = ?",
+                ("evt-partial",),
+            ) as cursor:
+                row = await cursor.fetchone()
+        assert row is not None
+        assert row[0] is None
+        assert row[1] == "{}"
+
+    @pytest.mark.asyncio
     async def test_index_event_upserts(self, store: AsyncStore):
         event = self._make_event(event_id="evt-upsert")
         await store.index_event(event, "italy", "judge", file_path="old.json")

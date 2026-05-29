@@ -508,6 +508,16 @@ class AsyncStore:
         item["metadata"] = self._json_loads(item.pop("metadata_json", None))
         return item
 
+    @staticmethod
+    def _safe_text_attr(event: object, attr: str) -> str | None:
+        value = getattr(event, attr, None)
+        return value if isinstance(value, str) else None
+
+    @staticmethod
+    def _safe_metadata_attr(event: object) -> dict[str, Any]:
+        value = getattr(event, "metadata", {})
+        return value if isinstance(value, dict) else {}
+
     # ------------------------------------------------------------------
     # Known IDs
     # ------------------------------------------------------------------
@@ -759,9 +769,8 @@ class AsyncStore:
     ) -> None:
         if self._db is None:
             return
-        classification = (
-            event.metadata.get("classification", {}) if hasattr(event, "metadata") else {}
-        )
+        metadata = self._safe_metadata_attr(event)
+        classification = metadata.get("classification", {})
         classification_l0 = classification.get("l0") if isinstance(classification, dict) else None
         classification_l0 = canonical_l0(classification_l0)
         now = datetime.now(UTC).isoformat()
@@ -782,10 +791,10 @@ class AsyncStore:
                 getattr(event, "china_relevance", None),
                 classification_l0,
                 getattr(event, "title_original", None),
-                getattr(event, "url", None),
+                self._safe_text_attr(event, "url"),
                 getattr(event, "published_at", None),
                 file_path,
-                self._json_dumps(getattr(event, "metadata", {})),
+                self._json_dumps(metadata),
                 *self._extract_nlp_fields(event),
                 getattr(event, "id", ""),
                 now,
