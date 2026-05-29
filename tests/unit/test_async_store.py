@@ -1448,6 +1448,24 @@ class TestFeedbackAndAlertHistory:
         assert types == {"chain_update", "trend_rising"}
 
     @pytest.mark.asyncio
+    async def test_save_alert_history_is_idempotent_by_alert_key(self, store: AsyncStore) -> None:
+        """相同告警身份重复保存时只插入一次。"""
+        alerts = [
+            {
+                "type": "chain_update",
+                "severity": "high",
+                "message": "same",
+                "details": {"chain_root_id": "a", "linked_event_id": "b"},
+                "triggered_at": "2026-05-29T00:00:00+00:00",
+            }
+        ]
+
+        assert await store.save_alert_history("italy", alerts) == 1
+        assert await store.save_alert_history("italy", alerts) == 0
+        history = await store.get_alert_history("italy", limit=10)
+        assert len(history) == 1
+
+    @pytest.mark.asyncio
     async def test_save_feedback_empty_comment(self, store: AsyncStore) -> None:
         """空 comment 保存为 None。"""
         rid = await store.save_feedback(

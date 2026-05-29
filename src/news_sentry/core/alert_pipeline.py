@@ -203,6 +203,7 @@ class AlertPipeline:
         """
         alerts: list[dict[str, Any]] = []
         now_str = datetime.now(UTC).isoformat()
+        date_bucket = now_str[:10]
 
         # 1. 链更新告警
         try:
@@ -210,18 +211,24 @@ class AlertPipeline:
             for link in links:
                 if link["link_type"] == "followup" and link["strength"] >= 0.7:
                     title = link.get("title_original") or "未知事件"
+                    chain_root_id = link["source_event_id"]
+                    linked_event_id = link["target_event_id"]
+                    link_type = link["link_type"]
                     alerts.append(
                         {
                             "type": "chain_update",
+                            "alert_key": (
+                                f"chain_update:{chain_root_id}:{linked_event_id}:{link_type}"
+                            ),
                             "severity": "high",
                             "message": (
                                 f'追踪链新增后续事件: "{title}" (强度: {link["strength"]:.2f})'
                             ),
                             "details": {
-                                "chain_root_id": link["source_event_id"],
-                                "linked_event_id": link["target_event_id"],
+                                "chain_root_id": chain_root_id,
+                                "linked_event_id": linked_event_id,
                                 "strength": link["strength"],
-                                "link_type": link["link_type"],
+                                "link_type": link_type,
                             },
                             "triggered_at": now_str,
                         }
@@ -241,6 +248,7 @@ class AlertPipeline:
                     alerts.append(
                         {
                             "type": "trend_rising",
+                            "alert_key": f"trend_rising:{trend.topic}:{date_bucket}",
                             "severity": "medium",
                             "message": (
                                 f'"{trend.topic}" 主题热度快速上升 '
@@ -278,6 +286,7 @@ class AlertPipeline:
                     alerts.append(
                         {
                             "type": "entity_spike",
+                            "alert_key": f"entity_spike:{name}:{date_bucket}",
                             "severity": "medium",
                             "message": (
                                 f'"{name}" 实体提及量突增 '

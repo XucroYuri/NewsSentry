@@ -154,6 +154,7 @@ _DDL_ALERT_HISTORY = """
 CREATE TABLE IF NOT EXISTS alert_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     target_id TEXT NOT NULL,
+    alert_key TEXT,
     alert_type TEXT NOT NULL,
     severity TEXT NOT NULL,
     message TEXT NOT NULL,
@@ -220,6 +221,16 @@ _SCHEMA_MIGRATIONS: list[tuple[int, str, list[str]]] = [
     (3, "Add sessions table for token persistence", []),
     # v4: 通知设置 — notifications 表（替代 notifications.json）
     (4, "Add notifications table for settings persistence", []),
+    # v5: 智能告警历史幂等键，避免重复检查 recent links 时无限膨胀。
+    (
+        5,
+        "Add idempotency key to alert_history",
+        [
+            "ALTER TABLE alert_history ADD COLUMN alert_key TEXT",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_history_key "
+            "ON alert_history(target_id, alert_key)",
+        ],
+    ),
 ]
 
 _DDL_INDEXES = (
@@ -240,6 +251,8 @@ _DDL_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_narrative_target ON chain_narratives(target_id)",
     "CREATE INDEX IF NOT EXISTS idx_event_links_type ON event_links(link_type, strength)",
     "CREATE INDEX IF NOT EXISTS idx_event_created ON event_index(created_at)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_history_key "
+    "ON alert_history(target_id, alert_key)",
 )
 
 __all__ = ["AsyncStore"]
@@ -1614,23 +1627,45 @@ class AsyncStore:
         """批量保存告警记录，返回插入数量。"""
         if not alerts or self._db is None:
             return 0
-        await self._db.executemany(
-            """INSERT INTO alert_history
-               (target_id, alert_type, severity, message, details)
-               VALUES (?, ?, ?, ?, ?)""",
-            [
+        rows = []
+        for alert in alerts:
+            details = alert.get("details", {})
+            rows.append(
                 (
                     target_id,
-                    a["type"],
-                    a["severity"],
-                    a["message"],
-                    json.dumps(a.get("details", {})),
+                    str(alert.get("alert_key") or self._alert_history_key(target_id, alert)),
+                    alert["type"],
+                    alert["severity"],
+                    alert["message"],
+                    json.dumps(details, ensure_ascii=False, sort_keys=True),
                 )
-                for a in alerts
-            ],
+            )
+        cursor = await self._db.executemany(
+            """INSERT OR IGNORE INTO alert_history
+               (target_id, alert_key, alert_type, severity, message, details)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            rows,
         )
         await self._db.commit()
-        return len(alerts)
+        return max(int(cursor.rowcount or 0), 0)
+
+    @staticmethod
+    def _alert_history_key(target_id: str, alert: dict[str, Any]) -> str:
+        """计算告警历史幂等键。"""
+        details = json.dumps(
+            alert.get("details", {}),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return ":".join(
+            [
+                target_id,
+                str(alert.get("type") or ""),
+                str(alert.get("severity") or ""),
+                details,
+            ]
+        )
 
     async def get_alert_history(self, target_id: str, limit: int = 50) -> list[dict[str, Any]]:
         """获取历史告警。"""
@@ -1638,7 +1673,7 @@ class AsyncStore:
             return []
         self._db.row_factory = aiosqlite.Row
         async with self._db.execute(
-            """SELECT id, target_id, alert_type, severity,
+            """SELECT id, target_id, alert_key, alert_type, severity,
                       message, details, created_at
                FROM alert_history
                WHERE target_id = ?
