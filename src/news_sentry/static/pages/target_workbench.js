@@ -102,6 +102,51 @@ export function classificationDiagnosticsHtml(diagnostics = {}) {
   `;
 }
 
+function draftDiagnosticsPanel(diagnostics) {
+  if (!diagnostics) {
+    return `
+      <section class="target-panel">
+        <div class="target-panel-head">
+          <h2>Draft 索引诊断</h2>
+          <p>暂时无法读取诊断数据，请稍后重试。</p>
+        </div>
+      </section>
+    `;
+  }
+  const duplicates = diagnostics.duplicate_event_ids || [];
+  const orphanFiles = diagnostics.orphan_files || [];
+  const missingFiles = diagnostics.missing_index_files || [];
+  const duplicateRows = duplicates.slice(0, 6).map((item) => `
+    <div class="target-check warn">
+      <strong>${escapeHtml(item.event_id || "未识别事件")}</strong>
+      <span>${Number(item.count || 0)} 个文件</span>
+    </div>
+  `).join("");
+  return `
+    <section class="target-panel">
+      <div class="target-panel-head">
+        <div>
+          <h2>Draft 索引诊断</h2>
+          <p>检查当前 target 的草稿文件、运行时索引和公开可见事件是否一致。</p>
+        </div>
+        <span class="status-pill ${orphanFiles.length || duplicates.length || missingFiles.length ? "warn" : "ok"}">
+          ${orphanFiles.length || duplicates.length || missingFiles.length ? "需要处理" : "一致"}
+        </span>
+      </div>
+      <div class="target-kpi-grid">
+        ${stat("draft 文件", String(Number(diagnostics.draft_file_count || 0)), "文件系统中存在的草稿")}
+        ${stat("索引可见", String(Number(diagnostics.visible_index_count || 0)), "公开新闻流可读取")}
+        ${stat("孤立文件", String(Number(diagnostics.orphan_file_count || 0)), "未进入运行时索引")}
+        ${stat("重复事件", String(duplicates.length), "同一 event_id 对应多个文件")}
+        ${stat("缺失文件", String(Number(diagnostics.missing_index_file_count || 0)), "索引指向的文件不存在")}
+      </div>
+      <div class="target-check-list">
+        ${duplicateRows || `<div class="target-check ok"><strong>重复事件</strong><span>未发现</span></div>`}
+      </div>
+    </section>
+  `;
+}
+
 function lifecycleBadge(target) {
   return target?.archived || target?.lifecycle?.status === "archived"
     ? `<span class="status-pill warn">已归档</span>`
@@ -861,7 +906,10 @@ async function renderReview(container, targetId) {
 }
 
 async function renderMaintenance(container, targetId, overview) {
+  const draftDiagnostics = await api("/api/v1/maintenance/draft-diagnostics", { target_id: targetId })
+    .catch(() => null);
   container.innerHTML = `
+    ${draftDiagnosticsPanel(draftDiagnostics)}
     <section class="target-panel">
       <div class="target-panel-head">
         <h2>维护与数据安全</h2>

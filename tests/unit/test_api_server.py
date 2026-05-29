@@ -1086,6 +1086,39 @@ class TestAPIServer:
         assert italy["source_count"] == 5
         assert italy["event_count"] == 1
 
+    def test_targets_endpoint_prefers_target_store_count_over_orphan_drafts(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config_dir = tmp_path / "config" / "targets"
+        _write_target_config(config_dir, "italy", "意大利新闻监控", "it", 5)
+        _write_draft(tmp_path, "italy", "indexed-1", title="Indexed")
+        _write_draft(tmp_path, "italy", "orphan-1", title="Orphan")
+        monkeypatch.chdir(tmp_path)
+        api_server_module._target_stores.clear()
+
+        async def seed() -> None:
+            store = AsyncStore(tmp_path / "italy" / "state.db")
+            await store.initialize()
+            try:
+                await _insert_index_event(
+                    store,
+                    event_id="indexed-1",
+                    target_id="italy",
+                    stage="drafts",
+                    title_original="Indexed",
+                )
+            finally:
+                await store.close()
+
+        asyncio.run(seed())
+        client = self._make_client(tmp_path)
+
+        resp = client.get("/api/v1/targets")
+
+        assert resp.status_code == 200
+        italy = next(t for t in resp.json()["targets"] if t["target_id"] == "italy")
+        assert italy["event_count"] == 1
+
     def test_stats_endpoint(self, tmp_path: Path) -> None:
         _write_draft(
             tmp_path,
@@ -4718,6 +4751,51 @@ class TestMaintenanceEndpoints:
             "/api/v1/maintenance/prune", params={"target_id": "italy"}, headers=headers
         )
         assert resp.status_code == 200
+
+    def test_draft_diagnostics_reports_orphan_files(self, tmp_path: Path) -> None:
+        """draft 诊断能暴露未进入索引的孤岛文件，且不删除历史数据。"""
+        _write_draft(tmp_path, "italy", "indexed-1", title="Indexed")
+        orphan_path = _write_draft(tmp_path, "italy", "orphan-1", title="Orphan")
+        api_server_module._target_stores.clear()
+
+        async def seed_store() -> None:
+            store = AsyncStore(tmp_path / "italy" / "state.db")
+            await store.initialize()
+            try:
+                await _insert_index_event(
+                    store,
+                    event_id="indexed-1",
+                    target_id="italy",
+                    stage="drafts",
+                    title_original="Indexed",
+                )
+            finally:
+                await store.close()
+
+        asyncio.run(seed_store())
+        client = self._make_client(tmp_path)
+        headers = self._auth_headers(client)
+
+        resp = client.get(
+            "/api/v1/maintenance/draft-diagnostics",
+            params={"target_id": "italy"},
+            headers=headers,
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["draft_file_count"] == 2
+        assert data["indexed_count"] == 1
+        assert data["visible_index_count"] == 1
+        assert data["orphan_file_count"] == 1
+        assert data["orphan_files"] == [
+            {
+                "event_id": "orphan-1",
+                "path": str(orphan_path.relative_to(tmp_path)),
+                "title": "Orphan",
+            }
+        ]
+        assert orphan_path.exists()
 
     def test_data_status(self, tmp_path: Path) -> None:
         """status 端点返回数据目录信息。"""

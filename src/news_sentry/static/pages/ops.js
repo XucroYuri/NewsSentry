@@ -494,10 +494,65 @@ export async function renderRunHistoryTab(container) {
 // §6. Tab 5 — 数据维护 (Maintenance)
 // ════════════════════════════════════════════════════════════
 
+function maintenanceTargetOptions() {
+  return (state.targets || []).map((t) => {
+    const id = t.target_id || t.id || String(t);
+    const selected = id === state.currentTarget ? "selected" : "";
+    return `<option value="${escapeHtml(id)}" ${selected}>${escapeHtml(t.display_name || id)}</option>`;
+  }).join("");
+}
+
+function draftDiagnosticsHtml(data) {
+  const orphanFiles = data.orphan_files || [];
+  const duplicates = data.duplicate_event_ids || [];
+  const missing = data.missing_index_files || [];
+  const orphanTable = orphanFiles.length
+    ? `<table class="ops-table" style="margin-top:12px;">
+        <thead><tr><th>事件 ID</th><th>文件路径</th><th>标题</th></tr></thead>
+        <tbody>
+          ${orphanFiles.slice(0, 8).map((item) => `
+            <tr>
+              <td class="mono">${escapeHtml(item.event_id || "未识别")}</td>
+              <td class="mono">${escapeHtml(item.path || "")}</td>
+              <td>${escapeHtml(item.title || "—")}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>`
+    : '<p style="color:var(--text-muted);font-size:0.85rem;margin-top:12px;">未发现未入索引的 draft 文件。</p>';
+  return `
+    <div class="ops-health-summary">
+      <div class="ops-health-stat"><strong>${Number(data.draft_file_count || 0)}</strong> draft 文件</div>
+      <div class="ops-health-stat ops-health-ok"><strong>${Number(data.visible_index_count || 0)}</strong> 索引可见</div>
+      <div class="ops-health-stat ${orphanFiles.length ? "ops-health-warn" : "ops-health-ok"}"><strong>${Number(data.orphan_file_count || 0)}</strong> 孤立文件</div>
+      <div class="ops-health-stat ${duplicates.length ? "ops-health-warn" : "ops-health-ok"}"><strong>${duplicates.length}</strong> 重复事件</div>
+      <div class="ops-health-stat ${missing.length ? "ops-health-warn" : "ops-health-ok"}"><strong>${missing.length}</strong> 缺失文件</div>
+    </div>
+    ${orphanTable}`;
+}
+
 export async function renderMaintenanceTab(container) {
   const defaultDays = 30;
+  const targetOptions = maintenanceTargetOptions();
 
   container.innerHTML = `
+    <div class="card" style="margin-bottom:16px;">
+      <div class="section-title">Draft 索引诊断</div>
+      <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:12px;">
+        检查新闻草稿文件与运行时索引是否一致。这里只读展示问题，不会删除或迁移历史文件。
+      </p>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <select id="diagnosticTarget" style="padding:4px 8px;border-radius:6px;background:var(--input-bg,#161b22);color:var(--text-primary);border:1px solid var(--border,#30363d);">
+          <option value="">请选择目标</option>
+          ${targetOptions}
+        </select>
+        <button class="ops-trigger-btn" id="draftDiagnosticsBtn">检查一致性</button>
+      </div>
+      <div id="draftDiagnosticsResult" style="margin-top:12px;color:var(--text-muted);font-size:0.85rem;">
+        选择目标后运行检查。
+      </div>
+    </div>
+
     <div class="card" style="margin-bottom:16px;">
       <div class="section-title">\u6570\u636e\u6e05\u7406</div>
       <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:12px;">
@@ -510,10 +565,7 @@ export async function renderMaintenanceTab(container) {
         <span id="pruneDaysLabel" style="min-width:40px;text-align:center;">${defaultDays} \u5929</span>
         <select id="pruneTarget" style="padding:4px 8px;border-radius:6px;background:var(--input-bg,#161b22);color:var(--text-primary);border:1px solid var(--border,#30363d);">
           <option value="">请选择目标</option>
-          ${(state.targets || []).map((t) => {
-            const id = t.target_id || t.id || String(t);
-            return `<option value="${escapeHtml(id)}">${escapeHtml(t.display_name || id)}</option>`;
-          }).join("")}
+          ${targetOptions}
         </select>
         <button class="ops-trigger-btn" id="pruneBtn" style="background:var(--accent-red,#f87171);">\u6e05\u7406</button>
       </div>
@@ -532,6 +584,28 @@ export async function renderMaintenanceTab(container) {
   const label = document.getElementById("pruneDaysLabel");
   slider.addEventListener("input", () => {
     label.textContent = `${slider.value} \u5929`;
+  });
+
+  document.getElementById("draftDiagnosticsBtn").addEventListener("click", async () => {
+    const target = document.getElementById("diagnosticTarget").value;
+    const result = document.getElementById("draftDiagnosticsResult");
+    if (!target) {
+      showError("请先选择要诊断的目标");
+      return;
+    }
+    const btn = document.getElementById("draftDiagnosticsBtn");
+    btn.disabled = true;
+    btn.textContent = "检查中...";
+    result.textContent = "正在检查 draft 文件与索引...";
+    try {
+      const data = await api("/api/v1/maintenance/draft-diagnostics", { target_id: target });
+      result.innerHTML = draftDiagnosticsHtml(data);
+    } catch (err) {
+      result.innerHTML = `<span style="color:var(--accent-red,#b42318);">诊断失败: ${escapeHtml(err.message)}</span>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "检查一致性";
+    }
   });
 
   // Prune button

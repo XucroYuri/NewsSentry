@@ -2098,6 +2098,36 @@ def _target_info_from_config(data: dict[str, Any], data_dir: Path) -> TargetInfo
     )
 
 
+async def _target_public_event_count(target_id: str, data_dir: Path) -> int:
+    """Return the count the public feed can actually show for a target."""
+    try:
+        store = await _store_for_target(target_id)
+        if store is not None and await _store_has_target_event_index(store, target_id):
+            visible = await _visible_index_events_page(
+                store,
+                data_dir,
+                target_id,
+                stage=_PUBLIC_ANALYSIS_STAGE,
+                page=1,
+                page_size=1,
+            )
+            return int(visible["total"])
+    except Exception:
+        logger.exception("Failed to count indexed public events for target %s", target_id)
+    return len(_load_all_events(data_dir, target_id))
+
+
+async def _target_info_from_config_for_response(
+    data: dict[str, Any],
+    data_dir: Path,
+) -> TargetInfo:
+    info = _target_info_from_config(data, data_dir)
+    if not info.target_id:
+        return info
+    event_count = await _target_public_event_count(info.target_id, data_dir)
+    return info.model_copy(update={"event_count": event_count})
+
+
 def _source_is_standard(source: dict[str, Any]) -> bool:
     return source.get("type") in {"rss", "api", "opencli"}
 
@@ -2472,6 +2502,124 @@ def _load_all_events(data_dir: Path, target_id: str) -> list[dict[str, Any]]:
             except Exception:  # noqa: S112
                 continue
     return events
+
+
+def _draft_file_records(data_dir: Path, target_id: str) -> list[dict[str, Any]]:
+    """读取 draft 文件的轻量诊断记录，不改变文件。"""
+    drafts_dir = data_dir / target_id / "drafts"
+    if not drafts_dir.is_dir():
+        return []
+    records: list[dict[str, Any]] = []
+    for md_file in sorted(drafts_dir.glob("*.md")):
+        event = _load_event_by_path(str(md_file)) or {}
+        title = event.get("title_original") or event.get("title") or ""
+        records.append(
+            {
+                "event_id": _event_id_from_frontmatter(event) or "",
+                "path": str(md_file.relative_to(data_dir)),
+                "title": str(title),
+            }
+        )
+    return records
+
+
+async def _draft_index_rows_for_target(
+    store: AsyncStore | None,
+    target_id: str,
+) -> list[dict[str, Any]]:
+    """读取 target drafts 索引行，用于维护诊断。"""
+    if store is None or store._db is None:  # noqa: SLF001
+        return []
+    try:
+        async with store._db.execute(  # noqa: SLF001
+            "SELECT event_id, file_path, title_original "
+            "FROM event_index WHERE target_id = ? AND stage = ? "
+            "ORDER BY COALESCE(published_at, created_at, '') DESC",
+            (target_id, _PUBLIC_ANALYSIS_STAGE),
+        ) as cursor:
+            rows = await cursor.fetchall()
+    except Exception:  # noqa: S112
+        logger.exception("Failed to load draft index rows for target %s", target_id)
+        return []
+    return [
+        {"event_id": str(row[0] or ""), "file_path": row[1], "title": str(row[2] or "")}
+        for row in rows
+    ]
+
+
+async def _draft_diagnostics(data_dir: Path, target_id: str) -> dict[str, Any]:
+    """生成 draft 文件与 SQLite 索引的只读一致性诊断。"""
+    draft_files = _draft_file_records(data_dir, target_id)
+    store = await _store_for_target(target_id)
+    index_available = store is not None and await _store_has_target_event_index(store, target_id)
+    index_rows = await _draft_index_rows_for_target(store, target_id) if index_available else []
+    indexed_ids = {row["event_id"] for row in index_rows if row.get("event_id")}
+    visible_index_count = 0
+    if index_available:
+        visible = await _visible_index_events_page(
+            store,
+            data_dir,
+            target_id,
+            stage=_PUBLIC_ANALYSIS_STAGE,
+            page=1,
+            page_size=1,
+        )
+        visible_index_count = int(visible["total"])
+
+    grouped_files: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for item in draft_files:
+        event_id = item.get("event_id") or ""
+        if event_id:
+            grouped_files[event_id].append(item)
+
+    duplicate_event_ids = [
+        {
+            "event_id": event_id,
+            "count": len(items),
+            "files": [item["path"] for item in items],
+        }
+        for event_id, items in sorted(grouped_files.items())
+        if len(items) > 1
+    ]
+    orphan_files = [
+        item
+        for item in draft_files
+        if index_available and (not item.get("event_id") or item.get("event_id") not in indexed_ids)
+    ]
+    missing_index_files = []
+    for row in index_rows:
+        file_path = row.get("file_path")
+        if not file_path:
+            continue
+        if not _indexed_file_path_is_visible_in_stage(
+            data_dir,
+            target_id,
+            _PUBLIC_ANALYSIS_STAGE,
+            str(file_path),
+        ):
+            continue
+        if not Path(str(file_path)).is_file():
+            missing_index_files.append(
+                {
+                    "event_id": row.get("event_id") or "",
+                    "path": str(file_path),
+                    "title": row.get("title") or "",
+                }
+            )
+
+    return {
+        "target_id": target_id,
+        "stage": _PUBLIC_ANALYSIS_STAGE,
+        "index_available": bool(index_available),
+        "draft_file_count": len(draft_files),
+        "indexed_count": len(index_rows),
+        "visible_index_count": visible_index_count,
+        "orphan_file_count": len(orphan_files),
+        "orphan_files": orphan_files,
+        "duplicate_event_ids": duplicate_event_ids,
+        "missing_index_file_count": len(missing_index_files),
+        "missing_index_files": missing_index_files,
+    }
 
 
 def _load_event_by_path(file_path: str | None) -> dict[str, Any] | None:
@@ -2878,10 +3026,17 @@ async def _get_target_store(target_id: str) -> AsyncStore | None:
 
     缓存已打开的 store，避免重复初始化。
     """
-    if target_id in _target_stores:
-        return _target_stores[target_id]
-
     db_path = _target_db_path(target_id)
+    if target_id in _target_stores:
+        cached = _target_stores[target_id]
+        if cached.db_path == db_path:
+            return cached
+        try:
+            await cached.close()
+        except Exception:  # noqa: S110
+            pass
+        _target_stores.pop(target_id, None)
+
     if db_path.exists():
         store = AsyncStore(db_path)
         await store.initialize()
@@ -3658,9 +3813,11 @@ def create_app(
     async def list_targets() -> TargetListResponse:
         """返回公开可浏览的 active target 列表。"""
         configs = _load_target_configs()
-        targets = [
-            _target_info_from_config(c, _data_dir) for c in configs if not _target_is_archived(c)
-        ]
+        targets = []
+        for config in configs:
+            if _target_is_archived(config):
+                continue
+            targets.append(await _target_info_from_config_for_response(config, _data_dir))
         return TargetListResponse(targets=targets)
 
     @app.get("/api/v1/admin/targets")
@@ -3670,11 +3827,12 @@ def create_app(
     ) -> dict[str, Any]:
         """管理后台 target 全生命周期列表。"""
         configs = _load_target_configs()
-        targets = [
-            _target_info_from_config(config, _data_dir).model_dump()
-            for config in configs
-            if include_archived or not _target_is_archived(config)
-        ]
+        targets = []
+        for config in configs:
+            if not include_archived and _target_is_archived(config):
+                continue
+            target = await _target_info_from_config_for_response(config, _data_dir)
+            targets.append(target.model_dump())
         return {"targets": targets}
 
     @app.post("/api/v1/admin/targets")
@@ -3798,19 +3956,26 @@ def create_app(
         source_archived = sum(1 for source in sources if _source_is_archived(source))
         social_accounts = sum(len(item.get("accounts", [])) for item in social_dimensions)
         social_archived = sum(item.get("archived_count", 0) for item in social_dimensions)
-        events = _load_all_events(_data_dir, target_id)
+        target_info = await _target_info_from_config_for_response(target_data, _data_dir)
+        target_store = await _get_target_store(target_id)
+        events: list[dict[str, Any]] = []
         classification_diagnostics = await _classification_diagnostics_from_store(
             target_id,
-            await _get_target_store(target_id),
+            target_store,
+        )
+        has_index = target_store is not None and await _store_has_target_event_index(
+            target_store,
+            target_id,
         )
         if classification_diagnostics is None or (
-            not classification_diagnostics.get("distribution") and events
+            not classification_diagnostics.get("distribution") and not has_index
         ):
+            events = _load_all_events(_data_dir, target_id)
             classification_diagnostics = _classification_diagnostics_from_events(events)
         validation = _validate_target_config(target_id)
         recent_runs = _load_run_logs(_data_dir, target_id, 5)
         return {
-            "target": _target_info_from_config(target_data, _data_dir).model_dump(),
+            "target": target_info.model_dump(),
             "profile": target_data,
             "sources": {
                 "total": len(sources),
@@ -3822,7 +3987,7 @@ def create_app(
                 "accounts": social_accounts,
                 "archived_accounts": social_archived,
             },
-            "events": {"total": len(events)},
+            "events": {"total": target_info.event_count},
             "classification_diagnostics": classification_diagnostics,
             "recent_runs": recent_runs,
             "validation": validation,
@@ -5260,6 +5425,14 @@ def create_app(
             raise HTTPException(status_code=500, detail=str(e)) from e
 
     # ── 维护端点 (Phase 40) ─────────────────────────────
+
+    @app.get("/api/v1/maintenance/draft-diagnostics")
+    async def maintenance_draft_diagnostics(
+        target_id: str = Query(..., description="目标标识"),
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """只读诊断 draft 文件与运行时索引的一致性。"""
+        return await _draft_diagnostics(_data_dir, target_id)
 
     @app.post("/api/v1/maintenance/prune", response_model=PruneResponse)
     async def maintenance_prune(

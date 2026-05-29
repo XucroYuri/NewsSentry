@@ -7,6 +7,8 @@ const feedbackJs = readFileSync("src/news_sentry/static/pages/feedback.js", "utf
 const dashboardJs = readFileSync("src/news_sentry/static/pages/dashboard.js", "utf8");
 const settingsJs = readFileSync("src/news_sentry/static/pages/settings.js", "utf8");
 const configJs = readFileSync("src/news_sentry/static/pages/config.js", "utf8");
+const opsJs = readFileSync("src/news_sentry/static/pages/ops.js", "utf8");
+const targetWorkbenchJs = readFileSync("src/news_sentry/static/pages/target_workbench.js", "utf8");
 
 assert.match(
   eventsJs,
@@ -54,4 +56,16 @@ assert.match(
   configJs,
   /apiPost\("\/api\/v1\/webhook",\s*\{\s*target_id:\s*state\.currentTarget\s*\},\s*payload\)/s,
   "Webhook 测试必须传 target_id query，并用 JSON body 发送事件载荷",
+);
+
+assert.match(
+  opsJs,
+  /api\("\/api\/v1\/maintenance\/draft-diagnostics",\s*\{\s*target_id:/s,
+  "数据维护页必须展示 draft/index 一致性诊断，避免孤岛文件继续不可见",
+);
+
+assert.match(
+  targetWorkbenchJs,
+  /api\("\/api\/v1\/maintenance\/draft-diagnostics",\s*\{\s*target_id:\s*targetId/s,
+  "Target 工作台维护页必须展示当前 target 的 draft/index 一致性诊断",
 );
