@@ -1348,122 +1348,124 @@ class AsyncStore:
         projection_run_id = str(projection_run["projection_run_id"])
         if self._db is None:
             return projection_run_id
-        try:
-            await self._db.execute("BEGIN")
-            for candidate in candidates:
+        async with self._lock:
+            try:
+                await self._db.execute("BEGIN")
+                for candidate in candidates:
+                    await self._db.execute(
+                        """INSERT INTO canonical_events
+                           (canonical_event_id, target_id, title, summary, event_time,
+                            status, confidence, metadata_json)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                           ON CONFLICT(canonical_event_id) DO UPDATE SET
+                               target_id = excluded.target_id,
+                               title = excluded.title,
+                               summary = excluded.summary,
+                               event_time = excluded.event_time,
+                               status = excluded.status,
+                               confidence = excluded.confidence,
+                               metadata_json = excluded.metadata_json,
+                               updated_at = CURRENT_TIMESTAMP""",
+                        (
+                            candidate["canonical_event_id"],
+                            candidate["target_id"],
+                            candidate["title"],
+                            candidate.get("summary", ""),
+                            candidate.get("event_time"),
+                            candidate.get("status", "active"),
+                            candidate.get("confidence", 0),
+                            self._json_dumps(candidate.get("metadata")),
+                        ),
+                    )
+                    for mention in candidate.get("mention_rows", []):
+                        await self._db.execute(
+                            """INSERT INTO event_mentions
+                               (mention_id, canonical_event_id, event_id, target_id, source_id,
+                                url, title, published_at, metadata_json)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               ON CONFLICT(mention_id) DO UPDATE SET
+                                   canonical_event_id = excluded.canonical_event_id,
+                                   event_id = excluded.event_id,
+                                   target_id = excluded.target_id,
+                                   source_id = excluded.source_id,
+                                   url = excluded.url,
+                                   title = excluded.title,
+                                   published_at = excluded.published_at,
+                                   metadata_json = excluded.metadata_json,
+                                   updated_at = CURRENT_TIMESTAMP""",
+                            (
+                                mention["mention_id"],
+                                mention["canonical_event_id"],
+                                mention["event_id"],
+                                mention["target_id"],
+                                mention.get("source_id"),
+                                mention.get("url"),
+                                mention["title"],
+                                mention.get("published_at"),
+                                self._json_dumps(mention.get("metadata")),
+                            ),
+                        )
+                    for taxonomy in candidate.get("taxonomy_rows", []):
+                        await self._db.execute(
+                            """INSERT INTO taxonomy_assignments
+                               (assignment_id, subject_type, subject_id, target_id,
+                                taxonomy_level, taxonomy_value, confidence, source,
+                                metadata_json)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               ON CONFLICT(assignment_id) DO UPDATE SET
+                                   subject_type = excluded.subject_type,
+                                   subject_id = excluded.subject_id,
+                                   target_id = excluded.target_id,
+                                   taxonomy_level = excluded.taxonomy_level,
+                                   taxonomy_value = excluded.taxonomy_value,
+                                   confidence = excluded.confidence,
+                                   source = excluded.source,
+                                   metadata_json = excluded.metadata_json,
+                                   updated_at = CURRENT_TIMESTAMP""",
+                            (
+                                taxonomy["assignment_id"],
+                                taxonomy["subject_type"],
+                                taxonomy["subject_id"],
+                                taxonomy["target_id"],
+                                taxonomy["taxonomy_level"],
+                                taxonomy["taxonomy_value"],
+                                taxonomy.get("confidence", 0),
+                                taxonomy.get("source", "projection"),
+                                self._json_dumps(taxonomy.get("metadata")),
+                            ),
+                        )
                 await self._db.execute(
-                    """INSERT INTO canonical_events
-                       (canonical_event_id, target_id, title, summary, event_time,
-                        status, confidence, metadata_json)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                       ON CONFLICT(canonical_event_id) DO UPDATE SET
+                    """INSERT INTO projection_runs
+                       (projection_run_id, target_id, mode, input_events, canonical_events,
+                        mentions, auto_merged, needs_review, unprojectable, diagnostics_json)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(projection_run_id) DO UPDATE SET
                            target_id = excluded.target_id,
-                           title = excluded.title,
-                           summary = excluded.summary,
-                           event_time = excluded.event_time,
-                           status = excluded.status,
-                           confidence = excluded.confidence,
-                           metadata_json = excluded.metadata_json,
-                           updated_at = CURRENT_TIMESTAMP""",
+                           mode = excluded.mode,
+                           input_events = excluded.input_events,
+                           canonical_events = excluded.canonical_events,
+                           mentions = excluded.mentions,
+                           auto_merged = excluded.auto_merged,
+                           needs_review = excluded.needs_review,
+                           unprojectable = excluded.unprojectable,
+                           diagnostics_json = excluded.diagnostics_json""",
                     (
-                        candidate["canonical_event_id"],
-                        candidate["target_id"],
-                        candidate["title"],
-                        candidate.get("summary", ""),
-                        candidate.get("event_time"),
-                        candidate.get("status", "active"),
-                        candidate.get("confidence", 0),
-                        self._json_dumps(candidate.get("metadata")),
+                        projection_run_id,
+                        projection_run["target_id"],
+                        projection_run["mode"],
+                        projection_run.get("input_events", 0),
+                        projection_run.get("canonical_events", 0),
+                        projection_run.get("mentions", 0),
+                        projection_run.get("auto_merged", 0),
+                        projection_run.get("needs_review", 0),
+                        projection_run.get("unprojectable", 0),
+                        self._json_dumps(projection_run.get("diagnostics")),
                     ),
                 )
-                for mention in candidate.get("mention_rows", []):
-                    await self._db.execute(
-                        """INSERT INTO event_mentions
-                           (mention_id, canonical_event_id, event_id, target_id, source_id,
-                            url, title, published_at, metadata_json)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                           ON CONFLICT(mention_id) DO UPDATE SET
-                               canonical_event_id = excluded.canonical_event_id,
-                               event_id = excluded.event_id,
-                               target_id = excluded.target_id,
-                               source_id = excluded.source_id,
-                               url = excluded.url,
-                               title = excluded.title,
-                               published_at = excluded.published_at,
-                               metadata_json = excluded.metadata_json,
-                               updated_at = CURRENT_TIMESTAMP""",
-                        (
-                            mention["mention_id"],
-                            mention["canonical_event_id"],
-                            mention["event_id"],
-                            mention["target_id"],
-                            mention.get("source_id"),
-                            mention.get("url"),
-                            mention["title"],
-                            mention.get("published_at"),
-                            self._json_dumps(mention.get("metadata")),
-                        ),
-                    )
-                for taxonomy in candidate.get("taxonomy_rows", []):
-                    await self._db.execute(
-                        """INSERT INTO taxonomy_assignments
-                           (assignment_id, subject_type, subject_id, target_id, taxonomy_level,
-                            taxonomy_value, confidence, source, metadata_json)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                           ON CONFLICT(assignment_id) DO UPDATE SET
-                               subject_type = excluded.subject_type,
-                               subject_id = excluded.subject_id,
-                               target_id = excluded.target_id,
-                               taxonomy_level = excluded.taxonomy_level,
-                               taxonomy_value = excluded.taxonomy_value,
-                               confidence = excluded.confidence,
-                               source = excluded.source,
-                               metadata_json = excluded.metadata_json,
-                               updated_at = CURRENT_TIMESTAMP""",
-                        (
-                            taxonomy["assignment_id"],
-                            taxonomy["subject_type"],
-                            taxonomy["subject_id"],
-                            taxonomy["target_id"],
-                            taxonomy["taxonomy_level"],
-                            taxonomy["taxonomy_value"],
-                            taxonomy.get("confidence", 0),
-                            taxonomy.get("source", "projection"),
-                            self._json_dumps(taxonomy.get("metadata")),
-                        ),
-                    )
-            await self._db.execute(
-                """INSERT INTO projection_runs
-                   (projection_run_id, target_id, mode, input_events, canonical_events,
-                    mentions, auto_merged, needs_review, unprojectable, diagnostics_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                   ON CONFLICT(projection_run_id) DO UPDATE SET
-                       target_id = excluded.target_id,
-                       mode = excluded.mode,
-                       input_events = excluded.input_events,
-                       canonical_events = excluded.canonical_events,
-                       mentions = excluded.mentions,
-                       auto_merged = excluded.auto_merged,
-                       needs_review = excluded.needs_review,
-                       unprojectable = excluded.unprojectable,
-                       diagnostics_json = excluded.diagnostics_json""",
-                (
-                    projection_run_id,
-                    projection_run["target_id"],
-                    projection_run["mode"],
-                    projection_run.get("input_events", 0),
-                    projection_run.get("canonical_events", 0),
-                    projection_run.get("mentions", 0),
-                    projection_run.get("auto_merged", 0),
-                    projection_run.get("needs_review", 0),
-                    projection_run.get("unprojectable", 0),
-                    self._json_dumps(projection_run.get("diagnostics")),
-                ),
-            )
-        except Exception:
-            await self._db.rollback()
-            raise
-        await self._db.commit()
+            except Exception:
+                await self._db.rollback()
+                raise
+            await self._db.commit()
         return projection_run_id
 
     async def list_canonical_events(
