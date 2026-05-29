@@ -123,6 +123,13 @@ assert.equal(eventMatchesSearch({ id: "fallback-id-001" }, "fallback-id"), true)
 assert.equal(eventMatchesSearch({ source_name: "Wire Desk" }, "wire desk"), true);
 assert.deepEqual(eventTerms({ flat_tags: [0] }), ["0"]);
 assert.deepEqual(eventTerms({ flat_tags: [{ code: 0 }] }), ["0"]);
+assert.deepEqual(
+  eventTerms({
+    flat_tags: ["economics", "security", "china_related"],
+    classification: { l0: "international" },
+  }),
+  ["economy", "public-safety", "china-related", "international-relations"],
+);
 
 const policyGroups = filterGroups(groups, { channelId: "policy", query: "" });
 assert.equal(countEvents(policyGroups), 1);

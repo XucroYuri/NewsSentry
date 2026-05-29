@@ -5,6 +5,21 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+CANONICAL_L0: set[str] = {
+    "politics",
+    "economy",
+    "society",
+    "public-safety",
+    "environment",
+    "tech",
+    "international-relations",
+    "china-related",
+    "culture",
+    "sports",
+    "health",
+    "uncategorized",
+}
+
 LEGACY_L0_ALIASES: dict[str, str] = {
     "economics": "economy",
     "security": "public-safety",
@@ -12,6 +27,11 @@ LEGACY_L0_ALIASES: dict[str, str] = {
     "culture_society": "society",
     "environment_energy": "environment",
     "china_related": "china-related",
+    "political": "politics",
+    "technology": "tech",
+    "energy": "environment",
+    "breaking_news": "uncategorized",
+    "other": "uncategorized",
 }
 
 PUBLIC_CHANNEL_TERMS: dict[str, set[str]] = {
@@ -68,6 +88,28 @@ def canonical_l0(value: str | None) -> str:
     if not raw:
         return "uncategorized"
     return LEGACY_L0_ALIASES.get(raw, raw)
+
+
+def is_canonical_l0(value: str | None) -> bool:
+    return canonical_l0(value) in CANONICAL_L0 and str(value or "").strip().lower() in CANONICAL_L0
+
+
+def l0_query_values(value: str | None) -> set[str]:
+    raw = str(value or "").strip().lower()
+    canonical = canonical_l0(raw)
+    values = {canonical}
+    if raw:
+        values.add(raw)
+    values.update(alias for alias, target in LEGACY_L0_ALIASES.items() if target == canonical)
+    return values
+
+
+def normalize_classification(classification: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(classification, dict):
+        return {}
+    normalized = dict(classification)
+    normalized["l0"] = canonical_l0(_term_text(classification.get("l0")))
+    return normalized
 
 
 def _term_text(value: Any) -> str:

@@ -16,6 +16,8 @@ import yaml
 from jsonschema import validate as jsonschema_validate
 from pydantic import BaseModel, Field
 
+from news_sentry.skills.filter.classification_taxonomy import canonical_l0
+
 
 class ResolvedConfig(BaseModel):
     """完整解析后的一个 target 的运行时配置。
@@ -349,9 +351,18 @@ class ConfigLoader:
             return {}
         data = self._load_yaml(ref_path)
         merged = self._resolve_extends(data, ref_path_str, context_path)
+        self._normalize_classification_rules(merged)
         # 对最终合并结果校验 schema
         self._validate_resolved_schema(merged, ref_path)
         return merged
+
+    def _normalize_classification_rules(self, data: dict[str, Any]) -> None:
+        for domain in data.get("l0_domains", []):
+            if isinstance(domain, dict) and domain.get("code"):
+                domain["code"] = canonical_l0(domain.get("code"))
+        for topic in data.get("l1_topics", []):
+            if isinstance(topic, dict) and topic.get("l0_domain"):
+                topic["l0_domain"] = canonical_l0(topic.get("l0_domain"))
 
     def _resolve_ref_path(self, ref_path_str: str, context_path: Path) -> Path | None:
         """解析引用路径，与 _load_referenced_config 相同的查找逻辑。

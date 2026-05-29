@@ -7,35 +7,35 @@ rules_version: "1.0.0"
 # 德国特有 L1 子议题
 l1_topics:
   - code: china_germany_bilateral
-    l0_domain: international
+    l0_domain: international-relations
     label_zh: "中德双边关系"
     label_de: "Chinesisch-deutsche Beziehungen"
     keywords_de: [China, Peking, Xi Jinping, bilateral, Handelsbeziehungen]
     keywords_en: [China, Germany-China, bilateral, Beijing]
 
   - code: german_automotive
-    l0_domain: economics
+    l0_domain: economy
     label_zh: "德国汽车产业"
     label_de: "Deutsche Automobilindustrie"
     keywords_de: [Automobil, VW, BMW, Mercedes, Elektromobilität]
     keywords_en: [automotive, VW, BMW, Mercedes, EV]
 
   - code: energiewende
-    l0_domain: energy
+    l0_domain: environment
     label_zh: "能源转型"
     label_de: "Energiewende"
     keywords_de: [Energiewende, erneuerbar, Windkraft, Solar, Atomausstieg]
     keywords_en: [energy transition, renewable, wind, solar, nuclear phase-out]
 
   - code: china_trade_germany
-    l0_domain: economics
+    l0_domain: economy
     label_zh: "中德贸易"
     label_de: "Deutsch-chinesischer Handel"
     keywords_de: [Handel, China, Export, Import, Zölle, Lieferkette]
     keywords_en: [trade, China, exports, tariffs, supply chain]
 
   - code: german_defense
-    l0_domain: security
+    l0_domain: public-safety
     label_zh: "德国防务"
     label_de: "Deutsche Verteidigung"
     keywords_de: [Bundeswehr, Verteidigung, NATO, Sicherheitspolitik]

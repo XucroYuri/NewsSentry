@@ -83,6 +83,18 @@ const CHANNEL_TERM_MAP = {
   ],
 };
 
+const CANONICAL_TERM_ALIASES = {
+  economics: "economy",
+  security: "public-safety",
+  international: "international-relations",
+  culture_society: "society",
+  environment_energy: "environment",
+  china_related: "china-related",
+  political: "politics",
+  technology: "tech",
+  energy_transition: "energy-transition",
+};
+
 export const CHANNELS = [
   { id: "all", label: "全部", terms: [] },
   { id: "featured", label: "精选", terms: [] },
@@ -142,6 +154,11 @@ function lower(value) {
   return tagText(value).trim().toLowerCase();
 }
 
+function canonicalTerm(value) {
+  const text = lower(value);
+  return CANONICAL_TERM_ALIASES[text] || text;
+}
+
 function collectClassificationTerms(ev) {
   const terms = [];
   const classification = ev.classification || ev.metadata?.classification || {};
@@ -158,7 +175,7 @@ export function eventTerms(ev) {
     ...(Array.isArray(ev.topic_tags) ? ev.topic_tags : []),
     ...collectClassificationTerms(ev),
   ];
-  return terms.map(lower).filter(Boolean);
+  return terms.map(canonicalTerm).filter(Boolean);
 }
 
 function eventText(ev) {

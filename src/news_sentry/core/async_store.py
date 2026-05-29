@@ -12,11 +12,14 @@ import logging
 import os as _os
 import sqlite3
 import time
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import aiosqlite
+
+from news_sentry.skills.filter.classification_taxonomy import canonical_l0, l0_query_values
 
 if not _os.environ.get("PYTEST_CURRENT_TEST"):
     import aiosqlite.core as _aiosqlite_core
@@ -569,6 +572,7 @@ class AsyncStore:
             event.metadata.get("classification", {}) if hasattr(event, "metadata") else {}
         )
         classification_l0 = classification.get("l0") if isinstance(classification, dict) else None
+        classification_l0 = canonical_l0(classification_l0)
         now = datetime.now(UTC).isoformat()
         await self._db.execute(
             """INSERT OR REPLACE INTO event_index
@@ -710,8 +714,10 @@ class AsyncStore:
             conditions.append("source_id = ?")
             params.append(source_id)
         if classification_l0 is not None:
-            conditions.append("classification_l0 = ?")
-            params.append(classification_l0)
+            values = sorted(l0_query_values(classification_l0))
+            placeholders = ", ".join("?" for _ in values)
+            conditions.append(f"classification_l0 IN ({placeholders})")
+            params.extend(values)
         if min_score is not None:
             conditions.append("news_value_score >= ?")
             params.append(min_score)
@@ -752,7 +758,7 @@ class AsyncStore:
                     "source_id": r[1],
                     "news_value_score": r[2],
                     "china_relevance": r[3],
-                    "classification_l0": r[4],
+                    "classification_l0": canonical_l0(r[4]),
                     "published_at": r[5],
                     "file_path": r[6],
                     "title_original": r[7],
@@ -804,7 +810,7 @@ class AsyncStore:
             avg_score = row[0] if row and row[0] is not None else None
             avg_relevance = row[1] if row and row[1] is not None else None
 
-        by_classification: dict[str, int] = {}
+        by_classification: dict[str, int] = defaultdict(int)
         async with self._db.execute(
             "SELECT classification_l0, COUNT(*) FROM event_index "
             "WHERE target_id = ? AND classification_l0 IS NOT NULL "
@@ -812,7 +818,7 @@ class AsyncStore:
             [target_id],
         ) as cursor:
             async for row in cursor:
-                by_classification[row[0]] = row[1]
+                by_classification[canonical_l0(row[0])] += row[1]
 
         by_source: dict[str, int] = {}
         async with self._db.execute(
