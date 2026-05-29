@@ -560,7 +560,12 @@ async def _run_judge_async(
         from news_sentry.core.alert_pipeline import AlertPipeline
 
         alert_pipeline = AlertPipeline([])
-        smart_alerts = await alert_pipeline.check_smart_alerts(store, config.target_id)
+        smart_alerts = await alert_pipeline.check_smart_alerts(
+            store,
+            config.target_id,
+            since=t0,
+            limit=500,
+        )
         if smart_alerts:
             logger.info("智能告警: %d 条 [%s]", len(smart_alerts), config.target_id)
     except Exception as exc:
@@ -667,6 +672,8 @@ async def _link_events(
     store: AsyncStore,
     events: list[NewsEvent],
     target_id: str,
+    candidate_limit: int = 100,
+    max_links_per_event: int = 20,
 ) -> None:
     """Phase 35: 对新事件执行关联扫描。
 
@@ -676,8 +683,15 @@ async def _link_events(
     if store._db is None or not events:
         return
     try:
+        candidate_limit = max(1, int(candidate_limit))
+        max_links_per_event = max(1, int(max_links_per_event))
         for event in events:
-            candidates = await store.find_candidates(target_id, event.id, days=7)
+            candidates = await store.find_candidates(
+                target_id,
+                event.id,
+                days=7,
+                limit=candidate_limit,
+            )
             if not candidates:
                 continue
 
@@ -694,6 +708,7 @@ async def _link_events(
                 if getattr(event, "published_at", None)
                 else datetime.now(UTC)
             )
+            scored_links: list[tuple[float, str, dict[str, float], dict[str, Any]]] = []
 
             for candidate in candidates:
                 cand_entities = set(
@@ -735,18 +750,31 @@ async def _link_events(
                     else:
                         link_type = "related"
 
-                    await store.create_link(
-                        source_event_id=candidate["event_id"],
-                        target_event_id=event.id,
-                        link_type=link_type,
-                        strength=round(strength, 3),
-                        signals={
-                            "entity_overlap": round(entity_overlap, 3),
-                            "topic_match": round(topic_match, 3),
-                            "time_proximity": round(time_proximity, 3),
-                        },
-                        target_id=target_id,
+                    scored_links.append(
+                        (
+                            round(strength, 3),
+                            link_type,
+                            {
+                                "entity_overlap": round(entity_overlap, 3),
+                                "topic_match": round(topic_match, 3),
+                                "time_proximity": round(time_proximity, 3),
+                            },
+                            candidate,
+                        )
                     )
+
+            strongest_links = sorted(scored_links, key=lambda item: item[0], reverse=True)[
+                :max_links_per_event
+            ]
+            for strength, link_type, signals, candidate in strongest_links:
+                await store.create_link(
+                    source_event_id=candidate["event_id"],
+                    target_event_id=event.id,
+                    link_type=link_type,
+                    strength=strength,
+                    signals=signals,
+                    target_id=target_id,
+                )
     except Exception as e:
         logger.warning("事件关联扫描失败（非阻塞）: %s", e)
 

@@ -895,6 +895,39 @@ class TestEventLinks:
         assert candidates[0]["event_id"] == "evt-old"
 
     @pytest.mark.asyncio
+    async def test_find_candidates_respects_limit(self, store_with_links: AsyncStore):
+        """候选关联事件必须有上限，避免单次 run 全量扫描历史。"""
+        store = store_with_links
+        now = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
+        for idx in range(5):
+            await store._db.execute(
+                "INSERT INTO event_index "
+                "(event_id, target_id, stage, created_at, published_at, "
+                "entity_names, topic_tags) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    f"evt-old-{idx}",
+                    "italy",
+                    "drafts",
+                    now,
+                    now,
+                    "Meloni,EU",
+                    "politics,eu",
+                ),
+            )
+        await store._db.execute(
+            "INSERT INTO event_index "
+            "(event_id, target_id, stage, created_at, published_at, "
+            "entity_names, topic_tags) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("evt-new", "italy", "drafts", now, now, "Meloni,EU", "politics,eu"),
+        )
+        await store._db.commit()
+
+        candidates = await store.find_candidates("italy", "evt-new", days=7, limit=2)
+        assert len(candidates) == 2
+
+    @pytest.mark.asyncio
     async def test_get_event_chain(self, store_with_links: AsyncStore):
         """get_event_chain 向前向后遍历关联链。"""
         store = store_with_links
@@ -1229,7 +1262,8 @@ class TestSmartAlertQueries:
         await store.create_link("a-evt-1", "a-evt-2", "followup", 0.85, {}, "italy")
         await store.create_link("a-evt-3", "a-evt-4", "related", 0.5, {}, "italy")
 
-        return store
+        yield store
+        await store.close()
 
     @pytest.mark.asyncio
     async def test_get_recent_links(self, store_with_alerts: AsyncStore) -> None:
@@ -1240,6 +1274,36 @@ class TestSmartAlertQueries:
         followup = [r for r in result if r["link_type"] == "followup"]
         assert len(followup) == 1
         assert followup[0]["strength"] == 0.85
+
+    @pytest.mark.asyncio
+    async def test_get_recent_links_respects_since_and_limit(
+        self, store_with_alerts: AsyncStore
+    ) -> None:
+        """智能告警只消费 run 边界之后、且有限数量的 event links。"""
+        now = datetime.now(UTC).replace(microsecond=0)
+        old_at = (now - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
+        since = (now - timedelta(minutes=30)).isoformat()
+        recent_at = (now - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
+
+        await store_with_alerts._db.execute(
+            "UPDATE event_links SET created_at = ? WHERE source_event_id = ?",
+            (old_at, "a-evt-1"),
+        )
+        await store_with_alerts._db.execute(
+            "UPDATE event_links SET created_at = ? WHERE source_event_id = ?",
+            (recent_at, "a-evt-3"),
+        )
+        await store_with_alerts._db.commit()
+
+        result = await store_with_alerts.get_recent_links(
+            "italy",
+            hours=24,
+            limit=1,
+            since_run_started_at=since,
+        )
+
+        assert len(result) == 1
+        assert result[0]["source_event_id"] == "a-evt-3"
 
     @pytest.mark.asyncio
     async def test_get_entity_daily_mentions(self, store_with_alerts: AsyncStore) -> None:

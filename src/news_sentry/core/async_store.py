@@ -1097,16 +1097,18 @@ class AsyncStore:
         target_id: str,
         event_id: str,
         days: int = 7,
+        limit: int = 100,
     ) -> list[dict[str, Any]]:
         """查找同一 target 最近 N 天的候选关联事件（排除自身）。"""
         if self._db is None:
             return []
         cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+        capped_limit = max(1, int(limit))
         async with self._db.execute(
             "SELECT event_id, entity_names, topic_tags, published_at, title_original "
             "FROM event_index WHERE target_id = ? AND event_id != ? "
-            "AND published_at >= ? ORDER BY published_at DESC",
-            [target_id, event_id, cutoff],
+            "AND published_at >= ? ORDER BY published_at DESC LIMIT ?",
+            [target_id, event_id, cutoff, capped_limit],
         ) as cursor:
             rows = await cursor.fetchall()
         cols = ("event_id", "entity_names", "topic_tags", "published_at", "title_original")
@@ -1367,20 +1369,41 @@ class AsyncStore:
     # Smart Alerts (Phase 38)
     # ------------------------------------------------------------------
 
-    async def get_recent_links(self, target_id: str, hours: int = 24) -> list[dict[str, Any]]:
+    async def get_recent_links(
+        self,
+        target_id: str,
+        hours: int = 24,
+        limit: int = 500,
+        since_run_started_at: str | datetime | None = None,
+    ) -> list[dict[str, Any]]:
         """获取最近 N 小时新增的 event_links。"""
         if self._db is None:
             return []
-        async with self._db.execute(
-            "SELECT el.source_event_id, el.target_event_id, el.link_type, "
-            "el.strength, el.target_id, ei.title_original "
-            "FROM event_links el "
-            "LEFT JOIN event_index ei ON ei.event_id = el.target_event_id "
-            "WHERE el.target_id = ? "
-            "AND el.created_at >= datetime('now', ? || ' hours') "
-            "ORDER BY el.created_at DESC",
-            [target_id, f"-{hours}"],
-        ) as cursor:
+        params: list[Any] = [target_id, f"-{hours}"]
+        if since_run_started_at is not None:
+            params.append(self._sqlite_datetime(since_run_started_at))
+            query = (
+                "SELECT el.source_event_id, el.target_event_id, el.link_type, "
+                "el.strength, el.target_id, ei.title_original "
+                "FROM event_links el "
+                "LEFT JOIN event_index ei ON ei.event_id = el.target_event_id "
+                "WHERE el.target_id = ? "
+                "AND el.created_at >= datetime('now', ? || ' hours') "
+                "AND el.created_at >= ? "
+                "ORDER BY el.created_at DESC LIMIT ?"
+            )
+        else:
+            query = (
+                "SELECT el.source_event_id, el.target_event_id, el.link_type, "
+                "el.strength, el.target_id, ei.title_original "
+                "FROM event_links el "
+                "LEFT JOIN event_index ei ON ei.event_id = el.target_event_id "
+                "WHERE el.target_id = ? "
+                "AND el.created_at >= datetime('now', ? || ' hours') "
+                "ORDER BY el.created_at DESC LIMIT ?"
+            )
+        params.append(max(1, int(limit)))
+        async with self._db.execute(query, params) as cursor:
             rows = await cursor.fetchall()
         cols = (
             "source_event_id",
@@ -1391,6 +1414,21 @@ class AsyncStore:
             "title_original",
         )
         return [dict(zip(cols, row, strict=True)) for row in rows]
+
+    @staticmethod
+    def _sqlite_datetime(value: str | datetime) -> str:
+        """把 ISO/datetime 时间归一成 SQLite datetime('now') 同格式。"""
+        if isinstance(value, datetime):
+            parsed = value
+        else:
+            text = str(value)
+            try:
+                parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            except ValueError:
+                return text.replace("T", " ")[:19]
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(UTC).replace(tzinfo=None)
+        return parsed.strftime("%Y-%m-%d %H:%M:%S")
 
     async def get_entity_daily_mentions(
         self, entity_name: str, target_id: str, days: int = 7

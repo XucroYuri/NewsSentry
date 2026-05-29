@@ -193,6 +193,8 @@ class AlertPipeline:
         self,
         store: Any,  # noqa: ANN401
         target_id: str,
+        since: str | datetime | None = None,
+        limit: int = 500,
     ) -> list[dict[str, Any]]:
         """检查智能告警条件，返回告警列表。
 
@@ -207,7 +209,12 @@ class AlertPipeline:
 
         # 1. 链更新告警
         try:
-            links = await store.get_recent_links(target_id, hours=24)
+            links = await store.get_recent_links(
+                target_id,
+                hours=24,
+                limit=limit,
+                since_run_started_at=since,
+            )
             for link in links:
                 if link["link_type"] == "followup" and link["strength"] >= 0.7:
                     title = link.get("title_original") or "未知事件"
