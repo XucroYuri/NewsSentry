@@ -1597,19 +1597,19 @@ async def test_list_event_index_rows_for_projection_filters_by_target(store: Asy
         await conn.execute(
             """
             INSERT INTO event_index (
-                event_id, target_id, source_id, title_original, published_at,
+                event_id, target_id, source_id, title_original, url, published_at,
                 stage, news_value_score, china_relevance, classification_l0,
-                file_path, created_at
+                metadata_json, file_path, created_at
             ) VALUES
             (
-                'it_1', 'italy', 'ansa', 'Italy story',
+                'it_1', 'italy', 'ansa', 'Italy story', 'https://example.com/it',
                 '2026-05-30T08:00:00Z', 'judged', 82, 12, 'politics',
-                'drafts/it_1.md', '2026-05-30T08:00:00Z'
+                '{"source_kind": "rss"}', 'drafts/it_1.md', '2026-05-30T08:00:00Z'
             ),
             (
-                'de_1', 'germany', 'dpa', 'Germany story',
+                'de_1', 'germany', 'dpa', 'Germany story', 'https://example.com/de',
                 '2026-05-30T08:00:00Z', 'judged', 80, 8, 'economics',
-                'drafts/de_1.md', '2026-05-30T08:00:00Z'
+                '{"source_kind": "wire"}', 'drafts/de_1.md', '2026-05-30T08:00:00Z'
             )
             """
         )
@@ -1620,6 +1620,8 @@ async def test_list_event_index_rows_for_projection_filters_by_target(store: Asy
     assert [row["event_id"] for row in rows] == ["it_1"]
     assert rows[0]["target_id"] == "italy"
     assert rows[0]["title"] == "Italy story"
+    assert rows[0]["url"] == "https://example.com/it"
+    assert rows[0]["metadata"] == {"source_kind": "rss"}
 
 
 @pytest.mark.asyncio

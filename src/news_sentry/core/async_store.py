@@ -89,8 +89,10 @@ CREATE TABLE IF NOT EXISTS event_index (
     china_relevance   INTEGER,
     classification_l0 TEXT,
     title_original    TEXT,
+    url               TEXT,
     published_at      TEXT,
     file_path         TEXT,
+    metadata_json     TEXT,
     sentiment         TEXT,
     entity_names      TEXT,
     topic_tags        TEXT,
@@ -352,6 +354,14 @@ _SCHEMA_MIGRATIONS: list[tuple[int, str, list[str]]] = [
             _DDL_CANONICAL_ENTITY_LINKS,
             _DDL_RESEARCH_ARTIFACTS,
             _DDL_PROJECTION_RUNS,
+        ],
+    ),
+    (
+        7,
+        "Add projection source fields to event_index",
+        [
+            "ALTER TABLE event_index ADD COLUMN url TEXT",
+            "ALTER TABLE event_index ADD COLUMN metadata_json TEXT",
         ],
     ),
 ]
@@ -757,9 +767,9 @@ class AsyncStore:
             """INSERT OR REPLACE INTO event_index
                (event_id, target_id, stage, source_id, news_value_score,
                 china_relevance, classification_l0, title_original,
-                published_at, file_path, sentiment, entity_names, topic_tags,
+                url, published_at, file_path, metadata_json, sentiment, entity_names, topic_tags,
                 created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(
                    (SELECT created_at FROM event_index WHERE event_id = ?), ?))""",
             (
                 getattr(event, "id", ""),
@@ -770,8 +780,10 @@ class AsyncStore:
                 getattr(event, "china_relevance", None),
                 classification_l0,
                 getattr(event, "title_original", None),
+                getattr(event, "url", None),
                 getattr(event, "published_at", None),
                 file_path,
+                self._json_dumps(getattr(event, "metadata", {})),
                 *self._extract_nlp_fields(event),
                 getattr(event, "id", ""),
                 now,
@@ -829,9 +841,9 @@ class AsyncStore:
         if since:
             params.append(since)
             query = """
-                SELECT event_id, target_id, source_id, title_original, NULL, published_at,
+                SELECT event_id, target_id, source_id, title_original, url, published_at,
                        stage, news_value_score, china_relevance,
-                       classification_l0, NULL, file_path
+                       classification_l0, metadata_json, file_path
                 FROM event_index
                 WHERE target_id = ? AND COALESCE(published_at, created_at) >= ?
                 ORDER BY COALESCE(published_at, created_at) DESC
@@ -839,9 +851,9 @@ class AsyncStore:
                 """
         else:
             query = """
-                SELECT event_id, target_id, source_id, title_original, NULL, published_at,
+                SELECT event_id, target_id, source_id, title_original, url, published_at,
                        stage, news_value_score, china_relevance,
-                       classification_l0, NULL, file_path
+                       classification_l0, metadata_json, file_path
                 FROM event_index
                 WHERE target_id = ?
                 ORDER BY COALESCE(published_at, created_at) DESC
