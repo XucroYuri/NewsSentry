@@ -479,6 +479,78 @@ class TestAsyncStoreIntegration:
         finally:
             await store.close()
 
+    @pytest.mark.asyncio
+    async def test_output_async_indexes_nlp_from_judged_markdown(self, tmp_path):
+        """输出阶段从 judged Markdown 读回事件时，不应丢失 NLP 聚合字段。"""
+        from news_sentry.core.async_store import AsyncStore
+        from news_sentry.core.file_writer import FileWriter
+        from news_sentry.models.newsevent import (
+            JudgeRecommendation,
+            JudgeResult,
+            Language,
+            NewsEvent,
+            NLPAnalysis,
+            NLPEntity,
+            PipelineStage,
+            Sentiment,
+        )
+
+        target_dir = tmp_path / "italy"
+        file_writer = FileWriter(target_dir)
+        file_writer.ensure_dirs()
+        event = NewsEvent(
+            id="ne-italy-ansa-20260529-nlp001",
+            run_id="run-output-nlp",
+            source_id="ansa",
+            url="https://example.com/nlp",
+            title_original="Meloni incontra l'UE",
+            content_original="Body",
+            language=Language.IT,
+            published_at="2026-05-29T00:18:47+00:00",
+            collected_at="2026-05-29T00:20:00+00:00",
+            pipeline_stage=PipelineStage.JUDGED,
+            news_value_score=80,
+            china_relevance=10,
+            sentiment_score=0.0,
+            judge_result=JudgeResult(
+                recommendation=JudgeRecommendation.REVIEW,
+                rationale="test",
+                confidence=80,
+                nlp_analysis=NLPAnalysis(
+                    sentiment=Sentiment.NEUTRAL,
+                    entities=[NLPEntity(name="Meloni", entity_type="person", relevance=80)],
+                    topic_tags=["politics", "eu"],
+                ),
+            ),
+            metadata={"classification": {"l0": "politics"}},
+        )
+        file_writer.write_event(event)
+
+        store = AsyncStore(target_dir / "state.db")
+        await store.initialize()
+        config = MagicMock()
+        config.target_id = "italy"
+        config.output_root = tmp_path
+        config.output_destinations = {}
+
+        try:
+            await _run_output_async(
+                config=config,
+                run_id="run-output-nlp",
+                run_log=MagicMock(),
+                file_writer=file_writer,
+                ctx=MagicMock(),
+                store=store,
+            )
+
+            row = await store.get_event_index_row("italy", "ne-italy-ansa-20260529-nlp001")
+            assert row is not None
+            assert row["sentiment"] == "neutral"
+            assert row["entity_names"] == "Meloni"
+            assert row["topic_tags"] == "politics,eu"
+        finally:
+            await store.close()
+
 
 class TestLinkEvents:
     """Phase 35: link_events 协程测试。"""

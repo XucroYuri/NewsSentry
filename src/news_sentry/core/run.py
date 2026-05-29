@@ -13,6 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -36,7 +37,9 @@ from news_sentry.core.sandbox import (
 )
 from news_sentry.models.newsevent import (
     JudgeRecommendation,
+    JudgeResult,
     NewsEvent,
+    NLPAnalysis,
     PipelineStage,
 )
 from news_sentry.models.pipeline_context import PipelineContext
@@ -684,6 +687,53 @@ def _load_events_from_dir(directory: Path) -> list[NewsEvent]:
     if not directory.is_dir():
         return events
 
+    def _nlp_from_frontmatter(frontmatter: dict[str, Any]) -> NLPAnalysis | None:
+        payload: dict[str, Any] = {}
+        judge_result_data = frontmatter.get("judge_result")
+        if isinstance(judge_result_data, dict) and isinstance(
+            judge_result_data.get("nlp_analysis"), dict
+        ):
+            payload.update(judge_result_data["nlp_analysis"])
+
+        if frontmatter.get("sentiment") and not payload.get("sentiment"):
+            payload["sentiment"] = frontmatter["sentiment"]
+        if frontmatter.get("nlp_entities") and not payload.get("entities"):
+            payload["entities"] = frontmatter["nlp_entities"]
+        if frontmatter.get("topic_tags") and not payload.get("topic_tags"):
+            payload["topic_tags"] = frontmatter["topic_tags"]
+        if frontmatter.get("event_relations") and not payload.get("event_relations"):
+            payload["event_relations"] = frontmatter["event_relations"]
+
+        if not payload:
+            return None
+        try:
+            return NLPAnalysis.model_validate(payload)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _judge_result_from_frontmatter(frontmatter: dict[str, Any]) -> JudgeResult | None:
+        judge_result_data = frontmatter.get("judge_result")
+        nlp_analysis = _nlp_from_frontmatter(frontmatter)
+        if isinstance(judge_result_data, dict):
+            payload = dict(judge_result_data)
+            payload.setdefault("recommendation", JudgeRecommendation.REVIEW.value)
+            payload.setdefault("rationale", "")
+            payload.setdefault("confidence", frontmatter.get("news_value_score") or 0)
+            if nlp_analysis is not None:
+                payload["nlp_analysis"] = nlp_analysis
+            try:
+                return JudgeResult.model_validate(payload)
+            except Exception:  # noqa: BLE001
+                return None
+        if nlp_analysis is None:
+            return None
+        return JudgeResult(
+            recommendation=JudgeRecommendation.REVIEW,
+            rationale="",
+            confidence=frontmatter.get("news_value_score") or 0,
+            nlp_analysis=nlp_analysis,
+        )
+
     for md_file in sorted(directory.glob("*.md")):
         try:
             raw_text = md_file.read_text(encoding="utf-8")
@@ -725,6 +775,7 @@ def _load_events_from_dir(directory: Path) -> list[NewsEvent]:
                 news_value_score=frontmatter.get("news_value_score"),
                 china_relevance=frontmatter.get("china_relevance"),
                 sentiment_score=frontmatter.get("sentiment_score"),
+                judge_result=_judge_result_from_frontmatter(frontmatter),
                 cluster_id=frontmatter.get("cluster_id"),
                 story_id=frontmatter.get("story_id"),
                 metadata=metadata,
