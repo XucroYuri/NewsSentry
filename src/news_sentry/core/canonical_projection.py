@@ -130,7 +130,8 @@ class CanonicalProjectionService:
             if len(group_rows) > 1:
                 diagnostics.auto_merged += len(group_rows) - 1
             primary = group_rows[0]
-            if not primary.get("url"):
+            has_url = bool(str(primary.get("url") or "").strip())
+            if not has_url:
                 diagnostics.needs_review += 1
                 diagnostics.review_samples.append(
                     {
@@ -146,7 +147,7 @@ class CanonicalProjectionService:
                 title=primary.get("title") or primary["event_id"],
                 summary="",
                 event_time=primary.get("published_at"),
-                confidence=90.0 if primary.get("url") else 72.0,
+                confidence=90.0 if has_url else 72.0,
             )
             taxonomy_ids: set[str] = set()
             for row in group_rows:

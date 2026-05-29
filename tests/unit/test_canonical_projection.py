@@ -325,7 +325,7 @@ async def test_projection_without_url_uses_review_sample_for_lower_confidence(st
         store,
         event_id="it_001",
         title="Wire story without URL",
-        url="",
+        url="   ",
     )
 
     diagnostics = await CanonicalProjectionService(store).project(
@@ -340,3 +340,13 @@ async def test_projection_without_url_uses_review_sample_for_lower_confidence(st
             "title": "Wire story without URL",
         }
     ]
+
+    await CanonicalProjectionService(store).project(
+        ProjectionOptions(
+            target_id="italy",
+            apply=True,
+            projection_run_id="projection_test_whitespace_url",
+        )
+    )
+    events = await store.list_canonical_events(target_id="italy", limit=20)
+    assert events[0]["confidence"] == 72.0
