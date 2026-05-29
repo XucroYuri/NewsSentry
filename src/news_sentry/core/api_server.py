@@ -5587,7 +5587,7 @@ def create_app(
     async def canonical_diagnostics(
         target_id: str,
         since: str | None = None,
-        limit: int = 500,
+        limit: int = Query(500, ge=1, le=5000),
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
         store = await _store_for_target(target_id)
@@ -5622,8 +5622,8 @@ def create_app(
     @app.get("/api/v1/canonical/events")
     async def list_canonical_events(
         target_id: str,
-        limit: int = 50,
-        offset: int = 0,
+        limit: int = Query(50, ge=1, le=5000),
+        offset: int = Query(0, ge=0),
         status: str | None = None,
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
@@ -5638,6 +5638,16 @@ def create_app(
         )
         return {"events": events, "limit": limit, "offset": offset}
 
+    async def _canonical_event_or_404(
+        store: AsyncStore,
+        canonical_event_id: str,
+        target_id: str | None,
+    ) -> dict[str, Any]:
+        event = await store.get_canonical_event(canonical_event_id)
+        if not event or (target_id is not None and event.get("target_id") != target_id):
+            raise HTTPException(status_code=404, detail="Canonical event not found")
+        return event
+
     @app.get("/api/v1/canonical/events/{canonical_event_id}")
     async def get_canonical_event(
         canonical_event_id: str,
@@ -5647,10 +5657,7 @@ def create_app(
         store = await _store_for_target(target_id) if target_id else _store
         if store is None:
             raise HTTPException(status_code=404, detail="Canonical event not found")
-        event = await store.get_canonical_event(canonical_event_id)
-        if not event:
-            raise HTTPException(status_code=404, detail="Canonical event not found")
-        return event
+        return await _canonical_event_or_404(store, canonical_event_id, target_id)
 
     @app.get("/api/v1/canonical/events/{canonical_event_id}/mentions")
     async def list_canonical_event_mentions(
@@ -5661,9 +5668,7 @@ def create_app(
         store = await _store_for_target(target_id) if target_id else _store
         if store is None:
             raise HTTPException(status_code=404, detail="Canonical event not found")
-        event = await store.get_canonical_event(canonical_event_id)
-        if not event:
-            raise HTTPException(status_code=404, detail="Canonical event not found")
+        await _canonical_event_or_404(store, canonical_event_id, target_id)
         mentions = await store.list_event_mentions(canonical_event_id)
         return {"canonical_event_id": canonical_event_id, "mentions": mentions}
 
@@ -5676,9 +5681,7 @@ def create_app(
         store = await _store_for_target(target_id) if target_id else _store
         if store is None:
             raise HTTPException(status_code=404, detail="Canonical event not found")
-        event = await store.get_canonical_event(canonical_event_id)
-        if not event:
-            raise HTTPException(status_code=404, detail="Canonical event not found")
+        await _canonical_event_or_404(store, canonical_event_id, target_id)
         relations = await store.list_canonical_relations(canonical_event_id)
         return {"canonical_event_id": canonical_event_id, "relations": relations}
 
