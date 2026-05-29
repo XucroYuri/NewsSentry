@@ -18,23 +18,24 @@ async def _insert_event_index_row(
     l0_category: str = "economics",
     metadata: str = "{}",
 ) -> None:
-    del url, metadata
     async with store._connect() as conn:
         await conn.execute(
             """
             INSERT INTO event_index (
-                event_id, target_id, source_id, title_original, published_at,
+                event_id, target_id, source_id, title_original, url, published_at,
                 stage, news_value_score, china_relevance, classification_l0,
-                file_path, created_at
-            ) VALUES (?, ?, ?, ?, ?, 'judged', 84, 15, ?, ?, ?)
+                metadata_json, file_path, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, 'judged', 84, 15, ?, ?, ?, ?)
             """,
             (
                 event_id,
                 target_id,
                 source_id,
                 title,
+                url,
                 published_at,
                 l0_category,
+                metadata,
                 f"drafts/{event_id}.md",
                 published_at,
             ),
@@ -83,13 +84,13 @@ async def test_projection_duplicate_url_group_reports_auto_merge(tmp_path):
     await _insert_event_index_row(
         store,
         event_id="it_001",
-        title="Same story",
+        title="Wire headline",
         url="https://example.com/same",
     )
     await _insert_event_index_row(
         store,
         event_id="it_002",
-        title="Same story",
+        title="Publisher rewrite",
         url="https://example.com/same",
     )
 
