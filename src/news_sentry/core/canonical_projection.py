@@ -39,6 +39,9 @@ class ProjectionOptions:
     apply: bool = False
     projection_run_id: str | None = None
 
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
 
 @dataclass
 class ProjectionCandidate:
@@ -50,6 +53,9 @@ class ProjectionCandidate:
     confidence: float
     mention_rows: list[dict[str, Any]] = field(default_factory=list)
     taxonomy_rows: list[dict[str, Any]] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 
 @dataclass
