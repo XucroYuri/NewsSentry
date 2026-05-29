@@ -920,7 +920,19 @@ class TestSmartAlerts:
         chain_alerts = [a for a in alerts if a["type"] == "chain_update"]
         assert len(chain_alerts) >= 1
         assert chain_alerts[0]["severity"] == "high"
+        assert chain_alerts[0]["alert_key"] == "chain_update:s-evt-1:s-evt-3:followup"
         assert chain_alerts[0]["details"]["strength"] == 0.85
+
+    @pytest.mark.asyncio
+    async def test_smart_alert_history_is_idempotent(self, alert_store: AsyncStore) -> None:
+        """重复检查同一批智能告警时，历史记录不应重复膨胀。"""
+        pipeline = AlertPipeline([])
+        await pipeline.check_smart_alerts(alert_store, "italy")
+        await pipeline.check_smart_alerts(alert_store, "italy")
+
+        history = await alert_store.get_alert_history("italy", limit=10)
+        chain_history = [item for item in history if item["alert_type"] == "chain_update"]
+        assert len(chain_history) == 1
 
     @pytest.mark.asyncio
     async def test_smart_alerts_no_exception_on_empty(self, tmp_path: Path) -> None:
