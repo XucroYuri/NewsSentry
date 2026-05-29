@@ -1592,6 +1592,37 @@ async def test_canonical_shadow_tables_created(store: AsyncStore):
 
 
 @pytest.mark.asyncio
+async def test_list_event_index_rows_for_projection_filters_by_target(store: AsyncStore):
+    async with store._connect() as conn:
+        await conn.execute(
+            """
+            INSERT INTO event_index (
+                event_id, target_id, source_id, title_original, published_at,
+                stage, news_value_score, china_relevance, classification_l0,
+                file_path, created_at
+            ) VALUES
+            (
+                'it_1', 'italy', 'ansa', 'Italy story',
+                '2026-05-30T08:00:00Z', 'judged', 82, 12, 'politics',
+                'drafts/it_1.md', '2026-05-30T08:00:00Z'
+            ),
+            (
+                'de_1', 'germany', 'dpa', 'Germany story',
+                '2026-05-30T08:00:00Z', 'judged', 80, 8, 'economics',
+                'drafts/de_1.md', '2026-05-30T08:00:00Z'
+            )
+            """
+        )
+        await conn.commit()
+
+    rows = await store.list_event_index_rows_for_projection(target_id="italy", limit=20)
+
+    assert [row["event_id"] for row in rows] == ["it_1"]
+    assert rows[0]["target_id"] == "italy"
+    assert rows[0]["title"] == "Italy story"
+
+
+@pytest.mark.asyncio
 async def test_upsert_canonical_event_is_idempotent(store: AsyncStore):
     payload = {
         "canonical_event_id": "ce_italy_001",
