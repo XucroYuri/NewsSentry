@@ -224,12 +224,19 @@ async def _run_collect_async(
         if memory.is_source_degraded(source_id):
             health = memory.get_source_health(source_id)
             cf = health.get("consecutive_failures", 0)
+            should_probe = getattr(memory, "should_probe_degraded_source", None)
+            if not callable(should_probe) or not should_probe(source_id):
+                run_log.log_event(
+                    "collect",
+                    source_id,
+                    f"degraded (consecutive_failures={cf})",
+                )
+                return []
             run_log.log_event(
                 "collect",
                 source_id,
-                f"degraded (consecutive_failures={cf})",
+                f"probe_degraded (consecutive_failures={cf})",
             )
-            return []
 
         async with semaphore:
             source_type = source_cfg.get("type", "rss")

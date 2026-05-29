@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import threading
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -212,6 +212,31 @@ class Memory:
                 return True
 
         return False
+
+    def should_probe_degraded_source(
+        self,
+        source_id: str,
+        cooldown_hours: int = 24,
+    ) -> bool:
+        """判断降级源是否到达恢复探测窗口。
+
+        降级信源不能永久跳过；失败后进入冷却期，冷却期结束允许下一轮
+        采集做一次真实探测。若探测成功，record_source_health 会把连续失败
+        清零；若失败，会刷新 last_failure_at 并进入下一轮冷却。
+        """
+        if not self.is_source_degraded(source_id):
+            return True
+        health = self.get_source_health(source_id)
+        last_attempt = health.get("last_failure_at") or health.get("last_success_at")
+        if not last_attempt:
+            return True
+        try:
+            last_dt = datetime.fromisoformat(str(last_attempt))
+        except ValueError:
+            return True
+        if last_dt.tzinfo is None:
+            last_dt = last_dt.replace(tzinfo=UTC)
+        return datetime.now(UTC) - last_dt >= timedelta(hours=cooldown_hours)
 
     # ------------------------------------------------------------------
     # Cursors（拉取游标）

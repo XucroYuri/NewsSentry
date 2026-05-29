@@ -167,6 +167,7 @@ class TestRunCollectAsync:
 
         memory = MagicMock()
         memory.is_source_degraded.return_value = True
+        memory.should_probe_degraded_source.return_value = False
 
         with patch("news_sentry.core.async_run.RSSCollector") as mock_rss_cls:
             events = await _run_collect_async(
@@ -181,6 +182,48 @@ class TestRunCollectAsync:
 
         assert events == []
         mock_rss_cls.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_collect_probes_degraded_source_after_cooldown(self):
+        """冷却期已到的降级源应允许探测采集，成功后恢复健康。"""
+        config = MagicMock()
+        config.target_id = "italy"
+        config.sources = [
+            {
+                "channel_id": "rss-1",
+                "type": "rss",
+                "url": "https://a.com/feed",
+                "source_id": "degraded-src",
+            },
+        ]
+        event = MagicMock()
+
+        memory = MagicMock()
+        memory.is_source_degraded.return_value = True
+        memory.should_probe_degraded_source.return_value = True
+        memory.get_source_health.return_value = {"consecutive_failures": 5}
+
+        with patch("news_sentry.core.async_run.RSSCollector") as mock_rss_cls:
+            collector = MagicMock()
+            collector.collect_async = AsyncMock(return_value=[event])
+            mock_rss_cls.return_value = collector
+
+            events = await _run_collect_async(
+                config=config,
+                run_id="test-run",
+                run_log=MagicMock(),
+                file_writer=MagicMock(),
+                sandbox=MagicMock(),
+                memory=memory,
+                ctx=MagicMock(),
+            )
+
+        assert events == [event]
+        memory.record_source_health.assert_called_with(
+            "degraded-src",
+            success=True,
+            run_id="test-run",
+        )
 
     @pytest.mark.asyncio
     async def test_collect_skips_disabled_sources(self):
