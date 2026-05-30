@@ -4559,6 +4559,13 @@ body.ns-offline .offline-banner {
   gap: var(--space-2);
 }
 
+.research-action-hint {
+  margin: -8px 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-caption);
+  line-height: 1.45;
+}
+
 .research-event-meta span {
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);

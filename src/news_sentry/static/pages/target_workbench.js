@@ -266,7 +266,7 @@ export async function renderTargetsHome(container) {
       <section class="target-workbench-page ns-page">
         <div class="target-page-head ns-page-head">
           <div>
-            <p class="target-eyebrow ns-page-kicker">Target Lifecycle</p>
+            <p class="ns-page-kicker">Target Lifecycle</p>
             <h1 class="ns-page-title">目标工作台</h1>
             <p class="ns-page-subtitle">先管理监控目标，再沿目标管理信源、社媒矩阵、规则、采集、审核与维护。</p>
           </div>
@@ -348,7 +348,7 @@ function renderWorkbenchShell(container, targetId, tab, overview) {
     <section class="target-workbench-page ns-page" data-target-id="${escapeHtml(targetId)}">
       <div class="target-workbench-hero ns-page-head">
         <div>
-          <p class="target-eyebrow ns-page-kicker">Target Workbench</p>
+          <p class="ns-page-kicker">Target Workbench</p>
           <h1 class="ns-page-title">${escapeHtml(target.display_name || targetId)}</h1>
           <p class="ns-page-subtitle">${escapeHtml(targetId)} · ${escapeHtml(target.primary_language || "mixed")} · ${Number(target.source_count || 0)} 个信源</p>
         </div>
@@ -961,9 +961,9 @@ function researchRelationHtml(relation, canonicalEventId) {
 }
 
 function researchMentionIds(mentions) {
-  return (mentions || [])
-    .map((mention) => String(mention.mention_id || mention.event_id || "").trim())
-    .filter(Boolean);
+  return Array.from(new Set((mentions || [])
+    .map((mention) => String(mention.mention_id || "").trim())
+    .filter(Boolean)));
 }
 
 function researchInlineEmptyHtml(message, targetId) {
@@ -1069,12 +1069,14 @@ async function renderResearchDetail(container, targetId, canonicalEventId) {
 
   const event = data.event || {};
   const mentions = data.mentions || [];
+  const mentionIds = researchMentionIds(mentions);
+  const canCreateSplitDecision = mentionIds.length > 0;
   const relations = data.relations || [];
   const artifacts = data.artifacts || [];
   container.innerHTML = `
     <article class="research-event">
       <header class="research-event-head">
-        <span class="target-eyebrow">Canonical Event</span>
+        <p class="ns-page-kicker">Canonical Event</p>
         <h3>${escapeHtml(event.title || canonicalEventId)}</h3>
         <p>${escapeHtml(event.summary || "暂无摘要")}</p>
         <div class="research-event-meta">
@@ -1086,8 +1088,13 @@ async function renderResearchDetail(container, targetId, canonicalEventId) {
       <div class="research-actions">
         <button class="btn-primary" id="researchConfirmBtn" type="button">确认事件</button>
         <button class="btn-secondary" id="researchMergeBtn" type="button">标记合并</button>
-        <button class="btn-secondary" id="researchSplitBtn" type="button">标记拆分</button>
+        <button class="btn-secondary" id="researchSplitBtn" type="button" ${canCreateSplitDecision ? "" : 'disabled aria-describedby="researchSplitHint"'}>标记拆分</button>
       </div>
+      ${canCreateSplitDecision ? "" : `
+        <p class="research-action-hint" id="researchSplitHint">
+          拆分建议需要详情中已加载的 mention ID；当前事件没有可用证据 ID，请先到事实投影检查回填或补充证据。
+        </p>
+      `}
       <section class="research-section">
         <h4>证据来源</h4>
         <ul class="research-evidence-list">
@@ -1162,7 +1169,7 @@ function bindResearchActions(container, targetId, canonicalEventId, detailData) 
         },
       });
       showSuccess("合并建议已保存");
-      await renderResearchDetail(container, targetId, canonicalEventId);
+      await renderTargetWorkbench(document.getElementById("pageContainer"), targetId, "review");
     } catch (err) {
       showError(err.message || "保存合并建议失败");
     }
@@ -1170,28 +1177,24 @@ function bindResearchActions(container, targetId, canonicalEventId, detailData) 
   container.querySelector("#researchSplitBtn")?.addEventListener("click", async () => {
     const mentions = detailData.mentions || [];
     const mentionIds = researchMentionIds(mentions);
-    if (mentions.length && !mentionIds.length) {
-      showError("当前证据缺少 mention ID，无法创建有效拆分建议。");
+    if (!mentionIds.length) {
+      showInfo("当前详情没有可用 mention ID，无法创建拆分建议。请先到事实投影检查回填或补充证据。");
       return;
     }
-    const usesFallback = !mentions.length;
-    const affectedMentionIds = mentionIds.length ? mentionIds : [canonicalEventId];
     try {
       await postResearchArtifact(targetId, canonicalEventId, {
         artifact_type: "split_decision",
-        title: usesFallback ? "拆分建议（待补证据）" : "拆分建议",
-        body: usesFallback
-          ? "当前详情没有可用 mention，先用 canonical event ID 记录人工拆分意图，后续补充证据。"
-          : `人工标记 ${affectedMentionIds.length} 条证据可能误合并，需要拆分。`,
+        title: "拆分建议",
+        body: `人工标记 ${mentionIds.length} 条证据可能误合并，需要拆分。`,
         status: "open",
         metadata: {
           decision: "proposed",
-          affected_mention_ids: affectedMentionIds,
-          reason: usesFallback ? "manual split candidate without mentions" : "manual split candidate",
+          affected_mention_ids: mentionIds,
+          reason: "manual split candidate",
         },
       });
       showSuccess("拆分建议已保存");
-      await renderResearchDetail(container, targetId, canonicalEventId);
+      await renderTargetWorkbench(document.getElementById("pageContainer"), targetId, "review");
     } catch (err) {
       showError(err.message || "保存拆分建议失败");
     }

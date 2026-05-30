@@ -10,6 +10,12 @@ const configJs = readFileSync("src/news_sentry/static/pages/config.js", "utf8");
 const opsJs = readFileSync("src/news_sentry/static/pages/ops.js", "utf8");
 const targetWorkbenchJs = readFileSync("src/news_sentry/static/pages/target_workbench.js", "utf8");
 
+function snippetAround(source, marker, length = 1000) {
+  const index = source.indexOf(marker);
+  assert.notEqual(index, -1, `Missing marker: ${marker}`);
+  return source.slice(Math.max(0, index - 220), index + length);
+}
+
 assert.match(
   eventsJs,
   /apiPost\("\/api\/v1\/events\/import",\s*\{\s*\},\s*eventList\)/s,
@@ -110,4 +116,71 @@ assert.match(
   targetWorkbenchJs,
   /apiPost\("\/api\/v1\/research\/artifacts",\s*\{\s*\},\s*\{[\s\S]*artifact_type:\s*"review_state"/s,
   "Target 工作台审核动作必须创建 review_state research artifact",
+);
+
+const mergeDecisionBlock = snippetAround(targetWorkbenchJs, 'artifact_type: "merge_decision"');
+assert.match(
+  mergeDecisionBlock,
+  /metadata:\s*\{[\s\S]*candidate_canonical_event_ids:\s*candidateIds/s,
+  "合并建议必须在 metadata.candidate_canonical_event_ids 中提交候选 canonical event IDs",
+);
+assert.match(
+  mergeDecisionBlock,
+  /await renderTargetWorkbench\(document\.getElementById\("pageContainer"\),\s*targetId,\s*"review"\)/s,
+  "合并建议保存后必须刷新完整审核工作台，避免队列 open_decisions/status 停留在旧状态",
+);
+
+const splitDecisionBlock = snippetAround(targetWorkbenchJs, 'artifact_type: "split_decision"');
+const mentionIdsBlock = snippetAround(targetWorkbenchJs, "function researchMentionIds", 420);
+assert.equal(
+  targetWorkbenchJs.includes("target-eyebrow"),
+  false,
+  "Target 工作台不能继续使用未定义的 target-eyebrow 样式类",
+);
+assert.match(
+  targetWorkbenchJs,
+  /id="researchSplitBtn"[\s\S]*disabled aria-describedby="researchSplitHint"/s,
+  "没有可用 mention ID 时拆分按钮必须禁用并指向可操作提示",
+);
+assert.match(
+  targetWorkbenchJs,
+  /id="researchSplitHint"[\s\S]*mention ID[\s\S]*事实投影/s,
+  "拆分按钮禁用时必须说明如何补齐 mention ID",
+);
+assert.doesNotMatch(
+  mentionIdsBlock,
+  /mention\.event_id/s,
+  "拆分建议的 affected_mention_ids 必须来自 mention.mention_id，不能用事件 ID 代替 mention ID",
+);
+assert.match(
+  splitDecisionBlock,
+  /if\s*\(!mentionIds\.length\)\s*\{[\s\S]*showInfo\(/s,
+  "拆分建议必须在没有真实 mention ID 时给出可操作提示并停止提交",
+);
+assert.match(
+  splitDecisionBlock,
+  /affected_mention_ids:\s*mentionIds/s,
+  "拆分建议必须只提交从详情 mentions 中提取的真实 mention IDs",
+);
+assert.match(
+  splitDecisionBlock,
+  /await renderTargetWorkbench\(document\.getElementById\("pageContainer"\),\s*targetId,\s*"review"\)/s,
+  "拆分建议保存后必须刷新完整审核工作台，避免队列 open_decisions/status 停留在旧状态",
+);
+assert.doesNotMatch(
+  splitDecisionBlock,
+  /affectedMentionIds\s*=\s*mentionIds\.length\s*\?\s*mentionIds\s*:\s*\[canonicalEventId\]/s,
+  "拆分建议不能把 canonicalEventId 回退当作 affected_mention_ids",
+);
+assert.doesNotMatch(
+  splitDecisionBlock,
+  /affected_mention_ids:\s*\[\s*canonicalEventId\s*\]/s,
+  "拆分建议不能提交 canonicalEventId 作为 affected_mention_ids",
+);
+
+const annotationBlock = snippetAround(targetWorkbenchJs, 'artifact_type: "annotation"');
+assert.match(
+  annotationBlock,
+  /title:\s*"研究标注"[\s\S]*body,[\s\S]*status:\s*"open"[\s\S]*metadata:\s*\{\s*tags:\s*\[\]\s*\}/s,
+  "研究标注必须以 annotation artifact JSON body 保存 title/body/status/metadata",
 );
