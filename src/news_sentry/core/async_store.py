@@ -246,6 +246,23 @@ CREATE TABLE IF NOT EXISTS canonical_event_relations (
 )
 """
 
+_DDL_CANONICAL_GRAPH_OPERATIONS = """
+CREATE TABLE IF NOT EXISTS canonical_graph_operations (
+    operation_id TEXT PRIMARY KEY,
+    target_id TEXT NOT NULL,
+    operation_type TEXT NOT NULL,
+    decision_artifact_id TEXT,
+    primary_canonical_event_id TEXT NOT NULL,
+    result_canonical_event_id TEXT,
+    status TEXT NOT NULL DEFAULT 'applied',
+    changes_json TEXT NOT NULL DEFAULT '[]',
+    warnings_json TEXT NOT NULL DEFAULT '[]',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_by TEXT NOT NULL DEFAULT 'local-user',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
 _DDL_TAXONOMY_ASSIGNMENTS = """
 CREATE TABLE IF NOT EXISTS taxonomy_assignments (
     assignment_id TEXT PRIMARY KEY,
@@ -383,6 +400,11 @@ _SCHEMA_MIGRATIONS: list[tuple[int, str, list[str]]] = [
             "DEFAULT 'local-user'",
         ],
     ),
+    (
+        9,
+        "create canonical graph operation log",
+        [_DDL_CANONICAL_GRAPH_OPERATIONS],
+    ),
 ]
 
 _DDL_INDEXES = (
@@ -415,6 +437,12 @@ _DDL_INDEXES = (
     "ON canonical_event_relations(source_canonical_event_id)",
     "CREATE INDEX IF NOT EXISTS idx_canonical_relations_target "
     "ON canonical_event_relations(target_canonical_event_id)",
+    "CREATE INDEX IF NOT EXISTS idx_canonical_graph_ops_target_type "
+    "ON canonical_graph_operations(target_id, operation_type, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_canonical_graph_ops_artifact "
+    "ON canonical_graph_operations(target_id, decision_artifact_id)",
+    "CREATE INDEX IF NOT EXISTS idx_canonical_graph_ops_primary "
+    "ON canonical_graph_operations(target_id, primary_canonical_event_id, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_taxonomy_assignments_subject "
     "ON taxonomy_assignments(subject_type, subject_id)",
     "CREATE INDEX IF NOT EXISTS idx_taxonomy_assignments_target_value "
@@ -456,6 +484,23 @@ _RESEARCH_ARTIFACT_TYPES = {
     "split_decision",
 }
 _RESEARCH_ARTIFACT_STATUSES = {"open", "resolved", "archived"}
+
+_CANONICAL_GRAPH_OPERATION_COLUMNS = (
+    "operation_id",
+    "target_id",
+    "operation_type",
+    "decision_artifact_id",
+    "primary_canonical_event_id",
+    "result_canonical_event_id",
+    "status",
+    "changes_json",
+    "warnings_json",
+    "metadata_json",
+    "created_by",
+    "created_at",
+)
+_CANONICAL_GRAPH_OPERATION_TYPES = {"merge", "split"}
+_CANONICAL_GRAPH_OPERATION_STATUSES = {"applied"}
 
 __all__ = ["AsyncStore"]
 
@@ -566,6 +611,17 @@ class AsyncStore:
             canonical_event_ids if isinstance(canonical_event_ids, list) else []
         )
         return artifact
+
+    def _canonical_graph_operation_from_row(self, row: Sequence[Any]) -> dict[str, Any]:
+        operation = self._row_with_metadata(_CANONICAL_GRAPH_OPERATION_COLUMNS, row)
+        for field_name in ("changes", "warnings"):
+            raw_value = operation.pop(f"{field_name}_json", "[]")
+            try:
+                parsed = json.loads(raw_value or "[]")
+            except (json.JSONDecodeError, TypeError):
+                parsed = []
+            operation[field_name] = parsed if isinstance(parsed, list) else []
+        return operation
 
     @staticmethod
     def _safe_text_attr(event: object, attr: str) -> str | None:
@@ -1505,6 +1561,92 @@ class AsyncStore:
             ),
         )
         return [self._research_artifact_from_row(row) for row in rows]
+
+    async def record_canonical_graph_operation(self, row: dict[str, Any]) -> str:
+        """Record an idempotent canonical graph operation and return operation_id."""
+        operation_id = str(row["operation_id"])
+        operation_type = str(row.get("operation_type", ""))
+        status = str(row.get("status", "applied"))
+        if operation_type not in _CANONICAL_GRAPH_OPERATION_TYPES:
+            raise ValueError(f"Unsupported canonical graph operation type: {operation_type}")
+        if status not in _CANONICAL_GRAPH_OPERATION_STATUSES:
+            raise ValueError(f"Unsupported canonical graph operation status: {status}")
+        if self._db is None:
+            return operation_id
+        changes = row.get("changes", [])
+        warnings = row.get("warnings", [])
+        await self._db.execute(
+            """INSERT INTO canonical_graph_operations
+               (operation_id, target_id, operation_type, decision_artifact_id,
+                primary_canonical_event_id, result_canonical_event_id, status,
+                changes_json, warnings_json, metadata_json, created_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(operation_id) DO NOTHING""",
+            (
+                operation_id,
+                row["target_id"],
+                operation_type,
+                row.get("decision_artifact_id"),
+                row["primary_canonical_event_id"],
+                row.get("result_canonical_event_id"),
+                status,
+                json.dumps(changes if isinstance(changes, list) else [], ensure_ascii=False),
+                json.dumps(warnings if isinstance(warnings, list) else [], ensure_ascii=False),
+                self._json_dumps(row.get("metadata")),
+                row.get("created_by", "local-user"),
+            ),
+        )
+        await self._db.commit()
+        return operation_id
+
+    async def get_canonical_graph_operation(self, operation_id: str) -> dict[str, Any] | None:
+        if self._db is None:
+            return None
+        async with self._db.execute(
+            """SELECT operation_id, target_id, operation_type, decision_artifact_id,
+                      primary_canonical_event_id, result_canonical_event_id, status,
+                      changes_json, warnings_json, metadata_json, created_by, created_at
+               FROM canonical_graph_operations
+               WHERE operation_id = ?""",
+            (operation_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        return None if row is None else self._canonical_graph_operation_from_row(row)
+
+    async def list_canonical_graph_operations(
+        self,
+        *,
+        target_id: str,
+        operation_type: str | None = None,
+        decision_artifact_id: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        if self._db is None:
+            return []
+        if operation_type is not None and operation_type not in _CANONICAL_GRAPH_OPERATION_TYPES:
+            raise ValueError(f"Unsupported canonical graph operation type: {operation_type}")
+        rows = await self._db.execute_fetchall(
+            """SELECT operation_id, target_id, operation_type, decision_artifact_id,
+                      primary_canonical_event_id, result_canonical_event_id, status,
+                      changes_json, warnings_json, metadata_json, created_by, created_at
+               FROM canonical_graph_operations
+               WHERE target_id = ?
+                 AND (? IS NULL OR operation_type = ?)
+                 AND (? IS NULL OR decision_artifact_id = ?)
+               ORDER BY created_at DESC, operation_id DESC
+               LIMIT ? OFFSET ?""",
+            (
+                target_id,
+                operation_type,
+                operation_type,
+                decision_artifact_id,
+                decision_artifact_id,
+                limit,
+                offset,
+            ),
+        )
+        return [self._canonical_graph_operation_from_row(row) for row in rows]
 
     async def list_research_queue(
         self,
