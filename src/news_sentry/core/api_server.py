@@ -3291,6 +3291,12 @@ async def _store_for_target(target_id: str) -> AsyncStore | None:
     return target_store if target_store is not None else _store
 
 
+def _research_graph_error(exc: ValueError) -> HTTPException:
+    detail = str(exc)
+    status_code = 404 if "not found" in detail.lower() else 422
+    return HTTPException(status_code=status_code, detail=detail)
+
+
 def _validate_research_metadata(artifact_type: str, metadata: dict[str, Any]) -> None:
     """校验 research artifact metadata 中的人工决策契约。"""
     decision = metadata.get("decision")
@@ -5906,7 +5912,7 @@ def create_app(
                 created_by=created_by,
             )
         except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise _research_graph_error(exc) from exc
 
     @app.post("/api/v1/research/graph/split")
     async def research_graph_split(
@@ -5940,7 +5946,7 @@ def create_app(
                 created_by=created_by,
             )
         except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise _research_graph_error(exc) from exc
 
     @app.get("/api/v1/research/graph/operations")
     async def research_graph_operations(
