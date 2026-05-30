@@ -4,7 +4,9 @@
 
 **Goal:** Build the first professional research workflow around canonical events: review queue, evidence view, research artifacts, and target-scoped actions.
 
-**Architecture:** Keep canonical events as the fact layer and store all human workflow actions in `research_artifacts`. Add AsyncStore methods first, expose protected research API endpoints second, then upgrade the target workbench review tab to use those endpoints. Merge/split actions are recorded as artifacts only and do not mutate canonical facts.
+**Architecture:** Keep canonical events as the fact layer and store all human workflow actions in `research_artifacts`. Add AsyncStore methods first, expose protected research API endpoints second, then upgrade the current Admin Shell research tab to use those endpoints. Merge/split actions are recorded as artifacts only and do not mutate canonical facts.
+
+**当前 main 拆分说明：** 下文仍保留长期分支里的历史 `target_workbench.js` 示例。当前 `main` 的 UI 拆分必须通过 `src/news_sentry/static/app.js` 和 `src/news_sentry/static/pages/research_workbench.js` 接入 `#/admin/news/research`，不要恢复旧 target workbench 模块。
 
 **Tech Stack:** Python 3.11, FastAPI, Pydantic v2, aiosqlite, pytest, vanilla ES modules, existing News Sentry static UI primitives.
 
@@ -17,8 +19,10 @@
   - Add store methods for artifact upsert/get/list/patch and queue derivation.
 - Modify: `src/news_sentry/core/api_server.py`
   - Add Pydantic request models and `/api/v1/research/*` endpoints.
-- Modify: `src/news_sentry/static/pages/target_workbench.js`
-  - Replace target review tab's legacy event table with canonical research queue and detail/actions.
+- Modify: `src/news_sentry/static/app.js`
+  - Add the current Admin Shell `news/research` tab entry.
+- Add/Modify: `src/news_sentry/static/pages/research_workbench.js`
+  - Render canonical research queue, detail, artifacts, and manual decisions in the current Admin Shell.
 - Modify: `src/news_sentry/static/style.css`
   - Add compact research workbench layout primitives using the existing site language.
 - Modify: `tests/unit/test_async_store.py`

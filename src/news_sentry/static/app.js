@@ -24,6 +24,7 @@ import { renderEventsTab, renderEventDetail } from "./pages/events.js";
 import { renderEntitiesTab, renderEntityDetail } from "./pages/entities.js";
 import { renderChainsTab, renderChainDetail } from "./pages/chains.js";
 import { renderTrendsTab } from "./pages/trends.js";
+import { renderResearchWorkbenchTab } from "./pages/research_workbench.js";
 import { renderLiveAlertsTab, renderAlertHistoryTab } from "./pages/alerts.js";
 import { renderRunStatusTab, renderCollectorTab, renderSourceHealthTab, renderRunHistoryTab, renderMaintenanceTab, renderOpsDetail } from "./pages/ops.js";
 import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedback.js";
@@ -44,6 +45,7 @@ const ROUTES = {
       { id: "chains", label: "追踪链" },
       { id: "entities", label: "实体" },
       { id: "trends", label: "趋势" },
+      { id: "research", label: "研究工作台" },
     ],
     render: (container, tab, param) => {
       if (tab === "events" && param) return renderEventDetail(container, param, {
@@ -60,6 +62,7 @@ const ROUTES = {
         chains: renderChainsTab,
         entities: renderEntitiesTab,
         trends: renderTrendsTab,
+        research: renderResearchWorkbenchTab,
       };
       return (tabMap[tab] || renderFeedTab)(container);
     },

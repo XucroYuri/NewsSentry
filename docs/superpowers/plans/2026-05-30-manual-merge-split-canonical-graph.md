@@ -4,7 +4,9 @@
 
 **Goal:** Turn human merge/split research decisions into real, audited, idempotent mutations of the shadow canonical graph.
 
-**Architecture:** Add a canonical graph operation log to `AsyncStore`, then implement target-scoped merge and split preview/apply methods as SQLite transactions. Expose the methods through protected research graph endpoints and wire the target research workbench to dry-run before apply.
+**Architecture:** Add a canonical graph operation log to `AsyncStore`, then implement target-scoped merge and split preview/apply methods as SQLite transactions. Expose the methods through protected research graph endpoints and wire the current Admin Shell research workbench to dry-run before apply.
+
+**当前 main 拆分说明：** 后端/API 工作已经合入。当前 UI 拆分必须把 graph apply 控件接到 `src/news_sentry/static/pages/research_workbench.js` 和 `#/admin/news/research`，不要接回原长期分支示例中的旧 `target_workbench.js` 路由。
 
 **Tech Stack:** Python 3.11, FastAPI, Pydantic v2, aiosqlite, pytest, vanilla ES modules, existing News Sentry static UI helpers.
 
@@ -21,7 +23,9 @@
   - Add request models for graph merge/split.
   - Add `/api/v1/research/graph/*` endpoints.
   - Convert store `ValueError` diagnostics into 422 responses.
-- Modify: `src/news_sentry/static/pages/target_workbench.js`
+- Modify: `src/news_sentry/static/app.js`
+  - Expose the current Admin Shell research tab.
+- Add/Modify: `src/news_sentry/static/pages/research_workbench.js`
   - Render apply controls for open `merge_decision` and `split_decision` artifacts.
   - Call dry-run first, ask for confirmation, then apply.
 - Modify: `src/news_sentry/static/style.css`
