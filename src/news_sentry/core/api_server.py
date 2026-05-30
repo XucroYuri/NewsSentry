@@ -3279,21 +3279,80 @@ def _validate_research_metadata(artifact_type: str, metadata: dict[str, Any]) ->
     if artifact_type == "merge_decision":
         if decision != "proposed":
             raise HTTPException(status_code=422, detail="Unsupported merge decision")
-        if not metadata.get("candidate_canonical_event_ids"):
-            raise HTTPException(status_code=422, detail="merge_decision requires candidate IDs")
+        _require_non_empty_string_list(
+            metadata,
+            "candidate_canonical_event_ids",
+            "merge_decision requires candidate IDs",
+        )
     if artifact_type == "split_decision":
         if decision != "proposed":
             raise HTTPException(status_code=422, detail="Unsupported split decision")
-        if not metadata.get("affected_mention_ids"):
-            raise HTTPException(
-                status_code=422,
-                detail="split_decision requires affected mentions",
+        _require_non_empty_string_list(
+            metadata,
+            "affected_mention_ids",
+            "split_decision requires affected mentions",
+        )
+
+
+def _require_non_empty_string_list(
+    metadata: dict[str, Any],
+    field_name: str,
+    detail: str,
+) -> list[str]:
+    values = metadata.get(field_name)
+    if (
+        not isinstance(values, list)
+        or not values
+        or not all(isinstance(value, str) and value.strip() for value in values)
+    ):
+        raise HTTPException(status_code=422, detail=detail)
+    return values
+
+
+def _safe_research_artifact_id_part(value: str, fallback: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_-]+", "-", value).strip("-") or fallback
+
+
+def _stable_research_metadata_key(artifact_type: str, metadata: dict[str, Any]) -> str:
+    if artifact_type == "merge_decision":
+        candidates = sorted(
+            _require_non_empty_string_list(
+                metadata,
+                "candidate_canonical_event_ids",
+                "merge_decision requires candidate IDs",
             )
+        )
+        return json.dumps({"candidate_canonical_event_ids": candidates}, sort_keys=True)
+    if artifact_type == "split_decision":
+        mentions = sorted(
+            _require_non_empty_string_list(
+                metadata,
+                "affected_mention_ids",
+                "split_decision requires affected mentions",
+            )
+        )
+        return json.dumps({"affected_mention_ids": mentions}, sort_keys=True)
+    return "review_state"
 
 
-def _new_research_artifact_id(target_id: str, artifact_type: str) -> str:
-    safe_target = re.sub(r"[^a-zA-Z0-9_-]+", "-", target_id).strip("-") or "target"
-    safe_type = re.sub(r"[^a-zA-Z0-9_-]+", "-", artifact_type).strip("-") or "artifact"
+def _new_research_artifact_id(
+    target_id: str,
+    artifact_type: str,
+    subject_id: str,
+    metadata: dict[str, Any],
+) -> str:
+    safe_target = _safe_research_artifact_id_part(target_id, "target")
+    safe_type = _safe_research_artifact_id_part(artifact_type, "artifact")
+    if artifact_type in {"review_state", "merge_decision", "split_decision"}:
+        identity = {
+            "target_id": target_id,
+            "artifact_type": artifact_type,
+            "subject_type": "canonical_event",
+            "subject_id": subject_id,
+            "metadata_key": _stable_research_metadata_key(artifact_type, metadata),
+        }
+        digest = sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()[:16]
+        return f"ra_{safe_target}_{safe_type}_{digest}"
     return f"ra_{safe_target}_{safe_type}_{uuid.uuid4().hex[:12]}"
 
 
@@ -5864,7 +5923,12 @@ def create_app(
         candidates = payload.metadata.get("candidate_canonical_event_ids")
         if isinstance(candidates, list):
             canonical_event_ids.extend(str(candidate) for candidate in candidates)
-        artifact_id = _new_research_artifact_id(payload.target_id, payload.artifact_type)
+        artifact_id = _new_research_artifact_id(
+            payload.target_id,
+            payload.artifact_type,
+            payload.subject_id,
+            payload.metadata,
+        )
         created_by = (
             "local-user" if user.get("local") else str(user.get("username") or "local-user")
         )
