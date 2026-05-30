@@ -38,7 +38,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import yaml
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, BeforeValidator, Field, field_validator
 
@@ -46,7 +46,12 @@ from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.auth import hash_password, verify_password
 from news_sentry.core.canonical_projection import CanonicalProjectionService, ProjectionOptions
 from news_sentry.core.config_cache import ConfigCache
+from news_sentry.core.markdown_export import (
+    render_canonical_event_markdown,
+    render_news_event_markdown,
+)
 from news_sentry.core.source_inventory import SourceInventoryService
+from news_sentry.models.newsevent import NewsEvent
 from news_sentry.skills.filter.classification_taxonomy import (
     canonical_l0,
     l0_query_values,
@@ -2964,6 +2969,61 @@ def _event_from_index_row(row: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in event.items() if value is not None}
 
 
+def _markdown_download_response(filename: str, content: str) -> Response:
+    """返回 Markdown attachment 响应，不触碰文件系统。"""
+    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", filename)
+    safe_name = safe_name.strip("._") or "export"
+    if not safe_name.endswith(".md"):
+        safe_name = f"{safe_name}.md"
+    return Response(
+        content=content,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+    )
+
+
+def _news_event_from_export_data(target_id: str, data: dict[str, Any]) -> NewsEvent:
+    """把 API 详情/索引投影补齐为 renderer 需要的 NewsEvent。"""
+    event_id = str(data.get("id") or data.get("event_id") or "")
+    metadata = dict(data.get("metadata") or {})
+    classification = data.get("classification")
+    if isinstance(classification, dict):
+        metadata.setdefault("classification", classification)
+
+    published_at = str(data.get("published_at") or data.get("created_at") or "")
+    collected_at = str(data.get("collected_at") or data.get("created_at") or published_at)
+    stage = str(data.get("pipeline_stage") or data.get("stage") or "outputted")
+    if stage not in {"collected", "filtered", "judged", "outputted"}:
+        stage = "outputted"
+
+    return NewsEvent.model_validate(
+        {
+            "id": event_id,
+            "run_id": str(data.get("run_id") or f"export-{target_id}"),
+            "source_id": str(data.get("source_id") or "unknown"),
+            "url": str(data.get("url") or ""),
+            "title_original": str(data.get("title_original") or data.get("title") or event_id),
+            "title_translated": data.get("title_translated"),
+            "content_original": str(data.get("content_original") or data.get("summary") or ""),
+            "content_translated": data.get("content_translated"),
+            "language": str(data.get("language") or "mixed"),
+            "published_at": published_at,
+            "collected_at": collected_at,
+            "pipeline_stage": stage,
+            "news_value_score": data.get("news_value_score"),
+            "china_relevance": data.get("china_relevance"),
+            "sentiment_score": data.get("sentiment_score"),
+            "cluster_id": data.get("cluster_id"),
+            "story_id": data.get("story_id"),
+            "metadata": metadata,
+        }
+    )
+
+
+def _render_public_event_markdown(target_id: str, event: dict[str, Any]) -> str:
+    return render_news_event_markdown(_news_event_from_export_data(target_id, event))
+
+
 def _indexed_file_path_is_visible_in_stage(
     data_dir: Path,
     target_id: str,
@@ -5132,6 +5192,55 @@ def create_app(
             "groups": grouped,
         }
 
+    @app.get("/api/v1/news/target/{target_id}/events/{event_id}/export/markdown")
+    async def export_public_event_markdown(
+        target_id: str,
+        event_id: str,
+    ) -> Response:
+        """公开单篇新闻 Markdown 下载投影，不写入磁盘。"""
+        target_store = await _get_target_store(target_id)
+        if target_store is not None:
+            event = await _load_indexed_event_detail(
+                _data_dir,
+                target_id,
+                target_store,
+                event_id,
+            )
+            if event is _INVISIBLE_INDEXED_EVENT:
+                raise HTTPException(status_code=404, detail="Event not found")
+            if event is not None:
+                return _markdown_download_response(
+                    f"{event_id}.md",
+                    _render_public_event_markdown(target_id, event),
+                )
+            if await _store_has_target_event_index(target_store, target_id):
+                raise HTTPException(status_code=404, detail="Event not found")
+
+        if _store is not None:
+            event = await _load_indexed_event_detail(
+                _data_dir,
+                target_id,
+                _store,
+                event_id,
+            )
+            if event is _INVISIBLE_INDEXED_EVENT:
+                raise HTTPException(status_code=404, detail="Event not found")
+            if event is not None:
+                return _markdown_download_response(
+                    f"{event_id}.md",
+                    _render_public_event_markdown(target_id, event),
+                )
+            if await _store_has_target_event_index(_store, target_id):
+                raise HTTPException(status_code=404, detail="Event not found")
+
+        event = _load_single_event(_data_dir, target_id, event_id)
+        if event is None:
+            raise HTTPException(status_code=404, detail="Event not found")
+        return _markdown_download_response(
+            f"{event_id}.md",
+            _render_public_event_markdown(target_id, event),
+        )
+
     # ── SSE 实时推送 ─────────────────────────────────────
 
     @app.get("/api/v1/events/stream")
@@ -5906,6 +6015,28 @@ def create_app(
         await _canonical_event_or_404(store, canonical_event_id, target_id)
         relations = await store.list_canonical_relations(canonical_event_id)
         return {"canonical_event_id": canonical_event_id, "relations": relations}
+
+    @app.get("/api/v1/canonical/events/{canonical_event_id}/export/markdown")
+    async def export_canonical_event_markdown(
+        canonical_event_id: str,
+        target_id: str,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> Response:
+        """导出 canonical event evidence package Markdown，不写入磁盘。"""
+        store = await _store_for_target(target_id)
+        if store is None:
+            raise HTTPException(status_code=404, detail="Canonical event not found")
+        event = await _canonical_event_or_404(store, canonical_event_id, target_id)
+        mentions = await store.list_event_mentions(canonical_event_id)
+        relations = await store.list_canonical_relations(canonical_event_id)
+        artifacts = await store.list_research_artifacts(
+            target_id=target_id,
+            subject_type="canonical_event",
+            subject_id=canonical_event_id,
+            limit=200,
+        )
+        content = render_canonical_event_markdown(event, mentions, relations, artifacts)
+        return _markdown_download_response(f"{canonical_event_id}.md", content)
 
     # ── Research workflow endpoints ────────────────────
 

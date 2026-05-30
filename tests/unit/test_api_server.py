@@ -684,6 +684,31 @@ class TestAPIServer:
         assert resp.status_code == 200
         assert resp.json()["id"] == event_id
 
+    def test_public_event_markdown_export_without_auth(self, tmp_path: Path) -> None:
+        """匿名用户可以下载单篇事件 Markdown 投影，不写入磁盘。"""
+        event_id = "ne-italy-src-20260526-export01"
+        _write_draft(tmp_path, "italy", event_id, title="Public export story")
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get(f"/api/v1/news/target/italy/events/{event_id}/export/markdown")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/markdown")
+        disposition = resp.headers["content-disposition"]
+        assert "attachment" in disposition
+        assert f"{event_id}.md" in disposition
+        assert "Public export story" in resp.text
+
+    def test_public_event_markdown_export_missing_event_returns_404(self, tmp_path: Path) -> None:
+        """公开 Markdown 导出找不到事件时返回 404，而不是渲染异常。"""
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/news/target/italy/events/missing-event/export/markdown")
+
+        assert resp.status_code == 404
+
     def test_public_targets_without_auth(self, tmp_path: Path) -> None:
         """匿名用户可以读取 target 列表以初始化新闻工作台。"""
         app = create_app(data_dir=tmp_path, auto_store=False)
@@ -5633,6 +5658,70 @@ def test_canonical_event_detail_returns_404_for_missing_event(
 
     response = client.get(
         "/api/v1/canonical/events/ce_missing",
+        params={"target_id": "italy"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Canonical event not found"
+
+
+def test_canonical_event_markdown_export_returns_evidence_package(
+    canonical_client: tuple[TestClient, AsyncStore],
+):
+    client, store = canonical_client
+    asyncio.run(
+        store.upsert_canonical_event(
+            {
+                "canonical_event_id": "ce_italy_export_001",
+                "target_id": "italy",
+                "title": "Canonical export story",
+                "summary": "Exportable evidence summary.",
+                "event_time": "2026-05-30T10:00:00Z",
+                "status": "needs_review",
+                "confidence": 70,
+                "metadata": {},
+            }
+        )
+    )
+    asyncio.run(
+        store.upsert_event_mention(
+            {
+                "mention_id": "mention-export-001",
+                "canonical_event_id": "ce_italy_export_001",
+                "event_id": "event-export-001",
+                "target_id": "italy",
+                "source_id": "ansa",
+                "url": "https://example.com/export-story",
+                "title": "Mention export title",
+                "published_at": "2026-05-30T09:00:00Z",
+                "metadata": {},
+            }
+        )
+    )
+
+    response = client.get(
+        "/api/v1/canonical/events/ce_italy_export_001/export/markdown",
+        params={"target_id": "italy"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/markdown")
+    disposition = response.headers["content-disposition"]
+    assert "attachment" in disposition
+    assert "ce_italy_export_001.md" in disposition
+    assert "export_kind: canonical_event_evidence_package" in response.text
+    assert "ce_italy_export_001" in response.text
+    assert "ansa" in response.text
+    assert "https://example.com/export-story" in response.text
+
+
+def test_canonical_event_markdown_export_missing_event_returns_404(
+    canonical_client: tuple[TestClient, AsyncStore],
+):
+    client, _store = canonical_client
+
+    response = client.get(
+        "/api/v1/canonical/events/ce_missing/export/markdown",
         params={"target_id": "italy"},
     )
 
