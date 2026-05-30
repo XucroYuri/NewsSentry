@@ -5383,7 +5383,46 @@ def test_research_graph_merge_dry_run_and_apply(
     assert applied_data["operation_id"] in operation_ids
 
 
-def test_research_graph_split_rejects_invalid_mention(
+def test_research_graph_merge_missing_survivor_returns_404(
+    canonical_client: tuple[TestClient, AsyncStore],
+) -> None:
+    client, store = canonical_client
+    asyncio.run(_seed_research_graph_merge(store))
+
+    response = client.post(
+        "/api/v1/research/graph/merge",
+        json={
+            "target_id": "italy",
+            "survivor_canonical_event_id": "ce_italy_api_merge_missing",
+            "merged_canonical_event_ids": ["ce_italy_api_merge_duplicate"],
+            "dry_run": True,
+        },
+    )
+
+    assert response.status_code == 404
+    assert "canonical event not found" in response.json()["detail"]
+
+
+def test_research_graph_merge_rejects_invalid_operation_as_422(
+    canonical_client: tuple[TestClient, AsyncStore],
+) -> None:
+    client, _store = canonical_client
+
+    response = client.post(
+        "/api/v1/research/graph/merge",
+        json={
+            "target_id": "italy",
+            "survivor_canonical_event_id": "ce_italy_api_merge_same",
+            "merged_canonical_event_ids": ["ce_italy_api_merge_same"],
+            "dry_run": True,
+        },
+    )
+
+    assert response.status_code == 422
+    assert "survivor canonical event cannot appear" in response.json()["detail"]
+
+
+def test_research_graph_split_missing_mention_returns_404(
     canonical_client: tuple[TestClient, AsyncStore],
 ) -> None:
     client, store = canonical_client
@@ -5427,5 +5466,5 @@ def test_research_graph_split_rejects_invalid_mention(
         },
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 404
     assert "mention not found" in response.json()["detail"]
