@@ -883,31 +883,340 @@ async function renderCollection(container, targetId, overview) {
   });
 }
 
+function researchDecisionLabel(decision) {
+  const labels = {
+    confirmed: "已确认",
+    needs_merge: "需合并",
+    needs_split: "需拆分",
+    needs_more_evidence: "需补证据",
+    not_relevant: "不相关",
+    proposed: "已建议",
+  };
+  return labels[decision] || "待复核";
+}
+
+function researchQueueItemHtml(item, selectedId) {
+  const review = item.latest_review || {};
+  const decision = review.metadata?.decision || review.decision || "";
+  const openDecisions = item.open_decisions || {};
+  const active = item.canonical_event_id === selectedId ? " is-active" : "";
+  const flags = [];
+  if (Number(openDecisions.merge || 0) > 0) flags.push(`合并 ${Number(openDecisions.merge || 0)}`);
+  if (Number(openDecisions.split || 0) > 0) flags.push(`拆分 ${Number(openDecisions.split || 0)}`);
+  return `
+    <button class="research-queue-item${active}" data-canonical-event-id="${escapeHtml(item.canonical_event_id)}" type="button">
+      <span class="research-queue-title">${escapeHtml(item.title || item.canonical_event_id)}</span>
+      <span class="research-queue-meta">
+        ${escapeHtml(String(item.confidence ?? 0))} confidence · ${escapeHtml(String(item.mention_count || 0))} mentions · ${escapeHtml(String(item.source_count || 0))} sources
+      </span>
+      <span class="research-queue-meta">
+        ${escapeHtml(researchDecisionLabel(decision))}${flags.length ? ` · ${escapeHtml(flags.join(" · "))}` : ""}
+      </span>
+    </button>
+  `;
+}
+
+function researchArtifactHtml(artifact) {
+  const decision = artifact.metadata?.decision ? ` · ${researchDecisionLabel(artifact.metadata.decision)}` : "";
+  const timestamp = artifact.updated_at || artifact.created_at || "";
+  return `
+    <li class="research-artifact">
+      <div>
+        <strong>${escapeHtml(artifact.title || artifact.artifact_type || "研究记录")}</strong>
+        <small>${escapeHtml(artifact.artifact_type || "artifact")} · ${escapeHtml(artifact.status || "open")}${escapeHtml(decision)}</small>
+      </div>
+      ${timestamp ? `<time>${escapeHtml(timestamp)}</time>` : ""}
+      ${artifact.body ? `<p>${escapeHtml(artifact.body)}</p>` : ""}
+    </li>
+  `;
+}
+
+function researchMentionHtml(mention) {
+  const title = escapeHtml(mention.title || mention.event_id || mention.mention_id || "未命名证据");
+  const source = escapeHtml(mention.source_id || "unknown source");
+  const time = escapeHtml(mention.published_at || "");
+  const language = mention.metadata?.language ? ` · ${escapeHtml(mention.metadata.language)}` : "";
+  const link = mention.url
+    ? `<a href="${escapeHtml(mention.url)}" target="_blank" rel="noopener noreferrer">${title}</a>`
+    : `<span>${title}</span>`;
+  return `
+    <li class="research-evidence-item">
+      <strong>${link}</strong>
+      <small>${source}${time ? ` · ${time}` : ""}${language}</small>
+    </li>
+  `;
+}
+
+function researchRelationHtml(relation, canonicalEventId) {
+  const peerId = relation.source_canonical_event_id === canonicalEventId
+    ? relation.target_canonical_event_id
+    : relation.source_canonical_event_id;
+  return `
+    <li class="research-relation-item">
+      <strong>${escapeHtml(relation.relation_type || "related")}</strong>
+      <span>${escapeHtml(peerId || relation.relation_id || "unknown relation")}</span>
+      <small>${escapeHtml(String(relation.confidence ?? 0))} confidence</small>
+    </li>
+  `;
+}
+
+function researchMentionIds(mentions) {
+  return (mentions || [])
+    .map((mention) => String(mention.mention_id || mention.event_id || "").trim())
+    .filter(Boolean);
+}
+
+function researchInlineEmptyHtml(message, targetId) {
+  return `
+    <li class="research-inline-empty">
+      <span>${escapeHtml(message)}</span>
+      <a href="${targetHref(targetId, "canonical")}">查看事实投影</a>
+    </li>
+  `;
+}
+
 async function renderReview(container, targetId) {
-  const data = await api("/api/v1/events", { target_id: targetId, page: 1, page_size: 10 }).catch(() => ({ events: [], total: 0 }));
+  const queue = await api("/api/v1/research/queue", { target_id: targetId, status: "open", limit: 50 })
+    .catch((err) => ({ error: err.message || "研究队列加载失败", items: [], total: 0 }));
+  if (queue.error) {
+    container.innerHTML = `
+      <section class="target-panel">
+        <div class="target-panel-head">
+          <div>
+            <h2>研究复核</h2>
+            <p>${escapeHtml(queue.error)}</p>
+          </div>
+        </div>
+        <div class="target-actions">
+          <button class="btn-secondary" id="researchReviewRetryBtn" type="button">重试</button>
+          <a class="btn-secondary" href="${targetHref(targetId, "canonical")}">查看事实投影</a>
+        </div>
+      </section>
+    `;
+    container.querySelector("#researchReviewRetryBtn")?.addEventListener("click", () => {
+      renderTargetWorkbench(document.getElementById("pageContainer"), targetId, "review");
+    });
+    return;
+  }
+
+  const selectedId = queue.items?.[0]?.canonical_event_id || "";
   container.innerHTML = `
-    <section class="target-panel">
+    <section class="target-panel research-workbench">
       <div class="target-panel-head">
-        <h2>审核与反馈</h2>
-        <p>这里聚焦需要人工确认的事件和反馈闭环，公开阅读入口不在后台重复展开。</p>
+        <div>
+          <h2>研究复核</h2>
+          <p>围绕事实事件查看证据、确认状态、记录合并/拆分建议和研究标注。</p>
+        </div>
       </div>
-      <div class="target-table-wrap ns-table-wrap">
-        <table class="target-table ns-table">
-          <thead><tr><th>事件</th><th>分值</th><th>来源</th><th>操作</th></tr></thead>
-          <tbody>
-            ${(data.events || []).map((event) => `
-              <tr>
-                <td><strong>${escapeHtml(event.title_original || event.title || event.id)}</strong><small>${escapeHtml(event.published_at || "")}</small></td>
-                <td>${event.news_value_score ?? "—"}</td>
-                <td>${escapeHtml(event.source_id || "")}</td>
-                <td><a class="btn-secondary" href="#/admin/review/queue/${encodeURIComponent(event.id)}">审核</a></td>
-              </tr>
-            `).join("") || `<tr><td colspan="4">暂无可审核事件。</td></tr>`}
-          </tbody>
-        </table>
-      </div>
+      ${queue.total ? `
+        <div class="research-layout">
+          <aside class="research-queue" id="researchQueue" aria-label="研究复核队列">
+            ${(queue.items || []).map((item) => researchQueueItemHtml(item, selectedId)).join("")}
+          </aside>
+          <div class="research-detail" id="researchDetail">
+            <div class="empty-state"><div class="spinner"></div><p>正在加载证据...</p></div>
+          </div>
+        </div>
+      ` : `
+        <div class="target-workbench-empty">
+          <h2>当前没有开放复核项</h2>
+          <p>如果这里为空，可以先到事实投影执行显式回填，或检查 canonical 队列状态。</p>
+          <div class="target-actions">
+            <a class="btn-secondary" href="${targetHref(targetId, "canonical")}">查看事实投影</a>
+          </div>
+        </div>
+      `}
     </section>
   `;
+  if (selectedId) {
+    bindResearchQueue(container, targetId);
+    await renderResearchDetail(container.querySelector("#researchDetail"), targetId, selectedId);
+  }
+}
+
+function bindResearchQueue(container, targetId) {
+  container.querySelectorAll("[data-canonical-event-id]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const canonicalEventId = button.dataset.canonicalEventId || "";
+      container.querySelectorAll(".research-queue-item").forEach((item) => item.classList.remove("is-active"));
+      button.classList.add("is-active");
+      await renderResearchDetail(container.querySelector("#researchDetail"), targetId, canonicalEventId);
+    });
+  });
+}
+
+async function renderResearchDetail(container, targetId, canonicalEventId) {
+  if (!container || !canonicalEventId) return;
+  container.innerHTML = `<div class="empty-state"><div class="spinner"></div><p>正在加载证据...</p></div>`;
+  const data = await api(`/api/v1/research/events/${encodeURIComponent(canonicalEventId)}`, { target_id: targetId })
+    .catch((err) => ({ error: err.message || "证据加载失败" }));
+  if (data.error) {
+    container.innerHTML = `
+      <div class="target-workbench-empty research-detail-empty">
+        <h2>证据没有加载成功</h2>
+        <p>${escapeHtml(data.error)}</p>
+        <div class="target-actions">
+          <button class="btn-secondary" id="researchDetailRetryBtn" type="button">重试</button>
+          <a class="btn-secondary" href="${targetHref(targetId, "canonical")}">查看事实投影</a>
+        </div>
+      </div>
+    `;
+    container.querySelector("#researchDetailRetryBtn")?.addEventListener("click", () => {
+      renderResearchDetail(container, targetId, canonicalEventId);
+    });
+    return;
+  }
+
+  const event = data.event || {};
+  const mentions = data.mentions || [];
+  const relations = data.relations || [];
+  const artifacts = data.artifacts || [];
+  container.innerHTML = `
+    <article class="research-event">
+      <header class="research-event-head">
+        <span class="target-eyebrow">Canonical Event</span>
+        <h3>${escapeHtml(event.title || canonicalEventId)}</h3>
+        <p>${escapeHtml(event.summary || "暂无摘要")}</p>
+        <div class="research-event-meta">
+          <span>${escapeHtml(event.status || "active")}</span>
+          <span>${escapeHtml(String(event.confidence ?? 0))} confidence</span>
+          <span>${escapeHtml(event.event_time || "unknown time")}</span>
+        </div>
+      </header>
+      <div class="research-actions">
+        <button class="btn-primary" id="researchConfirmBtn" type="button">确认事件</button>
+        <button class="btn-secondary" id="researchMergeBtn" type="button">标记合并</button>
+        <button class="btn-secondary" id="researchSplitBtn" type="button">标记拆分</button>
+      </div>
+      <section class="research-section">
+        <h4>证据来源</h4>
+        <ul class="research-evidence-list">
+          ${mentions.map(researchMentionHtml).join("") || researchInlineEmptyHtml("暂无证据来源。", targetId)}
+        </ul>
+      </section>
+      <section class="research-section">
+        <h4>关系线索</h4>
+        <ul class="research-relation-list">
+          ${relations.map((relation) => researchRelationHtml(relation, canonicalEventId)).join("") || researchInlineEmptyHtml("暂无关系线索。", targetId)}
+        </ul>
+      </section>
+      <section class="research-section">
+        <h4>研究记录</h4>
+        <ol class="research-artifact-timeline">
+          ${artifacts.map(researchArtifactHtml).join("") || researchInlineEmptyHtml("暂无研究记录。", targetId)}
+        </ol>
+      </section>
+      <form class="research-note-form" id="researchNoteForm">
+        <label for="researchNoteBody">新增标注</label>
+        <textarea id="researchNoteBody" rows="3" placeholder="记录背景、风险点或后续需要验证的问题"></textarea>
+        <button class="btn-secondary" type="submit">保存标注</button>
+      </form>
+    </article>
+  `;
+  bindResearchActions(container, targetId, canonicalEventId, data);
+}
+
+async function postResearchArtifact(targetId, canonicalEventId, payload) {
+  return apiPost("/api/v1/research/artifacts", {}, {
+    target_id: targetId,
+    subject_type: "canonical_event",
+    subject_id: canonicalEventId,
+    ...payload,
+  });
+}
+
+function bindResearchActions(container, targetId, canonicalEventId, detailData) {
+  container.querySelector("#researchConfirmBtn")?.addEventListener("click", async () => {
+    try {
+      await postResearchArtifact(targetId, canonicalEventId, {
+        artifact_type: "review_state",
+        title: "人工确认",
+        body: "已复核证据，确认该事实事件。",
+        status: "resolved",
+        metadata: { decision: "confirmed", reason: "manual review" },
+      });
+      showSuccess("事件已确认");
+      await renderTargetWorkbench(document.getElementById("pageContainer"), targetId, "review");
+    } catch (err) {
+      showError(err.message || "确认失败");
+    }
+  });
+  container.querySelector("#researchMergeBtn")?.addEventListener("click", async () => {
+    const rawCandidateIds = window.prompt("候选 canonical event ID，可用逗号分隔", "") || "";
+    const candidateIds = rawCandidateIds.split(",").map((item) => item.trim()).filter(Boolean);
+    if (!candidateIds.length) {
+      showInfo("未填写候选事件 ID，已取消合并建议。");
+      return;
+    }
+    try {
+      await postResearchArtifact(targetId, canonicalEventId, {
+        artifact_type: "merge_decision",
+        title: "合并建议",
+        body: `人工标记为可能需要与 ${candidateIds.join(", ")} 合并。`,
+        status: "open",
+        metadata: {
+          decision: "proposed",
+          candidate_canonical_event_ids: candidateIds,
+          confidence: 60,
+          reason: "manual merge candidate",
+        },
+      });
+      showSuccess("合并建议已保存");
+      await renderResearchDetail(container, targetId, canonicalEventId);
+    } catch (err) {
+      showError(err.message || "保存合并建议失败");
+    }
+  });
+  container.querySelector("#researchSplitBtn")?.addEventListener("click", async () => {
+    const mentions = detailData.mentions || [];
+    const mentionIds = researchMentionIds(mentions);
+    if (mentions.length && !mentionIds.length) {
+      showError("当前证据缺少 mention ID，无法创建有效拆分建议。");
+      return;
+    }
+    const usesFallback = !mentions.length;
+    const affectedMentionIds = mentionIds.length ? mentionIds : [canonicalEventId];
+    try {
+      await postResearchArtifact(targetId, canonicalEventId, {
+        artifact_type: "split_decision",
+        title: usesFallback ? "拆分建议（待补证据）" : "拆分建议",
+        body: usesFallback
+          ? "当前详情没有可用 mention，先用 canonical event ID 记录人工拆分意图，后续补充证据。"
+          : `人工标记 ${affectedMentionIds.length} 条证据可能误合并，需要拆分。`,
+        status: "open",
+        metadata: {
+          decision: "proposed",
+          affected_mention_ids: affectedMentionIds,
+          reason: usesFallback ? "manual split candidate without mentions" : "manual split candidate",
+        },
+      });
+      showSuccess("拆分建议已保存");
+      await renderResearchDetail(container, targetId, canonicalEventId);
+    } catch (err) {
+      showError(err.message || "保存拆分建议失败");
+    }
+  });
+  container.querySelector("#researchNoteForm")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const body = container.querySelector("#researchNoteBody")?.value?.trim() || "";
+    if (!body) {
+      showInfo("请先填写标注内容。");
+      return;
+    }
+    try {
+      await postResearchArtifact(targetId, canonicalEventId, {
+        artifact_type: "annotation",
+        title: "研究标注",
+        body,
+        status: "open",
+        metadata: { tags: [] },
+      });
+      showSuccess("研究标注已保存");
+      await renderResearchDetail(container, targetId, canonicalEventId);
+    } catch (err) {
+      showError(err.message || "保存标注失败");
+    }
+  });
 }
 
 async function renderCanonicalProjection(container, targetId) {

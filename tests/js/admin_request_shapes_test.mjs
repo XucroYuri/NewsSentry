@@ -93,3 +93,21 @@ assert.match(
   /apiPost\("\/api\/v1\/canonical\/backfill",\s*\{\s*\},\s*\{\s*target_id:\s*targetId,\s*limit:\s*500,\s*apply:\s*true/s,
   "Target 工作台事实投影回填必须用 JSON body 显式传 apply:true",
 );
+
+assert.match(
+  targetWorkbenchJs,
+  /api\("\/api\/v1\/research\/queue",\s*\{\s*target_id:\s*targetId,\s*status:\s*"open",\s*limit:\s*50\s*\}\)/s,
+  "Target 工作台审核页必须加载 canonical research queue",
+);
+
+assert.match(
+  targetWorkbenchJs,
+  /api\(`\/api\/v1\/research\/events\/\$\{encodeURIComponent\(canonicalEventId\)\}`,\s*\{\s*target_id:\s*targetId\s*\}\)/s,
+  "Target 工作台审核详情必须加载 canonical event research detail",
+);
+
+assert.match(
+  targetWorkbenchJs,
+  /apiPost\("\/api\/v1\/research\/artifacts",\s*\{\s*\},\s*\{[\s\S]*artifact_type:\s*"review_state"/s,
+  "Target 工作台审核动作必须创建 review_state research artifact",
+);
