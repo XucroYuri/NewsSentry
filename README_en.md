@@ -1,23 +1,25 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.0-blue.svg" alt="version" />
+  <img src="https://img.shields.io/badge/version-1.9.1-blue.svg" alt="version" />
   <img src="https://img.shields.io/badge/python-3.11+-3776AB.svg?logo=python&logoColor=white" alt="python" />
-  <img src="https://img.shields.io/badge/tests-1251%20passed-brightgreen.svg" alt="tests" />
-  <img src="https://img.shields.io/badge/coverage-92%25-green.svg" alt="coverage" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-orange.svg" alt="license" />
   <img src="https://img.shields.io/badge/ruff-0%20errors-success.svg" alt="ruff" />
-  <img src="https://img.shields.io/badge/mypy-strict-success.svg" alt="mypy" />
 </p>
 
 <h1 align="center">News Sentry</h1>
 
 <p align="center">
-  <strong>Framework-neutral AI News Monitoring Engine</strong><br>
-  RSS/API/Social Collection → Smart Filtering → AI Judgment → Markdown Output<br>
-  Configuration-driven, zero-code country expansion
+  <strong>Open-source AI news intelligence and OSINT monitoring platform</strong><br>
+  Multilingual news and social media collection → source health → canonical event graph → professional research workflows
 </p>
 
 <p align="center">
-  <a href="#quick-start">Quick Start</a> · <a href="#pipeline-overview">Architecture</a> · <a href="#usage">Usage</a> · <a href="#deployment">Deploy</a> · <a href="#capability-boundaries--roadmap">Roadmap</a>
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#why-news-sentry">Why</a> ·
+  <a href="#core-capabilities">Capabilities</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#use-cases">Use Cases</a> ·
+  <a href="#roadmap">Roadmap</a> ·
+  <a href="#contributing">Contributing</a>
 </p>
 
 <p align="center">
@@ -28,24 +30,39 @@
 
 ## What is News Sentry?
 
-News Sentry is a **continuous news monitoring platform** that automates the full intelligence lifecycle:
+News Sentry is a local-first, open-source system for continuous **AI news intelligence**, **OSINT monitoring**, and professional research workflows.
 
+It collects multilingual news, RSS feeds, API sources, social media signals, and public web sources, then helps researchers turn fragmented mentions into structured events, source health signals, alerts, Markdown briefs, and a canonical event graph.
+
+It is designed for people who need more than a feed reader:
+
+- journalists and editors tracking countries, institutions, policies, industries, and breaking events;
+- OSINT researchers validating public sources across languages and regions;
+- analysts monitoring public opinion, geopolitical risk, industrial policy, and media narratives;
+- developers building local or cloud news intelligence infrastructure.
+
+## Why News Sentry?
+
+Most monitoring tools stop at collecting links. News Sentry is built around the full intelligence loop:
+
+```text
+collect → filter → judge → output → review → canonical graph → research artifact
 ```
-70+ Sources → Keyword Filtering → AI Scoring → Markdown Output + Real-time Alerts
-```
 
-**Core Features:**
+The important distinction is that a news article is treated as an **event mention**, not the fact itself. Multiple reports can be projected into a canonical event graph, while human-in-the-loop research actions are stored as review artifacts instead of silently overwriting facts.
 
-| Feature | Description |
-|---------|-------------|
-| **Framework-neutral** | Runs on Hermes Agent, OpenClaw, or standalone CLI |
-| **Config-driven** | Add new countries with YAML only — no code changes |
-| **Zero-token collection** | RSS / API / OpenCLI collection consumes no AI tokens |
-| **5 countries configured** | Italy, Japan, Germany, France + English China-coverage |
-| **Bilingual pipeline** | Original language → auto-translation → Chinese output |
-| **Feedback loop** | Human annotations automatically optimize keyword weights |
-| **Self-evolving sources** | RSS auto-discovery + health patrol + matrix expansion |
-| **No dedicated frontend** | Obsidian Markdown + Feishu/Email/Push alerts |
+## Core Capabilities
+
+| Capability | What it means |
+| --- | --- |
+| Multilingual news monitoring | Configured targets for Italy, Japan, Germany, France, and English China-watch coverage |
+| RSS/API/OpenCLI collection | Zero-token collection from feeds, APIs, websites, and optional tool adapters |
+| Source health | Track source availability, runtime diagnostics, stale feeds, and source lifecycle |
+| AI judgment | Score news value, China relevance, sentiment, and confidence with rule-first fallback |
+| Canonical event graph | Separate real-world events from source mentions, relations, taxonomy, and entities |
+| Professional research workflows | Review queues, annotations, merge/split decisions, and research artifacts |
+| Local-first deployment | Run as CLI, FastAPI web UI, desktop wrapper, Docker, or future cloud worker |
+| Human-in-the-loop design | AI assists filtering and analysis while final research judgment stays auditable |
 
 ---
 
@@ -108,7 +125,7 @@ pip install -e ".[api]"    # FastAPI REST API gateway
 
 ---
 
-## Pipeline Overview
+## Architecture
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
@@ -359,68 +376,42 @@ make eval           # Run evaluation set
 
 ---
 
-## Capability Boundaries & Roadmap
+## Use Cases
 
-### Current vs Planned
+- Continuous country and region monitoring for newsrooms and research teams.
+- OSINT source tracking across public websites, RSS feeds, social platforms, and APIs.
+- Public opinion and media narrative monitoring for policy, industry, and geopolitical research.
+- Source health and coverage gap analysis for multilingual monitoring operations.
+- Local research workbench for reviewing, annotating, merging, splitting, and briefing canonical events.
 
-```
-                        ┌─────────────────────────────────────────────┐
-                        │         News Sentry Capability Map           │
-                        └────────────────────┬────────────────────────┘
-                                             │
-          ┌──────────────────────────────────┼──────────────────────────────────┐
-          │                                  │                                  │
-    ┌─────▼─────┐                    ┌────────▼────────┐                ┌────────▼────────┐
-    │  ✅ Shipped │                    │  🔧 Partial      │                │  📋 Planned      │
-    └─────┬─────┘                    └────────┬────────┘                └────────┬────────┘
-          │                                  │                                  │
-   ┌──────┴──────┐                  ┌────────┴────────┐                ┌────────┴────────┐
-   │ · 70+ sources│                  │ · VPS 72h verify │                │ · More targets   │
-   │ · 5 countries│                  │ · KOL still      │                │   (Korea/UK etc) │
-   │ · AI judging │                  │   experimental   │                │ · Multi-agent    │
-   │ · Keyword    │                  │ · Self-evolution │                │ · Knowledge graph│
-   │   filtering  │                  │   needs more data│                │ · Live dashboard │
-   │ · Feedback   │                  └─────────────────┘                └─────────────────┘
-   │ · REST API   │
-   │ · Alerts     │
-   │ · Security   │
-   └─────────────┘
-```
+## Roadmap
 
-### Strengths vs Limitations
+News Sentry is evolving from a local monitoring engine into a global news intelligence platform.
 
-| Dimension | ✅ Strength | ⚠️ Limitation |
-|-----------|------------|---------------|
-| **Collection** | 70+ sources / zero token / auto-discovery | Social KOL is experimental, depends on external Bridge |
-| **Judgment** | Rules + AI dual routing / accuracy >70% | AI may misjudge — cannot replace human decision |
-| **Multilingual** | 4 countries + en China-coverage / it/en/ja/de/fr | Translation quality depends on AI, domain terms may vary |
-| **Deployment** | Docker zero-dep / API gateway | VPS long-term stability needs real-world validation |
-| **Feedback** | Human annotation → rules auto-optimize | Requires sufficient feedback data to be effective |
+Near-term priorities:
 
-### Project Status
+- reliability hardening for run batch semantics, alert history, and source inventory;
+- shadow canonical data spine for canonical events, mentions, relations, taxonomy, and research artifacts;
+- professional research workflow MVP with human review, merge/split, annotations, and briefs;
+- local lightweight client for user-selected scopes and offline research;
+- future semi-centralized public collection nodes for global source coverage.
 
-**v1.0.0 — All 23 Phases Complete**
+See:
 
-| Stage | Version | Status |
-|-------|---------|--------|
-| Foundation (P1-P7) | v0.1–v0.3 | ✅ Done |
-| Iteration (P8-P11) | v0.4 | ✅ Done |
-| Source Matrix + Eval (P12-P13) | v0.5 | ✅ Done |
-| AI Optimization + Cloud (P14-P15) | v0.6 | ✅ Done |
-| Production + Multi-target (P16-P18) | v0.7 | ✅ Done |
-| Multilingual + Feedback (P19-P20) | v0.8 | ✅ Done |
-| Ecosystem Integration (P21-P22) | v0.9 | ✅ Done |
-| Stable Release (P23) | v1.0 | ✅ Done |
+- [Global intelligence platform direction](docs/superpowers/specs/2026-05-30-global-intelligence-platform-business-architecture-design.md)
+- [Shadow canonical data spine](docs/superpowers/specs/2026-05-30-shadow-canonical-data-spine-design.md)
+- [Professional research workflow MVP](docs/superpowers/specs/2026-05-30-professional-research-workflow-mvp-design.md)
 
-| Metric | Value |
-|--------|-------|
-| Tests | 1251 passed |
-| Coverage | 92% |
-| Lint | ruff = 0 errors |
-| Type | mypy strict = 0 issues |
-| Targets | 5 countries |
-| Sources | 70+ |
-| Phases | 23/23 complete |
+## Contributing
+
+Contributions are welcome, especially in these areas:
+
+- new country, region, language, and source configurations;
+- collector adapters for public websites, RSS feeds, APIs, and social sources;
+- canonical event graph, taxonomy, source health, and research workflow improvements;
+- documentation, deployment guides, and reproducible monitoring examples.
+
+Start with [CONTRIBUTING.md](CONTRIBUTING.md), [docs/contracts-canonical.md](docs/contracts-canonical.md), and [docs/architecture.md](docs/architecture.md).
 
 ---
 
