@@ -556,6 +556,9 @@ class SourceHealthInfo(BaseModel):
     status: str
     last_check: str
     error_count: int = 0
+    last_error: str | None = None
+    last_success_at: str | None = None
+    last_failure_at: str | None = None
     metadata: dict[str, Any] = {}
 
 
@@ -2053,9 +2056,16 @@ def _load_source_configs(target_id: str) -> list[dict[str, Any]]:
 
 
 def _source_ids_for_target(target_id: str) -> set[str]:
-    """返回 target 配置中声明的信源 ID，用于后台健康状态过滤。"""
+    """返回 target 当前启用的信源 ID，用于后台健康状态过滤。"""
     ids: set[str] = set()
     for source in _load_source_configs(target_id):
+        lifecycle = source.get("lifecycle") if isinstance(source.get("lifecycle"), dict) else {}
+        if source.get("enabled", True) is False:
+            continue
+        if source.get("deprecated") is True:
+            continue
+        if lifecycle.get("status") == "archived":
+            continue
         for key in ("source_id", "id", "_source_id"):
             value = source.get(key)
             if value:
@@ -2129,6 +2139,9 @@ def _load_memory_source_health_records(target_id: str | None = None) -> list[dic
                     or entry.get("last_failure_at")
                     or "",
                     "error_count": _source_health_error_count_from_memory(entry),
+                    "last_error": entry.get("last_error"),
+                    "last_success_at": entry.get("last_success_at"),
+                    "last_failure_at": entry.get("last_failure_at"),
                     "metadata": {
                         "target_id": tid,
                         "last_success_at": entry.get("last_success_at"),

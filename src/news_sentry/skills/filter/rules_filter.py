@@ -39,6 +39,14 @@ class RulesFilter:
         self._max_age_hours: int = int(filter_config.get("max_age_hours", 48))
         self._dedup_window_hours: int = int(filter_config.get("dedup_window_hours", 24))
         self._memory = memory
+        self.last_stats: dict[str, int] = {
+            "input": 0,
+            "passed": 0,
+            "skipped_known": 0,
+            "skipped_stale": 0,
+            "skipped_low_score": 0,
+            "score_hits": 0,
+        }
 
     def filter(self, events: list[NewsEvent], run_id: str) -> list[NewsEvent]:
         """对采集到的事件列表进行过滤和评分，返回通过的事件。
@@ -54,19 +62,32 @@ class RulesFilter:
         now = datetime.now(UTC)
         max_age = timedelta(hours=self._max_age_hours)
         passed: list[NewsEvent] = []
+        stats = {
+            "input": len(events),
+            "passed": 0,
+            "skipped_known": 0,
+            "skipped_stale": 0,
+            "skipped_low_score": 0,
+            "score_hits": 0,
+        }
 
         for event in events:
             # 去重
             if self._memory.is_known(event.id):
+                stats["skipped_known"] += 1
                 continue
 
             # 时效检查
             if not self._is_within_age(event, now, max_age):
+                stats["skipped_stale"] += 1
                 continue
 
             # 关键词评分
             score = self._score_event(event, self._keyword_rules)
+            if score > 0:
+                stats["score_hits"] += 1
             if score < self._score_threshold:
+                stats["skipped_low_score"] += 1
                 continue
 
             # 通过：更新 stage 和 score，标记为已知
@@ -74,7 +95,9 @@ class RulesFilter:
             event.news_value_score = score
             self._memory.mark_known(event.id)
             passed.append(event)
+            stats["passed"] += 1
 
+        self.last_stats = stats
         return passed
 
     def _score_event(self, event: NewsEvent, keyword_rules: list[dict[str, Any]]) -> int:

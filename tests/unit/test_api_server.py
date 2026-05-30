@@ -2989,6 +2989,45 @@ class TestOpsEndpoints:
         assert resp.status_code == 200
         assert [item["source_id"] for item in resp.json()["sources"]] == ["ansa"]
 
+    def test_list_source_health_hides_disabled_and_deprecated_sources(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """默认健康列表不应继续展示已停用或归档的 source。"""
+        monkeypatch.chdir(tmp_path)
+        italy_sources = tmp_path / "config" / "sources" / "italy"
+        italy_sources.mkdir(parents=True, exist_ok=True)
+        (italy_sources / "ansa.yaml").write_text("source_id: ansa\n", encoding="utf-8")
+        (italy_sources / "fao-rss.yaml").write_text(
+            "source_id: fao-rss\nenabled: false\ndeprecated: true\n",
+            encoding="utf-8",
+        )
+
+        class FakeStore:
+            async def get_all_source_health(self) -> list[dict[str, object]]:
+                return [
+                    {
+                        "source_id": "ansa",
+                        "status": "healthy",
+                        "last_check": "now",
+                        "error_count": 0,
+                    },
+                    {
+                        "source_id": "fao-rss",
+                        "status": "dead",
+                        "last_check": "then",
+                        "error_count": 16,
+                        "last_error": "404 Not Found",
+                    },
+                ]
+
+        app = create_app(data_dir=tmp_path, store=FakeStore(), skip_lifespan=True)
+        client = TestClient(app, base_url="http://127.0.0.1")
+
+        resp = client.get("/api/v1/sources/health", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        assert [item["source_id"] for item in resp.json()["sources"]] == ["ansa"]
+
     def test_list_source_health_reads_target_memory_yaml(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -3023,6 +3062,44 @@ class TestOpsEndpoints:
         assert resp.json()["sources"][0]["source_id"] == "ansa"
         assert resp.json()["sources"][0]["status"] == "healthy"
         assert resp.json()["sources"][0]["error_count"] == 0
+
+    def test_list_source_health_promotes_memory_error_fields(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """memory/source_health.yaml 的错误字段应提升到 API 顶层，便于自动化诊断。"""
+        monkeypatch.chdir(tmp_path)
+        italy_sources = tmp_path / "config" / "sources" / "italy"
+        italy_sources.mkdir(parents=True, exist_ok=True)
+        (italy_sources / "broken.yaml").write_text("source_id: broken\n", encoding="utf-8")
+        memory_dir = tmp_path / "italy" / "memory"
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        (memory_dir / "source_health.yaml").write_text(
+            yaml.dump(
+                {
+                    "broken": {
+                        "last_success_at": None,
+                        "last_failure_at": "2026-05-30T10:54:00+00:00",
+                        "consecutive_failures": 3,
+                        "last_error": "RSS fetch failed: 404 Not Found",
+                        "total_runs": 3,
+                        "total_failures": 3,
+                    }
+                },
+                allow_unicode=True,
+            ),
+            encoding="utf-8",
+        )
+        client = self._make_client(tmp_path)
+
+        resp = client.get("/api/v1/sources/health", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        item = resp.json()["sources"][0]
+        assert item["source_id"] == "broken"
+        assert item["status"] == "degraded"
+        assert item["last_error"] == "RSS fetch failed: 404 Not Found"
+        assert item["last_failure_at"] == "2026-05-30T10:54:00+00:00"
+        assert item["last_success_at"] is None
 
     def test_trigger_run(self, tmp_path: Path) -> None:
         client = self._make_client(tmp_path)
