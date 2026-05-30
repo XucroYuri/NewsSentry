@@ -2135,6 +2135,133 @@ async def test_canonical_graph_operation_list_normalizes_pagination(store: Async
     ]
 
 
+async def _seed_merge_graph(store: AsyncStore) -> None:
+    for event_id, target_id, title, status in (
+        ("ce_italy_merge_survivor", "italy", "Survivor", "needs_review"),
+        ("ce_italy_merge_duplicate", "italy", "Duplicate", "needs_review"),
+        ("ce_france_merge_duplicate", "france", "France duplicate", "needs_review"),
+    ):
+        await store.upsert_canonical_event(
+            {
+                "canonical_event_id": event_id,
+                "target_id": target_id,
+                "title": title,
+                "summary": "",
+                "event_time": "2026-05-30T10:00:00Z",
+                "status": status,
+                "confidence": 70,
+                "metadata": {"mention_count": 1, "source_count": 1},
+            }
+        )
+    for mention_id, event_id, target_id, source_id in (
+        ("mention_survivor", "ce_italy_merge_survivor", "italy", "ansa"),
+        ("mention_duplicate", "ce_italy_merge_duplicate", "italy", "repubblica"),
+        ("mention_france", "ce_france_merge_duplicate", "france", "afp"),
+    ):
+        await store.upsert_event_mention(
+            {
+                "mention_id": mention_id,
+                "canonical_event_id": event_id,
+                "event_id": f"ne_{mention_id}",
+                "target_id": target_id,
+                "source_id": source_id,
+                "url": f"https://example.com/{mention_id}",
+                "title": mention_id,
+                "published_at": "2026-05-30T10:00:00Z",
+                "metadata": {"news_value_score": 80},
+            }
+        )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_merge_apply",
+            "target_id": "italy",
+            "artifact_type": "merge_decision",
+            "title": "Merge",
+            "body": "Same fact",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_merge_survivor",
+            "canonical_event_ids": [
+                "ce_italy_merge_survivor",
+                "ce_italy_merge_duplicate",
+            ],
+            "status": "open",
+            "metadata": {
+                "decision": "proposed",
+                "candidate_canonical_event_ids": ["ce_italy_merge_duplicate"],
+            },
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_canonical_merge_dry_run_apply_and_idempotency(store: AsyncStore):
+    await _seed_merge_graph(store)
+
+    dry_run = await store.preview_canonical_merge(
+        target_id="italy",
+        survivor_canonical_event_id="ce_italy_merge_survivor",
+        merged_canonical_event_ids=["ce_italy_merge_duplicate"],
+        decision_artifact_id="ra_italy_merge_apply",
+        created_by="local-user",
+    )
+    assert dry_run["mode"] == "dry_run"
+    assert dry_run["operation_type"] == "merge"
+    assert dry_run["changes"][0]["type"] == "move_mentions"
+    assert (await store.get_canonical_event("ce_italy_merge_duplicate"))["status"] == (
+        "needs_review"
+    )
+
+    applied = await store.apply_canonical_merge(
+        target_id="italy",
+        survivor_canonical_event_id="ce_italy_merge_survivor",
+        merged_canonical_event_ids=["ce_italy_merge_duplicate"],
+        decision_artifact_id="ra_italy_merge_apply",
+        created_by="local-user",
+    )
+    assert applied["mode"] == "applied"
+    assert applied["operation_id"] == dry_run["operation_id"]
+
+    survivor_mentions = await store.list_event_mentions("ce_italy_merge_survivor")
+    assert {mention["mention_id"] for mention in survivor_mentions} == {
+        "mention_survivor",
+        "mention_duplicate",
+    }
+    duplicate = await store.get_canonical_event("ce_italy_merge_duplicate")
+    assert duplicate["status"] == "merged"
+    assert duplicate["metadata"]["merged_into"] == "ce_italy_merge_survivor"
+
+    relations = await store.list_canonical_relations("ce_italy_merge_duplicate")
+    assert [relation["relation_type"] for relation in relations] == ["duplicate"]
+
+    artifact = await store.get_research_artifact("ra_italy_merge_apply")
+    assert artifact["status"] == "resolved"
+    assert artifact["metadata"]["applied_operation_id"] == applied["operation_id"]
+
+    second = await store.apply_canonical_merge(
+        target_id="italy",
+        survivor_canonical_event_id="ce_italy_merge_survivor",
+        merged_canonical_event_ids=["ce_italy_merge_duplicate"],
+        decision_artifact_id="ra_italy_merge_apply",
+        created_by="local-user",
+    )
+    assert second["operation_id"] == applied["operation_id"]
+    operations = await store.list_canonical_graph_operations(target_id="italy", limit=10)
+    assert [operation["operation_id"] for operation in operations] == [applied["operation_id"]]
+
+
+@pytest.mark.asyncio
+async def test_canonical_merge_rejects_cross_target_candidate(store: AsyncStore):
+    await _seed_merge_graph(store)
+    with pytest.raises(ValueError, match="target mismatch"):
+        await store.preview_canonical_merge(
+            target_id="italy",
+            survivor_canonical_event_id="ce_italy_merge_survivor",
+            merged_canonical_event_ids=["ce_france_merge_duplicate"],
+            decision_artifact_id=None,
+            created_by="local-user",
+        )
+
+
 @pytest.mark.asyncio
 async def test_research_artifact_upsert_list_and_patch(store: AsyncStore):
     await store.upsert_canonical_event(
