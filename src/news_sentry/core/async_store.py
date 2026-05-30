@@ -1591,28 +1591,44 @@ class AsyncStore:
                 return str(existing[0])
         changes = row.get("changes", [])
         warnings = row.get("warnings", [])
-        await self._db.execute(
-            """INSERT INTO canonical_graph_operations
-               (operation_id, target_id, operation_type, decision_artifact_id,
-                primary_canonical_event_id, result_canonical_event_id, status,
-                changes_json, warnings_json, metadata_json, created_by)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(operation_id) DO NOTHING""",
-            (
-                operation_id,
-                row["target_id"],
-                operation_type,
-                decision_artifact_id,
-                row["primary_canonical_event_id"],
-                row.get("result_canonical_event_id"),
-                status,
-                json.dumps(changes if isinstance(changes, list) else [], ensure_ascii=False),
-                json.dumps(warnings if isinstance(warnings, list) else [], ensure_ascii=False),
-                self._json_dumps(row.get("metadata")),
-                row.get("created_by", "local-user"),
-            ),
-        )
-        await self._db.commit()
+        try:
+            await self._db.execute(
+                """INSERT INTO canonical_graph_operations
+                   (operation_id, target_id, operation_type, decision_artifact_id,
+                    primary_canonical_event_id, result_canonical_event_id, status,
+                    changes_json, warnings_json, metadata_json, created_by)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(operation_id) DO NOTHING""",
+                (
+                    operation_id,
+                    row["target_id"],
+                    operation_type,
+                    decision_artifact_id,
+                    row["primary_canonical_event_id"],
+                    row.get("result_canonical_event_id"),
+                    status,
+                    json.dumps(changes if isinstance(changes, list) else [], ensure_ascii=False),
+                    json.dumps(warnings if isinstance(warnings, list) else [], ensure_ascii=False),
+                    self._json_dumps(row.get("metadata")),
+                    row.get("created_by", "local-user"),
+                ),
+            )
+            await self._db.commit()
+        except sqlite3.IntegrityError:
+            if decision_artifact_id is None:
+                raise
+            async with self._db.execute(
+                """SELECT operation_id
+                   FROM canonical_graph_operations
+                   WHERE target_id = ?
+                     AND decision_artifact_id = ?
+                   LIMIT 1""",
+                (row["target_id"], decision_artifact_id),
+            ) as cursor:
+                existing = await cursor.fetchone()
+            if existing is None:
+                raise
+            return str(existing[0])
         return operation_id
 
     async def get_canonical_graph_operation(self, operation_id: str) -> dict[str, Any] | None:
