@@ -30,7 +30,6 @@ from news_sentry.core.run import (
     _run_filter,
     _run_judge,
     _run_output,
-    _translate_collected_titles,
 )
 from news_sentry.core.run_log import RunLog, write_heartbeat
 from news_sentry.core.sandbox import SandboxEnforcer
@@ -154,6 +153,7 @@ async def bounded_run_async(
                 b.ctx,
                 input_events=collected,
             )
+            await _translate_filtered_async(b.config, b.run_id, b.run_log, filtered)
             judged = await _run_judge_async(
                 b.config,
                 b.run_id,
@@ -307,46 +307,48 @@ async def _run_collect_async(
     for event in all_events:
         file_writer.write_event(event)
 
-    # 快速预翻译 — P27: TranslationBatcher 批处理
+    ctx.events_collected = len(all_events)
+    duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
+    run_log.log_phase_end("collect", len(all_events), duration_ms)
+    return all_events
+
+
+async def _translate_filtered_async(
+    config: ResolvedConfig,
+    run_id: str,
+    run_log: RunLog,
+    events: list[NewsEvent],
+) -> int:
+    """仅对本次过滤入选事件做轻量预翻译，避免 raw feed 触发 AI 调用风暴。"""
+    if not events:
+        return 0
+
     lang_primary = (
         config.target.get("language_scope", {}).get("primary", "en")
         if hasattr(config.target, "get")
         else "en"
     )
-    if all_events:
-        try:
-            router = _try_create_provider_router()
-            if router is not None:
-                batcher = TranslationBatcher()
-                translated = await batcher.translate(
-                    all_events,
-                    router,
-                    _build_provider_factory(),
-                    language=lang_primary,
-                )
-                logger.info("批处理翻译完成: %d/%d", translated, len(all_events))
-            else:
-                await asyncio.to_thread(
-                    _translate_collected_titles,
-                    all_events,
-                    run_id,
-                    run_log,
-                    lang_primary,
-                )
-        except Exception as e:
-            logger.warning("批处理翻译失败，回退到同步翻译: %s", e)
-            await asyncio.to_thread(
-                _translate_collected_titles,
-                all_events,
-                run_id,
-                run_log,
-                lang_primary,
-            )
-
-    ctx.events_collected = len(all_events)
-    duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
-    run_log.log_phase_end("collect", len(all_events), duration_ms)
-    return all_events
+    try:
+        router = _try_create_provider_router()
+        if router is None:
+            return 0
+        batcher = TranslationBatcher(batch_size=5, max_concurrent=1)
+        translated = await batcher.translate(
+            events,
+            router,
+            _build_provider_factory(),
+            language=lang_primary,
+        )
+        run_log.log_event(
+            "filter",
+            "translate.fast",
+            f"filtered_title_pre translated={translated}/{len(events)}",
+        )
+        logger.info("过滤后批处理翻译完成: %d/%d", translated, len(events))
+        return translated
+    except Exception as e:
+        logger.warning("过滤后批处理翻译失败，跳过本轮预翻译: %s", e)
+        return 0
 
 
 async def _collect_social_sources(

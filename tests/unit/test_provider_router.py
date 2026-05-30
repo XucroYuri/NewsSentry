@@ -532,6 +532,16 @@ class TestRouteOrchestration:
         # 验证工厂被调用 — 路由 judge.primary 的 provider 为 "<placeholder>"
         factory.assert_called_with("<placeholder>")
 
+    def test_route_passes_configured_model_to_provider(self) -> None:
+        """route() 应把路由表中的 model 传给 provider.call。"""
+        router = ProviderRouter(_make_test_routes_config())
+        factory = self._mock_provider_factory()
+
+        router.route("judge", "test prompt", factory)
+
+        provider = factory.return_value
+        assert provider.call.call_args.kwargs["model"] == "<placeholder>"
+
     # ── 预算超限 ──────────────────────────────────────────────────
 
     def test_route_budget_exceeded(self) -> None:
@@ -710,6 +720,7 @@ class TestRouteAsyncOrchestration:
         assert result["content"] == "async result"
         assert result["fallback_used"] is False
         assert result["budget_exceeded"] is False
+        assert async_provider.call_async.call_args.kwargs["model"] == "gpt-4o-mini"
 
     @pytest.mark.asyncio
     async def test_route_async_falls_back_to_sync(self):

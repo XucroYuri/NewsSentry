@@ -121,6 +121,21 @@ class TestTranslationBatcher:
         assert call_count == 3
 
     @pytest.mark.asyncio
+    async def test_rate_limit_failure_does_not_degrade_to_per_item(self):
+        """429 限流时不得逐条重试放大请求风暴。"""
+        events = [self._make_event(), self._make_event(title="Second", event_id="ne-002")]
+        batcher = TranslationBatcher(batch_size=10)
+
+        router = MagicMock()
+        router.route_async = AsyncMock(side_effect=RuntimeError("429 Too Many Requests"))
+        factory = self._make_factory()
+
+        translated = await batcher.translate(events, router, factory, language="en")
+
+        assert translated == 0
+        router.route_async.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_empty_events_no_op(self):
         """空事件列表不应调用 LLM。"""
         batcher = TranslationBatcher()

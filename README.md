@@ -73,7 +73,7 @@ bash install.sh --dev
 
 # 3. 配置 API Key（至少一个，用于 AI 研判）
 cp .env.example .env
-# 编辑 .env 填入 OPENAI_API_KEY 或 ANTHROPIC_API_KEY
+# 编辑 .env 填入 OPENROUTER_API_KEY
 
 # 4. 验证配置
 source .venv/bin/activate
@@ -288,9 +288,11 @@ make help           # 查看所有命令
 
 | 变量 | 必填 | 默认值 | 说明 |
 |------|------|--------|------|
-| `OPENAI_API_KEY` | 至少一个 | — | OpenAI API Key |
-| `ANTHROPIC_API_KEY` | 至少一个 | — | Anthropic API Key |
-| `DEEPSEEK_API_KEY` | 否 | — | DeepSeek API Key |
+| `OPENROUTER_API_KEY` | AI 增强需要 | — | OpenRouter API Key（默认 Provider） |
+| `OPENROUTER_BASE_URL` | 否 | `https://openrouter.ai/api/v1` | OpenRouter/OpenAI-compatible Base URL |
+| `OPENAI_API_KEY` | 否 | — | OpenAI API Key（备用） |
+| `ANTHROPIC_API_KEY` | 否 | — | Anthropic API Key（备用） |
+| `DEEPSEEK_API_KEY` | 否 | — | DeepSeek API Key（历史兼容） |
 | `NEWSSENTRY_API_KEY` | 否 | — | API 网关认证 Key |
 | `NEWSSENTRY_PROFILE` | 否 | `local-workstation` | 部署 profile |
 | `HTTPS_PROXY` | 否 | — | 代理（如 `socks5://127.0.0.1:1080`）|
@@ -305,8 +307,7 @@ make help           # 查看所有命令
 docker build -t news-sentry .
 docker run -d \
   --name news-sentry \
-  -e OPENAI_API_KEY=$OPENAI_API_KEY \
-  -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+  -e OPENROUTER_API_KEY=$OPENROUTER_API_KEY \
   -v /data/news-sentry:/app/data \
   -p 8000:8000 \
   news-sentry

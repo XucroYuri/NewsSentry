@@ -104,8 +104,17 @@ class TranslationBatcher:
             content = result.get("content", "")
             return self._apply_translations(batch, content)
         except Exception as e:
+            if self._is_rate_limited_error(e):
+                logger.warning("批处理翻译触发限流，跳过逐条降级: %s", e)
+                return 0
             logger.warning("批处理翻译失败，降级逐条: %s", e)
             return await self._translate_per_item(batch, router, provider_factory, language)
+
+    @staticmethod
+    def _is_rate_limited_error(exc: Exception) -> bool:
+        """识别 Provider 限流错误，避免 fallback 放大请求量。"""
+        text = str(exc).lower()
+        return "429" in text or "too many requests" in text or "rate limit" in text
 
     def _apply_translations(self, batch: list[Any], content: str) -> int:
         """将翻译结果应用到事件 metadata。"""

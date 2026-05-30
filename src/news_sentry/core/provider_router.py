@@ -312,10 +312,13 @@ class ProviderRouter:
                 continue
 
             try:
+                call_kwargs = dict(kwargs)
+                if not call_kwargs.get("model"):
+                    call_kwargs["model"] = current_route.model
                 result = provider.call(
                     route_id=current_route.route_id,
                     prompt=prompt,
-                    **kwargs,
+                    **call_kwargs,
                 )
                 # 4) 记录成本
                 cost = current_route.max_cost_usd_per_call
@@ -405,18 +408,21 @@ class ProviderRouter:
                 continue
 
             try:
+                call_kwargs = dict(kwargs)
+                if not call_kwargs.get("model"):
+                    call_kwargs["model"] = current_route.model
                 if hasattr(provider, "call_async") and callable(provider.call_async):
                     result = await provider.call_async(
                         route_id=current_route.route_id,
                         prompt=prompt,
-                        **kwargs,
+                        **call_kwargs,
                     )
                 else:
                     result = await asyncio.to_thread(
                         provider.call,
                         route_id=current_route.route_id,
                         prompt=prompt,
-                        **kwargs,
+                        **call_kwargs,
                     )
 
                 cost = current_route.max_cost_usd_per_call

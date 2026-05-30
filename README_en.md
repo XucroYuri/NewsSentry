@@ -78,7 +78,7 @@ bash install.sh --dev
 
 # 3. Configure API Key (at least one, for AI judgment)
 cp .env.example .env
-# Edit .env and add OPENAI_API_KEY or ANTHROPIC_API_KEY
+# Edit .env and add OPENROUTER_API_KEY
 
 # 4. Verify configuration
 source .venv/bin/activate
@@ -284,9 +284,11 @@ make help           # View all commands
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `OPENAI_API_KEY` | At least one | — | OpenAI API Key |
-| `ANTHROPIC_API_KEY` | At least one | — | Anthropic API Key |
-| `DEEPSEEK_API_KEY` | No | — | DeepSeek API Key |
+| `OPENROUTER_API_KEY` | Required for AI enhancement | — | OpenRouter API Key (default provider) |
+| `OPENROUTER_BASE_URL` | No | `https://openrouter.ai/api/v1` | OpenRouter/OpenAI-compatible Base URL |
+| `OPENAI_API_KEY` | No | — | OpenAI API Key (fallback) |
+| `ANTHROPIC_API_KEY` | No | — | Anthropic API Key (fallback) |
+| `DEEPSEEK_API_KEY` | No | — | DeepSeek API Key (legacy compatibility) |
 | `NEWSSENTRY_API_KEY` | No | — | API gateway auth key |
 | `NEWSSENTRY_PROFILE` | No | `local-workstation` | Deployment profile |
 | `HTTPS_PROXY` | No | — | Proxy (e.g. `socks5://127.0.0.1:1080`) |
@@ -301,8 +303,7 @@ make help           # View all commands
 docker build -t news-sentry .
 docker run -d \
   --name news-sentry \
-  -e OPENAI_API_KEY=$OPENAI_API_KEY \
-  -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+  -e OPENROUTER_API_KEY=$OPENROUTER_API_KEY \
   -v /data/news-sentry:/app/data \
   -p 8000:8000 \
   news-sentry

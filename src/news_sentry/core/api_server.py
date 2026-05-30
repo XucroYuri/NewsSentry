@@ -3771,7 +3771,11 @@ def create_app(
         )
 
         # 2. AI API Key 是否配置
-        has_ai_key = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY"))
+        has_ai_key = bool(
+            os.environ.get("OPENROUTER_API_KEY")
+            or os.environ.get("ANTHROPIC_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")
+        )
         checks.append(
             {
                 "name": "ai_api_key",

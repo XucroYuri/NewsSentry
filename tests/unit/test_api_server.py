@@ -435,6 +435,21 @@ class TestAPIServer:
         source_check = [c for c in data["checks"] if c["name"] == "source_health"][0]
         assert source_check["ok"] is True
 
+    def test_collector_diagnostics_accepts_openrouter_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """默认 OpenRouter Key 存在时 AI Key 诊断应通过。"""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+
+        client = self._make_client(tmp_path)
+        resp = client.get("/api/v1/collector/diagnostics")
+
+        assert resp.status_code == 200
+        ai_check = [c for c in resp.json()["checks"] if c["name"] == "ai_api_key"][0]
+        assert ai_check["ok"] is True
+
     def test_collector_diagnostics_reads_memory_source_health_yaml(self, tmp_path: Path) -> None:
         """diagnostics 应读取真实采集写入的 memory/source_health.yaml。"""
         memory_dir = tmp_path / "italy" / "memory"

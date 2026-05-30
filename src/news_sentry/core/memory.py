@@ -150,6 +150,7 @@ class Memory:
             if success:
                 entry["last_success_at"] = now
                 entry["consecutive_failures"] = 0
+                entry["last_error"] = None
             else:
                 entry["last_failure_at"] = now
                 entry["total_failures"] += 1

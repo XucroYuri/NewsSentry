@@ -3,10 +3,12 @@
 # ADR: ADR-0005
 #
 # AI Provider 路由配置 — Phase 5 多 Provider 路由
-# 可通过环境变量覆盖 provider/model：
-#   OPENAI_API_KEY / ANTHROPIC_API_KEY
-#   OPENAI_BASE_URL / ANTHROPIC_BASE_URL
-routes_version: "1.0.0"
+# 默认使用 OpenRouter（OpenAI-compatible API）。
+# 需要设置:
+#   OPENROUTER_API_KEY
+# 可选覆盖:
+#   OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+routes_version: "1.1.0"
 
 routes:
 
@@ -14,20 +16,20 @@ routes:
 
   - route_id: translate.fast
     task_type: translate
-    provider: openai
-    model: gpt-4o-mini
+    provider: openrouter
+    model: deepseek/deepseek-v4-flash:free
     timeout_seconds: 30
-    max_cost_usd_per_call: 0.001
+    max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: false
     notes: "collect 阶段快速预翻译标题（metadata.translation.title_pre）"
 
   - route_id: translate.high
     task_type: translate
-    provider: anthropic
-    model: claude-3-haiku-20240307
+    provider: openrouter
+    model: deepseek/deepseek-v4-flash:free
     timeout_seconds: 60
-    max_cost_usd_per_call: 0.005
+    max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
     fallback_route_ids:
@@ -38,10 +40,10 @@ routes:
 
   - route_id: judge.primary
     task_type: judge
-    provider: openai
-    model: gpt-4o
+    provider: openrouter
+    model: deepseek/deepseek-v4-flash:free
     timeout_seconds: 60
-    max_cost_usd_per_call: 0.02
+    max_cost_usd_per_call: 0.0
     output_schema_ref: "schemas/toolrunresult.schema.json"
     audit: true
     fallback_route_ids:
@@ -50,22 +52,22 @@ routes:
 
   - route_id: judge.anthropic
     task_type: judge
-    provider: anthropic
-    model: claude-3-5-sonnet-20241022
+    provider: openrouter
+    model: deepseek/deepseek-v4-flash:free
     timeout_seconds: 60
-    max_cost_usd_per_call: 0.02
+    max_cost_usd_per_call: 0.0
     output_schema_ref: "schemas/toolrunresult.schema.json"
     audit: true
-    notes: "研判备用路由：OpenAI 主路由失败时切换"
+    notes: "研判备用路由：历史 route_id 保留；默认同样走 OpenRouter"
 
   # ── 分类任务 ──────────────────────────────────────────
 
   - route_id: classify.primary
     task_type: classify
-    provider: openai
-    model: gpt-4o-mini
+    provider: openrouter
+    model: deepseek/deepseek-v4-flash:free
     timeout_seconds: 30
-    max_cost_usd_per_call: 0.003
+    max_cost_usd_per_call: 0.0
     output_schema_ref: "schemas/classification.schema.json"
     audit: true
     fallback_route_ids:
@@ -76,10 +78,10 @@ routes:
 
   - route_id: nlp.ai-fast
     task_type: nlp
-    provider: openai
-    model: gpt-4o-mini
+    provider: openrouter
+    model: deepseek/deepseek-v4-flash:free
     timeout_seconds: 30
-    max_cost_usd_per_call: 0.002
+    max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: false
     notes: "NLP 深度分析路由：情感/实体/关联/摘要增强"

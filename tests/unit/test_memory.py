@@ -159,6 +159,19 @@ def test_record_source_health_resets_consecutive_on_success(tmp_path: Path) -> N
     assert mem.get_source_health("ansa")["consecutive_failures"] == 1
 
 
+def test_record_source_health_clears_last_error_on_success(tmp_path: Path) -> None:
+    """成功采集后当前错误应清空，避免健康 API 长期展示 stale error。"""
+    mem = Memory(tmp_path)
+    mem.record_source_health("ansa", success=False, error_msg="timeout")
+    assert mem.get_source_health("ansa")["last_error"] == "timeout"
+
+    mem.record_source_health("ansa", success=True)
+
+    health = mem.get_source_health("ansa")
+    assert health["last_error"] is None
+    assert health["consecutive_failures"] == 0
+
+
 def test_record_source_health_persists_across_instances(tmp_path: Path) -> None:
     """record_source_health 写入的状态应该在新的 Memory 实例中可见。"""
     mem1 = Memory(tmp_path)

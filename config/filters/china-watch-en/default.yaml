@@ -16,6 +16,29 @@ dedup_window_hours: 24
 # 关键词规则：weight 为增益因子（与基础分相乘），language 指明关键词所属语言
 keyword_rules:
 
+  # ── Broad China Signal / 基础涉华识别 ─────────────────
+  - keyword: "China"
+    weight: 0.70
+    language: en
+  - keyword: "Chinese"
+    weight: 0.70
+    language: en
+  - keyword: "Taiwan"
+    weight: 0.85
+    language: en
+  - keyword: "Hong Kong"
+    weight: 0.85
+    language: en
+  - keyword: "Macau"
+    weight: 0.70
+    language: en
+  - keyword: "Tibet"
+    weight: 0.80
+    language: en
+  - keyword: "Xinjiang"
+    weight: 0.90
+    language: en
+
   # ── China Diplomacy / 中国外交 ───────────────────────
   - keyword: "Xi Jinping"
     weight: 1.0
@@ -101,6 +124,12 @@ keyword_rules:
   - keyword: "EU China"
     weight: 0.90
     language: en
+  - keyword: "US arms sales"
+    weight: 0.90
+    language: en
+  - keyword: "arms sales to Taiwan"
+    weight: 0.95
+    language: en
   - keyword: "China sanctions"
     weight: 0.95
     language: en
@@ -150,6 +179,12 @@ keyword_rules:
   - keyword: "semiconductor"
     weight: 0.85
     language: en
+  - keyword: "spaceflight"
+    weight: 0.75
+    language: en
+  - keyword: "lunar"
+    weight: 0.75
+    language: en
 
   # ── Human Rights / 人权 ───────────────────────────────
   - keyword: "human rights"
@@ -186,6 +221,21 @@ keyword_rules:
     language: en
   - keyword: "pollution"
     weight: 0.65
+    language: en
+  - keyword: "emissions"
+    weight: 0.65
+    language: en
+  - keyword: "flooding"
+    weight: 0.70
+    language: en
+  - keyword: "landslide"
+    weight: 0.75
+    language: en
+  - keyword: "mine"
+    weight: 0.70
+    language: en
+  - keyword: "mining"
+    weight: 0.70
     language: en
 
   # ── Society & Culture / 社会文化 ────────────────────────

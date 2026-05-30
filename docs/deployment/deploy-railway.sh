@@ -113,7 +113,7 @@ if [[ -n "$ENV_FILE" && -f "$ENV_FILE" ]]; then
     fi
 else
     echo "  未指定 --env-file，请手动设置 API keys:"
-    echo "    railway variables set OPENAI_API_KEY=xxx ANTHROPIC_API_KEY=xxx"
+    echo "    railway variables set OPENROUTER_API_KEY=xxx"
 fi
 
 # ── Step 4: 部署 ──

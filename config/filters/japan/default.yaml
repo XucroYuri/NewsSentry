@@ -67,6 +67,12 @@ keyword_rules:
   - keyword: "株価"
     weight: 0.7
     language: ja
+  - keyword: "原油"
+    weight: 0.75
+    language: ja
+  - keyword: "制裁"
+    weight: 0.75
+    language: ja
 
   # ── 外交 ─────────────────────────────────────────────
   - keyword: "外交"
@@ -86,6 +92,30 @@ keyword_rules:
     language: ja
   - keyword: "同盟"
     weight: 0.8
+    language: ja
+  - keyword: "ロシア"
+    weight: 0.8
+    language: ja
+  - keyword: "ウクライナ"
+    weight: 0.85
+    language: ja
+  - keyword: "アメリカ"
+    weight: 0.7
+    language: ja
+  - keyword: "米国"
+    weight: 0.7
+    language: ja
+  - keyword: "イラン"
+    weight: 0.8
+    language: ja
+  - keyword: "イスラエル"
+    weight: 0.8
+    language: ja
+  - keyword: "ガザ"
+    weight: 0.85
+    language: ja
+  - keyword: "NATO"
+    weight: 0.85
     language: ja
 
   # ── 安全 ─────────────────────────────────────────────

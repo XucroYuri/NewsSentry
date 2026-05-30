@@ -18,9 +18,9 @@ pre-commit install
 ### 2. 配置
 
 ```bash
-# 必需：AI Provider API Key（至少一个）
-export OPENAI_API_KEY=sk-...
-export ANTHROPIC_API_KEY=sk-ant-...
+# AI 增强：默认使用 OpenRouter
+export OPENROUTER_API_KEY=sk-or-...
+export OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 
 # 可选：API 网关认证
 export NEWSSENTRY_API_KEY=key1,key2
@@ -69,8 +69,7 @@ docker build -t news-sentry .
 # 运行
 docker run -d \
   --name news-sentry \
-  -e OPENAI_API_KEY=$OPENAI_API_KEY \
-  -e ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY \
+  -e OPENROUTER_API_KEY=$OPENROUTER_API_KEY \
   -e NEWSSENTRY_API_KEY=$NEWSSENTRY_API_KEY \
   -v /data/news-sentry:/app/data \
   -p 8000:8000 \

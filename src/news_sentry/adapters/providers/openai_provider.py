@@ -24,6 +24,7 @@ class OpenAIProvider(AIProvider):
     """
 
     provider_id = "openai"
+    api_key_env_var = "OPENAI_API_KEY"
 
     def __init__(self, config: dict[str, Any]) -> None:
         """初始化 OpenAI 兼容 Provider。
@@ -36,9 +37,10 @@ class OpenAIProvider(AIProvider):
                 - default_model: 默认模型名，默认 "gpt-4o-mini"
                 - max_tokens: 最大输出 token 数，默认 2048
         """
+        self._api_key_env_var = config.get("api_key_env_var", self.api_key_env_var)
         self._api_key = config.get(
             "api_key",
-            os.environ.get("OPENAI_API_KEY"),
+            os.environ.get(self._api_key_env_var),
         )
         self._base_url = config.get(
             "base_url",
@@ -64,7 +66,7 @@ class OpenAIProvider(AIProvider):
         """
         if not self._api_key:
             raise RuntimeError(
-                "OPENAI_API_KEY 未设置，无法调用 OpenAI API。"
+                f"{self._api_key_env_var} 未设置，无法调用 {self.provider_id} API。"
                 " 请在环境变量或 config 中提供 api_key。"
             )
 
@@ -104,7 +106,7 @@ class OpenAIProvider(AIProvider):
             "model": data.get("model", model),
             "usage": data.get("usage", {}),
             "route_id": route_id,
-            "provider": "openai",
+            "provider": self.provider_id,
         }
 
     async def call_async(
@@ -132,7 +134,7 @@ class OpenAIProvider(AIProvider):
         """
         if not self._api_key:
             raise RuntimeError(
-                "OPENAI_API_KEY 未设置，无法调用 OpenAI API。"
+                f"{self._api_key_env_var} 未设置，无法调用 {self.provider_id} API。"
                 " 请在环境变量或 config 中提供 api_key。"
             )
 
@@ -169,7 +171,7 @@ class OpenAIProvider(AIProvider):
             "model": data.get("model", use_model),
             "usage": data.get("usage", {}),
             "route_id": route_id,
-            "provider": "openai",
+            "provider": self.provider_id,
         }
 
     def health_check(self) -> bool:

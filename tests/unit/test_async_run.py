@@ -62,8 +62,8 @@ class TestRunCollectAsync:
         assert len(events) == 2
 
     @pytest.mark.asyncio
-    async def test_collect_translation_uses_provider_factory(self):
-        """批量翻译应拿到真实 provider_factory，而不是 None。"""
+    async def test_collect_does_not_translate_raw_events(self):
+        """采集阶段不得对原始事件调用 AI 翻译，避免免费模型被 raw feed 打爆。"""
         config = MagicMock()
         config.target_id = "italy"
         config.target = {
@@ -83,16 +83,13 @@ class TestRunCollectAsync:
         event.title_original = "Titolo"
         memory = MagicMock()
         memory.is_source_degraded.return_value = False
-        batcher = MagicMock()
-        batcher.translate = AsyncMock(return_value=1)
-
         with (
             patch("news_sentry.core.async_run.RSSCollector") as mock_rss_cls,
             patch(
                 "news_sentry.core.async_run._try_create_provider_router",
                 return_value=MagicMock(),
-            ),
-            patch("news_sentry.core.async_run.TranslationBatcher", return_value=batcher),
+            ) as mock_router,
+            patch("news_sentry.core.async_run.TranslationBatcher") as mock_batcher_cls,
         ):
             collector = MagicMock()
             collector.collect_async = AsyncMock(return_value=[event])
@@ -108,8 +105,8 @@ class TestRunCollectAsync:
                 ctx=MagicMock(),
             )
 
-        provider_factory = batcher.translate.call_args.args[2]
-        assert callable(provider_factory)
+        mock_router.assert_not_called()
+        mock_batcher_cls.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_concurrent_collect_respects_semaphore(self):

@@ -20,6 +20,7 @@ import yaml
 from news_sentry.adapters.providers.anthropic_provider import AnthropicProvider
 from news_sentry.adapters.providers.base import AIProvider
 from news_sentry.adapters.providers.openai_provider import OpenAIProvider
+from news_sentry.adapters.providers.openrouter_provider import OpenRouterProvider
 from news_sentry.adapters.providers.rules_provider import RulesProvider
 from news_sentry.adapters.tools.opencli import OpenCLIToolAdapter
 from news_sentry.core.alert_pipeline import AlertPipeline
@@ -310,10 +311,6 @@ def _run_collect(
 
     for event in all_events:
         file_writer.write_event(event)
-
-    # Phase 5: translate.fast — 快速标题预翻译（ADR-0004）
-    lang_primary = config.target.get("language_scope", {}).get("primary", "en")
-    _translate_collected_titles(all_events, run_id, run_log, lang_primary)
 
     ctx.events_collected = len(all_events)
     duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
@@ -661,7 +658,7 @@ def _init_ai_judge(
 def _build_provider_factory() -> Callable[[str], AIProvider | None]:
     """构建 provider_name → AIProvider 实例的工厂函数。
 
-    支持的 provider_name: openai, anthropic, local。
+    支持的 provider_name: openrouter, openai, anthropic, local。
     通过环境变量配置 API key 和 base URL。
     """
     # 惰性初始化，避免在 import 时读取环境变量
@@ -673,6 +670,8 @@ def _build_provider_factory() -> Callable[[str], AIProvider | None]:
 
         if name == "openai":
             provider: AIProvider | None = OpenAIProvider({})
+        elif name == "openrouter":
+            provider = OpenRouterProvider({})
         elif name == "anthropic":
             provider = AnthropicProvider({})
         elif name == "local":
@@ -695,7 +694,7 @@ def _translate_collected_titles(
 ) -> None:
     """Phase 5 translate.fast：对采集到的事件做标题快速预翻译。
 
-    使用 translate.fast 路由（openai/gpt-4o-mini），将源语言标题
+    使用 translate.fast 路由（由 config/provider/routes.yaml 配置），将源语言标题
     翻译为简体中文，写入 event.metadata["translation"]["title_pre"]。
 
     翻译失败不阻塞采集流程，仅记录 warning 日志。
