@@ -951,8 +951,28 @@ function researchArtifactHtml(artifact) {
       </div>
       ${timestamp ? `<time>${escapeHtml(timestamp)}</time>` : ""}
       ${artifact.body ? `<p>${escapeHtml(artifact.body)}</p>` : ""}
+      ${researchArtifactActionHtml(artifact)}
     </li>
   `;
+}
+
+function researchArtifactActionHtml(artifact) {
+  if (artifact.status !== "open") return "";
+  if (artifact.artifact_type === "merge_decision") {
+    return `
+      <div class="research-artifact-actions">
+        <button class="btn-secondary research-graph-apply" data-artifact-id="${escapeHtml(artifact.artifact_id || "")}" data-operation-type="merge" type="button">应用合并</button>
+      </div>
+    `;
+  }
+  if (artifact.artifact_type === "split_decision") {
+    return `
+      <div class="research-artifact-actions">
+        <button class="btn-secondary research-graph-apply" data-artifact-id="${escapeHtml(artifact.artifact_id || "")}" data-operation-type="split" type="button">应用拆分</button>
+      </div>
+    `;
+  }
+  return "";
 }
 
 function researchMentionHtml(mention) {
@@ -1156,6 +1176,84 @@ async function postResearchArtifact(targetId, canonicalEventId, payload) {
   });
 }
 
+function researchArtifactById(detailData, artifactId) {
+  return (detailData.artifacts || []).find((artifact) => artifact.artifact_id === artifactId);
+}
+
+function graphChangeSummary(result) {
+  return (result.changes || [])
+    .map((change) => {
+      if (change.type === "move_mentions") return `移动 ${change.count || 0} 条证据`;
+      if (change.type === "mark_merged") return `标记合并：${change.canonical_event_id || ""}`;
+      if (change.type === "create_canonical_event") return `创建事实事件：${change.canonical_event_id || ""}`;
+      if (change.type === "create_relation") return `创建关系：${change.relation_type || ""}`;
+      return change.type || "变更";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function applyResearchGraphDecision(targetId, canonicalEventId, detailData, artifactId, operationType) {
+  try {
+    const artifact = researchArtifactById(detailData, artifactId);
+    if (!artifact) {
+      showError("未找到研究决策记录");
+      return;
+    }
+    if (operationType === "merge") {
+      const candidateIds = (artifact.metadata?.candidate_canonical_event_ids || []).filter(Boolean);
+      if (!candidateIds.length) {
+        showError("合并决策缺少候选事实事件 ID");
+        return;
+      }
+      const preview = await apiPost("/api/v1/research/graph/merge", {}, {
+        target_id: targetId,
+        decision_artifact_id: artifactId,
+        survivor_canonical_event_id: canonicalEventId,
+        merged_canonical_event_ids: candidateIds,
+        dry_run: true,
+      });
+      if (!window.confirm(`将应用以下事实图谱变更：\n${graphChangeSummary(preview) || "无可展示变更"}\n\n是否继续？`)) return;
+      await apiPost("/api/v1/research/graph/merge", {}, {
+        target_id: targetId,
+        decision_artifact_id: artifactId,
+        survivor_canonical_event_id: canonicalEventId,
+        merged_canonical_event_ids: candidateIds,
+        dry_run: false,
+      });
+      showSuccess("合并已应用到事实图谱");
+      await renderResearchDetail(document.getElementById("researchDetail"), targetId, canonicalEventId);
+      return;
+    }
+    if (operationType === "split") {
+      const affectedMentionIds = (artifact.metadata?.affected_mention_ids || []).filter(Boolean);
+      if (!affectedMentionIds.length) {
+        showError("拆分决策缺少受影响 mention ID");
+        return;
+      }
+      const preview = await apiPost("/api/v1/research/graph/split", {}, {
+        target_id: targetId,
+        decision_artifact_id: artifactId,
+        source_canonical_event_id: canonicalEventId,
+        affected_mention_ids: affectedMentionIds,
+        dry_run: true,
+      });
+      if (!window.confirm(`将应用以下事实图谱变更：\n${graphChangeSummary(preview) || "无可展示变更"}\n\n是否继续？`)) return;
+      await apiPost("/api/v1/research/graph/split", {}, {
+        target_id: targetId,
+        decision_artifact_id: artifactId,
+        source_canonical_event_id: canonicalEventId,
+        affected_mention_ids: affectedMentionIds,
+        dry_run: false,
+      });
+      showSuccess("拆分已应用到事实图谱");
+      await renderResearchDetail(document.getElementById("researchDetail"), targetId, canonicalEventId);
+    }
+  } catch (err) {
+    showError(err.message || "应用事实图谱变更失败");
+  }
+}
+
 function bindResearchActions(container, targetId, canonicalEventId, detailData) {
   container.querySelector("#researchConfirmBtn")?.addEventListener("click", async () => {
     try {
@@ -1243,6 +1341,17 @@ function bindResearchActions(container, targetId, canonicalEventId, detailData) 
     } catch (err) {
       showError(err.message || "保存标注失败");
     }
+  });
+  container.querySelectorAll(".research-graph-apply").forEach((button) => {
+    button.addEventListener("click", () => {
+      applyResearchGraphDecision(
+        targetId,
+        canonicalEventId,
+        detailData,
+        button.dataset.artifactId || "",
+        button.dataset.operationType || "",
+      );
+    });
   });
 }
 

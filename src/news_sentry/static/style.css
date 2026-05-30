@@ -4640,6 +4640,19 @@ body.ns-offline .offline-banner {
   gap: var(--space-2);
 }
 
+.research-artifact-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  grid-column: 1 / -1;
+  margin-top: 8px;
+}
+
+.research-graph-apply {
+  min-height: 30px;
+  padding: 0 10px;
+}
+
 .research-artifact p {
   grid-column: 1 / -1;
   margin: 0;

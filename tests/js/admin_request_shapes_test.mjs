@@ -190,6 +190,43 @@ assert.doesNotMatch(
   "拆分建议不能提交 canonicalEventId 作为 affected_mention_ids",
 );
 
+const graphApplyBlock = snippetAround(targetWorkbenchJs, "async function applyResearchGraphDecision", 2200);
+assert.match(
+  graphApplyBlock,
+  /apiPost\("\/api\/v1\/research\/graph\/merge",\s*\{\s*\},\s*\{[\s\S]*dry_run:\s*true/s,
+  "合并应用必须先调用 dry_run:true 预检",
+);
+assert.match(
+  graphApplyBlock,
+  /apiPost\("\/api\/v1\/research\/graph\/merge",\s*\{\s*\},\s*\{[\s\S]*dry_run:\s*false/s,
+  "合并应用必须在确认后调用 dry_run:false 应用",
+);
+assert.match(
+  graphApplyBlock,
+  /survivor_canonical_event_id:\s*canonicalEventId/s,
+  "合并应用必须使用当前 canonical event 作为 survivor",
+);
+assert.match(
+  graphApplyBlock,
+  /merged_canonical_event_ids:\s*candidateIds/s,
+  "合并应用必须使用 artifact metadata 中的 candidate IDs",
+);
+assert.match(
+  graphApplyBlock,
+  /apiPost\("\/api\/v1\/research\/graph\/split",\s*\{\s*\},\s*\{[\s\S]*dry_run:\s*true/s,
+  "拆分应用必须先调用 dry_run:true 预检",
+);
+assert.match(
+  graphApplyBlock,
+  /source_canonical_event_id:\s*canonicalEventId/s,
+  "拆分应用必须使用当前 canonical event 作为 source",
+);
+assert.match(
+  graphApplyBlock,
+  /affected_mention_ids:\s*affectedMentionIds/s,
+  "拆分应用必须使用 artifact metadata 中的 affected mention IDs",
+);
+
 const annotationBlock = snippetAround(targetWorkbenchJs, 'artifact_type: "annotation"');
 assert.match(
   annotationBlock,
