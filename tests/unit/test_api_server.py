@@ -27,6 +27,11 @@ from news_sentry.core.api_server import (
 from news_sentry.core.async_store import AsyncStore
 
 
+def _force_deployment_env(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("NEWSSENTRY_DEPLOYMENT_ENV", value)
+    monkeypatch.setattr(api_server_module, "_deployment_env", value)
+
+
 def _write_draft(
     data_dir: Path,
     target_id: str,
@@ -4744,3 +4749,550 @@ def test_canonical_event_mentions_and_relations_enforce_target_scope(
     assert relations_other_target.status_code == 404
     assert relations_other_target.json()["detail"] == "Canonical event not found"
     assert relations_missing_target.status_code == 422
+
+
+def test_research_queue_returns_open_canonical_items(
+    canonical_client: tuple[TestClient, AsyncStore],
+):
+    client, store = canonical_client
+    asyncio.run(
+        store.upsert_canonical_event(
+            {
+                "canonical_event_id": "ce_italy_research_001",
+                "target_id": "italy",
+                "title": "Research candidate",
+                "summary": "Needs review",
+                "event_time": "2026-05-30T10:00:00Z",
+                "status": "needs_review",
+                "confidence": 60,
+                "metadata": {"mention_count": 2, "source_count": 2, "news_value_score": 88},
+            }
+        )
+    )
+
+    response = client.get("/api/v1/research/queue", params={"target_id": "italy"})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["target_id"] == "italy"
+    assert data["items"][0]["canonical_event_id"] == "ce_italy_research_001"
+
+
+def test_research_event_detail_returns_evidence_and_artifacts(
+    canonical_client: tuple[TestClient, AsyncStore],
+):
+    client, store = canonical_client
+    asyncio.run(
+        store.upsert_canonical_event(
+            {
+                "canonical_event_id": "ce_italy_research_002",
+                "target_id": "italy",
+                "title": "Evidence event",
+                "summary": "",
+                "event_time": "2026-05-30T10:00:00Z",
+                "status": "needs_review",
+                "confidence": 70,
+                "metadata": {},
+            }
+        )
+    )
+    asyncio.run(
+        store.upsert_event_mention(
+            {
+                "mention_id": "mention-001",
+                "canonical_event_id": "ce_italy_research_002",
+                "event_id": "event-001",
+                "target_id": "italy",
+                "source_id": "ansa",
+                "url": "https://example.com/news",
+                "title": "Evidence title",
+                "published_at": "2026-05-30T09:00:00Z",
+                "metadata": {"language": "it"},
+            }
+        )
+    )
+    artifact = {
+        "target_id": "italy",
+        "artifact_type": "annotation",
+        "title": "背景标注",
+        "body": "重要背景。",
+        "subject_type": "canonical_event",
+        "subject_id": "ce_italy_research_002",
+        "status": "open",
+        "metadata": {"tags": ["policy"]},
+    }
+    created = client.post("/api/v1/research/artifacts", json=artifact)
+    assert created.status_code == 200
+
+    response = client.get(
+        "/api/v1/research/events/ce_italy_research_002",
+        params={"target_id": "italy"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["event"]["canonical_event_id"] == "ce_italy_research_002"
+    assert data["mentions"][0]["mention_id"] == "mention-001"
+    assert data["artifacts"][0]["artifact_type"] == "annotation"
+
+
+def test_research_artifact_review_state_post_is_idempotent(
+    canonical_client: tuple[TestClient, AsyncStore],
+):
+    client, store = canonical_client
+    asyncio.run(
+        store.upsert_canonical_event(
+            {
+                "canonical_event_id": "ce_italy_research_review_idempotent",
+                "target_id": "italy",
+                "title": "Review state event",
+                "summary": "",
+                "event_time": "2026-05-30T10:00:00Z",
+                "status": "needs_review",
+                "confidence": 70,
+                "metadata": {},
+            }
+        )
+    )
+    payload = {
+        "target_id": "italy",
+        "artifact_type": "review_state",
+        "title": "Confirmed",
+        "body": "Reviewed by desk.",
+        "subject_type": "canonical_event",
+        "subject_id": "ce_italy_research_review_idempotent",
+        "status": "resolved",
+        "metadata": {"decision": "confirmed"},
+    }
+
+    first = client.post("/api/v1/research/artifacts", json=payload)
+    second = client.post("/api/v1/research/artifacts", json=payload)
+    listed = client.get(
+        "/api/v1/research/artifacts",
+        params={
+            "target_id": "italy",
+            "subject_id": "ce_italy_research_review_idempotent",
+            "artifact_type": "review_state",
+        },
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    first_artifact_id = first.json()["artifact"]["artifact_id"]
+    second_artifact_id = second.json()["artifact"]["artifact_id"]
+    assert second_artifact_id == first_artifact_id
+    artifacts = listed.json()["artifacts"]
+    assert [artifact["artifact_id"] for artifact in artifacts] == [first_artifact_id]
+
+
+def test_research_artifact_list_filters_by_subject_and_status(
+    canonical_client: tuple[TestClient, AsyncStore],
+):
+    client, store = canonical_client
+    asyncio.run(
+        store.upsert_canonical_event(
+            {
+                "canonical_event_id": "ce_italy_research_list_001",
+                "target_id": "italy",
+                "title": "List event",
+                "summary": "",
+                "event_time": "2026-05-30T10:00:00Z",
+                "status": "needs_review",
+                "confidence": 70,
+                "metadata": {},
+            }
+        )
+    )
+    created = client.post(
+        "/api/v1/research/artifacts",
+        json={
+            "target_id": "italy",
+            "artifact_type": "note",
+            "title": "List note",
+            "body": "Only this note should match.",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_research_list_001",
+            "status": "open",
+            "metadata": {},
+        },
+    )
+    assert created.status_code == 200
+    artifact_id = created.json()["artifact"]["artifact_id"]
+
+    response = client.get(
+        "/api/v1/research/artifacts",
+        params={
+            "target_id": "italy",
+            "subject_id": "ce_italy_research_list_001",
+            "status": "open",
+        },
+    )
+
+    assert response.status_code == 200
+    artifacts = response.json()["artifacts"]
+    assert [artifact["artifact_id"] for artifact in artifacts] == [artifact_id]
+
+
+def test_research_event_detail_enforces_target_scope(
+    canonical_client: tuple[TestClient, AsyncStore],
+):
+    client, store = canonical_client
+    asyncio.run(
+        store.upsert_canonical_event(
+            {
+                "canonical_event_id": "ce_france_research_detail_001",
+                "target_id": "france",
+                "title": "France scoped event",
+                "summary": "",
+                "event_time": "2026-05-30T10:00:00Z",
+                "status": "needs_review",
+                "confidence": 60,
+                "metadata": {},
+            }
+        )
+    )
+
+    response = client.get(
+        "/api/v1/research/events/ce_france_research_detail_001",
+        params={"target_id": "italy"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Canonical event not found"
+
+
+def test_research_artifact_create_rejects_cross_target_subject(
+    canonical_client: tuple[TestClient, AsyncStore],
+):
+    client, store = canonical_client
+    asyncio.run(
+        store.upsert_canonical_event(
+            {
+                "canonical_event_id": "ce_france_research_001",
+                "target_id": "france",
+                "title": "France event",
+                "summary": "",
+                "event_time": "2026-05-30T10:00:00Z",
+                "status": "needs_review",
+                "confidence": 60,
+                "metadata": {},
+            }
+        )
+    )
+
+    response = client.post(
+        "/api/v1/research/artifacts",
+        json={
+            "target_id": "italy",
+            "artifact_type": "review_state",
+            "title": "Bad scope",
+            "body": "",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_france_research_001",
+            "status": "resolved",
+            "metadata": {"decision": "confirmed"},
+        },
+    )
+
+    assert response.status_code == 404
+
+
+def test_research_artifact_create_rejects_missing_subject(
+    canonical_client: tuple[TestClient, AsyncStore],
+):
+    client, _store = canonical_client
+
+    response = client.post(
+        "/api/v1/research/artifacts",
+        json={
+            "target_id": "italy",
+            "artifact_type": "review_state",
+            "title": "Missing subject",
+            "body": "",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_missing_subject",
+            "status": "resolved",
+            "metadata": {"decision": "confirmed"},
+        },
+    )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "payload_patch",
+    [
+        {"artifact_type": "unsupported"},
+        {"status": "unknown"},
+        {"metadata": {"decision": "unsupported"}},
+        {"subject_type": "event"},
+    ],
+)
+def test_research_artifact_create_rejects_invalid_contract_values(
+    canonical_client: tuple[TestClient, AsyncStore],
+    payload_patch: dict[str, Any],
+):
+    client, store = canonical_client
+    asyncio.run(
+        store.upsert_canonical_event(
+            {
+                "canonical_event_id": "ce_italy_research_invalid_001",
+                "target_id": "italy",
+                "title": "Invalid contract event",
+                "summary": "",
+                "event_time": "2026-05-30T10:00:00Z",
+                "status": "needs_review",
+                "confidence": 60,
+                "metadata": {},
+            }
+        )
+    )
+    payload = {
+        "target_id": "italy",
+        "artifact_type": "review_state",
+        "title": "Invalid",
+        "body": "",
+        "subject_type": "canonical_event",
+        "subject_id": "ce_italy_research_invalid_001",
+        "status": "open",
+        "metadata": {"decision": "confirmed"},
+    }
+    payload.update(payload_patch)
+
+    response = client.post("/api/v1/research/artifacts", json=payload)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("artifact_type", "metadata"),
+    [
+        (
+            "merge_decision",
+            {"decision": "proposed", "candidate_canonical_event_ids": "ce_other"},
+        ),
+        (
+            "merge_decision",
+            {"decision": "proposed", "candidate_canonical_event_ids": [123]},
+        ),
+        (
+            "split_decision",
+            {"decision": "proposed", "affected_mention_ids": "mention-001"},
+        ),
+        (
+            "split_decision",
+            {"decision": "proposed", "affected_mention_ids": [123]},
+        ),
+    ],
+)
+def test_research_artifact_create_rejects_invalid_decision_id_lists(
+    canonical_client: tuple[TestClient, AsyncStore],
+    artifact_type: str,
+    metadata: dict[str, Any],
+):
+    client, store = canonical_client
+    asyncio.run(
+        store.upsert_canonical_event(
+            {
+                "canonical_event_id": "ce_italy_research_decision_invalid",
+                "target_id": "italy",
+                "title": "Invalid decision event",
+                "summary": "",
+                "event_time": "2026-05-30T10:00:00Z",
+                "status": "needs_review",
+                "confidence": 60,
+                "metadata": {},
+            }
+        )
+    )
+
+    response = client.post(
+        "/api/v1/research/artifacts",
+        json={
+            "target_id": "italy",
+            "artifact_type": artifact_type,
+            "title": "Invalid decision",
+            "body": "",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_research_decision_invalid",
+            "status": "open",
+            "metadata": metadata,
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_research_artifact_create_requires_auth_in_cloud(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _force_deployment_env(monkeypatch, "cloudflare")
+    app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
+    client = TestClient(app, base_url="https://news.example")
+
+    response = client.post(
+        "/api/v1/research/artifacts",
+        json={
+            "target_id": "italy",
+            "artifact_type": "review_state",
+            "title": "Cloud write",
+            "body": "",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_research_cloud_auth",
+            "status": "resolved",
+            "metadata": {"decision": "confirmed"},
+        },
+    )
+
+    assert response.status_code == 401
+
+
+def test_research_artifact_patch_preserves_subject_scope_and_type(
+    canonical_client: tuple[TestClient, AsyncStore],
+):
+    client, store = canonical_client
+    asyncio.run(
+        store.upsert_canonical_event(
+            {
+                "canonical_event_id": "ce_italy_research_003",
+                "target_id": "italy",
+                "title": "Patch event",
+                "summary": "",
+                "event_time": "2026-05-30T10:00:00Z",
+                "status": "needs_review",
+                "confidence": 60,
+                "metadata": {},
+            }
+        )
+    )
+    created = client.post(
+        "/api/v1/research/artifacts",
+        json={
+            "target_id": "italy",
+            "artifact_type": "review_state",
+            "title": "Open",
+            "body": "",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_research_003",
+            "status": "open",
+            "metadata": {"decision": "needs_more_evidence"},
+        },
+    )
+    assert created.status_code == 200
+    artifact_id = created.json()["artifact"]["artifact_id"]
+
+    patched = client.patch(
+        f"/api/v1/research/artifacts/{artifact_id}",
+        params={"target_id": "italy"},
+        json={
+            "target_id": "france",
+            "artifact_type": "note",
+            "subject_type": "event",
+            "subject_id": "ce_other",
+            "status": "resolved",
+            "metadata": {"decision": "confirmed", "subject_id": "ce_other"},
+        },
+    )
+
+    assert patched.status_code == 200
+    artifact = patched.json()["artifact"]
+    assert artifact["target_id"] == "italy"
+    assert artifact["artifact_type"] == "review_state"
+    assert artifact["subject_type"] == "canonical_event"
+    assert artifact["subject_id"] == "ce_italy_research_003"
+    assert artifact["status"] == "resolved"
+
+
+def test_research_artifact_patch_enforces_target_scope(
+    canonical_client: tuple[TestClient, AsyncStore],
+):
+    client, store = canonical_client
+    asyncio.run(
+        store.upsert_canonical_event(
+            {
+                "canonical_event_id": "ce_italy_research_patch_scope",
+                "target_id": "italy",
+                "title": "Patch scoped event",
+                "summary": "",
+                "event_time": "2026-05-30T10:00:00Z",
+                "status": "needs_review",
+                "confidence": 60,
+                "metadata": {},
+            }
+        )
+    )
+    created = client.post(
+        "/api/v1/research/artifacts",
+        json={
+            "target_id": "italy",
+            "artifact_type": "note",
+            "title": "Scoped note",
+            "body": "",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_research_patch_scope",
+            "status": "open",
+            "metadata": {},
+        },
+    )
+    assert created.status_code == 200
+    artifact_id = created.json()["artifact"]["artifact_id"]
+
+    response = client.patch(
+        f"/api/v1/research/artifacts/{artifact_id}",
+        params={"target_id": "france"},
+        json={"status": "resolved"},
+    )
+
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"status": "unknown"},
+        {"metadata": {"decision": "unsupported"}},
+    ],
+)
+def test_research_artifact_patch_rejects_invalid_status_or_decision(
+    canonical_client: tuple[TestClient, AsyncStore],
+    payload: dict[str, Any],
+):
+    client, store = canonical_client
+    asyncio.run(
+        store.upsert_canonical_event(
+            {
+                "canonical_event_id": "ce_italy_research_patch_invalid",
+                "target_id": "italy",
+                "title": "Patch invalid event",
+                "summary": "",
+                "event_time": "2026-05-30T10:00:00Z",
+                "status": "needs_review",
+                "confidence": 60,
+                "metadata": {},
+            }
+        )
+    )
+    created = client.post(
+        "/api/v1/research/artifacts",
+        json={
+            "target_id": "italy",
+            "artifact_type": "review_state",
+            "title": "Review",
+            "body": "",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_research_patch_invalid",
+            "status": "open",
+            "metadata": {"decision": "needs_more_evidence"},
+        },
+    )
+    assert created.status_code == 200
+    artifact_id = created.json()["artifact"]["artifact_id"]
+
+    response = client.patch(
+        f"/api/v1/research/artifacts/{artifact_id}",
+        params={"target_id": "italy"},
+        json=payload,
+    )
+
+    assert response.status_code == 422

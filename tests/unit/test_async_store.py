@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -1618,6 +1620,148 @@ async def test_canonical_shadow_tables_created(store: AsyncStore):
 
 
 @pytest.mark.asyncio
+async def test_migration_v7_research_artifacts_get_professional_workflow_defaults(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "state.db"
+    with closing(sqlite3.connect(db_path)) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE schema_version (
+                version INTEGER PRIMARY KEY,
+                description TEXT NOT NULL,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            INSERT INTO schema_version (version, description) VALUES
+                (1, 'v1'), (2, 'v2'), (3, 'v3'), (4, 'v4'),
+                (5, 'v5'), (6, 'v6'), (7, 'v7');
+
+            CREATE TABLE canonical_events (
+                canonical_event_id TEXT PRIMARY KEY,
+                target_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                summary TEXT NOT NULL DEFAULT '',
+                event_time TEXT,
+                status TEXT NOT NULL DEFAULT 'active',
+                confidence REAL NOT NULL DEFAULT 0,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE event_mentions (
+                mention_id TEXT PRIMARY KEY,
+                canonical_event_id TEXT NOT NULL,
+                event_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                source_id TEXT,
+                url TEXT,
+                title TEXT NOT NULL,
+                published_at TEXT,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE canonical_event_relations (
+                relation_id TEXT PRIMARY KEY,
+                source_canonical_event_id TEXT NOT NULL,
+                target_canonical_event_id TEXT NOT NULL,
+                relation_type TEXT NOT NULL,
+                confidence REAL NOT NULL DEFAULT 0,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE taxonomy_assignments (
+                assignment_id TEXT PRIMARY KEY,
+                subject_type TEXT NOT NULL,
+                subject_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                taxonomy_level TEXT NOT NULL,
+                taxonomy_value TEXT NOT NULL,
+                confidence REAL NOT NULL DEFAULT 0,
+                source TEXT NOT NULL DEFAULT 'projection',
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE canonical_entity_links (
+                link_id TEXT PRIMARY KEY,
+                canonical_event_id TEXT NOT NULL,
+                entity_id TEXT NOT NULL,
+                entity_name TEXT NOT NULL,
+                entity_type TEXT,
+                confidence REAL NOT NULL DEFAULT 0,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE research_artifacts (
+                artifact_id TEXT PRIMARY KEY,
+                target_id TEXT NOT NULL,
+                artifact_type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL DEFAULT '',
+                canonical_event_ids_json TEXT NOT NULL DEFAULT '[]',
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE projection_runs (
+                projection_run_id TEXT PRIMARY KEY,
+                target_id TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                input_events INTEGER NOT NULL DEFAULT 0,
+                canonical_events INTEGER NOT NULL DEFAULT 0,
+                mentions INTEGER NOT NULL DEFAULT 0,
+                auto_merged INTEGER NOT NULL DEFAULT 0,
+                needs_review INTEGER NOT NULL DEFAULT 0,
+                unprojectable INTEGER NOT NULL DEFAULT 0,
+                diagnostics_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            INSERT INTO research_artifacts (
+                artifact_id, target_id, artifact_type, title, body,
+                canonical_event_ids_json, metadata_json, created_at, updated_at
+            ) VALUES (
+                'ra_v7_review', 'italy', 'review_state', 'Legacy review',
+                'Legacy body', '["ce_legacy"]', '{"decision":"confirmed"}',
+                '2026-05-30 10:00:00', '2026-05-30 10:00:00'
+            );
+            """
+        )
+
+    store = AsyncStore(db_path)
+    await store.initialize()
+    try:
+        async with store._connect() as conn:
+            info = await conn.execute_fetchall("PRAGMA table_info(research_artifacts)")
+            versions = await conn.execute_fetchall("SELECT version FROM schema_version")
+
+        columns = {row[1] for row in info}
+        assert {
+            "subject_type",
+            "subject_id",
+            "status",
+            "visibility",
+            "created_by",
+        }.issubset(columns)
+        assert max(row[0] for row in versions) == 8
+
+        artifact = await store.get_research_artifact("ra_v7_review")
+        assert artifact is not None
+        assert artifact["subject_type"] == "canonical_event"
+        assert artifact["subject_id"] == ""
+        assert artifact["status"] == "open"
+        assert artifact["visibility"] == "local_private"
+        assert artifact["created_by"] == "local-user"
+        assert artifact["canonical_event_ids"] == ["ce_legacy"]
+        assert artifact["metadata"] == {"decision": "confirmed"}
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
 async def test_list_event_index_rows_for_projection_filters_by_target(store: AsyncStore):
     async with store._connect() as conn:
         await conn.execute(
@@ -1717,6 +1861,371 @@ async def test_upsert_canonical_event_is_idempotent(store: AsyncStore):
     assert second == "ce_italy_001"
     assert len(rows) == 1
     assert rows[0]["title"] == "Example event updated"
+
+
+@pytest.mark.asyncio
+async def test_research_artifact_upsert_list_and_patch(store: AsyncStore):
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_review_001",
+            "target_id": "italy",
+            "title": "Policy event",
+            "summary": "A policy event",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "needs_review",
+            "confidence": 65,
+            "metadata": {"mention_count": 2, "source_count": 2, "news_value_score": 82},
+        }
+    )
+
+    artifact_id = await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_review_001",
+            "target_id": "italy",
+            "artifact_type": "review_state",
+            "title": "人工确认",
+            "body": "多信源一致。",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_review_001",
+            "canonical_event_ids": ["ce_italy_review_001"],
+            "status": "open",
+            "visibility": "local_private",
+            "created_by": "local-user",
+            "metadata": {"decision": "needs_more_evidence"},
+        }
+    )
+
+    assert artifact_id == "ra_italy_review_001"
+    listed = await store.list_research_artifacts(
+        target_id="italy",
+        subject_type="canonical_event",
+        subject_id="ce_italy_review_001",
+    )
+    assert len(listed) == 1
+    assert listed[0]["metadata"]["decision"] == "needs_more_evidence"
+
+    patched = await store.update_research_artifact(
+        "ra_italy_review_001",
+        target_id="italy",
+        patch={
+            "status": "resolved",
+            "body": "复核完成。",
+            "metadata": {"decision": "confirmed", "reason": "sources agree"},
+        },
+    )
+    assert patched is not None
+    assert patched["status"] == "resolved"
+    assert patched["metadata"]["decision"] == "confirmed"
+
+
+@pytest.mark.asyncio
+async def test_research_queue_hides_confirmed_items_by_default(store: AsyncStore):
+    for idx, confidence in (("001", 65), ("002", 92)):
+        await store.upsert_canonical_event(
+            {
+                "canonical_event_id": f"ce_italy_review_{idx}",
+                "target_id": "italy",
+                "title": f"Event {idx}",
+                "summary": "",
+                "event_time": f"2026-05-30T10:0{idx[-1]}:00Z",
+                "status": "needs_review" if confidence < 80 else "active",
+                "confidence": confidence,
+                "metadata": {"mention_count": int(idx), "source_count": 1},
+            }
+        )
+
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_review_done",
+            "target_id": "italy",
+            "artifact_type": "review_state",
+            "title": "Confirmed",
+            "body": "",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_review_001",
+            "canonical_event_ids": ["ce_italy_review_001"],
+            "status": "resolved",
+            "metadata": {"decision": "confirmed"},
+        }
+    )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_merge_open",
+            "target_id": "italy",
+            "artifact_type": "merge_decision",
+            "title": "Merge candidate",
+            "body": "",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_review_002",
+            "canonical_event_ids": ["ce_italy_review_002", "ce_other"],
+            "status": "open",
+            "metadata": {"candidate_canonical_event_ids": ["ce_other"], "decision": "proposed"},
+        }
+    )
+
+    open_queue = await store.list_research_queue(target_id="italy", status="open", limit=10)
+    assert [item["canonical_event_id"] for item in open_queue["items"]] == ["ce_italy_review_002"]
+    assert open_queue["items"][0]["open_decisions"] == {"merge": 1, "split": 0}
+
+    resolved_queue = await store.list_research_queue(target_id="italy", status="resolved", limit=10)
+    assert [item["canonical_event_id"] for item in resolved_queue["items"]] == [
+        "ce_italy_review_001"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_research_artifact_rejects_missing_or_cross_target_canonical_subject(
+    store: AsyncStore,
+):
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_scope_001",
+            "target_id": "italy",
+            "title": "Scoped event",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "active",
+            "confidence": 90,
+            "metadata": {},
+        }
+    )
+
+    invalid_rows = [
+        {
+            "artifact_id": "ra_japan_cross_scope",
+            "target_id": "japan",
+            "subject_id": "ce_italy_scope_001",
+        },
+        {
+            "artifact_id": "ra_italy_missing_scope",
+            "target_id": "italy",
+            "subject_id": "ce_missing_scope_001",
+        },
+    ]
+    for invalid in invalid_rows:
+        with pytest.raises(ValueError, match="canonical_event"):
+            await store.upsert_research_artifact(
+                {
+                    "artifact_type": "review_state",
+                    "title": "Invalid subject",
+                    "body": "",
+                    "subject_type": "canonical_event",
+                    "canonical_event_ids": [invalid["subject_id"]],
+                    "status": "open",
+                    "metadata": {"decision": "needs_more_evidence"},
+                    **invalid,
+                }
+            )
+        assert await store.get_research_artifact(invalid["artifact_id"]) is None
+
+
+@pytest.mark.asyncio
+async def test_research_artifact_rejects_non_canonical_subject_type(store: AsyncStore):
+    with pytest.raises(ValueError, match="canonical_event"):
+        await store.upsert_research_artifact(
+            {
+                "artifact_id": "ra_italy_external_subject",
+                "target_id": "italy",
+                "artifact_type": "review_state",
+                "title": "Invalid subject type",
+                "body": "",
+                "subject_type": "event",
+                "subject_id": "evt_italy_001",
+                "canonical_event_ids": [],
+                "status": "open",
+                "metadata": {"decision": "needs_more_evidence"},
+            }
+        )
+
+    assert await store.get_research_artifact("ra_italy_external_subject") is None
+
+
+@pytest.mark.asyncio
+async def test_research_artifact_upsert_rejects_identity_boundary_changes(
+    store: AsyncStore,
+):
+    for canonical_event_id, target_id in (
+        ("ce_italy_boundary_001", "italy"),
+        ("ce_italy_boundary_002", "italy"),
+        ("ce_japan_boundary_001", "japan"),
+    ):
+        await store.upsert_canonical_event(
+            {
+                "canonical_event_id": canonical_event_id,
+                "target_id": target_id,
+                "title": canonical_event_id,
+                "summary": "",
+                "event_time": "2026-05-30T10:00:00Z",
+                "status": "active",
+                "confidence": 90,
+                "metadata": {},
+            }
+        )
+
+    original = {
+        "artifact_id": "ra_italy_boundary_guard",
+        "target_id": "italy",
+        "artifact_type": "review_state",
+        "title": "Boundary guard",
+        "body": "",
+        "subject_type": "canonical_event",
+        "subject_id": "ce_italy_boundary_001",
+        "canonical_event_ids": ["ce_italy_boundary_001"],
+        "status": "open",
+        "metadata": {"decision": "needs_more_evidence"},
+    }
+    await store.upsert_research_artifact(original)
+
+    invalid_updates = [
+        {
+            **original,
+            "target_id": "japan",
+            "subject_id": "ce_japan_boundary_001",
+            "canonical_event_ids": ["ce_japan_boundary_001"],
+        },
+        {
+            **original,
+            "subject_id": "ce_italy_boundary_002",
+            "canonical_event_ids": ["ce_italy_boundary_002"],
+        },
+        {
+            **original,
+            "artifact_type": "annotation",
+        },
+    ]
+    for invalid_update in invalid_updates:
+        with pytest.raises(ValueError, match="artifact_id"):
+            await store.upsert_research_artifact(invalid_update)
+
+        stored = await store.get_research_artifact(original["artifact_id"])
+        assert stored is not None
+        assert stored["target_id"] == original["target_id"]
+        assert stored["subject_id"] == original["subject_id"]
+        assert stored["artifact_type"] == original["artifact_type"]
+
+
+@pytest.mark.asyncio
+async def test_research_queue_keeps_open_decisions_after_confirmed_review(
+    store: AsyncStore,
+):
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_confirmed_with_merge",
+            "target_id": "italy",
+            "title": "Confirmed event with open merge work",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "active",
+            "confidence": 95,
+            "metadata": {"mention_count": 2, "source_count": 2, "news_value_score": 70},
+        }
+    )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_confirmed_review",
+            "target_id": "italy",
+            "artifact_type": "review_state",
+            "title": "Confirmed",
+            "body": "",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_confirmed_with_merge",
+            "canonical_event_ids": ["ce_italy_confirmed_with_merge"],
+            "status": "resolved",
+            "metadata": {"decision": "confirmed"},
+        }
+    )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_confirmed_merge_open",
+            "target_id": "italy",
+            "artifact_type": "merge_decision",
+            "title": "Merge still open",
+            "body": "",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_confirmed_with_merge",
+            "canonical_event_ids": ["ce_italy_confirmed_with_merge"],
+            "status": "open",
+            "metadata": {"candidate_canonical_event_ids": [], "decision": "proposed"},
+        }
+    )
+
+    open_queue = await store.list_research_queue(target_id="italy", status="open", limit=10)
+
+    assert [item["canonical_event_id"] for item in open_queue["items"]] == [
+        "ce_italy_confirmed_with_merge"
+    ]
+    assert open_queue["items"][0]["latest_review"]["status"] == "resolved"
+    assert open_queue["items"][0]["open_decisions"] == {"merge": 1, "split": 0}
+
+
+@pytest.mark.asyncio
+async def test_research_queue_selects_latest_review_state_with_tied_timestamps(
+    store: AsyncStore,
+):
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_tied_review",
+            "target_id": "italy",
+            "title": "Tied review timestamps",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "needs_review",
+            "confidence": 65,
+            "metadata": {"mention_count": 2, "source_count": 2, "news_value_score": 70},
+        }
+    )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_review_tie_001",
+            "target_id": "italy",
+            "artifact_type": "review_state",
+            "title": "Confirmed first",
+            "body": "",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_tied_review",
+            "canonical_event_ids": ["ce_italy_tied_review"],
+            "status": "resolved",
+            "metadata": {"decision": "confirmed"},
+        }
+    )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_review_tie_002",
+            "target_id": "italy",
+            "artifact_type": "review_state",
+            "title": "Needs evidence second",
+            "body": "",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_tied_review",
+            "canonical_event_ids": ["ce_italy_tied_review"],
+            "status": "open",
+            "metadata": {"decision": "needs_more_evidence"},
+        }
+    )
+    async with store._connect() as conn:
+        await conn.execute(
+            """UPDATE research_artifacts
+               SET created_at = ?, updated_at = ?
+               WHERE artifact_id IN (?, ?)""",
+            (
+                "2026-05-30 10:00:00",
+                "2026-05-30 10:00:00",
+                "ra_italy_review_tie_001",
+                "ra_italy_review_tie_002",
+            ),
+        )
+        await conn.commit()
+
+    open_queue = await store.list_research_queue(target_id="italy", status="open", limit=10)
+    resolved_queue = await store.list_research_queue(
+        target_id="italy",
+        status="resolved",
+        limit=10,
+    )
+
+    assert [item["canonical_event_id"] for item in open_queue["items"]] == ["ce_italy_tied_review"]
+    assert open_queue["items"][0]["latest_review"]["artifact_id"] == "ra_italy_review_tie_002"
+    assert resolved_queue["items"] == []
 
 
 @pytest.mark.asyncio
