@@ -24,40 +24,6 @@ body.login-shell {
 }
 
 .public-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--text-primary);
-  font-weight: 700;
-  min-width: 0;
-}
-
-.public-brand-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-sm);
-  color: var(--accent-primary);
-  font-size: 12px;
-  letter-spacing: 0;
-}
-
-.public-nav {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-left: 10px;
-}
-
-.public-nav a {
-  color: var(--text-secondary);
-  font-size: 0.9rem;
-}
-
-.public-nav a:hover {
   color: var(--text-primary);
 }
 
@@ -433,14 +399,6 @@ body.login-shell {
     height: 52px;
     padding: 0 12px;
     gap: 10px;
-  }
-
-  .public-brand span:last-child {
-    display: none;
-  }
-
-  .public-nav {
-    margin-left: 0;
   }
 
   .public-admin-btn {
