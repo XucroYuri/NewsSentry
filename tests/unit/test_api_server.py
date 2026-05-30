@@ -700,6 +700,37 @@ class TestAPIServer:
         assert f"{event_id}.md" in disposition
         assert "Public export story" in resp.text
 
+    def test_public_event_markdown_export_normalizes_legacy_frontmatter(
+        self, tmp_path: Path
+    ) -> None:
+        """公开 Markdown 导出应容忍 legacy/脏 frontmatter 字段。"""
+        event_id = "ne-italy-src-20260526-export-dirty"
+        drafts = tmp_path / "italy" / "drafts"
+        drafts.mkdir(parents=True, exist_ok=True)
+        event = {
+            "id": event_id,
+            "language": "en-US",
+            "title_original": "Dirty export story",
+            "news_value_score": 75.5,
+            "china_relevance": "42",
+            "sentiment_score": "positive",
+            "metadata": "legacy metadata blob",
+            "pipeline_stage": "outputted",
+        }
+        fm = yaml.dump(event, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        (drafts / "dirty.md").write_text(
+            f"---\n{fm}---\n\n# Dirty export story\n",
+            encoding="utf-8",
+        )
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get(f"/api/v1/news/target/italy/events/{event_id}/export/markdown")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/markdown")
+        assert "Dirty export story" in resp.text
+
     def test_public_event_markdown_export_missing_event_returns_404(self, tmp_path: Path) -> None:
         """公开 Markdown 导出找不到事件时返回 404，而不是渲染异常。"""
         app = create_app(data_dir=tmp_path, auto_store=False)

@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import re
 import secrets
@@ -40,7 +41,7 @@ from typing import Annotated, Any, Literal
 import yaml
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, BeforeValidator, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, Field, ValidationError, field_validator
 
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.auth import hash_password, verify_password
@@ -2995,16 +2996,63 @@ def _markdown_download_response(filename: str, content: str) -> Response:
     )
 
 
+def _safe_mapping(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _safe_number(
+    value: Any,
+    *,
+    integer: bool = False,
+    minimum: float | None = None,
+    maximum: float | None = None,
+) -> int | float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    if minimum is not None and number < minimum:
+        return None
+    if maximum is not None and number > maximum:
+        return None
+    return int(number) if integer else number
+
+
+def _safe_language(value: Any) -> str:
+    raw = str(value or "").strip().lower().replace("_", "-")
+    if not raw:
+        return "mixed"
+    primary = raw.split("-", maxsplit=1)[0]
+    accepted = {"it", "en", "zh", "ja", "de", "fr", "mixed"}
+    return primary if primary in accepted else "mixed"
+
+
+def _safe_datetime_text(value: Any) -> str:
+    text = str(value or "").strip()
+    return text or datetime.now(UTC).isoformat()
+
+
+def _safe_text(value: Any, fallback: str) -> str:
+    text = str(value or "").strip()
+    return text or fallback
+
+
 def _news_event_from_export_data(target_id: str, data: dict[str, Any]) -> NewsEvent:
     """把 API 详情/索引投影补齐为 renderer 需要的 NewsEvent。"""
-    event_id = str(data.get("id") or data.get("event_id") or "")
-    metadata = dict(data.get("metadata") or {})
+    event_id = _safe_text(data.get("id") or data.get("event_id"), "export-event")
+    metadata = _safe_mapping(data.get("metadata"))
     classification = data.get("classification")
     if isinstance(classification, dict):
         metadata.setdefault("classification", classification)
 
-    published_at = str(data.get("published_at") or data.get("created_at") or "")
-    collected_at = str(data.get("collected_at") or data.get("created_at") or published_at)
+    published_at = _safe_datetime_text(data.get("published_at") or data.get("created_at"))
+    collected_at = _safe_datetime_text(
+        data.get("collected_at") or data.get("created_at") or published_at
+    )
     stage = str(data.get("pipeline_stage") or data.get("stage") or "outputted")
     if stage not in {"collected", "filtered", "judged", "outputted"}:
         stage = "outputted"
@@ -3013,19 +3061,23 @@ def _news_event_from_export_data(target_id: str, data: dict[str, Any]) -> NewsEv
         {
             "id": event_id,
             "run_id": str(data.get("run_id") or f"export-{target_id}"),
-            "source_id": str(data.get("source_id") or "unknown"),
-            "url": str(data.get("url") or ""),
-            "title_original": str(data.get("title_original") or data.get("title") or event_id),
+            "source_id": _safe_text(data.get("source_id"), "unknown"),
+            "url": _safe_text(data.get("url"), ""),
+            "title_original": _safe_text(data.get("title_original") or data.get("title"), event_id),
             "title_translated": data.get("title_translated"),
-            "content_original": str(data.get("content_original") or data.get("summary") or ""),
+            "content_original": _safe_text(data.get("content_original") or data.get("summary"), ""),
             "content_translated": data.get("content_translated"),
-            "language": str(data.get("language") or "mixed"),
+            "language": _safe_language(data.get("language")),
             "published_at": published_at,
             "collected_at": collected_at,
             "pipeline_stage": stage,
-            "news_value_score": data.get("news_value_score"),
-            "china_relevance": data.get("china_relevance"),
-            "sentiment_score": data.get("sentiment_score"),
+            "news_value_score": _safe_number(
+                data.get("news_value_score"), integer=True, minimum=0, maximum=100
+            ),
+            "china_relevance": _safe_number(
+                data.get("china_relevance"), integer=True, minimum=0, maximum=100
+            ),
+            "sentiment_score": _safe_number(data.get("sentiment_score"), minimum=-1.0, maximum=1.0),
             "cluster_id": data.get("cluster_id"),
             "story_id": data.get("story_id"),
             "metadata": metadata,
@@ -3033,8 +3085,34 @@ def _news_event_from_export_data(target_id: str, data: dict[str, Any]) -> NewsEv
     )
 
 
+def _render_public_event_markdown_fallback(target_id: str, event: dict[str, Any]) -> str:
+    event_id = _safe_text(event.get("id") or event.get("event_id"), "export-event")
+    title = _safe_text(event.get("title_original") or event.get("title"), event_id)
+    source_id = _safe_text(event.get("source_id"), "unknown")
+    url = _safe_text(event.get("url"), "")
+    published_at = _safe_datetime_text(event.get("published_at") or event.get("created_at"))
+    frontmatter = yaml.dump(
+        {
+            "id": event_id,
+            "target_id": target_id,
+            "source_id": source_id,
+            "url": url,
+            "title_original": title,
+            "published_at": published_at,
+            "pipeline_stage": "outputted",
+        },
+        allow_unicode=True,
+        default_flow_style=False,
+        sort_keys=False,
+    ).rstrip("\n")
+    return f"---\n{frontmatter}\n---\n\n# {title}\n\n**来源:** {source_id}\n"
+
+
 def _render_public_event_markdown(target_id: str, event: dict[str, Any]) -> str:
-    return render_news_event_markdown(_news_event_from_export_data(target_id, event))
+    try:
+        return render_news_event_markdown(_news_event_from_export_data(target_id, event))
+    except ValidationError:
+        return _render_public_event_markdown_fallback(target_id, event)
 
 
 def _indexed_file_path_is_visible_in_stage(
