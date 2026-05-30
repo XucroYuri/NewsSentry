@@ -410,6 +410,32 @@ class TestEventIndex:
         assert rows[0]["classification_l0"] == "economy"
 
     @pytest.mark.asyncio
+    async def test_index_event_ignores_mock_url_and_non_dict_metadata(
+        self,
+        store: AsyncStore,
+    ):
+        event = MagicMock()
+        event.id = "evt-partial"
+        event.source_id = "ansa"
+        event.news_value_score = 82
+        event.china_relevance = 10
+        event.title_original = "Partial mock"
+        event.published_at = "2026-05-30T08:00:00Z"
+        event.metadata = MagicMock()
+
+        await store.index_event(event, "italy", "judge")
+
+        async with store._connect() as conn:
+            async with conn.execute(
+                "SELECT url, metadata_json FROM event_index WHERE event_id = ?",
+                ("evt-partial",),
+            ) as cursor:
+                row = await cursor.fetchone()
+        assert row is not None
+        assert row[0] is None
+        assert row[1] == "{}"
+
+    @pytest.mark.asyncio
     async def test_index_event_upserts(self, store: AsyncStore):
         event = self._make_event(event_id="evt-upsert")
         await store.index_event(event, "italy", "judge", file_path="old.json")
@@ -1572,3 +1598,189 @@ class TestFeedbackAndAlertHistory:
         assert result["source_id"] == "ansa"
 
         assert await store.get_event_by_id("t1", "nonexistent") is None
+
+
+@pytest.mark.asyncio
+async def test_canonical_shadow_tables_created(store: AsyncStore):
+    async with store._connect() as conn:
+        rows = await conn.execute_fetchall("SELECT name FROM sqlite_master WHERE type = 'table'")
+
+    table_names = {row[0] for row in rows}
+    assert {
+        "canonical_events",
+        "event_mentions",
+        "canonical_event_relations",
+        "taxonomy_assignments",
+        "canonical_entity_links",
+        "research_artifacts",
+        "projection_runs",
+    }.issubset(table_names)
+
+
+@pytest.mark.asyncio
+async def test_list_event_index_rows_for_projection_filters_by_target(store: AsyncStore):
+    async with store._connect() as conn:
+        await conn.execute(
+            """
+            INSERT INTO event_index (
+                event_id, target_id, source_id, title_original, url, published_at,
+                stage, news_value_score, china_relevance, classification_l0,
+                metadata_json, file_path, created_at
+            ) VALUES
+            (
+                'it_1', 'italy', 'ansa', 'Italy story', 'https://example.com/it',
+                '2026-05-30T08:00:00Z', 'judged', 82, 12, 'politics',
+                '{"source_kind": "rss"}', 'drafts/it_1.md', '2026-05-30T08:00:00Z'
+            ),
+            (
+                'de_1', 'germany', 'dpa', 'Germany story', 'https://example.com/de',
+                '2026-05-30T08:00:00Z', 'judged', 80, 8, 'economics',
+                '{"source_kind": "wire"}', 'drafts/de_1.md', '2026-05-30T08:00:00Z'
+            )
+            """
+        )
+        await conn.commit()
+
+    rows = await store.list_event_index_rows_for_projection(target_id="italy", limit=20)
+
+    assert [row["event_id"] for row in rows] == ["it_1"]
+    assert rows[0]["target_id"] == "italy"
+    assert rows[0]["title"] == "Italy story"
+    assert rows[0]["url"] == "https://example.com/it"
+    assert rows[0]["metadata"] == {"source_kind": "rss"}
+
+
+@pytest.mark.asyncio
+async def test_list_event_index_rows_for_projection_normalizes_since_and_limit(
+    store: AsyncStore,
+):
+    async with store._connect() as conn:
+        await conn.execute(
+            """
+            INSERT INTO event_index (
+                event_id, target_id, source_id, title_original, url, published_at,
+                stage, news_value_score, china_relevance, classification_l0,
+                metadata_json, file_path, created_at
+            ) VALUES
+            (
+                'it_space_time', 'italy', 'ansa', 'Space timestamp',
+                'https://example.com/space', NULL, 'judged', 82, 12, 'politics',
+                '{}', 'drafts/it_space_time.md', '2026-05-30 08:00:00'
+            ),
+            (
+                'it_later', 'italy', 'ansa', 'Later timestamp',
+                'https://example.com/later', NULL, 'judged', 81, 10, 'economics',
+                '{}', 'drafts/it_later.md', '2026-05-30 09:00:00'
+            ),
+            (
+                'it_old', 'italy', 'ansa', 'Old timestamp',
+                'https://example.com/old', NULL, 'judged', 80, 8, 'economics',
+                '{}', 'drafts/it_old.md', '2026-05-29 23:59:59'
+            )
+            """
+        )
+        await conn.commit()
+
+    rows = await store.list_event_index_rows_for_projection(
+        target_id="italy",
+        since="2026-05-30T00:00:00Z",
+        limit=20,
+    )
+    limited_rows = await store.list_event_index_rows_for_projection(
+        target_id="italy",
+        since="2026-05-30T00:00:00Z",
+        limit=-1,
+    )
+
+    assert {row["event_id"] for row in rows} == {"it_later", "it_space_time"}
+    assert len(limited_rows) == 1
+    assert limited_rows[0]["event_id"] == "it_later"
+
+
+@pytest.mark.asyncio
+async def test_upsert_canonical_event_is_idempotent(store: AsyncStore):
+    payload = {
+        "canonical_event_id": "ce_italy_001",
+        "target_id": "italy",
+        "title": "Example event",
+        "summary": "One canonical event.",
+        "event_time": "2026-05-30T08:00:00Z",
+        "status": "active",
+        "confidence": 92.0,
+        "metadata": {"source": "test"},
+    }
+    first = await store.upsert_canonical_event(payload)
+    second = await store.upsert_canonical_event({**payload, "title": "Example event updated"})
+
+    rows = await store.list_canonical_events(target_id="italy", limit=20)
+    assert first == "ce_italy_001"
+    assert second == "ce_italy_001"
+    assert len(rows) == 1
+    assert rows[0]["title"] == "Example event updated"
+
+
+@pytest.mark.asyncio
+async def test_upsert_event_mention_is_idempotent(store: AsyncStore):
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_001",
+            "target_id": "italy",
+            "title": "Example event",
+            "summary": "",
+            "event_time": "2026-05-30T08:00:00Z",
+            "status": "active",
+            "confidence": 90,
+            "metadata": {},
+        }
+    )
+    payload = {
+        "mention_id": "em_italy_event_001",
+        "canonical_event_id": "ce_italy_001",
+        "event_id": "event_001",
+        "target_id": "italy",
+        "source_id": "ansa",
+        "url": "https://example.com/news/1",
+        "title": "Example event",
+        "published_at": "2026-05-30T08:00:00Z",
+        "metadata": {"score": 82},
+    }
+    first = await store.upsert_event_mention(payload)
+    second = await store.upsert_event_mention({**payload, "title": "Example event revised"})
+
+    mentions = await store.list_event_mentions("ce_italy_001")
+    assert first == "em_italy_event_001"
+    assert second == "em_italy_event_001"
+    assert len(mentions) == 1
+    assert mentions[0]["title"] == "Example event revised"
+
+
+@pytest.mark.asyncio
+async def test_upsert_canonical_relation_is_idempotent(store: AsyncStore):
+    for canonical_event_id in ("ce_source", "ce_target"):
+        await store.upsert_canonical_event(
+            {
+                "canonical_event_id": canonical_event_id,
+                "target_id": "italy",
+                "title": canonical_event_id,
+                "summary": "",
+                "event_time": "2026-05-30T08:00:00Z",
+                "status": "active",
+                "confidence": 80,
+                "metadata": {},
+            }
+        )
+
+    payload = {
+        "relation_id": "rel_source_target_followup",
+        "source_canonical_event_id": "ce_source",
+        "target_canonical_event_id": "ce_target",
+        "relation_type": "follow_up",
+        "confidence": 70.0,
+        "metadata": {"reason": "same story"},
+    }
+    await store.upsert_canonical_relation(payload)
+    await store.upsert_canonical_relation({**payload, "confidence": 75.0})
+
+    relations = await store.list_canonical_relations("ce_source")
+    assert len(relations) == 1
+    assert relations[0]["confidence"] == 75.0
