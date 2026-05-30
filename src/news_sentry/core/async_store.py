@@ -443,6 +443,9 @@ _DDL_INDEXES = (
     "ON canonical_graph_operations(target_id, operation_type, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_canonical_graph_ops_artifact "
     "ON canonical_graph_operations(target_id, decision_artifact_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_canonical_graph_ops_artifact_unique "
+    "ON canonical_graph_operations(target_id, decision_artifact_id) "
+    "WHERE decision_artifact_id IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS idx_canonical_graph_ops_primary "
     "ON canonical_graph_operations(target_id, primary_canonical_event_id, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_taxonomy_assignments_subject "
@@ -1575,6 +1578,19 @@ class AsyncStore:
             raise ValueError(f"Unsupported canonical graph operation status: {status}")
         if self._db is None:
             return operation_id
+        decision_artifact_id = row.get("decision_artifact_id")
+        if decision_artifact_id is not None:
+            async with self._db.execute(
+                """SELECT operation_id
+                   FROM canonical_graph_operations
+                   WHERE target_id = ?
+                     AND decision_artifact_id = ?
+                   LIMIT 1""",
+                (row["target_id"], decision_artifact_id),
+            ) as cursor:
+                existing = await cursor.fetchone()
+            if existing is not None:
+                return str(existing[0])
         changes = row.get("changes", [])
         warnings = row.get("warnings", [])
         await self._db.execute(
@@ -1588,7 +1604,7 @@ class AsyncStore:
                 operation_id,
                 row["target_id"],
                 operation_type,
-                row.get("decision_artifact_id"),
+                decision_artifact_id,
                 row["primary_canonical_event_id"],
                 row.get("result_canonical_event_id"),
                 status,
@@ -1628,6 +1644,8 @@ class AsyncStore:
             return []
         if operation_type is not None and operation_type not in _CANONICAL_GRAPH_OPERATION_TYPES:
             raise ValueError(f"Unsupported canonical graph operation type: {operation_type}")
+        safe_limit = max(1, min(int(limit), 200))
+        safe_offset = max(0, int(offset))
         rows = await self._db.execute_fetchall(
             """SELECT operation_id, target_id, operation_type, decision_artifact_id,
                       primary_canonical_event_id, result_canonical_event_id, status,
@@ -1644,8 +1662,8 @@ class AsyncStore:
                 operation_type,
                 decision_artifact_id,
                 decision_artifact_id,
-                limit,
-                offset,
+                safe_limit,
+                safe_offset,
             ),
         )
         return [self._canonical_graph_operation_from_row(row) for row in rows]
