@@ -249,6 +249,8 @@ News Sentry 的长期定位应从“单机新闻监控工具”演进为：
 
 本地客户端采用 A+B 模式。
 
+密钥治理需要与本地客户端、云端平台和半中心化采集节点共同设计。AI Provider Key、News Sentry 访问 Key、Collector Node Credential 必须分离管理；长期方案见 `docs/superpowers/specs/2026-05-30-ai-provider-credential-governance-design.md`。
+
 ### 6.1 A：轻同步客户端
 
 默认模式是轻同步客户端。
