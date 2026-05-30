@@ -2376,6 +2376,11 @@ class AsyncStore:
                 target_id=target_id,
                 decision_artifact_id=decision_artifact_id,
                 artifact=artifact,
+                source_canonical_event_id=source_id,
+                result_canonical_event_id=created_id,
+                affected_mention_ids=affected_ids,
+                new_title=new_title,
+                new_summary=new_summary,
             )
             if existing_operation is not None:
                 await self._db.commit()
@@ -2417,7 +2422,7 @@ class AsyncStore:
             "target_id": target_id,
             "operation_type": "split",
             "source_canonical_event_id": source_canonical_event_id,
-            "affected_mention_ids": sorted({str(item) for item in affected_mention_ids}),
+            "affected_mention_ids": AsyncStore._canonical_split_mention_ids(affected_mention_ids),
             "decision_artifact_id": decision_artifact_id,
             "new_title": new_title,
             "new_summary": new_summary,
@@ -2440,7 +2445,7 @@ class AsyncStore:
         payload = {
             "target_id": target_id,
             "source_canonical_event_id": source_canonical_event_id,
-            "affected_mention_ids": sorted({str(item) for item in affected_mention_ids}),
+            "affected_mention_ids": AsyncStore._canonical_split_mention_ids(affected_mention_ids),
             "decision_artifact_id": decision_artifact_id,
         }
         digest = hashlib.sha256(
@@ -2449,6 +2454,10 @@ class AsyncStore:
             )
         ).hexdigest()[:12]
         return f"ce-{target_id}-split-{digest}"
+
+    @staticmethod
+    def _canonical_split_mention_ids(mention_ids: Sequence[str]) -> list[str]:
+        return sorted({str(item) for item in mention_ids})
 
     async def _build_canonical_split_plan(
         self,
@@ -2600,6 +2609,8 @@ class AsyncStore:
             )
         if artifact["artifact_type"] != "split_decision":
             raise ValueError("split decision artifact_type must be split_decision")
+        if artifact["subject_type"] != "canonical_event":
+            raise ValueError("split decision artifact subject_type must be canonical_event")
         if artifact["subject_id"] != source_canonical_event_id:
             raise ValueError(
                 "split decision artifact subject mismatch: "
@@ -2695,29 +2706,39 @@ class AsyncStore:
         target_id: str,
         decision_artifact_id: str | None,
         artifact: dict[str, Any] | None,
+        source_canonical_event_id: str,
+        result_canonical_event_id: str,
+        affected_mention_ids: Sequence[str],
+        new_title: str | None,
+        new_summary: str | None,
     ) -> dict[str, Any] | None:
+        def ensure_matching(operation: dict[str, Any], operation_label: str) -> dict[str, Any]:
+            if not self._canonical_split_operation_matches(
+                operation,
+                target_id=target_id,
+                decision_artifact_id=decision_artifact_id,
+                source_canonical_event_id=source_canonical_event_id,
+                result_canonical_event_id=result_canonical_event_id,
+                affected_mention_ids=affected_mention_ids,
+                new_title=new_title,
+                new_summary=new_summary,
+            ):
+                raise ValueError(
+                    "applied operation mismatch: "
+                    f"{operation_label} does not match split artifact {decision_artifact_id}"
+                )
+            return operation
+
         artifact_operation_id = None
         if artifact is not None:
             artifact_operation_id = artifact["metadata"].get("applied_operation_id")
         if artifact_operation_id:
             operation = await self.get_canonical_graph_operation(str(artifact_operation_id))
             if operation is not None:
-                if (
-                    operation["target_id"] != target_id
-                    or operation["operation_type"] != "split"
-                    or operation["decision_artifact_id"] != decision_artifact_id
-                ):
-                    raise ValueError(
-                        "applied operation mismatch: "
-                        f"{artifact_operation_id} does not match split artifact "
-                        f"{decision_artifact_id}"
-                    )
-                return operation
+                return ensure_matching(operation, str(artifact_operation_id))
         operation = await self.get_canonical_graph_operation(operation_id)
         if operation is not None:
-            if operation["target_id"] != target_id or operation["operation_type"] != "split":
-                raise ValueError(f"canonical graph operation mismatch: {operation_id}")
-            return operation
+            return ensure_matching(operation, operation_id)
         if decision_artifact_id is None:
             return None
         rows = await self._db.execute_fetchall(
@@ -2732,13 +2753,41 @@ class AsyncStore:
         if not rows:
             return None
         existing = self._canonical_graph_operation_from_row(rows[0])
-        if existing["operation_type"] != "split":
-            raise ValueError(
-                "applied operation mismatch: "
-                f"{existing['operation_id']} does not match split artifact "
-                f"{decision_artifact_id}"
-            )
-        return existing
+        return ensure_matching(existing, str(existing["operation_id"]))
+
+    @staticmethod
+    def _canonical_split_operation_matches(
+        operation: dict[str, Any],
+        *,
+        target_id: str,
+        decision_artifact_id: str | None,
+        source_canonical_event_id: str,
+        result_canonical_event_id: str,
+        affected_mention_ids: Sequence[str],
+        new_title: str | None,
+        new_summary: str | None,
+    ) -> bool:
+        if (
+            operation["target_id"] != target_id
+            or operation["operation_type"] != "split"
+            or operation["decision_artifact_id"] != decision_artifact_id
+            or operation["primary_canonical_event_id"] != source_canonical_event_id
+            or operation["result_canonical_event_id"] != result_canonical_event_id
+        ):
+            return False
+
+        metadata = operation.get("metadata", {})
+        metadata_source_id = metadata.get("source_canonical_event_id")
+        if metadata_source_id is not None and metadata_source_id != source_canonical_event_id:
+            return False
+        metadata_result_id = metadata.get("result_canonical_event_id")
+        if metadata_result_id is not None and metadata_result_id != result_canonical_event_id:
+            return False
+        if metadata.get("new_title") != new_title or metadata.get("new_summary") != new_summary:
+            return False
+        return AsyncStore._canonical_split_mention_ids(
+            metadata.get("affected_mention_ids", [])
+        ) == AsyncStore._canonical_split_mention_ids(affected_mention_ids)
 
     async def _apply_canonical_split_plan(self, plan: dict[str, Any]) -> None:
         operation_id = plan["operation_id"]
@@ -2774,6 +2823,7 @@ class AsyncStore:
         )
 
         affected_ids = [mention["mention_id"] for mention in plan["affected_mentions"]]
+        canonical_affected_ids = self._canonical_split_mention_ids(affected_ids)
         for mention_id in affected_ids:
             await self._db.execute(
                 """UPDATE event_mentions
@@ -2870,9 +2920,21 @@ class AsyncStore:
                 self._json_dumps(
                     {
                         "events": plan["events"],
-                        "affected_mention_ids": affected_ids,
+                        "affected_mention_ids": canonical_affected_ids,
+                        "source_canonical_event_id": source_id,
+                        "result_canonical_event_id": created_id,
                         "new_title": plan["new_title"],
                         "new_summary": plan["new_summary"],
+                        "idempotency_payload": {
+                            "target_id": target_id,
+                            "operation_type": "split",
+                            "decision_artifact_id": plan["decision_artifact_id"],
+                            "source_canonical_event_id": source_id,
+                            "result_canonical_event_id": created_id,
+                            "affected_mention_ids": canonical_affected_ids,
+                            "new_title": plan["new_title"],
+                            "new_summary": plan["new_summary"],
+                        },
                     }
                 ),
                 plan["created_by"],
