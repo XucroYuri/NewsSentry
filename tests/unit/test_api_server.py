@@ -5296,3 +5296,136 @@ def test_research_artifact_patch_rejects_invalid_status_or_decision(
     )
 
     assert response.status_code == 422
+
+
+async def _seed_research_graph_merge(store: AsyncStore) -> None:
+    for event_id, title in (
+        ("ce_italy_api_merge_survivor", "Survivor"),
+        ("ce_italy_api_merge_duplicate", "Duplicate"),
+    ):
+        await store.upsert_canonical_event(
+            {
+                "canonical_event_id": event_id,
+                "target_id": "italy",
+                "title": title,
+                "summary": "",
+                "event_time": "2026-05-30T10:00:00Z",
+                "status": "needs_review",
+                "confidence": 70,
+                "metadata": {"mention_count": 1, "source_count": 1},
+            }
+        )
+    for mention_id, canonical_event_id, source_id in (
+        ("mention_api_merge_survivor", "ce_italy_api_merge_survivor", "ansa"),
+        ("mention_api_merge_duplicate", "ce_italy_api_merge_duplicate", "repubblica"),
+    ):
+        await store.upsert_event_mention(
+            {
+                "mention_id": mention_id,
+                "canonical_event_id": canonical_event_id,
+                "event_id": f"ne_{mention_id}",
+                "target_id": "italy",
+                "source_id": source_id,
+                "url": f"https://example.com/{mention_id}",
+                "title": mention_id,
+                "published_at": "2026-05-30T10:00:00Z",
+                "metadata": {"news_value_score": 80},
+            }
+        )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_api_merge",
+            "target_id": "italy",
+            "artifact_type": "merge_decision",
+            "title": "Merge duplicate",
+            "body": "Same fact",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_api_merge_survivor",
+            "canonical_event_ids": [
+                "ce_italy_api_merge_survivor",
+                "ce_italy_api_merge_duplicate",
+            ],
+            "status": "open",
+            "metadata": {
+                "decision": "proposed",
+                "candidate_canonical_event_ids": ["ce_italy_api_merge_duplicate"],
+            },
+        }
+    )
+
+
+def test_research_graph_merge_dry_run_and_apply(
+    canonical_client: tuple[TestClient, AsyncStore],
+) -> None:
+    client, store = canonical_client
+    asyncio.run(_seed_research_graph_merge(store))
+    payload = {
+        "target_id": "italy",
+        "decision_artifact_id": "ra_italy_api_merge",
+        "survivor_canonical_event_id": "ce_italy_api_merge_survivor",
+        "merged_canonical_event_ids": ["ce_italy_api_merge_duplicate"],
+    }
+
+    dry_run = client.post("/api/v1/research/graph/merge", json={**payload, "dry_run": True})
+    applied = client.post("/api/v1/research/graph/merge", json={**payload, "dry_run": False})
+    operations = client.get(
+        "/api/v1/research/graph/operations",
+        params={"target_id": "italy"},
+    )
+
+    assert dry_run.status_code == 200
+    assert dry_run.json()["mode"] == "dry_run"
+    assert applied.status_code == 200
+    applied_data = applied.json()
+    assert applied_data["mode"] == "applied"
+    assert operations.status_code == 200
+    operation_ids = [operation["operation_id"] for operation in operations.json()["operations"]]
+    assert applied_data["operation_id"] in operation_ids
+
+
+def test_research_graph_split_rejects_invalid_mention(
+    canonical_client: tuple[TestClient, AsyncStore],
+) -> None:
+    client, store = canonical_client
+    asyncio.run(
+        store.upsert_canonical_event(
+            {
+                "canonical_event_id": "ce_italy_api_split_source",
+                "target_id": "italy",
+                "title": "Mixed event",
+                "summary": "",
+                "event_time": "2026-05-30T10:00:00Z",
+                "status": "needs_review",
+                "confidence": 60,
+                "metadata": {"mention_count": 1, "source_count": 1},
+            }
+        )
+    )
+    asyncio.run(
+        store.upsert_event_mention(
+            {
+                "mention_id": "mention_api_split_keep",
+                "canonical_event_id": "ce_italy_api_split_source",
+                "event_id": "ne_mention_api_split_keep",
+                "target_id": "italy",
+                "source_id": "ansa",
+                "url": "https://example.com/mention_api_split_keep",
+                "title": "Keep mention",
+                "published_at": "2026-05-30T10:00:00Z",
+                "metadata": {"news_value_score": 80},
+            }
+        )
+    )
+
+    response = client.post(
+        "/api/v1/research/graph/split",
+        json={
+            "target_id": "italy",
+            "source_canonical_event_id": "ce_italy_api_split_source",
+            "affected_mention_ids": ["mention_api_split_missing"],
+            "dry_run": True,
+        },
+    )
+
+    assert response.status_code == 422
+    assert "mention not found" in response.json()["detail"]
