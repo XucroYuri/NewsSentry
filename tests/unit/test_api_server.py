@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
 from collections.abc import AsyncGenerator, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -4488,9 +4489,16 @@ def _make_canonical_client(tmp_path: Path) -> tuple[TestClient, AsyncStore]:
     asyncio.run(store.initialize())
     app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
     client = TestClient(app)
-    token_resp = client.post("/api/v1/auth/token", json={"api_key": ""})
-    assert token_resp.status_code == 200
-    client.headers["Authorization"] = f"Bearer {token_resp.json()['access_token']}"
+    token = f"canonical-api-test-{id(store)}"
+    now = time.time()
+    api_server_module._TOKEN_STORE[token] = {
+        "username": "canonical-api-test",
+        "role": "admin",
+        "has_api_key": False,
+        "created_at": now,
+        "expires_at": now + 3600,
+    }
+    client.headers["Authorization"] = f"Bearer {token}"
     return client, store
 
 
@@ -4500,6 +4508,8 @@ def canonical_client(tmp_path: Path) -> Iterator[tuple[TestClient, AsyncStore]]:
     try:
         yield client, store
     finally:
+        token = client.headers.get("Authorization", "").removeprefix("Bearer ")
+        api_server_module._TOKEN_STORE.pop(token, None)
         client.close()
         asyncio.run(store.close())
 
