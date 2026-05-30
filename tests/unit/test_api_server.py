@@ -7,6 +7,7 @@ import os
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -18,6 +19,7 @@ from news_sentry.core.api_server import (
     _get_valid_api_keys,
     _parse_frontmatter,
     _RateLimiter,
+    _tag_text,
     create_app,
 )
 from news_sentry.core.async_store import AsyncStore
@@ -138,6 +140,14 @@ class TestParseFrontmatter:
 
     def test_unclosed_frontmatter(self) -> None:
         assert _parse_frontmatter("---\nid: ne-1") is None
+
+
+class TestFeedTagText:
+    """新闻流标签文本提取测试。"""
+
+    def test_preserves_numeric_zero_values(self) -> None:
+        assert _tag_text({"code": 0}) == "0"
+        assert _tag_text(0) == "0"
 
 
 class TestAPIServer:
@@ -311,6 +321,204 @@ class TestAPIServer:
         assert len(data["events"]) == 2
         assert data["page"] == 1
 
+    def test_events_feed_adds_display_fields_from_frontmatter(self, tmp_path: Path) -> None:
+        """GET /events/feed 返回新闻流展示字段，不修改 NewsEvent 契约。"""
+        drafts = tmp_path / "italy" / "drafts"
+        drafts.mkdir(parents=True, exist_ok=True)
+        event = {
+            "id": "ne-italy-ansa-20260526-feed0001",
+            "source_id": "ansa",
+            "url": "https://example.com/news",
+            "title_original": "Original title",
+            "title_translated": "中文标题",
+            "content_original": "Original content fallback preview.",
+            "published_at": "2026-05-26T08:15:00+08:00",
+            "news_value_score": 86,
+            "metadata": {
+                "classification": {
+                    "l0": "politics",
+                    "l1": [{"code": "china-relations", "confidence": 0.92}],
+                },
+                "topic_tags": ["DeepSeek", "行业动态"],
+            },
+            "judge_result": {
+                "rationale": "API 长期降价会改变模型调用成本结构。第二句不应进入摘要。",
+                "recommendation": "review",
+            },
+        }
+        fm = yaml.dump(event, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        (drafts / "event.md").write_text(f"---\n{fm}---\n\n# 中文标题\n", encoding="utf-8")
+        client = self._make_client(tmp_path)
+
+        resp = client.get("/api/v1/events/feed", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        item = resp.json()["groups"][0]["events"][0]
+        assert item["event_id"] == "ne-italy-ansa-20260526-feed0001"
+        assert item["display_title"] == "中文标题"
+        assert item["score"] == 86
+        assert item["summary"] == "Original content fallback preview."
+        assert item["flat_tags"] == ["politics", "china-relations", "DeepSeek", "行业动态"]
+        assert item["ai_reason"] == "API 长期降价会改变模型调用成本结构。"
+        assert item["recommendation"] == "review"
+        assert item["source_display_name"] == "ansa"
+        assert item["related_count"] == 0
+
+    def test_events_feed_exposes_story_cluster_and_metadata_classification(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """新闻流公开 Task 3 产生的 story/cluster 字段和 metadata 分类。"""
+        drafts = tmp_path / "italy" / "drafts"
+        drafts.mkdir(parents=True, exist_ok=True)
+        event = {
+            "id": "ne-italy-ansa-20260526-cluster0001",
+            "source_id": "ansa",
+            "url": "https://example.com/cluster",
+            "title_original": "Russia Ukraine talks",
+            "published_at": "2026-05-26T10:15:00+08:00",
+            "cluster_id": "cluster-same-event-001",
+            "story_id": "story-ukraine-001",
+            "metadata": {
+                "classification": {
+                    "l0": "international-relations",
+                    "l1": ["russia-ukraine"],
+                },
+                "clustering": {
+                    "cluster_type": "same_event",
+                    "confidence": 82,
+                    "matched_by": ["title_similarity", "entity_overlap"],
+                    "reason": "同一事件多信源报道。",
+                },
+            },
+        }
+        fm = yaml.dump(event, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        (drafts / "cluster.md").write_text(
+            f"---\n{fm}---\n\n# Russia Ukraine talks\n",
+            encoding="utf-8",
+        )
+        client = self._make_client(tmp_path)
+
+        resp = client.get("/api/v1/events/feed", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        item = resp.json()["groups"][0]["events"][0]
+        assert item["cluster_id"] == "cluster-same-event-001"
+        assert item["story_id"] == "story-ukraine-001"
+        assert item["clustering"] == {
+            "cluster_type": "same_event",
+            "confidence": 82,
+            "matched_by": ["title_similarity", "entity_overlap"],
+            "reason": "同一事件多信源报道。",
+        }
+        assert item["classification"]["l0"] == "international-relations"
+        assert item["classification"]["l1"] == ["russia-ukraine"]
+
+    def test_events_feed_preserves_numeric_flat_tags(self, tmp_path: Path) -> None:
+        """新闻流服务端扁平标签不能丢弃 0 这类有效分类值。"""
+        drafts = tmp_path / "italy" / "drafts"
+        drafts.mkdir(parents=True, exist_ok=True)
+        event = {
+            "id": "ne-italy-ansa-20260526-feed0002",
+            "source_id": "ansa",
+            "title_original": "Numeric tag story",
+            "published_at": "2026-05-26T09:15:00+08:00",
+            "metadata": {
+                "classification": {
+                    "l0": "policy",
+                    "l1": [{"code": 0}],
+                },
+            },
+            "nlp_entities": [{"name": 0}],
+        }
+        fm = yaml.dump(event, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        (drafts / "numeric-tags.md").write_text(
+            f"---\n{fm}---\n\n# Numeric tag story\n", encoding="utf-8"
+        )
+        client = self._make_client(tmp_path)
+
+        resp = client.get("/api/v1/events/feed", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        item = resp.json()["groups"][0]["events"][0]
+        assert item["flat_tags"] == ["policy", "0"]
+
+    def test_public_news_feed_without_auth(self, tmp_path: Path) -> None:
+        """新闻工作台只读入口不要求登录。"""
+        _write_draft(
+            tmp_path,
+            "italy",
+            "ne-italy-src-20260526-public01",
+            title="Public feed story",
+            news_value_score=75,
+        )
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/events/feed", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 1
+        assert data["groups"][0]["events"][0]["display_title"] == "Public feed story"
+
+    def test_public_event_detail_without_auth(self, tmp_path: Path) -> None:
+        """匿名用户可以打开新闻流里的单篇只读详情。"""
+        event_id = "ne-italy-src-20260526-public02"
+        _write_draft(tmp_path, "italy", event_id, title="Public detail story")
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get(f"/api/v1/events/{event_id}", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        assert resp.json()["id"] == event_id
+
+    def test_public_targets_without_auth(self, tmp_path: Path) -> None:
+        """匿名用户可以读取 target 列表以初始化新闻工作台。"""
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/targets")
+
+        assert resp.status_code == 200
+        assert "targets" in resp.json()
+
+    def test_admin_users_still_requires_auth(self, tmp_path: Path) -> None:
+        """公共新闻工作台不放开管理后台。"""
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/admin/users")
+
+        assert resp.status_code == 401
+
+    def test_non_public_news_apis_require_auth(self, tmp_path: Path) -> None:
+        """新闻流以外的分析/管理读接口仍需要登录。"""
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+        protected_gets = [
+            ("/api/v1/status", {}),
+            ("/api/v1/collector/status", {}),
+            ("/api/v1/collector/diagnostics", {}),
+            ("/api/v1/stats", {"target_id": "italy"}),
+            ("/api/v1/stats/today", {"target_id": "italy"}),
+            ("/api/v1/events", {"target_id": "italy"}),
+            ("/api/v1/events/top", {"target_id": "italy"}),
+            ("/api/v1/events/example/links", {"target_id": "italy"}),
+            ("/api/v1/events/example/chain", {"target_id": "italy"}),
+            ("/api/v1/entities", {}),
+            ("/api/v1/entities/1", {}),
+            ("/api/v1/chains", {"target_id": "italy"}),
+            ("/api/v1/chains/example/narrative", {"target_id": "italy"}),
+            ("/api/v1/trends/topics", {"target_id": "italy"}),
+            ("/api/v1/trends/sentiment", {"target_id": "italy"}),
+        ]
+
+        for path, params in protected_gets:
+            resp = client.get(path, params=params)
+            assert resp.status_code == 401, path
+
     def test_get_event_found(self, tmp_path: Path) -> None:
         event_id = "ne-italy-src-20260512-abc12345"
         _write_draft(tmp_path, "italy", event_id)
@@ -367,12 +575,11 @@ class TestAPIServer:
             app = create_app(data_dir=tmp_path, auto_store=False)
             client = TestClient(app)
             # 无 token
-            resp = client.get("/api/v1/events", params={"target_id": "italy"})
+            resp = client.get("/api/v1/admin/users")
             assert resp.status_code == 401
             # 错误 token
             resp = client.get(
-                "/api/v1/events",
-                params={"target_id": "italy"},
+                "/api/v1/admin/users",
                 headers={"Authorization": "Bearer wrong-token"},
             )
             assert resp.status_code == 401
@@ -382,8 +589,7 @@ class TestAPIServer:
             token = resp.json()["access_token"]
             # 使用正确 Bearer token
             resp = client.get(
-                "/api/v1/events",
-                params={"target_id": "italy"},
+                "/api/v1/auth/me",
                 headers={"Authorization": f"Bearer {token}"},
             )
             assert resp.status_code == 200
@@ -407,6 +613,7 @@ class TestAPIServer:
         config_dir = tmp_path / "config" / "targets"
         _write_target_config(config_dir, "italy", "意大利新闻监控", "it", 5)
         _write_target_config(config_dir, "japan", "日本新闻监控", "ja", 3)
+        _write_draft(tmp_path, "italy", "evt-1", "ANSA", 70)
         monkeypatch.chdir(tmp_path)
         client = self._make_client(tmp_path)
         resp = client.get("/api/v1/targets")
@@ -417,6 +624,7 @@ class TestAPIServer:
         assert italy["display_name"] == "意大利新闻监控"
         assert italy["primary_language"] == "it"
         assert italy["source_count"] == 5
+        assert italy["event_count"] == 1
 
     def test_stats_endpoint(self, tmp_path: Path) -> None:
         _write_draft(
@@ -1361,6 +1569,93 @@ class TestAPIServerSQLite:
             assert data["groups"][0]["events"][0]["event_id"] == draft_event
         finally:
             await store.close()
+
+    async def test_visible_index_page_can_skip_exact_total_for_public_feed(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """公开新闻流首屏不应为计算总数而扫描全部历史索引行。"""
+
+        class CountingStore:
+            def __init__(self) -> None:
+                self.calls: list[tuple[int, int]] = []
+
+            async def query_events_paginated(self, **kwargs: Any) -> dict[str, Any]:
+                limit = kwargs["limit"]
+                offset = kwargs["offset"]
+                self.calls.append((limit, offset))
+                rows = [
+                    {
+                        "event_id": f"event-{idx}",
+                        "source_id": "ansa",
+                        "news_value_score": 80,
+                        "china_relevance": 0,
+                        "classification_l0": "politics",
+                        "published_at": f"2026-05-28T10:{idx % 60:02d}:00+00:00",
+                        "file_path": None,
+                        "title_original": f"Evento {idx}",
+                    }
+                    for idx in range(offset, min(offset + limit, 2500))
+                ]
+                return {"total": 2500, "rows": rows}
+
+        materialized = 0
+        original = api_server_module._visible_index_event_from_row
+
+        def count_materialized(*args: Any, **kwargs: Any) -> dict[str, Any] | None:
+            nonlocal materialized
+            materialized += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(
+            api_server_module,
+            "_visible_index_event_from_row",
+            count_materialized,
+        )
+
+        store = CountingStore()
+        result = await api_server_module._visible_index_events_page(
+            store,
+            tmp_path,
+            "italy",
+            stage="drafts",
+            page=1,
+            page_size=30,
+            exact_total=False,
+        )
+
+        assert result["total"] == 2500
+        assert [item["event_id"] for item in result["events"]] == [
+            f"event-{idx}" for idx in range(30)
+        ]
+        assert materialized == 30
+        assert store.calls == [(30, 0)]
+
+    def test_target_info_from_config_does_not_scan_event_files(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Target 列表响应基础信息不应同步扫全量事件文件。"""
+
+        def fail_load_all_events(*_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
+            raise AssertionError("_load_all_events should not be used for target info")
+
+        monkeypatch.setattr(api_server_module, "_load_all_events", fail_load_all_events)
+        info = api_server_module._target_info_from_config(
+            {
+                "target_id": "italy",
+                "display_name": "意大利新闻监控",
+                "language_scope": {"primary": "it"},
+                "source_channel_refs": ["rss/ansa.yaml"],
+            },
+            tmp_path,
+        )
+
+        assert info.target_id == "italy"
+        assert info.source_count == 1
+        assert info.event_count == 0
 
     async def test_event_detail_does_not_reuse_collided_file_path_frontmatter(
         self,
@@ -4013,10 +4308,15 @@ class TestDataStatusEndpoint:
         app = create_app(data_dir=tmp_path, store=store, auto_store=False)
         return TestClient(app)
 
+    def _auth_headers(self, client: TestClient) -> dict[str, str]:
+        resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert resp.status_code == 200
+        return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
     def test_data_status_empty(self, tmp_path: Path) -> None:
         """空数据目录正常响应。"""
         client = self._make_client(tmp_path)
-        resp = client.get("/api/v1/status")
+        resp = client.get("/api/v1/status", headers=self._auth_headers(client))
         assert resp.status_code == 200
         data = resp.json()
         assert "data_dir" in data
@@ -4039,7 +4339,7 @@ class TestDataStatusEndpoint:
         (drafts_dir / "ne-test-20260525-abc.md").write_text(chr(10).join(lines), encoding="utf-8")
         app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
         client = TestClient(app)
-        resp = client.get("/api/v1/status")
+        resp = client.get("/api/v1/status", headers=self._auth_headers(client))
         assert resp.status_code == 200
         data = resp.json()
         assert data["total_events_all_targets"] >= 1
@@ -4050,7 +4350,7 @@ class TestDataStatusEndpoint:
         (tmp_path / "somefile.json").write_text("{}", encoding="utf-8")
         app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
         client = TestClient(app)
-        resp = client.get("/api/v1/status")
+        resp = client.get("/api/v1/status", headers=self._auth_headers(client))
         assert resp.status_code == 200
 
 

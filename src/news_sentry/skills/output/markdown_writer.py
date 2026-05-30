@@ -100,6 +100,10 @@ class MarkdownWriter:
             fm["china_relevance"] = event.china_relevance
         if event.sentiment_score is not None:
             fm["sentiment_score"] = event.sentiment_score
+        if event.cluster_id:
+            fm["cluster_id"] = event.cluster_id
+        if event.story_id:
+            fm["story_id"] = event.story_id
 
         # Phase 31: NLP 分析字段
         if event.judge_result is not None and event.judge_result.nlp_analysis is not None:
@@ -136,6 +140,10 @@ class MarkdownWriter:
                 c_fm["l1"] = l1
             if c_fm:
                 fm["classification"] = c_fm
+
+        clustering = event.metadata.get("clustering")
+        if isinstance(clustering, dict) and clustering:
+            fm.setdefault("metadata", {})["clustering"] = clustering
 
         # Phase 20: 匹配的关键词列表（供反馈优化器使用）
         filter_matched_keywords = event.metadata.get("filter_matched_keywords")

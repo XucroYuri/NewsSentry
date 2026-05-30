@@ -82,7 +82,7 @@ export async function renderFeedbackRecordsTab(container) {
               ${feedback.map(f => `
                 <tr>
                   <td>
-                    <a href="#/events/${encodeURIComponent(f.event_id)}" class="link">${escapeHtml(f.event_id)}</a>
+                    <a href="#/admin/news/events/${encodeURIComponent(f.event_id)}" class="link">${escapeHtml(f.event_id)}</a>
                   </td>
                   <td><span style="color:${VERDICT_COLORS[f.verdict_type] || '#6b7280'}">${VERDICT_LABELS[f.verdict_type] || f.verdict_type}</span></td>
                   <td>${escapeHtml(f.comment || "—")}</td>

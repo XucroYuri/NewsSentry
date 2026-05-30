@@ -146,9 +146,14 @@ export const i18n = {
  * @returns {string} 翻译文本，找不到则返回 key 本身
  */
 export function t(key) {
-  const lang = localStorage.ns_language || "zh";
+  const lang = localStorage.ns_language || _browserLanguage();
   const dict = i18n[lang] || i18n.zh;
   return dict[key] || i18n.zh[key] || key;
+}
+
+function _browserLanguage() {
+  const lang = navigator.language || navigator.userLanguage || "zh";
+  return lang.toLowerCase().startsWith("en") ? "en" : "zh";
 }
 
 // ════════════════════════════════════════════════════════════
@@ -162,7 +167,12 @@ export function t(key) {
 export function getConnection() {
   try {
     const raw = localStorage.ns_connection;
-    return raw ? JSON.parse(raw) : null;
+    const conn = raw ? JSON.parse(raw) : null;
+    if (!conn) return null;
+    return {
+      ...conn,
+      server: window.location.origin,
+    };
   } catch {
     return null;
   }
@@ -173,7 +183,10 @@ export function getConnection() {
  * @param {object} data - 连接数据
  */
 export function setConnection(data) {
-  localStorage.ns_connection = JSON.stringify(data);
+  localStorage.ns_connection = JSON.stringify({
+    ...data,
+    server: window.location.origin,
+  });
 }
 
 /**
@@ -280,8 +293,7 @@ function _drain() {
 
 /** 获取基础服务器 URL */
 function _baseUrl() {
-  const conn = getConnection();
-  return conn ? conn.server : window.location.origin;
+  return window.location.origin;
 }
 
 // ── 离线检测 ───────────────────────────────────────────
@@ -330,7 +342,7 @@ function _authHeaders() {
 /** 401 处理：Token 过期，清除连接，让 app.js 处理重新登录 */
 async function _handle401(originalFn) {
   clearConnection();
-  window.location.hash = "#/connect";
+  window.location.hash = "#/admin/login";
   throw new Error(t("auth.tokenExpired"));
 }
 
@@ -359,8 +371,6 @@ async function _fetchWithTimeout(url, options = {}, timeoutMs = 5000, retries = 
     } finally {
       clearTimeout(timer);
     }
-  }
-}
   }
 }
 

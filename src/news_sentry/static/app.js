@@ -9,7 +9,16 @@ import {
   t, isAuthenticated, hasPermission, authenticate, getConnection, clearConnection,
   setConnection, logAction,
 } from "./api.js";
-import { renderFeedTab } from "./pages/feed.js";
+import {
+  adminHashForLegacyRoute,
+  isAdminLoginRoute,
+  isLegacyProtectedRoute,
+  isPublicRoute,
+  normalizeAdminRoute,
+  parseRouteHash,
+} from "./router.js";
+import { renderFeedTab, renderPublicHome } from "./pages/feed.js";
+import { targetPortalHref } from "./pages/public_portal.js";
 import { renderOverviewTab } from "./pages/dashboard.js";
 import { renderEventsTab, renderEventDetail } from "./pages/events.js";
 import { renderEntitiesTab, renderEntityDetail } from "./pages/entities.js";
@@ -27,7 +36,7 @@ import { renderPasswordTab, renderNotificationsTab, renderUserMgmtTab, renderThe
 
 const ROUTES = {
   news: {
-    icon: "📰",
+    icon: "N",
     tabs: [
       { id: "feed", label: "新闻流" },
       { id: "overview", label: "概览" },
@@ -37,11 +46,15 @@ const ROUTES = {
       { id: "trends", label: "趋势" },
     ],
     render: (container, tab, param) => {
-      if (tab === "events" && param) return renderEventDetail(container, param);
+      if (tab === "events" && param) return renderEventDetail(container, param, {
+        targetId: state.currentTarget,
+        publicMode: false,
+        backHref: "#/admin/news/events",
+      });
       if (tab === "entities" && param) return renderEntityDetail(container, param);
       if (tab === "chains" && param) return renderChainDetail(container, param);
       const tabMap = {
-        feed: renderFeedTab,
+        feed: (el) => renderFeedTab(el, { targetId: state.currentTarget, publicMode: false }),
         overview: renderOverviewTab,
         events: renderEventsTab,
         chains: renderChainsTab,
@@ -52,7 +65,7 @@ const ROUTES = {
     },
   },
   alerts: {
-    icon: "🔔",
+    icon: "A",
     tabs: [
       { id: "live", label: "实时告警" },
       { id: "history", label: "历史记录" },
@@ -62,7 +75,7 @@ const ROUTES = {
     },
   },
   ops: {
-    icon: "📊",
+    icon: "O",
     tabs: [
       { id: "status", label: "运行状态" },
       { id: "collector", label: "采集器" },
@@ -83,7 +96,7 @@ const ROUTES = {
     },
   },
   feedback: {
-    icon: "💬",
+    icon: "F",
     tabs: [
       { id: "records", label: "反馈记录" },
       { id: "optimize", label: "规则优化" },
@@ -93,7 +106,7 @@ const ROUTES = {
     },
   },
   config: {
-    icon: "🔧",
+    icon: "C",
     tabs: [
       { id: "target", label: "目标" },
       { id: "sources", label: "信源" },
@@ -115,7 +128,7 @@ const ROUTES = {
     },
   },
   settings: {
-    icon: "⚙️",
+    icon: "S",
     tabs: [
       { id: "password", label: "个人设置" },
       { id: "apiKey", label: "API Key" },
@@ -138,16 +151,7 @@ const ROUTES = {
 // ═══════════════════════════════════════════════════════════
 
 function parseHash() {
-  const hash = (window.location.hash || "#/news/overview").slice(1);
-  const parts = hash.replace(/^\//, "").split("/");
-
-  // Special: connect page
-  if (parts[0] === "connect") return { section: "connect", tab: "", param: "" };
-
-  const section = parts[0] || "news";
-  const tab = parts[1] || (ROUTES[section]?.tabs[0]?.id || "");
-  const param = parts[2] || "";
-  return { section, tab, param };
+  return parseRouteHash(window.location.hash || "#/news/feed");
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -159,7 +163,7 @@ function renderTabBar(section, activeTab) {
   if (!tabBar || !ROUTES[section]) { if (tabBar) tabBar.innerHTML = ""; return; }
 
   tabBar.innerHTML = ROUTES[section].tabs.map(tab =>
-    `<a href="#/${section}/${tab.id}" class="tab-item${tab.id === activeTab ? " tab-active" : ""}">${tab.label}</a>`
+    `<a href="#/admin/${section}/${tab.id}" class="tab-item${tab.id === activeTab ? " tab-active" : ""}">${tab.label}</a>`
   ).join("");
 }
 
@@ -185,31 +189,110 @@ function updateBreadcrumb(section, tab, param) {
 // §5. 导航
 // ═══════════════════════════════════════════════════════════
 
-function navigate() {
-  const { section, tab, param } = parseHash();
+function setShellMode(mode) {
+  document.body.classList.toggle("public-shell", mode === "public");
+  document.body.classList.toggle("admin-shell", mode === "admin");
+  document.body.classList.toggle("login-shell", mode === "login");
 
-  // Auth gate: if not on connect page and not authenticated
-  if (section !== "connect" && !isAuthenticated()) {
-    showConnectPage();
-    return;
+  const sidebar = document.getElementById("sidebar");
+  const publicTopBar = document.getElementById("publicTopBar");
+  const adminTopBar = document.getElementById("adminTopBar");
+  const tabBar = document.getElementById("tabBar");
+  const mainContent = document.getElementById("mainContent");
+
+  if (sidebar) sidebar.style.display = mode === "admin" ? "flex" : "none";
+  if (publicTopBar) publicTopBar.style.display = mode === "public" ? "flex" : "none";
+  if (adminTopBar) adminTopBar.style.display = mode === "admin" ? "flex" : "none";
+  if (tabBar) tabBar.style.display = mode === "admin" ? "flex" : "none";
+  if (mainContent) mainContent.classList.toggle("main-content-public", mode === "public");
+
+  const adminBtn = document.getElementById("publicAdminBtn");
+  if (adminBtn) {
+    adminBtn.href = isAuthenticated() ? "#/admin/ops/status" : "#/admin/login";
   }
 
-  // Connect page
-  if (section === "connect") {
-    showConnectPage();
-    return;
-  }
+  if (mode !== "admin") closeSidebar();
+}
 
-  // Hide connect page, show app
+function defaultAdminTab(section) {
+  return ROUTES[section]?.tabs?.[0]?.id || "";
+}
+
+function renderPublicRoute(routeInfo) {
+  setShellMode("public");
+
   const cp = document.getElementById("connectPage");
   if (cp) cp.style.display = "none";
 
-  // Update sidebar active state
+  state.currentSection = "news";
+  state.currentTab = routeInfo.tab || "feed";
+  const container = document.getElementById("pageContainer");
+  if (!container) return;
+  container.innerHTML = "";
+
+  if (routeInfo.name === "publicNewsHome") {
+    renderPublicHome(container, state.targets || []);
+    return;
+  }
+
+  if (routeInfo.targetId) {
+    state.currentTarget = routeInfo.targetId;
+    localStorage.ns_target_id = routeInfo.targetId;
+    const sel = document.getElementById("targetSelect");
+    if (sel) sel.value = routeInfo.targetId;
+  }
+
+  if (routeInfo.name === "publicTargetFeed") {
+    renderFeedTab(container, {
+      targetId: routeInfo.targetId,
+      channelId: routeInfo.channelId || "all",
+      publicMode: true,
+    });
+    return;
+  }
+
+  if (routeInfo.name === "publicTargetEventDetail") {
+    renderEventDetail(container, routeInfo.eventId, {
+      targetId: routeInfo.targetId,
+      publicMode: true,
+      backHref: targetPortalHref(routeInfo.targetId),
+    });
+    return;
+  }
+
+  if (routeInfo.name === "publicLegacyEventDetail") {
+    const fallbackTarget = state.currentTarget || state.targets?.[0]?.target_id || "";
+    renderEventDetail(container, routeInfo.eventId, {
+      targetId: fallbackTarget,
+      publicMode: true,
+      backHref: fallbackTarget ? targetPortalHref(fallbackTarget) : "#/news/feed",
+    });
+    return;
+  }
+
+  container.innerHTML = "<p>页面不存在</p>";
+}
+
+function renderAdminRoute(routeInfo) {
+  const section = routeInfo.section || "ops";
+  const route = ROUTES[section];
+  if (!route) {
+    window.location.hash = "#/admin/ops/status";
+    return;
+  }
+  const normalizedRoute = normalizeAdminRoute(routeInfo, route.tabs.map((item) => item.id));
+  const tab = normalizedRoute.tab || defaultAdminTab(section);
+  const param = normalizedRoute.param || "";
+
+  setShellMode("admin");
+
+  const cp = document.getElementById("connectPage");
+  if (cp) cp.style.display = "none";
+
   $$(".nav-item").forEach(el => {
     el.classList.toggle("active", el.dataset.section === section);
   });
 
-  // Update config collapse
   const configNav = document.getElementById("configNav");
   const configToggle = document.getElementById("configToggle");
   if (section === "config" || section === "settings") {
@@ -218,28 +301,55 @@ function navigate() {
     state.configExpanded = true;
   }
 
-  // Close mobile sidebar
   closeSidebar();
 
-  // Update state
   state.currentSection = section;
   state.currentTab = tab;
 
-  // Render tab bar, breadcrumb, page content
   renderTabBar(section, tab);
   updateBreadcrumb(section, tab, param);
 
   const container = document.getElementById("pageContainer");
   if (!container) return;
   container.innerHTML = "";
+  route.render(container, tab, param);
+}
 
-  // Call section render function
-  const route = ROUTES[section];
-  if (route && route.render) {
-    route.render(container, tab, param);
-  } else {
-    container.innerHTML = "<p>页面不存在</p>";
+function navigate() {
+  const routeInfo = parseHash();
+
+  if (isLegacyProtectedRoute(routeInfo)) {
+    const nextHash = adminHashForLegacyRoute(routeInfo);
+    if (!isAuthenticated()) {
+      sessionStorage.ns_admin_return = nextHash;
+      window.location.hash = "#/admin/login";
+    } else {
+      window.location.hash = nextHash;
+    }
+    return;
   }
+
+  if (isAdminLoginRoute(routeInfo)) {
+    if ((window.location.hash || "") === "#/connect") {
+      window.location.hash = "#/admin/login";
+      return;
+    }
+    showConnectPage();
+    return;
+  }
+
+  if (!isPublicRoute(routeInfo) && !isAuthenticated()) {
+    sessionStorage.ns_admin_return = adminHashForLegacyRoute(routeInfo);
+    window.location.hash = "#/admin/login";
+    return;
+  }
+
+  if (routeInfo.scope === "public") {
+    renderPublicRoute(routeInfo);
+    return;
+  }
+
+  renderAdminRoute(routeInfo);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -247,87 +357,23 @@ function navigate() {
 // ═══════════════════════════════════════════════════════════
 
 function showConnectPage() {
+  setShellMode("login");
   const cp = document.getElementById("connectPage");
   if (cp) cp.style.display = "flex";
 
-  // 恢复保存的连接或使用默认值
-  const conn = getConnection();
+  // 管理登录默认使用当前服务 origin。
   const serverInput = document.getElementById("connectServer");
-  if (conn?.server && serverInput) {
-    serverInput.value = conn.server;
-    // 根据保存的 URL 判断模式
-    const isLocal = conn.server.includes("localhost") || conn.server.includes("127.0.0.1");
-    setConnectMode(isLocal ? "local" : "cloud");
-  } else {
-    setConnectMode("local");
-    // 使用当前页面 origin 作为默认服务器地址
-    const serverInput = document.getElementById("connectServer");
-    if (serverInput && !serverInput.value) {
-      serverInput.value = window.location.origin;
-    }
-  }
-
-  // 检测服务器状态
-  checkServerStatus();
-}
-
-/** 设置连接模式 (local/cloud) */
-function setConnectMode(mode) {
-  const tabs = document.querySelectorAll(".mode-tab");
-  tabs.forEach(tab => tab.classList.toggle("active", tab.dataset.mode === mode));
-
-  const serverInput = document.getElementById("connectServer");
-  if (!serverInput) return;
-
-  if (mode === "local") {
-    if (!serverInput.value) {
-      serverInput.value = window.location.origin;
-    }
-  } else {
-    if (serverInput.value.includes("localhost") || serverInput.value.includes("127.0.0.1")) {
-      serverInput.value = "https://news-sentry.xuyu.workers.dev";
-    }
-  }
-  checkServerStatus();
-}
-
-/** 检测服务器状态 */
-async function checkServerStatus() {
-  const dot = document.getElementById("connectStatusDot");
-  const text = document.getElementById("connectStatusText");
-  const server = document.getElementById("connectServer")?.value?.trim();
-  if (!dot || !text || !server) return;
-
-  dot.className = "status-dot";
-  text.textContent = "检测中...";
-
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    const resp = await fetch(`${server}/api/v1/health`, { signal: controller.signal });
-    clearTimeout(timeout);
-    if (resp.ok) {
-      dot.className = "status-dot ok";
-      text.textContent = "服务器在线";
-    } else {
-      dot.className = "status-dot error";
-      text.textContent = "服务器响应异常";
-    }
-  } catch {
-    dot.className = "status-dot error";
-    text.textContent = "无法连接服务器";
-  }
+  if (serverInput) serverInput.value = window.location.origin;
 }
 
 async function handleConnect() {
   const btn = document.getElementById("connectBtn");
   const errEl = document.getElementById("connectError");
-  const server = document.getElementById("connectServer")?.value?.trim();
+  const server = document.getElementById("connectServer")?.value?.trim() || window.location.origin;
   const username = document.getElementById("connectUsername")?.value?.trim();
   const password = document.getElementById("connectPassword")?.value;
-  const lang = document.getElementById("connectLanguage")?.value || "zh";
 
-  if (!server || !username || !password) {
+  if (!username || !password) {
     if (errEl) {
       errEl.textContent = "请输入用户名和密码";
       errEl.style.display = "block";
@@ -338,15 +384,17 @@ async function handleConnect() {
   if (btn) { btn.disabled = true; btn.textContent = "登录中..."; }
   if (errEl) errEl.style.display = "none";
 
-  localStorage.setItem("ns_language", lang);
-
   try {
     const conn = await authenticate(server, username, password);
     logAction("login", server, "ok");
+    await loadTargets();
+    startAdminServices();
     if (conn.mustChangePw) {
-      window.location.hash = "#/settings/password";
+      window.location.hash = "#/admin/settings/password";
     } else {
-      window.location.hash = "#/news/overview";
+      const nextHash = sessionStorage.ns_admin_return || "#/admin/ops/status";
+      delete sessionStorage.ns_admin_return;
+      window.location.hash = nextHash;
     }
   } catch (err) {
     if (errEl) {
@@ -387,15 +435,22 @@ async function loadTargets() {
     state.targets = data.targets || [];
     const sel = document.getElementById("targetSelect");
     if (!sel) return;
+
+    const savedTarget = localStorage.ns_target_id || "";
+    if (savedTarget && state.targets.some(t => t.target_id === savedTarget)) {
+      state.currentTarget = savedTarget;
+    }
+    if (!state.currentTarget && state.targets.length) {
+      const targetWithData = state.targets.find(t => Number(t.event_count || 0) > 0);
+      state.currentTarget = (targetWithData || state.targets[0]).target_id;
+    }
+
     sel.innerHTML = state.targets.length
       ? state.targets.map(t =>
           `<option value="${escapeHtml(t.target_id)}" ${t.target_id === state.currentTarget ? "selected" : ""}>${escapeHtml(t.display_name || t.target_id)}</option>`
         ).join("")
       : '<option value="">无可用目标</option>';
-    if (!state.currentTarget && state.targets.length) {
-      state.currentTarget = state.targets[0].target_id;
-      sel.value = state.currentTarget;
-    }
+    if (state.currentTarget) sel.value = state.currentTarget;
   } catch (err) {
     const sel = document.getElementById("targetSelect");
     if (sel) sel.innerHTML = '<option value="">加载失败</option>';
@@ -500,7 +555,7 @@ function connectSSE() {
   if (!state.currentTarget) return;
 
   // 为当前 target 建立 SSE 连接
-  const base = conn.server || window.location.origin;
+  const base = window.location.origin;
   const url = `${base}/api/v1/events/stream?target_id=${encodeURIComponent(state.currentTarget)}&token=${encodeURIComponent(conn.token)}`;
 
   _updateSSEStatus("connecting");
@@ -515,13 +570,13 @@ function connectSSE() {
   sse.addEventListener("new_event", (e) => {
     try {
       const data = JSON.parse(e.data);
-      showInfo(`📰 新事件: ${data.event_id?.substring(0, 20) || ""}...`);
+      showInfo(`新事件: ${data.event_id?.substring(0, 20) || ""}...`);
       // 后台标签页时弹桌面通知
       if (document.hidden) {
         _sendDesktopNotification("News Sentry — 新事件", `${data.source || "未知来源"} 事件已到达`);
       }
-      // 如果在首页，自动刷新
-      if (window.location.hash.startsWith("#/news/overview")) {
+      // 如果在新闻区，自动刷新计数
+      if (window.location.hash.startsWith("#/news/")) {
         refreshBadges();
       }
     } catch {}
@@ -530,7 +585,7 @@ function connectSSE() {
   sse.addEventListener("alert", (e) => {
     try {
       const data = JSON.parse(e.data);
-      showInfo(`🚨 ${data.message || "新告警"}`);
+      showInfo(data.message || "新告警");
       if (document.hidden) {
         _sendDesktopNotification("News Sentry — 告警", data.message || "新告警");
       }
@@ -611,8 +666,6 @@ function _sendDesktopNotification(title, body) {
     } catch {}
   }
 }
-  } catch {}
-}
 
 // ═══════════════════════════════════════════════════════════
 // §9.7 桌面版更新检测
@@ -646,6 +699,27 @@ async function _doDesktopUpdate() {
       : `❌ 更新失败: ${result}`;
   } catch (e) {
     banner.innerHTML = `❌ 更新失败: ${e.message}`;
+  }
+}
+
+let _adminServicesStarted = false;
+
+function startAdminServices() {
+  if (_adminServicesStarted || !isAuthenticated()) return;
+  _adminServicesStarted = true;
+  updateStatus();
+  connectSSE();
+  setInterval(updateStatus, 30000);
+  _registerSW();
+  _requestNotificationPermission();
+  _setupOnlineDetection();
+  _checkDesktopUpdate();
+
+  const targetSelect = document.getElementById("targetSelect");
+  if (targetSelect) {
+    targetSelect.addEventListener("change", () => {
+      setTimeout(connectSSE, 100);
+    });
   }
 }
 
@@ -700,7 +774,7 @@ function setupKeyboardShortcuts() {
       // Ctrl+Enter always works
       if (e.ctrlKey && e.key === "Enter") {
         e.preventDefault();
-        window.location.hash = "#/ops/collector";
+        window.location.hash = "#/admin/ops/collector";
       }
       return;
     }
@@ -711,7 +785,7 @@ function setupKeyboardShortcuts() {
       e.preventDefault();
       const s = sections[parseInt(e.key) - 1];
       const defaultTab = ROUTES[s]?.tabs[0]?.id || "";
-      window.location.hash = `#/${s}/${defaultTab}`;
+      window.location.hash = `#/admin/${s}/${defaultTab}`;
     } else if (e.key === "/") {
       e.preventDefault();
       const searchInput = document.querySelector(".event-search input, #eventSearch");
@@ -734,13 +808,13 @@ function setupKeyboardShortcuts() {
       // Context-aware: events page → import, config → new source
       const hash = window.location.hash || "";
       if (hash.includes("/events")) {
-        window.location.hash = "#/events/import";
+        window.location.hash = "#/admin/news/events/import";
       } else if (hash.includes("/config")) {
         showSuccess("请在配置中心手动添加");
       }
     } else if (e.ctrlKey && e.key === "Enter") {
       e.preventDefault();
-      window.location.hash = "#/ops/collector";
+      window.location.hash = "#/admin/ops/collector";
     } else if (e.key === "j" || e.key === "k") {
       e.preventDefault();
       _navigateEventList(e.key === "j" ? 1 : -1);
@@ -838,15 +912,7 @@ export function showConfirmModal(title, message) {
 // ═══════════════════════════════════════════════════════════
 
 async function init() {
-  // Check auth
-  if (!isAuthenticated()) {
-    showConnectPage();
-    // Auto-detect setup mode (first launch)
-    const savedServer = localStorage.getItem("ns_server") || "http://localhost:8000";
-    checkSetupMode(savedServer).then(needsSetup => {
-      if (needsSetup) switchToSetupMode();
-    });
-  }
+  initTheme();
 
   // Connect form handler
   const connectBtn = document.getElementById("connectBtn");
@@ -857,21 +923,6 @@ async function init() {
   if (connectForm) {
     connectForm.addEventListener("keydown", (e) => {
       if (e.key === "Enter") handleConnect();
-    });
-  }
-
-  // 模式切换标签
-  document.querySelectorAll(".mode-tab").forEach(tab => {
-    tab.addEventListener("click", () => setConnectMode(tab.dataset.mode));
-  });
-
-  // 服务器地址变化时重新检测
-  const serverInput = document.getElementById("connectServer");
-  if (serverInput) {
-    let serverCheckTimer = null;
-    serverInput.addEventListener("input", () => {
-      clearTimeout(serverCheckTimer);
-      serverCheckTimer = setTimeout(checkServerStatus, 600);
     });
   }
 
@@ -897,30 +948,31 @@ async function init() {
   if (targetSel) {
     targetSel.addEventListener("change", (e) => {
       state.currentTarget = e.target.value;
+      localStorage.ns_target_id = state.currentTarget;
       state.filters = { source_id: "", classification: "", min_score: 0, search: "", page: 1, sentiment: "", entity: "", topic_tag: "", date_from: "", date_to: "" };
-      navigate();
+      if ((window.location.hash || "").startsWith("#/news/target/")) {
+        window.location.hash = targetPortalHref(state.currentTarget);
+      } else {
+        navigate();
+      }
     });
   }
 
-  // Load targets and status
-  if (isAuthenticated()) {
+  const initialRoute = parseHash();
+  const initialNeedsLogin = !isAdminLoginRoute(initialRoute)
+    && !isPublicRoute(initialRoute)
+    && !isAuthenticated();
+
+  // Protected routes show the admin login immediately; target loading is optional.
+  if (initialNeedsLogin || isAdminLoginRoute(initialRoute)) {
+    navigate();
+    loadTargets();
+  } else {
     await loadTargets();
-    updateStatus();
-    connectSSE();
-    setInterval(updateStatus, 30000);
-    _registerSW();
-    _requestNotificationPermission();
-    _setupOnlineDetection();
-  initTheme();
-    _checkDesktopUpdate();
-    // target 切换时重新连接 SSE
-    const targetSelect = document.getElementById("targetSelect");
-    if (targetSelect) {
-      targetSelect.addEventListener("change", () => {
-        setTimeout(connectSSE, 100);
-      });
-    }
   }
+
+  // Management status/SSE only after login.
+  startAdminServices();
 
   // Routing
   window.addEventListener("hashchange", navigate);

@@ -57,7 +57,7 @@ export async function renderChainsTab(container) {
     });
 
     const chainRows = data.chains.map(c => `
-      <tr class="chain-row" data-root="${escapeHtml(c.root_event_id)}" onclick="location.hash='#/chains/${encodeURIComponent(c.root_event_id)}'">
+      <tr class="chain-row" data-root="${escapeHtml(c.root_event_id)}" onclick="location.hash='#/admin/news/chains/${encodeURIComponent(c.root_event_id)}'">
         <td>${escapeHtml(c.root_event_id)}</td>
         <td><span class="badge badge-count">${c.event_count}</span></td>
         <td>${c.latest_time ? new Date(c.latest_time).toLocaleString("zh-CN") : "-"}</td>
@@ -94,7 +94,7 @@ export async function renderChainDetail(container, rootEventId) {
 
     const headerHtml = `
       <div class="chain-header">
-        <a href="#/chains" class="back-link">&larr; 返回追踪链列表</a>
+        <a href="#/admin/news/chains" class="back-link">&larr; 返回追踪链列表</a>
         <h3>追踪链: ${escapeHtml(data.chain_id)}</h3>
         <span class="badge badge-count">${data.total} 个事件</span>
       </div>`;
@@ -110,7 +110,7 @@ export async function renderChainDetail(container, rootEventId) {
           ${!isLast ? '<div class="timeline-line"></div>' : ""}
           <div class="timeline-content">
             <div class="timeline-header">
-              <a href="#/events/${encodeURIComponent(evt.event_id)}" class="timeline-title">${escapeHtml(evt.title_original || evt.event_id)}</a>
+              <a href="#/admin/news/events/${encodeURIComponent(evt.event_id)}" class="timeline-title">${escapeHtml(evt.title_original || evt.event_id)}</a>
               <span class="timeline-badge" style="background:${color}">${label}</span>
             </div>
             <div class="timeline-meta">

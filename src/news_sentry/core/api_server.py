@@ -110,6 +110,7 @@ class TargetInfo(BaseModel):
     display_name: str
     primary_language: str
     source_count: int
+    event_count: int = 0
 
 
 class TargetListResponse(BaseModel):
@@ -932,12 +933,24 @@ def _group_events_by_date(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         date_key = pub[:10] if pub else "unknown"
         if date_key not in groups:
             groups[date_key] = []
-        groups[date_key].append(ev)
+        groups[date_key].append(_feed_event_payload(ev))
     # 按日期降序排列
     result = []
     for date_key in sorted(groups.keys(), reverse=True):
         result.append({"date": date_key, "events": groups[date_key]})
     return result
+
+
+def _first_sentence(text: str, max_chars: int = 60) -> str:
+    """提取适合新闻流展示的第一句摘要。"""
+    compact = " ".join(text.split())
+    for sep in ("。", "！", "？", ".", "!", "?"):
+        if sep in compact:
+            compact = compact.split(sep, 1)[0] + sep
+            break
+    if len(compact) > max_chars:
+        return compact[:max_chars].rstrip() + "..."
+    return compact
 
 
 def _event_matches_date(event: dict[str, Any], date: str | None) -> bool:
@@ -988,9 +1001,51 @@ async def _visible_index_events_page(
     sentiment: str | None = None,
     entity_name: str | None = None,
     topic_tag: str | None = None,
+    exact_total: bool = True,
 ) -> dict[str, Any]:
     """读取可公开展示的 index 事件，再分页，避免 stale 行占据页面。"""
     start = (page - 1) * page_size
+
+    if not exact_total and date is None and search is None:
+        offset = start
+        index_total = 0
+        sparse_page_events: list[dict[str, Any]] = []
+
+        while len(sparse_page_events) < page_size:
+            result = await store.query_events_paginated(
+                target_id=target_id,
+                stage=stage,
+                limit=page_size,
+                offset=offset,
+                source_id=source_id,
+                classification_l0=classification_l0,
+                min_score=min_score,
+                sentiment=sentiment,
+                entity_name=entity_name,
+                topic_tag=topic_tag,
+            )
+            index_total = result["total"]
+            rows = result["rows"]
+            if not rows:
+                break
+
+            for row in rows:
+                event = _visible_index_event_from_row(data_dir, target_id, stage, row)
+                if event is not None:
+                    sparse_page_events.append(event)
+                    if len(sparse_page_events) >= page_size:
+                        break
+
+            offset += len(rows)
+            if offset >= index_total:
+                break
+
+        return {
+            "index_total": index_total,
+            "total": index_total,
+            "events": sparse_page_events,
+        }
+
     end = start + page_size
     offset = 0
     index_total = 0
@@ -1159,10 +1214,37 @@ def _event_flat_tags(ev: dict[str, Any]) -> list[str]:
     return deduped[:4]
 
 
+def _event_ai_reason(ev: dict[str, Any]) -> str:
+    judge = ev.get("judge_result")
+    rationale = judge.get("rationale") if isinstance(judge, dict) else None
+    if isinstance(rationale, str) and rationale.strip():
+        return _first_sentence(rationale)
+    for key in ("content_translated", "content_original"):
+        value = ev.get(key)
+        if isinstance(value, str) and value.strip():
+            return _first_sentence(value)
+    return ""
+
+
+def _event_summary(ev: dict[str, Any]) -> str:
+    for key in ("summary", "description", "content_translated", "content_original"):
+        value = ev.get(key)
+        if isinstance(value, str) and value.strip():
+            return _first_sentence(value, max_chars=96)
+    return ""
+
+
 def _feed_event_payload(ev: dict[str, Any]) -> dict[str, Any]:
     """为新闻流补充展示字段；不改变 NewsEvent 存储契约。"""
     event_id = ev.get("event_id") or ev.get("id") or ""
     source_id = ev.get("source_id") or ""
+    raw_judge = ev.get("judge_result")
+    judge: dict[str, Any] = raw_judge if isinstance(raw_judge, dict) else {}
+    raw_metadata = ev.get("metadata")
+    metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
+    raw_clustering = metadata.get("clustering")
+    clustering: dict[str, Any] = raw_clustering if isinstance(raw_clustering, dict) else {}
+    classification = _event_classification(ev) or {}
     payload = dict(ev)
     payload["event_id"] = event_id
     payload.setdefault("id", event_id)
@@ -1170,6 +1252,14 @@ def _feed_event_payload(ev: dict[str, Any]) -> dict[str, Any]:
     payload["score"] = _event_score(ev)
     payload["source_display_name"] = ev.get("source_display_name") or source_id
     payload["flat_tags"] = _event_flat_tags(ev)
+    payload["cluster_id"] = ev.get("cluster_id")
+    payload["story_id"] = ev.get("story_id")
+    payload["clustering"] = clustering
+    payload["classification"] = classification
+    payload["ai_reason"] = _event_ai_reason(ev)
+    payload["summary"] = _event_summary(ev)
+    payload["recommendation"] = ev.get("recommendation") or judge.get("recommendation")
+    payload["related_count"] = ev.get("related_count") or 0
     return payload
 
 
@@ -1426,6 +1516,67 @@ def _atomic_write_yaml(filepath: Path, data: dict[str, Any]) -> None:
     finally:
         if tmp.exists():
             tmp.unlink(missing_ok=True)
+
+
+def _target_lifecycle(data: dict[str, Any]) -> dict[str, Any]:
+    lifecycle = data.get("lifecycle")
+    if not isinstance(lifecycle, dict):
+        return {"status": "active"}
+    status = lifecycle.get("status") or "active"
+    return {**lifecycle, "status": status}
+
+
+def _target_info_from_config(data: dict[str, Any], data_dir: Path) -> TargetInfo:
+    """Build TargetInfo without synchronously scanning event files."""
+    del data_dir
+    target_id = str(data.get("target_id") or "")
+    language_scope = data.get("language_scope")
+    primary_language = (
+        str(language_scope.get("primary") or "") if isinstance(language_scope, dict) else ""
+    )
+    refs = data.get("source_channel_refs")
+    source_count = len(refs) if isinstance(refs, list) else 0
+    return TargetInfo(
+        target_id=target_id,
+        display_name=str(data.get("display_name") or ""),
+        primary_language=primary_language,
+        source_count=source_count,
+        event_count=0,
+    )
+
+
+async def _target_public_event_count(target_id: str, data_dir: Path) -> int:
+    """Return the count the public feed can show without scanning files when indexed."""
+    try:
+        store = await _get_target_store(target_id)
+        if store is not None and await _store_has_target_event_index(store, target_id):
+            get_count = getattr(store, "get_event_count", None)
+            if get_count is not None:
+                return int(await get_count(target_id, "drafts"))
+            visible = await _visible_index_events_page(
+                store,
+                data_dir,
+                target_id,
+                stage="drafts",
+                page=1,
+                page_size=1,
+                exact_total=False,
+            )
+            return int(visible["total"])
+    except Exception:
+        logger.exception("Failed to count indexed public events for target %s", target_id)
+    return len(_load_all_events(data_dir, target_id))
+
+
+async def _target_info_from_config_for_response(
+    data: dict[str, Any],
+    data_dir: Path,
+) -> TargetInfo:
+    info = _target_info_from_config(data, data_dir)
+    if not info.target_id:
+        return info
+    event_count = await _target_public_event_count(info.target_id, data_dir)
+    return info.model_copy(update={"event_count": event_count})
 
 
 def _load_all_events(data_dir: Path, target_id: str) -> list[dict[str, Any]]:
@@ -1988,7 +2139,9 @@ def create_app(
         return {"status": "ok"}
 
     @app.get("/api/v1/collector/status")
-    async def collector_status() -> dict[str, Any]:
+    async def collector_status(
+        _user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
         """返回后台自动采集循环的状态。"""
         return _collector_payload()
 
@@ -2038,7 +2191,9 @@ def create_app(
         return _collector_payload()
 
     @app.get("/api/v1/collector/diagnostics")
-    async def collector_diagnostics() -> dict[str, Any]:
+    async def collector_diagnostics(
+        _user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
         """返回采集系统诊断信息，帮助排查"无数据"问题。"""
         checks: list[dict[str, Any]] = []
 
@@ -2126,7 +2281,9 @@ def create_app(
         return {"overall": "healthy" if overall else "attention_needed", "checks": checks}
 
     @app.get("/api/v1/status")
-    async def data_status() -> dict[str, Any]:
+    async def data_status(
+        _user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
         """返回数据状态概览（用于诊断新部署/数据恢复场景）。
 
         返回 data_dir 状态、各 target 事件数（文件系统统计）、
@@ -2594,20 +2751,12 @@ def create_app(
             raise HTTPException(status_code=500, detail=f"Failed to send email: {exc}") from exc
 
     @app.get("/api/v1/targets", response_model=TargetListResponse)
-    async def list_targets(
-        user: dict[str, Any] = Depends(get_current_user),
-    ) -> TargetListResponse:
+    async def list_targets() -> TargetListResponse:
         """返回所有可用的 target 列表。"""
         configs = _load_target_configs()
-        targets = [
-            TargetInfo(
-                target_id=c.get("target_id", ""),
-                display_name=c.get("display_name", ""),
-                primary_language=c.get("language_scope", {}).get("primary", ""),
-                source_count=len(c.get("source_channel_refs", [])),
-            )
-            for c in configs
-        ]
+        targets: list[TargetInfo] = []
+        for config in configs:
+            targets.append(await _target_info_from_config_for_response(config, _data_dir))
         return TargetListResponse(targets=targets)
 
     @app.get("/api/v1/stats", response_model=StatsResponse)
@@ -2849,9 +2998,9 @@ def create_app(
         entity_type: str | None = Query(None, description="按实体类型过滤"),
         target_id: str | None = Query(None, description="按目标过滤"),
         min_mentions: int = Query(1, ge=1, description="最少提及次数"),
-        user: dict[str, Any] = Depends(get_current_user),
         limit: int = Query(20, ge=1, le=100, description="返回数量"),
         sort: str = Query("mention_count", description="排序: mention_count 或 last_seen"),
+        user: dict[str, Any] = Depends(get_current_user),
     ) -> EntityListResponse:
         """返回实体列表（优先使用 target state.db）。"""
         # 如果指定了 target_id，优先使用 target 自己的 state.db
@@ -2990,7 +3139,6 @@ def create_app(
         date: str | None = Query(None, description="日期筛选 YYYY-MM-DD"),
         page: int = Query(1, ge=1),
         page_size: int = Query(30, ge=1, le=100),
-        user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
         """新闻流接口 — 按日期分组返回事件，含 AI 推荐标签。"""
         target_store = await _get_target_store(target_id)
@@ -3005,6 +3153,7 @@ def create_app(
                 page=page,
                 page_size=page_size,
                 date=date,
+                exact_total=page_size <= 1,
             )
             if result["index_total"] > 0:
                 # 按日期分组
@@ -3100,7 +3249,6 @@ def create_app(
     async def get_event(
         event_id: str,
         target_id: str = Query(..., description="目标标识"),
-        user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
 
         # 优先使用 target 自己的 state.db

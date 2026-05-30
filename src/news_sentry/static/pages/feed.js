@@ -3,7 +3,9 @@
  * Phase 73: 来源人格化 + 标签扁平化 + 多视图切换
  */
 
-import { state, api, escapeHtml, formatDate, scoreColor } from "../api.js";
+import { state, api, escapeHtml, scoreColor, isAuthenticated } from "../api.js";
+import { CHANNELS, filterGroups, countEvents, channelsWithCounts } from "./feed_filters.js";
+import { adminEventHref, channelPortalHref, targetEventHref, targetPortalHref } from "./public_portal.js";
 
 // ── 推荐标签映射 ──
 const REC_LABELS = {
@@ -13,36 +15,31 @@ const REC_LABELS = {
   discard: { text: "", cls: "rec-discard" },
 };
 
-// ── 分类颜色 (扁平化) ──
-const CAT_COLORS = {
-  politics: "#cc4444",
-  economy: "#cc8800",
-  technology: "#3388cc",
-  society: "#8866aa",
-  security: "#666666",
-  culture: "#aa6633",
-  environment: "#339966",
-  health: "#cc3366",
-};
-
 // ── 来源人格化缓存 ──
-let _sourceMap = null;
+const _sourceMaps = new Map();
 
 async function loadSourceMap(targetId) {
-  if (_sourceMap) return _sourceMap;
-  _sourceMap = {};
+  if (!isAuthenticated()) return {};
+  if (_sourceMaps.has(targetId)) return _sourceMaps.get(targetId);
+  const sourceMap = {};
+  const targetPath = encodeURIComponent(targetId);
   try {
     // 尝试通过配置 API 获取 source 列表
-    const targetCfg = await api(`/config/targets/${targetId}`);
+    const targetCfg = await api(`/api/v1/config/targets/${targetPath}`);
     const refs = targetCfg.source_channel_refs || [];
     // 并行获取每个 source 的配置
     const results = await Promise.allSettled(
-      refs.map((ref) => api(`/config/targets/${targetId}/sources/${ref}`).then((s) => ({ ref, ...s })).catch(() => null))
+      refs.map((ref) => {
+        const sourcePath = encodeURIComponent(ref);
+        return api(`/api/v1/config/targets/${targetPath}/sources/${sourcePath}`)
+          .then((s) => ({ ref, ...s }))
+          .catch(() => null);
+      })
     );
     for (const r of results) {
       if (r.status === "fulfilled" && r.value) {
         const s = r.value;
-        _sourceMap[s.source_id || s.ref] = {
+        sourceMap[s.source_id || s.ref] = {
           name: s.display_name || s.source_id || s.ref,
           credibility: s.credibility_base || 0.5,
           type: s.type || "rss",
@@ -50,15 +47,18 @@ async function loadSourceMap(targetId) {
       }
     }
   } catch {
-    // 降级: 无配置时用 source_id 本身
+    // 降级: 无配置时用 source_id 本身；不要缓存顶层失败。
+    return {};
   }
-  return _sourceMap;
+  _sourceMaps.set(targetId, sourceMap);
+  return sourceMap;
 }
 
 function sourceAvatar(sourceId, sourceInfo) {
   const name = sourceInfo?.name || sourceId || "—";
-  const initial = name.charAt(0).toUpperCase();
-  const cred = sourceInfo?.credibility || 0;
+  const initial = escapeHtml(name.charAt(0).toUpperCase());
+  const rawCred = Number(sourceInfo?.credibility);
+  const cred = Number.isFinite(rawCred) ? rawCred : 0;
   // 可信度颜色: 高(绿) 中(黄) 低(灰)
   let credColor = "#6e6e78";
   if (cred >= 0.85) credColor = "#2e8b57";
@@ -72,14 +72,33 @@ function sourceLabel(sourceId, sourceInfo) {
   return `<span class="src-name" title="${escapeHtml(sourceId || "")}">${escapeHtml(name)}</span>`;
 }
 
-function catTag(classification) {
-  if (!classification) return "";
-  const l0 = classification.l0 || classification;
-  const l1 = classification.l1;
-  const color = CAT_COLORS[l0?.toLowerCase()] || "#666";
-  // 扁平化: 只显示一级分类，hover 时显示二级
-  const text = l1 ? `${l0} · ${l1}` : l0;
-  return `<span class="cat-tag" style="--cat-color:${color}" title="${escapeHtml(text)}">${escapeHtml(l0)}</span>`;
+function sourceInfoFor(ev, sourceMap) {
+  const sourceId = ev.source_id || "";
+  return sourceMap[sourceId] || {
+    name: ev.source_display_name || sourceId || "—",
+    credibility: ev.source_credibility || 0,
+    type: ev.source_type || "rss",
+  };
+}
+
+function flatTag(tag) {
+  if (!tag) return "";
+  return `<span class="flat-tag">${escapeHtml(String(tag))}</span>`;
+}
+
+function flatTags(ev) {
+  const tags = Array.isArray(ev.flat_tags) ? ev.flat_tags : [];
+  return tags.slice(0, 4).map(flatTag).join("");
+}
+
+export function storyBadge(ev) {
+  if (!ev?.story_id) return "";
+  const type = ev.clustering?.cluster_type;
+  if (type === "single_event") return "";
+  let label = "相关聚类";
+  if (type === "same_event") label = "同一事件";
+  else if (type === "storyline") label = "故事线";
+  return `<span class="flat-tag story-tag">${escapeHtml(label)}</span>`;
 }
 
 function recBadge(ev) {
@@ -107,147 +126,309 @@ function scoreLabel(score) {
   return `<span class="score-label" style="color:${color}">${score}</span>`;
 }
 
+function eventScore(ev) {
+  return ev.score ?? ev.news_value_score ?? ev.importance_score;
+}
+
+function eventTitle(ev) {
+  return escapeHtml(ev.display_title || ev.title_translated || ev.title_original || ev.id || "无标题");
+}
+
+function eventSummary(ev) {
+  return escapeHtml(ev.summary || ev.description || "");
+}
+
+function eventTime(ev) {
+  if (!ev.published_at) return "—";
+  return ev.published_at.slice(11, 16) || "—";
+}
+
+function eventReason(ev) {
+  const reason = ev.ai_reason || "";
+  if (!reason) return "";
+  return `<div class="feed-ai-reason">${escapeHtml(reason)}</div>`;
+}
+
+function targetName(targetId) {
+  const target = (state.targets || []).find((item) => item.target_id === targetId);
+  return target?.display_name || targetId || "新闻目标";
+}
+
+function channelLabel(channel, showCount = false) {
+  const count = Number(channel.count || 0);
+  const countHtml = showCount && count > 0 ? `<span class="feed-channel-count">${count}</span>` : "";
+  return `${escapeHtml(channel.label)}${countHtml}`;
+}
+
+function renderChannelBarHtml(channels, { currentChannel, publicMode, targetId, showCount = false }) {
+  return channels.map((channel) => publicMode
+    ? `<a class="feed-channel${channel.id === currentChannel ? " active" : ""}" href="${channelPortalHref(targetId, channel.id)}" data-channel="${channel.id}">${channelLabel(channel, showCount)}</a>`
+    : `<button class="feed-channel${channel.id === currentChannel ? " active" : ""}" data-channel="${channel.id}">${channelLabel(channel, showCount)}</button>`
+  ).join("");
+}
+
+export function renderFeedToolbarActions({ publicMode = false, targetId = "" } = {}) {
+  return `
+    <input type="search" id="feed-search" class="feed-search-input" placeholder="搜索标题/摘要/来源..." />
+    <input type="date" id="feed-date-filter" class="feed-date-input" />
+    <div class="feed-view-toggle" id="feed-view-toggle" aria-label="视图切换">
+      <button class="view-btn active" data-view="timeline" title="推荐理由视图">☰</button>
+      <button class="view-btn" data-view="compact" title="紧凑视图">≡</button>
+    </div>
+    <button class="feed-btn feed-btn-refresh" id="feed-refresh">刷新</button>
+  `;
+}
+
+export function eventHref(ev, targetId, publicMode = true) {
+  const eventId = ev?.event_id || ev?.id || "";
+  return publicMode ? targetEventHref(targetId, eventId) : adminEventHref(eventId);
+}
+
+async function ensurePublicTargets() {
+  try {
+    const data = await api("/api/v1/targets");
+    const targets = Array.isArray(data?.targets) ? data.targets : [];
+    state.targets = targets;
+    if (!state.currentTarget && targets.length) {
+      const withData = targets.find((target) => Number(target.event_count || 0) > 0);
+      state.currentTarget = (withData || targets[0]).target_id || "";
+      if (state.currentTarget) localStorage.ns_target_id = state.currentTarget;
+    }
+    return targets;
+  } catch {
+    return [];
+  }
+}
+
+export function renderPublicHome(container, targets = state.targets || [], options = {}) {
+  const sortedTargets = [...targets].sort((a, b) => Number(b.event_count || 0) - Number(a.event_count || 0));
+
+  if (!sortedTargets.length) {
+    if (!options.afterFallback) {
+      container.innerHTML = `
+        <section class="public-home">
+          <div class="public-home-head">
+            <p class="public-kicker">News Sentry</p>
+            <h1>新闻情报频道</h1>
+            <p>正在加载监控目标...</p>
+          </div>
+        </section>`;
+      ensurePublicTargets().then((loadedTargets) => {
+        renderPublicHome(container, loadedTargets, { afterFallback: true });
+      });
+      return;
+    }
+
+    container.innerHTML = `
+      <section class="public-home ns-page">
+        <div class="public-home-head ns-page-head">
+          <div>
+            <p class="public-kicker ns-page-kicker">News Sentry</p>
+            <h1 class="ns-page-title">新闻情报频道</h1>
+            <p class="ns-page-subtitle">当前还没有可浏览的监控目标。</p>
+          </div>
+        </div>
+        <div class="ns-empty-state">
+          <h2>暂无公开目标</h2>
+          <p>公开首页只展示 active target。可以进入管理后台配置目标，或恢复已归档目标。</p>
+          <div class="ns-empty-state-actions">
+            <a class="ns-button ns-button-primary" href="#/admin/config/target">进入目标配置</a>
+            <button class="ns-button ns-button-secondary" id="publicTargetsRetry" type="button">重新加载</button>
+          </div>
+        </div>
+      </section>`;
+    container.querySelector("#publicTargetsRetry")?.addEventListener("click", () => {
+      renderPublicHome(container, [], { afterFallback: false });
+    });
+    return;
+  }
+
+  container.innerHTML = `
+    <section class="public-home">
+      <div class="public-home-head">
+        <p class="public-kicker">News Sentry</p>
+        <h1>新闻情报频道</h1>
+        <p>选择一个监控目标，直接进入频道化新闻流。</p>
+      </div>
+      <div class="public-target-grid">
+        ${sortedTargets.map((target) => {
+          const href = targetPortalHref(target.target_id);
+          const eventCount = Number(target.event_count || 0);
+          return `
+            <a class="public-target-card" href="${href}">
+              <div class="public-target-card-main">
+                <span class="public-target-id">${escapeHtml(target.target_id)}</span>
+                <h2>${escapeHtml(target.display_name || target.target_id)}</h2>
+                <p>${escapeHtml(target.primary_language || "mixed")} · ${Number(target.source_count || 0)} 个信源</p>
+              </div>
+              <div class="public-target-count">
+                <strong>${eventCount}</strong>
+                <span>事件</span>
+              </div>
+            </a>`;
+        }).join("")}
+      </div>
+    </section>`;
+}
+
 // ── 视图渲染 ──
 
-function renderList(date, events, sourceMap) {
+function displayDate(date) {
   const today = new Date().toISOString().slice(0, 10);
   const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-  let dateDisplay = date;
-  if (date === today) dateDisplay = "今天";
-  else if (date === yesterday) dateDisplay = "昨天";
+  if (date === today) return "今天";
+  if (date === yesterday) return "昨天";
+  return date;
+}
+
+function renderTimeline(date, events, sourceMap, options = {}) {
+  const dateDisplay = displayDate(date);
 
   const items = events.map((ev) => {
-    const score = ev.news_value_score ?? ev.importance_score;
-    const title = escapeHtml(ev.title_original || ev.id || "无标题");
+    const score = eventScore(ev);
+    const title = eventTitle(ev);
+    const summary = eventSummary(ev);
     const sid = ev.source_id || "";
-    const si = sourceMap[sid];
-    const time = ev.published_at ? ev.published_at.slice(11, 16) : "—";
-    const href = `#/news/events/${ev.event_id || ev.id || ""}`;
+    const si = sourceInfoFor(ev, sourceMap);
+    const href = eventHref(ev, options.targetId, options.publicMode !== false);
 
-    return `<div class="feed-item" data-score="${score || 0}">
-      <div class="feed-item-time">${time}</div>
-      <div class="feed-item-body">
-        <div class="feed-item-header">
+    return `<div class="feed-timeline-row" data-score="${score || 0}">
+      <div class="feed-timeline-time">${eventTime(ev)}</div>
+      <article class="feed-timeline-item">
+        <div class="feed-item-topline">
           ${sourceAvatar(sid, si)}
-          <a class="feed-item-title" href="${href}">${title}</a>
+          ${sourceLabel(sid, si)}
           ${recBadge(ev)}
           ${scoreLabel(score)}
         </div>
+        <a class="feed-item-title" href="${href}">${title}</a>
+        ${summary ? `<div class="feed-item-summary">${summary}</div>` : ""}
         <div class="feed-item-meta">
-          ${sourceLabel(sid, si)}
-          ${catTag(ev.classification)}
+          ${flatTags(ev)}
+          ${storyBadge(ev)}
           ${sentimentLabel(ev.sentiment)}
         </div>
-      </div>
+        ${eventReason(ev)}
+      </article>
     </div>`;
   }).join("");
 
-  return `<div class="feed-date-group">
+  return `<section class="feed-date-group">
     <div class="feed-date-header"><div class="feed-date-line"></div>
     <span class="feed-date-text">${dateDisplay}</span>
     <div class="feed-date-line"></div></div>
-    <div class="feed-items">${items}</div></div>`;
+    <div class="feed-timeline">${items}</div></section>`;
 }
 
-function renderCards(date, events, sourceMap) {
-  const today = new Date().toISOString().slice(0, 10);
-  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-  let dateDisplay = date;
-  if (date === today) dateDisplay = "今天";
-  else if (date === yesterday) dateDisplay = "昨天";
-
-  const cards = events.map((ev) => {
-    const score = ev.news_value_score ?? ev.importance_score;
-    const title = escapeHtml(ev.title_original || ev.id || "无标题");
-    const sid = ev.source_id || "";
-    const si = sourceMap[sid];
-    const time = ev.published_at ? ev.published_at.slice(11, 16) : "—";
-    const href = `#/news/events/${ev.event_id || ev.id || ""}`;
-    const classification = ev.classification?.l0 || "";
-    const catColor = CAT_COLORS[classification.toLowerCase()] || "#666";
-
-    return `<a class="feed-card" href="${href}" style="--card-accent:${catColor}">
-      <div class="feed-card-top">
-        ${sourceAvatar(sid, si)}
-        <div class="feed-card-src">${sourceLabel(sid, si)}</div>
-        <span class="feed-card-time">${time}</span>
-      </div>
-      <div class="feed-card-title">${title}</div>
-      <div class="feed-card-bottom">
-        ${catTag(ev.classification)}
-        ${sentimentLabel(ev.sentiment)}
-        ${recBadge(ev)}
-        ${scoreLabel(score)}
-      </div>
-    </a>`;
-  }).join("");
-
-  return `<div class="feed-date-group">
-    <div class="feed-date-header"><div class="feed-date-line"></div>
-    <span class="feed-date-text">${dateDisplay}</span>
-    <div class="feed-date-line"></div></div>
-    <div class="feed-cards">${cards}</div></div>`;
-}
-
-function renderCompact(date, events, sourceMap) {
-  const today = new Date().toISOString().slice(0, 10);
-  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-  let dateDisplay = date;
-  if (date === today) dateDisplay = "今天";
-  else if (date === yesterday) dateDisplay = "昨天";
-
+function renderCompact(date, events, sourceMap, options = {}) {
   const rows = events.map((ev) => {
-    const score = ev.news_value_score ?? ev.importance_score;
-    const title = escapeHtml(ev.title_original || ev.id || "无标题");
+    const score = eventScore(ev);
+    const title = eventTitle(ev);
     const sid = ev.source_id || "";
-    const si = sourceMap[sid];
-    const time = ev.published_at ? ev.published_at.slice(11, 16) : "—";
-    const href = `#/news/events/${ev.event_id || ev.id || ""}`;
+    const si = sourceInfoFor(ev, sourceMap);
+    const href = eventHref(ev, options.targetId, options.publicMode !== false);
 
     return `<div class="feed-compact-row">
-      <span class="feed-compact-time">${time}</span>
-      <span class="feed-compact-src">${(si?.name || sid || "—").substring(0, 12)}</span>
+      <span class="feed-compact-time">${eventTime(ev)}</span>
+      <span class="feed-compact-src">${escapeHtml((si?.name || sid || "—").substring(0, 12))}</span>
       <a class="feed-compact-title" href="${href}">${title}</a>
-      ${catTag(ev.classification)}
+      ${flatTags(ev)}
+      ${storyBadge(ev)}
       ${scoreLabel(score)}
     </div>`;
   }).join("");
 
-  return `<div class="feed-date-group">
+  return `<section class="feed-date-group">
     <div class="feed-date-header"><div class="feed-date-line"></div>
-    <span class="feed-date-text">${dateDisplay}</span>
+    <span class="feed-date-text">${displayDate(date)}</span>
     <div class="feed-date-line"></div></div>
-    <div class="feed-compact">${rows}</div></div>`;
+    <div class="feed-compact">${rows}</div></section>`;
 }
 
-const VIEW_RENDERERS = { list: renderList, cards: renderCards, compact: renderCompact };
+const VIEW_RENDERERS = { timeline: renderTimeline, compact: renderCompact };
+const FEED_PAGE_SIZE = 100;
 
-export async function renderFeedTab(container) {
-  const targetId = state.targetId;
+export function mergeFeedGroups(existingGroups = [], incomingGroups = []) {
+  const byDate = new Map();
+  for (const group of existingGroups) {
+    byDate.set(group.date, {
+      date: group.date,
+      events: Array.isArray(group.events) ? [...group.events] : [],
+    });
+  }
+  for (const group of incomingGroups) {
+    if (!byDate.has(group.date)) {
+      byDate.set(group.date, { date: group.date, events: [] });
+    }
+    const targetGroup = byDate.get(group.date);
+    targetGroup.events.push(...(Array.isArray(group.events) ? group.events : []));
+  }
+  return Array.from(byDate.values());
+}
+
+export function renderFeedCountText({
+  loadedCount = 0,
+  totalCount = 0,
+  visibleCount = loadedCount,
+  loadedTotal = loadedCount,
+  filtered = false,
+} = {}) {
+  const loaded = Number(loadedTotal || loadedCount || 0);
+  const total = Number(totalCount || 0);
+  const visible = Number(visibleCount || 0);
+  if (filtered) {
+    const base = total > loaded ? `已加载 ${loaded} / 共 ${total} 条` : `${loaded} 条`;
+    return `当前筛选 ${visible} 条 · ${base}`;
+  }
+  return total > loaded ? `已加载 ${loaded} / 共 ${total} 条` : `${loaded} 条`;
+}
+
+export function renderFeedFooterHtml({
+  loadedCount = 0,
+  totalCount = 0,
+  filtered = false,
+  loadingMore = false,
+} = {}) {
+  const loaded = Number(loadedCount || 0);
+  const total = Number(totalCount || 0);
+  const hasMore = total > loaded;
+  if (!hasMore && !filtered) return "";
+  const note = filtered && hasMore
+    ? `<span class="feed-more-note">筛选仅作用于已加载 ${loaded} 条，可继续加载更多后再筛选。</span>`
+    : "";
+  const button = hasMore
+    ? `<button class="feed-btn" id="feed-load-more" type="button" ${loadingMore ? "disabled" : ""}>${loadingMore ? "加载中..." : "加载更多"}</button>`
+    : "";
+  return `<div class="feed-more">${note}${button}</div>`;
+}
+
+export async function renderFeedTab(container, options = {}) {
+  const targetId = options.targetId || state.currentTarget;
+  const publicMode = Boolean(options.publicMode);
   if (!targetId) {
-    container.innerHTML = '<div class="feed-empty">请先选择目标 (Target)</div>';
+    container.innerHTML = '<div class="feed-empty">请先选择目标</div>';
     return;
   }
 
   // 当前视图状态
-  let currentView = "list";
+  let currentView = "timeline";
+  let currentChannel = options.channelId || "all";
+  let searchQuery = "";
+  const heading = publicMode ? targetName(targetId) : "新闻流";
 
   container.innerHTML = `
-    <div class="feed-container">
+    <div class="feed-container${publicMode ? " feed-container-public" : ""}">
       <div class="feed-toolbar">
         <div class="feed-toolbar-left">
-          <h2 class="feed-title">新闻流</h2>
+          <h2 class="feed-title">${escapeHtml(heading)}</h2>
           <span class="feed-count" id="feed-count"></span>
         </div>
         <div class="feed-toolbar-right">
-          <div class="feed-view-toggle" id="feed-view-toggle">
-            <button class="view-btn active" data-view="list" title="列表视图">☰</button>
-            <button class="view-btn" data-view="cards" title="卡片视图">⊞</button>
-            <button class="view-btn" data-view="compact" title="紧凑视图">≡</button>
-          </div>
-          <input type="date" id="feed-date-filter" class="feed-date-input" />
-          <button class="feed-btn feed-btn-refresh" id="feed-refresh">刷新</button>
+          ${renderFeedToolbarActions({ publicMode, targetId })}
         </div>
+      </div>
+      <div class="feed-channel-bar" id="feed-channel-bar">
+        ${renderChannelBarHtml(CHANNELS, { currentChannel, publicMode, targetId })}
       </div>
       <div class="feed-body" id="feed-body">
         <div class="feed-loading">加载中...</div>
@@ -258,46 +439,120 @@ export async function renderFeedTab(container) {
   const body = container.querySelector("#feed-body");
   const footer = container.querySelector("#feed-footer");
   const countEl = container.querySelector("#feed-count");
+  const channelBar = container.querySelector("#feed-channel-bar");
   const dateInput = container.querySelector("#feed-date-filter");
   const refreshBtn = container.querySelector("#feed-refresh");
   const toggleBtns = container.querySelectorAll(".view-btn");
+  const searchInput = container.querySelector("#feed-search");
+  const channelBtns = container.querySelectorAll("button.feed-channel");
 
   let groups = [];
+  let visibleGroups = [];
+  let sourceMap = {};
+  let totalCount = 0;
+  let currentPage = 1;
+  let loadedCount = 0;
+  let isLoadingMore = false;
 
-  const render = () => {
-    const renderer = VIEW_RENDERERS[currentView] || renderList;
-    const sourceMap = _sourceMap || {};
-    body.innerHTML = groups.map((g) => renderer(g.date, g.events, sourceMap)).join("");
+  const refreshPublicChannels = () => {
+    if (!publicMode || !channelBar) return;
+    const visibleChannels = channelsWithCounts(groups, { currentChannel });
+    channelBar.innerHTML = renderChannelBarHtml(visibleChannels, {
+      currentChannel,
+      publicMode,
+      targetId,
+      showCount: true,
+    });
   };
 
-  const loadFeed = async () => {
-    body.innerHTML = '<div class="feed-loading">加载中...</div>';
+  const render = () => {
+    const renderer = VIEW_RENDERERS[currentView] || renderTimeline;
+    visibleGroups = filterGroups(groups, { channelId: currentChannel, query: searchQuery });
+    const visibleCount = countEvents(visibleGroups);
+    loadedCount = countEvents(groups);
+    const hasClientFilter = currentChannel !== "all" || Boolean(searchQuery.trim());
+    countEl.textContent = loadedCount
+      ? renderFeedCountText({
+        loadedCount,
+        loadedTotal: loadedCount,
+        totalCount,
+        visibleCount,
+        filtered: hasClientFilter,
+      })
+      : "";
+    if (visibleCount === 0) {
+      const message = searchQuery
+        ? "没有匹配的新闻"
+        : currentChannel === "all"
+          ? "暂无新闻数据"
+          : "该频道暂无新闻";
+      body.innerHTML = `<div class="feed-empty">${message}</div>`;
+      footer.innerHTML = `${searchQuery ? '<button class="feed-btn" id="feed-clear-search">清空搜索</button>' : ""}${
+        renderFeedFooterHtml({ loadedCount, totalCount, filtered: hasClientFilter, loadingMore: isLoadingMore })
+      }`;
+      footer.querySelector("#feed-clear-search")?.addEventListener("click", () => {
+        searchQuery = "";
+        searchInput.value = "";
+        render();
+      });
+      footer.querySelector("#feed-load-more")?.addEventListener("click", () => {
+        loadFeed({ append: true });
+      });
+      return;
+    }
+    body.innerHTML = visibleGroups.map((g) => renderer(g.date, g.events, sourceMap, { targetId, publicMode })).join("");
+    footer.innerHTML = renderFeedFooterHtml({
+      loadedCount,
+      totalCount,
+      filtered: hasClientFilter,
+      loadingMore: isLoadingMore,
+    });
+    footer.querySelector("#feed-load-more")?.addEventListener("click", () => {
+      loadFeed({ append: true });
+    });
+  };
+
+  const loadFeed = async ({ append = false } = {}) => {
+    if (append && isLoadingMore) return;
+    if (append) {
+      isLoadingMore = true;
+      render();
+    } else {
+      currentPage = 1;
+      loadedCount = 0;
+      body.innerHTML = '<div class="feed-loading">加载中...</div>';
+    }
     const date = dateInput.value || "";
-    const params = new URLSearchParams({ target_id: targetId, page: "1", page_size: "100" });
+    const nextPage = append ? currentPage + 1 : 1;
+    const params = new URLSearchParams({
+      target_id: targetId,
+      page: String(nextPage),
+      page_size: String(FEED_PAGE_SIZE),
+    });
     if (date) params.set("date", date);
 
     try {
       // 并行加载 source 信息和 feed 数据
-      const [, data] = await Promise.all([
-        loadSourceMap(targetId),
-        api(`/events/feed?${params}`),
+      const [loadedSourceMap, data] = await Promise.all([
+        publicMode ? Promise.resolve({}) : loadSourceMap(targetId),
+        api(`/api/v1/events/feed?${params}`),
       ]);
-      groups = data.groups || [];
+      sourceMap = loadedSourceMap;
+      groups = append ? mergeFeedGroups(groups, data.groups || []) : data.groups || [];
+      totalCount = data.total || 0;
+      currentPage = nextPage;
 
-      if (groups.length === 0) {
-        body.innerHTML = '<div class="feed-empty">暂无新闻数据</div>';
-        countEl.textContent = "";
-        return;
-      }
-
-      let totalCount = 0;
-      for (const g of groups) totalCount += g.events.length;
-      countEl.textContent = `${totalCount} 条`;
+      refreshPublicChannels();
       render();
-      footer.innerHTML = data.total > 100
-        ? `<span class="feed-more">显示前 100 条，共 ${data.total} 条</span>` : "";
     } catch (err) {
-      body.innerHTML = `<div class="feed-error">加载失败: ${escapeHtml(err.message)}</div>`;
+      if (append) {
+        footer.innerHTML = `<div class="feed-error">加载更多失败: ${escapeHtml(err.message)}</div>`;
+      } else {
+        body.innerHTML = `<div class="feed-error">加载失败: ${escapeHtml(err.message)}</div>`;
+      }
+    } finally {
+      isLoadingMore = false;
+      if (append) render();
     }
   };
 
@@ -309,6 +564,24 @@ export async function renderFeedTab(container) {
       currentView = btn.dataset.view;
       render();
     });
+  });
+
+  channelBtns.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      channelBtns.forEach((item) => item.classList.remove("active"));
+      btn.classList.add("active");
+      currentChannel = btn.dataset.channel || "all";
+      render();
+    });
+  });
+
+  let searchTimer = null;
+  searchInput.addEventListener("input", (e) => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      searchQuery = e.target.value || "";
+      render();
+    }, 180);
   });
 
   refreshBtn.addEventListener("click", loadFeed);

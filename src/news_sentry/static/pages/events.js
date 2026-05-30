@@ -5,10 +5,34 @@
 
 "use strict";
 
-import { state, api, apiPost, escapeHtml, showError, showSuccess, formatDate, scoreColor, scoreGradient, scoreBar, sentimentColor, sentimentPct, sentimentGradient, sentimentLabelColor, sentimentDotHtml, entityChipsHtml, copyToClipboard, logAction, emptyStateHtml } from "../api.js";
+import { state, api, apiPost, escapeHtml, showError, showSuccess, formatDate, scoreColor, scoreGradient, scoreBar, sentimentColor, sentimentPct, sentimentGradient, sentimentLabelColor, sentimentDotHtml, entityChipsHtml, copyToClipboard, logAction, emptyStateHtml, isAuthenticated } from "../api.js";
+import { adminEventHref, targetPortalHref } from "./public_portal.js";
 
 const LINK_TYPE_LABELS = { followup: "后续进展", related: "相关", same_event: "同一事件", correction: "纠正" };
 const LINK_TYPE_COLORS = { followup: "#3b82f6", related: "#6b7280", same_event: "#10b981", correction: "#ef4444" };
+
+function safeHttpUrl(value) {
+  if (!value) return "";
+  try {
+    const url = new URL(String(value));
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : "";
+  } catch {
+    return "";
+  }
+}
+
+function entityChipHtml(entity, authenticated) {
+  const name = escapeHtml(entity?.name || entity?.text || entity?.entity || "实体");
+  const type = escapeHtml(entity?.entity_type || entity?.type || "");
+  const typeHtml = type ? ` <span class="chip-type">${type}</span>` : "";
+  const title = entity?.relevance != null ? ` title="相关性: ${escapeHtml(String(entity.relevance))}"` : "";
+  const id = entity?.id || entity?.entity_id || entity?.entityId || entity?.canonical_id || entity?.canonicalId;
+
+  if (authenticated && id) {
+    return `<a class="chip chip-entity chip-link" href="#/admin/news/entities/${encodeURIComponent(String(id))}"${title}>${name}${typeHtml}</a>`;
+  }
+  return `<span class="chip chip-entity"${title}>${name}${typeHtml}</span>`;
+}
 
 // ── 日期范围工具 ────────────────────────────────────────
 
@@ -312,7 +336,7 @@ async function loadEventList(container) {
         "📰",
         "暂无匹配的事件",
         "尝试调整筛选条件，或等待自动采集器完成下一轮采集",
-        [{ label: "清除筛选", id: "clearFilters" }, { label: "查看诊断", href: "#/ops/collector" }]
+        [{ label: "清除筛选", id: "clearFilters" }, { label: "查看诊断", href: "#/admin/ops/collector" }]
       );
       const clearBtn = area.querySelector("#clearFilters");
       if (clearBtn) {
@@ -389,7 +413,7 @@ async function loadEventList(container) {
       card.addEventListener("click", () => {
         const eid = card.dataset.eventId;
         if (eid) {
-          window.location.hash = `#/events/${eid}`;
+          window.location.hash = adminEventHref(eid);
         }
       });
     });
@@ -408,12 +432,19 @@ async function loadEventList(container) {
 
 // ── 页面渲染：事件详情 ────────────────────────────────────
 
-export async function renderEventDetail(container, eventId) {
+export async function renderEventDetail(container, eventId, options = {}) {
+  const authenticated = isAuthenticated();
+  const publicMode = Boolean(options.publicMode);
+  const targetId = options.targetId || state.currentTarget;
+  const detailBackHref = options.backHref || (publicMode
+    ? (targetId ? targetPortalHref(targetId) : "#/news/feed")
+    : "#/admin/news/events");
+  const allowAdminControls = authenticated && !publicMode;
   container.innerHTML = `
     <div class="loading-spinner"><div class="spinner"></div><p>正在加载事件详情...</p></div>
   `;
 
-  if (!state.currentTarget) {
+  if (!targetId) {
     container.innerHTML = `
       <div class="empty-state">
         <p>未选择监控目标，无法加载事件详情</p>
@@ -424,7 +455,7 @@ export async function renderEventDetail(container, eventId) {
 
   try {
     const ev = await api(`/api/v1/events/${encodeURIComponent(eventId)}`, {
-      target_id: state.currentTarget,
+      target_id: targetId,
     });
 
     if (!ev) {
@@ -455,6 +486,7 @@ export async function renderEventDetail(container, eventId) {
         `;
       })
       .join("");
+    const originalUrl = safeHttpUrl(ev.url);
 
     container.innerHTML = `
       <div class="detail-back" id="detailBack">
@@ -519,7 +551,7 @@ export async function renderEventDetail(container, eventId) {
                 <div class="nlp-field">
                   <span class="nlp-label">实体</span>
                   <div class="chip-list">
-                    ${ev.nlp_entities.map((e) => `<a class="chip chip-entity chip-link" href="#/entities/${encodeURIComponent(e.name)}" title="相关性: ${e.relevance}">${escapeHtml(e.name)} <span class="chip-type">${escapeHtml(e.entity_type)}</span></a>`).join("")}
+                    ${ev.nlp_entities.map((e) => entityChipHtml(e, allowAdminControls)).join("")}
                   </div>
                 </div>
               ` : ""}
@@ -547,8 +579,8 @@ export async function renderEventDetail(container, eventId) {
               </svg>
               复制摘要
             </button>
-            ${ev.url ? `
-            <a class="detail-link" href="${escapeHtml(ev.url)}" target="_blank" rel="noopener noreferrer">
+            ${originalUrl ? `
+            <a class="detail-link" href="${escapeHtml(originalUrl)}" target="_blank" rel="noopener noreferrer">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
                 <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
@@ -570,7 +602,7 @@ export async function renderEventDetail(container, eventId) {
 
     // 返回按钮
     document.getElementById("detailBack").addEventListener("click", () => {
-      window.location.hash = "#/events";
+      window.location.hash = detailBackHref;
     });
 
     // 复制摘要按钮
@@ -579,82 +611,84 @@ export async function renderEventDetail(container, eventId) {
       copyToClipboard(summary);
     });
 
-    // Phase 35: 关联事件卡片
-    try {
-      const linksData = await api(`/api/v1/events/${encodeURIComponent(eventId)}/links?target_id=${state.currentTarget}`);
-      if (linksData.links && linksData.links.length > 0) {
-        const linksHtml = linksData.links.map(l => `
-          <div class="link-item" onclick="location.hash='#/events/${encodeURIComponent(l.linked_event_id)}'">
-            <span class="link-direction">${l.direction === "forward" ? "\u2192" : "\u2190"}</span>
-            <span class="link-type-badge" style="background:${LINK_TYPE_COLORS[l.link_type] || '#6b7280'}">${LINK_TYPE_LABELS[l.link_type] || l.link_type}</span>
-            <span class="link-title">${escapeHtml(l.linked_event_title || l.linked_event_id)}</span>
-            <span class="link-strength">${(l.strength * 100).toFixed(0)}%</span>
-          </div>`).join("");
-        const card = document.createElement("div");
-        card.className = "section-card linked-events-card";
-        card.innerHTML = `<h3>关联事件 (${linksData.links.length})</h3><div class="links-list">${linksHtml}</div>`;
-        container.querySelector(".nlp-section")?.after(card) || container.appendChild(card);
-      }
-    } catch { /* 非阻塞 */ }
-
-    // Phase 41: 反馈操作区
-    const feedbackCard = document.createElement("div");
-    feedbackCard.className = "card feedback-card";
-    feedbackCard.innerHTML = `
-      <div class="section-title">人工反馈</div>
-      <div class="feedback-actions">
-        <button class="btn btn-green" id="btnPublish">推荐发布</button>
-        <button class="btn btn-red" id="btnArchive">归档</button>
-      </div>
-      <div class="feedback-comment-row">
-        <input type="text" id="feedbackComment" placeholder="添加评论（可选）..." class="feedback-input">
-        <button class="btn btn-secondary" id="btnComment">提交评论</button>
-      </div>
-      <div id="feedbackStatus" class="feedback-status"></div>
-    `;
-    container.appendChild(feedbackCard);
-
-    const submitFeedback = async (verdictType) => {
-      const statusEl = document.getElementById("feedbackStatus");
+    if (allowAdminControls) {
+      // Phase 35: 关联事件卡片
       try {
-        await apiPost("/api/v1/feedback", {
-          target_id: state.currentTarget,
-          event_id: eventId,
-          verdict_type: verdictType,
-          comment: "",
-        });
-        statusEl.innerHTML = `<span class="feedback-ok">已提交: ${escapeHtml(verdictType === "publish_override" ? "推荐发布" : "归档")}</span>`;
-      } catch (err) {
-        showError(`反馈提交失败: ${err.message}`);
-      }
-    };
+        const linksData = await api(`/api/v1/events/${encodeURIComponent(eventId)}/links?target_id=${targetId}`);
+        if (linksData.links && linksData.links.length > 0) {
+          const linksHtml = linksData.links.map(l => `
+            <a class="link-item" href="${adminEventHref(l.linked_event_id)}">
+              <span class="link-direction">${l.direction === "forward" ? "\u2192" : "\u2190"}</span>
+              <span class="link-type-badge" style="background:${LINK_TYPE_COLORS[l.link_type] || '#6b7280'}">${LINK_TYPE_LABELS[l.link_type] || l.link_type}</span>
+              <span class="link-title">${escapeHtml(l.linked_event_title || l.linked_event_id)}</span>
+              <span class="link-strength">${(l.strength * 100).toFixed(0)}%</span>
+            </a>`).join("");
+          const card = document.createElement("div");
+          card.className = "section-card linked-events-card";
+          card.innerHTML = `<h3>关联事件 (${linksData.links.length})</h3><div class="links-list">${linksHtml}</div>`;
+          container.querySelector(".nlp-section")?.after(card) || container.appendChild(card);
+        }
+      } catch { /* 非阻塞 */ }
 
-    const submitComment = async () => {
-      const input = document.getElementById("feedbackComment");
-      const comment = input.value.trim();
-      if (!comment) return;
-      const statusEl = document.getElementById("feedbackStatus");
-      try {
-        await apiPost("/api/v1/feedback", {
-          target_id: state.currentTarget,
-          event_id: eventId,
-          verdict_type: "comment",
-          comment,
-        });
-        input.value = "";
-        statusEl.innerHTML = '<span class="feedback-ok">评论已提交</span>';
-      } catch (err) {
-        showError(`评论提交失败: ${err.message}`);
-      }
-    };
+      // Phase 41: 反馈操作区
+      const feedbackCard = document.createElement("div");
+      feedbackCard.className = "card feedback-card";
+      feedbackCard.innerHTML = `
+        <div class="section-title">人工反馈</div>
+        <div class="feedback-actions">
+          <button class="btn btn-green" id="btnPublish">推荐发布</button>
+          <button class="btn btn-red" id="btnArchive">归档</button>
+        </div>
+        <div class="feedback-comment-row">
+          <input type="text" id="feedbackComment" placeholder="添加评论（可选）..." class="feedback-input">
+          <button class="btn btn-secondary" id="btnComment">提交评论</button>
+        </div>
+        <div id="feedbackStatus" class="feedback-status"></div>
+      `;
+      container.appendChild(feedbackCard);
 
-    document.getElementById("btnPublish").addEventListener("click", () => submitFeedback("publish_override"));
-    document.getElementById("btnArchive").addEventListener("click", () => submitFeedback("archive_override"));
-    document.getElementById("btnComment").addEventListener("click", submitComment);
+      const submitFeedback = async (verdictType) => {
+        const statusEl = document.getElementById("feedbackStatus");
+        try {
+          await apiPost("/api/v1/feedback", {
+            target_id: targetId,
+            event_id: eventId,
+            verdict_type: verdictType,
+            comment: "",
+          });
+          statusEl.innerHTML = `<span class="feedback-ok">已提交: ${escapeHtml(verdictType === "publish_override" ? "推荐发布" : "归档")}</span>`;
+        } catch (err) {
+          showError(`反馈提交失败: ${err.message}`);
+        }
+      };
+
+      const submitComment = async () => {
+        const input = document.getElementById("feedbackComment");
+        const comment = input.value.trim();
+        if (!comment) return;
+        const statusEl = document.getElementById("feedbackStatus");
+        try {
+          await apiPost("/api/v1/feedback", {
+            target_id: targetId,
+            event_id: eventId,
+            verdict_type: "comment",
+            comment,
+          });
+          input.value = "";
+          statusEl.innerHTML = '<span class="feedback-ok">评论已提交</span>';
+        } catch (err) {
+          showError(`评论提交失败: ${err.message}`);
+        }
+      };
+
+      document.getElementById("btnPublish").addEventListener("click", () => submitFeedback("publish_override"));
+      document.getElementById("btnArchive").addEventListener("click", () => submitFeedback("archive_override"));
+      document.getElementById("btnComment").addEventListener("click", submitComment);
+    }
   } catch (err) {
     showError(`加载事件详情失败: ${err.message}`);
     container.innerHTML = `
-      <div class="detail-back" onclick="window.location.hash='#/events'">
+      <div class="detail-back" onclick="window.location.hash='${detailBackHref}'">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/>
         </svg>
