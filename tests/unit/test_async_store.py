@@ -2462,6 +2462,128 @@ async def test_canonical_merge_rejects_cross_target_candidate(store: AsyncStore)
         )
 
 
+async def _seed_split_graph(store: AsyncStore) -> None:
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_split_source",
+            "target_id": "italy",
+            "title": "Mixed event",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "needs_review",
+            "confidence": 60,
+            "metadata": {"mention_count": 3, "source_count": 3},
+        }
+    )
+    for mention_id, source_id, score in (
+        ("mention_split_keep", "ansa", 80),
+        ("mention_split_move_1", "repubblica", 70),
+        ("mention_split_move_2", "lastampa", 65),
+    ):
+        await store.upsert_event_mention(
+            {
+                "mention_id": mention_id,
+                "canonical_event_id": "ce_italy_split_source",
+                "event_id": f"ne_{mention_id}",
+                "target_id": "italy",
+                "source_id": source_id,
+                "url": f"https://example.com/{mention_id}",
+                "title": mention_id.replace("_", " "),
+                "published_at": "2026-05-30T10:00:00Z",
+                "metadata": {"news_value_score": score},
+            }
+        )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_split_apply",
+            "target_id": "italy",
+            "artifact_type": "split_decision",
+            "title": "Split",
+            "body": "Different fact",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_split_source",
+            "canonical_event_ids": ["ce_italy_split_source"],
+            "status": "open",
+            "metadata": {
+                "decision": "proposed",
+                "affected_mention_ids": ["mention_split_move_1", "mention_split_move_2"],
+            },
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_canonical_split_dry_run_apply_and_idempotency(store: AsyncStore):
+    await _seed_split_graph(store)
+
+    dry_run = await store.preview_canonical_split(
+        target_id="italy",
+        source_canonical_event_id="ce_italy_split_source",
+        affected_mention_ids=["mention_split_move_1", "mention_split_move_2"],
+        decision_artifact_id="ra_italy_split_apply",
+        new_title="Split event",
+        created_by="local-user",
+    )
+    assert dry_run["mode"] == "dry_run"
+    created_id = dry_run["events"]["created"]["canonical_event_id"]
+    assert await store.get_canonical_event(created_id) is None
+
+    applied = await store.apply_canonical_split(
+        target_id="italy",
+        source_canonical_event_id="ce_italy_split_source",
+        affected_mention_ids=["mention_split_move_1", "mention_split_move_2"],
+        decision_artifact_id="ra_italy_split_apply",
+        new_title="Split event",
+        created_by="local-user",
+    )
+    assert applied["mode"] == "applied"
+    assert applied["events"]["created"]["canonical_event_id"] == created_id
+
+    source_mentions = await store.list_event_mentions("ce_italy_split_source")
+    assert {mention["mention_id"] for mention in source_mentions} == {"mention_split_keep"}
+    created_mentions = await store.list_event_mentions(created_id)
+    assert {mention["mention_id"] for mention in created_mentions} == {
+        "mention_split_move_1",
+        "mention_split_move_2",
+    }
+
+    created = await store.get_canonical_event(created_id)
+    assert created["status"] == "needs_review"
+    assert created["metadata"]["split_from"] == "ce_italy_split_source"
+    artifact = await store.get_research_artifact("ra_italy_split_apply")
+    assert artifact["status"] == "resolved"
+    assert artifact["metadata"]["applied_operation_id"] == applied["operation_id"]
+
+    second = await store.apply_canonical_split(
+        target_id="italy",
+        source_canonical_event_id="ce_italy_split_source",
+        affected_mention_ids=["mention_split_move_1", "mention_split_move_2"],
+        decision_artifact_id="ra_italy_split_apply",
+        new_title="Split event",
+        created_by="local-user",
+    )
+    assert second["operation_id"] == applied["operation_id"]
+    operations = await store.list_canonical_graph_operations(target_id="italy", limit=10)
+    assert [operation["operation_id"] for operation in operations] == [applied["operation_id"]]
+
+
+@pytest.mark.asyncio
+async def test_canonical_split_rejects_moving_all_mentions(store: AsyncStore):
+    await _seed_split_graph(store)
+    with pytest.raises(ValueError, match="leave at least one mention"):
+        await store.preview_canonical_split(
+            target_id="italy",
+            source_canonical_event_id="ce_italy_split_source",
+            affected_mention_ids=[
+                "mention_split_keep",
+                "mention_split_move_1",
+                "mention_split_move_2",
+            ],
+            decision_artifact_id=None,
+            created_by="local-user",
+        )
+
+
 @pytest.mark.asyncio
 async def test_research_artifact_upsert_list_and_patch(store: AsyncStore):
     await store.upsert_canonical_event(
