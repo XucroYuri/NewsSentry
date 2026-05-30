@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
@@ -1612,6 +1613,7 @@ async def test_canonical_shadow_tables_created(store: AsyncStore):
         "canonical_events",
         "event_mentions",
         "canonical_event_relations",
+        "canonical_graph_operations",
         "taxonomy_assignments",
         "canonical_entity_links",
         "research_artifacts",
@@ -1746,7 +1748,7 @@ async def test_migration_v7_research_artifacts_get_professional_workflow_default
             "visibility",
             "created_by",
         }.issubset(columns)
-        assert max(row[0] for row in versions) == 8
+        assert max(row[0] for row in versions) == 9
 
         artifact = await store.get_research_artifact("ra_v7_review")
         assert artifact is not None
@@ -1757,6 +1759,75 @@ async def test_migration_v7_research_artifacts_get_professional_workflow_default
         assert artifact["created_by"] == "local-user"
         assert artifact["canonical_event_ids"] == ["ce_legacy"]
         assert artifact["metadata"] == {"decision": "confirmed"}
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_migration_canonical_graph_operation_artifact_duplicates_are_cleaned(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "state.db"
+    with closing(sqlite3.connect(db_path)) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE canonical_graph_operations (
+                operation_id TEXT PRIMARY KEY,
+                target_id TEXT NOT NULL,
+                operation_type TEXT NOT NULL,
+                decision_artifact_id TEXT,
+                primary_canonical_event_id TEXT NOT NULL,
+                result_canonical_event_id TEXT,
+                status TEXT NOT NULL DEFAULT 'applied',
+                changes_json TEXT NOT NULL DEFAULT '[]',
+                warnings_json TEXT NOT NULL DEFAULT '[]',
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_by TEXT NOT NULL DEFAULT 'local-user',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            INSERT INTO canonical_graph_operations (
+                operation_id, target_id, operation_type, decision_artifact_id,
+                primary_canonical_event_id, result_canonical_event_id, status,
+                changes_json, warnings_json, metadata_json, created_by, created_at
+            ) VALUES
+            (
+                'cgo-italy-legacy-keep', 'italy', 'merge', 'ra_legacy_duplicate',
+                'ce_keep', 'ce_keep', 'applied', '[]', '[]', '{}',
+                'local-user', '2026-05-30 09:00:00'
+            ),
+            (
+                'cgo-italy-legacy-delete', 'italy', 'merge', 'ra_legacy_duplicate',
+                'ce_delete', 'ce_delete', 'applied', '[]', '[]', '{}',
+                'local-user', '2026-05-30 10:00:00'
+            ),
+            (
+                'cgo-italy-legacy-other', 'italy', 'merge', 'ra_legacy_other',
+                'ce_other', 'ce_other', 'applied', '[]', '[]', '{}',
+                'local-user', '2026-05-30 11:00:00'
+            );
+            """
+        )
+
+    store = AsyncStore(db_path)
+    await store.initialize()
+    try:
+        async with store._connect() as conn:
+            duplicate_rows = await conn.execute_fetchall(
+                """SELECT operation_id
+                   FROM canonical_graph_operations
+                   WHERE target_id = 'italy'
+                     AND decision_artifact_id = 'ra_legacy_duplicate'
+                   ORDER BY created_at, operation_id"""
+            )
+            indexes = await conn.execute_fetchall(
+                """SELECT name
+                   FROM sqlite_master
+                   WHERE type = 'index'
+                     AND name = 'idx_canonical_graph_ops_artifact_unique'"""
+            )
+
+        assert [row[0] for row in duplicate_rows] == ["cgo-italy-legacy-keep"]
+        assert [row[0] for row in indexes] == ["idx_canonical_graph_ops_artifact_unique"]
     finally:
         await store.close()
 
@@ -1861,6 +1932,921 @@ async def test_upsert_canonical_event_is_idempotent(store: AsyncStore):
     assert second == "ce_italy_001"
     assert len(rows) == 1
     assert rows[0]["title"] == "Example event updated"
+
+
+@pytest.mark.asyncio
+async def test_canonical_graph_operation_record_and_list(store: AsyncStore):
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_graph_source",
+            "target_id": "italy",
+            "title": "Source event",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "active",
+            "confidence": 90,
+            "metadata": {},
+        }
+    )
+
+    operation_id = await store.record_canonical_graph_operation(
+        {
+            "operation_id": "cgo-italy-merge-example",
+            "target_id": "italy",
+            "operation_type": "merge",
+            "decision_artifact_id": "ra_italy_merge_example",
+            "primary_canonical_event_id": "ce_italy_graph_source",
+            "result_canonical_event_id": "ce_italy_graph_source",
+            "status": "applied",
+            "changes": [{"type": "mark_merged", "canonical_event_id": "ce_merged"}],
+            "warnings": [],
+            "metadata": {"idempotency_key": "merge-key"},
+            "created_by": "local-user",
+        }
+    )
+
+    assert operation_id == "cgo-italy-merge-example"
+    listed = await store.list_canonical_graph_operations(target_id="italy", limit=10)
+    assert [item["operation_id"] for item in listed] == ["cgo-italy-merge-example"]
+    assert listed[0]["changes"][0]["type"] == "mark_merged"
+    assert listed[0]["metadata"]["idempotency_key"] == "merge-key"
+
+    by_artifact = await store.list_canonical_graph_operations(
+        target_id="italy",
+        decision_artifact_id="ra_italy_merge_example",
+        limit=10,
+    )
+    assert [item["operation_id"] for item in by_artifact] == ["cgo-italy-merge-example"]
+
+    missing = await store.list_canonical_graph_operations(target_id="france", limit=10)
+    assert missing == []
+
+
+@pytest.mark.asyncio
+async def test_canonical_graph_operation_duplicate_artifact_returns_existing_id(
+    store: AsyncStore,
+):
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_graph_duplicate",
+            "target_id": "italy",
+            "title": "Duplicate artifact event",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "active",
+            "confidence": 90,
+            "metadata": {},
+        }
+    )
+
+    base_operation = {
+        "target_id": "italy",
+        "operation_type": "merge",
+        "decision_artifact_id": "ra_italy_duplicate_artifact",
+        "primary_canonical_event_id": "ce_italy_graph_duplicate",
+        "result_canonical_event_id": "ce_italy_graph_duplicate",
+        "status": "applied",
+        "changes": [],
+        "warnings": [],
+        "metadata": {},
+        "created_by": "local-user",
+    }
+    first_operation_id = await store.record_canonical_graph_operation(
+        {**base_operation, "operation_id": "cgo-italy-duplicate-first"}
+    )
+    second_operation_id = await store.record_canonical_graph_operation(
+        {**base_operation, "operation_id": "cgo-italy-duplicate-second"}
+    )
+
+    listed = await store.list_canonical_graph_operations(target_id="italy", limit=10)
+    assert first_operation_id == "cgo-italy-duplicate-first"
+    assert second_operation_id == first_operation_id
+    assert [item["operation_id"] for item in listed] == [first_operation_id]
+
+
+@pytest.mark.asyncio
+async def test_canonical_graph_operation_duplicate_artifact_race_returns_existing_id(
+    store: AsyncStore,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_graph_race",
+            "target_id": "italy",
+            "title": "Racing artifact event",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "active",
+            "confidence": 90,
+            "metadata": {},
+        }
+    )
+
+    assert store._db is not None
+    original_execute = store._db.execute
+    original_commit = store._db.commit
+    race_inserted = False
+
+    class RacingInsert:
+        def __init__(self, sql: str, parameters: tuple[Any, ...]) -> None:
+            self.sql = sql
+            self.parameters = parameters
+
+        def __await__(self):
+            async def _run():
+                nonlocal race_inserted
+                race_inserted = True
+                winning_parameters = ("cgo-italy-race-winner", *self.parameters[1:])
+                await original_execute(self.sql, winning_parameters)
+                await original_commit()
+                raise sqlite3.IntegrityError(
+                    "UNIQUE constraint failed: canonical_graph_operations.target_id, "
+                    "canonical_graph_operations.decision_artifact_id"
+                )
+
+            return _run().__await__()
+
+    def execute_with_race(sql: str, parameters: tuple[Any, ...] | None = None):
+        nonlocal race_inserted
+        if (
+            not race_inserted
+            and "INSERT INTO canonical_graph_operations" in sql
+            and parameters is not None
+        ):
+            return RacingInsert(sql, parameters)
+        return original_execute(sql, parameters or ())
+
+    monkeypatch.setattr(store._db, "execute", execute_with_race)
+
+    operation_id = await store.record_canonical_graph_operation(
+        {
+            "operation_id": "cgo-italy-race-loser",
+            "target_id": "italy",
+            "operation_type": "merge",
+            "decision_artifact_id": "ra_italy_race_artifact",
+            "primary_canonical_event_id": "ce_italy_graph_race",
+            "result_canonical_event_id": "ce_italy_graph_race",
+            "status": "applied",
+            "changes": [],
+            "warnings": [],
+            "metadata": {},
+            "created_by": "local-user",
+        }
+    )
+
+    listed = await store.list_canonical_graph_operations(target_id="italy", limit=10)
+    assert operation_id == "cgo-italy-race-winner"
+    assert [item["operation_id"] for item in listed] == ["cgo-italy-race-winner"]
+
+
+@pytest.mark.asyncio
+async def test_canonical_graph_operation_integrity_error_rolls_back_before_returning_existing_id(
+    store: AsyncStore,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_graph_race_rollback",
+            "target_id": "italy",
+            "title": "Racing artifact event",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "active",
+            "confidence": 90,
+            "metadata": {},
+        }
+    )
+
+    assert store._db is not None
+    original_execute = store._db.execute
+    race_inserted = False
+
+    class RacingInsert:
+        def __init__(self, sql: str, parameters: tuple[Any, ...]) -> None:
+            self.sql = sql
+            self.parameters = parameters
+
+        def __await__(self):
+            async def _run():
+                nonlocal race_inserted
+                race_inserted = True
+                winning_parameters = ("cgo-italy-race-rollback-winner", *self.parameters[1:])
+                with closing(sqlite3.connect(store.db_path)) as conn:
+                    conn.execute(self.sql, winning_parameters)
+                    conn.commit()
+                await original_execute(self.sql, self.parameters)
+
+            return _run().__await__()
+
+    def execute_with_race(sql: str, parameters: tuple[Any, ...] | None = None):
+        nonlocal race_inserted
+        if (
+            not race_inserted
+            and "INSERT INTO canonical_graph_operations" in sql
+            and parameters is not None
+        ):
+            return RacingInsert(sql, parameters)
+        return original_execute(sql, parameters or ())
+
+    monkeypatch.setattr(store._db, "execute", execute_with_race)
+
+    operation_id = await store.record_canonical_graph_operation(
+        {
+            "operation_id": "cgo-italy-race-rollback-loser",
+            "target_id": "italy",
+            "operation_type": "merge",
+            "decision_artifact_id": "ra_italy_race_rollback_artifact",
+            "primary_canonical_event_id": "ce_italy_graph_race_rollback",
+            "result_canonical_event_id": "ce_italy_graph_race_rollback",
+            "status": "applied",
+            "changes": [],
+            "warnings": [],
+            "metadata": {},
+            "created_by": "local-user",
+        }
+    )
+
+    assert operation_id == "cgo-italy-race-rollback-winner"
+    assert store._db.in_transaction is False
+
+    await store.mark_known("evt-after-canonical-graph-race")
+    assert await store.is_known("evt-after-canonical-graph-race") is True
+
+
+@pytest.mark.asyncio
+async def test_canonical_graph_operation_list_normalizes_pagination(store: AsyncStore):
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_graph_pagination",
+            "target_id": "italy",
+            "title": "Pagination event",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "active",
+            "confidence": 90,
+            "metadata": {},
+        }
+    )
+
+    for operation_id in ("cgo-italy-pagination-a", "cgo-italy-pagination-b"):
+        await store.record_canonical_graph_operation(
+            {
+                "operation_id": operation_id,
+                "target_id": "italy",
+                "operation_type": "merge",
+                "primary_canonical_event_id": "ce_italy_graph_pagination",
+                "result_canonical_event_id": "ce_italy_graph_pagination",
+                "status": "applied",
+                "changes": [],
+                "warnings": [],
+                "metadata": {},
+                "created_by": "local-user",
+            }
+        )
+
+    negative_limit = await store.list_canonical_graph_operations(target_id="italy", limit=-1)
+    zero_offset = await store.list_canonical_graph_operations(
+        target_id="italy",
+        limit=1,
+        offset=0,
+    )
+    negative_offset = await store.list_canonical_graph_operations(
+        target_id="italy",
+        limit=1,
+        offset=-10,
+    )
+
+    assert len(negative_limit) == 1
+    assert [item["operation_id"] for item in negative_offset] == [
+        item["operation_id"] for item in zero_offset
+    ]
+
+
+async def _seed_merge_graph(store: AsyncStore) -> None:
+    for event_id, target_id, title, status in (
+        ("ce_italy_merge_survivor", "italy", "Survivor", "needs_review"),
+        ("ce_italy_merge_duplicate", "italy", "Duplicate", "needs_review"),
+        ("ce_france_merge_duplicate", "france", "France duplicate", "needs_review"),
+    ):
+        await store.upsert_canonical_event(
+            {
+                "canonical_event_id": event_id,
+                "target_id": target_id,
+                "title": title,
+                "summary": "",
+                "event_time": "2026-05-30T10:00:00Z",
+                "status": status,
+                "confidence": 70,
+                "metadata": {"mention_count": 1, "source_count": 1},
+            }
+        )
+    for mention_id, event_id, target_id, source_id in (
+        ("mention_survivor", "ce_italy_merge_survivor", "italy", "ansa"),
+        ("mention_duplicate", "ce_italy_merge_duplicate", "italy", "repubblica"),
+        ("mention_france", "ce_france_merge_duplicate", "france", "afp"),
+    ):
+        await store.upsert_event_mention(
+            {
+                "mention_id": mention_id,
+                "canonical_event_id": event_id,
+                "event_id": f"ne_{mention_id}",
+                "target_id": target_id,
+                "source_id": source_id,
+                "url": f"https://example.com/{mention_id}",
+                "title": mention_id,
+                "published_at": "2026-05-30T10:00:00Z",
+                "metadata": {"news_value_score": 80},
+            }
+        )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_merge_apply",
+            "target_id": "italy",
+            "artifact_type": "merge_decision",
+            "title": "Merge",
+            "body": "Same fact",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_merge_survivor",
+            "canonical_event_ids": [
+                "ce_italy_merge_survivor",
+                "ce_italy_merge_duplicate",
+            ],
+            "status": "open",
+            "metadata": {
+                "decision": "proposed",
+                "candidate_canonical_event_ids": ["ce_italy_merge_duplicate"],
+            },
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_canonical_merge_dry_run_apply_and_idempotency(store: AsyncStore):
+    await _seed_merge_graph(store)
+
+    dry_run = await store.preview_canonical_merge(
+        target_id="italy",
+        survivor_canonical_event_id="ce_italy_merge_survivor",
+        merged_canonical_event_ids=["ce_italy_merge_duplicate"],
+        decision_artifact_id="ra_italy_merge_apply",
+        created_by="local-user",
+    )
+    assert dry_run["mode"] == "dry_run"
+    assert dry_run["operation_type"] == "merge"
+    assert dry_run["changes"][0]["type"] == "move_mentions"
+    assert (await store.get_canonical_event("ce_italy_merge_duplicate"))["status"] == (
+        "needs_review"
+    )
+
+    applied = await store.apply_canonical_merge(
+        target_id="italy",
+        survivor_canonical_event_id="ce_italy_merge_survivor",
+        merged_canonical_event_ids=["ce_italy_merge_duplicate"],
+        decision_artifact_id="ra_italy_merge_apply",
+        created_by="local-user",
+    )
+    assert applied["mode"] == "applied"
+    assert applied["operation_id"] == dry_run["operation_id"]
+
+    survivor_mentions = await store.list_event_mentions("ce_italy_merge_survivor")
+    assert {mention["mention_id"] for mention in survivor_mentions} == {
+        "mention_survivor",
+        "mention_duplicate",
+    }
+    duplicate = await store.get_canonical_event("ce_italy_merge_duplicate")
+    assert duplicate["status"] == "merged"
+    assert duplicate["metadata"]["merged_into"] == "ce_italy_merge_survivor"
+
+    relations = await store.list_canonical_relations("ce_italy_merge_duplicate")
+    assert [relation["relation_type"] for relation in relations] == ["duplicate"]
+
+    artifact = await store.get_research_artifact("ra_italy_merge_apply")
+    assert artifact["status"] == "resolved"
+    assert artifact["metadata"]["applied_operation_id"] == applied["operation_id"]
+
+    second = await store.apply_canonical_merge(
+        target_id="italy",
+        survivor_canonical_event_id="ce_italy_merge_survivor",
+        merged_canonical_event_ids=["ce_italy_merge_duplicate"],
+        decision_artifact_id="ra_italy_merge_apply",
+        created_by="local-user",
+    )
+    assert second["operation_id"] == applied["operation_id"]
+    operations = await store.list_canonical_graph_operations(target_id="italy", limit=10)
+    assert [operation["operation_id"] for operation in operations] == [applied["operation_id"]]
+
+
+@pytest.mark.asyncio
+async def test_canonical_merge_rejects_artifact_applied_operation_scope_mismatch(
+    store: AsyncStore,
+):
+    await _seed_merge_graph(store)
+    unrelated_operation_id = await store.record_canonical_graph_operation(
+        {
+            "operation_id": "cgo-france-unrelated-merge",
+            "target_id": "france",
+            "operation_type": "merge",
+            "decision_artifact_id": "ra_france_unrelated_merge",
+            "primary_canonical_event_id": "ce_france_merge_duplicate",
+            "result_canonical_event_id": "ce_france_merge_duplicate",
+            "status": "applied",
+            "changes": [],
+            "warnings": [],
+            "metadata": {},
+            "created_by": "local-user",
+        }
+    )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_merge_apply",
+            "target_id": "italy",
+            "artifact_type": "merge_decision",
+            "title": "Merge",
+            "body": "Same fact",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_merge_survivor",
+            "canonical_event_ids": [
+                "ce_italy_merge_survivor",
+                "ce_italy_merge_duplicate",
+            ],
+            "status": "resolved",
+            "metadata": {
+                "decision": "proposed",
+                "candidate_canonical_event_ids": ["ce_italy_merge_duplicate"],
+                "applied_operation_id": unrelated_operation_id,
+            },
+        }
+    )
+
+    with pytest.raises(ValueError, match="applied operation mismatch"):
+        await store.apply_canonical_merge(
+            target_id="italy",
+            survivor_canonical_event_id="ce_italy_merge_survivor",
+            merged_canonical_event_ids=["ce_italy_merge_duplicate"],
+            decision_artifact_id="ra_italy_merge_apply",
+            created_by="local-user",
+        )
+
+
+@pytest.mark.asyncio
+async def test_canonical_merge_rejects_same_artifact_different_merged_set(
+    store: AsyncStore,
+):
+    await _seed_merge_graph(store)
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_merge_duplicate_b",
+            "target_id": "italy",
+            "title": "Duplicate B",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "needs_review",
+            "confidence": 70,
+            "metadata": {"mention_count": 1, "source_count": 1},
+        }
+    )
+    await store.upsert_event_mention(
+        {
+            "mention_id": "mention_duplicate_b",
+            "canonical_event_id": "ce_italy_merge_duplicate_b",
+            "event_id": "ne_mention_duplicate_b",
+            "target_id": "italy",
+            "source_id": "lastampa",
+            "url": "https://example.com/mention_duplicate_b",
+            "title": "mention duplicate b",
+            "published_at": "2026-05-30T10:00:00Z",
+            "metadata": {"news_value_score": 75},
+        }
+    )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_merge_apply",
+            "target_id": "italy",
+            "artifact_type": "merge_decision",
+            "title": "Merge",
+            "body": "Same fact",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_merge_survivor",
+            "canonical_event_ids": [
+                "ce_italy_merge_survivor",
+                "ce_italy_merge_duplicate",
+                "ce_italy_merge_duplicate_b",
+            ],
+            "status": "open",
+            "metadata": {
+                "decision": "proposed",
+                "candidate_canonical_event_ids": [
+                    "ce_italy_merge_duplicate",
+                    "ce_italy_merge_duplicate_b",
+                ],
+            },
+        }
+    )
+
+    await store.apply_canonical_merge(
+        target_id="italy",
+        survivor_canonical_event_id="ce_italy_merge_survivor",
+        merged_canonical_event_ids=[
+            "ce_italy_merge_duplicate",
+            "ce_italy_merge_duplicate_b",
+        ],
+        decision_artifact_id="ra_italy_merge_apply",
+        created_by="local-user",
+    )
+
+    with pytest.raises(ValueError, match="candidates must match merged ids"):
+        await store.apply_canonical_merge(
+            target_id="italy",
+            survivor_canonical_event_id="ce_italy_merge_survivor",
+            merged_canonical_event_ids=["ce_italy_merge_duplicate_b"],
+            decision_artifact_id="ra_italy_merge_apply",
+            created_by="local-user",
+        )
+
+
+@pytest.mark.asyncio
+async def test_canonical_merge_rejects_artifact_candidate_subset_payload(
+    store: AsyncStore,
+):
+    await _seed_merge_graph(store)
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_merge_subset_duplicate_b",
+            "target_id": "italy",
+            "title": "Duplicate B",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "needs_review",
+            "confidence": 70,
+            "metadata": {"mention_count": 1, "source_count": 1},
+        }
+    )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_merge_subset_decision",
+            "target_id": "italy",
+            "artifact_type": "merge_decision",
+            "title": "Merge",
+            "body": "Same fact",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_merge_survivor",
+            "canonical_event_ids": [
+                "ce_italy_merge_survivor",
+                "ce_italy_merge_duplicate",
+                "ce_italy_merge_subset_duplicate_b",
+            ],
+            "status": "open",
+            "metadata": {
+                "decision": "proposed",
+                "candidate_canonical_event_ids": [
+                    "ce_italy_merge_duplicate",
+                    "ce_italy_merge_subset_duplicate_b",
+                ],
+            },
+        }
+    )
+
+    with pytest.raises(ValueError, match="candidates must match merged ids"):
+        await store.preview_canonical_merge(
+            target_id="italy",
+            survivor_canonical_event_id="ce_italy_merge_survivor",
+            merged_canonical_event_ids=["ce_italy_merge_duplicate"],
+            decision_artifact_id="ra_italy_merge_subset_decision",
+            created_by="local-user",
+        )
+
+
+@pytest.mark.asyncio
+async def test_canonical_merge_reversed_merged_ids_reuses_operation_and_relations(
+    store: AsyncStore,
+):
+    for event_id, title in (
+        ("ce_italy_merge_order_survivor", "Survivor"),
+        ("ce_italy_merge_order_duplicate_a", "Duplicate A"),
+        ("ce_italy_merge_order_duplicate_b", "Duplicate B"),
+    ):
+        await store.upsert_canonical_event(
+            {
+                "canonical_event_id": event_id,
+                "target_id": "italy",
+                "title": title,
+                "summary": "",
+                "event_time": "2026-05-30T10:00:00Z",
+                "status": "needs_review",
+                "confidence": 70,
+                "metadata": {},
+            }
+        )
+
+    first = await store.apply_canonical_merge(
+        target_id="italy",
+        survivor_canonical_event_id="ce_italy_merge_order_survivor",
+        merged_canonical_event_ids=[
+            "ce_italy_merge_order_duplicate_a",
+            "ce_italy_merge_order_duplicate_b",
+        ],
+        decision_artifact_id=None,
+        created_by="local-user",
+    )
+    second = await store.apply_canonical_merge(
+        target_id="italy",
+        survivor_canonical_event_id="ce_italy_merge_order_survivor",
+        merged_canonical_event_ids=[
+            "ce_italy_merge_order_duplicate_b",
+            "ce_italy_merge_order_duplicate_a",
+        ],
+        decision_artifact_id=None,
+        created_by="local-user",
+    )
+
+    operations = await store.list_canonical_graph_operations(target_id="italy", limit=10)
+    async with store._connect() as conn:
+        relations = await conn.execute_fetchall(
+            """SELECT relation_id, source_canonical_event_id, target_canonical_event_id
+               FROM canonical_event_relations
+               WHERE relation_type = 'duplicate'
+               ORDER BY source_canonical_event_id"""
+        )
+
+    assert second["operation_id"] == first["operation_id"]
+    assert [operation["operation_id"] for operation in operations] == [first["operation_id"]]
+    assert len(relations) == 2
+    assert {row[1] for row in relations} == {
+        "ce_italy_merge_order_duplicate_a",
+        "ce_italy_merge_order_duplicate_b",
+    }
+    assert {row[2] for row in relations} == {"ce_italy_merge_order_survivor"}
+
+
+@pytest.mark.asyncio
+async def test_canonical_merge_rejects_cross_target_candidate(store: AsyncStore):
+    await _seed_merge_graph(store)
+    with pytest.raises(ValueError, match="target mismatch"):
+        await store.preview_canonical_merge(
+            target_id="italy",
+            survivor_canonical_event_id="ce_italy_merge_survivor",
+            merged_canonical_event_ids=["ce_france_merge_duplicate"],
+            decision_artifact_id=None,
+            created_by="local-user",
+        )
+
+
+async def _seed_split_graph(store: AsyncStore) -> None:
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_split_source",
+            "target_id": "italy",
+            "title": "Mixed event",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "needs_review",
+            "confidence": 60,
+            "metadata": {"mention_count": 3, "source_count": 3},
+        }
+    )
+    for mention_id, source_id, score in (
+        ("mention_split_keep", "ansa", 80),
+        ("mention_split_move_1", "repubblica", 70),
+        ("mention_split_move_2", "lastampa", 65),
+    ):
+        await store.upsert_event_mention(
+            {
+                "mention_id": mention_id,
+                "canonical_event_id": "ce_italy_split_source",
+                "event_id": f"ne_{mention_id}",
+                "target_id": "italy",
+                "source_id": source_id,
+                "url": f"https://example.com/{mention_id}",
+                "title": mention_id.replace("_", " "),
+                "published_at": "2026-05-30T10:00:00Z",
+                "metadata": {"news_value_score": score},
+            }
+        )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_split_apply",
+            "target_id": "italy",
+            "artifact_type": "split_decision",
+            "title": "Split",
+            "body": "Different fact",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_split_source",
+            "canonical_event_ids": ["ce_italy_split_source"],
+            "status": "open",
+            "metadata": {
+                "decision": "proposed",
+                "affected_mention_ids": ["mention_split_move_1", "mention_split_move_2"],
+            },
+        }
+    )
+
+
+@pytest.mark.asyncio
+async def test_canonical_split_dry_run_apply_and_idempotency(store: AsyncStore):
+    await _seed_split_graph(store)
+
+    dry_run = await store.preview_canonical_split(
+        target_id="italy",
+        source_canonical_event_id="ce_italy_split_source",
+        affected_mention_ids=["mention_split_move_1", "mention_split_move_2"],
+        decision_artifact_id="ra_italy_split_apply",
+        new_title="Split event",
+        created_by="local-user",
+    )
+    assert dry_run["mode"] == "dry_run"
+    created_id = dry_run["events"]["created"]["canonical_event_id"]
+    assert await store.get_canonical_event(created_id) is None
+
+    applied = await store.apply_canonical_split(
+        target_id="italy",
+        source_canonical_event_id="ce_italy_split_source",
+        affected_mention_ids=["mention_split_move_1", "mention_split_move_2"],
+        decision_artifact_id="ra_italy_split_apply",
+        new_title="Split event",
+        created_by="local-user",
+    )
+    assert applied["mode"] == "applied"
+    assert applied["events"]["created"]["canonical_event_id"] == created_id
+
+    source_mentions = await store.list_event_mentions("ce_italy_split_source")
+    assert {mention["mention_id"] for mention in source_mentions} == {"mention_split_keep"}
+    created_mentions = await store.list_event_mentions(created_id)
+    assert {mention["mention_id"] for mention in created_mentions} == {
+        "mention_split_move_1",
+        "mention_split_move_2",
+    }
+
+    created = await store.get_canonical_event(created_id)
+    assert created["status"] == "needs_review"
+    assert created["metadata"]["split_from"] == "ce_italy_split_source"
+    artifact = await store.get_research_artifact("ra_italy_split_apply")
+    assert artifact["status"] == "resolved"
+    assert artifact["metadata"]["applied_operation_id"] == applied["operation_id"]
+
+    second = await store.apply_canonical_split(
+        target_id="italy",
+        source_canonical_event_id="ce_italy_split_source",
+        affected_mention_ids=["mention_split_move_1", "mention_split_move_2"],
+        decision_artifact_id="ra_italy_split_apply",
+        new_title="Split event",
+        created_by="local-user",
+    )
+    assert second["operation_id"] == applied["operation_id"]
+    operations = await store.list_canonical_graph_operations(target_id="italy", limit=10)
+    assert [operation["operation_id"] for operation in operations] == [applied["operation_id"]]
+
+
+@pytest.mark.asyncio
+async def test_canonical_split_rejects_non_canonical_artifact_subject_type(store: AsyncStore):
+    await _seed_split_graph(store)
+    assert store._db is not None
+    await store._db.execute(
+        """INSERT INTO research_artifacts
+           (artifact_id, target_id, artifact_type, title, body, subject_type,
+            subject_id, canonical_event_ids_json, status, visibility, created_by, metadata_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            "ra_italy_split_bad_subject_type",
+            "italy",
+            "split_decision",
+            "Split",
+            "Different fact",
+            "event_mention",
+            "ce_italy_split_source",
+            json.dumps(["ce_italy_split_source"]),
+            "open",
+            "local_private",
+            "local-user",
+            store._json_dumps(
+                {
+                    "decision": "proposed",
+                    "affected_mention_ids": ["mention_split_move_1"],
+                }
+            ),
+        ),
+    )
+    await store._db.commit()
+
+    with pytest.raises(ValueError, match="subject_type must be canonical_event"):
+        await store.preview_canonical_split(
+            target_id="italy",
+            source_canonical_event_id="ce_italy_split_source",
+            affected_mention_ids=["mention_split_move_1"],
+            decision_artifact_id="ra_italy_split_bad_subject_type",
+            created_by="local-user",
+        )
+
+
+@pytest.mark.asyncio
+async def test_canonical_split_rejects_same_artifact_different_affected_set(
+    store: AsyncStore,
+):
+    await _seed_split_graph(store)
+
+    await store.apply_canonical_split(
+        target_id="italy",
+        source_canonical_event_id="ce_italy_split_source",
+        affected_mention_ids=["mention_split_move_1", "mention_split_move_2"],
+        decision_artifact_id="ra_italy_split_apply",
+        created_by="local-user",
+    )
+
+    with pytest.raises(ValueError, match="affected mentions must match requested ids"):
+        await store.apply_canonical_split(
+            target_id="italy",
+            source_canonical_event_id="ce_italy_split_source",
+            affected_mention_ids=["mention_split_move_2"],
+            decision_artifact_id="ra_italy_split_apply",
+            created_by="local-user",
+        )
+
+
+@pytest.mark.asyncio
+async def test_canonical_split_rejects_artifact_affected_subset_payload(
+    store: AsyncStore,
+):
+    await _seed_split_graph(store)
+
+    with pytest.raises(ValueError, match="affected mentions must match requested ids"):
+        await store.preview_canonical_split(
+            target_id="italy",
+            source_canonical_event_id="ce_italy_split_source",
+            affected_mention_ids=["mention_split_move_1"],
+            decision_artifact_id="ra_italy_split_apply",
+            created_by="local-user",
+        )
+
+
+@pytest.mark.asyncio
+async def test_canonical_split_rejects_applied_operation_payload_mismatch(
+    store: AsyncStore,
+):
+    await _seed_split_graph(store)
+    unrelated_operation_id = await store.record_canonical_graph_operation(
+        {
+            "operation_id": "cgo-italy-unrelated-split",
+            "target_id": "italy",
+            "operation_type": "split",
+            "decision_artifact_id": "ra_italy_split_apply",
+            "primary_canonical_event_id": "ce_italy_other_source",
+            "result_canonical_event_id": "ce_italy_other_result",
+            "status": "applied",
+            "changes": [],
+            "warnings": [],
+            "metadata": {
+                "affected_mention_ids": ["mention_split_move_2"],
+                "source_canonical_event_id": "ce_italy_other_source",
+                "result_canonical_event_id": "ce_italy_other_result",
+                "new_title": None,
+                "new_summary": None,
+            },
+            "created_by": "local-user",
+        }
+    )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_split_apply",
+            "target_id": "italy",
+            "artifact_type": "split_decision",
+            "title": "Split",
+            "body": "Different fact",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_split_source",
+            "canonical_event_ids": ["ce_italy_split_source"],
+            "status": "resolved",
+            "metadata": {
+                "decision": "proposed",
+                "affected_mention_ids": ["mention_split_move_1", "mention_split_move_2"],
+                "applied_operation_id": unrelated_operation_id,
+            },
+        }
+    )
+
+    with pytest.raises(ValueError, match="applied operation mismatch"):
+        await store.apply_canonical_split(
+            target_id="italy",
+            source_canonical_event_id="ce_italy_split_source",
+            affected_mention_ids=["mention_split_move_1", "mention_split_move_2"],
+            decision_artifact_id="ra_italy_split_apply",
+            created_by="local-user",
+        )
+
+
+@pytest.mark.asyncio
+async def test_canonical_split_rejects_moving_all_mentions(store: AsyncStore):
+    await _seed_split_graph(store)
+    with pytest.raises(ValueError, match="leave at least one mention"):
+        await store.preview_canonical_split(
+            target_id="italy",
+            source_canonical_event_id="ce_italy_split_source",
+            affected_mention_ids=[
+                "mention_split_keep",
+                "mention_split_move_1",
+                "mention_split_move_2",
+            ],
+            decision_artifact_id=None,
+            created_by="local-user",
+        )
 
 
 @pytest.mark.asyncio
@@ -2102,6 +3088,65 @@ async def test_research_artifact_upsert_rejects_identity_boundary_changes(
         assert stored["target_id"] == original["target_id"]
         assert stored["subject_id"] == original["subject_id"]
         assert stored["artifact_type"] == original["artifact_type"]
+
+
+@pytest.mark.asyncio
+async def test_research_artifact_upsert_rejects_reopening_applied_graph_decision(
+    store: AsyncStore,
+):
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_applied_decision",
+            "target_id": "italy",
+            "title": "Applied decision event",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "active",
+            "confidence": 90,
+            "metadata": {},
+        }
+    )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_applied_merge",
+            "target_id": "italy",
+            "artifact_type": "merge_decision",
+            "title": "Applied merge",
+            "body": "",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_applied_decision",
+            "canonical_event_ids": ["ce_italy_applied_decision"],
+            "status": "resolved",
+            "metadata": {
+                "candidate_canonical_event_ids": ["ce_italy_other"],
+                "applied_operation_id": "cgo-italy-merge-applied",
+                "decision": "proposed",
+            },
+        }
+    )
+
+    with pytest.raises(ValueError, match="applied research artifact cannot be reopened"):
+        await store.upsert_research_artifact(
+            {
+                "artifact_id": "ra_italy_applied_merge",
+                "target_id": "italy",
+                "artifact_type": "merge_decision",
+                "title": "Applied merge",
+                "body": "",
+                "subject_type": "canonical_event",
+                "subject_id": "ce_italy_applied_decision",
+                "canonical_event_ids": ["ce_italy_applied_decision"],
+                "status": "open",
+                "metadata": {
+                    "candidate_canonical_event_ids": ["ce_italy_other"],
+                    "decision": "proposed",
+                },
+            }
+        )
+
+    stored = await store.get_research_artifact("ra_italy_applied_merge")
+    assert stored["status"] == "resolved"
+    assert stored["metadata"]["applied_operation_id"] == "cgo-italy-merge-applied"
 
 
 @pytest.mark.asyncio
