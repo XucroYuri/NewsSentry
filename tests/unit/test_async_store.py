@@ -1669,6 +1669,7 @@ async def test_canonical_shadow_tables_created(store: AsyncStore):
         "canonical_events",
         "event_mentions",
         "canonical_event_relations",
+        "canonical_graph_operations",
         "taxonomy_assignments",
         "canonical_entity_links",
         "research_artifacts",
@@ -1803,7 +1804,7 @@ async def test_migration_v7_research_artifacts_get_professional_workflow_default
             "visibility",
             "created_by",
         }.issubset(columns)
-        assert max(row[0] for row in versions) == 8
+        assert max(row[0] for row in versions) == 9
 
         artifact = await store.get_research_artifact("ra_v7_review")
         assert artifact is not None
@@ -1918,6 +1919,54 @@ async def test_upsert_canonical_event_is_idempotent(store: AsyncStore):
     assert second == "ce_italy_001"
     assert len(rows) == 1
     assert rows[0]["title"] == "Example event updated"
+
+
+@pytest.mark.asyncio
+async def test_canonical_graph_operation_record_and_list(store: AsyncStore):
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_graph_source",
+            "target_id": "italy",
+            "title": "Source event",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "active",
+            "confidence": 90,
+            "metadata": {},
+        }
+    )
+
+    operation_id = await store.record_canonical_graph_operation(
+        {
+            "operation_id": "cgo-italy-merge-example",
+            "target_id": "italy",
+            "operation_type": "merge",
+            "decision_artifact_id": "ra_italy_merge_example",
+            "primary_canonical_event_id": "ce_italy_graph_source",
+            "result_canonical_event_id": "ce_italy_graph_source",
+            "status": "applied",
+            "changes": [{"type": "mark_merged", "canonical_event_id": "ce_merged"}],
+            "warnings": [],
+            "metadata": {"idempotency_key": "merge-key"},
+            "created_by": "local-user",
+        }
+    )
+
+    assert operation_id == "cgo-italy-merge-example"
+    listed = await store.list_canonical_graph_operations(target_id="italy", limit=10)
+    assert [item["operation_id"] for item in listed] == ["cgo-italy-merge-example"]
+    assert listed[0]["changes"][0]["type"] == "mark_merged"
+    assert listed[0]["metadata"]["idempotency_key"] == "merge-key"
+
+    by_artifact = await store.list_canonical_graph_operations(
+        target_id="italy",
+        decision_artifact_id="ra_italy_merge_example",
+        limit=10,
+    )
+    assert [item["operation_id"] for item in by_artifact] == ["cgo-italy-merge-example"]
+
+    missing = await store.list_canonical_graph_operations(target_id="france", limit=10)
+    assert missing == []
 
 
 @pytest.mark.asyncio
