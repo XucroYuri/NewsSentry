@@ -1,23 +1,25 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.6.0-blue.svg" alt="version" />
+  <img src="https://img.shields.io/badge/version-1.9.1-blue.svg" alt="version" />
   <img src="https://img.shields.io/badge/python-3.11+-3776AB.svg?logo=python&logoColor=white" alt="python" />
-  <img src="https://img.shields.io/badge/tests-1629%20passed-brightgreen.svg" alt="tests" />
-  <img src="https://img.shields.io/badge/coverage-92%25-green.svg" alt="coverage" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-orange.svg" alt="license" />
   <img src="https://img.shields.io/badge/ruff-0%20errors-success.svg" alt="ruff" />
-  <img src="https://img.shields.io/badge/mypy-strict-success.svg" alt="mypy" />
 </p>
 
 <h1 align="center">News Sentry</h1>
 
 <p align="center">
-  <strong>框架中立的 AI 新闻监控引擎</strong><br>
-  RSS/API/社媒采集 → 智能过滤 → AI 研判 → Markdown 输出<br>
-  配置驱动，零代码扩展新国家
+  <strong>开源 AI 新闻情报与 OSINT 监控平台</strong><br>
+  多语言新闻与社媒采集 → 信源健康 → canonical event graph → 专业研究工作流
 </p>
 
 <p align="center">
-  <a href="#快速开始">快速开始</a> · <a href="#pipeline-总览">架构</a> · <a href="#使用">使用</a> · <a href="#部署">部署</a> · <a href="#能力边界与路线图">路线图</a>
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#为什么需要-news-sentry">为什么需要</a> ·
+  <a href="#核心能力">核心能力</a> ·
+  <a href="#系统架构">系统架构</a> ·
+  <a href="#典型使用场景">典型使用场景</a> ·
+  <a href="#路线图">路线图</a> ·
+  <a href="#参与贡献">参与贡献</a>
 </p>
 
 <p align="center">
@@ -28,24 +30,34 @@
 
 ## News Sentry 是什么？
 
-News Sentry 是一个**持续新闻监控平台**，自动化完成从采集到研判的全流程：
+News Sentry 是一个 local-first 的开源系统，用于持续 **AI 新闻情报**、**OSINT 监控平台** 和专业研究工作流。
 
+它持续采集多语言新闻、RSS、API、社媒和公共网页信源，并帮助研究者把碎片化报道整理为结构化事件、信源健康状态、告警、Markdown 简报和 canonical event graph。
+
+它不是普通 RSS reader，也不是一次性爬虫脚本，而是面向长期运行和人工复核的新闻情报基础设施。
+
+## 为什么需要 News Sentry？
+
+大多数监控工具止步于收集链接。News Sentry 关注完整情报闭环：
+
+```text
+采集 → 过滤 → 研判 → 输出 → 复核 → canonical graph → research artifact
 ```
-70+ 信源采集 → 关键词过滤 → AI 研判评分 → Markdown 输出 + 实时告警
-```
 
-**核心特性：**
+关键区别是：一篇报道只是一次 **event mention**，不是事实本身。多家媒体、多语言、多平台报道可以归并为 canonical event，而人在回路的复核、标注、合并、拆分和研究笔记会保存为 research artifacts，不会静默污染事实层。
 
-| 特性 | 说明 |
-|------|------|
-| **框架中立** | 支持 Hermes Agent、OpenClaw 或独立 CLI 运行 |
-| **配置驱动** | 新增监控国家只需添加 YAML，无需写代码 |
-| **零 Token 采集** | RSS / API / OpenCLI 采集阶段不消耗 AI Token |
-| **5 国已配置** | 意大利、日本、德国、法国 + 英文涉华报道 |
-| **双语管道** | 原文采集 → 自动翻译 → 中文研判输出 |
-| **反馈闭环** | 人工反馈自动优化关键词权重 |
-| **信源自进化** | RSS 自动发现 + 健康巡检 + 矩阵自扩展 |
-| **内置 Web UI** | 信息展示 + 配置管理 + NLP/Entity 可视化 |
+## 核心能力
+
+| 能力 | 说明 |
+| --- | --- |
+| 多语言新闻监控 | 已配置意大利、日本、德国、法国和英文涉华报道 target |
+| RSS/API/OpenCLI 采集 | 采集阶段零 token，支持 feeds、API、网站和可选工具适配 |
+| 信源健康 | 跟踪信源可用性、运行诊断、陈旧 feed 和生命周期 |
+| AI 研判 | 规则优先，AI 辅助新闻价值、涉华相关度、情绪和置信度评分 |
+| canonical event graph | 区分现实事件、报道 mention、关系、分类和实体 |
+| 专业研究工作流 | 复核队列、人工标注、merge/split 决策和 research artifacts |
+| 本地优先部署 | 支持 CLI、FastAPI Web UI、桌面包装、Docker 和未来云端 worker |
+| 人在回路 | AI 辅助筛选和分析，关键研究判断保留可审计人工介入 |
 
 ---
 
@@ -108,7 +120,7 @@ pip install -e ".[api]"    # FastAPI REST API 网关
 
 ---
 
-## Pipeline 总览
+## 系统架构
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
@@ -148,7 +160,7 @@ pip install -e ".[api]"    # FastAPI REST API 网关
 
 | 阶段 | 输入 | 输出 | 说明 |
 |------|------|------|------|
-| **Collect** | RSS/API/OpenCLI 配置 | `raw/` | 从 70+ 源采集，零 Token |
+| **Collect** | RSS/API/OpenCLI 配置 | `raw/` | 从多目标信源矩阵采集，零 Token |
 | **Filter** | `raw/` | `evaluated/` + `archive/` | 关键词评分 + L0-L3 分类 + 去重 |
 | **Judge** | `evaluated/` | `evaluated/` | AI 新闻价值评分 + 涉华议题关联度 |
 | **Output** | `evaluated/` | `drafts/` | Markdown 报告 + 多通道告警 |
@@ -344,10 +356,10 @@ sudo systemctl enable --now news-sentry
 | HTTP | httpx 0.27+ | SOCKS5 代理支持 |
 | RSS | feedparser 6.0+ | RSS/Atom 解析 |
 | API | FastAPI 0.110+ | REST API + OpenAPI 3.1 |
-| 存储 | aiosqlite | SQLite WAL 异步存储 |
+| 存储 | Markdown/YAML + SQLite (aiosqlite) | 文件协议 + 异步索引/存储 |
 | 配置 | PyYAML 6.0+ | 全 YAML 配置驱动 |
 | 缓存 | cachetools | LRU 缓存 + TTL |
-| 测试 | pytest 8.0+ | 1629 tests / 92% coverage |
+| 测试 | pytest 8.0+ | 广泛回归测试集 + 覆盖率跟踪 |
 
 ---
 
@@ -365,82 +377,46 @@ make eval          # 运行评估集
 **质量门禁：**
 - `ruff check` — 0 errors
 - `mypy —strict` — 0 issues
-- `pytest` — 1629 passed
+- `pytest` — 项目测试套件通过
 
 ---
 
-## 能力边界与路线图
+## 典型使用场景
 
-### 现状 vs 计划
+- 新闻编辑部和研究团队持续追踪国家、地区、政策、产业和突发事件。
+- OSINT 研究者跨语言验证公开信源、报道来源和事件链。
+- 分析师监控公共舆情、地缘风险、产业政策和媒体叙事。
+- 运维人员管理多目标信源健康、覆盖缺口和采集诊断。
+- 本地研究工作台用于复核、标注、合并、拆分和输出 canonical events 简报。
 
-```
-                        ┌─────────────────────────────────────────────┐
-                        │           News Sentry 能力全景               │
-                        └────────────────────┬────────────────────────┘
-                                             │
-          ┌──────────────────────────────────┼──────────────────────────────────┐
-          │                                  │                                  │
-    ┌─────▼─────┐                    ┌────────▼────────┐                ┌────────▼────────┐
-    │  ✅ 已实现  │                    │  🔧 部分实现     │                │  📋 v2.0 计划    │
-    └─────┬─────┘                    └────────┬────────┘                └────────┬────────┘
-          │                                  │                                  │
-   ┌──────┴──────┐                  ┌────────┴────────┐                ┌────────┴────────┐
-   │ · 163 信源   │                  │ · VPS 72h 验证   │                │ · 更多 Target    │
-   │ · 5 国配置   │                  │ · KOL 仍为实验通道│                │   (韩国/英国等)  │
-   │ · AI 研判    │                  └─────────────────┘                │ · 知识图谱构建   │
-   │ · 关键词过滤  │                                                     │ · 自动推送对接   │
-   │ · 反馈闭环   │                                                     └─────────────────┘
-   │ · REST API   │
-   │ · 告警推送   │
-   │ · 安全审计   │
-   │ · Web UI     │
-   │ · 异步存储   │
-   │ · 多目标调度  │
-   │ · NLP 分析   │
-   │ · 治理清零   │
-   └─────────────┘
-```
+## 路线图
 
-### 优势与局限
+News Sentry 正在从本地新闻监控引擎演进为全球新闻情报平台。
 
-| 维度 | ✅ 优势 | ⚠️ 局限 |
-|------|--------|---------|
-| **采集** | 70+ 源 / 零 Token / 自动发现 | 社媒 KOL 仍为实验通道，依赖外部 Bridge |
-| **研判** | 规则 + AI 双路由 / 准确率 >70% | AI 研判存在误判，不可替代人工决策 |
-| **多语言** | 5 国配置 / it/en/ja/de/fr | 翻译质量依赖 AI，专业术语可能偏差 |
-| **部署** | Docker 零依赖 / API 网关 | VPS 长期稳定性需实际验证 |
-| **反馈** | 人工标注 → 规则自优化 | 需要足够反馈数据才有效果 |
+近期重点：
 
-### 项目状态
+- 修复 run batch 语义、alert history、source inventory 等可靠性根基；
+- 建立 shadow canonical data spine，承载 canonical events、mentions、relations、taxonomy 和 research artifacts；
+- 落地专业研究工作流 MVP，支持人工复核、merge/split、标注和简报；
+- 规划本地轻客户端，让用户选择关注范围并支持离线研究；
+- 长期探索半中心化公共采集节点，提升全球本地信源覆盖。
 
-**v1.5.0 — 全部 47 个 Phase 已完成**
+参考文档：
 
-| 阶段 | 版本 | 状态 |
-|------|------|------|
-| 基础平台（P1-P7） | v0.1–v0.3 | ✅ 完成 |
-| 迭代改进（P8-P11） | v0.4 | ✅ 完成 |
-| 信源矩阵 + 评估集（P12-P13） | v0.5 | ✅ 完成 |
-| AI 优化 + 云部署（P14-P15） | v0.6 | ✅ 完成 |
-| 生产化 + 多目标（P16-P18） | v0.7 | ✅ 完成 |
-| 多语言 + 反馈闭环（P19-P20） | v0.8 | ✅ 完成 |
-| 生态集成（P21-P22） | v0.9 | ✅ 完成 |
-| 稳定发布（P23） | v1.0 | ✅ 完成 |
-| 突发新闻雷达（P24） | v1.1 | ✅ 完成 |
-| 性能优化（P25-P29） | v1.2 | ✅ 完成 |
-| 多语言 NLP（P30-P33） | v1.3 | ✅ 完成 |
-| 运维仪表盘（P34-P39） | v1.4 | ✅ 完成 |
-| 治理 + 收尾（P40-P47） | v1.5 | ✅ 完成 |
+- [全球情报平台商业与架构方向](docs/superpowers/specs/2026-05-30-global-intelligence-platform-business-architecture-design.md)
+- [Shadow canonical data spine](docs/superpowers/specs/2026-05-30-shadow-canonical-data-spine-design.md)
+- [Professional research workflow MVP](docs/superpowers/specs/2026-05-30-professional-research-workflow-mvp-design.md)
 
-| 指标 | 值 |
-|------|-----|
-| 测试 | 1629 passed |
-| 覆盖率 | 92% |
-| Lint | ruff = 0 errors |
-| 类型 | mypy strict = 0 issues |
-| Target | 5 个国家 |
-| 信源 | 163 YAML |
-| Phase | 47/47 完成 |
-| 治理 backlog | 0 条开放 |
+## 参与贡献
+
+欢迎贡献：
+
+- 新国家、地区、语言和信源配置；
+- 面向公共网站、RSS、API 和社媒来源的 collector adapter；
+- canonical event graph、taxonomy、source health 和研究工作流能力；
+- 文档、部署指南和可复现监控样例。
+
+贡献前请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)、[docs/contracts-canonical.md](docs/contracts-canonical.md) 和 [docs/architecture.md](docs/architecture.md)。
 
 ---
 

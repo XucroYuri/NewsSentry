@@ -5,11 +5,27 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "news-sentry"
 version = "1.9.1"
-description = "Framework-neutral Agent Skill Pack for continuous news monitoring — Italy Breaking News reference target"
+description = "Open-source AI news intelligence and OSINT monitoring platform for multilingual news, social media, canonical event graphs, and research workflows"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
-keywords = ["news", "monitoring", "agent", "skill-pack", "italy", "breaking-news"]
+keywords = [
+    "ai",
+    "news",
+    "news-intelligence",
+    "osint",
+    "monitoring",
+    "media-monitoring",
+    "public-opinion",
+    "social-media-monitoring",
+    "multilingual",
+    "event-graph",
+    "knowledge-graph",
+    "research-workflow",
+    "journalism",
+    "rss",
+    "fastapi",
+]
 authors = [
     { name = "XucroYuri" },
 ]
@@ -17,11 +33,15 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Information Technology",
+    "Intended Audience :: Science/Research",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Topic :: Communications",
     "Topic :: Internet :: WWW/HTTP :: Dynamic Content :: News/Diary",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+    "Topic :: Scientific/Engineering :: Information Analysis",
 ]
 
 dependencies = [
@@ -61,10 +81,12 @@ desktop = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/XucroYuri/NewsSentry"
+Homepage = "https://github.com/XucroYuri/NewsSentry#readme"
 Repository = "https://github.com/XucroYuri/NewsSentry"
 Issues = "https://github.com/XucroYuri/NewsSentry/issues"
 Documentation = "https://github.com/XucroYuri/NewsSentry/blob/main/docs/"
+Roadmap = "https://github.com/XucroYuri/NewsSentry/blob/main/docs/superpowers/specs/2026-05-30-global-intelligence-platform-business-architecture-design.md"
+Security = "https://github.com/XucroYuri/NewsSentry/blob/main/SECURITY.md"
 
 [project.scripts]
 news-sentry = "news_sentry.cli:main"
