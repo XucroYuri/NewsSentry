@@ -83,6 +83,11 @@ class RunLog:
         phase["items_count"] = items_count
         phase["duration_ms"] = duration_ms
 
+    def log_phase_metrics(self, stage: str, metrics: dict[str, Any]) -> None:
+        """记录阶段级诊断指标，便于自动化判断卡点原因。"""
+        phase = self._get_or_create_phase(stage)
+        phase["metrics"].update(metrics)
+
     # ------------------------------------------------------------------
     # 事件与错误记录
     # ------------------------------------------------------------------
@@ -129,16 +134,20 @@ class RunLog:
                     "items_count": p["items_count"],
                     "errors_count": len(p["errors"]),
                     "errors": p["errors"],
+                    "metrics": p["metrics"],
                 }
             )
 
         summary = self._compute_summary()
         errors = self._flatten_errors()
 
+        status = "error" if errors else "ok"
         output = {
             "run_id": self.run_id,
             "started_at": self.started_at,
             "ended_at": ended_at,
+            "finished_at": ended_at,
+            "status": status,
             "target_id": self.target_id,
             "profile_id": self.profile_id,
             "output_root": self.output_root,
@@ -169,6 +178,7 @@ class RunLog:
                 "duration_ms": None,
                 "items_count": 0,
                 "errors": [],
+                "metrics": {},
                 "_events": [],  # 内部追踪，不写入文件
             }
         return self._phases[stage]

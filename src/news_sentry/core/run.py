@@ -345,6 +345,7 @@ def _run_filter(
     # 过滤
     rules_filter = RulesFilter(config.filter_rules, memory)
     filtered = rules_filter.filter(events, run_id)
+    run_log.log_phase_metrics("filter", rules_filter.last_stats)
 
     # 将被拒绝的事件写入 archive/
     rejected = [e for e in events if e not in filtered]

@@ -325,6 +325,9 @@ class SourceHealthInfo(BaseModel):
     status: str
     last_check: str
     error_count: int = 0
+    last_error: str | None = None
+    last_success_at: str | None = None
+    last_failure_at: str | None = None
     metadata: dict[str, Any] = {}
 
 
@@ -1208,6 +1211,107 @@ def _load_source_configs(target_id: str) -> list[dict[str, Any]]:
             data["_file_path"] = str(yaml_file)
             sources.append(data)
     return sources
+
+
+def _source_ids_for_target(target_id: str) -> set[str]:
+    """返回 target 当前启用的信源 ID，用于后台健康状态过滤。"""
+    ids: set[str] = set()
+    for source in _load_source_configs(target_id):
+        lifecycle = source.get("lifecycle") if isinstance(source.get("lifecycle"), dict) else {}
+        if source.get("enabled", True) is False:
+            continue
+        if source.get("deprecated") is True:
+            continue
+        if lifecycle.get("status") == "archived":
+            continue
+        for key in ("source_id", "id", "_source_id"):
+            value = source.get(key)
+            if value:
+                normalized = str(value).strip()
+                ids.add(normalized)
+                ids.add(Path(normalized).name)
+    return ids
+
+
+def _filter_source_health_records(
+    target_id: str,
+    records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """按当前 target 的信源配置过滤健康记录；无配置时保留原结果。"""
+    source_ids = _source_ids_for_target(target_id)
+    if not source_ids:
+        return records
+    filtered: list[dict[str, Any]] = []
+    for record in records:
+        source_id = str(record.get("source_id", "")).strip()
+        if source_id in source_ids or Path(source_id).name in source_ids:
+            filtered.append(record)
+    return filtered
+
+
+def _source_health_status_from_memory(entry: dict[str, Any]) -> str:
+    """把 Memory source_health.yaml 形状归一为 API 状态。"""
+    failures = int(entry.get("consecutive_failures") or 0)
+    total_runs = int(entry.get("total_runs") or 0)
+    total_failures = int(entry.get("total_failures") or 0)
+    if failures >= 10:
+        return "dead"
+    if failures >= 3:
+        return "degraded"
+    if total_runs > 0 and total_failures >= total_runs:
+        return "degraded"
+    return "healthy"
+
+
+def _source_health_error_count_from_memory(entry: dict[str, Any]) -> int:
+    """优先使用连续失败数；没有时退回总失败数。"""
+    return int(entry.get("consecutive_failures") or entry.get("total_failures") or 0)
+
+
+def _load_memory_source_health_records(target_id: str | None = None) -> list[dict[str, Any]]:
+    """读取真实采集写入的 memory/source_health.yaml 并转成 API 响应形状。"""
+    target_ids: list[str]
+    if target_id:
+        target_ids = [target_id]
+    elif _data_dir.exists():
+        target_ids = sorted(d.name for d in _data_dir.iterdir() if d.is_dir())
+    else:
+        target_ids = []
+
+    records: list[dict[str, Any]] = []
+    for tid in target_ids:
+        path = _data_dir / tid / "memory" / "source_health.yaml"
+        if not path.is_file():
+            continue
+        data = _load_yaml_file(path)
+        if not isinstance(data, dict):
+            continue
+        for source_id, entry in data.items():
+            if not isinstance(entry, dict):
+                continue
+            records.append(
+                {
+                    "source_id": str(source_id),
+                    "status": _source_health_status_from_memory(entry),
+                    "last_check": entry.get("last_success_at")
+                    or entry.get("last_failure_at")
+                    or "",
+                    "error_count": _source_health_error_count_from_memory(entry),
+                    "last_error": entry.get("last_error"),
+                    "last_success_at": entry.get("last_success_at"),
+                    "last_failure_at": entry.get("last_failure_at"),
+                    "metadata": {
+                        "target_id": tid,
+                        "last_success_at": entry.get("last_success_at"),
+                        "last_failure_at": entry.get("last_failure_at"),
+                        "last_error": entry.get("last_error"),
+                        "total_runs": entry.get("total_runs", 0),
+                        "total_failures": entry.get("total_failures", 0),
+                        "consecutive_failures": entry.get("consecutive_failures", 0),
+                    },
+                }
+            )
+    return records
 
 
 def _load_single_source(target_id: str, source_id: str) -> dict[str, Any] | None:
