@@ -2012,6 +2012,81 @@ async def test_canonical_graph_operation_duplicate_artifact_returns_existing_id(
 
 
 @pytest.mark.asyncio
+async def test_canonical_graph_operation_duplicate_artifact_race_returns_existing_id(
+    store: AsyncStore,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_graph_race",
+            "target_id": "italy",
+            "title": "Racing artifact event",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "active",
+            "confidence": 90,
+            "metadata": {},
+        }
+    )
+
+    assert store._db is not None
+    original_execute = store._db.execute
+    original_commit = store._db.commit
+    race_inserted = False
+
+    class RacingInsert:
+        def __init__(self, sql: str, parameters: tuple[Any, ...]) -> None:
+            self.sql = sql
+            self.parameters = parameters
+
+        def __await__(self):
+            async def _run():
+                nonlocal race_inserted
+                race_inserted = True
+                winning_parameters = ("cgo-italy-race-winner", *self.parameters[1:])
+                await original_execute(self.sql, winning_parameters)
+                await original_commit()
+                raise sqlite3.IntegrityError(
+                    "UNIQUE constraint failed: canonical_graph_operations.target_id, "
+                    "canonical_graph_operations.decision_artifact_id"
+                )
+
+            return _run().__await__()
+
+    def execute_with_race(sql: str, parameters: tuple[Any, ...] | None = None):
+        nonlocal race_inserted
+        if (
+            not race_inserted
+            and "INSERT INTO canonical_graph_operations" in sql
+            and parameters is not None
+        ):
+            return RacingInsert(sql, parameters)
+        return original_execute(sql, parameters or ())
+
+    monkeypatch.setattr(store._db, "execute", execute_with_race)
+
+    operation_id = await store.record_canonical_graph_operation(
+        {
+            "operation_id": "cgo-italy-race-loser",
+            "target_id": "italy",
+            "operation_type": "merge",
+            "decision_artifact_id": "ra_italy_race_artifact",
+            "primary_canonical_event_id": "ce_italy_graph_race",
+            "result_canonical_event_id": "ce_italy_graph_race",
+            "status": "applied",
+            "changes": [],
+            "warnings": [],
+            "metadata": {},
+            "created_by": "local-user",
+        }
+    )
+
+    listed = await store.list_canonical_graph_operations(target_id="italy", limit=10)
+    assert operation_id == "cgo-italy-race-winner"
+    assert [item["operation_id"] for item in listed] == ["cgo-italy-race-winner"]
+
+
+@pytest.mark.asyncio
 async def test_canonical_graph_operation_list_normalizes_pagination(store: AsyncStore):
     await store.upsert_canonical_event(
         {
