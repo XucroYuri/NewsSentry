@@ -2060,6 +2060,16 @@ class AsyncStore:
         if artifact_operation_id:
             operation = await self.get_canonical_graph_operation(str(artifact_operation_id))
             if operation is not None:
+                if (
+                    operation["target_id"] != target_id
+                    or operation["operation_type"] != "merge"
+                    or operation["decision_artifact_id"] != decision_artifact_id
+                ):
+                    raise ValueError(
+                        "applied operation mismatch: "
+                        f"{artifact_operation_id} does not match merge artifact "
+                        f"{decision_artifact_id}"
+                    )
                 return operation
         operation = await self.get_canonical_graph_operation(operation_id)
         if operation is not None:
