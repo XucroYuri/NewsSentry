@@ -219,6 +219,8 @@ Markdown 是投影，不是事实源。
 - pipeline 默认不再为每个事件写入 `drafts/{event_id}.md`。
 - output 阶段默认写 canonical store、alert log、artifact record。
 - 公开门户和研究工作台直接从 canonical/query layer 读取。
+- Phase 80 起新增 Markdown export API；per-event Markdown 草稿改为显式启用的本地投影，不再是默认输出。
+- 前端下载入口后续可直接链接 export API，不作为本阶段阻塞项。
 
 ### 5.2 用户按需导出
 
