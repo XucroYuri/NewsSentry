@@ -85,7 +85,7 @@ Homepage = "https://github.com/XucroYuri/NewsSentry#readme"
 Repository = "https://github.com/XucroYuri/NewsSentry"
 Issues = "https://github.com/XucroYuri/NewsSentry/issues"
 Documentation = "https://github.com/XucroYuri/NewsSentry/blob/main/docs/"
-Roadmap = "https://github.com/XucroYuri/NewsSentry/blob/main/docs/superpowers/specs/2026-05-30-global-intelligence-platform-business-architecture-design.md"
+Roadmap = "https://github.com/XucroYuri/NewsSentry/blob/main/docs/roadmap/global-scale-news-intelligence-architecture.md"
 Security = "https://github.com/XucroYuri/NewsSentry/blob/main/SECURITY.md"
 
 [project.scripts]

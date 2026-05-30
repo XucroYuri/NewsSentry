@@ -41,6 +41,10 @@ uv.lock
 # OMC plugin state (session-local, not project code)
 .omc/
 
+# OMX / terminal session state (session-local, not project code)
+.omx/
+screenlog.*
+
 # Git worktrees (isolated workspaces)
 .worktrees/
 
@@ -58,11 +62,8 @@ data/
 # Local document archive (dev-reference docs not for publication)
 docs/_archive/
 docs/development/
-docs/spec/
 docs/testing/
 docs/brainstorming/
-docs/superpowers/
-docs/development-plan.md
 docs/integration-protocol.md
 docs/it-zh-bilingual-sop.md
 docs/it-zh-glossary.md

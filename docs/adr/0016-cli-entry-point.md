@@ -12,7 +12,7 @@
 
 ## 背景
 
-ADR-0006 确立了 Hermes 为主调度器、OpenClaw 为 Skill 运行时，但未明确规定从 CLI 触发 bounded run 的具体命令格式。`docs/development-plan.md` 中有 `CLI-001` 遗留 backlog。本 ADR 正式锁定命令格式并关闭该 backlog。
+ADR-0006 确立了 Hermes 为主调度器、OpenClaw 为 Skill 运行时，但未明确规定从 CLI 触发 bounded run 的具体命令格式。`docs/roadmap/development-plan.md` 中有 `CLI-001` 遗留 backlog。本 ADR 正式锁定命令格式并关闭该 backlog。
 
 ---
 
@@ -59,7 +59,7 @@ python -m news_sentry.cli validate --config <path> # 校验 config YAML 对 sche
 - 运行结束后写入 `{target}/logs/run-{run_id}.json`
 - Host 调用 `python -m news_sentry.cli run` 后可通过退出码判断状态：`0`=成功，`1`=部分失败，`2`=配置错误，`3`=沙箱阻断
 
-**关闭 CLI-001：** `docs/development-plan.md §CLI-001 backlog` 中"CLI 入口格式待定"问题由本 ADR 解决，不再在 backlog 中追踪。
+**关闭 CLI-001：** `docs/roadmap/development-plan.md §CLI-001 backlog` 中"CLI 入口格式待定"问题由本 ADR 解决，不再在 backlog 中追踪。
 
 ---
 

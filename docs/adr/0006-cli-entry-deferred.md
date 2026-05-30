@@ -35,11 +35,11 @@ PRD Open Questions 第 6 条：
 python -m news_sentry.cli run --target <target_id> --stage <stage> --profile <profile_id>
 ```
 
-**治理 backlog 条目：** `CLI-001 — 决定 python -m news_sentry.cli run 的完整命令 schema`，在 `docs/development-plan.md §跨 phase 治理 backlog` 中追踪。
+**治理 backlog 条目：** `CLI-001 — 决定 python -m news_sentry.cli run 的完整命令 schema`，在 `docs/roadmap/development-plan.md §跨 phase 治理 backlog` 中追踪。
 
 ---
 
 ## 影响
 
 - `docs/brainstorming/通用内核与平台化架构PRD.md §10 第 6 条`：标记为 `[DEFERRED: 见 ADR-0006，进入治理 backlog CLI-001]`。
-- `docs/development-plan.md §治理 backlog`：增加 `CLI-001` 条目。
+- `docs/roadmap/development-plan.md §治理 backlog`：增加 `CLI-001` 条目。

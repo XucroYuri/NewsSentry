@@ -6,7 +6,7 @@
 | **日期** | 2026-05-09 |
 | **决策者** | 项目用户（明确决策） |
 | **关联 ADR** | ADR-0008（系统级依赖原则）、ADR-0005（workflow_state 写入 frontmatter）|
-| **关联文档** | [外部集成策略 §3 & §6](../external-integration-strategy.md)、[development-plan.md](../development-plan.md) |
+| **关联文档** | [外部集成策略 §3 & §6](../external-integration-strategy.md)、[development-plan.md](../roadmap/development-plan.md) |
 
 ---
 

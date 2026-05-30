@@ -399,9 +399,9 @@ Near-term priorities:
 
 See:
 
-- [Global intelligence platform direction](docs/superpowers/specs/2026-05-30-global-intelligence-platform-business-architecture-design.md)
-- [Shadow canonical data spine](docs/superpowers/specs/2026-05-30-shadow-canonical-data-spine-design.md)
-- [Professional research workflow MVP](docs/superpowers/specs/2026-05-30-professional-research-workflow-mvp-design.md)
+- [Global intelligence platform direction](docs/specs/2026-05-30-global-intelligence-platform-business-architecture-design.md)
+- [Shadow canonical data spine](docs/specs/2026-05-30-shadow-canonical-data-spine-design.md)
+- [Professional research workflow MVP](docs/specs/2026-05-30-professional-research-workflow-mvp-design.md)
 
 ## Contributing
 
