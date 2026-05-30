@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
@@ -2565,6 +2566,126 @@ async def test_canonical_split_dry_run_apply_and_idempotency(store: AsyncStore):
     assert second["operation_id"] == applied["operation_id"]
     operations = await store.list_canonical_graph_operations(target_id="italy", limit=10)
     assert [operation["operation_id"] for operation in operations] == [applied["operation_id"]]
+
+
+@pytest.mark.asyncio
+async def test_canonical_split_rejects_non_canonical_artifact_subject_type(store: AsyncStore):
+    await _seed_split_graph(store)
+    assert store._db is not None
+    await store._db.execute(
+        """INSERT INTO research_artifacts
+           (artifact_id, target_id, artifact_type, title, body, subject_type,
+            subject_id, canonical_event_ids_json, status, visibility, created_by, metadata_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            "ra_italy_split_bad_subject_type",
+            "italy",
+            "split_decision",
+            "Split",
+            "Different fact",
+            "event_mention",
+            "ce_italy_split_source",
+            json.dumps(["ce_italy_split_source"]),
+            "open",
+            "local_private",
+            "local-user",
+            store._json_dumps(
+                {
+                    "decision": "proposed",
+                    "affected_mention_ids": ["mention_split_move_1"],
+                }
+            ),
+        ),
+    )
+    await store._db.commit()
+
+    with pytest.raises(ValueError, match="subject_type must be canonical_event"):
+        await store.preview_canonical_split(
+            target_id="italy",
+            source_canonical_event_id="ce_italy_split_source",
+            affected_mention_ids=["mention_split_move_1"],
+            decision_artifact_id="ra_italy_split_bad_subject_type",
+            created_by="local-user",
+        )
+
+
+@pytest.mark.asyncio
+async def test_canonical_split_rejects_same_artifact_different_affected_set(
+    store: AsyncStore,
+):
+    await _seed_split_graph(store)
+
+    await store.apply_canonical_split(
+        target_id="italy",
+        source_canonical_event_id="ce_italy_split_source",
+        affected_mention_ids=["mention_split_move_1"],
+        decision_artifact_id="ra_italy_split_apply",
+        created_by="local-user",
+    )
+
+    with pytest.raises(ValueError, match="applied operation mismatch"):
+        await store.apply_canonical_split(
+            target_id="italy",
+            source_canonical_event_id="ce_italy_split_source",
+            affected_mention_ids=["mention_split_move_2"],
+            decision_artifact_id="ra_italy_split_apply",
+            created_by="local-user",
+        )
+
+
+@pytest.mark.asyncio
+async def test_canonical_split_rejects_applied_operation_payload_mismatch(
+    store: AsyncStore,
+):
+    await _seed_split_graph(store)
+    unrelated_operation_id = await store.record_canonical_graph_operation(
+        {
+            "operation_id": "cgo-italy-unrelated-split",
+            "target_id": "italy",
+            "operation_type": "split",
+            "decision_artifact_id": "ra_italy_split_apply",
+            "primary_canonical_event_id": "ce_italy_other_source",
+            "result_canonical_event_id": "ce_italy_other_result",
+            "status": "applied",
+            "changes": [],
+            "warnings": [],
+            "metadata": {
+                "affected_mention_ids": ["mention_split_move_2"],
+                "source_canonical_event_id": "ce_italy_other_source",
+                "result_canonical_event_id": "ce_italy_other_result",
+                "new_title": None,
+                "new_summary": None,
+            },
+            "created_by": "local-user",
+        }
+    )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_split_apply",
+            "target_id": "italy",
+            "artifact_type": "split_decision",
+            "title": "Split",
+            "body": "Different fact",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_split_source",
+            "canonical_event_ids": ["ce_italy_split_source"],
+            "status": "resolved",
+            "metadata": {
+                "decision": "proposed",
+                "affected_mention_ids": ["mention_split_move_1", "mention_split_move_2"],
+                "applied_operation_id": unrelated_operation_id,
+            },
+        }
+    )
+
+    with pytest.raises(ValueError, match="applied operation mismatch"):
+        await store.apply_canonical_split(
+            target_id="italy",
+            source_canonical_event_id="ce_italy_split_source",
+            affected_mention_ids=["mention_split_move_1"],
+            decision_artifact_id="ra_italy_split_apply",
+            created_by="local-user",
+        )
 
 
 @pytest.mark.asyncio
