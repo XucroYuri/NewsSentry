@@ -36,6 +36,7 @@ def test_render_news_event_markdown_is_projection_without_file_write() -> None:
     assert event.pipeline_stage == PipelineStage.JUDGED
     assert content.startswith("---\n")
     assert "id: ne-italy-ansa-20260530-a1b2c3d4" in content
+    assert "pipeline_stage: outputted" in content
     assert "# 中文标题" in content
     assert "## 原文内容" in content
     assert "Corpo della notizia" in content
@@ -45,7 +46,7 @@ def test_render_news_event_markdown_is_projection_without_file_write() -> None:
 
 def test_render_canonical_event_markdown_includes_mentions_and_provenance() -> None:
     content = render_canonical_event_markdown(
-        event={
+        {
             "canonical_event_id": "ce_italy_001",
             "target_id": "italy",
             "title": "Canonical title",
@@ -53,7 +54,7 @@ def test_render_canonical_event_markdown_includes_mentions_and_provenance() -> N
             "news_value_score": 91,
             "china_relevance": 12,
         },
-        mentions=[
+        [
             {
                 "mention_id": "em_001",
                 "source_id": "ansa",
@@ -63,8 +64,20 @@ def test_render_canonical_event_markdown_includes_mentions_and_provenance() -> N
                 "metadata": {"file_path": "drafts/ne-italy-ansa.md"},
             }
         ],
-        relations=[],
-        artifacts=[],
+        [
+            {
+                "relation_type": "same_story",
+                "source_canonical_event_id": "ce_italy_001",
+                "target_canonical_event_id": "ce_italy_002",
+            }
+        ],
+        [
+            {
+                "artifact_id": "artifact_001",
+                "artifact_type": "editor_note",
+                "title": "Research note",
+            }
+        ],
     )
 
     assert "export_kind: canonical_event_evidence_package" in content
@@ -73,8 +86,8 @@ def test_render_canonical_event_markdown_includes_mentions_and_provenance() -> N
     assert "news_value_score: 91" in content
     assert "china_relevance: 12" in content
     assert "mention_count: 1" in content
-    assert "relation_count: 0" in content
-    assert "artifact_count: 0" in content
+    assert "relation_count: 1" in content
+    assert "artifact_count: 1" in content
     assert "# Canonical title" in content
     assert "Canonical summary" in content
     assert "## 信源报道" in content
@@ -83,3 +96,8 @@ def test_render_canonical_event_markdown_includes_mentions_and_provenance() -> N
     assert "ansa" in content
     assert "https://example.com/a" in content
     assert "drafts/ne-italy-ansa.md" in content
+    assert "same_story" in content
+    assert "ce_italy_001" in content
+    assert "ce_italy_002" in content
+    assert "editor_note" in content
+    assert "Research note" in content

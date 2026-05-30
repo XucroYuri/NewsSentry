@@ -26,7 +26,6 @@ def render_news_event_markdown(event: NewsEvent) -> str:
 
 
 def render_canonical_event_markdown(
-    *,
     event: dict[str, Any],
     mentions: list[dict[str, Any]],
     relations: list[dict[str, Any]],
