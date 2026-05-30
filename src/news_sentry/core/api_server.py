@@ -1001,9 +1001,51 @@ async def _visible_index_events_page(
     sentiment: str | None = None,
     entity_name: str | None = None,
     topic_tag: str | None = None,
+    exact_total: bool = True,
 ) -> dict[str, Any]:
     """读取可公开展示的 index 事件，再分页，避免 stale 行占据页面。"""
     start = (page - 1) * page_size
+
+    if not exact_total and date is None and search is None:
+        offset = start
+        index_total = 0
+        page_events: list[dict[str, Any]] = []
+
+        while len(page_events) < page_size:
+            result = await store.query_events_paginated(
+                target_id=target_id,
+                stage=stage,
+                limit=page_size,
+                offset=offset,
+                source_id=source_id,
+                classification_l0=classification_l0,
+                min_score=min_score,
+                sentiment=sentiment,
+                entity_name=entity_name,
+                topic_tag=topic_tag,
+            )
+            index_total = result["total"]
+            rows = result["rows"]
+            if not rows:
+                break
+
+            for row in rows:
+                event = _visible_index_event_from_row(data_dir, target_id, stage, row)
+                if event is not None:
+                    page_events.append(event)
+                    if len(page_events) >= page_size:
+                        break
+
+            offset += len(rows)
+            if offset >= index_total:
+                break
+
+        return {
+            "index_total": index_total,
+            "total": index_total,
+            "events": page_events,
+        }
+
     end = start + page_size
     offset = 0
     index_total = 0
@@ -1464,6 +1506,67 @@ def _atomic_write_yaml(filepath: Path, data: dict[str, Any]) -> None:
     finally:
         if tmp.exists():
             tmp.unlink(missing_ok=True)
+
+
+def _target_lifecycle(data: dict[str, Any]) -> dict[str, Any]:
+    lifecycle = data.get("lifecycle")
+    if not isinstance(lifecycle, dict):
+        return {"status": "active"}
+    status = lifecycle.get("status") or "active"
+    return {**lifecycle, "status": status}
+
+
+def _target_info_from_config(data: dict[str, Any], data_dir: Path) -> TargetInfo:
+    """Build TargetInfo without synchronously scanning event files."""
+    del data_dir
+    target_id = str(data.get("target_id") or "")
+    language_scope = data.get("language_scope")
+    primary_language = (
+        str(language_scope.get("primary") or "") if isinstance(language_scope, dict) else ""
+    )
+    refs = data.get("source_channel_refs")
+    source_count = len(refs) if isinstance(refs, list) else 0
+    return TargetInfo(
+        target_id=target_id,
+        display_name=str(data.get("display_name") or ""),
+        primary_language=primary_language,
+        source_count=source_count,
+        event_count=0,
+    )
+
+
+async def _target_public_event_count(target_id: str, data_dir: Path) -> int:
+    """Return the count the public feed can show without scanning files when indexed."""
+    try:
+        store = await _get_target_store(target_id)
+        if store is not None and await _store_has_target_event_index(store, target_id):
+            get_count = getattr(store, "get_event_count", None)
+            if get_count is not None:
+                return int(await get_count(target_id, "drafts"))
+            visible = await _visible_index_events_page(
+                store,
+                data_dir,
+                target_id,
+                stage="drafts",
+                page=1,
+                page_size=1,
+                exact_total=False,
+            )
+            return int(visible["total"])
+    except Exception:
+        logger.exception("Failed to count indexed public events for target %s", target_id)
+    return len(_load_all_events(data_dir, target_id))
+
+
+async def _target_info_from_config_for_response(
+    data: dict[str, Any],
+    data_dir: Path,
+) -> TargetInfo:
+    info = _target_info_from_config(data, data_dir)
+    if not info.target_id:
+        return info
+    event_count = await _target_public_event_count(info.target_id, data_dir)
+    return info.model_copy(update={"event_count": event_count})
 
 
 def _load_all_events(data_dir: Path, target_id: str) -> list[dict[str, Any]]:
@@ -2641,16 +2744,9 @@ def create_app(
     async def list_targets() -> TargetListResponse:
         """返回所有可用的 target 列表。"""
         configs = _load_target_configs()
-        targets = [
-            TargetInfo(
-                target_id=c.get("target_id", ""),
-                display_name=c.get("display_name", ""),
-                primary_language=c.get("language_scope", {}).get("primary", ""),
-                source_count=len(c.get("source_channel_refs", [])),
-                event_count=len(_load_all_events(_data_dir, c.get("target_id", ""))),
-            )
-            for c in configs
-        ]
+        targets: list[TargetInfo] = []
+        for config in configs:
+            targets.append(await _target_info_from_config_for_response(config, _data_dir))
         return TargetListResponse(targets=targets)
 
     @app.get("/api/v1/stats", response_model=StatsResponse)
@@ -3047,6 +3143,7 @@ def create_app(
                 page=page,
                 page_size=page_size,
                 date=date,
+                exact_total=page_size <= 1,
             )
             if result["index_total"] > 0:
                 # 按日期分组
