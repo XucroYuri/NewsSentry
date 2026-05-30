@@ -9,6 +9,8 @@
 
 本阶段把研究工作台中的人工 merge/split 决策真正应用到 shadow canonical graph。
 
+> 当前 main 对齐说明：graph apply UI 入口在当前 Admin Shell 的 `#/admin/news/research`，由 `src/news_sentry/static/pages/research_workbench.js` 调用 `/api/v1/research/graph/*`。早期设计中提到的 target workbench 是历史上下文，当前拆分不恢复旧文件。
+
 上一阶段已经实现：
 
 - canonical event、event mention、canonical relation 的影子事实层。

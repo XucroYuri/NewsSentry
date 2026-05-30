@@ -9,6 +9,8 @@
 
 本阶段进入 **Professional Research Workflow MVP**：让研究员、编辑和分析师围绕 shadow canonical event 完成真实、可追溯、可复核的研究工作。
 
+> 当前 main 对齐说明：UI 入口在当前 Admin Shell 的 `#/admin/news/research`，由 `src/news_sentry/static/app.js` 接入 `src/news_sentry/static/pages/research_workbench.js`。早期设计中提到的 `#/admin/targets/:targetId/review` 属于旧工作台路径，当前拆分不恢复该模块。
+
 核心目标：
 
 - 把 canonical event 从“可查询事实投影”推进到“可操作研究对象”。

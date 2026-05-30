@@ -1,6 +1,6 @@
 {
-  "build": "20260530b",
-  "cacheName": "news-sentry-20260530b",
+  "build": "20260531a",
+  "cacheName": "news-sentry-20260531a",
   "assets": [
     "/",
     "/index.html",
@@ -27,6 +27,7 @@
     "/pages/config.js",
     "/pages/settings.js",
     "/pages/trends.js",
+    "/pages/research_workbench.js",
     "https://cdn.jsdelivr.net/npm/chart.js@4"
   ]
 }
