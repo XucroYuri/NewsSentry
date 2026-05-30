@@ -16,6 +16,10 @@ function snippetAround(source, marker, length = 1000) {
   return source.slice(Math.max(0, index - 220), index + length);
 }
 
+function countMatches(source, pattern) {
+  return [...source.matchAll(pattern)].length;
+}
+
 assert.match(
   eventsJs,
   /apiPost\("\/api\/v1\/events\/import",\s*\{\s*\},\s*eventList\)/s,
@@ -199,6 +203,11 @@ assert.match(
 );
 assert.match(
   graphApplyBlock,
+  /apiPost\("\/api\/v1\/research\/graph\/merge",\s*\{\s*\},\s*\{[\s\S]*dry_run:\s*true[\s\S]*if\s*\(\s*!(?:\w+\s*|\s*)?window\.confirm\([\s\S]*?\)\s*\)\s*return\s*;[\s\S]*apiPost\("\/api\/v1\/research\/graph\/merge",\s*\{\s*\},\s*\{[\s\S]*dry_run:\s*false/s,
+  "合并应用必须在 dry_run:true 预检后由 window.confirm 门控，取消时 return，确认后才 dry_run:false 应用",
+);
+assert.match(
+  graphApplyBlock,
   /apiPost\("\/api\/v1\/research\/graph\/merge",\s*\{\s*\},\s*\{[\s\S]*dry_run:\s*false/s,
   "合并应用必须在确认后调用 dry_run:false 应用",
 );
@@ -219,6 +228,11 @@ assert.match(
 );
 assert.match(
   graphApplyBlock,
+  /apiPost\("\/api\/v1\/research\/graph\/split",\s*\{\s*\},\s*\{[\s\S]*dry_run:\s*true[\s\S]*if\s*\(\s*!(?:\w+\s*|\s*)?window\.confirm\([\s\S]*?\)\s*\)\s*return\s*;[\s\S]*apiPost\("\/api\/v1\/research\/graph\/split",\s*\{\s*\},\s*\{[\s\S]*dry_run:\s*false/s,
+  "拆分应用必须在 dry_run:true 预检后由 window.confirm 门控，取消时 return，确认后才 dry_run:false 应用",
+);
+assert.match(
+  graphApplyBlock,
   /apiPost\("\/api\/v1\/research\/graph\/split",\s*\{\s*\},\s*\{[\s\S]*dry_run:\s*false/s,
   "拆分应用必须在确认后调用 dry_run:false 应用",
 );
@@ -231,6 +245,16 @@ assert.match(
   graphApplyBlock,
   /affected_mention_ids:\s*affectedMentionIds/s,
   "拆分应用必须使用 artifact metadata 中的 affected mention IDs",
+);
+assert.equal(
+  countMatches(graphApplyBlock, /window\.confirm\(/g),
+  2,
+  "合并和拆分应用必须各自调用一次 window.confirm",
+);
+assert.equal(
+  countMatches(graphApplyBlock, /if\s*\(\s*!window\.confirm\([\s\S]*?\)\s*\)\s*return\s*;/g),
+  2,
+  "合并和拆分应用必须各自用 if (!window.confirm(...)) return; 阻断取消后的 apply",
 );
 assert.match(
   graphChangeSummaryBlock,
