@@ -20,6 +20,7 @@ from news_sentry.models.newsevent import (
     NewsEvent,
     PipelineStage,
 )
+from news_sentry.skills.filter.classification_taxonomy import canonical_l0
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +142,7 @@ class JudgeSkill:
             if classification_l0:
                 if "classification" not in event.metadata:
                     event.metadata["classification"] = {}
-                event.metadata["classification"]["l0"] = classification_l0
+                event.metadata["classification"]["l0"] = canonical_l0(classification_l0)
 
         except Exception as e:
             logger.error(
@@ -202,8 +203,9 @@ Instructions:
 4. Provide a concise rationale in Chinese explaining your judgement.
 5. Rate sentiment: -1.0 (negative) to 1.0 (positive).
 6. Translate title and content to Simplified Chinese. Keep proper nouns intact.
-7. Top-level classification (l0): "breaking_news", "political", "economy",
-   "china_related", or "other".
+7. Top-level classification (l0): use one of "politics", "economy",
+   "society", "public-safety", "environment", "tech",
+   "international-relations", "china-related", or "uncategorized".
 8. Flags list: e.g., "breaking", "high_value", "china_significant",
    "china_related", "priority_topic".
 

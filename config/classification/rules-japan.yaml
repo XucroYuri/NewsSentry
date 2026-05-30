@@ -7,25 +7,25 @@ rules_version: "1.0.0"
 # 日本特有 L1 子议题
 l1_topics:
   - code: china_japan_bilateral
-    l0_domain: international
+    l0_domain: international-relations
     label_zh: "中日双边关系"
     keywords_ja: [中国, 中日, 日中, 習近平, 北京, 首脳会談, 日中関係, 中日関係]
     keywords_en: [China, China-Japan, Japan-China, Beijing, bilateral]
 
   - code: senkaku_dispute
-    l0_domain: security
+    l0_domain: public-safety
     label_zh: "尖阁/钓鱼岛争端"
     keywords_ja: [尖閣, 魚釣島, 領海侵入, 海警]
     keywords_en: [Senkaku, Diaoyu, territorial, coast guard]
 
   - code: trade_china_japan
-    l0_domain: economics
+    l0_domain: economy
     label_zh: "中日贸易"
     keywords_ja: [対中輸出, 対中投資, 中国市場, 関税, 半導体規制]
     keywords_en: [China trade, exports to China, semiconductor, tariffs]
 
   - code: japan_defense
-    l0_domain: security
+    l0_domain: public-safety
     label_zh: "日本防务"
     keywords_ja: [防衛省, 自衛隊, 安全保障, 集団的自衛権, 防衛費]
     keywords_en: [JSDF, defense ministry, security, self-defense]

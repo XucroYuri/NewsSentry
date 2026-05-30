@@ -13,8 +13,8 @@
       "properties": {
         "code": {
           "type": "string",
-          "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
-          "description": "Code identifier, e.g. 'politics', 'POLITICS'"
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+          "description": "Code identifier, e.g. 'politics', 'china-related'"
         },
         "label_zh": { "type": "string" },
         "label_it": { "type": ["string", "null"] },
@@ -61,7 +61,7 @@
       "properties": {
         "code": {
           "type": "string",
-          "pattern": "^[A-Za-z][A-Za-z0-9_]*$"
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
         },
         "l0_domain": { "type": "string" },
         "label_zh": { "type": "string" },

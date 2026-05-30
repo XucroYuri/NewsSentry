@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from news_sentry.core.memory import Memory
@@ -260,6 +261,23 @@ def test_is_source_degraded_custom_thresholds(tmp_path: Path) -> None:
     # 16 runs, 9 success → 56.25%
     assert mem2.is_source_degraded("corriere") is False  # 默认 30%
     assert mem2.is_source_degraded("corriere", min_success_rate=0.6) is True
+
+
+def test_should_probe_degraded_source_after_cooldown(tmp_path: Path) -> None:
+    """降级信源不应永久跳过，冷却期后应允许一次恢复探测。"""
+    mem = Memory(tmp_path)
+    for idx in range(5):
+        mem.record_source_health("ansa", success=False, error_msg=f"e{idx}")
+
+    assert mem.is_source_degraded("ansa") is True
+    assert mem.should_probe_degraded_source("ansa", cooldown_hours=24) is False
+
+    mem._source_health["ansa"]["last_failure_at"] = (  # noqa: SLF001
+        datetime.now(UTC) - timedelta(hours=25)
+    ).isoformat()
+    mem._write_yaml(mem._SOURCE_HEALTH_FILE, mem._source_health)  # noqa: SLF001
+
+    assert mem.should_probe_degraded_source("ansa", cooldown_hours=24) is True
 
 
 # ------------------------------------------------------------------

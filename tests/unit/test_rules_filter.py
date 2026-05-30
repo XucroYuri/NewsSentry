@@ -264,6 +264,34 @@ def test_filter_mixed_events(tmp_path: Path) -> None:
     assert {e.id for e in result} == {"e1", "e3"}
 
 
+def test_filter_records_rejection_stats(tmp_path: Path) -> None:
+    """记录 filter=0 的可解释原因，供 run log 和自动化诊断使用。"""
+    memory = Memory(tmp_path)
+    memory.mark_known("known")
+    cfg = _make_filter_config(score_threshold=90, max_age_hours=24)
+    rf = RulesFilter(cfg, memory)
+
+    old_time = (datetime.now(UTC) - timedelta(hours=48)).isoformat()
+    events = [
+        _make_event(eid="known", title="Governo Meloni", content="riforme"),
+        _make_event(eid="old", title="Cina commercio", content="", published_at=old_time),
+        _make_event(eid="low", title="Governo presenta", content="qualcosa"),
+        _make_event(eid="pass", title="Cina e mafia nel governo", content=""),
+    ]
+
+    result = rf.filter(events, "run-001")
+
+    assert [event.id for event in result] == ["pass"]
+    assert rf.last_stats == {
+        "input": 4,
+        "passed": 1,
+        "skipped_known": 1,
+        "skipped_stale": 1,
+        "skipped_low_score": 1,
+        "score_hits": 2,
+    }
+
+
 # ── _is_within_age edge cases ─────────────────────────────────
 
 

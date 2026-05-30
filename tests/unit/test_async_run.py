@@ -10,8 +10,10 @@ import yaml
 from news_sentry.core.async_run import (
     _init_async_store_for_target,
     _run_collect_async,
+    _run_output_async,
     bounded_run_async,
 )
+from news_sentry.models.newsevent import PipelineStage
 
 
 class TestRunCollectAsync:
@@ -58,6 +60,56 @@ class TestRunCollectAsync:
             )
 
         assert len(events) == 2
+
+    @pytest.mark.asyncio
+    async def test_collect_translation_uses_provider_factory(self):
+        """批量翻译应拿到真实 provider_factory，而不是 None。"""
+        config = MagicMock()
+        config.target_id = "italy"
+        config.target = {
+            "language_scope": {"primary": "it"},
+            "source_channel_refs": [],
+        }
+        config.sources = [
+            {
+                "channel_id": "rss-1",
+                "type": "rss",
+                "url": "https://a.com/feed",
+                "source_id": "rss-1",
+            }
+        ]
+
+        event = MagicMock()
+        event.title_original = "Titolo"
+        memory = MagicMock()
+        memory.is_source_degraded.return_value = False
+        batcher = MagicMock()
+        batcher.translate = AsyncMock(return_value=1)
+
+        with (
+            patch("news_sentry.core.async_run.RSSCollector") as mock_rss_cls,
+            patch(
+                "news_sentry.core.async_run._try_create_provider_router",
+                return_value=MagicMock(),
+            ),
+            patch("news_sentry.core.async_run.TranslationBatcher", return_value=batcher),
+        ):
+            collector = MagicMock()
+            collector.collect_async = AsyncMock(return_value=[event])
+            mock_rss_cls.return_value = collector
+
+            await _run_collect_async(
+                config=config,
+                run_id="test-run",
+                run_log=MagicMock(),
+                file_writer=MagicMock(),
+                sandbox=MagicMock(),
+                memory=memory,
+                ctx=MagicMock(),
+            )
+
+        provider_factory = batcher.translate.call_args.args[2]
+        assert callable(provider_factory)
 
     @pytest.mark.asyncio
     async def test_concurrent_collect_respects_semaphore(self):
@@ -116,6 +168,7 @@ class TestRunCollectAsync:
 
         memory = MagicMock()
         memory.is_source_degraded.return_value = True
+        memory.should_probe_degraded_source.return_value = False
 
         with patch("news_sentry.core.async_run.RSSCollector") as mock_rss_cls:
             events = await _run_collect_async(
@@ -130,6 +183,48 @@ class TestRunCollectAsync:
 
         assert events == []
         mock_rss_cls.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_collect_probes_degraded_source_after_cooldown(self):
+        """冷却期已到的降级源应允许探测采集，成功后恢复健康。"""
+        config = MagicMock()
+        config.target_id = "italy"
+        config.sources = [
+            {
+                "channel_id": "rss-1",
+                "type": "rss",
+                "url": "https://a.com/feed",
+                "source_id": "degraded-src",
+            },
+        ]
+        event = MagicMock()
+
+        memory = MagicMock()
+        memory.is_source_degraded.return_value = True
+        memory.should_probe_degraded_source.return_value = True
+        memory.get_source_health.return_value = {"consecutive_failures": 5}
+
+        with patch("news_sentry.core.async_run.RSSCollector") as mock_rss_cls:
+            collector = MagicMock()
+            collector.collect_async = AsyncMock(return_value=[event])
+            mock_rss_cls.return_value = collector
+
+            events = await _run_collect_async(
+                config=config,
+                run_id="test-run",
+                run_log=MagicMock(),
+                file_writer=MagicMock(),
+                sandbox=MagicMock(),
+                memory=memory,
+                ctx=MagicMock(),
+            )
+
+        assert events == [event]
+        memory.record_source_health.assert_called_with(
+            "degraded-src",
+            success=True,
+            run_id="test-run",
+        )
 
     @pytest.mark.asyncio
     async def test_collect_skips_disabled_sources(self):
@@ -341,6 +436,52 @@ class TestBoundedRunAsync:
         with pytest.raises(ValueError, match="不支持的阶段"):
             await bounded_run_async(target_id="test", stage="invalid")
 
+    @pytest.mark.asyncio
+    async def test_all_stage_does_not_reprocess_historical_events(self, tmp_path, monkeypatch):
+        """异步 all-run 第二次没有新采集时，不应重复过滤、研判、输出历史事件。"""
+        from tests.unit.test_run import _setup_minimal_project
+
+        from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+
+        _setup_minimal_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+
+        calls = {"count": 0}
+        now = datetime.now(UTC).isoformat()
+
+        async def collect_once(_collector, run_id: str, http_client=None):
+            calls["count"] += 1
+            if calls["count"] > 1:
+                return []
+            return [
+                NewsEvent(
+                    id="evt-async-delta-001",
+                    run_id=run_id,
+                    source_id="test-source",
+                    url="https://example.com/evt-async-delta-001",
+                    title_original="Italy China trade economy update",
+                    content_original="Trade agreement with China affects the economy.",
+                    language=Language.IT,
+                    published_at=now,
+                    collected_at=now,
+                    pipeline_stage=PipelineStage.COLLECTED,
+                )
+            ]
+
+        monkeypatch.setattr("news_sentry.core.async_run.RSSCollector.collect_async", collect_once)
+
+        first = await bounded_run_async("test-target", "all", config_dir=str(tmp_path))
+        second = await bounded_run_async("test-target", "all", config_dir=str(tmp_path))
+
+        assert first.events_collected == 1
+        assert first.events_filtered == 1
+        assert first.events_judged == 1
+        assert first.events_output == 1
+        assert second.events_collected == 0
+        assert second.events_filtered == 0
+        assert second.events_judged == 0
+        assert second.events_output == 0
+
 
 class TestAsyncStoreIntegration:
     """验证 AsyncStore 在 async_run pipeline 中替代 Memory。"""
@@ -372,6 +513,181 @@ class TestAsyncStoreIntegration:
         assert db_path.exists()
         assert await store.is_known("ne-test-001") is True
         await store.close()
+
+    @pytest.mark.asyncio
+    async def test_output_async_indexes_existing_draft_path_and_classification(self, tmp_path):
+        """输出阶段写入 event_index 时应使用真实 draft 文件路径并保留分类。"""
+        from pathlib import Path
+
+        from news_sentry.core.async_store import AsyncStore
+        from news_sentry.core.file_writer import FileWriter
+        from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+
+        target_dir = tmp_path / "italy"
+        file_writer = FileWriter(target_dir)
+        file_writer.ensure_dirs()
+        event = NewsEvent(
+            id="ne-italy-repubblica-20260528-51db8e48",
+            run_id="run-output-index",
+            source_id="repubblica",
+            url="https://example.com/news",
+            title_original="Guerra in Iran",
+            content_original="Body",
+            language=Language.IT,
+            published_at="2026-05-28T00:18:47+00:00",
+            collected_at="2026-05-28T00:20:00+00:00",
+            pipeline_stage=PipelineStage.JUDGED,
+            news_value_score=100,
+            metadata={"classification": {"l0": "international"}},
+        )
+        file_writer.write_event(event)
+
+        store = AsyncStore(target_dir / "state.db")
+        await store.initialize()
+        config = MagicMock()
+        config.target_id = "italy"
+        config.output_root = tmp_path
+        config.output_destinations = {}
+
+        try:
+            await _run_output_async(
+                config=config,
+                run_id="run-output-index",
+                run_log=MagicMock(),
+                file_writer=file_writer,
+                ctx=MagicMock(),
+                store=store,
+            )
+
+            result = await store.query_events_paginated("italy", "drafts", limit=10)
+            assert result["total"] == 1
+            row = result["rows"][0]
+            assert row["classification_l0"] == "international-relations"
+            assert row["file_path"] is not None
+            assert Path(row["file_path"]).is_file()
+            assert Path(row["file_path"]).name == "ne-italy-repubblica-20260528-51db8e48.md"
+        finally:
+            await store.close()
+
+    @pytest.mark.asyncio
+    async def test_output_async_indexes_canonical_classification_l0(self, tmp_path):
+        """输出索引应保存 canonical L0，而不是 legacy 分类别名。"""
+        from news_sentry.core.async_store import AsyncStore
+        from news_sentry.core.file_writer import FileWriter
+        from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+
+        target_dir = tmp_path / "italy"
+        file_writer = FileWriter(target_dir)
+        file_writer.ensure_dirs()
+        event = NewsEvent(
+            id="ne-italy-repubblica-20260528-economy001",
+            run_id="run-output-index-canonical",
+            source_id="repubblica",
+            url="https://example.com/economy",
+            title_original="Economia e mercati",
+            content_original="Body",
+            language=Language.IT,
+            published_at="2026-05-28T00:18:47+00:00",
+            collected_at="2026-05-28T00:20:00+00:00",
+            pipeline_stage=PipelineStage.JUDGED,
+            news_value_score=80,
+            metadata={"classification": {"l0": "economics"}},
+        )
+        file_writer.write_event(event)
+
+        store = AsyncStore(target_dir / "state.db")
+        await store.initialize()
+        config = MagicMock()
+        config.target_id = "italy"
+        config.output_root = tmp_path
+        config.output_destinations = {}
+
+        try:
+            await _run_output_async(
+                config=config,
+                run_id="run-output-index-canonical",
+                run_log=MagicMock(),
+                file_writer=file_writer,
+                ctx=MagicMock(),
+                store=store,
+            )
+            result = await store.query_events_paginated("italy", "drafts", limit=10)
+            row = result["rows"][0]
+            assert row["classification_l0"] == "economy"
+        finally:
+            await store.close()
+
+    @pytest.mark.asyncio
+    async def test_output_async_indexes_nlp_from_judged_markdown(self, tmp_path):
+        """输出阶段从 judged Markdown 读回事件时，不应丢失 NLP 聚合字段。"""
+        from news_sentry.core.async_store import AsyncStore
+        from news_sentry.core.file_writer import FileWriter
+        from news_sentry.models.newsevent import (
+            JudgeRecommendation,
+            JudgeResult,
+            Language,
+            NewsEvent,
+            NLPAnalysis,
+            NLPEntity,
+            PipelineStage,
+            Sentiment,
+        )
+
+        target_dir = tmp_path / "italy"
+        file_writer = FileWriter(target_dir)
+        file_writer.ensure_dirs()
+        event = NewsEvent(
+            id="ne-italy-ansa-20260529-nlp001",
+            run_id="run-output-nlp",
+            source_id="ansa",
+            url="https://example.com/nlp",
+            title_original="Meloni incontra l'UE",
+            content_original="Body",
+            language=Language.IT,
+            published_at="2026-05-29T00:18:47+00:00",
+            collected_at="2026-05-29T00:20:00+00:00",
+            pipeline_stage=PipelineStage.JUDGED,
+            news_value_score=80,
+            china_relevance=10,
+            sentiment_score=0.0,
+            judge_result=JudgeResult(
+                recommendation=JudgeRecommendation.REVIEW,
+                rationale="test",
+                confidence=80,
+                nlp_analysis=NLPAnalysis(
+                    sentiment=Sentiment.NEUTRAL,
+                    entities=[NLPEntity(name="Meloni", entity_type="person", relevance=80)],
+                    topic_tags=["politics", "eu"],
+                ),
+            ),
+            metadata={"classification": {"l0": "politics"}},
+        )
+        file_writer.write_event(event)
+
+        store = AsyncStore(target_dir / "state.db")
+        await store.initialize()
+        config = MagicMock()
+        config.target_id = "italy"
+        config.output_root = tmp_path
+        config.output_destinations = {}
+
+        try:
+            await _run_output_async(
+                config=config,
+                run_id="run-output-nlp",
+                run_log=MagicMock(),
+                file_writer=file_writer,
+                ctx=MagicMock(),
+                store=store,
+            )
+
+            row = await store.get_event_index_row("italy", "ne-italy-ansa-20260529-nlp001")
+            assert row is not None
+            assert row["sentiment"] == "neutral"
+            assert row["entity_names"] == "Meloni"
+            assert row["topic_tags"] == "politics,eu"
+        finally:
+            await store.close()
 
 
 class TestLinkEvents:
@@ -428,6 +744,68 @@ class TestLinkEvents:
         assert len(links) >= 1
 
         await store.close()
+
+    @pytest.mark.asyncio
+    async def test_link_events_caps_strongest_links_per_event(self):
+        """单个新事件只写入最强的有限数量 links。"""
+        from news_sentry.core.async_run import _link_events
+
+        now = datetime.now(UTC).replace(microsecond=0)
+
+        class FakeStore:
+            _db = object()
+
+            def __init__(self):
+                self.find_calls = []
+                self.created_links = []
+
+            async def find_candidates(self, target_id, event_id, days=7, limit=100):
+                self.find_calls.append(
+                    {
+                        "target_id": target_id,
+                        "event_id": event_id,
+                        "days": days,
+                        "limit": limit,
+                    }
+                )
+                return [
+                    {
+                        "event_id": f"evt-cand-{idx}",
+                        "entity_names": "Meloni,EU",
+                        "topic_tags": "politics,eu",
+                        "published_at": (now - timedelta(hours=idx)).isoformat(),
+                        "title_original": f"Candidate {idx}",
+                    }
+                    for idx in range(5)
+                ]
+
+            async def create_link(self, **kwargs):
+                self.created_links.append(kwargs)
+
+        new_event = MagicMock()
+        new_event.id = "evt-new"
+        new_event.published_at = now.isoformat()
+        judge_result = MagicMock()
+        nlp = MagicMock()
+        ent1 = MagicMock()
+        ent1.name = "Meloni"
+        ent2 = MagicMock()
+        ent2.name = "EU"
+        nlp.entities = [ent1, ent2]
+        nlp.topic_tags = ["politics", "eu"]
+        judge_result.nlp_analysis = nlp
+        new_event.judge_result = judge_result
+
+        store = FakeStore()
+        await _link_events(store, [new_event], "italy", max_links_per_event=2)
+
+        assert store.find_calls == [
+            {"target_id": "italy", "event_id": "evt-new", "days": 7, "limit": 100}
+        ]
+        assert [link["source_event_id"] for link in store.created_links] == [
+            "evt-cand-0",
+            "evt-cand-1",
+        ]
 
     @pytest.mark.asyncio
     async def test_link_events_failure_nonblocking(self, tmp_path):
@@ -542,7 +920,7 @@ class TestRunJudgeAsync:
         memory = MagicMock()
         ctx = MagicMock()
 
-        with patch("news_sentry.core.async_run._load_events_from_dir", return_value=[]):
+        with patch("news_sentry.core.async_run._load_pending_judge_events", return_value=[]):
             await _run_judge_async(config, "test-run", run_log, file_writer, memory, ctx)
 
         run_log.log_phase_start.assert_called_once_with("judge")
@@ -562,7 +940,7 @@ class TestRunJudgeAsync:
         ctx = MagicMock()
 
         mock_event = MagicMock()
-        mock_event.pipeline_stage = None
+        mock_event.pipeline_stage = PipelineStage.FILTERED
 
         mock_router = MagicMock()
         mock_router.route_async = AsyncMock()
@@ -572,7 +950,7 @@ class TestRunJudgeAsync:
 
         with (
             patch(
-                "news_sentry.core.async_run._load_events_from_dir",
+                "news_sentry.core.async_run._load_pending_judge_events",
                 return_value=[mock_event],
             ),
             patch(
@@ -596,6 +974,8 @@ class TestRunJudgeAsync:
         file_writer.write_event.assert_called()
         assert ctx.events_judged == 1
         run_log.log_phase_end.assert_called()
+        provider_factory = mock_tiered.judge_events_async.call_args.args[1]
+        assert callable(provider_factory)
 
     @pytest.mark.asyncio
     async def test_judge_async_fallback_to_sync(self):
@@ -612,10 +992,11 @@ class TestRunJudgeAsync:
         ctx = MagicMock()
 
         mock_event = MagicMock()
+        mock_event.pipeline_stage = PipelineStage.FILTERED
 
         with (
             patch(
-                "news_sentry.core.async_run._load_events_from_dir",
+                "news_sentry.core.async_run._load_pending_judge_events",
                 return_value=[mock_event],
             ),
             patch(
@@ -630,9 +1011,6 @@ class TestRunJudgeAsync:
         ):
             await _run_judge_async(config, "test-run", run_log, file_writer, memory, ctx)
 
-        # 事件应被写回 evaluated 目录
-        file_writer.write_event.assert_called_with(mock_event)
-        # 应调用同步 _run_judge
         mock_to_thread.assert_called_once()
 
     @pytest.mark.asyncio
@@ -649,7 +1027,7 @@ class TestRunJudgeAsync:
         ctx = MagicMock()
 
         mock_event = MagicMock()
-        mock_event.pipeline_stage = None
+        mock_event.pipeline_stage = PipelineStage.FILTERED
 
         mock_router = MagicMock()
         mock_router.route_async = AsyncMock()
@@ -663,7 +1041,7 @@ class TestRunJudgeAsync:
 
         with (
             patch(
-                "news_sentry.core.async_run._load_events_from_dir",
+                "news_sentry.core.async_run._load_pending_judge_events",
                 return_value=[mock_event],
             ),
             patch(
@@ -713,7 +1091,7 @@ class TestRunJudgeAsync:
         mock_judge_result = MagicMock()
         mock_judge_result.nlp_analysis = mock_nlp_result
         mock_event = MagicMock()
-        mock_event.pipeline_stage = None
+        mock_event.pipeline_stage = PipelineStage.FILTERED
         mock_event.judge_result = mock_judge_result
 
         mock_store = AsyncMock()
@@ -732,7 +1110,7 @@ class TestRunJudgeAsync:
 
         with (
             patch(
-                "news_sentry.core.async_run._load_events_from_dir",
+                "news_sentry.core.async_run._load_pending_judge_events",
                 return_value=[mock_event],
             ),
             patch(
@@ -763,7 +1141,7 @@ class TestRunJudgeAsync:
     @pytest.mark.asyncio
     async def test_judge_async_smart_alerts(self):
         """智能告警检查被调用。"""
-        from unittest.mock import AsyncMock, MagicMock, patch
+        from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
         from news_sentry.core.async_run import _run_judge_async
 
@@ -775,7 +1153,7 @@ class TestRunJudgeAsync:
         ctx = MagicMock()
 
         mock_event = MagicMock()
-        mock_event.pipeline_stage = None
+        mock_event.pipeline_stage = PipelineStage.FILTERED
 
         mock_store = AsyncMock()
         mock_router = MagicMock()
@@ -791,7 +1169,7 @@ class TestRunJudgeAsync:
 
         with (
             patch(
-                "news_sentry.core.async_run._load_events_from_dir",
+                "news_sentry.core.async_run._load_pending_judge_events",
                 return_value=[mock_event],
             ),
             patch(
@@ -818,7 +1196,9 @@ class TestRunJudgeAsync:
             )
 
         mock_alert_cls.assert_called_once()
-        mock_alert_pipeline.check_smart_alerts.assert_called_once_with(mock_store, "italy")
+        mock_alert_pipeline.check_smart_alerts.assert_called_once_with(
+            mock_store, "italy", since=ANY, limit=500
+        )
 
     @pytest.mark.asyncio
     async def test_judge_async_nonblocking_failures(self):
@@ -835,7 +1215,7 @@ class TestRunJudgeAsync:
         ctx = MagicMock()
 
         mock_event = MagicMock()
-        mock_event.pipeline_stage = None
+        mock_event.pipeline_stage = PipelineStage.FILTERED
 
         mock_store = AsyncMock()
         mock_store.upsert_entity = AsyncMock(side_effect=RuntimeError("db error"))
@@ -861,7 +1241,7 @@ class TestRunJudgeAsync:
 
         with (
             patch(
-                "news_sentry.core.async_run._load_events_from_dir",
+                "news_sentry.core.async_run._load_pending_judge_events",
                 return_value=[mock_event],
             ),
             patch(

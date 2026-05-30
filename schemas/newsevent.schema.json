@@ -142,7 +142,7 @@
     "content_translated": { "type": ["string", "null"] },
     "language": {
       "type": "string",
-      "enum": ["it", "en", "zh", "mixed"]
+      "enum": ["it", "en", "zh", "ja", "de", "fr", "mixed"]
     },
     "published_at": { "type": "string", "format": "date-time" },
     "collected_at": { "type": "string", "format": "date-time" },

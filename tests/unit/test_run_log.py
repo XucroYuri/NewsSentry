@@ -112,6 +112,23 @@ class TestPhaseLogging:
 
         assert log.errors_count == 3
 
+    def test_log_phase_metrics_written(self, tmp_path: Path):
+        """阶段 metrics 写入运行日志，供自动化诊断 filter=0 等原因。"""
+        log = RunLog(log_dir=tmp_path, run_id="test_metrics", target_id="italy")
+
+        log.log_phase_start("filter")
+        log.log_phase_metrics("filter", {"input": 10, "skipped_known": 8, "passed": 2})
+        log.log_phase_end("filter", items_count=2, duration_ms=10.0)
+
+        output_path = log.write()
+        content = json.loads(output_path.read_text(encoding="utf-8"))
+
+        assert content["phases"][0]["metrics"] == {
+            "input": 10,
+            "skipped_known": 8,
+            "passed": 2,
+        }
+
 
 # ── RunLog write ────────────────────────────────────────────────────────
 
@@ -148,12 +165,28 @@ class TestWrite:
         assert content["profile_id"] == "local-workstation"
         assert "started_at" in content
         assert "ended_at" in content
+        assert content["finished_at"] == content["ended_at"]
+        assert content["status"] == "error"
         assert len(content["phases"]) == 1
         assert content["phases"][0]["stage"] == "collect"
         assert content["phases"][0]["items_count"] == 10
         assert content["phases"][0]["duration_ms"] == 800.0
         assert content["errors_count"] == 1
         assert len(content["errors"]) == 1
+
+    def test_write_marks_status_error_when_errors_exist(self, tmp_path: Path):
+        """有错误时写入自动化可直接读取的 status=error。"""
+        log = RunLog(log_dir=tmp_path, run_id="test_error_status", target_id="italy")
+
+        log.log_phase_start("collect")
+        log.log_error("collect", "Connection refused", event_id="ansa")
+        log.log_phase_end("collect", items_count=0, duration_ms=100.0)
+
+        output_path = log.write()
+        content = json.loads(output_path.read_text(encoding="utf-8"))
+
+        assert content["status"] == "error"
+        assert content["finished_at"] == content["ended_at"]
 
     def test_write_idempotent(self, tmp_path: Path):
         """多次 write 调用幂等，返回相同路径。"""

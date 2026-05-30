@@ -16,6 +16,8 @@ import yaml
 from jsonschema import validate as jsonschema_validate
 from pydantic import BaseModel, Field
 
+from news_sentry.skills.filter.classification_taxonomy import canonical_l0
+
 
 class ResolvedConfig(BaseModel):
     """完整解析后的一个 target 的运行时配置。
@@ -126,7 +128,11 @@ class ConfigLoader:
         target_data = self._load_yaml(target_path)
         self._validate_resolved_schema(target_data, target_path)
 
-        sources = self._load_sources(target_id, target_data.get("source_channel_refs", []))
+        sources = self._load_sources(
+            target_id,
+            target_data.get("source_channel_refs", []),
+            target_data,
+        )
         filter_rules = self._load_referenced_config(
             target_data.get("filter_rules_ref"), target_path
         )
@@ -345,9 +351,18 @@ class ConfigLoader:
             return {}
         data = self._load_yaml(ref_path)
         merged = self._resolve_extends(data, ref_path_str, context_path)
+        self._normalize_classification_rules(merged)
         # 对最终合并结果校验 schema
         self._validate_resolved_schema(merged, ref_path)
         return merged
+
+    def _normalize_classification_rules(self, data: dict[str, Any]) -> None:
+        for domain in data.get("l0_domains", []):
+            if isinstance(domain, dict) and domain.get("code"):
+                domain["code"] = canonical_l0(domain.get("code"))
+        for topic in data.get("l1_topics", []):
+            if isinstance(topic, dict) and topic.get("l0_domain"):
+                topic["l0_domain"] = canonical_l0(topic.get("l0_domain"))
 
     def _resolve_ref_path(self, ref_path_str: str, context_path: Path) -> Path | None:
         """解析引用路径，与 _load_referenced_config 相同的查找逻辑。
@@ -487,18 +502,28 @@ class ConfigLoader:
                 ) from e
         return resolved
 
-    def _load_sources(self, target_id: str, source_ids: list[str]) -> list[dict[str, Any]]:
+    def _load_sources(
+        self,
+        target_id: str,
+        source_ids: list[str],
+        target_data: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         """加载 target 的所有 source channel 配置。
 
         Args:
             target_id: target 标识符（如 "italy"）。
             source_ids: source channel ID 列表（如 ["ansa", "repubblica"]）。
+            target_data: target 配置，用于给 source 注入默认语言。
 
         Returns:
             SourceChannel 数据列表（已校验）。
         """
         sources: list[dict[str, Any]] = []
         sources_dir = self._config_root / "config" / "sources" / target_id
+        language_scope = (target_data or {}).get("language_scope", {})
+        target_language = (
+            language_scope.get("primary", "mixed") if isinstance(language_scope, dict) else "mixed"
+        )
         for sid in source_ids:
             # 跳过社媒渠道配置 — 由 SocialKOLCollector 独立加载
             if sid.startswith("social/"):
@@ -508,6 +533,8 @@ class ConfigLoader:
                 raise FileNotFoundError(f"Source 配置文件不存在: {source_path}")
             data = self._load_yaml(source_path)
             self._validate_resolved_schema(data, source_path)
+            data["target_id"] = target_id
+            data["language"] = str(data.get("language") or target_language or "mixed").lower()
             sources.append(data)
         return sources
 

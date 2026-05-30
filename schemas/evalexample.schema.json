@@ -29,7 +29,7 @@
         "content_original": { "type": "string" },
         "source_id": { "type": "string" },
         "url": { "type": "string" },
-        "language": { "type": "string", "enum": ["it", "en", "zh", "mixed"] }
+        "language": { "type": "string", "enum": ["it", "en", "zh", "ja", "de", "fr", "mixed"] }
       }
     },
     "expected": {

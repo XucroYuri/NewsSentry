@@ -10,12 +10,16 @@ import logging
 # 在非测试环境中 patch aiosqlite.core.Thread 使 worker 为 daemon。
 # 测试中不 patch，因为 pytest 的 per-test event loop 依赖 worker 线程正常关闭。
 import os as _os
+import sqlite3
 import time
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import aiosqlite
+
+from news_sentry.skills.filter.classification_taxonomy import canonical_l0, l0_query_values
 
 if not _os.environ.get("PYTEST_CURRENT_TEST"):
     import aiosqlite.core as _aiosqlite_core
@@ -150,6 +154,7 @@ _DDL_ALERT_HISTORY = """
 CREATE TABLE IF NOT EXISTS alert_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     target_id TEXT NOT NULL,
+    alert_key TEXT,
     alert_type TEXT NOT NULL,
     severity TEXT NOT NULL,
     message TEXT NOT NULL,
@@ -216,6 +221,16 @@ _SCHEMA_MIGRATIONS: list[tuple[int, str, list[str]]] = [
     (3, "Add sessions table for token persistence", []),
     # v4: 通知设置 — notifications 表（替代 notifications.json）
     (4, "Add notifications table for settings persistence", []),
+    # v5: 智能告警历史幂等键，避免重复检查 recent links 时无限膨胀。
+    (
+        5,
+        "Add idempotency key to alert_history",
+        [
+            "ALTER TABLE alert_history ADD COLUMN alert_key TEXT",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_history_key "
+            "ON alert_history(target_id, alert_key)",
+        ],
+    ),
 ]
 
 _DDL_INDEXES = (
@@ -236,6 +251,8 @@ _DDL_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_narrative_target ON chain_narratives(target_id)",
     "CREATE INDEX IF NOT EXISTS idx_event_links_type ON event_links(link_type, strength)",
     "CREATE INDEX IF NOT EXISTS idx_event_created ON event_index(created_at)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_history_key "
+    "ON alert_history(target_id, alert_key)",
 )
 
 __all__ = ["AsyncStore"]
@@ -566,6 +583,7 @@ class AsyncStore:
             event.metadata.get("classification", {}) if hasattr(event, "metadata") else {}
         )
         classification_l0 = classification.get("l0") if isinstance(classification, dict) else None
+        classification_l0 = canonical_l0(classification_l0)
         now = datetime.now(UTC).isoformat()
         await self._db.execute(
             """INSERT OR REPLACE INTO event_index
@@ -642,6 +660,17 @@ class AsyncStore:
             row = await cursor.fetchone()
         return row[0] if row else 0
 
+    async def get_target_event_count(self, target_id: str) -> int:
+        """统计 target 在 event_index 中的所有阶段事件数。"""
+        if self._db is None:
+            return 0
+        async with self._db.execute(
+            "SELECT COUNT(*) FROM event_index WHERE target_id = ?",
+            (target_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        return row[0] if row else 0
+
     async def get_stats(self, target_id: str) -> dict[str, Any]:
         if self._db is None:
             return {"total_events": 0, "stage_counts": {}, "avg_news_value_score": 0.0}
@@ -696,8 +725,10 @@ class AsyncStore:
             conditions.append("source_id = ?")
             params.append(source_id)
         if classification_l0 is not None:
-            conditions.append("classification_l0 = ?")
-            params.append(classification_l0)
+            values = sorted(l0_query_values(classification_l0))
+            placeholders = ", ".join("?" for _ in values)
+            conditions.append(f"classification_l0 IN ({placeholders})")
+            params.extend(values)
         if min_score is not None:
             conditions.append("news_value_score >= ?")
             params.append(min_score)
@@ -738,7 +769,7 @@ class AsyncStore:
                     "source_id": r[1],
                     "news_value_score": r[2],
                     "china_relevance": r[3],
-                    "classification_l0": r[4],
+                    "classification_l0": canonical_l0(r[4]),
                     "published_at": r[5],
                     "file_path": r[6],
                     "title_original": r[7],
@@ -790,7 +821,7 @@ class AsyncStore:
             avg_score = row[0] if row and row[0] is not None else None
             avg_relevance = row[1] if row and row[1] is not None else None
 
-        by_classification: dict[str, int] = {}
+        by_classification: dict[str, int] = defaultdict(int)
         async with self._db.execute(
             "SELECT classification_l0, COUNT(*) FROM event_index "
             "WHERE target_id = ? AND classification_l0 IS NOT NULL "
@@ -798,7 +829,7 @@ class AsyncStore:
             [target_id],
         ) as cursor:
             async for row in cursor:
-                by_classification[row[0]] = row[1]
+                by_classification[canonical_l0(row[0])] += row[1]
 
         by_source: dict[str, int] = {}
         async with self._db.execute(
@@ -855,6 +886,40 @@ class AsyncStore:
         ) as cursor:
             row = await cursor.fetchone()
             return row[0] if row else None
+
+    async def get_event_index_row(self, target_id: str, event_id: str) -> dict[str, Any] | None:
+        """按 target_id + event_id 读取 event_index 行。"""
+        if self._db is None:
+            return None
+        async with self._db.execute(
+            """SELECT event_id, target_id, stage, source_id,
+                      news_value_score, china_relevance, classification_l0,
+                      title_original, published_at, file_path, sentiment,
+                      entity_names, topic_tags, created_at
+               FROM event_index
+               WHERE target_id = ? AND event_id = ?""",
+            (target_id, event_id),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        cols = (
+            "event_id",
+            "target_id",
+            "stage",
+            "source_id",
+            "news_value_score",
+            "china_relevance",
+            "classification_l0",
+            "title_original",
+            "published_at",
+            "file_path",
+            "sentiment",
+            "entity_names",
+            "topic_tags",
+            "created_at",
+        )
+        return dict(zip(cols, row, strict=True))
 
     # ------------------------------------------------------------------
     # Entity Tracking (Phase 32)
@@ -1032,16 +1097,18 @@ class AsyncStore:
         target_id: str,
         event_id: str,
         days: int = 7,
+        limit: int = 100,
     ) -> list[dict[str, Any]]:
         """查找同一 target 最近 N 天的候选关联事件（排除自身）。"""
         if self._db is None:
             return []
         cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+        capped_limit = max(1, int(limit))
         async with self._db.execute(
             "SELECT event_id, entity_names, topic_tags, published_at, title_original "
             "FROM event_index WHERE target_id = ? AND event_id != ? "
-            "AND published_at >= ? ORDER BY published_at DESC",
-            [target_id, event_id, cutoff],
+            "AND published_at >= ? ORDER BY published_at DESC LIMIT ?",
+            [target_id, event_id, cutoff, capped_limit],
         ) as cursor:
             rows = await cursor.fetchall()
         cols = ("event_id", "entity_names", "topic_tags", "published_at", "title_original")
@@ -1302,20 +1369,41 @@ class AsyncStore:
     # Smart Alerts (Phase 38)
     # ------------------------------------------------------------------
 
-    async def get_recent_links(self, target_id: str, hours: int = 24) -> list[dict[str, Any]]:
+    async def get_recent_links(
+        self,
+        target_id: str,
+        hours: int = 24,
+        limit: int = 500,
+        since_run_started_at: str | datetime | None = None,
+    ) -> list[dict[str, Any]]:
         """获取最近 N 小时新增的 event_links。"""
         if self._db is None:
             return []
-        async with self._db.execute(
-            "SELECT el.source_event_id, el.target_event_id, el.link_type, "
-            "el.strength, el.target_id, ei.title_original "
-            "FROM event_links el "
-            "LEFT JOIN event_index ei ON ei.event_id = el.target_event_id "
-            "WHERE el.target_id = ? "
-            "AND el.created_at >= datetime('now', ? || ' hours') "
-            "ORDER BY el.created_at DESC",
-            [target_id, f"-{hours}"],
-        ) as cursor:
+        params: list[Any] = [target_id, f"-{hours}"]
+        if since_run_started_at is not None:
+            params.append(self._sqlite_datetime(since_run_started_at))
+            query = (
+                "SELECT el.source_event_id, el.target_event_id, el.link_type, "
+                "el.strength, el.target_id, ei.title_original "
+                "FROM event_links el "
+                "LEFT JOIN event_index ei ON ei.event_id = el.target_event_id "
+                "WHERE el.target_id = ? "
+                "AND el.created_at >= datetime('now', ? || ' hours') "
+                "AND el.created_at >= ? "
+                "ORDER BY el.created_at DESC LIMIT ?"
+            )
+        else:
+            query = (
+                "SELECT el.source_event_id, el.target_event_id, el.link_type, "
+                "el.strength, el.target_id, ei.title_original "
+                "FROM event_links el "
+                "LEFT JOIN event_index ei ON ei.event_id = el.target_event_id "
+                "WHERE el.target_id = ? "
+                "AND el.created_at >= datetime('now', ? || ' hours') "
+                "ORDER BY el.created_at DESC LIMIT ?"
+            )
+        params.append(max(1, int(limit)))
+        async with self._db.execute(query, params) as cursor:
             rows = await cursor.fetchall()
         cols = (
             "source_event_id",
@@ -1326,6 +1414,21 @@ class AsyncStore:
             "title_original",
         )
         return [dict(zip(cols, row, strict=True)) for row in rows]
+
+    @staticmethod
+    def _sqlite_datetime(value: str | datetime) -> str:
+        """把 ISO/datetime 时间归一成 SQLite datetime('now') 同格式。"""
+        if isinstance(value, datetime):
+            parsed = value
+        else:
+            text = str(value)
+            try:
+                parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            except ValueError:
+                return text.replace("T", " ")[:19]
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(UTC).replace(tzinfo=None)
+        return parsed.strftime("%Y-%m-%d %H:%M:%S")
 
     async def get_entity_daily_mentions(
         self, entity_name: str, target_id: str, days: int = 7
@@ -1472,10 +1575,9 @@ class AsyncStore:
         backup_path = backup_dir / f"state_{timestamp}.db"
 
         if self._db is not None:
-            # 使用 VACUUM INTO 创建一致性备份
-            await self._db.execute(
-                f"VACUUM INTO '{backup_path}'"  # noqa: S608
-            )
+            await self._db.commit()
+            with sqlite3.connect(backup_path) as target:
+                await self._db.backup(target)
 
         # 清理旧备份（保留最近 7 个）
         backups = sorted(backup_dir.glob("state_*.db"))
@@ -1563,23 +1665,45 @@ class AsyncStore:
         """批量保存告警记录，返回插入数量。"""
         if not alerts or self._db is None:
             return 0
-        await self._db.executemany(
-            """INSERT INTO alert_history
-               (target_id, alert_type, severity, message, details)
-               VALUES (?, ?, ?, ?, ?)""",
-            [
+        rows = []
+        for alert in alerts:
+            details = alert.get("details", {})
+            rows.append(
                 (
                     target_id,
-                    a["type"],
-                    a["severity"],
-                    a["message"],
-                    json.dumps(a.get("details", {})),
+                    str(alert.get("alert_key") or self._alert_history_key(target_id, alert)),
+                    alert["type"],
+                    alert["severity"],
+                    alert["message"],
+                    json.dumps(details, ensure_ascii=False, sort_keys=True),
                 )
-                for a in alerts
-            ],
+            )
+        cursor = await self._db.executemany(
+            """INSERT OR IGNORE INTO alert_history
+               (target_id, alert_key, alert_type, severity, message, details)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            rows,
         )
         await self._db.commit()
-        return len(alerts)
+        return max(int(cursor.rowcount or 0), 0)
+
+    @staticmethod
+    def _alert_history_key(target_id: str, alert: dict[str, Any]) -> str:
+        """计算告警历史幂等键。"""
+        details = json.dumps(
+            alert.get("details", {}),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return ":".join(
+            [
+                target_id,
+                str(alert.get("type") or ""),
+                str(alert.get("severity") or ""),
+                details,
+            ]
+        )
 
     async def get_alert_history(self, target_id: str, limit: int = 50) -> list[dict[str, Any]]:
         """获取历史告警。"""
@@ -1587,7 +1711,7 @@ class AsyncStore:
             return []
         self._db.row_factory = aiosqlite.Row
         async with self._db.execute(
-            """SELECT id, target_id, alert_type, severity,
+            """SELECT id, target_id, alert_key, alert_type, severity,
                       message, details, created_at
                FROM alert_history
                WHERE target_id = ?

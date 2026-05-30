@@ -13,6 +13,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
+from news_sentry.core import api_server as api_server_module
 from news_sentry.core.api_server import (
     _get_valid_api_keys,
     _parse_frontmatter,
@@ -175,6 +176,69 @@ class TestAPIServer:
         assert isinstance(data["target_ids"], list)
         assert "stage" in data
         assert isinstance(data["stage"], str)
+
+    def test_collector_config_put_persists_runtime_yaml(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """collector/config 可保存非技术用户在后台调整的采集调度。"""
+        monkeypatch.chdir(tmp_path)
+        client = self._make_client(tmp_path)
+
+        resp = client.put(
+            "/api/v1/collector/config",
+            json={
+                "enabled": False,
+                "target_ids": ["italy", "japan"],
+                "interval_minutes": 30,
+                "stage": "all",
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["enabled"] is False
+        assert data["target_ids"] == ["italy", "japan"]
+        assert data["interval_minutes"] == 30
+        assert data["stage"] == "all"
+        persisted = yaml.safe_load((tmp_path / "config" / "runtime" / "collector.yaml").read_text())
+        assert persisted["target_ids"] == ["italy", "japan"]
+
+    def test_collector_start_stop_toggle_enabled_state(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """collector/start 与 collector/stop 提供后台启停闭环。"""
+        monkeypatch.chdir(tmp_path)
+        app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
+        client = TestClient(app, base_url="http://127.0.0.1")
+        token_resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert token_resp.status_code == 200
+        client.headers["Authorization"] = f"Bearer {token_resp.json()['access_token']}"
+
+        stop_resp = client.post("/api/v1/collector/stop")
+        assert stop_resp.status_code == 200
+        assert stop_resp.json()["enabled"] is False
+
+        start_resp = client.post("/api/v1/collector/start")
+        assert start_resp.status_code == 200
+        assert start_resp.json()["enabled"] is True
+
+    def test_collector_run_metrics_sum_successful_target_contexts(self) -> None:
+        """自动采集完成后，collector/status 应汇总各 target 的采集数量。"""
+        old_count = api_server_module._auto_collector_state["last_events_collected"]
+        try:
+            api_server_module._auto_collector_state["last_events_collected"] = 0
+
+            api_server_module._update_collector_run_metrics(
+                [
+                    MagicMock(events_collected=82),
+                    MagicMock(events_collected=100),
+                    MagicMock(events_collected=0),
+                ]
+            )
+
+            assert api_server_module._auto_collector_state["last_events_collected"] == 182
+        finally:
+            api_server_module._auto_collector_state["last_events_collected"] = old_count
 
     def test_collector_diagnostics_healthy(self, tmp_path: Path) -> None:
         """有数据目录情况下 diagnostics 返回 overall=healthy。"""
@@ -392,7 +456,7 @@ class TestAPIServer:
         assert data["total_events"] == 3
         assert data["avg_news_value_score"] == pytest.approx(76.67, rel=0.01)
         assert data["avg_china_relevance"] == pytest.approx(23.33, rel=0.01)
-        assert data["by_classification"]["international"] == 2
+        assert data["by_classification"]["international-relations"] == 2
         assert data["by_classification"]["politics"] == 1
         assert data["by_source"]["ansa"] == 2
         assert data["by_source"]["repubblica"] == 1
@@ -412,7 +476,7 @@ class TestAPIServer:
         client = self._make_client(tmp_path)
         resp = client.get(
             "/api/v1/events",
-            params={"target_id": "italy", "classification": "international"},
+            params={"target_id": "italy", "classification": "international-relations"},
         )
         assert resp.status_code == 200
         assert resp.json()["total"] == 1
@@ -843,6 +907,12 @@ class TestAPIServerSQLite:
         await client.aclose()
         await store.close()
 
+    async def _authorize_dev_client(self, client) -> None:
+        """给手工创建的 AsyncClient 设置 dev mode Bearer token。"""
+        token_resp = await client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert token_resp.status_code == 200
+        client.headers["Authorization"] = f"Bearer {token_resp.json()['access_token']}"
+
     async def test_stats_with_sqlite(
         self,
         client_with_store,
@@ -853,7 +923,7 @@ class TestAPIServerSQLite:
         data = resp.json()
         assert data["total_events"] == 3
         assert data["avg_news_value_score"] is not None
-        assert data["by_classification"]["international"] == 2
+        assert data["by_classification"]["international-relations"] == 2
         assert data["by_classification"]["politics"] == 1
         assert data["by_source"]["ansa"] == 2
 
@@ -867,6 +937,951 @@ class TestAPIServerSQLite:
         data = resp.json()
         assert data["total"] == 3
         assert len(data["events"]) == 3
+
+    async def test_events_feed_recovers_frontmatter_when_index_path_is_stale(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """SQLite file_path 失效时，公开 feed 应从 drafts 文件恢复展示字段。"""
+        from httpx import ASGITransport, AsyncClient
+
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        drafts_dir = tmp_path / "italy" / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        event_id = "ne-italy-repubblica-20260528-51db8e48"
+        actual_path = drafts_dir / "2026-05-28-repubblica-ne-italy-rep.md"
+        stale_path = drafts_dir / "outputted_repubblica_ne-italy-repubblica-20260528-51db8e48.md"
+        fm = yaml.dump(
+            {
+                "id": event_id,
+                "source_id": "repubblica",
+                "url": "https://example.com/news",
+                "title_original": "Guerra in Iran",
+                "published_at": "2026-05-28T00:18:47+00:00",
+                "news_value_score": 100,
+                "classification": {"l0": "international"},
+                "pipeline_stage": "outputted",
+            },
+            allow_unicode=True,
+            default_flow_style=False,
+            sort_keys=False,
+        )
+        actual_path.write_text(f"---\n{fm}---\n\n# Guerra in Iran\n", encoding="utf-8")
+        now = datetime.now(UTC).isoformat()
+        try:
+            await store._db.execute(  # noqa: SLF001
+                "INSERT OR REPLACE INTO event_index "
+                "(event_id, target_id, stage, source_id, news_value_score, "
+                "china_relevance, classification_l0, title_original, "
+                "published_at, file_path, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    event_id,
+                    "italy",
+                    "drafts",
+                    "repubblica",
+                    100,
+                    None,
+                    None,
+                    "Guerra in Iran",
+                    "2026-05-28T00:18:47+00:00",
+                    str(stale_path),
+                    now,
+                ),
+            )
+            await store._db.commit()  # noqa: SLF001
+
+            app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
+                resp = await client.get("/api/v1/events/feed", params={"target_id": "italy"})
+
+            assert resp.status_code == 200
+            item = resp.json()["groups"][0]["events"][0]
+            assert item["event_id"] == event_id
+            assert item["flat_tags"] == ["international-relations"]
+        finally:
+            await store.close()
+
+    async def test_events_feed_does_not_reuse_collided_file_path_frontmatter(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """SQLite 行的 file_path 指向其他事件时，feed 不应重复展示该文件内容。"""
+        from httpx import ASGITransport, AsyncClient
+
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        drafts_dir = tmp_path / "italy" / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        event_one = "ne-italy-ansa-20260528-aaa11111"
+        event_two = "ne-italy-ansa-20260528-bbb22222"
+        collided_path = drafts_dir / "2026-05-28-ansa-ne-italy-ans.md"
+        fm = yaml.dump(
+            {
+                "id": event_two,
+                "source_id": "ansa",
+                "url": "https://example.com/two",
+                "title_original": "Secondo evento reale",
+                "published_at": "2026-05-28T09:00:00+00:00",
+                "news_value_score": 80,
+                "classification": {"l0": "politics"},
+                "pipeline_stage": "outputted",
+            },
+            allow_unicode=True,
+            default_flow_style=False,
+            sort_keys=False,
+        )
+        collided_path.write_text(f"---\n{fm}---\n\n# Secondo evento reale\n", encoding="utf-8")
+        now = datetime.now(UTC).isoformat()
+        try:
+            rows = [
+                (
+                    event_one,
+                    "Primo evento solo in indice",
+                    "2026-05-28T10:00:00+00:00",
+                    70,
+                ),
+                (
+                    event_two,
+                    "Secondo evento reale",
+                    "2026-05-28T09:00:00+00:00",
+                    80,
+                ),
+            ]
+            for event_id, title, published_at, score in rows:
+                await store._db.execute(  # noqa: SLF001
+                    "INSERT OR REPLACE INTO event_index "
+                    "(event_id, target_id, stage, source_id, news_value_score, "
+                    "china_relevance, classification_l0, title_original, "
+                    "published_at, file_path, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        event_id,
+                        "italy",
+                        "drafts",
+                        "ansa",
+                        score,
+                        None,
+                        "politics",
+                        title,
+                        published_at,
+                        str(collided_path),
+                        now,
+                    ),
+                )
+            await store._db.commit()  # noqa: SLF001
+
+            app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
+                resp = await client.get("/api/v1/events/feed", params={"target_id": "italy"})
+
+            assert resp.status_code == 200
+            events = resp.json()["groups"][0]["events"]
+            assert [item["event_id"] for item in events] == [event_one, event_two]
+            assert events[0]["title_original"] == "Primo evento solo in indice"
+            assert events[1]["title_original"] == "Secondo evento reale"
+        finally:
+            await store.close()
+
+    async def test_events_feed_skips_draft_index_rows_that_point_to_archive(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """公开 feed 不应展示已移入 archive 但仍残留为 drafts 索引的事件。"""
+        from httpx import ASGITransport, AsyncClient
+
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        drafts_dir = tmp_path / "italy" / "drafts"
+        archive_dir = tmp_path / "italy" / "archive"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        draft_event = "ne-italy-ansa-20260528-draft001"
+        archived_event = "ne-italy-ansa-20260528-arch0001"
+
+        draft_path = drafts_dir / f"{draft_event}.md"
+        archive_path = archive_dir / f"rejected_ansa_{archived_event}.md"
+        for path, event_id, title in (
+            (draft_path, draft_event, "Evento ancora in bozza"),
+            (archive_path, archived_event, "Evento archiviato"),
+        ):
+            fm = yaml.dump(
+                {
+                    "id": event_id,
+                    "source_id": "ansa",
+                    "url": f"https://example.com/{event_id}",
+                    "title_original": title,
+                    "published_at": "2026-05-28T09:00:00+00:00",
+                    "news_value_score": 80,
+                    "classification": {"l0": "politics"},
+                    "pipeline_stage": "outputted",
+                },
+                allow_unicode=True,
+                default_flow_style=False,
+                sort_keys=False,
+            )
+            path.write_text(f"---\n{fm}---\n\n# {title}\n", encoding="utf-8")
+
+        now = datetime.now(UTC).isoformat()
+        try:
+            for event_id, title, file_path in (
+                (draft_event, "Evento ancora in bozza", draft_path),
+                (archived_event, "Evento archiviato", archive_path),
+            ):
+                await store._db.execute(  # noqa: SLF001
+                    "INSERT OR REPLACE INTO event_index "
+                    "(event_id, target_id, stage, source_id, news_value_score, "
+                    "china_relevance, classification_l0, title_original, "
+                    "published_at, file_path, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        event_id,
+                        "italy",
+                        "drafts",
+                        "ansa",
+                        80,
+                        None,
+                        "politics",
+                        title,
+                        "2026-05-28T09:00:00+00:00",
+                        str(file_path),
+                        now,
+                    ),
+                )
+            await store._db.commit()  # noqa: SLF001
+
+            app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
+                resp = await client.get("/api/v1/events/feed", params={"target_id": "italy"})
+
+            assert resp.status_code == 200
+            events = resp.json()["groups"][0]["events"]
+            assert [item["event_id"] for item in events] == [draft_event]
+        finally:
+            await store.close()
+
+    async def test_events_feed_backfills_page_after_skipping_stale_archive_rows(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """分页前应过滤不可见索引，避免 page 1 被 stale archive 行占满。"""
+        from httpx import ASGITransport, AsyncClient
+
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        drafts_dir = tmp_path / "italy" / "drafts"
+        archive_dir = tmp_path / "italy" / "archive"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        archived_event = "ne-italy-ansa-20260528-arch0001"
+        draft_event = "ne-italy-ansa-20260528-draft001"
+        archive_path = archive_dir / f"rejected_ansa_{archived_event}.md"
+        draft_path = drafts_dir / f"{draft_event}.md"
+
+        for path, event_id, title, published_at in (
+            (
+                archive_path,
+                archived_event,
+                "Evento archiviato piu recente",
+                "2026-05-28T10:00:00+00:00",
+            ),
+            (draft_path, draft_event, "Evento visibile", "2026-05-28T09:00:00+00:00"),
+        ):
+            fm = yaml.dump(
+                {
+                    "id": event_id,
+                    "source_id": "ansa",
+                    "url": f"https://example.com/{event_id}",
+                    "title_original": title,
+                    "published_at": published_at,
+                    "news_value_score": 80,
+                    "classification": {"l0": "politics"},
+                    "pipeline_stage": "outputted",
+                },
+                allow_unicode=True,
+                default_flow_style=False,
+                sort_keys=False,
+            )
+            path.write_text(f"---\n{fm}---\n\n# {title}\n", encoding="utf-8")
+
+        now = datetime.now(UTC).isoformat()
+        try:
+            for event_id, title, published_at, file_path in (
+                (
+                    archived_event,
+                    "Evento archiviato piu recente",
+                    "2026-05-28T10:00:00+00:00",
+                    archive_path,
+                ),
+                (draft_event, "Evento visibile", "2026-05-28T09:00:00+00:00", draft_path),
+            ):
+                await store._db.execute(  # noqa: SLF001
+                    "INSERT OR REPLACE INTO event_index "
+                    "(event_id, target_id, stage, source_id, news_value_score, "
+                    "china_relevance, classification_l0, title_original, "
+                    "published_at, file_path, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        event_id,
+                        "italy",
+                        "drafts",
+                        "ansa",
+                        80,
+                        None,
+                        "politics",
+                        title,
+                        published_at,
+                        str(file_path),
+                        now,
+                    ),
+                )
+            await store._db.commit()  # noqa: SLF001
+
+            app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
+                resp = await client.get(
+                    "/api/v1/events/feed",
+                    params={"target_id": "italy", "page": 1, "page_size": 1},
+                )
+
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["total"] == 1
+            events = data["groups"][0]["events"]
+            assert [item["event_id"] for item in events] == [draft_event]
+        finally:
+            await store.close()
+
+    async def test_events_feed_backfills_across_index_batches(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """可见分页必须跨批次查找，不能被单批候选行上限截断。"""
+        from httpx import ASGITransport, AsyncClient
+
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        original_query = store.query_events_paginated
+
+        async def capped_query_events_paginated(*args, **kwargs):
+            kwargs["limit"] = 1
+            return await original_query(*args, **kwargs)
+
+        monkeypatch.setattr(store, "query_events_paginated", capped_query_events_paginated)
+        drafts_dir = tmp_path / "italy" / "drafts"
+        archive_dir = tmp_path / "italy" / "archive"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        archived_event = "ne-italy-ansa-20260528-arch0001"
+        draft_event = "ne-italy-ansa-20260528-draft001"
+        archive_path = archive_dir / f"rejected_ansa_{archived_event}.md"
+        draft_path = drafts_dir / f"{draft_event}.md"
+
+        for path, event_id, title, published_at in (
+            (
+                archive_path,
+                archived_event,
+                "Evento archiviato piu recente",
+                "2026-05-28T10:00:00+00:00",
+            ),
+            (draft_path, draft_event, "Evento visibile", "2026-05-28T09:00:00+00:00"),
+        ):
+            fm = yaml.dump(
+                {
+                    "id": event_id,
+                    "source_id": "ansa",
+                    "url": f"https://example.com/{event_id}",
+                    "title_original": title,
+                    "published_at": published_at,
+                    "news_value_score": 80,
+                    "classification": {"l0": "politics"},
+                    "pipeline_stage": "outputted",
+                },
+                allow_unicode=True,
+                default_flow_style=False,
+                sort_keys=False,
+            )
+            path.write_text(f"---\n{fm}---\n\n# {title}\n", encoding="utf-8")
+
+        now = datetime.now(UTC).isoformat()
+        try:
+            for event_id, title, published_at, file_path in (
+                (
+                    archived_event,
+                    "Evento archiviato piu recente",
+                    "2026-05-28T10:00:00+00:00",
+                    archive_path,
+                ),
+                (draft_event, "Evento visibile", "2026-05-28T09:00:00+00:00", draft_path),
+            ):
+                await store._db.execute(  # noqa: SLF001
+                    "INSERT OR REPLACE INTO event_index "
+                    "(event_id, target_id, stage, source_id, news_value_score, "
+                    "china_relevance, classification_l0, title_original, "
+                    "published_at, file_path, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        event_id,
+                        "italy",
+                        "drafts",
+                        "ansa",
+                        80,
+                        None,
+                        "politics",
+                        title,
+                        published_at,
+                        str(file_path),
+                        now,
+                    ),
+                )
+            await store._db.commit()  # noqa: SLF001
+
+            app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
+                resp = await client.get(
+                    "/api/v1/events/feed",
+                    params={"target_id": "italy", "page": 1, "page_size": 1},
+                )
+
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["total"] == 1
+            assert data["groups"][0]["events"][0]["event_id"] == draft_event
+        finally:
+            await store.close()
+
+    async def test_event_detail_does_not_reuse_collided_file_path_frontmatter(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """详情接口遇到 file_path 碰撞时，应返回请求 event_id 的索引信息。"""
+        from httpx import ASGITransport, AsyncClient
+
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        drafts_dir = tmp_path / "italy" / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        requested_event = "ne-italy-ansa-20260528-aaa11111"
+        other_event = "ne-italy-ansa-20260528-bbb22222"
+        collided_path = drafts_dir / "2026-05-28-ansa-ne-italy-ans.md"
+        fm = yaml.dump(
+            {
+                "id": other_event,
+                "source_id": "ansa",
+                "url": "https://example.com/two",
+                "title_original": "Secondo evento reale",
+                "published_at": "2026-05-28T09:00:00+00:00",
+                "news_value_score": 80,
+                "classification": {"l0": "politics"},
+                "pipeline_stage": "outputted",
+            },
+            allow_unicode=True,
+            default_flow_style=False,
+            sort_keys=False,
+        )
+        collided_path.write_text(f"---\n{fm}---\n\n# Secondo evento reale\n", encoding="utf-8")
+        now = datetime.now(UTC).isoformat()
+        try:
+            for event_id, title, published_at, score in (
+                (requested_event, "Primo evento solo in indice", "2026-05-28T10:00:00+00:00", 70),
+                (other_event, "Secondo evento reale", "2026-05-28T09:00:00+00:00", 80),
+            ):
+                await store._db.execute(  # noqa: SLF001
+                    "INSERT OR REPLACE INTO event_index "
+                    "(event_id, target_id, stage, source_id, news_value_score, "
+                    "china_relevance, classification_l0, title_original, "
+                    "published_at, file_path, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        event_id,
+                        "italy",
+                        "drafts",
+                        "ansa",
+                        score,
+                        None,
+                        "politics",
+                        title,
+                        published_at,
+                        str(collided_path),
+                        now,
+                    ),
+                )
+            await store._db.commit()  # noqa: SLF001
+
+            app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
+                resp = await client.get(
+                    f"/api/v1/events/{requested_event}",
+                    params={"target_id": "italy"},
+                )
+
+            assert resp.status_code == 200
+            data = resp.json()
+            assert (data.get("event_id") or data.get("id")) == requested_event
+            assert data["title_original"] == "Primo evento solo in indice"
+        finally:
+            await store.close()
+
+    async def test_event_detail_rejects_non_draft_index_rows(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """公开详情不得从 raw/archive 索引行返回事件。"""
+        from httpx import ASGITransport, AsyncClient
+
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        archive_dir = tmp_path / "italy" / "archive"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        event_id = "ne-italy-ansa-20260528-arch0001"
+        archive_path = archive_dir / f"rejected_ansa_{event_id}.md"
+        fm = yaml.dump(
+            {
+                "id": event_id,
+                "source_id": "ansa",
+                "url": "https://example.com/archive",
+                "title_original": "Evento archiviato",
+                "published_at": "2026-05-28T09:00:00+00:00",
+                "pipeline_stage": "outputted",
+            },
+            allow_unicode=True,
+            default_flow_style=False,
+            sort_keys=False,
+        )
+        archive_path.write_text(f"---\n{fm}---\n\n# Evento archiviato\n", encoding="utf-8")
+        now = datetime.now(UTC).isoformat()
+        try:
+            await store._db.execute(  # noqa: SLF001
+                "INSERT OR REPLACE INTO event_index "
+                "(event_id, target_id, stage, source_id, title_original, "
+                "published_at, file_path, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    event_id,
+                    "italy",
+                    "archive",
+                    "ansa",
+                    "Evento archiviato",
+                    "2026-05-28T09:00:00+00:00",
+                    str(archive_path),
+                    now,
+                ),
+            )
+            await store._db.commit()  # noqa: SLF001
+
+            app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
+                resp = await client.get(
+                    f"/api/v1/events/{event_id}",
+                    params={"target_id": "italy"},
+                )
+
+            assert resp.status_code == 404
+        finally:
+            await store.close()
+
+    async def test_event_detail_rejects_stale_draft_row_pointing_to_archive(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """drafts 残留索引若指向 archive 文件，详情也不可公开返回。"""
+        from httpx import ASGITransport, AsyncClient
+
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        archive_dir = tmp_path / "italy" / "archive"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        event_id = "ne-italy-ansa-20260528-arch0001"
+        archive_path = archive_dir / f"rejected_ansa_{event_id}.md"
+        fm = yaml.dump(
+            {
+                "id": event_id,
+                "source_id": "ansa",
+                "url": "https://example.com/archive",
+                "title_original": "Evento archiviato",
+                "published_at": "2026-05-28T09:00:00+00:00",
+                "pipeline_stage": "outputted",
+            },
+            allow_unicode=True,
+            default_flow_style=False,
+            sort_keys=False,
+        )
+        archive_path.write_text(f"---\n{fm}---\n\n# Evento archiviato\n", encoding="utf-8")
+        now = datetime.now(UTC).isoformat()
+        try:
+            await store._db.execute(  # noqa: SLF001
+                "INSERT OR REPLACE INTO event_index "
+                "(event_id, target_id, stage, source_id, title_original, "
+                "published_at, file_path, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    event_id,
+                    "italy",
+                    "drafts",
+                    "ansa",
+                    "Evento archiviato",
+                    "2026-05-28T09:00:00+00:00",
+                    str(archive_path),
+                    now,
+                ),
+            )
+            await store._db.commit()  # noqa: SLF001
+
+            app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
+                resp = await client.get(
+                    f"/api/v1/events/{event_id}",
+                    params={"target_id": "italy"},
+                )
+
+            assert resp.status_code == 404
+        finally:
+            await store.close()
+
+    async def test_event_detail_rejects_missing_archive_path_index_row(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """即便 archive 文件已被清理，file_path 字符串仍不可作为公开详情兜底。"""
+        from httpx import ASGITransport, AsyncClient
+
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        drafts_dir = tmp_path / "italy" / "drafts"
+        archive_dir = tmp_path / "italy" / "archive"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        event_id = "ne-italy-ansa-20260528-arch0001"
+        draft_path = drafts_dir / f"{event_id}.md"
+        archive_path = archive_dir / f"rejected_ansa_{event_id}.md"
+        fm = yaml.dump(
+            {
+                "id": event_id,
+                "source_id": "ansa",
+                "url": "https://example.com/archive",
+                "title_original": "Residuo in drafts da non usare",
+                "published_at": "2026-05-28T09:00:00+00:00",
+                "pipeline_stage": "outputted",
+            },
+            allow_unicode=True,
+            default_flow_style=False,
+            sort_keys=False,
+        )
+        draft_path.write_text(
+            f"---\n{fm}---\n\n# Residuo in drafts da non usare\n",
+            encoding="utf-8",
+        )
+        now = datetime.now(UTC).isoformat()
+        try:
+            await store._db.execute(  # noqa: SLF001
+                "INSERT OR REPLACE INTO event_index "
+                "(event_id, target_id, stage, source_id, title_original, "
+                "published_at, file_path, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    event_id,
+                    "italy",
+                    "drafts",
+                    "ansa",
+                    "Evento archiviato",
+                    "2026-05-28T09:00:00+00:00",
+                    str(archive_path),
+                    now,
+                ),
+            )
+            await store._db.commit()  # noqa: SLF001
+
+            app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
+                resp = await client.get(
+                    f"/api/v1/events/{event_id}",
+                    params={"target_id": "italy"},
+                )
+
+            assert resp.status_code == 404
+        finally:
+            await store.close()
+
+    async def test_event_detail_does_not_fallback_when_non_draft_index_row_exists(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """非 drafts 索引命中时禁止继续扫描 drafts 残留文件。"""
+        from httpx import ASGITransport, AsyncClient
+
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        drafts_dir = tmp_path / "italy" / "drafts"
+        archive_dir = tmp_path / "italy" / "archive"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        event_id = "ne-italy-ansa-20260528-arch0001"
+        draft_path = drafts_dir / f"{event_id}.md"
+        archive_path = archive_dir / f"rejected_ansa_{event_id}.md"
+        fm = yaml.dump(
+            {
+                "id": event_id,
+                "source_id": "ansa",
+                "url": "https://example.com/archive",
+                "title_original": "Residuo in drafts da non usare",
+                "published_at": "2026-05-28T09:00:00+00:00",
+                "pipeline_stage": "outputted",
+            },
+            allow_unicode=True,
+            default_flow_style=False,
+            sort_keys=False,
+        )
+        draft_path.write_text(
+            f"---\n{fm}---\n\n# Residuo in drafts da non usare\n",
+            encoding="utf-8",
+        )
+        archive_path.write_text(f"---\n{fm}---\n\n# Archive\n", encoding="utf-8")
+        now = datetime.now(UTC).isoformat()
+        try:
+            await store._db.execute(  # noqa: SLF001
+                "INSERT OR REPLACE INTO event_index "
+                "(event_id, target_id, stage, source_id, title_original, "
+                "published_at, file_path, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    event_id,
+                    "italy",
+                    "archive",
+                    "ansa",
+                    "Evento archiviato",
+                    "2026-05-28T09:00:00+00:00",
+                    str(archive_path),
+                    now,
+                ),
+            )
+            await store._db.commit()  # noqa: SLF001
+
+            app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
+                resp = await client.get(
+                    f"/api/v1/events/{event_id}",
+                    params={"target_id": "italy"},
+                )
+
+            assert resp.status_code == 404
+        finally:
+            await store.close()
+
+    async def test_event_detail_does_not_fallback_for_unindexed_stale_draft(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """target 有任意索引后，详情不可返回未入索引的 drafts 残留文件。"""
+        from httpx import ASGITransport, AsyncClient
+
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        drafts_dir = tmp_path / "italy" / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        indexed_event = "ne-italy-ansa-20260528-indexed01"
+        stale_event = "ne-italy-ansa-20260528-stale001"
+        stale_path = drafts_dir / f"{stale_event}.md"
+        fm = yaml.dump(
+            {
+                "id": stale_event,
+                "source_id": "ansa",
+                "url": "https://example.com/stale",
+                "title_original": "Residuo non indicizzato",
+                "published_at": "2026-05-28T09:00:00+00:00",
+                "pipeline_stage": "outputted",
+            },
+            allow_unicode=True,
+            default_flow_style=False,
+            sort_keys=False,
+        )
+        stale_path.write_text(
+            f"---\n{fm}---\n\n# Residuo non indicizzato\n",
+            encoding="utf-8",
+        )
+        now = datetime.now(UTC).isoformat()
+        try:
+            await store._db.execute(  # noqa: SLF001
+                "INSERT OR REPLACE INTO event_index "
+                "(event_id, target_id, stage, source_id, title_original, "
+                "published_at, file_path, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    indexed_event,
+                    "italy",
+                    "drafts",
+                    "ansa",
+                    "Evento indicizzato",
+                    "2026-05-28T10:00:00+00:00",
+                    str(drafts_dir / f"{indexed_event}.md"),
+                    now,
+                ),
+            )
+            await store._db.commit()  # noqa: SLF001
+
+            app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
+                resp = await client.get(
+                    f"/api/v1/events/{stale_event}",
+                    params={"target_id": "italy"},
+                )
+
+            assert resp.status_code == 404
+        finally:
+            await store.close()
+
+    async def test_list_events_does_not_fallback_to_drafts_when_only_archive_index_exists(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """target 有非 drafts 索引时，列表不可回退扫描 drafts 残留文件。"""
+        from httpx import ASGITransport, AsyncClient
+
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        drafts_dir = tmp_path / "italy" / "drafts"
+        archive_dir = tmp_path / "italy" / "archive"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        event_id = "ne-italy-ansa-20260528-arch0001"
+        draft_path = drafts_dir / f"{event_id}.md"
+        archive_path = archive_dir / f"rejected_ansa_{event_id}.md"
+        fm = yaml.dump(
+            {
+                "id": event_id,
+                "source_id": "ansa",
+                "url": "https://example.com/archive",
+                "title_original": "Residuo in drafts da non usare",
+                "published_at": "2026-05-28T09:00:00+00:00",
+                "pipeline_stage": "outputted",
+            },
+            allow_unicode=True,
+            default_flow_style=False,
+            sort_keys=False,
+        )
+        draft_path.write_text(
+            f"---\n{fm}---\n\n# Residuo in drafts da non usare\n",
+            encoding="utf-8",
+        )
+        now = datetime.now(UTC).isoformat()
+        try:
+            await store._db.execute(  # noqa: SLF001
+                "INSERT OR REPLACE INTO event_index "
+                "(event_id, target_id, stage, source_id, title_original, "
+                "published_at, file_path, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    event_id,
+                    "italy",
+                    "archive",
+                    "ansa",
+                    "Evento archiviato",
+                    "2026-05-28T09:00:00+00:00",
+                    str(archive_path),
+                    now,
+                ),
+            )
+            await store._db.commit()  # noqa: SLF001
+
+            app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
+                resp = await client.get("/api/v1/events", params={"target_id": "italy"})
+
+            assert resp.status_code == 200
+            assert resp.json()["total"] == 0
+        finally:
+            await store.close()
+
+    async def test_feed_does_not_fallback_to_drafts_when_only_archive_index_exists(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """target 有非 drafts 索引时，feed 不可回退扫描 drafts 残留文件。"""
+        from httpx import ASGITransport, AsyncClient
+
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        drafts_dir = tmp_path / "italy" / "drafts"
+        archive_dir = tmp_path / "italy" / "archive"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        event_id = "ne-italy-ansa-20260528-arch0001"
+        draft_path = drafts_dir / f"{event_id}.md"
+        archive_path = archive_dir / f"rejected_ansa_{event_id}.md"
+        fm = yaml.dump(
+            {
+                "id": event_id,
+                "source_id": "ansa",
+                "url": "https://example.com/archive",
+                "title_original": "Residuo in drafts da non usare",
+                "published_at": "2026-05-28T09:00:00+00:00",
+                "pipeline_stage": "outputted",
+            },
+            allow_unicode=True,
+            default_flow_style=False,
+            sort_keys=False,
+        )
+        draft_path.write_text(
+            f"---\n{fm}---\n\n# Residuo in drafts da non usare\n",
+            encoding="utf-8",
+        )
+        now = datetime.now(UTC).isoformat()
+        try:
+            await store._db.execute(  # noqa: SLF001
+                "INSERT OR REPLACE INTO event_index "
+                "(event_id, target_id, stage, source_id, title_original, "
+                "published_at, file_path, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    event_id,
+                    "italy",
+                    "archive",
+                    "ansa",
+                    "Evento archiviato",
+                    "2026-05-28T09:00:00+00:00",
+                    str(archive_path),
+                    now,
+                ),
+            )
+            await store._db.commit()  # noqa: SLF001
+
+            app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
+                resp = await client.get("/api/v1/events/feed", params={"target_id": "italy"})
+
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["total"] == 0
+            assert data["groups"] == []
+        finally:
+            await store.close()
 
     async def test_list_events_pagination_with_sqlite(
         self,
@@ -1141,6 +2156,173 @@ class TestOpsEndpoints:
         data = resp.json()
         assert "sources" in data
         assert isinstance(data["sources"], list)
+
+    def test_list_source_health_filters_by_target_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """信源健康只返回当前 target 配置中存在的 source。"""
+        monkeypatch.chdir(tmp_path)
+        italy_sources = tmp_path / "config" / "sources" / "italy"
+        japan_sources = tmp_path / "config" / "sources" / "japan"
+        italy_sources.mkdir(parents=True, exist_ok=True)
+        japan_sources.mkdir(parents=True, exist_ok=True)
+        (italy_sources / "ansa.yaml").write_text("source_id: ansa\n", encoding="utf-8")
+        (japan_sources / "nhk.yaml").write_text("source_id: nhk\n", encoding="utf-8")
+
+        class FakeStore:
+            async def create_session(self, *args, **kwargs) -> None:
+                return None
+
+            async def get_user(self, username: str) -> None:
+                return None
+
+            async def get_all_source_health(self) -> list[dict[str, object]]:
+                return [
+                    {
+                        "source_id": "ansa",
+                        "status": "healthy",
+                        "last_check": "now",
+                        "error_count": 0,
+                    },
+                    {
+                        "source_id": "nhk",
+                        "status": "healthy",
+                        "last_check": "now",
+                        "error_count": 0,
+                    },
+                ]
+
+        app = create_app(data_dir=tmp_path, store=FakeStore(), skip_lifespan=True)
+        client = TestClient(app, base_url="http://127.0.0.1")
+        token_resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert token_resp.status_code == 200
+        client.headers["Authorization"] = f"Bearer {token_resp.json()['access_token']}"
+
+        resp = client.get("/api/v1/sources/health", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        assert [item["source_id"] for item in resp.json()["sources"]] == ["ansa"]
+
+    def test_list_source_health_hides_disabled_and_deprecated_sources(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """默认健康列表不应继续展示已停用或归档的 source。"""
+        monkeypatch.chdir(tmp_path)
+        italy_sources = tmp_path / "config" / "sources" / "italy"
+        italy_sources.mkdir(parents=True, exist_ok=True)
+        (italy_sources / "ansa.yaml").write_text("source_id: ansa\n", encoding="utf-8")
+        (italy_sources / "fao-rss.yaml").write_text(
+            "source_id: fao-rss\nenabled: false\ndeprecated: true\n",
+            encoding="utf-8",
+        )
+
+        class FakeStore:
+            async def create_session(self, *args, **kwargs) -> None:
+                return None
+
+            async def get_user(self, username: str) -> None:
+                return None
+
+            async def get_all_source_health(self) -> list[dict[str, object]]:
+                return [
+                    {
+                        "source_id": "ansa",
+                        "status": "healthy",
+                        "last_check": "now",
+                        "error_count": 0,
+                    },
+                    {
+                        "source_id": "fao-rss",
+                        "status": "dead",
+                        "last_check": "then",
+                        "error_count": 16,
+                        "last_error": "404 Not Found",
+                    },
+                ]
+
+        app = create_app(data_dir=tmp_path, store=FakeStore(), skip_lifespan=True)
+        client = TestClient(app, base_url="http://127.0.0.1")
+        token_resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert token_resp.status_code == 200
+        client.headers["Authorization"] = f"Bearer {token_resp.json()['access_token']}"
+
+        resp = client.get("/api/v1/sources/health", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        assert [item["source_id"] for item in resp.json()["sources"]] == ["ansa"]
+
+    def test_list_source_health_reads_target_memory_yaml(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """信源健康列表应读取真实采集写入的 target memory/source_health.yaml。"""
+        monkeypatch.chdir(tmp_path)
+        italy_sources = tmp_path / "config" / "sources" / "italy"
+        italy_sources.mkdir(parents=True, exist_ok=True)
+        (italy_sources / "ansa.yaml").write_text("source_id: ansa\n", encoding="utf-8")
+        memory_dir = tmp_path / "italy" / "memory"
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        (memory_dir / "source_health.yaml").write_text(
+            yaml.dump(
+                {
+                    "ansa": {
+                        "last_success_at": "2026-05-29T00:42:52+00:00",
+                        "last_failure_at": None,
+                        "consecutive_failures": 0,
+                        "last_error": None,
+                        "total_runs": 12,
+                        "total_failures": 0,
+                    }
+                },
+                allow_unicode=True,
+            ),
+            encoding="utf-8",
+        )
+        client = self._make_client(tmp_path)
+
+        resp = client.get("/api/v1/sources/health", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        assert resp.json()["sources"][0]["source_id"] == "ansa"
+        assert resp.json()["sources"][0]["status"] == "healthy"
+        assert resp.json()["sources"][0]["error_count"] == 0
+
+    def test_list_source_health_promotes_memory_error_fields(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """memory/source_health.yaml 的错误字段应提升到 API 顶层，便于自动化诊断。"""
+        monkeypatch.chdir(tmp_path)
+        italy_sources = tmp_path / "config" / "sources" / "italy"
+        italy_sources.mkdir(parents=True, exist_ok=True)
+        (italy_sources / "broken.yaml").write_text("source_id: broken\n", encoding="utf-8")
+        memory_dir = tmp_path / "italy" / "memory"
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        (memory_dir / "source_health.yaml").write_text(
+            yaml.dump(
+                {
+                    "broken": {
+                        "last_success_at": None,
+                        "last_failure_at": "2026-05-30T10:54:00+00:00",
+                        "consecutive_failures": 3,
+                        "last_error": "RSS fetch failed: 404 Not Found",
+                        "total_runs": 3,
+                        "total_failures": 3,
+                    }
+                },
+                allow_unicode=True,
+            ),
+            encoding="utf-8",
+        )
+        client = self._make_client(tmp_path)
+
+        resp = client.get("/api/v1/sources/health", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        item = resp.json()["sources"][0]
+        assert item["source_id"] == "broken"
+        assert item["status"] == "degraded"
+        assert item["last_error"] == "RSS fetch failed: 404 Not Found"
+        assert item["last_failure_at"] == "2026-05-30T10:54:00+00:00"
+        assert item["last_success_at"] is None
 
     def test_trigger_run(self, tmp_path: Path) -> None:
         client = self._make_client(tmp_path)

@@ -6,6 +6,10 @@ from datetime import UTC, datetime
 from typing import Any
 
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+from news_sentry.skills.filter.classification_taxonomy import (
+    canonical_l0,
+    public_channel_for_terms,
+)
 from news_sentry.skills.filter.classifier_rules import ClassifierRules
 
 # ── helpers ────────────────────────────────────────────────────
@@ -162,7 +166,7 @@ def test_l0_classifies_economics() -> None:
     cr = ClassifierRules(_make_classification_config())
     result = cr.classify(event)
     c = result.metadata["classification"]
-    assert c["l0"] == "economics"
+    assert c["l0"] == "economy"
 
 
 def test_l0_classifies_security() -> None:
@@ -173,7 +177,7 @@ def test_l0_classifies_security() -> None:
     cr = ClassifierRules(_make_classification_config())
     result = cr.classify(event)
     c = result.metadata["classification"]
-    assert c["l0"] == "security"
+    assert c["l0"] == "public-safety"
 
 
 def test_l0_uncategorized_when_no_match() -> None:
@@ -245,7 +249,7 @@ def test_l1_only_matches_in_l0_domain() -> None:
     cr = ClassifierRules(_make_classification_config())
     result = cr.classify(event)
     c = result.metadata["classification"]
-    assert c["l0"] == "economics"
+    assert c["l0"] == "economy"
     topics = c["l1"]
     topic_codes = {t["code"] for t in topics}
     # "fiscal_policy" is L0=economics, should match
@@ -260,6 +264,47 @@ def test_l1_no_matches_returns_empty() -> None:
     result = cr.classify(event)
     c = result.metadata["classification"]
     assert c["l1"] == []
+
+
+def test_canonical_l0_maps_legacy_runtime_labels() -> None:
+    assert canonical_l0("economics") == "economy"
+    assert canonical_l0("security") == "public-safety"
+    assert canonical_l0("international") == "international-relations"
+    assert canonical_l0("culture_society") == "society"
+    assert canonical_l0("environment_energy") == "environment"
+    assert canonical_l0("political") == "politics"
+    assert canonical_l0("technology") == "tech"
+    assert canonical_l0("energy") == "environment"
+    assert canonical_l0("china_related") == "china-related"
+    assert canonical_l0("breaking_news") == "uncategorized"
+    assert canonical_l0("other") == "uncategorized"
+
+
+def test_public_channel_for_terms_uses_canonical_taxonomy() -> None:
+    assert public_channel_for_terms(["economy", "energy"]) == "industry"
+    assert public_channel_for_terms(["international-relations", "sanctions"]) == "risk"
+    assert public_channel_for_terms(["tech", "ai"]) == "tech"
+    assert public_channel_for_terms(["china-related"]) == "china"
+
+
+def test_classifier_outputs_canonical_l0_and_candidates() -> None:
+    cfg = {
+        "l0_domains": [
+            {"code": "economics", "keywords_en": ["market", "trade"]},
+            {"code": "tech", "keywords_en": ["semiconductor", "ai"]},
+        ],
+        "l1_topics": [
+            {"code": "trade", "l0_domain": "economy", "keywords_en": ["trade"]},
+            {"code": "semiconductor", "l0_domain": "tech", "keywords_en": ["semiconductor"]},
+        ],
+        "country_axes": {},
+    }
+    event = _make_event(title="Semiconductor trade market pressure", content="")
+    result = ClassifierRules(cfg).classify(event)
+    classification = result.metadata["classification"]
+    assert classification["l0"] == "economy"
+    assert classification["candidates"][0]["code"] == "economy"
+    assert classification["candidates"][0]["hits"] >= 1
 
 
 # ── L2 country axes tests ──────────────────────────────────────

@@ -13,6 +13,7 @@ from typing import Any
 
 from news_sentry.adapters.tools.opencli import OpenCLIToolAdapter
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+from news_sentry.skills.collect.language_utils import coerce_language
 
 
 class OpenCLICollector:
@@ -36,6 +37,8 @@ class OpenCLICollector:
         self._config = config
         self._adapter = opencli_adapter
         self._source_id: str = config["source_id"]
+        self._target_id: str = config.get("target_id", "opencli")
+        self._language: Language = coerce_language(config.get("language"))
         self._tool_ref: str = config.get("tool_ref", "") or config.get("opencli_command", "") or ""
         # Phase 12: 优先使用 tool_params，兼容旧的 validated_args
         self._args: dict[str, Any] = config.get("tool_params") or config.get("validated_args") or {}
@@ -100,13 +103,18 @@ class OpenCLICollector:
 
         # fallback: 纯文本作为 content_original
         event = NewsEvent(
-            id=NewsEvent.make_id("opencli", self._source_id, "opencli_output", collected_at),
+            id=NewsEvent.make_id(
+                self._target_id,
+                self._source_id,
+                self._args.get("url", "opencli_output"),
+                collected_at,
+            ),
             run_id=run_id,
             source_id=self._source_id,
             url=self._args.get("url", ""),
             title_original=f"OpenCLI output: {self._tool_ref}",
             content_original=stdout[:50_000],
-            language=Language.IT,
+            language=self._language,
             published_at=collected_at,
             collected_at=collected_at,
             pipeline_stage=PipelineStage.COLLECTED,
@@ -119,25 +127,23 @@ class OpenCLICollector:
         )
         return [event]
 
-    @staticmethod
-    def _dict_to_event(
-        item: dict[str, Any], run_id: str, collected_at: str, target_id: str = "unknown"
-    ) -> NewsEvent:
+    def _dict_to_event(self, item: dict[str, Any], run_id: str, collected_at: str) -> NewsEvent:
         """将 JSON dict 转换为 NewsEvent。"""
         url = str(item.get("url", item.get("link", "")))
         title = str(item.get("title", item.get("title_original", "")))
         content = str(item.get("content", item.get("content_original", item.get("body", ""))))
-        source_id = str(item.get("source_id", "opencli"))
+        source_id = str(item.get("source_id", self._source_id))
         published = str(item.get("published_at", item.get("date", collected_at)))
+        language = coerce_language(item.get("language", item.get("lang")), self._language)
 
         return NewsEvent(
-            id=NewsEvent.make_id(target_id, source_id, url, published),
+            id=NewsEvent.make_id(self._target_id, source_id, url, published),
             run_id=run_id,
             source_id=source_id,
             url=url,
             title_original=title,
             content_original=content[:50_000],
-            language=Language.IT,
+            language=language,
             published_at=published,
             collected_at=collected_at,
             pipeline_stage=PipelineStage.COLLECTED,

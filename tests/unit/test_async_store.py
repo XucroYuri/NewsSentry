@@ -450,6 +450,16 @@ class TestEventIndex:
         assert count == 3
 
     @pytest.mark.asyncio
+    async def test_get_target_event_count_counts_all_stages(self, store: AsyncStore):
+        await store.index_event(self._make_event(event_id="evt-draft"), "italy", "drafts")
+        await store.index_event(self._make_event(event_id="evt-arch"), "italy", "archive")
+        await store.index_event(self._make_event(event_id="evt-other"), "japan", "drafts")
+
+        assert await store.get_target_event_count("italy") == 2
+        assert await store.get_target_event_count("japan") == 1
+        assert await store.get_target_event_count("germany") == 0
+
+    @pytest.mark.asyncio
     async def test_get_stats(self, store: AsyncStore):
         for i in range(3):
             event = self._make_event(
@@ -569,6 +579,15 @@ class TestEventIndexQueries:
         )
         assert result["total"] == 2
 
+        legacy_result = await store_with_events.query_events_paginated(
+            target_id="italy",
+            stage="drafts",
+            classification_l0="international-relations",
+            limit=10,
+            offset=0,
+        )
+        assert legacy_result["total"] == 3
+
     @pytest.mark.asyncio
     async def test_query_events_filter_by_min_score(
         self,
@@ -595,7 +614,7 @@ class TestEventIndexQueries:
         assert stats["avg_news_value_score"] is not None
         assert 60 <= stats["avg_news_value_score"] <= 85
         assert stats["avg_china_relevance"] is not None
-        assert stats["by_classification"]["international"] == 3
+        assert stats["by_classification"]["international-relations"] == 3
         assert stats["by_classification"]["politics"] == 2
         assert stats["by_source"]["ansa"] == 3
         assert stats["by_source"]["repubblica"] == 2
@@ -874,6 +893,39 @@ class TestEventLinks:
         candidates = await store.find_candidates("italy", "evt-new", days=7)
         assert len(candidates) == 1
         assert candidates[0]["event_id"] == "evt-old"
+
+    @pytest.mark.asyncio
+    async def test_find_candidates_respects_limit(self, store_with_links: AsyncStore):
+        """候选关联事件必须有上限，避免单次 run 全量扫描历史。"""
+        store = store_with_links
+        now = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
+        for idx in range(5):
+            await store._db.execute(
+                "INSERT INTO event_index "
+                "(event_id, target_id, stage, created_at, published_at, "
+                "entity_names, topic_tags) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    f"evt-old-{idx}",
+                    "italy",
+                    "drafts",
+                    now,
+                    now,
+                    "Meloni,EU",
+                    "politics,eu",
+                ),
+            )
+        await store._db.execute(
+            "INSERT INTO event_index "
+            "(event_id, target_id, stage, created_at, published_at, "
+            "entity_names, topic_tags) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("evt-new", "italy", "drafts", now, now, "Meloni,EU", "politics,eu"),
+        )
+        await store._db.commit()
+
+        candidates = await store.find_candidates("italy", "evt-new", days=7, limit=2)
+        assert len(candidates) == 2
 
     @pytest.mark.asyncio
     async def test_get_event_chain(self, store_with_links: AsyncStore):
@@ -1210,7 +1262,8 @@ class TestSmartAlertQueries:
         await store.create_link("a-evt-1", "a-evt-2", "followup", 0.85, {}, "italy")
         await store.create_link("a-evt-3", "a-evt-4", "related", 0.5, {}, "italy")
 
-        return store
+        yield store
+        await store.close()
 
     @pytest.mark.asyncio
     async def test_get_recent_links(self, store_with_alerts: AsyncStore) -> None:
@@ -1221,6 +1274,36 @@ class TestSmartAlertQueries:
         followup = [r for r in result if r["link_type"] == "followup"]
         assert len(followup) == 1
         assert followup[0]["strength"] == 0.85
+
+    @pytest.mark.asyncio
+    async def test_get_recent_links_respects_since_and_limit(
+        self, store_with_alerts: AsyncStore
+    ) -> None:
+        """智能告警只消费 run 边界之后、且有限数量的 event links。"""
+        now = datetime.now(UTC).replace(microsecond=0)
+        old_at = (now - timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")
+        since = (now - timedelta(minutes=30)).isoformat()
+        recent_at = (now - timedelta(minutes=10)).strftime("%Y-%m-%d %H:%M:%S")
+
+        await store_with_alerts._db.execute(
+            "UPDATE event_links SET created_at = ? WHERE source_event_id = ?",
+            (old_at, "a-evt-1"),
+        )
+        await store_with_alerts._db.execute(
+            "UPDATE event_links SET created_at = ? WHERE source_event_id = ?",
+            (recent_at, "a-evt-3"),
+        )
+        await store_with_alerts._db.commit()
+
+        result = await store_with_alerts.get_recent_links(
+            "italy",
+            hours=24,
+            limit=1,
+            since_run_started_at=since,
+        )
+
+        assert len(result) == 1
+        assert result[0]["source_event_id"] == "a-evt-3"
 
     @pytest.mark.asyncio
     async def test_get_entity_daily_mentions(self, store_with_alerts: AsyncStore) -> None:
@@ -1427,6 +1510,24 @@ class TestFeedbackAndAlertHistory:
         assert len(history) == 2
         types = {h["alert_type"] for h in history}
         assert types == {"chain_update", "trend_rising"}
+
+    @pytest.mark.asyncio
+    async def test_save_alert_history_is_idempotent_by_alert_key(self, store: AsyncStore) -> None:
+        """相同告警身份重复保存时只插入一次。"""
+        alerts = [
+            {
+                "type": "chain_update",
+                "severity": "high",
+                "message": "same",
+                "details": {"chain_root_id": "a", "linked_event_id": "b"},
+                "triggered_at": "2026-05-29T00:00:00+00:00",
+            }
+        ]
+
+        assert await store.save_alert_history("italy", alerts) == 1
+        assert await store.save_alert_history("italy", alerts) == 0
+        history = await store.get_alert_history("italy", limit=10)
+        assert len(history) == 1
 
     @pytest.mark.asyncio
     async def test_save_feedback_empty_comment(self, store: AsyncStore) -> None:

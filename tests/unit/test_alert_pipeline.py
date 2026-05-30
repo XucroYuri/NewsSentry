@@ -910,7 +910,8 @@ class TestSmartAlerts:
         await store.upsert_entity("Meloni", "person", "italy", "2026-05-05T12:00:00+00:00")
         await store.upsert_entity("Meloni", "person", "italy", "2026-05-05T12:00:00+00:00")
 
-        return store
+        yield store
+        await store.close()
 
     @pytest.mark.asyncio
     async def test_chain_update_alert(self, alert_store: AsyncStore) -> None:
@@ -920,7 +921,67 @@ class TestSmartAlerts:
         chain_alerts = [a for a in alerts if a["type"] == "chain_update"]
         assert len(chain_alerts) >= 1
         assert chain_alerts[0]["severity"] == "high"
+        assert chain_alerts[0]["alert_key"] == "chain_update:s-evt-1:s-evt-3:followup"
         assert chain_alerts[0]["details"]["strength"] == 0.85
+
+    @pytest.mark.asyncio
+    async def test_smart_alerts_pass_link_scan_bounds(self) -> None:
+        """智能告警必须把 since/limit 边界传给 event link 查询。"""
+
+        class FakeStore:
+            def __init__(self):
+                self.link_call = None
+
+            async def get_recent_links(
+                self,
+                target_id,
+                hours=24,
+                limit=500,
+                since_run_started_at=None,
+            ):
+                self.link_call = {
+                    "target_id": target_id,
+                    "hours": hours,
+                    "limit": limit,
+                    "since_run_started_at": since_run_started_at,
+                }
+                return []
+
+            async def get_topic_daily_counts(self, target_id, days=14):
+                return []
+
+            async def get_top_topics(self, target_id, days=14, limit=10):
+                return []
+
+            async def query_entities(self, target_id=None, min_mentions=2, limit=20):
+                return []
+
+            async def save_alert_history(self, target_id, alerts):
+                return 0
+
+        since = datetime.now(UTC).isoformat()
+        store = FakeStore()
+        pipeline = AlertPipeline([])
+
+        await pipeline.check_smart_alerts(store, "italy", since=since, limit=123)
+
+        assert store.link_call == {
+            "target_id": "italy",
+            "hours": 24,
+            "limit": 123,
+            "since_run_started_at": since,
+        }
+
+    @pytest.mark.asyncio
+    async def test_smart_alert_history_is_idempotent(self, alert_store: AsyncStore) -> None:
+        """重复检查同一批智能告警时，历史记录不应重复膨胀。"""
+        pipeline = AlertPipeline([])
+        await pipeline.check_smart_alerts(alert_store, "italy")
+        await pipeline.check_smart_alerts(alert_store, "italy")
+
+        history = await alert_store.get_alert_history("italy", limit=10)
+        chain_history = [item for item in history if item["alert_type"] == "chain_update"]
+        assert len(chain_history) == 1
 
     @pytest.mark.asyncio
     async def test_smart_alerts_no_exception_on_empty(self, tmp_path: Path) -> None:

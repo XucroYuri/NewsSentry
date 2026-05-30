@@ -7,28 +7,28 @@ rules_version: "1.0.0"
 # 法国特有 L1 子议题
 l1_topics:
   - code: china_france_bilateral
-    l0_domain: international
+    l0_domain: international-relations
     label_zh: "中法双边关系"
     label_fr: "Relations sino-françaises"
     keywords_fr: [Chine, Pékin, Xi Jinping, bilatéral, relations]
     keywords_en: [China, France-China, bilateral, Beijing]
 
   - code: french_indopacific
-    l0_domain: security
+    l0_domain: public-safety
     label_zh: "印太战略"
     label_fr: "Indopacifique"
     keywords_fr: [Indopacifique, Nouvelle-Calédonie, Polynésie, base navale]
     keywords_en: [Indo-Pacific, New Caledonia, Polynesia, naval base]
 
   - code: china_trade_france
-    l0_domain: economics
+    l0_domain: economy
     label_zh: "中法贸易"
     label_fr: "Commerce franco-chinois"
     keywords_fr: [commerce, Chine, exportation, importation, douanes, Cognac]
     keywords_en: [trade, China, exports, tariffs, Cognac, luxury]
 
   - code: french_defense
-    l0_domain: security
+    l0_domain: public-safety
     label_zh: "法国防务"
     label_fr: "Défense française"
     keywords_fr: [armée, défense, militaire, nucléaire, OTAN]
@@ -42,7 +42,7 @@ l1_topics:
     keywords_en: [immigration, migration, refugees, integration, asylum]
 
   - code: french_energy
-    l0_domain: energy
+    l0_domain: environment
     label_zh: "法国能源"
     label_fr: "Énergie"
     keywords_fr: [nucléaire, énergie, EDF, renouvelable, transition énergétique]

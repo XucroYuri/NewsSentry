@@ -139,9 +139,30 @@ def test_write_filename_format(
     writer: MarkdownWriter,
     judged_event: NewsEvent,
 ) -> None:
-    """文件名应为 {date}-{source_id}-{id_short}.md。"""
+    """文件名应使用完整 event.id，避免同日同信源事件互相覆盖。"""
     path = writer.write(judged_event)
-    assert path.name == "2026-05-09-ansa-ne-italy-ans.md"
+    assert path.name == "ne-italy-ansa-20260509-a1b2c3d4.md"
+
+
+def test_write_does_not_collide_for_same_source_day(
+    writer: MarkdownWriter,
+    judged_event: NewsEvent,
+) -> None:
+    """同一天同一信源的多条事件必须写入不同草稿文件。"""
+    second = judged_event.model_copy(
+        deep=True,
+        update={
+            "id": "ne-italy-ansa-20260509-b5c6d7e8",
+            "title_original": "Governo approva secondo decreto",
+        },
+    )
+
+    first_path = writer.write(judged_event)
+    second_path = writer.write(second)
+
+    assert first_path != second_path
+    assert first_path.exists()
+    assert second_path.exists()
 
 
 def test_write_returns_path(

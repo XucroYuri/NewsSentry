@@ -23,8 +23,9 @@ from news_sentry.core.nlp_analyzer import NLPAnalyzer
 from news_sentry.core.nlp_rules import NLPRulesAnalyzer
 from news_sentry.core.run import (
     _bootstrap_run,
+    _build_provider_factory,
     _find_project_root,
-    _load_events_from_dir,
+    _load_pending_judge_events,
     _prune_old_logs,
     _run_filter,
     _run_judge,
@@ -133,7 +134,7 @@ async def bounded_run_async(
                 store=store,
             )
         elif b.stage_str == "all":
-            await _run_collect_async(
+            collected = await _run_collect_async(
                 b.config,
                 b.run_id,
                 b.run_log,
@@ -144,8 +145,16 @@ async def bounded_run_async(
                 max_concurrent=max_concurrent,
                 cache_mgr=cache_mgr,
             )
-            await _run_filter_async(b.config, b.run_id, b.run_log, b.file_writer, b.memory, b.ctx)
-            await _run_judge_async(
+            filtered = await _run_filter_async(
+                b.config,
+                b.run_id,
+                b.run_log,
+                b.file_writer,
+                b.memory,
+                b.ctx,
+                input_events=collected,
+            )
+            judged = await _run_judge_async(
                 b.config,
                 b.run_id,
                 b.run_log,
@@ -154,6 +163,7 @@ async def bounded_run_async(
                 b.ctx,
                 cache_mgr=cache_mgr,
                 store=store,
+                input_events=filtered,
             )
             await _run_output_async(
                 b.config,
@@ -162,6 +172,7 @@ async def bounded_run_async(
                 b.file_writer,
                 b.ctx,
                 store=store,
+                input_events=judged,
             )
 
         write_heartbeat(b.log_dir, b.run_id, b.stage_str, status="completed")
@@ -223,12 +234,19 @@ async def _run_collect_async(
         if memory.is_source_degraded(source_id):
             health = memory.get_source_health(source_id)
             cf = health.get("consecutive_failures", 0)
+            should_probe = getattr(memory, "should_probe_degraded_source", None)
+            if not callable(should_probe) or not should_probe(source_id):
+                run_log.log_event(
+                    "collect",
+                    source_id,
+                    f"degraded (consecutive_failures={cf})",
+                )
+                return []
             run_log.log_event(
                 "collect",
                 source_id,
-                f"degraded (consecutive_failures={cf})",
+                f"probe_degraded (consecutive_failures={cf})",
             )
-            return []
 
         async with semaphore:
             source_type = source_cfg.get("type", "rss")
@@ -303,7 +321,7 @@ async def _run_collect_async(
                 translated = await batcher.translate(
                     all_events,
                     router,
-                    None,
+                    _build_provider_factory(),
                     language=lang_primary,
                 )
                 logger.info("批处理翻译完成: %d/%d", translated, len(all_events))
@@ -395,9 +413,10 @@ async def _run_filter_async(
     file_writer: FileWriter,
     memory: Memory,
     ctx: PipelineContext,
-) -> None:
+    input_events: list[NewsEvent] | None = None,
+) -> list[NewsEvent]:
     """异步过滤阶段 — P25 通过 to_thread 包装同步逻辑。"""
-    await asyncio.to_thread(
+    return await asyncio.to_thread(
         _run_filter,
         config,
         run_id,
@@ -405,6 +424,7 @@ async def _run_filter_async(
         file_writer,
         memory,
         ctx,
+        input_events,
     )
 
 
@@ -417,30 +437,43 @@ async def _run_judge_async(
     ctx: PipelineContext,
     cache_mgr: LLMCacheManager | None = None,
     store: AsyncStore | None = None,
-) -> None:
+    input_events: list[NewsEvent] | None = None,
+) -> list[NewsEvent]:
     """异步研判阶段 — P27 使用 TieredConfidenceRouter 并发研判。
 
     回退：如果 TieredConfidenceRouter 初始化失败，降级为同步 _run_judge。
     """
-    events = _load_events_from_dir(file_writer.base_dir / "evaluated")
+    events = input_events if input_events is not None else _load_pending_judge_events(file_writer)
+    events = [event for event in events if event.pipeline_stage == PipelineStage.FILTERED]
     if not events:
         run_log.log_phase_start("judge")
         run_log.log_phase_end("judge", 0, 0)
-        return
+        return []
+
+    provider_router = _try_create_provider_router()
+    if provider_router is None:
+        logger.warning("分级研判失败，回退到同步研判: ProviderRouter 初始化失败")
+        return await asyncio.to_thread(
+            _run_judge,
+            config,
+            run_id,
+            run_log,
+            file_writer,
+            memory,
+            ctx,
+            events,
+        )
 
     run_log.log_phase_start("judge")
     t0 = datetime.now(UTC)
 
     try:
-        provider_router = _try_create_provider_router()
-        if provider_router is None:
-            raise ValueError("ProviderRouter 初始化失败")
         rules_judge = RulesJudgeSkill(config.classification_rules, memory)
         tiered = TieredConfidenceRouter(rules_judge, provider_router)
 
         judged = await tiered.judge_events_async(
             events,
-            None,
+            _build_provider_factory(),
             run_id=run_id,
             max_concurrent=5,
         )
@@ -461,10 +494,7 @@ async def _run_judge_async(
         )
     except Exception as e:
         logger.warning("分级研判失败，回退到同步研判: %s", e)
-        # 回退：写回事件文件后走同步逻辑
-        for event in events:
-            file_writer.write_event(event)
-        await asyncio.to_thread(
+        judged = await asyncio.to_thread(
             _run_judge,
             config,
             run_id,
@@ -472,10 +502,11 @@ async def _run_judge_async(
             file_writer,
             memory,
             ctx,
+            events,
         )
         duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
         run_log.log_phase_end("judge", len(events), duration_ms)
-        return
+        return judged
 
     # P30: NLP 增强
     try:
@@ -529,7 +560,12 @@ async def _run_judge_async(
         from news_sentry.core.alert_pipeline import AlertPipeline
 
         alert_pipeline = AlertPipeline([])
-        smart_alerts = await alert_pipeline.check_smart_alerts(store, config.target_id)
+        smart_alerts = await alert_pipeline.check_smart_alerts(
+            store,
+            config.target_id,
+            since=t0,
+            limit=500,
+        )
         if smart_alerts:
             logger.info("智能告警: %d 条 [%s]", len(smart_alerts), config.target_id)
     except Exception as exc:
@@ -543,6 +579,7 @@ async def _run_judge_async(
     ctx.events_judged = len(judged)
     duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
     run_log.log_phase_end("judge", len(judged), duration_ms)
+    return judged
 
 
 async def _generate_narratives(
@@ -635,6 +672,8 @@ async def _link_events(
     store: AsyncStore,
     events: list[NewsEvent],
     target_id: str,
+    candidate_limit: int = 100,
+    max_links_per_event: int = 20,
 ) -> None:
     """Phase 35: 对新事件执行关联扫描。
 
@@ -644,8 +683,15 @@ async def _link_events(
     if store._db is None or not events:
         return
     try:
+        candidate_limit = max(1, int(candidate_limit))
+        max_links_per_event = max(1, int(max_links_per_event))
         for event in events:
-            candidates = await store.find_candidates(target_id, event.id, days=7)
+            candidates = await store.find_candidates(
+                target_id,
+                event.id,
+                days=7,
+                limit=candidate_limit,
+            )
             if not candidates:
                 continue
 
@@ -662,6 +708,7 @@ async def _link_events(
                 if getattr(event, "published_at", None)
                 else datetime.now(UTC)
             )
+            scored_links: list[tuple[float, str, dict[str, float], dict[str, Any]]] = []
 
             for candidate in candidates:
                 cand_entities = set(
@@ -703,18 +750,31 @@ async def _link_events(
                     else:
                         link_type = "related"
 
-                    await store.create_link(
-                        source_event_id=candidate["event_id"],
-                        target_event_id=event.id,
-                        link_type=link_type,
-                        strength=round(strength, 3),
-                        signals={
-                            "entity_overlap": round(entity_overlap, 3),
-                            "topic_match": round(topic_match, 3),
-                            "time_proximity": round(time_proximity, 3),
-                        },
-                        target_id=target_id,
+                    scored_links.append(
+                        (
+                            round(strength, 3),
+                            link_type,
+                            {
+                                "entity_overlap": round(entity_overlap, 3),
+                                "topic_match": round(topic_match, 3),
+                                "time_proximity": round(time_proximity, 3),
+                            },
+                            candidate,
+                        )
                     )
+
+            strongest_links = sorted(scored_links, key=lambda item: item[0], reverse=True)[
+                :max_links_per_event
+            ]
+            for strength, link_type, signals, candidate in strongest_links:
+                await store.create_link(
+                    source_event_id=candidate["event_id"],
+                    target_event_id=event.id,
+                    link_type=link_type,
+                    strength=strength,
+                    signals=signals,
+                    target_id=target_id,
+                )
     except Exception as e:
         logger.warning("事件关联扫描失败（非阻塞）: %s", e)
 
@@ -726,27 +786,33 @@ async def _run_output_async(
     file_writer: FileWriter,
     ctx: PipelineContext,
     store: AsyncStore | None = None,
-) -> None:
+    input_events: list[NewsEvent] | None = None,
+) -> list[NewsEvent]:
     """异步输出阶段 — P28 写入 event_index。"""
-    await asyncio.to_thread(
+    events = await asyncio.to_thread(
         _run_output,
         config,
         run_id,
         run_log,
         file_writer,
         ctx,
+        input_events,
     )
 
     # P28: 将输出事件写入 event_index
     if store is not None:
-        events = _load_events_from_dir(file_writer.base_dir / "drafts")
         target_id = config.target_id
         for event in events:
-            file_name = f"outputted_{getattr(event, 'source_id', 'unknown')}_{event.id}.md"
-            file_path = str(file_writer.base_dir / "drafts" / file_name)
+            file_path = None
+            if isinstance(event.metadata, dict):
+                file_path = event.metadata.get("_file_path")
+            if not file_path:
+                file_name = f"{event.id}.md"
+                file_path = str(file_writer.base_dir / "drafts" / file_name)
             await store.index_event(event, target_id, "drafts", file_path=file_path)
         if events:
             logger.info("event_index 写入 %d 条事件", len(events))
+    return events
 
 
 def _resolve_targets(target_str: str, config_dir: Path) -> list[str]:

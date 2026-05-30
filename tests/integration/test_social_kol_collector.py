@@ -111,6 +111,25 @@ class TestSocialKOLCollectorCollect:
         assert event.metadata["collection"]["method"] == "opencli"
         assert event.metadata["collection"]["tool_ref"] == "opencli.twitter.trending"
 
+    def test_collect_twitter_trends_uses_configured_language(
+        self,
+        tmp_manifest_file: Path,
+        kol_sandbox: SandboxEnforcer,
+        kol_state: dict[str, Any],
+    ) -> None:
+        registry = ToolRegistry(manifest_dir=tmp_manifest_file.parent)
+        collector = SocialKOLCollector(
+            registry,
+            kol_sandbox,
+            kol_state,
+            config={"language": "ja", "target_id": "japan"},
+        )
+
+        events = collector.collect_twitter_trends(locale="japan")
+
+        assert len(events) == 1
+        assert str(events[0].language) == "ja"
+
     def test_collect_zhihu_hot_returns_event(
         self,
         kol_collector: SocialKOLCollector,

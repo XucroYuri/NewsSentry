@@ -1,0 +1,9 @@
+enabled: true
+target_ids:
+- china-watch-en
+- france
+- germany
+- italy
+- japan
+interval_minutes: 15
+stage: all

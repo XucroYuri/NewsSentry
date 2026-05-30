@@ -29,7 +29,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -42,6 +42,11 @@ from pydantic import BaseModel, Field
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.auth import hash_password, verify_password
 from news_sentry.core.config_cache import ConfigCache
+from news_sentry.skills.filter.classification_taxonomy import (
+    canonical_l0,
+    l0_query_values,
+    normalize_classification,
+)
 
 # ── Pydantic 模型 ──────────────────────────────────────
 
@@ -313,6 +318,15 @@ class HeartbeatResponse(BaseModel):
     status: str = ""
 
 
+class CollectorConfigUpdate(BaseModel):
+    """后台自动采集配置更新请求。"""
+
+    enabled: bool | None = None
+    target_ids: list[str] | str | None = None
+    interval_minutes: int | None = Field(default=None, ge=1, le=1440)
+    stage: str | None = None
+
+
 class SourceHealthInfo(BaseModel):
     """信源健康状态条目。"""
 
@@ -320,6 +334,9 @@ class SourceHealthInfo(BaseModel):
     status: str
     last_check: str
     error_count: int = 0
+    last_error: str | None = None
+    last_success_at: str | None = None
+    last_failure_at: str | None = None
     metadata: dict[str, Any] = {}
 
 
@@ -725,6 +742,16 @@ async def _notify_sse_clients(target_id: str, event: str, payload: dict[str, Any
 logger = logging.getLogger(__name__)
 
 
+VISIBLE_INDEX_QUERY_BATCH_SIZE = 1000
+
+
+class InvisibleIndexedEvent:
+    """Sentinel for an indexed event that exists but is not public-visible."""
+
+
+_INVISIBLE_INDEXED_EVENT = InvisibleIndexedEvent()
+
+
 async def get_current_user(request: Request) -> dict[str, Any]:
     """提取并验证 Bearer token，返回用户信息（内存 + SQLite 回退）。"""
     token = _extract_bearer_token(request)
@@ -865,11 +892,12 @@ def _load_events_from_data(
 
     # 筛选
     if classification is not None:
+        accepted = l0_query_values(classification)
         events = [
             e
             for e in events
             if isinstance(e.get("classification"), dict)
-            and e["classification"].get("l0") == classification
+            and canonical_l0(e["classification"].get("l0")) in accepted
         ]
     if source_id is not None:
         events = [e for e in events if e.get("source_id") == source_id]
@@ -910,6 +938,239 @@ def _group_events_by_date(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for date_key in sorted(groups.keys(), reverse=True):
         result.append({"date": date_key, "events": groups[date_key]})
     return result
+
+
+def _event_matches_date(event: dict[str, Any], date: str | None) -> bool:
+    if date is None:
+        return True
+    return (event.get("published_at") or "").startswith(date)
+
+
+def _event_matches_search(event: dict[str, Any], search: str | None) -> bool:
+    if search is None:
+        return True
+    keyword = search.lower()
+    return keyword in (event.get("title_original") or "").lower()
+
+
+def _visible_index_event_from_row(
+    data_dir: Path,
+    target_id: str,
+    stage: str,
+    row: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not _indexed_file_path_is_visible_in_stage(
+        data_dir,
+        target_id,
+        stage,
+        row.get("file_path"),
+    ):
+        return None
+    event = _load_indexed_event_frontmatter(data_dir, target_id, stage, row)
+    if event is None:
+        event = _event_from_index_row(row)
+    return _feed_event_payload(event)
+
+
+async def _visible_index_events_page(
+    store: Any,
+    data_dir: Path,
+    target_id: str,
+    *,
+    stage: str,
+    page: int,
+    page_size: int,
+    date: str | None = None,
+    search: str | None = None,
+    source_id: str | None = None,
+    classification_l0: str | None = None,
+    min_score: int | None = None,
+    sentiment: str | None = None,
+    entity_name: str | None = None,
+    topic_tag: str | None = None,
+) -> dict[str, Any]:
+    """读取可公开展示的 index 事件，再分页，避免 stale 行占据页面。"""
+    start = (page - 1) * page_size
+    end = start + page_size
+    offset = 0
+    index_total = 0
+    visible_total = 0
+    page_events: list[dict[str, Any]] = []
+
+    while True:
+        result = await store.query_events_paginated(
+            target_id=target_id,
+            stage=stage,
+            limit=VISIBLE_INDEX_QUERY_BATCH_SIZE,
+            offset=offset,
+            source_id=source_id,
+            classification_l0=classification_l0,
+            min_score=min_score,
+            sentiment=sentiment,
+            entity_name=entity_name,
+            topic_tag=topic_tag,
+        )
+        index_total = result["total"]
+        rows = result["rows"]
+        if not rows:
+            break
+
+        for row in rows:
+            event = _visible_index_event_from_row(data_dir, target_id, stage, row)
+            if event is None:
+                continue
+            if not _event_matches_date(event, date):
+                continue
+            if not _event_matches_search(event, search):
+                continue
+            if start <= visible_total < end:
+                page_events.append(event)
+            visible_total += 1
+
+        offset += len(rows)
+        if offset >= index_total:
+            break
+
+    return {
+        "index_total": index_total,
+        "total": visible_total,
+        "events": page_events,
+    }
+
+
+async def _store_has_target_event_index(store: Any, target_id: str) -> bool:
+    get_count = getattr(store, "get_target_event_count", None)
+    if get_count is None:
+        return False
+    count = await get_count(target_id)
+    return int(count) > 0
+
+
+def _event_score(ev: dict[str, Any]) -> int | float | None:
+    score = ev.get("news_value_score", ev.get("importance_score"))
+    return score if isinstance(score, (int, float)) else None
+
+
+def _event_classification(ev: dict[str, Any]) -> dict[str, Any] | None:
+    direct = ev.get("classification")
+    if isinstance(direct, dict):
+        return normalize_classification(direct)
+    metadata = ev.get("metadata")
+    if isinstance(metadata, dict):
+        classification = metadata.get("classification")
+        if isinstance(classification, dict):
+            return normalize_classification(classification)
+    return None
+
+
+def _classification_l0_label(value: Any) -> str:
+    label = canonical_l0(str(value).strip()) if value is not None else ""
+    return label or "uncategorized"
+
+
+def _classification_diagnostics_from_events(events: list[dict[str, Any]]) -> dict[str, Any]:
+    distribution: dict[str, int] = defaultdict(int)
+    for ev in events:
+        classification = _event_classification(ev) or {}
+        distribution[_classification_l0_label(classification.get("l0"))] += 1
+    result = dict(distribution)
+    return {
+        "distribution": result,
+        "uncategorized_count": result.get("uncategorized", 0),
+    }
+
+
+async def _classification_diagnostics_from_store(
+    target_id: str,
+    store: AsyncStore | None,
+) -> dict[str, Any] | None:
+    if store is None or store._db is None:  # noqa: SLF001
+        return None
+    try:
+        async with store._db.execute(  # noqa: SLF001
+            "SELECT COALESCE(NULLIF(TRIM(classification_l0), ''), 'uncategorized') AS label, "
+            "COUNT(*) AS count "
+            "FROM event_index "
+            "WHERE target_id = ? "
+            "GROUP BY label",
+            (target_id,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+    except Exception:  # noqa: S112
+        logger.exception("Failed to load classification diagnostics from store")
+        return None
+    distribution: dict[str, int] = defaultdict(int)
+    for row in rows:
+        distribution[_classification_l0_label(row[0])] += int(row[1])
+    return {
+        "distribution": distribution,
+        "uncategorized_count": distribution.get("uncategorized", 0),
+    }
+
+
+def _tag_text(value: Any) -> str:
+    if isinstance(value, dict):
+        for key in ("code", "name", "label", "title"):
+            if key in value and value[key] is not None and value[key] != "":
+                return str(value[key])
+        return ""
+    return "" if value is None or value == "" else str(value)
+
+
+def _event_topic_tags(ev: dict[str, Any]) -> list[str]:
+    raw = ev.get("topic_tags")
+    metadata = ev.get("metadata")
+    if not raw and isinstance(metadata, dict):
+        raw = metadata.get("topic_tags")
+    if isinstance(raw, str):
+        return [tag.strip() for tag in raw.split(",") if tag.strip()][:2]
+    if isinstance(raw, list):
+        return [str(tag) for tag in raw[:2]]
+    return []
+
+
+def _event_flat_tags(ev: dict[str, Any]) -> list[str]:
+    tags: list[str] = []
+    classification = _event_classification(ev)
+    if classification:
+        l0 = classification.get("l0")
+        if l0 is not None and l0 != "":
+            tags.append(str(l0))
+        l1 = classification.get("l1")
+        if isinstance(l1, list):
+            tags.extend(tag for item in l1[:1] if (tag := _tag_text(item)))
+        elif l1 is not None and l1 != "":
+            if tag := _tag_text(l1):
+                tags.append(tag)
+
+    tags.extend(_event_topic_tags(ev))
+    entities = ev.get("nlp_entities") or ev.get("entities") or []
+    if isinstance(entities, list):
+        for entity in entities:
+            name = entity.get("name") if isinstance(entity, dict) else entity
+            if name is not None and name != "":
+                tags.append(str(name))
+                break
+
+    deduped: list[str] = []
+    for tag in tags:
+        if tag not in deduped:
+            deduped.append(tag)
+    return deduped[:4]
+
+
+def _feed_event_payload(ev: dict[str, Any]) -> dict[str, Any]:
+    """为新闻流补充展示字段；不改变 NewsEvent 存储契约。"""
+    event_id = ev.get("event_id") or ev.get("id") or ""
+    source_id = ev.get("source_id") or ""
+    payload = dict(ev)
+    payload["event_id"] = event_id
+    payload.setdefault("id", event_id)
+    payload["display_title"] = ev.get("title_translated") or ev.get("title_original") or event_id
+    payload["score"] = _event_score(ev)
+    payload["source_display_name"] = ev.get("source_display_name") or source_id
+    payload["flat_tags"] = _event_flat_tags(ev)
+    return payload
 
 
 def _load_single_event(data_dir: Path, target_id: str, event_id: str) -> dict[str, Any] | None:
@@ -1027,6 +1288,108 @@ def _load_source_configs(target_id: str) -> list[dict[str, Any]]:
     return sources
 
 
+def _source_ids_for_target(target_id: str) -> set[str]:
+    """返回 target 当前启用的信源 ID，用于后台健康状态过滤。"""
+    ids: set[str] = set()
+    for source in _load_source_configs(target_id):
+        raw_lifecycle = source.get("lifecycle")
+        lifecycle: dict[str, Any] = raw_lifecycle if isinstance(raw_lifecycle, dict) else {}
+        if source.get("enabled", True) is False:
+            continue
+        if source.get("deprecated") is True:
+            continue
+        if lifecycle.get("status") == "archived":
+            continue
+        for key in ("source_id", "id", "_source_id"):
+            value = source.get(key)
+            if value:
+                normalized = str(value).strip()
+                ids.add(normalized)
+                ids.add(Path(normalized).name)
+    return ids
+
+
+def _filter_source_health_records(
+    target_id: str,
+    records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """按当前 target 的信源配置过滤健康记录；无配置时保留原结果。"""
+    source_ids = _source_ids_for_target(target_id)
+    if not source_ids:
+        return records
+    filtered: list[dict[str, Any]] = []
+    for record in records:
+        source_id = str(record.get("source_id", "")).strip()
+        if source_id in source_ids or Path(source_id).name in source_ids:
+            filtered.append(record)
+    return filtered
+
+
+def _source_health_status_from_memory(entry: dict[str, Any]) -> str:
+    """把 Memory source_health.yaml 形状归一为 API 状态。"""
+    failures = int(entry.get("consecutive_failures") or 0)
+    total_runs = int(entry.get("total_runs") or 0)
+    total_failures = int(entry.get("total_failures") or 0)
+    if failures >= 10:
+        return "dead"
+    if failures >= 3:
+        return "degraded"
+    if total_runs > 0 and total_failures >= total_runs:
+        return "degraded"
+    return "healthy"
+
+
+def _source_health_error_count_from_memory(entry: dict[str, Any]) -> int:
+    """优先使用连续失败数；没有时退回总失败数。"""
+    return int(entry.get("consecutive_failures") or entry.get("total_failures") or 0)
+
+
+def _load_memory_source_health_records(target_id: str | None = None) -> list[dict[str, Any]]:
+    """读取真实采集写入的 memory/source_health.yaml 并转成 API 响应形状。"""
+    target_ids: list[str]
+    if target_id:
+        target_ids = [target_id]
+    elif _data_dir.exists():
+        target_ids = sorted(d.name for d in _data_dir.iterdir() if d.is_dir())
+    else:
+        target_ids = []
+
+    records: list[dict[str, Any]] = []
+    for tid in target_ids:
+        path = _data_dir / tid / "memory" / "source_health.yaml"
+        if not path.is_file():
+            continue
+        data = _load_yaml_file(path)
+        if not isinstance(data, dict):
+            continue
+        for source_id, entry in data.items():
+            if not isinstance(entry, dict):
+                continue
+            records.append(
+                {
+                    "source_id": str(source_id),
+                    "status": _source_health_status_from_memory(entry),
+                    "last_check": entry.get("last_success_at")
+                    or entry.get("last_failure_at")
+                    or "",
+                    "error_count": _source_health_error_count_from_memory(entry),
+                    "last_error": entry.get("last_error"),
+                    "last_success_at": entry.get("last_success_at"),
+                    "last_failure_at": entry.get("last_failure_at"),
+                    "metadata": {
+                        "target_id": tid,
+                        "last_success_at": entry.get("last_success_at"),
+                        "last_failure_at": entry.get("last_failure_at"),
+                        "last_error": entry.get("last_error"),
+                        "total_runs": entry.get("total_runs", 0),
+                        "total_failures": entry.get("total_failures", 0),
+                        "consecutive_failures": entry.get("consecutive_failures", 0),
+                    },
+                }
+            )
+    return records
+
+
 def _load_single_source(target_id: str, source_id: str) -> dict[str, Any] | None:
     """读取单个源渠道配置。"""
     sources_dir = Path(f"config/sources/{target_id}")
@@ -1095,6 +1458,125 @@ def _load_event_by_path(file_path: str | None) -> dict[str, Any] | None:
         return None
 
 
+def _load_event_by_id_from_stage(
+    data_dir: Path,
+    target_id: str,
+    stage: str,
+    event_id: str | None,
+) -> dict[str, Any] | None:
+    """当 SQLite file_path 失效时，从目标 stage 目录按事件 ID 找回 frontmatter。"""
+    if not event_id:
+        return None
+    stage_dir = data_dir / target_id / stage
+    if not stage_dir.is_dir():
+        return None
+
+    candidates: list[Path] = []
+    id_short = event_id[:12]
+    if id_short:
+        candidates.extend(sorted(stage_dir.glob(f"*{id_short}*.md")))
+    candidates.extend(sorted(stage_dir.glob("*.md")))
+
+    seen: set[Path] = set()
+    for path in candidates:
+        if path in seen:
+            continue
+        seen.add(path)
+        event = _load_event_by_path(str(path))
+        if event and (event.get("event_id") or event.get("id")) == event_id:
+            return event
+    return None
+
+
+def _event_id_from_frontmatter(event: dict[str, Any] | None) -> str | None:
+    if not event:
+        return None
+    value = event.get("event_id") or event.get("id")
+    return str(value) if value else None
+
+
+def _event_from_index_row(row: dict[str, Any]) -> dict[str, Any]:
+    """当事件文件失效时，用 SQLite 索引行构造最小事件数据。"""
+    event_id = row.get("event_id") or row.get("id") or ""
+    event: dict[str, Any] = {
+        "id": event_id,
+        "event_id": event_id,
+        "source_id": row.get("source_id"),
+        "title_original": row.get("title_original"),
+        "published_at": row.get("published_at"),
+        "created_at": row.get("created_at"),
+        "news_value_score": row.get("news_value_score"),
+        "china_relevance": row.get("china_relevance"),
+        "sentiment": row.get("sentiment"),
+    }
+    classification_l0 = row.get("classification_l0")
+    if classification_l0:
+        event["classification"] = {"l0": classification_l0}
+    return {key: value for key, value in event.items() if value is not None}
+
+
+def _indexed_file_path_is_visible_in_stage(
+    data_dir: Path,
+    target_id: str,
+    stage: str,
+    file_path: str | None,
+) -> bool:
+    """file_path 为空允许索引兜底；记录路径时必须位于预期 stage 目录。"""
+    if not file_path:
+        return True
+    path = Path(file_path)
+    try:
+        path.resolve().relative_to((data_dir / target_id / stage).resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def _load_indexed_event_frontmatter(
+    data_dir: Path,
+    target_id: str,
+    stage: str,
+    row: dict[str, Any],
+) -> dict[str, Any] | None:
+    """读取 SQLite 索引行对应的 frontmatter，并防止旧碰撞 file_path 污染展示。"""
+    event_id = row.get("event_id")
+    event_fm = _load_event_by_path(row.get("file_path"))
+    if event_fm is not None and _event_id_from_frontmatter(event_fm) != event_id:
+        event_fm = None
+    if event_fm is None:
+        event_fm = _load_event_by_id_from_stage(data_dir, target_id, stage, event_id)
+    return event_fm
+
+
+async def _load_indexed_event_detail(
+    data_dir: Path,
+    target_id: str,
+    store: Any,
+    event_id: str,
+) -> dict[str, Any] | InvisibleIndexedEvent | None:
+    """从 store 读取详情，并校验 file_path 指向的 frontmatter 属于该事件。"""
+    get_row = getattr(store, "get_event_index_row", None)
+    if get_row is None:
+        return None
+    row = await get_row(target_id, event_id)
+    if row is None or row.get("stage") != "drafts":
+        return _INVISIBLE_INDEXED_EVENT if row is not None else None
+
+    file_path = row.get("file_path")
+    if not _indexed_file_path_is_visible_in_stage(data_dir, target_id, "drafts", file_path):
+        return _INVISIBLE_INDEXED_EVENT
+
+    if file_path is not None:
+        event = _load_event_by_path(file_path)
+        if _event_id_from_frontmatter(event) == event_id:
+            return event
+        event = _load_event_by_id_from_stage(data_dir, target_id, "drafts", event_id)
+        if event is not None:
+            return event
+
+    return _event_from_index_row(row)
+
+
 # ── 后台自动采集循环 ──────────────────────────────────────
 
 
@@ -1120,11 +1602,125 @@ _auto_collector_state: dict[str, Any] = {
     "last_run_at": None,
     "last_run_status": None,
     "last_events_collected": 0,
+    "last_error": None,
+    "next_run_at": None,
     "total_runs": 0,
     "task": None,
 }
 
 _log = logging.getLogger("news_sentry.auto_collector")
+
+_COLLECTOR_STAGES = {"all", "collect", "filter", "judge", "output"}
+
+
+def _collector_config_path() -> Path:
+    """返回本地持久化的采集器配置路径。"""
+    return Path("config/runtime/collector.yaml")
+
+
+def _collector_env_defaults() -> dict[str, Any]:
+    """从环境变量构造采集器默认值。"""
+    try:
+        interval = int(os.environ.get("NEWSSENTRY_COLLECT_INTERVAL", "15"))
+    except ValueError:
+        interval = 15
+    return {
+        "enabled": os.environ.get("NEWSSENTRY_AUTO_COLLECT", "1") == "1",
+        "target_ids": _parse_target_ids(
+            os.environ.get("NEWSSENTRY_TARGET_ID", os.environ.get("TARGET_ID", "all"))
+        ),
+        "interval_minutes": interval,
+        "stage": os.environ.get("NEWSSENTRY_COLLECT_STAGE", "collect"),
+    }
+
+
+def _normalize_collector_config(raw: dict[str, Any]) -> dict[str, Any]:
+    """规范化采集器配置，保证 API 与 YAML 使用同一形状。"""
+    defaults = _collector_env_defaults()
+    data = {**defaults, **{k: v for k, v in raw.items() if v is not None}}
+
+    target_ids_raw = data.get("target_ids", defaults["target_ids"])
+    if isinstance(target_ids_raw, str):
+        target_ids = _parse_target_ids(target_ids_raw)
+    elif isinstance(target_ids_raw, list):
+        target_ids = [str(t).strip() for t in target_ids_raw if str(t).strip()]
+    else:
+        target_ids = defaults["target_ids"]
+
+    stage = str(data.get("stage") or defaults["stage"]).strip().lower()
+    if stage not in _COLLECTOR_STAGES:
+        stage = defaults["stage"] if defaults["stage"] in _COLLECTOR_STAGES else "collect"
+
+    try:
+        interval = int(data.get("interval_minutes", defaults["interval_minutes"]))
+    except (TypeError, ValueError):
+        interval = int(defaults["interval_minutes"])
+    interval = max(1, min(interval, 1440))
+
+    return {
+        "enabled": bool(data.get("enabled")),
+        "target_ids": target_ids,
+        "interval_minutes": interval,
+        "stage": stage,
+    }
+
+
+def _load_collector_config() -> dict[str, Any]:
+    """读取采集器配置；没有 YAML 时使用环境变量默认值。"""
+    path = _collector_config_path()
+    loaded: dict[str, Any] = {}
+    if path.is_file():
+        loaded = _load_yaml_file(path) or {}
+    return _normalize_collector_config(loaded)
+
+
+def _save_collector_config(config: dict[str, Any]) -> None:
+    """持久化采集器配置到 config/runtime/collector.yaml。"""
+    normalized = _normalize_collector_config(config)
+    path = _collector_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write_yaml(path, normalized)
+
+
+def _apply_collector_config(config: dict[str, Any]) -> dict[str, Any]:
+    """应用采集器配置到内存状态并返回规范化结果。"""
+    normalized = _normalize_collector_config(config)
+    _auto_collector_state["enabled"] = normalized["enabled"]
+    _auto_collector_state["target_ids"] = normalized["target_ids"]
+    _auto_collector_state["interval_minutes"] = normalized["interval_minutes"]
+    _auto_collector_state["stage"] = normalized["stage"]
+    return normalized
+
+
+def _collector_payload() -> dict[str, Any]:
+    """返回统一的采集器状态响应。"""
+    return {
+        "enabled": _auto_collector_state["enabled"],
+        "running": _auto_collector_state["running"],
+        "target_ids": _auto_collector_state["target_ids"],
+        "stage": _auto_collector_state["stage"],
+        "interval_minutes": _auto_collector_state["interval_minutes"],
+        "last_run_at": _auto_collector_state["last_run_at"],
+        "last_run_status": _auto_collector_state["last_run_status"],
+        "last_events_collected": _auto_collector_state.get("last_events_collected", 0),
+        "last_error": _auto_collector_state.get("last_error"),
+        "next_run_at": _auto_collector_state.get("next_run_at"),
+        "total_runs": _auto_collector_state["total_runs"],
+    }
+
+
+def _update_collector_run_metrics(contexts: Any) -> None:
+    """把多 target pipeline 上下文汇总到采集器状态。"""
+    if contexts is None:
+        context_items: list[Any] = []
+    elif isinstance(contexts, (list, tuple, set)):
+        context_items = list(contexts)
+    else:
+        context_items = [contexts]
+
+    _auto_collector_state["last_events_collected"] = sum(
+        int(getattr(ctx, "events_collected", 0) or 0) for ctx in context_items
+    )
 
 
 async def _auto_collect_loop() -> None:
@@ -1133,43 +1729,50 @@ async def _auto_collect_loop() -> None:
     通过 NEWSSENTRY_COLLECT_STAGE 控制执行的阶段（默认 collect），
     通过 NEWSSENTRY_TARGET_ID 控制 target 范围（默认 all，逗号分隔或 all）。
     """
-    interval = _auto_collector_state["interval_minutes"] * 60
-    target_ids = _auto_collector_state["target_ids"]
-    stage = _auto_collector_state["stage"]
     _auto_collector_state["running"] = True
     _log.info(
         "自动采集循环启动: targets=%s, stage=%s, interval=%dmin",
-        target_ids,
-        stage,
-        interval // 60,
+        _auto_collector_state["target_ids"],
+        _auto_collector_state["stage"],
+        _auto_collector_state["interval_minutes"],
     )
 
     while _auto_collector_state["enabled"]:
         try:
             from news_sentry.core.async_run import bounded_run_multi_async
 
+            target_ids = _auto_collector_state["target_ids"]
+            stage = _auto_collector_state["stage"]
             run_id = f"auto_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
             _log.info("自动采集开始: run_id=%s, targets=%s", run_id, target_ids)
 
-            await bounded_run_multi_async(
+            contexts = await bounded_run_multi_async(
                 targets=target_ids,
                 stage=stage,
                 run_id=run_id,
             )
+            _update_collector_run_metrics(contexts)
 
             _auto_collector_state["last_run_at"] = datetime.now(UTC).isoformat()
             _auto_collector_state["last_run_status"] = "ok"
+            _auto_collector_state["last_error"] = None
             _auto_collector_state["total_runs"] += 1
             _log.info("自动采集完成: run_id=%s", run_id)
-        except Exception:
+        except Exception as exc:
             _auto_collector_state["last_run_at"] = datetime.now(UTC).isoformat()
             _auto_collector_state["last_run_status"] = "error"
+            _auto_collector_state["last_error"] = str(exc)
             _auto_collector_state["total_runs"] += 1
             _log.error("自动采集失败", exc_info=True)
 
+        interval = _auto_collector_state["interval_minutes"] * 60
+        _auto_collector_state["next_run_at"] = (
+            datetime.now(UTC) + timedelta(seconds=interval)
+        ).isoformat()
         await asyncio.sleep(interval)
 
     _auto_collector_state["running"] = False
+    _auto_collector_state["next_run_at"] = None
     _log.info("自动采集循环停止")
 
 
@@ -1250,6 +1853,19 @@ async def _get_target_store(target_id: str) -> AsyncStore | None:
         return store
 
     return None
+
+
+async def _source_health_records_for_target(target_id: str) -> list[dict[str, Any]]:
+    """按优先级读取 target 信源健康：target SQLite、全局 SQLite、真实 memory YAML。"""
+    records: list[dict[str, Any]] = []
+    target_store = await _get_target_store(target_id)
+    if target_store is not None:
+        records = await target_store.get_all_source_health()
+    if not records and _store is not None:
+        records = await _store.get_all_source_health()
+    if not records:
+        records = _load_memory_source_health_records(target_id)
+    return _filter_source_health_records(target_id, records)
 
 
 async def _restore_sessions() -> None:
@@ -1363,6 +1979,7 @@ def create_app(
     elif not auto_store:
         _store = None  # 显式禁用，测试环境重置
     _config_cache = ConfigCache(ttl=60, maxsize=128)
+    _apply_collector_config(_load_collector_config())
 
     # ── 公开端点（无需认证）─────────────────────────────
 
@@ -1373,16 +1990,52 @@ def create_app(
     @app.get("/api/v1/collector/status")
     async def collector_status() -> dict[str, Any]:
         """返回后台自动采集循环的状态。"""
-        return {
-            "enabled": _auto_collector_state["enabled"],
-            "running": _auto_collector_state["running"],
-            "target_ids": _auto_collector_state["target_ids"],
-            "stage": _auto_collector_state["stage"],
-            "interval_minutes": _auto_collector_state["interval_minutes"],
-            "last_run_at": _auto_collector_state["last_run_at"],
-            "last_run_status": _auto_collector_state["last_run_status"],
-            "total_runs": _auto_collector_state["total_runs"],
-        }
+        return _collector_payload()
+
+    @app.get("/api/v1/collector/config")
+    async def collector_config(
+        _user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """返回可编辑的自动采集配置与当前运行状态。"""
+        return _collector_payload()
+
+    @app.put("/api/v1/collector/config")
+    async def update_collector_config(
+        config: CollectorConfigUpdate,
+        _user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """更新自动采集配置并持久化到 config/runtime/collector.yaml。"""
+        current = _collector_payload()
+        update = config.model_dump(exclude_none=True)
+        normalized = _apply_collector_config({**current, **update})
+        _save_collector_config(normalized)
+        return _collector_payload()
+
+    @app.post("/api/v1/collector/start")
+    async def start_collector(
+        _user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """启用自动采集；非测试生命周期下会启动后台循环。"""
+        normalized = _apply_collector_config({**_collector_payload(), "enabled": True})
+        _save_collector_config(normalized)
+        task = _auto_collector_state.get("task")
+        if not _skip_lifespan and (task is None or task.done()):
+            _auto_collector_state["task"] = asyncio.create_task(_auto_collect_loop())
+        return _collector_payload()
+
+    @app.post("/api/v1/collector/stop")
+    async def stop_collector(
+        _user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """停用自动采集并取消正在等待的后台循环。"""
+        normalized = _apply_collector_config({**_collector_payload(), "enabled": False})
+        _save_collector_config(normalized)
+        task = _auto_collector_state.get("task")
+        if task is not None and not task.done():
+            task.cancel()
+        _auto_collector_state["running"] = False
+        _auto_collector_state["next_run_at"] = None
+        return _collector_payload()
 
     @app.get("/api/v1/collector/diagnostics")
     async def collector_diagnostics() -> dict[str, Any]:
@@ -2006,7 +2659,7 @@ def create_app(
             if isinstance(cls_data, dict):
                 l0 = cls_data.get("l0")
                 if l0:
-                    by_classification[l0] += 1
+                    by_classification[canonical_l0(l0)] += 1
             src = e.get("source_id")
             if src:
                 by_source[src] += 1
@@ -2291,53 +2944,31 @@ def create_app(
         store_to_query = target_store if target_store is not None else _store
 
         if store_to_query is not None:
-            offset = (page - 1) * page_size
-            result = await store_to_query.query_events_paginated(
-                target_id=target_id,
+            result = await _visible_index_events_page(
+                store_to_query,
+                _data_dir,
                 stage="drafts",
-                limit=page_size,
-                offset=offset,
+                target_id=target_id,
+                page=page,
+                page_size=page_size,
                 source_id=source_id,
                 classification_l0=classification,
                 min_score=min_score,
                 sentiment=sentiment,
                 entity_name=entity,
                 topic_tag=topic_tag,
+                search=search,
             )
-            # 仅当 SQLite 有数据时才返回；空索引 → 回退到文件系统路径
-            if result["total"] > 0:
-                total = result["total"]
-                page_events: list[dict[str, Any]] = []
-
-                for row in result["rows"]:
-                    event_fm = _load_event_by_path(row["file_path"])
-                    if event_fm is None:
-                        # 文件不存在时用 SQLite 索引字段构造基础事件
-                        event_fm = {
-                            "event_id": row["event_id"],
-                            "title_original": row["title_original"],
-                            "importance_score": row["news_value_score"],
-                            "china_relevance": row["china_relevance"],
-                            "classification": {"l0": row["classification_l0"]},
-                            "source_id": row["source_id"],
-                            "published_at": row["published_at"],
-                            "sentiment": row["sentiment"],
-                            "entity_names": row["entity_names"],
-                            "topic_tags": row["topic_tags"],
-                        }
-                    if search is not None:
-                        keyword = search.lower()
-                        if keyword not in (event_fm.get("title_original") or "").lower():
-                            total -= 1
-                            continue
-                    page_events.append(event_fm)
-
+            # target 已进入索引模式后，SQLite 是权威来源；只有全空 legacy target 才回退。
+            if result["index_total"] > 0:
                 return EventResponse(
-                    total=total,
-                    events=page_events,
+                    total=result["total"],
+                    events=result["events"],
                     page=page,
                     page_size=page_size,
                 )
+            if await _store_has_target_event_index(store_to_query, target_id):
+                return EventResponse(total=0, events=[], page=page, page_size=page_size)
 
         # 降级路径（无 store / store 为空 / 文件系统路径）
         return _load_events_from_data(
@@ -2366,40 +2997,30 @@ def create_app(
         store_to_query = target_store if target_store is not None else _store
 
         if store_to_query is not None:
-            offset = (page - 1) * page_size
-            result = await store_to_query.query_events_paginated(
-                target_id=target_id,
+            result = await _visible_index_events_page(
+                store_to_query,
+                _data_dir,
                 stage="drafts",
-                limit=page_size,
-                offset=offset,
+                target_id=target_id,
+                page=page,
+                page_size=page_size,
+                date=date,
             )
-            if result["total"] > 0:
-                events = []
-                for row in result["rows"]:
-                    event_fm = _load_event_by_path(row["file_path"])
-                    if event_fm is None:
-                        event_fm = {
-                            "event_id": row["event_id"],
-                            "title_original": row["title_original"],
-                            "importance_score": row["news_value_score"],
-                            "classification": {"l0": row["classification_l0"]},
-                            "source_id": row["source_id"],
-                            "published_at": row["published_at"],
-                            "sentiment": row["sentiment"],
-                        }
-                    # 日期筛选
-                    if date:
-                        pub = event_fm.get("published_at", "")
-                        if not pub.startswith(date):
-                            continue
-                    events.append(event_fm)
+            if result["index_total"] > 0:
                 # 按日期分组
-                grouped = _group_events_by_date(events)
+                grouped = _group_events_by_date(result["events"])
                 return {
                     "total": result["total"],
                     "page": page,
                     "page_size": page_size,
                     "groups": grouped,
+                }
+            if await _store_has_target_event_index(store_to_query, target_id):
+                return {
+                    "total": 0,
+                    "page": page,
+                    "page_size": page_size,
+                    "groups": [],
                 }
 
         # 降级: 文件系统
@@ -2485,18 +3106,32 @@ def create_app(
         # 优先使用 target 自己的 state.db
         target_store = await _get_target_store(target_id)
         if target_store is not None:
-            file_path = await target_store.get_event_file_path(event_id)
-            if file_path is not None:
-                event = _load_event_by_path(file_path)
-                if event is not None:
-                    return event
+            event = await _load_indexed_event_detail(
+                _data_dir,
+                target_id,
+                target_store,
+                event_id,
+            )
+            if event is _INVISIBLE_INDEXED_EVENT:
+                raise HTTPException(status_code=404, detail="Event not found")
+            if isinstance(event, dict):
+                return event
+            if await _store_has_target_event_index(target_store, target_id):
+                raise HTTPException(status_code=404, detail="Event not found")
 
         if _store is not None:
-            file_path = await _store.get_event_file_path(event_id)
-            if file_path is not None:
-                event = _load_event_by_path(file_path)
-                if event is not None:
-                    return event
+            event = await _load_indexed_event_detail(
+                _data_dir,
+                target_id,
+                _store,
+                event_id,
+            )
+            if event is _INVISIBLE_INDEXED_EVENT:
+                raise HTTPException(status_code=404, detail="Event not found")
+            if isinstance(event, dict):
+                return event
+            if await _store_has_target_event_index(_store, target_id):
+                raise HTTPException(status_code=404, detail="Event not found")
 
         # 降级路径（无 store / store 中未找到 / 文件系统路径）
         event = _load_single_event(_data_dir, target_id, event_id)
@@ -2809,9 +3444,7 @@ def create_app(
         target_id: str = Query(..., description="目标标识"),
         user: dict[str, Any] = Depends(get_current_user),
     ) -> SourceHealthListResponse:
-        if _store is None:
-            return SourceHealthListResponse(sources=[])
-        records = await _store.get_all_source_health()
+        records = await _source_health_records_for_target(target_id)
         return SourceHealthListResponse(sources=[SourceHealthInfo(**r) for r in records])
 
     @app.post("/api/v1/runs/trigger", response_model=TriggerResponse)

@@ -4,7 +4,30 @@ from __future__ import annotations
 
 import re
 
+import pytest
+
 from news_sentry.models.newsevent import NewsEvent
+
+
+def _make_event(language: str) -> NewsEvent:
+    return NewsEvent(
+        id=f"evt-{language}",
+        run_id="run-001",
+        source_id="test-source",
+        url=f"https://example.com/{language}",
+        title_original="Test",
+        content_original="Content",
+        language=language,
+        published_at="2026-05-29T10:00:00+00:00",
+        collected_at="2026-05-29T10:01:00+00:00",
+    )
+
+
+class TestLanguage:
+    @pytest.mark.parametrize("language", ["it", "en", "zh", "ja", "de", "fr", "mixed"])
+    def test_accepts_configured_target_primary_languages(self, language: str) -> None:
+        event = _make_event(language)
+        assert str(event.language) == language
 
 
 class TestMakeId:
