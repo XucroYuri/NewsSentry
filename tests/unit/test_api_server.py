@@ -2053,6 +2053,93 @@ class TestAPIServerSQLite:
         finally:
             await store.close()
 
+    async def test_visible_index_page_can_skip_exact_total_for_public_feed(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """公开新闻流首屏不应为计算总数而扫描全部历史索引行。"""
+
+        class CountingStore:
+            def __init__(self) -> None:
+                self.calls: list[tuple[int, int]] = []
+
+            async def query_events_paginated(self, **kwargs: Any) -> dict[str, Any]:
+                limit = kwargs["limit"]
+                offset = kwargs["offset"]
+                self.calls.append((limit, offset))
+                rows = [
+                    {
+                        "event_id": f"event-{idx}",
+                        "source_id": "ansa",
+                        "news_value_score": 80,
+                        "china_relevance": 0,
+                        "classification_l0": "politics",
+                        "published_at": f"2026-05-28T10:{idx % 60:02d}:00+00:00",
+                        "file_path": None,
+                        "title_original": f"Evento {idx}",
+                    }
+                    for idx in range(offset, min(offset + limit, 2500))
+                ]
+                return {"total": 2500, "rows": rows}
+
+        materialized = 0
+        original = api_server_module._visible_index_event_from_row
+
+        def count_materialized(*args: Any, **kwargs: Any) -> dict[str, Any] | None:
+            nonlocal materialized
+            materialized += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(
+            api_server_module,
+            "_visible_index_event_from_row",
+            count_materialized,
+        )
+
+        store = CountingStore()
+        result = await api_server_module._visible_index_events_page(
+            store,
+            tmp_path,
+            "italy",
+            stage="drafts",
+            page=1,
+            page_size=30,
+            exact_total=False,
+        )
+
+        assert result["total"] == 2500
+        assert [item["event_id"] for item in result["events"]] == [
+            f"event-{idx}" for idx in range(30)
+        ]
+        assert materialized == 30
+        assert store.calls == [(30, 0)]
+
+    def test_target_info_from_config_does_not_scan_event_files(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Target 列表响应基础信息不应同步扫全量事件文件。"""
+
+        def fail_load_all_events(*_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
+            raise AssertionError("_load_all_events should not be used for target info")
+
+        monkeypatch.setattr(api_server_module, "_load_all_events", fail_load_all_events)
+        info = api_server_module._target_info_from_config(
+            {
+                "target_id": "italy",
+                "display_name": "意大利新闻监控",
+                "language_scope": {"primary": "it"},
+                "source_channel_refs": ["rss/ansa.yaml"],
+            },
+            tmp_path,
+        )
+
+        assert info.target_id == "italy"
+        assert info.source_count == 1
+        assert info.event_count == 0
+
     async def test_event_detail_does_not_reuse_collided_file_path_frontmatter(
         self,
         tmp_path: Path,

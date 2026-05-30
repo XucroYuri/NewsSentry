@@ -1321,9 +1321,51 @@ async def _visible_index_events_page(
     sentiment: str | None = None,
     entity_name: str | None = None,
     topic_tag: str | None = None,
+    exact_total: bool = True,
 ) -> dict[str, Any]:
     """读取可公开展示的 index 事件，再分页，避免 stale 行占据页面。"""
     start = (page - 1) * page_size
+
+    if not exact_total and date is None and search is None:
+        offset = start
+        index_total = 0
+        page_events: list[dict[str, Any]] = []
+
+        while len(page_events) < page_size:
+            result = await store.query_events_paginated(
+                target_id=target_id,
+                stage=stage,
+                limit=page_size,
+                offset=offset,
+                source_id=source_id,
+                classification_l0=classification_l0,
+                min_score=min_score,
+                sentiment=sentiment,
+                entity_name=entity_name,
+                topic_tag=topic_tag,
+            )
+            index_total = result["total"]
+            rows = result["rows"]
+            if not rows:
+                break
+
+            for row in rows:
+                event = _visible_index_event_from_row(data_dir, target_id, stage, row)
+                if event is not None:
+                    page_events.append(event)
+                    if len(page_events) >= page_size:
+                        break
+
+            offset += len(rows)
+            if offset >= index_total:
+                break
+
+        return {
+            "index_total": index_total,
+            "total": index_total,
+            "events": page_events,
+        }
+
     end = start + page_size
     offset = 0
     index_total = 0
@@ -2194,7 +2236,7 @@ def _target_info_from_config(data: dict[str, Any], data_dir: Path) -> TargetInfo
         if isinstance(data.get("language_scope"), dict)
         else "",
         source_count=len(refs),
-        event_count=len(_load_all_events(data_dir, target_id)),
+        event_count=0,
         lifecycle=lifecycle,
         archived=lifecycle.get("status") == "archived",
     )
@@ -2205,6 +2247,9 @@ async def _target_public_event_count(target_id: str, data_dir: Path) -> int:
     try:
         store = await _store_for_target(target_id)
         if store is not None and await _store_has_target_event_index(store, target_id):
+            get_count = getattr(store, "get_event_count", None)
+            if get_count is not None:
+                return int(await get_count(target_id, _PUBLIC_ANALYSIS_STAGE))
             visible = await _visible_index_events_page(
                 store,
                 data_dir,
@@ -2212,6 +2257,7 @@ async def _target_public_event_count(target_id: str, data_dir: Path) -> int:
                 stage=_PUBLIC_ANALYSIS_STAGE,
                 page=1,
                 page_size=1,
+                exact_total=False,
             )
             return int(visible["total"])
     except Exception:
@@ -5054,6 +5100,7 @@ def create_app(
                 page=page,
                 page_size=page_size,
                 date=date,
+                exact_total=page_size <= 1,
             )
             if result["index_total"] > 0:
                 # 按日期分组
