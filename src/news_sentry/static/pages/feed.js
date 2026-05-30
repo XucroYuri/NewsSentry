@@ -348,6 +348,61 @@ function renderCompact(date, events, sourceMap, options = {}) {
 }
 
 const VIEW_RENDERERS = { timeline: renderTimeline, compact: renderCompact };
+const FEED_PAGE_SIZE = 100;
+
+export function mergeFeedGroups(existingGroups = [], incomingGroups = []) {
+  const byDate = new Map();
+  for (const group of existingGroups) {
+    byDate.set(group.date, {
+      date: group.date,
+      events: Array.isArray(group.events) ? [...group.events] : [],
+    });
+  }
+  for (const group of incomingGroups) {
+    if (!byDate.has(group.date)) {
+      byDate.set(group.date, { date: group.date, events: [] });
+    }
+    const targetGroup = byDate.get(group.date);
+    targetGroup.events.push(...(Array.isArray(group.events) ? group.events : []));
+  }
+  return Array.from(byDate.values());
+}
+
+export function renderFeedCountText({
+  loadedCount = 0,
+  totalCount = 0,
+  visibleCount = loadedCount,
+  loadedTotal = loadedCount,
+  filtered = false,
+} = {}) {
+  const loaded = Number(loadedTotal || loadedCount || 0);
+  const total = Number(totalCount || 0);
+  const visible = Number(visibleCount || 0);
+  if (filtered) {
+    const base = total > loaded ? `已加载 ${loaded} / 共 ${total} 条` : `${loaded} 条`;
+    return `当前筛选 ${visible} 条 · ${base}`;
+  }
+  return total > loaded ? `已加载 ${loaded} / 共 ${total} 条` : `${loaded} 条`;
+}
+
+export function renderFeedFooterHtml({
+  loadedCount = 0,
+  totalCount = 0,
+  filtered = false,
+  loadingMore = false,
+} = {}) {
+  const loaded = Number(loadedCount || 0);
+  const total = Number(totalCount || 0);
+  const hasMore = total > loaded;
+  if (!hasMore && !filtered) return "";
+  const note = filtered && hasMore
+    ? `<span class="feed-more-note">筛选仅作用于已加载 ${loaded} 条，可继续加载更多后再筛选。</span>`
+    : "";
+  const button = hasMore
+    ? `<button class="feed-btn" id="feed-load-more" type="button" ${loadingMore ? "disabled" : ""}>${loadingMore ? "加载中..." : "加载更多"}</button>`
+    : "";
+  return `<div class="feed-more">${note}${button}</div>`;
+}
 
 export async function renderFeedTab(container, options = {}) {
   const targetId = options.targetId || state.currentTarget;
@@ -397,6 +452,9 @@ export async function renderFeedTab(container, options = {}) {
   let visibleGroups = [];
   let sourceMap = {};
   let totalCount = 0;
+  let currentPage = 1;
+  let loadedCount = 0;
+  let isLoadingMore = false;
 
   const refreshPublicChannels = () => {
     if (!publicMode || !channelBar) return;
@@ -413,7 +471,17 @@ export async function renderFeedTab(container, options = {}) {
     const renderer = VIEW_RENDERERS[currentView] || renderTimeline;
     visibleGroups = filterGroups(groups, { channelId: currentChannel, query: searchQuery });
     const visibleCount = countEvents(visibleGroups);
-    countEl.textContent = visibleCount ? `${visibleCount} 条` : "";
+    loadedCount = countEvents(groups);
+    const hasClientFilter = currentChannel !== "all" || Boolean(searchQuery.trim());
+    countEl.textContent = loadedCount
+      ? renderFeedCountText({
+        loadedCount,
+        loadedTotal: loadedCount,
+        totalCount,
+        visibleCount,
+        filtered: hasClientFilter,
+      })
+      : "";
     if (visibleCount === 0) {
       const message = searchQuery
         ? "没有匹配的新闻"
@@ -421,24 +489,48 @@ export async function renderFeedTab(container, options = {}) {
           ? "暂无新闻数据"
           : "该频道暂无新闻";
       body.innerHTML = `<div class="feed-empty">${message}</div>`;
-      footer.innerHTML = searchQuery ? '<button class="feed-btn" id="feed-clear-search">清空搜索</button>' : "";
+      footer.innerHTML = `${searchQuery ? '<button class="feed-btn" id="feed-clear-search">清空搜索</button>' : ""}${
+        renderFeedFooterHtml({ loadedCount, totalCount, filtered: hasClientFilter, loadingMore: isLoadingMore })
+      }`;
       footer.querySelector("#feed-clear-search")?.addEventListener("click", () => {
         searchQuery = "";
         searchInput.value = "";
         render();
       });
+      footer.querySelector("#feed-load-more")?.addEventListener("click", () => {
+        loadFeed({ append: true });
+      });
       return;
     }
     body.innerHTML = visibleGroups.map((g) => renderer(g.date, g.events, sourceMap, { targetId, publicMode })).join("");
-    const hasClientFilter = currentChannel !== "all" || searchQuery.trim();
-    footer.innerHTML = !hasClientFilter && totalCount > 100
-      ? `<span class="feed-more">显示前 100 条，共 ${totalCount} 条</span>` : "";
+    footer.innerHTML = renderFeedFooterHtml({
+      loadedCount,
+      totalCount,
+      filtered: hasClientFilter,
+      loadingMore: isLoadingMore,
+    });
+    footer.querySelector("#feed-load-more")?.addEventListener("click", () => {
+      loadFeed({ append: true });
+    });
   };
 
-  const loadFeed = async () => {
-    body.innerHTML = '<div class="feed-loading">加载中...</div>';
+  const loadFeed = async ({ append = false } = {}) => {
+    if (append && isLoadingMore) return;
+    if (append) {
+      isLoadingMore = true;
+      render();
+    } else {
+      currentPage = 1;
+      loadedCount = 0;
+      body.innerHTML = '<div class="feed-loading">加载中...</div>';
+    }
     const date = dateInput.value || "";
-    const params = new URLSearchParams({ target_id: targetId, page: "1", page_size: "100" });
+    const nextPage = append ? currentPage + 1 : 1;
+    const params = new URLSearchParams({
+      target_id: targetId,
+      page: String(nextPage),
+      page_size: String(FEED_PAGE_SIZE),
+    });
     if (date) params.set("date", date);
 
     try {
@@ -448,13 +540,21 @@ export async function renderFeedTab(container, options = {}) {
         api(`/api/v1/events/feed?${params}`),
       ]);
       sourceMap = loadedSourceMap;
-      groups = data.groups || [];
+      groups = append ? mergeFeedGroups(groups, data.groups || []) : data.groups || [];
       totalCount = data.total || 0;
+      currentPage = nextPage;
 
       refreshPublicChannels();
       render();
     } catch (err) {
-      body.innerHTML = `<div class="feed-error">加载失败: ${escapeHtml(err.message)}</div>`;
+      if (append) {
+        footer.innerHTML = `<div class="feed-error">加载更多失败: ${escapeHtml(err.message)}</div>`;
+      } else {
+        body.innerHTML = `<div class="feed-error">加载失败: ${escapeHtml(err.message)}</div>`;
+      }
+    } finally {
+      isLoadingMore = false;
+      if (append) render();
     }
   };
 

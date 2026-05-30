@@ -3750,9 +3750,24 @@ body.ns-offline .offline-banner {
 
 .feed-error { color: var(--accent-secondary); }
 
-.feed-footer { text-align: center; padding: 12px 0; }
+.feed-footer {
+  text-align: center;
+  padding: 12px 0;
+}
 
-.feed-more { font-size: var(--font-caption); color: var(--text-muted); }
+.feed-more {
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: var(--font-caption);
+}
+
+.feed-more-note {
+  color: var(--text-muted);
+}
 
 @media (max-width: 760px) {
   .feed-container {
