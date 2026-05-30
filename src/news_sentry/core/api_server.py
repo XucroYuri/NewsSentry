@@ -3805,7 +3805,10 @@ def create_app(
         unhealthy = 0
         if data_exists:
             for tid in target_dirs:
-                memory_health = _load_memory_source_health_records(tid)
+                memory_health = _filter_source_health_records(
+                    tid,
+                    _load_memory_source_health_records(tid),
+                )
                 if memory_health:
                     for h in memory_health:
                         if h.get("status") == "healthy":

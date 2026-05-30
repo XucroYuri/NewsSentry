@@ -29,6 +29,21 @@ keyword_rules:
   - keyword: "自民党"
     weight: 0.85
     language: ja
+  - keyword: "自民"
+    weight: 0.75
+    language: ja
+  - keyword: "政治"
+    weight: 0.75
+    language: ja
+  - keyword: "維新"
+    weight: 0.7
+    language: ja
+  - keyword: "副首都"
+    weight: 0.75
+    language: ja
+  - keyword: "法案"
+    weight: 0.7
+    language: ja
   - keyword: "野党"
     weight: 0.7
     language: ja
@@ -72,6 +87,24 @@ keyword_rules:
     language: ja
   - keyword: "制裁"
     weight: 0.75
+    language: ja
+  - keyword: "為替"
+    weight: 0.75
+    language: ja
+  - keyword: "為替介入"
+    weight: 0.85
+    language: ja
+  - keyword: "金利"
+    weight: 0.7
+    language: ja
+  - keyword: "金融庁"
+    weight: 0.75
+    language: ja
+  - keyword: "ガバナンス"
+    weight: 0.65
+    language: ja
+  - keyword: "株主"
+    weight: 0.65
     language: ja
 
   # ── 外交 ─────────────────────────────────────────────
@@ -117,6 +150,27 @@ keyword_rules:
   - keyword: "NATO"
     weight: 0.85
     language: ja
+  - keyword: "米中"
+    weight: 0.9
+    language: ja
+  - keyword: "台湾"
+    weight: 0.9
+    language: ja
+  - keyword: "中東"
+    weight: 0.75
+    language: ja
+  - keyword: "中東情勢"
+    weight: 0.8
+    language: ja
+  - keyword: "停戦"
+    weight: 0.75
+    language: ja
+  - keyword: "核"
+    weight: 0.75
+    language: ja
+  - keyword: "NPT"
+    weight: 0.75
+    language: ja
 
   # ── 安全 ─────────────────────────────────────────────
   - keyword: "防衛"
@@ -140,6 +194,18 @@ keyword_rules:
   - keyword: "サイバー攻撃"
     weight: 0.8
     language: ja
+  - keyword: "サイバー"
+    weight: 0.75
+    language: ja
+  - keyword: "重要インフラ"
+    weight: 0.85
+    language: ja
+  - keyword: "インフラ"
+    weight: 0.65
+    language: ja
+  - keyword: "電力"
+    weight: 0.75
+    language: ja
 
   # ── 社会 ─────────────────────────────────────────────
   - keyword: "少子化"
@@ -151,6 +217,18 @@ keyword_rules:
   - keyword: "人口減少"
     weight: 0.8
     language: ja
+  - keyword: "人口"
+    weight: 0.75
+    language: ja
+  - keyword: "総人口"
+    weight: 0.8
+    language: ja
+  - keyword: "国勢調査"
+    weight: 0.85
+    language: ja
+  - keyword: "物価"
+    weight: 0.75
+    language: ja
   - keyword: "外国人労働者"
     weight: 0.75
     language: ja
@@ -159,6 +237,35 @@ keyword_rules:
     language: ja
   - keyword: "年金"
     weight: 0.7
+    language: ja
+  - keyword: "フリーランス法"
+    weight: 0.75
+    language: ja
+  - keyword: "民泊"
+    weight: 0.65
+    language: ja
+
+  # ── 司法与灾害 ───────────────────────────────────────
+  - keyword: "判決"
+    weight: 0.65
+    language: ja
+  - keyword: "地裁"
+    weight: 0.65
+    language: ja
+  - keyword: "沖縄"
+    weight: 0.7
+    language: ja
+  - keyword: "辺野古"
+    weight: 0.75
+    language: ja
+  - keyword: "台風"
+    weight: 0.75
+    language: ja
+  - keyword: "暴風"
+    weight: 0.75
+    language: ja
+  - keyword: "大雨"
+    weight: 0.75
     language: ja
 
   # ── 科技 ─────────────────────────────────────────────

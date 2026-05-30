@@ -479,6 +479,52 @@ class TestAPIServer:
         assert source_check["ok"] is True
         assert "健康: 1" in source_check["message"]
 
+    def test_collector_diagnostics_ignores_disabled_deprecated_memory_health(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """diagnostics 不应把已停用/归档 source 的历史失败计入当前异常。"""
+        monkeypatch.chdir(tmp_path)
+        sources_dir = tmp_path / "config" / "sources" / "italy"
+        sources_dir.mkdir(parents=True)
+        (sources_dir / "ansa.yaml").write_text("source_id: ansa\n", encoding="utf-8")
+        (sources_dir / "fao-rss.yaml").write_text(
+            "source_id: fao-rss\nenabled: false\ndeprecated: true\n",
+            encoding="utf-8",
+        )
+        memory_dir = tmp_path / "italy" / "memory"
+        memory_dir.mkdir(parents=True)
+        (memory_dir / "source_health.yaml").write_text(
+            yaml.dump(
+                {
+                    "ansa": {
+                        "last_success_at": "2026-05-29T00:42:52+00:00",
+                        "last_failure_at": None,
+                        "consecutive_failures": 0,
+                        "last_error": None,
+                        "total_runs": 12,
+                        "total_failures": 0,
+                    },
+                    "fao-rss": {
+                        "last_success_at": None,
+                        "last_failure_at": "2026-05-29T00:42:52+00:00",
+                        "consecutive_failures": 16,
+                        "last_error": "404 Not Found",
+                        "total_runs": 16,
+                        "total_failures": 16,
+                    },
+                },
+                allow_unicode=True,
+            ),
+            encoding="utf-8",
+        )
+        client = self._make_client(tmp_path)
+
+        resp = client.get("/api/v1/collector/diagnostics")
+
+        assert resp.status_code == 200
+        source_check = [c for c in resp.json()["checks"] if c["name"] == "source_health"][0]
+        assert source_check["message"] == "健康: 1, 异常: 0"
+
     def test_collector_diagnostics_empty_data_dir(self, tmp_path: Path) -> None:
         """空数据目录下 diagnostics 返回 overall=attention_needed。"""
         client = self._make_client(tmp_path)
