@@ -547,7 +547,7 @@ class TestAsyncStoreIntegration:
         config = MagicMock()
         config.target_id = "italy"
         config.output_root = tmp_path
-        config.output_destinations = {}
+        config.output_destinations = {"markdown_auto_drafts": True}
 
         try:
             await _run_output_async(
@@ -566,6 +566,62 @@ class TestAsyncStoreIntegration:
             assert row["file_path"] is not None
             assert Path(row["file_path"]).is_file()
             assert Path(row["file_path"]).name == "ne-italy-repubblica-20260528-51db8e48.md"
+        finally:
+            await store.close()
+
+    @pytest.mark.asyncio
+    async def test_async_output_indexes_outputted_no_md_file(self, tmp_path):
+        """markdown_auto_drafts=False 时索引 outputted 事件，但 file_path 保持 None。"""
+        from news_sentry.core.async_store import AsyncStore
+        from news_sentry.core.file_writer import FileWriter
+        from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+
+        target_dir = tmp_path / "italy"
+        file_writer = FileWriter(target_dir)
+        file_writer.ensure_dirs()
+        event = NewsEvent(
+            id="ne-italy-repubblica-20260528-no-md",
+            run_id="run-output-no-md",
+            source_id="repubblica",
+            url="https://example.com/no-md",
+            title_original="No markdown draft",
+            content_original="Body",
+            language=Language.IT,
+            published_at="2026-05-28T00:18:47+00:00",
+            collected_at="2026-05-28T00:20:00+00:00",
+            pipeline_stage=PipelineStage.JUDGED,
+            news_value_score=90,
+            metadata={"_file_path": "stale/path.md"},
+        )
+
+        store = AsyncStore(target_dir / "state.db")
+        await store.initialize()
+        config = MagicMock()
+        config.target_id = "italy"
+        config.output_root = tmp_path
+        config.output_destinations = {"markdown_auto_drafts": False}
+
+        try:
+            events = await _run_output_async(
+                config=config,
+                run_id="run-output-no-md",
+                run_log=MagicMock(),
+                file_writer=file_writer,
+                ctx=MagicMock(),
+                store=store,
+                input_events=[event],
+            )
+
+            result = await store.query_events_paginated("italy", "drafts", limit=10)
+            row = await store.get_event_index_row("italy", "ne-italy-repubblica-20260528-no-md")
+            assert [evt.id for evt in events] == ["ne-italy-repubblica-20260528-no-md"]
+            assert result["total"] == 1
+            assert row is not None
+            assert row["stage"] == "drafts"
+            assert row["file_path"] is None
+            assert event.metadata.get("_file_path") is None
+            assert event.pipeline_stage == PipelineStage.OUTPUTTED
+            assert not (target_dir / "drafts" / "ne-italy-repubblica-20260528-no-md.md").exists()
         finally:
             await store.close()
 

@@ -806,9 +806,6 @@ async def _run_output_async(
             file_path = None
             if isinstance(event.metadata, dict):
                 file_path = event.metadata.get("_file_path")
-            if not file_path:
-                file_name = f"{event.id}.md"
-                file_path = str(file_writer.base_dir / "drafts" / file_name)
             await store.index_event(event, target_id, "drafts", file_path=file_path)
         if events:
             logger.info("event_index 写入 %d 条事件", len(events))

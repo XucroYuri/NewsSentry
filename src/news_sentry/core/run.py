@@ -394,12 +394,17 @@ def _run_output(
     output_config = dict(config.output_destinations)
     output_config["target_id"] = config.target_id
     output_config["output_base_dir"] = str(config.output_root)
-    writer = MarkdownWriter(output_config)
+    markdown_auto_drafts = bool(output_config.get("markdown_auto_drafts", False))
+    writer = MarkdownWriter(output_config) if markdown_auto_drafts else None
     outputted: list[NewsEvent] = []
     for event in events:
         try:
-            output_path = writer.write(event)
-            event.metadata["_file_path"] = str(output_path)
+            if writer is not None:
+                output_path = writer.write(event)
+                event.metadata["_file_path"] = str(output_path)
+            else:
+                event.pipeline_stage = PipelineStage.OUTPUTTED
+                event.metadata.pop("_file_path", None)
             outputted.append(event)
             run_log.log_event("output", event.id, "outputted")
         except Exception as e:
