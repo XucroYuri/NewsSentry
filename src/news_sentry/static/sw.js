@@ -1,4 +1,4 @@
-/* News Sentry — Service Worker v7 */
+/* News Sentry — Service Worker v8 */
 "use strict";
 
 const BUILD_MANIFEST_URL = "/build_manifest.json";
@@ -7,11 +7,9 @@ const FALLBACK_MANIFEST = {
   cacheName: "news-sentry-development",
   assets: ["/", "/index.html", "/app.js", "/style.css", "/public.css"],
 };
-let _buildManifestPromise = null;
 
 async function loadBuildManifest() {
-  if (_buildManifestPromise) return _buildManifestPromise;
-  _buildManifestPromise = fetch(`${BUILD_MANIFEST_URL}?t=${Date.now()}`, { cache: "no-store" })
+  return fetch(`${BUILD_MANIFEST_URL}?t=${Date.now()}`, { cache: "no-store" })
     .then((response) => {
       if (!response.ok) throw new Error(`build manifest ${response.status}`);
       return response.json();
@@ -28,7 +26,6 @@ async function loadBuildManifest() {
       };
     })
     .catch(() => FALLBACK_MANIFEST);
-  return _buildManifestPromise;
 }
 
 /* 离线 fallback 页面 */

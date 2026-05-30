@@ -50,4 +50,10 @@ assert.match(
   "service worker should derive cache name and pre-cache URLs from the manifest",
 );
 
+assert.doesNotMatch(
+  swJs,
+  /if \(_buildManifestPromise\) return _buildManifestPromise/,
+  "service worker should not keep a stale build manifest promise for its whole lifetime",
+);
+
 console.log("static build manifest tests passed");
