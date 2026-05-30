@@ -1312,15 +1312,42 @@ function bindResearchActions(container, targetId, canonicalEventId, detailData) 
       showInfo("当前详情没有可用 mention ID，无法创建拆分建议。请先到事实投影检查回填或补充证据。");
       return;
     }
+    const rawAffectedMentionIds = window.prompt(
+      `填写要拆出的 mention ID，可用逗号分隔。\n当前可选：${mentionIds.join(", ")}`,
+      "",
+    );
+    if (rawAffectedMentionIds === null) {
+      showInfo("已取消拆分建议。");
+      return;
+    }
+    const mentionIdSet = new Set(mentionIds);
+    const requestedMentionIds = rawAffectedMentionIds
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const affectedMentionIds = Array.from(new Set(requestedMentionIds));
+    if (!affectedMentionIds.length) {
+      showInfo("请至少填写一条要拆出的 mention ID。");
+      return;
+    }
+    const unknownMentionIds = affectedMentionIds.filter((mentionId) => !mentionIdSet.has(mentionId));
+    if (unknownMentionIds.length) {
+      showInfo(`以下 mention ID 不属于当前事件：${unknownMentionIds.join(", ")}`);
+      return;
+    }
+    if (affectedMentionIds.length === mentionIds.length) {
+      showInfo("拆分必须在原事实事件上至少保留一条 mention，请只选择需要移出的部分证据。");
+      return;
+    }
     try {
       await postResearchArtifact(targetId, canonicalEventId, {
         artifact_type: "split_decision",
         title: "拆分建议",
-        body: `人工标记 ${mentionIds.length} 条证据可能误合并，需要拆分。`,
+        body: `人工标记 ${affectedMentionIds.length} 条证据可能误合并，需要拆分。`,
         status: "open",
         metadata: {
           decision: "proposed",
-          affected_mention_ids: mentionIds,
+          affected_mention_ids: affectedMentionIds,
           reason: "manual split candidate",
         },
       });

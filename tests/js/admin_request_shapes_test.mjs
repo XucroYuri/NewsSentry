@@ -146,7 +146,7 @@ assert.match(
   "合并建议保存后必须刷新完整审核工作台，避免队列 open_decisions/status 停留在旧状态",
 );
 
-const splitDecisionBlock = snippetAround(targetWorkbenchJs, 'artifact_type: "split_decision"');
+const splitDecisionBlock = snippetAround(targetWorkbenchJs, 'container.querySelector("#researchSplitBtn")', 2200);
 const mentionIdsBlock = snippetAround(targetWorkbenchJs, "function researchMentionIds", 420);
 assert.equal(
   targetWorkbenchJs.includes("target-eyebrow"),
@@ -175,8 +175,18 @@ assert.match(
 );
 assert.match(
   splitDecisionBlock,
-  /affected_mention_ids:\s*mentionIds/s,
-  "拆分建议必须只提交从详情 mentions 中提取的真实 mention IDs",
+  /window\.prompt\([\s\S]*mentionIds\.join\(", "\)/s,
+  "拆分建议必须要求用户明确填写要拆出的 mention ID，不能默认提交全部证据",
+);
+assert.match(
+  splitDecisionBlock,
+  /if\s*\(affectedMentionIds\.length\s*===\s*mentionIds\.length\)[\s\S]*showInfo\(/s,
+  "拆分建议不能把当前事件全部 mention 都提交给后端",
+);
+assert.match(
+  splitDecisionBlock,
+  /affected_mention_ids:\s*affectedMentionIds/s,
+  "拆分建议必须只提交用户选择并校验过的真实 mention IDs",
 );
 assert.match(
   splitDecisionBlock,

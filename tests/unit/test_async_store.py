@@ -2446,6 +2446,134 @@ async def test_canonical_merge_rejects_artifact_applied_operation_scope_mismatch
 
 
 @pytest.mark.asyncio
+async def test_canonical_merge_rejects_same_artifact_different_merged_set(
+    store: AsyncStore,
+):
+    await _seed_merge_graph(store)
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_merge_duplicate_b",
+            "target_id": "italy",
+            "title": "Duplicate B",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "needs_review",
+            "confidence": 70,
+            "metadata": {"mention_count": 1, "source_count": 1},
+        }
+    )
+    await store.upsert_event_mention(
+        {
+            "mention_id": "mention_duplicate_b",
+            "canonical_event_id": "ce_italy_merge_duplicate_b",
+            "event_id": "ne_mention_duplicate_b",
+            "target_id": "italy",
+            "source_id": "lastampa",
+            "url": "https://example.com/mention_duplicate_b",
+            "title": "mention duplicate b",
+            "published_at": "2026-05-30T10:00:00Z",
+            "metadata": {"news_value_score": 75},
+        }
+    )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_merge_apply",
+            "target_id": "italy",
+            "artifact_type": "merge_decision",
+            "title": "Merge",
+            "body": "Same fact",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_merge_survivor",
+            "canonical_event_ids": [
+                "ce_italy_merge_survivor",
+                "ce_italy_merge_duplicate",
+                "ce_italy_merge_duplicate_b",
+            ],
+            "status": "open",
+            "metadata": {
+                "decision": "proposed",
+                "candidate_canonical_event_ids": [
+                    "ce_italy_merge_duplicate",
+                    "ce_italy_merge_duplicate_b",
+                ],
+            },
+        }
+    )
+
+    await store.apply_canonical_merge(
+        target_id="italy",
+        survivor_canonical_event_id="ce_italy_merge_survivor",
+        merged_canonical_event_ids=[
+            "ce_italy_merge_duplicate",
+            "ce_italy_merge_duplicate_b",
+        ],
+        decision_artifact_id="ra_italy_merge_apply",
+        created_by="local-user",
+    )
+
+    with pytest.raises(ValueError, match="candidates must match merged ids"):
+        await store.apply_canonical_merge(
+            target_id="italy",
+            survivor_canonical_event_id="ce_italy_merge_survivor",
+            merged_canonical_event_ids=["ce_italy_merge_duplicate_b"],
+            decision_artifact_id="ra_italy_merge_apply",
+            created_by="local-user",
+        )
+
+
+@pytest.mark.asyncio
+async def test_canonical_merge_rejects_artifact_candidate_subset_payload(
+    store: AsyncStore,
+):
+    await _seed_merge_graph(store)
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_merge_subset_duplicate_b",
+            "target_id": "italy",
+            "title": "Duplicate B",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "needs_review",
+            "confidence": 70,
+            "metadata": {"mention_count": 1, "source_count": 1},
+        }
+    )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_merge_subset_decision",
+            "target_id": "italy",
+            "artifact_type": "merge_decision",
+            "title": "Merge",
+            "body": "Same fact",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_merge_survivor",
+            "canonical_event_ids": [
+                "ce_italy_merge_survivor",
+                "ce_italy_merge_duplicate",
+                "ce_italy_merge_subset_duplicate_b",
+            ],
+            "status": "open",
+            "metadata": {
+                "decision": "proposed",
+                "candidate_canonical_event_ids": [
+                    "ce_italy_merge_duplicate",
+                    "ce_italy_merge_subset_duplicate_b",
+                ],
+            },
+        }
+    )
+
+    with pytest.raises(ValueError, match="candidates must match merged ids"):
+        await store.preview_canonical_merge(
+            target_id="italy",
+            survivor_canonical_event_id="ce_italy_merge_survivor",
+            merged_canonical_event_ids=["ce_italy_merge_duplicate"],
+            decision_artifact_id="ra_italy_merge_subset_decision",
+            created_by="local-user",
+        )
+
+
+@pytest.mark.asyncio
 async def test_canonical_merge_reversed_merged_ids_reuses_operation_and_relations(
     store: AsyncStore,
 ):
@@ -2675,16 +2803,32 @@ async def test_canonical_split_rejects_same_artifact_different_affected_set(
     await store.apply_canonical_split(
         target_id="italy",
         source_canonical_event_id="ce_italy_split_source",
-        affected_mention_ids=["mention_split_move_1"],
+        affected_mention_ids=["mention_split_move_1", "mention_split_move_2"],
         decision_artifact_id="ra_italy_split_apply",
         created_by="local-user",
     )
 
-    with pytest.raises(ValueError, match="applied operation mismatch"):
+    with pytest.raises(ValueError, match="affected mentions must match requested ids"):
         await store.apply_canonical_split(
             target_id="italy",
             source_canonical_event_id="ce_italy_split_source",
             affected_mention_ids=["mention_split_move_2"],
+            decision_artifact_id="ra_italy_split_apply",
+            created_by="local-user",
+        )
+
+
+@pytest.mark.asyncio
+async def test_canonical_split_rejects_artifact_affected_subset_payload(
+    store: AsyncStore,
+):
+    await _seed_split_graph(store)
+
+    with pytest.raises(ValueError, match="affected mentions must match requested ids"):
+        await store.preview_canonical_split(
+            target_id="italy",
+            source_canonical_event_id="ce_italy_split_source",
+            affected_mention_ids=["mention_split_move_1"],
             decision_artifact_id="ra_italy_split_apply",
             created_by="local-user",
         )
@@ -2739,7 +2883,7 @@ async def test_canonical_split_rejects_applied_operation_payload_mismatch(
         await store.apply_canonical_split(
             target_id="italy",
             source_canonical_event_id="ce_italy_split_source",
-            affected_mention_ids=["mention_split_move_1"],
+            affected_mention_ids=["mention_split_move_1", "mention_split_move_2"],
             decision_artifact_id="ra_italy_split_apply",
             created_by="local-user",
         )
@@ -3001,6 +3145,65 @@ async def test_research_artifact_upsert_rejects_identity_boundary_changes(
         assert stored["target_id"] == original["target_id"]
         assert stored["subject_id"] == original["subject_id"]
         assert stored["artifact_type"] == original["artifact_type"]
+
+
+@pytest.mark.asyncio
+async def test_research_artifact_upsert_rejects_reopening_applied_graph_decision(
+    store: AsyncStore,
+):
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_applied_decision",
+            "target_id": "italy",
+            "title": "Applied decision event",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "active",
+            "confidence": 90,
+            "metadata": {},
+        }
+    )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_applied_merge",
+            "target_id": "italy",
+            "artifact_type": "merge_decision",
+            "title": "Applied merge",
+            "body": "",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_applied_decision",
+            "canonical_event_ids": ["ce_italy_applied_decision"],
+            "status": "resolved",
+            "metadata": {
+                "candidate_canonical_event_ids": ["ce_italy_other"],
+                "applied_operation_id": "cgo-italy-merge-applied",
+                "decision": "proposed",
+            },
+        }
+    )
+
+    with pytest.raises(ValueError, match="applied research artifact cannot be reopened"):
+        await store.upsert_research_artifact(
+            {
+                "artifact_id": "ra_italy_applied_merge",
+                "target_id": "italy",
+                "artifact_type": "merge_decision",
+                "title": "Applied merge",
+                "body": "",
+                "subject_type": "canonical_event",
+                "subject_id": "ce_italy_applied_decision",
+                "canonical_event_ids": ["ce_italy_applied_decision"],
+                "status": "open",
+                "metadata": {
+                    "candidate_canonical_event_ids": ["ce_italy_other"],
+                    "decision": "proposed",
+                },
+            }
+        )
+
+    stored = await store.get_research_artifact("ra_italy_applied_merge")
+    assert stored["status"] == "resolved"
+    assert stored["metadata"]["applied_operation_id"] == "cgo-italy-merge-applied"
 
 
 @pytest.mark.asyncio
