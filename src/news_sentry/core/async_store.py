@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 
@@ -1681,6 +1682,553 @@ class AsyncStore:
             ),
         )
         return [self._canonical_graph_operation_from_row(row) for row in rows]
+
+    async def preview_canonical_merge(
+        self,
+        *,
+        target_id: str,
+        survivor_canonical_event_id: str,
+        merged_canonical_event_ids: Sequence[str],
+        decision_artifact_id: str | None = None,
+        created_by: str = "local-user",
+        title_override: str | None = None,
+        summary_override: str | None = None,
+    ) -> dict[str, Any]:
+        """Preview a human-approved canonical merge without changing storage."""
+        return await self._canonical_merge_result(
+            target_id=target_id,
+            survivor_canonical_event_id=survivor_canonical_event_id,
+            merged_canonical_event_ids=merged_canonical_event_ids,
+            decision_artifact_id=decision_artifact_id,
+            created_by=created_by,
+            title_override=title_override,
+            summary_override=summary_override,
+            apply=False,
+        )
+
+    async def apply_canonical_merge(
+        self,
+        *,
+        target_id: str,
+        survivor_canonical_event_id: str,
+        merged_canonical_event_ids: Sequence[str],
+        decision_artifact_id: str | None = None,
+        created_by: str = "local-user",
+        title_override: str | None = None,
+        summary_override: str | None = None,
+    ) -> dict[str, Any]:
+        """Apply an idempotent canonical merge decision."""
+        return await self._canonical_merge_result(
+            target_id=target_id,
+            survivor_canonical_event_id=survivor_canonical_event_id,
+            merged_canonical_event_ids=merged_canonical_event_ids,
+            decision_artifact_id=decision_artifact_id,
+            created_by=created_by,
+            title_override=title_override,
+            summary_override=summary_override,
+            apply=True,
+        )
+
+    async def _canonical_merge_result(
+        self,
+        *,
+        target_id: str,
+        survivor_canonical_event_id: str,
+        merged_canonical_event_ids: Sequence[str],
+        decision_artifact_id: str | None,
+        created_by: str,
+        title_override: str | None,
+        summary_override: str | None,
+        apply: bool,
+    ) -> dict[str, Any]:
+        if self._db is None:
+            await self.initialize()
+        assert self._db is not None
+
+        survivor_id = str(survivor_canonical_event_id)
+        merged_ids = self._dedupe_canonical_event_ids(merged_canonical_event_ids)
+        if not merged_ids:
+            raise ValueError("canonical merge requires at least one merged canonical event")
+        if survivor_id in merged_ids:
+            raise ValueError("survivor canonical event cannot appear in merged list")
+
+        operation_id = self._canonical_merge_operation_id(
+            target_id=target_id,
+            survivor_canonical_event_id=survivor_id,
+            merged_canonical_event_ids=merged_ids,
+            decision_artifact_id=decision_artifact_id,
+            title_override=title_override,
+            summary_override=summary_override,
+        )
+
+        if not apply:
+            plan = await self._build_canonical_merge_plan(
+                target_id=target_id,
+                survivor_canonical_event_id=survivor_id,
+                merged_canonical_event_ids=merged_ids,
+                operation_id=operation_id,
+                decision_artifact_id=decision_artifact_id,
+                created_by=created_by,
+                title_override=title_override,
+                summary_override=summary_override,
+            )
+            return self._canonical_merge_response_from_plan(plan, mode="dry_run")
+
+        await self._db.execute("BEGIN IMMEDIATE")
+        try:
+            plan = await self._build_canonical_merge_plan(
+                target_id=target_id,
+                survivor_canonical_event_id=survivor_id,
+                merged_canonical_event_ids=merged_ids,
+                operation_id=operation_id,
+                decision_artifact_id=decision_artifact_id,
+                created_by=created_by,
+                title_override=title_override,
+                summary_override=summary_override,
+            )
+            existing_operation = await self._find_existing_canonical_merge_operation(
+                operation_id=operation_id,
+                target_id=target_id,
+                decision_artifact_id=decision_artifact_id,
+                artifact=plan["artifact"],
+            )
+            if existing_operation is not None:
+                await self._db.commit()
+                return self._canonical_merge_response_from_operation(
+                    existing_operation,
+                    mode="applied",
+                )
+
+            await self._apply_canonical_merge_plan(plan)
+            await self._db.commit()
+            return self._canonical_merge_response_from_plan(plan, mode="applied")
+        except Exception:
+            await self._db.rollback()
+            raise
+
+    @staticmethod
+    def _dedupe_canonical_event_ids(canonical_event_ids: Sequence[str]) -> list[str]:
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for raw_id in canonical_event_ids:
+            canonical_event_id = str(raw_id)
+            if canonical_event_id in seen:
+                continue
+            seen.add(canonical_event_id)
+            deduped.append(canonical_event_id)
+        return deduped
+
+    @staticmethod
+    def _canonical_merge_operation_id(
+        *,
+        target_id: str,
+        survivor_canonical_event_id: str,
+        merged_canonical_event_ids: Sequence[str],
+        decision_artifact_id: str | None,
+        title_override: str | None,
+        summary_override: str | None,
+    ) -> str:
+        payload = {
+            "target_id": target_id,
+            "operation_type": "merge",
+            "survivor_canonical_event_id": survivor_canonical_event_id,
+            "merged_canonical_event_ids": list(merged_canonical_event_ids),
+            "decision_artifact_id": decision_artifact_id,
+            "title_override": title_override,
+            "summary_override": summary_override,
+        }
+        digest = hashlib.sha256(
+            json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+                "utf-8"
+            )
+        ).hexdigest()[:16]
+        return f"cgo-{target_id}-merge-{digest}"
+
+    async def _build_canonical_merge_plan(
+        self,
+        *,
+        target_id: str,
+        survivor_canonical_event_id: str,
+        merged_canonical_event_ids: Sequence[str],
+        operation_id: str,
+        decision_artifact_id: str | None,
+        created_by: str,
+        title_override: str | None,
+        summary_override: str | None,
+    ) -> dict[str, Any]:
+        survivor = await self._load_canonical_event_for_merge(
+            survivor_canonical_event_id,
+            target_id=target_id,
+        )
+        merged_events = [
+            await self._load_canonical_event_for_merge(merged_id, target_id=target_id)
+            for merged_id in merged_canonical_event_ids
+        ]
+        warnings: list[dict[str, Any]] = []
+        for event in merged_events:
+            metadata = event["metadata"]
+            merged_into = metadata.get("merged_into")
+            if event["status"] == "merged" and merged_into == survivor_canonical_event_id:
+                warnings.append(
+                    {
+                        "type": "already_merged",
+                        "canonical_event_id": event["canonical_event_id"],
+                    }
+                )
+                continue
+            if event["status"] == "merged" and merged_into != survivor_canonical_event_id:
+                raise ValueError(
+                    "canonical event already merged into another survivor: "
+                    f"{event['canonical_event_id']}"
+                )
+
+        artifact = None
+        if decision_artifact_id is not None:
+            artifact = await self.get_research_artifact(decision_artifact_id)
+            self._validate_merge_decision_artifact(
+                artifact=artifact,
+                target_id=target_id,
+                survivor_canonical_event_id=survivor_canonical_event_id,
+                merged_canonical_event_ids=merged_canonical_event_ids,
+            )
+
+        mention_counts = await self._count_merge_mentions_by_event(merged_canonical_event_ids)
+        changes: list[dict[str, Any]] = [
+            {
+                "type": "move_mentions",
+                "from_canonical_event_ids": list(merged_canonical_event_ids),
+                "to_canonical_event_id": survivor_canonical_event_id,
+                "mention_count": sum(mention_counts.values()),
+                "mention_counts": {
+                    canonical_event_id: mention_counts.get(canonical_event_id, 0)
+                    for canonical_event_id in merged_canonical_event_ids
+                },
+            },
+            {
+                "type": "mark_merged",
+                "canonical_event_ids": list(merged_canonical_event_ids),
+                "merged_into": survivor_canonical_event_id,
+            },
+            {
+                "type": "create_duplicate_relations",
+                "relation_count": len(merged_canonical_event_ids),
+            },
+            {
+                "type": "update_survivor_metadata",
+                "canonical_event_id": survivor_canonical_event_id,
+            },
+        ]
+        if artifact is not None:
+            changes.append(
+                {
+                    "type": "resolve_research_artifact",
+                    "artifact_id": decision_artifact_id,
+                }
+            )
+        events = {
+            "survivor": {
+                "canonical_event_id": survivor_canonical_event_id,
+                "status": survivor["status"],
+            },
+            "merged": [
+                {
+                    "canonical_event_id": event["canonical_event_id"],
+                    "status": event["status"],
+                    "merged_into": event["metadata"].get("merged_into"),
+                }
+                for event in merged_events
+            ],
+        }
+        return {
+            "operation_id": operation_id,
+            "target_id": target_id,
+            "operation_type": "merge",
+            "decision_artifact_id": decision_artifact_id,
+            "survivor": survivor,
+            "merged_events": merged_events,
+            "changes": changes,
+            "warnings": warnings,
+            "events": events,
+            "artifact": artifact,
+            "created_by": created_by,
+            "title_override": title_override,
+            "summary_override": summary_override,
+        }
+
+    async def _load_canonical_event_for_merge(
+        self,
+        canonical_event_id: str,
+        *,
+        target_id: str,
+    ) -> dict[str, Any]:
+        event = await self.get_canonical_event(canonical_event_id)
+        if event is None:
+            raise ValueError(f"canonical event not found: {canonical_event_id}")
+        if event["target_id"] != target_id:
+            raise ValueError(
+                "canonical event target mismatch: "
+                f"{canonical_event_id} belongs to {event['target_id']}, not {target_id}"
+            )
+        return event
+
+    @staticmethod
+    def _validate_merge_decision_artifact(
+        *,
+        artifact: dict[str, Any] | None,
+        target_id: str,
+        survivor_canonical_event_id: str,
+        merged_canonical_event_ids: Sequence[str],
+    ) -> None:
+        if artifact is None:
+            raise ValueError("merge decision artifact not found")
+        if artifact["target_id"] != target_id:
+            raise ValueError(
+                f"merge decision artifact target mismatch: {artifact['target_id']} != {target_id}"
+            )
+        if artifact["artifact_type"] != "merge_decision":
+            raise ValueError("merge decision artifact_type must be merge_decision")
+        if artifact["subject_id"] != survivor_canonical_event_id:
+            raise ValueError(
+                "merge decision artifact subject mismatch: "
+                f"{artifact['subject_id']} != {survivor_canonical_event_id}"
+            )
+        candidate_ids = artifact["metadata"].get("candidate_canonical_event_ids", [])
+        candidate_set = set(candidate_ids if isinstance(candidate_ids, list) else [])
+        missing = [
+            canonical_event_id
+            for canonical_event_id in merged_canonical_event_ids
+            if canonical_event_id not in candidate_set
+        ]
+        if missing:
+            raise ValueError(
+                "merge decision artifact candidates do not cover merged ids: " + ", ".join(missing)
+            )
+
+    async def _count_merge_mentions_by_event(
+        self,
+        canonical_event_ids: Sequence[str],
+    ) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for canonical_event_id in canonical_event_ids:
+            rows = await self._db.execute_fetchall(
+                """SELECT COUNT(*)
+                   FROM event_mentions
+                   WHERE canonical_event_id = ?""",
+                (canonical_event_id,),
+            )
+            counts[canonical_event_id] = int(rows[0][0] or 0)
+        return counts
+
+    async def _find_existing_canonical_merge_operation(
+        self,
+        *,
+        operation_id: str,
+        target_id: str,
+        decision_artifact_id: str | None,
+        artifact: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        artifact_operation_id = None
+        if artifact is not None:
+            artifact_operation_id = artifact["metadata"].get("applied_operation_id")
+        if artifact_operation_id:
+            operation = await self.get_canonical_graph_operation(str(artifact_operation_id))
+            if operation is not None:
+                return operation
+        operation = await self.get_canonical_graph_operation(operation_id)
+        if operation is not None:
+            return operation
+        if decision_artifact_id is None:
+            return None
+        rows = await self._db.execute_fetchall(
+            """SELECT operation_id, target_id, operation_type, decision_artifact_id,
+                      primary_canonical_event_id, result_canonical_event_id, status,
+                      changes_json, warnings_json, metadata_json, created_by, created_at
+               FROM canonical_graph_operations
+               WHERE target_id = ? AND decision_artifact_id = ?
+               LIMIT 1""",
+            (target_id, decision_artifact_id),
+        )
+        if not rows:
+            return None
+        return self._canonical_graph_operation_from_row(rows[0])
+
+    async def _apply_canonical_merge_plan(self, plan: dict[str, Any]) -> None:
+        operation_id = plan["operation_id"]
+        target_id = plan["target_id"]
+        survivor_id = plan["survivor"]["canonical_event_id"]
+        merged_ids = [event["canonical_event_id"] for event in plan["merged_events"]]
+        for merged_id in merged_ids:
+            await self._db.execute(
+                """UPDATE event_mentions
+                   SET canonical_event_id = ?, updated_at = CURRENT_TIMESTAMP
+                   WHERE target_id = ? AND canonical_event_id = ?""",
+                (survivor_id, target_id, merged_id),
+            )
+
+        for event in plan["merged_events"]:
+            metadata = dict(event["metadata"])
+            metadata.setdefault("previous_status", event["status"])
+            metadata["merged_into"] = survivor_id
+            metadata["merged_operation_id"] = operation_id
+            await self._db.execute(
+                """UPDATE canonical_events
+                   SET status = 'merged',
+                       metadata_json = ?,
+                       updated_at = CURRENT_TIMESTAMP
+                   WHERE canonical_event_id = ? AND target_id = ?""",
+                (self._json_dumps(metadata), event["canonical_event_id"], target_id),
+            )
+            await self._db.execute(
+                """INSERT INTO canonical_event_relations
+                   (relation_id, source_canonical_event_id, target_canonical_event_id,
+                    relation_type, confidence, metadata_json)
+                   VALUES (?, ?, ?, 'duplicate', ?, ?)
+                   ON CONFLICT(relation_id) DO UPDATE SET
+                       source_canonical_event_id = excluded.source_canonical_event_id,
+                       target_canonical_event_id = excluded.target_canonical_event_id,
+                       relation_type = excluded.relation_type,
+                       confidence = excluded.confidence,
+                       metadata_json = excluded.metadata_json,
+                       updated_at = CURRENT_TIMESTAMP""",
+                (
+                    self._canonical_merge_relation_id(operation_id, event["canonical_event_id"]),
+                    event["canonical_event_id"],
+                    survivor_id,
+                    100,
+                    self._json_dumps(
+                        {
+                            "operation_id": operation_id,
+                            "reason": "canonical_merge",
+                        }
+                    ),
+                ),
+            )
+
+        survivor_stats = await self._canonical_survivor_mention_stats(survivor_id)
+        survivor_metadata = dict(plan["survivor"]["metadata"])
+        survivor_metadata["mention_count"] = survivor_stats["mention_count"]
+        survivor_metadata["source_count"] = survivor_stats["source_count"]
+        if survivor_stats["last_seen_at"] is not None:
+            survivor_metadata["last_seen_at"] = survivor_stats["last_seen_at"]
+        survivor_metadata["last_graph_operation_id"] = operation_id
+        survivor_title = plan["title_override"]
+        survivor_summary = plan["summary_override"]
+        await self._db.execute(
+            """UPDATE canonical_events
+               SET title = ?,
+                   summary = ?,
+                   metadata_json = ?,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE canonical_event_id = ? AND target_id = ?""",
+            (
+                survivor_title if survivor_title is not None else plan["survivor"]["title"],
+                survivor_summary if survivor_summary is not None else plan["survivor"]["summary"],
+                self._json_dumps(survivor_metadata),
+                survivor_id,
+                target_id,
+            ),
+        )
+
+        artifact = plan["artifact"]
+        if artifact is not None:
+            artifact_metadata = dict(artifact["metadata"])
+            artifact_metadata["applied_operation_id"] = operation_id
+            artifact_metadata["applied_at"] = datetime.now(UTC).isoformat()
+            artifact_metadata["applied_by"] = plan["created_by"]
+            await self._db.execute(
+                """UPDATE research_artifacts
+                   SET status = 'resolved',
+                       metadata_json = ?,
+                       updated_at = CURRENT_TIMESTAMP
+                   WHERE artifact_id = ? AND target_id = ?""",
+                (self._json_dumps(artifact_metadata), artifact["artifact_id"], target_id),
+            )
+
+        await self._db.execute(
+            """INSERT INTO canonical_graph_operations
+               (operation_id, target_id, operation_type, decision_artifact_id,
+                primary_canonical_event_id, result_canonical_event_id, status,
+                changes_json, warnings_json, metadata_json, created_by)
+               VALUES (?, ?, 'merge', ?, ?, ?, 'applied', ?, ?, ?, ?)
+               ON CONFLICT(operation_id) DO NOTHING""",
+            (
+                operation_id,
+                target_id,
+                plan["decision_artifact_id"],
+                survivor_id,
+                survivor_id,
+                json.dumps(plan["changes"], ensure_ascii=False),
+                json.dumps(plan["warnings"], ensure_ascii=False),
+                self._json_dumps(
+                    {
+                        "events": plan["events"],
+                        "title_override": plan["title_override"],
+                        "summary_override": plan["summary_override"],
+                    }
+                ),
+                plan["created_by"],
+            ),
+        )
+
+    @staticmethod
+    def _canonical_merge_relation_id(operation_id: str, merged_canonical_event_id: str) -> str:
+        digest = hashlib.sha256(f"{operation_id}:{merged_canonical_event_id}".encode()).hexdigest()[
+            :12
+        ]
+        return f"rel-{operation_id}-{digest}"
+
+    async def _canonical_survivor_mention_stats(
+        self,
+        survivor_canonical_event_id: str,
+    ) -> dict[str, Any]:
+        rows = await self._db.execute_fetchall(
+            """SELECT COUNT(*), COUNT(DISTINCT source_id),
+                      MAX(COALESCE(published_at, updated_at, created_at))
+               FROM event_mentions
+               WHERE canonical_event_id = ?""",
+            (survivor_canonical_event_id,),
+        )
+        if not rows:
+            return {"mention_count": 0, "source_count": 0, "last_seen_at": None}
+        row = rows[0]
+        return {
+            "mention_count": int(row[0] or 0),
+            "source_count": int(row[1] or 0),
+            "last_seen_at": row[2],
+        }
+
+    @staticmethod
+    def _canonical_merge_response_from_plan(
+        plan: dict[str, Any],
+        *,
+        mode: str,
+    ) -> dict[str, Any]:
+        return {
+            "mode": mode,
+            "operation_id": plan["operation_id"],
+            "target_id": plan["target_id"],
+            "operation_type": plan["operation_type"],
+            "changes": plan["changes"],
+            "warnings": plan["warnings"],
+            "events": plan["events"],
+        }
+
+    @staticmethod
+    def _canonical_merge_response_from_operation(
+        operation: dict[str, Any],
+        *,
+        mode: str,
+    ) -> dict[str, Any]:
+        metadata = operation.get("metadata", {})
+        return {
+            "mode": mode,
+            "operation_id": operation["operation_id"],
+            "target_id": operation["target_id"],
+            "operation_type": operation["operation_type"],
+            "changes": operation.get("changes", []),
+            "warnings": operation.get("warnings", []),
+            "events": metadata.get("events", {}),
+        }
 
     async def list_research_queue(
         self,
