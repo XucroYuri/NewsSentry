@@ -1183,8 +1183,17 @@ function researchArtifactById(detailData, artifactId) {
 function graphChangeSummary(result) {
   return (result.changes || [])
     .map((change) => {
-      if (change.type === "move_mentions") return `移动 ${change.count || 0} 条证据`;
-      if (change.type === "mark_merged") return `标记合并：${change.canonical_event_id || ""}`;
+      if (change.type === "move_mentions") {
+        const mentionCount = change.mention_count ?? change.count ?? 0;
+        return `移动 ${mentionCount} 条证据`;
+      }
+      if (change.type === "mark_merged") {
+        const ids = Array.isArray(change.canonical_event_ids)
+          ? change.canonical_event_ids.filter(Boolean)
+          : [change.canonical_event_id].filter(Boolean);
+        const mergedInto = change.merged_into ? ` → ${change.merged_into}` : "";
+        return `标记合并：${ids.join(", ") || "未列出"}${mergedInto}`;
+      }
       if (change.type === "create_canonical_event") return `创建事实事件：${change.canonical_event_id || ""}`;
       if (change.type === "create_relation") return `创建关系：${change.relation_type || ""}`;
       return change.type || "变更";

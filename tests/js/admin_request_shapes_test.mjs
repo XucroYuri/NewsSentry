@@ -191,6 +191,7 @@ assert.doesNotMatch(
 );
 
 const graphApplyBlock = snippetAround(targetWorkbenchJs, "async function applyResearchGraphDecision", 2200);
+const graphChangeSummaryBlock = snippetAround(targetWorkbenchJs, "function graphChangeSummary", 900);
 assert.match(
   graphApplyBlock,
   /apiPost\("\/api\/v1\/research\/graph\/merge",\s*\{\s*\},\s*\{[\s\S]*dry_run:\s*true/s,
@@ -218,6 +219,11 @@ assert.match(
 );
 assert.match(
   graphApplyBlock,
+  /apiPost\("\/api\/v1\/research\/graph\/split",\s*\{\s*\},\s*\{[\s\S]*dry_run:\s*false/s,
+  "拆分应用必须在确认后调用 dry_run:false 应用",
+);
+assert.match(
+  graphApplyBlock,
   /source_canonical_event_id:\s*canonicalEventId/s,
   "拆分应用必须使用当前 canonical event 作为 source",
 );
@@ -225,6 +231,21 @@ assert.match(
   graphApplyBlock,
   /affected_mention_ids:\s*affectedMentionIds/s,
   "拆分应用必须使用 artifact metadata 中的 affected mention IDs",
+);
+assert.match(
+  graphChangeSummaryBlock,
+  /change\.mention_count\s*\?\?\s*change\.count\s*\?\?\s*0/s,
+  "事实图谱确认摘要必须优先使用 move_mentions.mention_count，并兼容旧 count 字段",
+);
+assert.match(
+  graphChangeSummaryBlock,
+  /Array\.isArray\(change\.canonical_event_ids\)[\s\S]*change\.canonical_event_ids[\s\S]*change\.canonical_event_id/s,
+  "事实图谱确认摘要必须支持 mark_merged.canonical_event_ids 数组，并兼容单个 canonical_event_id",
+);
+assert.match(
+  graphChangeSummaryBlock,
+  /change\.merged_into/s,
+  "事实图谱确认摘要必须展示 mark_merged.merged_into 目标信息",
 );
 
 const annotationBlock = snippetAround(targetWorkbenchJs, 'artifact_type: "annotation"');
