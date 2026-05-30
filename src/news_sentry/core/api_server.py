@@ -1042,7 +1042,8 @@ async def _store_has_target_event_index(store: Any, target_id: str) -> bool:
     get_count = getattr(store, "get_target_event_count", None)
     if get_count is None:
         return False
-    return await get_count(target_id) > 0
+    count = await get_count(target_id)
+    return int(count) > 0
 
 
 def _event_score(ev: dict[str, Any]) -> int | float | None:
@@ -1291,7 +1292,8 @@ def _source_ids_for_target(target_id: str) -> set[str]:
     """返回 target 当前启用的信源 ID，用于后台健康状态过滤。"""
     ids: set[str] = set()
     for source in _load_source_configs(target_id):
-        lifecycle = source.get("lifecycle") if isinstance(source.get("lifecycle"), dict) else {}
+        raw_lifecycle = source.get("lifecycle")
+        lifecycle: dict[str, Any] = raw_lifecycle if isinstance(raw_lifecycle, dict) else {}
         if source.get("enabled", True) is False:
             continue
         if source.get("deprecated") is True:
@@ -3112,7 +3114,7 @@ def create_app(
             )
             if event is _INVISIBLE_INDEXED_EVENT:
                 raise HTTPException(status_code=404, detail="Event not found")
-            if event is not None:
+            if isinstance(event, dict):
                 return event
             if await _store_has_target_event_index(target_store, target_id):
                 raise HTTPException(status_code=404, detail="Event not found")
@@ -3126,7 +3128,7 @@ def create_app(
             )
             if event is _INVISIBLE_INDEXED_EVENT:
                 raise HTTPException(status_code=404, detail="Event not found")
-            if event is not None:
+            if isinstance(event, dict):
                 return event
             if await _store_has_target_event_index(_store, target_id):
                 raise HTTPException(status_code=404, detail="Event not found")

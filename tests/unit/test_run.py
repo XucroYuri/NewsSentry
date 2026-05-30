@@ -353,9 +353,19 @@ Trade agreement between Italy and China signed today.
         now = datetime.now(UTC).isoformat()
         raw_dir = tmp_path / "data" / "test-target" / "raw"
         raw_dir.mkdir(parents=True)
-        for event_id, source_id, title in [
-            ("evt-cluster-en", "source-a", "Italian contractor killed in Ukraine"),
-            ("evt-cluster-it", "source-b", "Contractor italiano ucciso in Ucraina"),
+        for event_id, source_id, title, title_translated in [
+            (
+                "evt-cluster-en",
+                "source-a",
+                "Contractor killed in Ukraine",
+                "Contractor killed in Ukraine",
+            ),
+            (
+                "evt-cluster-it",
+                "source-b",
+                "Contractor ucciso in Ucraina",
+                "Contractor killed in Ukraine",
+            ),
         ]:
             (raw_dir / f"collected_{source_id}_{event_id}.md").write_text(
                 f"""---
@@ -364,6 +374,7 @@ run_id: run-x
 source_id: {source_id}
 url: https://example.com/{event_id}
 title_original: "{title}"
+title_translated: "{title_translated}"
 content_original: "Trade economy context keeps this event in the filter stage."
 language: it
 published_at: "{now}"

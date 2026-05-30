@@ -74,8 +74,6 @@ PUBLIC_CHANNEL_TERMS: dict[str, set[str]] = {
     },
     "china": {
         "china-related",
-        "china-italy-bilateral",
-        "bri-italy",
         "chinese-investment",
         "china-eu-policy",
         "chinese-community",

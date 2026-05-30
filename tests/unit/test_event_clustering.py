@@ -13,6 +13,7 @@ def _make_event(
     source_id: str,
     title: str,
     classification: dict[str, object] | None = None,
+    title_translated: str | None = None,
 ) -> NewsEvent:
     now = datetime(2026, 5, 29, 12, 0, tzinfo=UTC).isoformat()
     return NewsEvent(
@@ -21,6 +22,7 @@ def _make_event(
         source_id=source_id,
         url=f"https://example.com/{event_id}",
         title_original=title,
+        title_translated=title_translated,
         content_original=title,
         language=Language.EN,
         published_at=now,
@@ -35,14 +37,15 @@ def test_similar_multilingual_titles_from_multiple_sources_cluster_together():
         _make_event(
             "evt-en",
             "source-a",
-            "Italian contractor killed in Ukraine",
+            "Contractor killed in Ukraine",
             {"l0": "international-relations", "l1": [{"code": "russia-ukraine"}]},
         ),
         _make_event(
             "evt-it",
             "source-b",
-            "Contractor italiano ucciso in Ucraina",
+            "Contractor ucciso in Ucraina",
             {"l0": "international-relations", "l1": [{"code": "russia-ukraine"}]},
+            title_translated="Contractor killed in Ukraine",
         ),
     ]
 
@@ -61,7 +64,7 @@ def test_unrelated_events_stay_in_separate_clusters():
         _make_event(
             "evt-economy",
             "source-a",
-            "Italian exports rise after new trade agreement",
+            "Exports rise after new trade agreement",
             {"l0": "economy", "l1": [{"code": "trade"}]},
         ),
         _make_event(
@@ -83,13 +86,13 @@ def test_broad_l0_and_generic_shared_phrasing_do_not_cluster():
         _make_event(
             "evt-trade",
             "source-a",
-            "Italian government approves new China trade deal",
+            "Government approves new China trade deal",
             {"l0": "economy", "l1": [{"code": "china-trade"}]},
         ),
         _make_event(
             "evt-budget",
             "source-b",
-            "Italian government approves new national budget",
+            "Government approves new national budget",
             {"l0": "economy", "l1": [{"code": "fiscal-policy"}]},
         ),
     ]
@@ -104,7 +107,7 @@ def test_existing_clustering_metadata_keys_are_preserved():
     event = _make_event(
         "evt-existing-meta",
         "source-a",
-        "Italian contractor killed in Ukraine",
+        "Contractor killed in Ukraine",
     )
     event.metadata["clustering"] = {"review_note": "keep this"}
 
@@ -119,7 +122,7 @@ def test_malformed_clustering_metadata_is_replaced_with_diagnostics():
     event = _make_event(
         "evt-malformed-meta",
         "source-a",
-        "Italian contractor killed in Ukraine",
+        "Contractor killed in Ukraine",
     )
     event.metadata["clustering"] = "legacy-value"
 
@@ -131,12 +134,22 @@ def test_malformed_clustering_metadata_is_replaced_with_diagnostics():
 
 def test_stable_ids_repeat_across_calls_and_input_order():
     first = [
-        _make_event("evt-en", "source-a", "Italian contractor killed in Ukraine"),
-        _make_event("evt-it", "source-b", "Contractor italiano ucciso in Ucraina"),
+        _make_event("evt-en", "source-a", "Contractor killed in Ukraine"),
+        _make_event(
+            "evt-it",
+            "source-b",
+            "Contractor ucciso in Ucraina",
+            title_translated="Contractor killed in Ukraine",
+        ),
     ]
     second = [
-        _make_event("evt-it", "source-b", "Contractor italiano ucciso in Ucraina"),
-        _make_event("evt-en", "source-a", "Italian contractor killed in Ukraine"),
+        _make_event(
+            "evt-it",
+            "source-b",
+            "Contractor ucciso in Ucraina",
+            title_translated="Contractor killed in Ukraine",
+        ),
+        _make_event("evt-en", "source-a", "Contractor killed in Ukraine"),
     ]
 
     first_by_id = {
