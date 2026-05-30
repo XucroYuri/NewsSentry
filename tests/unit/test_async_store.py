@@ -1777,6 +1777,116 @@ async def test_upsert_canonical_event_is_idempotent(store: AsyncStore):
 
 
 @pytest.mark.asyncio
+async def test_research_artifact_upsert_list_and_patch(store: AsyncStore):
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_review_001",
+            "target_id": "italy",
+            "title": "Policy event",
+            "summary": "A policy event",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "needs_review",
+            "confidence": 65,
+            "metadata": {"mention_count": 2, "source_count": 2, "news_value_score": 82},
+        }
+    )
+
+    artifact_id = await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_review_001",
+            "target_id": "italy",
+            "artifact_type": "review_state",
+            "title": "人工确认",
+            "body": "多信源一致。",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_review_001",
+            "canonical_event_ids": ["ce_italy_review_001"],
+            "status": "open",
+            "visibility": "local_private",
+            "created_by": "local-user",
+            "metadata": {"decision": "needs_more_evidence"},
+        }
+    )
+
+    assert artifact_id == "ra_italy_review_001"
+    listed = await store.list_research_artifacts(
+        target_id="italy",
+        subject_type="canonical_event",
+        subject_id="ce_italy_review_001",
+    )
+    assert len(listed) == 1
+    assert listed[0]["metadata"]["decision"] == "needs_more_evidence"
+
+    patched = await store.update_research_artifact(
+        "ra_italy_review_001",
+        target_id="italy",
+        patch={
+            "status": "resolved",
+            "body": "复核完成。",
+            "metadata": {"decision": "confirmed", "reason": "sources agree"},
+        },
+    )
+    assert patched is not None
+    assert patched["status"] == "resolved"
+    assert patched["metadata"]["decision"] == "confirmed"
+
+
+@pytest.mark.asyncio
+async def test_research_queue_hides_confirmed_items_by_default(store: AsyncStore):
+    for idx, confidence in (("001", 65), ("002", 92)):
+        await store.upsert_canonical_event(
+            {
+                "canonical_event_id": f"ce_italy_review_{idx}",
+                "target_id": "italy",
+                "title": f"Event {idx}",
+                "summary": "",
+                "event_time": f"2026-05-30T10:0{idx[-1]}:00Z",
+                "status": "needs_review" if confidence < 80 else "active",
+                "confidence": confidence,
+                "metadata": {"mention_count": int(idx), "source_count": 1},
+            }
+        )
+
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_review_done",
+            "target_id": "italy",
+            "artifact_type": "review_state",
+            "title": "Confirmed",
+            "body": "",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_review_001",
+            "canonical_event_ids": ["ce_italy_review_001"],
+            "status": "resolved",
+            "metadata": {"decision": "confirmed"},
+        }
+    )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_merge_open",
+            "target_id": "italy",
+            "artifact_type": "merge_decision",
+            "title": "Merge candidate",
+            "body": "",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_review_002",
+            "canonical_event_ids": ["ce_italy_review_002", "ce_other"],
+            "status": "open",
+            "metadata": {"candidate_canonical_event_ids": ["ce_other"], "decision": "proposed"},
+        }
+    )
+
+    open_queue = await store.list_research_queue(target_id="italy", status="open", limit=10)
+    assert [item["canonical_event_id"] for item in open_queue["items"]] == ["ce_italy_review_002"]
+    assert open_queue["items"][0]["open_decisions"] == {"merge": 1, "split": 0}
+
+    resolved_queue = await store.list_research_queue(target_id="italy", status="resolved", limit=10)
+    assert [item["canonical_event_id"] for item in resolved_queue["items"]] == [
+        "ce_italy_review_001"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_upsert_event_mention_is_idempotent(store: AsyncStore):
     await store.upsert_canonical_event(
         {
