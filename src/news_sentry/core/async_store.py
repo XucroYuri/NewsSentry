@@ -13,7 +13,7 @@ import os as _os
 import sqlite3
 import time
 from collections import defaultdict
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -284,7 +284,12 @@ CREATE TABLE IF NOT EXISTS research_artifacts (
     artifact_type TEXT NOT NULL,
     title TEXT NOT NULL,
     body TEXT NOT NULL DEFAULT '',
+    subject_type TEXT NOT NULL DEFAULT 'canonical_event',
+    subject_id TEXT NOT NULL DEFAULT '',
     canonical_event_ids_json TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'open',
+    visibility TEXT NOT NULL DEFAULT 'local_private',
+    created_by TEXT NOT NULL DEFAULT 'local-user',
     metadata_json TEXT NOT NULL DEFAULT '{}',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -364,6 +369,20 @@ _SCHEMA_MIGRATIONS: list[tuple[int, str, list[str]]] = [
             "ALTER TABLE event_index ADD COLUMN metadata_json TEXT",
         ],
     ),
+    (
+        8,
+        "Expand research artifacts for professional workflow",
+        [
+            "ALTER TABLE research_artifacts ADD COLUMN subject_type TEXT NOT NULL "
+            "DEFAULT 'canonical_event'",
+            "ALTER TABLE research_artifacts ADD COLUMN subject_id TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE research_artifacts ADD COLUMN status TEXT NOT NULL DEFAULT 'open'",
+            "ALTER TABLE research_artifacts ADD COLUMN visibility TEXT NOT NULL "
+            "DEFAULT 'local_private'",
+            "ALTER TABLE research_artifacts ADD COLUMN created_by TEXT NOT NULL "
+            "DEFAULT 'local-user'",
+        ],
+    ),
 ]
 
 _DDL_INDEXES = (
@@ -404,9 +423,39 @@ _DDL_INDEXES = (
     "ON canonical_entity_links(canonical_event_id)",
     "CREATE INDEX IF NOT EXISTS idx_research_artifacts_target_type "
     "ON research_artifacts(target_id, artifact_type)",
+    "CREATE INDEX IF NOT EXISTS idx_research_artifacts_subject "
+    "ON research_artifacts(target_id, subject_type, subject_id, artifact_type, updated_at)",
+    "CREATE INDEX IF NOT EXISTS idx_research_artifacts_status "
+    "ON research_artifacts(target_id, artifact_type, status, updated_at)",
     "CREATE INDEX IF NOT EXISTS idx_projection_runs_target_created "
     "ON projection_runs(target_id, created_at)",
 )
+
+_RESEARCH_ARTIFACT_COLUMNS = (
+    "artifact_id",
+    "target_id",
+    "artifact_type",
+    "title",
+    "body",
+    "subject_type",
+    "subject_id",
+    "canonical_event_ids_json",
+    "status",
+    "visibility",
+    "created_by",
+    "metadata_json",
+    "created_at",
+    "updated_at",
+)
+
+_RESEARCH_ARTIFACT_TYPES = {
+    "review_state",
+    "annotation",
+    "note",
+    "merge_decision",
+    "split_decision",
+}
+_RESEARCH_ARTIFACT_STATUSES = {"open", "resolved", "archived"}
 
 __all__ = ["AsyncStore"]
 
@@ -505,6 +554,18 @@ class AsyncStore:
         item = dict(zip(columns, row, strict=True))
         item["metadata"] = self._json_loads(item.pop("metadata_json", None))
         return item
+
+    def _research_artifact_from_row(self, row: Sequence[Any]) -> dict[str, Any]:
+        artifact = self._row_with_metadata(_RESEARCH_ARTIFACT_COLUMNS, row)
+        raw_ids = artifact.pop("canonical_event_ids_json", "[]")
+        try:
+            canonical_event_ids = json.loads(raw_ids or "[]")
+        except (json.JSONDecodeError, TypeError):
+            canonical_event_ids = []
+        artifact["canonical_event_ids"] = (
+            canonical_event_ids if isinstance(canonical_event_ids, list) else []
+        )
+        return artifact
 
     @staticmethod
     def _safe_text_attr(event: object, attr: str) -> str | None:
@@ -1299,6 +1360,209 @@ class AsyncStore:
         )
         await self._db.commit()
         return assignment_id
+
+    async def upsert_research_artifact(self, row: dict[str, Any]) -> str:
+        """Insert or update a research artifact and return artifact_id."""
+        artifact_id = str(row["artifact_id"])
+        artifact_type = str(row.get("artifact_type", ""))
+        status = str(row.get("status", "open"))
+        if artifact_type not in _RESEARCH_ARTIFACT_TYPES:
+            raise ValueError(f"Unsupported research artifact type: {artifact_type}")
+        if status not in _RESEARCH_ARTIFACT_STATUSES:
+            raise ValueError(f"Unsupported research artifact status: {status}")
+        if self._db is None:
+            return artifact_id
+        canonical_event_ids = row.get("canonical_event_ids")
+        if canonical_event_ids is None:
+            canonical_event_ids = row.get("canonical_event_ids_json", [])
+        canonical_event_ids_json = json.dumps(
+            canonical_event_ids if isinstance(canonical_event_ids, list) else [],
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        await self._db.execute(
+            """INSERT INTO research_artifacts
+               (artifact_id, target_id, artifact_type, title, body, subject_type,
+                subject_id, canonical_event_ids_json, status, visibility, created_by,
+                metadata_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(artifact_id) DO UPDATE SET
+                   target_id = excluded.target_id,
+                   artifact_type = excluded.artifact_type,
+                   title = excluded.title,
+                   body = excluded.body,
+                   subject_type = excluded.subject_type,
+                   subject_id = excluded.subject_id,
+                   canonical_event_ids_json = excluded.canonical_event_ids_json,
+                   status = excluded.status,
+                   visibility = excluded.visibility,
+                   created_by = excluded.created_by,
+                   metadata_json = excluded.metadata_json,
+                   updated_at = CURRENT_TIMESTAMP""",
+            (
+                artifact_id,
+                row["target_id"],
+                artifact_type,
+                row["title"],
+                row.get("body", ""),
+                row.get("subject_type", "canonical_event"),
+                row.get("subject_id", ""),
+                canonical_event_ids_json,
+                status,
+                row.get("visibility", "local_private"),
+                row.get("created_by", "local-user"),
+                self._json_dumps(row.get("metadata")),
+            ),
+        )
+        await self._db.commit()
+        return artifact_id
+
+    async def get_research_artifact(self, artifact_id: str) -> dict[str, Any] | None:
+        if self._db is None:
+            return None
+        async with self._db.execute(
+            """SELECT artifact_id, target_id, artifact_type, title, body, subject_type,
+                      subject_id, canonical_event_ids_json, status, visibility, created_by,
+                      metadata_json, created_at, updated_at
+               FROM research_artifacts
+               WHERE artifact_id = ?""",
+            (artifact_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        return None if row is None else self._research_artifact_from_row(row)
+
+    async def list_research_artifacts(
+        self,
+        *,
+        target_id: str,
+        subject_type: str | None = None,
+        subject_id: str | None = None,
+        artifact_type: str | None = None,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        if self._db is None:
+            return []
+        rows = await self._db.execute_fetchall(
+            """SELECT artifact_id, target_id, artifact_type, title, body, subject_type,
+                      subject_id, canonical_event_ids_json, status, visibility, created_by,
+                      metadata_json, created_at, updated_at
+               FROM research_artifacts
+               WHERE target_id = ?
+                 AND (? IS NULL OR subject_type = ?)
+                 AND (? IS NULL OR subject_id = ?)
+                 AND (? IS NULL OR artifact_type = ?)
+                 AND (? IS NULL OR status = ?)
+               ORDER BY updated_at DESC
+               LIMIT ? OFFSET ?""",
+            (
+                target_id,
+                subject_type,
+                subject_type,
+                subject_id,
+                subject_id,
+                artifact_type,
+                artifact_type,
+                status,
+                status,
+                limit,
+                offset,
+            ),
+        )
+        return [self._research_artifact_from_row(row) for row in rows]
+
+    async def list_research_queue(
+        self,
+        *,
+        target_id: str,
+        status: str = "open",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        events = await self.list_canonical_events(target_id=target_id, limit=5000, offset=0)
+        artifacts = await self.list_research_artifacts(target_id=target_id, limit=5000, offset=0)
+        by_subject: dict[str, list[dict[str, Any]]] = {}
+        for artifact in artifacts:
+            if artifact.get("subject_type") == "canonical_event":
+                by_subject.setdefault(str(artifact.get("subject_id", "")), []).append(artifact)
+
+        items: list[dict[str, Any]] = []
+        for event in events:
+            subject_artifacts = by_subject.get(str(event["canonical_event_id"]), [])
+            latest_review = next(
+                (a for a in subject_artifacts if a.get("artifact_type") == "review_state"),
+                None,
+            )
+            open_merge = sum(
+                1
+                for a in subject_artifacts
+                if a.get("artifact_type") == "merge_decision" and a.get("status") == "open"
+            )
+            open_split = sum(
+                1
+                for a in subject_artifacts
+                if a.get("artifact_type") == "split_decision" and a.get("status") == "open"
+            )
+            is_resolved = bool(
+                latest_review
+                and latest_review.get("status") == "resolved"
+                and latest_review.get("metadata", {}).get("decision") == "confirmed"
+            )
+            is_open = not is_resolved and (
+                event.get("status") == "needs_review"
+                or float(event.get("confidence") or 0) < 80
+                or open_merge > 0
+                or open_split > 0
+            )
+            if status == "open" and not is_open:
+                continue
+            if status == "resolved" and not is_resolved:
+                continue
+            metadata = event.get("metadata", {}) if isinstance(event.get("metadata"), dict) else {}
+            item = {
+                "canonical_event_id": event["canonical_event_id"],
+                "title": event.get("title", ""),
+                "summary": event.get("summary", ""),
+                "event_time": event.get("event_time"),
+                "canonical_status": event.get("status", "active"),
+                "confidence": event.get("confidence", 0),
+                "mention_count": metadata.get("mention_count", 0),
+                "source_count": metadata.get("source_count", 0),
+                "news_value_score": metadata.get("news_value_score", 0),
+                "latest_review": latest_review,
+                "open_decisions": {"merge": open_merge, "split": open_split},
+            }
+            items.append(item)
+
+        items.sort(
+            key=lambda item: (
+                -(item["open_decisions"]["merge"] + item["open_decisions"]["split"]),
+                float(item.get("confidence") or 0),
+                str(item.get("event_time") or ""),
+            )
+        )
+        page = items[offset : offset + limit]
+        return {"target_id": target_id, "status": status, "items": page, "total": len(items)}
+
+    async def update_research_artifact(
+        self,
+        artifact_id: str,
+        *,
+        target_id: str,
+        patch: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        current = await self.get_research_artifact(artifact_id)
+        if current is None or current.get("target_id") != target_id:
+            return None
+        updated = {**current, **patch}
+        updated["artifact_id"] = artifact_id
+        updated["target_id"] = target_id
+        updated["subject_type"] = current["subject_type"]
+        updated["subject_id"] = current["subject_id"]
+        updated["artifact_type"] = current["artifact_type"]
+        await self.upsert_research_artifact(updated)
+        return await self.get_research_artifact(artifact_id)
 
     async def record_projection_run(self, row: dict[str, Any]) -> str:
         """记录 shadow projection run，返回 projection_run_id。"""
