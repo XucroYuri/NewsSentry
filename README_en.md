@@ -165,7 +165,7 @@ pip install -e ".[api]"    # FastAPI REST API gateway
 
 | Stage | Input | Output | Description |
 |-------|-------|--------|-------------|
-| **Collect** | RSS/API/OpenCLI configs | `raw/` | Fetch from 70+ sources, zero token |
+| **Collect** | RSS/API/OpenCLI configs | `raw/` | Fetch from configured RSS/API/OpenCLI sources, zero token |
 | **Filter** | `raw/` | `evaluated/` + `archive/` | Keyword scoring + L0-L3 classification + dedup |
 | **Judge** | `evaluated/` | `evaluated/` | AI news value scoring + China-topic relevance |
 | **Output** | `evaluated/` | `drafts/` | Markdown reports + multi-channel alerts |

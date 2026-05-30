@@ -160,7 +160,7 @@ pip install -e ".[api]"    # FastAPI REST API 网关
 
 | 阶段 | 输入 | 输出 | 说明 |
 |------|------|------|------|
-| **Collect** | RSS/API/OpenCLI 配置 | `raw/` | 从 70+ 源采集，零 Token |
+| **Collect** | RSS/API/OpenCLI 配置 | `raw/` | 从多目标信源矩阵采集，零 Token |
 | **Filter** | `raw/` | `evaluated/` + `archive/` | 关键词评分 + L0-L3 分类 + 去重 |
 | **Judge** | `evaluated/` | `evaluated/` | AI 新闻价值评分 + 涉华议题关联度 |
 | **Output** | `evaluated/` | `drafts/` | Markdown 报告 + 多通道告警 |
