@@ -1830,6 +1830,170 @@ async def test_research_queue_hides_confirmed_items_by_default(store: AsyncStore
 
 
 @pytest.mark.asyncio
+async def test_research_artifact_rejects_missing_or_cross_target_canonical_subject(
+    store: AsyncStore,
+):
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_scope_001",
+            "target_id": "italy",
+            "title": "Scoped event",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "active",
+            "confidence": 90,
+            "metadata": {},
+        }
+    )
+
+    invalid_rows = [
+        {
+            "artifact_id": "ra_japan_cross_scope",
+            "target_id": "japan",
+            "subject_id": "ce_italy_scope_001",
+        },
+        {
+            "artifact_id": "ra_italy_missing_scope",
+            "target_id": "italy",
+            "subject_id": "ce_missing_scope_001",
+        },
+    ]
+    for invalid in invalid_rows:
+        with pytest.raises(ValueError, match="canonical_event"):
+            await store.upsert_research_artifact(
+                {
+                    "artifact_type": "review_state",
+                    "title": "Invalid subject",
+                    "body": "",
+                    "subject_type": "canonical_event",
+                    "canonical_event_ids": [invalid["subject_id"]],
+                    "status": "open",
+                    "metadata": {"decision": "needs_more_evidence"},
+                    **invalid,
+                }
+            )
+        assert await store.get_research_artifact(invalid["artifact_id"]) is None
+
+
+@pytest.mark.asyncio
+async def test_research_artifact_upsert_rejects_identity_boundary_changes(
+    store: AsyncStore,
+):
+    for canonical_event_id, target_id in (
+        ("ce_italy_boundary_001", "italy"),
+        ("ce_italy_boundary_002", "italy"),
+        ("ce_japan_boundary_001", "japan"),
+    ):
+        await store.upsert_canonical_event(
+            {
+                "canonical_event_id": canonical_event_id,
+                "target_id": target_id,
+                "title": canonical_event_id,
+                "summary": "",
+                "event_time": "2026-05-30T10:00:00Z",
+                "status": "active",
+                "confidence": 90,
+                "metadata": {},
+            }
+        )
+
+    original = {
+        "artifact_id": "ra_italy_boundary_guard",
+        "target_id": "italy",
+        "artifact_type": "review_state",
+        "title": "Boundary guard",
+        "body": "",
+        "subject_type": "canonical_event",
+        "subject_id": "ce_italy_boundary_001",
+        "canonical_event_ids": ["ce_italy_boundary_001"],
+        "status": "open",
+        "metadata": {"decision": "needs_more_evidence"},
+    }
+    await store.upsert_research_artifact(original)
+
+    invalid_updates = [
+        {
+            **original,
+            "target_id": "japan",
+            "subject_id": "ce_japan_boundary_001",
+            "canonical_event_ids": ["ce_japan_boundary_001"],
+        },
+        {
+            **original,
+            "subject_id": "ce_italy_boundary_002",
+            "canonical_event_ids": ["ce_italy_boundary_002"],
+        },
+        {
+            **original,
+            "artifact_type": "annotation",
+        },
+    ]
+    for invalid_update in invalid_updates:
+        with pytest.raises(ValueError, match="artifact_id"):
+            await store.upsert_research_artifact(invalid_update)
+
+        stored = await store.get_research_artifact(original["artifact_id"])
+        assert stored is not None
+        assert stored["target_id"] == original["target_id"]
+        assert stored["subject_id"] == original["subject_id"]
+        assert stored["artifact_type"] == original["artifact_type"]
+
+
+@pytest.mark.asyncio
+async def test_research_queue_keeps_open_decisions_after_confirmed_review(
+    store: AsyncStore,
+):
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_confirmed_with_merge",
+            "target_id": "italy",
+            "title": "Confirmed event with open merge work",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "active",
+            "confidence": 95,
+            "metadata": {"mention_count": 2, "source_count": 2, "news_value_score": 70},
+        }
+    )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_confirmed_review",
+            "target_id": "italy",
+            "artifact_type": "review_state",
+            "title": "Confirmed",
+            "body": "",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_confirmed_with_merge",
+            "canonical_event_ids": ["ce_italy_confirmed_with_merge"],
+            "status": "resolved",
+            "metadata": {"decision": "confirmed"},
+        }
+    )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_confirmed_merge_open",
+            "target_id": "italy",
+            "artifact_type": "merge_decision",
+            "title": "Merge still open",
+            "body": "",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_confirmed_with_merge",
+            "canonical_event_ids": ["ce_italy_confirmed_with_merge"],
+            "status": "open",
+            "metadata": {"candidate_canonical_event_ids": [], "decision": "proposed"},
+        }
+    )
+
+    open_queue = await store.list_research_queue(target_id="italy", status="open", limit=10)
+
+    assert [item["canonical_event_id"] for item in open_queue["items"]] == [
+        "ce_italy_confirmed_with_merge"
+    ]
+    assert open_queue["items"][0]["latest_review"]["status"] == "resolved"
+    assert open_queue["items"][0]["open_decisions"] == {"merge": 1, "split": 0}
+
+
+@pytest.mark.asyncio
 async def test_upsert_event_mention_is_idempotent(store: AsyncStore):
     await store.upsert_canonical_event(
         {
