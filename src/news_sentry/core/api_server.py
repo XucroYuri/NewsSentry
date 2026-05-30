@@ -40,7 +40,7 @@ from typing import Annotated, Any, Literal
 import yaml
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, BeforeValidator, Field
+from pydantic import BaseModel, BeforeValidator, Field, field_validator
 
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.auth import hash_password, verify_password
@@ -277,6 +277,70 @@ class CanonicalBackfillRequest(BaseModel):
     limit: int = Field(default=500, ge=1, le=5000)
     apply: bool = False
     projection_run_id: str | None = None
+
+
+RESEARCH_ARTIFACT_TYPES = {
+    "review_state",
+    "annotation",
+    "note",
+    "merge_decision",
+    "split_decision",
+}
+RESEARCH_ARTIFACT_STATUSES = {"open", "resolved", "archived"}
+RESEARCH_REVIEW_DECISIONS = {
+    "confirmed",
+    "needs_merge",
+    "needs_split",
+    "needs_more_evidence",
+    "not_relevant",
+}
+
+
+class ResearchArtifactCreateRequest(BaseModel):
+    target_id: str
+    artifact_type: str
+    title: str
+    body: str = ""
+    subject_type: str = "canonical_event"
+    subject_id: str
+    status: str = "open"
+    visibility: str = "local_private"
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("artifact_type")
+    @classmethod
+    def validate_artifact_type(cls, value: str) -> str:
+        if value not in RESEARCH_ARTIFACT_TYPES:
+            raise ValueError(f"Unsupported research artifact type: {value}")
+        return value
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str) -> str:
+        if value not in RESEARCH_ARTIFACT_STATUSES:
+            raise ValueError(f"Unsupported research artifact status: {value}")
+        return value
+
+    @field_validator("subject_type")
+    @classmethod
+    def validate_subject_type(cls, value: str) -> str:
+        if value != "canonical_event":
+            raise ValueError("MVP only supports canonical_event artifacts")
+        return value
+
+
+class ResearchArtifactPatchRequest(BaseModel):
+    title: str | None = None
+    body: str | None = None
+    status: str | None = None
+    metadata: dict[str, Any] | None = None
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, value: str | None) -> str | None:
+        if value is not None and value not in RESEARCH_ARTIFACT_STATUSES:
+            raise ValueError(f"Unsupported research artifact status: {value}")
+        return value
 
 
 class TargetCreateRequest(BaseModel):
@@ -3207,6 +3271,32 @@ async def _store_for_target(target_id: str) -> AsyncStore | None:
     return target_store if target_store is not None else _store
 
 
+def _validate_research_metadata(artifact_type: str, metadata: dict[str, Any]) -> None:
+    """校验 research artifact metadata 中的人工决策契约。"""
+    decision = metadata.get("decision")
+    if artifact_type == "review_state" and decision not in RESEARCH_REVIEW_DECISIONS:
+        raise HTTPException(status_code=422, detail="Unsupported review decision")
+    if artifact_type == "merge_decision":
+        if decision != "proposed":
+            raise HTTPException(status_code=422, detail="Unsupported merge decision")
+        if not metadata.get("candidate_canonical_event_ids"):
+            raise HTTPException(status_code=422, detail="merge_decision requires candidate IDs")
+    if artifact_type == "split_decision":
+        if decision != "proposed":
+            raise HTTPException(status_code=422, detail="Unsupported split decision")
+        if not metadata.get("affected_mention_ids"):
+            raise HTTPException(
+                status_code=422,
+                detail="split_decision requires affected mentions",
+            )
+
+
+def _new_research_artifact_id(target_id: str, artifact_type: str) -> str:
+    safe_target = re.sub(r"[^a-zA-Z0-9_-]+", "-", target_id).strip("-") or "target"
+    safe_type = re.sub(r"[^a-zA-Z0-9_-]+", "-", artifact_type).strip("-") or "artifact"
+    return f"ra_{safe_target}_{safe_type}_{uuid.uuid4().hex[:12]}"
+
+
 async def _restore_sessions() -> None:
     """启动时清理过期 session。活跃 token 通过请求时 SQLite 回退恢复。"""
     if _store is None:
@@ -5684,6 +5774,149 @@ def create_app(
         await _canonical_event_or_404(store, canonical_event_id, target_id)
         relations = await store.list_canonical_relations(canonical_event_id)
         return {"canonical_event_id": canonical_event_id, "relations": relations}
+
+    # ── Research workflow endpoints ────────────────────
+
+    @app.get("/api/v1/research/queue")
+    async def research_queue(
+        target_id: str,
+        status: str = Query("open", pattern="^(open|resolved|all)$"),
+        limit: int = Query(50, ge=1, le=200),
+        offset: int = Query(0, ge=0),
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        store = await _store_for_target(target_id)
+        if store is None:
+            raise HTTPException(status_code=503, detail="Event store unavailable")
+        return await store.list_research_queue(
+            target_id=target_id,
+            status=status,
+            limit=limit,
+            offset=offset,
+        )
+
+    @app.get("/api/v1/research/events/{canonical_event_id}")
+    async def research_event_detail(
+        canonical_event_id: str,
+        target_id: str,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        store = await _store_for_target(target_id)
+        if store is None:
+            raise HTTPException(status_code=404, detail="Canonical event not found")
+        event = await _canonical_event_or_404(store, canonical_event_id, target_id)
+        mentions = await store.list_event_mentions(canonical_event_id)
+        relations = await store.list_canonical_relations(canonical_event_id)
+        artifacts = await store.list_research_artifacts(
+            target_id=target_id,
+            subject_type="canonical_event",
+            subject_id=canonical_event_id,
+            limit=200,
+        )
+        return {
+            "event": event,
+            "mentions": mentions,
+            "relations": relations,
+            "artifacts": artifacts,
+        }
+
+    @app.get("/api/v1/research/artifacts")
+    async def list_research_artifacts(
+        target_id: str,
+        subject_type: str = Query("canonical_event", pattern="^canonical_event$"),
+        subject_id: str | None = None,
+        artifact_type: str | None = Query(
+            None,
+            pattern="^(review_state|annotation|note|merge_decision|split_decision)$",
+        ),
+        status: str | None = Query(None, pattern="^(open|resolved|archived)$"),
+        limit: int = Query(50, ge=1, le=200),
+        offset: int = Query(0, ge=0),
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        store = await _store_for_target(target_id)
+        if store is None:
+            raise HTTPException(status_code=503, detail="Event store unavailable")
+        if subject_id is not None:
+            await _canonical_event_or_404(store, subject_id, target_id)
+        artifacts = await store.list_research_artifacts(
+            target_id=target_id,
+            subject_type=subject_type,
+            subject_id=subject_id,
+            artifact_type=artifact_type,
+            status=status,
+            limit=limit,
+            offset=offset,
+        )
+        return {"artifacts": artifacts, "limit": limit, "offset": offset}
+
+    @app.post("/api/v1/research/artifacts")
+    async def create_research_artifact(
+        payload: ResearchArtifactCreateRequest,
+        user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        _validate_research_metadata(payload.artifact_type, payload.metadata)
+        store = await _store_for_target(payload.target_id)
+        if store is None:
+            raise HTTPException(status_code=503, detail="Event store unavailable")
+        await _canonical_event_or_404(store, payload.subject_id, payload.target_id)
+        canonical_event_ids = [payload.subject_id]
+        candidates = payload.metadata.get("candidate_canonical_event_ids")
+        if isinstance(candidates, list):
+            canonical_event_ids.extend(str(candidate) for candidate in candidates)
+        artifact_id = _new_research_artifact_id(payload.target_id, payload.artifact_type)
+        created_by = (
+            "local-user" if user.get("local") else str(user.get("username") or "local-user")
+        )
+        try:
+            await store.upsert_research_artifact(
+                {
+                    "artifact_id": artifact_id,
+                    "target_id": payload.target_id,
+                    "artifact_type": payload.artifact_type,
+                    "title": payload.title,
+                    "body": payload.body,
+                    "subject_type": payload.subject_type,
+                    "subject_id": payload.subject_id,
+                    "canonical_event_ids": canonical_event_ids,
+                    "status": payload.status,
+                    "visibility": payload.visibility,
+                    "created_by": created_by,
+                    "metadata": payload.metadata,
+                }
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        artifact = await store.get_research_artifact(artifact_id)
+        return {"artifact": artifact}
+
+    @app.patch("/api/v1/research/artifacts/{artifact_id}")
+    async def patch_research_artifact(
+        artifact_id: str,
+        target_id: str,
+        payload: ResearchArtifactPatchRequest,
+        user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        store = await _store_for_target(target_id)
+        if store is None:
+            raise HTTPException(status_code=503, detail="Event store unavailable")
+        current = await store.get_research_artifact(artifact_id)
+        if current is None or current.get("target_id") != target_id:
+            raise HTTPException(status_code=404, detail="Research artifact not found")
+        patch = payload.model_dump(exclude_none=True)
+        if "metadata" in patch:
+            _validate_research_metadata(str(current.get("artifact_type")), patch["metadata"])
+        try:
+            updated = await store.update_research_artifact(
+                artifact_id,
+                target_id=target_id,
+                patch=patch,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if updated is None:
+            raise HTTPException(status_code=404, detail="Research artifact not found")
+        return {"artifact": updated}
 
     # ── 维护端点 (Phase 40) ─────────────────────────────
 
