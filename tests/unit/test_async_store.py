@@ -1763,6 +1763,75 @@ async def test_migration_v7_research_artifacts_get_professional_workflow_default
 
 
 @pytest.mark.asyncio
+async def test_migration_canonical_graph_operation_artifact_duplicates_are_cleaned(
+    tmp_path: Path,
+):
+    db_path = tmp_path / "state.db"
+    with closing(sqlite3.connect(db_path)) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE canonical_graph_operations (
+                operation_id TEXT PRIMARY KEY,
+                target_id TEXT NOT NULL,
+                operation_type TEXT NOT NULL,
+                decision_artifact_id TEXT,
+                primary_canonical_event_id TEXT NOT NULL,
+                result_canonical_event_id TEXT,
+                status TEXT NOT NULL DEFAULT 'applied',
+                changes_json TEXT NOT NULL DEFAULT '[]',
+                warnings_json TEXT NOT NULL DEFAULT '[]',
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_by TEXT NOT NULL DEFAULT 'local-user',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            INSERT INTO canonical_graph_operations (
+                operation_id, target_id, operation_type, decision_artifact_id,
+                primary_canonical_event_id, result_canonical_event_id, status,
+                changes_json, warnings_json, metadata_json, created_by, created_at
+            ) VALUES
+            (
+                'cgo-italy-legacy-keep', 'italy', 'merge', 'ra_legacy_duplicate',
+                'ce_keep', 'ce_keep', 'applied', '[]', '[]', '{}',
+                'local-user', '2026-05-30 09:00:00'
+            ),
+            (
+                'cgo-italy-legacy-delete', 'italy', 'merge', 'ra_legacy_duplicate',
+                'ce_delete', 'ce_delete', 'applied', '[]', '[]', '{}',
+                'local-user', '2026-05-30 10:00:00'
+            ),
+            (
+                'cgo-italy-legacy-other', 'italy', 'merge', 'ra_legacy_other',
+                'ce_other', 'ce_other', 'applied', '[]', '[]', '{}',
+                'local-user', '2026-05-30 11:00:00'
+            );
+            """
+        )
+
+    store = AsyncStore(db_path)
+    await store.initialize()
+    try:
+        async with store._connect() as conn:
+            duplicate_rows = await conn.execute_fetchall(
+                """SELECT operation_id
+                   FROM canonical_graph_operations
+                   WHERE target_id = 'italy'
+                     AND decision_artifact_id = 'ra_legacy_duplicate'
+                   ORDER BY created_at, operation_id"""
+            )
+            indexes = await conn.execute_fetchall(
+                """SELECT name
+                   FROM sqlite_master
+                   WHERE type = 'index'
+                     AND name = 'idx_canonical_graph_ops_artifact_unique'"""
+            )
+
+        assert [row[0] for row in duplicate_rows] == ["cgo-italy-legacy-keep"]
+        assert [row[0] for row in indexes] == ["idx_canonical_graph_ops_artifact_unique"]
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
 async def test_list_event_index_rows_for_projection_filters_by_target(store: AsyncStore):
     async with store._connect() as conn:
         await conn.execute(
@@ -2030,6 +2099,80 @@ async def test_canonical_graph_operation_duplicate_artifact_race_returns_existin
 
 
 @pytest.mark.asyncio
+async def test_canonical_graph_operation_integrity_error_rolls_back_before_returning_existing_id(
+    store: AsyncStore,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_graph_race_rollback",
+            "target_id": "italy",
+            "title": "Racing artifact event",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "active",
+            "confidence": 90,
+            "metadata": {},
+        }
+    )
+
+    assert store._db is not None
+    original_execute = store._db.execute
+    race_inserted = False
+
+    class RacingInsert:
+        def __init__(self, sql: str, parameters: tuple[Any, ...]) -> None:
+            self.sql = sql
+            self.parameters = parameters
+
+        def __await__(self):
+            async def _run():
+                nonlocal race_inserted
+                race_inserted = True
+                winning_parameters = ("cgo-italy-race-rollback-winner", *self.parameters[1:])
+                with closing(sqlite3.connect(store.db_path)) as conn:
+                    conn.execute(self.sql, winning_parameters)
+                    conn.commit()
+                await original_execute(self.sql, self.parameters)
+
+            return _run().__await__()
+
+    def execute_with_race(sql: str, parameters: tuple[Any, ...] | None = None):
+        nonlocal race_inserted
+        if (
+            not race_inserted
+            and "INSERT INTO canonical_graph_operations" in sql
+            and parameters is not None
+        ):
+            return RacingInsert(sql, parameters)
+        return original_execute(sql, parameters or ())
+
+    monkeypatch.setattr(store._db, "execute", execute_with_race)
+
+    operation_id = await store.record_canonical_graph_operation(
+        {
+            "operation_id": "cgo-italy-race-rollback-loser",
+            "target_id": "italy",
+            "operation_type": "merge",
+            "decision_artifact_id": "ra_italy_race_rollback_artifact",
+            "primary_canonical_event_id": "ce_italy_graph_race_rollback",
+            "result_canonical_event_id": "ce_italy_graph_race_rollback",
+            "status": "applied",
+            "changes": [],
+            "warnings": [],
+            "metadata": {},
+            "created_by": "local-user",
+        }
+    )
+
+    assert operation_id == "cgo-italy-race-rollback-winner"
+    assert store._db.in_transaction is False
+
+    await store.mark_known("evt-after-canonical-graph-race")
+    assert await store.is_known("evt-after-canonical-graph-race") is True
+
+
+@pytest.mark.asyncio
 async def test_canonical_graph_operation_list_normalizes_pagination(store: AsyncStore):
     await store.upsert_canonical_event(
         {
@@ -2190,6 +2333,68 @@ async def test_canonical_merge_dry_run_apply_and_idempotency(store: AsyncStore):
     assert second["operation_id"] == applied["operation_id"]
     operations = await store.list_canonical_graph_operations(target_id="italy", limit=10)
     assert [operation["operation_id"] for operation in operations] == [applied["operation_id"]]
+
+
+@pytest.mark.asyncio
+async def test_canonical_merge_reversed_merged_ids_reuses_operation_and_relations(
+    store: AsyncStore,
+):
+    for event_id, title in (
+        ("ce_italy_merge_order_survivor", "Survivor"),
+        ("ce_italy_merge_order_duplicate_a", "Duplicate A"),
+        ("ce_italy_merge_order_duplicate_b", "Duplicate B"),
+    ):
+        await store.upsert_canonical_event(
+            {
+                "canonical_event_id": event_id,
+                "target_id": "italy",
+                "title": title,
+                "summary": "",
+                "event_time": "2026-05-30T10:00:00Z",
+                "status": "needs_review",
+                "confidence": 70,
+                "metadata": {},
+            }
+        )
+
+    first = await store.apply_canonical_merge(
+        target_id="italy",
+        survivor_canonical_event_id="ce_italy_merge_order_survivor",
+        merged_canonical_event_ids=[
+            "ce_italy_merge_order_duplicate_a",
+            "ce_italy_merge_order_duplicate_b",
+        ],
+        decision_artifact_id=None,
+        created_by="local-user",
+    )
+    second = await store.apply_canonical_merge(
+        target_id="italy",
+        survivor_canonical_event_id="ce_italy_merge_order_survivor",
+        merged_canonical_event_ids=[
+            "ce_italy_merge_order_duplicate_b",
+            "ce_italy_merge_order_duplicate_a",
+        ],
+        decision_artifact_id=None,
+        created_by="local-user",
+    )
+
+    operations = await store.list_canonical_graph_operations(target_id="italy", limit=10)
+    async with store._connect() as conn:
+        relations = await conn.execute_fetchall(
+            """SELECT relation_id, source_canonical_event_id, target_canonical_event_id
+               FROM canonical_event_relations
+               WHERE relation_type = 'duplicate'
+               ORDER BY source_canonical_event_id"""
+        )
+
+    assert second["operation_id"] == first["operation_id"]
+    assert [operation["operation_id"] for operation in operations] == [first["operation_id"]]
+    assert len(relations) == 2
+    assert {row[1] for row in relations} == {
+        "ce_italy_merge_order_duplicate_a",
+        "ce_italy_merge_order_duplicate_b",
+    }
+    assert {row[2] for row in relations} == {"ce_italy_merge_order_survivor"}
 
 
 @pytest.mark.asyncio

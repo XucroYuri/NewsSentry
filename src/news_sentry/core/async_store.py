@@ -544,6 +544,7 @@ class AsyncStore:
         await self._db.execute(_DDL_NOTIFICATIONS)
         await self._db.execute(_DDL_SCHEMA_VERSION)
         await self._migrate_schema()
+        await self._cleanup_duplicate_canonical_graph_operation_artifacts()
         for idx_sql in _DDL_INDEXES:
             await self._db.execute(idx_sql)
         await self._db.commit()
@@ -572,6 +573,27 @@ class AsyncStore:
                 (version_num, description),
             )
             await self._db.commit()
+
+    async def _cleanup_duplicate_canonical_graph_operation_artifacts(self) -> None:
+        """Remove legacy duplicate artifact operation rows before adding the unique index."""
+        assert self._db is not None
+        await self._db.execute(
+            """DELETE FROM canonical_graph_operations
+               WHERE decision_artifact_id IS NOT NULL
+                 AND rowid IN (
+                     SELECT rowid
+                     FROM (
+                         SELECT rowid,
+                                ROW_NUMBER() OVER (
+                                    PARTITION BY target_id, decision_artifact_id
+                                    ORDER BY created_at ASC, operation_id ASC, rowid ASC
+                                ) AS duplicate_rank
+                         FROM canonical_graph_operations
+                         WHERE decision_artifact_id IS NOT NULL
+                     )
+                     WHERE duplicate_rank > 1
+                 )"""
+        )
 
     async def close(self) -> None:
         if self._db is not None:
@@ -1616,6 +1638,7 @@ class AsyncStore:
             )
             await self._db.commit()
         except sqlite3.IntegrityError:
+            await self._db.rollback()
             if decision_artifact_id is None:
                 raise
             async with self._db.execute(
@@ -1832,7 +1855,9 @@ class AsyncStore:
             "target_id": target_id,
             "operation_type": "merge",
             "survivor_canonical_event_id": survivor_canonical_event_id,
-            "merged_canonical_event_ids": list(merged_canonical_event_ids),
+            "merged_canonical_event_ids": sorted(
+                {str(item) for item in merged_canonical_event_ids}
+            ),
             "decision_artifact_id": decision_artifact_id,
             "title_override": title_override,
             "summary_override": summary_override,
