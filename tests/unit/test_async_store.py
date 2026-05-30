@@ -1913,6 +1913,97 @@ async def test_canonical_graph_operation_record_and_list(store: AsyncStore):
 
 
 @pytest.mark.asyncio
+async def test_canonical_graph_operation_duplicate_artifact_returns_existing_id(
+    store: AsyncStore,
+):
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_graph_duplicate",
+            "target_id": "italy",
+            "title": "Duplicate artifact event",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "active",
+            "confidence": 90,
+            "metadata": {},
+        }
+    )
+
+    base_operation = {
+        "target_id": "italy",
+        "operation_type": "merge",
+        "decision_artifact_id": "ra_italy_duplicate_artifact",
+        "primary_canonical_event_id": "ce_italy_graph_duplicate",
+        "result_canonical_event_id": "ce_italy_graph_duplicate",
+        "status": "applied",
+        "changes": [],
+        "warnings": [],
+        "metadata": {},
+        "created_by": "local-user",
+    }
+    first_operation_id = await store.record_canonical_graph_operation(
+        {**base_operation, "operation_id": "cgo-italy-duplicate-first"}
+    )
+    second_operation_id = await store.record_canonical_graph_operation(
+        {**base_operation, "operation_id": "cgo-italy-duplicate-second"}
+    )
+
+    listed = await store.list_canonical_graph_operations(target_id="italy", limit=10)
+    assert first_operation_id == "cgo-italy-duplicate-first"
+    assert second_operation_id == first_operation_id
+    assert [item["operation_id"] for item in listed] == [first_operation_id]
+
+
+@pytest.mark.asyncio
+async def test_canonical_graph_operation_list_normalizes_pagination(store: AsyncStore):
+    await store.upsert_canonical_event(
+        {
+            "canonical_event_id": "ce_italy_graph_pagination",
+            "target_id": "italy",
+            "title": "Pagination event",
+            "summary": "",
+            "event_time": "2026-05-30T10:00:00Z",
+            "status": "active",
+            "confidence": 90,
+            "metadata": {},
+        }
+    )
+
+    for operation_id in ("cgo-italy-pagination-a", "cgo-italy-pagination-b"):
+        await store.record_canonical_graph_operation(
+            {
+                "operation_id": operation_id,
+                "target_id": "italy",
+                "operation_type": "merge",
+                "primary_canonical_event_id": "ce_italy_graph_pagination",
+                "result_canonical_event_id": "ce_italy_graph_pagination",
+                "status": "applied",
+                "changes": [],
+                "warnings": [],
+                "metadata": {},
+                "created_by": "local-user",
+            }
+        )
+
+    negative_limit = await store.list_canonical_graph_operations(target_id="italy", limit=-1)
+    zero_offset = await store.list_canonical_graph_operations(
+        target_id="italy",
+        limit=1,
+        offset=0,
+    )
+    negative_offset = await store.list_canonical_graph_operations(
+        target_id="italy",
+        limit=1,
+        offset=-10,
+    )
+
+    assert len(negative_limit) == 1
+    assert [item["operation_id"] for item in negative_offset] == [
+        item["operation_id"] for item in zero_offset
+    ]
+
+
+@pytest.mark.asyncio
 async def test_research_artifact_upsert_list_and_patch(store: AsyncStore):
     await store.upsert_canonical_event(
         {
