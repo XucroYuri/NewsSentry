@@ -1,22 +1,39 @@
 ---
 name: Feature Request
-about: Suggest a new feature or enhancement
+about: Suggest a News Sentry capability or product improvement
 title: "[Feature] "
 labels: enhancement
 ---
 
-## Feature Description
+## Feature Summary
 
-A clear description of the proposed feature.
+Describe the News Sentry capability you want.
+
+## Area
+
+- [ ] Collector or source health
+- [ ] Pipeline reliability
+- [ ] Canonical event graph
+- [ ] Research workflow
+- [ ] Public news portal
+- [ ] Admin console
+- [ ] Deployment or local client
+- [ ] Documentation
 
 ## Use Case
 
-Why do you need this feature? What problem does it solve?
+Who needs this, and what decision or workflow does it improve?
 
-## Proposed Solution
+## Proposed Behavior
 
-How you think this feature should work.
+Describe the expected user flow, API behavior, or data contract.
+
+## Success Criteria
+
+- Criterion 1:
+- Criterion 2:
+- Criterion 3:
 
 ## Additional Context
 
-Any other context, examples, or references.
+Link examples, related issues, source references, or research workflow notes.

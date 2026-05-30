@@ -1,19 +1,47 @@
-## Description
+## Summary
 
-Brief description of the change.
+Describe what this PR changes in News Sentry and why.
 
 ## Type of Change
 
 - [ ] Bug fix
 - [ ] New feature
-- [ ] Breaking change
 - [ ] Documentation update
-- [ ] Configuration change
+- [ ] Configuration or source update
+- [ ] Canonical data contract change
+- [ ] Deployment or CI change
 
-## Checklist
+## Impact Area
+
+- [ ] Collector/source health
+- [ ] Pipeline stages
+- [ ] Canonical contracts
+- [ ] Research workflow
+- [ ] Public news portal
+- [ ] Admin console
+- [ ] API server
+- [ ] Documentation
+
+## Verification
 
 - [ ] `ruff check` passes
-- [ ] `mypy src/news_sentry/` passes
-- [ ] `pytest tests/` passes
-- [ ] No sensitive data (API keys, cookies, tokens) in the diff
-- [ ] Commit messages in simplified Chinese, format: `<Module>: <description>`
+- [ ] Relevant `pytest` tests pass
+- [ ] Relevant JS tests pass
+- [ ] Documentation links were checked when docs changed
+
+## Canonical contracts
+
+- [ ] I checked `docs/contracts-canonical.md` if this changes schema, pipeline stage, score semantics, taxonomy, source lifecycle, or storage directories.
+- [ ] I added or updated tests for data contract behavior when needed.
+
+## Sensitive data
+
+- [ ] No API keys, cookies, tokens, browser profiles, `.env` files, local runtime data, private source credentials, or `.omx` state files are included.
+
+## Migration and Rollback
+
+Describe any data migration, compatibility behavior, or rollback path. Write `None` if this PR has no runtime data impact.
+
+## Screenshots or Evidence
+
+Add screenshots, logs, API responses, or command output when they help reviewers understand the change.
