@@ -93,7 +93,7 @@ for (const file of templateFiles) {
 }
 
 assertIncludes(".github/ISSUE_TEMPLATE/bug_report.md", "Pipeline stage");
-assertIncludes(".github/ISSUE_TEMPLATE/source_request.md", "Source Region");
-assertIncludes(".github/ISSUE_TEMPLATE/research_workflow_request.md", "Research Workflow Area");
-assertIncludes(".github/PULL_REQUEST_TEMPLATE.md", "Canonical Contracts");
-assertIncludes(".github/PULL_REQUEST_TEMPLATE.md", "Sensitive Data");
+assertIncludes(".github/ISSUE_TEMPLATE/source_request.md", "## Source Region");
+assertIncludes(".github/ISSUE_TEMPLATE/research_workflow_request.md", "## Research Workflow Area");
+assertIncludes(".github/PULL_REQUEST_TEMPLATE.md", "## Canonical Contracts");
+assertIncludes(".github/PULL_REQUEST_TEMPLATE.md", "## Sensitive Data");
