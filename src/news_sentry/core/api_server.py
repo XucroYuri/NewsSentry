@@ -1009,9 +1009,9 @@ async def _visible_index_events_page(
     if not exact_total and date is None and search is None:
         offset = start
         index_total = 0
-        page_events: list[dict[str, Any]] = []
+        sparse_page_events: list[dict[str, Any]] = []
 
-        while len(page_events) < page_size:
+        while len(sparse_page_events) < page_size:
             result = await store.query_events_paginated(
                 target_id=target_id,
                 stage=stage,
@@ -1032,8 +1032,8 @@ async def _visible_index_events_page(
             for row in rows:
                 event = _visible_index_event_from_row(data_dir, target_id, stage, row)
                 if event is not None:
-                    page_events.append(event)
-                    if len(page_events) >= page_size:
+                    sparse_page_events.append(event)
+                    if len(sparse_page_events) >= page_size:
                         break
 
             offset += len(rows)
@@ -1043,7 +1043,7 @@ async def _visible_index_events_page(
         return {
             "index_total": index_total,
             "total": index_total,
-            "events": page_events,
+            "events": sparse_page_events,
         }
 
     end = start + page_size
@@ -1238,9 +1238,12 @@ def _feed_event_payload(ev: dict[str, Any]) -> dict[str, Any]:
     """为新闻流补充展示字段；不改变 NewsEvent 存储契约。"""
     event_id = ev.get("event_id") or ev.get("id") or ""
     source_id = ev.get("source_id") or ""
-    judge = ev.get("judge_result") if isinstance(ev.get("judge_result"), dict) else {}
-    metadata = ev.get("metadata") if isinstance(ev.get("metadata"), dict) else {}
-    clustering = metadata.get("clustering") if isinstance(metadata.get("clustering"), dict) else {}
+    raw_judge = ev.get("judge_result")
+    judge: dict[str, Any] = raw_judge if isinstance(raw_judge, dict) else {}
+    raw_metadata = ev.get("metadata")
+    metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
+    raw_clustering = metadata.get("clustering")
+    clustering: dict[str, Any] = raw_clustering if isinstance(raw_clustering, dict) else {}
     classification = _event_classification(ev) or {}
     payload = dict(ev)
     payload["event_id"] = event_id
