@@ -1366,7 +1366,10 @@ class AsyncStore:
     async def upsert_research_artifact(self, row: dict[str, Any]) -> str:
         """Insert or update a research artifact and return artifact_id."""
         artifact_id = str(row["artifact_id"])
+        target_id = str(row["target_id"])
         artifact_type = str(row.get("artifact_type", ""))
+        subject_type = str(row.get("subject_type", "canonical_event"))
+        subject_id = str(row.get("subject_id", ""))
         status = str(row.get("status", "open"))
         if artifact_type not in _RESEARCH_ARTIFACT_TYPES:
             raise ValueError(f"Unsupported research artifact type: {artifact_type}")
@@ -1374,6 +1377,40 @@ class AsyncStore:
             raise ValueError(f"Unsupported research artifact status: {status}")
         if self._db is None:
             return artifact_id
+        async with self._db.execute(
+            """SELECT target_id, artifact_type, subject_type, subject_id
+               FROM research_artifacts
+               WHERE artifact_id = ?""",
+            (artifact_id,),
+        ) as cursor:
+            existing = await cursor.fetchone()
+        if existing is not None:
+            existing_target, existing_type, existing_subject_type, existing_subject_id = existing
+            if (
+                existing_target != target_id
+                or existing_type != artifact_type
+                or existing_subject_type != subject_type
+                or existing_subject_id != subject_id
+            ):
+                raise ValueError(
+                    "research artifact_id cannot change target_id, artifact_type, "
+                    "subject_type, or subject_id"
+                )
+        if subject_type == "canonical_event":
+            if not subject_id:
+                raise ValueError("research artifact canonical_event subject_id is required")
+            async with self._db.execute(
+                "SELECT target_id FROM canonical_events WHERE canonical_event_id = ?",
+                (subject_id,),
+            ) as cursor:
+                subject = await cursor.fetchone()
+            if subject is None:
+                raise ValueError(f"research artifact canonical_event not found: {subject_id}")
+            if subject[0] != target_id:
+                raise ValueError(
+                    "research artifact canonical_event target mismatch: "
+                    f"{subject_id} belongs to {subject[0]}, not {target_id}"
+                )
         canonical_event_ids = row.get("canonical_event_ids")
         if canonical_event_ids is None:
             canonical_event_ids = row.get("canonical_event_ids_json", [])
@@ -1389,12 +1426,8 @@ class AsyncStore:
                 metadata_json)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(artifact_id) DO UPDATE SET
-                   target_id = excluded.target_id,
-                   artifact_type = excluded.artifact_type,
                    title = excluded.title,
                    body = excluded.body,
-                   subject_type = excluded.subject_type,
-                   subject_id = excluded.subject_id,
                    canonical_event_ids_json = excluded.canonical_event_ids_json,
                    status = excluded.status,
                    visibility = excluded.visibility,
@@ -1403,12 +1436,12 @@ class AsyncStore:
                    updated_at = CURRENT_TIMESTAMP""",
             (
                 artifact_id,
-                row["target_id"],
+                target_id,
                 artifact_type,
                 row["title"],
                 row.get("body", ""),
-                row.get("subject_type", "canonical_event"),
-                row.get("subject_id", ""),
+                subject_type,
+                subject_id,
                 canonical_event_ids_json,
                 status,
                 row.get("visibility", "local_private"),
@@ -1511,11 +1544,13 @@ class AsyncStore:
                 and latest_review.get("status") == "resolved"
                 and latest_review.get("metadata", {}).get("decision") == "confirmed"
             )
-            is_open = not is_resolved and (
-                event.get("status") == "needs_review"
-                or float(event.get("confidence") or 0) < 80
-                or open_merge > 0
-                or open_split > 0
+            has_open_decision = open_merge > 0 or open_split > 0
+            is_open = has_open_decision or (
+                not is_resolved
+                and (
+                    event.get("status") == "needs_review"
+                    or float(event.get("confidence") or 0) < 80
+                )
             )
             if status == "open" and not is_open:
                 continue
