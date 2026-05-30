@@ -108,6 +108,18 @@ assert.match(
 
 assert.match(
   targetWorkbenchJs,
+  /const OVERVIEW_OPTIONAL_TABS = new Set\(\["review", "canonical"\]\)/,
+  "审核和事实投影页不能被较慢的 target overview 接口阻断渲染",
+);
+
+assert.match(
+  targetWorkbenchJs,
+  /const overview = OVERVIEW_OPTIONAL_TABS\.has\(tab\)[\s\S]*\? fallbackTargetOverview\(resolvedTarget,\s*"target overview skipped"\)[\s\S]*: await api\(`\/api\/v1\/admin\/targets\/\$\{encodeURIComponent\(resolvedTarget\)\}\/overview`\)/s,
+  "Target 工作台应在可独立渲染的 tab 上直接使用轻量概览 fallback",
+);
+
+assert.match(
+  targetWorkbenchJs,
   /api\(`\/api\/v1\/research\/events\/\$\{encodeURIComponent\(canonicalEventId\)\}`,\s*\{\s*target_id:\s*targetId\s*\}\)/s,
   "Target 工作台审核详情必须加载 canonical event research detail",
 );

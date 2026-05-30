@@ -27,6 +27,8 @@ const TARGET_TABS = [
   { id: "maintenance", label: "维护" },
 ];
 
+const OVERVIEW_OPTIONAL_TABS = new Set(["review", "canonical"]);
+
 function targetHref(targetId, tab = "overview") {
   return `#/admin/targets/${encodeURIComponent(targetId)}/${tab}`;
 }
@@ -364,10 +366,30 @@ function renderWorkbenchShell(container, targetId, tab, overview) {
           <a class="${item.id === tab ? "active" : ""}" href="${targetHref(targetId, item.id)}">${item.label}</a>
         `).join("")}
       </nav>
+      ${overview.warning ? `
+        <div class="target-inline-warning">
+          目标概览加载较慢，当前页面已使用轻量模式继续渲染。
+        </div>
+      ` : ""}
       <div class="target-workbench-body" id="targetWorkbenchBody"></div>
     </section>
   `;
   return container.querySelector("#targetWorkbenchBody") || container;
+}
+
+function fallbackTargetOverview(targetId, message = "") {
+  return {
+    target: {
+      target_id: targetId,
+      display_name: targetId,
+      primary_language: "mixed",
+      source_count: 0,
+      lifecycle: { status: "active" },
+      archived: false,
+    },
+    validation: null,
+    warning: message || "target overview unavailable",
+  };
 }
 
 export async function renderTargetWorkbench(container, targetId, tab = "overview") {
@@ -384,7 +406,9 @@ export async function renderTargetWorkbench(container, targetId, tab = "overview
     }
     state.currentTarget = resolvedTarget;
     localStorage.ns_target_id = resolvedTarget;
-    const overview = await api(`/api/v1/admin/targets/${encodeURIComponent(resolvedTarget)}/overview`);
+    const overview = OVERVIEW_OPTIONAL_TABS.has(tab)
+      ? fallbackTargetOverview(resolvedTarget, "target overview skipped")
+      : await api(`/api/v1/admin/targets/${encodeURIComponent(resolvedTarget)}/overview`);
     const body = renderWorkbenchShell(container, resolvedTarget, tab, overview);
     const renderers = {
       overview: renderOverview,

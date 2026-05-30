@@ -4131,6 +4131,16 @@ body.ns-offline .offline-banner {
   width: 100%;
 }
 
+.target-inline-warning {
+  margin: 10px 0 14px;
+  border: 1px solid var(--border-color);
+  border-left: 3px solid var(--status-warning);
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  padding: 9px 12px;
+  font-size: 12px;
+}
+
 .target-panel {
   border-bottom: 1px solid var(--border-color);
   margin-bottom: 16px;
