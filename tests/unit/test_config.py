@@ -130,7 +130,7 @@ class TestResolvedConfig:
         assert cfg.classification_rules == {}
         assert cfg.sandbox_policy == {}
         assert cfg.provider_routes == {}
-        assert cfg.output_destinations == {}
+        assert cfg.output_destinations == {"markdown_auto_drafts": False}
         assert cfg.deployment_profile == {}
         assert cfg.output_root == Path("data")
 
@@ -479,6 +479,60 @@ class TestLoadSources:
 
 
 class TestLoadTarget:
+    def test_output_destinations_yaml_can_enable_markdown_auto_drafts(self, project_root):
+        """真实 output destinations YAML 可显式开启 markdown_auto_drafts。"""
+        schemas_dir = project_root / "schemas"
+        schemas_dir.mkdir(exist_ok=True)
+        empty_schema = {"type": "object"}
+        for name in [
+            "targetconfig.schema.json",
+            "deploymentprofile.schema.json",
+            "sandboxpolicy.schema.json",
+        ]:
+            _write_json_schema(schemas_dir / name, empty_schema)
+        output_schema = json.loads(
+            (Path("schemas") / "outputdestinations.schema.json").read_text(encoding="utf-8")
+        )
+        _write_json_schema(schemas_dir / "outputdestinations.schema.json", output_schema)
+
+        _write_yaml(
+            project_root / "config" / "targets" / "my-target.yaml",
+            _make_minimal_target(
+                target_id="my-target",
+                output_destinations_ref="config/outputs/my-target/default.yaml",
+            ),
+            schema_ref="../../schemas/targetconfig.schema.json",
+        )
+        _write_yaml(
+            project_root / "config" / "outputs" / "my-target" / "default.yaml",
+            {
+                "destinations": [
+                    {
+                        "destination_id": "draft_file",
+                        "type": "file",
+                        "enabled": True,
+                        "path": "./data/my-target/drafts",
+                    }
+                ],
+                "markdown_auto_drafts": True,
+            },
+            schema_ref="../../../schemas/outputdestinations.schema.json",
+        )
+        _write_yaml(
+            project_root / "config" / "profiles" / "local-workstation.yaml",
+            _make_minimal_profile(),
+            schema_ref="../../schemas/deploymentprofile.schema.json",
+        )
+        _write_yaml(
+            project_root / "config" / "sandbox" / "local-workstation.yaml",
+            {"profile_id": "local-workstation", "command_policy": {"allowed_commands": []}},
+            schema_ref="../../schemas/sandboxpolicy.schema.json",
+        )
+
+        config = ConfigLoader(project_root).load_target("my-target")
+
+        assert config.output_destinations["markdown_auto_drafts"] is True
+
     def test_full_load_target(self, project_root):
         """完整集成测试 — 加载一个含子配置引用的 target。"""
         # schemas (宽松校验，接受所有数据)
