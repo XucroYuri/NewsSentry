@@ -367,6 +367,21 @@ def _run_filter(
     return filtered
 
 
+def _markdown_auto_drafts_enabled(output_destinations: dict[str, Any]) -> bool:
+    """解析 markdown_auto_drafts 输出策略开关。"""
+    value = output_destinations.get("markdown_auto_drafts", False)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off", ""}:
+            return False
+        return False
+    return bool(value)
+
+
 def _run_output(
     config: ResolvedConfig,
     run_id: str,
@@ -391,7 +406,7 @@ def _run_output(
     output_config = dict(config.output_destinations)
     output_config["target_id"] = config.target_id
     output_config["output_base_dir"] = str(config.output_root)
-    markdown_auto_drafts = bool(output_config.get("markdown_auto_drafts", False))
+    markdown_auto_drafts = _markdown_auto_drafts_enabled(output_config)
     writer = MarkdownWriter(output_config) if markdown_auto_drafts else None
     outputted: list[NewsEvent] = []
     for event in events:

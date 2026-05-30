@@ -500,6 +500,61 @@ Trade economy context keeps this event in the filter stage.
         assert event.metadata["_file_path"] == str(draft_path)
         assert event.pipeline_stage == PipelineStage.OUTPUTTED
 
+    @pytest.mark.parametrize(
+        ("flag_value", "should_write"),
+        [("false", False), ("true", True)],
+    )
+    def test_output_policy_parses_markdown_auto_drafts_strings(
+        self,
+        tmp_path: Path,
+        flag_value: str,
+        should_write: bool,
+    ):
+        """字符串形式的 markdown_auto_drafts 应显式解析，不走 bool(str)。"""
+        from unittest.mock import MagicMock
+
+        from news_sentry.core.file_writer import FileWriter
+        from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+
+        event = NewsEvent(
+            id=f"evt-output-policy-string-{flag_value}",
+            run_id="run-output-policy",
+            source_id="test-source",
+            url=f"https://example.com/output-policy-string-{flag_value}",
+            title_original=f"String flag {flag_value}",
+            content_original="Body",
+            language=Language.IT,
+            published_at="2026-05-09T12:00:00+00:00",
+            collected_at="2026-05-09T12:01:00+00:00",
+            pipeline_stage=PipelineStage.JUDGED,
+        )
+        target_dir = tmp_path / "data" / "test-target"
+        file_writer = FileWriter(target_dir)
+        file_writer.ensure_dirs()
+        config = MagicMock()
+        config.target_id = "test-target"
+        config.output_root = tmp_path / "data"
+        config.output_destinations = {"markdown_auto_drafts": flag_value}
+        ctx = MagicMock()
+
+        outputted = _run_output(
+            config=config,
+            run_id="run-output-policy",
+            run_log=MagicMock(),
+            file_writer=file_writer,
+            ctx=ctx,
+            input_events=[event],
+        )
+
+        draft_path = target_dir / "drafts" / f"evt-output-policy-string-{flag_value}.md"
+        assert [evt.id for evt in outputted] == [event.id]
+        assert draft_path.exists() is should_write
+        assert event.pipeline_stage == PipelineStage.OUTPUTTED
+        if should_write:
+            assert event.metadata["_file_path"] == str(draft_path)
+        else:
+            assert event.metadata.get("_file_path") is None
+
     def test_output_stage_with_events(self, tmp_path: Path, monkeypatch):
         """output 阶段：从 evaluated/ 加载事件，写入 Markdown 文件。"""
         _setup_minimal_project(tmp_path)
