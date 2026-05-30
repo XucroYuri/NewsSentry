@@ -343,6 +343,26 @@ class ResearchArtifactPatchRequest(BaseModel):
         return value
 
 
+class ResearchGraphMergeRequest(BaseModel):
+    target_id: str
+    decision_artifact_id: str | None = None
+    survivor_canonical_event_id: str
+    merged_canonical_event_ids: list[str] = Field(min_length=1)
+    title_override: str | None = None
+    summary_override: str | None = None
+    dry_run: bool = True
+
+
+class ResearchGraphSplitRequest(BaseModel):
+    target_id: str
+    decision_artifact_id: str | None = None
+    source_canonical_event_id: str
+    affected_mention_ids: list[str] = Field(min_length=1)
+    new_title: str | None = None
+    new_summary: str | None = None
+    dry_run: bool = True
+
+
 class TargetCreateRequest(BaseModel):
     """Target 创建请求。"""
 
@@ -5853,6 +5873,98 @@ def create_app(
             limit=limit,
             offset=offset,
         )
+
+    @app.post("/api/v1/research/graph/merge")
+    async def research_graph_merge(
+        payload: ResearchGraphMergeRequest,
+        user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        store = await _store_for_target(payload.target_id)
+        if store is None:
+            raise HTTPException(status_code=503, detail="Event store unavailable")
+        created_by = (
+            "local-user" if user.get("local") else str(user.get("username") or "local-user")
+        )
+        try:
+            if payload.dry_run:
+                return await store.preview_canonical_merge(
+                    target_id=payload.target_id,
+                    decision_artifact_id=payload.decision_artifact_id,
+                    survivor_canonical_event_id=payload.survivor_canonical_event_id,
+                    merged_canonical_event_ids=payload.merged_canonical_event_ids,
+                    title_override=payload.title_override,
+                    summary_override=payload.summary_override,
+                    created_by=created_by,
+                )
+            return await store.apply_canonical_merge(
+                target_id=payload.target_id,
+                decision_artifact_id=payload.decision_artifact_id,
+                survivor_canonical_event_id=payload.survivor_canonical_event_id,
+                merged_canonical_event_ids=payload.merged_canonical_event_ids,
+                title_override=payload.title_override,
+                summary_override=payload.summary_override,
+                created_by=created_by,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/v1/research/graph/split")
+    async def research_graph_split(
+        payload: ResearchGraphSplitRequest,
+        user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        store = await _store_for_target(payload.target_id)
+        if store is None:
+            raise HTTPException(status_code=503, detail="Event store unavailable")
+        created_by = (
+            "local-user" if user.get("local") else str(user.get("username") or "local-user")
+        )
+        try:
+            if payload.dry_run:
+                return await store.preview_canonical_split(
+                    target_id=payload.target_id,
+                    decision_artifact_id=payload.decision_artifact_id,
+                    source_canonical_event_id=payload.source_canonical_event_id,
+                    affected_mention_ids=payload.affected_mention_ids,
+                    new_title=payload.new_title,
+                    new_summary=payload.new_summary,
+                    created_by=created_by,
+                )
+            return await store.apply_canonical_split(
+                target_id=payload.target_id,
+                decision_artifact_id=payload.decision_artifact_id,
+                source_canonical_event_id=payload.source_canonical_event_id,
+                affected_mention_ids=payload.affected_mention_ids,
+                new_title=payload.new_title,
+                new_summary=payload.new_summary,
+                created_by=created_by,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/v1/research/graph/operations")
+    async def research_graph_operations(
+        target_id: str,
+        operation_type: str | None = Query(None, pattern="^(merge|split)$"),
+        decision_artifact_id: str | None = None,
+        limit: int = Query(50, ge=1, le=200),
+        offset: int = Query(0, ge=0),
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        store = await _store_for_target(target_id)
+        if store is None:
+            raise HTTPException(status_code=503, detail="Event store unavailable")
+        try:
+            operations = await store.list_canonical_graph_operations(
+                target_id=target_id,
+                operation_type=operation_type,
+                decision_artifact_id=decision_artifact_id,
+                limit=limit,
+                offset=offset,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {"operations": operations, "limit": limit, "offset": offset}
 
     @app.get("/api/v1/research/events/{canonical_event_id}")
     async def research_event_detail(
