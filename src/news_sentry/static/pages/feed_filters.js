@@ -1,60 +1,169 @@
+const CHANNEL_TERM_MAP = {
+  policy: [
+    "politics",
+    "policy",
+    "regulation",
+    "government",
+    "diplomacy",
+    "parliament",
+    "cabinet",
+    "coalition",
+    "eu-affairs",
+    "migration-policy",
+    "justice-reform",
+    "govt_coalition",
+  ],
+  industry: [
+    "industry",
+    "business",
+    "market",
+    "investment",
+    "company",
+    "economy",
+    "economic",
+    "economics",
+    "trade",
+    "energy",
+    "labor-market",
+    "financial-markets",
+    "corporate",
+    "environment",
+    "energy-transition",
+    "environment_energy",
+    "energy_transition",
+    "labor_market",
+  ],
+  tech: [
+    "tech",
+    "technology",
+    "ai",
+    "semiconductor",
+    "digital-policy",
+    "cybersecurity",
+    "research",
+    "tech-industry",
+    "digital",
+    "model",
+    "chip",
+    "infrastructure",
+    "open-source",
+  ],
+  risk: [
+    "international-relations",
+    "public-safety",
+    "disaster",
+    "sanctions",
+    "russia-ukraine",
+    "nato",
+    "terrorism",
+    "security",
+    "international",
+    "safety",
+    "risk",
+    "conflict",
+    "sanction",
+    "supply-chain",
+    "supply_chain",
+    "defense",
+    "military",
+  ],
+  china: [
+    "china-related",
+    "china-italy-bilateral",
+    "bri-italy",
+    "chinese-investment",
+    "china-eu-policy",
+    "chinese-community",
+    "china",
+    "chinese",
+    "china-relations",
+    "china_italy_bilateral",
+    "bri_italy",
+    "trade_china_italy",
+  ],
+  society: [
+    "society",
+    "health",
+    "education",
+    "labor",
+    "welfare",
+    "housing",
+    "immigration",
+    "demographics",
+    "culture-society",
+    "culture_society",
+  ],
+  environment: [
+    "environment",
+    "environment-energy",
+    "environment_energy",
+    "energy-transition",
+    "energy_transition",
+    "climate",
+    "weather",
+    "disaster",
+    "agriculture",
+  ],
+  international: [
+    "international-relations",
+    "international",
+    "diplomacy",
+    "eu-affairs",
+    "nato",
+    "sanctions",
+    "war",
+    "ukraine",
+    "middle-east",
+    "foreign-policy",
+  ],
+  culture: [
+    "culture",
+    "religion",
+    "vatican",
+    "heritage",
+    "media",
+    "sports",
+    "entertainment",
+    "tourism",
+  ],
+};
+
+const CANONICAL_TERM_ALIASES = {
+  economics: "economy",
+  security: "public-safety",
+  international: "international-relations",
+  culture_society: "society",
+  environment_energy: "environment",
+  china_related: "china-related",
+  political: "politics",
+  technology: "tech",
+  energy_transition: "energy-transition",
+  environment_energy: "environment",
+  culture_society: "society",
+};
+
 export const CHANNELS = [
   { id: "all", label: "全部", terms: [] },
   { id: "featured", label: "精选", terms: [] },
   {
     id: "policy",
     label: "政策",
-    terms: ["politics", "policy", "regulation", "government", "diplomacy", "govt_coalition"],
+    terms: CHANNEL_TERM_MAP.policy,
   },
   {
     id: "industry",
     label: "产业",
-    terms: [
-      "industry",
-      "business",
-      "market",
-      "investment",
-      "company",
-      "economy",
-      "economic",
-      "economics",
-      "environment_energy",
-      "energy_transition",
-      "labor_market",
-      "trade",
-    ],
+    terms: CHANNEL_TERM_MAP.industry,
   },
   {
     id: "tech",
     label: "技术",
-    terms: [
-      "technology",
-      "tech",
-      "ai",
-      "model",
-      "chip",
-      "semiconductor",
-      "infrastructure",
-      "research",
-      "open-source",
-      "digital",
-    ],
+    terms: CHANNEL_TERM_MAP.tech,
   },
   {
     id: "risk",
     label: "风险",
-    terms: [
-      "security",
-      "safety",
-      "risk",
-      "conflict",
-      "sanction",
-      "sanctions",
-      "supply-chain",
-      "supply_chain",
-      "defense",
-      "military",
-    ],
+    terms: CHANNEL_TERM_MAP.risk,
     textTerms: [
       "attack",
       "attacc",
@@ -71,7 +180,32 @@ export const CHANNELS = [
       "ukraine",
     ],
   },
-  { id: "china", label: "中国相关", terms: ["china", "chinese", "china-relations"] },
+  {
+    id: "society",
+    label: "社会民生",
+    terms: CHANNEL_TERM_MAP.society,
+  },
+  {
+    id: "environment",
+    label: "环境能源",
+    terms: CHANNEL_TERM_MAP.environment,
+  },
+  {
+    id: "international",
+    label: "国际外交",
+    terms: CHANNEL_TERM_MAP.international,
+  },
+  {
+    id: "culture",
+    label: "文化社会",
+    terms: CHANNEL_TERM_MAP.culture,
+  },
+  {
+    id: "clusters",
+    label: "聚类线索",
+    terms: [],
+  },
+  { id: "china", label: "中国相关", terms: CHANNEL_TERM_MAP.china },
 ];
 
 const CHINA_TEXT_TERMS = ["china", "chinese", "cina", "cinese", "pechino", "beijing", "中国"];
@@ -92,6 +226,11 @@ function lower(value) {
   return tagText(value).trim().toLowerCase();
 }
 
+function canonicalTerm(value) {
+  const text = lower(value);
+  return CANONICAL_TERM_ALIASES[text] || text;
+}
+
 function collectClassificationTerms(ev) {
   const terms = [];
   const classification = ev.classification || ev.metadata?.classification || {};
@@ -108,7 +247,7 @@ export function eventTerms(ev) {
     ...(Array.isArray(ev.topic_tags) ? ev.topic_tags : []),
     ...collectClassificationTerms(ev),
   ];
-  return terms.map(lower).filter(Boolean);
+  return terms.map(canonicalTerm).filter(Boolean);
 }
 
 function eventText(ev) {
@@ -129,11 +268,16 @@ export function eventMatchesChannel(ev, channelId) {
   if (channelId === "featured") {
     return score >= 70 || recommendation === "publish" || recommendation === "review";
   }
+  if (channelId === "clusters") {
+    const clusterSize = Number(ev.clustering?.cluster_size || ev.metadata?.clustering?.cluster_size || 0);
+    const clusterType = ev.clustering?.cluster_type || ev.metadata?.clustering?.cluster_type || "";
+    return Boolean(ev.story_id || ev.cluster_id) && (clusterSize > 1 || clusterType === "same_event" || clusterType === "storyline");
+  }
   if (channelId === "china" && Number(ev.china_relevance || 0) >= 50) {
     return true;
   }
   const channel = CHANNELS.find((item) => item.id === channelId);
-  if (!channel) return true;
+  if (!channel) return false;
   const terms = eventTerms(ev);
   if (channelId === "china" && CHINA_TEXT_TERMS.some((term) => eventText(ev).includes(term))) {
     return true;
@@ -181,15 +325,34 @@ export function countEvents(groups) {
   return (groups || []).reduce((sum, group) => sum + (group.events || []).length, 0);
 }
 
-export function channelsWithCounts(groups, { currentChannel = "all", includeEmpty = false } = {}) {
-  return CHANNELS.map((channel) => {
+export function channelsWithCounts(
+  groups,
+  { currentChannel = "all", includeEmpty = false, maxSecondaryChannels = null } = {},
+) {
+  const countedChannels = CHANNELS.map((channel) => {
     const channelGroups = filterGroups(groups, { channelId: channel.id, query: "" });
     return { ...channel, count: countEvents(channelGroups) };
-  }).filter((channel) => (
+  });
+  const visibleChannels = countedChannels.filter((channel) => (
     includeEmpty
     || channel.id === "all"
     || channel.id === "featured"
     || channel.id === currentChannel
     || channel.count > 0
   ));
+  if (!Number.isFinite(Number(maxSecondaryChannels)) || Number(maxSecondaryChannels) <= 0) {
+    return visibleChannels;
+  }
+  const fixed = visibleChannels.filter((channel) => channel.id === "all" || channel.id === "featured");
+  const rest = visibleChannels.filter((channel) => channel.id !== "all" && channel.id !== "featured");
+  const current = rest.find((channel) => channel.id === currentChannel);
+  const ranked = rest
+    .filter((channel) => channel.id !== currentChannel)
+    .sort((a, b) => (b.count - a.count) || (CHANNELS.findIndex((item) => item.id === a.id) - CHANNELS.findIndex((item) => item.id === b.id)))
+    .slice(0, Number(maxSecondaryChannels));
+  const merged = [...fixed, ...ranked];
+  if (current && !merged.some((channel) => channel.id === current.id)) {
+    merged.push(current);
+  }
+  return merged.sort((a, b) => CHANNELS.findIndex((item) => item.id === a.id) - CHANNELS.findIndex((item) => item.id === b.id));
 }
