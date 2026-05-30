@@ -731,6 +731,66 @@ class TestAPIServer:
         assert resp.headers["content-type"].startswith("text/markdown")
         assert "Dirty export story" in resp.text
 
+    @pytest.mark.parametrize("language", ["EN", "fr", "de", "ja"])
+    def test_public_event_markdown_export_accepts_legacy_language_values(
+        self, tmp_path: Path, language: str
+    ) -> None:
+        """公开 Markdown 导出应容忍大小写和多 target 语言值。"""
+        event_id = f"ne-italy-src-20260526-export-{language.lower()}"
+        title = f"Language export story {language}"
+        drafts = tmp_path / "italy" / "drafts"
+        drafts.mkdir(parents=True, exist_ok=True)
+        event = {
+            "id": event_id,
+            "source_id": "ansa",
+            "url": "https://example.com/language-export",
+            "language": language,
+            "title_original": title,
+            "published_at": "2026-05-26T10:00:00+00:00",
+            "pipeline_stage": "outputted",
+        }
+        fm = yaml.dump(event, allow_unicode=True, default_flow_style=False, sort_keys=False)
+        (drafts / f"{language.lower()}-language.md").write_text(
+            f"---\n{fm}---\n\n# {title}\n",
+            encoding="utf-8",
+        )
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get(f"/api/v1/news/target/italy/events/{event_id}/export/markdown")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/markdown")
+        assert title in resp.text
+
+    def test_public_event_markdown_export_uses_index_row_fallback(self, tmp_path: Path) -> None:
+        """公开 Markdown 导出应覆盖 SQLite index row fallback，无文件也不 500。"""
+        event_id = "ne-italy-ansa-20260526-indexrow"
+        store = AsyncStore(tmp_path / "state.db")
+        asyncio.run(store.initialize())
+        try:
+            asyncio.run(
+                _insert_index_event(
+                    store,
+                    event_id=event_id,
+                    title_original="Index row export story",
+                    source_id="ansa",
+                    news_value_score=75.5,
+                    sentiment="positive",
+                )
+            )
+            app = create_app(data_dir=tmp_path, store=store, auto_store=False)
+            client = TestClient(app)
+
+            resp = client.get(f"/api/v1/news/target/italy/events/{event_id}/export/markdown")
+
+            assert resp.status_code == 200
+            assert resp.headers["content-type"].startswith("text/markdown")
+            assert "Index row export story" in resp.text
+            assert event_id in resp.text
+        finally:
+            asyncio.run(store.close())
+
     def test_public_event_markdown_export_missing_event_returns_404(self, tmp_path: Path) -> None:
         """公开 Markdown 导出找不到事件时返回 404，而不是渲染异常。"""
         app = create_app(data_dir=tmp_path, auto_store=False)
