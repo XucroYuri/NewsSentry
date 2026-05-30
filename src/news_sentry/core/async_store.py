@@ -1460,14 +1460,21 @@ class AsyncStore:
         if self._db is None:
             return artifact_id
         async with self._db.execute(
-            """SELECT target_id, artifact_type, subject_type, subject_id
+            """SELECT target_id, artifact_type, subject_type, subject_id, status, metadata_json
                FROM research_artifacts
                WHERE artifact_id = ?""",
             (artifact_id,),
         ) as cursor:
             existing = await cursor.fetchone()
         if existing is not None:
-            existing_target, existing_type, existing_subject_type, existing_subject_id = existing
+            (
+                existing_target,
+                existing_type,
+                existing_subject_type,
+                existing_subject_id,
+                existing_status,
+                existing_metadata_json,
+            ) = existing
             if (
                 existing_target != target_id
                 or existing_type != artifact_type
@@ -1477,6 +1484,22 @@ class AsyncStore:
                 raise ValueError(
                     "research artifact_id cannot change target_id, artifact_type, "
                     "subject_type, or subject_id"
+                )
+            existing_metadata = self._json_loads(existing_metadata_json)
+            incoming_metadata = row.get("metadata")
+            incoming_metadata = incoming_metadata if isinstance(incoming_metadata, dict) else {}
+            if (
+                existing_type in {"merge_decision", "split_decision"}
+                and existing_status == "resolved"
+                and existing_metadata.get("applied_operation_id")
+                and (
+                    status != "resolved"
+                    or incoming_metadata.get("applied_operation_id")
+                    != existing_metadata.get("applied_operation_id")
+                )
+            ):
+                raise ValueError(
+                    "applied research artifact cannot be reopened or detach applied operation"
                 )
         if not subject_id:
             raise ValueError("research artifact canonical_event subject_id is required")
@@ -1814,6 +1837,10 @@ class AsyncStore:
                 target_id=target_id,
                 decision_artifact_id=decision_artifact_id,
                 artifact=plan["artifact"],
+                survivor_canonical_event_id=survivor_id,
+                merged_canonical_event_ids=merged_ids,
+                title_override=title_override,
+                summary_override=summary_override,
             )
             if existing_operation is not None:
                 await self._db.commit()
@@ -2018,7 +2045,11 @@ class AsyncStore:
                 f"{artifact['subject_id']} != {survivor_canonical_event_id}"
             )
         candidate_ids = artifact["metadata"].get("candidate_canonical_event_ids", [])
-        candidate_set = set(candidate_ids if isinstance(candidate_ids, list) else [])
+        candidate_ids = candidate_ids if isinstance(candidate_ids, list) else []
+        candidate_set = AsyncStore._canonical_merge_event_ids(candidate_ids)
+        merged_set = AsyncStore._canonical_merge_event_ids(merged_canonical_event_ids)
+        if candidate_set != merged_set:
+            raise ValueError("merge decision artifact candidates must match merged ids")
         missing = [
             canonical_event_id
             for canonical_event_id in merged_canonical_event_ids
@@ -2033,13 +2064,16 @@ class AsyncStore:
         self,
         canonical_event_ids: Sequence[str],
     ) -> dict[str, int]:
+        assert self._db is not None
         counts: dict[str, int] = {}
         for canonical_event_id in canonical_event_ids:
-            rows = await self._db.execute_fetchall(
-                """SELECT COUNT(*)
+            rows = list(
+                await self._db.execute_fetchall(
+                    """SELECT COUNT(*)
                    FROM event_mentions
                    WHERE canonical_event_id = ?""",
-                (canonical_event_id,),
+                    (canonical_event_id,),
+                )
             )
             counts[canonical_event_id] = int(rows[0][0] or 0)
         return counts
@@ -2051,43 +2085,127 @@ class AsyncStore:
         target_id: str,
         decision_artifact_id: str | None,
         artifact: dict[str, Any] | None,
+        survivor_canonical_event_id: str,
+        merged_canonical_event_ids: Sequence[str],
+        title_override: str | None,
+        summary_override: str | None,
     ) -> dict[str, Any] | None:
+        assert self._db is not None
+
+        def ensure_matching(operation: dict[str, Any], operation_label: str) -> dict[str, Any]:
+            if not self._canonical_merge_operation_matches(
+                operation,
+                target_id=target_id,
+                decision_artifact_id=decision_artifact_id,
+                survivor_canonical_event_id=survivor_canonical_event_id,
+                merged_canonical_event_ids=merged_canonical_event_ids,
+                title_override=title_override,
+                summary_override=summary_override,
+            ):
+                raise ValueError(
+                    "applied operation mismatch: "
+                    f"{operation_label} does not match merge artifact {decision_artifact_id}"
+                )
+            return operation
+
         artifact_operation_id = None
         if artifact is not None:
             artifact_operation_id = artifact["metadata"].get("applied_operation_id")
         if artifact_operation_id:
             operation = await self.get_canonical_graph_operation(str(artifact_operation_id))
             if operation is not None:
-                if (
-                    operation["target_id"] != target_id
-                    or operation["operation_type"] != "merge"
-                    or operation["decision_artifact_id"] != decision_artifact_id
-                ):
-                    raise ValueError(
-                        "applied operation mismatch: "
-                        f"{artifact_operation_id} does not match merge artifact "
-                        f"{decision_artifact_id}"
-                    )
-                return operation
+                return ensure_matching(operation, str(artifact_operation_id))
         operation = await self.get_canonical_graph_operation(operation_id)
         if operation is not None:
-            return operation
+            return ensure_matching(operation, operation_id)
         if decision_artifact_id is None:
             return None
-        rows = await self._db.execute_fetchall(
-            """SELECT operation_id, target_id, operation_type, decision_artifact_id,
+        rows = list(
+            await self._db.execute_fetchall(
+                """SELECT operation_id, target_id, operation_type, decision_artifact_id,
                       primary_canonical_event_id, result_canonical_event_id, status,
                       changes_json, warnings_json, metadata_json, created_by, created_at
                FROM canonical_graph_operations
                WHERE target_id = ? AND decision_artifact_id = ?
                LIMIT 1""",
-            (target_id, decision_artifact_id),
+                (target_id, decision_artifact_id),
+            )
         )
         if not rows:
             return None
-        return self._canonical_graph_operation_from_row(rows[0])
+        existing = self._canonical_graph_operation_from_row(rows[0])
+        return ensure_matching(existing, str(existing["operation_id"]))
+
+    @staticmethod
+    def _canonical_merge_event_ids(canonical_event_ids: Sequence[str]) -> list[str]:
+        return sorted({str(item) for item in canonical_event_ids if str(item)})
+
+    @staticmethod
+    def _merge_operation_metadata_ids(metadata: dict[str, Any]) -> list[str]:
+        metadata_ids = metadata.get("merged_canonical_event_ids")
+        if isinstance(metadata_ids, list):
+            return AsyncStore._canonical_merge_event_ids(metadata_ids)
+        events = metadata.get("events", {})
+        if not isinstance(events, dict):
+            return []
+        merged = events.get("merged", [])
+        if not isinstance(merged, list):
+            return []
+        merged_ids = [
+            str(event["canonical_event_id"])
+            for event in merged
+            if isinstance(event, dict) and event.get("canonical_event_id")
+        ]
+        return AsyncStore._canonical_merge_event_ids(merged_ids)
+
+    @staticmethod
+    def _merge_operation_metadata_survivor_id(metadata: dict[str, Any]) -> str | None:
+        metadata_survivor = metadata.get("survivor_canonical_event_id")
+        if metadata_survivor:
+            return str(metadata_survivor)
+        events = metadata.get("events", {})
+        if not isinstance(events, dict):
+            return None
+        survivor = events.get("survivor", {})
+        if not isinstance(survivor, dict):
+            return None
+        survivor_id = survivor.get("canonical_event_id")
+        return str(survivor_id) if survivor_id else None
+
+    @staticmethod
+    def _canonical_merge_operation_matches(
+        operation: dict[str, Any],
+        *,
+        target_id: str,
+        decision_artifact_id: str | None,
+        survivor_canonical_event_id: str,
+        merged_canonical_event_ids: Sequence[str],
+        title_override: str | None,
+        summary_override: str | None,
+    ) -> bool:
+        if (
+            operation["target_id"] != target_id
+            or operation["operation_type"] != "merge"
+            or operation["decision_artifact_id"] != decision_artifact_id
+            or operation["primary_canonical_event_id"] != survivor_canonical_event_id
+            or operation["result_canonical_event_id"] != survivor_canonical_event_id
+        ):
+            return False
+
+        metadata = operation.get("metadata", {})
+        metadata_survivor_id = AsyncStore._merge_operation_metadata_survivor_id(metadata)
+        if metadata_survivor_id is not None and metadata_survivor_id != survivor_canonical_event_id:
+            return False
+        if metadata.get("title_override") != title_override:
+            return False
+        if metadata.get("summary_override") != summary_override:
+            return False
+        metadata_merged_ids = AsyncStore._merge_operation_metadata_ids(metadata)
+        request_merged_ids = AsyncStore._canonical_merge_event_ids(merged_canonical_event_ids)
+        return metadata_merged_ids == request_merged_ids
 
     async def _apply_canonical_merge_plan(self, plan: dict[str, Any]) -> None:
+        assert self._db is not None
         operation_id = plan["operation_id"]
         target_id = plan["target_id"]
         survivor_id = plan["survivor"]["canonical_event_id"]
@@ -2197,6 +2315,8 @@ class AsyncStore:
                 self._json_dumps(
                     {
                         "events": plan["events"],
+                        "survivor_canonical_event_id": survivor_id,
+                        "merged_canonical_event_ids": sorted(merged_ids),
                         "title_override": plan["title_override"],
                         "summary_override": plan["summary_override"],
                     }
@@ -2216,12 +2336,15 @@ class AsyncStore:
         self,
         survivor_canonical_event_id: str,
     ) -> dict[str, Any]:
-        rows = await self._db.execute_fetchall(
-            """SELECT COUNT(*), COUNT(DISTINCT source_id),
+        assert self._db is not None
+        rows = list(
+            await self._db.execute_fetchall(
+                """SELECT COUNT(*), COUNT(DISTINCT source_id),
                       MAX(COALESCE(published_at, updated_at, created_at))
                FROM event_mentions
                WHERE canonical_event_id = ?""",
-            (survivor_canonical_event_id,),
+                (survivor_canonical_event_id,),
+            )
         )
         if not rows:
             return {"mention_count": 0, "source_count": 0, "last_seen_at": None}
@@ -2615,7 +2738,11 @@ class AsyncStore:
                 f"{artifact['subject_id']} != {source_canonical_event_id}"
             )
         candidate_ids = artifact["metadata"].get("affected_mention_ids", [])
-        candidate_set = set(candidate_ids if isinstance(candidate_ids, list) else [])
+        candidate_ids = candidate_ids if isinstance(candidate_ids, list) else []
+        candidate_set = AsyncStore._canonical_split_mention_ids(candidate_ids)
+        affected_set = AsyncStore._canonical_split_mention_ids(affected_mention_ids)
+        if candidate_set != affected_set:
+            raise ValueError("split decision artifact affected mentions must match requested ids")
         missing = [
             mention_id for mention_id in affected_mention_ids if mention_id not in candidate_set
         ]
@@ -2632,14 +2759,17 @@ class AsyncStore:
         affected_mention_ids: Sequence[str],
         source_mentions: Sequence[dict[str, Any]],
     ) -> list[dict[str, Any]]:
+        assert self._db is not None
         rows_by_id: dict[str, dict[str, Any]] = {}
         for mention_id in affected_mention_ids:
-            rows = await self._db.execute_fetchall(
-                """SELECT mention_id, canonical_event_id, event_id, target_id, source_id,
+            rows = list(
+                await self._db.execute_fetchall(
+                    """SELECT mention_id, canonical_event_id, event_id, target_id, source_id,
                           url, title, published_at, metadata_json, created_at, updated_at
                    FROM event_mentions
                    WHERE mention_id = ?""",
-                (mention_id,),
+                    (mention_id,),
+                )
             )
             if not rows:
                 raise ValueError(f"event mention not found: {mention_id}")
@@ -2710,6 +2840,8 @@ class AsyncStore:
         new_title: str | None,
         new_summary: str | None,
     ) -> dict[str, Any] | None:
+        assert self._db is not None
+
         def ensure_matching(operation: dict[str, Any], operation_label: str) -> dict[str, Any]:
             if not self._canonical_split_operation_matches(
                 operation,
@@ -2739,14 +2871,16 @@ class AsyncStore:
             return ensure_matching(operation, operation_id)
         if decision_artifact_id is None:
             return None
-        rows = await self._db.execute_fetchall(
-            """SELECT operation_id, target_id, operation_type, decision_artifact_id,
+        rows = list(
+            await self._db.execute_fetchall(
+                """SELECT operation_id, target_id, operation_type, decision_artifact_id,
                       primary_canonical_event_id, result_canonical_event_id, status,
                       changes_json, warnings_json, metadata_json, created_by, created_at
                FROM canonical_graph_operations
                WHERE target_id = ? AND decision_artifact_id = ?
                LIMIT 1""",
-            (target_id, decision_artifact_id),
+                (target_id, decision_artifact_id),
+            )
         )
         if not rows:
             return None
@@ -2788,6 +2922,7 @@ class AsyncStore:
         ) == AsyncStore._canonical_split_mention_ids(affected_mention_ids)
 
     async def _apply_canonical_split_plan(self, plan: dict[str, Any]) -> None:
+        assert self._db is not None
         operation_id = plan["operation_id"]
         target_id = plan["target_id"]
         source_id = plan["source"]["canonical_event_id"]
