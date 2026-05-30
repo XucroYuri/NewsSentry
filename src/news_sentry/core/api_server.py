@@ -29,7 +29,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -316,6 +316,15 @@ class HeartbeatResponse(BaseModel):
     last_stage: str = ""
     last_at: str = ""
     status: str = ""
+
+
+class CollectorConfigUpdate(BaseModel):
+    """后台自动采集配置更新请求。"""
+
+    enabled: bool | None = None
+    target_ids: list[str] | str | None = None
+    interval_minutes: int | None = Field(default=None, ge=1, le=1440)
+    stage: str | None = None
 
 
 class SourceHealthInfo(BaseModel):
@@ -960,7 +969,7 @@ def _visible_index_event_from_row(
     event = _load_indexed_event_frontmatter(data_dir, target_id, stage, row)
     if event is None:
         event = _event_from_index_row(row)
-    return event
+    return _feed_event_payload(event)
 
 
 async def _visible_index_events_page(
@@ -1096,6 +1105,71 @@ async def _classification_diagnostics_from_store(
         "distribution": distribution,
         "uncategorized_count": distribution.get("uncategorized", 0),
     }
+
+
+def _tag_text(value: Any) -> str:
+    if isinstance(value, dict):
+        for key in ("code", "name", "label", "title"):
+            if key in value and value[key] is not None and value[key] != "":
+                return str(value[key])
+        return ""
+    return "" if value is None or value == "" else str(value)
+
+
+def _event_topic_tags(ev: dict[str, Any]) -> list[str]:
+    raw = ev.get("topic_tags")
+    metadata = ev.get("metadata")
+    if not raw and isinstance(metadata, dict):
+        raw = metadata.get("topic_tags")
+    if isinstance(raw, str):
+        return [tag.strip() for tag in raw.split(",") if tag.strip()][:2]
+    if isinstance(raw, list):
+        return [str(tag) for tag in raw[:2]]
+    return []
+
+
+def _event_flat_tags(ev: dict[str, Any]) -> list[str]:
+    tags: list[str] = []
+    classification = _event_classification(ev)
+    if classification:
+        l0 = classification.get("l0")
+        if l0 is not None and l0 != "":
+            tags.append(str(l0))
+        l1 = classification.get("l1")
+        if isinstance(l1, list):
+            tags.extend(tag for item in l1[:1] if (tag := _tag_text(item)))
+        elif l1 is not None and l1 != "":
+            if tag := _tag_text(l1):
+                tags.append(tag)
+
+    tags.extend(_event_topic_tags(ev))
+    entities = ev.get("nlp_entities") or ev.get("entities") or []
+    if isinstance(entities, list):
+        for entity in entities:
+            name = entity.get("name") if isinstance(entity, dict) else entity
+            if name is not None and name != "":
+                tags.append(str(name))
+                break
+
+    deduped: list[str] = []
+    for tag in tags:
+        if tag not in deduped:
+            deduped.append(tag)
+    return deduped[:4]
+
+
+def _feed_event_payload(ev: dict[str, Any]) -> dict[str, Any]:
+    """为新闻流补充展示字段；不改变 NewsEvent 存储契约。"""
+    event_id = ev.get("event_id") or ev.get("id") or ""
+    source_id = ev.get("source_id") or ""
+    payload = dict(ev)
+    payload["event_id"] = event_id
+    payload.setdefault("id", event_id)
+    payload["display_title"] = ev.get("title_translated") or ev.get("title_original") or event_id
+    payload["score"] = _event_score(ev)
+    payload["source_display_name"] = ev.get("source_display_name") or source_id
+    payload["flat_tags"] = _event_flat_tags(ev)
+    return payload
 
 
 def _load_single_event(data_dir: Path, target_id: str, event_id: str) -> dict[str, Any] | None:
@@ -1526,11 +1600,111 @@ _auto_collector_state: dict[str, Any] = {
     "last_run_at": None,
     "last_run_status": None,
     "last_events_collected": 0,
+    "last_error": None,
+    "next_run_at": None,
     "total_runs": 0,
     "task": None,
 }
 
 _log = logging.getLogger("news_sentry.auto_collector")
+
+_COLLECTOR_STAGES = {"all", "collect", "filter", "judge", "output"}
+
+
+def _collector_config_path() -> Path:
+    """返回本地持久化的采集器配置路径。"""
+    return Path("config/runtime/collector.yaml")
+
+
+def _collector_env_defaults() -> dict[str, Any]:
+    """从环境变量构造采集器默认值。"""
+    try:
+        interval = int(os.environ.get("NEWSSENTRY_COLLECT_INTERVAL", "15"))
+    except ValueError:
+        interval = 15
+    return {
+        "enabled": os.environ.get("NEWSSENTRY_AUTO_COLLECT", "1") == "1",
+        "target_ids": _parse_target_ids(
+            os.environ.get("NEWSSENTRY_TARGET_ID", os.environ.get("TARGET_ID", "all"))
+        ),
+        "interval_minutes": interval,
+        "stage": os.environ.get("NEWSSENTRY_COLLECT_STAGE", "collect"),
+    }
+
+
+def _normalize_collector_config(raw: dict[str, Any]) -> dict[str, Any]:
+    """规范化采集器配置，保证 API 与 YAML 使用同一形状。"""
+    defaults = _collector_env_defaults()
+    data = {**defaults, **{k: v for k, v in raw.items() if v is not None}}
+
+    target_ids_raw = data.get("target_ids", defaults["target_ids"])
+    if isinstance(target_ids_raw, str):
+        target_ids = _parse_target_ids(target_ids_raw)
+    elif isinstance(target_ids_raw, list):
+        target_ids = [str(t).strip() for t in target_ids_raw if str(t).strip()]
+    else:
+        target_ids = defaults["target_ids"]
+
+    stage = str(data.get("stage") or defaults["stage"]).strip().lower()
+    if stage not in _COLLECTOR_STAGES:
+        stage = defaults["stage"] if defaults["stage"] in _COLLECTOR_STAGES else "collect"
+
+    try:
+        interval = int(data.get("interval_minutes", defaults["interval_minutes"]))
+    except (TypeError, ValueError):
+        interval = int(defaults["interval_minutes"])
+    interval = max(1, min(interval, 1440))
+
+    return {
+        "enabled": bool(data.get("enabled")),
+        "target_ids": target_ids,
+        "interval_minutes": interval,
+        "stage": stage,
+    }
+
+
+def _load_collector_config() -> dict[str, Any]:
+    """读取采集器配置；没有 YAML 时使用环境变量默认值。"""
+    path = _collector_config_path()
+    loaded: dict[str, Any] = {}
+    if path.is_file():
+        loaded = _load_yaml_file(path) or {}
+    return _normalize_collector_config(loaded)
+
+
+def _save_collector_config(config: dict[str, Any]) -> None:
+    """持久化采集器配置到 config/runtime/collector.yaml。"""
+    normalized = _normalize_collector_config(config)
+    path = _collector_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write_yaml(path, normalized)
+
+
+def _apply_collector_config(config: dict[str, Any]) -> dict[str, Any]:
+    """应用采集器配置到内存状态并返回规范化结果。"""
+    normalized = _normalize_collector_config(config)
+    _auto_collector_state["enabled"] = normalized["enabled"]
+    _auto_collector_state["target_ids"] = normalized["target_ids"]
+    _auto_collector_state["interval_minutes"] = normalized["interval_minutes"]
+    _auto_collector_state["stage"] = normalized["stage"]
+    return normalized
+
+
+def _collector_payload() -> dict[str, Any]:
+    """返回统一的采集器状态响应。"""
+    return {
+        "enabled": _auto_collector_state["enabled"],
+        "running": _auto_collector_state["running"],
+        "target_ids": _auto_collector_state["target_ids"],
+        "stage": _auto_collector_state["stage"],
+        "interval_minutes": _auto_collector_state["interval_minutes"],
+        "last_run_at": _auto_collector_state["last_run_at"],
+        "last_run_status": _auto_collector_state["last_run_status"],
+        "last_events_collected": _auto_collector_state.get("last_events_collected", 0),
+        "last_error": _auto_collector_state.get("last_error"),
+        "next_run_at": _auto_collector_state.get("next_run_at"),
+        "total_runs": _auto_collector_state["total_runs"],
+    }
 
 
 def _update_collector_run_metrics(contexts: Any) -> None:
@@ -1553,21 +1727,20 @@ async def _auto_collect_loop() -> None:
     通过 NEWSSENTRY_COLLECT_STAGE 控制执行的阶段（默认 collect），
     通过 NEWSSENTRY_TARGET_ID 控制 target 范围（默认 all，逗号分隔或 all）。
     """
-    interval = _auto_collector_state["interval_minutes"] * 60
-    target_ids = _auto_collector_state["target_ids"]
-    stage = _auto_collector_state["stage"]
     _auto_collector_state["running"] = True
     _log.info(
         "自动采集循环启动: targets=%s, stage=%s, interval=%dmin",
-        target_ids,
-        stage,
-        interval // 60,
+        _auto_collector_state["target_ids"],
+        _auto_collector_state["stage"],
+        _auto_collector_state["interval_minutes"],
     )
 
     while _auto_collector_state["enabled"]:
         try:
             from news_sentry.core.async_run import bounded_run_multi_async
 
+            target_ids = _auto_collector_state["target_ids"]
+            stage = _auto_collector_state["stage"]
             run_id = f"auto_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
             _log.info("自动采集开始: run_id=%s, targets=%s", run_id, target_ids)
 
@@ -1580,17 +1753,24 @@ async def _auto_collect_loop() -> None:
 
             _auto_collector_state["last_run_at"] = datetime.now(UTC).isoformat()
             _auto_collector_state["last_run_status"] = "ok"
+            _auto_collector_state["last_error"] = None
             _auto_collector_state["total_runs"] += 1
             _log.info("自动采集完成: run_id=%s", run_id)
-        except Exception:
+        except Exception as exc:
             _auto_collector_state["last_run_at"] = datetime.now(UTC).isoformat()
             _auto_collector_state["last_run_status"] = "error"
+            _auto_collector_state["last_error"] = str(exc)
             _auto_collector_state["total_runs"] += 1
             _log.error("自动采集失败", exc_info=True)
 
+        interval = _auto_collector_state["interval_minutes"] * 60
+        _auto_collector_state["next_run_at"] = (
+            datetime.now(UTC) + timedelta(seconds=interval)
+        ).isoformat()
         await asyncio.sleep(interval)
 
     _auto_collector_state["running"] = False
+    _auto_collector_state["next_run_at"] = None
     _log.info("自动采集循环停止")
 
 
@@ -1671,6 +1851,19 @@ async def _get_target_store(target_id: str) -> AsyncStore | None:
         return store
 
     return None
+
+
+async def _source_health_records_for_target(target_id: str) -> list[dict[str, Any]]:
+    """按优先级读取 target 信源健康：target SQLite、全局 SQLite、真实 memory YAML。"""
+    records: list[dict[str, Any]] = []
+    target_store = await _get_target_store(target_id)
+    if target_store is not None:
+        records = await target_store.get_all_source_health()
+    if not records and _store is not None:
+        records = await _store.get_all_source_health()
+    if not records:
+        records = _load_memory_source_health_records(target_id)
+    return _filter_source_health_records(target_id, records)
 
 
 async def _restore_sessions() -> None:
@@ -1784,6 +1977,7 @@ def create_app(
     elif not auto_store:
         _store = None  # 显式禁用，测试环境重置
     _config_cache = ConfigCache(ttl=60, maxsize=128)
+    _apply_collector_config(_load_collector_config())
 
     # ── 公开端点（无需认证）─────────────────────────────
 
@@ -1794,16 +1988,52 @@ def create_app(
     @app.get("/api/v1/collector/status")
     async def collector_status() -> dict[str, Any]:
         """返回后台自动采集循环的状态。"""
-        return {
-            "enabled": _auto_collector_state["enabled"],
-            "running": _auto_collector_state["running"],
-            "target_ids": _auto_collector_state["target_ids"],
-            "stage": _auto_collector_state["stage"],
-            "interval_minutes": _auto_collector_state["interval_minutes"],
-            "last_run_at": _auto_collector_state["last_run_at"],
-            "last_run_status": _auto_collector_state["last_run_status"],
-            "total_runs": _auto_collector_state["total_runs"],
-        }
+        return _collector_payload()
+
+    @app.get("/api/v1/collector/config")
+    async def collector_config(
+        _user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """返回可编辑的自动采集配置与当前运行状态。"""
+        return _collector_payload()
+
+    @app.put("/api/v1/collector/config")
+    async def update_collector_config(
+        config: CollectorConfigUpdate,
+        _user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """更新自动采集配置并持久化到 config/runtime/collector.yaml。"""
+        current = _collector_payload()
+        update = config.model_dump(exclude_none=True)
+        normalized = _apply_collector_config({**current, **update})
+        _save_collector_config(normalized)
+        return _collector_payload()
+
+    @app.post("/api/v1/collector/start")
+    async def start_collector(
+        _user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """启用自动采集；非测试生命周期下会启动后台循环。"""
+        normalized = _apply_collector_config({**_collector_payload(), "enabled": True})
+        _save_collector_config(normalized)
+        task = _auto_collector_state.get("task")
+        if not _skip_lifespan and (task is None or task.done()):
+            _auto_collector_state["task"] = asyncio.create_task(_auto_collect_loop())
+        return _collector_payload()
+
+    @app.post("/api/v1/collector/stop")
+    async def stop_collector(
+        _user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """停用自动采集并取消正在等待的后台循环。"""
+        normalized = _apply_collector_config({**_collector_payload(), "enabled": False})
+        _save_collector_config(normalized)
+        task = _auto_collector_state.get("task")
+        if task is not None and not task.done():
+            task.cancel()
+        _auto_collector_state["running"] = False
+        _auto_collector_state["next_run_at"] = None
+        return _collector_payload()
 
     @app.get("/api/v1/collector/diagnostics")
     async def collector_diagnostics() -> dict[str, Any]:
@@ -3212,9 +3442,7 @@ def create_app(
         target_id: str = Query(..., description="目标标识"),
         user: dict[str, Any] = Depends(get_current_user),
     ) -> SourceHealthListResponse:
-        if _store is None:
-            return SourceHealthListResponse(sources=[])
-        records = await _store.get_all_source_health()
+        records = await _source_health_records_for_target(target_id)
         return SourceHealthListResponse(sources=[SourceHealthInfo(**r) for r in records])
 
     @app.post("/api/v1/runs/trigger", response_model=TriggerResponse)

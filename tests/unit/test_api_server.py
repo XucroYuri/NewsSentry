@@ -210,6 +210,9 @@ class TestAPIServer:
         monkeypatch.chdir(tmp_path)
         app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
         client = TestClient(app, base_url="http://127.0.0.1")
+        token_resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert token_resp.status_code == 200
+        client.headers["Authorization"] = f"Bearer {token_resp.json()['access_token']}"
 
         stop_resp = client.post("/api/v1/collector/stop")
         assert stop_resp.status_code == 200
@@ -904,6 +907,12 @@ class TestAPIServerSQLite:
         await client.aclose()
         await store.close()
 
+    async def _authorize_dev_client(self, client) -> None:
+        """给手工创建的 AsyncClient 设置 dev mode Bearer token。"""
+        token_resp = await client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert token_resp.status_code == 200
+        client.headers["Authorization"] = f"Bearer {token_resp.json()['access_token']}"
+
     async def test_stats_with_sqlite(
         self,
         client_with_store,
@@ -986,6 +995,7 @@ class TestAPIServerSQLite:
             app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
                 resp = await client.get("/api/v1/events/feed", params={"target_id": "italy"})
 
             assert resp.status_code == 200
@@ -1067,6 +1077,7 @@ class TestAPIServerSQLite:
             app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
                 resp = await client.get("/api/v1/events/feed", params={"target_id": "italy"})
 
             assert resp.status_code == 200
@@ -1147,6 +1158,7 @@ class TestAPIServerSQLite:
             app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
                 resp = await client.get("/api/v1/events/feed", params={"target_id": "italy"})
 
             assert resp.status_code == 200
@@ -1235,6 +1247,7 @@ class TestAPIServerSQLite:
             app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
                 resp = await client.get(
                     "/api/v1/events/feed",
                     params={"target_id": "italy", "page": 1, "page_size": 1},
@@ -1336,6 +1349,7 @@ class TestAPIServerSQLite:
             app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
                 resp = await client.get(
                     "/api/v1/events/feed",
                     params={"target_id": "italy", "page": 1, "page_size": 1},
@@ -1409,6 +1423,7 @@ class TestAPIServerSQLite:
             app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
                 resp = await client.get(
                     f"/api/v1/events/{requested_event}",
                     params={"target_id": "italy"},
@@ -1471,6 +1486,7 @@ class TestAPIServerSQLite:
             app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
                 resp = await client.get(
                     f"/api/v1/events/{event_id}",
                     params={"target_id": "italy"},
@@ -1530,6 +1546,7 @@ class TestAPIServerSQLite:
             app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
                 resp = await client.get(
                     f"/api/v1/events/{event_id}",
                     params={"target_id": "italy"},
@@ -1595,6 +1612,7 @@ class TestAPIServerSQLite:
             app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
                 resp = await client.get(
                     f"/api/v1/events/{event_id}",
                     params={"target_id": "italy"},
@@ -1661,6 +1679,7 @@ class TestAPIServerSQLite:
             app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
                 resp = await client.get(
                     f"/api/v1/events/{event_id}",
                     params={"target_id": "italy"},
@@ -1724,6 +1743,7 @@ class TestAPIServerSQLite:
             app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
                 resp = await client.get(
                     f"/api/v1/events/{stale_event}",
                     params={"target_id": "italy"},
@@ -1789,6 +1809,7 @@ class TestAPIServerSQLite:
             app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
                 resp = await client.get("/api/v1/events", params={"target_id": "italy"})
 
             assert resp.status_code == 200
@@ -1852,6 +1873,7 @@ class TestAPIServerSQLite:
             app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as client:
+                await self._authorize_dev_client(client)
                 resp = await client.get("/api/v1/events/feed", params={"target_id": "italy"})
 
             assert resp.status_code == 200
@@ -2148,6 +2170,12 @@ class TestOpsEndpoints:
         (japan_sources / "nhk.yaml").write_text("source_id: nhk\n", encoding="utf-8")
 
         class FakeStore:
+            async def create_session(self, *args, **kwargs) -> None:
+                return None
+
+            async def get_user(self, username: str) -> None:
+                return None
+
             async def get_all_source_health(self) -> list[dict[str, object]]:
                 return [
                     {
@@ -2166,6 +2194,9 @@ class TestOpsEndpoints:
 
         app = create_app(data_dir=tmp_path, store=FakeStore(), skip_lifespan=True)
         client = TestClient(app, base_url="http://127.0.0.1")
+        token_resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert token_resp.status_code == 200
+        client.headers["Authorization"] = f"Bearer {token_resp.json()['access_token']}"
 
         resp = client.get("/api/v1/sources/health", params={"target_id": "italy"})
 
@@ -2186,6 +2217,12 @@ class TestOpsEndpoints:
         )
 
         class FakeStore:
+            async def create_session(self, *args, **kwargs) -> None:
+                return None
+
+            async def get_user(self, username: str) -> None:
+                return None
+
             async def get_all_source_health(self) -> list[dict[str, object]]:
                 return [
                     {
@@ -2205,6 +2242,9 @@ class TestOpsEndpoints:
 
         app = create_app(data_dir=tmp_path, store=FakeStore(), skip_lifespan=True)
         client = TestClient(app, base_url="http://127.0.0.1")
+        token_resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert token_resp.status_code == 200
+        client.headers["Authorization"] = f"Bearer {token_resp.json()['access_token']}"
 
         resp = client.get("/api/v1/sources/health", params={"target_id": "italy"})
 
