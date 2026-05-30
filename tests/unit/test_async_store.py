@@ -2336,6 +2336,58 @@ async def test_canonical_merge_dry_run_apply_and_idempotency(store: AsyncStore):
 
 
 @pytest.mark.asyncio
+async def test_canonical_merge_rejects_artifact_applied_operation_scope_mismatch(
+    store: AsyncStore,
+):
+    await _seed_merge_graph(store)
+    unrelated_operation_id = await store.record_canonical_graph_operation(
+        {
+            "operation_id": "cgo-france-unrelated-merge",
+            "target_id": "france",
+            "operation_type": "merge",
+            "decision_artifact_id": "ra_france_unrelated_merge",
+            "primary_canonical_event_id": "ce_france_merge_duplicate",
+            "result_canonical_event_id": "ce_france_merge_duplicate",
+            "status": "applied",
+            "changes": [],
+            "warnings": [],
+            "metadata": {},
+            "created_by": "local-user",
+        }
+    )
+    await store.upsert_research_artifact(
+        {
+            "artifact_id": "ra_italy_merge_apply",
+            "target_id": "italy",
+            "artifact_type": "merge_decision",
+            "title": "Merge",
+            "body": "Same fact",
+            "subject_type": "canonical_event",
+            "subject_id": "ce_italy_merge_survivor",
+            "canonical_event_ids": [
+                "ce_italy_merge_survivor",
+                "ce_italy_merge_duplicate",
+            ],
+            "status": "resolved",
+            "metadata": {
+                "decision": "proposed",
+                "candidate_canonical_event_ids": ["ce_italy_merge_duplicate"],
+                "applied_operation_id": unrelated_operation_id,
+            },
+        }
+    )
+
+    with pytest.raises(ValueError, match="applied operation mismatch"):
+        await store.apply_canonical_merge(
+            target_id="italy",
+            survivor_canonical_event_id="ce_italy_merge_survivor",
+            merged_canonical_event_ids=["ce_italy_merge_duplicate"],
+            decision_artifact_id="ra_italy_merge_apply",
+            created_by="local-user",
+        )
+
+
+@pytest.mark.asyncio
 async def test_canonical_merge_reversed_merged_ids_reuses_operation_and_relations(
     store: AsyncStore,
 ):
