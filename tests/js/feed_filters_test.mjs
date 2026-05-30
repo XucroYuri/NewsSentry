@@ -45,6 +45,14 @@ const groups = [
         classification: { l0: "economics" },
       },
       {
+        event_id: "evt-society",
+        display_title: "Healthcare and school services face local pressure",
+        source_display_name: "ANSA",
+        score: 58,
+        flat_tags: ["health"],
+        classification: { l0: "health" },
+      },
+      {
         event_id: "evt-energy",
         display_title: "Energy transition investment expands",
         source_display_name: "Il Sole 24 Ore",
@@ -59,6 +67,8 @@ const groups = [
         score: 68,
         flat_tags: ["security"],
         classification: { l0: "security" },
+        story_id: "story-risk",
+        clustering: { cluster_type: "same_event", cluster_size: 2 },
       },
       {
         event_id: "evt-war-title",
@@ -67,6 +77,14 @@ const groups = [
         score: 65,
         flat_tags: ["international"],
         classification: { l0: "international" },
+      },
+      {
+        event_id: "evt-culture",
+        display_title: "Vatican heritage exhibition opens in Rome",
+        source_display_name: "ANSA",
+        score: 55,
+        flat_tags: ["vatican"],
+        classification: { l0: "culture" },
       },
     ],
   },
@@ -83,9 +101,11 @@ assert.equal(
 assert.equal(eventMatchesChannel(groups[0].events[1], "tech"), true);
 assert.equal(eventMatchesChannel(groups[0].events[1], "risk"), false);
 assert.equal(eventMatchesChannel(groups[0].events[2], "industry"), true);
-assert.equal(eventMatchesChannel(groups[0].events[3], "industry"), true);
-assert.equal(eventMatchesChannel(groups[0].events[4], "risk"), true);
+assert.equal(eventMatchesChannel(groups[0].events[3], "society"), true);
+assert.equal(eventMatchesChannel(groups[0].events[4], "environment"), true);
 assert.equal(eventMatchesChannel(groups[0].events[5], "risk"), true);
+assert.equal(eventMatchesChannel(groups[0].events[5], "clusters"), true);
+assert.equal(eventMatchesChannel(groups[0].events[6], "risk"), true);
 assert.equal(
   eventMatchesChannel({
     classification: { l0: "economy", l1: ["trade"] },
@@ -138,28 +158,51 @@ assert.equal(policyGroups[0].events[0].event_id, "evt-policy");
 const industryGroups = filterGroups(groups, { channelId: "industry", query: "" });
 assert.equal(countEvents(industryGroups), 2);
 
+const societyGroups = filterGroups(groups, { channelId: "society", query: "" });
+assert.equal(countEvents(societyGroups), 1);
+
+const clusterGroups = filterGroups(groups, { channelId: "clusters", query: "" });
+assert.equal(countEvents(clusterGroups), 1);
+
 const visibleChannels = channelsWithCounts(groups, { currentChannel: "featured" });
 assert.deepEqual(
   visibleChannels.map((channel) => [channel.id, channel.count]),
   [
-    ["all", 6],
+    ["all", 8],
     ["featured", 2],
     ["policy", 1],
     ["industry", 2],
     ["tech", 1],
     ["risk", 2],
+    ["society", 1],
+    ["environment", 1],
+    ["international", 1],
+    ["culture", 1],
+    ["clusters", 1],
     ["china", 1],
+  ],
+);
+assert.deepEqual(
+  channelsWithCounts(groups, { currentChannel: "all", maxSecondaryChannels: 5 }).map((channel) => [channel.id, channel.count]),
+  [
+    ["all", 8],
+    ["featured", 2],
+    ["policy", 1],
+    ["industry", 2],
+    ["tech", 1],
+    ["risk", 2],
+    ["society", 1],
   ],
 );
 const currentEmptyChannels = channelsWithCounts(groups, { currentChannel: "missing-channel" });
 assert.equal(currentEmptyChannels.some((channel) => channel.id === "missing-channel"), false);
 const noTechGroups = [{ date: "2026-05-27", events: [groups[0].events[2]] }];
 assert.deepEqual(
-  channelsWithCounts(noTechGroups, { currentChannel: "all" }).map((channel) => channel.id),
+  channelsWithCounts(noTechGroups, { currentChannel: "all", maxSecondaryChannels: 5 }).map((channel) => channel.id),
   ["all", "featured", "industry"],
 );
 assert.deepEqual(
-  channelsWithCounts(noTechGroups, { currentChannel: "tech" }).map((channel) => channel.id),
+  channelsWithCounts(noTechGroups, { currentChannel: "tech", maxSecondaryChannels: 5 }).map((channel) => channel.id),
   ["all", "featured", "industry", "tech"],
 );
 

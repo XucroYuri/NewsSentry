@@ -81,6 +81,51 @@ const CHANNEL_TERM_MAP = {
     "bri_italy",
     "trade_china_italy",
   ],
+  society: [
+    "society",
+    "health",
+    "education",
+    "labor",
+    "welfare",
+    "housing",
+    "immigration",
+    "demographics",
+    "culture-society",
+    "culture_society",
+  ],
+  environment: [
+    "environment",
+    "environment-energy",
+    "environment_energy",
+    "energy-transition",
+    "energy_transition",
+    "climate",
+    "weather",
+    "disaster",
+    "agriculture",
+  ],
+  international: [
+    "international-relations",
+    "international",
+    "diplomacy",
+    "eu-affairs",
+    "nato",
+    "sanctions",
+    "war",
+    "ukraine",
+    "middle-east",
+    "foreign-policy",
+  ],
+  culture: [
+    "culture",
+    "religion",
+    "vatican",
+    "heritage",
+    "media",
+    "sports",
+    "entertainment",
+    "tourism",
+  ],
 };
 
 const CANONICAL_TERM_ALIASES = {
@@ -93,6 +138,8 @@ const CANONICAL_TERM_ALIASES = {
   political: "politics",
   technology: "tech",
   energy_transition: "energy-transition",
+  environment_energy: "environment",
+  culture_society: "society",
 };
 
 export const CHANNELS = [
@@ -132,6 +179,31 @@ export const CHANNELS = [
       "ucraina",
       "ukraine",
     ],
+  },
+  {
+    id: "society",
+    label: "社会民生",
+    terms: CHANNEL_TERM_MAP.society,
+  },
+  {
+    id: "environment",
+    label: "环境能源",
+    terms: CHANNEL_TERM_MAP.environment,
+  },
+  {
+    id: "international",
+    label: "国际外交",
+    terms: CHANNEL_TERM_MAP.international,
+  },
+  {
+    id: "culture",
+    label: "文化社会",
+    terms: CHANNEL_TERM_MAP.culture,
+  },
+  {
+    id: "clusters",
+    label: "聚类线索",
+    terms: [],
   },
   { id: "china", label: "中国相关", terms: CHANNEL_TERM_MAP.china },
 ];
@@ -196,11 +268,16 @@ export function eventMatchesChannel(ev, channelId) {
   if (channelId === "featured") {
     return score >= 70 || recommendation === "publish" || recommendation === "review";
   }
+  if (channelId === "clusters") {
+    const clusterSize = Number(ev.clustering?.cluster_size || ev.metadata?.clustering?.cluster_size || 0);
+    const clusterType = ev.clustering?.cluster_type || ev.metadata?.clustering?.cluster_type || "";
+    return Boolean(ev.story_id || ev.cluster_id) && (clusterSize > 1 || clusterType === "same_event" || clusterType === "storyline");
+  }
   if (channelId === "china" && Number(ev.china_relevance || 0) >= 50) {
     return true;
   }
   const channel = CHANNELS.find((item) => item.id === channelId);
-  if (!channel) return true;
+  if (!channel) return false;
   const terms = eventTerms(ev);
   if (channelId === "china" && CHINA_TEXT_TERMS.some((term) => eventText(ev).includes(term))) {
     return true;
@@ -248,15 +325,34 @@ export function countEvents(groups) {
   return (groups || []).reduce((sum, group) => sum + (group.events || []).length, 0);
 }
 
-export function channelsWithCounts(groups, { currentChannel = "all", includeEmpty = false } = {}) {
-  return CHANNELS.map((channel) => {
+export function channelsWithCounts(
+  groups,
+  { currentChannel = "all", includeEmpty = false, maxSecondaryChannels = null } = {},
+) {
+  const countedChannels = CHANNELS.map((channel) => {
     const channelGroups = filterGroups(groups, { channelId: channel.id, query: "" });
     return { ...channel, count: countEvents(channelGroups) };
-  }).filter((channel) => (
+  });
+  const visibleChannels = countedChannels.filter((channel) => (
     includeEmpty
     || channel.id === "all"
     || channel.id === "featured"
     || channel.id === currentChannel
     || channel.count > 0
   ));
+  if (!Number.isFinite(Number(maxSecondaryChannels)) || Number(maxSecondaryChannels) <= 0) {
+    return visibleChannels;
+  }
+  const fixed = visibleChannels.filter((channel) => channel.id === "all" || channel.id === "featured");
+  const rest = visibleChannels.filter((channel) => channel.id !== "all" && channel.id !== "featured");
+  const current = rest.find((channel) => channel.id === currentChannel);
+  const ranked = rest
+    .filter((channel) => channel.id !== currentChannel)
+    .sort((a, b) => (b.count - a.count) || (CHANNELS.findIndex((item) => item.id === a.id) - CHANNELS.findIndex((item) => item.id === b.id)))
+    .slice(0, Number(maxSecondaryChannels));
+  const merged = [...fixed, ...ranked];
+  if (current && !merged.some((channel) => channel.id === current.id)) {
+    merged.push(current);
+  }
+  return merged.sort((a, b) => CHANNELS.findIndex((item) => item.id === a.id) - CHANNELS.findIndex((item) => item.id === b.id));
 }
