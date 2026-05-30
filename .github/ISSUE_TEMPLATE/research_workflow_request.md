@@ -5,7 +5,7 @@ title: "[Research] "
 labels: research-workflow, enhancement
 ---
 
-## Research workflow area
+## Research Workflow Area
 
 - [ ] Review queue
 - [ ] Evidence and source traceability

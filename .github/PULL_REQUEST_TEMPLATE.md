@@ -29,12 +29,12 @@ Describe what this PR changes in News Sentry and why.
 - [ ] Relevant JS tests pass
 - [ ] Documentation links were checked when docs changed
 
-## Canonical contracts
+## Canonical Contracts
 
 - [ ] I checked `docs/contracts-canonical.md` if this changes schema, pipeline stage, score semantics, taxonomy, source lifecycle, or storage directories.
 - [ ] I added or updated tests for data contract behavior when needed.
 
-## Sensitive data
+## Sensitive Data
 
 - [ ] No API keys, cookies, tokens, browser profiles, `.env` files, local runtime data, private source credentials, or `.omx` state files are included.
 

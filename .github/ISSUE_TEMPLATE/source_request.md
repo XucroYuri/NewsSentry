@@ -9,7 +9,7 @@ labels: source, enhancement
 
 Describe the source or monitoring target you want News Sentry to support.
 
-## Source region
+## Source Region
 
 - Country or region:
 - Language:
