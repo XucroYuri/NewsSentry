@@ -51,4 +51,10 @@ for (const asset of manifest.assets.filter((item) => item.startsWith("/"))) {
   );
 }
 
+assert.doesNotMatch(
+  swJs,
+  /if \(_buildManifestPromise\) return _buildManifestPromise/,
+  "service worker should not keep a stale build manifest promise for its whole lifetime",
+);
+
 console.log("static build manifest tests passed");
