@@ -58,7 +58,7 @@ The important distinction is that a news article is treated as an **event mentio
 | Multilingual news monitoring | Configured targets for Italy, Japan, Germany, France, and English China-watch coverage |
 | RSS/API/OpenCLI collection | Zero-token collection from feeds, APIs, websites, and optional tool adapters |
 | Source health | Track source availability, runtime diagnostics, stale feeds, and source lifecycle |
-| AI judgment | Score news value, China relevance, sentiment, and confidence with rule-first fallback |
+| AI judgment | Score news value, China relevance, sentiment, and confidence with rule-first routing and AI upgrade |
 | Canonical event graph | Separate real-world events from source mentions, relations, taxonomy, and entities |
 | Professional research workflows | Review queues, annotations, merge/split decisions, and research artifacts |
 | Local-first deployment | Run as CLI, FastAPI web UI, desktop wrapper, Docker, or future cloud worker |
@@ -353,8 +353,8 @@ sudo systemctl enable --now news-sentry
 | RSS | feedparser 6.0+ | RSS/Atom parsing |
 | API | FastAPI 0.110+ | REST API + OpenAPI 3.1 |
 | Config | PyYAML 6.0+ | Full YAML config-driven |
-| Storage | Markdown + YAML | Obsidian-compatible |
-| Testing | pytest 8.0+ | 1251 tests / 92% coverage |
+| Storage | Markdown/YAML + SQLite (aiosqlite) | File protocol plus async index/storage |
+| Testing | pytest 8.0+ | Broad regression suite with coverage tracking |
 
 ---
 
@@ -372,7 +372,7 @@ make eval           # Run evaluation set
 **Quality gates:**
 - `ruff check` — 0 errors
 - `mypy —strict` — 0 issues
-- `pytest` — 1251 passed
+- `pytest` — project test suite passes
 
 ---
 

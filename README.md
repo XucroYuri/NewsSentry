@@ -356,10 +356,10 @@ sudo systemctl enable --now news-sentry
 | HTTP | httpx 0.27+ | SOCKS5 代理支持 |
 | RSS | feedparser 6.0+ | RSS/Atom 解析 |
 | API | FastAPI 0.110+ | REST API + OpenAPI 3.1 |
-| 存储 | aiosqlite | SQLite WAL 异步存储 |
+| 存储 | Markdown/YAML + SQLite (aiosqlite) | 文件协议 + 异步索引/存储 |
 | 配置 | PyYAML 6.0+ | 全 YAML 配置驱动 |
 | 缓存 | cachetools | LRU 缓存 + TTL |
-| 测试 | pytest 8.0+ | 1629 tests / 92% coverage |
+| 测试 | pytest 8.0+ | 广泛回归测试集 + 覆盖率跟踪 |
 
 ---
 
@@ -377,7 +377,7 @@ make eval          # 运行评估集
 **质量门禁：**
 - `ruff check` — 0 errors
 - `mypy —strict` — 0 issues
-- `pytest` — 1629 passed
+- `pytest` — 项目测试套件通过
 
 ---
 
