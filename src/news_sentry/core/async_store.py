@@ -1375,6 +1375,8 @@ class AsyncStore:
             raise ValueError(f"Unsupported research artifact type: {artifact_type}")
         if status not in _RESEARCH_ARTIFACT_STATUSES:
             raise ValueError(f"Unsupported research artifact status: {status}")
+        if subject_type != "canonical_event":
+            raise ValueError("research artifact subject_type must be canonical_event")
         if self._db is None:
             return artifact_id
         async with self._db.execute(
@@ -1396,21 +1398,20 @@ class AsyncStore:
                     "research artifact_id cannot change target_id, artifact_type, "
                     "subject_type, or subject_id"
                 )
-        if subject_type == "canonical_event":
-            if not subject_id:
-                raise ValueError("research artifact canonical_event subject_id is required")
-            async with self._db.execute(
-                "SELECT target_id FROM canonical_events WHERE canonical_event_id = ?",
-                (subject_id,),
-            ) as cursor:
-                subject = await cursor.fetchone()
-            if subject is None:
-                raise ValueError(f"research artifact canonical_event not found: {subject_id}")
-            if subject[0] != target_id:
-                raise ValueError(
-                    "research artifact canonical_event target mismatch: "
-                    f"{subject_id} belongs to {subject[0]}, not {target_id}"
-                )
+        if not subject_id:
+            raise ValueError("research artifact canonical_event subject_id is required")
+        async with self._db.execute(
+            "SELECT target_id FROM canonical_events WHERE canonical_event_id = ?",
+            (subject_id,),
+        ) as cursor:
+            subject = await cursor.fetchone()
+        if subject is None:
+            raise ValueError(f"research artifact canonical_event not found: {subject_id}")
+        if subject[0] != target_id:
+            raise ValueError(
+                "research artifact canonical_event target mismatch: "
+                f"{subject_id} belongs to {subject[0]}, not {target_id}"
+            )
         canonical_event_ids = row.get("canonical_event_ids")
         if canonical_event_ids is None:
             canonical_event_ids = row.get("canonical_event_ids_json", [])
@@ -1489,7 +1490,7 @@ class AsyncStore:
                  AND (? IS NULL OR subject_id = ?)
                  AND (? IS NULL OR artifact_type = ?)
                  AND (? IS NULL OR status = ?)
-               ORDER BY updated_at DESC
+               ORDER BY updated_at DESC, created_at DESC, artifact_id DESC
                LIMIT ? OFFSET ?""",
             (
                 target_id,
