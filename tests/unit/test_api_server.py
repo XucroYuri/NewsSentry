@@ -4487,7 +4487,11 @@ def _make_canonical_client(tmp_path: Path) -> tuple[TestClient, AsyncStore]:
     store = AsyncStore(tmp_path / "canonical_api.sqlite3")
     asyncio.run(store.initialize())
     app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
-    return TestClient(app), store
+    client = TestClient(app)
+    token_resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+    assert token_resp.status_code == 200
+    client.headers["Authorization"] = f"Bearer {token_resp.json()['access_token']}"
+    return client, store
 
 
 @pytest.fixture
