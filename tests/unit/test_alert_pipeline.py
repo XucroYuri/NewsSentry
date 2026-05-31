@@ -1034,6 +1034,55 @@ class TestSmartAlerts:
         assert len(store.saved_alerts) == 1
 
     @pytest.mark.asyncio
+    async def test_smart_alerts_cap_chain_update_alerts_per_check(self) -> None:
+        """链更新告警需要有单轮上限，避免大 target 的 alert_history 膨胀。"""
+
+        class FakeStore:
+            def __init__(self) -> None:
+                self.saved_alerts = []
+
+            async def get_recent_links(
+                self,
+                target_id,
+                hours=24,
+                limit=500,
+                since_run_started_at=None,
+            ):
+                return [
+                    {
+                        "source_event_id": f"source-{idx}",
+                        "target_event_id": f"target-{idx}",
+                        "link_type": "followup",
+                        "strength": 0.95,
+                        "target_id": target_id,
+                        "title_original": f"Event {idx}",
+                    }
+                    for idx in range(100)
+                ]
+
+            async def get_topic_daily_counts(self, target_id, days=14):
+                return []
+
+            async def get_top_topics(self, target_id, days=14, limit=10):
+                return []
+
+            async def query_entities(self, target_id=None, min_mentions=2, limit=20):
+                return []
+
+            async def save_alert_history(self, target_id, alerts):
+                self.saved_alerts = alerts
+                return len(alerts)
+
+        store = FakeStore()
+        pipeline = AlertPipeline([])
+
+        alerts = await pipeline.check_smart_alerts(store, "china-watch-en")
+
+        chain_alerts = [alert for alert in alerts if alert["type"] == "chain_update"]
+        assert len(chain_alerts) == 25
+        assert len(store.saved_alerts) == 25
+
+    @pytest.mark.asyncio
     async def test_smart_alerts_no_exception_on_empty(self, tmp_path: Path) -> None:
         """空数据库不抛异常。"""
         store = AsyncStore(tmp_path / "state.db")

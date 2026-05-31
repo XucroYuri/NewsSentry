@@ -42,6 +42,8 @@ class AlertPipeline:
         _alerted: 已告警事件 ID → 时间戳映射
     """
 
+    _MAX_CHAIN_UPDATE_ALERTS_PER_CHECK = 25
+
     def __init__(
         self,
         destinations: list[dict[str, Any]],
@@ -226,7 +228,7 @@ class AlertPipeline:
                 strongest_followups.values(),
                 key=lambda item: float(item["strength"]),
                 reverse=True,
-            ):
+            )[: self._MAX_CHAIN_UPDATE_ALERTS_PER_CHECK]:
                 title = link.get("title_original") or "未知事件"
                 chain_root_id = link["source_event_id"]
                 linked_event_id = link["target_event_id"]
