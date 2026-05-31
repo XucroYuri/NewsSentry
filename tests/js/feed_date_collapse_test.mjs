@@ -39,6 +39,7 @@ const event = {
 };
 
 const expanded = renderTimeline("2026-05-31", [event], {}, { targetId: "italy", collapsedDates: new Set() });
+assert.match(expanded, /<div class="feed-date-header" data-date="2026-05-31">/);
 assert.match(expanded, /<button[^>]+class="feed-date-toggle"/);
 assert.match(expanded, /aria-expanded="true"/);
 assert.doesNotMatch(expanded, /feed-date-content feed-timeline" hidden/);

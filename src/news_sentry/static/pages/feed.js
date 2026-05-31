@@ -309,7 +309,7 @@ function writeCollapsedDates(targetId, collapsedDates) {
 function renderDateHeader(date, events, collapsed) {
   const dateDisplay = displayDate(date);
   const count = Array.isArray(events) ? events.length : 0;
-  return `<div class="feed-date-header">
+  return `<div class="feed-date-header" data-date="${escapeHtml(date)}">
     <div class="feed-date-line"></div>
     <button class="feed-date-toggle" type="button" data-date="${escapeHtml(date)}" aria-expanded="${collapsed ? "false" : "true"}">
       <span class="feed-date-caret" aria-hidden="true"></span>
@@ -544,9 +544,9 @@ export async function renderFeedTab(container, options = {}) {
       publicMode,
       collapsedDates,
     })).join("");
-    body.querySelectorAll(".feed-date-toggle").forEach((button) => {
-      button.addEventListener("click", () => {
-        const date = button.dataset.date;
+    body.querySelectorAll(".feed-date-header").forEach((header) => {
+      header.addEventListener("click", () => {
+        const date = header.dataset.date || header.querySelector(".feed-date-toggle")?.dataset.date;
         if (!date) return;
         if (collapsedDates.has(date)) collapsedDates.delete(date);
         else collapsedDates.add(date);
