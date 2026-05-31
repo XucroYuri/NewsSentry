@@ -458,7 +458,7 @@ export async function renderFeedTab(container, options = {}) {
 
   const refreshPublicChannels = () => {
     if (!publicMode || !channelBar) return;
-    const visibleChannels = channelsWithCounts(groups, { currentChannel });
+    const visibleChannels = channelsWithCounts(groups, { currentChannel, includeEmpty: true });
     channelBar.innerHTML = renderChannelBarHtml(visibleChannels, {
       currentChannel,
       publicMode,

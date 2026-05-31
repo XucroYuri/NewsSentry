@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   CHANNELS,
   eventTerms,
@@ -8,6 +9,8 @@ import {
   countEvents,
   channelsWithCounts,
 } from "../../src/news_sentry/static/pages/feed_filters.js";
+
+const feedJs = readFileSync("src/news_sentry/static/pages/feed.js", "utf8");
 
 const groups = [
   {
@@ -170,28 +173,33 @@ assert.deepEqual(
   [
     ["all", 8],
     ["featured", 2],
-    ["policy", 1],
-    ["industry", 2],
-    ["tech", 1],
-    ["risk", 2],
     ["society", 1],
     ["environment", 1],
     ["international", 1],
     ["culture", 1],
     ["clusters", 1],
+    ["policy", 1],
+    ["industry", 2],
+    ["tech", 1],
+    ["risk", 2],
     ["china", 1],
   ],
+);
+assert.match(
+  feedJs,
+  /channelsWithCounts\(groups,\s*\{\s*currentChannel,\s*includeEmpty:\s*true\s*\}\)/,
+  "public feed should keep the full taxonomy visible instead of hiding low-count channels",
 );
 assert.deepEqual(
   channelsWithCounts(groups, { currentChannel: "all", maxSecondaryChannels: 5 }).map((channel) => [channel.id, channel.count]),
   [
     ["all", 8],
     ["featured", 2],
-    ["policy", 1],
-    ["industry", 2],
-    ["tech", 1],
-    ["risk", 2],
     ["society", 1],
+    ["environment", 1],
+    ["international", 1],
+    ["industry", 2],
+    ["risk", 2],
   ],
 );
 const currentEmptyChannels = channelsWithCounts(groups, { currentChannel: "missing-channel" });

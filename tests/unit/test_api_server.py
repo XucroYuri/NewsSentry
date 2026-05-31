@@ -2292,6 +2292,52 @@ class TestAPIServerSQLite:
         assert materialized == 30
         assert store.calls == [(30, 0)]
 
+    async def test_visible_index_page_uses_index_row_when_file_path_missing(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """无 Markdown 输出的索引事件不应反复扫描 drafts 目录找回文件。"""
+
+        class IndexOnlyStore:
+            async def query_events_paginated(self, **kwargs: Any) -> dict[str, Any]:
+                return {
+                    "total": 1,
+                    "rows": [
+                        {
+                            "event_id": "evt-index-only",
+                            "source_id": "ansa",
+                            "news_value_score": 80,
+                            "china_relevance": 0,
+                            "classification_l0": "economy",
+                            "published_at": "2026-05-31T00:00:00+00:00",
+                            "file_path": None,
+                            "title_original": "Index only event",
+                        }
+                    ],
+                }
+
+        def fail_stage_scan(*args: Any, **kwargs: Any) -> None:
+            raise AssertionError("missing file_path rows should render from index")
+
+        monkeypatch.setattr(
+            api_server_module,
+            "_load_event_by_id_from_stage",
+            fail_stage_scan,
+        )
+
+        result = await api_server_module._visible_index_events_page(
+            IndexOnlyStore(),
+            tmp_path,
+            "italy",
+            stage="drafts",
+            page=1,
+            page_size=1,
+            exact_total=False,
+        )
+
+        assert result["events"][0]["event_id"] == "evt-index-only"
+
     def test_target_info_from_config_does_not_scan_event_files(
         self,
         tmp_path: Path,

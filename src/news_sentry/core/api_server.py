@@ -1301,13 +1301,16 @@ def _visible_index_event_from_row(
     stage: str,
     row: dict[str, Any],
 ) -> dict[str, Any] | None:
+    file_path = row.get("file_path")
     if not _indexed_file_path_is_visible_in_stage(
         data_dir,
         target_id,
         stage,
-        row.get("file_path"),
+        file_path,
     ):
         return None
+    if not file_path:
+        return _event_from_index_row(row)
     event = _load_indexed_event_frontmatter(data_dir, target_id, stage, row)
     if event is None:
         event = _event_from_index_row(row)
