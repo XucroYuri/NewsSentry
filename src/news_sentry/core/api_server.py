@@ -550,15 +550,6 @@ class HeartbeatResponse(BaseModel):
     status: str = ""
 
 
-class CollectorConfigUpdate(BaseModel):
-    """后台自动采集配置更新请求。"""
-
-    enabled: bool | None = None
-    target_ids: list[str] | str | None = None
-    interval_minutes: int | None = Field(default=None, ge=1, le=1440)
-    stage: str | None = None
-
-
 class SourceHealthInfo(BaseModel):
     """信源健康状态条目。"""
 
