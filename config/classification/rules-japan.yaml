@@ -4,6 +4,64 @@
 extends: rules-v1.yaml
 rules_version: "1.0.0"
 
+# 日本语 L0 领域关键词。基础 rules-v1 主要覆盖 it/en/zh，Japan target
+# 需要在 L0 层补足日文入口，避免日文 RSS 事件大量落入 uncategorized。
+l0_domains:
+  - code: politics
+    label_zh: "政治"
+    label_ja: "政治"
+    keywords_ja: [政府, 国会, 首相, 総理, 選挙, 自民党, 政治, 法案, 野党, 内閣, 大臣, 政権]
+
+  - code: economy
+    label_zh: "经济"
+    label_ja: "経済"
+    keywords_ja: [経済, 日経, GDP, 金融政策, 日銀, インフレ, 円安, 円高, 株価, 原油, 為替, 金利, 株主, 企業, 製造業]
+
+  - code: society
+    label_zh: "社会"
+    label_ja: "社会"
+    keywords_ja: [社会, 少子化, 高齢化, 人口減少, 人口, 物価, 外国人労働者, 労働, 年金, 福祉, 教育, 学校, 家族]
+
+  - code: tech
+    label_zh: "科技"
+    label_ja: "技術"
+    keywords_ja: [技術, AI, 人工知能, 半導体, スタートアップ, デジタル, 研究, 革新, サイバー]
+
+  - code: culture
+    label_zh: "文化"
+    label_ja: "文化"
+    keywords_ja: [文化, 芸術, 映画, 音楽, 宗教, 遺産, 文化施設, コンクール, アーティスト]
+
+  - code: disaster
+    label_zh: "灾害"
+    label_ja: "災害"
+    keywords_ja: [台風, 暴風, 大雨, 地震, 津波, 災害, 避難, 欠航, 沖縄, 奄美]
+
+  - code: public-safety
+    label_zh: "公共安全"
+    label_ja: "公共安全"
+    keywords_ja: [防衛, 自衛隊, 安全保障, 北朝鮮, ミサイル, テロ, サイバー攻撃, 重要インフラ, 事故, 警察, 逮捕]
+
+  - code: health
+    label_zh: "卫生健康"
+    label_ja: "医療健康"
+    keywords_ja: [医療, 健康, 病院, 医師, 薬, ワクチン, 感染症, ケア労働者]
+
+  - code: environment
+    label_zh: "环境"
+    label_ja: "環境"
+    keywords_ja: [環境, 脱炭素, 原発, 気候, エネルギー, 電力, 再生可能, 排出, 汚染]
+
+  - code: international-relations
+    label_zh: "国际关系"
+    label_ja: "国際関係"
+    keywords_ja: [外交, 外相, 首脳会談, G7, 国連, 同盟, ロシア, ウクライナ, アメリカ, 米国, イラン, イスラエル, ガザ, NATO, 中東, 停戦, 核, インド太平洋]
+
+  - code: china-related
+    label_zh: "中国相关"
+    label_ja: "中国関連"
+    keywords_ja: [中国, 中日, 日中, 尖閣, 習近平, 北京, 対中, 一帯一路, 中国市場, 半導体規制]
+
 # 日本特有 L1 子议题
 l1_topics:
   - code: china_japan_bilateral
