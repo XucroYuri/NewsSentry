@@ -763,3 +763,16 @@ class TestLoadTarget:
         assert config.target_id == target_id
         assert config.sources
         assert all(source["language"] == primary_language for source in config.sources)
+
+    def test_china_watch_has_diverse_english_sources(self):
+        """China Watch 不应只依赖单一来源形成英文涉华信息流。"""
+        loader = ConfigLoader(Path("."))
+        config = loader.load_target("china-watch-en")
+        source_ids = {source["source_id"] for source in config.sources}
+
+        assert {
+            "voa-china",
+            "voa-east-asia",
+            "china-digital-times",
+            "asia-times-china",
+        }.issubset(source_ids)
