@@ -13,12 +13,11 @@ timezone: Europe/Rome
 
 # 引用的源渠道 ID，对应 config/sources/italy/{id}.yaml
 source_channel_refs:
-  # ── 已有 RSS（14 个）────────────────────────────
+  # ── 已有 RSS（11 个；失效源保留在 sources/ 中归档，不进入 active refs）────────────
   - ansa
   - repubblica
   - corriere
   - agi
-  - fao-rss
   - tgcom24
   - lastampa
   - ilfattoquotidiano
@@ -26,8 +25,6 @@ source_channel_refs:
   - ilmessaggero
   - rainews
   - ilsole24ore
-  - thelocal-it
-  - sky-tg24
 
   # ── 新增 RSS — A.政治与治理 ──────────────────────
   - adnkronos

@@ -705,7 +705,7 @@ class TestLoadTarget:
         loader = ConfigLoader(Path("."))
         config = loader.load_target("italy")
         assert config.target_id == "italy"
-        assert len(config.sources) >= 55  # Phase 12: 60 refs - 5 social/ (独立加载) = 55
+        assert len(config.sources) >= 52  # active RSS/API/OpenCLI refs; dead RSS 保留归档但不加载
         source_ids = {s["source_id"] for s in config.sources}
         # 验证核心 RSS 源仍然存在
         core_ids = {
@@ -713,7 +713,6 @@ class TestLoadTarget:
             "repubblica",
             "corriere",
             "agi",
-            "fao-rss",
             "tgcom24",
             "lastampa",
             "ilfattoquotidiano",
@@ -721,10 +720,9 @@ class TestLoadTarget:
             "ilmessaggero",
             "rainews",
             "ilsole24ore",
-            "thelocal-it",
-            "sky-tg24",
         }
         assert core_ids.issubset(source_ids)
+        assert {"fao-rss", "thelocal-it", "sky-tg24"}.isdisjoint(source_ids)
         assert "score_threshold" in config.filter_rules
         assert "l0_domains" in config.classification_rules
         assert "command_policy" in config.sandbox_policy
