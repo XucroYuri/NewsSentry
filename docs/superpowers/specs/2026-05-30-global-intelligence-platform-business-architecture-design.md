@@ -249,6 +249,8 @@ News Sentry 的长期定位应从“单机新闻监控工具”演进为：
 
 本地客户端采用 A+B 模式。
 
+密钥治理需要与本地客户端、云端平台和半中心化采集节点共同设计。AI Provider Key、News Sentry 访问 Key、Collector Node Credential 必须分离管理；长期方案见 `docs/superpowers/specs/2026-05-30-ai-provider-credential-governance-design.md`。
+
 ### 6.1 A：轻同步客户端
 
 默认模式是轻同步客户端。
@@ -507,6 +509,9 @@ News Sentry 的商业模式应优先面向专业订阅服务。
 5. **Cloud Scale Architecture Spec**
    定义 Postgres/Search/Object Store/Queue/Graph/Vector 的分阶段迁移。
 
+6. **Runtime Slimming + Target Scope Spec**
+   定义瘦 core、sidecar 边界，并将 `target` 从运行管道实例重定义为视图 / 订阅 / 覆盖范围。
+
 ## 12. 已确认决策
 
 - 长期定位：全球开源新闻与社媒情报研究平台。
@@ -521,3 +526,5 @@ News Sentry 的商业模式应优先面向专业订阅服务。
 - 商业参考模型：大型新闻集团/通讯社全球记者站。
 - 节点准入：邀请制专业节点。
 - 商业飞轮：专业订阅 → 本地节点贡献 → 全球覆盖增强 → 研究价值提升 → 更多专业订阅。
+- 运行时方向：瘦 core + 可选 sidecar/worker，重型浏览器、视频、AI、MCP 能力不进入 base runtime。
+- `target` 口径：视图 / 订阅 / 覆盖范围定义，不再是运行管道实例。
