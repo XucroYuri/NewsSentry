@@ -6,6 +6,7 @@ Phase 5 will add LLM-based classifier (classify.primary route).
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from news_sentry.models.newsevent import NewsEvent
@@ -88,7 +89,7 @@ class ClassifierRules:
             parts.append(event.title_translated)
         if event.content_translated:
             parts.append(event.content_translated)
-        return " ".join(parts).lower()
+        return " ".join(parts)
 
     @staticmethod
     def _keyword_keys(item: dict[str, Any]) -> list[str]:
@@ -122,7 +123,7 @@ class ClassifierRules:
             count = 0
             for lang_key in self._keyword_keys(domain):
                 for kw in domain.get(lang_key, []):
-                    if kw.lower() in text:
+                    if self._keyword_matches(str(kw), text):
                         count += 1
             canonical_domain = canonical_l0(domain["code"])
             if count > 0:
@@ -171,7 +172,7 @@ class ClassifierRules:
                 kws = topic.get(lang_key, [])
                 total += len(kws)
                 for kw in kws:
-                    if kw.lower() in text:
+                    if self._keyword_matches(str(kw), text):
                         hits += 1
 
             if hits > 0 and total > 0:
@@ -179,6 +180,18 @@ class ClassifierRules:
                 results.append({"code": topic["code"], "confidence": confidence})
 
         return results
+
+    @staticmethod
+    def _keyword_matches(keyword: str, text: str) -> bool:
+        keyword = keyword.strip()
+        if not keyword:
+            return False
+        if re.search(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]", keyword):
+            return keyword.lower() in text.lower()
+        pattern = r"\b" + re.escape(keyword) + r"\b"
+        if _is_case_sensitive_acronym(keyword):
+            return bool(re.search(pattern, text))
+        return bool(re.search(pattern, text, re.IGNORECASE))
 
     def _classify_l2(self, l1_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """L2 国家子轴激活：根据匹配到的 L1 主题查找对应的 country_axes。
@@ -207,3 +220,7 @@ class ClassifierRules:
                 results.append({"code": axis_code, "confidence": avg})
 
         return results
+
+
+def _is_case_sensitive_acronym(keyword: str) -> bool:
+    return keyword.isascii() and keyword.isalpha() and keyword.isupper() and 2 <= len(keyword) <= 4

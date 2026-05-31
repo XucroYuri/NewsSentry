@@ -1911,6 +1911,167 @@ class TestAPIServerSQLite:
         finally:
             await store.close()
 
+    async def test_events_feed_recovers_evaluated_frontmatter_when_index_has_no_file_path(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """markdown_auto_drafts=false 时，feed 仍应从 evaluated 恢复 story/cluster 元数据。"""
+        from httpx import ASGITransport, AsyncClient
+
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        evaluated_dir = tmp_path / "italy" / "evaluated"
+        evaluated_dir.mkdir(parents=True, exist_ok=True)
+        event_id = "ne-italy-gdelt-italy-20260531-cluster01"
+        fm = yaml.dump(
+            {
+                "id": event_id,
+                "source_id": "gdelt-italy",
+                "url": "https://example.com/sports",
+                "title_original": "Le volte che lItalia non è andata ai Mondiali di calcio",
+                "published_at": "2026-05-31T07:08:08+00:00",
+                "news_value_score": 70,
+                "classification": {"l0": "sports", "l1": [{"code": "football"}]},
+                "cluster_id": "cluster-italy-sports-001",
+                "story_id": "story-italy-sports-001",
+                "metadata": {
+                    "classification": {"l0": "sports", "l1": [{"code": "football"}]},
+                    "clustering": {"cluster_type": "same_event", "cluster_size": 3},
+                },
+                "pipeline_stage": "judged",
+            },
+            allow_unicode=True,
+            default_flow_style=False,
+            sort_keys=False,
+        )
+        (evaluated_dir / f"judged_gdelt-italy_{event_id}.md").write_text(
+            f"---\n{fm}---\n\n# Sports\n",
+            encoding="utf-8",
+        )
+        now = datetime.now(UTC).isoformat()
+        try:
+            await store._db.execute(  # noqa: SLF001
+                "INSERT OR REPLACE INTO event_index "
+                "(event_id, target_id, stage, source_id, news_value_score, "
+                "china_relevance, classification_l0, title_original, "
+                "published_at, file_path, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    event_id,
+                    "italy",
+                    "drafts",
+                    "gdelt-italy",
+                    70,
+                    None,
+                    "tech",
+                    "Le volte che lItalia non è andata ai Mondiali di calcio",
+                    "2026-05-31T07:08:08+00:00",
+                    None,
+                    now,
+                ),
+            )
+            await store._db.commit()  # noqa: SLF001
+
+            app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.get("/api/v1/events/feed", params={"target_id": "italy"})
+
+            assert resp.status_code == 200
+            item = resp.json()["groups"][0]["events"][0]
+            assert item["cluster_id"] == "cluster-italy-sports-001"
+            assert item["story_id"] == "story-italy-sports-001"
+            assert item["classification"]["l0"] == "sports"
+            assert item["clustering"] == {"cluster_type": "same_event", "cluster_size": 3}
+        finally:
+            await store.close()
+
+    async def test_events_feed_collapses_duplicate_story_events(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """同一 story 的多条 mention 在公开 feed 中折叠为一条。"""
+        from httpx import ASGITransport, AsyncClient
+
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+        evaluated_dir = tmp_path / "italy" / "evaluated"
+        evaluated_dir.mkdir(parents=True, exist_ok=True)
+        now = datetime.now(UTC).isoformat()
+        rows = [
+            (
+                "ne-italy-gdelt-italy-20260531-story01a",
+                "Latest duplicate mention",
+                "2026-05-31T07:10:00+00:00",
+            ),
+            (
+                "ne-italy-gdelt-italy-20260531-story01b",
+                "Earlier duplicate mention",
+                "2026-05-31T07:05:00+00:00",
+            ),
+        ]
+        try:
+            for event_id, title, published_at in rows:
+                fm = yaml.dump(
+                    {
+                        "id": event_id,
+                        "source_id": "gdelt-italy",
+                        "url": f"https://example.com/{event_id}",
+                        "title_original": title,
+                        "published_at": published_at,
+                        "news_value_score": 80,
+                        "classification": {"l0": "international-relations"},
+                        "cluster_id": "cluster-italy-story-001",
+                        "story_id": "story-italy-story-001",
+                        "metadata": {
+                            "classification": {"l0": "international-relations"},
+                            "clustering": {"cluster_type": "same_event"},
+                        },
+                        "pipeline_stage": "judged",
+                    },
+                    allow_unicode=True,
+                    default_flow_style=False,
+                    sort_keys=False,
+                )
+                (evaluated_dir / f"judged_gdelt-italy_{event_id}.md").write_text(
+                    f"---\n{fm}---\n\n# {title}\n",
+                    encoding="utf-8",
+                )
+                await store._db.execute(  # noqa: SLF001
+                    "INSERT OR REPLACE INTO event_index "
+                    "(event_id, target_id, stage, source_id, news_value_score, "
+                    "china_relevance, classification_l0, title_original, "
+                    "published_at, file_path, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        event_id,
+                        "italy",
+                        "drafts",
+                        "gdelt-italy",
+                        80,
+                        None,
+                        "international-relations",
+                        title,
+                        published_at,
+                        None,
+                        now,
+                    ),
+                )
+            await store._db.commit()  # noqa: SLF001
+
+            app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                resp = await client.get("/api/v1/events/feed", params={"target_id": "italy"})
+
+            assert resp.status_code == 200
+            events = resp.json()["groups"][0]["events"]
+            assert len(events) == 1
+            assert events[0]["event_id"] == "ne-italy-gdelt-italy-20260531-story01a"
+            assert events[0]["related_count"] == 1
+        finally:
+            await store.close()
+
     async def test_events_feed_does_not_reuse_collided_file_path_frontmatter(
         self,
         tmp_path: Path,

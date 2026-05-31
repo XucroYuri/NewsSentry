@@ -129,7 +129,7 @@ class RulesFilter:
             kw = str(rule.get("keyword", ""))
             if not kw:
                 continue
-            if self._keyword_matches(kw, search_lower):
+            if self._keyword_matches(kw, search_text, search_lower):
                 total += float(rule.get("weight", 0)) * 100
                 matched_keywords.append(kw)
 
@@ -140,11 +140,16 @@ class RulesFilter:
         return min(int(total), 100)
 
     @staticmethod
-    def _keyword_matches(keyword: str, search_lower: str) -> bool:
+    def _keyword_matches(keyword: str, search_text: str, search_lower: str | None = None) -> bool:
         """拉丁词使用词边界，CJK/假名/韩文使用子串匹配。"""
+        if search_lower is None:
+            search_lower = search_text.lower()
+        keyword = keyword.strip()
         if re.search(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]", keyword):
             return keyword.lower() in search_lower
         pattern = r"\b" + re.escape(keyword) + r"\b"
+        if _is_case_sensitive_acronym(keyword):
+            return bool(re.search(pattern, search_text))
         return bool(re.search(pattern, search_lower, re.IGNORECASE))
 
     @staticmethod
@@ -166,3 +171,7 @@ class RulesFilter:
         except (ValueError, TypeError):
             # 无法解析的时间保守通过，避免因格式问题丢事件
             return True
+
+
+def _is_case_sensitive_acronym(keyword: str) -> bool:
+    return keyword.isascii() and keyword.isalpha() and keyword.isupper() and 2 <= len(keyword) <= 4

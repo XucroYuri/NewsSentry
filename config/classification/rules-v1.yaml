@@ -33,7 +33,7 @@ l0_domains:
     label_zh: "科技"
     label_it: "Tecnologia"
     keywords_it: [tecnologia, digitale, intelligenza artificiale, semiconduttori, cyber, ricerca, innovazione]
-    keywords_en: [technology, digital, artificial intelligence, ai, semiconductor, cyber, research, innovation]
+    keywords_en: [technology, digital, artificial intelligence, AI, semiconductor, cyber, research, innovation]
     keywords_zh: [科技, 数字, 人工智能, 半导体, 网络安全, 科研]
 
   - code: culture
@@ -248,7 +248,7 @@ l1_topics:
     l0_domain: tech
     label_zh: "人工智能"
     keywords_it: [intelligenza artificiale, AI, algoritmo, modello]
-    keywords_en: [artificial intelligence, ai, algorithm, model]
+    keywords_en: [artificial intelligence, AI, algorithm, model]
 
   - code: semiconductor
     l0_domain: tech

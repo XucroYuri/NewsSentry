@@ -309,6 +309,29 @@ def test_classifier_outputs_canonical_l0_and_candidates() -> None:
     assert classification["candidates"][0]["hits"] >= 1
 
 
+def test_classifier_short_acronym_ai_does_not_steal_italian_sports_title() -> None:
+    cfg = {
+        "l0_domains": [
+            {"code": "tech", "keywords_en": ["AI"]},
+            {"code": "sports", "keywords_it": ["calcio"]},
+        ],
+        "l1_topics": [
+            {"code": "ai", "l0_domain": "tech", "keywords_en": ["AI"]},
+            {"code": "football", "l0_domain": "sports", "keywords_it": ["calcio"]},
+        ],
+        "country_axes": {},
+    }
+    event = _make_event(
+        title="Le volte che lItalia non è andata ai Mondiali di calcio",
+        content="",
+    )
+
+    classification = ClassifierRules(cfg).classify(event).metadata["classification"]
+
+    assert classification["l0"] == "sports"
+    assert classification["candidates"] == [{"code": "sports", "hits": 1}]
+
+
 # ── L2 country axes tests ──────────────────────────────────────
 
 

@@ -170,6 +170,23 @@ def test_score_event_cjk_keyword_uses_substring_matching(tmp_path: Path) -> None
     assert score == 90
 
 
+def test_score_event_short_acronym_does_not_match_lowercase_italian_ai(
+    tmp_path: Path,
+) -> None:
+    """AI acronym 不应误命中意大利语小写介词 ai。"""
+    cfg = _make_filter_config(keyword_rules=[{"keyword": "AI", "weight": 0.7, "language": "en"}])
+    rf = RulesFilter(cfg, Memory(tmp_path))
+
+    lower_ai = _make_event(
+        title="Le volte che lItalia non è andata ai Mondiali di calcio",
+        content="",
+    )
+    assert rf._score_event(lower_ai, cfg["keyword_rules"]) == 0
+
+    acronym = _make_event(title="AI Act e nuove regole per le imprese", content="")
+    assert rf._score_event(acronym, cfg["keyword_rules"]) == 70
+
+
 def test_score_event_partial_word_boundary_matching(tmp_path: Path) -> None:
     """词边界匹配：governo 在 'governo italiano' 中命中，但在 'governativa' 中不命中。"""
     cfg = _make_filter_config(

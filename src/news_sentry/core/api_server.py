@@ -1274,12 +1274,46 @@ def _group_events_by_date(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         date_key = pub[:10] if pub else "unknown"
         if date_key not in groups:
             groups[date_key] = []
-        groups[date_key].append(_feed_event_payload(ev))
+        groups[date_key].append(ev)
     # 按日期降序排列
     result = []
     for date_key in sorted(groups.keys(), reverse=True):
-        result.append({"date": date_key, "events": groups[date_key]})
+        deduped = _dedupe_feed_events(groups[date_key])
+        result.append({"date": date_key, "events": [_feed_event_payload(ev) for ev in deduped]})
     return result
+
+
+def _feed_dedupe_key(ev: dict[str, Any]) -> str:
+    story_id = ev.get("story_id")
+    if story_id:
+        return f"story:{story_id}"
+    cluster_id = ev.get("cluster_id")
+    if cluster_id:
+        return f"cluster:{cluster_id}"
+    title = str(ev.get("title_translated") or ev.get("title_original") or "").strip().lower()
+    normalized = re.sub(r"\W+", " ", title, flags=re.UNICODE).strip()
+    if normalized:
+        return f"title:{normalized}"
+    return f"event:{ev.get('event_id') or ev.get('id') or uuid.uuid4().hex}"
+
+
+def _dedupe_feed_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Collapse duplicate story mentions for public feed display without deleting data."""
+    deduped: list[dict[str, Any]] = []
+    by_key: dict[str, dict[str, Any]] = {}
+    for event in events:
+        key = _feed_dedupe_key(event)
+        if key not in by_key:
+            item = dict(event)
+            item["related_count"] = int(item.get("related_count") or 0)
+            by_key[key] = item
+            deduped.append(item)
+            continue
+        kept = by_key[key]
+        kept["related_count"] = (
+            int(kept.get("related_count") or 0) + 1 + int(event.get("related_count") or 0)
+        )
+    return deduped
 
 
 def _event_matches_date(event: dict[str, Any], date: str | None) -> bool:
@@ -1309,8 +1343,6 @@ def _visible_index_event_from_row(
         file_path,
     ):
         return None
-    if not file_path:
-        return _event_from_index_row(row)
     event = _load_indexed_event_frontmatter(data_dir, target_id, stage, row)
     if event is None:
         event = _event_from_index_row(row)
@@ -2959,6 +2991,25 @@ def _load_event_by_id_from_stage(
     return None
 
 
+def _load_event_by_exact_id_filename(
+    data_dir: Path,
+    target_id: str,
+    stage: str,
+    event_id: str | None,
+) -> dict[str, Any] | None:
+    """按文件名中的完整 event_id 精确找回 frontmatter，避免全目录扫描。"""
+    if not event_id:
+        return None
+    stage_dir = data_dir / target_id / stage
+    if not stage_dir.is_dir():
+        return None
+    for path in sorted(stage_dir.glob(f"*{event_id}*.md")):
+        event = _load_event_by_path(str(path))
+        if _event_id_from_frontmatter(event) == event_id:
+            return event
+    return None
+
+
 def _event_id_from_frontmatter(event: dict[str, Any] | None) -> str | None:
     if not event:
         return None
@@ -3146,8 +3197,10 @@ def _load_indexed_event_frontmatter(
     event_fm = _load_event_by_path(row.get("file_path"))
     if event_fm is not None and _event_id_from_frontmatter(event_fm) != event_id:
         event_fm = None
-    if event_fm is None:
+    if event_fm is None and row.get("file_path") is not None:
         event_fm = _load_event_by_id_from_stage(data_dir, target_id, stage, event_id)
+    if event_fm is None and stage == "drafts":
+        event_fm = _load_event_by_exact_id_filename(data_dir, target_id, "evaluated", event_id)
     return event_fm
 
 
