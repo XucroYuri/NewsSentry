@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 from collections.abc import AsyncGenerator, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -303,6 +304,33 @@ class TestAPIServer:
         resp = client.get("/api/v1/health")
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
+
+    def test_runtime_info_endpoint_reports_static_build(self, tmp_path: Path) -> None:
+        client = self._make_client(tmp_path)
+        resp = client.get("/api/v1/runtime/info")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["static_build"]
+        assert data["static_cache_name"] == f"news-sentry-{data['static_build']}"
+        assert data["code_path"].endswith("src/news_sentry/core/api_server.py")
+
+    def test_build_manifest_endpoint_uses_content_hash(self, tmp_path: Path) -> None:
+        client = self._make_client(tmp_path)
+        resp = client.get("/build_manifest.json")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert re.fullmatch(r"[0-9a-f]{12}", data["build"])
+        assert data["cacheName"] == f"news-sentry-{data['build']}"
+        assert "/pages/feed.js" in data["assets"]
+        assert resp.headers["cache-control"] == "no-store"
+
+    def test_service_worker_script_is_not_http_cached(self, tmp_path: Path) -> None:
+        client = self._make_client(tmp_path)
+        resp = client.get("/sw.js")
+        assert resp.status_code == 200
+        assert "self.addEventListener" in resp.text
+        assert resp.headers["cache-control"] == "no-store"
 
     def test_collector_status_returns_target_ids_list(self, tmp_path: Path) -> None:
         """collector/status 返回 target_ids (list) + stage。"""

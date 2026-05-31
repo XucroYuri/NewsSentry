@@ -40,7 +40,7 @@ from typing import Annotated, Any, Literal
 
 import yaml
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, BeforeValidator, Field, ValidationError, field_validator
 
 from news_sentry.core.async_store import AsyncStore
@@ -3446,6 +3446,104 @@ def _target_db_path(target_id: str) -> Path:
     return _data_dir / target_id / "state.db"
 
 
+def _static_dir() -> Path:
+    return Path(__file__).resolve().parent.parent / "static"
+
+
+def _load_static_manifest_template(static_dir: Path) -> dict[str, Any]:
+    fallback = {
+        "build": "development",
+        "cacheName": "news-sentry-development",
+        "assets": ["/", "/index.html", "/app.js", "/style.css", "/public.css", "/sw.js"],
+    }
+    manifest_path = static_dir / "build_manifest.json"
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return fallback
+    assets = data.get("assets")
+    if not isinstance(assets, list) or not assets:
+        assets = fallback["assets"]
+    clean_assets = [str(asset) for asset in assets if str(asset)]
+    build = str(data.get("build") or fallback["build"])
+    return {
+        "build": build,
+        "cacheName": str(data.get("cacheName") or f"news-sentry-{build}"),
+        "assets": clean_assets,
+    }
+
+
+def _static_asset_path(static_dir: Path, asset: str) -> Path:
+    asset_path = asset.split("?", 1)[0].lstrip("/")
+    if not asset_path:
+        asset_path = "index.html"
+    return static_dir / asset_path
+
+
+def _build_static_manifest(static_dir: Path | None = None) -> dict[str, Any]:
+    """生成当前静态资源内容 hash，避免本地服务继续暴露旧 build id。"""
+    static_root = static_dir or _static_dir()
+    template = _load_static_manifest_template(static_root)
+    digest = sha256()
+    files_seen = 0
+    for asset in template["assets"]:
+        if asset.startswith(("http://", "https://")) or asset == "/build_manifest.json":
+            continue
+        path = _static_asset_path(static_root, asset)
+        if not path.is_file():
+            continue
+        digest.update(asset.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+        files_seen += 1
+    build = digest.hexdigest()[:12] if files_seen else str(template["build"])
+    return {
+        "build": build,
+        "cacheName": f"news-sentry-{build}",
+        "assets": template["assets"],
+    }
+
+
+def _git_dir_for_path(path: Path) -> Path | None:
+    for parent in [path.resolve(), *path.resolve().parents]:
+        dot_git = parent / ".git"
+        if dot_git.is_dir():
+            return dot_git
+        if dot_git.is_file():
+            try:
+                content = dot_git.read_text(encoding="utf-8").strip()
+            except OSError:
+                return None
+            if content.startswith("gitdir:"):
+                git_dir = Path(content.split(":", 1)[1].strip())
+                return git_dir if git_dir.is_absolute() else (parent / git_dir).resolve()
+    return None
+
+
+def _git_commit_for_path(path: Path) -> str:
+    git_dir = _git_dir_for_path(path)
+    if git_dir is None:
+        return os.environ.get("NEWS_SENTRY_GIT_COMMIT", "unknown")
+    try:
+        common_dir_path = git_dir / "commondir"
+        common_dir = (
+            (git_dir / common_dir_path.read_text(encoding="utf-8").strip()).resolve()
+            if common_dir_path.is_file()
+            else git_dir
+        )
+        head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
+        if head.startswith("ref:"):
+            ref = head.split(":", 1)[1].strip()
+            for ref_path in (git_dir / ref, common_dir / ref):
+                if ref_path.is_file():
+                    return ref_path.read_text(encoding="utf-8").strip()[:12]
+            return "unknown"
+        return head[:12]
+    except OSError:
+        return os.environ.get("NEWS_SENTRY_GIT_COMMIT", "unknown")
+
+
 async def _get_target_store(target_id: str) -> AsyncStore | None:
     """获取 target 对应的 AsyncStore（优先使用 pipeline 的 state.db）。
 
@@ -3700,6 +3798,35 @@ def create_app(
     @app.get("/api/v1/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/api/v1/runtime/info")
+    async def runtime_info(response: Response) -> dict[str, Any]:
+        manifest = _build_static_manifest()
+        response.headers["Cache-Control"] = "no-store"
+        return {
+            "status": "ok",
+            "static_build": manifest["build"],
+            "static_cache_name": manifest["cacheName"],
+            "code_path": str(Path(__file__).resolve()),
+            "git_commit": _git_commit_for_path(Path(__file__)),
+            "data_dir": str(_data_dir.resolve()),
+        }
+
+    @app.get("/build_manifest.json")
+    async def build_manifest(response: Response) -> dict[str, Any]:
+        response.headers["Cache-Control"] = "no-store"
+        return _build_static_manifest()
+
+    @app.get("/sw.js", include_in_schema=False)
+    async def service_worker_script() -> FileResponse:
+        sw_path = _static_dir() / "sw.js"
+        if not sw_path.is_file():
+            raise HTTPException(status_code=404, detail="Service worker not found")
+        return FileResponse(
+            sw_path,
+            media_type="application/javascript",
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.get("/api/v1/collector/status")
     async def collector_status(
@@ -6581,7 +6708,7 @@ def create_app(
         return AlertHistoryResponse(alerts=alerts, total=len(alerts))
 
     # ── 静态文件（必须在所有 API 路由之后挂载）────────
-    static_dir = Path(__file__).parent.parent / "static"
+    static_dir = _static_dir()
     if static_dir.is_dir():
         from fastapi.staticfiles import StaticFiles
 

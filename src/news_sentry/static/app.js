@@ -771,7 +771,12 @@ function connectSSE() {
 
 function _registerSW() {
   if (!("serviceWorker" in navigator)) return;
-  navigator.serviceWorker.register("/sw.js").then((registration) => {
+  if (isLocalApp()) {
+    unregisterLocalServiceWorkers().catch(() => {});
+    clearNewsSentryCaches().catch(() => {});
+    return;
+  }
+  navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).then((registration) => {
     registration.update().catch(() => {});
     if (registration.waiting) {
       registration.waiting.postMessage({ type: "SKIP_WAITING" });
@@ -779,6 +784,37 @@ function _registerSW() {
   }).catch(() => {
     // SW 注册失败不阻塞主功能
   });
+}
+
+async function clearNewsSentryCaches() {
+  try {
+    if ("caches" in window) {
+      const cacheNames = await caches.keys();
+      await Promise.all(
+        cacheNames
+          .filter((name) => name.startsWith("news-sentry-"))
+          .map((name) => caches.delete(name)),
+      );
+    }
+  } catch {}
+}
+
+async function unregisterLocalServiceWorkers() {
+  try {
+    if ("serviceWorker" in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.unregister().catch(() => false)));
+    }
+  } catch {}
+}
+
+async function updateRegisteredServiceWorkers() {
+  try {
+    if ("serviceWorker" in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((registration) => registration.update().catch(() => {})));
+    }
+  } catch {}
 }
 
 async function ensureFreshStaticAssets() {
@@ -790,25 +826,19 @@ async function ensureFreshStaticAssets() {
     previousBuild = localStorage.getItem(storageKey) || "";
   } catch {}
 
+  if (isLocalApp()) {
+    await unregisterLocalServiceWorkers();
+    await clearNewsSentryCaches();
+    try {
+      localStorage.setItem(storageKey, staticBuild);
+    } catch {}
+    return false;
+  }
+
   if (previousBuild === staticBuild) return false;
 
-  try {
-    if ("caches" in window) {
-      const cacheNames = await caches.keys();
-      await Promise.all(
-        cacheNames
-          .filter((name) => name.startsWith("news-sentry-"))
-          .map((name) => caches.delete(name)),
-      );
-    }
-  } catch {}
-
-  try {
-    if ("serviceWorker" in navigator) {
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map((registration) => registration.update().catch(() => {})));
-    }
-  } catch {}
+  await clearNewsSentryCaches();
+  await updateRegisteredServiceWorkers();
 
   try {
     localStorage.setItem(storageKey, staticBuild);

@@ -78,8 +78,11 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   const isAPI = url.pathname.startsWith("/api/");
   const isNavigation = event.request.mode === "navigate";
+  const isLiveStaticControl = url.pathname === "/build_manifest.json" || url.pathname === "/sw.js";
 
-  if (isAPI) {
+  if (isLiveStaticControl) {
+    event.respondWith(fetch(event.request, { cache: "no-store" }));
+  } else if (isAPI) {
     // API 请求：网络优先，离线时使用缓存
     event.respondWith(networkFirst(event.request));
   } else if (isNavigation) {
@@ -106,7 +109,8 @@ async function navigationFallback(request) {
     }
     return resp;
   } catch {
-    const cached = await caches.match("/index.html");
+    const cache = await openStaticCache();
+    const cached = await cache.match("/index.html");
     if (cached) return cached;
     return new Response(OFFLINE_HTML, {
       status: 503,
@@ -116,13 +120,12 @@ async function navigationFallback(request) {
 }
 
 async function cacheFirst(request) {
-  const cached = await caches.match(request);
+  const cache = await openStaticCache();
+  const cached = await cache.match(request);
   if (cached) return cached;
   try {
     const resp = await fetch(request);
     if (resp.ok) {
-      const manifest = await loadBuildManifest();
-      const cache = await caches.open(manifest.cacheName);
       cache.put(request, resp.clone());
     }
     return resp;
@@ -145,7 +148,8 @@ async function networkFirst(request) {
     }
     return resp;
   } catch {
-    const cached = await caches.match(request);
+    const cache = await openStaticCache();
+    const cached = await cache.match(request);
     if (cached) return cached;
     return new Response(JSON.stringify({ error: "offline" }), {
       status: 503,

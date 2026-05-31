@@ -50,6 +50,48 @@ assert.match(
   "service worker should derive cache name and pre-cache URLs from the manifest",
 );
 
+assert.match(
+  appJs,
+  /unregisterLocalServiceWorkers/,
+  "local app mode should actively unregister service workers to avoid stale local UI",
+);
+
+assert.match(
+  appJs,
+  /isLocalApp\(\)[\s\S]*unregisterLocalServiceWorkers/,
+  "local app mode should prefer live static assets over PWA caching",
+);
+
+assert.match(
+  appJs,
+  /updateViaCache:\s*"none"/,
+  "service worker updates should bypass browser HTTP cache",
+);
+
+assert.match(
+  appJs,
+  /caches\.keys\(\)[\s\S]*news-sentry-/,
+  "local app mode should clear News Sentry caches left by previous builds",
+);
+
+assert.match(
+  swJs,
+  /url\.pathname === "\/build_manifest\.json"/,
+  "service worker should bypass cache for the build manifest",
+);
+
+assert.doesNotMatch(
+  swJs,
+  /caches\.match\(request\)/,
+  "service worker static lookup should be scoped to the current build cache",
+);
+
+assert.doesNotMatch(
+  swJs,
+  /caches\.match\("\/index\.html"\)/,
+  "service worker navigation fallback should not read index.html from stale global caches",
+);
+
 assert.doesNotMatch(
   swJs,
   /if \(_buildManifestPromise\) return _buildManifestPromise/,
