@@ -8,7 +8,7 @@
 
 **Tech Stack:** Pydantic v2 / PyYAML / asyncio / ProviderRouter
 
-**Design Spec:** `docs/plan-phase-30-nlp-analysis.md`
+**Design Spec:** `docs/plans/plan-phase-30-nlp-analysis.md`
 
 ---
 

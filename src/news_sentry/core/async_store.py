@@ -38,6 +38,8 @@ if not _os.environ.get("PYTEST_CURRENT_TEST"):
 
 logger = logging.getLogger(__name__)
 
+_ANALYSIS_STAGES = ("judged", "drafts", "outputted")
+
 _PRAGMA_SETUP = (
     "PRAGMA journal_mode=WAL",
     "PRAGMA synchronous=NORMAL",
@@ -2064,16 +2066,13 @@ class AsyncStore:
         self,
         canonical_event_ids: Sequence[str],
     ) -> dict[str, int]:
-        assert self._db is not None
         counts: dict[str, int] = {}
         for canonical_event_id in canonical_event_ids:
-            rows = list(
-                await self._db.execute_fetchall(
-                    """SELECT COUNT(*)
+            rows = await self._db.execute_fetchall(
+                """SELECT COUNT(*)
                    FROM event_mentions
                    WHERE canonical_event_id = ?""",
-                    (canonical_event_id,),
-                )
+                (canonical_event_id,),
             )
             counts[canonical_event_id] = int(rows[0][0] or 0)
         return counts
@@ -2090,8 +2089,6 @@ class AsyncStore:
         title_override: str | None,
         summary_override: str | None,
     ) -> dict[str, Any] | None:
-        assert self._db is not None
-
         def ensure_matching(operation: dict[str, Any], operation_label: str) -> dict[str, Any]:
             if not self._canonical_merge_operation_matches(
                 operation,
@@ -2120,16 +2117,14 @@ class AsyncStore:
             return ensure_matching(operation, operation_id)
         if decision_artifact_id is None:
             return None
-        rows = list(
-            await self._db.execute_fetchall(
-                """SELECT operation_id, target_id, operation_type, decision_artifact_id,
+        rows = await self._db.execute_fetchall(
+            """SELECT operation_id, target_id, operation_type, decision_artifact_id,
                       primary_canonical_event_id, result_canonical_event_id, status,
                       changes_json, warnings_json, metadata_json, created_by, created_at
                FROM canonical_graph_operations
                WHERE target_id = ? AND decision_artifact_id = ?
                LIMIT 1""",
-                (target_id, decision_artifact_id),
-            )
+            (target_id, decision_artifact_id),
         )
         if not rows:
             return None
@@ -2151,12 +2146,9 @@ class AsyncStore:
         merged = events.get("merged", [])
         if not isinstance(merged, list):
             return []
-        merged_ids = [
-            str(event["canonical_event_id"])
-            for event in merged
-            if isinstance(event, dict) and event.get("canonical_event_id")
-        ]
-        return AsyncStore._canonical_merge_event_ids(merged_ids)
+        return AsyncStore._canonical_merge_event_ids(
+            [event.get("canonical_event_id") for event in merged if isinstance(event, dict)]
+        )
 
     @staticmethod
     def _merge_operation_metadata_survivor_id(metadata: dict[str, Any]) -> str | None:
@@ -2205,7 +2197,6 @@ class AsyncStore:
         return metadata_merged_ids == request_merged_ids
 
     async def _apply_canonical_merge_plan(self, plan: dict[str, Any]) -> None:
-        assert self._db is not None
         operation_id = plan["operation_id"]
         target_id = plan["target_id"]
         survivor_id = plan["survivor"]["canonical_event_id"]
@@ -2336,15 +2327,12 @@ class AsyncStore:
         self,
         survivor_canonical_event_id: str,
     ) -> dict[str, Any]:
-        assert self._db is not None
-        rows = list(
-            await self._db.execute_fetchall(
-                """SELECT COUNT(*), COUNT(DISTINCT source_id),
+        rows = await self._db.execute_fetchall(
+            """SELECT COUNT(*), COUNT(DISTINCT source_id),
                       MAX(COALESCE(published_at, updated_at, created_at))
                FROM event_mentions
                WHERE canonical_event_id = ?""",
-                (survivor_canonical_event_id,),
-            )
+            (survivor_canonical_event_id,),
         )
         if not rows:
             return {"mention_count": 0, "source_count": 0, "last_seen_at": None}
@@ -2759,17 +2747,14 @@ class AsyncStore:
         affected_mention_ids: Sequence[str],
         source_mentions: Sequence[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        assert self._db is not None
         rows_by_id: dict[str, dict[str, Any]] = {}
         for mention_id in affected_mention_ids:
-            rows = list(
-                await self._db.execute_fetchall(
-                    """SELECT mention_id, canonical_event_id, event_id, target_id, source_id,
+            rows = await self._db.execute_fetchall(
+                """SELECT mention_id, canonical_event_id, event_id, target_id, source_id,
                           url, title, published_at, metadata_json, created_at, updated_at
                    FROM event_mentions
                    WHERE mention_id = ?""",
-                    (mention_id,),
-                )
+                (mention_id,),
             )
             if not rows:
                 raise ValueError(f"event mention not found: {mention_id}")
@@ -2840,8 +2825,6 @@ class AsyncStore:
         new_title: str | None,
         new_summary: str | None,
     ) -> dict[str, Any] | None:
-        assert self._db is not None
-
         def ensure_matching(operation: dict[str, Any], operation_label: str) -> dict[str, Any]:
             if not self._canonical_split_operation_matches(
                 operation,
@@ -2871,16 +2854,14 @@ class AsyncStore:
             return ensure_matching(operation, operation_id)
         if decision_artifact_id is None:
             return None
-        rows = list(
-            await self._db.execute_fetchall(
-                """SELECT operation_id, target_id, operation_type, decision_artifact_id,
+        rows = await self._db.execute_fetchall(
+            """SELECT operation_id, target_id, operation_type, decision_artifact_id,
                       primary_canonical_event_id, result_canonical_event_id, status,
                       changes_json, warnings_json, metadata_json, created_by, created_at
                FROM canonical_graph_operations
                WHERE target_id = ? AND decision_artifact_id = ?
                LIMIT 1""",
-                (target_id, decision_artifact_id),
-            )
+            (target_id, decision_artifact_id),
         )
         if not rows:
             return None
@@ -2922,7 +2903,6 @@ class AsyncStore:
         ) == AsyncStore._canonical_split_mention_ids(affected_mention_ids)
 
     async def _apply_canonical_split_plan(self, plan: dict[str, Any]) -> None:
-        assert self._db is not None
         operation_id = plan["operation_id"]
         target_id = plan["target_id"]
         source_id = plan["source"]["canonical_event_id"]
@@ -3887,11 +3867,11 @@ class AsyncStore:
         async with self._db.execute(
             "SELECT date(published_at) AS day, sentiment, COUNT(*) AS cnt "
             "FROM event_index "
-            "WHERE target_id = ? AND stage = 'judged' "
+            "WHERE target_id = ? AND stage IN (?, ?, ?) "
             "AND published_at >= date('now', ? || ' days') "
             "AND sentiment IS NOT NULL "
             "GROUP BY day, sentiment ORDER BY day",
-            [target_id, f"-{days}"],
+            [target_id, *_ANALYSIS_STAGES, f"-{days}"],
         ) as cursor:
             rows = await cursor.fetchall()
         return [{"day": r[0], "sentiment": r[1], "count": r[2]} for r in rows]
@@ -3903,10 +3883,10 @@ class AsyncStore:
         async with self._db.execute(
             "SELECT date(published_at) AS day, topic_tags "
             "FROM event_index "
-            "WHERE target_id = ? AND stage = 'judged' "
+            "WHERE target_id = ? AND stage IN (?, ?, ?) "
             "AND published_at >= date('now', ? || ' days') "
             "AND topic_tags IS NOT NULL AND topic_tags != ''",
-            [target_id, f"-{days}"],
+            [target_id, *_ANALYSIS_STAGES, f"-{days}"],
         ) as cursor:
             rows = await cursor.fetchall()
         # Python 层拆分 topic_tags 并按 (topic, day) 聚合
@@ -3930,10 +3910,10 @@ class AsyncStore:
             return []
         async with self._db.execute(
             "SELECT topic_tags FROM event_index "
-            "WHERE target_id = ? AND stage = 'judged' "
+            "WHERE target_id = ? AND stage IN (?, ?, ?) "
             "AND published_at >= date('now', ? || ' days') "
             "AND topic_tags IS NOT NULL AND topic_tags != ''",
-            [target_id, f"-{days}"],
+            [target_id, *_ANALYSIS_STAGES, f"-{days}"],
         ) as cursor:
             rows = await cursor.fetchall()
         topic_counts: dict[str, int] = {}
@@ -4020,11 +4000,11 @@ class AsyncStore:
         async with self._db.execute(
             "SELECT date(published_at) AS day, COUNT(*) AS cnt "
             "FROM event_index "
-            "WHERE target_id = ? AND stage = 'judged' "
+            "WHERE target_id = ? AND stage IN (?, ?, ?) "
             "AND published_at >= date('now', ? || ' days') "
             "AND ',' || entity_names || ',' LIKE ? "
             "GROUP BY day ORDER BY day",
-            [target_id, f"-{days}", pattern],
+            [target_id, *_ANALYSIS_STAGES, f"-{days}", pattern],
         ) as cursor:
             rows = await cursor.fetchall()
         return [{"day": r[0], "count": r[1]} for r in rows]
@@ -4048,9 +4028,9 @@ class AsyncStore:
         # 今日统计
         async with self._db.execute(
             "SELECT COUNT(*), AVG(news_value_score), MAX(news_value_score) "
-            "FROM event_index WHERE target_id = ? AND stage = 'judged' "
+            "FROM event_index WHERE target_id = ? AND stage IN (?, ?, ?) "
             "AND date(published_at) = date('now')",
-            [target_id],
+            [target_id, *_ANALYSIS_STAGES],
         ) as cursor:
             row = await cursor.fetchone()
         today_count = row[0] if row else 0
@@ -4060,9 +4040,9 @@ class AsyncStore:
         # 昨日统计
         async with self._db.execute(
             "SELECT COUNT(*), AVG(news_value_score) "
-            "FROM event_index WHERE target_id = ? AND stage = 'judged' "
+            "FROM event_index WHERE target_id = ? AND stage IN (?, ?, ?) "
             "AND date(published_at) = date('now', '-1 day')",
-            [target_id],
+            [target_id, *_ANALYSIS_STAGES],
         ) as cursor:
             row = await cursor.fetchone()
         yesterday_count = row[0] if row else 0
@@ -4085,10 +4065,10 @@ class AsyncStore:
         async with self._db.execute(
             "SELECT event_id, title_original, news_value_score, source_id, published_at "
             "FROM event_index "
-            "WHERE target_id = ? AND stage = 'judged' "
+            "WHERE target_id = ? AND stage IN (?, ?, ?) "
             "AND published_at >= date('now', ? || ' days') "
             "ORDER BY news_value_score DESC LIMIT ?",
-            [target_id, f"-{days}", limit],
+            [target_id, *_ANALYSIS_STAGES, f"-{days}", limit],
         ) as cursor:
             rows = await cursor.fetchall()
         cols = ("event_id", "title_original", "news_value_score", "source_id", "published_at")

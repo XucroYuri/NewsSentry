@@ -129,9 +129,7 @@ class RulesFilter:
             kw = str(rule.get("keyword", ""))
             if not kw:
                 continue
-            # 使用 \b 词边界防止短词误匹配子串（如 Cina → Bonacina）
-            pattern = r"\b" + re.escape(kw) + r"\b"
-            if re.search(pattern, search_lower, re.IGNORECASE):
+            if self._keyword_matches(kw, search_lower):
                 total += float(rule.get("weight", 0)) * 100
                 matched_keywords.append(kw)
 
@@ -140,6 +138,14 @@ class RulesFilter:
             event.metadata["filter_matched_keywords"] = matched_keywords
 
         return min(int(total), 100)
+
+    @staticmethod
+    def _keyword_matches(keyword: str, search_lower: str) -> bool:
+        """拉丁词使用词边界，CJK/假名/韩文使用子串匹配。"""
+        if re.search(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]", keyword):
+            return keyword.lower() in search_lower
+        pattern = r"\b" + re.escape(keyword) + r"\b"
+        return bool(re.search(pattern, search_lower, re.IGNORECASE))
 
     @staticmethod
     def _is_within_age(event: NewsEvent, now: datetime, max_age: timedelta) -> bool:

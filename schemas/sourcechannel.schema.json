@@ -97,6 +97,10 @@
       "type": "string",
       "description": "Why the source was deprecated (e.g., RSS removed, paywall)"
     },
+    "notes": {
+      "type": "string",
+      "description": "Human-readable maintenance notes for editors and operators"
+    },
     "health": {
       "type": "object",
       "additionalProperties": false,

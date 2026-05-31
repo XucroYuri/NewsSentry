@@ -5,7 +5,7 @@
 
 import { state, api, escapeHtml, scoreColor, isAuthenticated } from "../api.js";
 import { CHANNELS, filterGroups, countEvents, channelsWithCounts } from "./feed_filters.js";
-import { adminEventHref, channelPortalHref, targetEventHref, targetPortalHref } from "./public_portal.js";
+import { adminEventHref, channelPortalHref, targetAnalysisHref, targetEventHref, targetPortalHref } from "./public_portal.js";
 
 // ── 推荐标签映射 ──
 const REC_LABELS = {
@@ -176,6 +176,7 @@ export function renderFeedToolbarActions({ publicMode = false, targetId = "" } =
       <button class="view-btn" data-view="compact" title="紧凑视图">≡</button>
     </div>
     <button class="feed-btn feed-btn-refresh" id="feed-refresh">刷新</button>
+    ${publicMode ? `<a class="feed-btn feed-btn-link feed-analysis-link" id="feed-analysis-link" href="${targetAnalysisHref(targetId)}">态势分析</a>` : ""}
   `;
 }
 
@@ -230,13 +231,14 @@ export function renderPublicHome(container, targets = state.targets || [], optio
         </div>
         <div class="ns-empty-state">
           <h2>暂无公开目标</h2>
-          <p>公开首页只展示 active target。可以进入管理后台配置目标，或恢复已归档目标。</p>
+          <p>公开首页只展示 active target。可以进入管理后台创建新目标，或恢复已归档目标。</p>
           <div class="ns-empty-state-actions">
-            <a class="ns-button ns-button-primary" href="#/admin/config/target">进入目标配置</a>
+            <a class="ns-button ns-button-primary" href="#/admin/targets">进入目标工作台</a>
             <button class="ns-button ns-button-secondary" id="publicTargetsRetry" type="button">重新加载</button>
           </div>
         </div>
-      </section>`;
+      </section>
+    `;
     container.querySelector("#publicTargetsRetry")?.addEventListener("click", () => {
       renderPublicHome(container, [], { afterFallback: false });
     });
@@ -456,7 +458,7 @@ export async function renderFeedTab(container, options = {}) {
 
   const refreshPublicChannels = () => {
     if (!publicMode || !channelBar) return;
-    const visibleChannels = channelsWithCounts(groups, { currentChannel });
+    const visibleChannels = channelsWithCounts(groups, { currentChannel, includeEmpty: true });
     channelBar.innerHTML = renderChannelBarHtml(visibleChannels, {
       currentChannel,
       publicMode,

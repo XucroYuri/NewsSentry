@@ -70,6 +70,17 @@ _BROAD_CLASSIFICATION_TERMS = {
     "tech",
 }
 
+_SYNONYMS = {
+    "appaltatore": "contractor",
+    "contrattista": "contractor",
+    "italiana": "italian",
+    "italiano": "italian",
+    "morto": "killed",
+    "uccisa": "killed",
+    "ucciso": "killed",
+    "ucraina": "ukraine",
+}
+
 
 def assign_lightweight_clusters(events: list[NewsEvent], target_id: str) -> list[NewsEvent]:
     """Assign deterministic local cluster/story identifiers to a batch of events.
@@ -151,7 +162,7 @@ def _event_profile(event: NewsEvent) -> dict[str, Any]:
 def _tokens(text: str) -> set[str]:
     normalized = unicodedata.normalize("NFKD", text.lower())
     ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
-    tokens = set(_TOKEN_RE.findall(ascii_text))
+    tokens = {_SYNONYMS.get(token, token) for token in _TOKEN_RE.findall(ascii_text)}
     return {
         token
         for token in tokens

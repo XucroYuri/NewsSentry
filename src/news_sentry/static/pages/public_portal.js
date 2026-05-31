@@ -11,6 +11,10 @@ export function targetPortalHref(targetId) {
   return `#/news/target/${encodeHashPart(targetId)}`;
 }
 
+export function targetAnalysisHref(targetId) {
+  return `${targetPortalHref(targetId)}/analysis`;
+}
+
 export function channelPortalHref(targetId, channelId) {
   const base = targetPortalHref(targetId);
   return !channelId || channelId === "all" ? base : `${base}/${encodeHashPart(channelId)}`;
@@ -23,5 +27,9 @@ export function targetEventHref(targetId, eventId) {
 }
 
 export function adminEventHref(eventId) {
-  return `#/admin/news/events/${encodeHashPart(eventId)}`;
+  return `#/admin/review/queue/${encodeHashPart(eventId)}`;
+}
+
+export function allowEventAdminControls({ authenticated = false, publicMode = false } = {}) {
+  return Boolean(authenticated && !publicMode);
 }

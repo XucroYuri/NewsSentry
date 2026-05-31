@@ -31,7 +31,7 @@ export async function renderFeedbackRecordsTab(container) {
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <circle cx="12" cy="12" r="10"/><path d="M8 15h8"/><circle cx="9" cy="9" r="1" fill="currentColor"/><circle cx="15" cy="9" r="1" fill="currentColor"/>
         </svg>
-        <p>请先在顶部选择一个监控目标</p>
+        <p>请在当前管理目标中选择一个监控目标</p>
       </div>
     `;
     return;
@@ -82,7 +82,7 @@ export async function renderFeedbackRecordsTab(container) {
               ${feedback.map(f => `
                 <tr>
                   <td>
-                    <a href="#/admin/news/events/${encodeURIComponent(f.event_id)}" class="link">${escapeHtml(f.event_id)}</a>
+                    <a href="#/admin/review/queue/${encodeURIComponent(f.event_id)}" class="link">${escapeHtml(f.event_id)}</a>
                   </td>
                   <td><span style="color:${VERDICT_COLORS[f.verdict_type] || '#6b7280'}">${VERDICT_LABELS[f.verdict_type] || f.verdict_type}</span></td>
                   <td>${escapeHtml(f.comment || "—")}</td>
@@ -130,7 +130,7 @@ export async function renderRuleOptimizeTab(container) {
     btnDryRun.disabled = true;
     btnDryRun.textContent = "预览中...";
     try {
-      const result = await apiPost("/api/v1/rules/optimize", {
+      const result = await apiPost("/api/v1/rules/optimize", {}, {
         target_id: state.currentTarget,
         dry_run: true,
       });
@@ -170,7 +170,7 @@ export async function renderRuleOptimizeTab(container) {
     btnApply.disabled = true;
     btnApply.textContent = "应用中...";
     try {
-      const result = await apiPost("/api/v1/rules/optimize", {
+      const result = await apiPost("/api/v1/rules/optimize", {}, {
         target_id: state.currentTarget,
         dry_run: false,
       });

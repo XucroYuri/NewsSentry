@@ -875,7 +875,7 @@ git commit -m "Phase 35 P35.03: 追踪链 API 端点 (links/chain/chains)"
 - Modify: `src/news_sentry/static/pages/events.js` (关联事件卡片)
 - Modify: `src/news_sentry/static/index.html` (侧边栏入口)
 - Modify: `src/news_sentry/static/style.css` (时间线样式)
-- Modify: `docs/development-plan.md` (Phase 35 状态更新)
+- Modify: `docs/roadmap/development-plan.md` (Phase 35 状态更新)
 
 - [ ] **Step 1: 创建 chains.js 追踪链页面**
 
@@ -1132,11 +1132,11 @@ Expected: All tests pass, ruff=0, mypy=0
 
 - [ ] **Step 7: 更新 development-plan.md**
 
-在 `docs/development-plan.md` 的 Phase 34 之后添加 Phase 35 完成状态。
+在 `docs/roadmap/development-plan.md` 的 Phase 34 之后添加 Phase 35 完成状态。
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add src/news_sentry/static/pages/chains.js src/news_sentry/static/app.js src/news_sentry/static/pages/events.js src/news_sentry/static/index.html src/news_sentry/static/style.css docs/development-plan.md
+git add src/news_sentry/static/pages/chains.js src/news_sentry/static/app.js src/news_sentry/static/pages/events.js src/news_sentry/static/index.html src/news_sentry/static/style.css docs/roadmap/development-plan.md
 git commit -m "Phase 35 P35.04: 追踪链前端页面 + 事件详情关联卡片"
 ```

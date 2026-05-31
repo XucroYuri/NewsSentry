@@ -22,9 +22,10 @@ REQUIRED_DIRS = [
     "logs",
 ]
 
-REQUIRED_ENV_VARS = [
-    "ANTHROPIC_API_KEY",
+AI_PROVIDER_ENV_VARS = [
+    "OPENROUTER_API_KEY",
     "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
 ]
 
 
@@ -93,14 +94,15 @@ def run_doctor(target_id: str, data_root: str = "data") -> DoctorReport:
     source_details = ["source reachability check requires network (skip in CI)"]
 
     # Provider check
-    provider_ok = True
+    provider_ok = any(os.environ.get(var) for var in AI_PROVIDER_ENV_VARS)
     provider_details: list[str] = []
-    for var in REQUIRED_ENV_VARS:
+    for var in AI_PROVIDER_ENV_VARS:
         if os.environ.get(var):
             provider_details.append(f"{var} is set")
         else:
-            provider_ok = False
             provider_details.append(f"{var} not set")
+    if not provider_ok:
+        provider_details.append("set OPENROUTER_API_KEY for the default OpenRouter route")
 
     # Browser Bridge check（core 镜像中为 optional）
     image_type = os.environ.get("NEWSSENTRY_IMAGE_TYPE", "full")

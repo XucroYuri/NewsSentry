@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   CHANNELS,
   eventTerms,
@@ -8,6 +9,8 @@ import {
   countEvents,
   channelsWithCounts,
 } from "../../src/news_sentry/static/pages/feed_filters.js";
+
+const feedJs = readFileSync("src/news_sentry/static/pages/feed.js", "utf8");
 
 const groups = [
   {
@@ -94,6 +97,10 @@ assert.equal(CHANNELS[0].id, "all");
 assert.equal(eventMatchesChannel(groups[0].events[0], "featured"), true);
 assert.equal(eventMatchesChannel(groups[0].events[0], "policy"), true);
 assert.equal(eventMatchesChannel(groups[0].events[0], "china"), true);
+assert.equal(
+  eventMatchesChannel({ title_original: "Pechino chiede un compromesso su Iran" }, "china"),
+  true,
+);
 assert.equal(eventMatchesChannel(groups[0].events[1], "tech"), true);
 assert.equal(eventMatchesChannel(groups[0].events[1], "risk"), false);
 assert.equal(eventMatchesChannel(groups[0].events[2], "industry"), true);
@@ -139,6 +146,13 @@ assert.equal(eventMatchesSearch({ id: "fallback-id-001" }, "fallback-id"), true)
 assert.equal(eventMatchesSearch({ source_name: "Wire Desk" }, "wire desk"), true);
 assert.deepEqual(eventTerms({ flat_tags: [0] }), ["0"]);
 assert.deepEqual(eventTerms({ flat_tags: [{ code: 0 }] }), ["0"]);
+assert.deepEqual(
+  eventTerms({
+    flat_tags: ["economics", "security", "china_related"],
+    classification: { l0: "international" },
+  }),
+  ["economy", "public-safety", "china-related", "international-relations"],
+);
 
 const policyGroups = filterGroups(groups, { channelId: "policy", query: "" });
 assert.equal(countEvents(policyGroups), 1);
@@ -159,28 +173,33 @@ assert.deepEqual(
   [
     ["all", 8],
     ["featured", 2],
-    ["policy", 1],
-    ["industry", 2],
-    ["tech", 1],
-    ["risk", 2],
     ["society", 1],
     ["environment", 1],
     ["international", 1],
     ["culture", 1],
     ["clusters", 1],
+    ["policy", 1],
+    ["industry", 2],
+    ["tech", 1],
+    ["risk", 2],
     ["china", 1],
   ],
+);
+assert.match(
+  feedJs,
+  /channelsWithCounts\(groups,\s*\{\s*currentChannel,\s*includeEmpty:\s*true\s*\}\)/,
+  "public feed should keep the full taxonomy visible instead of hiding low-count channels",
 );
 assert.deepEqual(
   channelsWithCounts(groups, { currentChannel: "all", maxSecondaryChannels: 5 }).map((channel) => [channel.id, channel.count]),
   [
     ["all", 8],
     ["featured", 2],
-    ["policy", 1],
-    ["industry", 2],
-    ["tech", 1],
-    ["risk", 2],
     ["society", 1],
+    ["environment", 1],
+    ["international", 1],
+    ["industry", 2],
+    ["risk", 2],
   ],
 );
 const currentEmptyChannels = channelsWithCounts(groups, { currentChannel: "missing-channel" });

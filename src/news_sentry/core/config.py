@@ -44,7 +44,9 @@ class ResolvedConfig(BaseModel):
     provider_routes: dict[str, Any] = Field(default_factory=dict)
     """ProviderConfig 数据（来自 provider_routes_ref）"""
 
-    output_destinations: dict[str, Any] = Field(default_factory=dict)
+    output_destinations: dict[str, Any] = Field(
+        default_factory=lambda: {"markdown_auto_drafts": False}
+    )
     """输出目的地配置（来自 output_destinations_ref）"""
 
     deployment_profile: dict[str, Any] = Field(default_factory=dict)
@@ -154,6 +156,7 @@ class ConfigLoader:
         output_destinations = self._load_referenced_config(
             target_data.get("output_destinations_ref"), target_path
         )
+        output_destinations = self._with_output_defaults(output_destinations)
         output_root = self._resolve_output_root(
             deployment_profile,
             output_root_override,
@@ -172,6 +175,10 @@ class ConfigLoader:
             profile_id=profile_id,
             output_root=output_root,
         )
+
+    def _with_output_defaults(self, output_destinations: dict[str, Any]) -> dict[str, Any]:
+        """补齐输出策略默认值。"""
+        return {"markdown_auto_drafts": False, **output_destinations}
 
     # ── 内部方法 ─────────────────────────────────────────────
 

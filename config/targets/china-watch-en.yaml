@@ -18,6 +18,14 @@ source_channel_refs:
   - bbc-cn
   - guardian-cn
   - nyt-cn
+  - diplomat-cn
+  - rfa-cn
+  - chinafile
+  - economist-cn
+  - voa-china
+  - voa-east-asia
+  - china-digital-times
+  - asia-times-china
 
 # 各子系统规则/路由配置的相对路径（相对于项目根目录）
 filter_rules_ref: config/filters/china-watch-en/default.yaml

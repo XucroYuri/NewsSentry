@@ -15,7 +15,9 @@
     "/router.js",
     "/sw.js",
     "/pages/public_portal.js",
+    "/pages/public_analysis.js",
     "/pages/feed.js",
+    "/pages/target_workbench.js",
     "/pages/feed_filters.js",
     "/pages/dashboard.js",
     "/pages/events.js",
@@ -27,7 +29,6 @@
     "/pages/config.js",
     "/pages/settings.js",
     "/pages/trends.js",
-    "/pages/research_workbench.js",
     "https://cdn.jsdelivr.net/npm/chart.js@4"
   ]
 }

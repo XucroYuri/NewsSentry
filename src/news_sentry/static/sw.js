@@ -5,7 +5,7 @@ const BUILD_MANIFEST_URL = "/build_manifest.json";
 const FALLBACK_MANIFEST = {
   build: "development",
   cacheName: "news-sentry-development",
-  assets: ["/", "/index.html", "/app.js", "/api.js", "/style.css"],
+  assets: ["/", "/index.html", "/app.js", "/style.css", "/public.css"],
 };
 
 async function loadBuildManifest() {
@@ -58,13 +58,19 @@ self.addEventListener("activate", (event) => {
       caches.keys().then((names) =>
         Promise.all(
           names
-            .filter((name) => name.startsWith("news-sentry-") && name !== manifest.cacheName)
-            .map((name) => caches.delete(name)),
+            .filter((n) => n.startsWith("news-sentry-") && n !== manifest.cacheName)
+            .map((n) => caches.delete(n)),
         ),
       ),
     ),
   );
   self.clients.claim();
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
 /* 请求拦截：Cache-First for static, Network-First for API */
@@ -94,7 +100,8 @@ async function navigationFallback(request) {
   try {
     const resp = await fetch(request);
     if (resp.ok) {
-      const cache = await openStaticCache();
+      const manifest = await loadBuildManifest();
+      const cache = await caches.open(manifest.cacheName);
       cache.put(request, resp.clone());
     }
     return resp;
@@ -114,7 +121,8 @@ async function cacheFirst(request) {
   try {
     const resp = await fetch(request);
     if (resp.ok) {
-      const cache = await openStaticCache();
+      const manifest = await loadBuildManifest();
+      const cache = await caches.open(manifest.cacheName);
       cache.put(request, resp.clone());
     }
     return resp;
@@ -131,7 +139,8 @@ async function networkFirst(request) {
   try {
     const resp = await fetch(request);
     if (resp.ok && resp.type === "basic") {
-      const cache = await openStaticCache();
+      const manifest = await loadBuildManifest();
+      const cache = await caches.open(manifest.cacheName);
       cache.put(request, resp.clone());
     }
     return resp;

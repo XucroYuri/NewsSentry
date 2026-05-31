@@ -966,7 +966,7 @@ git commit -m "Phase 34 P34.03: 前端运维仪表盘页面"
 ### Task 4: 验证与清理
 
 **Files:**
-- Modify: `docs/development-plan.md`
+- Modify: `docs/roadmap/development-plan.md`
 
 - [ ] **Step 1: Run lint checks**
 
@@ -998,6 +998,6 @@ Add Phase 34 completion section.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add docs/development-plan.md
+git add docs/roadmap/development-plan.md
 git commit -m "Phase 34: 状态更新为完成"
 ```

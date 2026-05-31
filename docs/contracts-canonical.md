@@ -133,7 +133,7 @@ ne-eu-china-corriere-20260510-f1e2d3c4
 |------|--------------------------|---------|
 | `raw/` | `collected` | 刚采集，未过滤 |
 | `evaluated/` | `filtered` 或 `judged` | 过滤后保留，或已完成研判 |
-| `drafts/` | `judged` → 编辑中 | 高价值事件生成的编辑草稿（含 `workflow_state`） |
+| `drafts/` | `judged` → 编辑中 | 兼容/投影位置：历史 Obsidian 草稿，以及用户显式启用的 Markdown 本地草稿投影；新 pipeline 不得依赖该目录作为事实源 |
 | `reviewed/` | `judged` → 人审通过 | 人工或内审确认后的候选 |
 | `published/` | `outputted` → 归档 | 已产出或批准的存档 |
 | `archive/` | `filtered`（被拒）或 `judged`（discard）| 低价值、重复、失败样本永久保留 |
@@ -147,9 +147,9 @@ ne-eu-china-corriere-20260510-f1e2d3c4
 | 维度 | 字段 | 赋值方 | 含义 |
 |------|------|--------|------|
 | 逻辑管线状态 | `NewsEvent.pipeline_stage` | 各阶段 Skill | 数据处理进展：`collected / filtered / judged / outputted` |
-| 编辑/人审流转 | `workflow_state`（可选，写入 frontmatter） | 人工或输出 Skill | 编辑流程状态：`draft / under_review / approved / rejected / archived` |
+| 编辑/人审流转 | `workflow_state`（可选） | 人工或输出 Skill | 编辑流程状态：`draft / under_review / approved / rejected / archived` |
 
-`workflow_state` 不是 `NewsEvent` 顶层字段，而是写入 Obsidian Markdown frontmatter，供人审查和编辑系统使用。
+`workflow_state` 不是 `NewsEvent` 顶层字段。它可以存在于历史 Markdown frontmatter、research artifact 或导出投影中，供人审查和编辑系统使用，但不得作为 canonical fact 的唯一状态来源。
 
 ---
 
@@ -186,7 +186,7 @@ metadata:
 | `SandboxPolicy.write_roots` 缺 `reviewed/` 和 `published/` | `SandboxPolicy与执行权限规格.md §1 YAML` | 补入 `reviewed` 和 `published` | ADR-0003 |
 | `ToolRunResult.error.type` 枚举缺 `args_invalid` | `SandboxPolicy与执行权限规格.md` | 与 §5 错误类型表对齐，补充缺失枚举值 | ADR-0003 |
 | `多语言翻译时机` 待讨论（`newsevent-schema.md` 待讨论第 4 条）| `newsevent-schema.md §待讨论` | 已决策：collect 阶段做预览机译写入 metadata，judge 阶段做 canonical 高保真翻译 | ADR-0004 |
-| `workflow_state` 与 `pipeline_stage` 分离（待讨论第 5 条） | `newsevent-schema.md §待讨论` | 已决策：二者正交，`workflow_state` 写入 frontmatter 不进 schema 顶层 | ADR-0005 |
+| `workflow_state` 与 `pipeline_stage` 分离（待讨论第 5 条） | `newsevent-schema.md §待讨论` | 已决策：二者正交，`workflow_state` 可存在于 frontmatter、research artifact 或导出投影中，不进 schema 顶层 | ADR-0005 |
 | 产品名大小写不一致 | `architecture-overview.md`（`news-sentry`）vs `AGENTS.md`（`News Sentry`） | 统一：口语/文章用 `News Sentry`，包名/命令用 `news-sentry` | ADR-0001 |
 
 ---

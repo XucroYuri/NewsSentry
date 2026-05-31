@@ -22,9 +22,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import os
 import re
 import secrets
+import shutil
 import time
 import uuid
 from collections import defaultdict
@@ -32,18 +34,25 @@ from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
+from ipaddress import ip_address
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import yaml
-from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, BeforeValidator, Field, ValidationError, field_validator
 
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.auth import hash_password, verify_password
 from news_sentry.core.canonical_projection import CanonicalProjectionService, ProjectionOptions
 from news_sentry.core.config_cache import ConfigCache
+from news_sentry.core.markdown_export import (
+    render_canonical_event_markdown,
+    render_news_event_markdown,
+)
+from news_sentry.core.source_inventory import SourceInventoryService
+from news_sentry.models.newsevent import NewsEvent
 from news_sentry.skills.filter.classification_taxonomy import (
     canonical_l0,
     l0_query_values,
@@ -113,6 +122,8 @@ class TargetInfo(BaseModel):
     primary_language: str
     source_count: int
     event_count: int = 0
+    lifecycle: dict[str, Any] = Field(default_factory=dict)
+    archived: bool = False
 
 
 class TargetListResponse(BaseModel):
@@ -138,9 +149,13 @@ class SourceInfo(BaseModel):
     """源渠道摘要信息。"""
 
     source_id: str
+    source_ref: str | None = None
     display_name: str
     type: str  # rss | api | opencli | social
     enabled: bool
+    archived: bool = False
+    deprecated: bool = False
+    deprecated_reason: str | None = None
     credibility_base: float | None = None
     health_last_success: str | None = None
     health_consecutive_failures: int | None = None
@@ -253,6 +268,15 @@ class RouteConfigUpdate(BaseModel):
     fallback_route_ids: list[str] | None = None
 
 
+class CollectorConfigUpdate(BaseModel):
+    """自动采集器运行配置更新请求。"""
+
+    enabled: bool | None = None
+    target_ids: list[str] | str | None = None
+    interval_minutes: int | None = Field(default=None, ge=1, le=1440)
+    stage: str | None = None
+
+
 class CanonicalBackfillRequest(BaseModel):
     target_id: str
     since: str | None = None
@@ -343,6 +367,119 @@ class ResearchGraphSplitRequest(BaseModel):
     new_title: str | None = None
     new_summary: str | None = None
     dry_run: bool = True
+
+
+class TargetCreateRequest(BaseModel):
+    """Target 创建请求。"""
+
+    mode: Literal["template", "clone"]
+    target_id: str
+    display_name: str
+    language_scope: dict[str, Any]
+    timezone: str
+    source_target_id: str | None = None
+    template_id: str | None = None
+
+
+class TargetPatchRequest(BaseModel):
+    """Target 生命周期工作台内的基础资料更新。"""
+
+    display_name: str | None = None
+    language_scope: dict[str, Any] | None = None
+    timezone: str | None = None
+    classification: dict[str, Any] | None = None
+    focus_areas: list[dict[str, Any]] | None = None
+    lifecycle: dict[str, Any] | None = None
+
+
+class ArchiveRequest(BaseModel):
+    """归档操作请求。"""
+
+    reason: str | None = None
+
+
+class SourceCreateRequest(BaseModel):
+    """标准信源创建请求。"""
+
+    source_id: str
+    display_name: str
+    type: Literal["rss", "api", "opencli"]
+    source_ref: str | None = None
+    url: str | None = None
+    endpoint: dict[str, Any] | None = None
+    api_mapping: dict[str, Any] | None = None
+    tool_ref: str | None = None
+    tool_params: dict[str, Any] | None = None
+    opencli_command: str | None = None
+    sandbox_profile_ref: str | None = None
+    credibility_base: float = Field(default=0.75, ge=0.0, le=1.0)
+    fetch_interval_minutes: int = Field(default=30, ge=1)
+    max_items_per_run: int = Field(default=20, ge=1)
+    timeout_seconds: int = Field(default=20, ge=1, le=300)
+    enabled: bool = True
+    notes: str | None = None
+
+
+class SourcePatchRequest(BaseModel):
+    """标准信源编辑请求。"""
+
+    display_name: str | None = None
+    url: str | None = None
+    endpoint: dict[str, Any] | None = None
+    api_mapping: dict[str, Any] | None = None
+    tool_ref: str | None = None
+    tool_params: dict[str, Any] | None = None
+    opencli_command: str | None = None
+    sandbox_profile_ref: str | None = None
+    credibility_base: float | None = Field(default=None, ge=0.0, le=1.0)
+    fetch_interval_minutes: int | None = Field(default=None, ge=1)
+    max_items_per_run: int | None = Field(default=None, ge=1)
+    timeout_seconds: int | None = Field(default=None, ge=1, le=300)
+    enabled: bool | None = None
+    notes: str | None = None
+
+
+class SocialDimensionCreateRequest(BaseModel):
+    """社媒维度创建请求。"""
+
+    platform: str = "twitter"
+    dimension: str
+    collect_mode: str = "opencli_bridge"
+    session_profile_ref: str | None = None
+    notes: str | None = None
+
+
+class SocialDimensionPatchRequest(BaseModel):
+    """社媒维度编辑请求。"""
+
+    collect_mode: str | None = None
+    session_profile_ref: str | None = None
+    notes: str | None = None
+
+
+class SocialAccountCreateRequest(BaseModel):
+    """社媒账号创建请求。"""
+
+    handle: str
+    display_name: str | None = None
+    url: str | None = None
+    tier: str | None = None
+    category: str | None = None
+    monitor_mode: str = "active"
+    fetch_max_per_run: int | None = Field(default=None, ge=1)
+    notes: str | None = None
+
+
+class SocialAccountPatchRequest(BaseModel):
+    """社媒账号编辑请求。"""
+
+    display_name: str | None = None
+    url: str | None = None
+    tier: str | None = None
+    category: str | None = None
+    monitor_mode: str | None = None
+    fetch_max_per_run: int | None = Field(default=None, ge=1)
+    notes: str | None = None
 
 
 class EntityInfo(BaseModel):
@@ -546,6 +683,64 @@ class SentimentTrendsResponse(BaseModel):
     target_id: str
     days: int
     daily_sentiment: list[DailySentimentCount]
+    generated_at: str
+
+
+class PublicAnalysisSummary(BaseModel):
+    """公开分析快照的摘要统计。"""
+
+    total_events: int = 0
+    high_value_events: int = 0
+    avg_news_value_score: float | None = None
+    avg_china_relevance: float | None = None
+
+
+class PublicDistributionItem(BaseModel):
+    """公开聚合分布条目。"""
+
+    name: str
+    count: int
+
+
+class PublicSourceDistributionItem(BaseModel):
+    """公开信源分布条目。"""
+
+    source_id: str
+    display_name: str
+    count: int
+
+
+class PublicEntityItem(BaseModel):
+    """公开实体聚合条目。"""
+
+    name: str
+    entity_type: str = ""
+    mention_count: int = 0
+
+
+class PublicChainItem(BaseModel):
+    """公开追踪链摘要。"""
+
+    root_event_id: str
+    event_count: int
+    latest_time: str = ""
+    latest_title: str = ""
+    narrative_summary: str = ""
+
+
+class PublicAnalysisResponse(BaseModel):
+    """公开 target 分析快照。"""
+
+    target_id: str
+    target_name: str
+    days: int
+    summary: PublicAnalysisSummary
+    classification_distribution: list[PublicDistributionItem] = Field(default_factory=list)
+    source_distribution: list[PublicSourceDistributionItem] = Field(default_factory=list)
+    top_entities: list[PublicEntityItem] = Field(default_factory=list)
+    topic_trends: list[TopicTrendItem] = Field(default_factory=list)
+    sentiment_trend: list[DailySentimentCount] = Field(default_factory=list)
+    active_chains: list[PublicChainItem] = Field(default_factory=list)
     generated_at: str
 
 
@@ -847,21 +1042,68 @@ class InvisibleIndexedEvent:
 _INVISIBLE_INDEXED_EVENT = InvisibleIndexedEvent()
 
 
+def _is_loopback_host(host: str | None) -> bool:
+    """判断主机名/IP 是否为本机回环地址。"""
+    value = (host or "").split(",", 1)[0].strip().lower()
+    if not value:
+        return False
+    if value.startswith("[") and "]" in value:
+        value = value[1 : value.index("]")]
+    elif value.count(":") == 1:
+        value = value.split(":", 1)[0]
+    if value in {"localhost", "testserver"}:
+        return True
+    try:
+        return ip_address(value).is_loopback
+    except ValueError:
+        return False
+
+
+def _is_loopback_request(request: Request) -> bool:
+    """优先使用真实客户端地址，TestClient 回退到 Host。"""
+    client_host = request.client.host if request.client else ""
+    if client_host and client_host != "testclient":
+        return _is_loopback_host(client_host)
+    return _is_loopback_host(request.headers.get("host"))
+
+
+def _local_auth_bypass_enabled(request: Request) -> bool:
+    """本地桌面/开发模式下跳过账号密码认证。"""
+    return _detect_deployment_env() == "local" and _is_loopback_request(request)
+
+
+def _local_admin_user() -> dict[str, Any]:
+    """本地免登录模式使用的虚拟管理员。"""
+    return {
+        "username": "local-admin",
+        "role": "admin",
+        "has_api_key": False,
+        "local": True,
+    }
+
+
 async def get_current_user(request: Request) -> dict[str, Any]:
     """提取并验证 Bearer token，返回用户信息（内存 + SQLite 回退）。"""
     token = _extract_bearer_token(request)
+    if token:
+        info = await _verify_token_async(token)
+        if info:
+            # 检查 store 中的最新 api_key 状态
+            if _store is not None:
+                user = await _store.get_user(info["username"])
+                if user:
+                    info["has_api_key"] = bool(user.get("api_key"))
+                    info["role"] = user.get("role", info["role"])
+            return info
+        if not _local_auth_bypass_enabled(request):
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    if _local_auth_bypass_enabled(request):
+        return _local_admin_user()
+
     if not token:
         raise HTTPException(status_code=401, detail="Missing authentication")
-    info = await _verify_token_async(token)
-    if not info:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-    # 检查 store 中的最新 api_key 状态
-    if _store is not None:
-        user = await _store.get_user(info["username"])
-        if user:
-            info["has_api_key"] = bool(user.get("api_key"))
-            info["role"] = user.get("role", info["role"])
-    return info
+    raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
 def require_permission(permission: str) -> Any:
@@ -946,6 +1188,20 @@ def _load_single_run_log(
             except (json.JSONDecodeError, OSError):
                 return None
     return None
+
+
+def _latest_run_log_summary(data_dir: Path) -> dict[str, Any] | None:
+    """从所有 target 日志中找最近一次真实运行，用于服务重启后的状态恢复。"""
+    if not data_dir.is_dir():
+        return None
+    candidates: list[dict[str, Any]] = []
+    for target_dir in sorted(data_dir.iterdir()):
+        if not target_dir.is_dir():
+            continue
+        candidates.extend(_load_run_logs(data_dir, target_dir.name, 1))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: item.get("ended_at") or item.get("started_at") or "")
 
 
 def _load_heartbeat(
@@ -1035,18 +1291,6 @@ def _group_events_by_date(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return result
 
 
-def _first_sentence(text: str, max_chars: int = 60) -> str:
-    """提取适合新闻流展示的第一句摘要。"""
-    compact = " ".join(text.split())
-    for sep in ("。", "！", "？", ".", "!", "?"):
-        if sep in compact:
-            compact = compact.split(sep, 1)[0] + sep
-            break
-    if len(compact) > max_chars:
-        return compact[:max_chars].rstrip() + "..."
-    return compact
-
-
 def _event_matches_date(event: dict[str, Any], date: str | None) -> bool:
     if date is None:
         return True
@@ -1066,17 +1310,20 @@ def _visible_index_event_from_row(
     stage: str,
     row: dict[str, Any],
 ) -> dict[str, Any] | None:
+    file_path = row.get("file_path")
     if not _indexed_file_path_is_visible_in_stage(
         data_dir,
         target_id,
         stage,
-        row.get("file_path"),
+        file_path,
     ):
         return None
+    if not file_path:
+        return _event_from_index_row(row)
     event = _load_indexed_event_frontmatter(data_dir, target_id, stage, row)
     if event is None:
         event = _event_from_index_row(row)
-    return _feed_event_payload(event)
+    return event
 
 
 async def _visible_index_events_page(
@@ -1103,9 +1350,9 @@ async def _visible_index_events_page(
     if not exact_total and date is None and search is None:
         offset = start
         index_total = 0
-        sparse_page_events: list[dict[str, Any]] = []
+        page_events: list[dict[str, Any]] = []
 
-        while len(sparse_page_events) < page_size:
+        while len(page_events) < page_size:
             result = await store.query_events_paginated(
                 target_id=target_id,
                 stage=stage,
@@ -1126,8 +1373,8 @@ async def _visible_index_events_page(
             for row in rows:
                 event = _visible_index_event_from_row(data_dir, target_id, stage, row)
                 if event is not None:
-                    sparse_page_events.append(event)
-                    if len(sparse_page_events) >= page_size:
+                    page_events.append(event)
+                    if len(page_events) >= page_size:
                         break
 
             offset += len(rows)
@@ -1137,7 +1384,7 @@ async def _visible_index_events_page(
         return {
             "index_total": index_total,
             "total": index_total,
-            "events": sparse_page_events,
+            "events": page_events,
         }
 
     end = start + page_size
@@ -1191,8 +1438,19 @@ async def _store_has_target_event_index(store: Any, target_id: str) -> bool:
     get_count = getattr(store, "get_target_event_count", None)
     if get_count is None:
         return False
-    count = await get_count(target_id)
-    return int(count) > 0
+    return await get_count(target_id) > 0
+
+
+def _first_sentence(text: str, max_chars: int = 60) -> str:
+    """提取适合新闻流展示的第一句摘要。"""
+    compact = " ".join(text.split())
+    for sep in ("。", "！", "？", ".", "!", "?"):
+        if sep in compact:
+            compact = compact.split(sep, 1)[0] + sep
+            break
+    if len(compact) > max_chars:
+        return compact[:max_chars].rstrip() + "..."
+    return compact
 
 
 def _event_score(ev: dict[str, Any]) -> int | float | None:
@@ -1257,6 +1515,14 @@ async def _classification_diagnostics_from_store(
     }
 
 
+def _event_topic_tags(ev: dict[str, Any]) -> list[str]:
+    raw = ev.get("topic_tags")
+    metadata = ev.get("metadata")
+    if not raw and isinstance(metadata, dict):
+        raw = metadata.get("topic_tags")
+    return [str(tag) for tag in raw[:2]] if isinstance(raw, list) else []
+
+
 def _tag_text(value: Any) -> str:
     if isinstance(value, dict):
         for key in ("code", "name", "label", "title"):
@@ -1264,18 +1530,6 @@ def _tag_text(value: Any) -> str:
                 return str(value[key])
         return ""
     return "" if value is None or value == "" else str(value)
-
-
-def _event_topic_tags(ev: dict[str, Any]) -> list[str]:
-    raw = ev.get("topic_tags")
-    metadata = ev.get("metadata")
-    if not raw and isinstance(metadata, dict):
-        raw = metadata.get("topic_tags")
-    if isinstance(raw, str):
-        return [tag.strip() for tag in raw.split(",") if tag.strip()][:2]
-    if isinstance(raw, list):
-        return [str(tag) for tag in raw[:2]]
-    return []
 
 
 def _event_flat_tags(ev: dict[str, Any]) -> list[str]:
@@ -1332,16 +1586,12 @@ def _feed_event_payload(ev: dict[str, Any]) -> dict[str, Any]:
     """为新闻流补充展示字段；不改变 NewsEvent 存储契约。"""
     event_id = ev.get("event_id") or ev.get("id") or ""
     source_id = ev.get("source_id") or ""
-    raw_judge = ev.get("judge_result")
-    judge: dict[str, Any] = raw_judge if isinstance(raw_judge, dict) else {}
-    raw_metadata = ev.get("metadata")
-    metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
-    raw_clustering = metadata.get("clustering")
-    clustering: dict[str, Any] = raw_clustering if isinstance(raw_clustering, dict) else {}
+    judge = ev.get("judge_result") if isinstance(ev.get("judge_result"), dict) else {}
+    metadata = ev.get("metadata") if isinstance(ev.get("metadata"), dict) else {}
+    clustering = metadata.get("clustering") if isinstance(metadata.get("clustering"), dict) else {}
     classification = _event_classification(ev) or {}
     payload = dict(ev)
     payload["event_id"] = event_id
-    payload.setdefault("id", event_id)
     payload["display_title"] = ev.get("title_translated") or ev.get("title_original") or event_id
     payload["score"] = _event_score(ev)
     payload["source_display_name"] = ev.get("source_display_name") or source_id
@@ -1355,6 +1605,352 @@ def _feed_event_payload(ev: dict[str, Any]) -> dict[str, Any]:
     payload["recommendation"] = ev.get("recommendation") or judge.get("recommendation")
     payload["related_count"] = ev.get("related_count") or 0
     return payload
+
+
+def _avg_or_none(values: list[int | float]) -> float | None:
+    """计算公开快照均值，空集合返回 None。"""
+    if not values:
+        return None
+    return round(sum(values) / len(values), 2)
+
+
+def _distribution_items(
+    counts: dict[str, int],
+    *,
+    limit: int = 10,
+) -> list[PublicDistributionItem]:
+    """按 count 降序、key 升序输出公开分布。"""
+    pairs = [(str(name), int(count)) for name, count in counts.items() if name and count > 0]
+    pairs.sort(key=lambda item: (-item[1], item[0]))
+    return [PublicDistributionItem(name=name, count=count) for name, count in pairs[:limit]]
+
+
+def _source_distribution_items(
+    counts: dict[str, int],
+    *,
+    limit: int = 10,
+) -> list[PublicSourceDistributionItem]:
+    """输出公开信源分布，display_name 默认使用 source_id。"""
+    pairs = [
+        (str(source_id), int(count))
+        for source_id, count in counts.items()
+        if source_id and count > 0
+    ]
+    pairs.sort(key=lambda item: (-item[1], item[0]))
+    return [
+        PublicSourceDistributionItem(source_id=source_id, display_name=source_id, count=count)
+        for source_id, count in pairs[:limit]
+    ]
+
+
+def _public_summary_from_events(events: list[dict[str, Any]]) -> PublicAnalysisSummary:
+    """从 draft frontmatter 聚合公开摘要。"""
+    scores = [score for ev in events if (score := _event_score(ev)) is not None]
+    relevances = [
+        relevance
+        for ev in events
+        if isinstance((relevance := ev.get("china_relevance")), (int, float))
+    ]
+    return PublicAnalysisSummary(
+        total_events=len(events),
+        high_value_events=sum(1 for score in scores if score >= 70),
+        avg_news_value_score=_avg_or_none(scores),
+        avg_china_relevance=_avg_or_none(relevances),
+    )
+
+
+def _public_distributions_from_events(
+    events: list[dict[str, Any]],
+) -> tuple[list[PublicDistributionItem], list[PublicSourceDistributionItem]]:
+    """从 draft frontmatter 聚合公开分类和信源分布。"""
+    by_classification: dict[str, int] = defaultdict(int)
+    by_source: dict[str, int] = defaultdict(int)
+    for ev in events:
+        classification = _event_classification(ev)
+        if classification:
+            l0 = classification.get("l0")
+            if l0:
+                by_classification[str(l0)] += 1
+        source_id = ev.get("source_id")
+        if source_id:
+            by_source[str(source_id)] += 1
+    return _distribution_items(by_classification), _source_distribution_items(by_source)
+
+
+def _parse_published_at_utc(value: Any) -> datetime | None:
+    """解析事件发布时间；缺失或不可解析时返回 None。"""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _public_events_within_window(
+    events: list[dict[str, Any]],
+    days: int,
+) -> list[dict[str, Any]]:
+    """过滤公开分析时间窗口；无时间戳草稿保留以兼容旧数据。"""
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    filtered: list[dict[str, Any]] = []
+    for event in events:
+        published_at = event.get("published_at")
+        if not published_at:
+            filtered.append(event)
+            continue
+        parsed = _parse_published_at_utc(published_at)
+        if parsed is None or parsed >= cutoff:
+            filtered.append(event)
+    return filtered
+
+
+def _target_display_name(target_id: str) -> str:
+    """读取公开 target 名称，缺失时回退到 target_id。"""
+    for config in _load_target_configs():
+        if config.get("target_id") == target_id:
+            display_name = config.get("display_name")
+            if isinstance(display_name, str) and display_name.strip():
+                return display_name
+            return target_id
+    return target_id
+
+
+_PUBLIC_ANALYSIS_STAGE = "drafts"
+_PUBLIC_ANALYSIS_CHAIN_LIMIT = 10
+
+
+def _split_store_list(value: Any) -> list[str]:
+    """拆分 store 中逗号分隔的 NLP 字段。"""
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    return []
+
+
+def _store_day(value: Any) -> str:
+    """从 ISO 日期字符串取 YYYY-MM-DD。"""
+    text = str(value or "")
+    return text[:10] if len(text) >= 10 else ""
+
+
+async def _public_event_rows_from_store(
+    target_id: str,
+    days: int,
+    store: AsyncStore,
+) -> list[dict[str, Any]]:
+    """读取公开新闻流可见事件索引；仅 drafts stage 对匿名端可见。"""
+    if store._db is None:  # noqa: SLF001
+        return []
+    async with store._db.execute(  # noqa: SLF001
+        "SELECT event_id, source_id, news_value_score, china_relevance, "
+        "classification_l0, published_at, sentiment, entity_names, topic_tags "
+        "FROM event_index "
+        "WHERE target_id = ? AND stage = ? "
+        "AND (published_at IS NULL OR published_at = '' "
+        "OR published_at >= date('now', ? || ' days')) "
+        "ORDER BY published_at DESC",
+        [target_id, _PUBLIC_ANALYSIS_STAGE, f"-{days}"],
+    ) as cursor:
+        rows = await cursor.fetchall()
+    cols = (
+        "event_id",
+        "source_id",
+        "news_value_score",
+        "china_relevance",
+        "classification_l0",
+        "published_at",
+        "sentiment",
+        "entity_names",
+        "topic_tags",
+    )
+    return [dict(zip(cols, row, strict=True)) for row in rows]
+
+
+async def _public_active_chains_from_store(
+    target_id: str,
+    store: AsyncStore,
+    *,
+    limit: int = _PUBLIC_ANALYSIS_CHAIN_LIMIT,
+) -> list[PublicChainItem]:
+    """读取公开追踪链摘要，并在 root 查询阶段硬性限量。"""
+    if store._db is None:  # noqa: SLF001
+        return []
+
+    async with store._db.execute(  # noqa: SLF001
+        "SELECT DISTINCT el.source_event_id, source.published_at "
+        "FROM event_links el "
+        "JOIN event_index source ON source.event_id = el.source_event_id "
+        "WHERE el.target_id = ? AND source.target_id = ? AND source.stage = ? "
+        "ORDER BY source.published_at DESC LIMIT ?",
+        [target_id, target_id, _PUBLIC_ANALYSIS_STAGE, limit],
+    ) as cursor:
+        root_rows = await cursor.fetchall()
+    root_ids = [str(row[0]) for row in root_rows if row[0]]
+    if not root_ids:
+        return []
+
+    placeholders = ",".join("?" for _ in root_ids)
+    narrative_map: dict[str, str] = {}
+    async with store._db.execute(  # noqa: SLF001
+        f"SELECT chain_root_id, narrative FROM chain_narratives "  # noqa: S608
+        f"WHERE chain_root_id IN ({placeholders})",
+        root_ids,
+    ) as cursor:
+        async for row in cursor:
+            narrative_map[str(row[0])] = str(row[1] or "")
+
+    chains: list[PublicChainItem] = []
+    for root_id in root_ids:
+        async with store._db.execute(  # noqa: SLF001
+            "SELECT DISTINCT ei.event_id, ei.title_original, ei.published_at "
+            "FROM event_index ei "
+            "WHERE ei.target_id = ? AND ei.stage = ? "
+            "AND (ei.event_id = ? "
+            "OR ei.event_id IN ("
+            "SELECT target_event_id FROM event_links "
+            "WHERE target_id = ? AND source_event_id = ?"
+            ") "
+            "OR ei.event_id IN ("
+            "SELECT source_event_id FROM event_links "
+            "WHERE target_id = ? AND target_event_id = ?"
+            ")) "
+            "ORDER BY ei.published_at ASC",
+            [
+                target_id,
+                _PUBLIC_ANALYSIS_STAGE,
+                root_id,
+                target_id,
+                root_id,
+                target_id,
+                root_id,
+            ],
+        ) as cursor:
+            chain_rows = await cursor.fetchall()
+        if len(chain_rows) < 2:
+            continue
+        latest = chain_rows[-1]
+        narrative = narrative_map.get(root_id, "")
+        chains.append(
+            PublicChainItem(
+                root_event_id=root_id,
+                event_count=len(chain_rows),
+                latest_time=str(latest[2] or ""),
+                latest_title=str(latest[1] or ""),
+                narrative_summary=narrative[:50] + "..." if len(narrative) > 50 else narrative,
+            )
+        )
+    chains.sort(key=lambda chain: chain.latest_time, reverse=True)
+    return chains[:limit]
+
+
+async def _public_analysis_from_store(
+    target_id: str,
+    days: int,
+    store: AsyncStore,
+) -> PublicAnalysisResponse | None:
+    """从 SQLite store 聚合公开分析快照；空 store 交给文件系统降级。"""
+    public_rows = await _public_event_rows_from_store(target_id, days, store)
+    total_events = len(public_rows)
+    if total_events == 0:
+        return None
+
+    scores = [
+        score
+        for event in public_rows
+        if isinstance((score := event.get("news_value_score")), (int, float))
+    ]
+    relevances = [
+        relevance
+        for event in public_rows
+        if isinstance((relevance := event.get("china_relevance")), (int, float))
+    ]
+    by_classification: dict[str, int] = defaultdict(int)
+    by_source: dict[str, int] = defaultdict(int)
+    entity_counts: dict[str, int] = defaultdict(int)
+    topic_counts: dict[str, int] = defaultdict(int)
+    topic_daily: dict[tuple[str, str], int] = defaultdict(int)
+    sentiment_by_day: dict[str, DailySentimentCount] = {}
+
+    for event in public_rows:
+        classification = event.get("classification_l0")
+        if classification:
+            by_classification[canonical_l0(str(classification))] += 1
+        source_id = event.get("source_id")
+        if source_id:
+            by_source[str(source_id)] += 1
+
+        for entity_name in _split_store_list(event.get("entity_names")):
+            entity_counts[entity_name] += 1
+
+        day = _store_day(event.get("published_at"))
+        for topic in _split_store_list(event.get("topic_tags")):
+            topic_counts[topic] += 1
+            if day:
+                topic_daily[(topic, day)] += 1
+
+        sentiment = event.get("sentiment")
+        if day and sentiment in {"positive", "negative", "neutral"}:
+            sentiment_item = sentiment_by_day.setdefault(day, DailySentimentCount(day=day))
+            if sentiment == "positive":
+                sentiment_item.positive += 1
+            elif sentiment == "negative":
+                sentiment_item.negative += 1
+            elif sentiment == "neutral":
+                sentiment_item.neutral += 1
+
+    topic_daily_counts = [
+        {"topic": topic, "day": day, "count": count}
+        for (topic, day), count in sorted(topic_daily.items())
+    ]
+    top_topics = [
+        {"topic": topic, "count": count}
+        for topic, count in sorted(topic_counts.items(), key=lambda item: (-item[1], item[0]))[:10]
+    ]
+    active_chains = await _public_active_chains_from_store(target_id, store)
+
+    from news_sentry.skills.analysis.trend_analyzer import compute_topic_trends
+
+    topic_trends = [
+        TopicTrendItem(**trend.model_dump())
+        for trend in compute_topic_trends(topic_daily_counts, top_topics, total_days=days)
+    ]
+
+    summary = PublicAnalysisSummary(
+        total_events=total_events,
+        high_value_events=sum(1 for score in scores if score >= 70),
+        avg_news_value_score=_avg_or_none(scores),
+        avg_china_relevance=_avg_or_none(relevances),
+    )
+
+    return PublicAnalysisResponse(
+        target_id=target_id,
+        target_name=_target_display_name(target_id),
+        days=days,
+        summary=summary,
+        classification_distribution=_distribution_items(by_classification),
+        source_distribution=_source_distribution_items(by_source),
+        top_entities=[
+            PublicEntityItem(
+                name=name,
+                mention_count=count,
+            )
+            for name, count in sorted(entity_counts.items(), key=lambda item: (-item[1], item[0]))[
+                :10
+            ]
+        ],
+        topic_trends=topic_trends,
+        sentiment_trend=sorted(sentiment_by_day.values(), key=lambda item: item.day),
+        active_chains=active_chains,
+        generated_at=datetime.now(UTC).isoformat(),
+    )
 
 
 def _load_single_event(data_dir: Path, target_id: str, event_id: str) -> dict[str, Any] | None:
@@ -1476,8 +2072,7 @@ def _source_ids_for_target(target_id: str) -> set[str]:
     """返回 target 当前启用的信源 ID，用于后台健康状态过滤。"""
     ids: set[str] = set()
     for source in _load_source_configs(target_id):
-        raw_lifecycle = source.get("lifecycle")
-        lifecycle: dict[str, Any] = raw_lifecycle if isinstance(raw_lifecycle, dict) else {}
+        lifecycle = source.get("lifecycle") if isinstance(source.get("lifecycle"), dict) else {}
         if source.get("enabled", True) is False:
             continue
         if source.get("deprecated") is True:
@@ -1612,6 +2207,43 @@ def _atomic_write_yaml(filepath: Path, data: dict[str, Any]) -> None:
             tmp.unlink(missing_ok=True)
 
 
+_TARGET_SLUG_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+_SOURCE_SLUG_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+
+
+def _target_config_path(target_id: str) -> Path:
+    return Path("config/targets") / f"{target_id}.yaml"
+
+
+def _source_config_path(target_id: str, source_ref: str) -> Path:
+    safe_ref = _normalize_source_ref(source_ref)
+    return Path("config/sources") / target_id / f"{safe_ref}.yaml"
+
+
+def _normalize_source_ref(source_ref: str) -> str:
+    """规范化 config/sources/{target}/ 下的相对引用。"""
+    ref = str(source_ref or "").replace("\\", "/").strip("/")
+    if not ref or ref.startswith(".") or "/../" in f"/{ref}/" or Path(ref).is_absolute():
+        raise HTTPException(status_code=400, detail="Invalid source ref")
+    if any(not part or part.startswith(".") for part in ref.split("/")):
+        raise HTTPException(status_code=400, detail="Invalid source ref")
+    return ref
+
+
+def _validate_target_slug(target_id: str) -> None:
+    if not _TARGET_SLUG_RE.match(target_id):
+        raise HTTPException(status_code=400, detail="Invalid target_id")
+
+
+def _validate_source_slug(source_id: str) -> None:
+    if not _SOURCE_SLUG_RE.match(source_id):
+        raise HTTPException(status_code=400, detail="Invalid source_id")
+
+
+def _load_target_config(target_id: str) -> dict[str, Any] | None:
+    return _load_yaml_file(_target_config_path(target_id))
+
+
 def _target_lifecycle(data: dict[str, Any]) -> dict[str, Any]:
     lifecycle = data.get("lifecycle")
     if not isinstance(lifecycle, dict):
@@ -1620,38 +2252,40 @@ def _target_lifecycle(data: dict[str, Any]) -> dict[str, Any]:
     return {**lifecycle, "status": status}
 
 
+def _target_is_archived(data: dict[str, Any]) -> bool:
+    return _target_lifecycle(data).get("status") == "archived"
+
+
 def _target_info_from_config(data: dict[str, Any], data_dir: Path) -> TargetInfo:
-    """Build TargetInfo without synchronously scanning event files."""
-    del data_dir
-    target_id = str(data.get("target_id") or "")
-    language_scope = data.get("language_scope")
-    primary_language = (
-        str(language_scope.get("primary") or "") if isinstance(language_scope, dict) else ""
-    )
-    refs = data.get("source_channel_refs")
-    source_count = len(refs) if isinstance(refs, list) else 0
+    target_id = data.get("target_id", "")
+    lifecycle = _target_lifecycle(data)
+    refs = [ref for ref in data.get("source_channel_refs", []) if isinstance(ref, str)]
     return TargetInfo(
         target_id=target_id,
-        display_name=str(data.get("display_name") or ""),
-        primary_language=primary_language,
-        source_count=source_count,
+        display_name=data.get("display_name", ""),
+        primary_language=data.get("language_scope", {}).get("primary", "")
+        if isinstance(data.get("language_scope"), dict)
+        else "",
+        source_count=len(refs),
         event_count=0,
+        lifecycle=lifecycle,
+        archived=lifecycle.get("status") == "archived",
     )
 
 
 async def _target_public_event_count(target_id: str, data_dir: Path) -> int:
-    """Return the count the public feed can show without scanning files when indexed."""
+    """Return the count the public feed can actually show for a target."""
     try:
-        store = await _get_target_store(target_id)
+        store = await _store_for_target(target_id)
         if store is not None and await _store_has_target_event_index(store, target_id):
             get_count = getattr(store, "get_event_count", None)
             if get_count is not None:
-                return int(await get_count(target_id, "drafts"))
+                return int(await get_count(target_id, _PUBLIC_ANALYSIS_STAGE))
             visible = await _visible_index_events_page(
                 store,
                 data_dir,
                 target_id,
-                stage="drafts",
+                stage=_PUBLIC_ANALYSIS_STAGE,
                 page=1,
                 page_size=1,
                 exact_total=False,
@@ -1673,6 +2307,366 @@ async def _target_info_from_config_for_response(
     return info.model_copy(update={"event_count": event_count})
 
 
+def _source_is_standard(source: dict[str, Any]) -> bool:
+    return source.get("type") in {"rss", "api", "opencli"}
+
+
+def _source_is_archived(source: dict[str, Any]) -> bool:
+    return (
+        bool(source.get("deprecated"))
+        or source.get("enabled") is False
+        and bool(source.get("deprecated_reason"))
+    )
+
+
+def _source_info_from_config(source: dict[str, Any]) -> SourceInfo:
+    url_val = source.get("url")
+    if url_val is None:
+        endpoint = source.get("endpoint")
+        if isinstance(endpoint, dict):
+            url_val = endpoint.get("url")
+    health = source.get("health")
+    health_last = None
+    health_failures = None
+    if isinstance(health, dict):
+        health_last = health.get("last_success_at")
+        health_failures = health.get("consecutive_failures")
+    source_ref = source.get("_source_id") or source.get("source_ref") or source.get("source_id")
+    return SourceInfo(
+        source_id=source.get("source_id", source_ref),
+        source_ref=source_ref,
+        display_name=source.get("display_name", ""),
+        type=source.get("type", "unknown"),
+        enabled=source.get("enabled", True),
+        archived=_source_is_archived(source),
+        deprecated=bool(source.get("deprecated", False)),
+        deprecated_reason=source.get("deprecated_reason"),
+        credibility_base=source.get("credibility_base"),
+        health_last_success=health_last,
+        health_consecutive_failures=health_failures,
+        url=url_val,
+    )
+
+
+def _ensure_target_exists(target_id: str) -> dict[str, Any]:
+    data = _load_target_config(target_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"Target '{target_id}' not found")
+    return data
+
+
+def _append_source_ref(target_id: str, source_ref: str) -> None:
+    data = _ensure_target_exists(target_id)
+    refs = data.get("source_channel_refs")
+    if not isinstance(refs, list):
+        refs = []
+    if source_ref not in refs:
+        refs.append(source_ref)
+    data["source_channel_refs"] = refs
+    _atomic_write_yaml(_target_config_path(target_id), data)
+
+
+def _default_filter_config(target_id: str) -> dict[str, Any]:
+    return {
+        "target_id": target_id,
+        "score_threshold": 35,
+        "max_age_hours": 72,
+        "dedup_window_hours": 24,
+        "keyword_rules": [],
+    }
+
+
+def _default_classification_config(target_id: str) -> dict[str, Any]:
+    return {
+        "target_id": target_id,
+        "axes": [
+            {"id": "policy", "label": "政策"},
+            {"id": "industry", "label": "产业"},
+            {"id": "technology", "label": "技术"},
+            {"id": "risk", "label": "风险"},
+        ],
+    }
+
+
+def _ensure_global_config_defaults() -> None:
+    if not Path("config/sandbox/default.yaml").is_file():
+        _atomic_write_yaml(Path("config/sandbox/default.yaml"), {"profile": "default"})
+    if not Path("config/provider/routes.yaml").is_file():
+        _atomic_write_yaml(
+            Path("config/provider/routes.yaml"),
+            {"routes_version": "1", "routes": []},
+        )
+    if not Path("config/output/destinations.yaml").is_file():
+        _atomic_write_yaml(Path("config/output/destinations.yaml"), {"destinations": []})
+
+
+def _template_target_config(
+    *,
+    target_id: str,
+    display_name: str,
+    language_scope: dict[str, Any],
+    timezone: str,
+    source_refs: list[str] | None = None,
+) -> dict[str, Any]:
+    refs = source_refs if source_refs is not None else ["rss-template"]
+    return {
+        "target_id": target_id,
+        "display_name": display_name,
+        "language_scope": language_scope,
+        "timezone": timezone,
+        "source_channel_refs": refs,
+        "filter_rules_ref": f"config/filters/{target_id}/default.yaml",
+        "classification_rules_ref": f"config/classification/rules-{target_id}.yaml",
+        "sandbox_profile_ref": "config/sandbox/default.yaml",
+        "provider_routes_ref": "config/provider/routes.yaml",
+        "output_destinations_ref": "config/output/destinations.yaml",
+        "classification": {"country_axes": {}},
+        "focus_areas": [],
+        "lifecycle": {"status": "active"},
+    }
+
+
+def _default_template_source(target_id: str) -> dict[str, Any]:
+    return {
+        "source_id": "rss-template",
+        "display_name": f"{target_id} RSS Template",
+        "type": "rss",
+        "url": f"https://example.com/{target_id}/rss.xml",
+        "credibility_base": 0.7,
+        "fetch_interval_minutes": 60,
+        "max_items_per_run": 20,
+        "timeout_seconds": 20,
+        "enabled": False,
+        "deprecated": True,
+        "deprecated_reason": "模板占位，启用前请替换为真实信源",
+    }
+
+
+def _copy_target_config_skeleton(source_target_id: str, target_id: str) -> list[str]:
+    """复制 target 的配置骨架，不复制 data/ 历史数据。"""
+    source_sources = Path("config/sources") / source_target_id
+    target_sources = Path("config/sources") / target_id
+    if source_sources.is_dir():
+        shutil.copytree(source_sources, target_sources, dirs_exist_ok=True)
+
+    source_filter = Path("config/filters") / source_target_id
+    target_filter = Path("config/filters") / target_id
+    if source_filter.is_dir():
+        shutil.copytree(source_filter, target_filter, dirs_exist_ok=True)
+    else:
+        _atomic_write_yaml(target_filter / "default.yaml", _default_filter_config(target_id))
+
+    source_classification = Path("config/classification") / f"rules-{source_target_id}.yaml"
+    target_classification = Path("config/classification") / f"rules-{target_id}.yaml"
+    if source_classification.is_file():
+        data = _load_yaml_file(source_classification) or {}
+        if "target_id" in data:
+            data["target_id"] = target_id
+        _atomic_write_yaml(target_classification, data)
+    else:
+        _atomic_write_yaml(target_classification, _default_classification_config(target_id))
+
+    target_data = _ensure_target_exists(source_target_id)
+    refs = target_data.get("source_channel_refs", [])
+    return [str(ref) for ref in refs if isinstance(ref, str)]
+
+
+def _stop_target_in_collector_config(target_id: str) -> None:
+    config_path = Path("config/runtime/collector.yaml")
+    data = _load_yaml_file(config_path)
+    if not data:
+        return
+    target_ids = data.get("target_ids")
+    changed = False
+    if isinstance(target_ids, list) and target_id in target_ids:
+        data["target_ids"] = [item for item in target_ids if item != target_id]
+        changed = True
+    elif isinstance(target_ids, str) and target_ids == target_id:
+        data["target_ids"] = []
+        changed = True
+    if changed:
+        _atomic_write_yaml(config_path, data)
+
+
+def _build_source_config(payload: SourceCreateRequest) -> tuple[str, dict[str, Any]]:
+    _validate_source_slug(payload.source_id)
+    source_ref = _normalize_source_ref(payload.source_ref or payload.source_id)
+    data: dict[str, Any] = {
+        "source_id": payload.source_id,
+        "display_name": payload.display_name,
+        "type": payload.type,
+        "credibility_base": payload.credibility_base,
+        "fetch_interval_minutes": payload.fetch_interval_minutes,
+        "max_items_per_run": payload.max_items_per_run,
+        "timeout_seconds": payload.timeout_seconds,
+        "enabled": payload.enabled,
+    }
+    if payload.notes:
+        data["notes"] = payload.notes
+    if payload.type == "rss":
+        if not payload.url:
+            raise HTTPException(status_code=400, detail="RSS source requires url")
+        data["url"] = payload.url
+    elif payload.type == "api":
+        endpoint = payload.endpoint or {"url": payload.url, "method": "GET"}
+        if not endpoint.get("url"):
+            raise HTTPException(status_code=400, detail="API source requires endpoint.url")
+        data["endpoint"] = endpoint
+        data["api_mapping"] = payload.api_mapping or {}
+    elif payload.type == "opencli":
+        tool_ref = payload.tool_ref or payload.opencli_command
+        if not tool_ref:
+            raise HTTPException(status_code=400, detail="OpenCLI source requires tool_ref")
+        data["tool_ref"] = tool_ref
+        data["opencli_command"] = tool_ref
+        data["tool_params"] = payload.tool_params or {}
+        if payload.sandbox_profile_ref:
+            data["sandbox_profile_ref"] = payload.sandbox_profile_ref
+    return source_ref, data
+
+
+def _social_dimensions(target_id: str) -> list[dict[str, Any]]:
+    root = Path("config/sources") / target_id / "social"
+    if not root.is_dir():
+        return []
+    items: list[dict[str, Any]] = []
+    for path in sorted(root.rglob("*.yaml")):
+        data = _load_yaml_file(path)
+        if not data:
+            continue
+        rel = path.relative_to(Path("config/sources") / target_id).with_suffix("")
+        accounts = data.get("accounts")
+        if not isinstance(accounts, list):
+            accounts = []
+        data["_source_ref"] = str(rel)
+        data["_file_path"] = str(path)
+        data["accounts"] = accounts
+        data["account_count"] = len(accounts)
+        data["archived_count"] = sum(
+            1
+            for account in accounts
+            if isinstance(account, dict) and account.get("monitor_mode") == "archived"
+        )
+        items.append(data)
+    return items
+
+
+def _find_social_dimension_path(target_id: str, dimension: str) -> Path | None:
+    for item in _social_dimensions(target_id):
+        if item.get("dimension") == dimension:
+            file_path = item.get("_file_path")
+            return Path(file_path) if file_path else None
+    return None
+
+
+def _validate_target_config(target_id: str) -> dict[str, Any]:
+    """返回 target 配置链路预检结果。"""
+    checks: list[dict[str, Any]] = []
+    data = _load_target_config(target_id)
+    if data is None:
+        return {
+            "target_id": target_id,
+            "ok": False,
+            "checks": [
+                {
+                    "id": "target_config",
+                    "label": "Target 配置",
+                    "ok": False,
+                    "severity": "error",
+                    "message": "Target 配置文件不存在",
+                    "items": [],
+                }
+            ],
+        }
+
+    refs = [str(ref) for ref in data.get("source_channel_refs", []) if isinstance(ref, str)]
+    duplicate_refs = sorted({ref for ref in refs if refs.count(ref) > 1})
+    missing_refs = [
+        ref for ref in refs if not (Path("config/sources") / target_id / f"{ref}.yaml").is_file()
+    ]
+    checks.append(
+        {
+            "id": "source_refs",
+            "label": "信源引用",
+            "ok": not duplicate_refs and not missing_refs,
+            "severity": "error" if duplicate_refs or missing_refs else "ok",
+            "message": "信源引用完整"
+            if not duplicate_refs and not missing_refs
+            else "存在重复或缺失的信源引用",
+            "items": [{"type": "duplicate", "ref": ref} for ref in duplicate_refs]
+            + [{"type": "missing", "ref": ref} for ref in missing_refs],
+        }
+    )
+
+    ref_fields = [
+        ("filter_rules_ref", "过滤规则"),
+        ("classification_rules_ref", "分类规则"),
+        ("sandbox_profile_ref", "沙箱配置"),
+        ("provider_routes_ref", "Provider 路由"),
+        ("output_destinations_ref", "输出配置"),
+    ]
+    for field, label in ref_fields:
+        ref = data.get(field)
+        exists = bool(ref) and Path(str(ref)).is_file()
+        checks.append(
+            {
+                "id": field,
+                "label": label,
+                "ok": exists,
+                "severity": "error" if not exists else "ok",
+                "message": "引用文件存在" if exists else f"{label}引用缺失",
+                "items": [] if exists else [{"ref": ref}],
+            }
+        )
+
+    bad_urls: list[dict[str, str]] = []
+    for source in _load_source_configs(target_id):
+        if not _source_is_standard(source):
+            continue
+        url_val = source.get("url")
+        if url_val is None and isinstance(source.get("endpoint"), dict):
+            url_val = source["endpoint"].get("url")
+        if (
+            source.get("type") != "opencli"
+            and url_val
+            and not str(url_val).startswith(("http://", "https://"))
+        ):
+            bad_urls.append({"source_ref": str(source.get("_source_id", "")), "url": str(url_val)})
+    checks.append(
+        {
+            "id": "source_urls",
+            "label": "信源 URL",
+            "ok": not bad_urls,
+            "severity": "error" if bad_urls else "ok",
+            "message": "URL 格式可用" if not bad_urls else "存在非 HTTP(S) URL",
+            "items": bad_urls,
+        }
+    )
+
+    missing_sessions: list[dict[str, str]] = []
+    for social in _social_dimensions(target_id):
+        ref = social.get("session_profile_ref")
+        if ref and not Path(str(ref)).is_file():
+            missing_sessions.append(
+                {"dimension": str(social.get("dimension", "")), "session_profile_ref": str(ref)}
+            )
+    checks.append(
+        {
+            "id": "social_sessions",
+            "label": "社媒会话",
+            "ok": not missing_sessions,
+            "severity": "warning" if missing_sessions else "ok",
+            "message": "社媒会话配置存在" if not missing_sessions else "部分社媒会话配置缺失",
+            "items": missing_sessions,
+        }
+    )
+    return {
+        "target_id": target_id,
+        "ok": all(check["ok"] or check["severity"] == "warning" for check in checks),
+        "checks": checks,
+    }
+
+
 def _load_all_events(data_dir: Path, target_id: str) -> list[dict[str, Any]]:
     """从 data/{target_id}/drafts/ 读取所有事件（不分页）。"""
     drafts_dir = data_dir / target_id / "drafts"
@@ -1687,6 +2681,247 @@ def _load_all_events(data_dir: Path, target_id: str) -> list[dict[str, Any]]:
             except Exception:  # noqa: S112
                 continue
     return events
+
+
+def _draft_file_records(data_dir: Path, target_id: str) -> list[dict[str, Any]]:
+    """读取 draft 文件的轻量诊断记录，不改变文件。"""
+    drafts_dir = data_dir / target_id / "drafts"
+    if not drafts_dir.is_dir():
+        return []
+    records: list[dict[str, Any]] = []
+    for md_file in sorted(drafts_dir.glob("*.md")):
+        event = _load_event_by_path(str(md_file)) or {}
+        title = event.get("title_original") or event.get("title") or ""
+        records.append(
+            {
+                "event_id": _event_id_from_frontmatter(event) or "",
+                "path": str(md_file.relative_to(data_dir)),
+                "title": str(title),
+            }
+        )
+    return records
+
+
+async def _draft_index_rows_for_target(
+    store: AsyncStore | None,
+    target_id: str,
+) -> list[dict[str, Any]]:
+    """读取 target drafts 索引行，用于维护诊断。"""
+    if store is None or store._db is None:  # noqa: SLF001
+        return []
+    try:
+        async with store._db.execute(  # noqa: SLF001
+            "SELECT event_id, file_path, title_original "
+            "FROM event_index WHERE target_id = ? AND stage = ? "
+            "ORDER BY COALESCE(published_at, created_at, '') DESC",
+            (target_id, _PUBLIC_ANALYSIS_STAGE),
+        ) as cursor:
+            rows = await cursor.fetchall()
+    except Exception:  # noqa: S112
+        logger.exception("Failed to load draft index rows for target %s", target_id)
+        return []
+    return [
+        {"event_id": str(row[0] or ""), "file_path": row[1], "title": str(row[2] or "")}
+        for row in rows
+    ]
+
+
+async def _draft_diagnostics(data_dir: Path, target_id: str) -> dict[str, Any]:
+    """生成 draft 文件与 SQLite 索引的只读一致性诊断。"""
+    draft_files = _draft_file_records(data_dir, target_id)
+    store = await _store_for_target(target_id)
+    index_available = store is not None and await _store_has_target_event_index(store, target_id)
+    index_rows = await _draft_index_rows_for_target(store, target_id) if index_available else []
+    indexed_ids = {row["event_id"] for row in index_rows if row.get("event_id")}
+    visible_index_count = 0
+    if index_available:
+        visible = await _visible_index_events_page(
+            store,
+            data_dir,
+            target_id,
+            stage=_PUBLIC_ANALYSIS_STAGE,
+            page=1,
+            page_size=1,
+        )
+        visible_index_count = int(visible["total"])
+
+    grouped_files: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for item in draft_files:
+        event_id = item.get("event_id") or ""
+        if event_id:
+            grouped_files[event_id].append(item)
+
+    duplicate_event_ids = [
+        {
+            "event_id": event_id,
+            "count": len(items),
+            "files": [item["path"] for item in items],
+        }
+        for event_id, items in sorted(grouped_files.items())
+        if len(items) > 1
+    ]
+    orphan_files = [
+        item
+        for item in draft_files
+        if index_available and (not item.get("event_id") or item.get("event_id") not in indexed_ids)
+    ]
+    missing_index_files = []
+    for row in index_rows:
+        file_path = row.get("file_path")
+        if not file_path:
+            continue
+        if not _indexed_file_path_is_visible_in_stage(
+            data_dir,
+            target_id,
+            _PUBLIC_ANALYSIS_STAGE,
+            str(file_path),
+        ):
+            continue
+        if not Path(str(file_path)).is_file():
+            missing_index_files.append(
+                {
+                    "event_id": row.get("event_id") or "",
+                    "path": str(file_path),
+                    "title": row.get("title") or "",
+                }
+            )
+
+    return {
+        "target_id": target_id,
+        "stage": _PUBLIC_ANALYSIS_STAGE,
+        "index_available": bool(index_available),
+        "draft_file_count": len(draft_files),
+        "indexed_count": len(index_rows),
+        "visible_index_count": visible_index_count,
+        "orphan_file_count": len(orphan_files),
+        "orphan_files": orphan_files,
+        "duplicate_event_ids": duplicate_event_ids,
+        "missing_index_file_count": len(missing_index_files),
+        "missing_index_files": missing_index_files,
+    }
+
+
+def _relative_to_data_dir(data_dir: Path, path: Path) -> str:
+    """返回面向 API 的 data_dir 相对路径。"""
+    try:
+        return str(path.relative_to(data_dir))
+    except ValueError:
+        return str(path)
+
+
+def _duplicate_draft_keep_path(
+    data_dir: Path,
+    target_id: str,
+    event_id: str,
+    items: list[dict[str, Any]],
+    index_rows: list[dict[str, Any]],
+) -> Path:
+    """从重复 draft 文件中选择要保留的 canonical 文件。"""
+    candidate_paths = [data_dir / str(item["path"]) for item in items if item.get("path")]
+    candidate_lookup = {path.resolve(strict=False): path for path in candidate_paths}
+    drafts_dir = data_dir / target_id / "drafts"
+    for row in index_rows:
+        if row.get("event_id") != event_id or not row.get("file_path"):
+            continue
+        indexed_path = Path(str(row["file_path"]))
+        if not indexed_path.is_absolute():
+            indexed_path = data_dir / indexed_path
+        try:
+            indexed_path.relative_to(drafts_dir)
+        except ValueError:
+            continue
+        kept = candidate_lookup.get(indexed_path.resolve(strict=False))
+        if kept is not None:
+            return kept
+
+    canonical_name = f"{event_id}.md"
+    for path in sorted(candidate_paths, key=lambda p: str(p)):
+        if path.name == canonical_name:
+            return path
+    return sorted(candidate_paths, key=lambda p: str(p))[0]
+
+
+def _unique_archive_path(archive_dir: Path, source_path: Path) -> Path:
+    """避免归档目录内同名文件互相覆盖。"""
+    candidate = archive_dir / source_path.name
+    if not candidate.exists():
+        return candidate
+    suffix = uuid.uuid4().hex[:8]
+    return archive_dir / f"{source_path.stem}-{suffix}{source_path.suffix}"
+
+
+async def _archive_duplicate_drafts(
+    data_dir: Path,
+    target_id: str,
+    *,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """将重复 event_id 的多余 draft 文件安全移动到 archive，不硬删除。"""
+    _validate_target_slug(target_id)
+    draft_files = _draft_file_records(data_dir, target_id)
+    store = await _store_for_target(target_id)
+    index_rows = await _draft_index_rows_for_target(store, target_id)
+    grouped_files: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for item in draft_files:
+        event_id = item.get("event_id") or ""
+        if event_id:
+            grouped_files[event_id].append(item)
+
+    duplicate_groups = {
+        event_id: items for event_id, items in grouped_files.items() if len(items) > 1
+    }
+    archive_batch = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    archive_dir = data_dir / target_id / "archive" / "duplicate-drafts" / archive_batch
+    archived_files: list[dict[str, Any]] = []
+    skipped_files: list[dict[str, Any]] = []
+
+    for event_id, items in sorted(duplicate_groups.items()):
+        keep_path = _duplicate_draft_keep_path(data_dir, target_id, event_id, items, index_rows)
+        for item in sorted(items, key=lambda value: str(value.get("path") or "")):
+            source_path = data_dir / str(item["path"])
+            if source_path.resolve(strict=False) == keep_path.resolve(strict=False):
+                continue
+            destination = _unique_archive_path(archive_dir, source_path)
+            record = {
+                "event_id": event_id,
+                "source_path": _relative_to_data_dir(data_dir, source_path),
+                "archived_path": _relative_to_data_dir(data_dir, destination),
+                "kept_path": _relative_to_data_dir(data_dir, keep_path),
+            }
+            if dry_run:
+                archived_files.append(record)
+                continue
+            if not source_path.is_file():
+                skipped_files.append({**record, "reason": "source_missing"})
+                continue
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(source_path), str(destination))
+            archived_files.append(record)
+
+    if archived_files and not dry_run:
+        manifest_path = archive_dir / "manifest.json"
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "target_id": target_id,
+                    "created_at": datetime.now(UTC).isoformat(),
+                    "archived_files": archived_files,
+                    "skipped_files": skipped_files,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+    return {
+        "target_id": target_id,
+        "dry_run": dry_run,
+        "duplicate_group_count": len(duplicate_groups),
+        "archived_count": len(archived_files),
+        "archived_files": archived_files,
+        "skipped_files": skipped_files,
+    }
 
 
 def _load_event_by_path(file_path: str | None) -> dict[str, Any] | None:
@@ -1760,6 +2995,138 @@ def _event_from_index_row(row: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in event.items() if value is not None}
 
 
+def _markdown_download_response(filename: str, content: str) -> Response:
+    """返回 Markdown attachment 响应，不触碰文件系统。"""
+    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", filename)
+    safe_name = safe_name.strip("._") or "export"
+    if not safe_name.endswith(".md"):
+        safe_name = f"{safe_name}.md"
+    return Response(
+        content=content,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}"'},
+    )
+
+
+def _safe_mapping(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _safe_number(
+    value: Any,
+    *,
+    integer: bool = False,
+    minimum: float | None = None,
+    maximum: float | None = None,
+) -> int | float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    if minimum is not None and number < minimum:
+        return None
+    if maximum is not None and number > maximum:
+        return None
+    return int(number) if integer else number
+
+
+def _safe_language(value: Any) -> str:
+    raw = str(value or "").strip().lower().replace("_", "-")
+    if not raw:
+        return "mixed"
+    primary = raw.split("-", maxsplit=1)[0]
+    accepted = {"it", "en", "zh", "ja", "de", "fr", "mixed"}
+    return primary if primary in accepted else "mixed"
+
+
+def _safe_datetime_text(value: Any) -> str:
+    text = str(value or "").strip()
+    return text or datetime.now(UTC).isoformat()
+
+
+def _safe_text(value: Any, fallback: str) -> str:
+    text = str(value or "").strip()
+    return text or fallback
+
+
+def _news_event_from_export_data(target_id: str, data: dict[str, Any]) -> NewsEvent:
+    """把 API 详情/索引投影补齐为 renderer 需要的 NewsEvent。"""
+    event_id = _safe_text(data.get("id") or data.get("event_id"), "export-event")
+    metadata = _safe_mapping(data.get("metadata"))
+    classification = data.get("classification")
+    if isinstance(classification, dict):
+        metadata.setdefault("classification", classification)
+
+    published_at = _safe_datetime_text(data.get("published_at") or data.get("created_at"))
+    collected_at = _safe_datetime_text(
+        data.get("collected_at") or data.get("created_at") or published_at
+    )
+    stage = str(data.get("pipeline_stage") or data.get("stage") or "outputted")
+    if stage not in {"collected", "filtered", "judged", "outputted"}:
+        stage = "outputted"
+
+    return NewsEvent.model_validate(
+        {
+            "id": event_id,
+            "run_id": str(data.get("run_id") or f"export-{target_id}"),
+            "source_id": _safe_text(data.get("source_id"), "unknown"),
+            "url": _safe_text(data.get("url"), ""),
+            "title_original": _safe_text(data.get("title_original") or data.get("title"), event_id),
+            "title_translated": data.get("title_translated"),
+            "content_original": _safe_text(data.get("content_original") or data.get("summary"), ""),
+            "content_translated": data.get("content_translated"),
+            "language": _safe_language(data.get("language")),
+            "published_at": published_at,
+            "collected_at": collected_at,
+            "pipeline_stage": stage,
+            "news_value_score": _safe_number(
+                data.get("news_value_score"), integer=True, minimum=0, maximum=100
+            ),
+            "china_relevance": _safe_number(
+                data.get("china_relevance"), integer=True, minimum=0, maximum=100
+            ),
+            "sentiment_score": _safe_number(data.get("sentiment_score"), minimum=-1.0, maximum=1.0),
+            "cluster_id": data.get("cluster_id"),
+            "story_id": data.get("story_id"),
+            "metadata": metadata,
+        }
+    )
+
+
+def _render_public_event_markdown_fallback(target_id: str, event: dict[str, Any]) -> str:
+    event_id = _safe_text(event.get("id") or event.get("event_id"), "export-event")
+    title = _safe_text(event.get("title_original") or event.get("title"), event_id)
+    source_id = _safe_text(event.get("source_id"), "unknown")
+    url = _safe_text(event.get("url"), "")
+    published_at = _safe_datetime_text(event.get("published_at") or event.get("created_at"))
+    frontmatter = yaml.dump(
+        {
+            "id": event_id,
+            "target_id": target_id,
+            "source_id": source_id,
+            "url": url,
+            "title_original": title,
+            "published_at": published_at,
+            "pipeline_stage": "outputted",
+        },
+        allow_unicode=True,
+        default_flow_style=False,
+        sort_keys=False,
+    ).rstrip("\n")
+    return f"---\n{frontmatter}\n---\n\n# {title}\n\n**来源:** {source_id}\n"
+
+
+def _render_public_event_markdown(target_id: str, event: dict[str, Any]) -> str:
+    try:
+        return render_news_event_markdown(_news_event_from_export_data(target_id, event))
+    except ValidationError:
+        return _render_public_event_markdown_fallback(target_id, event)
+
+
 def _indexed_file_path_is_visible_in_stage(
     data_dir: Path,
     target_id: str,
@@ -1828,11 +3195,10 @@ async def _load_indexed_event_detail(
 def _parse_target_ids(raw: str) -> list[str]:
     """解析 target ID 字符串：'all' → 全量 targets，'a,b' → ['a','b']."""
     if raw.strip().lower() == "all":
-        import news_sentry
         from news_sentry.core.async_run import _resolve_targets
+        from news_sentry.core.run import _find_project_root
 
-        config_dir = Path(news_sentry.__file__).resolve().parent.parent / "config"
-        return _resolve_targets("all", config_dir)
+        return _resolve_targets("all", _find_project_root())
     return [t.strip() for t in raw.split(",") if t.strip()]
 
 
@@ -1939,15 +3305,23 @@ def _apply_collector_config(config: dict[str, Any]) -> dict[str, Any]:
 
 def _collector_payload() -> dict[str, Any]:
     """返回统一的采集器状态响应。"""
+    latest_log = _latest_run_log_summary(_data_dir)
+    last_run_at = _auto_collector_state["last_run_at"]
+    last_run_status = _auto_collector_state["last_run_status"]
+    last_events_collected = _auto_collector_state.get("last_events_collected", 0)
+    if latest_log and not last_run_at:
+        last_run_at = latest_log.get("ended_at") or latest_log.get("started_at")
+        last_run_status = latest_log.get("status")
+        last_events_collected = latest_log.get("events_collected", 0)
     return {
         "enabled": _auto_collector_state["enabled"],
         "running": _auto_collector_state["running"],
         "target_ids": _auto_collector_state["target_ids"],
         "stage": _auto_collector_state["stage"],
         "interval_minutes": _auto_collector_state["interval_minutes"],
-        "last_run_at": _auto_collector_state["last_run_at"],
-        "last_run_status": _auto_collector_state["last_run_status"],
-        "last_events_collected": _auto_collector_state.get("last_events_collected", 0),
+        "last_run_at": last_run_at,
+        "last_run_status": last_run_status,
+        "last_events_collected": last_events_collected,
         "last_error": _auto_collector_state.get("last_error"),
         "next_run_at": _auto_collector_state.get("next_run_at"),
         "total_runs": _auto_collector_state["total_runs"],
@@ -2086,10 +3460,17 @@ async def _get_target_store(target_id: str) -> AsyncStore | None:
 
     缓存已打开的 store，避免重复初始化。
     """
-    if target_id in _target_stores:
-        return _target_stores[target_id]
-
     db_path = _target_db_path(target_id)
+    if target_id in _target_stores:
+        cached = _target_stores[target_id]
+        if cached.db_path == db_path:
+            return cached
+        try:
+            await cached.close()
+        except Exception:  # noqa: S110
+            pass
+        _target_stores.pop(target_id, None)
+
     if db_path.exists():
         store = AsyncStore(db_path)
         await store.initialize()
@@ -2098,12 +3479,6 @@ async def _get_target_store(target_id: str) -> AsyncStore | None:
         return store
 
     return None
-
-
-async def _store_for_target(target_id: str) -> AsyncStore | None:
-    """优先返回 target state.db；不存在时退回全局 store。"""
-    target_store = await _get_target_store(target_id)
-    return target_store if target_store is not None else _store
 
 
 async def _source_health_records_for_target(target_id: str) -> list[dict[str, Any]]:
@@ -2117,6 +3492,12 @@ async def _source_health_records_for_target(target_id: str) -> list[dict[str, An
     if not records:
         records = _load_memory_source_health_records(target_id)
     return _filter_source_health_records(target_id, records)
+
+
+async def _store_for_target(target_id: str) -> AsyncStore | None:
+    """优先返回 target state.db；没有时退回全局 store。"""
+    target_store = await _get_target_store(target_id)
+    return target_store if target_store is not None else _store
 
 
 def _research_graph_error(exc: ValueError) -> HTTPException:
@@ -2402,7 +3783,11 @@ def create_app(
         )
 
         # 2. AI API Key 是否配置
-        has_ai_key = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY"))
+        has_ai_key = bool(
+            os.environ.get("OPENROUTER_API_KEY")
+            or os.environ.get("ANTHROPIC_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")
+        )
         checks.append(
             {
                 "name": "ai_api_key",
@@ -2432,6 +3817,17 @@ def create_app(
         unhealthy = 0
         if data_exists:
             for tid in target_dirs:
+                memory_health = _filter_source_health_records(
+                    tid,
+                    _load_memory_source_health_records(tid),
+                )
+                if memory_health:
+                    for h in memory_health:
+                        if h.get("status") == "healthy":
+                            healthy += 1
+                        else:
+                            unhealthy += 1
+                    continue
                 health_file = _data_dir / tid / "source_health.json"
                 if health_file.exists():
                     try:
@@ -2457,7 +3853,7 @@ def create_app(
         )
 
         # 5. 最近一次采集时间
-        last_run = _auto_collector_state["last_run_at"]
+        last_run = _collector_payload()["last_run_at"]
         checks.append(
             {
                 "name": "last_collection",
@@ -2554,8 +3950,12 @@ def create_app(
                     return _create_token_for_user(u["username"], u.get("role", "reader"), True)
 
         if not valid_keys:
-            # 开发模式：无配置 key 时允许所有请求
-            return _create_token_for_user("dev", "admin", False)
+            if _local_auth_bypass_enabled(request):
+                return _create_token_for_user("dev", "admin", False)
+            raise HTTPException(
+                status_code=503,
+                detail="API key is required outside local mode",
+            )
         if api_key not in valid_keys:
             raise HTTPException(status_code=401, detail="Invalid API key")
         return _create_token_for_user(f"key_{api_key[:8]}", "admin", True)
@@ -2943,12 +4343,538 @@ def create_app(
 
     @app.get("/api/v1/targets", response_model=TargetListResponse)
     async def list_targets() -> TargetListResponse:
-        """返回所有可用的 target 列表。"""
+        """返回公开可浏览的 active target 列表。"""
         configs = _load_target_configs()
-        targets: list[TargetInfo] = []
+        targets = []
         for config in configs:
+            if _target_is_archived(config):
+                continue
             targets.append(await _target_info_from_config_for_response(config, _data_dir))
         return TargetListResponse(targets=targets)
+
+    @app.get("/api/v1/admin/targets")
+    async def list_admin_targets(
+        include_archived: bool = Query(False, description="是否包含已归档 target"),
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """管理后台 target 全生命周期列表。"""
+        configs = _load_target_configs()
+        targets = []
+        for config in configs:
+            if not include_archived and _target_is_archived(config):
+                continue
+            target = await _target_info_from_config_for_response(config, _data_dir)
+            targets.append(target.model_dump())
+        return {"targets": targets}
+
+    @app.post("/api/v1/admin/targets")
+    async def create_admin_target(
+        payload: TargetCreateRequest,
+        user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """通过模板或克隆创建完整 target 配置骨架。"""
+        _validate_target_slug(payload.target_id)
+        target_path = _target_config_path(payload.target_id)
+        if target_path.exists():
+            raise HTTPException(
+                status_code=409,
+                detail=f"Target '{payload.target_id}' already exists",
+            )
+        _ensure_global_config_defaults()
+
+        if payload.mode == "template":
+            target_data = _template_target_config(
+                target_id=payload.target_id,
+                display_name=payload.display_name,
+                language_scope=payload.language_scope,
+                timezone=payload.timezone,
+            )
+            _atomic_write_yaml(
+                _source_config_path(payload.target_id, "rss-template"),
+                _default_template_source(payload.target_id),
+            )
+            _atomic_write_yaml(
+                Path("config/filters") / payload.target_id / "default.yaml",
+                _default_filter_config(payload.target_id),
+            )
+            _atomic_write_yaml(
+                Path("config/classification") / f"rules-{payload.target_id}.yaml",
+                _default_classification_config(payload.target_id),
+            )
+        else:
+            if not payload.source_target_id:
+                raise HTTPException(status_code=400, detail="clone mode requires source_target_id")
+            source_target = _ensure_target_exists(payload.source_target_id)
+            source_refs = _copy_target_config_skeleton(payload.source_target_id, payload.target_id)
+            target_data = _template_target_config(
+                target_id=payload.target_id,
+                display_name=payload.display_name,
+                language_scope=payload.language_scope,
+                timezone=payload.timezone,
+                source_refs=source_refs,
+            )
+            for key in ("sandbox_profile_ref", "provider_routes_ref", "output_destinations_ref"):
+                if source_target.get(key):
+                    target_data[key] = source_target[key]
+            if isinstance(source_target.get("classification"), dict):
+                target_data["classification"] = source_target["classification"]
+            if isinstance(source_target.get("focus_areas"), list):
+                target_data["focus_areas"] = source_target["focus_areas"]
+
+        _atomic_write_yaml(target_path, target_data)
+        _config_cache.clear()
+        return _target_info_from_config(target_data, _data_dir).model_dump()
+
+    @app.patch("/api/v1/admin/targets/{target_id}")
+    async def patch_admin_target(
+        target_id: str,
+        payload: TargetPatchRequest,
+        user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """更新 target 基础资料。"""
+        data = _ensure_target_exists(target_id)
+        updates = payload.model_dump(exclude_unset=True)
+        data = _deep_merge(data, updates)
+        data["target_id"] = target_id
+        _atomic_write_yaml(_target_config_path(target_id), data)
+        _config_cache.clear()
+        return data
+
+    @app.post("/api/v1/admin/targets/{target_id}/archive")
+    async def archive_admin_target(
+        target_id: str,
+        payload: ArchiveRequest | None = None,
+        user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """归档 target：公开首页隐藏，历史数据保留。"""
+        data = _ensure_target_exists(target_id)
+        data["lifecycle"] = {
+            **_target_lifecycle(data),
+            "status": "archived",
+            "archived_at": datetime.now(UTC).isoformat(),
+            "archive_reason": payload.reason if payload else None,
+        }
+        _atomic_write_yaml(_target_config_path(target_id), data)
+        _stop_target_in_collector_config(target_id)
+        _config_cache.clear()
+        return data
+
+    @app.post("/api/v1/admin/targets/{target_id}/restore")
+    async def restore_admin_target(
+        target_id: str,
+        user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """恢复 target：重新进入公开首页和后台列表，但不自动启动采集。"""
+        data = _ensure_target_exists(target_id)
+        lifecycle = _target_lifecycle(data)
+        lifecycle["status"] = "active"
+        lifecycle.pop("archive_reason", None)
+        data["lifecycle"] = lifecycle
+        _atomic_write_yaml(_target_config_path(target_id), data)
+        _config_cache.clear()
+        return data
+
+    @app.get("/api/v1/admin/targets/{target_id}/overview")
+    async def admin_target_overview(
+        target_id: str,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """单个 target 工作台总览。"""
+        target_data = _ensure_target_exists(target_id)
+        inventory = SourceInventoryService(Path.cwd(), _data_dir).build_target_inventory(target_id)
+        inventory_summary = inventory["summary"]
+        inventory_sources = inventory["sources"]
+        standard_inventory_sources = [
+            item
+            for item in inventory_sources
+            if item.get("type") in {"rss", "api", "opencli"} and not item.get("missing_file")
+        ]
+        target_info = await _target_info_from_config_for_response(target_data, _data_dir)
+        target_store = await _get_target_store(target_id)
+        events: list[dict[str, Any]] = []
+        classification_diagnostics = await _classification_diagnostics_from_store(
+            target_id,
+            target_store,
+        )
+        has_index = target_store is not None and await _store_has_target_event_index(
+            target_store,
+            target_id,
+        )
+        if classification_diagnostics is None or (
+            not classification_diagnostics.get("distribution") and not has_index
+        ):
+            events = _load_all_events(_data_dir, target_id)
+            classification_diagnostics = _classification_diagnostics_from_events(events)
+        validation = _validate_target_config(target_id)
+        recent_runs = _load_run_logs(_data_dir, target_id, 5)
+        return {
+            "target": target_info.model_dump(),
+            "profile": target_data,
+            "sources": {
+                "total": inventory_summary["standard_sources"],
+                "active": sum(1 for item in standard_inventory_sources if not item["archived"]),
+                "archived": sum(1 for item in standard_inventory_sources if item["archived"]),
+                "missing_refs": inventory_summary["missing_refs"],
+                "unreferenced_files": inventory_summary["unreferenced_files"],
+            },
+            "social": {
+                "dimensions": inventory_summary["social_dimensions"],
+                "accounts": inventory_summary["social_accounts"],
+                "archived_accounts": sum(
+                    int(item.get("archived_account_count") or 0)
+                    for item in inventory_sources
+                    if item.get("type") == "social"
+                ),
+            },
+            "events": {"total": target_info.event_count},
+            "classification_diagnostics": classification_diagnostics,
+            "recent_runs": recent_runs,
+            "validation": validation,
+            "collector": _collector_payload(),
+        }
+
+    @app.post("/api/v1/admin/targets/{target_id}/validate")
+    async def validate_admin_target(
+        target_id: str,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """预检 target 配置链路。"""
+        return _validate_target_config(target_id)
+
+    @app.get("/api/v1/admin/targets/{target_id}/inventory")
+    async def admin_target_inventory(
+        target_id: str,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """返回 target 信源统一对账视图。"""
+        _ensure_target_exists(target_id)
+        return SourceInventoryService(Path.cwd(), _data_dir).build_target_inventory(target_id)
+
+    @app.get("/api/v1/admin/targets/{target_id}/sources")
+    async def list_admin_target_sources(
+        target_id: str,
+        include_archived: bool = Query(False, description="是否包含已归档信源"),
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """列出 target 的标准 RSS/API/OpenCLI 信源。"""
+        _ensure_target_exists(target_id)
+        sources = []
+        for source in _load_source_configs(target_id):
+            if not _source_is_standard(source):
+                continue
+            if not include_archived and _source_is_archived(source):
+                continue
+            sources.append(_source_info_from_config(source).model_dump())
+        return {"target_id": target_id, "sources": sources}
+
+    @app.post("/api/v1/admin/targets/{target_id}/sources")
+    async def create_admin_target_source(
+        target_id: str,
+        payload: SourceCreateRequest,
+        user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """新增标准信源，并写入 target source_channel_refs。"""
+        _ensure_target_exists(target_id)
+        source_ref, data = _build_source_config(payload)
+        path = _source_config_path(target_id, source_ref)
+        if path.exists():
+            raise HTTPException(status_code=409, detail=f"Source '{source_ref}' already exists")
+        _atomic_write_yaml(path, data)
+        _append_source_ref(target_id, source_ref)
+        _config_cache.clear()
+        data["_source_id"] = source_ref
+        data["_file_path"] = str(path)
+        return _source_info_from_config(data).model_dump()
+
+    @app.patch("/api/v1/admin/targets/{target_id}/sources/{source_ref:path}")
+    async def patch_admin_target_source(
+        target_id: str,
+        source_ref: str,
+        payload: SourcePatchRequest,
+        user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """编辑标准信源。"""
+        _ensure_target_exists(target_id)
+        normalized_ref = _normalize_source_ref(source_ref)
+        path = _source_config_path(target_id, normalized_ref)
+        data = _load_yaml_file(path)
+        if data is None:
+            raise HTTPException(status_code=404, detail=f"Source '{normalized_ref}' not found")
+        updates = payload.model_dump(exclude_unset=True)
+        for key, value in updates.items():
+            if value is None:
+                continue
+            data[key] = value
+        _atomic_write_yaml(path, data)
+        _config_cache.clear()
+        data["_source_id"] = normalized_ref
+        data["_file_path"] = str(path)
+        return _source_info_from_config(data).model_dump()
+
+    @app.post("/api/v1/admin/targets/{target_id}/sources/{source_ref:path}/archive")
+    async def archive_admin_target_source(
+        target_id: str,
+        source_ref: str,
+        payload: ArchiveRequest | None = None,
+        user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """归档标准信源：禁用但保留 YAML 和历史事件。"""
+        _ensure_target_exists(target_id)
+        normalized_ref = _normalize_source_ref(source_ref)
+        path = _source_config_path(target_id, normalized_ref)
+        data = _load_yaml_file(path)
+        if data is None:
+            raise HTTPException(status_code=404, detail=f"Source '{normalized_ref}' not found")
+        data["enabled"] = False
+        data["deprecated"] = True
+        data["deprecated_reason"] = payload.reason if payload else "archived"
+        _atomic_write_yaml(path, data)
+        _config_cache.clear()
+        data["_source_id"] = normalized_ref
+        data["_file_path"] = str(path)
+        return _source_info_from_config(data).model_dump()
+
+    @app.post("/api/v1/admin/targets/{target_id}/sources/{source_ref:path}/restore")
+    async def restore_admin_target_source(
+        target_id: str,
+        source_ref: str,
+        user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """恢复已归档标准信源。"""
+        _ensure_target_exists(target_id)
+        normalized_ref = _normalize_source_ref(source_ref)
+        path = _source_config_path(target_id, normalized_ref)
+        data = _load_yaml_file(path)
+        if data is None:
+            raise HTTPException(status_code=404, detail=f"Source '{normalized_ref}' not found")
+        data["enabled"] = True
+        data["deprecated"] = False
+        data.pop("deprecated_reason", None)
+        _atomic_write_yaml(path, data)
+        _config_cache.clear()
+        data["_source_id"] = normalized_ref
+        data["_file_path"] = str(path)
+        return _source_info_from_config(data).model_dump()
+
+    @app.get("/api/v1/admin/targets/{target_id}/social")
+    async def get_admin_target_social(
+        target_id: str,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """读取 target 社媒矩阵。"""
+        _ensure_target_exists(target_id)
+        dimensions = _social_dimensions(target_id)
+        return {"target_id": target_id, "dimensions": dimensions}
+
+    @app.post("/api/v1/admin/targets/{target_id}/social/dimensions")
+    async def create_admin_social_dimension(
+        target_id: str,
+        payload: SocialDimensionCreateRequest,
+        user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """新增社媒维度。"""
+        _ensure_target_exists(target_id)
+        platform = _normalize_source_ref(payload.platform)
+        dimension = _normalize_source_ref(payload.dimension)
+        source_ref = f"social/{platform}/{dimension}"
+        path = _source_config_path(target_id, source_ref)
+        if path.exists():
+            raise HTTPException(
+                status_code=409,
+                detail=f"Social dimension '{dimension}' already exists",
+            )
+        data = {
+            "platform": platform,
+            "dimension": dimension,
+            "collect_mode": payload.collect_mode,
+            "session_profile_ref": payload.session_profile_ref
+            or f"config/session-profiles/{target_id}/{platform}.session.yaml",
+            "accounts": [],
+        }
+        if payload.notes:
+            data["notes"] = payload.notes
+        _atomic_write_yaml(path, data)
+        _append_source_ref(target_id, source_ref)
+        _config_cache.clear()
+        data["_source_ref"] = source_ref
+        data["_file_path"] = str(path)
+        data["account_count"] = 0
+        data["archived_count"] = 0
+        return data
+
+    @app.patch("/api/v1/admin/targets/{target_id}/social/dimensions/{dimension}")
+    async def patch_admin_social_dimension(
+        target_id: str,
+        dimension: str,
+        payload: SocialDimensionPatchRequest,
+        user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """编辑社媒维度。"""
+        _ensure_target_exists(target_id)
+        path = _find_social_dimension_path(target_id, dimension)
+        if path is None:
+            raise HTTPException(status_code=404, detail=f"Social dimension '{dimension}' not found")
+        data = _load_yaml_file(path) or {}
+        for key, value in payload.model_dump(exclude_unset=True).items():
+            if value is not None:
+                data[key] = value
+        _atomic_write_yaml(path, data)
+        _config_cache.clear()
+        return data
+
+    @app.post("/api/v1/admin/targets/{target_id}/social/dimensions/{dimension}/accounts")
+    async def create_admin_social_account(
+        target_id: str,
+        dimension: str,
+        payload: SocialAccountCreateRequest,
+        user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """新增社媒账号。"""
+        _ensure_target_exists(target_id)
+        path = _find_social_dimension_path(target_id, dimension)
+        if path is None:
+            raise HTTPException(status_code=404, detail=f"Social dimension '{dimension}' not found")
+        data = _load_yaml_file(path) or {}
+        accounts = data.get("accounts")
+        if not isinstance(accounts, list):
+            accounts = []
+        if any(
+            isinstance(account, dict) and account.get("handle") == payload.handle
+            for account in accounts
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Account '{payload.handle}' already exists",
+            )
+        account = payload.model_dump(exclude_none=True)
+        accounts.append(account)
+        data["accounts"] = accounts
+        _atomic_write_yaml(path, data)
+        _config_cache.clear()
+        return account
+
+    @app.patch("/api/v1/admin/targets/{target_id}/social/dimensions/{dimension}/accounts/{handle}")
+    async def patch_admin_social_account(
+        target_id: str,
+        dimension: str,
+        handle: str,
+        payload: SocialAccountPatchRequest,
+        user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """编辑或归档社媒账号。"""
+        _ensure_target_exists(target_id)
+        path = _find_social_dimension_path(target_id, dimension)
+        if path is None:
+            raise HTTPException(status_code=404, detail=f"Social dimension '{dimension}' not found")
+        data = _load_yaml_file(path) or {}
+        accounts = data.get("accounts")
+        if not isinstance(accounts, list):
+            accounts = []
+        for account in accounts:
+            if isinstance(account, dict) and account.get("handle") == handle:
+                for key, value in payload.model_dump(exclude_unset=True).items():
+                    if value is not None:
+                        account[key] = value
+                _atomic_write_yaml(path, data)
+                _config_cache.clear()
+                return account
+        raise HTTPException(status_code=404, detail=f"Account '{handle}' not found")
+
+    @app.get("/api/v1/admin/overview")
+    async def admin_overview(
+        target_id: str | None = Query(None, description="目标标识"),
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """管理后台总览聚合：目标、采集、诊断、健康、反馈与告警。"""
+        targets_response = await list_targets()
+        targets = [target.model_dump() for target in targets_response.targets]
+        selected_target = target_id or (targets[0]["target_id"] if targets else "")
+
+        diagnostics = await collector_diagnostics(user)
+        source_health_records: list[dict[str, Any]] = []
+        if selected_target:
+            source_health_records = await _source_health_records_for_target(selected_target)
+
+        feedback: dict[str, Any] = {
+            "total": 0,
+            "publish_override": 0,
+            "archive_override": 0,
+            "comment": 0,
+        }
+        alerts: dict[str, Any] = {"total": 0, "items": []}
+        if _store is not None and selected_target:
+            try:
+                feedback = await _store.get_feedback_stats(selected_target)
+            except AttributeError:
+                feedback = dict(feedback)
+            try:
+                alert_items = await _store.get_alert_history(selected_target)
+                alerts = {"total": len(alert_items), "items": alert_items[:5]}
+            except AttributeError:
+                alerts = {"total": 0, "items": []}
+
+        recent_runs = _load_run_logs(_data_dir, selected_target, 5) if selected_target else []
+        return {
+            "target_id": selected_target,
+            "targets": targets,
+            "collector": _collector_payload(),
+            "diagnostics": diagnostics,
+            "source_health": {
+                "total": len(source_health_records),
+                "unhealthy": sum(
+                    1
+                    for item in source_health_records
+                    if item.get("status") not in {"ok", "healthy"}
+                ),
+                "items": source_health_records[:8],
+            },
+            "recent_runs": recent_runs,
+            "feedback": feedback,
+            "alerts": alerts,
+            "generated_at": datetime.now(UTC).isoformat(),
+        }
+
+    @app.get(
+        "/api/v1/public/targets/{target_id}/analysis",
+        response_model=PublicAnalysisResponse,
+    )
+    async def get_public_target_analysis(
+        target_id: str,
+        days: Annotated[
+            Literal[7, 14, 30],
+            Query(description="分析窗口天数"),
+            BeforeValidator(int),
+        ] = 14,
+    ) -> PublicAnalysisResponse:
+        """公开匿名只读分析快照。"""
+        target_store = await _get_target_store(target_id)
+        store_to_query = target_store if target_store is not None else _store
+        if store_to_query is not None:
+            try:
+                store_response = await _public_analysis_from_store(target_id, days, store_to_query)
+                if store_response is not None:
+                    return store_response
+            except Exception:
+                logger.debug(
+                    "Public analysis store aggregation failed; falling back to filesystem",
+                    exc_info=True,
+                )
+
+        events = _public_events_within_window(_load_all_events(_data_dir, target_id), days)
+        classification_distribution, source_distribution = _public_distributions_from_events(events)
+        return PublicAnalysisResponse(
+            target_id=target_id,
+            target_name=_target_display_name(target_id),
+            days=days,
+            summary=_public_summary_from_events(events),
+            classification_distribution=classification_distribution,
+            source_distribution=source_distribution,
+            top_entities=[],
+            topic_trends=[],
+            sentiment_trend=[],
+            active_chains=[],
+            generated_at=datetime.now(UTC).isoformat(),
+        )
 
     @app.get("/api/v1/stats", response_model=StatsResponse)
     async def get_stats(
@@ -3239,9 +5165,10 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> TodayStatsResponse:
         """今日 vs 昨日对比统计。"""
-        if _store is None:
+        store_to_query = await _store_for_target(target_id)
+        if store_to_query is None:
             return TodayStatsResponse(target_id=target_id)
-        stats = await _store.get_today_stats(target_id)
+        stats = await store_to_query.get_today_stats(target_id)
         return TodayStatsResponse(target_id=target_id, **stats)
 
     @app.get("/api/v1/events/top", response_model=TopEventsResponse)
@@ -3253,8 +5180,7 @@ def create_app(
     ) -> TopEventsResponse:
         """近期高价值事件（优先使用 target state.db）。"""
         events: list[dict[str, Any]] = []
-        target_store = await _get_target_store(target_id)
-        store_to_query = target_store if target_store is not None else _store
+        store_to_query = await _store_for_target(target_id)
         if store_to_query is not None:
             events = await store_to_query.get_top_events(target_id, days=days, limit=limit)
         return TopEventsResponse(
@@ -3376,6 +5302,55 @@ def create_app(
             "groups": grouped,
         }
 
+    @app.get("/api/v1/news/target/{target_id}/events/{event_id}/export/markdown")
+    async def export_public_event_markdown(
+        target_id: str,
+        event_id: str,
+    ) -> Response:
+        """公开单篇新闻 Markdown 下载投影，不写入磁盘。"""
+        target_store = await _get_target_store(target_id)
+        if target_store is not None:
+            event = await _load_indexed_event_detail(
+                _data_dir,
+                target_id,
+                target_store,
+                event_id,
+            )
+            if event is _INVISIBLE_INDEXED_EVENT:
+                raise HTTPException(status_code=404, detail="Event not found")
+            if event is not None:
+                return _markdown_download_response(
+                    f"{event_id}.md",
+                    _render_public_event_markdown(target_id, event),
+                )
+            if await _store_has_target_event_index(target_store, target_id):
+                raise HTTPException(status_code=404, detail="Event not found")
+
+        if _store is not None:
+            event = await _load_indexed_event_detail(
+                _data_dir,
+                target_id,
+                _store,
+                event_id,
+            )
+            if event is _INVISIBLE_INDEXED_EVENT:
+                raise HTTPException(status_code=404, detail="Event not found")
+            if event is not None:
+                return _markdown_download_response(
+                    f"{event_id}.md",
+                    _render_public_event_markdown(target_id, event),
+                )
+            if await _store_has_target_event_index(_store, target_id):
+                raise HTTPException(status_code=404, detail="Event not found")
+
+        event = _load_single_event(_data_dir, target_id, event_id)
+        if event is None:
+            raise HTTPException(status_code=404, detail="Event not found")
+        return _markdown_download_response(
+            f"{event_id}.md",
+            _render_public_event_markdown(target_id, event),
+        )
+
     # ── SSE 实时推送 ─────────────────────────────────────
 
     @app.get("/api/v1/events/stream")
@@ -3397,12 +5372,14 @@ def create_app(
         auth_header = request.headers.get("Authorization", "")
         bearer = auth_header.replace("Bearer ", "").strip()
         actual_token = bearer or token or ""
-        if not actual_token:
-            raise HTTPException(status_code=401, detail="Missing authentication")
 
-        info = await _verify_token_async(actual_token)
-        if not info:
-            raise HTTPException(status_code=401, detail="Invalid or expired token")
+        if not _local_auth_bypass_enabled(request):
+            if not actual_token:
+                raise HTTPException(status_code=401, detail="Missing authentication")
+
+            info = await _verify_token_async(actual_token)
+            if not info:
+                raise HTTPException(status_code=401, detail="Invalid or expired token")
 
         queue: asyncio.Queue[Any] = asyncio.Queue()
         async with _sse_lock:
@@ -3453,7 +5430,7 @@ def create_app(
             )
             if event is _INVISIBLE_INDEXED_EVENT:
                 raise HTTPException(status_code=404, detail="Event not found")
-            if isinstance(event, dict):
+            if event is not None:
                 return event
             if await _store_has_target_event_index(target_store, target_id):
                 raise HTTPException(status_code=404, detail="Event not found")
@@ -3467,7 +5444,7 @@ def create_app(
             )
             if event is _INVISIBLE_INDEXED_EVENT:
                 raise HTTPException(status_code=404, detail="Event not found")
-            if isinstance(event, dict):
+            if event is not None:
                 return event
             if await _store_has_target_event_index(_store, target_id):
                 raise HTTPException(status_code=404, detail="Event not found")
@@ -3959,7 +5936,8 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> TopicTrendsResponse:
         """主题热度趋势。"""
-        if _store is None:
+        store_to_query = await _store_for_target(target_id)
+        if store_to_query is None:
             return TopicTrendsResponse(
                 target_id=target_id,
                 days=days,
@@ -3967,8 +5945,8 @@ def create_app(
                 generated_at=datetime.now(UTC).isoformat(),
             )
         try:
-            daily_counts = await _store.get_topic_daily_counts(target_id, days=days)
-            top_topics = await _store.get_top_topics(target_id, days=days, limit=10)
+            daily_counts = await store_to_query.get_topic_daily_counts(target_id, days=days)
+            top_topics = await store_to_query.get_top_topics(target_id, days=days, limit=10)
             from news_sentry.skills.analysis.trend_analyzer import compute_topic_trends
 
             topics = compute_topic_trends(daily_counts, top_topics, total_days=days)
@@ -3988,7 +5966,8 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> SentimentTrendsResponse:
         """情感分布趋势。"""
-        if _store is None:
+        store_to_query = await _store_for_target(target_id)
+        if store_to_query is None:
             return SentimentTrendsResponse(
                 target_id=target_id,
                 days=days,
@@ -3996,7 +5975,7 @@ def create_app(
                 generated_at=datetime.now(UTC).isoformat(),
             )
         try:
-            raw = await _store.get_sentiment_daily_counts(target_id, days=days)
+            raw = await store_to_query.get_sentiment_daily_counts(target_id, days=days)
             # 转换为按天聚合
             day_map: dict[str, DailySentimentCount] = {}
             for entry in raw:
@@ -4027,13 +6006,14 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> SmartAlertsResponse:
         """获取智能告警列表。"""
-        if _store is None:
+        store_to_query = await _store_for_target(target_id)
+        if store_to_query is None:
             return SmartAlertsResponse(target_id=target_id, alerts=[], total=0)
         try:
             from news_sentry.core.alert_pipeline import AlertPipeline
 
             pipeline = AlertPipeline([])
-            alerts = await pipeline.check_smart_alerts(_store, target_id)
+            alerts = await pipeline.check_smart_alerts(store_to_query, target_id)
             return SmartAlertsResponse(
                 target_id=target_id,
                 alerts=[SmartAlertItem(**a) for a in alerts],
@@ -4145,6 +6125,28 @@ def create_app(
         await _canonical_event_or_404(store, canonical_event_id, target_id)
         relations = await store.list_canonical_relations(canonical_event_id)
         return {"canonical_event_id": canonical_event_id, "relations": relations}
+
+    @app.get("/api/v1/canonical/events/{canonical_event_id}/export/markdown")
+    async def export_canonical_event_markdown(
+        canonical_event_id: str,
+        target_id: str,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> Response:
+        """导出 canonical event evidence package Markdown，不写入磁盘。"""
+        store = await _store_for_target(target_id)
+        if store is None:
+            raise HTTPException(status_code=404, detail="Canonical event not found")
+        event = await _canonical_event_or_404(store, canonical_event_id, target_id)
+        mentions = await store.list_event_mentions(canonical_event_id)
+        relations = await store.list_canonical_relations(canonical_event_id)
+        artifacts = await store.list_research_artifacts(
+            target_id=target_id,
+            subject_type="canonical_event",
+            subject_id=canonical_event_id,
+            limit=200,
+        )
+        content = render_canonical_event_markdown(event, mentions, relations, artifacts)
+        return _markdown_download_response(f"{canonical_event_id}.md", content)
 
     # ── Research workflow endpoints ────────────────────
 
@@ -4388,6 +6390,23 @@ def create_app(
 
     # ── 维护端点 (Phase 40) ─────────────────────────────
 
+    @app.get("/api/v1/maintenance/draft-diagnostics")
+    async def maintenance_draft_diagnostics(
+        target_id: str = Query(..., description="目标标识"),
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """只读诊断 draft 文件与运行时索引的一致性。"""
+        return await _draft_diagnostics(_data_dir, target_id)
+
+    @app.post("/api/v1/maintenance/archive-duplicate-drafts")
+    async def maintenance_archive_duplicate_drafts(
+        target_id: str = Query(..., description="目标标识"),
+        dry_run: bool = Query(False, description="仅返回计划，不移动文件"),
+        user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """将重复 event_id 的多余 draft 文件归档，保留可公开读取的 canonical 文件。"""
+        return await _archive_duplicate_drafts(_data_dir, target_id, dry_run=dry_run)
+
     @app.post("/api/v1/maintenance/prune", response_model=PruneResponse)
     async def maintenance_prune(
         target_id: str = Query(..., description="目标标识"),
@@ -4532,8 +6551,7 @@ def create_app(
         user: dict[str, Any] = Depends(require_permission("write")),
     ) -> RulesOptimizeResponse:
         """触发规则优化。"""
-        config_dir = Path("config")
-        filter_yaml = config_dir / f"filter-{req.target_id}.yaml"
+        filter_yaml = (Path("config") / "filters" / req.target_id / "default.yaml").resolve()
         if not filter_yaml.exists():
             raise HTTPException(status_code=404, detail=f"Filter config not found: {filter_yaml}")
         from news_sentry.core.rules_optimizer import RulesOptimizer

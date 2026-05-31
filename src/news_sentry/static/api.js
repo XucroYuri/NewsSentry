@@ -164,11 +164,38 @@ function _browserLanguage() {
  * 获取已保存的连接信息。
  * @returns {object|null} { server, token, user, expiresAt }
  */
+export function isLocalAppOrigin(origin = window.location.origin) {
+  try {
+    const url = new URL(origin);
+    const hostname = url.hostname.replace(/^\[(.*)\]$/, "$1");
+    return ["localhost", "127.0.0.1", "0.0.0.0", "::1"].includes(hostname);
+  } catch {
+    return false;
+  }
+}
+
+export function isLocalApp() {
+  return isLocalAppOrigin(window.location.origin);
+}
+
+function _localConnection() {
+  return {
+    server: window.location.origin,
+    token: "local-dev",
+    user: "local-admin",
+    role: "admin",
+    hasApiKey: false,
+    mustChangePw: false,
+    local: true,
+    expiresAt: null,
+  };
+}
+
 export function getConnection() {
   try {
     const raw = localStorage.ns_connection;
     const conn = raw ? JSON.parse(raw) : null;
-    if (!conn) return null;
+    if (!conn) return isLocalApp() ? _localConnection() : null;
     return {
       ...conn,
       server: window.location.origin,
@@ -201,6 +228,7 @@ export function clearConnection() {
  * @returns {boolean}
  */
 export function isAuthenticated() {
+  if (isLocalApp()) return true;
   const conn = getConnection();
   if (!conn || !conn.token) return false;
   if (conn.expiresAt && Date.now() > conn.expiresAt) return false;
@@ -213,6 +241,7 @@ export function isAuthenticated() {
  * @returns {boolean}
  */
 export function hasPermission(permission) {
+  if (isLocalApp()) return ["read", "write", "admin"].includes(permission);
   const conn = getConnection();
   if (!conn) return false;
   const role = conn.role || "reader";
@@ -383,7 +412,7 @@ async function _fetchWithTimeout(url, options = {}, timeoutMs = 5000, retries = 
 export async function api(path, params = {}) {
   return _enqueue(async () => {
     const url = new URL(path, _baseUrl());
-    Object.entries(params).forEach(([k, v]) => {
+    Object.entries(params || {}).forEach(([k, v]) => {
       if (v !== "" && v !== undefined && v !== null) {
         url.searchParams.set(k, v);
       }
@@ -412,7 +441,7 @@ export async function api(path, params = {}) {
 export async function apiPost(path, params = {}, body = null) {
   return _enqueue(async () => {
     const url = new URL(path, _baseUrl());
-    Object.entries(params).forEach(([k, v]) => {
+    Object.entries(params || {}).forEach(([k, v]) => {
       if (v !== "" && v !== undefined && v !== null) {
         url.searchParams.set(k, v);
       }
@@ -426,6 +455,35 @@ export async function apiPost(path, params = {}, body = null) {
       options.body = JSON.stringify(body);
     }
     const resp = await _fetchWithTimeout(url.toString(), options);
+    if (resp.status === 401) {
+      await _handle401();
+    }
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      throw new Error(`API ${resp.status}: ${text || resp.statusText}`);
+    }
+    return resp.json();
+  });
+}
+
+/**
+ * DELETE 请求 — params 放 URL query。
+ * @param {string} path - API 路径
+ * @param {object} [params] - URL 查询参数
+ * @returns {Promise<any>}
+ */
+export async function apiDelete(path, params = {}) {
+  return _enqueue(async () => {
+    const url = new URL(path, _baseUrl());
+    Object.entries(params || {}).forEach(([k, v]) => {
+      if (v !== "" && v !== undefined && v !== null) {
+        url.searchParams.set(k, v);
+      }
+    });
+    const resp = await _fetchWithTimeout(url.toString(), {
+      method: "DELETE",
+      headers: _authHeaders(),
+    });
     if (resp.status === 401) {
       await _handle401();
     }
@@ -528,7 +586,6 @@ export const dom = {
   hamburgerBtn: () => document.getElementById("hamburgerBtn"),
   mainContent: () => document.getElementById("mainContent"),
   pageContainer: () => document.getElementById("pageContainer"),
-  targetSelect: () => document.getElementById("targetSelect"),
   tabBar: () => document.getElementById("tabBar"),
   breadcrumb: () => document.getElementById("breadcrumb"),
   statusDot: () => document.getElementById("statusDot"),

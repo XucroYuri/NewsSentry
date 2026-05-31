@@ -40,7 +40,7 @@ development-plan.md §17 治理 backlog 剩余 2 项未关闭：
 
 ## 4. 文档
 
-- `docs/development-plan.md` — MATRIX-GOV-001 + SOCIAL-SESSION-001 标记 ✅ 已解决
+- `docs/roadmap/development-plan.md` — MATRIX-GOV-001 + SOCIAL-SESSION-001 标记 ✅ 已解决
 
 ## 5. 测试
 

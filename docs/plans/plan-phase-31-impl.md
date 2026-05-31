@@ -8,7 +8,7 @@
 
 **Tech Stack:** SQLite ALTER TABLE / FastAPI Query / PyYAML
 
-**Design Spec:** `docs/plan-phase-31-nlp-api.md`
+**Design Spec:** `docs/plans/plan-phase-31-nlp-api.md`
 
 ---
 
@@ -883,7 +883,7 @@ Expected: 0 errors
 Run: `.venv/bin/python3 -m pytest tests/ --cov=news_sentry --cov-report=term-missing -q 2>&1 | grep "TOTAL"`
 Expected: >= 92%
 
-- [ ] **Step 4: 更新 docs/development-plan.md**
+- [ ] **Step 4: 更新 docs/roadmap/development-plan.md**
 
 在 §26 v1.3.0 section 中更新 Phase 31 状态为 ✅，添加任务矩阵。
 

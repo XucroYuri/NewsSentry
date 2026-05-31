@@ -3,9 +3,21 @@
  */
 "use strict";
 
-import { api, apiPost, apiPut, escapeHtml, showError, showSuccess, hasPermission, formatDate } from "../api.js";
+import { api, apiDelete, apiPost, apiPut, escapeHtml, showError, showSuccess, hasPermission, formatDate, isLocalApp } from "../api.js";
 
 export async function renderPasswordTab(container) {
+  if (isLocalApp()) {
+    container.innerHTML = `
+      <div class="settings-page">
+        <h3>账号密码</h3>
+        <div class="empty-state">
+          <p>本地应用模式无需账号密码。账号登录与密码管理将在云端部署模式中启用。</p>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
   container.innerHTML = `
     <div class="settings-page">
       <h3>修改密码</h3>
@@ -215,6 +227,18 @@ export async function renderNotificationsTab(container) {
 }
 
 export async function renderUserMgmtTab(container) {
+  if (isLocalApp()) {
+    container.innerHTML = `
+      <div class="settings-page">
+        <h3>用户管理</h3>
+        <div class="empty-state">
+          <p>本地应用模式默认使用本地管理员身份。用户管理将在云端部署模式中启用。</p>
+        </div>
+      </div>
+    `;
+    return;
+  }
+
   if (!hasPermission("admin")) {
     container.innerHTML = '<div class="empty-state"><p>需要管理员权限</p></div>';
     return;
@@ -339,7 +363,7 @@ export async function renderUserMgmtTab(container) {
       const username = btn.dataset.deleteUser;
       if (!confirm(`确定要删除用户 ${username} 吗？`)) return;
       try {
-        await api(`/api/v1/admin/users/${encodeURIComponent(username)}`, null, "DELETE");
+        await apiDelete(`/api/v1/admin/users/${encodeURIComponent(username)}`);
         showSuccess(`用户 ${username} 已删除`);
         renderUserMgmtTab(container);
       } catch (err) {
@@ -457,9 +481,12 @@ async function loadBackups() {
         <td style="font-family:var(--font-mono);font-size:0.8rem;">${escapeHtml(b.filename)}</td>
         <td>${(b.size_bytes / 1024).toFixed(1)} KB</td>
         <td>${new Date(b.created_at * 1000).toLocaleString()}</td>
-        <td><button onclick="doRestore('${b.filename}')" style="padding:2px 8px;border-radius:4px;background:var(--accent-orange);color:#fff;border:none;cursor:pointer;font-size:0.8rem;">恢复</button></td>
+        <td><button type="button" data-restore-backup="${escapeHtml(b.filename)}" style="padding:2px 8px;border-radius:4px;background:var(--accent-orange);color:#fff;border:none;cursor:pointer;font-size:0.8rem;">恢复</button></td>
       </tr>
     `).join("");
+    tbody.querySelectorAll("[data-restore-backup]").forEach((btn) => {
+      btn.addEventListener("click", () => doRestore(btn.dataset.restoreBackup));
+    });
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="4" style="color:var(--accent-red);">加载失败: ${e.message}</td></tr>`;
   }

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
+from news_sentry.core.config import ConfigLoader
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
 from news_sentry.skills.filter.classification_taxonomy import (
     canonical_l0,
@@ -399,3 +401,16 @@ def test_classify_returns_same_instance() -> None:
     cr = ClassifierRules(_make_classification_config())
     result = cr.classify(event)
     assert result is event
+
+
+def test_real_japan_rules_classify_japanese_disaster_event() -> None:
+    config = ConfigLoader(Path(".")).load_target("japan")
+    event = _make_event(
+        title="【台風6号】沖縄・奄美に接近 九州から関東甲信で大雨も",
+        content="猛烈な風が吹き、大雨になるおそれがあります。",
+        language=Language.JA,
+    )
+
+    result = ClassifierRules(config.classification_rules).classify(event)
+
+    assert result.metadata["classification"]["l0"] == "disaster"

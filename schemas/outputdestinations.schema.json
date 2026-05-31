@@ -7,6 +7,11 @@
   "required": ["destinations"],
   "additionalProperties": false,
   "properties": {
+    "markdown_auto_drafts": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, output stage writes per-event Markdown drafts; when false, events are marked outputted and indexed without draft files"
+    },
     "destinations": {
       "type": "array",
       "minItems": 1,

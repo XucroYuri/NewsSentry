@@ -1109,7 +1109,7 @@ git commit -m "Phase 33 P33.03: Entity 浏览页"
 ### Task 4: 验证与清理
 
 **Files:**
-- Modify: `docs/development-plan.md`
+- Modify: `docs/roadmap/development-plan.md`
 
 - [ ] **Step 1: Run lint checks**
 
@@ -1142,6 +1142,6 @@ Add Phase 33 completion section.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add docs/development-plan.md
+git add docs/roadmap/development-plan.md
 git commit -m "Phase 33: 状态更新为完成"
 ```

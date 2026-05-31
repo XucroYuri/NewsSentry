@@ -34,12 +34,12 @@
 > Phase 59 前端模块化重构 + 代码质量: ✅ 全部完成 (CSS 目录索引 + 开发计划更新)
 > Phase 60 CI 修复 + PyPI 发布: ✅ 全部完成 (mypy CI 兼容 + release workflow + Trusted Publisher)
 > Phase 61 本地客户端发布准备: ✅ 全部完成 (v1.7.1 patch release)
-> 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](spec/README.md) 为准）
+> 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](../specs/phase/README.md) 为准）
 > Cloud VPS 方案: [docs/deployment/cloud-vps-recommendations.md](./deployment/cloud-vps-recommendations.md)
 > 字段口径基准: [`docs/contracts-canonical.md`](./contracts-canonical.md)
-> 架构决策: [`docs/adr/README.md`](./adr/README.md)
-> Phase 12 设计: [`docs/superpowers/specs/2026-05-11-phase-12-source-matrix-design.md`](./superpowers/specs/2026-05-11-phase-12-source-matrix-design.md)
-> Phase 12 计划: [`docs/superpowers/plans/2026-05-11-phase-12-source-matrix.md`](./superpowers/plans/2026-05-11-phase-12-source-matrix.md)
+> 架构决策: [`docs/adr/README.md`](../adr/README.md)
+> Phase 12 设计: [`docs/specs/2026-05-11-phase-12-source-matrix-design.md`](../specs/2026-05-11-phase-12-source-matrix-design.md)
+> Phase 12 计划: [`docs/plans/2026-05-11-phase-12-source-matrix.md`](../plans/2026-05-11-phase-12-source-matrix.md)
 > 历史背景: [`docs/brainstorming/AgentSkillPack开发总纲与多Agent生产线路线图.md`](./brainstorming/AgentSkillPack开发总纲与多Agent生产线路线图.md)（历史脉络文档）
 
 ---
@@ -148,7 +148,7 @@
 - 为采集子 Skill 规格加阶段标签
 - 为超 v1 范围文档加 banner
 - 创建 `docs/it-zh-bilingual-sop.md` 和 `docs/it-zh-glossary.md`
-- 创建本文档（`docs/development-plan.md`）
+- 创建本文档（`docs/roadmap/development-plan.md`）
 
 **范围外（OUT OF SCOPE）：**
 - 任何代码实现
@@ -465,8 +465,8 @@
 
 ## §13. Phase 12 — Italy Source Matrix (信源矩阵)
 
-> → 详细设计: [`docs/superpowers/specs/2026-05-11-phase-12-source-matrix-design.md`](./superpowers/specs/2026-05-11-phase-12-source-matrix-design.md)
-> → 实现计划: [`docs/superpowers/plans/2026-05-11-phase-12-source-matrix.md`](./superpowers/plans/2026-05-11-phase-12-source-matrix.md)
+> → 详细设计: [`docs/specs/2026-05-11-phase-12-source-matrix-design.md`](../specs/2026-05-11-phase-12-source-matrix-design.md)
+> → 实现计划: [`docs/plans/2026-05-11-phase-12-source-matrix.md`](../plans/2026-05-11-phase-12-source-matrix.md)
 
 **目标：** 将意大利信源从 14 个 RSS 扩展到 60+ 个，覆盖 13 个维度、3 种采集方式（RSS/API/OpenCLI），社媒 KOL 覆盖 7 个平台。采集阶段零 Token 消耗。
 
@@ -1237,7 +1237,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 ### Phase 37 · 量化趋势分析 ✅
 
-> 设计: docs/plan-phase-37-trends.md | 实现: docs/plan-phase-37-impl.md
+> 设计: docs/plans/plan-phase-37-trends.md | 实现: docs/plans/plan-phase-37-impl.md
 
 **目标：** Dashboard 缺乏趋势维度，用户无法感知"主题热度上升/下降""情感波动"。引入按天聚合查询 + Chart.js 趋势可视化。
 
@@ -1256,7 +1256,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 ### Phase 38 · 智能告警 2.0 ✅
 
-> 设计: docs/plan-phase-38-smart-alerts.md | 实现: docs/plan-phase-38-impl.md
+> 设计: docs/plans/plan-phase-38-smart-alerts.md | 实现: docs/plans/plan-phase-38-impl.md
 
 **目标：** 原有告警仅基于阈值触发，无法感知"链更新""趋势变化""实体突增"等复合信号。引入 3 类智能告警 + N+1 查询修复。
 
@@ -1276,7 +1276,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 ### Phase 39 · Dashboard 增强 ✅
 
-> 设计: docs/plan-phase-39-dashboard.md
+> 设计: docs/plans/plan-phase-39-dashboard.md
 
 **目标：** Dashboard 仅展示全时间聚合，缺少时间维度。增加今日/昨日对比、近期高价值事件 Top5、趋势概览。
 
@@ -1293,7 +1293,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 ### Phase 40 · 治理积压清理 ✅
 
-> 设计: docs/plan-phase-40-governance.md
+> 设计: docs/plans/plan-phase-40-governance.md
 
 **目标：** 数据保留清理、source health 自动降级、SQLite 自动备份——治理 backlog 中最紧迫的 3 项。
 
@@ -1310,7 +1310,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 ### Phase 41 · 反馈闭环 + 告警管理 ✅
 
-> 设计: docs/plan-phase-41-feedback-alerts.md
+> 设计: docs/plans/plan-phase-41-feedback-alerts.md
 
 **目标：** Phase 20 的 FeedbackCollector + RulesOptimizer 无 API 暴露、无 UI 入口。Phase 38 的智能告警无独立管理页。实现反馈闭环（事件详情提交→规则优化）和独立告警管理页。
 
@@ -1329,7 +1329,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 ### Phase 42 · 配置编辑 ✅
 
-> 设计: docs/plan-phase-42-config-edit.md
+> 设计: docs/plans/plan-phase-42-config-edit.md
 
 **目标：** 5 个配置页面（Target/Source/Filter/Output/Provider）全部只读——用户在 UI 查看配置后仍需 SSH 手动编辑 YAML。实现 Web UI 配置编辑闭环。
 
@@ -1770,17 +1770,17 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 
 | ADR | 决策摘要 | Phase |
 |-----|---------|-------|
-| [ADR-0001](./adr/0001-canonical-contracts.md) | `pipeline_stage` 枚举、`NewsEvent.id` 格式、分值量纲、产品命名 | Phase 1 |
-| [ADR-0002](./adr/0002-output-result-field-alignment.md) | `output_channels` → `output_result.destinations[].target` | Phase 1 |
-| [ADR-0003](./adr/0003-sandbox-write-roots-and-error-enum.md) | SandboxPolicy `write_roots` 补全、`error.type` 枚举对齐 | Phase 1 / Phase 3 |
-| [ADR-0004](./adr/0004-bilingual-translation-timing.md) | collect 标题机译（非 canonical） + judge 高保真 canonical 翻译 | Phase 1 / Phase 5 |
-| [ADR-0005](./adr/0005-pipeline-stage-vs-workflow-state.md) | `pipeline_stage` 与 `workflow_state` 正交分离 | Phase 1 |
-| [ADR-0006](./adr/0006-cli-entry-deferred.md) | CLI 入口命名暂缓到 Phase 3 前决策 | 治理 backlog |
-| [ADR-0007](./adr/0007-prd-open-questions-resolved.md) | PRD Open Questions 批量关闭 | Phase 1 |
-| [ADR-0008](./adr/0008-external-deps-install-not-vendor.md) | 外部项目只 install 不 vendor | Phase 1 / Phase 4 |
-| [ADR-0009](./adr/0009-four-layer-classification-framework.md) | 四层新闻分类框架（L0–L3）与 `metadata.classification` 字段契约 | Phase 1 / Phase 3 |
-| [ADR-0010](./adr/0010-no-dedicated-frontend.md) | 永不做专用前端；终态是 Obsidian + 推送 | Phase 1 |
-| [ADR-0011](./adr/0011-opencli-baseline-toolmanifest.md) | OpenCLI baseline ToolManifest 12 条命令骨架；退出码映射 | Phase 4 |
+| [ADR-0001](../adr/0001-canonical-contracts.md) | `pipeline_stage` 枚举、`NewsEvent.id` 格式、分值量纲、产品命名 | Phase 1 |
+| [ADR-0002](../adr/0002-output-result-field-alignment.md) | `output_channels` → `output_result.destinations[].target` | Phase 1 |
+| [ADR-0003](../adr/0003-sandbox-write-roots-and-error-enum.md) | SandboxPolicy `write_roots` 补全、`error.type` 枚举对齐 | Phase 1 / Phase 3 |
+| [ADR-0004](../adr/0004-bilingual-translation-timing.md) | collect 标题机译（非 canonical） + judge 高保真 canonical 翻译 | Phase 1 / Phase 5 |
+| [ADR-0005](../adr/0005-pipeline-stage-vs-workflow-state.md) | `pipeline_stage` 与 `workflow_state` 正交分离 | Phase 1 |
+| [ADR-0006](../adr/0006-cli-entry-deferred.md) | CLI 入口命名暂缓到 Phase 3 前决策 | 治理 backlog |
+| [ADR-0007](../adr/0007-prd-open-questions-resolved.md) | PRD Open Questions 批量关闭 | Phase 1 |
+| [ADR-0008](../adr/0008-external-deps-install-not-vendor.md) | 外部项目只 install 不 vendor | Phase 1 / Phase 4 |
+| [ADR-0009](../adr/0009-four-layer-classification-framework.md) | 四层新闻分类框架（L0–L3）与 `metadata.classification` 字段契约 | Phase 1 / Phase 3 |
+| [ADR-0010](../adr/0010-no-dedicated-frontend.md) | 永不做专用前端；终态是 Obsidian + 推送 | Phase 1 |
+| [ADR-0011](../adr/0011-opencli-baseline-toolmanifest.md) | OpenCLI baseline ToolManifest 12 条命令骨架；退出码映射 | Phase 4 |
 | ADR-0012 | Python 3.11+ 实现语言 | Phase 3 |
 | ADR-0013 | src layout，core/skills/adapters 三层结构 | Phase 3 |
 | ADR-0014 | JSON Schema 2020-12，存放 `schemas/` | Phase 1 |

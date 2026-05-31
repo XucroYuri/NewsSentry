@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>News Sentry — 新闻情报监控</title>
   <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/icons/icon-192.svg" type="image/svg+xml">
   <meta name="theme-color" content="#1a1a2e">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -18,14 +19,15 @@
   <!-- 连接设置页（未认证时全屏显示） -->
   <div id="connectPage" class="connect-page" style="display:none;">
     <div class="connect-card">
-      <!-- Logo -->
-      <div class="connect-logo">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-          <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
-        </svg>
+      <div class="connect-brand brand-lockup">
+        <span class="brand-icon" aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+          </svg>
+        </span>
+        <h1 class="brand-text connect-brand-title">News Sentry</h1>
       </div>
-      <h1 class="connect-title">News Sentry</h1>
       <p class="connect-subtitle">管理后台登录</p>
 
       <!-- 表单 -->
@@ -54,55 +56,44 @@
 
   <!-- 侧边导航栏 -->
   <aside class="sidebar" id="sidebar">
-    <div class="sidebar-brand">
-      <div class="brand-icon">
+    <a class="sidebar-brand brand-lockup" href="#/news/feed" aria-label="返回 News Sentry 首页">
+      <span class="brand-icon" aria-hidden="true">
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
           <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
         </svg>
-      </div>
+      </span>
       <span class="brand-text">News Sentry</span>
-    </div>
+    </a>
 
     <nav class="sidebar-nav">
-      <!-- 第一层：每日工作台 -->
-      <div class="nav-section-label">每日工作台</div>
-      <a href="#/admin/news/overview" class="nav-item" data-section="news">
-        <span class="nav-icon">N</span>
-        <span>新闻情报</span>
+      <div class="nav-section-label">管理控制台</div>
+      <a href="#/admin/targets" class="nav-item" data-section="targets">
+        <span class="nav-icon">T</span>
+        <span>目标工作台</span>
+      </a>
+      <a href="#/admin/home/overview" class="nav-item" data-section="home">
+        <span class="nav-icon">H</span>
+        <span>管理总览</span>
+      </a>
+      <a href="#/admin/collection/control" class="nav-item" data-section="collection">
+        <span class="nav-icon">C</span>
+        <span>采集与信源</span>
         <span class="nav-badge" id="badgeNews" style="display:none;">0</span>
       </a>
-      <a href="#/admin/alerts/live" class="nav-item" data-section="alerts">
-        <span class="nav-icon">A</span>
-        <span>告警通知</span>
+      <a href="#/admin/review/queue" class="nav-item" data-section="review">
+        <span class="nav-icon">R</span>
+        <span>审核与反馈</span>
         <span class="nav-badge" id="badgeAlerts" style="display:none;">0</span>
       </a>
-
-      <!-- 第二层：系统管理 -->
-      <div class="nav-section-label">系统管理</div>
-      <a href="#/admin/ops/status" class="nav-item" data-section="ops">
+      <a href="#/admin/ops/runs" class="nav-item" data-section="ops">
         <span class="nav-icon">O</span>
-        <span>运行监控</span>
+        <span>系统运维</span>
       </a>
-      <a href="#/admin/feedback/records" class="nav-item" data-section="feedback">
-        <span class="nav-icon">F</span>
-        <span>反馈优化</span>
+      <a href="#/admin/advanced/filters" class="nav-item" data-section="advanced">
+        <span class="nav-icon">A</span>
+        <span>高级管理</span>
       </a>
-
-      <!-- 第三层：高级配置（默认折叠） -->
-      <div class="nav-section-label nav-collapsible-toggle" id="configToggle">
-        高级配置 <span class="toggle-arrow">▼</span>
-      </div>
-      <div class="nav-collapsible" id="configNav" style="display:none;">
-        <a href="#/admin/config/target" class="nav-item" data-section="config">
-          <span class="nav-icon">C</span>
-          <span>配置中心</span>
-        </a>
-        <a href="#/admin/settings/password" class="nav-item" data-section="settings">
-          <span class="nav-icon">S</span>
-          <span>系统设置</span>
-        </a>
-      </div>
     </nav>
 
     <!-- 侧边栏底部状态栏 -->
@@ -119,7 +110,7 @@
       <div class="footer-meta">
         <span class="footer-user" id="footerUser"></span>
         <span class="footer-collect" id="footerCollect"></span>
-        <a href="#/admin/settings/password" class="footer-settings">设置</a>
+        <a href="#/admin/advanced/account" class="footer-settings">设置</a>
       </div>
     </div>
   </aside>
@@ -127,17 +118,19 @@
   <!-- 主内容区 -->
   <main class="main-content" id="mainContent">
     <header class="public-top-bar" id="publicTopBar" style="display:none;">
-      <a class="public-brand" href="#/news/feed">
-        <span class="public-brand-mark">NS</span>
-        <span>News Sentry</span>
+      <a class="public-brand brand-lockup" href="#/news/feed">
+        <span class="brand-icon" aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+          </svg>
+        </span>
+        <span class="brand-text">News Sentry</span>
       </a>
-      <nav class="public-nav" aria-label="公开新闻导航">
-        <a href="#/news/feed">频道首页</a>
-      </nav>
       <a class="public-admin-btn" id="publicAdminBtn" href="#/admin/login">管理后台</a>
     </header>
 
-    <header class="top-bar" id="adminTopBar">
+    <header class="top-bar admin-page-topbar" id="adminTopBar">
       <button class="hamburger-btn" id="hamburgerBtn" aria-label="打开菜单">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <line x1="3" y1="6" x2="21" y2="6"/>
@@ -146,11 +139,6 @@
         </svg>
       </button>
       <div class="breadcrumb" id="breadcrumb"></div>
-      <div class="target-selector">
-        <select id="targetSelect" aria-label="选择监控目标">
-          <option value="">加载中...</option>
-        </select>
-      </div>
     </header>
 
     <!-- Tab 栏 -->

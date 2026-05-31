@@ -13,6 +13,7 @@ from news_sentry.core.run import (
     ConfigError,
     _find_project_root,
     _load_events_from_dir,
+    _run_output,
     bounded_run,
 )
 
@@ -353,19 +354,9 @@ Trade agreement between Italy and China signed today.
         now = datetime.now(UTC).isoformat()
         raw_dir = tmp_path / "data" / "test-target" / "raw"
         raw_dir.mkdir(parents=True)
-        for event_id, source_id, title, title_translated in [
-            (
-                "evt-cluster-en",
-                "source-a",
-                "Contractor killed in Ukraine",
-                "Contractor killed in Ukraine",
-            ),
-            (
-                "evt-cluster-it",
-                "source-b",
-                "Contractor ucciso in Ucraina",
-                "Contractor killed in Ukraine",
-            ),
+        for event_id, source_id, title in [
+            ("evt-cluster-en", "source-a", "Italian contractor killed in Ukraine"),
+            ("evt-cluster-it", "source-b", "Contractor italiano ucciso in Ucraina"),
         ]:
             (raw_dir / f"collected_{source_id}_{event_id}.md").write_text(
                 f"""---
@@ -374,7 +365,6 @@ run_id: run-x
 source_id: {source_id}
 url: https://example.com/{event_id}
 title_original: "{title}"
-title_translated: "{title_translated}"
 content_original: "Trade economy context keeps this event in the filter stage."
 language: it
 published_at: "{now}"
@@ -412,6 +402,158 @@ Trade economy context keeps this event in the filter stage.
         monkeypatch.chdir(tmp_path)
         ctx = bounded_run("test-target", "output", config_dir=str(tmp_path))
         assert ctx.events_output == 0
+
+    def test_output_destinations_defaults_markdown_auto_drafts_false(self, tmp_path: Path):
+        """resolved output_destinations 应默认关闭 per-event Markdown drafts。"""
+        from news_sentry.core.config import ConfigLoader
+
+        _setup_minimal_project(tmp_path)
+
+        config = ConfigLoader(tmp_path).load_target("test-target")
+
+        assert config.output_destinations["markdown_auto_drafts"] is False
+
+    def test_output_policy_skips_markdown_drafts_by_default(self, tmp_path: Path):
+        """默认输出策略只标记 outputted，不生成 per-event Markdown draft。"""
+        from unittest.mock import MagicMock
+
+        from news_sentry.core.file_writer import FileWriter
+        from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+
+        event = NewsEvent(
+            id="evt-output-policy-default",
+            run_id="run-output-policy",
+            source_id="test-source",
+            url="https://example.com/output-policy-default",
+            title_original="Default output policy",
+            content_original="Body",
+            language=Language.IT,
+            published_at="2026-05-09T12:00:00+00:00",
+            collected_at="2026-05-09T12:01:00+00:00",
+            pipeline_stage=PipelineStage.JUDGED,
+            metadata={"_file_path": "stale/path.md"},
+        )
+        target_dir = tmp_path / "data" / "test-target"
+        file_writer = FileWriter(target_dir)
+        file_writer.ensure_dirs()
+        config = MagicMock()
+        config.target_id = "test-target"
+        config.output_root = tmp_path / "data"
+        config.output_destinations = {"markdown_auto_drafts": False}
+        ctx = MagicMock()
+
+        outputted = _run_output(
+            config=config,
+            run_id="run-output-policy",
+            run_log=MagicMock(),
+            file_writer=file_writer,
+            ctx=ctx,
+            input_events=[event],
+        )
+
+        assert [evt.id for evt in outputted] == ["evt-output-policy-default"]
+        assert event.pipeline_stage == PipelineStage.OUTPUTTED
+        assert event.metadata.get("_file_path") is None
+        assert not (target_dir / "drafts" / "evt-output-policy-default.md").exists()
+        assert ctx.events_output == 1
+
+    def test_output_policy_writes_markdown_when_auto_drafts_enabled(self, tmp_path: Path):
+        """markdown_auto_drafts=True 时保持旧行为，写 draft 并记录 _file_path。"""
+        from unittest.mock import MagicMock
+
+        from news_sentry.core.file_writer import FileWriter
+        from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+
+        event = NewsEvent(
+            id="evt-output-policy-enabled",
+            run_id="run-output-policy",
+            source_id="test-source",
+            url="https://example.com/output-policy-enabled",
+            title_original="Enabled output policy",
+            content_original="Body",
+            language=Language.IT,
+            published_at="2026-05-09T12:00:00+00:00",
+            collected_at="2026-05-09T12:01:00+00:00",
+            pipeline_stage=PipelineStage.JUDGED,
+        )
+        target_dir = tmp_path / "data" / "test-target"
+        file_writer = FileWriter(target_dir)
+        file_writer.ensure_dirs()
+        config = MagicMock()
+        config.target_id = "test-target"
+        config.output_root = tmp_path / "data"
+        config.output_destinations = {"markdown_auto_drafts": True}
+        ctx = MagicMock()
+
+        outputted = _run_output(
+            config=config,
+            run_id="run-output-policy",
+            run_log=MagicMock(),
+            file_writer=file_writer,
+            ctx=ctx,
+            input_events=[event],
+        )
+
+        draft_path = target_dir / "drafts" / "evt-output-policy-enabled.md"
+        assert [evt.id for evt in outputted] == ["evt-output-policy-enabled"]
+        assert draft_path.is_file()
+        assert event.metadata["_file_path"] == str(draft_path)
+        assert event.pipeline_stage == PipelineStage.OUTPUTTED
+
+    @pytest.mark.parametrize(
+        ("flag_value", "should_write"),
+        [("false", False), ("true", True)],
+    )
+    def test_output_policy_parses_markdown_auto_drafts_strings(
+        self,
+        tmp_path: Path,
+        flag_value: str,
+        should_write: bool,
+    ):
+        """字符串形式的 markdown_auto_drafts 应显式解析，不走 bool(str)。"""
+        from unittest.mock import MagicMock
+
+        from news_sentry.core.file_writer import FileWriter
+        from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+
+        event = NewsEvent(
+            id=f"evt-output-policy-string-{flag_value}",
+            run_id="run-output-policy",
+            source_id="test-source",
+            url=f"https://example.com/output-policy-string-{flag_value}",
+            title_original=f"String flag {flag_value}",
+            content_original="Body",
+            language=Language.IT,
+            published_at="2026-05-09T12:00:00+00:00",
+            collected_at="2026-05-09T12:01:00+00:00",
+            pipeline_stage=PipelineStage.JUDGED,
+        )
+        target_dir = tmp_path / "data" / "test-target"
+        file_writer = FileWriter(target_dir)
+        file_writer.ensure_dirs()
+        config = MagicMock()
+        config.target_id = "test-target"
+        config.output_root = tmp_path / "data"
+        config.output_destinations = {"markdown_auto_drafts": flag_value}
+        ctx = MagicMock()
+
+        outputted = _run_output(
+            config=config,
+            run_id="run-output-policy",
+            run_log=MagicMock(),
+            file_writer=file_writer,
+            ctx=ctx,
+            input_events=[event],
+        )
+
+        draft_path = target_dir / "drafts" / f"evt-output-policy-string-{flag_value}.md"
+        assert [evt.id for evt in outputted] == [event.id]
+        assert draft_path.exists() is should_write
+        assert event.pipeline_stage == PipelineStage.OUTPUTTED
+        if should_write:
+            assert event.metadata["_file_path"] == str(draft_path)
+        else:
+            assert event.metadata.get("_file_path") is None
 
     def test_output_stage_with_events(self, tmp_path: Path, monkeypatch):
         """output 阶段：从 evaluated/ 加载事件，写入 Markdown 文件。"""

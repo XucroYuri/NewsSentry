@@ -130,7 +130,7 @@ class TestResolvedConfig:
         assert cfg.classification_rules == {}
         assert cfg.sandbox_policy == {}
         assert cfg.provider_routes == {}
-        assert cfg.output_destinations == {}
+        assert cfg.output_destinations == {"markdown_auto_drafts": False}
         assert cfg.deployment_profile == {}
         assert cfg.output_root == Path("data")
 
@@ -479,6 +479,60 @@ class TestLoadSources:
 
 
 class TestLoadTarget:
+    def test_output_destinations_yaml_can_enable_markdown_auto_drafts(self, project_root):
+        """真实 output destinations YAML 可显式开启 markdown_auto_drafts。"""
+        schemas_dir = project_root / "schemas"
+        schemas_dir.mkdir(exist_ok=True)
+        empty_schema = {"type": "object"}
+        for name in [
+            "targetconfig.schema.json",
+            "deploymentprofile.schema.json",
+            "sandboxpolicy.schema.json",
+        ]:
+            _write_json_schema(schemas_dir / name, empty_schema)
+        output_schema = json.loads(
+            (Path("schemas") / "outputdestinations.schema.json").read_text(encoding="utf-8")
+        )
+        _write_json_schema(schemas_dir / "outputdestinations.schema.json", output_schema)
+
+        _write_yaml(
+            project_root / "config" / "targets" / "my-target.yaml",
+            _make_minimal_target(
+                target_id="my-target",
+                output_destinations_ref="config/outputs/my-target/default.yaml",
+            ),
+            schema_ref="../../schemas/targetconfig.schema.json",
+        )
+        _write_yaml(
+            project_root / "config" / "outputs" / "my-target" / "default.yaml",
+            {
+                "destinations": [
+                    {
+                        "destination_id": "draft_file",
+                        "type": "file",
+                        "enabled": True,
+                        "path": "./data/my-target/drafts",
+                    }
+                ],
+                "markdown_auto_drafts": True,
+            },
+            schema_ref="../../../schemas/outputdestinations.schema.json",
+        )
+        _write_yaml(
+            project_root / "config" / "profiles" / "local-workstation.yaml",
+            _make_minimal_profile(),
+            schema_ref="../../schemas/deploymentprofile.schema.json",
+        )
+        _write_yaml(
+            project_root / "config" / "sandbox" / "local-workstation.yaml",
+            {"profile_id": "local-workstation", "command_policy": {"allowed_commands": []}},
+            schema_ref="../../schemas/sandboxpolicy.schema.json",
+        )
+
+        config = ConfigLoader(project_root).load_target("my-target")
+
+        assert config.output_destinations["markdown_auto_drafts"] is True
+
     def test_full_load_target(self, project_root):
         """完整集成测试 — 加载一个含子配置引用的 target。"""
         # schemas (宽松校验，接受所有数据)
@@ -651,7 +705,7 @@ class TestLoadTarget:
         loader = ConfigLoader(Path("."))
         config = loader.load_target("italy")
         assert config.target_id == "italy"
-        assert len(config.sources) >= 55  # Phase 12: 60 refs - 5 social/ (独立加载) = 55
+        assert len(config.sources) >= 52  # active RSS/API/OpenCLI refs; dead RSS 保留归档但不加载
         source_ids = {s["source_id"] for s in config.sources}
         # 验证核心 RSS 源仍然存在
         core_ids = {
@@ -659,7 +713,6 @@ class TestLoadTarget:
             "repubblica",
             "corriere",
             "agi",
-            "fao-rss",
             "tgcom24",
             "lastampa",
             "ilfattoquotidiano",
@@ -667,10 +720,9 @@ class TestLoadTarget:
             "ilmessaggero",
             "rainews",
             "ilsole24ore",
-            "thelocal-it",
-            "sky-tg24",
         }
         assert core_ids.issubset(source_ids)
+        assert {"fao-rss", "thelocal-it", "sky-tg24"}.isdisjoint(source_ids)
         assert "score_threshold" in config.filter_rules
         assert "l0_domains" in config.classification_rules
         assert "command_policy" in config.sandbox_policy
@@ -709,3 +761,16 @@ class TestLoadTarget:
         assert config.target_id == target_id
         assert config.sources
         assert all(source["language"] == primary_language for source in config.sources)
+
+    def test_china_watch_has_diverse_english_sources(self):
+        """China Watch 不应只依赖单一来源形成英文涉华信息流。"""
+        loader = ConfigLoader(Path("."))
+        config = loader.load_target("china-watch-en")
+        source_ids = {source["source_id"] for source in config.sources}
+
+        assert {
+            "voa-china",
+            "voa-east-asia",
+            "china-digital-times",
+            "asia-times-china",
+        }.issubset(source_ids)

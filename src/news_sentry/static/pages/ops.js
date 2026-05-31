@@ -4,7 +4,7 @@
 "use strict";
 
 import {
-  state, api, apiPost, escapeHtml, formatDate, showSuccess, showError, scoreColor,
+  state, api, apiPost, apiPut, escapeHtml, formatDate, showSuccess, showError, scoreColor,
 } from "../api.js";
 
 // ════════════════════════════════════════════════════════════
@@ -81,7 +81,7 @@ export async function renderRunStatusTab(container) {
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <circle cx="12" cy="12" r="10"/><path d="M8 15h8"/><circle cx="9" cy="9" r="1" fill="currentColor"/><circle cx="15" cy="9" r="1" fill="currentColor"/>
         </svg>
-        <p>\u8bf7\u5148\u5728\u9876\u90e8\u9009\u62e9\u4e00\u4e2a\u76d1\u63a7\u76ee\u6807</p>
+        <p>请在当前管理目标中选择一个监控目标</p>
       </div>`;
     return;
   }
@@ -191,7 +191,7 @@ export async function renderRunStatusTab(container) {
     container.querySelectorAll(".ops-run-row").forEach((row) => {
       row.addEventListener("click", () => {
         const rid = row.dataset.runId;
-        if (rid) window.location.hash = `#/admin/ops/${encodeURIComponent(rid)}`;
+        if (rid) window.location.hash = `#/admin/ops/runs/${encodeURIComponent(rid)}`;
       });
     });
   } catch (err) {
@@ -205,43 +205,183 @@ export async function renderRunStatusTab(container) {
 // ════════════════════════════════════════════════════════════
 
 export async function renderCollectorTab(container) {
-  container.innerHTML = '<div class="loading-spinner"><div class="spinner"></div><p>\u6b63\u5728\u52a0\u8f7d\u91c7\u96c6\u5668\u72b6\u6001...</p></div>';
+  container.innerHTML = '<div class="loading-spinner"><div class="spinner"></div><p>正在加载采集控制台...</p></div>';
 
   try {
-    const data = await api("/api/v1/collector/status").catch(() => null);
+    const [config, diagnostics] = await Promise.all([
+      api("/api/v1/collector/config").catch(() => null),
+      api("/api/v1/collector/diagnostics").catch(() => ({ checks: [] })),
+    ]);
 
-    if (!data) {
+    if (!config) {
       container.innerHTML = `
         <div class="empty-state">
-          <p>\u91c7\u96c6\u5668\u72b6\u6001\u4e0d\u53ef\u7528</p>
-          <p style="color:var(--text-muted);font-size:0.85rem;">\u8bf7\u786e\u8ba4 API \u670d\u52a1\u5df2\u542f\u52a8\u4e14\u91c7\u96c6\u5668\u5df2\u914d\u7f6e</p>
+          <p>采集器状态不可用</p>
+          <p style="color:var(--text-muted);font-size:0.85rem;">请确认 API 服务已启动，然后重试。</p>
+          <button class="btn-secondary" id="collectorRetry">重试</button>
         </div>`;
+      container.querySelector("#collectorRetry")?.addEventListener("click", () => renderCollectorTab(container));
       return;
     }
 
-    const isRunning = data.running || data.status === "running";
-    const statusLabel = isRunning ? "\u8fd0\u884c\u4e2d" : "\u5df2\u505c\u6b62";
+    const targetIds = Array.isArray(config.target_ids) ? config.target_ids : [];
+    const allTargets = targetIds.includes("all");
+    const targetOptions = (state.targets || []).map((target) => {
+      const id = target.target_id || target.id || String(target);
+      const label = target.display_name || id;
+      const checked = allTargets || targetIds.includes(id);
+      return `
+        <label class="admin-checkbox">
+          <input type="checkbox" name="collectorTarget" value="${escapeHtml(id)}" ${checked ? "checked" : ""}>
+          <span>${escapeHtml(label)}</span>
+        </label>
+      `;
+    }).join("");
+    const isRunning = Boolean(config.running);
+    const statusLabel = isRunning ? "运行中" : (config.enabled ? "已启用" : "已停用");
     const statusClass = isRunning ? "running" : "stopped";
+    const checks = diagnostics.checks || [];
 
     container.innerHTML = `
-      <div class="collector-card">
-        <div class="collector-header">
-          <span class="collector-title">\u81ea\u52a8\u91c7\u96c6\u5668</span>
-          <span class="collector-status ${statusClass}">${statusLabel}</span>
+      <div class="dashboard-grid">
+        <div class="dashboard-main">
+          <div class="collector-card" style="margin-bottom:16px;">
+            <div class="collector-header">
+              <span class="collector-title">自动采集控制台</span>
+              <span class="collector-status ${statusClass}">${statusLabel}</span>
+            </div>
+            <div class="collector-details">
+              <div>执行阶段: <strong>${escapeHtml(config.stage || "collect")}</strong></div>
+              <div>采集间隔: ${Number(config.interval_minutes || 15)} 分钟</div>
+              <div>上次运行: ${config.last_run_at ? formatDate(config.last_run_at) : "尚未运行"}</div>
+              <div>下次运行: ${config.next_run_at ? formatDate(config.next_run_at) : "未排程"}</div>
+              <div>总运行次数: ${Number(config.total_runs || 0)}</div>
+              ${config.last_error ? `<div style="color:var(--accent-red,#b42318);">最近错误: ${escapeHtml(config.last_error)}</div>` : ""}
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-title">采集配置</div>
+            <div class="admin-form-grid">
+              <label class="admin-checkbox">
+                <input type="checkbox" id="collectorEnabled" ${config.enabled ? "checked" : ""}>
+                <span>启用自动采集</span>
+              </label>
+              <label class="admin-field">
+                <span class="admin-field-label">执行阶段</span>
+                <select id="collectorStage" class="admin-control">
+                  ${["all", "collect", "filter", "judge", "output"].map((stage) => `
+                    <option value="${stage}" ${stage === (config.stage || "collect") ? "selected" : ""}>${stage}</option>
+                  `).join("")}
+                </select>
+              </label>
+              <label class="admin-field">
+                <span class="admin-field-label">采集间隔（分钟）</span>
+                <input type="number" id="collectorInterval" class="admin-control" min="1" max="1440" value="${Number(config.interval_minutes || 15)}">
+              </label>
+              <div>
+                <div style="color:var(--text-muted);font-size:0.85rem;margin-bottom:8px;">目标范围</div>
+                <div class="admin-checkbox-grid">
+                  ${targetOptions || `<span style="color:var(--text-muted);font-size:0.9rem;">暂无可用目标</span>`}
+                </div>
+              </div>
+              <div class="admin-actions">
+                <button class="ops-trigger-btn" id="collectorSave">保存配置</button>
+                <button class="btn-secondary" id="collectorRunNow">立即运行当前目标</button>
+                <button class="btn-secondary" id="collectorStart">启动自动采集</button>
+                <button class="btn-secondary" id="collectorStop">停止自动采集</button>
+              </div>
+            </div>
+          </div>
         </div>
-        <div class="collector-details">
-          ${data.target_id ? `<div>\u76ee\u6807: <strong>${escapeHtml(data.target_id)}</strong></div>` : ""}
-          ${data.interval_minutes != null ? `<div>\u95f4\u9694: ${data.interval_minutes} \u5206\u949f</div>` : ""}
-          ${data.last_run_at ? `<div>\u4e0a\u6b21\u8fd0\u884c: ${formatDate(data.last_run_at)}</div>` : ""}
-          ${data.last_run_status ? `<div>\u8fd0\u884c\u72b6\u6001: <span class="ops-status ops-status-${data.last_run_status === "success" ? "completed" : data.last_run_status === "running" ? "running" : "failed"}">${escapeHtml(data.last_run_status)}</span></div>` : ""}
-          ${data.total_runs != null ? `<div>\u603b\u8fd0\u884c\u6b21\u6570: ${data.total_runs}</div>` : ""}
-          ${data.enabled != null ? `<div>\u542f\u7528: ${data.enabled ? "\u2713" : "\u2717"}</div>` : ""}
+
+        <div class="dashboard-sidebar">
+          <div class="card">
+            <div class="section-title">诊断</div>
+            <div class="ops-source-list">
+              ${checks.map((check) => `
+                <div class="ops-source-item">
+                  <span class="ops-source-id">${escapeHtml(check.name || "")}</span>
+                  <span class="ops-status ops-status-${check.ok ? "completed" : "failed"}">${check.ok ? "正常" : "需处理"}</span>
+                  <span class="ops-source-meta">${escapeHtml(check.message || "")}</span>
+                </div>
+              `).join("") || `<p style="color:var(--text-muted);font-size:0.9rem;">暂无诊断数据</p>`}
+            </div>
+          </div>
         </div>
-        ${isRunning ? '<div class="collector-heartbeat"><span></span><span></span><span></span><span></span><span></span></div>' : ""}
       </div>`;
+
+    const selectedTargets = () => Array.from(container.querySelectorAll("input[name='collectorTarget']:checked"))
+      .map((input) => input.value)
+      .filter(Boolean);
+
+    container.querySelector("#collectorSave")?.addEventListener("click", async () => {
+      const targets = selectedTargets();
+      if (!targets.length) {
+        showError("请至少选择一个采集目标");
+        return;
+      }
+      const btn = container.querySelector("#collectorSave");
+      btn.disabled = true;
+      try {
+        await apiPut("/api/v1/collector/config", {
+          enabled: container.querySelector("#collectorEnabled")?.checked || false,
+          target_ids: targets,
+          interval_minutes: Number(container.querySelector("#collectorInterval")?.value || 15),
+          stage: container.querySelector("#collectorStage")?.value || "collect",
+        });
+        showSuccess("采集配置已保存");
+        renderCollectorTab(container);
+      } catch (err) {
+        showError(`保存失败: ${err.message}`);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    container.querySelector("#collectorStart")?.addEventListener("click", async () => {
+      try {
+        await apiPost("/api/v1/collector/start");
+        showSuccess("自动采集已启动");
+        renderCollectorTab(container);
+      } catch (err) {
+        showError(`启动失败: ${err.message}`);
+      }
+    });
+
+    container.querySelector("#collectorStop")?.addEventListener("click", async () => {
+      const confirmed = await showConfirm("停止自动采集", "自动采集会暂停，后续新闻需要手动触发或重新启动。");
+      if (!confirmed) return;
+      try {
+        await apiPost("/api/v1/collector/stop");
+        showSuccess("自动采集已停止");
+        renderCollectorTab(container);
+      } catch (err) {
+        showError(`停止失败: ${err.message}`);
+      }
+    });
+
+    container.querySelector("#collectorRunNow")?.addEventListener("click", async () => {
+      if (!state.currentTarget) {
+        showError("请先在当前管理目标中选择目标");
+        return;
+      }
+      const stage = container.querySelector("#collectorStage")?.value || "all";
+      try {
+        const resp = await apiPost("/api/v1/runs/trigger", { target_id: state.currentTarget, stage });
+        showSuccess(`已触发运行: ${resp.run_id}`);
+      } catch (err) {
+        showError(`触发失败: ${err.message}`);
+      }
+    });
   } catch (err) {
-    showError(`\u52a0\u8f7d\u91c7\u96c6\u5668\u72b6\u6001\u5931\u8d25: ${err.message}`);
-    container.innerHTML = '<div class="empty-state"><p>\u52a0\u8f7d\u5931\u8d25</p></div>';
+    showError(`加载采集控制台失败: ${err.message}`);
+    container.innerHTML = `
+      <div class="empty-state">
+        <p>加载失败</p>
+        <button class="btn-secondary" id="collectorRetry">重试</button>
+      </div>`;
+    container.querySelector("#collectorRetry")?.addEventListener("click", () => renderCollectorTab(container));
   }
 }
 
@@ -261,7 +401,7 @@ export async function renderSourceHealthTab(container) {
     const healthResp = await api("/api/v1/sources/health", { target_id: state.currentTarget }).catch(() => ({ sources: [] }));
     const sources = healthResp.sources || [];
 
-    const healthy = sources.filter((s) => s.status === "healthy").length;
+    const healthy = sources.filter((s) => s.status === "healthy" || s.status === "ok").length;
     const degraded = sources.filter((s) => s.status === "degraded").length;
     const unreachable = sources.filter((s) => s.status === "unreachable").length;
     const totalSources = sources.length;
@@ -280,7 +420,7 @@ export async function renderSourceHealthTab(container) {
           ${sources.map((s) => `
             <div class="ops-source-item">
               <span class="ops-source-id">${escapeHtml(s.source_id)}</span>
-              <span class="ops-status ops-status-${s.status === "healthy" ? "completed" : s.status === "degraded" ? "running" : "failed"}">${escapeHtml(s.status)}</span>
+              <span class="ops-status ops-status-${s.status === "healthy" || s.status === "ok" ? "completed" : s.status === "degraded" ? "running" : "failed"}">${escapeHtml(s.status)}</span>
               <span class="ops-source-meta">${formatDate(s.last_check)} \u00b7 ${s.error_count} \u9519\u8bef</span>
             </div>`).join("")}
         </div>`
@@ -341,7 +481,7 @@ export async function renderRunHistoryTab(container) {
     container.querySelectorAll(".ops-run-row").forEach((row) => {
       row.addEventListener("click", () => {
         const rid = row.dataset.runId;
-        if (rid) window.location.hash = `#/admin/ops/${encodeURIComponent(rid)}`;
+        if (rid) window.location.hash = `#/admin/ops/runs/${encodeURIComponent(rid)}`;
       });
     });
   } catch (err) {
@@ -354,10 +494,66 @@ export async function renderRunHistoryTab(container) {
 // §6. Tab 5 — 数据维护 (Maintenance)
 // ════════════════════════════════════════════════════════════
 
+function maintenanceTargetOptions() {
+  return (state.targets || []).map((t) => {
+    const id = t.target_id || t.id || String(t);
+    const selected = id === state.currentTarget ? "selected" : "";
+    return `<option value="${escapeHtml(id)}" ${selected}>${escapeHtml(t.display_name || id)}</option>`;
+  }).join("");
+}
+
+function draftDiagnosticsHtml(data) {
+  const orphanFiles = data.orphan_files || [];
+  const duplicates = data.duplicate_event_ids || [];
+  const missing = data.missing_index_files || [];
+  const orphanTable = orphanFiles.length
+    ? `<table class="ops-table" style="margin-top:12px;">
+        <thead><tr><th>事件 ID</th><th>文件路径</th><th>标题</th></tr></thead>
+        <tbody>
+          ${orphanFiles.slice(0, 8).map((item) => `
+            <tr>
+              <td class="mono">${escapeHtml(item.event_id || "未识别")}</td>
+              <td class="mono">${escapeHtml(item.path || "")}</td>
+              <td>${escapeHtml(item.title || "—")}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>`
+    : '<p style="color:var(--text-muted);font-size:0.85rem;margin-top:12px;">未发现未入索引的 draft 文件。</p>';
+  return `
+    <div class="ops-health-summary">
+      <div class="ops-health-stat"><strong>${Number(data.draft_file_count || 0)}</strong> draft 文件</div>
+      <div class="ops-health-stat ops-health-ok"><strong>${Number(data.visible_index_count || 0)}</strong> 索引可见</div>
+      <div class="ops-health-stat ${orphanFiles.length ? "ops-health-warn" : "ops-health-ok"}"><strong>${Number(data.orphan_file_count || 0)}</strong> 孤立文件</div>
+      <div class="ops-health-stat ${duplicates.length ? "ops-health-warn" : "ops-health-ok"}"><strong>${duplicates.length}</strong> 重复事件</div>
+      <div class="ops-health-stat ${missing.length ? "ops-health-warn" : "ops-health-ok"}"><strong>${missing.length}</strong> 缺失文件</div>
+    </div>
+    ${duplicates.length ? `<button class="ops-trigger-btn" id="archiveDuplicateDraftsBtn" type="button" style="margin-top:12px;">归档重复副本</button>` : ""}
+    ${orphanTable}`;
+}
+
 export async function renderMaintenanceTab(container) {
   const defaultDays = 30;
+  const targetOptions = maintenanceTargetOptions();
 
   container.innerHTML = `
+    <div class="card" style="margin-bottom:16px;">
+      <div class="section-title">Draft 索引诊断</div>
+      <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:12px;">
+        检查新闻草稿文件与运行时索引是否一致。这里只读展示问题，不会删除或迁移历史文件。
+      </p>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <select id="diagnosticTarget" style="padding:4px 8px;border-radius:6px;background:var(--input-bg,#161b22);color:var(--text-primary);border:1px solid var(--border,#30363d);">
+          <option value="">请选择目标</option>
+          ${targetOptions}
+        </select>
+        <button class="ops-trigger-btn" id="draftDiagnosticsBtn">检查一致性</button>
+      </div>
+      <div id="draftDiagnosticsResult" style="margin-top:12px;color:var(--text-muted);font-size:0.85rem;">
+        选择目标后运行检查。
+      </div>
+    </div>
+
     <div class="card" style="margin-bottom:16px;">
       <div class="section-title">\u6570\u636e\u6e05\u7406</div>
       <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:12px;">
@@ -369,8 +565,8 @@ export async function renderMaintenanceTab(container) {
                style="flex:1;min-width:120px;accent-color:var(--accent-blue, #58a6ff);">
         <span id="pruneDaysLabel" style="min-width:40px;text-align:center;">${defaultDays} \u5929</span>
         <select id="pruneTarget" style="padding:4px 8px;border-radius:6px;background:var(--input-bg,#161b22);color:var(--text-primary);border:1px solid var(--border,#30363d);">
-          <option value="">\u5168\u90e8\u76ee\u6807</option>
-          ${(state.targets || []).map((t) => `<option value="${escapeHtml(t.id || t)}">${escapeHtml(t.id || t)}</option>`).join("")}
+          <option value="">请选择目标</option>
+          ${targetOptions}
         </select>
         <button class="ops-trigger-btn" id="pruneBtn" style="background:var(--accent-red,#f87171);">\u6e05\u7406</button>
       </div>
@@ -391,11 +587,60 @@ export async function renderMaintenanceTab(container) {
     label.textContent = `${slider.value} \u5929`;
   });
 
+  const bindArchiveDuplicateDrafts = (target, result) => {
+    result.querySelector("#archiveDuplicateDraftsBtn")?.addEventListener("click", async (event) => {
+      if (!window.confirm("将重复 event_id 的多余 draft 移动到 archive，保留一个公开可读文件。是否继续？")) {
+        return;
+      }
+      const archiveBtn = event.currentTarget;
+      archiveBtn.disabled = true;
+      archiveBtn.textContent = "归档中...";
+      try {
+        const archiveResult = await apiPost("/api/v1/maintenance/archive-duplicate-drafts", { target_id: target });
+        showSuccess(`已归档 ${Number(archiveResult.archived_count || 0)} 个重复副本`);
+        const refreshed = await api("/api/v1/maintenance/draft-diagnostics", { target_id: target });
+        result.innerHTML = draftDiagnosticsHtml(refreshed);
+        bindArchiveDuplicateDrafts(target, result);
+      } catch (err) {
+        archiveBtn.disabled = false;
+        archiveBtn.textContent = "归档重复副本";
+        showError(err.message || "归档失败");
+      }
+    });
+  };
+
+  document.getElementById("draftDiagnosticsBtn").addEventListener("click", async () => {
+    const target = document.getElementById("diagnosticTarget").value;
+    const result = document.getElementById("draftDiagnosticsResult");
+    if (!target) {
+      showError("请先选择要诊断的目标");
+      return;
+    }
+    const btn = document.getElementById("draftDiagnosticsBtn");
+    btn.disabled = true;
+    btn.textContent = "检查中...";
+    result.textContent = "正在检查 draft 文件与索引...";
+    try {
+      const data = await api("/api/v1/maintenance/draft-diagnostics", { target_id: target });
+      result.innerHTML = draftDiagnosticsHtml(data);
+      bindArchiveDuplicateDrafts(target, result);
+    } catch (err) {
+      result.innerHTML = `<span style="color:var(--accent-red,#b42318);">诊断失败: ${escapeHtml(err.message)}</span>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "检查一致性";
+    }
+  });
+
   // Prune button
   document.getElementById("pruneBtn").addEventListener("click", async () => {
     const days = parseInt(slider.value, 10);
     const target = document.getElementById("pruneTarget").value;
-    const targetLabel = target || "\u5168\u90e8\u76ee\u6807";
+    if (!target) {
+      showError("请先选择要清理的目标");
+      return;
+    }
+    const targetLabel = target;
 
     const confirmed = await showConfirm(
       "\u786e\u8ba4\u6570\u636e\u6e05\u7406",
@@ -408,7 +653,7 @@ export async function renderMaintenanceTab(container) {
     btn.textContent = "\u6e05\u7406\u4e2d...";
     try {
       const params = { max_age_days: days };
-      if (target) params.target_id = target;
+      params.target_id = target;
       const resp = await apiPost("/api/v1/maintenance/prune", params);
       const deleted = resp.deleted_count ?? resp.deleted ?? 0;
       showSuccess(`\u5df2\u6e05\u7406 ${deleted} \u6761\u65e7\u6570\u636e`);
@@ -526,7 +771,7 @@ export async function renderOpsDetail(container, runId) {
       </div>`;
 
     document.getElementById("opsBack").addEventListener("click", () => {
-      window.location.hash = "#/admin/ops/status";
+      window.location.hash = "#/admin/ops/runs";
     });
 
     // Smart alerts (Phase 38)
@@ -556,6 +801,6 @@ export async function renderOpsDetail(container, runId) {
       <div class="detail-back" id="opsBackFallback">\u8fd4\u56de\u8fd0\u7ef4\u4e2d\u5fc3</div>
       <div class="empty-state"><p>\u52a0\u8f7d\u5931\u8d25</p></div>`;
     const fallback = document.getElementById("opsBackFallback");
-    if (fallback) fallback.addEventListener("click", () => { window.location.hash = "#/admin/ops/status"; });
+    if (fallback) fallback.addEventListener("click", () => { window.location.hash = "#/admin/ops/runs"; });
   }
 }

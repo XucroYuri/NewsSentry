@@ -3,25 +3,6 @@ import { readFileSync } from "node:fs";
 
 const appJs = readFileSync("src/news_sentry/static/app.js", "utf8");
 const feedJs = readFileSync("src/news_sentry/static/pages/feed.js", "utf8");
-const swJs = readFileSync("src/news_sentry/static/sw.js", "utf8");
-
-for (const [name, source] of [
-  ["app.js", appJs],
-  ["feed.js", feedJs],
-  ["sw.js", swJs],
-]) {
-  assert.equal(
-    /\?v=\d{8}[a-z]?/.test(source),
-    false,
-    `${name} should use the build manifest instead of hand-maintained cache-bust query strings`,
-  );
-}
-
-assert.match(
-  swJs,
-  /loadBuildManifest/,
-  "service worker should derive cache identity from build_manifest.json",
-);
 
 assert.match(
   feedJs,
@@ -37,7 +18,7 @@ assert.ok(
 assert.match(
   appJs,
   /from "\.\/pages\/feed\.js"/,
-  "app should import the public feed module through the build-manifest cache path",
+  "app should import the public feed module through stable module paths",
 );
 
 assert.match(
@@ -48,7 +29,7 @@ assert.match(
 
 assert.match(
   feedJs,
-  /#\/admin\/config\/target/,
+  /#\/admin\/targets/,
   "public home empty state should offer a path to target management",
 );
 

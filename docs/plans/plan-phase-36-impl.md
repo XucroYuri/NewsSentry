@@ -614,7 +614,7 @@ git commit -m "Phase 36 P36.03: 叙述 API 端点 (GET/POST narrative)"
 **Files:**
 - Modify: `src/news_sentry/static/pages/chains.js`
 - Modify: `src/news_sentry/static/style.css`
-- Modify: `docs/development-plan.md`
+- Modify: `docs/roadmap/development-plan.md`
 
 - [ ] **Step 1: 修改 chains.js — 链详情页增加叙述卡片**
 
@@ -724,6 +724,6 @@ Expected: All pass, ruff=0, mypy=0
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/news_sentry/static/pages/chains.js src/news_sentry/static/style.css docs/development-plan.md
+git add src/news_sentry/static/pages/chains.js src/news_sentry/static/style.css docs/roadmap/development-plan.md
 git commit -m "Phase 36 P36.04: 前端叙述卡片 + 链列表摘要 + 验收"
 ```

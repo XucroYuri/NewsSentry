@@ -44,7 +44,7 @@ export async function renderLiveAlertsTab(container) {
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <circle cx="12" cy="12" r="10"/><path d="M8 15h8"/><circle cx="9" cy="9" r="1" fill="currentColor"/><circle cx="15" cy="9" r="1" fill="currentColor"/>
         </svg>
-        <p>请先在顶部选择一个监控目标</p>
+        <p>请在当前管理目标中选择一个监控目标</p>
       </div>
     `;
     return;
@@ -140,7 +140,7 @@ export async function renderAlertHistoryTab(container) {
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <circle cx="12" cy="12" r="10"/><path d="M8 15h8"/><circle cx="9" cy="9" r="1" fill="currentColor"/><circle cx="15" cy="9" r="1" fill="currentColor"/>
         </svg>
-        <p>请先在顶部选择一个监控目标</p>
+        <p>请在当前管理目标中选择一个监控目标</p>
       </div>
     `;
     return;

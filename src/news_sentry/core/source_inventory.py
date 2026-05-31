@@ -260,15 +260,7 @@ class SourceInventoryService:
         url_val = source.get("url")
         if url_val is None and isinstance(source.get("endpoint"), dict):
             url_val = source["endpoint"].get("url")
-        raw_accounts = source.get("accounts")
-        accounts: list[Any] = raw_accounts if isinstance(raw_accounts, list) else []
-        archived_account_count = len(
-            [
-                account
-                for account in accounts
-                if isinstance(account, dict) and account.get("monitor_mode") == "archived"
-            ]
-        )
+        accounts = source.get("accounts") if isinstance(source.get("accounts"), list) else []
         return {
             "source_ref": source_ref,
             "source_id": source_id,
@@ -287,7 +279,11 @@ class SourceInventoryService:
             "duplicate_source_id": False,
             "health": None,
             "account_count": len(accounts),
-            "archived_account_count": archived_account_count,
+            "archived_account_count": sum(
+                1
+                for account in accounts
+                if isinstance(account, dict) and account.get("monitor_mode") == "archived"
+            ),
         }
 
     def _attach_health(

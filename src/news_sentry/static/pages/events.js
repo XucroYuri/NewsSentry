@@ -6,7 +6,7 @@
 "use strict";
 
 import { state, api, apiPost, escapeHtml, showError, showSuccess, formatDate, scoreColor, scoreGradient, scoreBar, sentimentColor, sentimentPct, sentimentGradient, sentimentLabelColor, sentimentDotHtml, entityChipsHtml, copyToClipboard, logAction, emptyStateHtml, isAuthenticated } from "../api.js";
-import { adminEventHref, targetPortalHref } from "./public_portal.js";
+import { adminEventHref, allowEventAdminControls, targetPortalHref } from "./public_portal.js";
 
 const LINK_TYPE_LABELS = { followup: "后续进展", related: "相关", same_event: "同一事件", correction: "纠正" };
 const LINK_TYPE_COLORS = { followup: "#3b82f6", related: "#6b7280", same_event: "#10b981", correction: "#ef4444" };
@@ -29,7 +29,7 @@ function entityChipHtml(entity, authenticated) {
   const id = entity?.id || entity?.entity_id || entity?.entityId || entity?.canonical_id || entity?.canonicalId;
 
   if (authenticated && id) {
-    return `<a class="chip chip-entity chip-link" href="#/admin/news/entities/${encodeURIComponent(String(id))}"${title}>${name}${typeHtml}</a>`;
+    return `<span class="chip chip-entity"${title}>${name}${typeHtml}</span>`;
   }
   return `<span class="chip chip-entity"${title}>${name}${typeHtml}</span>`;
 }
@@ -102,7 +102,7 @@ export async function renderEventsTab(container) {
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <circle cx="12" cy="12" r="10"/><path d="M8 15h8"/><circle cx="9" cy="9" r="1" fill="currentColor"/><circle cx="15" cy="9" r="1" fill="currentColor"/>
         </svg>
-        <p>请先在顶部选择一个监控目标</p>
+        <p>请在当前管理目标中选择一个监控目标</p>
       </div>
     `;
     return;
@@ -286,9 +286,13 @@ export async function renderEventsTab(container) {
   document.getElementById("importBtn")?.addEventListener("click", () => {
     showImportModal(async (events) => {
       try {
-        await apiPost("/api/v1/events/import", { target_id: state.currentTarget }, { events });
-        showSuccess(`成功导入 ${events.length} 条事件`);
-        logAction("events.import", state.currentTarget, `imported ${events.length}`);
+        const eventList = Array.isArray(events) ? events : events?.events;
+        if (!Array.isArray(eventList)) {
+          throw new Error("导入内容必须是事件数组");
+        }
+        await apiPost("/api/v1/events/import", {}, eventList);
+        showSuccess(`成功导入 ${eventList.length} 条事件`);
+        logAction("events.import", state.currentTarget, `imported ${eventList.length}`);
         renderEventsTab(container);
       } catch (err) {
         showError("导入失败: " + err.message);
@@ -336,7 +340,7 @@ async function loadEventList(container) {
         "📰",
         "暂无匹配的事件",
         "尝试调整筛选条件，或等待自动采集器完成下一轮采集",
-        [{ label: "清除筛选", id: "clearFilters" }, { label: "查看诊断", href: "#/admin/ops/collector" }]
+        [{ label: "清除筛选", id: "clearFilters" }, { label: "查看诊断", href: "#/admin/collection/control" }]
       );
       const clearBtn = area.querySelector("#clearFilters");
       if (clearBtn) {
@@ -438,8 +442,8 @@ export async function renderEventDetail(container, eventId, options = {}) {
   const targetId = options.targetId || state.currentTarget;
   const detailBackHref = options.backHref || (publicMode
     ? (targetId ? targetPortalHref(targetId) : "#/news/feed")
-    : "#/admin/news/events");
-  const allowAdminControls = authenticated && !publicMode;
+    : "#/admin/review/queue");
+  const allowAdminControls = allowEventAdminControls({ authenticated, publicMode });
   container.innerHTML = `
     <div class="loading-spinner"><div class="spinner"></div><p>正在加载事件详情...</p></div>
   `;
@@ -650,7 +654,7 @@ export async function renderEventDetail(container, eventId, options = {}) {
       const submitFeedback = async (verdictType) => {
         const statusEl = document.getElementById("feedbackStatus");
         try {
-          await apiPost("/api/v1/feedback", {
+          await apiPost("/api/v1/feedback", {}, {
             target_id: targetId,
             event_id: eventId,
             verdict_type: verdictType,
@@ -668,7 +672,7 @@ export async function renderEventDetail(container, eventId, options = {}) {
         if (!comment) return;
         const statusEl = document.getElementById("feedbackStatus");
         try {
-          await apiPost("/api/v1/feedback", {
+          await apiPost("/api/v1/feedback", {}, {
             target_id: targetId,
             event_id: eventId,
             verdict_type: "comment",

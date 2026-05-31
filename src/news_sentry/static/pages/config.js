@@ -14,9 +14,40 @@ function configNoticeHtml() {
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
       </svg>
-     配置管理 — 可编辑视图，修改后请点击「保存」
+      <span><strong>高级配置</strong> 表单化编辑本地配置，保存后写入对应配置文件并在下一次采集中生效。</span>
     </div>
   `;
+}
+
+function renderConfigEmptyState(container, options = {}) {
+  const {
+    title = "需要选择一个监控目标",
+    description = "高级配置会写入指定 Target 的本地配置文件。请先进入目标工作台选择或创建一个 Target。",
+    primaryHref = "#/admin/targets",
+    primaryLabel = "进入目标工作台",
+    secondaryLabel = "重新加载",
+    onRetry = null,
+  } = options;
+
+  container.innerHTML = `
+    ${configNoticeHtml()}
+    <div class="ns-empty-state" role="status">
+      <h2>${escapeHtml(title)}</h2>
+      <p>${escapeHtml(description)}</p>
+      <div class="ns-empty-state-actions">
+        <a class="ns-button ns-button-primary" href="${escapeHtml(primaryHref)}">${escapeHtml(primaryLabel)}</a>
+        <button class="ns-button ns-button-secondary" id="configEmptyRetry" type="button">${escapeHtml(secondaryLabel)}</button>
+      </div>
+    </div>
+  `;
+
+  container.querySelector("#configEmptyRetry")?.addEventListener("click", () => {
+    if (typeof onRetry === "function") {
+      onRetry();
+      return;
+    }
+    window.location.reload();
+  });
 }
 
 function configFieldHtml(key, value) {
@@ -70,17 +101,26 @@ function editableNumHtml(key, value, min = 0, max = 100) {
   return editableFieldHtml(key, value, `type="number" min="${min}" max="${max}"`);
 }
 
+function selectDefaultConfigTarget() {
+  if (state.currentTarget) return state.currentTarget;
+
+  const targets = state.targets || [];
+  if (!targets.length) return "";
+
+  const savedTarget = localStorage.ns_target_id || "";
+  const saved = targets.find((target) => target.target_id === savedTarget);
+  const withData = targets.find((target) => Number(target.event_count || 0) > 0);
+  const fallback = saved || withData || targets[0];
+
+  state.currentTarget = fallback?.target_id || "";
+  if (state.currentTarget) localStorage.ns_target_id = state.currentTarget;
+  return state.currentTarget;
+}
+
 function requireTarget(container) {
+  selectDefaultConfigTarget();
   if (!state.currentTarget) {
-    container.innerHTML = `
-      ${configNoticeHtml()}
-      <div class="empty-state">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <circle cx="12" cy="12" r="10"/><path d="M8 15h8"/><circle cx="9" cy="9" r="1" fill="currentColor"/><circle cx="15" cy="9" r="1" fill="currentColor"/>
-        </svg>
-        <p>请先在顶部选择一个监控目标</p>
-      </div>
-    `;
+    renderConfigEmptyState(container);
     return false;
   }
   return true;
@@ -258,7 +298,14 @@ export async function renderTargetTab(container) {
     });
   } catch (err) {
     showError(`加载 Target 配置失败: ${err.message}`);
-    container.innerHTML = `${configNoticeHtml()}<div class="empty-state"><p>加载失败，请稍后重试</p></div>`;
+    renderConfigEmptyState(container, {
+      title: "配置加载失败",
+      description: "当前配置接口没有返回可渲染数据。可以重试加载，或回到目标工作台检查该 Target 的配置链路。",
+      primaryHref: "#/admin/targets",
+      primaryLabel: "查看目标工作台",
+      secondaryLabel: "重试加载",
+      onRetry: () => renderTargetTab(container),
+    });
   }
 }
 
@@ -335,7 +382,14 @@ export async function renderSourcesTab(container) {
     bindSourceEvents(container);
   } catch (err) {
     showError(`加载 Source 渠道失败: ${err.message}`);
-    container.innerHTML = `${configNoticeHtml()}<div class="empty-state"><p>加载失败，请稍后重试</p></div>`;
+    renderConfigEmptyState(container, {
+      title: "配置加载失败",
+      description: "当前配置接口没有返回可渲染数据。可以重试加载，或回到目标工作台检查该 Target 的配置链路。",
+      primaryHref: "#/admin/targets",
+      primaryLabel: "查看目标工作台",
+      secondaryLabel: "重试加载",
+      onRetry: () => renderSourcesTab(container),
+    });
   }
 }
 
@@ -515,7 +569,14 @@ export async function renderFiltersTab(container) {
     });
   } catch (err) {
     showError(`加载 Filter 规则失败: ${err.message}`);
-    container.innerHTML = `${configNoticeHtml()}<div class="empty-state"><p>加载失败，请稍后重试</p></div>`;
+    renderConfigEmptyState(container, {
+      title: "配置加载失败",
+      description: "当前配置接口没有返回可渲染数据。可以重试加载，或回到目标工作台检查该 Target 的配置链路。",
+      primaryHref: "#/admin/targets",
+      primaryLabel: "查看目标工作台",
+      secondaryLabel: "重试加载",
+      onRetry: () => renderFiltersTab(container),
+    });
   }
 }
 
@@ -532,7 +593,15 @@ export async function renderOutputsTab(container) {
     const destinations = data.destinations || data || [];
 
     if (!destinations.length) {
-      container.innerHTML = `${configNoticeHtml()}<div class="empty-state"><p>暂无输出目的地配置</p></div>`;
+      const targetId = state.currentTarget || "";
+      renderConfigEmptyState(container, {
+        title: "暂无输出目的地配置",
+        description: "当前 Target 还没有可表单化编辑的输出目的地。请先确认 Target 配置骨架，或在目标工作台执行预检。",
+        primaryHref: targetId ? `#/admin/targets/${encodeURIComponent(targetId)}/rules` : "#/admin/targets",
+        primaryLabel: "查看 Target 规则",
+        secondaryLabel: "重新加载",
+        onRetry: () => renderOutputsTab(container),
+      });
       return;
     }
 
@@ -611,7 +680,14 @@ export async function renderOutputsTab(container) {
     });
   } catch (err) {
     showError(`加载输出目的地失败: ${err.message}`);
-    container.innerHTML = `${configNoticeHtml()}<div class="empty-state"><p>加载失败，请稍后重试</p></div>`;
+    renderConfigEmptyState(container, {
+      title: "配置加载失败",
+      description: "当前配置接口没有返回可渲染数据。可以重试加载，或回到目标工作台检查该 Target 的配置链路。",
+      primaryHref: "#/admin/targets",
+      primaryLabel: "查看目标工作台",
+      secondaryLabel: "重试加载",
+      onRetry: () => renderOutputsTab(container),
+    });
   }
 }
 
@@ -628,7 +704,15 @@ export async function renderAITab(container) {
     const routes = data.routes || data || [];
 
     if (!routes.length) {
-      container.innerHTML = `${configNoticeHtml()}<div class="empty-state"><p>暂无 Provider 路由配置</p></div>`;
+      const targetId = state.currentTarget || "";
+      renderConfigEmptyState(container, {
+        title: "暂无 Provider 路由配置",
+        description: "当前 Target 未配置 AI Provider 路由。本地模式可以继续使用规则研判；云端部署前再补齐 Provider。",
+        primaryHref: targetId ? `#/admin/targets/${encodeURIComponent(targetId)}/collection` : "#/admin/targets",
+        primaryLabel: "查看采集设置",
+        secondaryLabel: "重新加载",
+        onRetry: () => renderAITab(container),
+      });
       return;
     }
 
@@ -695,7 +779,14 @@ export async function renderAITab(container) {
     });
   } catch (err) {
     showError(`加载 Provider 路由失败: ${err.message}`);
-    container.innerHTML = `${configNoticeHtml()}<div class="empty-state"><p>加载失败，请稍后重试</p></div>`;
+    renderConfigEmptyState(container, {
+      title: "配置加载失败",
+      description: "当前配置接口没有返回可渲染数据。可以重试加载，或回到目标工作台检查该 Target 的配置链路。",
+      primaryHref: "#/admin/targets",
+      primaryLabel: "查看目标工作台",
+      secondaryLabel: "重试加载",
+      onRetry: () => renderAITab(container),
+    });
   }
 }
 
@@ -731,7 +822,7 @@ export async function renderWebhookTab(container) {
     }
     try {
       const payload = JSON.parse(json);
-      const data = await apiPost("/api/v1/webhook", {}, payload);
+      const data = await apiPost("/api/v1/webhook", { target_id: state.currentTarget }, payload);
       if (resultEl) resultEl.innerHTML = '<span style="color:#3fb950;">✓ 发送成功</span>';
       showSuccess("Webhook 发送成功");
     } catch (err) {

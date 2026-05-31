@@ -12,7 +12,7 @@
 
 ## 背景
 
-`docs/development-plan.md §10` 中已使用 `core/run.py`、`skills/filter.py` 等 Python 路径作为 TODO 示例。需要正式锁定实现语言，防止后续引入 TypeScript、Go 等语言时产生多语言维护负担。
+`docs/roadmap/development-plan.md §10` 中已使用 `core/run.py`、`skills/filter.py` 等 Python 路径作为 TODO 示例。需要正式锁定实现语言，防止后续引入 TypeScript、Go 等语言时产生多语言维护负担。
 
 ---
 

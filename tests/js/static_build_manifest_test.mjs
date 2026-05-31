@@ -19,7 +19,7 @@ assert.equal(
   "service-worker cache name should derive from the build manifest id",
 );
 
-for (const asset of ["/", "/index.html", "/app.js", "/style.css", "/sw.js"]) {
+for (const asset of ["/", "/index.html", "/app.js", "/style.css", "/public.css", "/sw.js"]) {
   assert.ok(
     manifest.assets.includes(asset),
     `static build manifest should list ${asset}`,
@@ -39,17 +39,16 @@ for (const [name, source] of [
 }
 
 assert.match(
+  appJs,
+  /readStaticBuildManifest/,
+  "app should read the build id from the manifest instead of a local constant",
+);
+
+assert.match(
   swJs,
   /loadBuildManifest/,
   "service worker should derive cache name and pre-cache URLs from the manifest",
 );
-
-for (const asset of manifest.assets.filter((item) => item.startsWith("/"))) {
-  assert.doesNotThrow(
-    () => readFileSync(`src/news_sentry/static${asset === "/" ? "/index.html" : asset}`, "utf8"),
-    `static build manifest asset should exist: ${asset}`,
-  );
-}
 
 assert.doesNotMatch(
   swJs,

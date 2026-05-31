@@ -26,12 +26,13 @@ const actionOrder = [
   "feed-date-filter",
   "feed-view-toggle",
   "feed-refresh",
+  "feed-analysis-link",
 ].map((needle) => toolbarHtml.indexOf(needle));
 
 assert.deepEqual(
   actionOrder.map((index) => index >= 0),
-  [true, true, true, true],
-  "public toolbar should render search, date, view toggle and refresh controls",
+  [true, true, true, true, true],
+  "public toolbar should render search, date, view toggle, refresh and analysis controls",
 );
 assert.deepEqual(
   [...actionOrder].sort((a, b) => a - b),
@@ -39,14 +40,9 @@ assert.deepEqual(
   "public toolbar controls should be ordered by primary filtering workflow",
 );
 assert.equal(
-  toolbarHtml.includes("feed-analysis-link"),
-  false,
-  "public toolbar should not link to deferred public analysis pages",
-);
-assert.equal(
   renderFeedToolbarActions({ publicMode: false, targetId: "italy" }).includes("feed-analysis-link"),
   false,
-  "admin feed toolbar should not render deferred public analysis links",
+  "admin feed toolbar should not render the public analysis link",
 );
 
 console.log("feed toolbar tests passed");

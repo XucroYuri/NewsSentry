@@ -42,6 +42,8 @@ class AlertPipeline:
         _alerted: 已告警事件 ID → 时间戳映射
     """
 
+    _MAX_CHAIN_UPDATE_ALERTS_PER_CHECK = 25
+
     def __init__(
         self,
         destinations: list[dict[str, Any]],
@@ -215,31 +217,39 @@ class AlertPipeline:
                 limit=limit,
                 since_run_started_at=since,
             )
+            strongest_followups: dict[str, dict[str, Any]] = {}
             for link in links:
                 if link["link_type"] == "followup" and link["strength"] >= 0.7:
-                    title = link.get("title_original") or "未知事件"
-                    chain_root_id = link["source_event_id"]
-                    linked_event_id = link["target_event_id"]
-                    link_type = link["link_type"]
-                    alerts.append(
-                        {
-                            "type": "chain_update",
-                            "alert_key": (
-                                f"chain_update:{chain_root_id}:{linked_event_id}:{link_type}"
-                            ),
-                            "severity": "high",
-                            "message": (
-                                f'追踪链新增后续事件: "{title}" (强度: {link["strength"]:.2f})'
-                            ),
-                            "details": {
-                                "chain_root_id": chain_root_id,
-                                "linked_event_id": linked_event_id,
-                                "strength": link["strength"],
-                                "link_type": link_type,
-                            },
-                            "triggered_at": now_str,
-                        }
-                    )
+                    linked_event_id = str(link["target_event_id"])
+                    current = strongest_followups.get(linked_event_id)
+                    if current is None or float(link["strength"]) > float(current["strength"]):
+                        strongest_followups[linked_event_id] = link
+            for link in sorted(
+                strongest_followups.values(),
+                key=lambda item: float(item["strength"]),
+                reverse=True,
+            )[: self._MAX_CHAIN_UPDATE_ALERTS_PER_CHECK]:
+                title = link.get("title_original") or "未知事件"
+                chain_root_id = link["source_event_id"]
+                linked_event_id = link["target_event_id"]
+                link_type = link["link_type"]
+                alerts.append(
+                    {
+                        "type": "chain_update",
+                        "alert_key": f"chain_update:{chain_root_id}:{linked_event_id}:{link_type}",
+                        "severity": "high",
+                        "message": (
+                            f'追踪链新增后续事件: "{title}" (强度: {link["strength"]:.2f})'
+                        ),
+                        "details": {
+                            "chain_root_id": chain_root_id,
+                            "linked_event_id": linked_event_id,
+                            "strength": link["strength"],
+                            "link_type": link_type,
+                        },
+                        "triggered_at": now_str,
+                    }
+                )
         except Exception as exc:
             logger.warning("链更新告警检查失败: %s", exc)
 

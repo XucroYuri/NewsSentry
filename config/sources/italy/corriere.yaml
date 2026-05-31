@@ -4,7 +4,7 @@
 source_id: corriere
 display_name: "Corriere della Sera"
 type: rss
-url: "https://xml2.corrieredellasera.it/rss/homepage.xml"
+url: "https://www.corriere.it/rss/homepage.xml"
 
 credibility_base: 0.85
 

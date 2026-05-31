@@ -155,6 +155,21 @@ def test_score_event_word_boundary_prevents_false_positive(tmp_path: Path) -> No
     assert score2 == 100  # "Cina" 是独立词，正常匹配
 
 
+def test_score_event_cjk_keyword_uses_substring_matching(tmp_path: Path) -> None:
+    """CJK/假名关键词不能依赖拉丁词边界，否则日文标题会漏判。"""
+    cfg = _make_filter_config(keyword_rules=[{"keyword": "中国", "weight": 0.9, "language": "ja"}])
+    rf = RulesFilter(cfg, Memory(tmp_path))
+    event = _make_event(
+        title="米国防長官、演説で中国に対する発言に変化も",
+        content="",
+        language=Language.JA,
+    )
+
+    score = rf._score_event(event, cfg["keyword_rules"])
+
+    assert score == 90
+
+
 def test_score_event_partial_word_boundary_matching(tmp_path: Path) -> None:
     """词边界匹配：governo 在 'governo italiano' 中命中，但在 'governativa' 中不命中。"""
     cfg = _make_filter_config(

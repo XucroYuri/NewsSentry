@@ -783,7 +783,7 @@ git commit -m "Phase 32 P32.04: async_run 实体持久化集成"
 ### Task 5: 验证与清理
 
 **Files:**
-- Modify: `docs/development-plan.md`
+- Modify: `docs/roadmap/development-plan.md`
 
 - [ ] **Step 1: Run lint checks**
 
@@ -812,6 +812,6 @@ Add Phase 32 completion section with task matrix:
 - [ ] **Step 5: Commit**
 
 ```bash
-git add docs/development-plan.md
+git add docs/roadmap/development-plan.md
 git commit -m "Phase 32: 状态更新为完成，1527 tests"
 ```

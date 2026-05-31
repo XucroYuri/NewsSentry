@@ -32,7 +32,8 @@
                                            │
    ┌──────────────────────┐     ┌──────────▼──────────┐
    │  Alert Pipeline      │◀────│    Output 阶段       │
-   │  (Feishu/Email/TG)   │     │  MarkdownWriter      │
+   │  (Feishu/Email/TG)   │     │  Event Index         │
+   │                      │     │  Markdown Export     │
    └──────────────────────┘     │  AlertPipeline       │
                                 └──────────┬──────────┘
                                            │
@@ -71,7 +72,7 @@ src/news_sentry/
 │   ├── collect/    # RSSCollector + APICollector + RSSDiscovery
 │   ├── filter/     # RulesFilter + ClassifierRules
 │   ├── judge/      # RulesJudge + JudgeSkill
-│   └── output/     # MarkdownWriter
+│   └── output/     # Event index + Markdown export projection
 └── models/         # Pydantic 数据模型
     ├── newsevent.py
     ├── manifests.py
@@ -84,7 +85,7 @@ src/news_sentry/
 1. **Collect**: RSS/API/OpenCLI → `NewsEvent` (stage=COLLECTED) → `raw/`
 2. **Filter**: 关键词评分 + L0-L3 分类 → (stage=FILTERED) → `evaluated/`
 3. **Judge**: ConfidenceRouter 规则→AI 升级 → (stage=JUDGED) → `evaluated/`
-4. **Output**: MarkdownWriter → `drafts/` + AlertPipeline 告警推送
+4. **Output**: canonical/event index + AlertPipeline 告警推送；Markdown 仅作为用户按需导出或显式启用的本地草稿投影
 5. **Feedback**: 人工编辑 `reviewed/` → FeedbackCollector → RulesOptimizer
 
 ## Target 配置

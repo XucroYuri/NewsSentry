@@ -34,10 +34,26 @@ class MarkdownWriter:
         """
         self._target_id: str = output_config.get("target_id", "default")
         self._output_base_dir: Path = Path(output_config.get("output_base_dir", "./data"))
+        self._translation_heading: str = output_config.get("translation_heading", "中文翻译")
 
     # ------------------------------------------------------------------
     # 公开方法
     # ------------------------------------------------------------------
+
+    def render(self, event: NewsEvent) -> str:
+        """将事件渲染为 Obsidian 兼容 Markdown 字符串，不写入磁盘。
+
+        frontmatter 中的 pipeline_stage 按输出投影渲染为 OUTPUTTED，
+        但渲染完成后恢复传入事件原状态，避免纯 projection 污染事实对象。
+        """
+        original_stage = event.pipeline_stage
+        event.pipeline_stage = PipelineStage.OUTPUTTED
+        try:
+            fm = self._render_frontmatter(event)
+            body = self._render_body(event)
+            return f"---\n{fm}\n---\n\n{body}"
+        finally:
+            event.pipeline_stage = original_stage
 
     def write(self, event: NewsEvent) -> Path:
         """将事件写入 Obsidian 兼容的 Markdown 文件。
@@ -57,12 +73,9 @@ class MarkdownWriter:
         target_dir.mkdir(parents=True, exist_ok=True)
 
         filepath = target_dir / filename
-        event.pipeline_stage = PipelineStage.OUTPUTTED
-        fm = self._render_frontmatter(event)
-        body = self._render_body(event)
-        content = f"---\n{fm}\n---\n\n{body}"
-
+        content = self.render(event)
         self._atomic_write(filepath, content)
+        event.pipeline_stage = PipelineStage.OUTPUTTED
         return filepath
 
     # ------------------------------------------------------------------
@@ -192,7 +205,7 @@ class MarkdownWriter:
             lines.extend(
                 [
                     "",
-                    "## 中文翻译",
+                    f"## {self._translation_heading}",
                     "",
                     self._escape_body_breaks(event.content_translated),
                 ]
