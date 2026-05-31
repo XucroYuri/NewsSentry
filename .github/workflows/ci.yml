@@ -32,6 +32,9 @@ jobs:
       - name: Test (pytest + coverage)
         run: python -m pytest tests/ -q --tb=short --timeout=300 --cov=src/news_sentry --cov-report=term-missing --cov-report=xml
 
+      - name: Publication hygiene scan
+        run: python tools/check_publication_hygiene.py
+
       - name: Security scan (sensitive keywords)
         run: python tools/scan_sensitive_data.py
 

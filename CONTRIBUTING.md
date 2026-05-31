@@ -41,6 +41,23 @@ pip install -e ".[dev,proxy]"
 
 保持代码简洁，匹配现有代码风格。不为一次性调用创建抽象层。
 
+## 发布卫生
+
+以下内容禁止提交到 GitHub：
+
+- `.env*`（除 `.env.example`）、API key、token、cookie、密码和 webhook secret
+- `.cursor/`、`.codex/`、`.omc/`、`.wrangler/`、`.worktrees/` 等本地工具状态
+- `memory/session-profiles/`、浏览器 profile、登录态和本地 session 配置
+- `data/` 运行时输出（仅允许 `data/eval/eval-set-v*.json` 评测集）
+- `prd.json`、`progress.txt`、`src/news_sentry/static/diagnose.html` 等本地生成产物
+
+提交前建议运行：
+
+```bash
+python tools/check_publication_hygiene.py
+python tools/scan_sensitive_data.py
+```
+
 ## 类型检查
 
 使用 **mypy** 进行严格模式类型检查。提交前必须运行：

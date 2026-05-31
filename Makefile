@@ -70,6 +70,8 @@ fmt:
 
 .PHONY: scan-sensitive
 scan-sensitive:
+	@echo "==> 检查 GitHub 发布卫生..."
+	python3 tools/check_publication_hygiene.py
 	@echo "==> 扫描敏感关键词..."
 	python3 tools/scan_sensitive_data.py
 
