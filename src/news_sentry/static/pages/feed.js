@@ -283,8 +283,45 @@ function displayDate(date) {
   return date;
 }
 
-function renderTimeline(date, events, sourceMap, options = {}) {
+function collapsedStorageKey(targetId) {
+  return `ns_feed_collapsed_dates_${targetId || "global"}`;
+}
+
+function readCollapsedDates(targetId) {
+  try {
+    const raw = localStorage.getItem
+      ? localStorage.getItem(collapsedStorageKey(targetId))
+      : localStorage[collapsedStorageKey(targetId)];
+    const dates = JSON.parse(raw || "[]");
+    return new Set(Array.isArray(dates) ? dates : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeCollapsedDates(targetId, collapsedDates) {
+  const key = collapsedStorageKey(targetId);
+  const value = JSON.stringify(Array.from(collapsedDates || []));
+  if (localStorage.setItem) localStorage.setItem(key, value);
+  else localStorage[key] = value;
+}
+
+function renderDateHeader(date, events, collapsed) {
   const dateDisplay = displayDate(date);
+  const count = Array.isArray(events) ? events.length : 0;
+  return `<div class="feed-date-header">
+    <div class="feed-date-line"></div>
+    <button class="feed-date-toggle" type="button" data-date="${escapeHtml(date)}" aria-expanded="${collapsed ? "false" : "true"}">
+      <span class="feed-date-caret" aria-hidden="true"></span>
+      <span class="feed-date-text">${dateDisplay}</span>
+      <span class="feed-date-count">${count} 条</span>
+    </button>
+    <div class="feed-date-line"></div>
+  </div>`;
+}
+
+export function renderTimeline(date, events, sourceMap, options = {}) {
+  const collapsed = options.collapsedDates?.has(date) || false;
 
   const items = events.map((ev) => {
     const score = eventScore(ev);
@@ -315,14 +352,14 @@ function renderTimeline(date, events, sourceMap, options = {}) {
     </div>`;
   }).join("");
 
-  return `<section class="feed-date-group">
-    <div class="feed-date-header"><div class="feed-date-line"></div>
-    <span class="feed-date-text">${dateDisplay}</span>
-    <div class="feed-date-line"></div></div>
-    <div class="feed-timeline">${items}</div></section>`;
+  return `<section class="feed-date-group${collapsed ? " is-collapsed" : ""}">
+    ${renderDateHeader(date, events, collapsed)}
+    <div class="feed-date-content feed-timeline"${collapsed ? " hidden" : ""}>${items}</div>
+  </section>`;
 }
 
-function renderCompact(date, events, sourceMap, options = {}) {
+export function renderCompact(date, events, sourceMap, options = {}) {
+  const collapsed = options.collapsedDates?.has(date) || false;
   const rows = events.map((ev) => {
     const score = eventScore(ev);
     const title = eventTitle(ev);
@@ -340,11 +377,10 @@ function renderCompact(date, events, sourceMap, options = {}) {
     </div>`;
   }).join("");
 
-  return `<section class="feed-date-group">
-    <div class="feed-date-header"><div class="feed-date-line"></div>
-    <span class="feed-date-text">${displayDate(date)}</span>
-    <div class="feed-date-line"></div></div>
-    <div class="feed-compact">${rows}</div></section>`;
+  return `<section class="feed-date-group${collapsed ? " is-collapsed" : ""}">
+    ${renderDateHeader(date, events, collapsed)}
+    <div class="feed-date-content feed-compact"${collapsed ? " hidden" : ""}>${rows}</div>
+  </section>`;
 }
 
 const VIEW_RENDERERS = { timeline: renderTimeline, compact: renderCompact };
@@ -455,6 +491,7 @@ export async function renderFeedTab(container, options = {}) {
   let currentPage = 1;
   let loadedCount = 0;
   let isLoadingMore = false;
+  let collapsedDates = readCollapsedDates(targetId);
 
   const refreshPublicChannels = () => {
     if (!publicMode || !channelBar) return;
@@ -502,7 +539,21 @@ export async function renderFeedTab(container, options = {}) {
       });
       return;
     }
-    body.innerHTML = visibleGroups.map((g) => renderer(g.date, g.events, sourceMap, { targetId, publicMode })).join("");
+    body.innerHTML = visibleGroups.map((g) => renderer(g.date, g.events, sourceMap, {
+      targetId,
+      publicMode,
+      collapsedDates,
+    })).join("");
+    body.querySelectorAll(".feed-date-toggle").forEach((button) => {
+      button.addEventListener("click", () => {
+        const date = button.dataset.date;
+        if (!date) return;
+        if (collapsedDates.has(date)) collapsedDates.delete(date);
+        else collapsedDates.add(date);
+        writeCollapsedDates(targetId, collapsedDates);
+        render();
+      });
+    });
     footer.innerHTML = renderFeedFooterHtml({
       loadedCount,
       totalCount,
@@ -522,6 +573,7 @@ export async function renderFeedTab(container, options = {}) {
     } else {
       currentPage = 1;
       loadedCount = 0;
+      collapsedDates = readCollapsedDates(targetId);
       body.innerHTML = '<div class="feed-loading">加载中...</div>';
     }
     const date = dateInput.value || "";

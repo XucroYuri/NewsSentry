@@ -1,6 +1,6 @@
 {
-  "build": "20260531a",
-  "cacheName": "news-sentry-20260531a",
+  "build": "20260531b",
+  "cacheName": "news-sentry-20260531b",
   "assets": [
     "/",
     "/index.html",

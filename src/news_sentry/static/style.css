@@ -3835,6 +3835,52 @@ body.ns-offline .offline-banner {
   white-space: nowrap;
 }
 
+.feed-date-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+}
+
+.feed-date-toggle:hover {
+  border-color: var(--border-color);
+  background: var(--surface-muted);
+  color: var(--text-primary);
+}
+
+.feed-date-toggle:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+.feed-date-caret::before {
+  content: "▾";
+  display: inline-block;
+  font-size: 10px;
+  line-height: 1;
+  transform: translateY(-1px);
+}
+
+.feed-date-group.is-collapsed .feed-date-caret::before {
+  transform: rotate(-90deg) translateX(1px);
+}
+
+.feed-date-count {
+  font-size: var(--font-caption);
+  color: var(--text-muted);
+}
+
+.feed-date-content[hidden] {
+  display: none;
+}
+
 /* ── 来源人格化 ── */
 .src-avatar {
   display: inline-flex;
