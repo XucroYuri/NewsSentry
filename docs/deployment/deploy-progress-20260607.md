@@ -102,6 +102,8 @@ Step 7: 上线验证 + 共存确认 .......... ✅ 已完成
 
 ## 未完成事项与建议解决方向
 
+已完成一轮已部署站点全栈审计，独立报告见 [site-audit-20260607.md](site-audit-20260607.md)。后续安全、产品体验、CI/CD 和运维整改 backlog 以该报告中的 `NS-AUDIT-*` 编号为准。
+
 | 优先级 | 事项 | 当前状态 / 风险 | 建议解决方向 | 验收标准 |
 |--------|------|-----------------|--------------|----------|
 | P0 | Cloudflare Access 访问策略 | `news-sentry.com` 已有应用内认证和 WAF，但未加 Cloudflare Access；如果 Web UI 仅面向内部编辑，公网可达会增加撞库和扫描面。 | 先确定允许登录的邮箱、邮箱域名或 IdP；在 Cloudflare Zero Trust 为 `news-sentry.com` 和 `www.news-sentry.com` 创建 Self-hosted Access application；策略初期建议只允许明确邮箱列表；保留 `/api/v1/health` 是否绕过 Access 需要单独判断：若外部监控依赖公网 health，则为 health 配置低权限监控路径或独立 monitor token。 | 未授权访问 Web UI 时先出现 Cloudflare Access；授权邮箱可登录并进入应用；`/api/v1/auth/me` 仍保留应用内认证；部署 health check 不受影响。 |
