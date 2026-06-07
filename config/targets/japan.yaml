@@ -3,6 +3,7 @@
 # ADR: ADR-0015, ADR-0016
 target_id: japan
 display_name: "日本新闻监控"
+monitoring_type: country
 
 language_scope:
   primary: ja

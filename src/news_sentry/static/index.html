@@ -4,6 +4,18 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>News Sentry — 新闻情报监控</title>
+  <meta name="description" content="News Sentry 是开源的多语种新闻情报监控平台，实时追踪全球新闻动态，AI 增强研判分析。">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://news-sentry.com/">
+  <meta property="og:title" content="News Sentry — 新闻情报监控">
+  <meta property="og:description" content="开源多语种新闻情报监控平台，实时追踪全球新闻动态，AI 增强研判分析。">
+  <meta property="og:url" content="https://news-sentry.com/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="News Sentry">
+  <meta property="og:image" content="https://news-sentry.com/icons/icon-512.svg">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="News Sentry — 新闻情报监控">
+  <meta name="twitter:description" content="开源多语种新闻情报监控平台，实时追踪全球新闻动态，AI 增强研判分析。">
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" href="/icons/icon-192.svg" type="image/svg+xml">
   <meta name="theme-color" content="#1a1a2e">
@@ -127,7 +139,7 @@
         </span>
         <span class="brand-text">News Sentry</span>
       </a>
-      <a class="public-admin-btn" id="publicAdminBtn" href="#/admin/login">管理后台</a>
+      <!-- 管理入口已隐藏，管理员通过直接访问 #/admin/login 进入 -->
     </header>
 
     <header class="top-bar admin-page-topbar" id="adminTopBar">
@@ -192,6 +204,68 @@
         <button class="btn-primary" id="confirmOk">确认</button>
       </div>
     </div>
+  </div>
+
+  <!-- 法律声明弹窗 -->
+  <div id="legalModal" class="modal" style="display:none;">
+    <div class="modal-overlay"></div>
+    <div class="modal-content" style="max-width:640px;max-height:80vh;">
+      <div class="modal-header">
+        <h3 id="legalTitle">隐私政策</h3>
+        <button class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body" id="legalBody" style="overflow-y:auto;max-height:60vh;font-size:0.88rem;line-height:1.7;color:var(--text-secondary);"></div>
+    </div>
+  </div>
+
+  <!-- 公开页面底部 -->
+  <footer class="public-footer" id="publicFooter" style="display:none;">
+    <span>&copy; 2026 News Sentry</span>
+    <a href="#" onclick="document.getElementById('legalTitle').textContent='隐私政策';document.getElementById('legalBody').innerHTML=document.getElementById('privacyContent').innerHTML;document.getElementById('legalModal').style.display='flex';return false;">隐私政策</a>
+    <a href="#" onclick="document.getElementById('legalTitle').textContent='免责声明';document.getElementById('legalBody').innerHTML=document.getElementById('disclaimerContent').innerHTML;document.getElementById('legalModal').style.display='flex';return false;">免责声明</a>
+  </footer>
+
+  <!-- 法律声明内容（隐藏，供弹窗引用） -->
+  <div id="privacyContent" style="display:none;">
+    <h4>隐私政策</h4>
+    <p>最后更新：2026 年 6 月 7 日</p>
+    <p><strong>News Sentry</strong>（以下简称"本平台"）尊重并保护用户的个人隐私。本隐私政策说明我们在您使用本平台时如何收集、使用和保护信息。</p>
+    <h4>1. 信息收集</h4>
+    <p>本平台为新闻聚合与情报分析工具。我们：</p>
+    <ul>
+      <li>不主动收集访问者的个人身份信息</li>
+      <li>公开页面无需注册或登录即可浏览</li>
+      <li>使用浏览器本地存储（localStorage）保存用户偏好设置（如语言、主题），不涉及个人信息</li>
+    </ul>
+    <h4>2. 数据来源</h4>
+    <p>本平台展示的新闻内容来源于公开的 RSS 订阅源和公开 API，均注明原始出处和链接。我们不生产新闻内容，仅进行聚合、翻译和结构化处理。</p>
+    <h4>3. AI 处理</h4>
+    <p>本平台使用 AI 技术辅助新闻分类、翻译和重要性评估。AI 处理仅作用于公开新闻内容，不涉及用户个人信息。</p>
+    <h4>4. Cookie 与本地存储</h4>
+    <p>本平台使用 Service Worker 缓存静态资源以支持离线访问，使用 localStorage 保存界面偏好。不使用追踪型 Cookie。</p>
+    <h4>5. 第三方服务</h4>
+    <p>本平台使用 Cloudflare 提供内容分发和安全防护。Cloudflare 可能收集匿名的访问数据用于安全分析，详见 <a href="https://www.cloudflare.com/privacypolicy/" target="_blank">Cloudflare 隐私政策</a>。</p>
+    <h4>6. 数据安全</h4>
+    <p>管理后台采用 Token 认证机制，所有 API 通信通过 HTTPS 加密。数据存储在受控服务器上，定期备份。</p>
+    <h4>7. 联系方式</h4>
+    <p>如有隐私相关问题，请通过 GitHub 仓库 Issues 联系我们。</p>
+  </div>
+
+  <div id="disclaimerContent" style="display:none;">
+    <h4>免责声明</h4>
+    <p>最后更新：2026 年 6 月 7 日</p>
+    <h4>1. 内容来源</h4>
+    <p>本平台展示的所有新闻内容均来自第三方公开来源（RSS、公开 API）。本平台不编辑、不修改原始新闻内容。所有新闻的版权归原始发布者所有。</p>
+    <h4>2. AI 分析结果</h4>
+    <p>本平台使用 AI 技术对新闻进行分类、翻译和重要性评估。AI 分析结果仅供参考，可能存在误差或偏差，不构成任何投资建议、政治判断或专业意见。</p>
+    <h4>3. 准确性</h4>
+    <p>本平台尽力保证信息的准确性和时效性，但不对其完整性、准确性或可靠性作出保证。用户应自行判断信息的真实性。</p>
+    <h4>4. 外部链接</h4>
+    <p>本平台可能包含指向第三方网站的链接。这些链接仅为方便用户查阅原文，本平台不对第三方网站的内容或隐私做法负责。</p>
+    <h4>5. 使用风险</h4>
+    <p>用户使用本平台的一切风险由用户自行承担。本平台不对因使用或无法使用本平台而造成的任何直接或间接损失承担责任。</p>
+    <h4>6. 变更</h4>
+    <p>本平台保留随时修改本免责声明的权利，修改后的声明自发布之日起生效。</p>
   </div>
 
   <script type="module" src="app.js"></script>

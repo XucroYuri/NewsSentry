@@ -3,6 +3,7 @@
 # ADR: ADR-0015, ADR-0016
 target_id: italy
 display_name: "意大利新闻监控"
+monitoring_type: country
 
 language_scope:
   primary: it

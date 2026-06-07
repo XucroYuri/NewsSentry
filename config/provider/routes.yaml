@@ -36,6 +36,46 @@ routes:
       - translate.fast
     notes: "judge 阶段高质量翻译（title_translated / content_translated）"
 
+  - route_id: translate.batch
+    task_type: translate
+    provider: openrouter
+    model: deepseek/deepseek-v4-flash:free
+    timeout_seconds: 60
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    notes: "低频 AI 增强批处理：JSON 标题翻译"
+
+  - route_id: cluster.brief
+    task_type: cluster
+    provider: openrouter
+    model: deepseek/deepseek-v4-flash:free
+    timeout_seconds: 60
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    notes: "低频 AI 增强批处理：聚类中文标签和摘要"
+
+  - route_id: judge.review.batch
+    task_type: judge_review
+    provider: openrouter
+    model: deepseek/deepseek-v4-flash:free
+    timeout_seconds: 60
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    notes: "低频 AI 增强批处理：疑难事件复核建议"
+
+  - route_id: ai.enrichment.batch
+    task_type: ai_enrichment
+    provider: openrouter
+    model: deepseek/deepseek-v4-flash:free
+    timeout_seconds: 90
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    notes: "低频 AI 增强合并路由：单次 JSON 同时处理翻译、聚类摘要和复核建议"
+
   # ── 判断任务 ──────────────────────────────────────────
 
   - route_id: judge.primary

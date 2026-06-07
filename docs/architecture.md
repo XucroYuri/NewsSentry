@@ -106,7 +106,7 @@ src/news_sentry/
 |-----|------|
 | ADR-0004 | 采集阶段机译 title_pre + judge 阶段 canonical 翻译 |
 | ADR-0009 | 四层分类框架 L0-L3 |
-| ADR-0010 | 永不做专用前端（Obsidian Markdown + 推送） |
+| ADR-0025 | CLI-first；FastAPI + Vanilla JS 嵌入式 SPA 可选，无重型前端框架 |
 | ADR-0012 | Python 3.11+ / Pydantic v2 |
 | ADR-0017 | 采集阶段零 Token 消耗 |
 | ADR-0019 | 信源生命周期状态机 active/degraded/dead |

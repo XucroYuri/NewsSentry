@@ -7,7 +7,8 @@
 #   ANTHROPIC_BASE_URL=https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/anthropic
 #   ANTHROPIC_API_KEY=<your-api-key>
 #   OPENAI_API_KEY=<your-api-key>  (如仍需 OpenAI 路由)
-routes_version: "2.1-cloudflare"
+# Cloudflare 变体通过文件名区分，版本号保持语义化以匹配 ProviderConfig Schema。
+routes_version: "2.1.0"
 
 routes:
 

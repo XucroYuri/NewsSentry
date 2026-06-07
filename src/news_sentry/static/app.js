@@ -27,7 +27,6 @@ import { renderEventsTab, renderEventDetail } from "./pages/events.js";
 import { renderEntitiesTab, renderEntityDetail } from "./pages/entities.js";
 import { renderChainsTab, renderChainDetail } from "./pages/chains.js";
 import { renderTrendsTab } from "./pages/trends.js";
-import { renderResearchWorkbenchTab } from "./pages/research_workbench.js";
 import { renderLiveAlertsTab, renderAlertHistoryTab } from "./pages/alerts.js";
 import { renderRunStatusTab, renderCollectorTab, renderSourceHealthTab, renderRunHistoryTab, renderMaintenanceTab, renderOpsDetail } from "./pages/ops.js";
 import { renderFeedbackRecordsTab, renderRuleOptimizeTab } from "./pages/feedback.js";
@@ -220,10 +219,10 @@ function setShellMode(mode) {
   if (tabBar) tabBar.style.display = mode === "admin" ? "flex" : "none";
   if (mainContent) mainContent.classList.toggle("main-content-public", mode === "public");
 
-  const adminBtn = document.getElementById("publicAdminBtn");
-  if (adminBtn) {
-    adminBtn.href = isAuthenticated() ? "#/admin/targets" : "#/admin/login";
-  }
+  const footer = document.getElementById("publicFooter");
+  if (footer) footer.style.display = mode === "public" ? "flex" : "none";
+
+  // 管理入口已从公开页面移除，管理员直接访问 #/admin/login
 
   if (mode !== "admin") closeSidebar();
 }
@@ -1156,6 +1155,14 @@ async function init() {
   const overlay = document.getElementById("sidebarOverlay");
   if (hamburger) hamburger.addEventListener("click", openSidebar);
   if (overlay) overlay.addEventListener("click", closeSidebar);
+
+  // Legal modal close handlers
+  const legalModal = document.getElementById("legalModal");
+  if (legalModal) {
+    legalModal.querySelectorAll(".modal-close, .modal-overlay").forEach(el => {
+      el.addEventListener("click", () => { legalModal.style.display = "none"; });
+    });
+  }
 
   // Config collapse toggle
   const configToggle = document.getElementById("configToggle");

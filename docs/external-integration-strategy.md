@@ -2,7 +2,7 @@
 
 > 版本: v1.0 | 日期: 2026-05-09
 > 状态: **规范文档** — 本文档是所有外部项目接入方式的唯一权威来源
-> 相关 ADR: [ADR-0008](./adr/0008-external-deps-install-not-vendor.md)（系统级依赖原则）、[ADR-0010](./adr/0010-no-dedicated-frontend.md)（无专用前端）、[ADR-0011](./adr/0011-opencli-baseline-toolmanifest.md)（OpenCLI ToolManifest 基线）
+> 相关 ADR: [ADR-0008](./adr/0008-external-deps-install-not-vendor.md)（系统级依赖原则）、[ADR-0025](./adr/adr-0025.md)（CLI-first + FastAPI/Vanilla JS 嵌入式 SPA）、[ADR-0011](./adr/0011-opencli-baseline-toolmanifest.md)（OpenCLI ToolManifest 基线）
 
 ---
 
@@ -80,7 +80,7 @@ opencli doctor  # 验证安装
 
 ## §3. opencli-admin 借鉴清单
 
-[opencli-admin](https://github.com/xjh1994/opencli-admin) 是一个基于 opencli 的可视化内容采集/AI打标系统（React + FastAPI + Docker）。**News Sentry 不 fork、不引入其代码栈**（见 ADR-0010：无专用前端），但以下设计模式值得借鉴：
+[opencli-admin](https://github.com/xjh1994/opencli-admin) 是一个基于 opencli 的可视化内容采集/AI打标系统（React + FastAPI + Docker）。**News Sentry 不 fork、不引入其代码栈**（见 ADR-0025：CLI-first + Vanilla JS SPA），但以下设计模式值得借鉴：
 
 | 借鉴点 | opencli-admin 原型 | News Sentry 对应实现 |
 |---|---|---|
@@ -90,8 +90,8 @@ opencli doctor  # 验证安装
 | Webhook 投递日志 | 每次投递记录 HTTP 状态码、延迟、错误 | `logs/output_dispatch.jsonl`，每条记录 `destination.channel`、`http_status`、`latency_ms`、`error?` |
 
 **明确舍弃：**
-- React 18 / TypeScript / Vite / Tailwind 前端栈（ADR-0010）
-- FastAPI + SQLAlchemy + PostgreSQL/SQLite 后端（v1 用文件存储）
+- React 18 / TypeScript / Vite / Tailwind 前端栈（ADR-0025；当前前端保持 Vanilla JS）
+- SQLAlchemy + PostgreSQL 后端栈（保留 News Sentry 自有 FastAPI + AsyncStore）
 - Celery + Redis 任务队列（v1 用文件 memory）
 - Docker Compose 多节点 Agent（v1 单机）
 
@@ -132,14 +132,14 @@ opencli doctor  # 验证安装
 
 | 能力 | 来源 | 舍弃理由 |
 |---|---|---|
-| opencli-admin React/FastAPI 栈 | opencli-admin | ADR-0010：无专用前端，文件+推送已够用 |
+| opencli-admin React/FastAPI 栈 | opencli-admin | ADR-0025：保留自有 FastAPI + Vanilla JS，避免引入 React/Vite/Tailwind |
 | opencli-admin Docker 多节点 | opencli-admin | v1 单机足够；分布式采集是 Phase 6+ |
 | MiroShark 群体智能模拟引擎 | MiroShark | 目标不同：模拟舆论反应 vs 监控真实新闻，v1 超范围 |
 | BettaFish MindSpider 爬虫栈 | BettaFish | 已加超 v1 banner；社媒爬虫在 Phase 6 走 OpenCLI 适配 |
-| worldmonitor 地图引擎（globe.gl/deck.gl） | worldmonitor | ADR-0010；Obsidian 无法渲染 3D 地图 |
+| worldmonitor 地图引擎（globe.gl/deck.gl） | worldmonitor | v1/v1.5 超范围；前端保持轻量信息工作台 |
 | worldmonitor Country Intelligence Index | worldmonitor | Phase 7+ 考虑；v1 用 `china_relevance` + L0/L1 classification |
 | BettaFish ForumEngine 多 Agent 论辩 | BettaFish | v2+ 候选；v1 单 judge Skill 已够 |
-| Tauri 桌面应用 | worldmonitor | ADR-0010；Obsidian 即桌面入口 |
+| Tauri 桌面应用 | worldmonitor | ADR-0026 另行评估；当前桌面路径先打磨 pywebview |
 
 ---
 

@@ -6,7 +6,7 @@
 #   make install-prod 仅安装生产依赖
 #   make test         运行测试套件
 #   make lint         代码风格 + 类型检查
-#   make check        全部检查 (lint + test)
+#   make check        全部检查 (lint + test + JS/config/security gates)
 #   make run          运行意大利 collect 阶段
 #   make run-all      运行意大利全链路
 #   make dry-run      干运行（不写文件）
@@ -48,6 +48,13 @@ install-prod:
 test:
 	.venv/bin/python -m pytest tests/ -q --tb=short
 
+.PHONY: test-js
+test-js:
+	@for file in tests/js/*.mjs; do \
+		echo "==> node $$file"; \
+		node "$$file" || exit $$?; \
+	done
+
 .PHONY: test-verbose
 test-verbose:
 	.venv/bin/python -m pytest tests/ -v --tb=long
@@ -59,8 +66,19 @@ lint:
 	@echo "==> mypy..."
 	.venv/bin/python -m mypy src/news_sentry/
 
+.PHONY: validate-config
+validate-config:
+	@fail=0; \
+	for file in $$(find config -name '*.yaml' -type f | sort); do \
+		if ! out=$$(.venv/bin/python -m news_sentry.cli validate --config "$$file" 2>&1); then \
+			echo "$$out"; \
+			fail=1; \
+		fi; \
+	done; \
+	exit $$fail
+
 .PHONY: check
-check: lint test
+check: lint test test-js validate-config scan-sensitive scan-hardcoded scan-security
 	@echo ""
 	@echo "✅ 全部检查通过"
 
@@ -79,6 +97,11 @@ scan-sensitive:
 scan-hardcoded:
 	@echo "==> 扫描意大利硬编码..."
 	python3 tools/check_no_hardcoded_target.py
+
+.PHONY: scan-security
+scan-security:
+	@echo "==> 运行安全审计..."
+	python3 tools/security_audit.py
 
 .PHONY: progress
 progress:

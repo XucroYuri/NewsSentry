@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -11,9 +12,17 @@ from news_sentry.core.async_run import (
     _init_async_store_for_target,
     _run_collect_async,
     _run_output_async,
+    _translate_filtered_async,
     bounded_run_async,
 )
-from news_sentry.models.newsevent import PipelineStage
+from news_sentry.core.run_log import RunLog
+from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+
+
+@pytest.fixture(autouse=True)
+def _enable_legacy_pipeline_ai_for_existing_tests(monkeypatch):
+    """Existing async-run tests cover the legacy tiered route unless they opt out."""
+    monkeypatch.setenv("NEWS_SENTRY_PIPELINE_AI", "1")
 
 
 class TestRunCollectAsync:
@@ -62,6 +71,64 @@ class TestRunCollectAsync:
         assert len(events) == 2
 
     @pytest.mark.asyncio
+    async def test_collect_run_log_records_source_level_timings(self, tmp_path: Path):
+        """采集阶段必须写入 source 级别耗时，方便定位慢源。"""
+        config = MagicMock()
+        config.target_id = "italy"
+        config.target = {"source_channel_refs": []}
+        config.sources = [
+            {
+                "channel_id": "rss-fast",
+                "type": "rss",
+                "url": "https://a.com/feed",
+                "source_id": "rss-fast",
+            },
+            {
+                "channel_id": "rss-slow",
+                "type": "rss",
+                "url": "https://b.com/feed",
+                "source_id": "rss-slow",
+            },
+        ]
+        run_log = RunLog(tmp_path, "test-run", target_id="italy")
+        memory = MagicMock()
+        memory.is_source_degraded.return_value = False
+
+        async def collect_fast(run_id: str, *, http_client=None):  # noqa: ARG001
+            return [MagicMock(id="event-fast")]
+
+        async def collect_slow(run_id: str, *, http_client=None):  # noqa: ARG001
+            await asyncio.sleep(0.01)
+            return []
+
+        with patch("news_sentry.core.async_run.RSSCollector") as mock_rss_cls:
+            fast = MagicMock()
+            fast.collect_async = collect_fast
+            slow = MagicMock()
+            slow.collect_async = collect_slow
+            mock_rss_cls.side_effect = [fast, slow]
+
+            await _run_collect_async(
+                config=config,
+                run_id="test-run",
+                run_log=run_log,
+                file_writer=MagicMock(),
+                sandbox=MagicMock(),
+                memory=memory,
+                ctx=MagicMock(),
+            )
+
+        metrics = run_log._phases["collect"]["metrics"]  # noqa: SLF001
+        assert metrics["sources_total"] == 2
+        assert metrics["sources_succeeded"] == 2
+        assert metrics["sources_failed"] == 0
+        assert {item["source_id"] for item in metrics["source_timings"]} == {
+            "rss-fast",
+            "rss-slow",
+        }
+        assert all("duration_ms" in item for item in metrics["source_timings"])
+
+    @pytest.mark.asyncio
     async def test_collect_does_not_translate_raw_events(self):
         """采集阶段不得对原始事件调用 AI 翻译，避免免费模型被 raw feed 打爆。"""
         config = MagicMock()
@@ -107,6 +174,30 @@ class TestRunCollectAsync:
 
         mock_router.assert_not_called()
         mock_batcher_cls.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_filtered_translation_is_worker_owned_by_default(self, monkeypatch):
+        """默认不在 pipeline 内调用 OpenRouter 翻译，交给低频 AI 增强 Worker。"""
+        monkeypatch.delenv("NEWS_SENTRY_PIPELINE_TRANSLATE", raising=False)
+        config = MagicMock()
+        config.target = {"language_scope": {"primary": "it"}}
+        run_log = MagicMock()
+        event = MagicMock()
+
+        with (
+            patch("news_sentry.core.async_run._try_create_provider_router") as mock_router,
+            patch("news_sentry.core.async_run.TranslationBatcher") as mock_batcher_cls,
+        ):
+            translated = await _translate_filtered_async(config, "test-run", run_log, [event])
+
+        assert translated == 0
+        mock_router.assert_not_called()
+        mock_batcher_cls.assert_not_called()
+        run_log.log_event.assert_called_with(
+            "filter",
+            "ai_enrichment_worker",
+            "filtered_title_pre queued_for_worker=1",
+        )
 
     @pytest.mark.asyncio
     async def test_concurrent_collect_respects_semaphore(self):
@@ -978,6 +1069,51 @@ class TestRunJudgeAsync:
 
         run_log.log_phase_start.assert_called_once_with("judge")
         run_log.log_phase_end.assert_called_once_with("judge", 0, 0)
+
+    @pytest.mark.asyncio
+    async def test_judge_async_remote_ai_disabled_by_default(self, monkeypatch):
+        """默认主链路不调用远端 AI 研判，疑难复核交给 AI 增强 Worker。"""
+        from unittest.mock import MagicMock, patch
+
+        from news_sentry.core.async_run import _run_judge_async
+
+        monkeypatch.delenv("NEWS_SENTRY_PIPELINE_AI", raising=False)
+        config = MagicMock()
+        config.classification_rules = {}
+        run_log = MagicMock()
+        file_writer = MagicMock()
+        memory = MagicMock()
+        ctx = MagicMock()
+        event = NewsEvent(
+            id="ne-italy-src-20260531-abcdef12",
+            run_id="test-run",
+            source_id="src",
+            url="https://example.com/a",
+            title_original="Titolo",
+            content_original="Contenuto",
+            language=Language.IT,
+            published_at="2026-05-31T00:00:00+00:00",
+            collected_at="2026-05-31T00:00:00+00:00",
+            pipeline_stage=PipelineStage.FILTERED,
+            metadata={"classification": {"l0": "society", "confidence": 80}},
+        )
+
+        with patch("news_sentry.core.async_run._try_create_provider_router") as mock_router:
+            judged = await _run_judge_async(
+                config,
+                "test-run",
+                run_log,
+                file_writer,
+                memory,
+                ctx,
+                input_events=[event],
+            )
+
+        assert len(judged) == 1
+        assert judged[0].pipeline_stage == PipelineStage.JUDGED
+        assert ctx.events_judged == 1
+        mock_router.assert_not_called()
+        file_writer.write_event.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_judge_async_tiered_success(self):

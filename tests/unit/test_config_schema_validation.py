@@ -13,6 +13,8 @@ import pytest
 import yaml
 from jsonschema import validate
 
+from news_sentry.core.config import ConfigLoader
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 SCHEMA_DIR = PROJECT_ROOT / "schemas"
 CONFIG_DIR = PROJECT_ROOT / "config"
@@ -26,6 +28,26 @@ def _load_schema(name: str) -> dict:
 def _load_yaml(path: Path) -> dict:
     with open(path, encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+def _declares_schema(path: Path) -> bool:
+    return "# Schema:" in path.read_text(encoding="utf-8")
+
+
+# ── Declared Schema Headers ──────────────────────────────────
+
+
+class TestDeclaredConfigSchemas:
+    """所有声明 `# Schema:` 的 config YAML 都必须通过声明的 JSON Schema。"""
+
+    @pytest.fixture(params=[p for p in CONFIG_DIR.glob("**/*.yaml") if _declares_schema(p)])
+    def schema_declared_file(self, request: pytest.FixtureRequest) -> Path:
+        return request.param
+
+    def test_declared_schema_valid(self, schema_declared_file: Path) -> None:
+        loader = ConfigLoader(PROJECT_ROOT)
+        data = _load_yaml(schema_declared_file)
+        loader._validate_resolved_schema(data or {}, schema_declared_file)
 
 
 # ── SourceChannel ──────────────────────────────────────────────

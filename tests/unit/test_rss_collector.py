@@ -544,6 +544,23 @@ class TestExtractPublished:
         assert "2026-05-09" in result
         assert "18:00" in result
 
+    def test_parses_us_local_news_date_with_dash_time(self):
+        """兼容部分本地媒体 RSS 日期：Friday, May 8, 2026 - 3:04pm。"""
+        config = _make_minimal_config()
+        collector = RSSCollector(config, None)
+
+        entry = feedparser.FeedParserDict(
+            {
+                "title": "Local date",
+                "link": "https://example.com/local-date",
+                "summary": "Content.",
+                "published": "Friday, May 8, 2026 - 3:04pm",
+            }
+        )
+
+        result = collector._extract_published(entry)
+        assert result.startswith("2026-05-08T15:04")
+
     def test_bad_published_and_no_updated_parsed_falls_to_updated_str(self):
         """published 字符串失败且无 updated_parsed 时，退回 updated 字符串。"""
         config = _make_minimal_config()

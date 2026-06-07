@@ -41,7 +41,7 @@
 3. config YAML 文件头部注释 `# Schema: ../schemas/{name}.schema.json`
 4. 三者同时更新，任何单边修改视为草稿状态
 
-### Schema 清单（13 份）
+### Schema 清单（18 份）
 
 | 文件 | 对应契约章节 |
 |---|---|
@@ -58,6 +58,11 @@
 | `providerconfig.schema.json` | contracts-canonical §7（AI Provider） |
 | `toolrunresult.schema.json` | contracts-canonical §5（ToolRunResult） |
 | `outputresult.schema.json` | contracts-canonical §8（ADR-0002） |
+| `outputdestinations.schema.json` | contracts-canonical §8（OutputDestinations） |
+| `socialsource.schema.json` | social source / KOL matrix 配置结构 |
+| `matrixgovernance.schema.json` | social matrix governance 配置结构 |
+| `evalexample.schema.json` | eval-set 样本结构 |
+| `sandbox-audit.schema.json` | sandbox 审计日志结构 |
 
 ### 校验时机
 

@@ -43,6 +43,11 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, BeforeValidator, Field, ValidationError, field_validator
 
+from news_sentry.core.ai_enrichment import (
+    AIEnrichmentConfig,
+    AIEnrichmentEngine,
+    normalize_ai_enrichment_config,
+)
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.auth import hash_password, verify_password
 from news_sentry.core.canonical_projection import CanonicalProjectionService, ProjectionOptions
@@ -120,6 +125,9 @@ class TargetInfo(BaseModel):
     target_id: str
     display_name: str
     primary_language: str
+    monitoring_type: str = "country"
+    monitoring_label: str = "国别监控目标"
+    topic_label: str | None = None
     source_count: int
     event_count: int = 0
     lifecycle: dict[str, Any] = Field(default_factory=dict)
@@ -277,6 +285,19 @@ class CollectorConfigUpdate(BaseModel):
     stage: str | None = None
 
 
+class AIEnrichmentConfigUpdate(BaseModel):
+    """低频 AI 增强运行配置更新请求。"""
+
+    enabled: bool | None = None
+    interval_minutes: int | None = Field(default=None, ge=15, le=1440)
+    daily_request_limit: int | None = Field(default=None, ge=1, le=1000)
+    per_cycle_request_limit: int | None = Field(default=None, ge=1, le=20)
+    max_chars_per_request: int | None = Field(default=None, ge=500, le=40000)
+    cooldown_after_429_minutes: int | None = Field(default=None, ge=5, le=1440)
+    targets: list[str] | str | None = None
+    candidate_limit: int | None = Field(default=None, ge=1, le=2000)
+
+
 class CanonicalBackfillRequest(BaseModel):
     target_id: str
     since: str | None = None
@@ -377,6 +398,8 @@ class TargetCreateRequest(BaseModel):
     display_name: str
     language_scope: dict[str, Any]
     timezone: str
+    monitoring_type: Literal["country", "topic"] | None = None
+    topic_label: str | None = None
     source_target_id: str | None = None
     template_id: str | None = None
 
@@ -385,6 +408,8 @@ class TargetPatchRequest(BaseModel):
     """Target 生命周期工作台内的基础资料更新。"""
 
     display_name: str | None = None
+    monitoring_type: Literal["country", "topic"] | None = None
+    topic_label: str | None = None
     language_scope: dict[str, Any] | None = None
     timezone: str | None = None
     classification: dict[str, Any] | None = None
@@ -1005,6 +1030,10 @@ _target_stores: dict[str, AsyncStore] = {}  # target_id → state.db 缓存
 _deployment_env: str = ""  # cloudflare|hetzner|docker|local|unknown
 _skip_lifespan: bool = False  # 测试时跳过 lifespan 异步操作（避免 aiosqlite 跨 loop 挂起）
 _data_dir: Path = Path(os.environ.get("NEWSSENTRY_DATA_DIR", "./data"))
+_OVERVIEW_CACHE_TTL_SECONDS = 15.0
+_source_inventory_cache: dict[tuple[str, str, str], dict[str, Any]] = {}
+_target_validation_cache: dict[tuple[str, str, str], dict[str, Any]] = {}
+_collector_diagnostics_cache: dict[str, Any] = {}
 
 # SSE 实时推送 — 每个 target_id 对应一组客户端队列
 # 当新事件到达时，通知所有监听该 target 的 SSE 连接
@@ -1346,7 +1375,7 @@ def _visible_index_event_from_row(
     event = _load_indexed_event_frontmatter(data_dir, target_id, stage, row)
     if event is None:
         event = _event_from_index_row(row)
-    return event
+    return _merge_index_metadata(event, row)
 
 
 async def _visible_index_events_page(
@@ -1369,11 +1398,12 @@ async def _visible_index_events_page(
 ) -> dict[str, Any]:
     """读取可公开展示的 index 事件，再分页，避免 stale 行占据页面。"""
     start = (page - 1) * page_size
+    page_events: list[dict[str, Any]]
 
     if not exact_total and date is None and search is None:
         offset = start
         index_total = 0
-        page_events: list[dict[str, Any]] = []
+        page_events = []
 
         while len(page_events) < page_size:
             result = await store.query_events_paginated(
@@ -1414,7 +1444,7 @@ async def _visible_index_events_page(
     offset = 0
     index_total = 0
     visible_total = 0
-    page_events: list[dict[str, Any]] = []
+    page_events = []
 
     while True:
         result = await store.query_events_paginated(
@@ -1461,7 +1491,8 @@ async def _store_has_target_event_index(store: Any, target_id: str) -> bool:
     get_count = getattr(store, "get_target_event_count", None)
     if get_count is None:
         return False
-    return await get_count(target_id) > 0
+    count = await get_count(target_id)
+    return int(count or 0) > 0
 
 
 def _first_sentence(text: str, max_chars: int = 60) -> str:
@@ -1609,13 +1640,24 @@ def _feed_event_payload(ev: dict[str, Any]) -> dict[str, Any]:
     """为新闻流补充展示字段；不改变 NewsEvent 存储契约。"""
     event_id = ev.get("event_id") or ev.get("id") or ""
     source_id = ev.get("source_id") or ""
-    judge = ev.get("judge_result") if isinstance(ev.get("judge_result"), dict) else {}
-    metadata = ev.get("metadata") if isinstance(ev.get("metadata"), dict) else {}
-    clustering = metadata.get("clustering") if isinstance(metadata.get("clustering"), dict) else {}
+    raw_judge = ev.get("judge_result")
+    judge: dict[str, Any] = raw_judge if isinstance(raw_judge, dict) else {}
+    raw_metadata = ev.get("metadata")
+    metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
+    raw_clustering = metadata.get("clustering")
+    clustering: dict[str, Any] = raw_clustering if isinstance(raw_clustering, dict) else {}
     classification = _event_classification(ev) or {}
+    raw_translation = metadata.get("translation")
+    translation = raw_translation if isinstance(raw_translation, dict) else {}
+    title_pre = str(translation.get("title_pre") or "").strip()
+    original_title = str(ev.get("title_original") or event_id)
+    display_title = ev.get("title_translated") or title_pre or original_title or event_id
     payload = dict(ev)
     payload["event_id"] = event_id
-    payload["display_title"] = ev.get("title_translated") or ev.get("title_original") or event_id
+    payload["display_title"] = display_title
+    payload["original_title"] = original_title
+    payload["title_pre"] = title_pre
+    payload["has_translated_display_title"] = bool(title_pre and title_pre != original_title)
     payload["score"] = _event_score(ev)
     payload["source_display_name"] = ev.get("source_display_name") or source_id
     payload["flat_tags"] = _event_flat_tags(ev)
@@ -1856,7 +1898,7 @@ async def _public_active_chains_from_store(
                 root_id,
             ],
         ) as cursor:
-            chain_rows = await cursor.fetchall()
+            chain_rows = list(await cursor.fetchall())
         if len(chain_rows) < 2:
             continue
         latest = chain_rows[-1]
@@ -2091,11 +2133,102 @@ def _load_source_configs(target_id: str) -> list[dict[str, Any]]:
     return sources
 
 
+def _file_signature(paths: list[Path]) -> str:
+    """Return a cheap mtime/size signature for cache invalidation."""
+    items: list[tuple[str, int, int]] = []
+    for path in sorted(set(paths), key=lambda p: str(p)):
+        try:
+            stat = path.stat()
+        except OSError:
+            items.append((str(path), -1, -1))
+            continue
+        items.append((str(path), stat.st_mtime_ns, stat.st_size))
+    return sha256(json.dumps(items, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def _target_source_paths(target_id: str) -> list[Path]:
+    sources_dir = Path("config/sources") / target_id
+    if not sources_dir.is_dir():
+        return []
+    return [
+        path
+        for path in sources_dir.rglob("*.yaml")
+        if not path.name.startswith("_")
+    ]
+
+
+def _target_inventory_signature(target_id: str) -> str:
+    paths = [
+        _target_config_path(target_id),
+        *_target_source_paths(target_id),
+        _data_dir / target_id / "memory" / "source_health.yaml",
+    ]
+    return _file_signature(paths)
+
+
+def _target_validation_signature(target_id: str) -> str:
+    paths = [_target_config_path(target_id), *_target_source_paths(target_id)]
+    data = _load_target_config(target_id)
+    if isinstance(data, dict):
+        for field in (
+            "filter_rules_ref",
+            "classification_rules_ref",
+            "sandbox_profile_ref",
+            "provider_routes_ref",
+            "output_destinations_ref",
+        ):
+            ref = data.get(field)
+            if ref:
+                paths.append(Path(str(ref)))
+    return _file_signature(paths)
+
+
+def _cached_source_inventory(target_id: str) -> dict[str, Any]:
+    signature = _target_inventory_signature(target_id)
+    key = (str(Path.cwd()), str(_data_dir), target_id)
+    now = time.monotonic()
+    cached = _source_inventory_cache.get(key)
+    if (
+        cached
+        and cached.get("signature") == signature
+        and now - float(cached.get("created_at", 0)) <= _OVERVIEW_CACHE_TTL_SECONDS
+    ):
+        return cached["value"]
+    value = SourceInventoryService(Path.cwd(), _data_dir).build_target_inventory(target_id)
+    _source_inventory_cache[key] = {
+        "signature": signature,
+        "created_at": now,
+        "value": value,
+    }
+    return value
+
+
+def _cached_target_validation(target_id: str) -> dict[str, Any]:
+    signature = _target_validation_signature(target_id)
+    key = (str(Path.cwd()), str(_data_dir), target_id)
+    now = time.monotonic()
+    cached = _target_validation_cache.get(key)
+    if (
+        cached
+        and cached.get("signature") == signature
+        and now - float(cached.get("created_at", 0)) <= _OVERVIEW_CACHE_TTL_SECONDS
+    ):
+        return cached["value"]
+    value = _validate_target_config(target_id)
+    _target_validation_cache[key] = {
+        "signature": signature,
+        "created_at": now,
+        "value": value,
+    }
+    return value
+
+
 def _source_ids_for_target(target_id: str) -> set[str]:
     """返回 target 当前启用的信源 ID，用于后台健康状态过滤。"""
     ids: set[str] = set()
     for source in _load_source_configs(target_id):
-        lifecycle = source.get("lifecycle") if isinstance(source.get("lifecycle"), dict) else {}
+        raw_lifecycle = source.get("lifecycle")
+        lifecycle: dict[str, Any] = raw_lifecycle if isinstance(raw_lifecycle, dict) else {}
         if source.get("enabled", True) is False:
             continue
         if source.get("deprecated") is True:
@@ -2279,9 +2412,54 @@ def _target_is_archived(data: dict[str, Any]) -> bool:
     return _target_lifecycle(data).get("status") == "archived"
 
 
+_TARGET_MONITORING_LABELS = {
+    "country": "国别监控目标",
+    "topic": "专题监控目标",
+}
+
+
+def _target_monitoring_type(data: dict[str, Any]) -> str:
+    raw = data.get("monitoring_type") or data.get("target_type")
+    aliases = {
+        "country": "country",
+        "country-target": "country",
+        "country_monitoring": "country",
+        "nation": "country",
+        "topic": "topic",
+        "topic-target": "topic",
+        "theme": "topic",
+        "subject": "topic",
+        "special-topic": "topic",
+    }
+    if isinstance(raw, str):
+        normalized = raw.strip().lower().replace("_", "-")
+        if normalized in aliases:
+            return aliases[normalized]
+    target_id = str(data.get("target_id") or "").strip().lower()
+    if (
+        target_id == "china-watch-en"
+        or target_id.startswith("china-watch")
+        or data.get("topic_label")
+    ):
+        return "topic"
+    return "country"
+
+
+def _target_topic_label(data: dict[str, Any]) -> str | None:
+    for key in ("topic_label", "monitoring_topic", "topic_name"):
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    target_id = str(data.get("target_id") or "").strip().lower()
+    if target_id == "china-watch-en":
+        return "涉中舆情"
+    return None
+
+
 def _target_info_from_config(data: dict[str, Any], data_dir: Path) -> TargetInfo:
     target_id = data.get("target_id", "")
     lifecycle = _target_lifecycle(data)
+    monitoring_type = _target_monitoring_type(data)
     refs = [ref for ref in data.get("source_channel_refs", []) if isinstance(ref, str)]
     return TargetInfo(
         target_id=target_id,
@@ -2289,6 +2467,9 @@ def _target_info_from_config(data: dict[str, Any], data_dir: Path) -> TargetInfo
         primary_language=data.get("language_scope", {}).get("primary", "")
         if isinstance(data.get("language_scope"), dict)
         else "",
+        monitoring_type=monitoring_type,
+        monitoring_label=_TARGET_MONITORING_LABELS.get(monitoring_type, "监控目标"),
+        topic_label=_target_topic_label(data),
         source_count=len(refs),
         event_count=0,
         lifecycle=lifecycle,
@@ -2354,20 +2535,23 @@ def _source_info_from_config(source: dict[str, Any]) -> SourceInfo:
     if isinstance(health, dict):
         health_last = health.get("last_success_at")
         health_failures = health.get("consecutive_failures")
-    source_ref = source.get("_source_id") or source.get("source_ref") or source.get("source_id")
+    source_ref_raw = source.get("_source_id") or source.get("source_ref") or source.get("source_id")
+    source_ref = str(source_ref_raw) if source_ref_raw is not None else None
+    source_id = str(source.get("source_id") or source_ref or "")
+    health_failures_int = int(health_failures) if health_failures is not None else None
     return SourceInfo(
-        source_id=source.get("source_id", source_ref),
+        source_id=source_id,
         source_ref=source_ref,
-        display_name=source.get("display_name", ""),
-        type=source.get("type", "unknown"),
-        enabled=source.get("enabled", True),
+        display_name=str(source.get("display_name") or ""),
+        type=str(source.get("type") or "unknown"),
+        enabled=bool(source.get("enabled", True)),
         archived=_source_is_archived(source),
         deprecated=bool(source.get("deprecated", False)),
         deprecated_reason=source.get("deprecated_reason"),
         credibility_base=source.get("credibility_base"),
-        health_last_success=health_last,
-        health_consecutive_failures=health_failures,
-        url=url_val,
+        health_last_success=str(health_last) if health_last is not None else None,
+        health_consecutive_failures=health_failures_int,
+        url=str(url_val) if url_val is not None else None,
     )
 
 
@@ -2429,12 +2613,15 @@ def _template_target_config(
     display_name: str,
     language_scope: dict[str, Any],
     timezone: str,
+    monitoring_type: str | None = None,
+    topic_label: str | None = None,
     source_refs: list[str] | None = None,
 ) -> dict[str, Any]:
     refs = source_refs if source_refs is not None else ["rss-template"]
-    return {
+    data = {
         "target_id": target_id,
         "display_name": display_name,
+        "monitoring_type": monitoring_type or "country",
         "language_scope": language_scope,
         "timezone": timezone,
         "source_channel_refs": refs,
@@ -2447,6 +2634,9 @@ def _template_target_config(
         "focus_areas": [],
         "lifecycle": {"status": "active"},
     }
+    if topic_label:
+        data["topic_label"] = topic_label
+    return data
 
 
 def _default_template_source(target_id: str) -> dict[str, Any]:
@@ -3020,6 +3210,7 @@ def _event_id_from_frontmatter(event: dict[str, Any] | None) -> str | None:
 def _event_from_index_row(row: dict[str, Any]) -> dict[str, Any]:
     """当事件文件失效时，用 SQLite 索引行构造最小事件数据。"""
     event_id = row.get("event_id") or row.get("id") or ""
+    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
     event: dict[str, Any] = {
         "id": event_id,
         "event_id": event_id,
@@ -3030,11 +3221,34 @@ def _event_from_index_row(row: dict[str, Any]) -> dict[str, Any]:
         "news_value_score": row.get("news_value_score"),
         "china_relevance": row.get("china_relevance"),
         "sentiment": row.get("sentiment"),
+        "metadata": metadata,
     }
     classification_l0 = row.get("classification_l0")
     if classification_l0:
         event["classification"] = {"l0": classification_l0}
     return {key: value for key, value in event.items() if value is not None}
+
+
+def _deep_merge_mapping(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in patch.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge_mapping(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _merge_index_metadata(event: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
+    index_metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    if not index_metadata:
+        return event
+    merged_event = dict(event)
+    current_metadata = (
+        merged_event.get("metadata") if isinstance(merged_event.get("metadata"), dict) else {}
+    )
+    merged_event["metadata"] = _deep_merge_mapping(current_metadata, index_metadata)
+    return merged_event
 
 
 def _markdown_download_response(filename: str, content: str) -> Response:
@@ -3225,12 +3439,12 @@ async def _load_indexed_event_detail(
     if file_path is not None:
         event = _load_event_by_path(file_path)
         if _event_id_from_frontmatter(event) == event_id:
-            return event
+            return _merge_index_metadata(event, row)
         event = _load_event_by_id_from_stage(data_dir, target_id, "drafts", event_id)
         if event is not None:
-            return event
+            return _merge_index_metadata(event, row)
 
-    return _event_from_index_row(row)
+    return _merge_index_metadata(_event_from_index_row(row), row)
 
 
 # ── 后台自动采集循环 ──────────────────────────────────────
@@ -3264,6 +3478,26 @@ _auto_collector_state: dict[str, Any] = {
 }
 
 _log = logging.getLogger("news_sentry.auto_collector")
+_ai_enrichment_log = logging.getLogger("news_sentry.ai_enrichment")
+
+_ai_enrichment_state: dict[str, Any] = {
+    "enabled": True,
+    "interval_minutes": 60,
+    "daily_request_limit": 45,
+    "per_cycle_request_limit": 3,
+    "max_chars_per_request": 6000,
+    "cooldown_after_429_minutes": 120,
+    "targets": ["all"],
+    "candidate_limit": 200,
+    "running": False,
+    "last_run_at": None,
+    "last_run_status": None,
+    "last_error": None,
+    "next_run_at": None,
+    "total_runs": 0,
+    "last_updates": 0,
+    "task": None,
+}
 
 _COLLECTOR_STAGES = {"all", "collect", "filter", "judge", "output"}
 
@@ -3372,6 +3606,437 @@ def _collector_payload() -> dict[str, Any]:
     }
 
 
+def _collector_diagnostics_signature() -> str:
+    paths: list[Path] = []
+    if _data_dir.exists():
+        for target_dir in sorted(d for d in _data_dir.iterdir() if d.is_dir()):
+            paths.append(target_dir / "memory" / "source_health.yaml")
+            paths.append(target_dir / "source_health.json")
+            paths.extend(_target_source_paths(target_dir.name))
+    return _file_signature(paths)
+
+
+def _build_collector_diagnostics_payload() -> dict[str, Any]:
+    """Build collector diagnostics without endpoint/auth concerns."""
+    checks: list[dict[str, Any]] = []
+
+    checks.append(
+        {
+            "name": "auto_collect_enabled",
+            "ok": _auto_collector_state["enabled"],
+            "message": (
+                "已启用"
+                if _auto_collector_state["enabled"]
+                else "未启用 — 设置 NEWSSENTRY_AUTO_COLLECT=1"
+            ),
+        }
+    )
+
+    has_ai_key = bool(
+        os.environ.get("OPENROUTER_API_KEY")
+        or os.environ.get("ANTHROPIC_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+    )
+    checks.append(
+        {
+            "name": "ai_api_key",
+            "ok": has_ai_key,
+            "message": "已配置" if has_ai_key else "未配置 AI API Key — 研判/翻译将跳过",
+        }
+    )
+
+    data_exists = _data_dir.exists()
+    target_dirs = sorted([d.name for d in _data_dir.iterdir() if d.is_dir()]) if data_exists else []
+    checks.append(
+        {
+            "name": "data_directory",
+            "ok": data_exists and len(target_dirs) > 0,
+            "message": (
+                f"数据目录: {_data_dir} — {len(target_dirs)} 个 target: "
+                f"{', '.join(target_dirs) if target_dirs else '无'}"
+            ),
+        }
+    )
+
+    healthy = 0
+    unhealthy = 0
+    if data_exists:
+        for tid in target_dirs:
+            memory_health = _filter_source_health_records(
+                tid,
+                _load_memory_source_health_records(tid),
+            )
+            if memory_health:
+                for item in memory_health:
+                    if item.get("status") == "healthy":
+                        healthy += 1
+                    else:
+                        unhealthy += 1
+                continue
+            health_file = _data_dir / tid / "source_health.json"
+            if health_file.exists():
+                try:
+                    health_data = json.loads(health_file.read_text())
+                    items = health_data if isinstance(health_data, list) else []
+                    for item in items:
+                        if item.get("healthy"):
+                            healthy += 1
+                        else:
+                            unhealthy += 1
+                except Exception:  # noqa: S110
+                    pass
+    checks.append(
+        {
+            "name": "source_health",
+            "ok": (healthy + unhealthy) > 0,
+            "message": (
+                f"健康: {healthy}, 异常: {unhealthy}"
+                if (healthy + unhealthy) > 0
+                else "暂无信源健康数据 — 运行一次采集后生成"
+            ),
+        }
+    )
+
+    last_run = _collector_payload()["last_run_at"]
+    checks.append(
+        {
+            "name": "last_collection",
+            "ok": last_run is not None,
+            "message": f"最后采集: {last_run}" if last_run else "尚未执行采集 — 等待首次采集周期",
+        }
+    )
+
+    overall = all(check["ok"] for check in checks)
+    return {"overall": "healthy" if overall else "attention_needed", "checks": checks}
+
+
+def _cached_collector_diagnostics_payload() -> dict[str, Any]:
+    signature = _collector_diagnostics_signature()
+    now = time.monotonic()
+    if (
+        _collector_diagnostics_cache.get("signature") == signature
+        and now - float(_collector_diagnostics_cache.get("created_at", 0))
+        <= _OVERVIEW_CACHE_TTL_SECONDS
+    ):
+        return _collector_diagnostics_cache["value"]
+    value = _build_collector_diagnostics_payload()
+    _collector_diagnostics_cache.update(
+        {
+            "signature": signature,
+            "created_at": now,
+            "value": value,
+        }
+    )
+    return value
+
+
+def _ai_enrichment_config_path() -> Path:
+    return Path("config/runtime/ai_enrichment.yaml")
+
+
+def _ai_enrichment_env_defaults() -> dict[str, Any]:
+    return {
+        "enabled": os.environ.get("NEWSSENTRY_AI_ENRICHMENT", "1") == "1",
+        "interval_minutes": int(os.environ.get("NEWSSENTRY_AI_ENRICH_INTERVAL", "60")),
+        "daily_request_limit": int(os.environ.get("NEWSSENTRY_AI_ENRICH_DAILY_LIMIT", "45")),
+        "per_cycle_request_limit": int(os.environ.get("NEWSSENTRY_AI_ENRICH_PER_CYCLE", "3")),
+        "max_chars_per_request": int(os.environ.get("NEWSSENTRY_AI_ENRICH_MAX_CHARS", "6000")),
+        "cooldown_after_429_minutes": int(
+            os.environ.get("NEWSSENTRY_AI_ENRICH_COOLDOWN_MINUTES", "120")
+        ),
+        "targets": os.environ.get("NEWSSENTRY_AI_ENRICH_TARGETS", "all"),
+        "candidate_limit": int(os.environ.get("NEWSSENTRY_AI_ENRICH_CANDIDATES", "200")),
+    }
+
+
+def _ai_enrichment_config_to_dict(config: AIEnrichmentConfig) -> dict[str, Any]:
+    return {
+        "enabled": config.enabled,
+        "interval_minutes": config.interval_minutes,
+        "daily_request_limit": config.daily_request_limit,
+        "per_cycle_request_limit": config.per_cycle_request_limit,
+        "max_chars_per_request": config.max_chars_per_request,
+        "cooldown_after_429_minutes": config.cooldown_after_429_minutes,
+        "targets": list(config.targets),
+        "candidate_limit": config.candidate_limit,
+    }
+
+
+def _normalize_ai_enrichment_config(raw: dict[str, Any] | None) -> AIEnrichmentConfig:
+    return normalize_ai_enrichment_config({**_ai_enrichment_env_defaults(), **(raw or {})})
+
+
+def _load_ai_enrichment_config() -> AIEnrichmentConfig:
+    path = _ai_enrichment_config_path()
+    loaded: dict[str, Any] = {}
+    if path.is_file():
+        loaded = _load_yaml_file(path) or {}
+    return _normalize_ai_enrichment_config(loaded)
+
+
+def _save_ai_enrichment_config(config: dict[str, Any]) -> AIEnrichmentConfig:
+    normalized = _normalize_ai_enrichment_config(config)
+    path = _ai_enrichment_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write_yaml(path, _ai_enrichment_config_to_dict(normalized))
+    return normalized
+
+
+def _apply_ai_enrichment_config(config: AIEnrichmentConfig | dict[str, Any]) -> AIEnrichmentConfig:
+    normalized = (
+        config
+        if isinstance(config, AIEnrichmentConfig)
+        else _normalize_ai_enrichment_config(config)
+    )
+    for key, value in _ai_enrichment_config_to_dict(normalized).items():
+        _ai_enrichment_state[key] = value
+    return normalized
+
+
+def _current_ai_enrichment_config() -> AIEnrichmentConfig:
+    return normalize_ai_enrichment_config(
+        {
+            "enabled": _ai_enrichment_state["enabled"],
+            "interval_minutes": _ai_enrichment_state["interval_minutes"],
+            "daily_request_limit": _ai_enrichment_state["daily_request_limit"],
+            "per_cycle_request_limit": _ai_enrichment_state["per_cycle_request_limit"],
+            "max_chars_per_request": _ai_enrichment_state["max_chars_per_request"],
+            "cooldown_after_429_minutes": _ai_enrichment_state["cooldown_after_429_minutes"],
+            "targets": _ai_enrichment_state["targets"],
+            "candidate_limit": _ai_enrichment_state["candidate_limit"],
+        }
+    )
+
+
+def _ai_enrichment_today() -> str:
+    return datetime.now(UTC).date().isoformat()
+
+
+def _ai_enrichment_target_ids(
+    config: AIEnrichmentConfig,
+    target_id: str | None = None,
+) -> list[str]:
+    if target_id and target_id != "all":
+        return [target_id]
+    if "all" in config.targets:
+        return [item["target_id"] for item in _load_target_configs() if item.get("target_id")]
+    return list(config.targets)
+
+
+def _create_ai_provider_router() -> Any | None:  # noqa: ANN401
+    try:
+        from news_sentry.core.provider_router import ProviderRouter
+        from news_sentry.models.provider_config import ProviderRoutesConfig
+
+        routes_path = Path("config/provider/routes.yaml")
+        if not routes_path.is_file():
+            return None
+        data = _load_yaml_file(routes_path)
+        return ProviderRouter(ProviderRoutesConfig(**data))
+    except Exception as exc:  # noqa: BLE001
+        _ai_enrichment_log.warning("AI enrichment provider router unavailable: %s", exc)
+        return None
+
+
+def _build_ai_provider_factory() -> Any:  # noqa: ANN401
+    from news_sentry.core.run import _build_provider_factory
+
+    return _build_provider_factory()
+
+
+async def _ai_enrichment_store_for_target(target_id: str) -> AsyncStore | None:
+    target_store = await _get_target_store(target_id)
+    return target_store if target_store is not None else _store
+
+
+async def _ai_enrichment_rows_for_target(
+    target_id: str,
+    store: AsyncStore | None,
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    if store is None:
+        return []
+    result = await _visible_index_events_page(
+        store,
+        _data_dir,
+        stage="drafts",
+        target_id=target_id,
+        page=1,
+        page_size=limit,
+        exact_total=False,
+    )
+    return list(result.get("events") or [])
+
+
+async def _ai_enrichment_usage_store(target_stores: list[AsyncStore | None]) -> AsyncStore | None:
+    if _store is not None:
+        return _store
+    for store in target_stores:
+        if store is not None:
+            return store
+    return None
+
+
+async def _ai_enrichment_status_payload() -> dict[str, Any]:
+    config = _current_ai_enrichment_config()
+    usage_store = await _ai_enrichment_usage_store([])
+    usage = (
+        await usage_store.get_ai_enrichment_usage(_ai_enrichment_today())
+        if usage_store is not None
+        else {
+            "usage_date": _ai_enrichment_today(),
+            "request_count": 0,
+            "cooldown_until": None,
+            "last_error": None,
+        }
+    )
+    return {
+        "enabled": _ai_enrichment_state["enabled"],
+        "running": _ai_enrichment_state["running"],
+        "config": _ai_enrichment_config_to_dict(config),
+        "usage": usage,
+        "remaining_daily_requests": max(
+            0, config.daily_request_limit - int(usage.get("request_count") or 0)
+        ),
+        "last_run_at": _ai_enrichment_state.get("last_run_at"),
+        "last_run_status": _ai_enrichment_state.get("last_run_status"),
+        "last_error": _ai_enrichment_state.get("last_error"),
+        "next_run_at": _ai_enrichment_state.get("next_run_at"),
+        "total_runs": _ai_enrichment_state["total_runs"],
+        "last_updates": _ai_enrichment_state.get("last_updates", 0),
+    }
+
+
+async def _run_ai_enrichment_once(
+    *,
+    target_id: str | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    config = _current_ai_enrichment_config()
+    engine = AIEnrichmentEngine(config)
+    target_ids = _ai_enrichment_target_ids(config, target_id)
+    stores_by_target: dict[str, AsyncStore | None] = {}
+    rows_by_target: dict[str, list[dict[str, Any]]] = {}
+    for tid in target_ids:
+        store = await _ai_enrichment_store_for_target(tid)
+        stores_by_target[tid] = store
+        rows_by_target[tid] = await _ai_enrichment_rows_for_target(
+            tid, store, limit=config.candidate_limit
+        )
+
+    if dry_run:
+        return {
+            "dry_run": True,
+            "targets": target_ids,
+            "batches": [
+                engine.payload_for_batch(batch)
+                for tid in target_ids
+                for batch in engine.plan_batches(tid, rows_by_target[tid])[
+                    : config.per_cycle_request_limit
+                ]
+            ],
+        }
+
+    usage_store = await _ai_enrichment_usage_store(list(stores_by_target.values()))
+    if usage_store is None:
+        return {"dry_run": False, "status": "no_store", "targets": target_ids, "updates": []}
+
+    today = _ai_enrichment_today()
+    usage = await usage_store.get_ai_enrichment_usage(today)
+    if usage.get("cooldown_until") and str(usage["cooldown_until"]) > datetime.now(UTC).isoformat():
+        return {
+            "dry_run": False,
+            "status": "cooldown",
+            "targets": target_ids,
+            "cooldown_until": usage.get("cooldown_until"),
+            "updates": [],
+        }
+    if int(usage.get("request_count") or 0) >= config.daily_request_limit:
+        return {"dry_run": False, "status": "daily_limit", "targets": target_ids, "updates": []}
+
+    router = _create_ai_provider_router()
+    if router is None:
+        return {"dry_run": False, "status": "no_router", "targets": target_ids, "updates": []}
+
+    provider_factory = _build_ai_provider_factory()
+    total_updates: list[dict[str, Any]] = []
+    total_requests = 0
+    target_results: list[dict[str, Any]] = []
+    for tid in target_ids:
+        used_today = int(usage.get("request_count") or 0)
+        remaining = config.daily_request_limit - used_today - total_requests
+        if remaining <= 0:
+            break
+        target_config = AIEnrichmentConfig(
+            **{
+                **_ai_enrichment_config_to_dict(config),
+                "per_cycle_request_limit": min(config.per_cycle_request_limit, remaining),
+            }
+        )
+        result = await AIEnrichmentEngine(target_config).run_batches(
+            target_id=tid,
+            rows=rows_by_target[tid],
+            router=router,
+            provider_factory=provider_factory,
+        )
+        total_requests += int(result.get("requests_attempted") or 0)
+        if result.get("status") == "cooldown":
+            await usage_store.increment_ai_enrichment_usage(today, total_requests)
+            await usage_store.set_ai_enrichment_cooldown(
+                today,
+                AIEnrichmentEngine.cooldown_until(config),
+                str(result.get("error") or "rate limited"),
+            )
+            return {
+                "dry_run": False,
+                "status": "cooldown",
+                "targets": target_ids,
+                "requests_attempted": total_requests,
+                "updates": total_updates,
+                "target_results": target_results,
+                "error": result.get("error"),
+            }
+        updates = list(result.get("updates") or [])
+        store = stores_by_target[tid]
+        if store is not None:
+            for update in updates:
+                event_id = str(update.get("event_id") or update.get("id") or "")
+                raw_metadata = update.get("metadata")
+                metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
+                if event_id:
+                    await store.update_event_metadata(tid, event_id, metadata)
+                    ai_meta = metadata.get("ai_enrichment") if isinstance(metadata, dict) else {}
+                    await store.record_ai_enrichment_event(
+                        tid,
+                        event_id,
+                        field_hash=ai_meta.get("title_hash") if isinstance(ai_meta, dict) else None,
+                        status="completed",
+                        model=ai_meta.get("model") if isinstance(ai_meta, dict) else None,
+                        route_id=ai_meta.get("route_id") if isinstance(ai_meta, dict) else None,
+                    )
+        total_updates.extend(updates)
+        target_results.append(
+            {
+                "target_id": tid,
+                "status": result.get("status"),
+                "requests_attempted": result.get("requests_attempted", 0),
+                "updates": len(updates),
+            }
+        )
+
+    if total_requests:
+        await usage_store.increment_ai_enrichment_usage(today, total_requests)
+    return {
+        "dry_run": False,
+        "status": "ok",
+        "targets": target_ids,
+        "requests_attempted": total_requests,
+        "updates": total_updates,
+        "target_results": target_results,
+    }
+
+
 def _update_collector_run_metrics(contexts: Any) -> None:
     """把多 target pipeline 上下文汇总到采集器状态。"""
     if contexts is None:
@@ -3437,6 +4102,44 @@ async def _auto_collect_loop() -> None:
     _auto_collector_state["running"] = False
     _auto_collector_state["next_run_at"] = None
     _log.info("自动采集循环停止")
+
+
+async def _ai_enrichment_loop() -> None:
+    """Low-frequency OpenRouter/free-model enrichment loop."""
+    _ai_enrichment_state["running"] = True
+    _ai_enrichment_log.info(
+        "AI 增强循环启动: targets=%s interval=%dmin daily_limit=%d",
+        _ai_enrichment_state["targets"],
+        _ai_enrichment_state["interval_minutes"],
+        _ai_enrichment_state["daily_request_limit"],
+    )
+
+    while _ai_enrichment_state["enabled"]:
+        interval = int(_ai_enrichment_state["interval_minutes"]) * 60
+        _ai_enrichment_state["next_run_at"] = (
+            datetime.now(UTC) + timedelta(seconds=interval)
+        ).isoformat()
+        await asyncio.sleep(interval)
+        if not _ai_enrichment_state["enabled"]:
+            break
+        try:
+            result = await _run_ai_enrichment_once()
+            _ai_enrichment_state["last_run_at"] = datetime.now(UTC).isoformat()
+            _ai_enrichment_state["last_run_status"] = result.get("status")
+            _ai_enrichment_state["last_error"] = result.get("error")
+            _ai_enrichment_state["last_updates"] = len(result.get("updates") or [])
+            _ai_enrichment_state["total_runs"] += 1
+        except Exception as exc:  # noqa: BLE001
+            _ai_enrichment_state["last_run_at"] = datetime.now(UTC).isoformat()
+            _ai_enrichment_state["last_run_status"] = "error"
+            _ai_enrichment_state["last_error"] = str(exc)
+            _ai_enrichment_state["last_updates"] = 0
+            _ai_enrichment_state["total_runs"] += 1
+            _ai_enrichment_log.error("AI 增强循环失败", exc_info=True)
+
+    _ai_enrichment_state["running"] = False
+    _ai_enrichment_state["next_run_at"] = None
+    _ai_enrichment_log.info("AI 增强循环停止")
 
 
 async def _bootstrap_users() -> None:
@@ -3623,6 +4326,26 @@ async def _get_target_store(target_id: str) -> AsyncStore | None:
     return None
 
 
+async def _close_target_stores() -> None:
+    """关闭按 target 缓存的 AsyncStore，避免 lifespan 结束后残留连接。"""
+    stores = list(_target_stores.values())
+    _target_stores.clear()
+    for store in stores:
+        try:
+            await store.close()
+        except Exception:  # noqa: S110
+            pass
+
+
+def _close_store_sync_if_possible(store: Any) -> None:
+    if not isinstance(store, AsyncStore) or store._db is None:  # noqa: SLF001
+        return
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(store.close())
+
+
 async def _source_health_records_for_target(target_id: str) -> list[dict[str, Any]]:
     """按优先级读取 target 信源健康：target SQLite、全局 SQLite、真实 memory YAML。"""
     records: list[dict[str, Any]] = []
@@ -3751,9 +4474,13 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
         await _bootstrap_users()
         await _restore_sessions()
     task = None
+    ai_task = None
     if _auto_collector_state["enabled"] and not _skip_lifespan:
         task = asyncio.create_task(_auto_collect_loop())
         _auto_collector_state["task"] = task
+    if _ai_enrichment_state["enabled"] and not _skip_lifespan:
+        ai_task = asyncio.create_task(_ai_enrichment_loop())
+        _ai_enrichment_state["task"] = ai_task
     yield
     if task is not None:
         _auto_collector_state["enabled"] = False
@@ -3762,9 +4489,17 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
             await task
         except asyncio.CancelledError:
             pass
+    if ai_task is not None:
+        _ai_enrichment_state["enabled"] = False
+        ai_task.cancel()
+        try:
+            await ai_task
+        except asyncio.CancelledError:
+            pass
     if _store is not None:
         await _store.close()
         _store = None
+    await _close_target_stores()
 
 
 # ── FastAPI 应用 ────────────────────────────────────────
@@ -3813,6 +4548,13 @@ def create_app(
     )
 
     global _store, _data_dir
+    if _store is not None and _store is not store:
+        _close_store_sync_if_possible(_store)
+    if _target_stores:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(_close_target_stores())
     _data_dir = Path(data_dir or os.environ.get("NEWSSENTRY_DATA_DIR", "./data"))
     _detect_deployment_env()
     if store is not None:
@@ -3845,6 +4587,7 @@ def create_app(
         _store = None  # 显式禁用，测试环境重置
     _config_cache = ConfigCache(ttl=60, maxsize=128)
     _apply_collector_config(_load_collector_config())
+    _apply_ai_enrichment_config(_load_ai_enrichment_config())
 
     # ── 公开端点（无需认证）─────────────────────────────
 
@@ -3938,105 +4681,41 @@ def create_app(
         _user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
         """返回采集系统诊断信息，帮助排查"无数据"问题。"""
-        checks: list[dict[str, Any]] = []
+        return _cached_collector_diagnostics_payload()
 
-        # 1. 自动采集是否启用
-        checks.append(
-            {
-                "name": "auto_collect_enabled",
-                "ok": _auto_collector_state["enabled"],
-                "message": (
-                    "已启用"
-                    if _auto_collector_state["enabled"]
-                    else "未启用 — 设置 NEWSSENTRY_AUTO_COLLECT=1"
-                ),
-            }
-        )
+    @app.get("/api/v1/ai/enrichment/status")
+    async def ai_enrichment_status(
+        _user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """返回低频 AI 增强 worker 状态、额度和冷却信息。"""
+        return await _ai_enrichment_status_payload()
 
-        # 2. AI API Key 是否配置
-        has_ai_key = bool(
-            os.environ.get("OPENROUTER_API_KEY")
-            or os.environ.get("ANTHROPIC_API_KEY")
-            or os.environ.get("OPENAI_API_KEY")
-        )
-        checks.append(
-            {
-                "name": "ai_api_key",
-                "ok": has_ai_key,
-                "message": "已配置" if has_ai_key else "未配置 AI API Key — 研判/翻译将跳过",
-            }
-        )
+    @app.put("/api/v1/ai/enrichment/config")
+    async def update_ai_enrichment_config(
+        config: AIEnrichmentConfigUpdate,
+        _user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """更新低频 AI 增强配置并持久化到 config/runtime/ai_enrichment.yaml。"""
+        current = _ai_enrichment_config_to_dict(_current_ai_enrichment_config())
+        update = config.model_dump(exclude_none=True)
+        normalized = _save_ai_enrichment_config({**current, **update})
+        _apply_ai_enrichment_config(normalized)
+        return await _ai_enrichment_status_payload()
 
-        # 3. 数据目录是否存在 + target 目录列表
-        data_exists = _data_dir.exists()
-        target_dirs = (
-            sorted([d.name for d in _data_dir.iterdir() if d.is_dir()]) if data_exists else []
-        )
-        checks.append(
-            {
-                "name": "data_directory",
-                "ok": data_exists and len(target_dirs) > 0,
-                "message": (
-                    f"数据目录: {_data_dir} — {len(target_dirs)} 个 target: "
-                    f"{', '.join(target_dirs) if target_dirs else '无'}"
-                ),
-            }
-        )
-
-        # 4. 信源健康概览
-        healthy = 0
-        unhealthy = 0
-        if data_exists:
-            for tid in target_dirs:
-                memory_health = _filter_source_health_records(
-                    tid,
-                    _load_memory_source_health_records(tid),
-                )
-                if memory_health:
-                    for h in memory_health:
-                        if h.get("status") == "healthy":
-                            healthy += 1
-                        else:
-                            unhealthy += 1
-                    continue
-                health_file = _data_dir / tid / "source_health.json"
-                if health_file.exists():
-                    try:
-                        health_data = json.loads(health_file.read_text())
-                        items = health_data if isinstance(health_data, list) else []
-                        for h in items:
-                            if h.get("healthy"):
-                                healthy += 1
-                            else:
-                                unhealthy += 1
-                    except Exception:  # noqa: S110
-                        pass
-        checks.append(
-            {
-                "name": "source_health",
-                "ok": (healthy + unhealthy) > 0,
-                "message": (
-                    f"健康: {healthy}, 异常: {unhealthy}"
-                    if (healthy + unhealthy) > 0
-                    else "暂无信源健康数据 — 运行一次采集后生成"
-                ),
-            }
-        )
-
-        # 5. 最近一次采集时间
-        last_run = _collector_payload()["last_run_at"]
-        checks.append(
-            {
-                "name": "last_collection",
-                "ok": last_run is not None,
-                "message": (
-                    f"最后采集: {last_run}" if last_run else "尚未执行采集 — 等待首次采集周期"
-                ),
-            }
-        )
-
-        overall = all(c["ok"] for c in checks)
-        return {"overall": "healthy" if overall else "attention_needed", "checks": checks}
+    @app.post("/api/v1/ai/enrichment/run")
+    async def run_ai_enrichment(
+        dry_run: bool = Query(False, description="只返回计划批次，不调用 Provider"),
+        target_id: str | None = Query(None, description="指定 target；默认按配置"),
+        _user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """手动触发低频 AI 增强；dry-run 不消耗 OpenRouter 请求。"""
+        result = await _run_ai_enrichment_once(target_id=target_id, dry_run=dry_run)
+        _ai_enrichment_state["last_run_at"] = datetime.now(UTC).isoformat()
+        _ai_enrichment_state["last_run_status"] = result.get("status", "dry_run")
+        _ai_enrichment_state["last_error"] = result.get("error")
+        _ai_enrichment_state["last_updates"] = len(result.get("updates") or [])
+        _ai_enrichment_state["total_runs"] += 0 if dry_run else 1
+        return result
 
     @app.get("/api/v1/status")
     async def data_status(
@@ -4559,6 +5238,8 @@ def create_app(
                 display_name=payload.display_name,
                 language_scope=payload.language_scope,
                 timezone=payload.timezone,
+                monitoring_type=payload.monitoring_type,
+                topic_label=payload.topic_label,
             )
             _atomic_write_yaml(
                 _source_config_path(payload.target_id, "rss-template"),
@@ -4582,6 +5263,9 @@ def create_app(
                 display_name=payload.display_name,
                 language_scope=payload.language_scope,
                 timezone=payload.timezone,
+                monitoring_type=payload.monitoring_type
+                or _target_monitoring_type(source_target),
+                topic_label=payload.topic_label or _target_topic_label(source_target),
                 source_refs=source_refs,
             )
             for key in ("sandbox_profile_ref", "provider_routes_ref", "output_destinations_ref"):
@@ -4607,6 +5291,8 @@ def create_app(
         updates = payload.model_dump(exclude_unset=True)
         data = _deep_merge(data, updates)
         data["target_id"] = target_id
+        if data.get("monitoring_type") != "topic" or not data.get("topic_label"):
+            data.pop("topic_label", None)
         _atomic_write_yaml(_target_config_path(target_id), data)
         _config_cache.clear()
         return data
@@ -4652,7 +5338,7 @@ def create_app(
     ) -> dict[str, Any]:
         """单个 target 工作台总览。"""
         target_data = _ensure_target_exists(target_id)
-        inventory = SourceInventoryService(Path.cwd(), _data_dir).build_target_inventory(target_id)
+        inventory = _cached_source_inventory(target_id)
         inventory_summary = inventory["summary"]
         inventory_sources = inventory["sources"]
         standard_inventory_sources = [
@@ -4676,7 +5362,7 @@ def create_app(
         ):
             events = _load_all_events(_data_dir, target_id)
             classification_diagnostics = _classification_diagnostics_from_events(events)
-        validation = _validate_target_config(target_id)
+        validation = _cached_target_validation(target_id)
         recent_runs = _load_run_logs(_data_dir, target_id, 5)
         return {
             "target": target_info.model_dump(),
@@ -4710,7 +5396,7 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
         """预检 target 配置链路。"""
-        return _validate_target_config(target_id)
+        return _cached_target_validation(target_id)
 
     @app.get("/api/v1/admin/targets/{target_id}/inventory")
     async def admin_target_inventory(
@@ -4719,7 +5405,7 @@ def create_app(
     ) -> dict[str, Any]:
         """返回 target 信源统一对账视图。"""
         _ensure_target_exists(target_id)
-        return SourceInventoryService(Path.cwd(), _data_dir).build_target_inventory(target_id)
+        return _cached_source_inventory(target_id)
 
     @app.get("/api/v1/admin/targets/{target_id}/sources")
     async def list_admin_target_sources(
@@ -4854,7 +5540,7 @@ def create_app(
                 status_code=409,
                 detail=f"Social dimension '{dimension}' already exists",
             )
-        data = {
+        data: dict[str, Any] = {
             "platform": platform,
             "dimension": dimension,
             "collect_mode": payload.collect_mode,
@@ -5487,7 +6173,7 @@ def create_app(
                 target_store,
                 event_id,
             )
-            if event is _INVISIBLE_INDEXED_EVENT:
+            if isinstance(event, InvisibleIndexedEvent):
                 raise HTTPException(status_code=404, detail="Event not found")
             if event is not None:
                 return _markdown_download_response(
@@ -5504,7 +6190,7 @@ def create_app(
                 _store,
                 event_id,
             )
-            if event is _INVISIBLE_INDEXED_EVENT:
+            if isinstance(event, InvisibleIndexedEvent):
                 raise HTTPException(status_code=404, detail="Event not found")
             if event is not None:
                 return _markdown_download_response(
@@ -5599,7 +6285,7 @@ def create_app(
                 target_store,
                 event_id,
             )
-            if event is _INVISIBLE_INDEXED_EVENT:
+            if isinstance(event, InvisibleIndexedEvent):
                 raise HTTPException(status_code=404, detail="Event not found")
             if event is not None:
                 return event
@@ -5613,7 +6299,7 @@ def create_app(
                 _store,
                 event_id,
             )
-            if event is _INVISIBLE_INDEXED_EVENT:
+            if isinstance(event, InvisibleIndexedEvent):
                 raise HTTPException(status_code=404, detail="Event not found")
             if event is not None:
                 return event

@@ -4,34 +4,10 @@ on:
   release:
     types: [published]
 
+# 注意: 仓库已转为私有，PyPI 发布已禁用
+# 仅保留桌面客户端构建，供内部使用
+
 jobs:
-  # ── PyPI 发布 ──────────────────────────────────────────
-  publish-pypi:
-    name: Publish to PyPI
-    runs-on: ubuntu-latest
-    environment: pypi
-    permissions:
-      id-token: write
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install build tools
-        run: |
-          python -m pip install --upgrade pip
-          pip install build
-
-      - name: Build package
-        run: python -m build
-
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-
   # ── 多平台桌面构建 ─────────────────────────────────────
   build-desktop:
     name: Build ${{ matrix.os-name }}

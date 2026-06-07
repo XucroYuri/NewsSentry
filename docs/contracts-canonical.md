@@ -81,9 +81,9 @@ ne-eu-china-corriere-20260510-f1e2d3c4
 
 ### 3.3 生成规则
 
-- `hash8` 由 `source_url + collected_at` 的 SHA-256 截取前 8 位十六进制生成（确定性）。
-- 相同 URL 在同一天内的不同采集时间点仍生成相同 `id`，用于去重。
-- 若无法获取 URL，以 `title_original + published_at` 替代哈希输入。
+- `hash8` 由 `target_id + source_id + url + published_at_iso` 的 SHA-256 截取前 8 位十六进制生成（确定性）。
+- 相同 target、source、URL、发布时间生成相同 `id`，用于跨 run 去重；不同 target 不共享事件 ID。
+- 若无法获取 URL，以 `title_original + published_at_iso` 替代哈希输入。
 
 ---
 
@@ -172,6 +172,13 @@ metadata:
 - `title_translated` 和 `content_translated` 是 `NewsEvent` 的 canonical 翻译字段，只在 judge 阶段由高保真路由填充。
 - `metadata.translation.title_pre` 是 collect 阶段的"预览机译"，**不得**写入 `title_translated`。
 - `translation.status=skipped` 表示翻译未执行，**不得**用 `null` 代替（null 与 skipped 语义不同）。
+- 低频 AI 增强 Worker 可复用 ProviderRouter，但输出只能写入展示型 metadata：
+  `metadata.translation.title_pre`、`metadata.clustering.ai_label_zh / ai_summary_zh`
+  和 `metadata.ai_review`。该 Worker 不得覆盖 canonical `cluster_id/story_id` 或正式
+  `judge_result`。
+
+Provider task_type 允许集合：
+`translate | judge | classify | summarize | nlp | cluster | judge_review | ai_enrichment`。
 
 ---
 
@@ -216,9 +223,13 @@ metadata:
 metadata:
   classification:
     l0: string          # 必填（classify Skill 输出时）；L0 枚举值（12 类）
-    l1: string[]        # 必填；至少 1 项；取值见 news-classification-framework.md §2
-    l2: string[]        # 可空；枚举: actor|institution|location|instrument|event-trigger
-    l3: string          # 推荐；枚举见 news-classification-framework.md §4
+    l1:                # 可空；取值见 news-classification-framework.md §2
+      - code: string
+        confidence: integer|null
+    l2:                # 可空；枚举: actor|institution|location|instrument|event-trigger
+      - code: string
+        confidence: integer|null
+    l3: string[]       # 可空；枚举见 news-classification-framework.md §4
     country_axes:       # 可空；Italy 子轴，其他国家按需新增
       - axis: string    # 轴名: region|coalition|scope|china-italy-rel
         value: string   # 轴值，见 news-classification-framework.md §5
@@ -277,7 +288,7 @@ cancelled | ongoing | concluded
 
 任何单边修改（只改文档不改 schema，或只改 schema 不改文档）视为草稿状态，不应合并。
 
-### 10.2 Schema 清单（13 份）
+### 10.2 Schema 清单（18 份）
 
 | Schema 文件 | 覆盖契约章节 | 状态 |
 |---|---|---|
@@ -294,6 +305,11 @@ cancelled | ongoing | concluded
 | `schemas/providerconfig.schema.json` | §7（AI Provider，ADR-0005） | Phase 1 完成 |
 | `schemas/toolrunresult.schema.json` | §5（ToolRunResult） | Phase 1 完成 |
 | `schemas/outputresult.schema.json` | §8（ADR-0002） | Phase 1 完成 |
+| `schemas/outputdestinations.schema.json` | §8（OutputDestinations） | Phase 17 完成 |
+| `schemas/socialsource.schema.json` | social source / KOL matrix 配置结构 | Phase 19 完成 |
+| `schemas/matrixgovernance.schema.json` | social matrix governance 配置结构 | Phase 20 完成 |
+| `schemas/evalexample.schema.json` | eval-set 样本结构 | Phase 13 完成 |
+| `schemas/sandbox-audit.schema.json` | sandbox 审计日志结构 | Phase 18 完成 |
 
 ### 10.3 Schema $id 规范
 
@@ -322,3 +338,24 @@ https://json-schema.org/draft/2020-12/schema
 | 版本 | 修改 | ADR |
 |---|---|---|
 | v1.0 (2026-05-09) | 新增本节，定稿 schema 双向绑定规则与清单 | ADR-0014 |
+
+---
+
+## §11. Target 监控类型分组
+
+> Schema: `schemas/targetconfig.schema.json`
+
+Target 不再是公开首页和管理后台中的无差别列表。`config/targets/{target_id}.yaml`
+使用 `monitoring_type` 表达目标类型：
+
+| monitoring_type | 中文分组 | 语义 |
+|---|---|---|
+| `country` | 国别监控目标 | 围绕单一国家或地区的新闻、舆情、社媒信源进行持续监控。 |
+| `topic` | 专题监控目标 | 围绕跨国家、跨语种、跨信源的专题议题进行持续监控。 |
+
+规则：
+
+- 缺失 `monitoring_type` 时按 `country` 处理，保持历史 target 兼容。
+- `topic` target 可以使用 `topic_label` 写入中文专题名，例如 `涉中舆情`。
+- `china-watch-en` 是首个内置 `topic` target，默认专题名为 `涉中舆情`。
+- 公开首页、目标工作台、target 新建表单必须使用同一套分组口径，避免前台展示与后台管理再次漂移。

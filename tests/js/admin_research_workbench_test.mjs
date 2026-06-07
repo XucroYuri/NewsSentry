@@ -3,38 +3,37 @@ import { existsSync, readFileSync } from "node:fs";
 
 const appJs = readFileSync("src/news_sentry/static/app.js", "utf8");
 const manifest = JSON.parse(readFileSync("src/news_sentry/static/build_manifest.json", "utf8"));
-const pagePath = "src/news_sentry/static/pages/research_workbench.js";
+const pagePath = "src/news_sentry/static/pages/target_workbench.js";
+
+assert.match(
+  appJs,
+  /import \{ renderTargetsHome, renderTargetWorkbench \} from "\.\/pages\/target_workbench\.js";/,
+  "Admin Shell must import the current target workbench page module",
+);
+
+assert.match(
+  appJs,
+  /renderTargetWorkbench\(container,\s*routeInfo\.targetId,\s*routeInfo\.tab \|\| "overview"\)/,
+  "Admin target route must render the target workbench tab",
+);
 
 assert.doesNotMatch(
   appJs,
-  /target_workbench/,
-  "Current Admin Shell wiring must not restore the legacy target_workbench module",
-);
-
-assert.match(
-  appJs,
-  /import \{ renderResearchWorkbenchTab \} from "\.\/pages\/research_workbench\.js";/,
-  "Admin Shell must import the current research workbench page module",
-);
-
-assert.match(
-  appJs,
-  /\{\s*id:\s*"research",\s*label:\s*"研究工作台"\s*\}/,
-  "News admin tabs must expose the research workbench",
-);
-
-assert.match(
-  appJs,
-  /research:\s*renderResearchWorkbenchTab/,
-  "News admin route map must render the research workbench tab",
+  /research_workbench/,
+  "Admin Shell must not keep the retired standalone research workbench module wired",
 );
 
 assert.ok(
-  manifest.assets.includes("/pages/research_workbench.js"),
-  "Static build manifest must include the research workbench module",
+  manifest.assets.includes("/pages/target_workbench.js"),
+  "Static build manifest must include the target workbench module",
 );
 
-assert.ok(existsSync(pagePath), "Research workbench page module must exist");
+assert.ok(
+  !manifest.assets.includes("/pages/research_workbench.js"),
+  "Static build manifest must not cache the retired standalone research workbench module",
+);
+
+assert.ok(existsSync(pagePath), "Target workbench page module must exist");
 const researchJs = readFileSync(pagePath, "utf8");
 
 function snippetAround(source, marker, length = 1400, before = 300) {
@@ -45,32 +44,26 @@ function snippetAround(source, marker, length = 1400, before = 300) {
 
 assert.match(
   researchJs,
-  /api\("\/api\/v1\/canonical\/diagnostics",\s*\{\s*target_id:\s*state\.currentTarget,\s*limit:\s*500\s*\}\)/s,
-  "Research workbench must read canonical diagnostics for the selected target",
+  /api\("\/api\/v1\/canonical\/diagnostics",\s*\{\s*target_id:\s*targetId,\s*limit:\s*500\s*\}\)/s,
+  "Target research workbench must read canonical diagnostics for the selected target",
 );
 
 assert.match(
   researchJs,
-  /apiPost\("\/api\/v1\/canonical\/backfill",\s*\{\s*\},\s*\{\s*target_id:\s*state\.currentTarget,\s*limit:\s*500,\s*apply:\s*true/s,
+  /apiPost\("\/api\/v1\/canonical\/backfill",\s*\{\s*\},\s*\{\s*target_id:\s*targetId,\s*limit:\s*500,\s*apply:\s*true/s,
   "Canonical backfill must use JSON body with apply:true",
 );
 
 assert.match(
   researchJs,
-  /api\("\/api\/v1\/research\/queue",\s*\{\s*target_id:\s*state\.currentTarget,\s*status:\s*researchState\.status,\s*limit:\s*50\s*\}\)/s,
-  "Research workbench must load the canonical research queue for the selected target",
+  /api\("\/api\/v1\/research\/queue",\s*\{\s*target_id:\s*targetId,\s*status:\s*"open",\s*limit:\s*50\s*\}\)/s,
+  "Target research workbench must load the canonical research queue for the selected target",
 );
 
 assert.match(
   researchJs,
-  /api\(`\/api\/v1\/research\/events\/\$\{encodeURIComponent\(canonicalEventId\)\}`,\s*\{\s*target_id:\s*state\.currentTarget\s*\}\)/s,
+  /api\(`\/api\/v1\/research\/events\/\$\{encodeURIComponent\(canonicalEventId\)\}`,\s*\{\s*target_id:\s*targetId\s*\}\)/s,
   "Research detail must load canonical event evidence by selected target",
-);
-
-assert.match(
-  researchJs,
-  /api\("\/api\/v1\/research\/graph\/operations",\s*\{\s*target_id:\s*state\.currentTarget,\s*limit:\s*20\s*\}\)/s,
-  "Research workbench must surface graph operation history",
 );
 
 assert.match(
@@ -86,7 +79,7 @@ assert.match(
   "Merge decisions must store candidate canonical event IDs in metadata",
 );
 
-const splitDecisionBlock = snippetAround(researchJs, 'artifact_type: "split_decision"', 1400, 500);
+const splitDecisionBlock = snippetAround(researchJs, 'artifact_type: "split_decision"', 2400, 1600);
 const mentionIdsBlock = snippetAround(researchJs, "function researchMentionIds", 420, 0);
 assert.match(
   splitDecisionBlock,
@@ -95,7 +88,7 @@ assert.match(
 );
 assert.match(
   splitDecisionBlock,
-  /affected_mention_ids:\s*mentionIds/s,
+  /affected_mention_ids:\s*affectedMentionIds/s,
   "Split decisions must use real mention IDs from evidence detail",
 );
 assert.doesNotMatch(

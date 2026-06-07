@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import calendar
 import logging
+import re
 import time
 import traceback
 from collections.abc import Callable
@@ -300,6 +301,33 @@ class RSSCollector:
         return description.strip() if isinstance(description, str) else str(description)
 
     @staticmethod
+    def _parse_date_string(value: str) -> datetime | None:
+        raw = str(value or "").strip()
+        if not raw:
+            return None
+        try:
+            dt = parsedate_to_datetime(raw)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=UTC)
+            return dt
+        except Exception:  # noqa: S110
+            pass
+
+        normalized = re.sub(r"\s+", " ", raw)
+        normalized = re.sub(
+            r"(\d{1,2}:\d{2})\s*([ap]m)$",
+            lambda match: f"{match.group(1)}{match.group(2).upper()}",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        for fmt in ("%A, %B %d, %Y - %I:%M%p", "%a, %B %d, %Y - %I:%M%p"):
+            try:
+                return datetime.strptime(normalized, fmt).replace(tzinfo=UTC)
+            except ValueError:
+                continue
+        return None
+
+    @staticmethod
     def _extract_published(entry: feedparser.FeedParserDict) -> str:
         """从 feed 条目中提取发布时间，转为 ISO 8601 字符串。
 
@@ -318,13 +346,10 @@ class RSSCollector:
         # 尝试 published 字符串
         published_str = entry.get("published", "")
         if published_str:
-            try:
-                dt = parsedate_to_datetime(str(published_str))
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=UTC)
+            dt = RSSCollector._parse_date_string(str(published_str))
+            if dt is not None:
                 return dt.isoformat()
-            except Exception as exc:  # noqa: S110
-                logger.warning("published 字符串解析失败: published=%s exc=%s", published_str, exc)
+            logger.warning("published 字符串解析失败: published=%s", published_str)
 
         # 尝试 updated_parsed（struct_time，UTC）
         updated_parsed = entry.get("updated_parsed")
@@ -338,13 +363,10 @@ class RSSCollector:
         # 尝试 updated 字符串
         updated_str = entry.get("updated", "")
         if updated_str:
-            try:
-                dt = parsedate_to_datetime(str(updated_str))
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=UTC)
+            dt = RSSCollector._parse_date_string(str(updated_str))
+            if dt is not None:
                 return dt.isoformat()
-            except Exception as exc:  # noqa: S110
-                logger.warning("updated 字符串解析失败: updated=%s exc=%s", updated_str, exc)
+            logger.warning("updated 字符串解析失败: updated=%s", updated_str)
 
         # 全部缺失，使用当前时间
         return datetime.now(UTC).isoformat()

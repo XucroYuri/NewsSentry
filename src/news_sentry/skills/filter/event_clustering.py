@@ -73,8 +73,6 @@ _BROAD_CLASSIFICATION_TERMS = {
 _SYNONYMS = {
     "appaltatore": "contractor",
     "contrattista": "contractor",
-    "italiana": "italian",
-    "italiano": "italian",
     "morto": "killed",
     "uccisa": "killed",
     "ucciso": "killed",

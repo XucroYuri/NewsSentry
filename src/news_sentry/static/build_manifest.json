@@ -1,6 +1,6 @@
 {
-  "build": "20260531c",
-  "cacheName": "news-sentry-20260531c",
+  "build": "20260531d",
+  "cacheName": "news-sentry-20260531d",
   "assets": [
     "/",
     "/index.html",
@@ -18,6 +18,7 @@
     "/pages/public_analysis.js",
     "/pages/feed.js",
     "/pages/target_workbench.js",
+    "/pages/target_groups.js",
     "/pages/feed_filters.js",
     "/pages/dashboard.js",
     "/pages/events.js",

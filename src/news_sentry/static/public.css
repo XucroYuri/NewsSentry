@@ -47,6 +47,32 @@ body.login-shell {
   padding: 28px 20px 48px;
 }
 
+/* Public footer */
+.public-footer {
+  display: none;
+  text-align: center;
+  padding: 16px 20px;
+  font-size: 0.78rem;
+  color: var(--text-tertiary);
+  border-top: 1px solid var(--border-light);
+  gap: 16px;
+}
+.public-footer a {
+  color: var(--text-tertiary);
+  text-decoration: none;
+  margin-left: 16px;
+}
+.public-footer a:hover {
+  color: var(--accent-primary);
+}
+.public-shell .public-footer {
+  display: flex;
+  justify-content: center;
+}
+#legalBody h4 { margin: 14px 0 6px; font-size: 0.92rem; color: var(--text-primary); }
+#legalBody ul { padding-left: 18px; margin: 6px 0; }
+#legalBody li { margin-bottom: 4px; }
+
 .public-home {
   width: min(1080px, 100%);
   margin: 0 auto;
@@ -82,6 +108,37 @@ body.login-shell {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 12px;
+}
+
+.public-target-sections {
+  display: grid;
+  gap: 24px;
+}
+
+.public-target-section {
+  display: grid;
+  gap: 12px;
+}
+
+.public-target-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 8px;
+}
+
+.public-target-section-head h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 1rem;
+  letter-spacing: 0;
+}
+
+.public-target-section-head span {
+  color: var(--text-muted);
+  font-size: 0.78rem;
 }
 
 .public-target-card {
@@ -125,6 +182,22 @@ body.login-shell {
   margin: 0;
   color: var(--text-secondary);
   font-size: 0.86rem;
+}
+
+.public-target-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.public-target-topic {
+  border: 1px solid rgba(148, 33, 40, 0.24);
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: var(--accent-primary);
+  background: rgba(148, 33, 40, 0.07);
+  font-size: 0.75rem;
 }
 
 .public-target-count {
@@ -412,6 +485,10 @@ body.login-shell {
 
   .public-target-grid {
     grid-template-columns: 1fr;
+  }
+
+  .public-target-section-head {
+    align-items: flex-start;
   }
 
   .public-target-card {

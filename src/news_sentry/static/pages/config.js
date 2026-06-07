@@ -693,6 +693,38 @@ export async function renderOutputsTab(container) {
 
 // ── 页面渲染：Provider 路由 (AI 配置) ──────────────────────
 
+function aiEnrichmentStatusHtml(status) {
+  if (!status) {
+    return `
+      <div class="config-card">
+        <div class="config-card-title">AI 增强状态</div>
+        <p class="muted">状态接口暂不可用。</p>
+      </div>`;
+  }
+  const usage = status.usage || {};
+  const config = status.config || {};
+  const cooldown = usage.cooldown_until ? `冷却至 ${escapeHtml(usage.cooldown_until)}` : "未冷却";
+  return `
+    <div class="config-card" id="aiEnrichmentStatusCard">
+      <div class="config-card-title">AI 增强状态</div>
+      <div class="config-grid">
+        ${configFieldHtml("运行状态", status.running ? "运行中" : (status.enabled ? "等待调度" : "已停用"))}
+        ${configFieldHtml("今日请求", `${Number(usage.request_count || 0)} / ${Number(config.daily_request_limit || 0)}`)}
+        ${configFieldHtml("剩余额度", status.remaining_daily_requests ?? "—")}
+        ${configFieldHtml("调度间隔", `${Number(config.interval_minutes || 0)} 分钟`)}
+        ${configFieldHtml("冷却状态", cooldown)}
+        ${configFieldHtml("下一轮", status.next_run_at || "待调度")}
+        ${configFieldHtml("最近运行", status.last_run_at || "尚未运行")}
+        ${configFieldHtml("最近结果", status.last_run_status || "—")}
+      </div>
+      ${status.last_error ? `<div class="config-error">最近错误: ${escapeHtml(status.last_error)}</div>` : ""}
+      <div class="config-actions">
+        <button class="btn btn-secondary btn-sm" id="aiEnrichmentDryRun">预览下一批</button>
+        <span class="save-status-inline" id="aiEnrichmentDryRunResult"></span>
+      </div>
+    </div>`;
+}
+
 export async function renderAITab(container) {
   container.innerHTML = `
     ${configNoticeHtml()}
@@ -700,7 +732,10 @@ export async function renderAITab(container) {
   `;
 
   try {
-    const data = await api("/api/v1/config/provider/routes");
+    const [data, enrichmentStatus] = await Promise.all([
+      api("/api/v1/config/provider/routes"),
+      api("/api/v1/ai/enrichment/status").catch(() => null),
+    ]);
     const routes = data.routes || data || [];
 
     if (!routes.length) {
@@ -739,8 +774,28 @@ export async function renderAITab(container) {
 
     container.innerHTML = `
       ${configNoticeHtml()}
+      ${aiEnrichmentStatusHtml(enrichmentStatus)}
       ${cardsHtml}
     `;
+
+    container.querySelector("#aiEnrichmentDryRun")?.addEventListener("click", async () => {
+      const button = container.querySelector("#aiEnrichmentDryRun");
+      const resultEl = container.querySelector("#aiEnrichmentDryRunResult");
+      if (button) button.disabled = true;
+      try {
+        const targetParam = state.currentTarget ? `&target_id=${encodeURIComponent(state.currentTarget)}` : "";
+        const data = await apiPost(`/api/v1/ai/enrichment/run?dry_run=true${targetParam}`, {});
+        const batchCount = Array.isArray(data.batches) ? data.batches.length : 0;
+        const itemCount = (data.batches || []).reduce((sum, batch) => (
+          sum + (batch.items?.length || 0) + (batch.clusters?.length || 0) + (batch.review_candidates?.length || 0)
+        ), 0);
+        if (resultEl) resultEl.innerHTML = `<span class="save-ok">下一批 ${batchCount} 组 / ${itemCount} 项</span>`;
+      } catch (err) {
+        if (resultEl) resultEl.innerHTML = `<span class="save-error">${escapeHtml(err.message)}</span>`;
+      } finally {
+        if (button) button.disabled = false;
+      }
+    });
 
     // 绑定 toggle
     container.querySelectorAll(".toggle-clickable").forEach((el) => {

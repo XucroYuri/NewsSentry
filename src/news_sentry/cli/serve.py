@@ -16,6 +16,7 @@ import sys
 import time
 import webbrowser
 from datetime import UTC, datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 import click
@@ -94,17 +95,85 @@ def _kill_process(pid: int) -> bool:
             return False
 
 
+class _RepeatedWarningFilter(logging.Filter):
+    """Rate-limit identical warning/error lines before they flood serve.log."""
+
+    def __init__(self, *, limit: int = 20, window_seconds: int = 60) -> None:
+        super().__init__()
+        self.limit = limit
+        self.window_seconds = window_seconds
+        self._seen: dict[tuple[str, int, str], tuple[float, int]] = {}
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno < logging.WARNING:
+            return True
+        now = time.monotonic()
+        key = (record.name, record.levelno, record.getMessage())
+        window_start, count = self._seen.get(key, (now, 0))
+        if now - window_start > self.window_seconds:
+            window_start, count = now, 0
+        count += 1
+        self._seen[key] = (window_start, count)
+        return count <= self.limit
+
+
 def _setup_log_file(log_path: Path, log_dir: Path) -> None:
     """Add a file handler so uvicorn and news_sentry logs are written to disk."""
     log_dir.mkdir(parents=True, exist_ok=True)
-    handler = logging.FileHandler(str(log_path), encoding="utf-8")
-    fmt = logging.Formatter(
-        "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%dT%H:%M:%S",
-    )
-    handler.setFormatter(fmt)
-    for name in ("uvicorn", "uvicorn.error", "uvicorn.access", "news_sentry"):
-        logging.getLogger(name).addHandler(handler)
+    resolved_log_path = str(log_path.resolve())
+    logger_names = ("uvicorn", "uvicorn.error", "uvicorn.access", "news_sentry")
+    existing_handler: RotatingFileHandler | None = None
+    for name in logger_names:
+        logger = logging.getLogger(name)
+        matching = [
+            existing
+            for existing in logger.handlers
+            if isinstance(existing, RotatingFileHandler)
+            and getattr(existing, "baseFilename", None) == resolved_log_path
+        ]
+        if matching:
+            existing_handler = matching[0]
+            continue
+        for existing in list(logger.handlers):
+            if (
+                isinstance(existing, logging.FileHandler)
+                and getattr(existing, "baseFilename", None) == resolved_log_path
+            ):
+                logger.removeHandler(existing)
+                existing.close()
+
+    if all(
+        any(
+            isinstance(existing, RotatingFileHandler)
+            and getattr(existing, "baseFilename", None) == resolved_log_path
+            for existing in logging.getLogger(name).handlers
+        )
+        for name in logger_names
+    ):
+        return
+
+    handler = existing_handler
+    if handler is None:
+        handler = RotatingFileHandler(
+            str(log_path),
+            maxBytes=int(os.environ.get("NEWSSENTRY_SERVE_LOG_MAX_BYTES", 10 * 1024 * 1024)),
+            backupCount=int(os.environ.get("NEWSSENTRY_SERVE_LOG_BACKUPS", 5)),
+            encoding="utf-8",
+        )
+        fmt = logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%dT%H:%M:%S",
+        )
+        handler.setFormatter(fmt)
+        handler.addFilter(_RepeatedWarningFilter())
+    for name in logger_names:
+        logger = logging.getLogger(name)
+        if not any(
+            isinstance(existing, RotatingFileHandler)
+            and getattr(existing, "baseFilename", None) == resolved_log_path
+            for existing in logger.handlers
+        ):
+            logger.addHandler(handler)
 
 
 @main.command("serve")

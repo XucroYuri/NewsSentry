@@ -5,6 +5,9 @@ on:
     tags: ["v*"]
   workflow_dispatch:  # 手动触发
 
+# 注意: 日常部署走 deploy.yml（venv + systemd，不用 Docker）
+# 本 workflow 仅用于构建正式 tag 的 Docker 镜像，推送到 GHCR 供其他场景使用
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: xucroyuri/news-sentry

@@ -54,4 +54,12 @@ assert.match(collapsed, /data-date="2026-05-31"/);
 assert.match(collapsed, /<span class="feed-date-count">1 条<\/span>/);
 assert.match(collapsed, /<div class="feed-date-content feed-timeline" hidden>/);
 
+const translated = renderTimeline("2026-05-31", [{
+  ...event,
+  display_title: "意大利政治动态",
+  original_title: "Italy politics update",
+}], {}, { targetId: "italy", collapsedDates: new Set() });
+assert.match(translated, /<a class="feed-item-title"[^>]*>意大利政治动态<\/a>/);
+assert.match(translated, /<div class="feed-item-original-title">Italy politics update<\/div>/);
+
 console.log("feed date collapse tests passed");

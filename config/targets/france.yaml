@@ -3,6 +3,7 @@
 # ADR: ADR-0015, ADR-0016
 target_id: france
 display_name: "法国新闻监控"
+monitoring_type: country
 
 language_scope:
   primary: fr

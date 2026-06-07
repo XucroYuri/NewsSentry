@@ -1779,7 +1779,7 @@ Twitter/X · Facebook · Instagram · LinkedIn · Telegram · YouTube · TikTok
 | [ADR-0007](../adr/0007-prd-open-questions-resolved.md) | PRD Open Questions 批量关闭 | Phase 1 |
 | [ADR-0008](../adr/0008-external-deps-install-not-vendor.md) | 外部项目只 install 不 vendor | Phase 1 / Phase 4 |
 | [ADR-0009](../adr/0009-four-layer-classification-framework.md) | 四层新闻分类框架（L0–L3）与 `metadata.classification` 字段契约 | Phase 1 / Phase 3 |
-| [ADR-0010](../adr/0010-no-dedicated-frontend.md) | 永不做专用前端；终态是 Obsidian + 推送 | Phase 1 |
+| [ADR-0010](../adr/0010-no-dedicated-frontend.md) | 永不做专用前端；终态是 Obsidian + 推送（已被 ADR-0025 替代） | Phase 1 |
 | [ADR-0011](../adr/0011-opencli-baseline-toolmanifest.md) | OpenCLI baseline ToolManifest 12 条命令骨架；退出码映射 | Phase 4 |
 | ADR-0012 | Python 3.11+ 实现语言 | Phase 3 |
 | ADR-0013 | src layout，core/skills/adapters 三层结构 | Phase 3 |

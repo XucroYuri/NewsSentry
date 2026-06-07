@@ -1,0 +1,9 @@
+enabled: true
+interval_minutes: 60
+daily_request_limit: 45
+per_cycle_request_limit: 3
+max_chars_per_request: 6000
+cooldown_after_429_minutes: 120
+targets:
+  - all
+candidate_limit: 200

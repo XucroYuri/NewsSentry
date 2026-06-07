@@ -186,7 +186,7 @@ graph TD
 | ADR-0007 | PRD Open Questions 批量关闭 | P1 完成 |
 | ADR-0008 | 外部项目只 install 不 vendor | P4 实现 OpenCLI 时约束 |
 | ADR-0009 | 四层分类框架 L0–L3，写入 `metadata.classification` | P3 规则引擎，P5 LLM 分类器 |
-| ADR-0010 | 永不做专用前端；Obsidian Markdown + 推送 | 全 Phase 约束 |
+| ADR-0025 | CLI-first；FastAPI + Vanilla JS 嵌入式 SPA 可选 | Phase 50+ 约束（替代 ADR-0010） |
 | ADR-0011 | 12 条 OpenCLI ToolManifest 骨架 | P4 实现 |
 | ADR-0012 | Python 3.11+ 实现语言 | P3 起约束 |
 | ADR-0013 | src layout，core/skills/adapters 三层结构 | P3 起约束 |

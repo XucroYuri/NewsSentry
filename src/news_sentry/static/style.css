@@ -1695,6 +1695,12 @@ a:hover {
   margin-bottom: 14px;
 }
 
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  column-gap: 18px;
+}
+
 .config-field {
   display: grid;
   grid-template-columns: 160px 1fr;
@@ -2785,6 +2791,10 @@ a:hover {
 .save-status { margin-top: 8px; }
 .save-status-inline { margin-left: 8px; font-size: 0.8rem; }
 .save-ok { color: #22c55e; font-size: 0.85rem; }
+.save-error,
+.config-error { color: var(--accent-red); font-size: 0.85rem; }
+.config-error { margin-top: 10px; }
+.config-actions { margin-top: 12px; display: flex; align-items: center; gap: 8px; }
 .dest-edit-fields, .route-edit-fields { margin-top: 10px; padding: 10px; background: var(--bg-tertiary); border-radius: var(--radius-sm); }
 .dest-edit-fields .config-input, .route-edit-fields .config-input { margin-bottom: 6px; }
 .toggle-label { font-size: 0.8rem; margin-left: 4px; }
@@ -3993,6 +4003,14 @@ body.ns-offline .offline-banner {
   text-decoration: underline;
 }
 
+.feed-item-original-title {
+  color: var(--text-tertiary);
+  font-size: var(--font-caption);
+  line-height: 1.45;
+  margin-top: 4px;
+  word-break: break-word;
+}
+
 .feed-item-summary {
   color: var(--text-secondary);
   font-size: var(--font-caption);
@@ -4571,6 +4589,38 @@ body.ns-offline .offline-banner {
   margin-bottom: 16px;
 }
 
+.target-group-list {
+  display: grid;
+  gap: 18px;
+  margin-bottom: 16px;
+}
+
+.target-management-group {
+  display: grid;
+  gap: 8px;
+}
+
+.target-management-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--border-light);
+  padding-bottom: 8px;
+}
+
+.target-management-group-head h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 1rem;
+}
+
+.target-management-group-head span,
+.target-topic-label {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
 .target-compact-row {
   display: grid;
   grid-template-columns: minmax(210px, 1.4fr) minmax(220px, 1fr) auto auto;
@@ -4603,10 +4653,22 @@ body.ns-offline .offline-banner {
   white-space: nowrap;
 }
 
+.target-topic-label {
+  display: block;
+  margin-top: 3px;
+}
+
 .target-compact-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(48px, 1fr));
   gap: 8px;
+}
+
+.target-compact-state {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .target-compact-metrics span,

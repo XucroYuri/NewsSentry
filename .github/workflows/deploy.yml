@@ -1,0 +1,216 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main, preview]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: preview
+        type: choice
+        options: [preview, production]
+
+jobs:
+  # ── Stage 1: CI gate (lint + test + scan) ──────────────────
+  ci:
+    name: CI Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,api,proxy]"
+
+      - name: Lint (ruff)
+        run: python -m ruff check
+
+      - name: Test (pytest + coverage)
+        run: python -m pytest tests/ -q --tb=short --timeout=300 --cov=src/news_sentry --cov-report=term-missing
+
+      - name: Security scan
+        run: python tools/scan_sensitive_data.py
+
+      - name: Hardcoded target scan
+        run: python tools/check_no_hardcoded_target.py
+
+      - name: Config schema validation
+        run: python -m pytest tests/unit/test_config_schema_validation.py -q
+
+  # ── Stage 2: Deploy to VPS via SSH (venv + systemd) ───────
+  deploy:
+    name: Deploy ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
+    runs-on: ubuntu-latest
+    needs: ci
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/preview'
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine environment
+        id: env
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "ENV=production" >> "$GITHUB_OUTPUT"
+            echo "SERVICE=news-sentry" >> "$GITHUB_OUTPUT"
+            echo "PORT=18080" >> "$GITHUB_OUTPUT"
+          else
+            echo "ENV=preview" >> "$GITHUB_OUTPUT"
+            echo "SERVICE=news-sentry-preview" >> "$GITHUB_OUTPUT"
+            echo "PORT=18081" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.BWH_HOST }}
+          username: ${{ secrets.BWH_SSH_USER }}
+          key: ${{ secrets.BWH_SSH_KEY }}
+          port: ${{ secrets.BWH_SSH_PORT || 22 }}
+          script_stop: true
+          command_timeout: 5m
+          script: |
+            set -euo pipefail
+
+            ENV="${{ steps.env.outputs.ENV }}"
+            SERVICE="${{ steps.env.outputs.SERVICE }}"
+            PORT="${{ steps.env.outputs.PORT }}"
+            BRANCH="${{ github.ref_name }}"
+            SHA="${{ github.sha }}"
+            SHORT_SHA="$(echo ${SHA} | cut -c1-7)"
+            DEPLOY_BASE="/opt/news-sentry"
+            REPO_DIR="${DEPLOY_BASE}/${ENV}/repo"
+
+            echo "=== Deploying NewsSentry ${ENV} (${SHORT_SHA}) on port ${PORT} ==="
+
+            # ── 1. 创建目录（首次） ──
+            mkdir -p "${DEPLOY_BASE}/${ENV}"
+            mkdir -p "/srv/news-sentry/${ENV}/data"
+
+            # ── 2. 克隆或更新代码 ──
+            if [ -d "${REPO_DIR}/.git" ]; then
+              cd "${REPO_DIR}"
+              git fetch origin
+              git checkout "${BRANCH}"
+              git reset --hard "origin/${BRANCH}"
+            else
+              git clone -b "${BRANCH}" https://x-access-token:${{ secrets.GHCR_PAT }}@github.com/XucroYuri/NewsSentry.git "${REPO_DIR}"
+              cd "${REPO_DIR}"
+            fi
+
+            echo "Checked out: $(git log --oneline -1)"
+
+            # ── 3. venv + 依赖 ──
+            VENV="${DEPLOY_BASE}/${ENV}/venv"
+            if [ ! -d "${VENV}" ]; then
+              python3 -m venv "${VENV}"
+            fi
+            source "${VENV}/bin/activate"
+            pip install --upgrade pip -q
+            pip install -e ".[api]" -q
+
+            # ── 4. 环境变量 ──
+            if [ ! -f "${DEPLOY_BASE}/${ENV}/.env" ]; then
+              cat > "${DEPLOY_BASE}/${ENV}/.env" <<'ENVEOF'
+            NEWSSENTRY_DEPLOYMENT_ENV=vps
+            NEWSSENTRY_PROFILE=cloud-vps
+            NEWSSENTRY_DATA_DIR=__DATA_DIR__
+            NEWSSENTRY_AI_BUDGET_USD=1.0
+            NEWSSENTRY_LOG_LEVEL=INFO
+            ENVEOF
+              sed -i "s|__DATA_DIR__|/srv/news-sentry/${ENV}/data|" "${DEPLOY_BASE}/${ENV}/.env"
+              echo "⚠️  Created .env template — please add OPENROUTER_API_KEY and NEWSSENTRY_API_KEY"
+            fi
+
+            # ── 5. systemd 服务文件（首次或更新） ──
+            cat > "/etc/systemd/system/${SERVICE}.service" <<SVCEOF
+            [Unit]
+            Description=News Sentry ${ENV} (${SHORT_SHA})
+            After=network.target
+
+            [Service]
+            Type=simple
+            User=newssentry
+            Group=newssentry
+            WorkingDirectory=${REPO_DIR}
+            EnvironmentFile=${DEPLOY_BASE}/${ENV}/.env
+            ExecStart=${VENV}/bin/python -m uvicorn news_sentry.core.api_server:create_app --factory --host 127.0.0.1 --port ${PORT}
+            Restart=on-failure
+            RestartSec=10
+            LimitNOFILE=65536
+            MemoryMax=768M
+            CPUQuota=100%
+            NoNewPrivileges=true
+            ProtectSystem=strict
+            ReadWritePaths=/srv/news-sentry/${ENV} ${DEPLOY_BASE}/${ENV}
+            PrivateTmp=true
+            StandardOutput=journal
+            StandardError=journal
+            SyslogIdentifier=${SERVICE}
+
+            [Install]
+            WantedBy=multi-user.target
+            SVCEOF
+
+            # 确保文件权限
+            chown -R newssentry:newssentry "${DEPLOY_BASE}/${ENV}"
+            chown -R newssentry:newssentry "/srv/news-sentry/${ENV}"
+
+            # ── 6. 重启服务 ──
+            systemctl daemon-reload
+            systemctl enable "${SERVICE}"
+            systemctl restart "${SERVICE}"
+
+            # ── 7. 健康检查 ──
+            echo "Waiting for service..."
+            for i in $(seq 1 12); do
+              if curl -sf "http://127.0.0.1:${PORT}/api/v1/health" > /dev/null 2>&1; then
+                echo "✅ Health check passed (attempt ${i})"
+                curl -s "http://127.0.0.1:${PORT}/api/v1/health"
+                echo ""
+                break
+              fi
+              if [ "$i" -eq 12 ]; then
+                echo "❌ Health check failed after 60s"
+                journalctl -u "${SERVICE}" --no-pager -n 30
+                exit 1
+              fi
+              sleep 5
+            done
+
+            # ── 8. 共存安全确认 ──
+            systemctl is-active x-ui > /dev/null 2>&1 && echo "✅ Xray proxy: running" || echo "⚠️  Xray proxy: not running"
+            ss -lntup | grep -E ':443|:8443' | head -2
+
+            # ── 9. 记录部署版本 ──
+            echo "${SHA}" > "${DEPLOY_BASE}/${ENV}/.deploy-sha"
+            echo "${BRANCH}" > "${DEPLOY_BASE}/${ENV}/.deploy-branch"
+            date -u +%Y-%m-%dT%H:%M:%SZ > "${DEPLOY_BASE}/${ENV}/.deploy-time"
+
+            echo ""
+            echo "=== Deploy complete ==="
+            echo "  Environment: ${ENV}"
+            echo "  Branch:      ${BRANCH}"
+            echo "  Commit:      ${SHORT_SHA}"
+            echo "  Port:        ${PORT}"
+            echo "  Service:     ${SERVICE}"
+
+      - name: Post-deploy summary
+        run: |
+          echo "## Deploy Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Item | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|------|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Environment | ${{ steps.env.outputs.ENV }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Branch | ${{ github.ref_name }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Commit | ${{ github.sha }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Port | ${{ steps.env.outputs.PORT }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Service | ${{ steps.env.outputs.SERVICE }} |" >> "$GITHUB_STEP_SUMMARY"

@@ -14,6 +14,7 @@ import {
   showSuccess,
   state,
 } from "../api.js";
+import { groupTargetsByKind, targetKindLabel, targetTopicLabel } from "./target_groups.js";
 
 const TARGET_TABS = [
   { id: "overview", label: "总览" },
@@ -159,6 +160,10 @@ function lifecycleBadge(target) {
     : `<span class="status-pill ok">Active</span>`;
 }
 
+function targetTypeBadge(target) {
+  return `<span class="status-pill muted">${escapeHtml(targetKindLabel(target))}</span>`;
+}
+
 function renderTargetCards(targets) {
   if (!targets.length) {
     return `
@@ -168,30 +173,45 @@ function renderTargetCards(targets) {
       </section>
     `;
   }
+  const groups = groupTargetsByKind(targets);
   return `
-    <div class="target-compact-list" aria-label="Target 列表">
-      ${targets.map((target) => `
-        <article class="target-compact-row ${target.archived ? "is-archived" : ""}">
-          <a class="target-compact-main" href="${targetHref(target.target_id)}">
-            <span class="target-card-id">${escapeHtml(target.target_id)}</span>
-            <strong>${escapeHtml(target.display_name || target.target_id)}</strong>
-          </a>
-          <div class="target-compact-metrics">
-            <span><small>信源</small>${Number(target.source_count || 0)}</span>
-            <span><small>事件</small>${Number(target.event_count || 0)}</span>
-            <span><small>语言</small>${escapeHtml(target.primary_language || "mixed")}</span>
+    <div class="target-group-list" aria-label="Target 列表">
+      ${groups.map((group) => `
+        <section class="target-management-group" data-target-group="${escapeHtml(group.id)}">
+          <div class="target-management-group-head">
+            <h2>${escapeHtml(group.label)}</h2>
+            <span>${group.targets.length} 个目标</span>
           </div>
-          <div class="target-compact-state">
-            ${lifecycleBadge(target)}
+          <div class="target-compact-list">
+            ${group.targets.map((target) => {
+              const topicLabel = targetTopicLabel(target);
+              return `
+                <article class="target-compact-row ${target.archived ? "is-archived" : ""}">
+                  <a class="target-compact-main" href="${targetHref(target.target_id)}">
+                    <span class="target-card-id">${escapeHtml(target.target_id)}</span>
+                    <strong>${escapeHtml(target.display_name || target.target_id)}</strong>
+                    ${topicLabel ? `<small class="target-topic-label">${escapeHtml(topicLabel)}</small>` : ""}
+                  </a>
+                  <div class="target-compact-metrics">
+                    <span><small>信源</small>${Number(target.source_count || 0)}</span>
+                    <span><small>事件</small>${Number(target.event_count || 0)}</span>
+                    <span><small>语言</small>${escapeHtml(target.primary_language || "mixed")}</span>
+                  </div>
+                  <div class="target-compact-state">
+                    ${targetTypeBadge(target)}
+                    ${lifecycleBadge(target)}
+                  </div>
+                  <div class="target-card-actions">
+                    <a class="btn-primary" href="${targetHref(target.target_id)}">工作台</a>
+                    <a class="btn-secondary" href="#/news/target/${encodeURIComponent(target.target_id)}">公开页</a>
+                    <button class="btn-secondary" data-target-action="${target.archived ? "restore" : "archive"}" data-target-id="${escapeHtml(target.target_id)}" type="button">
+                      ${target.archived ? "恢复" : "归档"}
+                    </button>
+                  </div>
+                </article>`;
+            }).join("")}
           </div>
-          <div class="target-card-actions">
-            <a class="btn-primary" href="${targetHref(target.target_id)}">工作台</a>
-            <a class="btn-secondary" href="#/news/target/${encodeURIComponent(target.target_id)}">公开页</a>
-            <button class="btn-secondary" data-target-action="${target.archived ? "restore" : "archive"}" data-target-id="${escapeHtml(target.target_id)}" type="button">
-              ${target.archived ? "恢复" : "归档"}
-            </button>
-          </div>
-        </article>
+        </section>
       `).join("")}
     </div>
   `;
@@ -235,6 +255,17 @@ function renderTargetCreateForm(targets) {
             <select name="source_target_id">
               ${targets.map((target) => `<option value="${escapeHtml(target.target_id)}">${escapeHtml(target.display_name || target.target_id)}</option>`).join("")}
             </select>
+          </label>
+          <label>
+            Target 类型
+            <select name="monitoring_type" id="targetMonitoringType">
+              <option value="country">国别监控目标</option>
+              <option value="topic">专题监控目标</option>
+            </select>
+          </label>
+          <label class="target-topic-only">
+            专题名称
+            <input name="topic_label" placeholder="涉中舆情">
           </label>
           <label>
             Target ID
@@ -303,10 +334,14 @@ export async function renderTargetsHome(container) {
 
     const modeSelect = container.querySelector("#targetCreateMode");
     const cloneOnly = container.querySelector(".target-clone-only");
+    const typeSelect = container.querySelector("#targetMonitoringType");
+    const topicOnly = container.querySelector(".target-topic-only");
     const syncMode = () => {
       if (cloneOnly) cloneOnly.style.display = modeSelect?.value === "clone" ? "flex" : "none";
+      if (topicOnly) topicOnly.style.display = typeSelect?.value === "topic" ? "flex" : "none";
     };
     modeSelect?.addEventListener("change", syncMode);
+    typeSelect?.addEventListener("change", syncMode);
     syncMode();
 
     container.querySelector("#targetCreateForm")?.addEventListener("submit", async (event) => {
@@ -318,6 +353,10 @@ export async function renderTargetsHome(container) {
         source_target_id: fd.get("mode") === "clone" ? fd.get("source_target_id") : undefined,
         target_id: String(fd.get("target_id") || "").trim(),
         display_name: String(fd.get("display_name") || "").trim(),
+        monitoring_type: String(fd.get("monitoring_type") || "country"),
+        topic_label: String(fd.get("monitoring_type") || "country") === "topic"
+          ? String(fd.get("topic_label") || "").trim()
+          : undefined,
         language_scope: {
           primary: String(fd.get("primary_language") || "").trim(),
           secondary: ["en"],
@@ -489,6 +528,7 @@ function renderOverview(container, targetId, overview) {
 async function renderProfile(container, targetId, overview) {
   const profile = overview.profile || {};
   const language = profile.language_scope || {};
+  const monitoringType = profile.monitoring_type || overview.target?.monitoring_type || "country";
   container.innerHTML = `
     <section class="target-panel">
       <div class="target-panel-head">
@@ -499,6 +539,17 @@ async function renderProfile(container, targetId, overview) {
         <label>
           显示名称
           <input name="display_name" value="${escapeHtml(profile.display_name || "")}" required>
+        </label>
+        <label>
+          Target 类型
+          <select name="monitoring_type" id="targetProfileMonitoringType">
+            <option value="country" ${monitoringType === "country" ? "selected" : ""}>国别监控目标</option>
+            <option value="topic" ${monitoringType === "topic" ? "selected" : ""}>专题监控目标</option>
+          </select>
+        </label>
+        <label class="target-profile-topic-only">
+          专题名称
+          <input name="topic_label" value="${escapeHtml(profile.topic_label || overview.target?.topic_label || "")}" placeholder="涉中舆情">
         </label>
         <label>
           主语言
@@ -529,6 +580,15 @@ async function renderProfile(container, targetId, overview) {
       </button>
     </section>
   `;
+  const profileTypeSelect = container.querySelector("#targetProfileMonitoringType");
+  const profileTopicOnly = container.querySelector(".target-profile-topic-only");
+  const syncProfileType = () => {
+    if (profileTopicOnly) {
+      profileTopicOnly.style.display = profileTypeSelect?.value === "topic" ? "flex" : "none";
+    }
+  };
+  profileTypeSelect?.addEventListener("change", syncProfileType);
+  syncProfileType();
   container.querySelector("#targetProfileForm")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const fd = new FormData(event.currentTarget);
@@ -539,6 +599,10 @@ async function renderProfile(container, targetId, overview) {
     try {
       await apiPatch(`/api/v1/admin/targets/${encodeURIComponent(targetId)}`, {
         display_name: String(fd.get("display_name") || ""),
+        monitoring_type: String(fd.get("monitoring_type") || "country"),
+        topic_label: String(fd.get("monitoring_type") || "country") === "topic"
+          ? String(fd.get("topic_label") || "").trim()
+          : undefined,
         timezone: String(fd.get("timezone") || ""),
         language_scope: {
           primary: String(fd.get("primary") || ""),

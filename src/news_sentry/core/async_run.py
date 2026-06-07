@@ -7,6 +7,7 @@ _run_filter_async/_run_output_async 通过 asyncio.to_thread
 
 import asyncio
 import logging
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,7 @@ from news_sentry.core.run import (
     _build_provider_factory,
     _find_project_root,
     _load_pending_judge_events,
+    _pipeline_ai_calls_enabled,
     _prune_old_logs,
     _run_filter,
     _run_judge,
@@ -48,6 +50,12 @@ try:
     from news_sentry.skills.collect.social_kol_collector import SocialKOLCollector
 except ImportError:
     _SOCIAL_KOL_AVAILABLE = False
+
+
+def _pipeline_translation_enabled() -> bool:
+    """Legacy in-pipeline translation is opt-in; AI enrichment owns default translation."""
+    value = os.environ.get("NEWS_SENTRY_PIPELINE_TRANSLATE", "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 logger = logging.getLogger(__name__)
 
@@ -226,11 +234,42 @@ async def _run_collect_async(
     t0 = datetime.now(UTC)
     semaphore = asyncio.Semaphore(max_concurrent)
     all_events: list[NewsEvent] = []
+    source_timings: list[dict[str, Any]] = []
 
-    async def _collect_one(source_cfg: dict[str, object]) -> list[NewsEvent]:
+    def _elapsed_ms(started_at: datetime) -> float:
+        return round((datetime.now(UTC) - started_at).total_seconds() * 1000, 3)
+
+    def _source_metric(
+        *,
+        source_id: str,
+        source_type: str,
+        status: str,
+        started_at: datetime,
+        items_count: int = 0,
+        error: str | None = None,
+    ) -> dict[str, Any]:
+        metric: dict[str, Any] = {
+            "source_id": source_id,
+            "source_type": source_type,
+            "status": status,
+            "items_count": items_count,
+            "duration_ms": _elapsed_ms(started_at),
+        }
+        if error:
+            metric["error"] = error[:500]
+        return metric
+
+    async def _collect_one(source_cfg: dict[str, object]) -> tuple[list[NewsEvent], dict[str, Any]]:
+        started_at = datetime.now(UTC)
         source_id = str(source_cfg.get("source_id", "?"))
+        source_type = str(source_cfg.get("type", "rss"))
         if source_cfg.get("enabled") is False:
-            return []
+            return [], _source_metric(
+                source_id=source_id,
+                source_type=source_type,
+                status="disabled",
+                started_at=started_at,
+            )
         if memory.is_source_degraded(source_id):
             health = memory.get_source_health(source_id)
             cf = health.get("consecutive_failures", 0)
@@ -241,7 +280,12 @@ async def _run_collect_async(
                     source_id,
                     f"degraded (consecutive_failures={cf})",
                 )
-                return []
+                return [], _source_metric(
+                    source_id=source_id,
+                    source_type=source_type,
+                    status="degraded_skipped",
+                    started_at=started_at,
+                )
             run_log.log_event(
                 "collect",
                 source_id,
@@ -249,7 +293,6 @@ async def _run_collect_async(
             )
 
         async with semaphore:
-            source_type = source_cfg.get("type", "rss")
             source_cfg["target_id"] = config.target_id
             try:
                 if source_type == "api":
@@ -263,7 +306,13 @@ async def _run_collect_async(
                 for evt in events:
                     run_log.log_event("collect", evt.id, "collected")
                 memory.record_source_health(source_id, success=True, run_id=run_id)
-                return events
+                return events, _source_metric(
+                    source_id=source_id,
+                    source_type=source_type,
+                    status="success",
+                    started_at=started_at,
+                    items_count=len(events),
+                )
             except Exception as e:
                 run_log.log_error("collect", str(e), event_id=source_id)
                 memory.record_source_health(
@@ -272,7 +321,13 @@ async def _run_collect_async(
                     error_msg=str(e),
                     run_id=run_id,
                 )
-                return []
+                return [], _source_metric(
+                    source_id=source_id,
+                    source_type=source_type,
+                    status="failed",
+                    started_at=started_at,
+                    error=str(e),
+                )
 
     should_close = http_client is None
     client = http_client or httpx.AsyncClient(timeout=30.0)
@@ -283,8 +338,11 @@ async def _run_collect_async(
             return_exceptions=True,
         )
         for result in results:
-            if isinstance(result, list):
-                all_events.extend(result)
+            if isinstance(result, Exception):
+                continue
+            events, metric = result
+            all_events.extend(events)
+            source_timings.append(metric)
     finally:
         if should_close:
             await client.aclose()
@@ -309,6 +367,29 @@ async def _run_collect_async(
 
     ctx.events_collected = len(all_events)
     duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
+    active_source_timings = [
+        item for item in source_timings if item.get("status") not in {"disabled"}
+    ]
+    slow_sources = sorted(
+        active_source_timings,
+        key=lambda item: float(item.get("duration_ms") or 0),
+        reverse=True,
+    )[:10]
+    run_log.log_phase_metrics(
+        "collect",
+        {
+            "sources_total": len(source_timings),
+            "sources_succeeded": sum(1 for item in source_timings if item["status"] == "success"),
+            "sources_failed": sum(1 for item in source_timings if item["status"] == "failed"),
+            "sources_skipped": sum(
+                1
+                for item in source_timings
+                if item["status"] in {"disabled", "degraded_skipped"}
+            ),
+            "source_timings": source_timings,
+            "slow_sources": slow_sources,
+        },
+    )
     run_log.log_phase_end("collect", len(all_events), duration_ms)
     return all_events
 
@@ -321,6 +402,13 @@ async def _translate_filtered_async(
 ) -> int:
     """仅对本次过滤入选事件做轻量预翻译，避免 raw feed 触发 AI 调用风暴。"""
     if not events:
+        return 0
+    if not _pipeline_translation_enabled():
+        run_log.log_event(
+            "filter",
+            "ai_enrichment_worker",
+            f"filtered_title_pre queued_for_worker={len(events)}",
+        )
         return 0
 
     lang_primary = (
@@ -349,6 +437,38 @@ async def _translate_filtered_async(
     except Exception as e:
         logger.warning("过滤后批处理翻译失败，跳过本轮预翻译: %s", e)
         return 0
+
+
+async def _run_rules_judge_async(
+    config: ResolvedConfig,
+    run_id: str,
+    run_log: RunLog,
+    file_writer: FileWriter,
+    memory: Memory,
+    ctx: PipelineContext,
+    events: list[NewsEvent],
+) -> list[NewsEvent]:
+    """Rules-only judge path used when remote pipeline AI is disabled."""
+    run_log.log_phase_start("judge")
+    t0 = datetime.now(UTC)
+    rules_judge = RulesJudgeSkill(config.classification_rules, memory)
+    judged = rules_judge.judge(events, run_id)
+    for event in judged:
+        try:
+            file_writer.write_event(event)
+            run_log.log_event("judge", event.id, "judged_rules_only")
+        except Exception as e:
+            run_log.log_error("judge", str(e), event_id=event.id)
+    ctx.events_judged = len(events)
+    run_log.log_event(
+        "judge",
+        "ai_enrichment_worker",
+        f"remote_ai_judge_skipped={len(events)}",
+    )
+    duration_ms = (datetime.now(UTC) - t0).total_seconds() * 1000
+    run_log.log_phase_end("judge", len(events), duration_ms)
+    logger.info("规则研判完成: total=%d remote_ai_skipped=%d", len(events), len(events))
+    return judged
 
 
 async def _collect_social_sources(
@@ -451,6 +571,16 @@ async def _run_judge_async(
         run_log.log_phase_start("judge")
         run_log.log_phase_end("judge", 0, 0)
         return []
+    if not _pipeline_ai_calls_enabled():
+        return await _run_rules_judge_async(
+            config,
+            run_id,
+            run_log,
+            file_writer,
+            memory,
+            ctx,
+            events,
+        )
 
     provider_router = _try_create_provider_router()
     if provider_router is None:

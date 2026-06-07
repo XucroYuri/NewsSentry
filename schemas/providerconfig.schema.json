@@ -17,7 +17,16 @@
         },
         "task_type": {
           "type": "string",
-          "enum": ["translate", "judge", "classify", "summarize", "nlp"]
+          "enum": [
+            "translate",
+            "judge",
+            "classify",
+            "summarize",
+            "nlp",
+            "cluster",
+            "judge_review",
+            "ai_enrichment"
+          ]
         },
         "provider": { "type": "string" },
         "model": { "type": "string" },

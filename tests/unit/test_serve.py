@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import platform
 import signal
 import subprocess
 import sys
 import time
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from unittest.mock import patch
 
@@ -16,7 +18,7 @@ import uvicorn  # noqa: F401 — 确保 uvicorn 可被 patch("uvicorn.run") 解�
 from click.testing import CliRunner
 
 from news_sentry.cli import main
-from news_sentry.cli.serve import _load_env_file, _pid_alive
+from news_sentry.cli.serve import _load_env_file, _pid_alive, _setup_log_file
 
 # ------------------------------------------------------------------
 # _load_env_file
@@ -961,6 +963,38 @@ class TestLogsCommand:
         result = runner.invoke(main, ["logs", "--log-dir", str(tmp_path / "nonexistent")])
         assert result.exit_code == 1
         assert "not found" in result.output.lower()
+
+    def test_setup_log_file_uses_rotation_without_duplicate_handlers(
+        self, tmp_path: Path
+    ) -> None:
+        """serve.log 必须滚动写入，重复 setup 不能叠加同一路径 handler。"""
+        log_dir = tmp_path / "logs"
+        log_file = log_dir / "serve.log"
+        loggers = [
+            logging.getLogger(name)
+            for name in ("uvicorn", "uvicorn.error", "uvicorn.access", "news_sentry")
+        ]
+        before = {logger: list(logger.handlers) for logger in loggers}
+        try:
+            _setup_log_file(log_file, log_dir)
+            _setup_log_file(log_file, log_dir)
+
+            for logger in loggers:
+                matching = [
+                    handler
+                    for handler in logger.handlers
+                    if isinstance(handler, RotatingFileHandler)
+                    and Path(handler.baseFilename) == log_file
+                ]
+                assert len(matching) == 1
+                assert matching[0].maxBytes >= 5 * 1024 * 1024
+                assert matching[0].backupCount >= 3
+        finally:
+            for logger in loggers:
+                for handler in list(logger.handlers):
+                    if handler not in before[logger]:
+                        logger.removeHandler(handler)
+                        handler.close()
 
     def test_logs_default_lines_50(self, tmp_path: Path) -> None:
         """默认显示 50 行。"""

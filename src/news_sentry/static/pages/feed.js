@@ -6,6 +6,7 @@
 import { state, api, escapeHtml, scoreColor, isAuthenticated } from "../api.js";
 import { CHANNELS, filterGroups, countEvents, channelsWithCounts } from "./feed_filters.js";
 import { adminEventHref, channelPortalHref, targetAnalysisHref, targetEventHref, targetPortalHref } from "./public_portal.js";
+import { groupTargetsByKind, targetTopicLabel } from "./target_groups.js";
 
 // ── 推荐标签映射 ──
 const REC_LABELS = {
@@ -134,6 +135,13 @@ function eventTitle(ev) {
   return escapeHtml(ev.display_title || ev.title_translated || ev.title_original || ev.id || "无标题");
 }
 
+function eventOriginalTitle(ev) {
+  const original = ev.original_title || ev.title_original || "";
+  const display = ev.display_title || ev.title_translated || "";
+  if (!original || !display || original === display) return "";
+  return escapeHtml(original);
+}
+
 function eventSummary(ev) {
   return escapeHtml(ev.summary || ev.description || "");
 }
@@ -203,6 +211,7 @@ async function ensurePublicTargets() {
 
 export function renderPublicHome(container, targets = state.targets || [], options = {}) {
   const sortedTargets = [...targets].sort((a, b) => Number(b.event_count || 0) - Number(a.event_count || 0));
+  const targetGroups = groupTargetsByKind(sortedTargets);
 
   if (!sortedTargets.length) {
     if (!options.afterFallback) {
@@ -252,23 +261,37 @@ export function renderPublicHome(container, targets = state.targets || [], optio
         <h1>新闻情报频道</h1>
         <p>选择一个监控目标，直接进入频道化新闻流。</p>
       </div>
-      <div class="public-target-grid">
-        ${sortedTargets.map((target) => {
-          const href = targetPortalHref(target.target_id);
-          const eventCount = Number(target.event_count || 0);
-          return `
-            <a class="public-target-card" href="${href}">
-              <div class="public-target-card-main">
-                <span class="public-target-id">${escapeHtml(target.target_id)}</span>
-                <h2>${escapeHtml(target.display_name || target.target_id)}</h2>
-                <p>${escapeHtml(target.primary_language || "mixed")} · ${Number(target.source_count || 0)} 个信源</p>
-              </div>
-              <div class="public-target-count">
-                <strong>${eventCount}</strong>
-                <span>事件</span>
-              </div>
-            </a>`;
-        }).join("")}
+      <div class="public-target-sections">
+        ${targetGroups.map((group) => `
+          <section class="public-target-section" data-target-group="${escapeHtml(group.id)}">
+            <div class="public-target-section-head">
+              <h2>${escapeHtml(group.label)}</h2>
+              <span>${group.targets.length} 个目标</span>
+            </div>
+            <div class="public-target-grid">
+              ${group.targets.map((target) => {
+                const href = targetPortalHref(target.target_id);
+                const eventCount = Number(target.event_count || 0);
+                const topicLabel = targetTopicLabel(target);
+                return `
+                  <a class="public-target-card" href="${href}">
+                    <div class="public-target-card-main">
+                      <span class="public-target-id">${escapeHtml(target.target_id)}</span>
+                      <h2>${escapeHtml(target.display_name || target.target_id)}</h2>
+                      <p class="public-target-meta">
+                        ${topicLabel ? `<span class="public-target-topic">${escapeHtml(topicLabel)}</span>` : ""}
+                        <span>${escapeHtml(target.primary_language || "mixed")} · ${Number(target.source_count || 0)} 个信源</span>
+                      </p>
+                    </div>
+                    <div class="public-target-count">
+                      <strong>${eventCount}</strong>
+                      <span>事件</span>
+                    </div>
+                  </a>`;
+              }).join("")}
+            </div>
+          </section>
+        `).join("")}
       </div>
     </section>`;
 }
@@ -326,6 +349,7 @@ export function renderTimeline(date, events, sourceMap, options = {}) {
   const items = events.map((ev) => {
     const score = eventScore(ev);
     const title = eventTitle(ev);
+    const originalTitle = eventOriginalTitle(ev);
     const summary = eventSummary(ev);
     const sid = ev.source_id || "";
     const si = sourceInfoFor(ev, sourceMap);
@@ -341,6 +365,7 @@ export function renderTimeline(date, events, sourceMap, options = {}) {
           ${scoreLabel(score)}
         </div>
         <a class="feed-item-title" href="${href}">${title}</a>
+        ${originalTitle ? `<div class="feed-item-original-title">${originalTitle}</div>` : ""}
         ${summary ? `<div class="feed-item-summary">${summary}</div>` : ""}
         <div class="feed-item-meta">
           ${flatTags(ev)}
@@ -363,6 +388,7 @@ export function renderCompact(date, events, sourceMap, options = {}) {
   const rows = events.map((ev) => {
     const score = eventScore(ev);
     const title = eventTitle(ev);
+    const originalTitle = eventOriginalTitle(ev);
     const sid = ev.source_id || "";
     const si = sourceInfoFor(ev, sourceMap);
     const href = eventHref(ev, options.targetId, options.publicMode !== false);
@@ -370,7 +396,7 @@ export function renderCompact(date, events, sourceMap, options = {}) {
     return `<div class="feed-compact-row">
       <span class="feed-compact-time">${eventTime(ev)}</span>
       <span class="feed-compact-src">${escapeHtml((si?.name || sid || "—").substring(0, 12))}</span>
-      <a class="feed-compact-title" href="${href}">${title}</a>
+      <a class="feed-compact-title" href="${href}" title="${originalTitle}">${title}</a>
       ${flatTags(ev)}
       ${storyBadge(ev)}
       ${scoreLabel(score)}

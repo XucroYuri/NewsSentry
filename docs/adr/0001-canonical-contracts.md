@@ -40,7 +40,7 @@ collected | filtered | judged | outputted
 ne-{target_id}-{source_id}-{yyyymmdd}-{hash8}
 ```
 
-其中 `hash8` 由 `source_url + collected_at` 的 SHA-256 前 8 位十六进制生成。
+其中 `hash8` 由 `target_id + source_id + url_or_title + published_at_iso` 的 SHA-256 前 8 位十六进制生成。
 
 ### D3：分值量纲
 

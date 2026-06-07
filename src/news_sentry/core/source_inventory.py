@@ -260,7 +260,8 @@ class SourceInventoryService:
         url_val = source.get("url")
         if url_val is None and isinstance(source.get("endpoint"), dict):
             url_val = source["endpoint"].get("url")
-        accounts = source.get("accounts") if isinstance(source.get("accounts"), list) else []
+        raw_accounts = source.get("accounts")
+        accounts: list[Any] = raw_accounts if isinstance(raw_accounts, list) else []
         return {
             "source_ref": source_ref,
             "source_id": source_id,

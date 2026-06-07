@@ -332,6 +332,31 @@ CREATE TABLE IF NOT EXISTS projection_runs (
 )
 """
 
+_DDL_AI_ENRICHMENT_USAGE = """
+CREATE TABLE IF NOT EXISTS ai_enrichment_usage (
+    usage_date TEXT PRIMARY KEY,
+    request_count INTEGER NOT NULL DEFAULT 0,
+    cooldown_until TEXT,
+    last_error TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
+_DDL_AI_ENRICHMENT_EVENTS = """
+CREATE TABLE IF NOT EXISTS ai_enrichment_events (
+    target_id TEXT NOT NULL,
+    event_id TEXT NOT NULL,
+    field_hash TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    model TEXT,
+    route_id TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (target_id, event_id)
+)
+"""
+
 # Schema 迁移 — 版本化 DDL 变更，确保已有数据库自动升级
 _DDL_SCHEMA_VERSION = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -408,6 +433,11 @@ _SCHEMA_MIGRATIONS: list[tuple[int, str, list[str]]] = [
         "create canonical graph operation log",
         [_DDL_CANONICAL_GRAPH_OPERATIONS],
     ),
+    (
+        10,
+        "create AI enrichment state tables",
+        [_DDL_AI_ENRICHMENT_USAGE, _DDL_AI_ENRICHMENT_EVENTS],
+    ),
 ]
 
 _DDL_INDEXES = (
@@ -463,6 +493,8 @@ _DDL_INDEXES = (
     "ON research_artifacts(target_id, artifact_type, status, updated_at)",
     "CREATE INDEX IF NOT EXISTS idx_projection_runs_target_created "
     "ON projection_runs(target_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_ai_enrichment_events_status "
+    "ON ai_enrichment_events(target_id, status, updated_at)",
 )
 
 _RESEARCH_ARTIFACT_COLUMNS = (
@@ -544,6 +576,8 @@ class AsyncStore:
         await self._db.execute(_DDL_USERS)
         await self._db.execute(_DDL_SESSIONS)
         await self._db.execute(_DDL_NOTIFICATIONS)
+        await self._db.execute(_DDL_AI_ENRICHMENT_USAGE)
+        await self._db.execute(_DDL_AI_ENRICHMENT_EVENTS)
         await self._db.execute(_DDL_SCHEMA_VERSION)
         await self._migrate_schema()
         await self._cleanup_duplicate_canonical_graph_operation_artifacts()
@@ -606,10 +640,13 @@ class AsyncStore:
     @asynccontextmanager
     async def _connect(self) -> AsyncIterator[aiosqlite.Connection]:
         """返回当前 AsyncStore 连接，供底层存储测试和内部查询复用。"""
+        yield await self._ensure_db()
+
+    async def _ensure_db(self) -> aiosqlite.Connection:
         if self._db is None:
             await self.initialize()
         assert self._db is not None
-        yield self._db
+        return self._db
 
     def _json_dumps(self, value: Any) -> str:  # noqa: ANN401
         return json.dumps(value or {}, ensure_ascii=False, sort_keys=True)
@@ -622,6 +659,18 @@ class AsyncStore:
         except (json.JSONDecodeError, TypeError):
             return {}
         return parsed if isinstance(parsed, dict) else {}
+
+    def _deep_merge_dict(self, base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+        merged = dict(base)
+        for key, value in patch.items():
+            if (
+                isinstance(value, dict)
+                and isinstance(merged.get(key), dict)
+            ):
+                merged[key] = self._deep_merge_dict(merged[key], value)
+            else:
+                merged[key] = value
+        return merged
 
     def _row_with_metadata(self, columns: tuple[str, ...], row: Any) -> dict[str, Any]:  # noqa: ANN401
         item = dict(zip(columns, row, strict=True))
@@ -1142,7 +1191,7 @@ class AsyncStore:
         data_sql = (
             "SELECT event_id, source_id, news_value_score, china_relevance, "  # noqa: S608
             "classification_l0, published_at, file_path, title_original, "
-            "sentiment, entity_names, topic_tags "
+            "sentiment, entity_names, topic_tags, metadata_json "
             f"FROM event_index WHERE {where} "
             "ORDER BY published_at DESC LIMIT ? OFFSET ?"
         )
@@ -1164,6 +1213,7 @@ class AsyncStore:
                     "sentiment": r[8],
                     "entity_names": r[9],
                     "topic_tags": r[10],
+                    "metadata": self._json_loads(r[11]),
                 }
             )
 
@@ -1283,7 +1333,7 @@ class AsyncStore:
             """SELECT event_id, target_id, stage, source_id,
                       news_value_score, china_relevance, classification_l0,
                       title_original, published_at, file_path, sentiment,
-                      entity_names, topic_tags, created_at
+                      entity_names, topic_tags, metadata_json, created_at
                FROM event_index
                WHERE target_id = ? AND event_id = ?""",
             (target_id, event_id),
@@ -1305,9 +1355,126 @@ class AsyncStore:
             "sentiment",
             "entity_names",
             "topic_tags",
+            "metadata_json",
             "created_at",
         )
-        return dict(zip(cols, row, strict=True))
+        item = dict(zip(cols, row, strict=True))
+        item["metadata"] = self._json_loads(item.pop("metadata_json", None))
+        return item
+
+    async def update_event_metadata(
+        self,
+        target_id: str,
+        event_id: str,
+        metadata_patch: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Merge metadata patch into event_index.metadata_json for one event."""
+        db = await self._ensure_db()
+        async with db.execute(
+            "SELECT metadata_json FROM event_index WHERE target_id = ? AND event_id = ?",
+            (target_id, event_id),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None:
+            return None
+        existing = self._json_loads(row[0])
+        merged = self._deep_merge_dict(existing, metadata_patch)
+        await db.execute(
+            "UPDATE event_index SET metadata_json = ? WHERE target_id = ? AND event_id = ?",
+            (self._json_dumps(merged), target_id, event_id),
+        )
+        await db.commit()
+        return merged
+
+    async def get_ai_enrichment_usage(self, usage_date: str) -> dict[str, Any]:
+        db = await self._ensure_db()
+        async with db.execute(
+            """SELECT usage_date, request_count, cooldown_until, last_error, updated_at
+               FROM ai_enrichment_usage WHERE usage_date = ?""",
+            (usage_date,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if row is None:
+            return {
+                "usage_date": usage_date,
+                "request_count": 0,
+                "cooldown_until": None,
+                "last_error": None,
+                "updated_at": None,
+            }
+        return {
+            "usage_date": row[0],
+            "request_count": int(row[1] or 0),
+            "cooldown_until": row[2],
+            "last_error": row[3],
+            "updated_at": row[4],
+        }
+
+    async def increment_ai_enrichment_usage(
+        self,
+        usage_date: str,
+        request_count: int,
+    ) -> None:
+        db = await self._ensure_db()
+        await db.execute(
+            """INSERT INTO ai_enrichment_usage
+               (usage_date, request_count, updated_at)
+               VALUES (?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(usage_date) DO UPDATE SET
+                   request_count = request_count + excluded.request_count,
+                   updated_at = CURRENT_TIMESTAMP""",
+            (usage_date, max(0, int(request_count))),
+        )
+        await db.commit()
+
+    async def set_ai_enrichment_cooldown(
+        self,
+        usage_date: str,
+        cooldown_until: str | None,
+        last_error: str | None = None,
+    ) -> None:
+        db = await self._ensure_db()
+        await db.execute(
+            """INSERT INTO ai_enrichment_usage
+               (usage_date, request_count, cooldown_until, last_error, updated_at)
+               VALUES (?, 0, ?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(usage_date) DO UPDATE SET
+                   cooldown_until = excluded.cooldown_until,
+                   last_error = excluded.last_error,
+                   updated_at = CURRENT_TIMESTAMP""",
+            (usage_date, cooldown_until, last_error),
+        )
+        await db.commit()
+
+    async def record_ai_enrichment_event(
+        self,
+        target_id: str,
+        event_id: str,
+        *,
+        field_hash: str | None = None,
+        status: str = "completed",
+        attempts: int = 1,
+        last_error: str | None = None,
+        model: str | None = None,
+        route_id: str | None = None,
+    ) -> None:
+        db = await self._ensure_db()
+        await db.execute(
+            """INSERT INTO ai_enrichment_events
+               (target_id, event_id, field_hash, status, attempts, last_error, model, route_id,
+                updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(target_id, event_id) DO UPDATE SET
+                   field_hash = excluded.field_hash,
+                   status = excluded.status,
+                   attempts = ai_enrichment_events.attempts + excluded.attempts,
+                   last_error = excluded.last_error,
+                   model = excluded.model,
+                   route_id = excluded.route_id,
+                   updated_at = CURRENT_TIMESTAMP""",
+            (target_id, event_id, field_hash, status, attempts, last_error, model, route_id),
+        )
+        await db.commit()
 
     # ------------------------------------------------------------------
     # Shadow Canonical Store
@@ -2066,13 +2233,16 @@ class AsyncStore:
         self,
         canonical_event_ids: Sequence[str],
     ) -> dict[str, int]:
+        db = await self._ensure_db()
         counts: dict[str, int] = {}
         for canonical_event_id in canonical_event_ids:
-            rows = await self._db.execute_fetchall(
-                """SELECT COUNT(*)
-                   FROM event_mentions
-                   WHERE canonical_event_id = ?""",
-                (canonical_event_id,),
+            rows = list(
+                await db.execute_fetchall(
+                    """SELECT COUNT(*)
+                       FROM event_mentions
+                       WHERE canonical_event_id = ?""",
+                    (canonical_event_id,),
+                )
             )
             counts[canonical_event_id] = int(rows[0][0] or 0)
         return counts
@@ -2117,14 +2287,17 @@ class AsyncStore:
             return ensure_matching(operation, operation_id)
         if decision_artifact_id is None:
             return None
-        rows = await self._db.execute_fetchall(
-            """SELECT operation_id, target_id, operation_type, decision_artifact_id,
-                      primary_canonical_event_id, result_canonical_event_id, status,
-                      changes_json, warnings_json, metadata_json, created_by, created_at
-               FROM canonical_graph_operations
-               WHERE target_id = ? AND decision_artifact_id = ?
-               LIMIT 1""",
-            (target_id, decision_artifact_id),
+        db = await self._ensure_db()
+        rows = list(
+            await db.execute_fetchall(
+                """SELECT operation_id, target_id, operation_type, decision_artifact_id,
+                          primary_canonical_event_id, result_canonical_event_id, status,
+                          changes_json, warnings_json, metadata_json, created_by, created_at
+                   FROM canonical_graph_operations
+                   WHERE target_id = ? AND decision_artifact_id = ?
+                   LIMIT 1""",
+                (target_id, decision_artifact_id),
+            )
         )
         if not rows:
             return None
@@ -2147,7 +2320,11 @@ class AsyncStore:
         if not isinstance(merged, list):
             return []
         return AsyncStore._canonical_merge_event_ids(
-            [event.get("canonical_event_id") for event in merged if isinstance(event, dict)]
+            [
+                str(event["canonical_event_id"])
+                for event in merged
+                if isinstance(event, dict) and event.get("canonical_event_id")
+            ]
         )
 
     @staticmethod
@@ -2197,12 +2374,13 @@ class AsyncStore:
         return metadata_merged_ids == request_merged_ids
 
     async def _apply_canonical_merge_plan(self, plan: dict[str, Any]) -> None:
+        db = await self._ensure_db()
         operation_id = plan["operation_id"]
         target_id = plan["target_id"]
         survivor_id = plan["survivor"]["canonical_event_id"]
         merged_ids = [event["canonical_event_id"] for event in plan["merged_events"]]
         for merged_id in merged_ids:
-            await self._db.execute(
+            await db.execute(
                 """UPDATE event_mentions
                    SET canonical_event_id = ?, updated_at = CURRENT_TIMESTAMP
                    WHERE target_id = ? AND canonical_event_id = ?""",
@@ -2214,7 +2392,7 @@ class AsyncStore:
             metadata.setdefault("previous_status", event["status"])
             metadata["merged_into"] = survivor_id
             metadata["merged_operation_id"] = operation_id
-            await self._db.execute(
+            await db.execute(
                 """UPDATE canonical_events
                    SET status = 'merged',
                        metadata_json = ?,
@@ -2222,7 +2400,7 @@ class AsyncStore:
                    WHERE canonical_event_id = ? AND target_id = ?""",
                 (self._json_dumps(metadata), event["canonical_event_id"], target_id),
             )
-            await self._db.execute(
+            await db.execute(
                 """INSERT INTO canonical_event_relations
                    (relation_id, source_canonical_event_id, target_canonical_event_id,
                     relation_type, confidence, metadata_json)
@@ -2257,7 +2435,7 @@ class AsyncStore:
         survivor_metadata["last_graph_operation_id"] = operation_id
         survivor_title = plan["title_override"]
         survivor_summary = plan["summary_override"]
-        await self._db.execute(
+        await db.execute(
             """UPDATE canonical_events
                SET title = ?,
                    summary = ?,
@@ -2279,7 +2457,7 @@ class AsyncStore:
             artifact_metadata["applied_operation_id"] = operation_id
             artifact_metadata["applied_at"] = datetime.now(UTC).isoformat()
             artifact_metadata["applied_by"] = plan["created_by"]
-            await self._db.execute(
+            await db.execute(
                 """UPDATE research_artifacts
                    SET status = 'resolved',
                        metadata_json = ?,
@@ -2288,7 +2466,7 @@ class AsyncStore:
                 (self._json_dumps(artifact_metadata), artifact["artifact_id"], target_id),
             )
 
-        await self._db.execute(
+        await db.execute(
             """INSERT INTO canonical_graph_operations
                (operation_id, target_id, operation_type, decision_artifact_id,
                 primary_canonical_event_id, result_canonical_event_id, status,
@@ -2327,12 +2505,15 @@ class AsyncStore:
         self,
         survivor_canonical_event_id: str,
     ) -> dict[str, Any]:
-        rows = await self._db.execute_fetchall(
-            """SELECT COUNT(*), COUNT(DISTINCT source_id),
-                      MAX(COALESCE(published_at, updated_at, created_at))
-               FROM event_mentions
-               WHERE canonical_event_id = ?""",
-            (survivor_canonical_event_id,),
+        db = await self._ensure_db()
+        rows = list(
+            await db.execute_fetchall(
+                """SELECT COUNT(*), COUNT(DISTINCT source_id),
+                          MAX(COALESCE(published_at, updated_at, created_at))
+                   FROM event_mentions
+                   WHERE canonical_event_id = ?""",
+                (survivor_canonical_event_id,),
+            )
         )
         if not rows:
             return {"mention_count": 0, "source_count": 0, "last_seen_at": None}
@@ -2747,14 +2928,17 @@ class AsyncStore:
         affected_mention_ids: Sequence[str],
         source_mentions: Sequence[dict[str, Any]],
     ) -> list[dict[str, Any]]:
+        db = await self._ensure_db()
         rows_by_id: dict[str, dict[str, Any]] = {}
         for mention_id in affected_mention_ids:
-            rows = await self._db.execute_fetchall(
-                """SELECT mention_id, canonical_event_id, event_id, target_id, source_id,
-                          url, title, published_at, metadata_json, created_at, updated_at
-                   FROM event_mentions
-                   WHERE mention_id = ?""",
-                (mention_id,),
+            rows = list(
+                await db.execute_fetchall(
+                    """SELECT mention_id, canonical_event_id, event_id, target_id, source_id,
+                              url, title, published_at, metadata_json, created_at, updated_at
+                       FROM event_mentions
+                       WHERE mention_id = ?""",
+                    (mention_id,),
+                )
             )
             if not rows:
                 raise ValueError(f"event mention not found: {mention_id}")
@@ -2854,14 +3038,17 @@ class AsyncStore:
             return ensure_matching(operation, operation_id)
         if decision_artifact_id is None:
             return None
-        rows = await self._db.execute_fetchall(
-            """SELECT operation_id, target_id, operation_type, decision_artifact_id,
-                      primary_canonical_event_id, result_canonical_event_id, status,
-                      changes_json, warnings_json, metadata_json, created_by, created_at
-               FROM canonical_graph_operations
-               WHERE target_id = ? AND decision_artifact_id = ?
-               LIMIT 1""",
-            (target_id, decision_artifact_id),
+        db = await self._ensure_db()
+        rows = list(
+            await db.execute_fetchall(
+                """SELECT operation_id, target_id, operation_type, decision_artifact_id,
+                          primary_canonical_event_id, result_canonical_event_id, status,
+                          changes_json, warnings_json, metadata_json, created_by, created_at
+                   FROM canonical_graph_operations
+                   WHERE target_id = ? AND decision_artifact_id = ?
+                   LIMIT 1""",
+                (target_id, decision_artifact_id),
+            )
         )
         if not rows:
             return None
@@ -2903,13 +3090,14 @@ class AsyncStore:
         ) == AsyncStore._canonical_split_mention_ids(affected_mention_ids)
 
     async def _apply_canonical_split_plan(self, plan: dict[str, Any]) -> None:
+        db = await self._ensure_db()
         operation_id = plan["operation_id"]
         target_id = plan["target_id"]
         source_id = plan["source"]["canonical_event_id"]
         created_event = plan["created_event"]
         created_id = created_event["canonical_event_id"]
         created_metadata = dict(created_event["metadata"])
-        await self._db.execute(
+        await db.execute(
             """INSERT INTO canonical_events
                (canonical_event_id, target_id, title, summary, event_time,
                 status, confidence, metadata_json)
@@ -2938,14 +3126,14 @@ class AsyncStore:
         affected_ids = [mention["mention_id"] for mention in plan["affected_mentions"]]
         canonical_affected_ids = self._canonical_split_mention_ids(affected_ids)
         for mention_id in affected_ids:
-            await self._db.execute(
+            await db.execute(
                 """UPDATE event_mentions
                    SET canonical_event_id = ?, updated_at = CURRENT_TIMESTAMP
                    WHERE target_id = ? AND canonical_event_id = ? AND mention_id = ?""",
                 (created_id, target_id, source_id, mention_id),
             )
 
-        await self._db.execute(
+        await db.execute(
             """INSERT INTO canonical_event_relations
                (relation_id, source_canonical_event_id, target_canonical_event_id,
                 relation_type, confidence, metadata_json)
@@ -2978,7 +3166,7 @@ class AsyncStore:
         if source_stats["last_seen_at"] is not None:
             source_metadata["last_seen_at"] = source_stats["last_seen_at"]
         source_metadata["last_graph_operation_id"] = operation_id
-        await self._db.execute(
+        await db.execute(
             """UPDATE canonical_events
                SET metadata_json = ?,
                    updated_at = CURRENT_TIMESTAMP
@@ -2992,7 +3180,7 @@ class AsyncStore:
         if created_stats["last_seen_at"] is not None:
             created_metadata["last_seen_at"] = created_stats["last_seen_at"]
         created_metadata["last_graph_operation_id"] = operation_id
-        await self._db.execute(
+        await db.execute(
             """UPDATE canonical_events
                SET metadata_json = ?,
                    updated_at = CURRENT_TIMESTAMP
@@ -3006,7 +3194,7 @@ class AsyncStore:
             artifact_metadata["applied_operation_id"] = operation_id
             artifact_metadata["applied_at"] = datetime.now(UTC).isoformat()
             artifact_metadata["applied_by"] = plan["created_by"]
-            await self._db.execute(
+            await db.execute(
                 """UPDATE research_artifacts
                    SET status = 'resolved',
                        metadata_json = ?,
@@ -3015,7 +3203,7 @@ class AsyncStore:
                 (self._json_dumps(artifact_metadata), artifact["artifact_id"], target_id),
             )
 
-        await self._db.execute(
+        await db.execute(
             """INSERT INTO canonical_graph_operations
                (operation_id, target_id, operation_type, decision_artifact_id,
                 primary_canonical_event_id, result_canonical_event_id, status,

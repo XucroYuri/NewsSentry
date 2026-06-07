@@ -135,7 +135,7 @@ flowchart LR
 | `docs/contracts-canonical.md` | **口径规范基准** | 字段命名、分值量纲、目录映射、pipeline_stage 枚举的唯一权威来源 |
 | `docs/architecture.md` | **架构总览** | 系统架构、数据流、目录结构 |
 | `docs/external-integration-strategy.md` | **外部接入策略** | OpenCLI 接入原则、ToolManifest 骨架意图 |
-| `schemas/` (14 份 JSON Schema) | **机器可读契约** | 与 contracts-canonical.md 双向绑定 (ADR-0014) |
+| `schemas/` (18 份 JSON Schema) | **机器可读契约** | 与 contracts-canonical.md 双向绑定 (ADR-0014) |
 | `config/` | **运行时配置骨架** | 各国参数独立封装 (ADR-0015) |
 | `src/news_sentry/` | **Python 实现** | Python 3.11+ / Pydantic v2 (ADR-0012, ADR-0013) |
 

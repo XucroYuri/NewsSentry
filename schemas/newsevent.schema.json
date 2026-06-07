@@ -121,7 +121,7 @@
   "properties": {
     "id": {
       "type": "string",
-      "description": "Deterministic sha256 hash of '{source_id}|{url}|{published_at_iso}'"
+      "description": "Deterministic sha256 hash of '{target_id}|{source_id}|{url_or_title}|{published_at_iso}'"
     },
     "run_id": {
       "type": "string",

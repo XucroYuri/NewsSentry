@@ -74,11 +74,10 @@ PUBLIC_CHANNEL_TERMS: dict[str, set[str]] = {
     },
     "china": {
         "china-related",
-        "china-italy-bilateral",
-        "bri-italy",
         "chinese-investment",
         "china-eu-policy",
         "chinese-community",
+        "belt-and-road",
     },
 }
 
@@ -145,7 +144,13 @@ def classification_terms(classification: dict[str, Any] | None) -> list[str]:
 
 def public_channel_for_terms(terms: Iterable[str]) -> str | None:
     normalized = {canonical_l0(term) for term in terms if term}
+    if any(_is_china_related_term(term) for term in normalized):
+        return "china"
     for channel, channel_terms in PUBLIC_CHANNEL_TERMS.items():
         if normalized & channel_terms:
             return channel
     return None
+
+
+def _is_china_related_term(term: str) -> bool:
+    return term.startswith(("china-", "chinese-", "bri-")) or term == "china-related"

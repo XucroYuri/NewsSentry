@@ -1,10 +1,9 @@
 # Schema: ../../schemas/outputdestinations.schema.json
 # 契约: docs/contracts-canonical.md §8
-# ADR: ADR-0002, ADR-0010
+# ADR: ADR-0002, ADR-0025
 #
-# v1 仅支持本地文件输出（Obsidian Markdown）
-# 外部推送（飞书/邮件）默认禁用，需显式开启
-# 禁止在此配置自动向外部平台发布，见 ADR-0010
+# v1/v1.5 默认产出本地 Markdown 草稿，外部推送（飞书/邮件/Telegram）默认禁用。
+# 禁止在此配置自动向外部平台发布；告警只负责通知，不负责发布。
 
 destinations:
 
@@ -22,8 +21,8 @@ destinations:
       news_value_score: "{{ news_value_score }}"
       china_relevance: "{{ china_relevance }}"
       sentiment_score: "{{ sentiment_score }}"
-      l0_domain: "{{ metadata.classification.l0_domain }}"
-      l1_topic: "{{ metadata.classification.l1_topic }}"
+      l0: "{{ metadata.classification.l0 }}"
+      l1: "{{ metadata.classification.l1 }}"
       source_id: "{{ source_id }}"
       cluster_id: "{{ cluster_id }}"
       run_id: "{{ run_id }}"
@@ -42,8 +41,8 @@ destinations:
       news_value_score: "{{ news_value_score }}"
       china_relevance: "{{ china_relevance }}"
       recommendation: "{{ judge_result.recommendation }}"
-      l0_domain: "{{ metadata.classification.l0_domain }}"
-      l1_topic: "{{ metadata.classification.l1_topic }}"
+      l0: "{{ metadata.classification.l0 }}"
+      l1: "{{ metadata.classification.l1 }}"
 
   - destination_id: feishu_webhook_high_value
     type: feishu_webhook

@@ -29,6 +29,25 @@ from news_sentry.core.api_server import (
 from news_sentry.core.async_store import AsyncStore
 
 
+def _close_test_store(store: Any) -> None:
+    if isinstance(store, AsyncStore) and store._db is not None:  # noqa: SLF001
+        asyncio.run(store.close())
+
+
+@pytest.fixture(autouse=True)
+def _reset_api_server_store_state() -> Iterator[None]:
+    yield
+    _close_test_store(api_server_module._store)
+    api_server_module._store = None
+    stores = list(api_server_module._target_stores.values())
+    api_server_module._target_stores.clear()
+    for store in stores:
+        _close_test_store(store)
+    getattr(api_server_module, "_source_inventory_cache", {}).clear()
+    getattr(api_server_module, "_target_validation_cache", {}).clear()
+    getattr(api_server_module, "_collector_diagnostics_cache", {}).clear()
+
+
 def _force_deployment_env(monkeypatch: pytest.MonkeyPatch, env: str) -> None:
     monkeypatch.setenv("NEWSSENTRY_DEPLOYMENT_ENV", env)
     monkeypatch.setattr(api_server_module, "_deployment_env", "")
@@ -75,6 +94,8 @@ def _write_target_config(
     display_name: str,
     primary: str = "it",
     source_count: int = 3,
+    monitoring_type: str | None = None,
+    topic_label: str | None = None,
 ) -> Path:
     """辅助：写入一个 target 配置文件。"""
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -84,6 +105,10 @@ def _write_target_config(
         "language_scope": {"primary": primary, "secondary": ["en"], "output": "zh"},
         "source_channel_refs": [f"src-{i}" for i in range(source_count)],
     }
+    if monitoring_type:
+        data["monitoring_type"] = monitoring_type
+    if topic_label:
+        data["topic_label"] = topic_label
     filepath = config_dir / f"{target_id}.yaml"
     content = yaml.dump(data, allow_unicode=True, default_flow_style=False, sort_keys=False)
     filepath.write_text(content, encoding="utf-8")
@@ -155,6 +180,42 @@ class TestRateLimiter:
         assert limiter.check("key1") is True
         assert limiter.check("key2") is True
         assert limiter.check("key1") is False
+
+
+class TestAIEnrichmentAPI:
+    def test_ai_enrichment_status_returns_defaults(self, tmp_path, monkeypatch) -> None:
+        _force_deployment_env(monkeypatch, "local")
+        app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/ai/enrichment/status")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["config"]["interval_minutes"] == 60
+        assert data["config"]["daily_request_limit"] == 45
+        assert data["running"] is False
+
+    def test_ai_enrichment_dry_run_does_not_call_provider(self, tmp_path, monkeypatch) -> None:
+        _force_deployment_env(monkeypatch, "local")
+        store = AsyncStore(tmp_path / "async_store.db")
+        asyncio.run(store.initialize())
+        asyncio.run(
+            _insert_index_event(
+                store,
+                event_id="ne-ai-dry-run",
+                title_original="Titolo da tradurre",
+            )
+        )
+        app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+        client = TestClient(app)
+
+        resp = client.post("/api/v1/ai/enrichment/run?dry_run=true&target_id=italy")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["dry_run"] is True
+        assert data["batches"][0]["items"][0]["event_id"] == "ne-ai-dry-run"
 
 
 class TestVerifyApiKey:
@@ -506,6 +567,31 @@ class TestAPIServer:
         source_check = [c for c in resp.json()["checks"] if c["name"] == "source_health"][0]
         assert source_check["ok"] is True
         assert "健康: 1" in source_check["message"]
+
+    def test_collector_diagnostics_reuses_short_lived_cache(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """后台频繁刷新时，采集诊断不应重复全量扫描 source health。"""
+        (tmp_path / "italy" / "memory").mkdir(parents=True, exist_ok=True)
+        client = self._make_client(tmp_path)
+        calls = {"health": 0}
+
+        def fake_memory_health(target_id: str | None = None):  # noqa: ARG001
+            calls["health"] += 1
+            return [{"source_id": "ansa", "status": "healthy"}]
+
+        monkeypatch.setattr(
+            api_server_module,
+            "_load_memory_source_health_records",
+            fake_memory_health,
+        )
+
+        first = client.get("/api/v1/collector/diagnostics")
+        second = client.get("/api/v1/collector/diagnostics")
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert calls["health"] == 1
 
     def test_collector_diagnostics_ignores_disabled_deprecated_memory_health(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1278,7 +1364,15 @@ class TestAPIServer:
     def test_targets_endpoint(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         config_dir = tmp_path / "config" / "targets"
         _write_target_config(config_dir, "italy", "意大利新闻监控", "it", 5)
-        _write_target_config(config_dir, "japan", "日本新闻监控", "ja", 3)
+        _write_target_config(
+            config_dir,
+            "china-watch-en",
+            "China Watch (English)",
+            "en",
+            3,
+            monitoring_type="topic",
+            topic_label="涉中舆情",
+        )
         _write_draft(tmp_path, "italy", "evt-1", "ANSA", 70)
         monkeypatch.chdir(tmp_path)
         client = self._make_client(tmp_path)
@@ -1291,6 +1385,12 @@ class TestAPIServer:
         assert italy["primary_language"] == "it"
         assert italy["source_count"] == 5
         assert italy["event_count"] == 1
+        assert italy["monitoring_type"] == "country"
+        assert italy["monitoring_label"] == "国别监控目标"
+        topic = next(t for t in data["targets"] if t["target_id"] == "china-watch-en")
+        assert topic["monitoring_type"] == "topic"
+        assert topic["monitoring_label"] == "专题监控目标"
+        assert topic["topic_label"] == "涉中舆情"
 
     def test_targets_endpoint_prefers_target_store_count_over_orphan_drafts(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -4551,6 +4651,50 @@ class TestTargetLifecycleWorkbenchAPI:
         assert diagnostics["distribution"]["international-relations"] == 1
         assert diagnostics["distribution"]["uncategorized"] == 1
         assert diagnostics["uncategorized_count"] == 1
+
+    def test_admin_target_overview_reuses_inventory_and_validation_cache(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """连续加载 target overview 不应重复完整扫描信源与预检配置。"""
+        client = self._setup_target_tree(tmp_path, monkeypatch)
+        calls = {"inventory": 0, "validation": 0}
+
+        def fake_inventory(self, target_id: str, health_records=None):  # noqa: ANN001, ARG001
+            calls["inventory"] += 1
+            return {
+                "summary": {
+                    "standard_sources": 1,
+                    "missing_refs": 0,
+                    "unreferenced_files": 0,
+                    "social_dimensions": 0,
+                    "social_accounts": 0,
+                },
+                "sources": [
+                    {
+                        "type": "rss",
+                        "missing_file": False,
+                        "archived": False,
+                    }
+                ],
+            }
+
+        def fake_validation(target_id: str):  # noqa: ARG001
+            calls["validation"] += 1
+            return {"target_id": target_id, "ok": True, "checks": []}
+
+        monkeypatch.setattr(
+            api_server_module.SourceInventoryService,
+            "build_target_inventory",
+            fake_inventory,
+        )
+        monkeypatch.setattr(api_server_module, "_validate_target_config", fake_validation)
+
+        first = client.get("/api/v1/admin/targets/italy/overview")
+        second = client.get("/api/v1/admin/targets/italy/overview")
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert calls == {"inventory": 1, "validation": 1}
 
     def test_admin_target_overview_uses_store_classification_diagnostics(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

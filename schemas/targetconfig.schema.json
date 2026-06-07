@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://news-sentry.local/schemas/targetconfig.schema.json",
   "title": "TargetConfig",
-  "description": "Implements: docs/contracts-canonical.md §6; per-target monitoring configuration; ADR-0015",
+  "description": "Implements: docs/contracts-canonical.md §11; per-target monitoring configuration; ADR-0015",
   "type": "object",
   "required": [
     "target_id",
@@ -24,6 +24,16 @@
       "description": "Lowercase slug, e.g. 'italy'"
     },
     "display_name": { "type": "string" },
+    "monitoring_type": {
+      "type": "string",
+      "enum": ["country", "topic"],
+      "default": "country",
+      "description": "Public/admin grouping type. country=国别监控目标, topic=专题监控目标."
+    },
+    "topic_label": {
+      "type": "string",
+      "description": "Human topic label for topic targets, e.g. 涉中舆情."
+    },
     "language_scope": {
       "type": "object",
       "required": ["primary", "output"],

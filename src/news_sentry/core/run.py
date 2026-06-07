@@ -382,6 +382,16 @@ def _markdown_auto_drafts_enabled(output_destinations: dict[str, Any]) -> bool:
     return bool(value)
 
 
+def _pipeline_ai_calls_enabled() -> bool:
+    """Whether the main pipeline may call remote AI providers.
+
+    Defaults to false so free OpenRouter traffic is handled by the low-frequency
+    AI enrichment worker instead of the hot collect/filter/judge path.
+    """
+    value = os.environ.get("NEWS_SENTRY_PIPELINE_AI", "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _run_output(
     config: ResolvedConfig,
     run_id: str,
@@ -472,9 +482,13 @@ def _run_judge(
     # Phase 14: 置信度路由 — 规则先跑，低置信度升级 AI
     rules_judge = RulesJudgeSkill(config.classification_rules, memory)
     target_ctx = config.target
-    ai_judge = _init_ai_judge(
-        target_display_name=target_ctx.get("display_name", ""),
-        target_language=target_ctx.get("language_scope", {}).get("primary", ""),
+    ai_judge = (
+        _init_ai_judge(
+            target_display_name=target_ctx.get("display_name", ""),
+            target_language=target_ctx.get("language_scope", {}).get("primary", ""),
+        )
+        if _pipeline_ai_calls_enabled()
+        else None
     )
     router = ConfidenceRouter(rules_judge, ai_judge)
     judged = router.judge(events, run_id)
@@ -610,6 +624,8 @@ def _init_ai_judge(
     如果路由配置加载失败或所有 Provider 都不可用，返回 None，
     调用方回退到 RulesJudgeSkill。
     """
+    if not _pipeline_ai_calls_enabled():
+        return None
     try:
         # 加载路由配置
         routes_path = _find_project_root() / "config" / "provider" / "routes.yaml"

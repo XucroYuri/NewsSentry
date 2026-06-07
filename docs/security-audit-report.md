@@ -37,7 +37,7 @@
 
 1. **沙箱执行**: SandboxEnforcer 5 维权限（命令/网络/文件/浏览器/预算）
 2. **Stop-on-Risk**: captcha/认证错误/沙箱违规自动停止
-3. **配置验证**: 16 份 JSON Schema 校验所有 YAML 配置
+3. **配置验证**: 18 份 JSON Schema 校验所有声明 `# Schema:` 的 YAML 配置
 4. **原子写入**: 所有文件写入使用 tmp + rename，防止损坏
 5. **环境变量注入**: 密钥、API key、SMTP 密码均通过 `${ENV_VAR}` 解析
 6. **零 Token 采集**: ADR-0017 保证采集阶段不调用 AI
