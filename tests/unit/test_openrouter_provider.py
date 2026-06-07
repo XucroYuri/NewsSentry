@@ -22,4 +22,4 @@ class TestOpenRouterProvider:
         monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
         provider = OpenRouterProvider({})
 
-        assert provider._default_model == "deepseek/deepseek-v4-flash:free"
+        assert provider._default_model == "qwen/qwen3.7-plus"

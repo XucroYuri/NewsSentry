@@ -193,7 +193,7 @@ NEWSSENTRY_PROFILE=cloud-vps
 # AI Provider（使用 OpenRouter）
 OPENROUTER_API_KEY=sk-or-v1-<your-key>
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-OPENROUTER_DEFAULT_MODEL=deepseek/deepseek-v4-flash:free
+OPENROUTER_DEFAULT_MODEL=qwen/qwen3.7-plus
 
 # API 网关认证
 NEWSSENTRY_API_KEY=<generate-a-strong-key>
