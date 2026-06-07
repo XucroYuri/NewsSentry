@@ -58,8 +58,33 @@ Step 7: 上线验证 + 共存确认 .......... ✅ 已完成
 
 待补齐项：
 
-- GitHub Actions secrets / environments 尚未配置；这只影响后续自动化部署，不影响当前线上服务
-- WAF 速率限制与 Access 访问策略仍建议在 Cloudflare Dashboard 中细化
+- Cloudflare Access 访问策略尚未启用；需要先确定允许登录的邮箱/身份源
+- GitHub Actions 仍有 Node.js 20 deprecation annotation，后续可升级 action 版本或设置 Node 24 运行策略
+- pytest 仍有 aiosqlite worker thread `Event loop is closed` warning annotation；当前不阻断 CI，但建议后续清理测试资源关闭路径
+
+## 2026-06-07 Codex 自动化补齐记录
+
+首次直接上线后，已继续补齐自动部署和基础边缘安全：
+
+- GitHub repository secrets 已配置：`BWH_HOST`、`BWH_SSH_USER`、`BWH_SSH_PORT`、`BWH_SSH_KEY`、`GHCR_PAT`、`NEWSSENTRY_API_KEY`
+- GitHub environments 已配置：
+  - `production`：自定义分支策略 `main`
+  - `preview`：自定义分支策略 `preview`
+- 新 deploy key 已生成并安装到 BWH root `authorized_keys`，指纹 `SHA256:1AOjb/NQs93JdHkoGpSTcrB62c/7FXMZGyAuJ7O1nKQ`
+- GitHub Actions Deploy run `27085055377` 已通过：
+  - CI Gate：ruff、pytest、敏感数据扫描、hardcoded target scan、config schema validation 全部通过
+  - Deploy production：SSH 部署、systemd restart、health check、Xray 共存检查全部通过
+- 当前线上部署版本：`39c59e38435c6643f9346e73f3a5b462696bf9b2`
+- CI 修复 commit `39c59e3` 处理了两个既有测试问题：
+  - trend fixture 使用固定 2026-05 日期，随当前日期滑出 `days=30` 查询窗口
+  - schema migration 测试仍期待 version 9，但当前代码已包含 v10 AI enrichment tables
+- Cloudflare WAF / rate limiting 已配置：
+  - `http_request_firewall_managed`：执行 `Cloudflare Managed Free Ruleset`
+  - `http_ratelimit`：`100 requests / 10 seconds / IP`，命中后 block 10 秒并返回 429
+- 复验通过：
+  - `https://news-sentry.com/api/v1/health` → `{"status":"ok"}`
+  - `https://www.news-sentry.com/api/v1/health` → `{"status":"ok"}`
+  - `http://news-sentry.com` → 301 到 HTTPS
 
 ---
 
