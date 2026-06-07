@@ -3663,7 +3663,15 @@ class TestOpsEndpoints:
         assert item["last_failure_at"] == "2026-05-30T10:54:00+00:00"
         assert item["last_success_at"] is None
 
-    def test_trigger_run(self, tmp_path: Path) -> None:
+    def test_trigger_run(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        async def fake_bounded_run_async(**kwargs: object) -> None:
+            assert kwargs["target_id"] == "italy"
+            assert kwargs["stage"] == "all"
+
+        monkeypatch.setattr(
+            "news_sentry.core.async_run.bounded_run_async",
+            fake_bounded_run_async,
+        )
         client = self._make_client(tmp_path)
         resp = client.post("/api/v1/runs/trigger", params={"target_id": "italy", "stage": "all"})
         assert resp.status_code == 200
@@ -5570,6 +5578,32 @@ class TestAuthEndpoints:
         data = resp.json()
         assert "access_token" in data
         assert data["role"] == "admin"
+
+    def test_auth_token_persists_session_when_store_ready(self, tmp_path: Path) -> None:
+        """已初始化 store 时，token session 可从 SQLite 回退恢复。"""
+        store = AsyncStore(tmp_path / "test_auth.db")
+        asyncio.run(store.initialize())
+        app = create_app(
+            data_dir=tmp_path,
+            store=store,
+            auto_store=False,
+            skip_lifespan=True,
+        )
+        client = TestClient(app)
+
+        token_resp = client.post("/api/v1/auth/token", json={"api_key": ""})
+        assert token_resp.status_code == 200
+        token = token_resp.json()["access_token"]
+
+        api_server_module._TOKEN_STORE.pop(token, None)
+        session = asyncio.run(store.get_session(token))
+        assert session is not None
+        assert session["username"] == "dev"
+        assert session["role"] == "admin"
+
+        me_resp = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+        assert me_resp.status_code == 200
+        assert me_resp.json()["username"] == "dev"
 
     def test_auth_setup_after_bootstrap(self, tmp_path: Path) -> None:
         """setup 成功后 setup-status 变为 completed。"""

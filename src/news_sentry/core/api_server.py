@@ -991,7 +991,7 @@ _TOKEN_TTL = 86400  # 24 hours
 
 
 def _create_token_for_user(username: str, role: str, has_api_key: bool) -> dict[str, Any]:
-    """为已认证用户创建 session token（内存 + SQLite 双写）。"""
+    """为已认证用户创建 session token（内存写入）。"""
     token = secrets.token_hex(32)
     now = time.time()
     info = {
@@ -1003,15 +1003,6 @@ def _create_token_for_user(username: str, role: str, has_api_key: bool) -> dict[
     }
     _TOKEN_STORE[token] = info
 
-    # 持久化到 SQLite
-    if _store is not None:
-        try:
-            asyncio.ensure_future(
-                _store.create_session(token, username, role, has_api_key, _TOKEN_TTL)
-            )
-        except RuntimeError:
-            pass  # 无事件循环时跳过持久化
-
     return {
         "access_token": token,
         "token_type": "Bearer",
@@ -1020,6 +1011,24 @@ def _create_token_for_user(username: str, role: str, has_api_key: bool) -> dict[
         "role": role,
         "has_api_key": has_api_key,
     }
+
+
+async def _create_persistent_token_for_user(
+    username: str,
+    role: str,
+    has_api_key: bool,
+) -> dict[str, Any]:
+    """创建 token，并在 SQLite 已就绪时同步持久化 session。"""
+    result = _create_token_for_user(username, role, has_api_key)
+    if _store is not None and _store._db is not None:  # noqa: SLF001
+        await _store.create_session(
+            result["access_token"],
+            username,
+            role,
+            has_api_key,
+            _TOKEN_TTL,
+        )
+    return result
 
 
 def _verify_token(token: str) -> dict[str, Any] | None:
@@ -1039,7 +1048,7 @@ async def _verify_token_async(token: str) -> dict[str, Any] | None:
     if info:
         return info
     # SQLite 回退：服务重启后内存为空，从持久化存储恢复
-    if _store is not None:
+    if _store is not None and _store._db is not None:  # noqa: SLF001
         session = await _store.get_session(token)
         if session:
             if time.time() > session["expires_at"]:
@@ -4924,7 +4933,11 @@ def create_app(
         if not verify_password(password, user["password_hash"], user["salt"]):
             raise HTTPException(status_code=401, detail="Invalid credentials")
 
-        result = _create_token_for_user(username, user["role"], bool(user.get("api_key")))
+        result = await _create_persistent_token_for_user(
+            username,
+            user["role"],
+            bool(user.get("api_key")),
+        )
         result["must_change_password"] = bool(user.get("must_change_pw", 0))
         return result
 
@@ -4940,18 +4953,22 @@ def create_app(
             users = await _store.list_users()
             for u in users:
                 if u.get("api_key") == api_key:
-                    return _create_token_for_user(u["username"], u.get("role", "reader"), True)
+                    return await _create_persistent_token_for_user(
+                        u["username"],
+                        u.get("role", "reader"),
+                        True,
+                    )
 
         if not valid_keys:
             if _local_auth_bypass_enabled(request):
-                return _create_token_for_user("dev", "admin", False)
+                return await _create_persistent_token_for_user("dev", "admin", False)
             raise HTTPException(
                 status_code=503,
                 detail="API key is required outside local mode",
             )
         if api_key not in valid_keys:
             raise HTTPException(status_code=401, detail="Invalid API key")
-        return _create_token_for_user(f"key_{api_key[:8]}", "admin", True)
+        return await _create_persistent_token_for_user(f"key_{api_key[:8]}", "admin", True)
 
     @app.get("/api/v1/auth/me")
     async def auth_me(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
@@ -5036,7 +5053,7 @@ def create_app(
             must_change_pw=0,
         )
         logger.info("Initial setup completed: admin user '%s' created", username)
-        result = _create_token_for_user(username, "admin", False)
+        result = await _create_persistent_token_for_user(username, "admin", False)
         return result
 
     @app.get("/api/v1/admin/users")
