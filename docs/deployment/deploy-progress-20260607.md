@@ -70,7 +70,7 @@ Step 7: 上线验证 + 共存确认 .......... ✅ 已完成
 - GitHub Actions Deploy run `27085251414` 已通过：
   - CI Gate：ruff、pytest、敏感数据扫描、hardcoded target scan、config schema validation 全部通过
   - Deploy production：SSH 部署、systemd restart、health check、Xray 共存检查全部通过
-- 当前线上部署版本：`a765f9d741ce4bd066e3feb7c2380137f27a5e6b`
+- 当前线上部署版本：以 VPS `/opt/news-sentry/production/.deploy-sha` 和 GitHub 最新 Deploy run 为准
 - CI 修复 commit `39c59e3` 处理了两个既有测试问题：
   - trend fixture 使用固定 2026-05 日期，随当前日期滑出 `days=30` 查询窗口
   - schema migration 测试仍期待 version 9，但当前代码已包含 v10 AI enrichment tables
@@ -96,7 +96,8 @@ Step 7: 上线验证 + 共存确认 .......... ✅ 已完成
   - `src/news_sentry/adapters/providers/openrouter_provider.py` 默认模型改为读取 `OPENROUTER_DEFAULT_MODEL`，缺省值为 `qwen/qwen3.7-plus`
   - `config/provider/routes.yaml` 中所有 OpenRouter 路由改为 `qwen/qwen3.7-plus`
   - OpenRouter 路由的 `max_cost_usd_per_call` 改为小额预算估算，避免付费模型仍以 0 成本记账
-- GitHub Actions Deploy run `27085672513` 已通过，线上部署版本 `a765f9d741ce4bd066e3feb7c2380137f27a5e6b`
+- GitHub Actions Deploy run `27085672513` 已通过，OpenRouter 修复首次部署版本为 `a765f9d741ce4bd066e3feb7c2380137f27a5e6b`
+- 后续文档同步 Deploy run `27085819518` 已通过；生产代码配置与 OpenRouter 修复版本一致
 - VPS 生产 repo 复验通过：`translate.fast` 通过 `ProviderRouter` 真实调用 OpenRouter，返回模型 `qwen/qwen3.7-plus-20260602`，`fallback_used=False`，`budget_exceeded=False`
 
 ## 未完成事项与建议解决方向
