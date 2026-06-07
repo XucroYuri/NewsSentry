@@ -94,6 +94,10 @@ assert.equal(
   targetWorkbenchHashForLegacyRoute(parseRouteHash("#/admin/advanced/filters"), "italy"),
   "#/admin/targets/italy/rules",
 );
+assert.equal(
+  targetWorkbenchHashForLegacyRoute(parseRouteHash("#/admin/collection/health"), "italy"),
+  "#/admin/collection/health",
+);
 
 const adminOps = parseRouteHash("#/admin/ops/status");
 assert.equal(isLegacyProtectedRoute(adminOps), true);

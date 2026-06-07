@@ -13,7 +13,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -260,13 +260,13 @@ class AIEnrichmentEngine:
                 continue
             event_id = str(item.get("event_id") or "")
             title = str(item.get("title") or "").strip()
-            row = by_id.get(event_id)
-            if row is None or not title:
+            matched_row = by_id.get(event_id)
+            if matched_row is None or not title:
                 continue
-            updated = self._updated_copy(updates, row)
-            metadata = updated["metadata"]
+            updated = self._updated_copy(updates, matched_row)
+            metadata = self._metadata(updated)
             metadata.setdefault("translation", {})["title_pre"] = title
-            metadata.setdefault("ai_enrichment", {})["title_hash"] = self.title_hash(row)
+            metadata.setdefault("ai_enrichment", {})["title_hash"] = self.title_hash(matched_row)
 
         for item in parsed.get("cluster_briefs") or []:
             if not isinstance(item, dict):
@@ -281,12 +281,13 @@ class AIEnrichmentEngine:
                 continue
             for row in rows_for_cluster:
                 updated = self._updated_copy(updates, row)
-                clustering = updated["metadata"].setdefault("clustering", {})
+                metadata = self._metadata(updated)
+                clustering = metadata.setdefault("clustering", {})
                 if label:
                     clustering["ai_label_zh"] = label
                 if summary:
                     clustering["ai_summary_zh"] = summary
-                updated["metadata"].setdefault("ai_enrichment", {})[
+                metadata.setdefault("ai_enrichment", {})[
                     "cluster_briefed_at"
                 ] = datetime.now(UTC).isoformat()
 
@@ -294,11 +295,11 @@ class AIEnrichmentEngine:
             if not isinstance(item, dict):
                 continue
             event_id = str(item.get("event_id") or "")
-            row = by_id.get(event_id)
-            if row is None:
+            matched_row = by_id.get(event_id)
+            if matched_row is None:
                 continue
-            updated = self._updated_copy(updates, row)
-            metadata = updated["metadata"]
+            updated = self._updated_copy(updates, matched_row)
+            metadata = self._metadata(updated)
             metadata["ai_review"] = {
                 "suggestion": str(item.get("suggestion") or "review"),
                 "reason": str(item.get("reason") or ""),
@@ -310,7 +311,7 @@ class AIEnrichmentEngine:
             }
 
         for updated in updates.values():
-            updated["metadata"].setdefault("ai_enrichment", {}).update(
+            self._metadata(updated).setdefault("ai_enrichment", {}).update(
                 {
                     "target_id": target_id,
                     "model": model,
@@ -339,6 +340,14 @@ class AIEnrichmentEngine:
         return updates[event_id]
 
     @staticmethod
+    def _metadata(row: dict[str, Any]) -> dict[str, Any]:
+        metadata = row.get("metadata")
+        if isinstance(metadata, dict):
+            return cast(dict[str, Any], metadata)
+        row["metadata"] = {}
+        return cast(dict[str, Any], row["metadata"])
+
+    @staticmethod
     def _is_rate_limited(value: object) -> bool:
         text = str(value).lower()
         return (
@@ -354,11 +363,14 @@ class AIEnrichmentEngine:
         title = self._compact_text(row.get("title_original"), 360)
         if not event_id or not title:
             return None
-        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        metadata = self._metadata(row)
         raw_translation = metadata.get("translation")
         translation = raw_translation if isinstance(raw_translation, dict) else {}
+        raw_ai_enrichment = metadata.get("ai_enrichment")
         ai_enrichment = (
-            metadata.get("ai_enrichment") if isinstance(metadata.get("ai_enrichment"), dict) else {}
+            cast(dict[str, Any], raw_ai_enrichment)
+            if isinstance(raw_ai_enrichment, dict)
+            else {}
         )
         existing = str(translation.get("title_pre") or "").strip()
         current_hash = self.title_hash(row)
@@ -376,7 +388,7 @@ class AIEnrichmentEngine:
     def _cluster_units(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         grouped: dict[str, list[dict[str, Any]]] = {}
         for row in rows:
-            metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+            metadata = self._metadata(row)
             raw_clustering = metadata.get("clustering")
             clustering = raw_clustering if isinstance(raw_clustering, dict) else {}
             if clustering.get("ai_label_zh") or clustering.get("ai_summary_zh"):
@@ -406,7 +418,7 @@ class AIEnrichmentEngine:
         return units
 
     def _review_unit(self, row: dict[str, Any]) -> dict[str, Any] | None:
-        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        metadata = self._metadata(row)
         if isinstance(metadata.get("ai_review"), dict):
             return None
         score = self._safe_int(row.get("news_value_score"))

@@ -73,7 +73,7 @@ self.addEventListener("message", (event) => {
   }
 });
 
-/* 请求拦截：Cache-First for static, Network-First for API */
+/* 请求拦截：Cache-First for static, Network-Only for API */
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
   const isAPI = url.pathname.startsWith("/api/");
@@ -83,8 +83,8 @@ self.addEventListener("fetch", (event) => {
   if (isLiveStaticControl) {
     event.respondWith(fetch(event.request, { cache: "no-store" }));
   } else if (isAPI) {
-    // API 请求：网络优先，离线时使用缓存
-    event.respondWith(networkFirst(event.request));
+    // API 请求：不缓存认证响应
+    event.respondWith(networkOnly(event.request));
   } else if (isNavigation) {
     // 导航请求：网络优先，离线时返回缓存或离线页面
     event.respondWith(navigationFallback(event.request));
@@ -138,19 +138,10 @@ async function cacheFirst(request) {
   }
 }
 
-async function networkFirst(request) {
+async function networkOnly(request) {
   try {
-    const resp = await fetch(request);
-    if (resp.ok && resp.type === "basic") {
-      const manifest = await loadBuildManifest();
-      const cache = await caches.open(manifest.cacheName);
-      cache.put(request, resp.clone());
-    }
-    return resp;
+    return await fetch(request, { cache: "no-store" });
   } catch {
-    const cache = await openStaticCache();
-    const cached = await cache.match(request);
-    if (cached) return cached;
     return new Response(JSON.stringify({ error: "offline" }), {
       status: 503,
       headers: { "Content-Type": "application/json" },

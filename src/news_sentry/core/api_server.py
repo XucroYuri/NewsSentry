@@ -30,17 +30,17 @@ import shutil
 import time
 import uuid
 from collections import defaultdict
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from ipaddress import ip_address
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 
 import yaml
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, BeforeValidator, Field, ValidationError, field_validator
 
 from news_sentry.core.ai_enrichment import (
@@ -63,6 +63,43 @@ from news_sentry.skills.filter.classification_taxonomy import (
     l0_query_values,
     normalize_classification,
 )
+
+_SECURITY_HEADERS = {
+    "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": (
+        "camera=(), microphone=(), geolocation=(), payment=(), usb=(), "
+        "interest-cohort=()"
+    ),
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "script-src 'self' https://cdn.jsdelivr.net https://static.cloudflareinsights.com; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https:; "
+        "font-src 'self' data:; "
+        "connect-src 'self' https://cloudflareinsights.com https://static.cloudflareinsights.com; "
+        "base-uri 'self'; "
+        "frame-ancestors 'none'; "
+        "form-action 'self'; "
+        "object-src 'none'"
+    ),
+}
+
+_ROBOTS_TXT = """User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /#/admin
+Disallow: /#/admin/
+Disallow: /admin
+Disallow: /admin/
+Disallow: /api/v1/runtime/
+Disallow: /api/v1/collector/
+Disallow: /api/v1/maintenance/
+
+Sitemap: https://news-sentry.com/sitemap.xml
+"""
 
 # ── Pydantic 模型 ──────────────────────────────────────
 
@@ -2193,7 +2230,9 @@ def _cached_source_inventory(target_id: str) -> dict[str, Any]:
         and cached.get("signature") == signature
         and now - float(cached.get("created_at", 0)) <= _OVERVIEW_CACHE_TTL_SECONDS
     ):
-        return cached["value"]
+        value = cached.get("value")
+        if isinstance(value, dict):
+            return cast(dict[str, Any], value)
     value = SourceInventoryService(Path.cwd(), _data_dir).build_target_inventory(target_id)
     _source_inventory_cache[key] = {
         "signature": signature,
@@ -2213,7 +2252,9 @@ def _cached_target_validation(target_id: str) -> dict[str, Any]:
         and cached.get("signature") == signature
         and now - float(cached.get("created_at", 0)) <= _OVERVIEW_CACHE_TTL_SECONDS
     ):
-        return cached["value"]
+        value = cached.get("value")
+        if isinstance(value, dict):
+            return cast(dict[str, Any], value)
     value = _validate_target_config(target_id)
     _target_validation_cache[key] = {
         "signature": signature,
@@ -2327,11 +2368,9 @@ def _load_memory_source_health_records(target_id: str | None = None) -> list[dic
 
 def _load_single_source(target_id: str, source_id: str) -> dict[str, Any] | None:
     """读取单个源渠道配置。"""
-    sources_dir = Path(f"config/sources/{target_id}")
-    if not sources_dir.is_dir():
+    source_path = _source_config_path(target_id, source_id)
+    if not source_path.parent.exists():
         return None
-    # source_id 可能是子路径，如 "api/gnews-italy"
-    source_path = sources_dir / f"{source_id}.yaml"
     return _load_yaml_file(source_path)
 
 
@@ -2368,10 +2407,12 @@ _SOURCE_SLUG_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 
 
 def _target_config_path(target_id: str) -> Path:
+    _validate_target_slug(target_id)
     return Path("config/targets") / f"{target_id}.yaml"
 
 
 def _source_config_path(target_id: str, source_ref: str) -> Path:
+    _validate_target_slug(target_id)
     safe_ref = _normalize_source_ref(source_ref)
     return Path("config/sources") / target_id / f"{safe_ref}.yaml"
 
@@ -2498,6 +2539,21 @@ async def _target_public_event_count(target_id: str, data_dir: Path) -> int:
     except Exception:
         logger.exception("Failed to count indexed public events for target %s", target_id)
     return len(_load_all_events(data_dir, target_id))
+
+
+async def _target_api_event_count(target_id: str) -> int:
+    """Return all indexed API events for a target, regardless of public stage."""
+    try:
+        store = await _store_for_target(target_id)
+        if store is None:
+            return 0
+        get_count = getattr(store, "get_target_event_count", None)
+        if get_count is None:
+            return 0
+        return int(await get_count(target_id) or 0)
+    except Exception:
+        logger.exception("Failed to count indexed API events for target %s", target_id)
+        return 0
 
 
 async def _target_info_from_config_for_response(
@@ -3232,20 +3288,30 @@ def _event_from_index_row(row: dict[str, Any]) -> dict[str, Any]:
 def _deep_merge_mapping(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
     merged = dict(base)
     for key, value in patch.items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
-            merged[key] = _deep_merge_mapping(merged[key], value)
+        existing = merged.get(key)
+        if isinstance(value, dict) and isinstance(existing, dict):
+            merged[key] = _deep_merge_mapping(
+                cast(dict[str, Any], existing),
+                cast(dict[str, Any], value),
+            )
         else:
             merged[key] = value
     return merged
 
 
 def _merge_index_metadata(event: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
-    index_metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    raw_index_metadata = row.get("metadata")
+    index_metadata = (
+        cast(dict[str, Any], raw_index_metadata) if isinstance(raw_index_metadata, dict) else {}
+    )
     if not index_metadata:
         return event
     merged_event = dict(event)
+    raw_current_metadata = merged_event.get("metadata")
     current_metadata = (
-        merged_event.get("metadata") if isinstance(merged_event.get("metadata"), dict) else {}
+        cast(dict[str, Any], raw_current_metadata)
+        if isinstance(raw_current_metadata, dict)
+        else {}
     )
     merged_event["metadata"] = _deep_merge_mapping(current_metadata, index_metadata)
     return merged_event
@@ -3438,7 +3504,7 @@ async def _load_indexed_event_detail(
 
     if file_path is not None:
         event = _load_event_by_path(file_path)
-        if _event_id_from_frontmatter(event) == event_id:
+        if event is not None and _event_id_from_frontmatter(event) == event_id:
             return _merge_index_metadata(event, row)
         event = _load_event_by_id_from_stage(data_dir, target_id, "drafts", event_id)
         if event is not None:
@@ -3718,7 +3784,9 @@ def _cached_collector_diagnostics_payload() -> dict[str, Any]:
         and now - float(_collector_diagnostics_cache.get("created_at", 0))
         <= _OVERVIEW_CACHE_TTL_SECONDS
     ):
-        return _collector_diagnostics_cache["value"]
+        value = _collector_diagnostics_cache.get("value")
+        if isinstance(value, dict):
+            return cast(dict[str, Any], value)
     value = _build_collector_diagnostics_payload()
     _collector_diagnostics_cache.update(
         {
@@ -3832,6 +3900,8 @@ def _create_ai_provider_router() -> Any | None:  # noqa: ANN401
         if not routes_path.is_file():
             return None
         data = _load_yaml_file(routes_path)
+        if not isinstance(data, dict):
+            return None
         return ProviderRouter(ProviderRoutesConfig(**data))
     except Exception as exc:  # noqa: BLE001
         _ai_enrichment_log.warning("AI enrichment provider router unavailable: %s", exc)
@@ -4542,10 +4612,20 @@ def create_app(
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,
-        allow_credentials=True,
+        allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],
     )
+
+    @app.middleware("http")
+    async def add_security_headers(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        response = await call_next(request)
+        for name, value in _SECURITY_HEADERS.items():
+            response.headers.setdefault(name, value)
+        return response
 
     global _store, _data_dir
     if _store is not None and _store is not store:
@@ -4603,15 +4683,41 @@ def create_app(
             "status": "ok",
             "static_build": manifest["build"],
             "static_cache_name": manifest["cacheName"],
-            "code_path": str(Path(__file__).resolve()),
-            "git_commit": _git_commit_for_path(Path(__file__)),
-            "data_dir": str(_data_dir.resolve()),
         }
 
     @app.get("/build_manifest.json")
     async def build_manifest(response: Response) -> dict[str, Any]:
         response.headers["Cache-Control"] = "no-store"
         return _build_static_manifest()
+
+    @app.get("/robots.txt", include_in_schema=False)
+    async def robots_txt() -> PlainTextResponse:
+        return PlainTextResponse(
+            _ROBOTS_TXT,
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+
+    @app.get("/app.js", include_in_schema=False)
+    async def app_script() -> FileResponse:
+        app_js_path = _static_dir() / "app.js"
+        if not app_js_path.is_file():
+            raise HTTPException(status_code=404, detail="Static asset not found")
+        return FileResponse(
+            app_js_path,
+            media_type="application/javascript",
+            headers={"Cache-Control": "no-cache"},
+        )
+
+    @app.get("/public.css", include_in_schema=False)
+    async def public_stylesheet() -> FileResponse:
+        public_css_path = _static_dir() / "public.css"
+        if not public_css_path.is_file():
+            raise HTTPException(status_code=404, detail="Static asset not found")
+        return FileResponse(
+            public_css_path,
+            media_type="text/css",
+            headers={"Cache-Control": "no-cache"},
+        )
 
     @app.get("/sw.js", include_in_schema=False)
     async def service_worker_script() -> FileResponse:
@@ -4723,26 +4829,56 @@ def create_app(
     ) -> dict[str, Any]:
         """返回数据状态概览（用于诊断新部署/数据恢复场景）。
 
-        返回 data_dir 状态、各 target 事件数（文件系统统计）、
+        返回 data_dir 状态、各 target 文件产物与 API/SQLite 索引统计、
         store 可用性、部署环境信息。
         """
         target_events: dict[str, dict[str, Any]] = {}
-        total = 0
+        file_total = 0
+        api_total = 0
+        seen_targets: set[str] = set()
+
+        for config in _load_target_configs():
+            info = _target_info_from_config(config, _data_dir)
+            if not info.target_id:
+                continue
+            tid = info.target_id
+            file_count = len(_load_all_events(_data_dir, tid))
+            api_count = await _target_api_event_count(tid)
+            event_count = max(file_count, api_count)
+            file_total += file_count
+            api_total += api_count
+            seen_targets.add(tid)
+            target_events[tid] = {
+                "events": event_count,
+                "event_count": event_count,
+                "file_events": file_count,
+                "api_events": api_count,
+                "source_count": info.source_count,
+                "has_state_db": (_data_dir / tid / "state.db").exists(),
+            }
 
         if _data_dir.exists():
             for target_dir in sorted(_data_dir.iterdir()):
                 if not target_dir.is_dir():
                     continue
                 tid = target_dir.name
-                # 统计 drafted 阶段事件（最终输出产物）
-                events = _load_all_events(_data_dir, tid)
-                count = len(events)
-                if count > 0:
-                    target_events[tid] = {
-                        "events": count,
-                        "has_state_db": (target_dir / "state.db").exists(),
-                    }
-                    total += count
+                if tid in seen_targets:
+                    continue
+                file_count = len(_load_all_events(_data_dir, tid))
+                api_count = await _target_api_event_count(tid)
+                event_count = max(file_count, api_count)
+                if event_count == 0 and not (target_dir / "state.db").exists():
+                    continue
+                file_total += file_count
+                api_total += api_count
+                target_events[tid] = {
+                    "events": event_count,
+                    "event_count": event_count,
+                    "file_events": file_count,
+                    "api_events": api_count,
+                    "source_count": 0,
+                    "has_state_db": (target_dir / "state.db").exists(),
+                }
 
         return {
             "data_dir": str(_data_dir),
@@ -4750,8 +4886,15 @@ def create_app(
             "deployment_env": _detect_deployment_env(),
             "store_available": _store is not None,
             "target_stores_open": len(_target_stores),
-            "total_events_all_targets": total,
+            "file_event_total": file_total,
+            "api_event_total": api_total,
+            "total_events_all_targets": max(file_total, api_total),
             "targets": target_events,
+            "runtime_info": {
+                "code_path": str(Path(__file__).resolve()),
+                "git_commit": _git_commit_for_path(Path(__file__)),
+                "data_dir": str(_data_dir.resolve()),
+            },
             "auto_collector": {
                 "enabled": _auto_collector_state["enabled"],
                 "last_run_at": _auto_collector_state["last_run_at"],
@@ -6318,6 +6461,7 @@ def create_app(
         target_id: str = Query(..., description="目标标识"),
         user: dict[str, Any] = Depends(require_permission("write")),
     ) -> WebhookResponse:
+        _validate_target_slug(target_id)
         event_id = _save_webhook_event(_data_dir, target_id, payload)
         sse_data: dict[str, Any] = {"event_id": event_id, "source": "webhook"}
         asyncio.ensure_future(_notify_sse_clients(target_id, "new_event", sse_data))
@@ -6344,6 +6488,8 @@ def create_app(
 
         for i, item in enumerate(events):
             try:
+                _validate_target_slug(item.target_id)
+                _validate_source_slug(item.source_id)
                 now = datetime.now(UTC)
                 # 确定性 event_id: sha256(source_id|url|collected_at)
                 event_id = (
@@ -6463,7 +6609,7 @@ def create_app(
     ) -> dict[str, Any]:
         """更新 source 配置。"""
 
-        filepath = Path(f"config/sources/{target_id}/{source_id}.yaml")
+        filepath = _source_config_path(target_id, source_id)
         if not filepath.exists():
             raise HTTPException(status_code=404, detail=f"Source config not found: {source_id}")
 

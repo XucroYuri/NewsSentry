@@ -21,6 +21,7 @@ SENSITIVE_KEYWORDS = [
     "session_key",
     "access_token",
     "api_key",
+    "apikey",
     "secret",
 ]
 
@@ -38,12 +39,8 @@ SCAN_PATTERNS = [
 # 字段值中允许出现关键词的豁免字段名（如描述性说明）
 ALLOWED_FIELD_NAMES = {"description", "display_name", "notes"}
 
-# 关键词匹配模式：匹配冒号后的值部分（即 YAML 值）
-VALUE_PATTERN = re.compile(r":\s*[\"']?(.+?)[\"']?\s*$")
-
-
 def scan_file(filepath: Path) -> list[tuple[int, str, str]]:
-    """扫描单个文件，返回 (行号, 关键词, 行内容) 列表。"""
+    """扫描单个文件，返回 (行号, 关键词, 脱敏行摘要) 列表。"""
     hits: list[tuple[int, str, str]] = []
     try:
         content = filepath.read_text(encoding="utf-8")
@@ -67,22 +64,52 @@ def scan_file(filepath: Path) -> list[tuple[int, str, str]]:
         if field_name in ALLOWED_FIELD_NAMES:
             continue
 
+        field_lower = field_name.lower()
         value_lower = value_part.lower()
+        value_stripped = value_part.strip().strip("\"'")
         for keyword in SENSITIVE_KEYWORDS:
-            # 匹配关键词作为值的一部分（而非键名）
-            if keyword in value_lower:
+            if (
+                keyword in field_lower
+                and value_stripped
+                and not _is_placeholder_value(value_stripped)
+            ):
+                hits.append((line_num, keyword, _redacted_line(key_part.strip())))
+                break
+
+            # 匹配关键词作为值的一部分
+            if keyword in value_lower and not _is_placeholder_value(value_stripped):
                 # 排除纯描述性提及（如 "requires session_profile"）
                 # 只匹配看起来像实际值的情况
-                value_stripped = value_part.strip().strip("\"'")
                 if keyword in value_stripped.lower() and "=" in value_stripped:
-                    hits.append((line_num, keyword, stripped))
+                    hits.append((line_num, keyword, _redacted_line(key_part.strip())))
                     break
                 # 也匹配明显的 token 值模式
                 if re.search(rf"\b{keyword}\s*[=:]\s*\S+", value_lower):
-                    hits.append((line_num, keyword, stripped))
+                    hits.append((line_num, keyword, _redacted_line(key_part.strip())))
                     break
 
     return hits
+
+
+def _is_placeholder_value(value: str) -> bool:
+    """允许 env 引用和模板占位，不把它们当成仓库内 secret。"""
+    normalized = value.strip().strip("\"'").strip()
+    if not normalized:
+        return True
+    lower = normalized.lower()
+    if lower in {"null", "none", "changeme", "change-me", "todo", "tbd"}:
+        return True
+    if re.fullmatch(r"\$\{[A-Z0-9_]+\}", normalized):
+        return True
+    if re.fullmatch(r"<[^<>]+>", normalized):
+        return True
+    if lower.startswith("your-") or lower.startswith("example-"):
+        return True
+    return False
+
+
+def _redacted_line(field_name: str) -> str:
+    return f"{field_name}: <redacted>"
 
 
 def scan(root: Path) -> int:

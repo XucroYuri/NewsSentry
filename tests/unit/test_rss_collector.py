@@ -136,6 +136,22 @@ class TestCollect:
             with pytest.raises(RuntimeError, match="RSS fetch failed"):
                 collector.collect("run-001")
 
+    def test_redirect_response_is_blocked(self):
+        """RSS 抓取不能跟随初始校验后的重定向。"""
+        config = _make_minimal_config(url="https://allowed.example.com/feed")
+        collector = RSSCollector(config, None)
+        redirect_resp = httpx.Response(
+            302,
+            headers={"location": "http://169.254.169.254/latest/meta-data"},
+            request=httpx.Request("GET", config["url"]),
+        )
+
+        with mock.patch("httpx.get", return_value=redirect_resp) as mock_get:
+            with pytest.raises(RuntimeError, match="Redirect blocked"):
+                collector.collect("run-001")
+
+        assert mock_get.call_args.kwargs["follow_redirects"] is False
+
     def test_timeout_raises_runtime_error(self):
         config = _make_minimal_config(url="https://slow.example.com/feed")
         collector = RSSCollector(config, None)
@@ -814,3 +830,24 @@ class TestRSSCollectorAsync:
         events = await collector.collect_async("run-001", http_client=mock_client)
 
         assert events == []
+
+    @pytest.mark.asyncio
+    async def test_collect_async_blocks_redirect_response(self):
+        """异步 RSS 抓取也不能跟随重定向。"""
+        config = self._make_config(url="https://allowed.example.com/feed.xml")
+        sandbox = self._make_sandbox()
+        collector = RSSCollector(config, sandbox)
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(
+            return_value=httpx.Response(
+                302,
+                headers={"location": "http://169.254.169.254/latest/meta-data"},
+                request=httpx.Request("GET", config["url"]),
+            )
+        )
+
+        events = await collector.collect_async("run-001", http_client=mock_client)
+
+        assert events == []
+        assert mock_client.get.call_args.kwargs["follow_redirects"] is False

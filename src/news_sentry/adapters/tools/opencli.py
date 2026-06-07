@@ -7,6 +7,7 @@ builds commands from templates, executes via subprocess with sandbox checks.
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 import subprocess
@@ -22,6 +23,25 @@ from news_sentry.core.sandbox import (
     SandboxEnforcer,
     SandboxViolationError,
     StopOnRiskError,
+)
+
+_SAFE_SUBPROCESS_ENV_KEYS: frozenset[str] = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "SHELL",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        "SYSTEMROOT",
+        "WINDIR",
+        "COMSPEC",
+    }
 )
 
 
@@ -146,6 +166,7 @@ class OpenCLIToolAdapter:
             completed = subprocess.run(  # noqa: S603 — command built from trusted YAML manifest template
                 command,
                 capture_output=True,
+                env=self._subprocess_env(),
                 text=True,
                 timeout=timeout_s,
             )
@@ -250,6 +271,12 @@ class OpenCLIToolAdapter:
     def get_manifest(self, tool_ref: str) -> dict[str, Any] | None:
         """返回指定 tool_ref 的 manifest，未找到时返回 None。"""
         return self._tools.get(tool_ref)
+
+    def _subprocess_env(self) -> dict[str, str] | None:
+        """Return a minimal child process env when sandbox policy denies env passthrough."""
+        if self._sandbox is None or not self._sandbox.policy.command.deny_env_passthrough:
+            return None
+        return {key: value for key, value in os.environ.items() if key in _SAFE_SUBPROCESS_ENV_KEYS}
 
     # ── 内部方法 ──────────────────────────────────────────────
 

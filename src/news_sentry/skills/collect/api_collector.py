@@ -21,6 +21,14 @@ from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
 from news_sentry.skills.collect.language_utils import coerce_language
 
 
+def _raise_on_redirect(resp: httpx.Response, source_id: str) -> None:
+    """Reject redirects so sandbox host checks cannot be bypassed after fetch starts."""
+    status_code = int(getattr(resp, "status_code", 0) or 0)
+    if 300 <= status_code < 400:
+        location = resp.headers.get("location", "")
+        raise RuntimeError(f"Redirect blocked for {source_id}: {location[:120]}")
+
+
 def _retry_fetch(
     fetch_fn: Callable[[], httpx.Response], source_id: str, max_retries: int = 3
 ) -> httpx.Response:
@@ -33,6 +41,7 @@ def _retry_fetch(
     for attempt in range(max_retries + 1):
         try:
             resp = fetch_fn()
+            _raise_on_redirect(resp, source_id)
             resp.raise_for_status()
             return resp
         except httpx.HTTPStatusError as e:
@@ -139,7 +148,7 @@ class APICollector:
                         params=self._params,
                         headers=self._headers,
                         timeout=self._timeout,
-                        follow_redirects=True,
+                        follow_redirects=False,
                     ),
                     self._source_id,
                 )
@@ -150,7 +159,7 @@ class APICollector:
                         params=self._params,
                         headers=self._headers,
                         timeout=self._timeout,
-                        follow_redirects=True,
+                        follow_redirects=False,
                     ),
                     self._source_id,
                 )
@@ -318,6 +327,7 @@ class APICollector:
                 else:
                     async with httpx.AsyncClient() as temp_client:
                         resp = await self._do_async_request(temp_client)
+                _raise_on_redirect(resp, self._source_id)
                 if resp.status_code >= 500:
                     raise httpx.HTTPStatusError(
                         f"Server error {resp.status_code}",
@@ -335,7 +345,7 @@ class APICollector:
         """使用 AsyncClient 发起 GET 或 POST 请求。"""
         kwargs: dict[str, Any] = {
             "timeout": self._timeout,
-            "follow_redirects": True,
+            "follow_redirects": False,
         }
         if self._method == "POST":
             return await client.post(

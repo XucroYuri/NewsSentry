@@ -149,6 +149,22 @@ class TestCollect:
         assert result[0].url == "https://x.com/1"
         assert result[0].content_original == "Test content."
 
+    def test_redirect_response_is_blocked(self):
+        """API 抓取不能跟随初始 host 校验后的重定向。"""
+        config = _make_minimal_config(url="https://allowed.example.com/api/news")
+        collector = APICollector(config, None)
+        redirect_resp = httpx.Response(
+            302,
+            headers={"location": "http://169.254.169.254/latest/meta-data"},
+            request=httpx.Request("GET", config["url"]),
+        )
+
+        with mock.patch("httpx.get", return_value=redirect_resp) as mock_get:
+            with pytest.raises(RuntimeError, match="Redirect blocked"):
+                collector.collect("run-abc")
+
+        assert mock_get.call_args.kwargs["follow_redirects"] is False
+
     def test_collect_uses_api_mapping_for_field_names(self):
         """验证 api_mapping 自定义字段名生效。"""
         config = _make_minimal_config(
@@ -813,6 +829,26 @@ class TestAPICollectorAsync:
 
         events = await collector.collect_async("run-001", http_client=mock_client)
         assert events == []
+
+    async def test_collect_async_blocks_redirect_response(self):
+        """异步 API 抓取也不能跟随重定向。"""
+        config = self._make_config(url="https://allowed.example.com/api/news")
+        sandbox = self._make_sandbox()
+        collector = APICollector(config, sandbox)
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(
+            return_value=httpx.Response(
+                302,
+                headers={"location": "http://169.254.169.254/latest/meta-data"},
+                request=httpx.Request("GET", config["url"]),
+            )
+        )
+
+        events = await collector.collect_async("run-001", http_client=mock_client)
+
+        assert events == []
+        assert mock_client.get.call_args.kwargs["follow_redirects"] is False
 
     async def test_collect_async_post_method(self):
         """POST 方法应调用 client.post。"""

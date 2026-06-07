@@ -33,8 +33,14 @@ jobs:
       - name: Lint (ruff)
         run: python -m ruff check
 
+      - name: Type check (mypy)
+        run: python -m mypy src/news_sentry/ --ignore-missing-imports
+
       - name: Test (pytest + coverage)
         run: python -m pytest tests/ -q --tb=short --timeout=300 --cov=src/news_sentry --cov-report=term-missing
+
+      - name: Publication hygiene scan
+        run: python tools/check_publication_hygiene.py
 
       - name: Security scan
         run: python tools/scan_sensitive_data.py
@@ -75,7 +81,6 @@ jobs:
           username: ${{ secrets.BWH_SSH_USER }}
           key: ${{ secrets.BWH_SSH_KEY }}
           port: ${{ secrets.BWH_SSH_PORT || 22 }}
-          script_stop: true
           command_timeout: 5m
           script: |
             set -euo pipefail
@@ -88,6 +93,14 @@ jobs:
             SHORT_SHA="$(echo ${SHA} | cut -c1-7)"
             DEPLOY_BASE="/opt/news-sentry"
             REPO_DIR="${DEPLOY_BASE}/${ENV}/repo"
+            REPO_URL="https://github.com/XucroYuri/NewsSentry.git"
+            AUTH_HEADER="AUTHORIZATION: bearer ${{ secrets.GHCR_PAT }}"
+
+            redact_sensitive_log() {
+              sed -E \
+                -e 's/((password|token|secret|api[_ -]?key|authorization|cookie)[^[:space:]]{0,40}[=:][[:space:]]*)[^[:space:]]+/\1<redacted>/Ig' \
+                -e 's/(Bearer )[A-Za-z0-9._-]+/\1<redacted>/Ig'
+            }
 
             echo "=== Deploying NewsSentry ${ENV} (${SHORT_SHA}) on port ${PORT} ==="
 
@@ -98,12 +111,14 @@ jobs:
             # ── 2. 克隆或更新代码 ──
             if [ -d "${REPO_DIR}/.git" ]; then
               cd "${REPO_DIR}"
-              git fetch origin
-              git checkout "${BRANCH}"
+              git remote set-url origin "${REPO_URL}"
+              git -c http.extraheader="${AUTH_HEADER}" fetch origin "${BRANCH}"
+              git checkout -B "${BRANCH}" "origin/${BRANCH}"
               git reset --hard "origin/${BRANCH}"
             else
-              git clone -b "${BRANCH}" https://x-access-token:${{ secrets.GHCR_PAT }}@github.com/XucroYuri/NewsSentry.git "${REPO_DIR}"
+              git -c http.extraheader="${AUTH_HEADER}" clone -b "${BRANCH}" "${REPO_URL}" "${REPO_DIR}"
               cd "${REPO_DIR}"
+              git remote set-url origin "${REPO_URL}"
             fi
 
             echo "Checked out: $(git log --oneline -1)"
@@ -180,7 +195,7 @@ jobs:
               fi
               if [ "$i" -eq 12 ]; then
                 echo "❌ Health check failed after 60s"
-                journalctl -u "${SERVICE}" --no-pager -n 30
+                journalctl -u "${SERVICE}" --no-pager -n 30 | redact_sensitive_log
                 exit 1
               fi
               sleep 5

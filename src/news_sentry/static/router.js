@@ -267,7 +267,7 @@ export function targetWorkbenchHashForLegacyRoute(route, targetId = "") {
       control: scoped("collection"),
       sources: scoped("sources"),
       targets: "#/admin/targets",
-      health: scoped("collection"),
+      health: "#/admin/collection/health",
     },
     review: {
       queue: scoped("review"),

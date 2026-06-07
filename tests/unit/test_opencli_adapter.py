@@ -7,6 +7,7 @@ sandbox blocking, execute 验证路径。
 
 from __future__ import annotations
 
+import sys
 from unittest import mock
 
 import pytest
@@ -390,6 +391,59 @@ class TestSandboxBlocked:
         assert result.success is False
         assert result.error is not None
         assert result.error["type"] == "permission_denied"
+
+    def test_deny_env_passthrough_removes_runtime_secrets(self, tmp_path, monkeypatch) -> None:
+        """开启沙箱 deny_env_passthrough 时，子进程不能继承运行时 secret。"""
+        manifest = {
+            "tools": [
+                {
+                    "tool_id": "opencli.test.env",
+                    "display_name": "Env Test",
+                    "execution_type": "subprocess",
+                    "command_template": "{python} -c {snippet}",
+                    "timeout_seconds": 5,
+                    "parameters_schema": {
+                        "type": "object",
+                        "required": ["python", "snippet"],
+                        "properties": {
+                            "python": {"type": "string"},
+                            "snippet": {"type": "string"},
+                        },
+                    },
+                    "permissions": {
+                        "risk_level": "low",
+                        "network": {"allowed_hosts": []},
+                        "browser": {"session_profile_required": False},
+                        "credentials": {"required": []},
+                    },
+                }
+            ]
+        }
+        manifest_path = tmp_path / "env-manifest.yaml"
+        manifest_path.write_text(yaml.dump(manifest), encoding="utf-8")
+        monkeypatch.setenv("NEWSSENTRY_API_KEY", "ns-test-secret-value")
+        policy = SandboxPolicy(
+            allowed_commands=[sys.executable],
+            default_action="allow",
+        )
+        sandbox = SandboxEnforcer(policy, audit_log_path=tmp_path / "logs")
+        adapter = OpenCLIToolAdapter(manifest_path=manifest_path, sandbox_enforcer=sandbox)
+
+        result = adapter.execute(
+            "opencli.test.env",
+            {
+                "python": sys.executable,
+                "snippet": (
+                    "import os; "
+                    "print(os.environ.get('NEWSSENTRY_API_KEY', '<missing>'))"
+                ),
+            },
+            "run-env",
+        )
+
+        assert result.success is True
+        assert "ns-test-secret-value" not in result.stdout
+        assert "<missing>" in result.stdout
 
 
 # ──────────────────────────────────────────────────────────────

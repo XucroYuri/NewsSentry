@@ -28,6 +28,14 @@ from news_sentry.skills.collect.language_utils import coerce_language
 logger = logging.getLogger(__name__)
 
 
+def _raise_on_redirect(resp: httpx.Response, source_id: str) -> None:
+    """Reject redirects so sandbox host checks cannot be bypassed after fetch starts."""
+    status_code = int(getattr(resp, "status_code", 0) or 0)
+    if 300 <= status_code < 400:
+        location = resp.headers.get("location", "")
+        raise RuntimeError(f"Redirect blocked for {source_id}: {location[:120]}")
+
+
 def _retry_fetch(
     fetch_fn: Callable[[], httpx.Response], source_id: str, max_retries: int = 3
 ) -> httpx.Response:
@@ -40,6 +48,7 @@ def _retry_fetch(
     for attempt in range(max_retries + 1):
         try:
             resp = fetch_fn()
+            _raise_on_redirect(resp, source_id)
             resp.raise_for_status()
             return resp
         except httpx.HTTPStatusError as e:
@@ -126,7 +135,7 @@ class RSSCollector:
 
         try:
             response = _retry_fetch(
-                lambda: httpx.get(self._url, timeout=self._timeout, follow_redirects=True),
+                lambda: httpx.get(self._url, timeout=self._timeout, follow_redirects=False),
                 self._source_id,
             )
             feed_content = response.text
@@ -213,12 +222,15 @@ class RSSCollector:
         for attempt in range(max_retries):
             try:
                 if client is not None:
-                    resp = await client.get(self._url, timeout=self._timeout, follow_redirects=True)
+                    resp = await client.get(
+                        self._url, timeout=self._timeout, follow_redirects=False
+                    )
                 else:
                     async with httpx.AsyncClient() as temp_client:
                         resp = await temp_client.get(
-                            self._url, timeout=self._timeout, follow_redirects=True
+                            self._url, timeout=self._timeout, follow_redirects=False
                         )
+                _raise_on_redirect(resp, self._source_id)
                 if resp.status_code >= 500:
                     raise httpx.HTTPStatusError(
                         f"Server error {resp.status_code}",

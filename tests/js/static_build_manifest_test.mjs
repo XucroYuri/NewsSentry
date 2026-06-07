@@ -98,4 +98,16 @@ assert.doesNotMatch(
   "service worker should not keep a stale build manifest promise for its whole lifetime",
 );
 
+assert.match(
+  swJs,
+  /isAPI\)[\s\S]*event\.respondWith\(networkOnly\(event\.request\)\)/,
+  "service worker should handle API requests without writing authenticated responses to cache",
+);
+
+assert.doesNotMatch(
+  swJs,
+  /API 请求：网络优先，离线时使用缓存/,
+  "service worker should not advertise cached fallback for authenticated API responses",
+);
+
 console.log("static build manifest tests passed");

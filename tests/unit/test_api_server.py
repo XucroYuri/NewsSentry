@@ -374,7 +374,54 @@ class TestAPIServer:
         assert data["status"] == "ok"
         assert data["static_build"]
         assert data["static_cache_name"] == f"news-sentry-{data['static_build']}"
-        assert data["code_path"].endswith("src/news_sentry/core/api_server.py")
+        assert set(data) == {"status", "static_build", "static_cache_name"}
+
+    def test_security_headers_are_attached_to_public_responses(self, tmp_path: Path) -> None:
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/")
+
+        assert resp.status_code == 200
+        assert "strict-transport-security" in resp.headers
+        assert resp.headers["x-frame-options"] == "DENY"
+        assert resp.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+        assert "interest-cohort=()" in resp.headers["permissions-policy"]
+        csp = resp.headers["content-security-policy"]
+        assert "connect-src 'self'" in csp
+        assert "connect-src *" not in csp
+        assert "script-src 'self'" in csp
+        assert "'unsafe-inline'" not in csp.split("style-src", maxsplit=1)[0]
+
+    def test_disallowed_cors_origin_gets_no_cors_credentials(self, tmp_path: Path) -> None:
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/health", headers={"Origin": "https://evil.example"})
+
+        assert resp.status_code == 200
+        assert "access-control-allow-origin" not in resp.headers
+        assert "access-control-allow-credentials" not in resp.headers
+
+    def test_robots_txt_is_owned_by_app(self, tmp_path: Path) -> None:
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/robots.txt")
+
+        assert resp.status_code == 200
+        assert "User-agent: *" in resp.text
+        assert "Disallow: /api/" in resp.text
+        assert "Disallow: /#/admin" in resp.text
+
+    def test_static_entry_assets_are_not_long_http_cached(self, tmp_path: Path) -> None:
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        for path in ("/app.js", "/public.css"):
+            resp = client.get(path)
+            assert resp.status_code == 200
+            assert resp.headers["cache-control"] == "no-cache"
 
     def test_build_manifest_endpoint_uses_content_hash(self, tmp_path: Path) -> None:
         client = self._make_client(tmp_path)
@@ -1675,6 +1722,28 @@ class TestConfigAPI:
         resp = client.get("/api/v1/config/targets/italy/sources/api/gnews-italy")
         assert resp.status_code == 200
         assert resp.json()["source_id"] == "gnews-italy"
+
+    def test_get_source_config_rejects_encoded_path_traversal(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """source_id:path 不能越界读取 config/sources 外的 YAML。"""
+        self._setup_config(tmp_path, monkeypatch)
+        (tmp_path / "config" / "sources" / "italy").mkdir(parents=True)
+        provider_dir = tmp_path / "config" / "provider"
+        provider_dir.mkdir(parents=True)
+        (provider_dir / "routes.yaml").write_text(
+            "routes:\n  - provider: openrouter\n",
+            encoding="utf-8",
+        )
+        client = self._make_client(tmp_path)
+
+        resp = client.get(
+            "/api/v1/config/targets/italy/sources/%2E%2E%2F%2E%2E%2Fprovider%2Froutes",
+        )
+
+        assert resp.status_code == 400
 
     # ── Filter 规则 ──
 
@@ -4444,6 +4513,31 @@ class TestConfigWriteEndpoints:
             filepath.write_text(original, encoding="utf-8")
             self._teardown_auth()
 
+    def test_update_source_config_rejects_encoded_path_traversal(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """写 source 配置时不能通过编码路径越界修改其他 YAML。"""
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "config" / "sources" / "italy").mkdir(parents=True)
+        provider_dir = tmp_path / "config" / "provider"
+        provider_dir.mkdir(parents=True)
+        routes_path = provider_dir / "routes.yaml"
+        routes_path.write_text("routes: []\n", encoding="utf-8")
+        client = self._make_client(tmp_path)
+        headers = self._setup_auth(client)
+        try:
+            resp = client.patch(
+                "/api/v1/config/targets/italy/sources/%2E%2E%2F%2E%2E%2Fprovider%2Froutes",
+                json={"enabled": False},
+                headers=headers,
+            )
+            assert resp.status_code == 400
+            assert routes_path.read_text(encoding="utf-8") == "routes: []\n"
+        finally:
+            self._teardown_auth()
+
     def test_update_filter_config(self, tmp_path: Path) -> None:
         """PATCH /config/targets/{id}/filters 更新 filter。"""
         filepath = Path("config/filters/italy/default.yaml")
@@ -5261,6 +5355,54 @@ class TestImportEvents:
         resp = client.post("/api/v1/events/import", json=[])
         assert resp.status_code == 200
         assert resp.json()["imported"] == 0
+
+    def test_import_rejects_target_path_traversal(self, tmp_path: Path) -> None:
+        """导入事件时 target_id 不能越界写到 data_dir 外。"""
+        client = self._make_client(tmp_path)
+        escaped_name = f"{tmp_path.name}-escaped-import"
+        escaped_dir = tmp_path.parent / escaped_name
+
+        resp = client.post(
+            "/api/v1/events/import",
+            json=[
+                {
+                    "target_id": f"../{escaped_name}",
+                    "source_id": "src",
+                    "title_original": "Escaped import",
+                    "url": "https://example.com/escaped",
+                    "collected_at": "2026-05-17T10:00:00+00:00",
+                },
+            ],
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["imported"] == 0
+        assert data["errors"]
+        assert not escaped_dir.exists()
+
+    def test_import_rejects_source_path_separator(self, tmp_path: Path) -> None:
+        """导入事件时 source_id 只能作为文件名片段，不能携带路径分隔符。"""
+        client = self._make_client(tmp_path)
+
+        resp = client.post(
+            "/api/v1/events/import",
+            json=[
+                {
+                    "target_id": "italy",
+                    "source_id": "rss/escaped",
+                    "title_original": "Escaped source",
+                    "url": "https://example.com/escaped-source",
+                    "collected_at": "2026-05-17T10:00:00+00:00",
+                },
+            ],
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["imported"] == 0
+        assert data["errors"]
+        assert not (tmp_path / "italy" / "raw").exists()
 
 
 class TestAdminUserEndpoints:
@@ -6083,6 +6225,39 @@ class TestDataStatusEndpoint:
         data = resp.json()
         assert data["total_events_all_targets"] >= 1
         assert "italy" in data["targets"]
+        assert data["file_event_total"] >= 1
+        assert data["targets"]["italy"]["file_events"] >= 1
+        assert data["targets"]["italy"]["event_count"] >= data["targets"]["italy"]["file_events"]
+
+    def test_data_status_distinguishes_file_and_api_totals(self, tmp_path: Path) -> None:
+        """status 端点区分文件产物数和 SQLite/API 索引事件数。"""
+        store = AsyncStore(tmp_path / "state.db")
+        asyncio.run(store.initialize())
+        try:
+            asyncio.run(
+                _insert_index_event(
+                    store,
+                    event_id="ne-italy-api-20260607-status",
+                    target_id="italy",
+                    title_original="API indexed status story",
+                    stage="filtered",
+                )
+            )
+            app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
+            client = TestClient(app)
+
+            resp = client.get("/api/v1/status", headers=self._auth_headers(client))
+
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["file_event_total"] == 0
+            assert data["api_event_total"] >= 1
+            assert data["total_events_all_targets"] >= 1
+            assert data["targets"]["italy"]["event_count"] >= 1
+            assert data["targets"]["italy"]["api_events"] >= 1
+            assert "source_count" in data["targets"]["italy"]
+        finally:
+            asyncio.run(store.close())
 
     def test_data_status_non_dir_ignored(self, tmp_path: Path) -> None:
         """非目录文件被忽略。"""

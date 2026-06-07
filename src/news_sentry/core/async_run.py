@@ -338,7 +338,7 @@ async def _run_collect_async(
             return_exceptions=True,
         )
         for result in results:
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 continue
             events, metric = result
             all_events.extend(events)
