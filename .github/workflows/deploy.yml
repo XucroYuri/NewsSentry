@@ -17,6 +17,9 @@ jobs:
   ci:
     name: CI Gate
     runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PYTHONUNBUFFERED: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -37,7 +40,8 @@ jobs:
         run: python -m mypy src/news_sentry/ --ignore-missing-imports
 
       - name: Test (pytest + coverage)
-        run: python -m pytest tests/ -q --tb=short --timeout=300 --cov=src/news_sentry --cov-report=term-missing
+        timeout-minutes: 20
+        run: python -m pytest tests/ -q --tb=short --timeout=300 --durations=25 --cov=src/news_sentry --cov-report=term-missing
 
       - name: Publication hygiene scan
         run: python tools/check_publication_hygiene.py
