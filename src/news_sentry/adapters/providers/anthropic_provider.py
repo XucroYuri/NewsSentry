@@ -50,21 +50,29 @@ class AnthropicProvider(AIProvider):
         )
         self._max_tokens = config.get("max_tokens", 2048)
 
+    def _is_nvidia_compatible(self) -> bool:
+        return "integrate.api.nvidia.com" in str(self._base_url)
+
     def _messages_url(self) -> str:
         base_url = str(self._base_url).rstrip("/")
-        if "integrate.api.nvidia.com" in base_url and not base_url.endswith("/v1"):
+        if self._is_nvidia_compatible() and not base_url.endswith("/v1"):
             base_url = f"{base_url}/v1"
+        if self._is_nvidia_compatible():
+            return f"{base_url}/chat/completions"
         return f"{base_url}/messages"
 
     def _headers(self) -> dict[str, str]:
         api_key = str(self._api_key)
+        if self._is_nvidia_compatible():
+            return {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
         headers = {
             "x-api-key": api_key,
             "anthropic-version": "2023-06-01",
             "Content-Type": "application/json",
         }
-        if "integrate.api.nvidia.com" in str(self._base_url):
-            headers["Authorization"] = f"Bearer {api_key}"
         return headers
 
     def call(self, route_id: str, prompt: str, **kwargs: Any) -> dict[str, Any]:  # noqa: ANN401
@@ -93,11 +101,21 @@ class AnthropicProvider(AIProvider):
 
         url = self._messages_url()
         headers = self._headers()
-        payload: dict[str, Any] = {
-            "model": model,
-            "max_tokens": max_tokens,
-            "messages": [{"role": "user", "content": prompt}],
-        }
+        payload: dict[str, Any]
+        if self._is_nvidia_compatible():
+            payload = {
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": max_tokens,
+            }
+            if "response_format" in kwargs:
+                payload["response_format"] = kwargs["response_format"]
+        else:
+            payload = {
+                "model": model,
+                "max_tokens": max_tokens,
+                "messages": [{"role": "user", "content": prompt}],
+            }
 
         try:
             response = httpx.post(
@@ -114,6 +132,17 @@ class AnthropicProvider(AIProvider):
             ) from e
         except httpx.RequestError as e:
             raise RuntimeError(f"Anthropic API 网络请求失败: {e}") from e
+
+        if self._is_nvidia_compatible():
+            choice = data.get("choices", [{}])[0]
+            content = choice.get("message", {}).get("content", "")
+            return {
+                "content": content,
+                "model": data.get("model", model),
+                "usage": data.get("usage", {}),
+                "route_id": route_id,
+                "provider": "anthropic",
+            }
 
         content_blocks = data.get("content", [])
         text = ""
@@ -159,11 +188,21 @@ class AnthropicProvider(AIProvider):
             )
 
         use_model = model or self._default_model
-        payload: dict[str, Any] = {
-            "model": use_model,
-            "max_tokens": max_tokens,
-            "messages": [{"role": "user", "content": prompt}],
-        }
+        payload: dict[str, Any]
+        if self._is_nvidia_compatible():
+            payload = {
+                "model": use_model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": max_tokens,
+            }
+            if "response_format" in kwargs:
+                payload["response_format"] = kwargs["response_format"]
+        else:
+            payload = {
+                "model": use_model,
+                "max_tokens": max_tokens,
+                "messages": [{"role": "user", "content": prompt}],
+            }
 
         headers = self._headers()
 
@@ -180,6 +219,17 @@ class AnthropicProvider(AIProvider):
                 await client.aclose()
 
         data = response.json()
+        if self._is_nvidia_compatible():
+            choice = data.get("choices", [{}])[0]
+            content = choice.get("message", {}).get("content", "")
+            return {
+                "content": content,
+                "model": data.get("model", use_model),
+                "usage": data.get("usage", {}),
+                "route_id": route_id,
+                "provider": "anthropic",
+            }
+
         content_blocks = data.get("content", [])
         text = ""
         for block in content_blocks:

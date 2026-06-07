@@ -56,16 +56,17 @@ class TestInit:
         assert provider._api_key == "nvapi-test"
         assert provider._default_model == "deepseek-ai/deepseek-v4-flash"
 
-    def test_nvidia_base_url_normalizes_to_v1_messages(self):
-        """用户配置的 Nvidia base URL 不含 /v1 时，适配器补齐 messages 路径。"""
+    def test_nvidia_base_url_uses_openai_compatible_chat_completions(self):
+        """Nvidia integrate API 走 OpenAI-compatible chat completions 路径。"""
         provider = AnthropicProvider(
             {
                 "api_key": "nvapi-test",
                 "base_url": "https://integrate.api.nvidia.com",
             }
         )
-        assert provider._messages_url() == "https://integrate.api.nvidia.com/v1/messages"
+        assert provider._messages_url() == "https://integrate.api.nvidia.com/v1/chat/completions"
         assert provider._headers()["Authorization"] == "Bearer nvapi-test"
+        assert "x-api-key" not in provider._headers()
 
     def test_init_with_config(self):
         """config dict 覆盖默认值。"""
@@ -177,6 +178,35 @@ class TestCall:
         assert result["model"] == "claude-sonnet-4-20250514"
         call_kwargs = mock_post.call_args.kwargs
         assert call_kwargs["json"]["model"] == "claude-sonnet-4-20250514"
+
+    def test_call_nvidia_compatible_success(self):
+        """Nvidia base URL 下解析 OpenAI-compatible choices 响应。"""
+        mock_response = _make_mock_response(
+            json_data={
+                "choices": [{"message": {"content": "你好，世界"}}],
+                "model": "deepseek-ai/deepseek-v4-flash",
+                "usage": {"total_tokens": 8},
+            }
+        )
+        with mock.patch("httpx.post", return_value=mock_response) as mock_post:
+            provider = AnthropicProvider(
+                {
+                    "api_key": "nvapi-test",
+                    "base_url": "https://integrate.api.nvidia.com",
+                }
+            )
+            result = provider.call(
+                "translate.nvidia",
+                "Translate hello world",
+                model="deepseek-ai/deepseek-v4-flash",
+            )
+
+        assert result["content"] == "你好，世界"
+        assert result["model"] == "deepseek-ai/deepseek-v4-flash"
+        call_kwargs = mock_post.call_args.kwargs
+        assert mock_post.call_args.args[0] == "https://integrate.api.nvidia.com/v1/chat/completions"
+        assert call_kwargs["headers"]["Authorization"] == "Bearer nvapi-test"
+        assert call_kwargs["json"]["messages"][0]["content"] == "Translate hello world"
 
     def test_call_empty_content_blocks(self):
         """API 返回空 content 列表时 content 应为空字符串。"""
