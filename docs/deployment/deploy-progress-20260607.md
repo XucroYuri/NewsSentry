@@ -112,6 +112,28 @@ Step 7: 上线验证 + 共存确认 .......... ✅ 已完成
 - 已将 `src/news_sentry/adapters/providers/openrouter_provider.py` 缺省模型和 `config/provider/routes.yaml` 所有 OpenRouter 路由临时切换到 `openai/gpt-oss-20b:free`
 - 当前策略是“先保障 AI 链路真实可用”；账号充值或换有额度 key 后，建议再把生产路由切回更强付费模型，并恢复小额 `max_cost_usd_per_call` 估算
 
+## 2026-06-08 Codex OpenRouter free 模型轮换 + Nvidia 兜底记录
+
+根据成本风险复盘，AI 路由策略从“单一 OpenRouter free 默认模型”升级为“全 OpenRouter 任务 free 模型池轮换 + Nvidia 低并发免费模型兜底”：
+
+- `config/provider/routes.yaml` 升级到 `routes_version: "1.2.0"`，所有 OpenRouter AI 任务均配置 `model_pool`
+- 当前 free 模型池只包含模型名带 `:free` 的候选，默认排除 `openrouter/free` 和 thinking-only 候选，避免正文为空
+- `ProviderRouter` 增加进程内轮换游标；同一 route 会在模型池内轮换，遇到空正文、HTTP 429、HTTP 402、quota/credits 错误时切换模型
+- 429/402 等限流或额度错误会让对应 provider+model 进入 30 分钟冷却，降低免费模型被连续打爆的概率
+- Nvidia 低并发免费模型通过现有 `anthropic` provider 适配层接入；Nvidia route 使用 `model_env_var` 优先读取环境变量，生产只需要配置运行时环境变量，不在仓库保存 token：
+  - `ANTHROPIC_BASE_URL=https://integrate.api.nvidia.com`
+  - `ANTHROPIC_AUTH_TOKEN=<runtime secret>`
+  - 可选：`ANTHROPIC_DEFAULT_OPUS_MODEL`、`ANTHROPIC_DEFAULT_SONNET_MODEL`、`ANTHROPIC_DEFAULT_HAIKU_MODEL`
+- 各任务 fallback 顺序：OpenRouter free pool → Nvidia/Anthropic-compatible route → `fallback.local`（本地规则，仅适合研判/分类兜底；翻译任务失败时不会写入空译文）
+
+建议验收：
+
+```bash
+PYTHONPATH=src .venv/bin/python -m pytest tests/unit/test_provider_router.py tests/unit/test_anthropic_provider.py tests/unit/test_openrouter_provider.py tests/unit/test_provider_factory.py -q
+PYTHONPATH=src .venv/bin/python -m pytest tests/unit/test_ai_enrichment.py -q
+PYTHONPATH=src .venv/bin/python tools/scan_sensitive_data.py
+```
+
 ## 未完成事项与建议解决方向
 
 已完成一轮已部署站点全栈审计，独立报告见 [site-audit-20260607.md](site-audit-20260607.md)。2026-06-08 已启动并落地一轮全量硬化冲刺，脱敏整改记录见 [hardening-sprint-20260608.md](hardening-sprint-20260608.md)；后续安全、产品体验、CI/CD 和运维整改 backlog 以这两份报告中的 `NS-AUDIT-*` / security scan 编号为准。

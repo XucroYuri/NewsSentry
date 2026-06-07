@@ -8,6 +8,8 @@ ADR: ADR-0005
 from __future__ import annotations
 
 import logging
+import os
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -15,6 +17,8 @@ from news_sentry.adapters.providers.base import AIProvider
 from news_sentry.models.provider_config import ProviderRoute, ProviderRoutesConfig
 
 logger = logging.getLogger(__name__)
+
+_MODEL_COOLDOWN_SECONDS = 30 * 60
 
 
 class CostTracker:
@@ -109,6 +113,8 @@ class ProviderRouter:
         self._task_index: dict[str, list[ProviderRoute]] = {}
         for route in routes_config.routes:
             self._task_index.setdefault(route.task_type, []).append(route)
+        self._model_cursor: dict[str, int] = {}
+        self._model_cooldowns: dict[tuple[str, str], float] = {}
 
     # ── 路由解析 ──────────────────────────────────────────────────
 
@@ -242,6 +248,81 @@ class ProviderRouter:
         """获取当前路由配置。"""
         return self._config
 
+    # ── 模型池轮换 ────────────────────────────────────────────────
+
+    @staticmethod
+    def _dedupe_models(models: list[str]) -> list[str]:
+        seen: set[str] = set()
+        result: list[str] = []
+        for model in models:
+            normalized = model.strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            result.append(normalized)
+        return result
+
+    def _model_candidates(self, route: ProviderRoute) -> list[str]:
+        """返回本次调用应尝试的模型顺序。
+
+        ``route.model`` 保持兼容语义；``route.model_pool`` 提供低成本候选池。
+        每个 route 独立轮换，429/402 等错误触发短期冷却。
+        """
+
+        if route.model_env_var:
+            route_model = os.environ.get(route.model_env_var, route.model)
+        else:
+            route_model = route.model
+        models = self._dedupe_models([route_model, *route.model_pool])
+        if not models:
+            return [route.model]
+
+        now = time.monotonic()
+        active = [
+            model
+            for model in models
+            if self._model_cooldowns.get((route.provider, model), 0.0) <= now
+        ]
+        candidates = active or models
+        cursor = self._model_cursor.get(route.route_id, 0) % len(candidates)
+        self._model_cursor[route.route_id] = (cursor + 1) % len(candidates)
+        return [*candidates[cursor:], *candidates[:cursor]]
+
+    @staticmethod
+    def _is_rate_or_credit_error(error: BaseException | str) -> bool:
+        text = str(error).lower()
+        return any(
+            marker in text
+            for marker in (
+                "429",
+                "rate limit",
+                "too many requests",
+                "402",
+                "insufficient credits",
+                "quota",
+            )
+        )
+
+    def _cooldown_model_if_needed(
+        self,
+        route: ProviderRoute,
+        model: str,
+        error: BaseException | str,
+    ) -> None:
+        if not model or not self._is_rate_or_credit_error(error):
+            return
+        self._model_cooldowns[(route.provider, model)] = time.monotonic() + _MODEL_COOLDOWN_SECONDS
+
+    @staticmethod
+    def _validate_ai_result(route: ProviderRoute, model: str, result: dict[str, Any]) -> None:
+        if route.provider == "local":
+            return
+        content = result.get("content")
+        if content is None or not str(content).strip():
+            raise RuntimeError(
+                f"Provider '{route.provider}' model '{model}' returned empty content"
+            )
+
     # ── 路由编排 ──────────────────────────────────────────────────
 
     def route(
@@ -311,32 +392,42 @@ class ProviderRouter:
                 fallback_used = True
                 continue
 
-            try:
-                call_kwargs = dict(kwargs)
-                if not call_kwargs.get("model"):
-                    call_kwargs["model"] = current_route.model
-                result = provider.call(
-                    route_id=current_route.route_id,
-                    prompt=prompt,
-                    **call_kwargs,
-                )
-                # 4) 记录成本
-                cost = current_route.max_cost_usd_per_call
-                self.track_cost(current_route.route_id, cost)
+            for model in self._model_candidates(current_route):
+                try:
+                    call_kwargs = dict(kwargs)
+                    if not call_kwargs.get("model"):
+                        call_kwargs["model"] = model
+                    result = provider.call(
+                        route_id=current_route.route_id,
+                        prompt=prompt,
+                        **call_kwargs,
+                    )
+                    result = dict(result)
+                    self._validate_ai_result(current_route, model, result)
+                    # 4) 记录成本
+                    cost = current_route.max_cost_usd_per_call
+                    self.track_cost(current_route.route_id, cost)
 
-                result["fallback_used"] = fallback_used
-                result["budget_exceeded"] = False
-                return result
+                    result.setdefault("route_id", current_route.route_id)
+                    result.setdefault("provider", current_route.provider)
+                    result.setdefault("model", model)
+                    result["fallback_used"] = fallback_used
+                    result["budget_exceeded"] = False
+                    return result
 
-            except Exception as e:
-                last_error = str(e)
-                logger.warning(
-                    "Provider '%s' 调用失败: %s",
-                    current_route.provider,
-                    e,
-                )
-                current_route = self.get_fallback_route(current_route)
-                fallback_used = True
+                except Exception as e:
+                    last_error = str(e)
+                    self._cooldown_model_if_needed(current_route, model, e)
+                    logger.warning(
+                        "Provider '%s' model '%s' 调用失败: %s",
+                        current_route.provider,
+                        model,
+                        e,
+                    )
+                    continue
+
+            current_route = self.get_fallback_route(current_route)
+            fallback_used = True
 
         # 5) 所有 Provider 均失败
         logger.error(
@@ -407,39 +498,49 @@ class ProviderRouter:
                 fallback_used = True
                 continue
 
-            try:
-                call_kwargs = dict(kwargs)
-                if not call_kwargs.get("model"):
-                    call_kwargs["model"] = current_route.model
-                if hasattr(provider, "call_async") and callable(provider.call_async):
-                    result = await provider.call_async(
-                        route_id=current_route.route_id,
-                        prompt=prompt,
-                        **call_kwargs,
-                    )
-                else:
-                    result = await asyncio.to_thread(
-                        provider.call,
-                        route_id=current_route.route_id,
-                        prompt=prompt,
-                        **call_kwargs,
-                    )
+            for model in self._model_candidates(current_route):
+                try:
+                    call_kwargs = dict(kwargs)
+                    if not call_kwargs.get("model"):
+                        call_kwargs["model"] = model
+                    if hasattr(provider, "call_async") and callable(provider.call_async):
+                        result = await provider.call_async(
+                            route_id=current_route.route_id,
+                            prompt=prompt,
+                            **call_kwargs,
+                        )
+                    else:
+                        result = await asyncio.to_thread(
+                            provider.call,
+                            route_id=current_route.route_id,
+                            prompt=prompt,
+                            **call_kwargs,
+                        )
 
-                cost = current_route.max_cost_usd_per_call
-                self.track_cost(current_route.route_id, cost)
-                result["fallback_used"] = fallback_used
-                result["budget_exceeded"] = False
-                return dict(result)
+                    result = dict(result)
+                    self._validate_ai_result(current_route, model, result)
+                    cost = current_route.max_cost_usd_per_call
+                    self.track_cost(current_route.route_id, cost)
+                    result.setdefault("route_id", current_route.route_id)
+                    result.setdefault("provider", current_route.provider)
+                    result.setdefault("model", model)
+                    result["fallback_used"] = fallback_used
+                    result["budget_exceeded"] = False
+                    return result
 
-            except Exception as e:
-                last_error = str(e)
-                logger.warning(
-                    "Provider '%s' 异步调用失败: %s",
-                    current_route.provider,
-                    e,
-                )
-                current_route = self.get_fallback_route(current_route)
-                fallback_used = True
+                except Exception as e:
+                    last_error = str(e)
+                    self._cooldown_model_if_needed(current_route, model, e)
+                    logger.warning(
+                        "Provider '%s' model '%s' 异步调用失败: %s",
+                        current_route.provider,
+                        model,
+                        e,
+                    )
+                    continue
+
+            current_route = self.get_fallback_route(current_route)
+            fallback_used = True
 
         logger.error("所有 Provider 异步调用均失败: route_id=%s", route.route_id)
         return {

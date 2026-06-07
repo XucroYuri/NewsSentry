@@ -190,10 +190,17 @@ cat > /opt/news-sentry/.env <<'EOF'
 NEWSSENTRY_DEPLOYMENT_ENV=vps
 NEWSSENTRY_PROFILE=cloud-vps
 
-# AI Provider（使用 OpenRouter）
+# AI Provider（OpenRouter free 模型池）
 OPENROUTER_API_KEY=sk-or-v1-<your-key>
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-OPENROUTER_DEFAULT_MODEL=qwen/qwen3.7-plus
+OPENROUTER_DEFAULT_MODEL=openai/gpt-oss-20b:free
+
+# Nvidia 低并发免费模型兜底（Anthropic-compatible adapter）
+ANTHROPIC_BASE_URL=https://integrate.api.nvidia.com
+ANTHROPIC_AUTH_TOKEN=<your-nvidia-api-token>
+ANTHROPIC_DEFAULT_OPUS_MODEL=deepseek-ai/deepseek-v4-pro
+ANTHROPIC_DEFAULT_SONNET_MODEL=z-ai/glm-5.1
+ANTHROPIC_DEFAULT_HAIKU_MODEL=deepseek-ai/deepseek-v4-flash
 
 # API 网关认证
 NEWSSENTRY_API_KEY=<generate-a-strong-key>

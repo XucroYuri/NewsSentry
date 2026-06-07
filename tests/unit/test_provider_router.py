@@ -93,6 +93,8 @@ def test_routes_config_from_dict() -> None:
                 "task_type": "translate",
                 "provider": "openai",
                 "model": "gpt-4o-mini",
+                "model_env_var": "OPENAI_DEFAULT_MODEL",
+                "model_pool": ["gpt-4o-mini", "gpt-4.1-mini"],
                 "timeout_seconds": 30,
                 "max_cost_usd_per_call": 0.01,
             },
@@ -111,6 +113,8 @@ def test_routes_config_from_dict() -> None:
     assert config.fallback_route_id == "fallback.local"
     assert len(config.routes) == 2
     assert config.routes[0].route_id == "translate.fast"
+    assert config.routes[0].model_env_var == "OPENAI_DEFAULT_MODEL"
+    assert config.routes[0].model_pool == ["gpt-4o-mini", "gpt-4.1-mini"]
 
 
 def test_routes_config_from_yaml_file(tmp_path: Path) -> None:
@@ -166,6 +170,8 @@ def test_provider_route_defaults() -> None:
     assert route.output_schema_ref is None
     assert route.notes is None
     assert route.fallback_route_ids == []
+    assert route.model_env_var is None
+    assert route.model_pool == []
 
 
 # ------------------------------------------------------------------
@@ -541,6 +547,128 @@ class TestRouteOrchestration:
 
         provider = factory.return_value
         assert provider.call.call_args.kwargs["model"] == "<placeholder>"
+
+    def test_route_rotates_configured_model_pool(self) -> None:
+        """同一路由的 model_pool 应按调用次数轮换。"""
+        config = _make_test_routes_config()
+        config.routes[0] = ProviderRoute(
+            route_id="translate.fast",
+            task_type="translate",
+            provider="openrouter",
+            model="openai/gpt-oss-20b:free",
+            model_pool=[
+                "openai/gpt-oss-20b:free",
+                "google/gemma-4-31b-it:free",
+            ],
+            timeout_seconds=30,
+            max_cost_usd_per_call=0.0,
+        )
+        router = ProviderRouter(config)
+        provider = mock.MagicMock()
+        provider.call.return_value = {
+            "content": "译文",
+            "model": "mock",
+            "usage": {},
+            "route_id": "translate.fast",
+            "provider": "openrouter",
+        }
+        factory = mock.MagicMock(return_value=provider)
+
+        router.route("translate", "hello", factory)
+        router.route("translate", "ciao", factory)
+
+        first_model = provider.call.call_args_list[0].kwargs["model"]
+        second_model = provider.call.call_args_list[1].kwargs["model"]
+        assert first_model == "openai/gpt-oss-20b:free"
+        assert second_model == "google/gemma-4-31b-it:free"
+
+    def test_route_model_env_var_overrides_yaml_model(self, monkeypatch) -> None:
+        """model_env_var 允许部署环境覆盖兜底模型。"""
+        monkeypatch.setenv("ANTHROPIC_DEFAULT_HAIKU_MODEL", "deepseek-ai/deepseek-v4-flash")
+        config = _make_test_routes_config()
+        config.routes[0] = ProviderRoute(
+            route_id="translate.nvidia",
+            task_type="translate",
+            provider="anthropic",
+            model="fallback-yaml-model",
+            model_env_var="ANTHROPIC_DEFAULT_HAIKU_MODEL",
+            timeout_seconds=90,
+            max_cost_usd_per_call=0.0,
+        )
+        router = ProviderRouter(config)
+        provider = mock.MagicMock()
+        provider.call.return_value = {
+            "content": "译文",
+            "model": "deepseek-ai/deepseek-v4-flash",
+            "usage": {},
+        }
+        factory = mock.MagicMock(return_value=provider)
+
+        router.route("translate", "hello", factory, preferred_route_id="translate.nvidia")
+
+        assert provider.call.call_args.kwargs["model"] == "deepseek-ai/deepseek-v4-flash"
+
+    def test_route_tries_next_pool_model_on_empty_content(self) -> None:
+        """OpenRouter 返回空 content 时应尝试同一路由下一个 free 模型。"""
+        config = _make_test_routes_config()
+        config.routes[0] = ProviderRoute(
+            route_id="translate.fast",
+            task_type="translate",
+            provider="openrouter",
+            model="openai/gpt-oss-20b:free",
+            model_pool=["openai/gpt-oss-20b:free", "liquid/lfm-2.5-1.2b-instruct:free"],
+            timeout_seconds=30,
+            max_cost_usd_per_call=0.0,
+        )
+        router = ProviderRouter(config)
+        provider = mock.MagicMock()
+        provider.call.side_effect = [
+            {"content": "", "model": "openai/gpt-oss-20b:free", "usage": {}},
+            {
+                "content": "译文",
+                "model": "liquid/lfm-2.5-1.2b-instruct:free",
+                "usage": {},
+            },
+        ]
+        factory = mock.MagicMock(return_value=provider)
+
+        result = router.route("translate", "hello", factory)
+
+        assert result["content"] == "译文"
+        assert provider.call.call_count == 2
+        assert provider.call.call_args_list[0].kwargs["model"] == "openai/gpt-oss-20b:free"
+        assert (
+            provider.call.call_args_list[1].kwargs["model"]
+            == "liquid/lfm-2.5-1.2b-instruct:free"
+        )
+
+    def test_route_cools_down_rate_limited_pool_model(self) -> None:
+        """429/402 后下一次调用应先跳过被冷却的模型。"""
+        config = _make_test_routes_config()
+        config.routes[0] = ProviderRoute(
+            route_id="translate.fast",
+            task_type="translate",
+            provider="openrouter",
+            model="openai/gpt-oss-20b:free",
+            model_pool=["openai/gpt-oss-20b:free", "google/gemma-4-31b-it:free"],
+            timeout_seconds=30,
+            max_cost_usd_per_call=0.0,
+        )
+        router = ProviderRouter(config)
+        provider = mock.MagicMock()
+        provider.call.side_effect = [
+            RuntimeError("HTTP 429 rate limit"),
+            {"content": "第一次成功", "model": "google/gemma-4-31b-it:free", "usage": {}},
+            {"content": "第二次成功", "model": "google/gemma-4-31b-it:free", "usage": {}},
+        ]
+        factory = mock.MagicMock(return_value=provider)
+
+        first = router.route("translate", "hello", factory)
+        second = router.route("translate", "ciao", factory)
+
+        assert first["content"] == "第一次成功"
+        assert second["content"] == "第二次成功"
+        assert provider.call.call_args_list[2].kwargs["model"] == "google/gemma-4-31b-it:free"
 
     # ── 预算超限 ──────────────────────────────────────────────────
 

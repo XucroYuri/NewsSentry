@@ -30,6 +30,17 @@
         },
         "provider": { "type": "string" },
         "model": { "type": "string" },
+        "model_env_var": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "description": "Optional environment variable that overrides model at runtime."
+        },
+        "model_pool": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Optional ordered model candidates. Router rotates through this pool before route fallback."
+        },
         "timeout_seconds": {
           "type": "integer",
           "minimum": 1,

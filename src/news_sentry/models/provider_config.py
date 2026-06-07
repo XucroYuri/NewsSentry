@@ -20,6 +20,8 @@ class ProviderRoute(BaseModel):
     task_type: str
     provider: str
     model: str
+    model_env_var: str | None = None
+    model_pool: list[str] = Field(default_factory=list)
     timeout_seconds: int = Field(ge=1)
     max_cost_usd_per_call: float = Field(ge=0.0)
     output_schema_ref: str | None = None

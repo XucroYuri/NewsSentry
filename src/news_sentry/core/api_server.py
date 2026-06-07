@@ -249,6 +249,8 @@ class RouteInfo(BaseModel):
     task_type: str
     provider: str
     model: str
+    model_env_var: str | None = None
+    model_pool: list[str] = []
     timeout_seconds: int
     max_cost_usd_per_call: float
     audit: bool
@@ -308,6 +310,8 @@ class RouteConfigUpdate(BaseModel):
     """Provider Route 配置更新请求。"""
 
     timeout_seconds: int | None = None
+    model_env_var: str | None = None
+    model_pool: list[str] | None = None
     max_cost_usd_per_call: float | None = None
     audit: bool | None = None
     fallback_route_ids: list[str] | None = None
@@ -6113,6 +6117,8 @@ def create_app(
                     task_type=r.get("task_type", ""),
                     provider=r.get("provider", ""),
                     model=r.get("model", ""),
+                    model_env_var=r.get("model_env_var"),
+                    model_pool=r.get("model_pool", []) or [],
                     timeout_seconds=r.get("timeout_seconds", 30),
                     max_cost_usd_per_call=r.get("max_cost_usd_per_call", 0.0),
                     audit=r.get("audit", False),

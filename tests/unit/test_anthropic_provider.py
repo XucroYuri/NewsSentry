@@ -41,9 +41,31 @@ class TestInit:
     def test_init_defaults(self, monkeypatch):
         """AnthropicProvider({}) 使用环境变量，默认模型为 claude-3-haiku-20240307。"""
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
+        monkeypatch.delenv("ANTHROPIC_DEFAULT_HAIKU_MODEL", raising=False)
         provider = AnthropicProvider({})
         assert provider._default_model == "claude-3-haiku-20240307"
         assert provider._max_tokens == 2048
+
+    def test_init_reads_nvidia_auth_token_and_model_env(self, monkeypatch):
+        """Nvidia fallback 可使用 ANTHROPIC_AUTH_TOKEN 和模型环境变量。"""
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "nvapi-test")
+        monkeypatch.setenv("ANTHROPIC_DEFAULT_HAIKU_MODEL", "deepseek-ai/deepseek-v4-flash")
+        provider = AnthropicProvider({})
+        assert provider._api_key == "nvapi-test"
+        assert provider._default_model == "deepseek-ai/deepseek-v4-flash"
+
+    def test_nvidia_base_url_normalizes_to_v1_messages(self):
+        """用户配置的 Nvidia base URL 不含 /v1 时，适配器补齐 messages 路径。"""
+        provider = AnthropicProvider(
+            {
+                "api_key": "nvapi-test",
+                "base_url": "https://integrate.api.nvidia.com",
+            }
+        )
+        assert provider._messages_url() == "https://integrate.api.nvidia.com/v1/messages"
+        assert provider._headers()["Authorization"] == "Bearer nvapi-test"
 
     def test_init_with_config(self):
         """config dict 覆盖默认值。"""
@@ -75,6 +97,7 @@ class TestHealthCheck:
     def test_health_check_false(self, monkeypatch):
         """api_key 为空时返回 False。"""
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
         provider = AnthropicProvider({})
         assert provider.health_check() is False
 
@@ -88,6 +111,7 @@ class TestCall:
     def test_call_missing_api_key(self, monkeypatch):
         """未设置 api_key 时抛出 RuntimeError。"""
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
         provider = AnthropicProvider({})
         with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY 未设置"):
             provider.call("translate.fast", "Test")
@@ -228,6 +252,7 @@ class TestCallAsync:
     @pytest.mark.asyncio
     async def test_call_async_missing_api_key(self, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
         from unittest.mock import AsyncMock
 
         mock_client = AsyncMock()

@@ -16,7 +16,7 @@
 - `/api/v1/status` 增加文件事件数、SQLite/API 事件数、target 级事件数和 source 数，保留旧字段兼容。
 - 修复认证配置路径穿越、导入路径穿越、RSS/API redirect SSRF、OpenCLI env 透传、Service Worker API 缓存、CI secret scanner 日志泄露和漏检。
 - Deploy workflow 加入 mypy 和 publication hygiene gate，移除 `script_stop`，避免 GitHub token 持久化到 VPS `.git/config`，失败 journal 输出加脱敏。
-- OpenRouter 本地/远端 key 已确认一致；因当前账号无付费额度，生产路由临时切到实测可返回正文的 `openai/gpt-oss-20b:free`，保障 AI 链路可真实调用。
+- OpenRouter 本地/远端 key 已确认一致；因当前账号无付费额度，AI 路由已从单一 free 默认模型升级为全 OpenRouter 任务 free 模型池轮换，并增加 Nvidia/Anthropic-compatible 低并发免费模型兜底。
 - Product Design 已先生成 3 个视觉方向；公开门户 UI 未在本轮直接改版，等待选定方向。
 
 ## Codex Security 扫描产物
@@ -51,7 +51,7 @@
 | NS-CICD-001/002 | P1 | secret scanner 输出明文行且漏检 key 名 | 已修复 | 新增 scanner 输出脱敏和 key 检测测试 |
 | NS-CICD-003/004 | P1 | Deploy token 持久化 / journal 可能泄露凭据 | 已修复 | workflow 改为临时 auth header，journal 输出脱敏 |
 | NS-CICD-005 | P1 | Deploy gate 弱于 CI | 部分修复 | deploy 已加入 mypy 和 publication hygiene；Docker/release 待补 |
-| AI-OPS-001 | P1 | OpenRouter key 已同步但付费模型 402 无额度 | 已降级修复 | 路由切到 `openai/gpt-oss-20b:free`；生产 smoke 返回正文 |
+| AI-OPS-001 | P1 | OpenRouter key 已同步但付费模型 402 无额度 | 已硬化修复 | OpenRouter 路由使用 `model_pool` 轮换 free 模型；429/402 自动冷却；Nvidia fallback 只读环境变量 |
 
 ## Product Design 三个方向
 
@@ -75,7 +75,7 @@
 | P2 | Mutable GitHub Actions | privileged workflow 仍使用部分 mutable major tag。 | 分批 pin 第三方 actions 到 commit SHA，并用 Dependabot/手动节奏升级。 | deploy/release/docker privileged jobs 不依赖未审查可变引用。 |
 | P2 | Docker remote installers | browser/full 镜像仍有未校验远端安装步骤。 | 固定 base image digest、包版本和校验和；必要时拆分 browser 镜像为手动发布。 | 镜像构建输入可审计、可复现。 |
 | P2 | Chart.js SRI/self-host | 已固定版本 `4.4.9`，但仍未 SRI 或自托管。 | 优先自托管 Chart.js；若继续 CDN，则加 SRI 并更新 CSP。 | 浏览器脚本依赖有完整性约束。 |
-| P2 | OpenRouter 强模型恢复 | 当前为保障零额度可用性，生产路由临时使用 `openai/gpt-oss-20b:free`。 | 给当前 OpenRouter 账号充值，或换入有额度 key；随后把路由切回更强模型并恢复小额成本估算。 | `translate.fast` / AI enrichment smoke 使用强模型成功，`fallback_used=False`，且不再返回 402。 |
+| P2 | OpenRouter/Nvidia free 池线上观察 | 已实现 free 模型池轮换和 Nvidia fallback，但免费模型低并发、可用性和输出结构稳定性仍需生产观察。 | 连续观察 AI enrichment、judge/classify 路由的模型命中、429/402 频率和空正文情况；必要时下线不稳定模型或调整顺序。 | 72 小时内 AI enrichment 可持续返回正文；限流不导致队列持续失败；日志不暴露 token。 |
 | P2 | 产品改版落地 | 三方向已生成，但未选定。 | 先选移动端公开门户方向，再实施 390x844 feed、analysis 空状态、后台采集健康入口。 | 移动端 feed 主体全宽可读，analysis 空状态可解释，后台全局采集健康可达。 |
 | P2 | 72 小时 cloudflared 观察 | 仍需上线后连续观察。 | 每日执行 `systemctl is-active news-sentry cloudflared x-ui`、`journalctl -u cloudflared --since -24h`、公网 health 抽样。 | 72 小时内无异常重启、health 波动或 tunnel 频繁重连。 |
 

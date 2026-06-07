@@ -1842,6 +1842,8 @@ class TestConfigAPI:
                     "task_type": "translate",
                     "provider": "openai",
                     "model": "gpt-4o-mini",
+                    "model_env_var": "OPENAI_DEFAULT_MODEL",
+                    "model_pool": ["gpt-4o-mini", "gpt-4.1-mini"],
                     "timeout_seconds": 15,
                     "max_cost_usd_per_call": 0.001,
                     "audit": False,
@@ -1862,6 +1864,8 @@ class TestConfigAPI:
         assert len(data["routes"]) == 1
         assert data["routes"][0]["route_id"] == "translate-fast"
         assert data["routes"][0]["provider"] == "openai"
+        assert data["routes"][0]["model_env_var"] == "OPENAI_DEFAULT_MODEL"
+        assert data["routes"][0]["model_pool"] == ["gpt-4o-mini", "gpt-4.1-mini"]
         assert data["fallback_route_id"] == "rules-judge"
 
     def test_get_provider_routes_not_found(

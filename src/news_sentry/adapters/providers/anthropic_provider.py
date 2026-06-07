@@ -38,7 +38,7 @@ class AnthropicProvider(AIProvider):
         """
         self._api_key = config.get(
             "api_key",
-            os.environ.get("ANTHROPIC_API_KEY"),
+            os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"),
         )
         self._base_url = config.get(
             "base_url",
@@ -46,9 +46,26 @@ class AnthropicProvider(AIProvider):
         )
         self._default_model = config.get(
             "default_model",
-            "claude-3-haiku-20240307",
+            os.environ.get("ANTHROPIC_DEFAULT_HAIKU_MODEL", "claude-3-haiku-20240307"),
         )
         self._max_tokens = config.get("max_tokens", 2048)
+
+    def _messages_url(self) -> str:
+        base_url = str(self._base_url).rstrip("/")
+        if "integrate.api.nvidia.com" in base_url and not base_url.endswith("/v1"):
+            base_url = f"{base_url}/v1"
+        return f"{base_url}/messages"
+
+    def _headers(self) -> dict[str, str]:
+        api_key = str(self._api_key)
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        }
+        if "integrate.api.nvidia.com" in str(self._base_url):
+            headers["Authorization"] = f"Bearer {api_key}"
+        return headers
 
     def call(self, route_id: str, prompt: str, **kwargs: Any) -> dict[str, Any]:  # noqa: ANN401
         """发送 message 请求到 Anthropic API。
@@ -74,12 +91,8 @@ class AnthropicProvider(AIProvider):
         model = kwargs.get("model", self._default_model)
         max_tokens = kwargs.get("max_tokens", self._max_tokens)
 
-        url = f"{self._base_url.rstrip('/')}/messages"
-        headers = {
-            "x-api-key": self._api_key,
-            "anthropic-version": "2023-06-01",
-            "Content-Type": "application/json",
-        }
+        url = self._messages_url()
+        headers = self._headers()
         payload: dict[str, Any] = {
             "model": model,
             "max_tokens": max_tokens,
@@ -152,16 +165,12 @@ class AnthropicProvider(AIProvider):
             "messages": [{"role": "user", "content": prompt}],
         }
 
-        headers = {
-            "x-api-key": self._api_key,
-            "anthropic-version": "2023-06-01",
-            "Content-Type": "application/json",
-        }
+        headers = self._headers()
 
         client = http_client or httpx.AsyncClient(timeout=60.0)
         try:
             response = await client.post(
-                f"{self._base_url}/messages",
+                self._messages_url(),
                 json=payload,
                 headers=headers,
             )
