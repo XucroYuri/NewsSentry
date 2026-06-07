@@ -8,7 +8,7 @@
 #   OPENROUTER_API_KEY
 # 可选覆盖:
 #   OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-#   OPENROUTER_DEFAULT_MODEL=qwen/qwen3.7-plus
+#   OPENROUTER_DEFAULT_MODEL=openai/gpt-oss-20b:free
 routes_version: "1.1.0"
 
 routes:
@@ -18,9 +18,9 @@ routes:
   - route_id: translate.fast
     task_type: translate
     provider: openrouter
-    model: qwen/qwen3.7-plus
+    model: openai/gpt-oss-20b:free
     timeout_seconds: 30
-    max_cost_usd_per_call: 0.001
+    max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: false
     notes: "collect 阶段快速预翻译标题（metadata.translation.title_pre）"
@@ -28,9 +28,9 @@ routes:
   - route_id: translate.high
     task_type: translate
     provider: openrouter
-    model: qwen/qwen3.7-plus
+    model: openai/gpt-oss-20b:free
     timeout_seconds: 60
-    max_cost_usd_per_call: 0.003
+    max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
     fallback_route_ids:
@@ -40,9 +40,9 @@ routes:
   - route_id: translate.batch
     task_type: translate
     provider: openrouter
-    model: qwen/qwen3.7-plus
+    model: openai/gpt-oss-20b:free
     timeout_seconds: 60
-    max_cost_usd_per_call: 0.003
+    max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
     notes: "低频 AI 增强批处理：JSON 标题翻译"
@@ -50,9 +50,9 @@ routes:
   - route_id: cluster.brief
     task_type: cluster
     provider: openrouter
-    model: qwen/qwen3.7-plus
+    model: openai/gpt-oss-20b:free
     timeout_seconds: 60
-    max_cost_usd_per_call: 0.003
+    max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
     notes: "低频 AI 增强批处理：聚类中文标签和摘要"
@@ -60,9 +60,9 @@ routes:
   - route_id: judge.review.batch
     task_type: judge_review
     provider: openrouter
-    model: qwen/qwen3.7-plus
+    model: openai/gpt-oss-20b:free
     timeout_seconds: 60
-    max_cost_usd_per_call: 0.003
+    max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
     notes: "低频 AI 增强批处理：疑难事件复核建议"
@@ -70,9 +70,9 @@ routes:
   - route_id: ai.enrichment.batch
     task_type: ai_enrichment
     provider: openrouter
-    model: qwen/qwen3.7-plus
+    model: openai/gpt-oss-20b:free
     timeout_seconds: 90
-    max_cost_usd_per_call: 0.005
+    max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
     notes: "低频 AI 增强合并路由：单次 JSON 同时处理翻译、聚类摘要和复核建议"
@@ -82,9 +82,9 @@ routes:
   - route_id: judge.primary
     task_type: judge
     provider: openrouter
-    model: qwen/qwen3.7-plus
+    model: openai/gpt-oss-20b:free
     timeout_seconds: 60
-    max_cost_usd_per_call: 0.003
+    max_cost_usd_per_call: 0.0
     output_schema_ref: "schemas/toolrunresult.schema.json"
     audit: true
     fallback_route_ids:
@@ -94,9 +94,9 @@ routes:
   - route_id: judge.anthropic
     task_type: judge
     provider: openrouter
-    model: qwen/qwen3.7-plus
+    model: openai/gpt-oss-20b:free
     timeout_seconds: 60
-    max_cost_usd_per_call: 0.003
+    max_cost_usd_per_call: 0.0
     output_schema_ref: "schemas/toolrunresult.schema.json"
     audit: true
     notes: "研判备用路由：历史 route_id 保留；默认同样走 OpenRouter"
@@ -106,9 +106,9 @@ routes:
   - route_id: classify.primary
     task_type: classify
     provider: openrouter
-    model: qwen/qwen3.7-plus
+    model: openai/gpt-oss-20b:free
     timeout_seconds: 30
-    max_cost_usd_per_call: 0.001
+    max_cost_usd_per_call: 0.0
     output_schema_ref: "schemas/classification.schema.json"
     audit: true
     fallback_route_ids:
@@ -120,9 +120,9 @@ routes:
   - route_id: nlp.ai-fast
     task_type: nlp
     provider: openrouter
-    model: qwen/qwen3.7-plus
+    model: openai/gpt-oss-20b:free
     timeout_seconds: 30
-    max_cost_usd_per_call: 0.001
+    max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: false
     notes: "NLP 深度分析路由：情感/实体/关联/摘要增强"

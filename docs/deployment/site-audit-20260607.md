@@ -5,7 +5,7 @@
 > 审计模式: 线上只读检查 + 截图归档 + 可执行整改 backlog
 > 产出: 识别问题、证据归档、整改方向。本轮不直接修改生产代码或线上配置。
 
-> 2026-06-08 更新: 已基于本报告启动全量硬化冲刺，脱敏整改记录见 [hardening-sprint-20260608.md](hardening-sprint-20260608.md)。本文件保留原始审计事实和 backlog 口径。
+> 2026-06-08 更新: 已基于本报告启动全量硬化冲刺，脱敏整改记录见 [hardening-sprint-20260608.md](hardening-sprint-20260608.md)。本文件保留原始审计事实和 backlog 口径；OpenRouter 审计时 `qwen/qwen3.7-plus` 可用，当前因账号无付费额度已临时切到 `openai/gpt-oss-20b:free`。
 
 ---
 

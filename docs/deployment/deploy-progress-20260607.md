@@ -100,6 +100,18 @@ Step 7: 上线验证 + 共存确认 .......... ✅ 已完成
 - 后续文档同步 Deploy run `27085819518` 已通过；生产代码配置与 OpenRouter 修复版本一致
 - VPS 生产 repo 复验通过：`translate.fast` 通过 `ProviderRouter` 真实调用 OpenRouter，返回模型 `qwen/qwen3.7-plus-20260602`，`fallback_used=False`，`budget_exceeded=False`
 
+## 2026-06-08 Codex OpenRouter 零额度回退记录
+
+全量硬化部署后复验时，远端 `/opt/news-sentry/production/.env` 中的 `OPENROUTER_API_KEY` 与本地 `.env` 的 key 哈希一致，但 `qwen/qwen3.7-plus` 当前返回 HTTP 402 `Insufficient credits`。这说明 key 已同步，但该 OpenRouter 账号当前没有可用付费额度。
+
+- 已验证免费候选：
+  - `openai/gpt-oss-20b:free` 返回 HTTP 200，正文长度 > 0，适合作为当前零额度生产默认路由
+  - `liquid/lfm-2.5-1.2b-instruct:free`、`google/gemma-4-31b-it:free` 也能返回正文，但综合通用能力优先选 `openai/gpt-oss-20b:free`
+  - `openrouter/free` 可返回 HTTP 200，但本次路由到 thinking 模型时正文为空，不适合作为稳定默认
+  - 部分免费候选返回 429/400/402，不能作为默认
+- 已将 `src/news_sentry/adapters/providers/openrouter_provider.py` 缺省模型和 `config/provider/routes.yaml` 所有 OpenRouter 路由临时切换到 `openai/gpt-oss-20b:free`
+- 当前策略是“先保障 AI 链路真实可用”；账号充值或换有额度 key 后，建议再把生产路由切回更强付费模型，并恢复小额 `max_cost_usd_per_call` 估算
+
 ## 未完成事项与建议解决方向
 
 已完成一轮已部署站点全栈审计，独立报告见 [site-audit-20260607.md](site-audit-20260607.md)。2026-06-08 已启动并落地一轮全量硬化冲刺，脱敏整改记录见 [hardening-sprint-20260608.md](hardening-sprint-20260608.md)；后续安全、产品体验、CI/CD 和运维整改 backlog 以这两份报告中的 `NS-AUDIT-*` / security scan 编号为准。
@@ -210,7 +222,7 @@ NEWSSENTRY_AI_BUDGET_USD=1.0
 NEWSSENTRY_LOG_LEVEL=INFO
 OPENROUTER_API_KEY=<见本机 .env 或 VPS /opt/news-sentry/production/.env>
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-OPENROUTER_DEFAULT_MODEL=qwen/qwen3.7-plus
+OPENROUTER_DEFAULT_MODEL=openai/gpt-oss-20b:free
 NEWSSENTRY_API_KEY=<见 VPS /opt/news-sentry/production/.env 或重新生成>
 CORS_ALLOWED_ORIGINS=https://news-sentry.com,https://www.news-sentry.com
 EOF

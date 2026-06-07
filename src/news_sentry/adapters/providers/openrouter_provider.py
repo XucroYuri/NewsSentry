@@ -23,7 +23,10 @@ class OpenRouterProvider(OpenAIProvider):
         merged = {
             "api_key_env_var": self.api_key_env_var,
             "base_url": os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
-            "default_model": os.environ.get("OPENROUTER_DEFAULT_MODEL", "qwen/qwen3.7-plus"),
+            "default_model": os.environ.get(
+                "OPENROUTER_DEFAULT_MODEL",
+                "openai/gpt-oss-20b:free",
+            ),
             **config,
         }
         super().__init__(merged)

@@ -17,9 +17,9 @@ class TestOpenRouterProvider:
         assert provider._api_key == "sk-or-test"
         assert provider._base_url == "https://openrouter.ai/api/v1"
 
-    def test_default_model_is_deepseek_free(self, monkeypatch):
-        """默认模型为 OpenRouter 上的 DeepSeek free 模型。"""
+    def test_default_model_is_zero_credit_free_model(self, monkeypatch):
+        """默认模型为 OpenRouter 上实测可用的零额度 free 模型。"""
         monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
         provider = OpenRouterProvider({})
 
-        assert provider._default_model == "qwen/qwen3.7-plus"
+        assert provider._default_model == "openai/gpt-oss-20b:free"
