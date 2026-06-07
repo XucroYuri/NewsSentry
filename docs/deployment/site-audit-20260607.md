@@ -12,8 +12,8 @@
 | 项目 | 结果 |
 |------|------|
 | 生产域名 | `https://news-sentry.com` / `https://www.news-sentry.com` |
-| 最新 Deploy run | `27085932802`, success, 2026-06-07T07:18:46Z, commit `e7709d261ee5f13f1361d0f34da521b3ac9a4134` |
-| VPS 部署版本 | `/opt/news-sentry/production/.deploy-sha` = `e7709d261ee5f13f1361d0f34da521b3ac9a4134` |
+| 审计采样时 Deploy run | `27085932802`, success, 2026-06-07T07:18:46Z, commit `e7709d261ee5f13f1361d0f34da521b3ac9a4134` |
+| 审计采样时 VPS 部署版本 | `/opt/news-sentry/production/.deploy-sha` = `e7709d261ee5f13f1361d0f34da521b3ac9a4134` |
 | 公网 health | `GET /api/v1/health` 返回 `{"status":"ok"}` |
 | VPS 服务 | `news-sentry=active`, `cloudflared=active`, `x-ui=active` |
 | 资源余量 | `/` 12% used, `/srv/news-sentry` 12% used, memory 3.3Gi available |
