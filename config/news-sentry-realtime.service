@@ -1,26 +1,25 @@
-# News Sentry — 实时雷达单次运行服务（被 timer 触发）
-# 不要手动启动此服务，由 news-sentry-realtime.timer 触发
+# News Sentry realtime collection service.
+# Triggered by news-sentry-realtime.timer; do not start manually during normal ops.
 
 [Unit]
-Description=News Sentry — 实时雷达单次采集周期
+Description=News Sentry realtime collection cycle
+After=network-online.target news-sentry.service
+Wants=network-online.target
 
 [Service]
 Type=oneshot
-User=news-sentry
-Group=news-sentry
-WorkingDirectory=/opt/news-sentry
+User=newssentry
+Group=newssentry
+WorkingDirectory=/opt/news-sentry/production/repo
+EnvironmentFile=/opt/news-sentry/production/.env
+ExecStart=/opt/news-sentry/production/repo/tools/run_realtime_collection.sh
 
-# 全链路 bounded run（单 target）
-ExecStart=/opt/news-sentry/.venv/bin/python3 -m news_sentry.cli run --target italy --stage all
+# One full multi-target cycle should normally finish well under this.
+TimeoutStartSec=900
 
-# 环境变量
-EnvironmentFile=-/opt/news-sentry/.env
-
-# 超时保护（单次运行不超过 5 分钟）
-TimeoutStartSec=300
-
-# 安全加固
+# Hardening
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/news-sentry/data
+PrivateTmp=true
+ReadWritePaths=/srv/news-sentry/production /opt/news-sentry/production

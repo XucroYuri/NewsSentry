@@ -1,0 +1,14 @@
+# News Sentry production maintenance cron.
+#
+# Install as:
+#   sudo cp config/production-maintenance.crontab /etc/cron.d/news-sentry-maintenance
+
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+NEWSSENTRY_DATA_DIR=/srv/news-sentry/production/data
+
+# Health snapshot every 5 minutes. Critical or warning exits can trigger cron mail.
+*/5 * * * * newssentry cd /opt/news-sentry/production/repo && mkdir -p /srv/news-sentry/production/data/logs/health && DATA_DIR=/srv/news-sentry/production/data tools/health_monitor.sh --service news-sentry --quiet --json >> /srv/news-sentry/production/data/logs/health/health-cron.jsonl 2>&1
+
+# Daily data backup at 03:00 UTC/server time.
+0 3 * * * newssentry cd /opt/news-sentry/production/repo && mkdir -p /srv/news-sentry/production/data/logs/backup && tools/backup.sh --data-dir /srv/news-sentry/production/data --backup-dir /srv/news-sentry/production/backup >> /srv/news-sentry/production/data/logs/backup/backup-cron.log 2>&1
