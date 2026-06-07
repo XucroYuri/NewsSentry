@@ -98,7 +98,13 @@ jobs:
             DEPLOY_BASE="/opt/news-sentry"
             REPO_DIR="${DEPLOY_BASE}/${ENV}/repo"
             REPO_URL="https://github.com/XucroYuri/NewsSentry.git"
-            AUTH_HEADER="AUTHORIZATION: bearer ${{ secrets.GHCR_PAT }}"
+            DEPLOY_GITHUB_TOKEN="${{ secrets.GHCR_PAT || github.token }}"
+            if [ -z "${DEPLOY_GITHUB_TOKEN}" ]; then
+              echo "❌ Missing GitHub token for remote checkout"
+              exit 1
+            fi
+            AUTH_HEADER="AUTHORIZATION: Basic $(printf 'x-access-token:%s' "${DEPLOY_GITHUB_TOKEN}" | base64 | tr -d '\n')"
+            unset DEPLOY_GITHUB_TOKEN
 
             redact_sensitive_log() {
               sed -E \
@@ -116,14 +122,15 @@ jobs:
             if [ -d "${REPO_DIR}/.git" ]; then
               cd "${REPO_DIR}"
               git remote set-url origin "${REPO_URL}"
-              git -c http.extraheader="${AUTH_HEADER}" fetch origin "${BRANCH}"
+              git -c http.https://github.com/.extraheader="${AUTH_HEADER}" fetch origin "${BRANCH}"
               git checkout -B "${BRANCH}" "origin/${BRANCH}"
               git reset --hard "origin/${BRANCH}"
             else
-              git -c http.extraheader="${AUTH_HEADER}" clone -b "${BRANCH}" "${REPO_URL}" "${REPO_DIR}"
+              git -c http.https://github.com/.extraheader="${AUTH_HEADER}" clone -b "${BRANCH}" "${REPO_URL}" "${REPO_DIR}"
               cd "${REPO_DIR}"
               git remote set-url origin "${REPO_URL}"
             fi
+            unset AUTH_HEADER
 
             echo "Checked out: $(git log --oneline -1)"
 
