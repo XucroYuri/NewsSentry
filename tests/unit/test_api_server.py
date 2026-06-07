@@ -3808,8 +3808,11 @@ class TestTrendAPI:
         await store.initialize()
 
         now = datetime.now(UTC).isoformat()
+        base_day = datetime.now(UTC).date() - timedelta(days=6)
+        base_date = base_day.isoformat()
+        later_date = (base_day + timedelta(days=4)).isoformat()
         events = [
-            # 5月1日: 3 events
+            # 第一天: 3 events
             (
                 "t-evt-1",
                 "italy",
@@ -3818,7 +3821,7 @@ class TestTrendAPI:
                 80,
                 50,
                 "politics",
-                "2026-05-01T10:00:00",
+                f"{base_date}T10:00:00",
                 now,
                 "positive",
                 "immigration,elections",
@@ -3831,7 +3834,7 @@ class TestTrendAPI:
                 75,
                 45,
                 "politics",
-                "2026-05-01T12:00:00",
+                f"{base_date}T12:00:00",
                 now,
                 "negative",
                 "immigration,economy",
@@ -3844,12 +3847,12 @@ class TestTrendAPI:
                 60,
                 30,
                 "economy",
-                "2026-05-01T14:00:00",
+                f"{base_date}T14:00:00",
                 now,
                 "neutral",
                 "economy,EU",
             ),
-            # 5月5日: 2 events
+            # 第二天: 2 events
             (
                 "t-evt-4",
                 "italy",
@@ -3858,7 +3861,7 @@ class TestTrendAPI:
                 70,
                 40,
                 "international",
-                "2026-05-05T10:00:00",
+                f"{later_date}T10:00:00",
                 now,
                 "positive",
                 "EU,immigration",
@@ -3871,7 +3874,7 @@ class TestTrendAPI:
                 85,
                 55,
                 "politics",
-                "2026-05-05T12:00:00",
+                f"{later_date}T12:00:00",
                 now,
                 "negative",
                 "elections,immigration",

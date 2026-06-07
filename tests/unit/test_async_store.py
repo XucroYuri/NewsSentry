@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from news_sentry.core.async_store import AsyncStore
+from news_sentry.core.async_store import _SCHEMA_MIGRATIONS, AsyncStore
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -1121,7 +1121,9 @@ class TestTrendQueries:
         store = AsyncStore(db_path)
         await store.initialize()
 
-        base_date = "2026-05-01"
+        base_day = datetime.now(UTC).date() - timedelta(days=6)
+        base_date = base_day.isoformat()
+        later_date = (base_day + timedelta(days=4)).isoformat()
         events = [
             (
                 "evt-1",
@@ -1167,7 +1169,7 @@ class TestTrendQueries:
                 70,
                 40,
                 "international",
-                "2026-05-05T10:00:00",
+                f"{later_date}T10:00:00",
                 "positive",
                 "EU,immigration",
             ),
@@ -1179,7 +1181,7 @@ class TestTrendQueries:
                 85,
                 55,
                 "politics",
-                "2026-05-05T12:00:00",
+                f"{later_date}T12:00:00",
                 "negative",
                 "elections,immigration",
             ),
@@ -1220,9 +1222,10 @@ class TestTrendQueries:
             assert "day" in entry
             assert "sentiment" in entry
             assert "count" in entry
-        # 5月1日应有 1 positive, 1 negative, 1 neutral
-        may1 = [e for e in result if e["day"] == "2026-05-01"]
-        sentiments = {e["sentiment"]: e["count"] for e in may1}
+        # 第一天应有 1 positive, 1 negative, 1 neutral。
+        expected_day = (datetime.now(UTC).date() - timedelta(days=6)).isoformat()
+        first_day = [e for e in result if e["day"] == expected_day]
+        sentiments = {e["sentiment"]: e["count"] for e in first_day}
         assert sentiments.get("positive", 0) == 1
         assert sentiments.get("negative", 0) == 1
         assert sentiments.get("neutral", 0) == 1
@@ -1805,7 +1808,8 @@ async def test_migration_v7_research_artifacts_get_professional_workflow_default
             "visibility",
             "created_by",
         }.issubset(columns)
-        assert max(row[0] for row in versions) == 9
+        latest_schema_version = max(version for version, _, _ in _SCHEMA_MIGRATIONS)
+        assert max(row[0] for row in versions) == latest_schema_version
 
         artifact = await store.get_research_artifact("ra_v7_review")
         assert artifact is not None
