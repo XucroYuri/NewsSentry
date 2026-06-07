@@ -11,6 +11,7 @@ import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -263,6 +264,7 @@ async def _run_collect_async(
         started_at = datetime.now(UTC)
         source_id = str(source_cfg.get("source_id", "?"))
         source_type = str(source_cfg.get("type", "rss"))
+        source_url = str(source_cfg.get("url", "") or "")
         if source_cfg.get("enabled") is False:
             return [], _source_metric(
                 source_id=source_id,
@@ -295,6 +297,24 @@ async def _run_collect_async(
         async with semaphore:
             source_cfg["target_id"] = config.target_id
             try:
+                host = urlparse(source_url).hostname if source_url else None
+                if host and not sandbox.check_network_host(host):
+                    message = f"sandbox_denied host={host}"
+                    run_log.log_event("collect", source_id, message)
+                    memory.record_source_health(
+                        source_id,
+                        success=False,
+                        error_msg=message,
+                        run_id=run_id,
+                    )
+                    return [], _source_metric(
+                        source_id=source_id,
+                        source_type=source_type,
+                        status="sandbox_denied",
+                        started_at=started_at,
+                        error=message,
+                    )
+
                 if source_type == "api":
                     collector: APICollector | RSSCollector = APICollector(source_cfg, sandbox)
                 else:
@@ -384,7 +404,7 @@ async def _run_collect_async(
             "sources_skipped": sum(
                 1
                 for item in source_timings
-                if item["status"] in {"disabled", "degraded_skipped"}
+                if item["status"] in {"disabled", "degraded_skipped", "sandbox_denied"}
             ),
             "source_timings": source_timings,
             "slow_sources": slow_sources,

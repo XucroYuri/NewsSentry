@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
+import yaml
 
 from news_sentry.core.sandbox import (
     SandboxEnforcer,
@@ -216,6 +218,34 @@ class TestCheckNetworkHost:
     def test_multiple_patterns(self, enforcer: SandboxEnforcer) -> None:
         """多个 pattern 中任一匹配即通过。"""
         assert enforcer.check_network_host("feeds.bbci.co.uk") is True
+
+    def test_cloud_vps_allows_configured_public_country_sources(self) -> None:
+        """cloud-vps sandbox 必须覆盖公开运营目标声明的 RSS/API 主机。"""
+        project_root = Path(__file__).resolve().parents[1]
+        policy_data = yaml.safe_load((project_root / "config/sandbox/cloud-vps.yaml").read_text())
+        enforcer = SandboxEnforcer(SandboxPolicy.from_yaml_dict(policy_data))
+        source_files = [
+            *sorted((project_root / "config/sources/germany").glob("*.yaml")),
+            *sorted((project_root / "config/sources/germany/api").glob("*.yaml")),
+            *sorted((project_root / "config/sources/france").glob("*.yaml")),
+            *sorted((project_root / "config/sources/france/api").glob("*.yaml")),
+            *sorted((project_root / "config/sources/china-watch-en").glob("*.yaml")),
+        ]
+
+        denied: list[str] = []
+        for source_file in source_files:
+            if source_file.name.startswith("_"):
+                continue
+            data = yaml.safe_load(source_file.read_text())
+            urls = [data.get("url"), data.get("endpoint", {}).get("url")]
+            for url in urls:
+                if not url:
+                    continue
+                host = urlparse(str(url)).hostname
+                if host and not enforcer.check_network_host(host):
+                    denied.append(f"{source_file.relative_to(project_root)} -> {host}")
+
+        assert denied == []
 
 
 class TestEnforce:

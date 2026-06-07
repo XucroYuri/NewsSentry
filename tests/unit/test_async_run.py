@@ -242,6 +242,50 @@ class TestRunCollectAsync:
         assert len(call_times) == 20
 
     @pytest.mark.asyncio
+    async def test_collect_marks_sandbox_denied_sources_as_skipped(self, tmp_path: Path):
+        """sandbox 拦截的源必须显性记录，避免 success + 0 items 假绿灯。"""
+        config = MagicMock()
+        config.target_id = "test"
+        config.target = {"source_channel_refs": []}
+        config.sources = [
+            {
+                "channel_id": "rss-blocked",
+                "type": "rss",
+                "url": "https://blocked.example.com/feed",
+                "source_id": "rss-blocked",
+            },
+        ]
+        run_log = RunLog(tmp_path, "test-run", target_id="test")
+        memory = MagicMock()
+        memory.is_source_degraded.return_value = False
+        sandbox = MagicMock()
+        sandbox.check_network_host.return_value = False
+
+        with patch("news_sentry.core.async_run.RSSCollector") as mock_rss_cls:
+            events = await _run_collect_async(
+                config=config,
+                run_id="test-run",
+                run_log=run_log,
+                file_writer=MagicMock(),
+                sandbox=sandbox,
+                memory=memory,
+                ctx=MagicMock(),
+            )
+
+        assert events == []
+        mock_rss_cls.assert_not_called()
+        memory.record_source_health.assert_called_once_with(
+            "rss-blocked",
+            success=False,
+            error_msg="sandbox_denied host=blocked.example.com",
+            run_id="test-run",
+        )
+        metrics = run_log._phases["collect"]["metrics"]  # noqa: SLF001
+        assert metrics["sources_succeeded"] == 0
+        assert metrics["sources_skipped"] == 1
+        assert metrics["source_timings"][0]["status"] == "sandbox_denied"
+
+    @pytest.mark.asyncio
     async def test_collect_skips_degraded_sources(self):
         """验证降级源被跳过。"""
         config = MagicMock()
