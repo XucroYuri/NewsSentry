@@ -1765,7 +1765,8 @@ def _event_summary(ev: dict[str, Any]) -> str:
 _PUBLIC_NEWS_STAGE = "drafts"
 _PUBLIC_NEWS_DEFAULT_PAGE_SIZE = 30
 _PUBLIC_NEWS_MAX_PAGE_SIZE = 100
-_PUBLIC_NEWS_MAX_SCAN = 1000
+_PUBLIC_NEWS_MIN_SCAN = 80
+_PUBLIC_NEWS_MAX_SCAN = 300
 _PUBLIC_NEWS_MIN_POLL_AFTER_MS = 30_000
 _PUBLIC_NEWS_DEFAULT_POLL_AFTER_MS = 60_000
 _PUBLIC_NEWS_IDLE_POLL_AFTER_MS = 180_000
@@ -1978,6 +1979,11 @@ async def _public_news_events_for_target(
     data_dir: Path,
     target_id: str,
     store: AsyncStore | None,
+    *,
+    scan_size: int,
+    min_score: int | None = None,
+    source_id: str | None = None,
+    classification_l0: str | None = None,
 ) -> list[dict[str, Any]]:
     if store is not None and await _store_has_target_event_index(store, target_id):
         result = await _visible_index_events_page(
@@ -1986,8 +1992,11 @@ async def _public_news_events_for_target(
             target_id,
             stage=_PUBLIC_NEWS_STAGE,
             page=1,
-            page_size=_PUBLIC_NEWS_MAX_SCAN,
-            exact_total=True,
+            page_size=scan_size,
+            source_id=source_id,
+            classification_l0=classification_l0,
+            min_score=min_score,
+            exact_total=False,
         )
         events = result.get("events", [])
         if isinstance(events, list):
@@ -1999,12 +2008,27 @@ async def _public_news_events_for_target(
 async def _public_news_candidate_events(
     data_dir: Path,
     target_ids: list[str],
+    *,
+    scan_size: int,
+    featured: bool,
+    source_id: str | None = None,
+    category: str | None = None,
 ) -> list[tuple[str, dict[str, Any]]]:
     candidates: list[tuple[str, dict[str, Any]]] = []
+    min_score = _PUBLIC_NEWS_FEATURED_SCORE if featured else None
+    classification_l0 = category if category else None
     for target_id in target_ids:
         target_store = await _get_target_store(target_id)
         store_to_query = target_store if target_store is not None else _store
-        for event in await _public_news_events_for_target(data_dir, target_id, store_to_query):
+        for event in await _public_news_events_for_target(
+            data_dir,
+            target_id,
+            store_to_query,
+            scan_size=scan_size,
+            min_score=min_score,
+            source_id=source_id,
+            classification_l0=classification_l0,
+        ):
             candidates.append((target_id, event))
     candidates.sort(key=lambda item: _public_news_sort_key(item[1]), reverse=True)
     return candidates
@@ -6331,7 +6355,19 @@ def create_app(
         before_key = _public_news_decode_cursor(before_cursor)
         since_key = _public_news_decode_cursor(since_cursor)
         target_ids = _public_news_target_ids(_data_dir, target_id)
-        candidates = await _public_news_candidate_events(_data_dir, target_ids)
+        scan_size = (
+            _PUBLIC_NEWS_MAX_SCAN
+            if before_cursor or since_cursor or q or date
+            else min(_PUBLIC_NEWS_MAX_SCAN, max(page_size * 4, _PUBLIC_NEWS_MIN_SCAN))
+        )
+        candidates = await _public_news_candidate_events(
+            _data_dir,
+            target_ids,
+            scan_size=scan_size,
+            featured=featured,
+            source_id=source_id,
+            category=category,
+        )
 
         filtered: list[tuple[str, dict[str, Any]]] = []
         for tid, event in candidates:
