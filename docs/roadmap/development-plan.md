@@ -35,6 +35,7 @@
 > Phase 60 CI 修复 + PyPI 发布: ✅ 全部完成 (mypy CI 兼容 + release workflow + Trusted Publisher)
 > Phase 61 本地客户端发布准备: ✅ 全部完成 (v1.7.1 patch release)
 > 进度快照: 运行 `make progress` 或 `python3 tools/dev_progress.py` 查看本地/远端 Git 同步与阶段完成状态（阶段明细以 [docs/spec/README.md](../specs/phase/README.md) 为准）
+> 下一阶段公共门户产品化: [`docs/roadmap/public-news-productization-20260609.md`](./public-news-productization-20260609.md)
 > Cloud VPS 方案: [docs/deployment/cloud-vps-recommendations.md](./deployment/cloud-vps-recommendations.md)
 > 字段口径基准: [`docs/contracts-canonical.md`](./contracts-canonical.md)
 > 架构决策: [`docs/adr/README.md`](../adr/README.md)

@@ -1,0 +1,209 @@
+import { useCallback, useEffect, useState } from "react"
+
+import { listPublicNews, PublicNewsApiError } from "@/lib/api"
+import {
+  appendOlderItems,
+  type FeedFilters,
+  makeFeedQuery,
+  mergeNewerItems,
+  nextPollDelayMs,
+  shouldPausePolling,
+} from "@/lib/feed-state"
+import type { PublicNewsItem } from "@/types/public-news"
+
+export type FeedStatus = "loading" | "ready" | "empty" | "error"
+
+export interface FeedState {
+  status: FeedStatus
+  items: PublicNewsItem[]
+  pendingNewItems: PublicNewsItem[]
+  latestCursor: string | null
+  nextCursor: string | null
+  etag: string | null
+  pollAfterMs: number | null
+  total: number
+  error?: string
+}
+
+const initialFeedState: FeedState = {
+  status: "loading",
+  items: [],
+  pendingNewItems: [],
+  latestCursor: null,
+  nextCursor: null,
+  etag: null,
+  pollAfterMs: 30_000,
+  total: 0,
+}
+
+function normalizeError(error: unknown) {
+  if (error instanceof PublicNewsApiError) return error.message
+  if (error instanceof Error) return error.message
+  return "公共新闻接口暂时不可用，请稍后重试。"
+}
+
+export function usePublicFeed(filters: FeedFilters, options: { poll?: boolean } = {}) {
+  const [feedState, setFeedState] = useState<FeedState>(initialFeedState)
+  const [refreshing, setRefreshing] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [pollFailures, setPollFailures] = useState(0)
+  const [pollNonce, setPollNonce] = useState(0)
+  const poll = options.poll ?? true
+
+  const loadFeed = useCallback(
+    async (mode: "replace" | "refresh" = "replace") => {
+      setRefreshing(true)
+      setPollFailures(0)
+      setFeedState((current) => ({
+        ...current,
+        status: current.items.length > 0 && mode === "refresh" ? "ready" : "loading",
+        error: undefined,
+        pendingNewItems: mode === "replace" ? [] : current.pendingNewItems,
+      }))
+      try {
+        const result = await listPublicNews(makeFeedQuery(filters))
+        const items = result.data?.items ?? []
+        setFeedState({
+          status: items.length > 0 ? "ready" : "empty",
+          items,
+          pendingNewItems: [],
+          latestCursor: result.data?.latestCursor ?? null,
+          nextCursor: result.data?.nextCursor ?? null,
+          etag: result.etag,
+          pollAfterMs: result.pollAfterMs ?? result.data?.pollAfterMs ?? 30_000,
+          total: result.data?.total ?? items.length,
+        })
+      } catch (error) {
+        setFeedState((current) => ({
+          ...current,
+          status: "error",
+          error: normalizeError(error),
+        }))
+      } finally {
+        setRefreshing(false)
+      }
+    },
+    [filters],
+  )
+
+  useEffect(() => {
+    void loadFeed("replace")
+  }, [loadFeed])
+
+  useEffect(() => {
+    if (!poll || !feedState.latestCursor || feedState.status === "loading") return
+    const delay = nextPollDelayMs({
+      serverMs: feedState.pollAfterMs,
+      failureCount: pollFailures,
+    })
+    const timeoutId = window.setTimeout(() => {
+      if (
+        shouldPausePolling({
+          visibilityState: document.visibilityState,
+          online: navigator.onLine,
+        })
+      ) {
+        setPollNonce((current) => current + 1)
+        return
+      }
+
+      async function pollNewer() {
+        try {
+          const result = await listPublicNews(
+            {
+              ...makeFeedQuery(filters),
+              sinceCursor: feedState.latestCursor ?? undefined,
+              pageSize: filters.pageSize,
+            },
+            { etag: feedState.etag ?? undefined },
+          )
+          setPollFailures(0)
+          if (result.notModified || !result.data) {
+            setFeedState((current) => ({
+              ...current,
+              etag: result.etag ?? current.etag,
+              pollAfterMs: result.pollAfterMs ?? current.pollAfterMs,
+            }))
+            return
+          }
+          setFeedState((current) => ({
+            ...current,
+            pendingNewItems:
+              result.data && result.data.items.length > 0
+                ? mergeNewerItems(current.pendingNewItems, result.data.items)
+                : current.pendingNewItems,
+            latestCursor: result.data?.latestCursor ?? current.latestCursor,
+            etag: result.etag,
+            pollAfterMs: result.pollAfterMs ?? result.data?.pollAfterMs ?? current.pollAfterMs,
+            total: result.data?.total ?? current.total,
+          }))
+        } catch {
+          setPollFailures((current) => current + 1)
+        } finally {
+          setPollNonce((current) => current + 1)
+        }
+      }
+
+      void pollNewer()
+    }, delay)
+    return () => window.clearTimeout(timeoutId)
+  }, [
+    feedState.etag,
+    feedState.latestCursor,
+    feedState.pollAfterMs,
+    feedState.status,
+    filters,
+    poll,
+    pollFailures,
+    pollNonce,
+  ])
+
+  const loadMore = useCallback(async () => {
+    if (!feedState.nextCursor || loadingMore) return
+    setLoadingMore(true)
+    try {
+      const result = await listPublicNews({
+        ...makeFeedQuery(filters),
+        beforeCursor: feedState.nextCursor,
+        pageSize: filters.pageSize,
+      })
+      const olderItems = result.data?.items ?? []
+      setFeedState((current) => ({
+        ...current,
+        status: current.items.length > 0 || olderItems.length > 0 ? "ready" : "empty",
+        items: appendOlderItems(current.items, olderItems),
+        nextCursor: result.data?.nextCursor ?? null,
+        latestCursor: result.data?.latestCursor ?? current.latestCursor,
+        etag: result.etag ?? current.etag,
+        pollAfterMs: result.pollAfterMs ?? current.pollAfterMs,
+        total: result.data?.total ?? current.total,
+      }))
+    } catch (error) {
+      setFeedState((current) => ({
+        ...current,
+        status: current.items.length > 0 ? "ready" : "error",
+        error: normalizeError(error),
+      }))
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [feedState.nextCursor, filters, loadingMore])
+
+  const applyPending = useCallback(() => {
+    setFeedState((current) => ({
+      ...current,
+      items: mergeNewerItems(current.items, current.pendingNewItems),
+      pendingNewItems: [],
+      status: "ready",
+    }))
+  }, [])
+
+  return {
+    feedState,
+    refreshing,
+    loadingMore,
+    loadFeed,
+    loadMore,
+    applyPending,
+  }
+}

@@ -391,6 +391,10 @@ class TestAPIServer:
         assert "connect-src 'self'" in csp
         assert "connect-src *" not in csp
         assert "script-src 'self'" in csp
+        assert "'nonce-" in csp
+        assert 'nonce="__CSP_NONCE__"' not in resp.text
+        nonce = csp.split("'nonce-", maxsplit=1)[1].split("'", maxsplit=1)[0]
+        assert f'nonce="{nonce}"' in resp.text
         assert "'unsafe-inline'" not in csp.split("style-src", maxsplit=1)[0]
 
     def test_disallowed_cors_origin_gets_no_cors_credentials(self, tmp_path: Path) -> None:
@@ -422,6 +426,64 @@ class TestAPIServer:
             resp = client.get(path)
             assert resp.status_code == 200
             assert resp.headers["cache-control"] == "no-cache"
+
+    def test_public_app_entry_is_served_without_replacing_old_shell(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        static_dir = tmp_path / "static"
+        public_app_dir = static_dir / "public_app"
+        public_app_dir.mkdir(parents=True)
+        (static_dir / "index.html").write_text(
+            '<html><body id="legacy-shell">Legacy __CSP_NONCE__</body></html>',
+            encoding="utf-8",
+        )
+        (public_app_dir / "index.html").write_text(
+            '<html><body><div id="root"></div><script type="module" '
+            'src="/public-app/assets/index-abc123.js"></script></body></html>',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(api_server_module, "_static_dir", lambda: static_dir)
+        app = create_app(data_dir=tmp_path / "data", auto_store=False)
+        client = TestClient(app)
+
+        public_resp = client.get("/public-app/")
+        old_resp = client.get("/")
+
+        assert public_resp.status_code == 200
+        assert '<div id="root"></div>' in public_resp.text
+        assert public_resp.headers["cache-control"] == "no-cache"
+        assert old_resp.status_code == 200
+        assert "legacy-shell" in old_resp.text
+        assert '<div id="root"></div>' not in old_resp.text
+
+    def test_public_app_assets_use_fingerprinted_cache_policy(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        static_dir = tmp_path / "static"
+        asset_dir = static_dir / "public_app" / "assets"
+        asset_dir.mkdir(parents=True)
+        (static_dir / "index.html").write_text("<html>legacy</html>", encoding="utf-8")
+        (static_dir / "public_app" / "index.html").write_text(
+            '<html><body><div id="root"></div></body></html>',
+            encoding="utf-8",
+        )
+        (asset_dir / "index-abc123.js").write_text(
+            "console.log('public app');",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(api_server_module, "_static_dir", lambda: static_dir)
+        app = create_app(data_dir=tmp_path / "data", auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/public-app/assets/index-abc123.js")
+
+        assert resp.status_code == 200
+        assert "public app" in resp.text
+        assert resp.headers["cache-control"] == "public, max-age=31536000, immutable"
 
     def test_build_manifest_endpoint_uses_content_hash(self, tmp_path: Path) -> None:
         client = self._make_client(tmp_path)
@@ -893,6 +955,168 @@ class TestAPIServer:
         data = resp.json()
         assert data["total"] == 1
         assert data["groups"][0]["events"][0]["display_title"] == "Public feed story"
+
+    def test_public_news_api_returns_reader_shape_without_auth(self, tmp_path: Path) -> None:
+        """公共新闻 API 返回读者侧字段，不暴露 pipeline 参数作为主响应。"""
+        _write_draft(
+            tmp_path,
+            "italy",
+            "ne-italy-src-20260609-public-news01",
+            title="Italy public news story",
+            source_id="ansa",
+            news_value_score=82,
+            china_relevance=74,
+            classification_l0="international-relations",
+            published_at="2026-06-09T09:30:00+00:00",
+        )
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/public/news", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        assert resp.headers["etag"].startswith('"public-news-')
+        assert int(resp.headers["x-poll-after-ms"]) >= 30_000
+        data = resp.json()
+        assert data["latestCursor"]
+        item = data["items"][0]
+        assert item["id"] == "ne-italy-src-20260609-public-news01"
+        assert item["targetId"] == "italy"
+        assert item["targetLabel"]
+        assert item["title"] == "Italy public news story"
+        assert item["source"]["id"] == "ansa"
+        assert item["source"]["name"]
+        assert item["source"]["type"] in {"rss", "api", "web", "social", "official", "unknown"}
+        assert "credibilityLabel" in item["source"]
+        assert item["originalUrl"] == "https://example.com"
+        assert (
+            item["detailUrl"]
+            == "/#/news/target/italy/events/ne-italy-src-20260609-public-news01"
+        )
+        assert item["tags"] == ["international-relations"]
+        assert item["valueLabel"] == "精选"
+        assert item["chinaRelevanceLabel"] == "高"
+        assert "pipeline_stage" not in item
+        assert "target_id" not in item
+
+    def test_public_news_api_supports_before_and_since_cursors(self, tmp_path: Path) -> None:
+        """公共新闻流支持向下加载旧新闻，以及低频检查新新闻。"""
+        _write_draft(
+            tmp_path,
+            "italy",
+            "ne-italy-src-20260609-old00001",
+            title="Older public story",
+            news_value_score=70,
+            published_at="2026-06-09T08:00:00+00:00",
+        )
+        _write_draft(
+            tmp_path,
+            "italy",
+            "ne-italy-src-20260609-top00001",
+            title="Current public story",
+            news_value_score=72,
+            published_at="2026-06-09T09:00:00+00:00",
+        )
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        first = client.get(
+            "/api/v1/public/news",
+            params={"target_id": "italy", "page_size": 1},
+        )
+
+        assert first.status_code == 200
+        first_data = first.json()
+        assert [item["title"] for item in first_data["items"]] == ["Current public story"]
+        assert first_data["latestCursor"]
+        assert first_data["nextCursor"]
+
+        older = client.get(
+            "/api/v1/public/news",
+            params={
+                "target_id": "italy",
+                "page_size": 1,
+                "before_cursor": first_data["nextCursor"],
+            },
+        )
+
+        assert older.status_code == 200
+        assert [item["title"] for item in older.json()["items"]] == ["Older public story"]
+
+        empty_update = client.get(
+            "/api/v1/public/news",
+            params={"target_id": "italy", "since_cursor": first_data["latestCursor"]},
+        )
+        assert empty_update.status_code == 200
+        assert empty_update.json()["items"] == []
+        assert empty_update.json()["hasNewer"] is False
+
+        _write_draft(
+            tmp_path,
+            "italy",
+            "ne-italy-src-20260609-new00001",
+            title="New automatic story",
+            news_value_score=88,
+            published_at="2026-06-09T10:00:00+00:00",
+        )
+        update = client.get(
+            "/api/v1/public/news",
+            params={"target_id": "italy", "since_cursor": first_data["latestCursor"]},
+        )
+
+        assert update.status_code == 200
+        update_data = update.json()
+        assert update_data["hasNewer"] is True
+        assert [item["title"] for item in update_data["items"]] == ["New automatic story"]
+
+    def test_public_news_api_returns_304_for_matching_etag(self, tmp_path: Path) -> None:
+        """公共新闻流无变化时可用 ETag 轻响应，减少重复传输。"""
+        _write_draft(
+            tmp_path,
+            "italy",
+            "ne-italy-src-20260609-etag0001",
+            title="ETag story",
+            news_value_score=68,
+            published_at="2026-06-09T09:00:00+00:00",
+        )
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+        first = client.get("/api/v1/public/news", params={"target_id": "italy"})
+        assert first.status_code == 200
+
+        second = client.get(
+            "/api/v1/public/news",
+            params={"target_id": "italy"},
+            headers={"If-None-Match": first.headers["etag"]},
+        )
+
+        assert second.status_code == 304
+        assert second.text == ""
+        assert second.headers["etag"] == first.headers["etag"]
+        assert int(second.headers["x-poll-after-ms"]) >= 30_000
+
+    def test_public_news_detail_returns_reader_shape_without_auth(self, tmp_path: Path) -> None:
+        """公共新闻详情 API 使用读者字段，不需要后台认证。"""
+        event_id = "ne-italy-src-20260609-detail01"
+        _write_draft(
+            tmp_path,
+            "italy",
+            event_id,
+            title="Public detail presentation",
+            news_value_score=64,
+            published_at="2026-06-09T09:00:00+00:00",
+        )
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get(f"/api/v1/public/news/{event_id}", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        item = resp.json()
+        assert item["id"] == event_id
+        assert item["title"] == "Public detail presentation"
+        assert item["valueLabel"] == "关注"
+        assert "pipeline_stage" not in item
 
     def test_public_event_detail_without_auth(self, tmp_path: Path) -> None:
         """匿名用户可以打开新闻流里的单篇只读详情。"""

@@ -20,7 +20,7 @@ import {
 } from "./router.js";
 import { renderFeedTab, renderPublicHome } from "./pages/feed.js";
 import { renderPublicAnalysis } from "./pages/public_analysis.js";
-import { targetPortalHref } from "./pages/public_portal.js";
+import { targetAnalysisHref, targetPortalHref } from "./pages/public_portal.js";
 import { renderTargetsHome, renderTargetWorkbench } from "./pages/target_workbench.js";
 import { renderManagementOverviewTab } from "./pages/dashboard.js";
 import { renderEventsTab, renderEventDetail } from "./pages/events.js";
@@ -203,6 +203,7 @@ function updateBreadcrumb(section, tab, param) {
 // ═══════════════════════════════════════════════════════════
 
 function setShellMode(mode) {
+  document.body.classList.remove("boot-shell");
   document.body.classList.toggle("public-shell", mode === "public");
   document.body.classList.toggle("admin-shell", mode === "admin");
   document.body.classList.toggle("login-shell", mode === "login");
@@ -225,6 +226,53 @@ function setShellMode(mode) {
   // 管理入口已从公开页面移除，管理员直接访问 #/admin/login
 
   if (mode !== "admin") closeSidebar();
+}
+
+function publicNavLabel(target) {
+  const name = target?.display_name || target?.target_id || "目标";
+  return String(name).replace(/新闻监控$/, "").trim() || "目标";
+}
+
+function primaryPublicTarget() {
+  const targets = state.targets || [];
+  if (!targets.length) return null;
+  const current = state.currentTarget
+    ? targets.find((target) => target.target_id === state.currentTarget)
+    : null;
+  return current
+    || targets.find((target) => Number(target.event_count || 0) > 0)
+    || targets[0];
+}
+
+function updatePublicTopNav(routeInfo = parseRouteHash(window.location.hash || "#/news/feed")) {
+  const nav = document.getElementById("publicTopNav");
+  if (!nav) return;
+  const target = primaryPublicTarget();
+  const homeLink = nav.querySelector('[data-public-nav="home"]');
+  const targetLink = nav.querySelector('[data-public-nav="target"]');
+  const analysisLink = nav.querySelector('[data-public-nav="analysis"]');
+
+  if (homeLink) {
+    homeLink.href = "#/news/feed";
+    homeLink.textContent = "频道";
+  }
+  if (targetLink) {
+    targetLink.href = target?.target_id ? targetPortalHref(target.target_id) : "#/news/feed";
+    targetLink.textContent = target ? publicNavLabel(target) : "目标";
+  }
+  if (analysisLink) {
+    analysisLink.href = target?.target_id ? targetAnalysisHref(target.target_id) : "#/news/feed";
+    analysisLink.textContent = "态势";
+  }
+
+  nav.querySelectorAll("a").forEach((link) => {
+    link.classList.remove("active");
+    link.removeAttribute("aria-current");
+  });
+  if (routeInfo?.name === "publicNewsHome") homeLink?.classList.add("active");
+  else if (routeInfo?.name === "publicTargetAnalysis") analysisLink?.classList.add("active");
+  else if (String(routeInfo?.name || "").startsWith("public")) targetLink?.classList.add("active");
+  nav.querySelector("a.active")?.setAttribute("aria-current", "page");
 }
 
 function defaultAdminTab(section) {
@@ -350,6 +398,7 @@ function renderPublicRoute(routeInfo) {
   container.innerHTML = "";
 
   if (routeInfo.name === "publicNewsHome") {
+    updatePublicTopNav(routeInfo);
     renderPublicHome(container, state.targets || []);
     return;
   }
@@ -359,8 +408,12 @@ function renderPublicRoute(routeInfo) {
     localStorage.ns_target_id = routeInfo.targetId;
   }
 
+  updatePublicTopNav(routeInfo);
+
   if (routeInfo.name === "publicTargetAnalysis") {
-    renderPublicAnalysis(container, routeInfo.targetId);
+    renderPublicAnalysis(container, routeInfo.targetId, {
+      focusSection: routeInfo.analysisSection || "",
+    });
     return;
   }
 
@@ -603,8 +656,10 @@ async function loadTargets() {
       const targetWithData = state.targets.find(t => Number(t.event_count || 0) > 0);
       state.currentTarget = (targetWithData || state.targets[0]).target_id;
     }
+    updatePublicTopNav();
   } catch (err) {
     state.targets = [];
+    updatePublicTopNav();
   }
 }
 
@@ -910,9 +965,10 @@ function _checkDesktopUpdate() {
       banner.className = "update-banner";
       banner.id = "updateBanner";
       banner.innerHTML = `🆕 新版本 <strong>v${ver}</strong> 可用 —
-        <button onclick="_doDesktopUpdate()" style="margin-left:8px;padding:4px 12px;border-radius:4px;background:var(--accent-blue);color:#fff;border:none;cursor:pointer;font-size:0.85rem;">一键更新</button>
+        <button id="desktopUpdateBtn" style="margin-left:8px;padding:4px 12px;border-radius:4px;background:var(--accent-blue);color:#fff;border:none;cursor:pointer;font-size:0.85rem;">一键更新</button>
         <a href="https://github.com/XucroYuri/NewsSentry/releases/latest" target="_blank" style="margin-left:8px;color:var(--text-accent);">手动下载</a>`;
       document.body.prepend(banner);
+      document.getElementById("desktopUpdateBtn")?.addEventListener("click", _doDesktopUpdate);
       setTimeout(() => { if (document.getElementById("updateBanner")) banner.remove(); }, 60000);
     }
   } catch {}
@@ -1134,6 +1190,18 @@ export function showConfirmModal(title, message) {
 // §12. 初始化
 // ═══════════════════════════════════════════════════════════
 
+function openLegalModal(type) {
+  const modal = document.getElementById("legalModal");
+  const title = document.getElementById("legalTitle");
+  const body = document.getElementById("legalBody");
+  const contentId = type === "disclaimer" ? "disclaimerContent" : "privacyContent";
+  const content = document.getElementById(contentId);
+  if (!modal || !title || !body || !content) return;
+  title.textContent = type === "disclaimer" ? "免责声明" : "隐私政策";
+  body.innerHTML = content.innerHTML;
+  modal.style.display = "flex";
+}
+
 async function init() {
   if (await ensureFreshStaticAssets()) return;
   initTheme();
@@ -1163,6 +1231,12 @@ async function init() {
       el.addEventListener("click", () => { legalModal.style.display = "none"; });
     });
   }
+  document.querySelectorAll("[data-legal-modal]").forEach((link) => {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      openLegalModal(link.getAttribute("data-legal-modal"));
+    });
+  });
 
   // Config collapse toggle
   const configToggle = document.getElementById("configToggle");

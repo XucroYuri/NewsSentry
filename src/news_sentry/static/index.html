@@ -24,9 +24,10 @@
   <meta name="apple-mobile-web-app-title" content="News Sentry">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="public.css">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
+  <script nonce="__CSP_NONCE__" src="/legacy_public_redirect.js"></script>
+  <script nonce="__CSP_NONCE__" src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
 </head>
-<body>
+<body class="boot-shell public-shell">
   <!-- 连接设置页（未认证时全屏显示） -->
   <div id="connectPage" class="connect-page" style="display:none;">
     <div class="connect-card">
@@ -66,7 +67,7 @@
   <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
   <!-- 侧边导航栏 -->
-  <aside class="sidebar" id="sidebar">
+  <aside class="sidebar" id="sidebar" style="display:none;">
     <a class="sidebar-brand brand-lockup" href="#/news/feed" aria-label="返回 News Sentry 首页">
       <span class="brand-icon" aria-hidden="true">
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -128,7 +129,7 @@
 
   <!-- 主内容区 -->
   <main class="main-content" id="mainContent">
-    <header class="public-top-bar" id="publicTopBar" style="display:none;">
+    <header class="public-top-bar" id="publicTopBar">
       <a class="public-brand brand-lockup" href="#/news/feed">
         <span class="brand-icon" aria-hidden="true">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -138,10 +139,16 @@
         </span>
         <span class="brand-text">News Sentry</span>
       </a>
+      <nav class="public-top-nav" id="publicTopNav" aria-label="公开站点导航">
+        <a href="#/news/feed" data-public-nav="home">频道</a>
+        <a href="#/news/feed" data-public-nav="target">目标</a>
+        <a href="#/news/feed" data-public-nav="analysis">态势</a>
+      </nav>
+      <a class="public-login-link" href="#/admin/login">登录</a>
       <!-- 管理入口已隐藏，管理员通过直接访问 #/admin/login 进入 -->
     </header>
 
-    <header class="top-bar admin-page-topbar" id="adminTopBar">
+    <header class="top-bar admin-page-topbar" id="adminTopBar" style="display:none;">
       <button class="hamburger-btn" id="hamburgerBtn" aria-label="打开菜单">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <line x1="3" y1="6" x2="21" y2="6"/>
@@ -153,7 +160,7 @@
     </header>
 
     <!-- Tab 栏 -->
-    <div class="tab-bar" id="tabBar"></div>
+    <div class="tab-bar" id="tabBar" style="display:none;"></div>
 
     <!-- 页面内容容器 -->
     <div class="page-container" id="pageContainer">
@@ -220,8 +227,8 @@
   <!-- 公开页面底部 -->
   <footer class="public-footer" id="publicFooter" style="display:none;">
     <span>&copy; 2026 News Sentry</span>
-    <a href="#" onclick="document.getElementById('legalTitle').textContent='隐私政策';document.getElementById('legalBody').innerHTML=document.getElementById('privacyContent').innerHTML;document.getElementById('legalModal').style.display='flex';return false;">隐私政策</a>
-    <a href="#" onclick="document.getElementById('legalTitle').textContent='免责声明';document.getElementById('legalBody').innerHTML=document.getElementById('disclaimerContent').innerHTML;document.getElementById('legalModal').style.display='flex';return false;">免责声明</a>
+    <a href="#privacy" data-legal-modal="privacy">隐私政策</a>
+    <a href="#disclaimer" data-legal-modal="disclaimer">免责声明</a>
   </footer>
 
   <!-- 法律声明内容（隐藏，供弹窗引用） -->
@@ -267,6 +274,6 @@
     <p>本平台保留随时修改本免责声明的权利，修改后的声明自发布之日起生效。</p>
   </div>
 
-  <script type="module" src="app.js"></script>
+  <script nonce="__CSP_NONCE__" type="module" src="app.js"></script>
 </body>
 </html>

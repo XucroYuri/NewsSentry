@@ -19,7 +19,7 @@ assert.equal(
   "service-worker cache name should derive from the build manifest id",
 );
 
-for (const asset of ["/", "/index.html", "/app.js", "/style.css", "/public.css", "/sw.js"]) {
+for (const asset of ["/", "/index.html", "/legacy_public_redirect.js", "/app.js", "/style.css", "/public.css", "/sw.js"]) {
   assert.ok(
     manifest.assets.includes(asset),
     `static build manifest should list ${asset}`,
@@ -102,6 +102,12 @@ assert.match(
   swJs,
   /isAPI\)[\s\S]*event\.respondWith\(networkOnly\(event\.request\)\)/,
   "service worker should handle API requests without writing authenticated responses to cache",
+);
+
+assert.match(
+  swJs,
+  /isPublicApp\)[\s\S]*event\.respondWith\(fetch\(event\.request\)\)/,
+  "service worker should bypass cache handling for the new public React app",
 );
 
 assert.doesNotMatch(

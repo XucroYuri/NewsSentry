@@ -4,7 +4,7 @@
 "use strict";
 
 import { state, api, escapeHtml } from "../api.js";
-import { targetPortalHref } from "./public_portal.js";
+import { renderPublicBottomNav, targetPortalHref } from "./public_portal.js";
 
 const DAY_OPTIONS = [7, 14, 30];
 
@@ -45,11 +45,66 @@ function safeMetric(value) {
   return escapeHtml(metricText(value));
 }
 
+function emptyReason(title, text) {
+  return `<div class="public-analysis-empty-line public-analysis-empty-reason">
+    <strong>${escapeHtml(title)}</strong>
+    <span>${escapeHtml(text)}</span>
+  </div>`;
+}
+
 function renderMetricCard(label, value) {
   return `<div class="public-analysis-stat">
     <span>${escapeHtml(label)}</span>
     <strong>${safeMetric(value)}</strong>
   </div>`;
+}
+
+function analysisBrief(summary = {}, data = {}) {
+  const total = Number(summary.total_events || 0);
+  const highValue = Number(summary.high_value_events || 0);
+  const avgScore = Number(summary.avg_news_value_score || 0);
+  const avgChina = Number(summary.avg_china_relevance || 0);
+  const entityCount = Array.isArray(data.top_entities) ? data.top_entities.length : 0;
+  const topicCount = Array.isArray(data.topic_trends) ? data.topic_trends.length : 0;
+  const chainCount = Array.isArray(data.active_chains) ? data.active_chains.length : 0;
+
+  const sampleTitle = total >= 30 ? "样本较稳定" : total > 0 ? "样本仍在积累" : "等待样本";
+  const sampleTone = total >= 30 ? "strong" : total > 0 ? "watch" : "muted";
+  const sampleText = total >= 30
+    ? `当前窗口已有 ${total} 条事件，可形成初步态势判断。`
+    : total > 0
+      ? `当前窗口已有 ${total} 条事件，趋势结论仍需更多样本支撑。`
+      : "采集和翻译增强完成后，这里会生成公共态势摘要。";
+  const valueTitle = highValue > 0 ? "存在高价值信号" : avgScore >= 60 ? "整体价值中等" : "暂无强信号";
+  const valueTone = highValue > 0 ? "strong" : avgScore >= 60 ? "watch" : "muted";
+  const valueText = highValue > 0
+    ? `${highValue} 条事件达到高价值阈值，建议优先阅读新闻流。`
+    : avgScore >= 60
+      ? `平均新闻价值 ${metricText(summary.avg_news_value_score)}，适合持续观察。`
+      : "当前窗口尚未出现明显高优先级新闻。";
+  const enrichmentTitle = entityCount || topicCount || chainCount ? "增强数据可读" : "增强数据待补齐";
+  const enrichmentTone = entityCount || topicCount || chainCount ? "strong" : "watch";
+  const enrichmentText = entityCount || topicCount || chainCount
+    ? `${topicCount} 个主题、${entityCount} 个实体、${chainCount} 条追踪链已进入公共简报。`
+    : "实体、主题和追踪链仍在等待更多新闻样本。";
+  const chinaTone = avgChina >= 70 ? "strong" : avgChina >= 40 ? "watch" : "muted";
+
+  return [
+    { label: "样本可信度", title: sampleTitle, text: sampleText, tone: sampleTone },
+    { label: "新闻价值", title: valueTitle, text: valueText, tone: valueTone },
+    { label: "增强状态", title: enrichmentTitle, text: enrichmentText, tone: enrichmentTone },
+    { label: "中国相关度", title: avgChina >= 70 ? "相关度较高" : avgChina >= 40 ? "相关度中等" : "相关度较低", text: `当前平均中国相关度为 ${metricText(summary.avg_china_relevance)}。`, tone: chinaTone },
+  ];
+}
+
+function renderBriefCards(summary, data) {
+  return `<section class="public-analysis-brief" aria-label="态势简报">
+    ${analysisBrief(summary, data).map((item) => `<article class="public-analysis-brief-card ${escapeHtml(item.tone)}">
+      <span>${escapeHtml(item.label)}</span>
+      <strong>${escapeHtml(item.title)}</strong>
+      <p>${escapeHtml(item.text)}</p>
+    </article>`).join("")}
+  </section>`;
 }
 
 function renderDistribution(title, items, total, labelKey = "name") {
@@ -66,7 +121,7 @@ function renderDistribution(title, items, total, labelKey = "name") {
         <div class="public-analysis-bar"><span style="width:${pct}%"></span></div>
       </div>`;
     }).join("")
-    : '<p class="public-analysis-empty-line">暂无数据</p>';
+    : emptyReason("分布样本不足", "当前窗口还没有足够事件形成可靠分布。");
   return `<section class="public-analysis-panel">
     <h2>${escapeHtml(title)}</h2>
     ${rows}
@@ -82,7 +137,7 @@ function renderTopics(topics) {
       </div>
       <span>${safeMetric(topic.current_count)} / ${safeMetric(topic.prev_count)}</span>
     </li>`).join("")
-    : '<li class="public-analysis-empty-line">暂无主题趋势</li>';
+    : `<li class="public-analysis-empty-line">${emptyReason("趋势样本不足", "需要更多同类事件才能判断主题升降方向。")}</li>`;
   return `<section class="public-analysis-panel">
     <h2>主题趋势</h2>
     <ul class="public-analysis-list">${rows}</ul>
@@ -105,7 +160,7 @@ function renderSentiment(days) {
         </div>
       </div>`;
     }).join("")
-    : '<p class="public-analysis-empty-line">暂无情感趋势</p>';
+    : emptyReason("情绪窗口不足", "当前时间窗口内还没有足够样本形成情绪曲线。");
   return `<section class="public-analysis-panel">
     <h2>情感趋势</h2>
     ${rows}
@@ -121,8 +176,8 @@ function renderEntities(entities) {
       </div>
       <span>${safeMetric(entity.mention_count)} 次</span>
     </li>`).join("")
-    : '<li class="public-analysis-empty-line">暂无热门实体</li>';
-  return `<section class="public-analysis-panel">
+    : `<li class="public-analysis-empty-line">${emptyReason("实体待增强", "实体抽取与归并仍在等待更多新闻样本。")}</li>`;
+  return `<section class="public-analysis-panel" id="entities">
     <h2>热门实体</h2>
     <ul class="public-analysis-list">${rows}</ul>
   </section>`;
@@ -137,17 +192,34 @@ function renderChains(chains) {
       </div>
       ${chain.narrative_summary ? `<p>${escapeHtml(chain.narrative_summary)}</p>` : ""}
     </article>`).join("")
-    : '<p class="public-analysis-empty-line">暂无活跃追踪链</p>';
+    : emptyReason("追踪链待形成", "尚未出现足够相似事件构成稳定追踪链。");
   return `<section class="public-analysis-panel public-analysis-chain-panel">
     <h2>追踪链摘要</h2>
     ${rows}
   </section>`;
 }
 
-function renderAnalysis(container, data, targetId, days) {
+function focusAnalysisSection(container, sectionId) {
+  if (!sectionId) return;
+  if (sectionId !== "entities") return;
+  const section = container.querySelector("#entities");
+  if (!section) return;
+  if (!section.hasAttribute("tabindex")) section.setAttribute("tabindex", "-1");
+  requestAnimationFrame(() => {
+    section.scrollIntoView({ behavior: "smooth", block: "start" });
+    section.focus({ preventScroll: true });
+  });
+}
+
+function bottomNavActiveForSection(sectionId) {
+  return sectionId === "entities" ? "entities" : "trends";
+}
+
+function renderAnalysis(container, data, targetId, days, options = {}) {
   const summary = data.summary || {};
   const total = Number(summary.total_events || 0);
   const feedHref = targetPortalHref(targetId);
+  const focusSection = options.focusSection || "";
   const dayButtons = DAY_OPTIONS.map((option) =>
     `<button class="public-analysis-days${Number(days) === option ? " active" : ""}" data-days="${option}">${option} 天</button>`
   ).join("");
@@ -155,15 +227,17 @@ function renderAnalysis(container, data, targetId, days) {
   container.innerHTML = `<section class="public-analysis">
     <header class="public-analysis-head">
       <div>
-        <p class="public-kicker">Target Analysis</p>
+        <p class="public-kicker">态势简报</p>
         <h1>${escapeHtml(data.target_name || targetId)}</h1>
-        <p>${analysisHasData(data) ? "公开态势摘要，按聚合数据生成。" : "当前暂无可展示的分析数据。"}</p>
+        <p>${analysisHasData(data) ? "面向公开读者的目标态势摘要，按新闻样本、实体和趋势数据自动生成。" : "当前窗口样本不足，系统会在采集、翻译和实体增强后自动更新。"}</p>
       </div>
       <div class="public-analysis-head-actions">
         <div class="public-analysis-day-toggle">${dayButtons}</div>
         <a class="public-analysis-back" href="${feedHref}">返回新闻流</a>
       </div>
     </header>
+
+    ${renderBriefCards(summary, data)}
 
     <div class="public-analysis-stat-grid">
       ${renderMetricCard("事件总数", summary.total_events)}
@@ -185,6 +259,7 @@ function renderAnalysis(container, data, targetId, days) {
     </div>
 
     ${renderChains(data.active_chains)}
+    ${renderPublicBottomNav(targetId, bottomNavActiveForSection(focusSection))}
   </section>`;
 
   container.querySelectorAll(".public-analysis-days").forEach((btn) => {
@@ -192,6 +267,7 @@ function renderAnalysis(container, data, targetId, days) {
       renderPublicAnalysis(container, targetId, { days: Number(btn.dataset.days || 14) });
     });
   });
+  focusAnalysisSection(container, focusSection);
 }
 
 export async function renderPublicAnalysis(container, targetId, options = {}) {
@@ -216,7 +292,9 @@ export async function renderPublicAnalysis(container, targetId, options = {}) {
   container.innerHTML = '<div class="feed-loading">加载中...</div>';
   try {
     const data = await api(`/api/v1/public/targets/${encodeURIComponent(targetId)}/analysis`, { days });
-    renderAnalysis(container, data, targetId, days);
+    renderAnalysis(container, data, targetId, days, {
+      focusSection: options.focusSection || "",
+    });
   } catch (err) {
     container.innerHTML = `<div class="public-analysis-empty">
       <p>加载分析数据失败: ${escapeHtml(err.message || "未知错误")}</p>

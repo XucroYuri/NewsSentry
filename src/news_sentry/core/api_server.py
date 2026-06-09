@@ -20,6 +20,7 @@ API Server — FastAPI REST API 网关。
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import math
@@ -40,7 +41,7 @@ from typing import Annotated, Any, Literal, cast
 
 import yaml
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
-from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, BeforeValidator, Field, ValidationError, field_validator
 
 from news_sentry.core.ai_enrichment import (
@@ -86,6 +87,15 @@ _SECURITY_HEADERS = {
         "object-src 'none'"
     ),
 }
+
+
+def _security_headers_with_script_nonce(nonce: str) -> dict[str, str]:
+    headers = dict(_SECURITY_HEADERS)
+    headers["Content-Security-Policy"] = _SECURITY_HEADERS["Content-Security-Policy"].replace(
+        "script-src 'self'",
+        f"script-src 'self' 'nonce-{nonce}'",
+    )
+    return headers
 
 _ROBOTS_TXT = """User-agent: *
 Allow: /
@@ -799,6 +809,65 @@ class PublicAnalysisResponse(BaseModel):
     sentiment_trend: list[DailySentimentCount] = Field(default_factory=list)
     active_chains: list[PublicChainItem] = Field(default_factory=list)
     generated_at: str
+
+
+class PublicNewsSource(BaseModel):
+    """读者侧新闻来源摘要。"""
+
+    id: str
+    name: str
+    type: Literal["rss", "api", "web", "social", "official", "unknown"] = "unknown"
+    credibility_label: str | None = Field(default=None, alias="credibilityLabel")
+
+    model_config = {"populate_by_name": True}
+
+
+class PublicNewsEntity(BaseModel):
+    """读者侧实体摘要。"""
+
+    name: str
+    type: str | None = None
+
+
+class PublicNewsItem(BaseModel):
+    """公共门户使用的读者侧新闻条目。"""
+
+    id: str
+    target_id: str = Field(alias="targetId")
+    target_label: str = Field(alias="targetLabel")
+    source: PublicNewsSource
+    published_at: str = Field(alias="publishedAt")
+    title: str
+    original_title: str | None = Field(default=None, alias="originalTitle")
+    summary: str | None = None
+    recommendation_reason: str | None = Field(default=None, alias="recommendationReason")
+    original_url: str | None = Field(default=None, alias="originalUrl")
+    detail_url: str = Field(alias="detailUrl")
+    tags: list[str] = Field(default_factory=list)
+    entities: list[PublicNewsEntity] = Field(default_factory=list)
+    related_count: int = Field(default=0, alias="relatedCount")
+    discussion_count: int | None = Field(default=None, alias="discussionCount")
+    value_label: Literal["精选", "关注", "普通", "待评估"] = Field(alias="valueLabel")
+    value_score: int | float | None = Field(default=None, alias="valueScore")
+    china_relevance_label: Literal["高", "中", "低", "未知"] = Field(
+        default="未知",
+        alias="chinaRelevanceLabel",
+    )
+
+    model_config = {"populate_by_name": True}
+
+
+class PublicNewsFeedResponse(BaseModel):
+    """公共新闻流响应 envelope，支持低负担增量更新。"""
+
+    items: list[PublicNewsItem]
+    latest_cursor: str | None = Field(default=None, alias="latestCursor")
+    next_cursor: str | None = Field(default=None, alias="nextCursor")
+    poll_after_ms: int = Field(default=60000, alias="pollAfterMs")
+    has_newer: bool = Field(default=False, alias="hasNewer")
+    total: int = 0
+
+    model_config = {"populate_by_name": True}
 
 
 class SmartAlertItem(BaseModel):
@@ -1684,6 +1753,267 @@ def _event_summary(ev: dict[str, Any]) -> str:
         if isinstance(value, str) and value.strip():
             return _first_sentence(value, max_chars=96)
     return ""
+
+
+_PUBLIC_NEWS_STAGE = "drafts"
+_PUBLIC_NEWS_DEFAULT_PAGE_SIZE = 30
+_PUBLIC_NEWS_MAX_PAGE_SIZE = 100
+_PUBLIC_NEWS_MAX_SCAN = 1000
+_PUBLIC_NEWS_MIN_POLL_AFTER_MS = 30_000
+_PUBLIC_NEWS_DEFAULT_POLL_AFTER_MS = 60_000
+_PUBLIC_NEWS_IDLE_POLL_AFTER_MS = 180_000
+_PUBLIC_NEWS_FEATURED_SCORE = 60
+
+
+def _public_news_event_datetime(ev: dict[str, Any]) -> datetime:
+    parsed = _parse_published_at_utc(ev.get("published_at"))
+    return parsed or datetime.min.replace(tzinfo=UTC)
+
+
+def _public_news_sort_key(ev: dict[str, Any]) -> tuple[datetime, str]:
+    event_id = str(ev.get("event_id") or ev.get("id") or "")
+    return (_public_news_event_datetime(ev), event_id)
+
+
+def _public_news_encode_cursor(ev: dict[str, Any]) -> str:
+    published_at = _public_news_event_datetime(ev).isoformat()
+    event_id = str(ev.get("event_id") or ev.get("id") or "")
+    raw = f"{published_at}\0{event_id}".encode()
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _public_news_decode_cursor(cursor: str | None) -> tuple[datetime, str] | None:
+    if not cursor:
+        return None
+    padding = "=" * (-len(cursor) % 4)
+    try:
+        raw = base64.urlsafe_b64decode(f"{cursor}{padding}").decode("utf-8")
+        published_at, event_id = raw.split("\0", 1)
+        parsed = datetime.fromisoformat(published_at)
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(status_code=422, detail="Invalid cursor") from None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC), event_id
+
+
+def _public_news_target_ids(data_dir: Path, target_id: str | None) -> list[str]:
+    if target_id:
+        return [target_id]
+    ids: set[str] = set()
+    for config in _load_target_configs():
+        value = config.get("target_id")
+        if isinstance(value, str) and value.strip():
+            ids.add(value.strip())
+    if data_dir.is_dir():
+        for child in data_dir.iterdir():
+            if child.is_dir() and not child.name.startswith("."):
+                ids.add(child.name)
+    return sorted(ids)
+
+
+def _public_source_type(
+    value: Any,
+) -> Literal["rss", "api", "web", "social", "official", "unknown"]:
+    text = str(value or "").strip().lower()
+    if text in {"rss", "api", "web", "social", "official"}:
+        return cast(Literal["rss", "api", "web", "social", "official"], text)
+    if text in {"opencli", "browser", "scraper"}:
+        return "web"
+    return "unknown"
+
+
+def _credibility_label(value: Any) -> str | None:
+    if not isinstance(value, (int, float)):
+        return None
+    score = float(value)
+    if score <= 1:
+        score *= 100
+    if score >= 80:
+        return "高"
+    if score >= 50:
+        return "中"
+    return "低"
+
+
+def _public_source_info(target_id: str, source_id: str, ev: dict[str, Any]) -> PublicNewsSource:
+    for source in _load_source_configs(target_id):
+        candidates = {
+            str(source.get(key) or "")
+            for key in ("source_id", "id", "_source_id", "_source_ref", "source_ref")
+        }
+        if source_id and source_id in candidates:
+            display_name = source.get("display_name") or source.get("name") or source_id
+            return PublicNewsSource(
+                id=source_id,
+                name=str(display_name),
+                type=_public_source_type(source.get("type")),
+                credibilityLabel=_credibility_label(source.get("credibility_base")),
+            )
+    return PublicNewsSource(
+        id=source_id,
+        name=str(ev.get("source_display_name") or source_id or "未知来源"),
+        type=_public_source_type(ev.get("source_type")),
+        credibilityLabel=_credibility_label(ev.get("source_credibility")),
+    )
+
+
+def _public_news_entities(ev: dict[str, Any]) -> list[PublicNewsEntity]:
+    raw = ev.get("nlp_entities") or ev.get("entities") or []
+    entities: list[PublicNewsEntity] = []
+    if not isinstance(raw, list):
+        return entities
+    for item in raw[:8]:
+        if isinstance(item, dict):
+            name = str(item.get("name") or "").strip()
+            entity_type = item.get("type") or item.get("entity_type")
+            if name:
+                entities.append(
+                    PublicNewsEntity(
+                        name=name,
+                        type=str(entity_type) if entity_type else None,
+                    )
+                )
+        elif item is not None and str(item).strip():
+            entities.append(PublicNewsEntity(name=str(item).strip()))
+    return entities
+
+
+def _public_value_label(score: int | float | None) -> Literal["精选", "关注", "普通", "待评估"]:
+    if score is None:
+        return "待评估"
+    if score >= 80:
+        return "精选"
+    if score >= 60:
+        return "关注"
+    return "普通"
+
+
+def _public_china_relevance_label(value: Any) -> Literal["高", "中", "低", "未知"]:
+    if not isinstance(value, (int, float)):
+        return "未知"
+    if value >= 70:
+        return "高"
+    if value >= 30:
+        return "中"
+    return "低"
+
+
+def _public_news_item(target_id: str, ev: dict[str, Any]) -> PublicNewsItem:
+    payload = _feed_event_payload(ev)
+    event_id = str(payload.get("event_id") or payload.get("id") or "")
+    score = _event_score(payload)
+    original_url = str(payload.get("url") or "").strip() or None
+    return PublicNewsItem(
+        id=event_id,
+        targetId=target_id,
+        targetLabel=_target_display_name(target_id),
+        source=_public_source_info(target_id, str(payload.get("source_id") or ""), payload),
+        publishedAt=str(payload.get("published_at") or ""),
+        title=str(payload.get("display_title") or payload.get("title_original") or event_id),
+        originalTitle=str(payload.get("original_title") or "") or None,
+        summary=str(payload.get("summary") or "") or None,
+        recommendationReason=str(payload.get("ai_reason") or "") or None,
+        originalUrl=original_url,
+        detailUrl=f"/#/news/target/{target_id}/events/{event_id}",
+        tags=list(payload.get("flat_tags") or []),
+        entities=_public_news_entities(payload),
+        relatedCount=int(payload.get("related_count") or 0),
+        discussionCount=int(payload["discussion_count"])
+        if isinstance(payload.get("discussion_count"), int)
+        else None,
+        valueLabel=_public_value_label(score),
+        valueScore=score,
+        chinaRelevanceLabel=_public_china_relevance_label(payload.get("china_relevance")),
+    )
+
+
+def _public_news_matches(
+    ev: dict[str, Any],
+    *,
+    featured: bool,
+    source_id: str | None,
+    category: str | None,
+    date: str | None,
+    q: str | None,
+) -> bool:
+    if featured and (_event_score(ev) or 0) < _PUBLIC_NEWS_FEATURED_SCORE:
+        return False
+    if source_id and ev.get("source_id") != source_id:
+        return False
+    if category:
+        normalized_category = canonical_l0(category)
+        classification = _event_classification(ev) or {}
+        if canonical_l0(str(classification.get("l0") or "")) != normalized_category:
+            return False
+    if date and not str(ev.get("published_at") or "").startswith(date):
+        return False
+    if q:
+        keyword = q.lower()
+        haystack = " ".join(
+            str(ev.get(key) or "")
+            for key in (
+                "title_original",
+                "title_translated",
+                "content_original",
+                "content_translated",
+                "summary",
+                "source_id",
+                "source_display_name",
+            )
+        ).lower()
+        if keyword not in haystack:
+            return False
+    return True
+
+
+async def _public_news_events_for_target(
+    data_dir: Path,
+    target_id: str,
+    store: AsyncStore | None,
+) -> list[dict[str, Any]]:
+    if store is not None and await _store_has_target_event_index(store, target_id):
+        result = await _visible_index_events_page(
+            store,
+            data_dir,
+            target_id,
+            stage=_PUBLIC_NEWS_STAGE,
+            page=1,
+            page_size=_PUBLIC_NEWS_MAX_SCAN,
+            exact_total=True,
+        )
+        events = result.get("events", [])
+        if isinstance(events, list):
+            return cast(list[dict[str, Any]], events)
+        return []
+    return _load_all_events(data_dir, target_id)
+
+
+async def _public_news_candidate_events(
+    data_dir: Path,
+    target_ids: list[str],
+) -> list[tuple[str, dict[str, Any]]]:
+    candidates: list[tuple[str, dict[str, Any]]] = []
+    for target_id in target_ids:
+        target_store = await _get_target_store(target_id)
+        store_to_query = target_store if target_store is not None else _store
+        for event in await _public_news_events_for_target(data_dir, target_id, store_to_query):
+            candidates.append((target_id, event))
+    candidates.sort(key=lambda item: _public_news_sort_key(item[1]), reverse=True)
+    return candidates
+
+
+def _public_news_etag(items: list[PublicNewsItem], latest_cursor: str | None) -> str:
+    material = json.dumps(
+        {
+            "latest": latest_cursor,
+            "ids": [item.id for item in items],
+            "updated": [item.published_at for item in items],
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    return f'"public-news-{sha256(material.encode("utf-8")).hexdigest()[:16]}"'
 
 
 def _feed_event_payload(ev: dict[str, Any]) -> dict[str, Any]:
@@ -4344,6 +4674,58 @@ def _build_static_manifest(static_dir: Path | None = None) -> dict[str, Any]:
     }
 
 
+def _index_html_response() -> HTMLResponse:
+    index_path = _static_dir() / "index.html"
+    if not index_path.is_file():
+        raise HTTPException(status_code=404, detail="Static asset not found")
+    nonce = secrets.token_urlsafe(16)
+    html = index_path.read_text(encoding="utf-8").replace("__CSP_NONCE__", nonce)
+    return HTMLResponse(
+        html,
+        headers={
+            **_security_headers_with_script_nonce(nonce),
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
+def _public_app_dir(static_dir: Path | None = None) -> Path:
+    return (static_dir or _static_dir()) / "public_app"
+
+
+def _public_app_index_response() -> FileResponse:
+    index_path = _public_app_dir() / "index.html"
+    if not index_path.is_file():
+        raise HTTPException(status_code=404, detail="Public app not built")
+    return FileResponse(
+        index_path,
+        media_type="text/html",
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
+def _public_app_asset_response(asset_path: str) -> FileResponse:
+    public_root = _public_app_dir().resolve()
+    clean_asset_path = asset_path.strip("/")
+    if not clean_asset_path:
+        return _public_app_index_response()
+    file_path = (public_root / clean_asset_path).resolve()
+    try:
+        file_path.relative_to(public_root)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Static asset not found") from None
+    if file_path.is_file():
+        cache_control = (
+            "public, max-age=31536000, immutable"
+            if clean_asset_path.startswith("assets/")
+            else "no-cache"
+        )
+        return FileResponse(file_path, headers={"Cache-Control": cache_control})
+    if clean_asset_path.startswith("assets/"):
+        raise HTTPException(status_code=404, detail="Static asset not found")
+    return _public_app_index_response()
+
+
 def _git_dir_for_path(path: Path) -> Path | None:
     for parent in [path.resolve(), *path.resolve().parents]:
         dot_git = parent / ".git"
@@ -4698,6 +5080,11 @@ def create_app(
             "static_cache_name": manifest["cacheName"],
         }
 
+    @app.get("/", include_in_schema=False)
+    @app.get("/index.html", include_in_schema=False)
+    async def index_html() -> HTMLResponse:
+        return _index_html_response()
+
     @app.get("/build_manifest.json")
     async def build_manifest(response: Response) -> dict[str, Any]:
         response.headers["Cache-Control"] = "no-store"
@@ -4742,6 +5129,15 @@ def create_app(
             media_type="application/javascript",
             headers={"Cache-Control": "no-store"},
         )
+
+    @app.get("/public-app", include_in_schema=False)
+    @app.get("/public-app/", include_in_schema=False)
+    async def public_app_index() -> FileResponse:
+        return _public_app_index_response()
+
+    @app.get("/public-app/{asset_path:path}", include_in_schema=False)
+    async def public_app_asset(asset_path: str) -> FileResponse:
+        return _public_app_asset_response(asset_path)
 
     @app.get("/api/v1/collector/status")
     async def collector_status(
@@ -5896,6 +6292,109 @@ def create_app(
             active_chains=[],
             generated_at=datetime.now(UTC).isoformat(),
         )
+
+    @app.get("/api/v1/public/news", response_model=PublicNewsFeedResponse)
+    async def list_public_news(
+        request: Request,
+        response: Response,
+        featured: bool = Query(False, description="仅返回精选/关注新闻"),
+        target_id: str | None = Query(None, description="按 target 筛选"),
+        source_id: str | None = Query(None, description="按来源筛选"),
+        category: str | None = Query(None, description="按 classification.l0 筛选"),
+        date: str | None = Query(None, description="日期筛选 YYYY-MM-DD"),
+        q: str | None = Query(None, description="全文关键词搜索"),
+        before_cursor: str | None = Query(None, description="加载更早新闻的 cursor"),
+        since_cursor: str | None = Query(None, description="检查更新新闻的 cursor"),
+        page_size: int = Query(
+            _PUBLIC_NEWS_DEFAULT_PAGE_SIZE,
+            ge=1,
+            le=_PUBLIC_NEWS_MAX_PAGE_SIZE,
+        ),
+    ) -> PublicNewsFeedResponse | Response:
+        """公共新闻流 presentation API，匿名只读，支持低负担增量更新。"""
+        if before_cursor and since_cursor:
+            raise HTTPException(
+                status_code=422,
+                detail="before_cursor and since_cursor cannot be used together",
+            )
+        before_key = _public_news_decode_cursor(before_cursor)
+        since_key = _public_news_decode_cursor(since_cursor)
+        target_ids = _public_news_target_ids(_data_dir, target_id)
+        candidates = await _public_news_candidate_events(_data_dir, target_ids)
+
+        filtered: list[tuple[str, dict[str, Any]]] = []
+        for tid, event in candidates:
+            if not _public_news_matches(
+                event,
+                featured=featured,
+                source_id=source_id,
+                category=category,
+                date=date,
+                q=q,
+            ):
+                continue
+            key = _public_news_sort_key(event)
+            if since_key is not None and key <= since_key:
+                continue
+            if before_key is not None and key >= before_key:
+                continue
+            filtered.append((tid, event))
+
+        page_pairs = filtered[:page_size]
+        items = [_public_news_item(tid, event) for tid, event in page_pairs]
+        latest_cursor = _public_news_encode_cursor(page_pairs[0][1]) if page_pairs else since_cursor
+        next_cursor = None
+        if page_pairs and len(filtered) > len(page_pairs):
+            next_cursor = _public_news_encode_cursor(page_pairs[-1][1])
+        if since_cursor:
+            poll_after_ms = (
+                _PUBLIC_NEWS_DEFAULT_POLL_AFTER_MS if items else _PUBLIC_NEWS_IDLE_POLL_AFTER_MS
+            )
+        else:
+            poll_after_ms = _PUBLIC_NEWS_DEFAULT_POLL_AFTER_MS
+        poll_after_ms = max(poll_after_ms, _PUBLIC_NEWS_MIN_POLL_AFTER_MS)
+        payload = PublicNewsFeedResponse(
+            items=items,
+            latestCursor=latest_cursor,
+            nextCursor=next_cursor,
+            pollAfterMs=poll_after_ms,
+            hasNewer=bool(since_cursor and items),
+            total=len(filtered),
+        )
+        etag = _public_news_etag(items, latest_cursor)
+        headers = {
+            "ETag": etag,
+            "Cache-Control": "private, max-age=0, must-revalidate",
+            "X-Poll-After-Ms": str(poll_after_ms),
+        }
+        if request.headers.get("if-none-match") == etag:
+            return Response(status_code=304, headers=headers)
+        response.headers.update(headers)
+        return payload
+
+    @app.get("/api/v1/public/news/{event_id}", response_model=PublicNewsItem)
+    async def get_public_news_item(
+        event_id: str,
+        target_id: str | None = Query(None, description="可选 target 提示"),
+    ) -> PublicNewsItem:
+        """公共新闻详情 presentation API，不暴露后台字段。"""
+        target_ids = _public_news_target_ids(_data_dir, target_id)
+        for tid in target_ids:
+            target_store = await _get_target_store(tid)
+            stores = [store for store in (target_store, _store) if store is not None]
+            for store in stores:
+                event = await _load_indexed_event_detail(_data_dir, tid, store, event_id)
+                if isinstance(event, InvisibleIndexedEvent):
+                    raise HTTPException(status_code=404, detail="Event not found")
+                if event is not None:
+                    return _public_news_item(tid, event)
+                if target_id and await _store_has_target_event_index(store, tid):
+                    raise HTTPException(status_code=404, detail="Event not found")
+
+            event = _load_single_event(_data_dir, tid, event_id)
+            if event is not None:
+                return _public_news_item(tid, event)
+        raise HTTPException(status_code=404, detail="Event not found")
 
     @app.get("/api/v1/stats", response_model=StatsResponse)
     async def get_stats(

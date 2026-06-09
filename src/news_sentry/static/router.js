@@ -107,6 +107,7 @@ export function parseRouteHash(hash) {
           tab: "analysis",
           param: targetId,
           targetId,
+          analysisSection: safeDecodeHashParam(parts[4] || ""),
           parts,
         };
       }
@@ -199,6 +200,44 @@ export function isLegacyProtectedRoute(route) {
 
 export function isPublicRoute(route) {
   return route?.scope === "public" || isAdminLoginRoute(route);
+}
+
+export function legacyPublicRouteToPublicAppHref(hashOrRoute = "") {
+  const route =
+    typeof hashOrRoute === "string" || !hashOrRoute
+      ? parseRouteHash(hashOrRoute || "#/news/feed")
+      : hashOrRoute;
+  const parts = route.parts || [];
+  const first = parts[0] || "news";
+  if (first !== "news") return null;
+
+  if (route.name === "publicTargetEventDetail" && route.eventId) {
+    const params = new URLSearchParams();
+    if (route.targetId) params.set("target_id", route.targetId);
+    const query = params.toString();
+    return `/public-app/#/events/${encodeHashPart(route.eventId)}${query ? `?${query}` : ""}`;
+  }
+
+  if (route.name === "publicLegacyEventDetail" && route.eventId) {
+    return `/public-app/#/events/${encodeHashPart(route.eventId)}`;
+  }
+
+  if (route.name === "publicTargetAnalysis" && route.targetId) {
+    const params = new URLSearchParams();
+    params.set("target_id", route.targetId);
+    if (route.analysisSection) params.set("section", route.analysisSection);
+    return `/public-app/#/analysis?${params.toString()}`;
+  }
+
+  if (route.name === "publicTargetFeed" && route.targetId) {
+    const params = new URLSearchParams();
+    params.set("channel", "targets");
+    params.set("target_id", route.targetId);
+    if (route.channelId && route.channelId !== "all") params.set("category", route.channelId);
+    return `/public-app/#/feed?${params.toString()}`;
+  }
+
+  return "/public-app/#/feed?channel=featured";
 }
 
 export function adminHashForLegacyRoute(route) {

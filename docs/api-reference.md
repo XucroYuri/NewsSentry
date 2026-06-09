@@ -33,6 +33,33 @@ NEWSSENTRY_API_KEY=your-key uvicorn news_sentry.core.api_server:create_app --fac
 {"status": "ok"}
 ```
 
+### GET /public-app/
+
+新公共门户 canonical 入口。该入口由 FastAPI 托管 Vite React 静态构建产物，是公共新闻阅读体验的主入口。
+
+Phase 86 起，旧 `/` 仍返回 legacy shell；浏览器端会把旧公开 hash 路由软跳转到 `/public-app/` 等价路由。后台 hash 路由不跳转。
+
+旧公开路由兼容映射：
+
+| 旧路由 | 新路由 |
+|------|------|
+| `/` 或 `/#/news/feed` | `/public-app/#/feed?channel=featured` |
+| `/#/news/target/:targetId` | `/public-app/#/feed?channel=targets&target_id=:targetId` |
+| `/#/news/target/:targetId/:channelId` | `/public-app/#/feed?channel=targets&target_id=:targetId&category=:channelId` |
+| `/#/news/target/:targetId/analysis` | `/public-app/#/analysis?target_id=:targetId` |
+| `/#/news/target/:targetId/analysis/entities` | `/public-app/#/analysis?target_id=:targetId&section=entities` |
+| `/#/news/target/:targetId/events/:eventId` | `/public-app/#/events/:eventId?target_id=:targetId` |
+| `/#/news/events/:eventId` | `/public-app/#/events/:eventId` |
+
+`/#/admin*`、配置、运行状态和认证后台路由继续由 legacy shell 承载。
+
+**缓存策略:**
+
+| 路径 | Cache-Control | 说明 |
+|------|---------------|------|
+| `/public-app/` | `no-cache` | SPA HTML 入口，允许浏览器复查新版本。 |
+| `/public-app/assets/*` | `public, max-age=31536000, immutable` | Vite 指纹资源，允许长期缓存。 |
+
 ### GET /api/v1/events
 
 查询事件列表。
@@ -81,6 +108,86 @@ NEWSSENTRY_API_KEY=your-key uvicorn news_sentry.core.api_server:create_app --fac
 | target_id | query | 是 | 目标标识 |
 
 **响应:** 事件详情 JSON 或 404。
+
+### GET /api/v1/public/news
+
+公共门户读者侧新闻流。匿名只读，返回 presentation shape，不暴露后台字段。
+
+**参数:**
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+|------|------|------|------|------|
+| featured | bool | 否 | false | 仅返回精选/关注新闻 |
+| target_id | string | 否 | — | 按 target 筛选 |
+| source_id | string | 否 | — | 按来源筛选 |
+| category | string | 否 | — | 按 `classification.l0` 筛选 |
+| date | string | 否 | — | 日期筛选，格式 `YYYY-MM-DD` |
+| q | string | 否 | — | 关键词搜索 |
+| before_cursor | string | 否 | — | 加载更早新闻 |
+| since_cursor | string | 否 | — | 检查比当前顶部更新的新闻 |
+| page_size | int | 否 | 30 | 每次返回条数，1-100 |
+
+**响应头:**
+
+| Header | 说明 |
+|--------|------|
+| ETag | 当前响应指纹。客户端可用 `If-None-Match` 复查。 |
+| X-Poll-After-Ms | 服务端建议的下一次低频检查间隔。 |
+| Cache-Control | `private, max-age=0, must-revalidate` |
+
+无变化且 `If-None-Match` 匹配时返回 `304 Not Modified`。
+
+**响应:**
+
+```json
+{
+  "items": [
+    {
+      "id": "ne-italy-ansa-20260609-abcd1234",
+      "targetId": "italy",
+      "targetLabel": "意大利新闻监控",
+      "source": {
+        "id": "ansa",
+        "name": "ANSA",
+        "type": "rss",
+        "credibilityLabel": "高"
+      },
+      "publishedAt": "2026-06-09T09:30:00+00:00",
+      "title": "意大利新闻标题",
+      "originalTitle": "Titolo originale",
+      "summary": "新闻摘要。",
+      "recommendationReason": "推荐理由。",
+      "originalUrl": "https://example.com/news",
+      "detailUrl": "/public-app/#/events/ne-italy-ansa-20260609-abcd1234?target_id=italy",
+      "tags": ["international-relations"],
+      "entities": [],
+      "relatedCount": 0,
+      "discussionCount": null,
+      "valueLabel": "精选",
+      "valueScore": 82,
+      "chinaRelevanceLabel": "高"
+    }
+  ],
+  "latestCursor": "...",
+  "nextCursor": "...",
+  "pollAfterMs": 60000,
+  "hasNewer": false,
+  "total": 1
+}
+```
+
+### GET /api/v1/public/news/{event_id}
+
+公共门户读者侧新闻详情。匿名只读。
+
+**参数:**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| event_id | path | 是 | 事件 ID |
+| target_id | query | 否 | 可选 target 提示；提供后查找更快 |
+
+**响应:** 单条 `PublicNewsItem` 或 404。
 
 ### POST /api/v1/webhook
 

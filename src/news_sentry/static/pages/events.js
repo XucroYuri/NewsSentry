@@ -6,7 +6,7 @@
 "use strict";
 
 import { state, api, apiPost, escapeHtml, showError, showSuccess, formatDate, scoreColor, scoreGradient, scoreBar, sentimentColor, sentimentPct, sentimentGradient, sentimentLabelColor, sentimentDotHtml, entityChipsHtml, copyToClipboard, logAction, emptyStateHtml, isAuthenticated } from "../api.js";
-import { adminEventHref, allowEventAdminControls, targetPortalHref } from "./public_portal.js";
+import { adminEventHref, allowEventAdminControls, renderPublicBottomNav, targetPortalHref } from "./public_portal.js";
 
 const LINK_TYPE_LABELS = { followup: "后续进展", related: "相关", same_event: "同一事件", correction: "纠正" };
 const LINK_TYPE_COLORS = { followup: "#3b82f6", related: "#6b7280", same_event: "#10b981", correction: "#ef4444" };
@@ -32,6 +32,145 @@ function entityChipHtml(entity, authenticated) {
     return `<span class="chip chip-entity"${title}>${name}${typeHtml}</span>`;
   }
   return `<span class="chip chip-entity"${title}>${name}${typeHtml}</span>`;
+}
+
+function eventDisplayTitle(ev) {
+  return ev?.display_title || ev?.title_translated || ev?.title_original || ev?.title || ev?.id || "无标题";
+}
+
+function eventOriginalTitle(ev) {
+  const original = ev?.original_title || ev?.title_original || "";
+  const display = ev?.display_title || ev?.title_translated || "";
+  return original && display && original !== display ? original : "";
+}
+
+function eventDeck(ev) {
+  return ev?.summary || ev?.description || ev?.ai_reason || "";
+}
+
+function targetDisplayName(targetId) {
+  const target = (state.targets || []).find((item) => item.target_id === targetId);
+  return target?.display_name || targetId || "公共新闻流";
+}
+
+function publicTagList(ev) {
+  const tags = [
+    ev?.classification?.l0,
+    ...(Array.isArray(ev?.topic_tags) ? ev.topic_tags : []),
+    ...(Array.isArray(ev?.flat_tags) ? ev.flat_tags : []),
+  ].filter(Boolean);
+  return [...new Set(tags.map(String))].slice(0, 8);
+}
+
+function renderPublicEventDetail(container, ev, {
+  detailBackHref,
+  eventId,
+  originalUrl,
+  targetId,
+} = {}) {
+  const title = eventDisplayTitle(ev);
+  const originalTitle = eventOriginalTitle(ev);
+  const deck = eventDeck(ev);
+  const tags = publicTagList(ev);
+  const published = formatDate(ev.published_at);
+  const source = ev.source_display_name || ev.source_name || ev.source_id || "公开来源";
+  const chinaRelevance = ev.china_relevance ?? ev.metadata?.china_relevance;
+  const sentimentValue = ev.sentiment_score != null ? Number(ev.sentiment_score).toFixed(2) : "—";
+  const targetName = targetDisplayName(targetId);
+
+  container.innerHTML = `
+    <section class="public-article">
+      <nav class="public-article-breadcrumb" aria-label="文章导航">
+        <a href="#/news/feed">新闻情报频道</a>
+        <span>/</span>
+        <a href="${detailBackHref}">${escapeHtml(targetName)}</a>
+        <span>/</span>
+        <strong>事件详情</strong>
+      </nav>
+      <a class="public-article-back" href="${detailBackHref}">← 返回新闻流</a>
+      <article class="public-article-card">
+        <header class="public-article-head">
+          <p class="public-kicker">${escapeHtml(source)} · ${escapeHtml(published || "发布时间未知")}</p>
+          <h1>${escapeHtml(title)}</h1>
+          ${deck ? `<p class="public-article-deck">${escapeHtml(deck)}</p>` : '<p class="public-article-deck muted">该事件暂未生成摘要，正在等待翻译与结构化增强。</p>'}
+          <div class="public-article-context">
+            <span>所属版面：${escapeHtml(targetName)}</span>
+            <span>来源：${escapeHtml(source)}</span>
+            <span>公开自动生成，供人工研判参考</span>
+          </div>
+          <div class="public-article-meta">
+            <span>${escapeHtml(ev.language || "mixed")}</span>
+            ${ev.classification?.l0 ? `<span>${escapeHtml(ev.classification.l0)}</span>` : ""}
+            ${ev.pipeline_stage ? `<span>${escapeHtml(ev.pipeline_stage)}</span>` : ""}
+          </div>
+        </header>
+
+        <div class="public-article-score-strip">
+          <div><span>新闻价值</span><strong>${ev.news_value_score ?? "—"}</strong></div>
+          <div><span>中国相关度</span><strong>${chinaRelevance ?? "—"}</strong></div>
+          <div><span>情感倾向</span><strong>${sentimentValue}</strong></div>
+        </div>
+
+        <div class="public-article-layout">
+          <div class="public-article-body">
+            ${originalTitle ? `
+              <section>
+                <h2>原文标题</h2>
+                <p>${escapeHtml(originalTitle)}</p>
+              </section>
+            ` : ""}
+            ${ev.ai_reason ? `
+              <section>
+                <h2>研判理由</h2>
+                <p>${escapeHtml(ev.ai_reason)}</p>
+              </section>
+            ` : ""}
+            ${tags.length ? `
+              <section>
+                <h2>主题标签</h2>
+                <div class="public-article-tags">
+                  ${tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}
+                </div>
+              </section>
+            ` : ""}
+            ${Array.isArray(ev.nlp_entities) && ev.nlp_entities.length ? `
+              <section>
+                <h2>涉及实体</h2>
+                <div class="public-article-tags entity-tags">
+                  ${ev.nlp_entities.slice(0, 10).map((entity) => entityChipHtml(entity, false)).join("")}
+                </div>
+              </section>
+            ` : ""}
+          </div>
+
+          <aside class="public-article-side">
+            <div>
+              <span>来源</span>
+              <strong>${escapeHtml(source)}</strong>
+            </div>
+            <div>
+              <span>事件编号</span>
+              <strong>${escapeHtml(eventId || ev.id || "—")}</strong>
+            </div>
+            <div>
+              <span>状态</span>
+              <strong>${escapeHtml(ev.pipeline_stage || "公开事件")}</strong>
+            </div>
+          </aside>
+        </div>
+
+        <div class="public-article-actions">
+          <button class="feed-btn" id="copySummaryBtn">复制摘要</button>
+          ${originalUrl ? `<a class="feed-btn feed-btn-link" href="${escapeHtml(originalUrl)}" target="_blank" rel="noopener noreferrer">查看原文</a>` : ""}
+        </div>
+      </article>
+      ${renderPublicBottomNav(targetId, "monitor")}
+    </section>`;
+
+  document.getElementById("copySummaryBtn")?.addEventListener("click", () => {
+    const summary = `${title}\n新闻价值: ${ev.news_value_score ?? "—"}\n来源: ${source}\nURL: ${originalUrl || ev.url || "—"}`;
+    copyToClipboard(summary);
+  });
 }
 
 // ── 日期范围工具 ────────────────────────────────────────
@@ -491,6 +630,16 @@ export async function renderEventDetail(container, eventId, options = {}) {
       })
       .join("");
     const originalUrl = safeHttpUrl(ev.url);
+
+    if (publicMode) {
+      renderPublicEventDetail(container, ev, {
+        detailBackHref,
+        eventId,
+        originalUrl,
+        targetId,
+      });
+      return;
+    }
 
     container.innerHTML = `
       <div class="detail-back" id="detailBack">

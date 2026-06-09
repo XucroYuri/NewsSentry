@@ -79,8 +79,11 @@ self.addEventListener("fetch", (event) => {
   const isAPI = url.pathname.startsWith("/api/");
   const isNavigation = event.request.mode === "navigate";
   const isLiveStaticControl = url.pathname === "/build_manifest.json" || url.pathname === "/sw.js";
+  const isPublicApp = url.pathname === "/public-app" || url.pathname.startsWith("/public-app/");
 
-  if (isLiveStaticControl) {
+  if (isPublicApp) {
+    event.respondWith(fetch(event.request));
+  } else if (isLiveStaticControl) {
     event.respondWith(fetch(event.request, { cache: "no-store" }));
   } else if (isAPI) {
     // API 请求：不缓存认证响应

@@ -8,6 +8,7 @@
     "/manifest.json",
     "/icons/icon-192.svg",
     "/icons/icon-512.svg",
+    "/legacy_public_redirect.js",
     "/app.js",
     "/api.js",
     "/style.css",

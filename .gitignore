@@ -102,6 +102,10 @@ prd.json
 progress.txt
 src/news_sentry/static/diagnose.html
 
+# Phase 83 public portal frontend
+frontend/public/node_modules/
+src/news_sentry/static/public_app/
+
 # Tauri
 clients/tauri/target/
 clients/tauri/gen/

@@ -17,6 +17,7 @@
 | 状态 | 含义 |
 |------|------|
 | `Accepted` | 已确认，当前有效 |
+| `Proposed` | 已提出，等待确认或实现前最后修订 |
 | `Deprecated` | 已被更新的 ADR 替代，不再有效 |
 | `Superseded by ADR-XXXX` | 注明替代 ADR 编号 |
 
@@ -49,6 +50,7 @@
 | [ADR-0024](./adr-0024.md) | Schema 版本治理策略 | Accepted | 2026-05-16 |
 | [ADR-0025](./adr-0025.md) | API Server 嵌入式 SPA 架构 | Accepted | 2026-05-18 |
 | [ADR-0026](./adr-0026.md) | 三阶段客户端架构演进路线 (pywebview → Tauri → 云端集群+分布式) | Accepted | 2026-05-21 |
+| [ADR-0027](./adr-0027.md) | 公共门户前端重平台化：独立 React + shadcn/ui 试点 | Accepted | 2026-06-09 |
 
 ## 引用方式
 

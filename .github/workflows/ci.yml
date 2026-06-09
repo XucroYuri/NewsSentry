@@ -21,10 +21,33 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/public/package-lock.json
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev,api,proxy]"
+
+      - name: Install public frontend dependencies
+        working-directory: frontend/public
+        run: npm ci
+
+      - name: Public frontend lint
+        working-directory: frontend/public
+        run: npm run lint
+
+      - name: Public frontend tests
+        working-directory: frontend/public
+        run: npm run test
+
+      - name: Public frontend build
+        working-directory: frontend/public
+        run: npm run build
 
       - name: Lint (ruff)
         run: python -m ruff check

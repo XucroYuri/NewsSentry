@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   adminHashForLegacyRoute,
+  legacyPublicRouteToPublicAppHref,
   isAdminLoginRoute,
   isLegacyProtectedRoute,
   isPublicRoute,
@@ -24,6 +25,12 @@ assert.equal(targetAnalysis.name, "publicTargetAnalysis");
 assert.equal(targetAnalysis.targetId, "italy");
 assert.equal(targetAnalysis.tab, "analysis");
 assert.equal(isPublicRoute(targetAnalysis), true);
+
+const targetAnalysisEntities = parseRouteHash("#/news/target/italy/analysis/entities");
+assert.equal(targetAnalysisEntities.name, "publicTargetAnalysis");
+assert.equal(targetAnalysisEntities.targetId, "italy");
+assert.equal(targetAnalysisEntities.analysisSection, "entities");
+assert.equal(isPublicRoute(targetAnalysisEntities), true);
 
 const targetPolicy = parseRouteHash("#/news/target/italy/policy");
 assert.equal(targetPolicy.name, "publicTargetFeed");
@@ -121,6 +128,44 @@ assert.equal(adminHashForLegacyRoute(legacyConfig), "#/admin/collection/targets"
 const protectedNewsList = parseRouteHash("#/news/events");
 assert.equal(isLegacyProtectedRoute(protectedNewsList), true);
 assert.equal(adminHashForLegacyRoute(protectedNewsList), "#/admin/review/queue");
+
+assert.equal(
+  legacyPublicRouteToPublicAppHref("#/news/feed"),
+  "/public-app/#/feed?channel=featured",
+);
+assert.equal(
+  legacyPublicRouteToPublicAppHref(""),
+  "/public-app/#/feed?channel=featured",
+);
+assert.equal(
+  legacyPublicRouteToPublicAppHref("#/news/target/italy"),
+  "/public-app/#/feed?channel=targets&target_id=italy",
+);
+assert.equal(
+  legacyPublicRouteToPublicAppHref("#/news/target/italy/policy"),
+  "/public-app/#/feed?channel=targets&target_id=italy&category=policy",
+);
+assert.equal(
+  legacyPublicRouteToPublicAppHref("#/news/target/italy/analysis"),
+  "/public-app/#/analysis?target_id=italy",
+);
+assert.equal(
+  legacyPublicRouteToPublicAppHref("#/news/target/italy/analysis/entities"),
+  "/public-app/#/analysis?target_id=italy&section=entities",
+);
+assert.equal(
+  legacyPublicRouteToPublicAppHref("#/news/target/italy/events/evt%2F001"),
+  "/public-app/#/events/evt%2F001?target_id=italy",
+);
+assert.equal(
+  legacyPublicRouteToPublicAppHref("#/news/events/evt%201"),
+  "/public-app/#/events/evt%201",
+);
+assert.equal(
+  legacyPublicRouteToPublicAppHref("#/news/unknown"),
+  "/public-app/#/feed?channel=featured",
+);
+assert.equal(legacyPublicRouteToPublicAppHref("#/admin/targets"), null);
 
 const oldFeedback = parseRouteHash("#/admin/feedback/records");
 assert.equal(isLegacyProtectedRoute(oldFeedback), true);
