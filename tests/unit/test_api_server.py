@@ -440,8 +440,9 @@ class TestAPIServer:
             encoding="utf-8",
         )
         (public_app_dir / "index.html").write_text(
-            '<html><body><div id="root"></div><script type="module" '
-            'src="/public-app/assets/index-abc123.js"></script></body></html>',
+            '<html><body><div id="root"></div><script>window.__vite=1</script>'
+            '<script type="module" src="/public-app/assets/index-abc123.js"></script>'
+            "</body></html>",
             encoding="utf-8",
         )
         monkeypatch.setattr(api_server_module, "_static_dir", lambda: static_dir)
@@ -454,6 +455,15 @@ class TestAPIServer:
         assert public_resp.status_code == 200
         assert '<div id="root"></div>' in public_resp.text
         assert public_resp.headers["cache-control"] == "no-cache"
+        csp = public_resp.headers["content-security-policy"]
+        assert "'nonce-" in csp
+        nonce = csp.split("'nonce-", maxsplit=1)[1].split("'", maxsplit=1)[0]
+        assert f'<script nonce="{nonce}">window.__vite=1</script>' in public_resp.text
+        expected_module_script = (
+            f'<script nonce="{nonce}" type="module" '
+            'src="/public-app/assets/index-abc123.js"></script>'
+        )
+        assert expected_module_script in public_resp.text
         assert old_resp.status_code == 200
         assert "legacy-shell" in old_resp.text
         assert '<div id="root"></div>' not in old_resp.text

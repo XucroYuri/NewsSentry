@@ -97,6 +97,13 @@ def _security_headers_with_script_nonce(nonce: str) -> dict[str, str]:
     )
     return headers
 
+
+_SCRIPT_TAG_WITHOUT_NONCE_RE = re.compile(r"<script(?![^>]*\bnonce=)", re.IGNORECASE)
+
+
+def _inject_script_nonce(html: str, nonce: str) -> str:
+    return _SCRIPT_TAG_WITHOUT_NONCE_RE.sub(f'<script nonce="{nonce}"', html)
+
 _ROBOTS_TXT = """User-agent: *
 Allow: /
 Disallow: /api/
@@ -4693,18 +4700,22 @@ def _public_app_dir(static_dir: Path | None = None) -> Path:
     return (static_dir or _static_dir()) / "public_app"
 
 
-def _public_app_index_response() -> FileResponse:
+def _public_app_index_response() -> HTMLResponse:
     index_path = _public_app_dir() / "index.html"
     if not index_path.is_file():
         raise HTTPException(status_code=404, detail="Public app not built")
-    return FileResponse(
-        index_path,
-        media_type="text/html",
-        headers={"Cache-Control": "no-cache"},
+    nonce = secrets.token_urlsafe(16)
+    html = _inject_script_nonce(index_path.read_text(encoding="utf-8"), nonce)
+    return HTMLResponse(
+        html,
+        headers={
+            **_security_headers_with_script_nonce(nonce),
+            "Cache-Control": "no-cache",
+        },
     )
 
 
-def _public_app_asset_response(asset_path: str) -> FileResponse:
+def _public_app_asset_response(asset_path: str) -> Response:
     public_root = _public_app_dir().resolve()
     clean_asset_path = asset_path.strip("/")
     if not clean_asset_path:
@@ -5132,11 +5143,11 @@ def create_app(
 
     @app.get("/public-app", include_in_schema=False)
     @app.get("/public-app/", include_in_schema=False)
-    async def public_app_index() -> FileResponse:
+    async def public_app_index() -> HTMLResponse:
         return _public_app_index_response()
 
     @app.get("/public-app/{asset_path:path}", include_in_schema=False)
-    async def public_app_asset(asset_path: str) -> FileResponse:
+    async def public_app_asset(asset_path: str) -> Response:
         return _public_app_asset_response(asset_path)
 
     @app.get("/api/v1/collector/status")
