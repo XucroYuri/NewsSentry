@@ -134,6 +134,62 @@ PYTHONPATH=src .venv/bin/python -m pytest tests/unit/test_ai_enrichment.py -q
 PYTHONPATH=src .venv/bin/python tools/scan_sensitive_data.py
 ```
 
+## 2026-06-09 Codex Phase 87 新公共门户生产灰度记录
+
+本次将 Phase 83-86 的新公共门户从本地完成态推进到生产灰度。灰度策略保持低风险软切换：`/public-app/` 作为新公共门户 canonical 入口，`/` 仍返回 legacy shell，旧公开 hash 路由由客户端跳转到新 app，后台 hash 路由继续由旧 shell 承载。
+
+### Release 与 Deploy
+
+- 发布分支：`codex/phase87-public-app-production-gray`
+- 公共门户 release commit：`bffa880819735491e19ebb6f8462e8b79361fb9c`（`feat: gray release public react portal`）
+- Deploy worktree 修复 commit：`6bfc1d621798d34a14006257f540139a1261d67c`
+- CSP nonce 修复 commit：`2bb5a37d295f92b0b558ca0b9d161a238ce9d575`
+- 公开新闻 feed 性能修复 commit：`7bf1417fe8194c4f581865698656901a8ec06122`
+- 当前生产 `.deploy-sha`：`7bf1417fe8194c4f581865698656901a8ec06122`
+- 当前生产 `.deploy-time`：`2026-06-09T17:23:06Z`
+
+GitHub Actions 验证：
+
+| 环境 | Commit | CI | Deploy | 结果 |
+|---|---|---:|---:|---|
+| preview | `6bfc1d6` | `27219945443` | `27219945385` | 通过 |
+| preview | `2bb5a37` | `27221624549` | `27221624458` | 通过 |
+| preview | `7bf1417` | `27222878246` | `27222878654` | 通过 |
+| production | `6bfc1d6` | `27220357424` | `27220357422` | 通过 |
+| production | `2bb5a37` | `27222008811` | `27222008249` | 通过 |
+| production | `7bf1417` | `27223260216` | `27223261569` | 通过 |
+
+首个 production deploy run `27219183097` 在 `bffa880` 上失败，根因为远端部署 checkout 目录存在未清理的本地改动，导致 `git checkout -B main origin/main` 被拒绝。已在 `6bfc1d6` 中修复为部署前备份 dirty worktree 并执行受控 `reset --hard` / `clean -fd`。
+
+### 生产 Smoke
+
+- `https://news-sentry.com/api/v1/health` 返回 `{"status":"ok"}`
+- `/public-app/` 返回 `Cache-Control: no-cache`
+- `/public-app/` CSP 使用 HTTP header nonce，未恢复 `script-src 'unsafe-inline'`
+- `/public-app/assets/*` 使用 Vite 指纹资源长期缓存
+- `/api/v1/public/news?page_size=1` 返回真实公开新闻，`total=340`，`pollAfterMs=60000`
+- VPS `systemctl is-active news-sentry cloudflared x-ui` 均为 `active`
+- `journalctl -u news-sentry --since "30 minutes ago" -p err` 与 `journalctl -u cloudflared --since "30 minutes ago" -p err` 均无错误条目
+
+浏览器矩阵验证：
+
+- 截图目录：`/tmp/news-sentry-public-qa-phase87-long-2026-06-09T17-33-58-706Z`
+- `https://news-sentry.com/public-app/` desktop `1440x900`：25.1 秒后渲染 20 条真实新闻，无 console/page error，无横向溢出
+- `https://news-sentry.com/public-app/` mobile `390x844`：45.5 秒后渲染 20 条真实新闻，无 console/page error，无横向溢出；移动底部导航 DOM 复核为 `position: fixed`
+- `https://news-sentry.com/#/news/target/italy/analysis/entities`：跳转到 `/public-app/#/analysis?target_id=italy&section=entities`
+- `https://news-sentry.com/#/admin/targets`：不跳转到 `/public-app/`，未登录状态进入 legacy `/admin/login`
+
+### 上线观察与后续建议
+
+Phase 87 已达到“生产灰度可用”的低风险切换目标，但仍不建议立刻把 `/` 服务端入口替换为新 app。当前主要遗留风险是公开新闻首屏尾部延迟：VPS 本机查询已从约 30 秒降至约 6 秒，但生产浏览器经 Cloudflare/Tunnel 路径仍可能需要 25-45 秒才出现首批新闻。
+
+建议下一阶段优先处理：
+
+1. 为 `/api/v1/public/news` 增加面向公开首页的轻量 projection/cache，避免每次首屏都扫描较大事件集合。
+2. 将浏览器 QA 的“15 秒内首批新闻可见”作为下一阶段硬验收；若后端暂无新闻，则必须快速返回可解释空状态。
+3. 24-72 小时继续观察 health、Cloudflare Tunnel、公开新闻 API、旧公开路由跳转和后台登录入口。
+4. 稳定后再评估服务端默认首页替换和旧 public Vanilla JS 清理窗口。
+
 ## 未完成事项与建议解决方向
 
 已完成一轮已部署站点全栈审计，独立报告见 [site-audit-20260607.md](site-audit-20260607.md)。2026-06-08 已启动并落地一轮全量硬化冲刺，脱敏整改记录见 [hardening-sprint-20260608.md](hardening-sprint-20260608.md)；后续安全、产品体验、CI/CD 和运维整改 backlog 以这两份报告中的 `NS-AUDIT-*` / security scan 编号为准。

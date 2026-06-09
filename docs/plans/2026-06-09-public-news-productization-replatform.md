@@ -1,7 +1,7 @@
 # 公共新闻产品化与前端重平台化实施计划
 
 > 日期：2026-06-09  
-> 状态：下一阶段执行计划  
+> 状态：Phase 86 生产灰度已完成
 > 关联：ADR-0027、`docs/specs/2026-06-09-public-news-product-experience-design.md`
 
 ## Summary
@@ -91,7 +91,7 @@
 - [x] 保留后台 Vanilla JS 路由与认证逻辑。
 - [x] 旧 public CSS/JS 保留一轮兼容期，但不再作为公开入口继续扩展。
 - [x] 更新 API/路线图文档、测试脚本和浏览器 QA 覆盖。
-- [ ] 生产灰度：先新路径验证，再切默认首页。
+- [x] 生产灰度：先新路径验证，再切默认首页。
 
 验收：
 
@@ -99,12 +99,15 @@
 - 旧后台管理页面无回归。
 - 线上 health、CSP、静态缓存和浏览器 QA 全部通过。
 
-Phase 86 本轮边界：
+Phase 86 生产灰度记录：
 
 - `/public-app/` 是新公共门户 canonical 入口。
 - `/` 仍返回 legacy shell；浏览器端根据 hash 将旧公开路由跳转到 `/public-app/`。
 - `/#/admin*` 等后台 hash 路由不跳转。
-- 本轮不执行生产部署，不删除后台 Vanilla JS。
+- 生产代码 release SHA：`7bf1417fe8194c4f581865698656901a8ec06122`。
+- 生产部署验证：health 正常，`news-sentry` / `cloudflared` / `x-ui` active，旧公开 hash 路由已跳转到新 app，后台 hash 路由仍进入 legacy 登录。
+- 本轮不删除后台 Vanilla JS，不服务端替换 `/`。
+- 已确认残留风险：生产浏览器经 Cloudflare 路径加载公开新闻仍存在 25-45 秒尾部延迟；下一阶段应优先做公开新闻 projection/cache 或轻量首屏 API 加速。
 
 ## 测试计划
 
