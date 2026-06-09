@@ -1774,6 +1774,23 @@ _PUBLIC_NEWS_FEATURED_SCORE = 60
 _PUBLIC_NEWS_FEED_CACHE_TTL_SECONDS = 15.0
 _PUBLIC_NEWS_FEED_UPDATE_CACHE_TTL_SECONDS = 30.0
 _PUBLIC_NEWS_FEED_SEARCH_CACHE_TTL_SECONDS = 5.0
+_PUBLIC_NEWS_INTERNAL_DATA_DIRS = {
+    "backup",
+    "cache",
+    "eval",
+    "locks",
+    "logs",
+    "memory",
+    "tmp",
+}
+_PUBLIC_NEWS_EVENT_DIRS = {
+    "archive",
+    "drafts",
+    "evaluated",
+    "published",
+    "raw",
+    "reviewed",
+}
 _public_news_feed_cache: dict[str, dict[str, Any]] = {}
 
 
@@ -1874,17 +1891,35 @@ def _public_news_store_cursor_key(key: tuple[datetime, str] | None) -> tuple[str
     return published_at.astimezone(UTC).isoformat(), event_id
 
 
+def _is_public_target_id(value: str) -> bool:
+    target_id = value.strip()
+    if not target_id or target_id.startswith((".", "_")):
+        return False
+    normalized = target_id.lower()
+    if normalized in _PUBLIC_NEWS_INTERNAL_DATA_DIRS:
+        return False
+    return not (normalized == "example-target" or normalized.startswith("example-"))
+
+
+def _looks_like_public_target_data_dir(path: Path) -> bool:
+    if not path.is_dir() or not _is_public_target_id(path.name):
+        return False
+    if (path / "state.db").is_file():
+        return True
+    return any((path / name).is_dir() for name in _PUBLIC_NEWS_EVENT_DIRS)
+
+
 def _public_news_target_ids(data_dir: Path, target_id: str | None) -> list[str]:
     if target_id:
         return [target_id]
     ids: set[str] = set()
     for config in _load_target_configs():
         value = config.get("target_id")
-        if isinstance(value, str) and value.strip():
+        if isinstance(value, str) and _is_public_target_id(value):
             ids.add(value.strip())
     if data_dir.is_dir():
         for child in data_dir.iterdir():
-            if child.is_dir() and not child.name.startswith("."):
+            if _looks_like_public_target_data_dir(child):
                 ids.add(child.name)
     return sorted(ids)
 

@@ -967,6 +967,31 @@ class TestAPIServer:
         assert data["total"] == 1
         assert data["groups"][0]["events"][0]["display_title"] == "Public feed story"
 
+    def test_public_news_target_ids_skip_templates_and_runtime_dirs(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """默认公开 feed 不能把模板、locks、logs 等运行目录当成新闻目标扫描。"""
+        monkeypatch.setattr(
+            api_server_module,
+            "_load_target_configs",
+            lambda: [
+                {"target_id": "example-target"},
+                {"target_id": "italy"},
+            ],
+        )
+        (tmp_path / "locks").mkdir()
+        (tmp_path / "logs").mkdir()
+        (tmp_path / "eval").mkdir()
+        (tmp_path / "japan").mkdir()
+        (tmp_path / "japan" / "state.db").write_text("", encoding="utf-8")
+        (tmp_path / "germany" / "drafts").mkdir(parents=True)
+
+        target_ids = api_server_module._public_news_target_ids(tmp_path, None)  # noqa: SLF001
+
+        assert target_ids == ["germany", "italy", "japan"]
+
     def test_public_news_api_returns_reader_shape_without_auth(self, tmp_path: Path) -> None:
         """公共新闻 API 返回读者侧字段，不暴露 pipeline 参数作为主响应。"""
         _write_draft(
