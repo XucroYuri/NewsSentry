@@ -176,15 +176,23 @@ function NewsCard({ item }: { item: PublicNewsItem }) {
 
 function LoadingFeed() {
   return (
-    <div className="divide-y">
-      {Array.from({ length: 4 }, (_, index) => (
-        <div key={index} className="grid gap-3 px-4 py-5 sm:px-5">
-          <Skeleton className="h-4 w-40" />
-          <Skeleton className="h-6 w-5/6" />
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-2/3" />
-        </div>
-      ))}
+    <div>
+      <div className="border-b px-4 py-4 sm:px-5">
+        <Badge variant="outline" className="w-fit">
+          正在整理最新新闻
+        </Badge>
+        <p className="mt-2 text-sm text-muted-foreground">新闻流会在最新信号整理好后自动出现。</p>
+      </div>
+      <div className="divide-y">
+        {Array.from({ length: 4 }, (_, index) => (
+          <div key={index} className="grid gap-3 px-4 py-5 sm:px-5">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-6 w-5/6" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-2/3" />
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

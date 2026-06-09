@@ -1771,6 +1771,68 @@ _PUBLIC_NEWS_MIN_POLL_AFTER_MS = 30_000
 _PUBLIC_NEWS_DEFAULT_POLL_AFTER_MS = 60_000
 _PUBLIC_NEWS_IDLE_POLL_AFTER_MS = 180_000
 _PUBLIC_NEWS_FEATURED_SCORE = 60
+_PUBLIC_NEWS_FEED_CACHE_TTL_SECONDS = 15.0
+_PUBLIC_NEWS_FEED_UPDATE_CACHE_TTL_SECONDS = 30.0
+_PUBLIC_NEWS_FEED_SEARCH_CACHE_TTL_SECONDS = 5.0
+_public_news_feed_cache: dict[str, dict[str, Any]] = {}
+
+
+def _public_news_feed_cache_ttl(*, q: str | None, since_cursor: str | None) -> float:
+    if q:
+        return _PUBLIC_NEWS_FEED_SEARCH_CACHE_TTL_SECONDS
+    if since_cursor:
+        return _PUBLIC_NEWS_FEED_UPDATE_CACHE_TTL_SECONDS
+    return _PUBLIC_NEWS_FEED_CACHE_TTL_SECONDS
+
+
+def _public_news_feed_cache_key(
+    *,
+    featured: bool,
+    target_id: str | None,
+    source_id: str | None,
+    category: str | None,
+    date: str | None,
+    q: str | None,
+    before_cursor: str | None,
+    since_cursor: str | None,
+    page_size: int,
+) -> str:
+    material = {
+        "before_cursor": before_cursor or "",
+        "category": category or "",
+        "date": date or "",
+        "featured": bool(featured),
+        "page_size": int(page_size),
+        "q": q or "",
+        "since_cursor": since_cursor or "",
+        "source_id": source_id or "",
+        "target_id": target_id or "",
+    }
+    return json.dumps(material, ensure_ascii=False, sort_keys=True)
+
+
+def _public_news_cache_entry_valid(entry: dict[str, Any] | None, now: float) -> bool:
+    return bool(
+        entry
+        and isinstance(entry.get("expires_at"), (int, float))
+        and entry["expires_at"] > now
+    )
+
+
+def _public_news_cache_headers(
+    *,
+    cache_status: Literal["hit", "miss", "bypass"],
+    etag: str,
+    poll_after_ms: int,
+    elapsed_ms: int,
+) -> dict[str, str]:
+    return {
+        "ETag": etag,
+        "Cache-Control": "private, max-age=0, must-revalidate",
+        "X-Poll-After-Ms": str(poll_after_ms),
+        "X-News-Sentry-Feed-Cache": cache_status,
+        "X-News-Sentry-Feed-Elapsed-Ms": str(max(0, int(elapsed_ms))),
+    }
 
 
 def _public_news_event_datetime(ev: dict[str, Any]) -> datetime:
@@ -1803,6 +1865,13 @@ def _public_news_decode_cursor(cursor: str | None) -> tuple[datetime, str] | Non
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC), event_id
+
+
+def _public_news_store_cursor_key(key: tuple[datetime, str] | None) -> tuple[str, str] | None:
+    if key is None:
+        return None
+    published_at, event_id = key
+    return published_at.astimezone(UTC).isoformat(), event_id
 
 
 def _public_news_target_ids(data_dir: Path, target_id: str | None) -> list[str]:
@@ -1980,19 +2049,48 @@ async def _public_news_events_for_target(
     target_id: str,
     store: AsyncStore | None,
     *,
-    scan_size: int,
+    limit: int,
     min_score: int | None = None,
     source_id: str | None = None,
     classification_l0: str | None = None,
-) -> list[dict[str, Any]]:
+    date: str | None = None,
+    q: str | None = None,
+    before_key: tuple[datetime, str] | None = None,
+    since_key: tuple[datetime, str] | None = None,
+) -> tuple[list[dict[str, Any]], int]:
     if store is not None and await _store_has_target_event_index(store, target_id):
+        query_public_rows = getattr(store, "query_public_news_rows", None)
+        if query_public_rows is not None:
+            result = await query_public_rows(
+                target_id=target_id,
+                stage=_PUBLIC_NEWS_STAGE,
+                limit=limit,
+                source_id=source_id,
+                classification_l0=classification_l0,
+                min_score=min_score,
+                date=date,
+                search=q,
+                before_key=_public_news_store_cursor_key(before_key),
+                since_key=_public_news_store_cursor_key(since_key),
+            )
+            rows = result.get("rows", [])
+            if isinstance(rows, list):
+                events = [
+                    _merge_index_metadata(_event_from_index_row(row), row)
+                    for row in cast(list[dict[str, Any]], rows)
+                ]
+                return events, int(result.get("total") or len(events))
+            return [], 0
+
         result = await _visible_index_events_page(
             store,
             data_dir,
             target_id,
             stage=_PUBLIC_NEWS_STAGE,
             page=1,
-            page_size=scan_size,
+            page_size=limit,
+            date=date,
+            search=q,
             source_id=source_id,
             classification_l0=classification_l0,
             min_score=min_score,
@@ -2000,38 +2098,50 @@ async def _public_news_events_for_target(
         )
         events = result.get("events", [])
         if isinstance(events, list):
-            return cast(list[dict[str, Any]], events)
-        return []
-    return _load_all_events(data_dir, target_id)
+            return events, int(result.get("total") or len(events))
+        return [], 0
+    events = _load_all_events(data_dir, target_id)
+    return events, len(events)
 
 
 async def _public_news_candidate_events(
     data_dir: Path,
     target_ids: list[str],
     *,
-    scan_size: int,
+    limit: int,
     featured: bool,
     source_id: str | None = None,
     category: str | None = None,
-) -> list[tuple[str, dict[str, Any]]]:
+    date: str | None = None,
+    q: str | None = None,
+    before_key: tuple[datetime, str] | None = None,
+    since_key: tuple[datetime, str] | None = None,
+) -> tuple[list[tuple[str, dict[str, Any]]], int]:
     candidates: list[tuple[str, dict[str, Any]]] = []
+    total = 0
     min_score = _PUBLIC_NEWS_FEATURED_SCORE if featured else None
     classification_l0 = category if category else None
     for target_id in target_ids:
         target_store = await _get_target_store(target_id)
         store_to_query = target_store if target_store is not None else _store
-        for event in await _public_news_events_for_target(
+        events, target_total = await _public_news_events_for_target(
             data_dir,
             target_id,
             store_to_query,
-            scan_size=scan_size,
+            limit=limit,
             min_score=min_score,
             source_id=source_id,
             classification_l0=classification_l0,
-        ):
+            date=date,
+            q=q,
+            before_key=before_key,
+            since_key=since_key,
+        )
+        total += target_total
+        for event in events:
             candidates.append((target_id, event))
     candidates.sort(key=lambda item: _public_news_sort_key(item[1]), reverse=True)
-    return candidates
+    return candidates, total
 
 
 def _public_news_etag(items: list[PublicNewsItem], latest_cursor: str | None) -> str:
@@ -5066,6 +5176,7 @@ def create_app(
         except RuntimeError:
             asyncio.run(_close_target_stores())
     _data_dir = Path(data_dir or os.environ.get("NEWSSENTRY_DATA_DIR", "./data"))
+    _public_news_feed_cache.clear()
     _detect_deployment_env()
     if store is not None:
         _store = store
@@ -6354,19 +6465,50 @@ def create_app(
             )
         before_key = _public_news_decode_cursor(before_cursor)
         since_key = _public_news_decode_cursor(since_cursor)
-        target_ids = _public_news_target_ids(_data_dir, target_id)
-        scan_size = (
-            _PUBLIC_NEWS_MAX_SCAN
-            if before_cursor or since_cursor or q or date
-            else min(_PUBLIC_NEWS_MAX_SCAN, max(page_size * 4, _PUBLIC_NEWS_MIN_SCAN))
+        started = time.perf_counter()
+        cache_key = _public_news_feed_cache_key(
+            featured=featured,
+            target_id=target_id,
+            source_id=source_id,
+            category=category,
+            date=date,
+            q=q,
+            before_cursor=before_cursor,
+            since_cursor=since_cursor,
+            page_size=page_size,
         )
-        candidates = await _public_news_candidate_events(
+        now = time.monotonic()
+        cache_entry = _public_news_feed_cache.get(cache_key)
+        if _public_news_cache_entry_valid(cache_entry, now):
+            assert cache_entry is not None
+            cached_payload = cast(PublicNewsFeedResponse, cache_entry["payload"])
+            cached_etag = str(cache_entry["etag"])
+            cached_poll_after_ms = int(cache_entry["poll_after_ms"])
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            headers = _public_news_cache_headers(
+                cache_status="hit",
+                etag=cached_etag,
+                poll_after_ms=cached_poll_after_ms,
+                elapsed_ms=elapsed_ms,
+            )
+            if request.headers.get("if-none-match") == cached_etag:
+                return Response(status_code=304, headers=headers)
+            response.headers.update(headers)
+            return cached_payload
+
+        target_ids = _public_news_target_ids(_data_dir, target_id)
+        query_limit = min(_PUBLIC_NEWS_MAX_SCAN, page_size + 1)
+        candidates, candidate_total = await _public_news_candidate_events(
             _data_dir,
             target_ids,
-            scan_size=scan_size,
+            limit=query_limit,
             featured=featured,
             source_id=source_id,
             category=category,
+            date=date,
+            q=q,
+            before_key=before_key,
+            since_key=since_key,
         )
 
         filtered: list[tuple[str, dict[str, Any]]] = []
@@ -6406,14 +6548,24 @@ def create_app(
             nextCursor=next_cursor,
             pollAfterMs=poll_after_ms,
             hasNewer=bool(since_cursor and items),
-            total=len(filtered),
+            total=max(candidate_total, len(filtered)),
         )
         etag = _public_news_etag(items, latest_cursor)
-        headers = {
-            "ETag": etag,
-            "Cache-Control": "private, max-age=0, must-revalidate",
-            "X-Poll-After-Ms": str(poll_after_ms),
-        }
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        headers = _public_news_cache_headers(
+            cache_status="miss",
+            etag=etag,
+            poll_after_ms=poll_after_ms,
+            elapsed_ms=elapsed_ms,
+        )
+        if not (since_cursor and not items):
+            _public_news_feed_cache[cache_key] = {
+                "etag": etag,
+                "expires_at": time.monotonic()
+                + _public_news_feed_cache_ttl(q=q, since_cursor=since_cursor),
+                "payload": payload,
+                "poll_after_ms": poll_after_ms,
+            }
         if request.headers.get("if-none-match") == etag:
             return Response(status_code=304, headers=headers)
         response.headers.update(headers)

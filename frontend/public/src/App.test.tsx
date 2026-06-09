@@ -178,6 +178,16 @@ describe("Phase 84 public portal app", () => {
     expect(screen.queryByText("公共新闻 API smoke")).not.toBeInTheDocument()
   })
 
+  it("shows reader-friendly copy while the first news request is slow", () => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)))
+
+    render(<App />)
+
+    expect(screen.getByText("正在整理最新新闻")).toBeInTheDocument()
+    expect(screen.getByText("新闻流会在最新信号整理好后自动出现。")).toBeInTheDocument()
+    expect(screen.queryByText(/API|stage|target_id|page_size/)).not.toBeInTheDocument()
+  })
+
   it("shows new items as a non-interrupting banner before inserting them", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     installFetchMock()

@@ -127,6 +127,7 @@ async def _insert_index_event(
     classification_l0: str | None = "politics",
     title_original: str = "Store event",
     published_at: str | None = None,
+    file_path: str | None = None,
     sentiment: str | None = None,
     entity_names: str | None = None,
     topic_tags: str | None = None,
@@ -150,7 +151,7 @@ async def _insert_index_event(
             classification_l0,
             title_original,
             published_at or now,
-            None,
+            file_path,
             now,
             sentiment,
             entity_names,
@@ -1104,6 +1105,196 @@ class TestAPIServer:
         assert second.text == ""
         assert second.headers["etag"] == first.headers["etag"]
         assert int(second.headers["x-poll-after-ms"]) >= 30_000
+
+    def test_public_news_api_uses_index_only_rows_without_frontmatter_scan(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """公开列表页应从 SQLite index 构造条目，不为首屏读取 Markdown frontmatter。"""
+        store = AsyncStore(tmp_path / "state.db")
+        asyncio.run(store.initialize())
+        asyncio.run(
+            _insert_index_event(
+                store,
+                event_id="ne-italy-index-only-001",
+                title_original="Index only public story",
+                published_at="2026-06-09T10:00:00+00:00",
+                file_path=str(tmp_path / "italy" / "drafts" / "index-only.md"),
+            )
+        )
+
+        def fail_frontmatter_read(*args: Any, **kwargs: Any) -> None:
+            raise AssertionError("public list must not read frontmatter")
+
+        monkeypatch.setattr(
+            api_server_module,
+            "_load_indexed_event_frontmatter",
+            fail_frontmatter_read,
+        )
+        app = create_app(data_dir=tmp_path, store=store)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/public/news", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        item = resp.json()["items"][0]
+        assert item["id"] == "ne-italy-index-only-001"
+        assert item["title"] == "Index only public story"
+
+    def test_public_news_api_page_size_one_does_not_scan_default_batch(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """page_size=1 不应再触发每 target 固定 80 条候选扫描。"""
+
+        class CountingStore:
+            def __init__(self) -> None:
+                self.limits: list[int] = []
+
+            async def get_target_event_count(self, target_id: str) -> int:
+                return 1
+
+            async def query_events_paginated(self, **kwargs: Any) -> dict[str, Any]:
+                self.limits.append(int(kwargs["limit"]))
+                return {
+                    "total": 1,
+                    "rows": [
+                        {
+                            "event_id": "ne-italy-small-page-001",
+                            "source_id": "ansa",
+                            "news_value_score": 75,
+                            "china_relevance": 50,
+                            "classification_l0": "politics",
+                            "published_at": "2026-06-09T10:00:00+00:00",
+                            "file_path": None,
+                            "title_original": "Small page story",
+                            "metadata": {},
+                        }
+                    ],
+                }
+
+        store = CountingStore()
+        app = create_app(data_dir=tmp_path, store=store)  # type: ignore[arg-type]
+        client = TestClient(app)
+
+        resp = client.get(
+            "/api/v1/public/news",
+            params={"target_id": "italy", "page_size": 1},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["items"][0]["title"] == "Small page story"
+        assert store.limits
+        assert max(store.limits) <= 2
+
+    def test_public_news_api_uses_short_ttl_projection_cache(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """相同公开 feed 查询短时间内应命中进程内 projection cache。"""
+
+        class CountingStore:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            async def get_target_event_count(self, target_id: str) -> int:
+                return 1
+
+            async def query_events_paginated(self, **kwargs: Any) -> dict[str, Any]:
+                self.calls += 1
+                return {
+                    "total": 1,
+                    "rows": [
+                        {
+                            "event_id": "ne-italy-cache-001",
+                            "source_id": "ansa",
+                            "news_value_score": 82,
+                            "china_relevance": 75,
+                            "classification_l0": "international-relations",
+                            "published_at": "2026-06-09T10:00:00+00:00",
+                            "file_path": None,
+                            "title_original": "Cached public story",
+                            "metadata": {},
+                        }
+                    ],
+                }
+
+        store = CountingStore()
+        app = create_app(data_dir=tmp_path, store=store)  # type: ignore[arg-type]
+        client = TestClient(app)
+
+        first = client.get("/api/v1/public/news", params={"target_id": "italy"})
+        second = client.get("/api/v1/public/news", params={"target_id": "italy"})
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert first.headers["x-news-sentry-feed-cache"] == "miss"
+        assert second.headers["x-news-sentry-feed-cache"] == "hit"
+        assert first.headers["etag"] == second.headers["etag"]
+        assert second.json() == first.json()
+        assert store.calls == 1
+        elapsed = second.headers["x-news-sentry-feed-elapsed-ms"]
+        assert elapsed.isdigit()
+        sensitive_header_material = " ".join(
+            [
+                second.headers["x-news-sentry-feed-cache"],
+                second.headers["x-news-sentry-feed-elapsed-ms"],
+            ]
+        ).lower()
+        assert "data_dir" not in sensitive_header_material
+        assert "token" not in sensitive_header_material
+        assert "secret" not in sensitive_header_material
+
+    def test_public_news_api_returns_304_from_projection_cache(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """缓存命中且 ETag 匹配时仍返回轻量 304。"""
+
+        class CountingStore:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            async def get_target_event_count(self, target_id: str) -> int:
+                return 1
+
+            async def query_events_paginated(self, **kwargs: Any) -> dict[str, Any]:
+                self.calls += 1
+                return {
+                    "total": 1,
+                    "rows": [
+                        {
+                            "event_id": "ne-italy-cache-304",
+                            "source_id": "ansa",
+                            "news_value_score": 70,
+                            "china_relevance": 40,
+                            "classification_l0": "politics",
+                            "published_at": "2026-06-09T10:00:00+00:00",
+                            "file_path": None,
+                            "title_original": "Cached ETag story",
+                            "metadata": {},
+                        }
+                    ],
+                }
+
+        store = CountingStore()
+        app = create_app(data_dir=tmp_path, store=store)  # type: ignore[arg-type]
+        client = TestClient(app)
+
+        first = client.get("/api/v1/public/news", params={"target_id": "italy"})
+        second = client.get(
+            "/api/v1/public/news",
+            params={"target_id": "italy"},
+            headers={"If-None-Match": first.headers["etag"]},
+        )
+
+        assert first.status_code == 200
+        assert second.status_code == 304
+        assert second.text == ""
+        assert second.headers["x-news-sentry-feed-cache"] == "hit"
+        assert second.headers["etag"] == first.headers["etag"]
+        assert store.calls == 1
 
     def test_public_news_detail_returns_reader_shape_without_auth(self, tmp_path: Path) -> None:
         """公共新闻详情 API 使用读者字段，不需要后台认证。"""
