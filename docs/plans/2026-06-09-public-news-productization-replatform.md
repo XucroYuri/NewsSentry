@@ -109,6 +109,17 @@ Phase 86 生产灰度记录：
 - 本轮不删除后台 Vanilla JS，不服务端替换 `/`。
 - 已确认残留风险：生产浏览器经 Cloudflare 路径加载公开新闻仍存在 25-45 秒尾部延迟；下一阶段应优先做公开新闻 projection/cache 或轻量首屏 API 加速。
 
+Phase 88 首屏性能收口记录：
+
+- 状态：Done。
+- 生产 release SHA：`a879c72d3d93e8f330aa191842db2d7beb0438ea`。
+- 已将 `/api/v1/public/news` 列表页改为 SQLite index 优先构造读者字段，详情页继续按需读取完整 frontmatter。
+- 已增加进程内短 TTL projection cache 和公开列表 source 配置缓存，避免首屏重复扫描候选、重复读取 Markdown 和按新闻条目重复扫描 source YAML。
+- 新增响应头：`X-News-Sentry-Feed-Cache`、`X-News-Sentry-Feed-Elapsed-Ms`。
+- 生产 VPS 本机 `featured=true&page_size=20`：cold miss `2.09s`，warm hit `0.01s`，TTL 后 miss `0.99s`。
+- 生产浏览器 QA：desktop `1440x900` 在 `4.12s` 看到首条新闻，mobile `390x844` 在 `1.94s` 看到首条新闻；旧公开路由跳转正常，后台 hash 路由不跳转。
+- Phase 87 的公开新闻首屏尾部延迟风险已关闭；搜索 `q` 仍是有界查询，后续如需要高频搜索再升级为 FTS。
+
 ## 测试计划
 
 ### API
