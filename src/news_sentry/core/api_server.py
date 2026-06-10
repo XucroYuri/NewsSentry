@@ -1158,6 +1158,8 @@ _skip_lifespan: bool = False  # 测试时跳过 lifespan 异步操作（避免 a
 _data_dir: Path = Path(os.environ.get("NEWSSENTRY_DATA_DIR", "./data"))
 _OVERVIEW_CACHE_TTL_SECONDS = 15.0
 _source_inventory_cache: dict[tuple[str, str, str], dict[str, Any]] = {}
+_PUBLIC_SOURCE_CONFIG_CACHE_TTL_SECONDS = 60.0
+_public_source_configs_cache: dict[tuple[str, str], dict[str, Any]] = {}
 _target_validation_cache: dict[tuple[str, str, str], dict[str, Any]] = {}
 _collector_diagnostics_cache: dict[str, Any] = {}
 
@@ -1949,7 +1951,7 @@ def _credibility_label(value: Any) -> str | None:
 
 
 def _public_source_info(target_id: str, source_id: str, ev: dict[str, Any]) -> PublicNewsSource:
-    for source in _load_source_configs(target_id):
+    for source in _cached_public_source_configs(target_id):
         candidates = {
             str(source.get(key) or "")
             for key in ("source_id", "id", "_source_id", "_source_ref", "source_ref")
@@ -2686,6 +2688,27 @@ def _load_source_configs(target_id: str) -> list[dict[str, Any]]:
             data["_source_id"] = str(rel)
             data["_file_path"] = str(yaml_file)
             sources.append(data)
+    return sources
+
+
+def _cached_public_source_configs(target_id: str) -> list[dict[str, Any]]:
+    """Cache source YAML reads used by public feed item projection."""
+    key = (str(Path.cwd()), target_id)
+    now = time.monotonic()
+    cached = _public_source_configs_cache.get(key)
+    if (
+        cached
+        and now - float(cached.get("created_at", 0)) <= _PUBLIC_SOURCE_CONFIG_CACHE_TTL_SECONDS
+    ):
+        sources = cached.get("sources")
+        if isinstance(sources, list):
+            return cast(list[dict[str, Any]], sources)
+
+    sources = _load_source_configs(target_id)
+    _public_source_configs_cache[key] = {
+        "created_at": now,
+        "sources": sources,
+    }
     return sources
 
 
@@ -5212,6 +5235,7 @@ def create_app(
             asyncio.run(_close_target_stores())
     _data_dir = Path(data_dir or os.environ.get("NEWSSENTRY_DATA_DIR", "./data"))
     _public_news_feed_cache.clear()
+    _public_source_configs_cache.clear()
     _detect_deployment_env()
     if store is not None:
         _store = store

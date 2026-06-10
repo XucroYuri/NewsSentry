@@ -1213,6 +1213,65 @@ class TestAPIServer:
         assert store.limits
         assert max(store.limits) <= 2
 
+    def test_public_news_api_caches_source_configs_during_projection(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """首屏 item projection 不能为每条新闻重复读取 source YAML。"""
+
+        class CountingStore:
+            async def get_target_event_count(self, target_id: str) -> int:
+                return 20
+
+            async def query_public_news_rows(self, **kwargs: Any) -> dict[str, Any]:
+                return {
+                    "total": 20,
+                    "rows": [
+                        {
+                            "event_id": f"ne-italy-source-cache-{idx:03d}",
+                            "source_id": "ansa",
+                            "news_value_score": 82,
+                            "china_relevance": 70,
+                            "classification_l0": "politics",
+                            "published_at": f"2026-06-09T10:{idx:02d}:00+00:00",
+                            "file_path": None,
+                            "title_original": f"Source cached story {idx}",
+                            "metadata": {},
+                        }
+                        for idx in range(20)
+                    ],
+                }
+
+        calls = 0
+
+        def fake_load_source_configs(target_id: str) -> list[dict[str, Any]]:
+            nonlocal calls
+            calls += 1
+            return [
+                {
+                    "source_id": "ansa",
+                    "display_name": "ANSA.it",
+                    "type": "rss",
+                    "credibility_base": 0.9,
+                }
+            ]
+
+        monkeypatch.setattr(api_server_module, "_load_source_configs", fake_load_source_configs)
+        app = create_app(data_dir=tmp_path, store=CountingStore())  # type: ignore[arg-type]
+        client = TestClient(app)
+
+        resp = client.get(
+            "/api/v1/public/news",
+            params={"target_id": "italy", "page_size": 20},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["items"]) == 20
+        assert {item["source"]["name"] for item in data["items"]} == {"ANSA.it"}
+        assert calls == 1
+
     def test_public_news_api_uses_short_ttl_projection_cache(
         self,
         tmp_path: Path,
