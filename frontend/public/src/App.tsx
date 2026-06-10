@@ -188,7 +188,7 @@ function FilterPanel({
         <label className="text-xs font-medium text-muted-foreground" htmlFor="public-search">
           搜索新闻
         </label>
-        <div className="flex min-w-0 gap-2">
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_2.5rem] gap-2">
           <Input
             id="public-search"
             value={search}
