@@ -138,7 +138,10 @@ function ChannelNav({
   onChange: (channel: PublicChannel) => void
 }) {
   return (
-    <nav aria-label="公共频道" className="flex gap-2 overflow-x-auto pb-1">
+    <nav
+      aria-label="公共频道"
+      className="flex min-w-0 max-w-full gap-2 overflow-x-auto pb-1 lg:grid lg:grid-cols-2 lg:overflow-visible lg:pb-0"
+    >
       {channels.map((channel) => (
         <Button
           key={channel.id}
@@ -147,7 +150,7 @@ function ChannelNav({
           size="sm"
           aria-pressed={active === channel.id}
           onClick={() => onChange(channel.id)}
-          className="shrink-0"
+          className="min-w-0 shrink-0 lg:w-full lg:shrink"
         >
           {channel.label}
         </Button>
@@ -174,9 +177,9 @@ function FilterPanel({
   }, [filters.search])
 
   return (
-    <div className="grid gap-4">
+    <div className="grid min-w-0 gap-4">
       <form
-        className="grid gap-2"
+        className="grid min-w-0 gap-2"
         onSubmit={(event) => {
           event.preventDefault()
           onChange({ search })
@@ -185,12 +188,13 @@ function FilterPanel({
         <label className="text-xs font-medium text-muted-foreground" htmlFor="public-search">
           搜索新闻
         </label>
-        <div className="flex gap-2">
+        <div className="flex min-w-0 gap-2">
           <Input
             id="public-search"
             value={search}
             placeholder="搜索标题、摘要、来源"
             onChange={(event) => setSearch(event.currentTarget.value)}
+            className="min-w-0"
           />
           <Button type="submit" size="icon" aria-label="搜索">
             <SearchIcon className="size-4" aria-hidden="true" />
@@ -207,7 +211,7 @@ function FilterPanel({
             </Button>
           ) : null}
         </div>
-        <div className="flex gap-2 overflow-x-auto lg:grid lg:grid-cols-2">
+        <div className="flex min-w-0 gap-2 overflow-x-auto lg:grid lg:grid-cols-2">
           {categories.map((category) => (
             <Button
               key={category}
@@ -218,7 +222,7 @@ function FilterPanel({
               onClick={() =>
                 onChange({ category: filters.category === category ? undefined : category })
               }
-              className="shrink-0 justify-start"
+              className="min-w-0 shrink-0 justify-start lg:shrink"
             >
               {category}
             </Button>
@@ -356,7 +360,7 @@ function RightRail({
     },
   ]
   return (
-    <aside className="grid h-fit gap-4">
+    <aside className="grid h-fit min-w-0 gap-4">
       <Card className="rounded-lg">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
@@ -365,12 +369,12 @@ function RightRail({
           </CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3">
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid min-w-0 grid-cols-3 gap-2">
             {statusItems.map((item) => (
-              <div key={item.label} className="rounded-md border bg-muted/35 p-2">
-                <p className="text-xs text-muted-foreground">{item.label}</p>
-                <p className="mt-1 text-lg font-semibold">{item.value}</p>
-                <p className="text-xs text-muted-foreground">{item.helper}</p>
+              <div key={item.label} className="min-w-0 rounded-md border bg-muted/35 p-2">
+                <p className="truncate text-xs text-muted-foreground">{item.label}</p>
+                <p className="mt-1 truncate text-lg font-semibold">{item.value}</p>
+                <p className="truncate text-xs text-muted-foreground">{item.helper}</p>
               </div>
             ))}
           </div>
@@ -421,7 +425,9 @@ function RightRail({
           </CardTitle>
         </CardHeader>
         <CardContent className="grid gap-2 text-sm text-muted-foreground">
-          <p>{latestItem ? `最新新闻：${formatFullTime(latestItem.publishedAt)}` : "等待新闻进入公共流。"}</p>
+          <p className="break-words">
+            {latestItem ? `最新新闻：${formatFullTime(latestItem.publishedAt)}` : "等待新闻进入公共流。"}
+          </p>
           <p>页面会低频轮询，有新内容时只提示，不打断当前阅读位置。</p>
         </CardContent>
       </Card>
@@ -595,22 +601,22 @@ export default function App() {
         }
       >
         {showLeftRail ? (
-          <aside className="hidden min-w-0 lg:block">
+          <aside className="hidden min-w-0 overflow-hidden lg:block">
             <div className="sticky top-[4.5rem] grid gap-4">
-              <Card className="rounded-lg">
+              <Card className="min-w-0 overflow-hidden rounded-lg">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">公共频道</CardTitle>
                 </CardHeader>
-                <CardContent className="grid gap-3">
+                <CardContent className="grid min-w-0 gap-3">
                   <ChannelNav active={activeChannel} onChange={changeChannel} />
                 </CardContent>
               </Card>
               {route.name === "feed" ? (
-                <Card className="rounded-lg">
+                <Card className="min-w-0 overflow-hidden rounded-lg">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base">筛选</CardTitle>
                   </CardHeader>
-                  <CardContent>{filterPanel}</CardContent>
+                  <CardContent className="min-w-0">{filterPanel}</CardContent>
                 </Card>
               ) : null}
             </div>
@@ -628,7 +634,7 @@ export default function App() {
         </section>
 
         {showRightRail ? (
-          <div className="hidden lg:block">
+          <div className="hidden min-w-0 lg:block">
             <div className="sticky top-[4.5rem]">
               <RightRail
                 analysis={analysis}
