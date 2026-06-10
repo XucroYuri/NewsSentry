@@ -177,9 +177,9 @@ function FilterPanel({
   }, [filters.search])
 
   return (
-    <div className="grid min-w-0 gap-4">
+    <div className="grid w-full min-w-0 max-w-full overflow-hidden gap-4">
       <form
-        className="grid min-w-0 gap-2"
+        className="grid w-full min-w-0 max-w-full gap-2"
         onSubmit={(event) => {
           event.preventDefault()
           onChange({ search })
@@ -188,7 +188,7 @@ function FilterPanel({
         <label className="text-xs font-medium text-muted-foreground" htmlFor="public-search">
           搜索新闻
         </label>
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_2.5rem] gap-2">
+        <div className="grid w-full min-w-0 max-w-full grid-cols-[minmax(0,1fr)_2.5rem] gap-2">
           <Input
             id="public-search"
             value={search}
@@ -202,7 +202,7 @@ function FilterPanel({
         </div>
       </form>
 
-      <section className="grid gap-2" aria-label="分类筛选">
+      <section className="grid w-full min-w-0 gap-2" aria-label="分类筛选">
         <div className="flex items-center justify-between">
           <p className="text-xs font-medium text-muted-foreground">分类</p>
           {filters.category ? (
@@ -211,7 +211,7 @@ function FilterPanel({
             </Button>
           ) : null}
         </div>
-        <div className="flex min-w-0 gap-2 overflow-x-auto lg:grid lg:grid-cols-2">
+        <div className="flex w-full min-w-0 gap-2 overflow-x-auto lg:grid lg:grid-cols-2">
           {categories.map((category) => (
             <Button
               key={category}
@@ -222,7 +222,7 @@ function FilterPanel({
               onClick={() =>
                 onChange({ category: filters.category === category ? undefined : category })
               }
-              className="min-w-0 shrink-0 justify-start lg:shrink"
+              className="min-w-0 shrink-0 justify-start lg:w-full lg:shrink"
             >
               {category}
             </Button>
@@ -230,7 +230,7 @@ function FilterPanel({
         </div>
       </section>
 
-      <section className="grid gap-2" aria-label="目标筛选">
+      <section className="grid w-full min-w-0 gap-2" aria-label="目标筛选">
         <div className="flex items-center justify-between">
           <p className="text-xs font-medium text-muted-foreground">目标</p>
           {filters.targetId ? (
@@ -239,7 +239,7 @@ function FilterPanel({
             </Button>
           ) : null}
         </div>
-        <div className="grid gap-2">
+        <div className="grid w-full min-w-0 gap-2">
           {targets.length > 0 ? (
             targets.slice(0, 8).map((target) => (
               <Button
@@ -254,10 +254,10 @@ function FilterPanel({
                       filters.targetId === target.target_id ? undefined : target.target_id,
                   })
                 }
-                className="h-auto justify-between gap-3 px-3 py-2 text-left"
+                className="h-auto w-full min-w-0 justify-between gap-3 px-3 py-2 text-left"
               >
-                <span className="min-w-0 truncate">{target.display_name}</span>
-                <span className="text-xs text-muted-foreground">{target.event_count}</span>
+                <span className="min-w-0 flex-1 truncate">{target.display_name}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{target.event_count}</span>
               </Button>
             ))
           ) : (
@@ -268,7 +268,7 @@ function FilterPanel({
         </div>
       </section>
 
-      <section className="grid gap-2" aria-label="来源筛选">
+      <section className="grid w-full min-w-0 gap-2" aria-label="来源筛选">
         <div className="flex items-center justify-between">
           <p className="text-xs font-medium text-muted-foreground">来源</p>
           {filters.sourceId ? (
@@ -277,7 +277,7 @@ function FilterPanel({
             </Button>
           ) : null}
         </div>
-        <div className="grid gap-1">
+        <div className="grid w-full min-w-0 gap-1">
           {sources.length > 0 ? (
             sources.slice(0, 8).map((source) => (
               <Button
@@ -291,10 +291,10 @@ function FilterPanel({
                     sourceId: filters.sourceId === source.id ? undefined : source.id,
                   })
                 }
-                className="h-auto justify-between gap-3 px-3 py-2 text-left"
+                className="h-auto w-full min-w-0 justify-between gap-3 px-3 py-2 text-left"
               >
-                <span className="min-w-0 truncate">{source.name}</span>
-                <span className="text-xs text-muted-foreground">{source.count}</span>
+                <span className="min-w-0 flex-1 truncate">{source.name}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{source.count}</span>
               </Button>
             ))
           ) : (
