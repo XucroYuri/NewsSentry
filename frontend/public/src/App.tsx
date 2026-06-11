@@ -92,6 +92,18 @@ function feedRouteFromFilters(filters: FeedFilters): PublicRoute {
   }
 }
 
+function filtersEqual(left: FeedFilters, right: FeedFilters) {
+  return (
+    left.channel === right.channel &&
+    left.targetId === right.targetId &&
+    left.sourceId === right.sourceId &&
+    left.category === right.category &&
+    left.search === right.search &&
+    left.date === right.date &&
+    left.pageSize === right.pageSize
+  )
+}
+
 function AppShell({
   children,
   onRefresh,
@@ -484,7 +496,8 @@ export default function App() {
 
   useEffect(() => {
     if (route.name === "feed") {
-      setFilters(filtersFromRoute(route))
+      const nextFilters = filtersFromRoute(route)
+      setFilters((current) => (filtersEqual(current, nextFilters) ? current : nextFilters))
     }
   }, [route])
 
@@ -499,9 +512,14 @@ export default function App() {
     }
     return [...sources.values()].sort((a, b) => b.count - a.count)
   }, [feed.feedState.items])
-  const selectedTargetId =
-    filters.targetId || feed.feedState.items[0]?.targetId || targets[0]?.target_id || null
-  const { analysis, analysisError } = usePublicAnalysis(selectedTargetId)
+  const feedTargetId = filters.targetId || feed.feedState.items[0]?.targetId || null
+  const analysisTargetId =
+    route.name === "analysis"
+      ? route.targetId || feedTargetId || targets[0]?.target_id || null
+      : route.name === "feed"
+        ? feedTargetId
+        : null
+  const { analysis, analysisError } = usePublicAnalysis(analysisTargetId)
 
   const updateFilters = useCallback(
     (patch: Partial<FeedFilters>) => {
@@ -527,7 +545,7 @@ export default function App() {
       if (channel === "analysis") {
         navigate({
           name: "analysis",
-          targetId: selectedTargetId ?? undefined,
+          targetId: feedTargetId ?? targets[0]?.target_id,
           section: undefined,
           search: new URLSearchParams(),
         })
@@ -537,7 +555,7 @@ export default function App() {
       setFilters(nextFilters)
       navigate(feedRouteFromFilters(nextFilters))
     },
-    [filters, navigate, selectedTargetId],
+    [feedTargetId, filters, navigate, targets],
   )
 
   const filterPanel = (

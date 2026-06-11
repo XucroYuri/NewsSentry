@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest"
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import App from "@/App"
@@ -178,6 +178,112 @@ describe("Phase 84 public portal app", () => {
     expect(screen.queryByText("公共新闻 API smoke")).not.toBeInTheDocument()
   })
 
+  it("does not reload the same feed during initial route hydration", async () => {
+    const fetchMock = installFetchMock()
+    window.location.hash = "#/feed?channel=featured"
+
+    render(<App />)
+
+    await screen.findByText("意大利总理与欧盟领导人讨论对华贸易关系")
+    const initialFeedCalls = fetchMock.mock.calls.filter(
+      ([input]) => String(input) === "/api/v1/public/news?featured=true&page_size=20",
+    )
+    expect(initialFeedCalls).toHaveLength(1)
+  })
+
+  it("waits for feed context before loading right rail analysis on the feed page", async () => {
+    let resolveFeed: (() => void) | undefined
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.startsWith("/api/v1/targets")) {
+        return jsonResponse({
+          targets: [
+            {
+              target_id: "china-watch-en",
+              display_name: "中国观察",
+              primary_language: "en",
+              monitoring_type: "country",
+              monitoring_label: "国别监控目标",
+              source_count: 12,
+              event_count: 8,
+              lifecycle: {},
+              archived: false,
+            },
+            {
+              target_id: "italy",
+              display_name: "意大利新闻监控",
+              primary_language: "it",
+              monitoring_type: "country",
+              monitoring_label: "国别监控目标",
+              source_count: 163,
+              event_count: 52,
+              lifecycle: {},
+              archived: false,
+            },
+          ],
+        })
+      }
+      if (url.startsWith("/api/v1/public/targets/")) {
+        return jsonResponse({
+          target_id: url.includes("china-watch-en") ? "china-watch-en" : "italy",
+          target_name: url.includes("china-watch-en") ? "中国观察" : "意大利新闻监控",
+          days: 14,
+          summary: {
+            total_events: 1,
+            high_value_events: 1,
+            avg_news_value_score: 80,
+            avg_china_relevance: 60,
+          },
+          classification_distribution: [],
+          source_distribution: [],
+          top_entities: [],
+          topic_trends: [],
+          sentiment_trend: [],
+          active_chains: [],
+          generated_at: "2026-06-09T08:00:00Z",
+        })
+      }
+      if (url.startsWith("/api/v1/public/news")) {
+        return new Promise<Response>((resolve) => {
+          resolveFeed = () => {
+            resolve(
+              new Response(JSON.stringify(feed([makeItem("event-1")])), {
+                status: 200,
+                headers: { "Content-Type": "application/json", ETag: '"etag"' },
+              }),
+            )
+          }
+        })
+      }
+      return jsonResponse({})
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<App />)
+
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some(([input]) => String(input).startsWith("/api/v1/targets"))).toBe(
+        true,
+      ),
+    )
+    await new Promise((resolve) => window.setTimeout(resolve, 25))
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).startsWith("/api/v1/public/targets/china-watch-en/analysis"),
+      ),
+    ).toBe(false)
+
+    resolveFeed?.()
+    await screen.findByText("意大利总理与欧盟领导人讨论对华贸易关系")
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([input]) =>
+          String(input).startsWith("/api/v1/public/targets/italy/analysis"),
+        ),
+      ).toBe(true),
+    )
+  })
+
   it("shows reader-friendly copy while the first news request is slow", () => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)))
 
@@ -233,6 +339,43 @@ describe("Phase 84 public portal app", () => {
     expect(screen.getByText("欧盟")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "复制摘要" })).toBeInTheDocument()
     expect(screen.getByText("同来源信号")).toBeInTheDocument()
+  })
+
+  it("shows event detail before related signals finish loading", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.startsWith("/api/v1/public/news/event-1")) {
+        return jsonResponse(
+          makeItem("event-1", {
+            originalTitle: "Italy and EU leaders discuss trade in Rome",
+            summary: "完整摘要：会谈聚焦贸易政策与市场准入，双方同意继续保持沟通。",
+          }),
+        )
+      }
+      if (url.includes("target_id=italy") && url.includes("page_size=50")) {
+        return new Promise<Response>(() => undefined)
+      }
+      if (url.startsWith("/api/v1/public/news")) {
+        return jsonResponse(feed([makeItem("event-1")]))
+      }
+      if (url.startsWith("/api/v1/targets")) {
+        return jsonResponse({ targets: [] })
+      }
+      return jsonResponse({})
+    })
+    vi.stubGlobal("fetch", fetchMock)
+    window.location.hash = "#/events/event-1?target_id=italy"
+
+    render(<App />)
+
+    expect(
+      await screen.findByRole(
+        "heading",
+        { name: "意大利总理与欧盟领导人讨论对华贸易关系" },
+        { timeout: 500 },
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByText("Italy and EU leaders discuss trade in Rome")).toBeInTheDocument()
   })
 
   it("renders source directory and source detail routes from the existing news API", async () => {

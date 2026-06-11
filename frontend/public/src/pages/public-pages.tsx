@@ -359,16 +359,25 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
     let cancelled = false
     async function loadDetail() {
       setStatus("loading")
+      setError("")
+      setItem(null)
+      setRelated([])
       try {
         const detail = await getPublicNewsItem(route.eventId, { targetId: route.targetId })
-        const relatedResult = await listPublicNews({
-          targetId: route.targetId ?? detail.targetId,
-          pageSize: 50,
-        })
         if (!cancelled) {
           setItem(detail)
-          setRelated(relatedResult.data?.items ?? [])
           setStatus("ready")
+        }
+        try {
+          const relatedResult = await listPublicNews({
+            targetId: route.targetId ?? detail.targetId,
+            pageSize: 50,
+          })
+          if (!cancelled) {
+            setRelated(relatedResult.data?.items ?? [])
+          }
+        } catch {
+          // Related signals are useful context, but should never block the article itself.
         }
       } catch (loadError) {
         if (!cancelled) {

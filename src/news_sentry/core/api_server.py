@@ -1776,6 +1776,7 @@ _PUBLIC_NEWS_FEATURED_SCORE = 60
 _PUBLIC_NEWS_FEED_CACHE_TTL_SECONDS = 15.0
 _PUBLIC_NEWS_FEED_UPDATE_CACHE_TTL_SECONDS = 30.0
 _PUBLIC_NEWS_FEED_SEARCH_CACHE_TTL_SECONDS = 5.0
+_PUBLIC_NEWS_SLOW_LOG_MS = 3000
 _PUBLIC_NEWS_INTERNAL_DATA_DIRS = {
     "backup",
     "cache",
@@ -1852,6 +1853,46 @@ def _public_news_cache_headers(
         "X-News-Sentry-Feed-Cache": cache_status,
         "X-News-Sentry-Feed-Elapsed-Ms": str(max(0, int(elapsed_ms))),
     }
+
+
+def _public_news_log_slow_miss(
+    *,
+    elapsed_ms: int,
+    target_count: int,
+    candidate_count: int,
+    filtered_count: int,
+    item_count: int,
+    featured: bool,
+    has_target: bool,
+    has_source: bool,
+    has_category: bool,
+    has_date: bool,
+    has_q: bool,
+    has_before: bool,
+    has_since: bool,
+    page_size: int,
+) -> None:
+    if elapsed_ms < _PUBLIC_NEWS_SLOW_LOG_MS:
+        return
+    logger.warning(
+        "public news feed slow miss elapsed_ms=%s target_count=%s candidate_count=%s "
+        "filtered_count=%s item_count=%s featured=%s has_target=%s has_source=%s "
+        "has_category=%s has_date=%s has_q=%s has_before=%s has_since=%s page_size=%s",
+        elapsed_ms,
+        target_count,
+        candidate_count,
+        filtered_count,
+        item_count,
+        featured,
+        has_target,
+        has_source,
+        has_category,
+        has_date,
+        has_q,
+        has_before,
+        has_since,
+        page_size,
+    )
 
 
 def _public_news_event_datetime(ev: dict[str, Any]) -> datetime:
@@ -6611,6 +6652,22 @@ def create_app(
         )
         etag = _public_news_etag(items, latest_cursor)
         elapsed_ms = int((time.perf_counter() - started) * 1000)
+        _public_news_log_slow_miss(
+            elapsed_ms=elapsed_ms,
+            target_count=len(target_ids),
+            candidate_count=len(candidates),
+            filtered_count=len(filtered),
+            item_count=len(items),
+            featured=featured,
+            has_target=target_id is not None,
+            has_source=source_id is not None,
+            has_category=category is not None,
+            has_date=date is not None,
+            has_q=q is not None,
+            has_before=before_cursor is not None,
+            has_since=since_cursor is not None,
+            page_size=page_size,
+        )
         headers = _public_news_cache_headers(
             cache_status="miss",
             etag=etag,
