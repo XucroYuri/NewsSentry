@@ -41,12 +41,17 @@ def test_india_filter_covers_diplomacy_economy_and_security_signals(tmp_path: Pa
 
     samples = [
         "India and China resume border talks ahead of BRICS summit in New Delhi",
-        "Modi government expands semiconductor manufacturing incentives for India supply chain push",
+        (
+            "Modi government expands semiconductor manufacturing incentives "
+            "for India supply chain push"
+        ),
         "Indian Navy issues maritime security alert after tanker attack near Oman",
         "RBI warns rupee volatility may keep inflation risks elevated this quarter",
     ]
 
-    scores = [rules_filter._score_event(_event(title), config["keyword_rules"]) for title in samples]
+    scores = [
+        rules_filter._score_event(_event(title), config["keyword_rules"]) for title in samples
+    ]
 
     assert scores == [score for score in scores if score >= threshold]
 
