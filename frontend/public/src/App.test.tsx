@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest"
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { readFileSync } from "node:fs"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import App from "@/App"
@@ -153,6 +154,13 @@ function installFetchMock() {
 }
 
 describe("Phase 84 public portal app", () => {
+  it("declares the shared site icon to avoid browser favicon 404s", () => {
+    const html = readFileSync("index.html", "utf8")
+
+    expect(html).toContain('rel="icon"')
+    expect(html).toContain('href="/icons/icon-192.svg"')
+  })
+
   afterEach(() => {
     cleanup()
     window.location.hash = ""
