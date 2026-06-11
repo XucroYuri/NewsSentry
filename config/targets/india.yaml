@@ -1,0 +1,88 @@
+# Schema: ../../schemas/targetconfig.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015, ADR-0016
+target_id: india
+display_name: "印度新闻监控"
+monitoring_type: country
+
+language_scope:
+  primary: en
+  secondary: []
+  output: zh
+
+timezone: Asia/Kolkata
+
+source_channel_refs:
+  - thehindu-india
+  - thehindu-business
+  - thehindu-world
+  - indianexpress-india
+  - indianexpress-business
+  - toi-india
+
+filter_rules_ref: config/filters/india/default.yaml
+classification_rules_ref: config/classification/rules-india.yaml
+sandbox_profile_ref: config/sandbox/default.yaml
+provider_routes_ref: config/provider/routes.yaml
+output_destinations_ref: config/output/destinations.yaml
+
+classification:
+  country_axes:
+    politics: true
+    economics: true
+    crime: false
+    sports: false
+    culture: true
+    eu_relations: false
+    china_italy_relations: false
+    immigration: true
+    energy: true
+    judicial: true
+    china_india_relations: true
+  home_relevance_keywords:
+    - "India"
+    - "Indian"
+    - "New Delhi"
+    - "Modi"
+    - "BJP"
+    - "Parliament"
+    - "Rajya Sabha"
+    - "Lok Sabha"
+    - "RBI"
+    - "rupee"
+    - "BRICS"
+    - "Quad"
+    - "Indo-Pacific"
+    - "China"
+    - "LAC"
+    - "Himalaya"
+
+focus_areas:
+  - id: china-india-relations
+    weight: 2.2
+    keywords:
+      - "China"
+      - "Beijing"
+      - "LAC"
+      - "border talks"
+      - "BRICS"
+      - "Shanghai Cooperation Organisation"
+  - id: manufacturing-and-tech
+    weight: 1.8
+    keywords:
+      - "semiconductor"
+      - "manufacturing"
+      - "PLI"
+      - "electronics"
+      - "startup"
+      - "AI"
+  - id: maritime-and-energy
+    weight: 1.8
+    keywords:
+      - "Indian Navy"
+      - "shipping"
+      - "energy"
+      - "oil"
+      - "LNG"
+      - "renewable"
+
