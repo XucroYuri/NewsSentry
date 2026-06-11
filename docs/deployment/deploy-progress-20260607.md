@@ -483,6 +483,7 @@ free -h                         # 内存余量充足
 
 ## 接手人操作顺序
 
+0. Phase 89 交互响应排查：按 [interaction-latency-audit-20260611.md](./interaction-latency-audit-20260611.md) 复测 `/public-app/` 首屏、详情 ready、public feed hit/miss 与 realtime 采集窗口。
 1. 优先处理“未完成事项与建议解决方向”中的 P0：Cloudflare Access。
 2. 清理 P1 CI 告警：Actions Node runtime、`script_stop`、aiosqlite event-loop warning。
 3. 进入 72 小时观察期：监控内存、磁盘、`news-sentry`、`cloudflared` 和 `x-ui` 稳定性。

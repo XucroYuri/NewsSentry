@@ -1380,6 +1380,55 @@ class TestAPIServer:
         assert second.headers["etag"] == first.headers["etag"]
         assert store.calls == 1
 
+    def test_public_news_api_logs_slow_miss_without_sensitive_values(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """慢 public feed miss 需要可观测，但日志不能包含搜索词、路径或密钥形态字段。"""
+
+        class SlowStore:
+            async def get_target_event_count(self, target_id: str) -> int:
+                return 1
+
+            async def query_public_news_rows(self, **kwargs: Any) -> dict[str, Any]:
+                return {
+                    "total": 1,
+                    "rows": [
+                        {
+                            "event_id": "ne-italy-slow-log-001",
+                            "source_id": "ansa",
+                            "news_value_score": 80,
+                            "china_relevance": 60,
+                            "classification_l0": "politics",
+                            "published_at": "2026-06-09T10:00:00+00:00",
+                            "file_path": None,
+                            "title_original": "Slow log story",
+                            "metadata": {},
+                        }
+                    ],
+                }
+
+        monkeypatch.setattr(api_server_module, "_PUBLIC_NEWS_SLOW_LOG_MS", 0)
+        caplog.set_level("WARNING")
+        app = create_app(data_dir=tmp_path, store=SlowStore())  # type: ignore[arg-type]
+        client = TestClient(app)
+
+        resp = client.get(
+            "/api/v1/public/news",
+            params={"target_id": "italy", "q": "secret-search-term"},
+        )
+
+        assert resp.status_code == 200
+        log_text = "\n".join(record.getMessage() for record in caplog.records)
+        assert "public news feed slow miss" in log_text
+        assert "has_q=True" in log_text
+        assert "secret-search-term" not in log_text
+        assert "data_dir" not in log_text
+        assert "token" not in log_text.lower()
+        assert "secret" not in log_text.lower()
+
     def test_public_news_detail_returns_reader_shape_without_auth(self, tmp_path: Path) -> None:
         """公共新闻详情 API 使用读者字段，不需要后台认证。"""
         event_id = "ne-italy-src-20260609-detail01"
