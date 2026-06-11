@@ -1,0 +1,153 @@
+# Schema: ../../schemas/filterrules.schema.json
+# 契约: docs/contracts-canonical.md §3
+# ADR: ADR-0009
+rules_version: "1.0.0"
+target_id: india
+
+score_threshold: 30
+max_age_hours: 72
+dedup_window_hours: 24
+
+keyword_rules:
+  # ── 政治与治理 ───────────────────────────────────────
+  - keyword: "India"
+    weight: 0.6
+    language: en
+  - keyword: "Indian"
+    weight: 0.6
+    language: en
+  - keyword: "Modi"
+    weight: 0.9
+    language: en
+  - keyword: "BJP"
+    weight: 0.8
+    language: en
+  - keyword: "Parliament"
+    weight: 0.8
+    language: en
+  - keyword: "Rajya Sabha"
+    weight: 0.9
+    language: en
+  - keyword: "Lok Sabha"
+    weight: 0.9
+    language: en
+  - keyword: "NITI Aayog"
+    weight: 0.8
+    language: en
+  - keyword: "federal"
+    weight: 0.7
+    language: en
+
+  # ── 经济与商业 ───────────────────────────────────────
+  - keyword: "RBI"
+    weight: 0.85
+    language: en
+  - keyword: "rupee"
+    weight: 0.75
+    language: en
+  - keyword: "inflation"
+    weight: 0.7
+    language: en
+  - keyword: "manufacturing"
+    weight: 0.75
+    language: en
+  - keyword: "semiconductor"
+    weight: 0.9
+    language: en
+  - keyword: "electronics"
+    weight: 0.75
+    language: en
+  - keyword: "trade"
+    weight: 0.7
+    language: en
+  - keyword: "tariff"
+    weight: 0.75
+    language: en
+  - keyword: "supply chain"
+    weight: 0.8
+    language: en
+
+  # ── 外交与国际关系 ───────────────────────────────────
+  - keyword: "China"
+    weight: 1.0
+    language: en
+  - keyword: "Chinese"
+    weight: 0.9
+    language: en
+  - keyword: "Beijing"
+    weight: 0.85
+    language: en
+  - keyword: "border talks"
+    weight: 0.95
+    language: en
+  - keyword: "LAC"
+    weight: 1.0
+    language: en
+  - keyword: "BRICS"
+    weight: 0.95
+    language: en
+  - keyword: "Quad"
+    weight: 0.9
+    language: en
+  - keyword: "Indo-Pacific"
+    weight: 0.85
+    language: en
+  - keyword: "Indian Ocean"
+    weight: 0.8
+    language: en
+  - keyword: "maritime"
+    weight: 0.8
+    language: en
+  - keyword: "Pakistan"
+    weight: 0.75
+    language: en
+  - keyword: "Bangladesh"
+    weight: 0.7
+    language: en
+
+  # ── 安全、防务、能源 ─────────────────────────────────
+  - keyword: "Indian Navy"
+    weight: 0.95
+    language: en
+  - keyword: "defence"
+    weight: 0.8
+    language: en
+  - keyword: "security"
+    weight: 0.7
+    language: en
+  - keyword: "terror"
+    weight: 0.7
+    language: en
+  - keyword: "energy"
+    weight: 0.7
+    language: en
+  - keyword: "oil"
+    weight: 0.7
+    language: en
+  - keyword: "LNG"
+    weight: 0.8
+    language: en
+  - keyword: "renewable"
+    weight: 0.75
+    language: en
+
+  # ── 科技与社会 ───────────────────────────────────────
+  - keyword: "AI"
+    weight: 0.75
+    language: en
+  - keyword: "digital public infrastructure"
+    weight: 0.95
+    language: en
+  - keyword: "UPI"
+    weight: 0.9
+    language: en
+  - keyword: "migration"
+    weight: 0.7
+    language: en
+  - keyword: "health"
+    weight: 0.65
+    language: en
+  - keyword: "monsoon"
+    weight: 0.6
+    language: en
+
