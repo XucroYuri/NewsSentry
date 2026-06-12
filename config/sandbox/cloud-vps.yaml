@@ -90,6 +90,11 @@ network_policy:
     - "chinadigitaltimes.net"
     - "asiatimes.com"
     - "*.euronews.com"
+    - "rss.dw.com"
+    - "www.aljazeera.com"
+    - "www.thehindu.com"
+    - "indianexpress.com"
+    - "timesofindia.indiatimes.com"
   blocked_hosts:
     - "169.254.169.254"
     - "metadata.google.internal"
