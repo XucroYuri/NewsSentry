@@ -1219,6 +1219,99 @@ class AsyncStore:
 
         return {"total": total, "rows": result_rows}
 
+    async def query_public_news_rows(
+        self,
+        target_id: str,
+        stage: str,
+        *,
+        limit: int,
+        source_id: str | None = None,
+        classification_l0: str | None = None,
+        min_score: int | None = None,
+        date: str | None = None,
+        search: str | None = None,
+        before_key: tuple[str, str] | None = None,
+        since_key: tuple[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Query public news feed rows directly from event_index for fast first paint."""
+        if self._db is None:
+            return {"total": 0, "rows": []}
+
+        conditions = ["target_id = ?", "stage = ?"]
+        params: list[Any] = [target_id, stage]
+        sort_expr = "datetime(COALESCE(published_at, created_at))"
+
+        if source_id is not None:
+            conditions.append("source_id = ?")
+            params.append(source_id)
+        if classification_l0 is not None:
+            values = sorted(l0_query_values(classification_l0))
+            placeholders = ", ".join("?" for _ in values)
+            conditions.append(f"classification_l0 IN ({placeholders})")
+            params.extend(values)
+        if min_score is not None:
+            conditions.append("news_value_score >= ?")
+            params.append(min_score)
+        if date is not None:
+            conditions.append("substr(COALESCE(published_at, created_at), 1, 10) = ?")
+            params.append(date)
+        if search is not None:
+            conditions.append(
+                "LOWER(COALESCE(title_original, '') || ' ' || "
+                "COALESCE(source_id, '') || ' ' || COALESCE(metadata_json, '')) LIKE ?"
+            )
+            params.append(f"%{search.lower()}%")
+        if before_key is not None:
+            before_time, before_event_id = before_key
+            conditions.append(
+                f"({sort_expr} < datetime(?) OR ({sort_expr} = datetime(?) AND event_id < ?))"
+            )
+            params.extend([before_time, before_time, before_event_id])
+        if since_key is not None:
+            since_time, since_event_id = since_key
+            conditions.append(
+                f"({sort_expr} > datetime(?) OR ({sort_expr} = datetime(?) AND event_id > ?))"
+            )
+            params.extend([since_time, since_time, since_event_id])
+
+        where = " AND ".join(conditions)
+        count_sql = f"SELECT COUNT(*) FROM event_index WHERE {where}"  # noqa: S608
+        async with self._db.execute(count_sql, params) as cursor:
+            row = await cursor.fetchone()
+            total = row[0] if row else 0
+
+        data_sql = (
+            "SELECT event_id, source_id, news_value_score, china_relevance, "  # noqa: S608
+            "classification_l0, published_at, file_path, title_original, "
+            "sentiment, entity_names, topic_tags, metadata_json, created_at "
+            f"FROM event_index WHERE {where} "
+            f"ORDER BY {sort_expr} DESC, event_id DESC LIMIT ?"
+        )
+        async with self._db.execute(data_sql, params + [limit]) as cursor:
+            rows = await cursor.fetchall()
+
+        result_rows = []
+        for r in rows:
+            result_rows.append(
+                {
+                    "event_id": r[0],
+                    "source_id": r[1],
+                    "news_value_score": r[2],
+                    "china_relevance": r[3],
+                    "classification_l0": canonical_l0(r[4]),
+                    "published_at": r[5],
+                    "file_path": r[6],
+                    "title_original": r[7],
+                    "sentiment": r[8],
+                    "entity_names": r[9],
+                    "topic_tags": r[10],
+                    "metadata": self._json_loads(r[11]),
+                    "created_at": r[12],
+                }
+            )
+
+        return {"total": total, "rows": result_rows}
+
     async def get_stats_aggregated(self, target_id: str) -> dict[str, Any]:
         """聚合统计查询，返回事件总数、平均分、按分类/来源计数。"""
         if self._db is None:

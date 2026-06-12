@@ -176,15 +176,23 @@ function NewsCard({ item }: { item: PublicNewsItem }) {
 
 function LoadingFeed() {
   return (
-    <div className="divide-y">
-      {Array.from({ length: 4 }, (_, index) => (
-        <div key={index} className="grid gap-3 px-4 py-5 sm:px-5">
-          <Skeleton className="h-4 w-40" />
-          <Skeleton className="h-6 w-5/6" />
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-2/3" />
-        </div>
-      ))}
+    <div>
+      <div className="border-b px-4 py-4 sm:px-5">
+        <Badge variant="outline" className="w-fit">
+          正在整理最新新闻
+        </Badge>
+        <p className="mt-2 text-sm text-muted-foreground">新闻流会在最新信号整理好后自动出现。</p>
+      </div>
+      <div className="divide-y">
+        {Array.from({ length: 4 }, (_, index) => (
+          <div key={index} className="grid gap-3 px-4 py-5 sm:px-5">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-6 w-5/6" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-2/3" />
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -351,16 +359,25 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
     let cancelled = false
     async function loadDetail() {
       setStatus("loading")
+      setError("")
+      setItem(null)
+      setRelated([])
       try {
         const detail = await getPublicNewsItem(route.eventId, { targetId: route.targetId })
-        const relatedResult = await listPublicNews({
-          targetId: route.targetId ?? detail.targetId,
-          pageSize: 50,
-        })
         if (!cancelled) {
           setItem(detail)
-          setRelated(relatedResult.data?.items ?? [])
           setStatus("ready")
+        }
+        try {
+          const relatedResult = await listPublicNews({
+            targetId: route.targetId ?? detail.targetId,
+            pageSize: 50,
+          })
+          if (!cancelled) {
+            setRelated(relatedResult.data?.items ?? [])
+          }
+        } catch {
+          // Related signals are useful context, but should never block the article itself.
         }
       } catch (loadError) {
         if (!cancelled) {

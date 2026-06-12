@@ -127,6 +127,7 @@ async def _insert_index_event(
     classification_l0: str | None = "politics",
     title_original: str = "Store event",
     published_at: str | None = None,
+    file_path: str | None = None,
     sentiment: str | None = None,
     entity_names: str | None = None,
     topic_tags: str | None = None,
@@ -150,7 +151,7 @@ async def _insert_index_event(
             classification_l0,
             title_original,
             published_at or now,
-            None,
+            file_path,
             now,
             sentiment,
             entity_names,
@@ -966,6 +967,31 @@ class TestAPIServer:
         assert data["total"] == 1
         assert data["groups"][0]["events"][0]["display_title"] == "Public feed story"
 
+    def test_public_news_target_ids_skip_templates_and_runtime_dirs(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """默认公开 feed 不能把模板、locks、logs 等运行目录当成新闻目标扫描。"""
+        monkeypatch.setattr(
+            api_server_module,
+            "_load_target_configs",
+            lambda: [
+                {"target_id": "example-target"},
+                {"target_id": "italy"},
+            ],
+        )
+        (tmp_path / "locks").mkdir()
+        (tmp_path / "logs").mkdir()
+        (tmp_path / "eval").mkdir()
+        (tmp_path / "japan").mkdir()
+        (tmp_path / "japan" / "state.db").write_text("", encoding="utf-8")
+        (tmp_path / "germany" / "drafts").mkdir(parents=True)
+
+        target_ids = api_server_module._public_news_target_ids(tmp_path, None)  # noqa: SLF001
+
+        assert target_ids == ["germany", "italy", "japan"]
+
     def test_public_news_api_returns_reader_shape_without_auth(self, tmp_path: Path) -> None:
         """公共新闻 API 返回读者侧字段，不暴露 pipeline 参数作为主响应。"""
         _write_draft(
@@ -1104,6 +1130,304 @@ class TestAPIServer:
         assert second.text == ""
         assert second.headers["etag"] == first.headers["etag"]
         assert int(second.headers["x-poll-after-ms"]) >= 30_000
+
+    def test_public_news_api_uses_index_only_rows_without_frontmatter_scan(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """公开列表页应从 SQLite index 构造条目，不为首屏读取 Markdown frontmatter。"""
+        store = AsyncStore(tmp_path / "state.db")
+        asyncio.run(store.initialize())
+        asyncio.run(
+            _insert_index_event(
+                store,
+                event_id="ne-italy-index-only-001",
+                title_original="Index only public story",
+                published_at="2026-06-09T10:00:00+00:00",
+                file_path=str(tmp_path / "italy" / "drafts" / "index-only.md"),
+            )
+        )
+
+        def fail_frontmatter_read(*args: Any, **kwargs: Any) -> None:
+            raise AssertionError("public list must not read frontmatter")
+
+        monkeypatch.setattr(
+            api_server_module,
+            "_load_indexed_event_frontmatter",
+            fail_frontmatter_read,
+        )
+        app = create_app(data_dir=tmp_path, store=store)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/public/news", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        item = resp.json()["items"][0]
+        assert item["id"] == "ne-italy-index-only-001"
+        assert item["title"] == "Index only public story"
+
+    def test_public_news_api_page_size_one_does_not_scan_default_batch(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """page_size=1 不应再触发每 target 固定 80 条候选扫描。"""
+
+        class CountingStore:
+            def __init__(self) -> None:
+                self.limits: list[int] = []
+
+            async def get_target_event_count(self, target_id: str) -> int:
+                return 1
+
+            async def query_events_paginated(self, **kwargs: Any) -> dict[str, Any]:
+                self.limits.append(int(kwargs["limit"]))
+                return {
+                    "total": 1,
+                    "rows": [
+                        {
+                            "event_id": "ne-italy-small-page-001",
+                            "source_id": "ansa",
+                            "news_value_score": 75,
+                            "china_relevance": 50,
+                            "classification_l0": "politics",
+                            "published_at": "2026-06-09T10:00:00+00:00",
+                            "file_path": None,
+                            "title_original": "Small page story",
+                            "metadata": {},
+                        }
+                    ],
+                }
+
+        store = CountingStore()
+        app = create_app(data_dir=tmp_path, store=store)  # type: ignore[arg-type]
+        client = TestClient(app)
+
+        resp = client.get(
+            "/api/v1/public/news",
+            params={"target_id": "italy", "page_size": 1},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["items"][0]["title"] == "Small page story"
+        assert store.limits
+        assert max(store.limits) <= 2
+
+    def test_public_news_api_caches_source_configs_during_projection(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """首屏 item projection 不能为每条新闻重复读取 source YAML。"""
+
+        class CountingStore:
+            async def get_target_event_count(self, target_id: str) -> int:
+                return 20
+
+            async def query_public_news_rows(self, **kwargs: Any) -> dict[str, Any]:
+                return {
+                    "total": 20,
+                    "rows": [
+                        {
+                            "event_id": f"ne-italy-source-cache-{idx:03d}",
+                            "source_id": "ansa",
+                            "news_value_score": 82,
+                            "china_relevance": 70,
+                            "classification_l0": "politics",
+                            "published_at": f"2026-06-09T10:{idx:02d}:00+00:00",
+                            "file_path": None,
+                            "title_original": f"Source cached story {idx}",
+                            "metadata": {},
+                        }
+                        for idx in range(20)
+                    ],
+                }
+
+        calls = 0
+
+        def fake_load_source_configs(target_id: str) -> list[dict[str, Any]]:
+            nonlocal calls
+            calls += 1
+            return [
+                {
+                    "source_id": "ansa",
+                    "display_name": "ANSA.it",
+                    "type": "rss",
+                    "credibility_base": 0.9,
+                }
+            ]
+
+        monkeypatch.setattr(api_server_module, "_load_source_configs", fake_load_source_configs)
+        app = create_app(data_dir=tmp_path, store=CountingStore())  # type: ignore[arg-type]
+        client = TestClient(app)
+
+        resp = client.get(
+            "/api/v1/public/news",
+            params={"target_id": "italy", "page_size": 20},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["items"]) == 20
+        assert {item["source"]["name"] for item in data["items"]} == {"ANSA.it"}
+        assert calls == 1
+
+    def test_public_news_api_uses_short_ttl_projection_cache(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """相同公开 feed 查询短时间内应命中进程内 projection cache。"""
+
+        class CountingStore:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            async def get_target_event_count(self, target_id: str) -> int:
+                return 1
+
+            async def query_events_paginated(self, **kwargs: Any) -> dict[str, Any]:
+                self.calls += 1
+                return {
+                    "total": 1,
+                    "rows": [
+                        {
+                            "event_id": "ne-italy-cache-001",
+                            "source_id": "ansa",
+                            "news_value_score": 82,
+                            "china_relevance": 75,
+                            "classification_l0": "international-relations",
+                            "published_at": "2026-06-09T10:00:00+00:00",
+                            "file_path": None,
+                            "title_original": "Cached public story",
+                            "metadata": {},
+                        }
+                    ],
+                }
+
+        store = CountingStore()
+        app = create_app(data_dir=tmp_path, store=store)  # type: ignore[arg-type]
+        client = TestClient(app)
+
+        first = client.get("/api/v1/public/news", params={"target_id": "italy"})
+        second = client.get("/api/v1/public/news", params={"target_id": "italy"})
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert first.headers["x-news-sentry-feed-cache"] == "miss"
+        assert second.headers["x-news-sentry-feed-cache"] == "hit"
+        assert first.headers["etag"] == second.headers["etag"]
+        assert second.json() == first.json()
+        assert store.calls == 1
+        elapsed = second.headers["x-news-sentry-feed-elapsed-ms"]
+        assert elapsed.isdigit()
+        sensitive_header_material = " ".join(
+            [
+                second.headers["x-news-sentry-feed-cache"],
+                second.headers["x-news-sentry-feed-elapsed-ms"],
+            ]
+        ).lower()
+        assert "data_dir" not in sensitive_header_material
+        assert "token" not in sensitive_header_material
+        assert "secret" not in sensitive_header_material
+
+    def test_public_news_api_returns_304_from_projection_cache(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """缓存命中且 ETag 匹配时仍返回轻量 304。"""
+
+        class CountingStore:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            async def get_target_event_count(self, target_id: str) -> int:
+                return 1
+
+            async def query_events_paginated(self, **kwargs: Any) -> dict[str, Any]:
+                self.calls += 1
+                return {
+                    "total": 1,
+                    "rows": [
+                        {
+                            "event_id": "ne-italy-cache-304",
+                            "source_id": "ansa",
+                            "news_value_score": 70,
+                            "china_relevance": 40,
+                            "classification_l0": "politics",
+                            "published_at": "2026-06-09T10:00:00+00:00",
+                            "file_path": None,
+                            "title_original": "Cached ETag story",
+                            "metadata": {},
+                        }
+                    ],
+                }
+
+        store = CountingStore()
+        app = create_app(data_dir=tmp_path, store=store)  # type: ignore[arg-type]
+        client = TestClient(app)
+
+        first = client.get("/api/v1/public/news", params={"target_id": "italy"})
+        second = client.get(
+            "/api/v1/public/news",
+            params={"target_id": "italy"},
+            headers={"If-None-Match": first.headers["etag"]},
+        )
+
+        assert first.status_code == 200
+        assert second.status_code == 304
+        assert second.text == ""
+        assert second.headers["x-news-sentry-feed-cache"] == "hit"
+        assert second.headers["etag"] == first.headers["etag"]
+        assert store.calls == 1
+
+    def test_public_news_api_logs_slow_miss_without_sensitive_values(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """慢 public feed miss 需要可观测，但日志不能包含搜索词、路径或密钥形态字段。"""
+
+        class SlowStore:
+            async def get_target_event_count(self, target_id: str) -> int:
+                return 1
+
+            async def query_public_news_rows(self, **kwargs: Any) -> dict[str, Any]:
+                return {
+                    "total": 1,
+                    "rows": [
+                        {
+                            "event_id": "ne-italy-slow-log-001",
+                            "source_id": "ansa",
+                            "news_value_score": 80,
+                            "china_relevance": 60,
+                            "classification_l0": "politics",
+                            "published_at": "2026-06-09T10:00:00+00:00",
+                            "file_path": None,
+                            "title_original": "Slow log story",
+                            "metadata": {},
+                        }
+                    ],
+                }
+
+        monkeypatch.setattr(api_server_module, "_PUBLIC_NEWS_SLOW_LOG_MS", 0)
+        caplog.set_level("WARNING")
+        app = create_app(data_dir=tmp_path, store=SlowStore())  # type: ignore[arg-type]
+        client = TestClient(app)
+
+        resp = client.get(
+            "/api/v1/public/news",
+            params={"target_id": "italy", "q": "secret-search-term"},
+        )
+
+        assert resp.status_code == 200
+        log_text = "\n".join(record.getMessage() for record in caplog.records)
+        assert "public news feed slow miss" in log_text
+        assert "has_q=True" in log_text
+        assert "secret-search-term" not in log_text
+        assert "data_dir" not in log_text
+        assert "token" not in log_text.lower()
+        assert "secret" not in log_text.lower()
 
     def test_public_news_detail_returns_reader_shape_without_auth(self, tmp_path: Path) -> None:
         """公共新闻详情 API 使用读者字段，不需要后台认证。"""
