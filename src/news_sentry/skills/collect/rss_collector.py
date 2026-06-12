@@ -73,6 +73,26 @@ def _retry_fetch(
     ) from last_error
 
 
+def _response_feed_payload(response: httpx.Response) -> bytes:
+    """Return raw feed bytes when available, with text fallback for loose mocks.
+
+    Some public feeds declare UTF-16 but omit a BOM. `feedparser` can still
+    infer them correctly from raw bytes, while `httpx.Response.text` may raise
+    or mis-decode first. Tests often use MagicMock objects without `content`,
+    so keep a conservative string fallback for those cases.
+    """
+    content = getattr(response, "content", None)
+    if isinstance(content, bytes):
+        return content
+    if isinstance(content, bytearray):
+        return bytes(content)
+
+    text = getattr(response, "text", "")
+    if isinstance(text, str):
+        return text.encode("utf-8", errors="ignore")
+    return b""
+
+
 class RSSCollector:
     """从 RSS/Atom feed 采集新闻事件。
 
@@ -138,7 +158,7 @@ class RSSCollector:
                 lambda: httpx.get(self._url, timeout=self._timeout, follow_redirects=False),
                 self._source_id,
             )
-            feed_content = response.text
+            feed_content = _response_feed_payload(response)
         except RuntimeError:
             raise
         except Exception as e:
@@ -196,7 +216,7 @@ class RSSCollector:
             self._last_error = traceback.format_exc()
             return []
 
-        feed = feedparser.parse(response.text)
+        feed = feedparser.parse(_response_feed_payload(response))
         if feed.get("bozo", 0) and not feed.get("entries"):
             return []
 

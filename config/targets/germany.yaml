@@ -19,10 +19,12 @@ source_channel_refs:
   - spiegel-politics
   - zeit-politics
   - faz-politics
+  - tagesspiegel-news
 
   # ── B. 经济与商业 ─────────────────────────────────
   - handelsblatt
   - faz-business
+  - destatis-aktuell
 
   # ── C. 外交与国际关系 ─────────────────────────────
   - auswaertiges-amt

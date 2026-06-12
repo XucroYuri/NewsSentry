@@ -1,0 +1,111 @@
+# Schema: ../../schemas/filterrules.schema.json
+# 契约: docs/contracts-canonical.md §3
+# ADR: ADR-0009
+rules_version: "1.0.0"
+target_id: vietnam
+
+score_threshold: 30
+max_age_hours: 72
+dedup_window_hours: 24
+
+keyword_rules:
+  # ── 政治与治理 ───────────────────────────────────────
+  - keyword: "Vietnam"
+    weight: 0.7
+    language: en
+  - keyword: "Vietnamese"
+    weight: 0.7
+    language: en
+  - keyword: "Hanoi"
+    weight: 0.8
+    language: en
+  - keyword: "Ho Chi Minh City"
+    weight: 0.75
+    language: en
+  - keyword: "Pham Minh Chinh"
+    weight: 0.95
+    language: en
+  - keyword: "Communist Party"
+    weight: 0.9
+    language: en
+  - keyword: "National Assembly"
+    weight: 0.85
+    language: en
+  - keyword: "Politburo"
+    weight: 0.85
+    language: en
+
+  # ── 经济与出口制造 ───────────────────────────────────
+  - keyword: "exports"
+    weight: 0.85
+    language: en
+  - keyword: "manufacturing"
+    weight: 0.9
+    language: en
+  - keyword: "FDI"
+    weight: 0.8
+    language: en
+  - keyword: "factory"
+    weight: 0.75
+    language: en
+  - keyword: "electronics"
+    weight: 0.85
+    language: en
+  - keyword: "supply chain"
+    weight: 0.9
+    language: en
+  - keyword: "tariff"
+    weight: 0.85
+    language: en
+  - keyword: "trade deal"
+    weight: 0.85
+    language: en
+
+  # ── 涉华、东盟与地缘关系 ─────────────────────────────
+  - keyword: "China"
+    weight: 1.0
+    language: en
+  - keyword: "Chinese"
+    weight: 0.9
+    language: en
+  - keyword: "Beijing"
+    weight: 0.85
+    language: en
+  - keyword: "South China Sea"
+    weight: 1.0
+    language: en
+  - keyword: "ASEAN"
+    weight: 0.8
+    language: en
+  - keyword: "Mekong"
+    weight: 0.8
+    language: en
+  - keyword: "maritime"
+    weight: 0.8
+    language: en
+
+  # ── 科技、能源与社会 ─────────────────────────────────
+  - keyword: "AI"
+    weight: 0.75
+    language: en
+  - keyword: "semiconductor"
+    weight: 0.9
+    language: en
+  - keyword: "data center"
+    weight: 0.8
+    language: en
+  - keyword: "energy"
+    weight: 0.75
+    language: en
+  - keyword: "LNG"
+    weight: 0.8
+    language: en
+  - keyword: "offshore wind"
+    weight: 0.85
+    language: en
+  - keyword: "labor"
+    weight: 0.65
+    language: en
+  - keyword: "flood"
+    weight: 0.6
+    language: en
