@@ -1,0 +1,41 @@
+# Schema: ../../schemas/classification.schema.json
+# 契约: docs/contracts-canonical.md §9
+# ADR: ADR-0009
+extends: rules-v1.yaml
+rules_version: "1.0.0"
+
+l1_topics:
+  - code: canada_usmca_trade_review
+    l0_domain: international-relations
+    label_zh: "加美墨贸易与关税评估"
+    keywords_en: [Canada, USMCA, CUSMA, tariff, trade, border, Ottawa, Washington]
+
+  - code: canada_federal_governance
+    l0_domain: politics
+    label_zh: "加拿大联邦治理"
+    keywords_en: [Parliament, House of Commons, Mark Carney, Liberal, Conservative, Ottawa]
+
+  - code: canada_china_relations
+    l0_domain: international-relations
+    label_zh: "中加关系与投资审查"
+    keywords_en: [China, Chinese, Beijing, Canada, critical minerals, EV, investment screening]
+
+  - code: canada_energy_resources
+    l0_domain: economy
+    label_zh: "加拿大能源与资源"
+    keywords_en: [oil, LNG, pipeline, critical minerals, electricity, energy, Alberta]
+
+  - code: canada_ai_industrial_policy
+    l0_domain: tech
+    label_zh: "加拿大人工智能与产业政策"
+    keywords_en: [AI, artificial intelligence, data center, semiconductor, industrial strategy, innovation]
+
+  - code: canada_affordability_social
+    l0_domain: society
+    label_zh: "加拿大民生与可负担性"
+    keywords_en: [housing, food security, affordability, immigration, labor, wildfire]
+
+country_axes:
+  china_canada_relations:
+    enabled: true
+    sub_axes: [canada_china_relations]
