@@ -34,7 +34,7 @@ def _filter_config() -> dict:
 
 
 def test_new_zealand_filter_covers_budget_trade_and_security_signals(tmp_path: Path) -> None:
-    """New Zealand target should retain current high-signal budget, China, and security headlines."""
+    """New Zealand target should retain current budget, China, and security signals."""
     config = _filter_config()
     rules_filter = RulesFilter(config, Memory(tmp_path))
     threshold = int(config["score_threshold"])
