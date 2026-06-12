@@ -229,6 +229,7 @@ class TestCheckNetworkHost:
             *sorted((project_root / "config/sources/germany/api").glob("*.yaml")),
             *sorted((project_root / "config/sources/france").glob("*.yaml")),
             *sorted((project_root / "config/sources/france/api").glob("*.yaml")),
+            *sorted((project_root / "config/sources/canada").glob("*.yaml")),
             *sorted((project_root / "config/sources/china-watch-en").glob("*.yaml")),
             *sorted((project_root / "config/sources/india").glob("*.yaml")),
             *sorted((project_root / "config/sources/japan").glob("*.yaml")),

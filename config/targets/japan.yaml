@@ -16,37 +16,21 @@ timezone: Asia/Tokyo
 source_channel_refs:
   # ── A. 政治与治理 ─────────────────────────────────
   - nhk-news
-  - yomiuri-politics
   - asahi-politics
-  - mainichi-politics
+  - asahi-headlines
 
   # ── B. 经济与商业 ─────────────────────────────────
-  - nikkei
   - asahi-business
 
   # ── C. 外交与国际关系 ─────────────────────────────
-  - mofa-japan
   - asahi-international
 
   # ── D. 安全与防务 ─────────────────────────────────
-  - mod-japan
-
-  # ── E. 司法与法治 ─────────────────────────────────
-  - asahi-social
 
   # ── F. 社会与民生 ─────────────────────────────────
-  - mainichi-social
-  - yomiuri-social
 
   # ── G. 科技与数字 ─────────────────────────────────
-  - nikkei-xtech
   - asahi-digital
-
-  # ── H. 环境与能源 ─────────────────────────────────
-  - env-go-jp
-
-  # ── I. 移民与人口 ─────────────────────────────────
-  - moj-immigration
 
   # ── J. 文化与遗产 ─────────────────────────────────
   - asahi-culture
@@ -60,8 +44,8 @@ source_channel_refs:
   - api/gdelt-japan
 
   # ── 辅助源（非日本专门） ────────────────────────
-  - reuters-jp
   - bbc-jp
+  - japantimes-topstories
 
 # 各子系统规则/路由配置的相对路径
 filter_rules_ref: config/filters/japan/default.yaml

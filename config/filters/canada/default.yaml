@@ -1,0 +1,120 @@
+# Schema: ../../schemas/filterrules.schema.json
+# 契约: docs/contracts-canonical.md §3
+# ADR: ADR-0009
+rules_version: "1.0.0"
+target_id: canada
+
+score_threshold: 30
+max_age_hours: 72
+dedup_window_hours: 24
+
+keyword_rules:
+  # ── 政治与治理 ───────────────────────────────────────
+  - keyword: "Canada"
+    weight: 0.7
+    language: en
+  - keyword: "Canadian"
+    weight: 0.7
+    language: en
+  - keyword: "Ottawa"
+    weight: 0.85
+    language: en
+  - keyword: "Mark Carney"
+    weight: 0.95
+    language: en
+  - keyword: "Parliament"
+    weight: 0.85
+    language: en
+  - keyword: "House of Commons"
+    weight: 0.9
+    language: en
+  - keyword: "Liberal"
+    weight: 0.75
+    language: en
+  - keyword: "Conservative"
+    weight: 0.75
+    language: en
+
+  # ── 经济、贸易与工业 ─────────────────────────────────
+  - keyword: "USMCA"
+    weight: 1.0
+    language: en
+  - keyword: "CUSMA"
+    weight: 1.0
+    language: en
+  - keyword: "tariff"
+    weight: 0.9
+    language: en
+  - keyword: "trade"
+    weight: 0.8
+    language: en
+  - keyword: "border"
+    weight: 0.75
+    language: en
+  - keyword: "critical minerals"
+    weight: 0.9
+    language: en
+  - keyword: "supply chain"
+    weight: 0.85
+    language: en
+  - keyword: "manufacturing"
+    weight: 0.75
+    language: en
+  - keyword: "food security"
+    weight: 0.9
+    language: en
+  - keyword: "housing"
+    weight: 0.75
+    language: en
+
+  # ── 外交与安全 ───────────────────────────────────────
+  - keyword: "G7"
+    weight: 0.85
+    language: en
+  - keyword: "NATO"
+    weight: 0.8
+    language: en
+  - keyword: "Arctic"
+    weight: 0.85
+    language: en
+  - keyword: "defence"
+    weight: 0.8
+    language: en
+  - keyword: "China"
+    weight: 1.0
+    language: en
+  - keyword: "Chinese"
+    weight: 0.9
+    language: en
+  - keyword: "Beijing"
+    weight: 0.85
+    language: en
+  - keyword: "investment screening"
+    weight: 0.95
+    language: en
+  - keyword: "EV"
+    weight: 0.75
+    language: en
+
+  # ── 能源、科技与社会 ─────────────────────────────────
+  - keyword: "oil"
+    weight: 0.7
+    language: en
+  - keyword: "LNG"
+    weight: 0.8
+    language: en
+  - keyword: "wildfire"
+    weight: 0.75
+    language: en
+  - keyword: "AI"
+    weight: 0.8
+    language: en
+  - keyword: "artificial intelligence"
+    weight: 0.9
+    language: en
+  - keyword: "immigration"
+    weight: 0.75
+    language: en
+  - keyword: "visa"
+    weight: 0.65
+    language: en

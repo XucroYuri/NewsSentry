@@ -2,7 +2,9 @@
 source_id: "nhk-news"
 display_name: "NHK ニュース"
 type: rss
-url: "https://www.nhk.or.jp/rss/news/cat0.xml"
+url: "https://news.web.nhk/n-data/conf/na/rss/cat0.xml"
+language: ja
+notes: "2026-06-13 live RSS check passed on resolved NHK feed host; avoids redirect blocked by collector."
 credibility_base: 0.92
 fetch_interval_minutes: 30
 max_items_per_run: 50

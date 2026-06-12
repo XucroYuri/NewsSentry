@@ -258,14 +258,83 @@ Phase 88 已达到本轮验收：生产公网公开新闻首屏不再出现 25-4
 - preview Deploy job: `80923731265`
 - preview workflow 结果: `CI Gate` 与 `Deploy preview` 全部通过
 - preview 内部健康证据: `Deploy via SSH` 成功，说明远端 `127.0.0.1:18081/api/v1/health` 已在 workflow 内通过
-- preview 外部健康证据: 本地 `curl https://preview.news-sentry.com/api/v1/health` 返回 `SSL_ERROR_SYSCALL`
-- preview targets API 证据: 本地 `curl https://preview.news-sentry.com/api/v1/targets` 返回同样 TLS 错误
+
+## 2026-06-12 Codex target/source 扩容 round 3 preview 验证记录
+
+本轮自动化新增 `vietnam` target，并为 `germany` 补入 `tagesspiegel-news` 与 `destatis-aktuell` 两条公开 RSS。同时修复了 RSSCollector 对“UTF-16 声明但无 BOM” feed 的兼容性，使 `Vietnam News` 三条英语 RSS 可以稳定采集。部署链路推进到 `preview`，未推进 `production`。
+
+- release branch: `codex/target-source-expansion-r003-vietnam`
+- release commit: `0d7888a`
+- preview branch SHA: `0d7888ac4a774d6555b68b70595af76f0c0a6be6`
+- preview CI workflow: `27405188785`
+- preview CI job: `80992490343`
+- preview Deploy workflow: `27405188794`
+- preview Deploy CI Gate job: `80992490410`
+- preview Deploy preview job: `80993356657`
+- workflow 结果: `Scan Secrets`、独立 `CI` workflow、`Deploy` workflow 全部通过
+
+本地与 preview 验证证据：
+
+- 本地静态闸门：
+  - `python tools/scan_sensitive_data.py` passed
+  - `git diff --check` passed
+  - `python tools/check_no_hardcoded_target.py` passed
+  - `PYTHONPATH=src ... pytest tests/unit/test_config_schema_validation.py tests/unit/test_rss_collector.py tests/unit/test_vietnam_target_configs.py tests/unit/test_germany_target_configs.py ... tests/test_sandbox.py::TestCheckNetworkHost::test_cloud_vps_allows_configured_public_country_sources -q` → `475 passed`
+- 本地 collect smoke：
+  - `vietnam` 6/6 sources ok, `95` raw items
+  - `germany` 24/24 sources ok, `184` raw items
+- preview 外部健康证据：
+  - `GET https://preview.news-sentry.com/api/v1/health` → `{"status":"ok"}`
+  - `GET https://preview.news-sentry.com/api/v1/targets` → `vietnam` 可见且 `source_count=6`，`germany` 更新为 `source_count=24`
+- preview 版本对齐证据（workflow log 级）：
+  - `Deploy via SSH` 日志显示 `=== Deploying NewsSentry preview (0d7888a) on port 18081 ===`
+  - 远端 fetch/checkout 日志显示 `HEAD is now at 0d7888a feat: 新增越南 target 并补强德国信源`
+  - workflow 执行了 `echo "${SHA}" > /opt/news-sentry/preview/.deploy-sha`
+
+仍未满足 production 放行闸门的点：
+
+- 当前环境仍无法通过直连 SSH 或文档中的 jump-host SSH 读取 VPS `preview/.deploy-sha` 文件本体
+- 因此虽然 preview workflow、preview 外部 health 与 targets 已通过，本轮仍不推进 `main`
 - VPS `.deploy-sha` 证据: 当前环境无法通过直连 SSH 或文档中的 jump-host SSH 读取，因此未完成独立复核
 
 结论：
 
-- preview 站内部署成功，但 preview 公网入口/证书链仍不可用
-- 由于 preview 外部 health 与 `.deploy-sha` 不能按闸门完成实证验证，本轮不推进 `main`，生产环境保持不变
+- preview 站已完成公网 `/health` 与 `/targets` 实证，但 `.deploy-sha` 仍缺少独立只读复核
+- 因此本轮不推进 `main`，生产环境保持不变
+
+## 2026-06-12 Codex target/source 扩容 round 4 质量闸门记录
+
+本轮未写入新的 target/source 配置，也未触发 preview / production 部署。主要工作是基于 round 3 之后的真实 preview 状态，重新评估下一批候选与最少信源 target 的可操作性，避免在 source 验证不充分时为了轮次强行落库。
+
+### 本轮判断
+
+- 候选新 target：
+  - `philippines`：热点充分，中菲摩擦与 Mindanao 地震后的治理/公共安全议题都在 2026-06-12 仍持续发酵；但多条候选 feed 在当前环境里出现 Cloudflare challenge、403 或长时间超时，只剩 GMA 多个 XML feed 稳定可读，暂未达到“足够独立可信来源”标准
+  - `taiwan`：热点充分，6 月 10 日 HIMARS 实弹演训与 6 月 12 日半导体供应链/工资数据同时在发酵；且已通过网页实证定位到总统府、内政部、CDC、教育部、经贸主管部门等英语 RSS 入口，但当前环境仍未完成稳定直拉或 collect 级验证
+- 既有 target 轮转：
+  - `japan` 在 preview `/api/v1/targets` 中为 `source_count=23`，是未冷却且 preview 可见的最少信源既有 target
+  - 但候选新增 feed 仍未达到可安全落库的验证标准，因此本轮只记录维护判断，不做配置改动
+- 弱 target 只读复查：
+  - `south-korea` 在 preview `/api/v1/targets` 中仍为 `source_count=5`，继续是最弱 target
+  - 但其第 2 轮刚作为主对象处理，round 4 仍处 12 轮冷却窗口，只做状态记录
+
+### Runtime 复核
+
+- `GET https://preview.news-sentry.com/api/v1/health` → `{"status":"ok"}`
+- `GET https://preview.news-sentry.com/api/v1/targets` 显示：
+  - `japan=23`
+  - `south-korea=5`
+  - `india=6`
+  - `vietnam=6`
+  - `germany=24`
+  - `france=25`
+  - `china-watch-en=15`
+  - `italy=66`
+
+### 结论
+
+- 本轮按“宁可跳过不降低 source 质量”的规则停在评估与账本更新，不触发 release branch 推送，也不触发 preview / production deploy
+- 下一轮若继续推进 `taiwan` 或 `japan`，应先补足稳定的直接抓取或 collect smoke 证据，再进入正式配置修改
 
 ## 2026-06-12 Codex target/source 扩容 round 2 preview 验证记录
 
