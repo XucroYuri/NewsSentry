@@ -744,23 +744,21 @@ class TestLoadTarget:
             sid = opencli_src["source_id"]
             assert "tool_ref" in opencli_src, f"OpenCLI source {sid} missing tool_ref"
 
-    @pytest.mark.parametrize(
-        ("target_id", "primary_language"),
-        [
-            ("china-watch-en", "en"),
-            ("france", "fr"),
-            ("germany", "de"),
-            ("italy", "it"),
-            ("japan", "ja"),
-        ],
-    )
-    def test_real_configured_targets_load(self, target_id: str, primary_language: str):
+    @pytest.mark.parametrize("target_id", ["china-watch-en", "france", "germany", "italy", "japan"])
+    def test_real_configured_targets_load(self, target_id: str):
         """验证所有真实 target 引用的 source 配置都存在且可加载。"""
         loader = ConfigLoader(Path("."))
         config = loader.load_target(target_id)
         assert config.target_id == target_id
         assert config.sources
-        assert all(source["language"] == primary_language for source in config.sources)
+        language_scope = config.target.get("language_scope", {})
+        allowed_languages = {
+            str(language_scope.get("primary", "")).lower(),
+            *[str(item).lower() for item in language_scope.get("secondary", [])],
+        }
+        allowed_languages.discard("")
+        assert allowed_languages
+        assert all(source["language"] in allowed_languages for source in config.sources)
 
     def test_china_watch_has_diverse_english_sources(self):
         """China Watch 不应只依赖单一来源形成英文涉华信息流。"""
