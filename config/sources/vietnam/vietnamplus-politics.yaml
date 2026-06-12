@@ -1,0 +1,17 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015
+source_id: vietnamplus-politics
+display_name: "VietnamPlus Politics"
+type: rss
+url: "https://en.vietnamplus.vn/rss/politics.vnp"
+language: en
+credibility_base: 0.86
+fetch_interval_minutes: 25
+max_items_per_run: 35
+timeout_seconds: 30
+enabled: true
+notes: "2026-06-12 live RSS check passed; English wire-style political and diplomatic coverage."
+health:
+  last_success_at: null
+  consecutive_failures: 0

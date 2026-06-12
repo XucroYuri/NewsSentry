@@ -18,14 +18,17 @@ source_channel_refs:
   - lemonde-politics
   - lefigaro-politics
   - libe-politics
+  - leparisien-politique
 
   # ── B. 经济与商业 ─────────────────────────────────
   - lesechos
   - lefigaro-business
+  - leparisien-economie
 
   # ── C. 外交与国际关系 ─────────────────────────────
   - diplomatie-gouv
   - lemonde-international
+  - rfi-france
 
   # ── D. 安全与防务 ─────────────────────────────────
   - defense-gouv
@@ -58,6 +61,7 @@ source_channel_refs:
   - api/gdelt-france
   - reuters-fr
   - bbc-fr
+  - france24-france
 
 filter_rules_ref: config/filters/france/default.yaml
 classification_rules_ref: config/classification/rules-france.yaml

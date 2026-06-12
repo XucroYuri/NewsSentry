@@ -238,6 +238,30 @@ class TestCollect:
         )
         assert has_tz
         assert "T" in event.collected_at
+
+    def test_collect_prefers_raw_bytes_for_utf16_feed_without_bom(self):
+        """UTF-16 feed bytes should parse even when text decoding would be lossy."""
+        config = _make_minimal_config(url="https://example.com/utf16-feed")
+        collector = RSSCollector(config, None)
+        xml = (
+            '<?xml version="1.0" encoding="utf-16"?><rss><channel><title>VN</title>'
+            "<item><title>Hello Vietnam</title><link>https://example.com/vn</link>"
+            "<description>Desc</description>"
+            "<pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate>"
+            "</item></channel></rss>"
+        )
+
+        with mock.patch("httpx.get") as mock_get:
+            mock_response = mock.MagicMock()
+            mock_response.content = xml.encode("utf-16le")
+            mock_response.text = "garbled"
+            mock_get.return_value = mock_response
+
+            result = collector.collect("run-utf16")
+
+        assert len(result) == 1
+        event = result[0]
+        assert event.title_original == "Hello Vietnam"
         has_collected_tz = (
             event.collected_at.endswith("+00:00")
             or "Z" in event.collected_at

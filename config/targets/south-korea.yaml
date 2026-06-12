@@ -1,0 +1,84 @@
+# Schema: ../../schemas/targetconfig.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015, ADR-0016
+target_id: south-korea
+display_name: "韩国新闻监控"
+monitoring_type: country
+
+language_scope:
+  primary: en
+  secondary: []
+  output: zh
+
+timezone: Asia/Seoul
+
+source_channel_refs:
+  - yonhap-en-all
+  - yonhap-national
+  - korea-times-all
+  - korea-herald-all
+  - hankyoreh-english
+
+filter_rules_ref: config/filters/south-korea/default.yaml
+classification_rules_ref: config/classification/rules-south-korea.yaml
+sandbox_profile_ref: config/sandbox/default.yaml
+provider_routes_ref: config/provider/routes.yaml
+output_destinations_ref: config/output/destinations.yaml
+
+classification:
+  country_axes:
+    politics: true
+    economics: true
+    crime: false
+    sports: false
+    culture: true
+    eu_relations: false
+    china_italy_relations: false
+    immigration: true
+    energy: true
+    judicial: true
+    china_south_korea_relations: true
+  home_relevance_keywords:
+    - "South Korea"
+    - "Korean"
+    - "Seoul"
+    - "Lee Jae Myung"
+    - "National Assembly"
+    - "Blue House"
+    - "Yongsan"
+    - "North Korea"
+    - "Pyongyang"
+    - "China"
+    - "Beijing"
+    - "Samsung"
+    - "SK Hynix"
+    - "semiconductor"
+    - "shipbuilding"
+    - "battery"
+
+focus_areas:
+  - id: china-south-korea-relations
+    weight: 2.2
+    keywords:
+      - "China"
+      - "Beijing"
+      - "Yellow Sea"
+      - "trade"
+      - "tariff"
+      - "supply chain"
+  - id: north-korea-security
+    weight: 2.0
+    keywords:
+      - "North Korea"
+      - "Pyongyang"
+      - "missile"
+      - "deterrence"
+      - "inter-Korean"
+  - id: chips-batteries-and-ships
+    weight: 1.8
+    keywords:
+      - "semiconductor"
+      - "battery"
+      - "shipbuilding"
+      - "Samsung"
+      - "SK Hynix"

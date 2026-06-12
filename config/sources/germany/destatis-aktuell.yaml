@@ -1,0 +1,17 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015
+source_id: destatis-aktuell
+display_name: "Destatis Aktuell"
+type: rss
+url: "https://www.destatis.de/DE/Service/RSS/SiteGlobals/Functions/RSSFeed/DE/RSSNewsfeed/Aktuell.xml?nn=241288"
+language: de
+credibility_base: 0.91
+fetch_interval_minutes: 60
+max_items_per_run: 25
+timeout_seconds: 30
+enabled: true
+notes: "2026-06-12 live RSS check passed; official German macro/statistics press releases."
+health:
+  last_success_at: null
+  consecutive_failures: 0
