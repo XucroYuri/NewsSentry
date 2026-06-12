@@ -7,8 +7,8 @@
 
 ## 当前状态
 
-- current_round: 4
-- completed_rounds: 3
+- current_round: 5
+- completed_rounds: 4
 - status: active
 - stop_after_round: 100
 
@@ -53,6 +53,8 @@
 | 2 | france | optimize_existing | expand_sources | 从 21 源扩到 25 源，补入 France24 / RFI / Le Parisien 政经 RSS |
 | 3 | vietnam | new_target | add | 新增越南 target，修复 UTF-16 RSS 兼容后 6/6 collect smoke 通过 |
 | 3 | germany | optimize_existing | expand_sources | 从 22 源扩到 24 源，补入 Tagesspiegel / Destatis 并保持 24/24 全绿 |
+| 4 | taiwan | new_target | evaluate_only | 候选热度与 RSS 入口已确认，但当前环境无法完成稳定直接抓取验证，本轮不写配置 |
+| 4 | japan | optimize_existing | evaluate_only | 预览站可见 `source_count=23`，但候选新增 feed 在当前环境里未达到可安全落库标准 |
 
 ## 最近 20 轮 candidate_new_targets
 
@@ -61,6 +63,8 @@
 | 1 | india | added | 与现有 target、账本候选无重复 | 热度、公开 RSS 可得性、英文入口三项同时满足 |
 | 2 | south-korea | added | 与现有 target、最近 20 轮候选无重复；虽与 `japan` 同属东北亚，但国别范围、议题重心、来源矩阵独立 | 2026-06 韩国地方选举余波、李在明政府议程、半导体与半岛安全热度并行，且 5 条英文 RSS 已实证可用 |
 | 3 | vietnam | added | 与现有 target、最近 20 轮候选无重复；虽与 `china-watch-en`、`south-korea` 同属亚洲议题带，但国别边界、制造/关税/南海议题和独立英语 source matrix 均明确区分 | 2026-06 越南仍处于关税谈判、出口制造、对华供应链与东盟外交热区，且 6 条公开 RSS 已完成实证验证 |
+| 4 | philippines | skipped | 与现有 target、最近 20 轮候选无重复；与 `vietnam` 同属南海议题带，但国别边界和新闻源矩阵独立 | 2026-06 中菲摩擦与 Mindanao 地震后治理议题仍热，但多条候选 feed 呈 Cloudflare challenge 或长时间超时，本轮不纳入配置 |
+| 4 | taiwan | skipped | 与现有 target、最近 20 轮候选无重复；虽与 `china-watch-en`、`japan` 同涉东亚安全，但国别内政、半导体与民主治理焦点独立 | 已从总统府、内政部、CDC、教育部、经贸主管部门等页面定位 RSS 入口，但当前环境未完成稳定直拉/collect 级实证，延后到后续轮次 |
 
 ## target 作业记录表
 
@@ -75,6 +79,9 @@
 | 3 | 2026-06-12T16:55:59+08:00 | new_target | vietnam | 越南新闻监控 | 0 | 6 | vietnamnews-politics-laws,vietnamnews-economy,vietnamnews-society,vietnamplus-politics,vietnamplus-business,vnexpress-business | 0 | 0 | static checks passed; pytest passed; collect smoke 6/6 ok after RSS bytes-first fix, 95 items | preview workflow 27405188794 success; external preview health ok; targets API shows vietnam=6 and germany=24; production skipped | 选择 2026-06 仍处关税谈判、出口制造和东盟外交热区的越南国别 target，且公开英文 RSS 可实证运行 |
 | 3 | 2026-06-12T16:55:59+08:00 | optimize_existing | germany | 德国新闻监控 | 22 | 24 | tagesspiegel-news,destatis-aktuell | 0 | 0 | collect smoke 24/24 ok, 184 items | preview workflow 27405188794 success; external preview health ok; targets API shows germany=24 | 当前未冷却已跟踪 target 中 source_count 最少，补德国广域政治/社会与官方统计两个缺口后仍保持全绿 |
 | 3 | 2026-06-12T16:55:59+08:00 | weak_target_maintenance | south-korea | 韩国新闻监控 | 5 | 5 | 0 | 0 | 0 | readonly only; cooldown respected | skipped | `south-korea` 仍是全局最少信源 target，但第 2 轮刚作为主对象处理，本轮只记录状态与下一步建议，不重复改动 |
+| 4 | 2026-06-12T21:43:58+08:00 | skip | taiwan | 台湾新闻监控（候选） | 0 | 0 | 0 | 0 | 0 | live news heat verified; official RSS entry pages located via web, but direct shell fetch/collect proof remained unstable in current environment | skipped; no release branch pushed; no deploy | 候选热度高且官方 RSS 入口丰富，但本轮按“宁可跳过不降质”原则不把未完成直拉验证的候选写入配置 |
+| 4 | 2026-06-12T21:43:58+08:00 | skip | japan | 日本新闻监控 | 23 | 23 | 0 | 0 | 0 | preview `/api/v1/targets` confirms `source_count=23`; candidate additional feeds for Japan remained unverified from current environment | skipped | `japan` 是未冷却且远端可见 target 中 source_count 最少者，但候选新增 feed 未达到可安全落库的验证标准，本轮只做只读维护判断 |
+| 4 | 2026-06-12T21:43:58+08:00 | weak_target_maintenance | south-korea | 韩国新闻监控 | 5 | 5 | 0 | 0 | 0 | readonly only; cooldown respected; preview `/targets` still shows `source_count=5` | skipped | `south-korea` 仍是全局最少信源 target，但第 2 轮刚作为主对象处理，且当前优先处理冷却与验证边界，不重复改动 |
 
 ## 第 2 轮摘要
 
@@ -161,6 +168,49 @@
 - production_status: skipped
 - production_skip_reason: preview workflow、preview 外部 health 与 targets 已通过，但 `.deploy-sha` 仍缺少直读版 VPS 文件实证，因此本轮仍不推进 `main`
 
+## 第 4 轮摘要
+
+- round: 4
+- timestamp: 2026-06-12T21:43:58+08:00
+- recent_12_touched_targets_before_round:
+  - `india`
+  - `china-watch-en`
+  - `south-korea`
+  - `france`
+  - `vietnam`
+  - `germany`
+- cooldown_skips_this_round:
+  - `india`
+  - `china-watch-en`
+  - `south-korea`
+  - `france`
+  - `vietnam`
+  - `germany`
+- selected_new_target: `taiwan`（候选评估后跳过）
+- selected_existing_target: `japan`（只读评估后跳过）
+- weakest_target_readonly_check: `south-korea`
+- weakest_target_readonly_reason: `south-korea` 仍是 preview 可见 target 中最少信源对象（5），但第 2 轮刚作为主对象处理，按 12 轮冷却规则继续只读；`india` 与 `vietnam` 也都处于 6 源弱位池，但同样仍在冷却窗口内。
+- existing_target_selection_reason: `japan` 在未冷却且 preview 可见的既有 target 中 source_count 最少（23）；`fusion` 虽本地仅 7 源，但主工作树仍有用户未提交 WIP 且未进入 preview，本轮不跨现场覆盖。
+- new_target_selection_reason: `taiwan` 具备本轮最强的“热点 + 公开官方源”组合：6 月 10 日台湾进行 HIMARS 实弹演训，6 月 12 日 Focus Taiwan 报道半导体供应链园区与工资/制造数据继续升温；同时总统府、内政部、CDC、教育部与经贸主管部门均提供英语 RSS 入口。
+- validation_progress:
+  - 主工作树仍停留在 round 2 脏改状态，因此本轮继续使用隔离 worktree `codex/target-source-expansion-r002-south-korea`，并切出 `codex/target-source-expansion-r004-taiwan-japan-eval`
+  - live candidate scan:
+    - `philippines` 热点成立，但候选 feed 多次触发 Cloudflare challenge、403 或长时间超时，仅 GMA 多个 XML feed 可稳定直读，未达到“足够独立可信来源”阈值
+    - `taiwan` 热点成立，且通过网页实证定位到总统府/内政部/CDC/教育部/经贸主管部门等 RSS 入口，但当前环境里的直接 shell 拉取仍不稳定，未完成 collect 级验证
+  - preview runtime check:
+    - `curl https://preview.news-sentry.com/api/v1/health` -> `{"status":"ok"}`
+    - `curl https://preview.news-sentry.com/api/v1/targets` -> `japan=23`, `south-korea=5`, `india=6`, `vietnam=6`, `germany=24`, `france=25`, `china-watch-en=15`, `italy=66`
+  - no repo config changes written; therefore no `scan_sensitive_data` / pytest / collect smoke rerun against new candidate configs
+- deploy_status: skipped
+- preview_release_branch: `codex/target-source-expansion-r004-taiwan-japan-eval`
+- preview_release_sha: none
+- preview_external_health: `GET https://preview.news-sentry.com/api/v1/health` -> `{"status":"ok"}`
+- preview_targets_api: `GET https://preview.news-sentry.com/api/v1/targets` -> `japan` visible with `source_count=23`; `south-korea` visible with `source_count=5`
+- preview_remote_deploy_sha_check: not_attempted
+- preview_remote_deploy_sha_reason: 本轮没有实际配置改动，且候选验证未过闸门，因此不触发 release / deploy 链路
+- production_status: skipped
+- production_skip_reason: 本轮无安全可落地的 target/source 配置改动，按自动化规则只更新账本，不推进 preview 或 production
+
 ## 第 1 轮结论
 
 - 已完成新增 target: `india`
@@ -171,9 +221,8 @@
 
 ## 下一轮建议
 
-- `vietnam` 与 `germany` 已进入最近 12 轮冷却，下一轮不要再作为主优化对象
-- 既然 `preview.news-sentry.com` 已恢复公网可达，下一轮优先补“远端版本可见性”证据链：要么恢复 SSH 读 `.deploy-sha`，要么提供等价的只读版本端点，再考虑 production 放行
-- `south-korea` 仍是全局最少信源 target（5）但处于冷却；若下一轮不再冷却受阻，应优先补 1-2 条可验证英文 RSS，`india`（6）作为第二弱 target 同样应进入候选池
-- `japan`（23）与 `fusion`（7，但主工作树仍有用户 WIP）是下轮现有 target 轮转时最值得评估的两个方向：前者可补公开英语/官方信源，后者只宜在用户现场确认不冲突后再动
-- `vietnam` 当前 6 条源已全绿，但下一轮不应立即重复扩容；若后续补源，优先寻找第三家稳定英语/官方 feed，降低对 `VietnamPlus`/`VnExpress` 的集中依赖
-- 若下轮仍无 SSH 能力，至少补一条可公开读取当前 preview 版本号/branch 的诊断端点，再决定是否允许 main 推进 production
+- `taiwan` 与 `philippines` 已作为 round 4 候选被正式评估并跳过；若下一轮重试，先解决“直接 shell 拉取 / collect 级验证不稳定”这个根因，不要只重复查新闻热度
+- `japan` 仍是未冷却且 preview 可见的最少信源既有 target（23），应继续作为下轮主维护优先项，但前提是先拿到 1-2 条可稳定 collect 的公开英语或官方 feed
+- `south-korea` 仍是全局最少信源 target（5）且已连续两轮只读，待冷却允许后应优先补 1-2 条已验证英文 RSS；`india` 与 `vietnam`（各 6）作为第二梯队进入后续弱 target 池
+- `fusion` 本地仍存在用户 WIP，除非主工作树中的相关改动先落定，否则继续不把它作为自动化主对象
+- preview 公网 health 已稳定，但 production 放行链路依然缺少独立 `.deploy-sha` 只读证据；在重新恢复实际配置扩容前，仍建议优先补“远端版本可见性”诊断端点
