@@ -1,0 +1,84 @@
+# Schema: ../../schemas/filterrules.schema.json
+# 契约: docs/contracts-canonical.md §3
+# ADR: ADR-0009
+rules_version: "1.0.0"
+target_id: new-zealand
+
+score_threshold: 30
+max_age_hours: 72
+dedup_window_hours: 24
+
+keyword_rules:
+  # ── 政治与治理 ───────────────────────────────────────
+  - keyword: "New Zealand"
+    weight: 0.8
+    language: en
+  - keyword: "Wellington"
+    weight: 0.85
+    language: en
+  - keyword: "Christopher Luxon"
+    weight: 0.95
+    language: en
+  - keyword: "Parliament"
+    weight: 0.85
+    language: en
+  - keyword: "Budget 2026"
+    weight: 0.95
+    language: en
+
+  # ── 经济、贸易与民生 ─────────────────────────────────
+  - keyword: "trade"
+    weight: 0.8
+    language: en
+  - keyword: "tariff"
+    weight: 0.9
+    language: en
+  - keyword: "exports"
+    weight: 0.8
+    language: en
+  - keyword: "dairy"
+    weight: 0.85
+    language: en
+  - keyword: "housing"
+    weight: 0.75
+    language: en
+  - keyword: "cost of living"
+    weight: 0.85
+    language: en
+  - keyword: "immigration"
+    weight: 0.75
+    language: en
+
+  # ── 外交与安全 ───────────────────────────────────────
+  - keyword: "China"
+    weight: 1.0
+    language: en
+  - keyword: "Beijing"
+    weight: 0.85
+    language: en
+  - keyword: "Hong Kong"
+    weight: 0.85
+    language: en
+  - keyword: "Pacific"
+    weight: 0.8
+    language: en
+  - keyword: "security"
+    weight: 0.75
+    language: en
+  - keyword: "defence"
+    weight: 0.8
+    language: en
+
+  # ── 科技、能源与产业 ─────────────────────────────────
+  - keyword: "energy"
+    weight: 0.75
+    language: en
+  - keyword: "Rocket Lab"
+    weight: 0.9
+    language: en
+  - keyword: "AI"
+    weight: 0.8
+    language: en
+  - keyword: "innovation"
+    weight: 0.75
+    language: en

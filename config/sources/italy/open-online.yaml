@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015
+source_id: open-online
+display_name: "Open Online"
+type: rss
+url: "https://www.open.online/feed/"
+credibility_base: 0.79
+fetch_interval_minutes: 20
+max_items_per_run: 40
+timeout_seconds: 30
+enabled: true
+notes: "2026-06-13 live RSS check passed; supplements Italy public-affairs and breaking-news coverage."
+health:
+  last_success_at: null
+  consecutive_failures: 0

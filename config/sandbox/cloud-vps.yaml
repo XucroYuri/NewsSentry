@@ -113,6 +113,9 @@ network_policy:
     - "vietnamnews.vn"
     - "en.vietnamplus.vn"
     - "e.vnexpress.net"
+    - "www.beehive.govt.nz"
+    - "www.nzherald.co.nz"
+    - "www.open.online"
   blocked_hosts:
     - "169.254.169.254"
     - "metadata.google.internal"

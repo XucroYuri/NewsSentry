@@ -1,0 +1,17 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015
+source_id: beehive-releases
+display_name: "Beehive Releases"
+type: rss
+url: "https://www.beehive.govt.nz/releases/feed"
+language: en
+credibility_base: 0.93
+fetch_interval_minutes: 30
+max_items_per_run: 30
+timeout_seconds: 30
+enabled: true
+notes: "2026-06-13 live RSS check passed; official government releases for budget, trade, and diplomacy."
+health:
+  last_success_at: null
+  consecutive_failures: 0

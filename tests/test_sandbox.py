@@ -225,6 +225,7 @@ class TestCheckNetworkHost:
         policy_data = yaml.safe_load((project_root / "config/sandbox/cloud-vps.yaml").read_text())
         enforcer = SandboxEnforcer(SandboxPolicy.from_yaml_dict(policy_data))
         source_files = [
+            *sorted((project_root / "config/sources/new-zealand").glob("*.yaml")),
             *sorted((project_root / "config/sources/germany").glob("*.yaml")),
             *sorted((project_root / "config/sources/germany/api").glob("*.yaml")),
             *sorted((project_root / "config/sources/france").glob("*.yaml")),
