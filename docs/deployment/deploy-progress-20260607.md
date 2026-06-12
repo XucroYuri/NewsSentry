@@ -258,6 +258,43 @@ Phase 88 已达到本轮验收：生产公网公开新闻首屏不再出现 25-4
 - preview Deploy job: `80923731265`
 - preview workflow 结果: `CI Gate` 与 `Deploy preview` 全部通过
 - preview 内部健康证据: `Deploy via SSH` 成功，说明远端 `127.0.0.1:18081/api/v1/health` 已在 workflow 内通过
+
+## 2026-06-12 Codex target/source 扩容 round 3 preview 验证记录
+
+本轮自动化新增 `vietnam` target，并为 `germany` 补入 `tagesspiegel-news` 与 `destatis-aktuell` 两条公开 RSS。同时修复了 RSSCollector 对“UTF-16 声明但无 BOM” feed 的兼容性，使 `Vietnam News` 三条英语 RSS 可以稳定采集。部署链路推进到 `preview`，未推进 `production`。
+
+- release branch: `codex/target-source-expansion-r003-vietnam`
+- release commit: `0d7888a`
+- preview branch SHA: `0d7888ac4a774d6555b68b70595af76f0c0a6be6`
+- preview CI workflow: `27405188785`
+- preview CI job: `80992490343`
+- preview Deploy workflow: `27405188794`
+- preview Deploy CI Gate job: `80992490410`
+- preview Deploy preview job: `80993356657`
+- workflow 结果: `Scan Secrets`、独立 `CI` workflow、`Deploy` workflow 全部通过
+
+本地与 preview 验证证据：
+
+- 本地静态闸门：
+  - `python tools/scan_sensitive_data.py` passed
+  - `git diff --check` passed
+  - `python tools/check_no_hardcoded_target.py` passed
+  - `PYTHONPATH=src ... pytest tests/unit/test_config_schema_validation.py tests/unit/test_rss_collector.py tests/unit/test_vietnam_target_configs.py tests/unit/test_germany_target_configs.py ... tests/test_sandbox.py::TestCheckNetworkHost::test_cloud_vps_allows_configured_public_country_sources -q` → `475 passed`
+- 本地 collect smoke：
+  - `vietnam` 6/6 sources ok, `95` raw items
+  - `germany` 24/24 sources ok, `184` raw items
+- preview 外部健康证据：
+  - `GET https://preview.news-sentry.com/api/v1/health` → `{"status":"ok"}`
+  - `GET https://preview.news-sentry.com/api/v1/targets` → `vietnam` 可见且 `source_count=6`，`germany` 更新为 `source_count=24`
+- preview 版本对齐证据（workflow log 级）：
+  - `Deploy via SSH` 日志显示 `=== Deploying NewsSentry preview (0d7888a) on port 18081 ===`
+  - 远端 fetch/checkout 日志显示 `HEAD is now at 0d7888a feat: 新增越南 target 并补强德国信源`
+  - workflow 执行了 `echo "${SHA}" > /opt/news-sentry/preview/.deploy-sha`
+
+仍未满足 production 放行闸门的点：
+
+- 当前环境仍无法通过直连 SSH 或文档中的 jump-host SSH 读取 VPS `preview/.deploy-sha` 文件本体
+- 因此虽然 preview workflow、preview 外部 health 与 targets 已通过，本轮仍不推进 `main`
 - preview 外部健康证据: 本地 `curl https://preview.news-sentry.com/api/v1/health` 返回 `SSL_ERROR_SYSCALL`
 - preview targets API 证据: 本地 `curl https://preview.news-sentry.com/api/v1/targets` 返回同样 TLS 错误
 - VPS `.deploy-sha` 证据: 当前环境无法通过直连 SSH 或文档中的 jump-host SSH 读取，因此未完成独立复核
