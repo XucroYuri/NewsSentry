@@ -1,0 +1,41 @@
+# Schema: ../../schemas/classification.schema.json
+# 契约: docs/contracts-canonical.md §9
+# ADR: ADR-0009
+extends: rules-v1.yaml
+rules_version: "1.0.0"
+
+l1_topics:
+  - code: china_vietnam_bilateral
+    l0_domain: international-relations
+    label_zh: "中越双边关系"
+    keywords_en: [China, Vietnam, Hanoi, Beijing, South China Sea, trade, tariff, supply chain]
+
+  - code: vietnam_party_state
+    l0_domain: politics
+    label_zh: "越南党政治理"
+    keywords_en: [Communist Party, National Assembly, Politburo, Prime Minister, Pham Minh Chinh, Hanoi]
+
+  - code: vietnam_export_manufacturing
+    l0_domain: economy
+    label_zh: "越南出口制造"
+    keywords_en: [exports, manufacturing, electronics, FDI, factory, supply chain, tariff, industrial park]
+
+  - code: vietnam_digital_industry
+    l0_domain: tech
+    label_zh: "越南数字与高科技产业"
+    keywords_en: [AI, semiconductor, data center, startup, software, digital economy, chip]
+
+  - code: vietnam_energy_transition
+    l0_domain: environment
+    label_zh: "越南能源转型"
+    keywords_en: [energy, LNG, grid, offshore wind, solar, coal, power plan, hydrogen]
+
+  - code: mekong_maritime_security
+    l0_domain: public-safety
+    label_zh: "湄公河与海上安全"
+    keywords_en: [Mekong, maritime, coast guard, fishing, South China Sea, shipping, typhoon]
+
+country_axes:
+  china_vietnam_relations:
+    enabled: true
+    sub_axes: [china_vietnam_bilateral]

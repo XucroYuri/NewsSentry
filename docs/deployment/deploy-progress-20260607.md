@@ -246,6 +246,68 @@ VPS production 本机，`http://127.0.0.1:18080/api/v1/public/news?featured=true
 
 Phase 88 已达到本轮验收：生产公网公开新闻首屏不再出现 25-45 秒尾部延迟，VPS cold miss 小于 8 秒、warm hit 小于 3 秒，浏览器 15 秒内可看到首条新闻。后续若搜索 `q` 成为高频入口，再规划 SQLite FTS 或独立 projection；本轮不引入 Redis、SSE/WebSocket 或 Cloudflare CDN API 缓存。
 
+## 2026-06-12 Codex target/source 扩容 preview 验证记录
+
+本轮自动化新增 `india` target，并为 `china-watch-en` 补入 `dw-en-all` 与 `aljazeera-global` 两条公开 RSS。部署链路只推进到 `preview`，未推进 `production`。
+
+- release branch: `codex/target-source-expansion-r001-india`
+- release branch head: `a1cd681`
+- preview merge SHA: `cabf7de87c797bd589c2efb25dd2306c4bcb9797`
+- preview Deploy run: `27382719432`
+- preview CI job: `80923024126`
+- preview Deploy job: `80923731265`
+- preview workflow 结果: `CI Gate` 与 `Deploy preview` 全部通过
+- preview 内部健康证据: `Deploy via SSH` 成功，说明远端 `127.0.0.1:18081/api/v1/health` 已在 workflow 内通过
+- preview 外部健康证据: 本地 `curl https://preview.news-sentry.com/api/v1/health` 返回 `SSL_ERROR_SYSCALL`
+- preview targets API 证据: 本地 `curl https://preview.news-sentry.com/api/v1/targets` 返回同样 TLS 错误
+- VPS `.deploy-sha` 证据: 当前环境无法通过直连 SSH 或文档中的 jump-host SSH 读取，因此未完成独立复核
+
+结论：
+
+- preview 站内部署成功，但 preview 公网入口/证书链仍不可用
+- 由于 preview 外部 health 与 `.deploy-sha` 不能按闸门完成实证验证，本轮不推进 `main`，生产环境保持不变
+
+## 2026-06-12 Codex target/source 扩容 round 2 preview 验证记录
+
+本轮自动化新增 `south-korea` target，并为 `france` 补入 `France 24`、`RFI`、`Le Parisien` 政经共 4 条公开 RSS。部署链路再次推进到 `preview`，仍未推进 `production`。
+
+### Release 与验证
+
+- release branch: `codex/target-source-expansion-r002-south-korea`
+- 配置主提交: `d5eab8a` (`feat: add south korea target and expand france sources`)
+- sandbox allowlist 修复提交: `ea72a6e` (`fix: allow france and south korea source hosts on cloud vps`)
+- 首次 preview run: `27393147856`
+  - CI job: `80954844603`
+  - 结果: `pytest + coverage` 失败，根因为 `cloud-vps` allowlist 漏掉 `www.france24.com`、`feeds.leparisien.fr`、`www.rfi.fr`
+- 修复后 preview run: `27393376925`
+  - CI job: `80955526542`
+  - Deploy job: `80955888024`
+  - 结果: `CI Gate` 与 `Deploy preview` 全部通过
+
+### 本地与公网证据
+
+- 本地静态/配置验证通过：
+  - `python tools/scan_sensitive_data.py`
+  - `git diff --check`
+  - `python tools/check_no_hardcoded_target.py`
+  - `pytest tests/test_sandbox.py::TestCheckNetworkHost::test_cloud_vps_allows_configured_public_country_sources tests/unit/test_south_korea_target_configs.py tests/unit/test_france_target_configs.py tests/unit/test_config_schema_validation.py -q`
+- collect smoke:
+  - `south-korea` 5/5 sources ok，写入 175 条 raw
+  - `france` 25/25 sources ok，写入 220 条 raw
+- preview 外部健康证据：
+  - `GET https://preview.news-sentry.com/api/v1/health` → `{"status":"ok"}`
+  - `GET https://preview.news-sentry.com/api/v1/targets` → `south-korea` 可见且 `source_count=5`，`france` 更新为 `source_count=25`
+- preview 内部版本证据：
+  - Deploy via SSH 日志显示远端 checkout 到 `ea72a6e`
+  - Post-deploy summary 记录 `Commit | ea72a6ef79f142c8ccba916f25d3fd5e29e44941`
+  - workflow 脚本已执行 `echo "${SHA}" > /opt/news-sentry/preview/.deploy-sha`
+
+### 结论
+
+- preview 站点已完成新一轮部署，公网 `/health` 与 `/targets` 均可实证
+- 但当前环境仍无法 direct SSH / jump-host 读取 VPS `preview/.deploy-sha` 文件本体，因此不把这轮视为满足 production 放行闸门
+- 生产环境保持不变；下一步重点应转向补“远端版本可见性”证据链，而不是继续在同一 target 上重复扩容
+
 ## 未完成事项与建议解决方向
 
 已完成一轮已部署站点全栈审计，独立报告见 [site-audit-20260607.md](site-audit-20260607.md)。2026-06-08 已启动并落地一轮全量硬化冲刺，脱敏整改记录见 [hardening-sprint-20260608.md](hardening-sprint-20260608.md)；后续安全、产品体验、CI/CD 和运维整改 backlog 以这两份报告中的 `NS-AUDIT-*` / security scan 编号为准。
