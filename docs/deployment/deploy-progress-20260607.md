@@ -464,6 +464,46 @@ Phase 88 已达到本轮验收：生产公网公开新闻首屏不再出现 25-4
 - 但当前环境仍无法 direct SSH / jump-host 读取 VPS `preview/.deploy-sha` 文件本体，因此仍不把这轮视为满足 production 放行闸门
 - 生产环境保持不变；下一步若要推进 `main`，应继续优先补 `.deploy-sha` 的独立只读证据链
 
+## 2026-06-13 Codex target/source 扩容 round 7 质量闸门跳过记录
+
+本轮自动化没有写入新的 target/source 配置，也没有触发 `preview` / `production` deploy。核心原因不是热度不足，而是候选在“运行时语言支持”和“可验证公开 source matrix”两个闸门上都没有同时通过。
+
+### 候选评估与证据
+
+- `brazil`
+  - 热点成立：本轮参考了巴西稀土去风险与供应链议题、IMF 对巴西增长韧性的表述，以及对华/BRICS 外交热度
+  - RSS 入口成立：`Agência Brasil` 的官方 RSS 页面可实证列出并直拉
+    - `https://agenciabrasil.ebc.com.br/rss/ultimasnoticias/feed.xml`
+    - `https://agenciabrasil.ebc.com.br/rss/politica/feed.xml`
+    - `https://agenciabrasil.ebc.com.br/rss/economia/feed.xml`
+    - `https://agenciabrasil.ebc.com.br/rss/internacional/feed.xml`
+    - `https://agenciabrasil.ebc.com.br/rss/justica/feed.xml`
+    - `https://agenciabrasil.ebc.com.br/rss/geral/feed.xml`
+  - 阻断项：当前代码 `Language` 枚举仅支持 `it/en/zh/ja/de/fr/mixed`，且 `schemas/classification.schema.json` 只允许 `keywords_it/en/zh/ja/de/fr`，不存在葡语 target 可安全落库的完整口径
+- `australia`
+  - 热点成立：移民、社会凝聚力调查与印太/对华议题均在 2026-06 继续活跃
+  - 公开 feed 仅部分成立：SBS 官方 RSS 文档与直拉验证确认 `top stories`、`latest`、`australia`、`world` 4 条 feed 可用
+  - 阻断项：议会、部门与商业候选 RSS 在当前环境下多次超时、403 或 404，未达到“至少一组独立可信 source matrix”阈值
+
+### 现网与冷却状态
+
+- preview 现网复验：
+  - `GET https://preview.news-sentry.com/api/v1/health` → `{"status":"ok"}`
+  - `GET https://preview.news-sentry.com/api/v1/targets` → `south-korea=5`, `india=6`, `new-zealand=6`, `canada=6`, `japan=13`, `china-watch-en=15`, `germany=24`, `france=25`, `italy=66`
+- 既有 target 侧没有执行优化：
+  - round 6 之后，preview 可见的既有国家 target 已全部位于最近 12 轮 touched_targets 冷却窗口
+  - `fusion` 虽然本地 source_count 更少，但主工作树仍存在用户 WIP，不能作为自动化主对象跨现场覆盖
+  - 因此本轮只对 `south-korea` 做只读弱 target 维护记录，不做重复改动
+
+### 结论
+
+- 本轮是一次有证据的 skip，而不是空转：
+  - `brazil` 因语言/分类 schema 口径缺口跳过
+  - `australia` 因独立可信公开 feed 数量不足跳过
+  - existing target 因最近 12 轮冷却和 `fusion` WIP 冲突跳过
+- 没有实际配置改动，因此不触发 release branch 推 preview，也不推进 production
+- production 放行链路的老阻断仍未变化：缺少 VPS `.deploy-sha` 的独立只读证据链
+
 ## 未完成事项与建议解决方向
 
 已完成一轮已部署站点全栈审计，独立报告见 [site-audit-20260607.md](site-audit-20260607.md)。2026-06-08 已启动并落地一轮全量硬化冲刺，脱敏整改记录见 [hardening-sprint-20260608.md](hardening-sprint-20260608.md)；后续安全、产品体验、CI/CD 和运维整改 backlog 以这两份报告中的 `NS-AUDIT-*` / security scan 编号为准。

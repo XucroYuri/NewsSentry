@@ -7,8 +7,8 @@
 
 ## 当前状态
 
-- current_round: 7
-- completed_rounds: 6
+- current_round: 8
+- completed_rounds: 7
 - status: active
 - stop_after_round: 100
 
@@ -59,6 +59,8 @@
 | 5 | japan | optimize_existing | prune_dead_and_add_live_sources | 删除 10 条 401/403/404 死源，补入 Japan Times / Asahi 总头条并修复 NHK 重定向 |
 | 6 | new-zealand | new_target | add | 新增新西兰 target，6/6 公开 RSS collect smoke 通过，preview `/targets` 可见 |
 | 6 | italy | optimize_existing | prune_dead_and_add_live_sources | 移出 3 条 challenge/403/错误页死源，补入 ANSA 政经与 Open Online 稳定 RSS，preview `source_count` 保持 66 |
+| 7 | brazil | new_target | evaluate_only | 巴西热点与 RSS 入口成立，但当前代码语言/分类 schema 不支持安全落库 |
+| 7 | south-korea | weak_target_maintenance | readonly | 继续是 preview 最弱 target，但仍处 12 轮冷却窗口，只做状态记录 |
 
 ## 最近 20 轮 candidate_new_targets
 
@@ -72,6 +74,8 @@
 | 5 | canada | added | 与现有 target、最近 20 轮候选无重复；虽与 `usmca`/`g7` 热点同属北美议程，但国别边界、官方源矩阵与 `china-watch-en`、`france` 均独立 | 2026-06 加拿大同时处于粮食安全战略、USMCA 评估与对法/对美安全合作热区，且 6 条公开 RSS 已完成 curl + collect 实证 |
 | 6 | mexico | skipped | 与现有 target、最近 20 轮候选无重复；虽与 `canada` 同属北美议题带，但国别边界、社会治理与官方源矩阵独立 | 2026-06 USMCA/世界杯/治安议题热度成立，但本轮实测官方与主流 RSS 多次返回 Access Denied/403/410 或 HTML 噪声，不纳入配置 |
 | 6 | new-zealand | added | 与现有 target、最近 20 轮候选无重复；虽与 `australia`、`canada` 同属英语国家议题，但预算、太平洋安全、对华关系和独立 feed matrix 均明确区分 | 2026-06 新西兰同时处于 Budget 2026、对华/对港议题与太平洋安全舆论热区，且 6 条公开 RSS 已完成 curl + collect 实证 |
+| 7 | brazil | skipped | 与现有 target、最近 20 轮候选无重复；虽与 `china-watch-en`、`canada` 同涉对华与资源议题，但国别边界、BRICS/稀土/财政焦点独立 | 2026-06 巴西稀土去风险、IMF 增长韧性和对华/BRICS 议题热度明确，但当前运行时语言枚举与分类 schema 均不支持葡语安全落库 |
+| 7 | australia | skipped | 与现有 target、最近 20 轮候选无重复；虽与 `new-zealand` 同属英语国家与印太议题带，但国内政治、移民与社会治理焦点独立 | 当前环境仅稳定验证到 SBS 的 4 条媒体 RSS；议会/部门/商业 RSS 多次超时、403 或 404，未达到独立可信 source matrix 阈值 |
 
 ## target 作业记录表
 
@@ -96,6 +100,9 @@
 | 6 | 2026-06-13T08:04:10+08:00 | new_target | new-zealand | 新西兰新闻监控 | 0 | 6 | beehive-all-updates,beehive-releases,beehive-speeches,nzherald-nz,nzherald-business,nzherald-world | 0 | 0 | static checks passed; ruff passed; targeted pytest 449 passed; collect smoke 6/6 ok, 90 raw items | preview workflow 27449879048 success; external preview health ok; targets API shows new-zealand=6 and italy=66; production skipped | 选择 Budget 2026、对华/对港议题与太平洋安全热度并行、且公开 RSS 可实证的新西兰国别 target |
 | 6 | 2026-06-13T08:04:10+08:00 | optimize_existing | italy | 意大利新闻监控 | 66 | 66 | ansa-politica,ansa-economia,open-online | camera-it,quirinale,unhcr-italia | 0 | static checks passed; ruff passed; targeted pytest 449 passed; collect smoke status 0 with 387 raw items; ansa-politica/ansa-economia/open-online all emitted data | preview workflow 27449879048 success; external preview health ok; targets API shows italy=66 and new-zealand=6; production skipped | 当前 preview 可见且最近 12 轮未做主作业的既有国家 target 仅剩 italy；本轮执行“删死源 + 补活源”质量维护而不重复触碰冷却对象 |
 | 6 | 2026-06-13T08:04:10+08:00 | weak_target_maintenance | south-korea | 韩国新闻监控 | 5 | 5 | 0 | 0 | 0 | readonly only; cooldown respected; preview `/targets` still shows `source_count=5` | skipped | `south-korea` 仍是全局最少信源 target，但第 2 轮起一直处于 12 轮冷却窗口，本轮继续只读记录 |
+| 7 | 2026-06-13T12:58:00+08:00 | skip | brazil | 巴西新闻监控（候选） | 0 | 0 | 0 | 0 | 0 | 6 条 Agência Brasil RSS 已完成直拉验证，但运行时 `Language` 仅支持 `it/en/zh/ja/de/fr/mixed`，且 `classification.schema` 无 `keywords_pt` | skipped; no release branch pushed; no deploy | 热度与 RSS 入口都成立，但当前代码口径不支持葡语 target 安全落库，按规则跳过 |
+| 7 | 2026-06-13T12:58:00+08:00 | skip | australia | 澳大利亚新闻监控（候选） | 0 | 0 | 0 | 0 | 0 | SBS `top stories/latest/australia/world` 4 条 feed 可直拉，但议会/部门/商业 RSS 多次超时、403 或 404 | skipped; no release branch pushed; no deploy | 仅有单一媒体矩阵稳定，不满足“足够独立可信来源”闸门，本轮不写配置 |
+| 7 | 2026-06-13T12:58:00+08:00 | weak_target_maintenance | south-korea | 韩国新闻监控 | 5 | 5 | 0 | 0 | 0 | readonly only; cooldown respected; preview `/targets` still shows `source_count=5` | skipped | `south-korea` 仍是 preview 最少信源 target，但已连续多轮处于 12 轮冷却窗口，本轮继续只读记录 |
 
 ## 第 2 轮摘要
 
@@ -334,6 +341,62 @@
 - production_status: skipped
 - production_skip_reason: preview 外部 `/health` 与 `/targets` 已通过，但 `.deploy-sha` 仍缺少独立只读复核；因此本轮不推进 `main`
 
+## 第 7 轮摘要
+
+- round: 7
+- timestamp: 2026-06-13T12:58:00+08:00
+- recent_12_touched_targets_before_round:
+  - `india`
+  - `china-watch-en`
+  - `south-korea`
+  - `france`
+  - `vietnam`
+  - `germany`
+  - `taiwan`
+  - `japan`
+  - `canada`
+  - `japan`
+  - `new-zealand`
+  - `italy`
+- cooldown_skips_this_round:
+  - `india`
+  - `china-watch-en`
+  - `south-korea`
+  - `france`
+  - `vietnam`
+  - `germany`
+  - `japan`
+  - `canada`
+  - `new-zealand`
+  - `italy`
+- selected_new_target: `brazil`（候选评估后跳过）
+- selected_existing_target: `none`
+- weakest_target_readonly_check: `south-korea`
+- weakest_target_readonly_reason: `south-korea` 仍是 preview 可见 target 中最少信源对象（5），但自第 2 轮起一直处于 12 轮冷却窗口；`india`、`vietnam` 与 `new-zealand` 也仍在 6 源弱位池或最近 12 轮窗口内，本轮只能继续只读记录。
+- existing_target_selection_reason: round 6 之后，preview 可见的既有国家 target 已全部落入最近 12 轮 touched_targets 冷却名单；`fusion` 虽然本地 source_count 更少，但主工作树仍有用户未提交 WIP，不能作为自动化主对象跨现场覆盖，因此本轮没有安全可执行的既有 target 优化对象。
+- new_target_selection_reason: `brazil` 具备本轮最强的“热点 + 公开 RSS”组合：稀土去风险、IMF 对增长韧性的正面表述、对华/BRICS 外交与财政议题同时升温；`Agência Brasil` RSS 页可实证列出 `ultimas/politica/economia/internacional/justica/geral` 6 条公开 feed。但当前代码 `Language` 枚举仅支持 `it/en/zh/ja/de/fr/mixed`，且 `classification.schema` 只允许 `keywords_it/en/zh/ja/de/fr`，无法安全落库葡语 target。备用候选 `australia` 虽有热度，但当前环境只稳定直拉到 SBS 的 4 条媒体 RSS，议会/部门/商业 RSS 多次超时、403 或 404，独立 source matrix 不足，因此同样跳过。
+- validation_progress:
+  - 本轮在隔离 worktree `.worktrees/target-source-expansion-r007-brazil` 上执行，基线分支为 `codex/target-source-expansion-r006-new-zealand-italy` 的 `2bd77f9`
+  - `PYTHONPATH=src ../../.venv/bin/python -m pytest tests/unit/test_config_schema_validation.py -q` passed (`445 passed`)
+  - preview runtime check:
+    - `GET https://preview.news-sentry.com/api/v1/health` -> `{"status":"ok"}`
+    - `GET https://preview.news-sentry.com/api/v1/targets` -> `south-korea=5`, `india=6`, `new-zealand=6`, `canada=6`, `japan=13`, `china-watch-en=15`, `germany=24`, `france=25`, `italy=66`
+  - candidate scan:
+    - `brazil`: 直拉验证 `https://agenciabrasil.ebc.com.br/rss/{ultimasnoticias,politica,economia,internacional,justica,geral}/feed.xml` 均返回可解析 XML
+    - `brazil`: `PYTHONPATH=src ... print([x.value for x in Language])` 显示当前仅支持 `it/en/zh/ja/de/fr/mixed`
+    - `brazil`: `schemas/classification.schema.json` 仅允许 `keywords_it/en/zh/ja/de/fr`，没有 `keywords_pt`
+    - `australia`: 官方 SBS RSS 文档确认并实测通过 `top stories/latest/australia/world` 4 条 feed；但议会、部门和商业 RSS 页面在当前环境下多次超时、403 或 404
+  - no repo config changes written; therefore no `scan_sensitive_data.py`、target-specific pytest 或 collect smoke rerun for new configs
+- deploy_status: skipped
+- preview_release_branch: `codex/target-source-expansion-r007-brazil`
+- preview_release_sha: none
+- preview_external_health: `GET https://preview.news-sentry.com/api/v1/health` -> `{"status":"ok"}`
+- preview_targets_api: `GET https://preview.news-sentry.com/api/v1/targets` -> `south-korea` remains `source_count=5`; `new-zealand=6`; `canada=6`
+- preview_remote_deploy_sha_check: not_attempted
+- preview_remote_deploy_sha_reason: 本轮没有安全可落地的 target/source 配置改动，因此不触发 release / preview deploy 链路
+- production_status: skipped
+- production_skip_reason: 本轮未产生通过闸门的配置变更，且 `.deploy-sha` 的独立只读证据链仍未补齐，因此不推进 `main`
+
 ## 第 1 轮结论
 
 - 已完成新增 target: `india`
@@ -344,11 +407,10 @@
 
 ## 下一轮建议
 
-- `canada` 与 `japan` 已在第 5 轮完成主作业，下一轮不要立即重复触碰；尤其 `japan` 本轮刚从 23 条名义源清到 13 条可运行源，先观察 1-2 轮实际 event 质量再决定是否继续补源
-- `new-zealand` 与 `italy` 已在第 6 轮完成主作业，下一轮不要立即重复触碰；尤其 `italy` 这轮是质量修剪而非大规模加量，先观察 1-2 轮实际 source health 再决定是否继续补官方替代源
-- `south-korea` 仍是全局最少信源 target（5），且已连续三轮只读；一旦冷却允许，应优先补 1-2 条已验证英文 RSS，把弱 target 的真实广度补起来
-- `india` 与 `vietnam`（各 6）仍在第二梯队弱位池，但本轮未动；若 `south-korea` 仍受冷却约束，可在二者中选其一做下一轮主维护
-- `taiwan` 与 `philippines` 仍保留在最近 20 轮候选名单中；若后续重试，必须先解决“直接 shell 拉取 / collect 级验证不稳定”，不要只重复新闻热度核验
-- `mexico` 已进入最近 20 轮候选冷却，后续若重试必须先确认公开 RSS 入口不再被 Access Denied/403/410 拦截，再考虑重新评估
+- `south-korea` 仍是全局最少信源 target（5），且已连续五轮只读；只有在 12 轮冷却窗口自然滚出，或用户明确允许突破冷却时，才应恢复主作业补源
+- `india`、`new-zealand` 与 `vietnam`（各 6）仍在第二梯队弱位池，但目前都在最近 12 轮 touched_targets 内；若下一轮仍坚持冷却硬规则，existing target 侧大概率继续没有安全主对象
+- `brazil` 已进入最近 20 轮候选冷却；后续若重试，必须先解决葡语 target 的运行时/分类 schema 支持，或找到足够稳定的英文公开 source matrix，不能直接复用本轮候选
+- `australia` 已进入最近 20 轮候选冷却；后续若重试，先补齐除 SBS 外至少 2-3 条可直拉、非 403/404/超时的官方/主流 RSS，再考虑落库
+- `taiwan`、`philippines` 与 `mexico` 仍保留在最近 20 轮候选名单中；重试前都必须先解决各自的直拉验证阻断，不要只重复新闻热度核验
 - `fusion` 本地仍存在用户 WIP，除非主工作树相关改动先落定，否则继续不把它作为自动化主对象
 - preview 公网 health 与 targets 已稳定，但 production 放行链路依然缺少独立 `.deploy-sha` 只读证据；下一轮若想推进 `main`，优先补“远端版本可见性”诊断端点或恢复只读 SSH 复核
