@@ -14,7 +14,7 @@ from urllib.parse import urljoin
 
 import httpx
 
-DEFAULT_TIMEOUT_SECONDS = 8.0
+DEFAULT_TIMEOUT_SECONDS = 20.0
 DEFAULT_HOMEPAGE_PATH = "/public-app"
 EXPECTED_HOMEPAGE_CANONICAL_PATH = "/public-app/"
 

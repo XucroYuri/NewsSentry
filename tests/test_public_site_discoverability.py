@@ -151,6 +151,16 @@ def test_robots_txt_is_served_from_app_root_and_references_sitemap(tmp_path: Pat
     assert "Sitemap: https://news-sentry.com/sitemap.xml" in response.text
 
 
+def test_robots_txt_uses_preview_host_when_requested(tmp_path: Path) -> None:
+    app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
+    client = TestClient(app, base_url="https://preview.news-sentry.com")
+
+    response = client.get("/robots.txt")
+
+    assert response.status_code == 200
+    assert "Sitemap: https://preview.news-sentry.com/sitemap.xml" in response.text
+
+
 def test_llms_txt_is_served_from_app_root(tmp_path: Path) -> None:
     app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
     client = TestClient(app)
@@ -160,3 +170,27 @@ def test_llms_txt_is_served_from_app_root(tmp_path: Path) -> None:
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/plain")
     assert "News Sentry" in response.text
+
+
+def test_sitemap_xml_falls_back_to_public_homepage_when_projection_is_empty(tmp_path: Path) -> None:
+    app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
+    client = TestClient(app, base_url="https://preview.news-sentry.com")
+
+    response = client.get("/sitemap.xml")
+
+    assert response.status_code == 200
+    assert _extract_sitemap_urls(response.text) == [
+        "https://preview.news-sentry.com/public-app/"
+    ]
+
+
+def test_public_app_homepage_injects_canonical_and_json_ld(tmp_path: Path) -> None:
+    app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
+    client = TestClient(app, base_url="https://preview.news-sentry.com")
+
+    response = client.get("/public-app")
+
+    assert response.status_code == 200
+    assert '<link rel="canonical" href="https://preview.news-sentry.com/public-app/" />' in response.text
+    assert 'property="og:url" content="https://preview.news-sentry.com/public-app/"' in response.text
+    assert 'type="application/ld+json"' in response.text

@@ -58,7 +58,7 @@ from news_sentry.core.markdown_export import (
     render_canonical_event_markdown,
     render_news_event_markdown,
 )
-from news_sentry.core.public_site_projection import PublicSiteProjectionStore
+from news_sentry.core.public_site_projection import PublicSiteProjectionStore, SitemapEntry
 from news_sentry.core.source_inventory import SourceInventoryService
 from news_sentry.models.newsevent import NewsEvent
 from news_sentry.skills.filter.classification_taxonomy import (
@@ -107,6 +107,10 @@ def _inject_script_nonce(html: str, nonce: str) -> str:
     return _SCRIPT_TAG_WITHOUT_NONCE_RE.sub(f'<script nonce="{nonce}"', html)
 
 _PUBLIC_SITE_BASE_URL = "https://news-sentry.com"
+_PUBLIC_SITE_NAME = "News Sentry"
+_PUBLIC_SITE_DESCRIPTION = (
+    "News Sentry 公共新闻流提供面向读者的国际新闻摘要、来源脉络与目标监控视角。"
+)
 
 # ── Pydantic 模型 ──────────────────────────────────────
 
@@ -5103,12 +5107,19 @@ def _public_discoverability_text(filename: str) -> str:
     return _public_discoverability_asset_path(filename).read_text(encoding="utf-8")
 
 
-def _public_site_base_url() -> str:
-    return os.environ.get("NEWSSENTRY_PUBLIC_SITE_BASE_URL", _PUBLIC_SITE_BASE_URL).rstrip("/")
+def _public_site_base_url(request: Request | None = None) -> str:
+    configured = os.environ.get("NEWSSENTRY_PUBLIC_SITE_BASE_URL")
+    if configured:
+        return configured.rstrip("/")
+    if request is not None:
+        host = request.headers.get("host", "").strip().lower()
+        if host in {"news-sentry.com", "preview.news-sentry.com"}:
+            return f"{request.url.scheme}://{host}"
+    return _PUBLIC_SITE_BASE_URL.rstrip("/")
 
 
-async def _render_public_sitemap_xml(store: Any) -> str:
-    entries = await _public_sitemap_entries()
+async def _render_public_sitemap_xml(store: Any, *, base_url: str) -> str:
+    entries = await _public_sitemap_entries(base_url=base_url)
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
@@ -5126,26 +5137,65 @@ async def _render_public_sitemap_xml(store: Any) -> str:
     return "\n".join(lines)
 
 
-async def _public_sitemap_entries() -> list[Any]:
+async def _public_sitemap_entries(*, base_url: str) -> list[Any]:
     entries: list[Any] = []
     for target_id in _public_news_target_ids(_data_dir, None):
         store = await _store_for_target(target_id)
         if store is None:
             continue
-        projection_store = PublicSiteProjectionStore(store, base_url=_public_site_base_url())
+        projection_store = PublicSiteProjectionStore(store, base_url=base_url)
         entries.extend(await projection_store.list_sitemap_entries(target_id=target_id, limit=1000))
-    if entries or _store is None:
+    if not entries and _store is not None:
+        projection_store = PublicSiteProjectionStore(_store, base_url=base_url)
+        entries = await projection_store.list_sitemap_entries(limit=1000)
+    if entries:
         return entries
-    projection_store = PublicSiteProjectionStore(_store, base_url=_public_site_base_url())
-    return await projection_store.list_sitemap_entries(limit=1000)
+    return [
+        SitemapEntry(
+            loc=f"{base_url}/public-app/",
+            lastmod=datetime.now(UTC).isoformat(),
+        )
+    ]
 
 
-def _public_app_index_response() -> HTMLResponse:
+def _inject_public_homepage_seo(html: str, *, base_url: str) -> str:
+    canonical_url = f"{base_url}/public-app/"
+    json_ld = json.dumps(
+        {
+            "@context": "https://schema.org",
+            "@type": "CollectionPage",
+            "name": "News Sentry Public",
+            "description": _PUBLIC_SITE_DESCRIPTION,
+            "url": canonical_url,
+            "isPartOf": {
+                "@type": "WebSite",
+                "name": _PUBLIC_SITE_NAME,
+                "url": canonical_url,
+            },
+        },
+        ensure_ascii=False,
+    )
+    tags: list[str] = []
+    if 'rel="canonical"' not in html:
+        tags.append(f'    <link rel="canonical" href="{canonical_url}" />')
+    if 'property="og:url"' not in html:
+        tags.append(f'    <meta property="og:url" content="{canonical_url}" />')
+    if 'application/ld+json' not in html:
+        tags.append(f'    <script type="application/ld+json">{json_ld}</script>')
+    if not tags or "</head>" not in html:
+        return html
+    return html.replace("</head>", "\n" + "\n".join(tags) + "\n  </head>", 1)
+
+
+def _public_app_index_response(*, base_url: str | None = None) -> HTMLResponse:
     index_path = _public_app_dir() / "index.html"
     if not index_path.is_file():
         raise HTTPException(status_code=404, detail="Public app not built")
     nonce = secrets.token_urlsafe(16)
-    html = _inject_script_nonce(index_path.read_text(encoding="utf-8"), nonce)
+    html = index_path.read_text(encoding="utf-8")
+    if base_url:
+        html = _inject_public_homepage_seo(html, base_url=base_url)
+    html = _inject_script_nonce(html, nonce)
     return HTMLResponse(
         html,
         headers={
@@ -5544,9 +5594,14 @@ def create_app(
         return _build_static_manifest()
 
     @app.get("/robots.txt", include_in_schema=False)
-    async def robots_txt() -> PlainTextResponse:
+    async def robots_txt(request: Request) -> PlainTextResponse:
+        base_url = _public_site_base_url(request)
+        body = _public_discoverability_text("robots.txt").replace(
+            f"{_PUBLIC_SITE_BASE_URL}/sitemap.xml",
+            f"{base_url}/sitemap.xml",
+        )
         return PlainTextResponse(
-            _public_discoverability_text("robots.txt"),
+            body,
             headers={"Cache-Control": "public, max-age=3600"},
         )
 
@@ -5558,8 +5613,11 @@ def create_app(
         )
 
     @app.get("/sitemap.xml", include_in_schema=False)
-    async def sitemap_xml() -> Response:
-        xml = await _render_public_sitemap_xml(_store)
+    async def sitemap_xml(request: Request) -> Response:
+        xml = await _render_public_sitemap_xml(
+            _store,
+            base_url=_public_site_base_url(request),
+        )
         return Response(
             content=xml,
             media_type="application/xml",
@@ -5601,11 +5659,13 @@ def create_app(
 
     @app.get("/public-app", include_in_schema=False)
     @app.get("/public-app/", include_in_schema=False)
-    async def public_app_index() -> HTMLResponse:
-        return _public_app_index_response()
+    async def public_app_index(request: Request) -> HTMLResponse:
+        return _public_app_index_response(base_url=_public_site_base_url(request))
 
     @app.get("/public-app/{asset_path:path}", include_in_schema=False)
-    async def public_app_asset(asset_path: str) -> Response:
+    async def public_app_asset(asset_path: str, request: Request) -> Response:
+        if not asset_path.strip("/"):
+            return _public_app_index_response(base_url=_public_site_base_url(request))
         return _public_app_asset_response(asset_path)
 
     @app.get("/api/v1/collector/status")
