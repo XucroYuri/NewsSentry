@@ -7,8 +7,8 @@
 
 ## 当前状态
 
-- current_round: 5
-- completed_rounds: 4
+- current_round: 7
+- completed_rounds: 6
 - status: active
 - stop_after_round: 100
 
@@ -55,6 +55,10 @@
 | 3 | germany | optimize_existing | expand_sources | 从 22 源扩到 24 源，补入 Tagesspiegel / Destatis 并保持 24/24 全绿 |
 | 4 | taiwan | new_target | evaluate_only | 候选热度与 RSS 入口已确认，但当前环境无法完成稳定直接抓取验证，本轮不写配置 |
 | 4 | japan | optimize_existing | evaluate_only | 预览站可见 `source_count=23`，但候选新增 feed 在当前环境里未达到可安全落库标准 |
+| 5 | canada | new_target | add | 新增加拿大 target，6/6 公开 RSS collect smoke 通过，preview `/targets` 可见 |
+| 5 | japan | optimize_existing | prune_dead_and_add_live_sources | 删除 10 条 401/403/404 死源，补入 Japan Times / Asahi 总头条并修复 NHK 重定向 |
+| 6 | new-zealand | new_target | add | 新增新西兰 target，6/6 公开 RSS collect smoke 通过，preview `/targets` 可见 |
+| 6 | italy | optimize_existing | prune_dead_and_add_live_sources | 移出 3 条 challenge/403/错误页死源，补入 ANSA 政经与 Open Online 稳定 RSS，preview `source_count` 保持 66 |
 
 ## 最近 20 轮 candidate_new_targets
 
@@ -65,6 +69,9 @@
 | 3 | vietnam | added | 与现有 target、最近 20 轮候选无重复；虽与 `china-watch-en`、`south-korea` 同属亚洲议题带，但国别边界、制造/关税/南海议题和独立英语 source matrix 均明确区分 | 2026-06 越南仍处于关税谈判、出口制造、对华供应链与东盟外交热区，且 6 条公开 RSS 已完成实证验证 |
 | 4 | philippines | skipped | 与现有 target、最近 20 轮候选无重复；与 `vietnam` 同属南海议题带，但国别边界和新闻源矩阵独立 | 2026-06 中菲摩擦与 Mindanao 地震后治理议题仍热，但多条候选 feed 呈 Cloudflare challenge 或长时间超时，本轮不纳入配置 |
 | 4 | taiwan | skipped | 与现有 target、最近 20 轮候选无重复；虽与 `china-watch-en`、`japan` 同涉东亚安全，但国别内政、半导体与民主治理焦点独立 | 已从总统府、内政部、CDC、教育部、经贸主管部门等页面定位 RSS 入口，但当前环境未完成稳定直拉/collect 级实证，延后到后续轮次 |
+| 5 | canada | added | 与现有 target、最近 20 轮候选无重复；虽与 `usmca`/`g7` 热点同属北美议程，但国别边界、官方源矩阵与 `china-watch-en`、`france` 均独立 | 2026-06 加拿大同时处于粮食安全战略、USMCA 评估与对法/对美安全合作热区，且 6 条公开 RSS 已完成 curl + collect 实证 |
+| 6 | mexico | skipped | 与现有 target、最近 20 轮候选无重复；虽与 `canada` 同属北美议题带，但国别边界、社会治理与官方源矩阵独立 | 2026-06 USMCA/世界杯/治安议题热度成立，但本轮实测官方与主流 RSS 多次返回 Access Denied/403/410 或 HTML 噪声，不纳入配置 |
+| 6 | new-zealand | added | 与现有 target、最近 20 轮候选无重复；虽与 `australia`、`canada` 同属英语国家议题，但预算、太平洋安全、对华关系和独立 feed matrix 均明确区分 | 2026-06 新西兰同时处于 Budget 2026、对华/对港议题与太平洋安全舆论热区，且 6 条公开 RSS 已完成 curl + collect 实证 |
 
 ## target 作业记录表
 
@@ -82,6 +89,13 @@
 | 4 | 2026-06-12T21:43:58+08:00 | skip | taiwan | 台湾新闻监控（候选） | 0 | 0 | 0 | 0 | 0 | live news heat verified; official RSS entry pages located via web, but direct shell fetch/collect proof remained unstable in current environment | skipped; no release branch pushed; no deploy | 候选热度高且官方 RSS 入口丰富，但本轮按“宁可跳过不降质”原则不把未完成直拉验证的候选写入配置 |
 | 4 | 2026-06-12T21:43:58+08:00 | skip | japan | 日本新闻监控 | 23 | 23 | 0 | 0 | 0 | preview `/api/v1/targets` confirms `source_count=23`; candidate additional feeds for Japan remained unverified from current environment | skipped | `japan` 是未冷却且远端可见 target 中 source_count 最少者，但候选新增 feed 未达到可安全落库的验证标准，本轮只做只读维护判断 |
 | 4 | 2026-06-12T21:43:58+08:00 | weak_target_maintenance | south-korea | 韩国新闻监控 | 5 | 5 | 0 | 0 | 0 | readonly only; cooldown respected; preview `/targets` still shows `source_count=5` | skipped | `south-korea` 仍是全局最少信源 target，但第 2 轮刚作为主对象处理，且当前优先处理冷却与验证边界，不重复改动 |
+| 5 | 2026-06-13T03:08:00+08:00 | new_target | canada | 加拿大新闻监控 | 0 | 6 | pm-gc-news,pm-gc-media,globalnews-canada,globalnews-politics,globalnews-money,globeandmail-all | 0 | 0 | static checks passed; targeted pytest passed; collect smoke 6/6 ok, 80 raw items | preview workflow 27436680936 success; external preview health ok; targets API shows canada=6 and japan=13; production skipped | 选择 2026-06 同时处于粮食安全战略、USMCA 评估与对法/对美安全合作热区的加拿大 target，且 6 条公开 RSS 已完成 curl + collect 实证 |
+| 5 | 2026-06-13T03:08:00+08:00 | optimize_existing | japan | 日本新闻监控 | 23 | 13 | japantimes-topstories,asahi-headlines | yomiuri-politics,yomiuri-social,mainichi-politics,mainichi-social,nikkei,nikkei-xtech,mofa-japan,mod-japan,env-go-jp,moj-immigration,reuters-jp,asahi-social | 0 | targeted pytest passed; collect smoke 13/13 ok, 171 raw items; nhk redirect fixed | preview workflow 27436680936 success; external preview health ok; targets API shows japan=13 | 清理 401/403/404 与重定向失效源，保留实际可跑矩阵并补入 2 条稳定公开 RSS，让日本 target 的 source_count 从“虚高”回到“可运行”口径 |
+| 5 | 2026-06-13T03:08:00+08:00 | weak_target_maintenance | south-korea | 韩国新闻监控 | 5 | 5 | 0 | 0 | 0 | readonly only; cooldown respected; preview `/targets` still shows `source_count=5` | skipped | `south-korea` 仍是全局最少信源 target，但第 2 轮刚作为主对象处理且仍处冷却窗口，本轮继续只做状态记录 |
+| 6 | 2026-06-13T08:04:10+08:00 | skip | mexico | 墨西哥新闻监控（候选） | 0 | 0 | 0 | 0 | 0 | live topic scan passed, but candidate feeds returned Access Denied/403/410 or HTML noise in direct shell validation | skipped; switched candidate before config write | 北美热度成立，但可验证公开 RSS 质量未达标，本轮按规则放弃落库 |
+| 6 | 2026-06-13T08:04:10+08:00 | new_target | new-zealand | 新西兰新闻监控 | 0 | 6 | beehive-all-updates,beehive-releases,beehive-speeches,nzherald-nz,nzherald-business,nzherald-world | 0 | 0 | static checks passed; ruff passed; targeted pytest 449 passed; collect smoke 6/6 ok, 90 raw items | preview workflow 27449879048 success; external preview health ok; targets API shows new-zealand=6 and italy=66; production skipped | 选择 Budget 2026、对华/对港议题与太平洋安全热度并行、且公开 RSS 可实证的新西兰国别 target |
+| 6 | 2026-06-13T08:04:10+08:00 | optimize_existing | italy | 意大利新闻监控 | 66 | 66 | ansa-politica,ansa-economia,open-online | camera-it,quirinale,unhcr-italia | 0 | static checks passed; ruff passed; targeted pytest 449 passed; collect smoke status 0 with 387 raw items; ansa-politica/ansa-economia/open-online all emitted data | preview workflow 27449879048 success; external preview health ok; targets API shows italy=66 and new-zealand=6; production skipped | 当前 preview 可见且最近 12 轮未做主作业的既有国家 target 仅剩 italy；本轮执行“删死源 + 补活源”质量维护而不重复触碰冷却对象 |
+| 6 | 2026-06-13T08:04:10+08:00 | weak_target_maintenance | south-korea | 韩国新闻监控 | 5 | 5 | 0 | 0 | 0 | readonly only; cooldown respected; preview `/targets` still shows `source_count=5` | skipped | `south-korea` 仍是全局最少信源 target，但第 2 轮起一直处于 12 轮冷却窗口，本轮继续只读记录 |
 
 ## 第 2 轮摘要
 
@@ -211,6 +225,115 @@
 - production_status: skipped
 - production_skip_reason: 本轮无安全可落地的 target/source 配置改动，按自动化规则只更新账本，不推进 preview 或 production
 
+## 第 5 轮摘要
+
+- round: 5
+- timestamp: 2026-06-13T03:08:00+08:00
+- recent_12_touched_targets_before_round:
+  - `india`
+  - `china-watch-en`
+  - `south-korea`
+  - `france`
+  - `vietnam`
+  - `germany`
+  - `taiwan`
+  - `japan`
+- cooldown_skips_this_round:
+  - `india`
+  - `china-watch-en`
+  - `south-korea`
+  - `france`
+  - `vietnam`
+  - `germany`
+- selected_new_target: `canada`
+- selected_existing_target: `japan`
+- weakest_target_readonly_check: `south-korea`
+- weakest_target_readonly_reason: `south-korea` 仍是 preview 可见 target 中最少信源对象（5），但自第 2 轮起一直在 12 轮冷却窗口内，本轮继续只读复查；`india` 与 `vietnam` 也同处 6 源弱位池，但本轮优先完成新 target 扩容与 `japan` 的死源清理。
+- existing_target_selection_reason: `japan` 仍是未冷却且 preview 可见的既有 target 中 source_count 最少者（23）；round 4 只做了候选评估，本轮正式进入 source audit，确认 10 条 RSS 已返回 401/403/404，另有 `nhk-news` 命中 301 重定向，适合做“删死源 + 补活源 + 修旧入口”的质量型维护。
+- new_target_selection_reason: `canada` 在 2026-06-11 至 2026-06-12 同时具备三条清晰热点线索：总理府发布国家粮食安全战略、加拿大进入 USMCA/CUSMA 评估与关税谈判窗口、对法安全/AI 协议与 G7 外交连续升温；其官方与媒体 RSS 入口独立且可实证，不与最近 20 轮候选重复。
+- validation_progress:
+  - 本轮基于 `codex/target-source-expansion-r004-taiwan-japan-eval` 切出 release branch `codex/target-source-expansion-r005-canada-japan`
+  - `python tools/scan_sensitive_data.py` passed
+  - `git diff --check` passed
+  - `python tools/check_no_hardcoded_target.py` passed
+  - `PYTHONPATH=src ../../.venv/bin/python -m pytest tests/unit/test_config_schema_validation.py tests/unit/test_canada_target_configs.py tests/unit/test_japan_target_configs.py tests/test_sandbox.py::TestCheckNetworkHost::test_cloud_vps_allows_configured_public_country_sources tests/unit/test_target_filter_configs.py::test_japan_filter_covers_current_domestic_and_geopolitical_signals -q` passed (`426 passed`)
+  - `canada` 逐源 collect smoke: 6/6 ok, `80` events
+  - `japan` 逐源 collect smoke: 13/13 ok, `171` events
+  - 首次 preview run `27436358981` 失败，根因为 `tests/unit/test_config.py::test_real_configured_targets_load[japan-ja]` 仍假定所有 source 语言必须等于 primary language；补充 secondary-language 容忍后，以提交 `103aba3` 修复
+  - 二次 preview run `27436680936` 通过，`CI Gate` 与 `Deploy preview` 全绿
+  - 全量 collect smoke:
+    - `canada` raw items = `80`
+    - `japan` raw items = `171`
+- deploy_status: preview_success
+- preview_release_branch: `codex/target-source-expansion-r005-canada-japan`
+- preview_release_sha: `103aba3`
+- preview_branch_merge_sha: `d851d3046c070c88d78708ebea27b97d2aa866fc`
+- preview_deploy_run: `27436680936`
+- preview_ci_job: `81100303664`
+- preview_deploy_job: `81101254407`
+- preview_external_health: `GET https://preview.news-sentry.com/api/v1/health` -> `{"status":"ok"}`
+- preview_targets_api: `GET https://preview.news-sentry.com/api/v1/targets` -> `canada` visible with `source_count=6`; `japan` visible with `source_count=13`
+- preview_remote_deploy_sha_check: partial
+- preview_remote_deploy_sha_reason: workflow log confirmed remote checkout from `0d7888a` to `d851d30`, displayed `Checked out: d851d30 ...`, and executed `echo "${SHA}" > /opt/news-sentry/preview/.deploy-sha`; but current environment still cannot direct-SSH/jump-host read the VPS file itself
+- production_status: skipped
+- production_skip_reason: preview 外部 `/health` 与 `/targets` 已通过，但 `.deploy-sha` 仍缺少独立只读复核；因此本轮不推进 `main`
+
+## 第 6 轮摘要
+
+- round: 6
+- timestamp: 2026-06-13T08:04:10+08:00
+- recent_12_touched_targets_before_round:
+  - `india`
+  - `china-watch-en`
+  - `south-korea`
+  - `france`
+  - `vietnam`
+  - `germany`
+  - `taiwan`
+  - `japan`
+  - `canada`
+  - `japan`
+- cooldown_skips_this_round:
+  - `india`
+  - `china-watch-en`
+  - `south-korea`
+  - `france`
+  - `vietnam`
+  - `germany`
+  - `canada`
+  - `japan`
+- selected_new_target: `new-zealand`
+- selected_existing_target: `italy`
+- weakest_target_readonly_check: `south-korea`
+- weakest_target_readonly_reason: `south-korea` 仍是 preview 可见 target 中最少信源对象（5），但从第 2 轮起持续处于 12 轮冷却窗口；`india`、`vietnam` 也仍在 6 源弱位池内，同样不能反复重做主作业。
+- existing_target_selection_reason: `italy` 是 preview 可见且最近 12 轮未做主作业的唯一既有国家 target；`fusion` 虽本地源数更少，但主工作树仍存在用户 WIP 且未进入 preview，因此本轮不跨现场覆盖，转而对 `italy` 做“删死源 + 补活源”质量维护。
+- new_target_selection_reason: `new-zealand` 在 2026-06 同时具备 Budget 2026、对华/对港议题和太平洋安全三条明确热度线索，且 Beehive / NZ Herald 组合形成 6 条可直接验证的公开 RSS；相较之下，`mexico` 候选虽然热点成立，但本轮实测 RSS 入口多次返回 Access Denied/403/410 或 HTML 噪声，不满足落库闸门。
+- validation_progress:
+  - 本轮基于 `codex/target-source-expansion-r005-canada-japan` 切出 release branch `codex/target-source-expansion-r006-new-zealand-italy`
+  - `python tools/scan_sensitive_data.py` passed
+  - `git diff --check` passed
+  - `python tools/check_no_hardcoded_target.py` passed
+  - `../../.venv/bin/python -m ruff check` passed
+  - `../../.venv/bin/python -m pytest tests/unit/test_config_schema_validation.py tests/unit/test_new_zealand_target_configs.py tests/unit/test_italy_target_configs.py tests/test_sandbox.py::TestCheckNetworkHost::test_cloud_vps_allows_configured_public_country_sources -q` passed (`449 passed`)
+  - `new-zealand` collect smoke: 6/6 sources ok, `90` raw items
+  - `italy` collect smoke: run status `0`, `387` raw items；新增替代源 `ansa-politica`、`ansa-economia`、`open-online` 均实际产出事件；社媒维度在 `cloud-vps` profile 下按预期继续跳过
+  - 当前 shell 中 plain `git push` / `git ls-remote` 长时间无输出挂起，因此改用 authenticated `gh api repos/.../git/*` 创建远端 release commit 并快进 `preview`
+  - 首次 preview run `27449807202` / CI job `81142503477` 失败，根因为 `tests/unit/test_new_zealand_target_configs.py` docstring 触发 `ruff` E501
+  - 补充 follow-up commit 后，第二次 preview run `27449879048` 通过，`CI Gate` 与 `Deploy preview` 全绿
+- deploy_status: preview_success
+- preview_release_branch: `codex/target-source-expansion-r006-new-zealand-italy`
+- preview_release_sha: `a620f5d`
+- preview_branch_merge_sha: `a620f5dab34e21ab8d4a65dd7d252351fb96bac8`
+- preview_deploy_run: `27449879048`
+- preview_ci_job: `81142711567`
+- preview_deploy_job: `81143172604`
+- preview_external_health: `GET https://preview.news-sentry.com/api/v1/health` -> `{"status":"ok"}`
+- preview_targets_api: `GET https://preview.news-sentry.com/api/v1/targets` -> `new-zealand` visible with `source_count=6`; `italy` visible with `source_count=66`; `south-korea` remains `source_count=5`
+- preview_remote_deploy_sha_check: partial
+- preview_remote_deploy_sha_reason: Deploy log shows `=== Deploying NewsSentry preview (a620f5d) on port 18081 ===`, `HEAD is now at a620f5d ...`, `Checked out: a620f5d ...`, and workflow step summary records `Commit | a620f5dab34e21ab8d4a65dd7d252351fb96bac8`; but current environment still cannot direct-SSH / jump-host read back VPS `.deploy-sha` file itself
+- production_status: skipped
+- production_skip_reason: preview 外部 `/health` 与 `/targets` 已通过，但 `.deploy-sha` 仍缺少独立只读复核；因此本轮不推进 `main`
+
 ## 第 1 轮结论
 
 - 已完成新增 target: `india`
@@ -221,8 +344,11 @@
 
 ## 下一轮建议
 
-- `taiwan` 与 `philippines` 已作为 round 4 候选被正式评估并跳过；若下一轮重试，先解决“直接 shell 拉取 / collect 级验证不稳定”这个根因，不要只重复查新闻热度
-- `japan` 仍是未冷却且 preview 可见的最少信源既有 target（23），应继续作为下轮主维护优先项，但前提是先拿到 1-2 条可稳定 collect 的公开英语或官方 feed
-- `south-korea` 仍是全局最少信源 target（5）且已连续两轮只读，待冷却允许后应优先补 1-2 条已验证英文 RSS；`india` 与 `vietnam`（各 6）作为第二梯队进入后续弱 target 池
-- `fusion` 本地仍存在用户 WIP，除非主工作树中的相关改动先落定，否则继续不把它作为自动化主对象
-- preview 公网 health 已稳定，但 production 放行链路依然缺少独立 `.deploy-sha` 只读证据；在重新恢复实际配置扩容前，仍建议优先补“远端版本可见性”诊断端点
+- `canada` 与 `japan` 已在第 5 轮完成主作业，下一轮不要立即重复触碰；尤其 `japan` 本轮刚从 23 条名义源清到 13 条可运行源，先观察 1-2 轮实际 event 质量再决定是否继续补源
+- `new-zealand` 与 `italy` 已在第 6 轮完成主作业，下一轮不要立即重复触碰；尤其 `italy` 这轮是质量修剪而非大规模加量，先观察 1-2 轮实际 source health 再决定是否继续补官方替代源
+- `south-korea` 仍是全局最少信源 target（5），且已连续三轮只读；一旦冷却允许，应优先补 1-2 条已验证英文 RSS，把弱 target 的真实广度补起来
+- `india` 与 `vietnam`（各 6）仍在第二梯队弱位池，但本轮未动；若 `south-korea` 仍受冷却约束，可在二者中选其一做下一轮主维护
+- `taiwan` 与 `philippines` 仍保留在最近 20 轮候选名单中；若后续重试，必须先解决“直接 shell 拉取 / collect 级验证不稳定”，不要只重复新闻热度核验
+- `mexico` 已进入最近 20 轮候选冷却，后续若重试必须先确认公开 RSS 入口不再被 Access Denied/403/410 拦截，再考虑重新评估
+- `fusion` 本地仍存在用户 WIP，除非主工作树相关改动先落定，否则继续不把它作为自动化主对象
+- preview 公网 health 与 targets 已稳定，但 production 放行链路依然缺少独立 `.deploy-sha` 只读证据；下一轮若想推进 `main`，优先补“远端版本可见性”诊断端点或恢复只读 SSH 复核

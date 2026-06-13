@@ -377,6 +377,93 @@ Phase 88 已达到本轮验收：生产公网公开新闻首屏不再出现 25-4
 - 但当前环境仍无法 direct SSH / jump-host 读取 VPS `preview/.deploy-sha` 文件本体，因此不把这轮视为满足 production 放行闸门
 - 生产环境保持不变；下一步重点应转向补“远端版本可见性”证据链，而不是继续在同一 target 上重复扩容
 
+## 2026-06-13 Codex target/source 扩容 round 5 preview 验证记录
+
+本轮自动化新增 `canada` target，并对 `japan` 做了一次质量型信源清理：删除 10 条已在 collector 路径下返回 `401/403/404` 的死源，补入 `japantimes-topstories` 与 `asahi-headlines` 两条稳定 RSS，同时把 `nhk-news` 改到 collector 可直拉的新地址。部署链路再次推进到 `preview`，未推进 `production`。
+
+### Release 与验证
+
+- release branch: `codex/target-source-expansion-r005-canada-japan`
+- 配置主提交: `1a81d37` (`feat: add canada target and clean japan feeds`)
+- CI 修复提交: `103aba3` (`test: allow target secondary source languages`)
+- 首次 preview run: `27436358981`
+  - CI job: `81099204287`
+  - 结果: `pytest + coverage` 失败，根因为 `tests/unit/test_config.py::test_real_configured_targets_load[japan-ja]` 仍假定所有 source 语言都必须等于 `primary_language`
+- 修复后 preview run: `27436680936`
+  - CI job: `81100303664`
+  - Deploy job: `81101254407`
+  - preview merge SHA: `d851d3046c070c88d78708ebea27b97d2aa866fc`
+  - 结果: `CI Gate` 与 `Deploy preview` 全部通过
+
+### 本地与公网证据
+
+- 本地静态/配置验证通过：
+  - `python tools/scan_sensitive_data.py`
+  - `git diff --check`
+  - `python tools/check_no_hardcoded_target.py`
+  - `PYTHONPATH=src ../../.venv/bin/python -m pytest tests/unit/test_config_schema_validation.py tests/unit/test_canada_target_configs.py tests/unit/test_japan_target_configs.py tests/test_sandbox.py::TestCheckNetworkHost::test_cloud_vps_allows_configured_public_country_sources tests/unit/test_target_filter_configs.py::test_japan_filter_covers_current_domestic_and_geopolitical_signals -q` → `426 passed`
+- 本地 collect smoke：
+  - `canada` 6/6 sources ok，`80` raw items
+  - `japan` 13/13 sources ok，`171` raw items
+- preview 外部健康证据：
+  - `GET https://preview.news-sentry.com/api/v1/health` → `{"status":"ok"}`
+  - `GET https://preview.news-sentry.com/api/v1/targets` → `canada` 可见且 `source_count=6`，`japan` 更新为 `source_count=13`
+- preview 内部版本证据：
+  - `Deploy via SSH` 日志显示 `=== Deploying NewsSentry preview (d851d30) on port 18081 ===`
+  - 远端 fetch/checkout 日志显示 `HEAD is now at d851d30 ...` 且 `Checked out: d851d30`
+  - workflow 执行了 `echo "${SHA}" > /opt/news-sentry/preview/.deploy-sha`
+
+### 结论
+
+- preview 站点已完成 round 5 的公网 `/health` 与 `/targets` 实证，`canada` 与清理后的 `japan` 配置均已远端可见
+- 但当前环境仍无法 direct SSH / jump-host 读取 VPS `preview/.deploy-sha` 文件本体，因此仍不把这轮视为满足 production 放行闸门
+- 生产环境保持不变；下一步若要推进 `main`，应优先补 `.deploy-sha` 的独立只读证据链
+
+## 2026-06-13 Codex target/source 扩容 round 6 preview 验证记录
+
+本轮自动化新增 `new-zealand` target，并对 `italy` 做了一次质量型信源刷新：移出 `camera-it`、`quirinale`、`unhcr-italia` 三条已在当前环境命中 `403` / challenge / 错误页的死源，补入 `ansa-politica`、`ansa-economia` 与 `open-online` 三条稳定 RSS。部署链路再次推进到 `preview`，未推进 `production`。
+
+### Release 与验证
+
+- release branch: `codex/target-source-expansion-r006-new-zealand-italy`
+- 本地配置主提交: `159f5a7` (`feat: add new zealand target and refresh italy feeds`)
+- 本地 CI 修复提交: `d267ddc` (`fix: satisfy ruff for new zealand target test`)
+- 由于当前 shell 中 plain `git push` / `git ls-remote` 长时间无输出挂起，本轮改用 authenticated `gh api repos/.../git/*` 创建远端 release / preview commit
+- 远端 preview tip / release branch tip: `a620f5dab34e21ab8d4a65dd7d252351fb96bac8`
+- 首次 preview run: `27449807202`
+  - CI job: `81142503477`
+  - 结果: `ruff` 失败，根因为 `tests/unit/test_new_zealand_target_configs.py` docstring 触发 `E501`
+- 修复后 preview run: `27449879048`
+  - CI job: `81142711567`
+  - Deploy job: `81143172604`
+  - 结果: `CI Gate` 与 `Deploy preview` 全部通过
+
+### 本地与公网证据
+
+- 本地静态/配置验证通过：
+  - `python tools/scan_sensitive_data.py`
+  - `git diff --check`
+  - `python tools/check_no_hardcoded_target.py`
+  - `../../.venv/bin/python -m ruff check`
+  - `../../.venv/bin/python -m pytest tests/unit/test_config_schema_validation.py tests/unit/test_new_zealand_target_configs.py tests/unit/test_italy_target_configs.py tests/test_sandbox.py::TestCheckNetworkHost::test_cloud_vps_allows_configured_public_country_sources -q` → `449 passed`
+- 本地 collect smoke：
+  - `new-zealand` 6/6 sources ok，`90` raw items
+  - `italy` run status `0`，`387` raw items；新增替代源 `ansa-politica`、`ansa-economia`、`open-online` 均实际产出事件
+- preview 外部健康证据：
+  - `GET https://preview.news-sentry.com/api/v1/health` → `{"status":"ok"}`
+  - `GET https://preview.news-sentry.com/api/v1/targets` → `new-zealand` 可见且 `source_count=6`，`italy` 保持 `source_count=66`，`south-korea` 继续为 `source_count=5`
+- preview 内部版本证据：
+  - `Deploy via SSH` 日志显示 `=== Deploying NewsSentry preview (a620f5d) on port 18081 ===`
+  - 远端 checkout 日志显示 `HEAD is now at a620f5d ...` 且 `Checked out: a620f5d fix: satisfy ruff for new zealand target test`
+  - workflow step summary 记录 `Commit | a620f5dab34e21ab8d4a65dd7d252351fb96bac8`
+  - workflow 仍执行了 `echo "${SHA}" > /opt/news-sentry/preview/.deploy-sha`
+
+### 结论
+
+- preview 站点已完成 round 6 的公网 `/health` 与 `/targets` 实证，`new-zealand` 与刷新后的 `italy` 配置均已远端可见
+- 但当前环境仍无法 direct SSH / jump-host 读取 VPS `preview/.deploy-sha` 文件本体，因此仍不把这轮视为满足 production 放行闸门
+- 生产环境保持不变；下一步若要推进 `main`，应继续优先补 `.deploy-sha` 的独立只读证据链
+
 ## 未完成事项与建议解决方向
 
 已完成一轮已部署站点全栈审计，独立报告见 [site-audit-20260607.md](site-audit-20260607.md)。2026-06-08 已启动并落地一轮全量硬化冲刺，脱敏整改记录见 [hardening-sprint-20260608.md](hardening-sprint-20260608.md)；后续安全、产品体验、CI/CD 和运维整改 backlog 以这两份报告中的 `NS-AUDIT-*` / security scan 编号为准。
