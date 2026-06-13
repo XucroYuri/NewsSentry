@@ -62,3 +62,41 @@ def test_china_watch_target_has_minimum_public_source_coverage() -> None:
     assert len(refs) >= 8
     for ref in refs:
         assert (PROJECT_ROOT / "config" / "sources" / "china-watch-en" / f"{ref}.yaml").is_file()
+
+
+def test_fusion_filter_covers_commercialization_and_technical_signals(tmp_path: Path) -> None:
+    """Fusion target should keep high-signal commercial, project, and engineering headlines."""
+    config = _filter_config("fusion")
+    rules_filter = RulesFilter(config, Memory(tmp_path))
+    threshold = int(config["score_threshold"])
+
+    samples = [
+        "Commonwealth Fusion Systems raises Series B funding for SPARC and ARC commercialization",
+        "Helion fusion power purchase agreement with Microsoft targets grid electricity by 2028",
+        "ITER installs high-temperature superconducting magnet systems for first plasma milestone",
+        "Stellarator startup announces pilot plant supply chain partnership for fusion energy",
+    ]
+
+    scores = [
+        rules_filter._score_event(_event(title, language=Language.EN), config["keyword_rules"])
+        for title in samples
+    ]
+
+    assert scores == [score for score in scores if score >= threshold]
+
+
+def test_fusion_target_has_minimum_enabled_source_coverage() -> None:
+    """fusion.codes MVP needs at least three enabled sources before adding webpage collectors."""
+    target_path = PROJECT_ROOT / "config" / "targets" / "fusion.yaml"
+    target = yaml.safe_load(target_path.read_text(encoding="utf-8"))
+    refs = target["source_channel_refs"]
+    enabled_refs = []
+
+    for ref in refs:
+        source_path = PROJECT_ROOT / "config" / "sources" / "fusion" / f"{ref}.yaml"
+        assert source_path.is_file()
+        source = yaml.safe_load(source_path.read_text(encoding="utf-8"))
+        if source["enabled"]:
+            enabled_refs.append(ref)
+
+    assert len(enabled_refs) >= 3
