@@ -16,10 +16,8 @@ timezone: Asia/Shanghai
 # 引用的源渠道 ID，对应 config/sources/china-watch-en/{id}.yaml
 source_channel_refs:
   - scmp-rss
-  - reuters-cn
   - bbc-cn
   - guardian-cn
-  - nyt-cn
   - diplomat-cn
   - rfa-cn
   - chinafile
@@ -30,6 +28,8 @@ source_channel_refs:
   - asia-times-china
   - dw-en-all
   - aljazeera-global
+  - sky-world-global
+  - sky-business-global
 
 # 各子系统规则/路由配置的相对路径（相对于项目根目录）
 filter_rules_ref: config/filters/china-watch-en/default.yaml

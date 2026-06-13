@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "official": [
+    {
+      "id": "google-ai-optimization-guide",
+      "type": "official",
+      "url": "https://developers.google.com/search/docs/fundamentals/ai-optimization-guide",
+      "topics": ["seo", "geo", "ai-search", "technical"],
+      "enabled": true
+    },
+    {
+      "id": "google-article-structured-data",
+      "type": "official",
+      "url": "https://developers.google.com/search/docs/appearance/structured-data/article",
+      "topics": ["structured-data", "article", "news"],
+      "enabled": true
+    },
+    {
+      "id": "llmstxt-standard",
+      "type": "standard",
+      "url": "https://llmstxt.org/",
+      "topics": ["geo", "llms-txt", "ai-readability"],
+      "enabled": true
+    }
+  ],
+  "community": [
+    {
+      "id": "awesome-agent-skills",
+      "type": "index",
+      "url": "https://github.com/VoltAgent/awesome-agent-skills",
+      "topics": ["skills", "index"],
+      "enabled": true
+    },
+    {
+      "id": "agentic-seo",
+      "type": "tool",
+      "url": "https://github.com/addyosmani/agentic-seo",
+      "topics": ["agentic-seo", "aeo", "audits"],
+      "enabled": true
+    },
+    {
+      "id": "geo-optimizer-skill",
+      "type": "tool",
+      "url": "https://github.com/Auriti-Labs/geo-optimizer-skill",
+      "topics": ["geo", "citation", "ai-visibility"],
+      "enabled": true
+    }
+  ]
+}

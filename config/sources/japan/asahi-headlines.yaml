@@ -1,0 +1,17 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015
+source_id: asahi-headlines
+display_name: "朝日新闻总头条"
+type: rss
+url: "https://www.asahi.com/rss/asahi/newsheadlines.rdf"
+language: ja
+credibility_base: 0.88
+fetch_interval_minutes: 25
+max_items_per_run: 35
+timeout_seconds: 30
+enabled: true
+notes: "2026-06-13 live RSS check passed; broad domestic and international Japan signal."
+health:
+  last_success_at: null
+  consecutive_failures: 0

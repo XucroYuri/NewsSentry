@@ -1,0 +1,36 @@
+# Schema: ../../schemas/classification.schema.json
+# 契约: docs/contracts-canonical.md §9
+# ADR: ADR-0009
+extends: rules-v1.yaml
+rules_version: "1.0.0"
+
+l1_topics:
+  - code: new_zealand_budget_governance
+    l0_domain: politics
+    label_zh: "新西兰预算与治理"
+    keywords_en: [New Zealand, Wellington, Christopher Luxon, Parliament, Budget 2026, fiscal, spending]
+
+  - code: new_zealand_trade_china
+    l0_domain: international-relations
+    label_zh: "新西兰贸易与对华关系"
+    keywords_en: [China, Beijing, trade, tariff, exports, dairy, Hong Kong, lawmakers]
+
+  - code: new_zealand_pacific_security
+    l0_domain: international-relations
+    label_zh: "新西兰太平洋安全与外交"
+    keywords_en: [Pacific, defence, security, alliance, military, diplomacy, foreign affairs]
+
+  - code: new_zealand_affordability
+    l0_domain: society
+    label_zh: "新西兰民生与可负担性"
+    keywords_en: [housing, cost of living, wages, inflation, immigration, welfare]
+
+  - code: new_zealand_energy_innovation
+    l0_domain: tech
+    label_zh: "新西兰能源与创新产业"
+    keywords_en: [energy, clean energy, Rocket Lab, AI, innovation, startup, science]
+
+country_axes:
+  china_new_zealand_relations:
+    enabled: true
+    sub_axes: [new_zealand_trade_china]

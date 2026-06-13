@@ -1,0 +1,85 @@
+# Schema: ../../schemas/targetconfig.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015, ADR-0016
+target_id: ireland
+display_name: "爱尔兰新闻监控"
+monitoring_type: country
+
+language_scope:
+  primary: en
+  secondary: []
+  output: zh
+
+timezone: Europe/Dublin
+
+source_channel_refs:
+  - rte-headlines
+  - rte-politics
+  - rte-business
+  - rte-ireland
+  - rte-courts
+  - thejournal-general
+
+filter_rules_ref: config/filters/ireland/default.yaml
+classification_rules_ref: config/classification/rules-ireland.yaml
+sandbox_profile_ref: config/sandbox/default.yaml
+provider_routes_ref: config/provider/routes.yaml
+output_destinations_ref: config/output/destinations.yaml
+
+classification:
+  country_axes:
+    politics: true
+    economics: true
+    crime: false
+    sports: false
+    culture: true
+    eu_relations: true
+    immigration: true
+    energy: true
+    judicial: true
+    china_ireland_relations: true
+  home_relevance_keywords:
+    - "Ireland"
+    - "Irish"
+    - "Dublin"
+    - "Micheál Martin"
+    - "Taoiseach"
+    - "Oireachtas"
+    - "Dáil"
+    - "EU presidency"
+    - "migration pact"
+    - "housing"
+    - "energy"
+    - "FDI"
+    - "China"
+    - "Beijing"
+    - "Common Travel Area"
+
+focus_areas:
+  - id: eu-presidency-and-foreign-policy
+    weight: 2.2
+    keywords:
+      - "EU presidency"
+      - "European Union"
+      - "foreign affairs"
+      - "Occupied Territories Bill"
+      - "Common Travel Area"
+      - "security"
+  - id: migration-housing-and-public-services
+    weight: 2.0
+    keywords:
+      - "migration pact"
+      - "asylum"
+      - "housing"
+      - "cost of living"
+      - "health"
+      - "public services"
+  - id: tech-fdi-energy-and-growth
+    weight: 1.8
+    keywords:
+      - "FDI"
+      - "technology"
+      - "AI"
+      - "data centre"
+      - "energy"
+      - "growth"

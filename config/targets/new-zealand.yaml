@@ -1,0 +1,82 @@
+# Schema: ../../schemas/targetconfig.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015, ADR-0016
+target_id: new-zealand
+display_name: "新西兰新闻监控"
+monitoring_type: country
+
+language_scope:
+  primary: en
+  secondary: []
+  output: zh
+
+timezone: Pacific/Auckland
+
+source_channel_refs:
+  - beehive-all-updates
+  - beehive-releases
+  - beehive-speeches
+  - nzherald-nz
+  - nzherald-business
+  - nzherald-world
+
+filter_rules_ref: config/filters/new-zealand/default.yaml
+classification_rules_ref: config/classification/rules-new-zealand.yaml
+sandbox_profile_ref: config/sandbox/default.yaml
+provider_routes_ref: config/provider/routes.yaml
+output_destinations_ref: config/output/destinations.yaml
+
+classification:
+  country_axes:
+    politics: true
+    economics: true
+    crime: false
+    sports: false
+    culture: true
+    eu_relations: false
+    immigration: true
+    energy: true
+    judicial: true
+    china_new_zealand_relations: true
+  home_relevance_keywords:
+    - "New Zealand"
+    - "NZ"
+    - "Wellington"
+    - "Christopher Luxon"
+    - "Parliament"
+    - "Budget 2026"
+    - "China"
+    - "Beijing"
+    - "trade"
+    - "dairy"
+    - "Pacific"
+    - "defence"
+
+focus_areas:
+  - id: budget-trade-and-growth
+    weight: 2.1
+    keywords:
+      - "Budget 2026"
+      - "trade"
+      - "tariff"
+      - "growth"
+      - "dairy"
+      - "exports"
+  - id: china-diplomacy-and-pacific
+    weight: 2.0
+    keywords:
+      - "China"
+      - "Beijing"
+      - "Hong Kong"
+      - "Pacific"
+      - "foreign affairs"
+      - "security"
+  - id: affordability-energy-and-innovation
+    weight: 1.8
+    keywords:
+      - "housing"
+      - "cost of living"
+      - "energy"
+      - "innovation"
+      - "Rocket Lab"
+      - "AI"

@@ -125,6 +125,15 @@ pip install -e ".[api]"    # FastAPI REST API gateway
 
 ---
 
+## Public Site SEO / GEO
+
+- [SEO / GEO automation governance](docs/seo-geo/automation-governance.md)
+- [SEO / GEO prerequisites and gaps](docs/seo-geo/prerequisites-and-gaps.md)
+- [SEO / GEO automation progress](docs/seo-geo/automation-progress.md)
+- [SEO / GEO rule sources](docs/seo-geo/rule-sources.md)
+
+---
+
 ## Architecture
 
 ```

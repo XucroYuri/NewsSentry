@@ -1,0 +1,17 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015
+source_id: govuk-pmo
+display_name: "GOV.UK - Prime Minister's Office"
+type: rss
+url: "https://www.gov.uk/government/organisations/prime-ministers-office-10-downing-street.atom"
+language: en
+credibility_base: 0.92
+fetch_interval_minutes: 45
+max_items_per_run: 30
+timeout_seconds: 30
+enabled: true
+notes: "2026-06-13 live Atom check passed; official prime minister and cabinet updates."
+health:
+  last_success_at: null
+  consecutive_failures: 0

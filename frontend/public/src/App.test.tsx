@@ -452,7 +452,7 @@ describe("Phase 84 public portal app", () => {
     ).toBe(true)
   })
 
-  it("writes feed filter changes back into the public app hash", async () => {
+  it("writes feed filter changes back into the public app url", async () => {
     installFetchMock()
     window.location.hash = "#/feed?channel=featured"
 
@@ -461,8 +461,7 @@ describe("Phase 84 public portal app", () => {
     await screen.findByText("意大利总理与欧盟领导人讨论对华贸易关系")
     fireEvent.click(screen.getAllByRole("button", { name: "国际关系" })[0])
 
-    expect(window.location.hash).toContain("#/feed?")
-    expect(window.location.hash).toContain("channel=featured")
-    expect(window.location.hash).toContain("category=%E5%9B%BD%E9%99%85%E5%85%B3%E7%B3%BB")
+    expect(window.location.pathname).toBe("/public-app/")
+    expect(window.location.search).toContain("category=%E5%9B%BD%E9%99%85%E5%85%B3%E7%B3%BB")
   })
 })

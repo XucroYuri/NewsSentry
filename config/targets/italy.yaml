@@ -29,14 +29,14 @@ source_channel_refs:
 
   # ── 新增 RSS — A.政治与治理 ──────────────────────
   - adnkronos
-  - camera-it
   - senato-it
-  - quirinale
+  - ansa-politica
   - interno-gov
 
   # ── 新增 RSS — B.经济与商业 ──────────────────────
   - bancaditalia
   - eni-group
+  - ansa-economia
 
   # ── 新增 RSS — C.外交与国际关系 ──────────────────
   - farnesina
@@ -67,9 +67,9 @@ source_channel_refs:
   - legambiente
 
   # ── 新增 RSS — I.移民与人口 ──────────────────────
-  - unhcr-italia
   - iom-italy
   - open-migration
+  - open-online
 
   # ── 新增 RSS — J.文化与遗产 ──────────────────────
   - mic

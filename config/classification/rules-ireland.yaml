@@ -1,0 +1,41 @@
+# Schema: ../../schemas/classification.schema.json
+# 契约: docs/contracts-canonical.md §9
+# ADR: ADR-0009
+extends: rules-v1.yaml
+rules_version: "1.0.0"
+
+l1_topics:
+  - code: ireland_governance_eu_presidency
+    l0_domain: politics
+    label_zh: "爱尔兰治理与欧盟主席国议程"
+    keywords_en: [Ireland, Dublin, Taoiseach, Oireachtas, Dail, EU presidency, coalition, cabinet]
+
+  - code: ireland_migration_border_policy
+    l0_domain: international-relations
+    label_zh: "爱尔兰移民、边境与对外政策"
+    keywords_en: [migration pact, asylum, Common Travel Area, Belfast, border, foreign affairs, security]
+
+  - code: ireland_housing_cost_of_living
+    l0_domain: society
+    label_zh: "爱尔兰住房与生活成本"
+    keywords_en: [housing, rents, affordability, homelessness, health, public services, welfare]
+
+  - code: ireland_tech_fdi_growth
+    l0_domain: tech
+    label_zh: "爱尔兰科技、外资与增长"
+    keywords_en: [FDI, technology, AI, data centre, semiconductor, investment, growth]
+
+  - code: ireland_energy_climate
+    l0_domain: environment
+    label_zh: "爱尔兰能源与气候转型"
+    keywords_en: [energy, electricity, offshore, grid, climate, emissions, renewables]
+
+  - code: ireland_china_relations
+    l0_domain: international-relations
+    label_zh: "爱尔兰对华关系"
+    keywords_en: [China, Chinese, Beijing, trade, investment, diplomacy, EV]
+
+country_axes:
+  china_ireland_relations:
+    enabled: true
+    sub_axes: [ireland_china_relations]

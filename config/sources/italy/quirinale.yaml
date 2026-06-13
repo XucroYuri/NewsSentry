@@ -7,7 +7,8 @@ credibility_base: 0.95
 fetch_interval_minutes: 15
 max_items_per_run: 50
 timeout_seconds: 30
-enabled: true
+enabled: false
+notes: "2026-06-13 direct curl returned HTML error page instead of RSS; removed from active refs."
 health:
   last_success_at: null
   consecutive_failures: 0

@@ -38,6 +38,7 @@ from hashlib import sha256
 from ipaddress import ip_address
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
+from xml.sax.saxutils import escape as xml_escape
 
 import yaml
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
@@ -57,6 +58,7 @@ from news_sentry.core.markdown_export import (
     render_canonical_event_markdown,
     render_news_event_markdown,
 )
+from news_sentry.core.public_site_projection import PublicSiteProjectionStore, SitemapEntry
 from news_sentry.core.source_inventory import SourceInventoryService
 from news_sentry.models.newsevent import NewsEvent
 from news_sentry.skills.filter.classification_taxonomy import (
@@ -104,19 +106,11 @@ _SCRIPT_TAG_WITHOUT_NONCE_RE = re.compile(r"<script(?![^>]*\bnonce=)", re.IGNORE
 def _inject_script_nonce(html: str, nonce: str) -> str:
     return _SCRIPT_TAG_WITHOUT_NONCE_RE.sub(f'<script nonce="{nonce}"', html)
 
-_ROBOTS_TXT = """User-agent: *
-Allow: /
-Disallow: /api/
-Disallow: /#/admin
-Disallow: /#/admin/
-Disallow: /admin
-Disallow: /admin/
-Disallow: /api/v1/runtime/
-Disallow: /api/v1/collector/
-Disallow: /api/v1/maintenance/
-
-Sitemap: https://news-sentry.com/sitemap.xml
-"""
+_PUBLIC_SITE_BASE_URL = "https://news-sentry.com"
+_PUBLIC_SITE_NAME = "News Sentry"
+_PUBLIC_SITE_DESCRIPTION = (
+    "News Sentry 公共新闻流提供面向读者的国际新闻摘要、来源脉络与目标监控视角。"
+)
 
 # ── Pydantic 模型 ──────────────────────────────────────
 
@@ -2122,12 +2116,151 @@ def _public_news_matches(
     return True
 
 
+def _public_projection_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _public_projection_event(row: dict[str, Any]) -> dict[str, Any]:
+    """把 public projection row 补齐到 PublicNewsItem 所需的最小展示事件形状。"""
+    event = _event_from_index_row(row)
+    raw_metadata = row.get("metadata")
+    metadata = cast(dict[str, Any], raw_metadata) if isinstance(raw_metadata, dict) else {}
+    raw_translation = metadata.get("translation")
+    translation = (
+        cast(dict[str, Any], raw_translation) if isinstance(raw_translation, dict) else {}
+    )
+    raw_judge_result = metadata.get("judge_result")
+    judge_result = (
+        cast(dict[str, Any], raw_judge_result) if isinstance(raw_judge_result, dict) else {}
+    )
+    raw_source_meta = metadata.get("source")
+    source_meta = (
+        cast(dict[str, Any], raw_source_meta) if isinstance(raw_source_meta, dict) else {}
+    )
+
+    if translated_title := _public_projection_text(translation.get("title_pre")):
+        event["title_translated"] = translated_title
+
+    if summary := _public_projection_text(metadata.get("summary")):
+        event["summary"] = summary
+        event.setdefault("description", summary)
+        event.setdefault("content_translated", summary)
+
+    recommendation_reason = _public_projection_text(
+        judge_result.get("rationale")
+        or metadata.get("ai_reason")
+        or metadata.get("recommendation_reason")
+    )
+    if recommendation_reason:
+        event["judge_result"] = {"rationale": recommendation_reason}
+
+    if source_display_name := _public_projection_text(
+        metadata.get("source_display_name")
+        or source_meta.get("display_name")
+        or source_meta.get("name")
+    ):
+        event["source_display_name"] = source_display_name
+    if source_type := _public_projection_text(
+        metadata.get("source_type") or source_meta.get("type")
+    ):
+        event["source_type"] = source_type
+    source_credibility = metadata.get(
+        "source_credibility",
+        source_meta.get("credibility_base"),
+    )
+    if source_credibility:
+        event["source_credibility"] = source_credibility
+
+    topic_tags = metadata.get("topic_tags")
+    if isinstance(topic_tags, list):
+        event["topic_tags"] = topic_tags
+
+    entities = metadata.get("nlp_entities")
+    if not isinstance(entities, list):
+        entities = metadata.get("entities")
+    if isinstance(entities, list):
+        event["nlp_entities"] = entities
+
+    if isinstance(metadata.get("related_count"), int):
+        event["related_count"] = metadata["related_count"]
+    if isinstance(metadata.get("discussion_count"), int):
+        event["discussion_count"] = metadata["discussion_count"]
+
+    return event
+
+
+async def _query_public_projection_events(
+    store: Any,
+    *,
+    target_id: str,
+    limit: int,
+    offset: int = 0,
+) -> list[dict[str, Any]] | None:
+    query_rows = getattr(store, "query_public_projection_rows", None)
+    if query_rows is None:
+        return None
+    rows = await query_rows(target_id=target_id, limit=limit, offset=offset)
+    if not isinstance(rows, list):
+        return []
+    return [
+        _public_projection_event(row)
+        for row in rows
+        if isinstance(row, dict) and str(row.get("event_id") or row.get("id") or "").strip()
+    ]
+
+
+async def _find_public_projection_event(
+    store: Any,
+    *,
+    target_id: str,
+    event_id: str,
+    batch_size: int = 200,
+) -> dict[str, Any] | None:
+    offset = 0
+    while True:
+        events = await _query_public_projection_events(
+            store,
+            target_id=target_id,
+            limit=batch_size,
+            offset=offset,
+        )
+        if events is None or not events:
+            return None
+        for event in events:
+            if str(event.get("event_id") or event.get("id") or "") == event_id:
+                return event
+        if len(events) < batch_size:
+            return None
+        offset += len(events)
+
+
+async def _load_public_projection_detail(
+    store: Any,
+    *,
+    target_id: str,
+    event_id: str,
+) -> dict[str, Any] | InvisibleIndexedEvent | None:
+    get_row = getattr(store, "get_event_index_row", None)
+    if get_row is not None:
+        row = await get_row(target_id, event_id)
+        if row is None:
+            return None
+        if row.get("stage") != _PUBLIC_NEWS_STAGE:
+            return _INVISIBLE_INDEXED_EVENT
+        return _public_projection_event(row)
+    return await _find_public_projection_event(store, target_id=target_id, event_id=event_id)
+
+
 async def _public_news_events_for_target(
     data_dir: Path,
     target_id: str,
     store: AsyncStore | None,
     *,
     limit: int,
+    allow_projection_first: bool = True,
     min_score: int | None = None,
     source_id: str | None = None,
     classification_l0: str | None = None,
@@ -2136,6 +2269,24 @@ async def _public_news_events_for_target(
     before_key: tuple[datetime, str] | None = None,
     since_key: tuple[datetime, str] | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
+    if (
+        allow_projection_first
+        and store is not None
+        and min_score is None
+        and source_id is None
+        and classification_l0 is None
+        and date is None
+        and q is None
+        and before_key is None
+        and since_key is None
+    ):
+        projection_events = await _query_public_projection_events(
+            store,
+            target_id=target_id,
+            limit=limit,
+        )
+        if projection_events:
+            return projection_events, len(projection_events)
     if store is not None and await _store_has_target_event_index(store, target_id):
         query_public_rows = getattr(store, "query_public_news_rows", None)
         if query_public_rows is not None:
@@ -2187,6 +2338,7 @@ async def _public_news_candidate_events(
     target_ids: list[str],
     *,
     limit: int,
+    allow_projection_first: bool = True,
     featured: bool,
     source_id: str | None = None,
     category: str | None = None,
@@ -2207,6 +2359,7 @@ async def _public_news_candidate_events(
             target_id,
             store_to_query,
             limit=limit,
+            allow_projection_first=allow_projection_first,
             min_score=min_score,
             source_id=source_id,
             classification_l0=classification_l0,
@@ -3854,6 +4007,7 @@ def _event_from_index_row(row: dict[str, Any]) -> dict[str, Any]:
         "id": event_id,
         "event_id": event_id,
         "source_id": row.get("source_id"),
+        "url": row.get("url"),
         "title_original": row.get("title_original"),
         "published_at": row.get("published_at"),
         "created_at": row.get("created_at"),
@@ -4933,12 +5087,115 @@ def _public_app_dir(static_dir: Path | None = None) -> Path:
     return (static_dir or _static_dir()) / "public_app"
 
 
-def _public_app_index_response() -> HTMLResponse:
+def _frontend_public_dir() -> Path:
+    return Path(__file__).resolve().parents[3] / "frontend" / "public" / "public"
+
+
+def _public_discoverability_asset_path(filename: str) -> Path:
+    candidates = (
+        _frontend_public_dir() / filename,
+        _static_dir() / filename,
+        _public_app_dir() / filename,
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise HTTPException(status_code=404, detail=f"{filename} not found")
+
+
+def _public_discoverability_text(filename: str) -> str:
+    return _public_discoverability_asset_path(filename).read_text(encoding="utf-8")
+
+
+def _public_site_base_url(request: Request | None = None) -> str:
+    configured = os.environ.get("NEWSSENTRY_PUBLIC_SITE_BASE_URL")
+    if configured:
+        return configured.rstrip("/")
+    if request is not None:
+        host = request.headers.get("host", "").strip().lower()
+        if host in {"news-sentry.com", "preview.news-sentry.com"}:
+            return f"{request.url.scheme}://{host}"
+    return _PUBLIC_SITE_BASE_URL.rstrip("/")
+
+
+async def _render_public_sitemap_xml(store: Any, *, base_url: str) -> str:
+    entries = await _public_sitemap_entries(base_url=base_url)
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ]
+    for entry in entries:
+        lines.extend(
+            [
+                "  <url>",
+                f"    <loc>{xml_escape(entry.loc)}</loc>",
+                f"    <lastmod>{xml_escape(entry.lastmod)}</lastmod>",
+                "  </url>",
+            ]
+        )
+    lines.append("</urlset>")
+    return "\n".join(lines)
+
+
+async def _public_sitemap_entries(*, base_url: str) -> list[Any]:
+    entries: list[Any] = []
+    for target_id in _public_news_target_ids(_data_dir, None):
+        store = await _store_for_target(target_id)
+        if store is None:
+            continue
+        projection_store = PublicSiteProjectionStore(store, base_url=base_url)
+        entries.extend(await projection_store.list_sitemap_entries(target_id=target_id, limit=1000))
+    if not entries and _store is not None:
+        projection_store = PublicSiteProjectionStore(_store, base_url=base_url)
+        entries = await projection_store.list_sitemap_entries(limit=1000)
+    if entries:
+        return entries
+    return [
+        SitemapEntry(
+            loc=f"{base_url}/public-app/",
+            lastmod=datetime.now(UTC).isoformat(),
+        )
+    ]
+
+
+def _inject_public_homepage_seo(html: str, *, base_url: str) -> str:
+    canonical_url = f"{base_url}/public-app/"
+    json_ld = json.dumps(
+        {
+            "@context": "https://schema.org",
+            "@type": "CollectionPage",
+            "name": "News Sentry Public",
+            "description": _PUBLIC_SITE_DESCRIPTION,
+            "url": canonical_url,
+            "isPartOf": {
+                "@type": "WebSite",
+                "name": _PUBLIC_SITE_NAME,
+                "url": canonical_url,
+            },
+        },
+        ensure_ascii=False,
+    )
+    tags: list[str] = []
+    if 'rel="canonical"' not in html:
+        tags.append(f'    <link rel="canonical" href="{canonical_url}" />')
+    if 'property="og:url"' not in html:
+        tags.append(f'    <meta property="og:url" content="{canonical_url}" />')
+    if 'application/ld+json' not in html:
+        tags.append(f'    <script type="application/ld+json">{json_ld}</script>')
+    if not tags or "</head>" not in html:
+        return html
+    return html.replace("</head>", "\n" + "\n".join(tags) + "\n  </head>", 1)
+
+
+def _public_app_index_response(*, base_url: str | None = None) -> HTMLResponse:
     index_path = _public_app_dir() / "index.html"
     if not index_path.is_file():
         raise HTTPException(status_code=404, detail="Public app not built")
     nonce = secrets.token_urlsafe(16)
-    html = _inject_script_nonce(index_path.read_text(encoding="utf-8"), nonce)
+    html = index_path.read_text(encoding="utf-8")
+    if base_url:
+        html = _inject_public_homepage_seo(html, base_url=base_url)
+    html = _inject_script_nonce(html, nonce)
     return HTMLResponse(
         html,
         headers={
@@ -5337,9 +5594,33 @@ def create_app(
         return _build_static_manifest()
 
     @app.get("/robots.txt", include_in_schema=False)
-    async def robots_txt() -> PlainTextResponse:
+    async def robots_txt(request: Request) -> PlainTextResponse:
+        base_url = _public_site_base_url(request)
+        body = _public_discoverability_text("robots.txt").replace(
+            f"{_PUBLIC_SITE_BASE_URL}/sitemap.xml",
+            f"{base_url}/sitemap.xml",
+        )
         return PlainTextResponse(
-            _ROBOTS_TXT,
+            body,
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+
+    @app.get("/llms.txt", include_in_schema=False)
+    async def llms_txt() -> PlainTextResponse:
+        return PlainTextResponse(
+            _public_discoverability_text("llms.txt"),
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+
+    @app.get("/sitemap.xml", include_in_schema=False)
+    async def sitemap_xml(request: Request) -> Response:
+        xml = await _render_public_sitemap_xml(
+            _store,
+            base_url=_public_site_base_url(request),
+        )
+        return Response(
+            content=xml,
+            media_type="application/xml",
             headers={"Cache-Control": "public, max-age=3600"},
         )
 
@@ -5378,11 +5659,13 @@ def create_app(
 
     @app.get("/public-app", include_in_schema=False)
     @app.get("/public-app/", include_in_schema=False)
-    async def public_app_index() -> HTMLResponse:
-        return _public_app_index_response()
+    async def public_app_index(request: Request) -> HTMLResponse:
+        return _public_app_index_response(base_url=_public_site_base_url(request))
 
     @app.get("/public-app/{asset_path:path}", include_in_schema=False)
-    async def public_app_asset(asset_path: str) -> Response:
+    async def public_app_asset(asset_path: str, request: Request) -> Response:
+        if not asset_path.strip("/"):
+            return _public_app_index_response(base_url=_public_site_base_url(request))
         return _public_app_asset_response(asset_path)
 
     @app.get("/api/v1/collector/status")
@@ -6597,11 +6880,30 @@ def create_app(
             return cached_payload
 
         target_ids = _public_news_target_ids(_data_dir, target_id)
-        query_limit = min(_PUBLIC_NEWS_MAX_SCAN, page_size + 1)
+        allow_projection_first = not any(
+            (
+                featured,
+                bool(source_id),
+                bool(category),
+                bool(date),
+                bool(q),
+                bool(before_cursor),
+                bool(since_cursor),
+            )
+        )
+        if allow_projection_first:
+            query_limit = min(_PUBLIC_NEWS_MAX_SCAN, page_size + 1)
+        else:
+            query_limit = (
+                _PUBLIC_NEWS_MAX_SCAN
+                if before_cursor or since_cursor or q or date
+                else min(_PUBLIC_NEWS_MAX_SCAN, max(page_size * 4, _PUBLIC_NEWS_MIN_SCAN))
+            )
         candidates, candidate_total = await _public_news_candidate_events(
             _data_dir,
             target_ids,
             limit=query_limit,
+            allow_projection_first=allow_projection_first,
             featured=featured,
             source_id=source_id,
             category=category,
@@ -6698,6 +7000,15 @@ def create_app(
             target_store = await _get_target_store(tid)
             stores = [store for store in (target_store, _store) if store is not None]
             for store in stores:
+                projection_event = await _load_public_projection_detail(
+                    store,
+                    target_id=tid,
+                    event_id=event_id,
+                )
+                if isinstance(projection_event, InvisibleIndexedEvent):
+                    raise HTTPException(status_code=404, detail="Event not found")
+                if projection_event is not None:
+                    return _public_news_item(tid, projection_event)
                 event = await _load_indexed_event_detail(_data_dir, tid, store, event_id)
                 if isinstance(event, InvisibleIndexedEvent):
                     raise HTTPException(status_code=404, detail="Event not found")

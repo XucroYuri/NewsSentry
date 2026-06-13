@@ -7,7 +7,8 @@ credibility_base: 0.95
 fetch_interval_minutes: 15
 max_items_per_run: 50
 timeout_seconds: 30
-enabled: true
+enabled: false
+notes: "2026-06-13 direct curl returned 403/F5 rejection; removed from active refs until a stable public feed is found."
 health:
   last_success_at: null
   consecutive_failures: 0

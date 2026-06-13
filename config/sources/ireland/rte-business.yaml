@@ -1,0 +1,17 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015
+source_id: rte-business
+display_name: "RTÉ Business"
+type: rss
+url: "https://www.rte.ie/feeds/rss/?index=/news/business/"
+language: en
+credibility_base: 0.88
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-06-13 live RSS check passed; Irish macro, energy, and business coverage."
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -1,0 +1,17 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015
+source_id: sky-uk
+display_name: "Sky News - UK"
+type: rss
+url: "https://feeds.skynews.com/feeds/rss/uk.xml"
+language: en
+credibility_base: 0.83
+fetch_interval_minutes: 30
+max_items_per_run: 40
+timeout_seconds: 30
+enabled: true
+notes: "2026-06-13 live RSS check passed; broad domestic UK coverage."
+health:
+  last_success_at: null
+  consecutive_failures: 0

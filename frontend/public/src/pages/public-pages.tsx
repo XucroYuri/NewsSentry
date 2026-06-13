@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
+import type { MouseEvent } from "react"
 import {
   ArrowLeftIcon,
   ArrowUpRightIcon,
@@ -15,6 +16,7 @@ import {
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { SeoHead } from "@/components/seo/seo-head"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -22,7 +24,6 @@ import { getPublicNewsItem, listPublicNews, PublicNewsApiError } from "@/lib/api
 import { type FeedFilters, groupItemsByDate, type PublicChannel } from "@/lib/feed-state"
 import {
   buildDailyDigest,
-  buildPublicDetailUrl,
   buildRelatedBuckets,
   buildSourceSummaries,
   formatFullTime,
@@ -31,9 +32,10 @@ import {
   summaryText,
   todayKey,
 } from "@/lib/public-view"
+import { buildEventSeoPayload } from "@/lib/seo/site-seo"
 import type { FeedState } from "@/hooks/use-public-feed"
 import type { PublicAnalysisResponse, PublicNewsItem, PublicTargetInfo } from "@/types/public-news"
-import { buildRouteHash, type PublicRoute } from "@/lib/routes"
+import { buildPublicAppPath, type PublicRoute } from "@/lib/routes"
 
 const channels: Array<{
   id: PublicChannel
@@ -65,6 +67,35 @@ function channelHeading(channel: PublicChannel) {
 
 function channelTitle(channel: PublicChannel) {
   return channels.find((item) => item.id === channel)?.label ?? "精选"
+}
+
+function buildDetailRoute(item: PublicNewsItem): Extract<PublicRoute, { name: "event" }> {
+  return {
+    name: "event",
+    eventId: item.id,
+    targetId: item.targetId || undefined,
+    search: new URLSearchParams(item.targetId ? { target_id: item.targetId } : undefined),
+  }
+}
+
+function navigateToPublicRoute(route: PublicRoute) {
+  window.history.pushState({}, "", buildPublicAppPath(route))
+  window.dispatchEvent(new PopStateEvent("popstate"))
+}
+
+function handleRouteAnchorClick(event: MouseEvent<HTMLAnchorElement>, route: PublicRoute) {
+  if (
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  ) {
+    return
+  }
+  event.preventDefault()
+  navigateToPublicRoute(route)
 }
 
 function CopySummaryButton({ item }: { item: PublicNewsItem }) {
@@ -155,7 +186,10 @@ function NewsCard({ item }: { item: PublicNewsItem }) {
 
         <div className="flex flex-wrap items-center gap-2">
           <Button asChild variant="outline" size="sm">
-            <a href={buildPublicDetailUrl(item)}>
+            <a
+              href={buildPublicAppPath(buildDetailRoute(item))}
+              onClick={(event) => handleRouteAnchorClick(event, buildDetailRoute(item))}
+            >
               详情
               <ChevronRightIcon className="size-4" aria-hidden="true" />
             </a>
@@ -328,9 +362,13 @@ function RelatedSection({ title, items }: { title: string; items: PublicNewsItem
       {items.length > 0 ? (
         <div className="grid gap-2">
           {items.map((item) => (
+            (() => {
+              const detailRoute = buildDetailRoute(item)
+              return (
             <a
               key={item.id}
-              href={buildPublicDetailUrl(item)}
+              href={buildPublicAppPath(detailRoute)}
+              onClick={(event) => handleRouteAnchorClick(event, detailRoute)}
               className="rounded-md border bg-background p-3 text-sm hover:border-primary/40"
             >
               <span className="font-medium">{item.title}</span>
@@ -338,6 +376,8 @@ function RelatedSection({ title, items }: { title: string; items: PublicNewsItem
                 {item.source.name} · {formatFullTime(item.publishedAt)}
               </span>
             </a>
+              )
+            })()
           ))}
         </div>
       ) : (
@@ -354,6 +394,27 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
   const [related, setRelated] = useState<PublicNewsItem[]>([])
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading")
   const [error, setError] = useState("")
+  const seoPayload = useMemo(
+    () =>
+      buildEventSeoPayload({
+        origin: window.location.origin || "https://news-sentry.com",
+        route,
+        item,
+      }),
+    [item, route],
+  )
+  const feedRoute: Extract<PublicRoute, { name: "feed" }> = {
+    name: "feed",
+    channel: "featured",
+    search: new URLSearchParams(),
+  }
+  const sourceRoute: Extract<PublicRoute, { name: "sourceDetail" }> | null = item
+    ? {
+        name: "sourceDetail",
+        sourceId: item.source.id,
+        search: new URLSearchParams(),
+      }
+    : null
 
   useEffect(() => {
     let cancelled = false
@@ -392,94 +453,123 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
     }
   }, [route.eventId, route.targetId])
 
-  if (status === "loading") return <LoadingFeed />
+  if (status === "loading")
+    return (
+      <>
+        <SeoHead payload={seoPayload} />
+        <LoadingFeed />
+      </>
+    )
   if (status === "error" || !item) {
-    return <ErrorState message={error || "新闻详情暂时不可用。"} onRetry={() => window.location.reload()} />
+    return (
+      <>
+        <SeoHead payload={seoPayload} />
+        <ErrorState
+          message={error || "新闻详情暂时不可用。"}
+          onRetry={() => window.location.reload()}
+        />
+      </>
+    )
   }
 
   const buckets = buildRelatedBuckets(item, related)
 
   return (
-    <article className="overflow-hidden rounded-lg border bg-background shadow-sm">
-      <div className="border-b px-4 py-4 sm:px-6">
-        <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
-          <a href="#/feed">
-            <ArrowLeftIcon className="size-4" aria-hidden="true" />
-            返回新闻流
-          </a>
-        </Button>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-          <Badge variant={item.valueLabel === "精选" ? "default" : "secondary"}>{item.valueLabel}</Badge>
-          <span>{formatFullTime(item.publishedAt)}</span>
-          <span>{item.source.name}</span>
-          <span>{sourceTypeLabel(item.source.type)}</span>
-          {item.source.credibilityLabel ? <span>{item.source.credibilityLabel}</span> : null}
+    <>
+      <SeoHead payload={seoPayload} />
+      <article className="overflow-hidden rounded-lg border bg-background shadow-sm">
+        <div className="border-b px-4 py-4 sm:px-6">
+          <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
+            <a
+              href={buildPublicAppPath(feedRoute)}
+              onClick={(event) => handleRouteAnchorClick(event, feedRoute)}
+            >
+              <ArrowLeftIcon className="size-4" aria-hidden="true" />
+              返回新闻流
+            </a>
+          </Button>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <Badge variant={item.valueLabel === "精选" ? "default" : "secondary"}>
+              {item.valueLabel}
+            </Badge>
+            <span>{formatFullTime(item.publishedAt)}</span>
+            <span>{item.source.name}</span>
+            <span>{sourceTypeLabel(item.source.type)}</span>
+            {item.source.credibilityLabel ? <span>{item.source.credibilityLabel}</span> : null}
+          </div>
+          <h1 className="mt-3 text-2xl font-semibold leading-tight sm:text-3xl">{item.title}</h1>
+          {item.originalTitle ? (
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.originalTitle}</p>
+          ) : null}
         </div>
-        <h1 className="mt-3 text-2xl font-semibold leading-tight sm:text-3xl">{item.title}</h1>
-        {item.originalTitle ? (
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.originalTitle}</p>
-        ) : null}
-      </div>
-      <div className="grid gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-        <section className="grid gap-5">
-          <div>
-            <h2 className="text-base font-semibold">新闻摘要</h2>
-            <p className="mt-2 text-sm leading-7 text-muted-foreground">
-              {item.summary || "这条新闻仍在生成读者摘要，已保留来源、原文和推荐理由。"}
-            </p>
-          </div>
-          <div className="rounded-md border bg-muted/35 p-3 text-sm leading-6 text-muted-foreground">
-            <span className="font-medium text-foreground">推荐理由：</span>
-            {item.recommendationReason || "等待更多 AI 增强说明。"}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {item.tags.map((tag) => (
-              <Badge key={tag} variant="outline">
-                {tag}
-              </Badge>
-            ))}
-            {item.entities.map((entity) => (
-              <Badge key={`${entity.type ?? "entity"}-${entity.name}`} variant="secondary">
-                {entity.name}
-              </Badge>
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <CopySummaryButton item={item} />
-            {item.originalUrl ? (
-              <Button asChild size="sm">
-                <a href={item.originalUrl} target="_blank" rel="noreferrer">
-                  查看原文
-                  <ArrowUpRightIcon className="size-4" aria-hidden="true" />
-                </a>
-              </Button>
-            ) : null}
-          </div>
-        </section>
-        <aside className="grid h-fit gap-4">
-          <Card className="rounded-lg">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">来源</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-2 text-sm">
-              <p className="font-medium">{item.source.name}</p>
-              <p className="text-muted-foreground">{sourceTypeLabel(item.source.type)}</p>
-              {item.source.credibilityLabel ? (
-                <p className="text-muted-foreground">可信度：{item.source.credibilityLabel}</p>
+        <div className="grid gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+          <section className="grid gap-5">
+            <div>
+              <h2 className="text-base font-semibold">新闻摘要</h2>
+              <p className="mt-2 text-sm leading-7 text-muted-foreground">
+                {item.summary || "这条新闻仍在生成读者摘要，已保留来源、原文和推荐理由。"}
+              </p>
+            </div>
+            <div className="rounded-md border bg-muted/35 p-3 text-sm leading-6 text-muted-foreground">
+              <span className="font-medium text-foreground">推荐理由：</span>
+              {item.recommendationReason || "等待更多 AI 增强说明。"}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {item.tags.map((tag) => (
+                <Badge key={tag} variant="outline">
+                  {tag}
+                </Badge>
+              ))}
+              {item.entities.map((entity) => (
+                <Badge key={`${entity.type ?? "entity"}-${entity.name}`} variant="secondary">
+                  {entity.name}
+                </Badge>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <CopySummaryButton item={item} />
+              {item.originalUrl ? (
+                <Button asChild size="sm">
+                  <a href={item.originalUrl} target="_blank" rel="noreferrer">
+                    查看原文
+                    <ArrowUpRightIcon className="size-4" aria-hidden="true" />
+                  </a>
+                </Button>
               ) : null}
-              <Button asChild variant="outline" size="sm" className="mt-2 w-fit">
-                <a href={`#/sources/${encodeURIComponent(item.source.id)}`}>查看来源</a>
-              </Button>
-            </CardContent>
-          </Card>
-        </aside>
-      </div>
-      <div className="grid gap-4 border-t px-4 py-5 sm:px-6 lg:grid-cols-3">
-        <RelatedSection title="同来源信号" items={buckets.sameSource} />
-        <RelatedSection title="同目标信号" items={buckets.sameTarget} />
-        <RelatedSection title="同主题信号" items={buckets.sameTopic} />
-      </div>
-    </article>
+            </div>
+          </section>
+          <aside className="grid h-fit gap-4">
+            <Card className="rounded-lg">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">来源</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-2 text-sm">
+                <p className="font-medium">{item.source.name}</p>
+                <p className="text-muted-foreground">{sourceTypeLabel(item.source.type)}</p>
+                {item.source.credibilityLabel ? (
+                  <p className="text-muted-foreground">可信度：{item.source.credibilityLabel}</p>
+                ) : null}
+                {sourceRoute ? (
+                  <Button asChild variant="outline" size="sm" className="mt-2 w-fit">
+                    <a
+                      href={buildPublicAppPath(sourceRoute)}
+                      onClick={(event) => handleRouteAnchorClick(event, sourceRoute)}
+                    >
+                      查看来源
+                    </a>
+                  </Button>
+                ) : null}
+              </CardContent>
+            </Card>
+          </aside>
+        </div>
+        <div className="grid gap-4 border-t px-4 py-5 sm:px-6 lg:grid-cols-3">
+          <RelatedSection title="同来源信号" items={buckets.sameSource} />
+          <RelatedSection title="同目标信号" items={buckets.sameTarget} />
+          <RelatedSection title="同主题信号" items={buckets.sameTopic} />
+        </div>
+      </article>
+    </>
   )
 }
 
@@ -529,27 +619,35 @@ export function SourceDirectoryPage() {
       ) : null}
       {sources.length > 0 ? (
         <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
-          {sources.map((source) => (
-            <a
-              key={source.id}
-              href={`#/sources/${encodeURIComponent(source.id)}`}
-              className="grid gap-3 rounded-lg border bg-card p-4 transition-colors hover:border-primary/40"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h2 className="truncate text-lg font-semibold">{source.name}</h2>
-                  <p className="mt-1 text-sm text-muted-foreground">{sourceTypeLabel(source.type)}</p>
+          {sources.map((source) => {
+            const sourceRoute: Extract<PublicRoute, { name: "sourceDetail" }> = {
+              name: "sourceDetail",
+              sourceId: source.id,
+              search: new URLSearchParams(),
+            }
+            return (
+              <a
+                key={source.id}
+                href={buildPublicAppPath(sourceRoute)}
+                onClick={(event) => handleRouteAnchorClick(event, sourceRoute)}
+                className="grid gap-3 rounded-lg border bg-card p-4 transition-colors hover:border-primary/40"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="truncate text-lg font-semibold">{source.name}</h2>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {sourceTypeLabel(source.type)}
+                    </p>
+                  </div>
+                  <Badge variant={source.statusLabel === "近期活跃" ? "default" : "secondary"}>
+                    {source.statusLabel}
+                  </Badge>
                 </div>
-                <Badge variant={source.statusLabel === "近期活跃" ? "default" : "secondary"}>
-                  {source.statusLabel}
-                </Badge>
-              </div>
-              <p className="text-sm text-muted-foreground">近期 {source.count} 条新闻</p>
-              {source.latestTitle ? (
-                <p className="line-clamp-2 text-sm">{source.latestTitle}</p>
-              ) : null}
-            </a>
-          ))}
+                <p className="text-sm text-muted-foreground">近期 {source.count} 条新闻</p>
+                {source.latestTitle ? <p className="line-clamp-2 text-sm">{source.latestTitle}</p> : null}
+              </a>
+            )
+          })}
         </div>
       ) : null}
     </section>
@@ -588,7 +686,12 @@ export function SourceDetailPage({ sourceId }: { sourceId: string }) {
     <section className="overflow-hidden rounded-lg border bg-background shadow-sm">
       <div className="border-b px-4 py-4 sm:px-5">
         <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
-          <a href="#/sources">
+          <a
+            href={buildPublicAppPath({ name: "sources", search: new URLSearchParams() })}
+            onClick={(event) =>
+              handleRouteAnchorClick(event, { name: "sources", search: new URLSearchParams() })
+            }
+          >
             <ArrowLeftIcon className="size-4" aria-hidden="true" />
             来源目录
           </a>
@@ -657,7 +760,7 @@ export function DailyPage({ date }: { date?: string }) {
             type="date"
             value={selectedDate}
             onChange={(event) => {
-              window.location.hash = buildRouteHash({
+              navigateToPublicRoute({
                 name: "daily",
                 date: event.currentTarget.value,
                 search: new URLSearchParams(),
@@ -838,14 +941,25 @@ export function AnalysisPage({
             </CardHeader>
             <CardContent className="grid gap-2 text-sm">
               {targets.slice(0, 8).map((target) => (
-                <a
-                  key={target.target_id}
-                  href={`#/analysis?target_id=${encodeURIComponent(target.target_id)}`}
-                  className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 hover:border-primary/40"
-                >
-                  <span className="min-w-0 truncate">{target.display_name}</span>
-                  <span className="text-muted-foreground">{target.event_count}</span>
-                </a>
+                (() => {
+                  const analysisRoute: Extract<PublicRoute, { name: "analysis" }> = {
+                    name: "analysis",
+                    targetId: target.target_id,
+                    section: undefined,
+                    search: new URLSearchParams(),
+                  }
+                  return (
+                    <a
+                      key={target.target_id}
+                      href={buildPublicAppPath(analysisRoute)}
+                      onClick={(event) => handleRouteAnchorClick(event, analysisRoute)}
+                      className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 hover:border-primary/40"
+                    >
+                      <span className="min-w-0 truncate">{target.display_name}</span>
+                      <span className="text-muted-foreground">{target.event_count}</span>
+                    </a>
+                  )
+                })()
               ))}
               {targets.length === 0 ? (
                 <p className="text-muted-foreground">目标列表正在加载。</p>
