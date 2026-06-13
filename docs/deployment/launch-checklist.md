@@ -68,6 +68,12 @@
 **行动**:
 - [ ] 部署后用浏览器和 `curl https://news-sentry.com/` 确认线上 HTML 已包含这些标签
 - [ ] 使用社交预览工具复验 `og:image` 是否可抓取
+- [ ] 同步检查 SEO / GEO 文档面：
+  `docs/seo-geo/automation-governance.md`
+  `docs/seo-geo/prerequisites-and-gaps.md`
+  `docs/seo-geo/automation-progress.md`
+  `docs/seo-geo/rule-sources.md`
+  `tools/seo_geo/rule_sources.json`
 
 ### 6. 隐私政策 / 免责声明复验
 **状态**: 公开 footer 已有"隐私政策"和"免责声明"弹窗，说明公开 RSS/API 来源、AI 分析边界、Cloudflare、本地存储和使用风险。

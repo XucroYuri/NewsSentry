@@ -28,10 +28,12 @@ function channelFromSearch(search: URLSearchParams): PublicChannel {
   return "featured"
 }
 
-export function parseHashRoute(hash: string): PublicRoute {
-  const normalized = normalizeHash(hash || "/feed")
-  const [pathPart, queryPart = ""] = normalized.split("?")
-  const search = new URLSearchParams(queryPart)
+function buildSearchParams(search: string) {
+  const value = search.startsWith("?") ? search.slice(1) : search
+  return new URLSearchParams(value)
+}
+
+function parseRouteParts(pathPart: string, search: URLSearchParams): PublicRoute {
   const segments = pathPart.split("/").filter(Boolean).map(decodeURIComponent)
   const [root, second] = segments
 
@@ -63,12 +65,73 @@ export function parseHashRoute(hash: string): PublicRoute {
   return { name: "feed", channel: channelFromSearch(search), search }
 }
 
+export function parseHashRoute(hash: string): PublicRoute {
+  const normalized = normalizeHash(hash || "/feed")
+  const [pathPart, queryPart = ""] = normalized.split("?")
+  return parseRouteParts(pathPart, new URLSearchParams(queryPart))
+}
+
+function parsePublicAppPath(pathname: string, search: string): PublicRoute | null {
+  const normalized = pathname.replace(/\/+$/, "") || "/"
+  if (normalized === "/public-app") {
+    return {
+      name: "feed",
+      channel: channelFromSearch(buildSearchParams(search)),
+      search: buildSearchParams(search),
+    }
+  }
+  if (!normalized.startsWith("/public-app/")) return null
+  const pathPart = normalized.slice("/public-app".length)
+  const params = buildSearchParams(search)
+  return parseRouteParts(pathPart || "/", params)
+}
+
+export function parseLocationRoute(locationLike: Pick<Location, "pathname" | "search" | "hash">) {
+  const hash = locationLike.hash?.trim() ?? ""
+  if (hash.startsWith("#/")) return parseHashRoute(hash)
+  return parsePublicAppPath(locationLike.pathname, locationLike.search) ?? parseHashRoute(hash)
+}
+
 export function routeToChannel(route: PublicRoute): PublicChannel {
   if (route.name === "feed") return route.channel
   if (route.name === "sources" || route.name === "sourceDetail") return "sources"
   if (route.name === "daily") return "daily"
   if (route.name === "analysis") return "analysis"
   return "featured"
+}
+
+export function buildPublicAppPath(route: PublicRoute) {
+  if (route.name === "event") {
+    const params = new URLSearchParams()
+    if (route.targetId) params.set("target_id", route.targetId)
+    const query = params.toString()
+    return `/public-app/events/${encodeURIComponent(route.eventId)}${query ? `?${query}` : ""}`
+  }
+  if (route.name === "sourceDetail") return `/public-app/sources/${encodeURIComponent(route.sourceId)}`
+  if (route.name === "sources") return "/public-app/sources"
+  if (route.name === "daily") {
+    const params = new URLSearchParams()
+    if (route.date) params.set("date", route.date)
+    const query = params.toString()
+    return `/public-app/daily${query ? `?${query}` : ""}`
+  }
+  if (route.name === "analysis") {
+    const params = new URLSearchParams()
+    if (route.targetId) params.set("target_id", route.targetId)
+    if (route.section) params.set("section", route.section)
+    route.search.forEach((value, key) => {
+      if (!params.has(key)) params.set(key, value)
+    })
+    const query = params.toString()
+    return `/public-app/analysis${query ? `?${query}` : ""}`
+  }
+  const params = new URLSearchParams()
+  if (route.channel !== "featured") params.set("channel", route.channel)
+  route.search.forEach((value, key) => {
+    if (key !== "channel") params.set(key, value)
+  })
+  const query = params.toString()
+  return `/public-app/${query ? `?${query}` : ""}`
 }
 
 export function buildRouteHash(route: PublicRoute) {

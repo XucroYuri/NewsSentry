@@ -1087,6 +1087,59 @@ class AsyncStore:
             )
         return result
 
+    async def query_public_projection_rows(
+        self,
+        *,
+        target_id: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """读取 public-site 所需的最小 event_index 行，不触碰 markdown/frontmatter。"""
+        if self._db is None:
+            return []
+        safe_limit = max(1, min(int(limit), 5000))
+        safe_offset = max(0, int(offset))
+        if target_id is None:
+            sql = (
+                "SELECT event_id, target_id, source_id, title_original, url, published_at, "
+                "created_at, news_value_score, china_relevance, classification_l0, metadata_json "
+                "FROM event_index WHERE stage = ? "
+                "ORDER BY datetime(COALESCE(published_at, created_at)) DESC, event_id DESC "
+                "LIMIT ? OFFSET ?"
+            )
+            params: list[Any] = ["drafts", safe_limit, safe_offset]
+        else:
+            sql = (
+                "SELECT event_id, target_id, source_id, title_original, url, published_at, "
+                "created_at, news_value_score, china_relevance, classification_l0, metadata_json "
+                "FROM event_index WHERE stage = ? AND target_id = ? "
+                "ORDER BY datetime(COALESCE(published_at, created_at)) DESC, event_id DESC "
+                "LIMIT ? OFFSET ?"
+            )
+            params = ["drafts", target_id, safe_limit, safe_offset]
+
+        async with self._db.execute(sql, params) as cursor:
+            rows = await cursor.fetchall()
+
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            result.append(
+                {
+                    "event_id": row[0],
+                    "target_id": row[1],
+                    "source_id": row[2],
+                    "title_original": row[3],
+                    "url": row[4],
+                    "published_at": row[5],
+                    "created_at": row[6],
+                    "news_value_score": row[7],
+                    "china_relevance": row[8],
+                    "classification_l0": canonical_l0(row[9]),
+                    "metadata": self._json_loads(row[10]),
+                }
+            )
+        return result
+
     async def get_event_count(self, target_id: str, stage: str) -> int:
         if self._db is None:
             return 0

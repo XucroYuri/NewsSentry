@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /#/admin
+Disallow: /#/admin/
+Disallow: /admin
+Disallow: /admin/
+Disallow: /api/v1/runtime/
+Disallow: /api/v1/collector/
+Disallow: /api/v1/maintenance/
+
+Sitemap: https://news-sentry.com/sitemap.xml

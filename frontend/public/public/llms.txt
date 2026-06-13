@@ -1,0 +1,8 @@
+News Sentry
+
+News Sentry is a public news intelligence surface for reading curated event coverage and related analysis.
+
+Primary public routes:
+- /public-app
+- /public-app/events/{event_id}?target_id={target_id}
+- /sitemap.xml

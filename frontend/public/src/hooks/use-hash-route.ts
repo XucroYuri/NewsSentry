@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 
-import { buildRouteHash, parseHashRoute, type PublicRoute } from "@/lib/routes"
+import { buildPublicAppPath, parseLocationRoute, type PublicRoute } from "@/lib/routes"
 
 function searchEqual(left: URLSearchParams, right: URLSearchParams) {
   return left.toString() === right.toString()
@@ -35,21 +35,26 @@ function routesEqual(left: PublicRoute, right: PublicRoute) {
 }
 
 export function useHashRoute() {
-  const [route, setRoute] = useState<PublicRoute>(() => parseHashRoute(window.location.hash))
+  const [route, setRoute] = useState<PublicRoute>(() => parseLocationRoute(window.location))
 
   useEffect(() => {
-    const onHashChange = () =>
+    const syncRoute = () =>
       setRoute((current) => {
-        const next = parseHashRoute(window.location.hash)
+        const next = parseLocationRoute(window.location)
         return routesEqual(current, next) ? current : next
       })
-    window.addEventListener("hashchange", onHashChange)
-    onHashChange()
-    return () => window.removeEventListener("hashchange", onHashChange)
+    window.addEventListener("hashchange", syncRoute)
+    window.addEventListener("popstate", syncRoute)
+    syncRoute()
+    return () => {
+      window.removeEventListener("hashchange", syncRoute)
+      window.removeEventListener("popstate", syncRoute)
+    }
   }, [])
 
   const navigate = useCallback((nextRoute: PublicRoute) => {
-    window.location.hash = buildRouteHash(nextRoute)
+    window.history.pushState({}, "", buildPublicAppPath(nextRoute))
+    setRoute(nextRoute)
   }, [])
 
   return { route, navigate }

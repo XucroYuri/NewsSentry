@@ -13,6 +13,7 @@ import {
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { SeoHead } from "@/components/seo/seo-head"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
@@ -23,7 +24,8 @@ import { usePublicFeed } from "@/hooks/use-public-feed"
 import { usePublicTargets } from "@/hooks/use-public-targets"
 import { type FeedFilters, type PublicChannel } from "@/lib/feed-state"
 import { formatFullTime, todayKey } from "@/lib/public-view"
-import { routeToChannel, type PublicRoute } from "@/lib/routes"
+import { buildPublicAppPath, routeToChannel, type PublicRoute } from "@/lib/routes"
+import { buildRouteSeoPayload } from "@/lib/seo/site-seo"
 import {
   AnalysisPage,
   DailyPage,
@@ -113,11 +115,16 @@ function AppShell({
   onRefresh: () => void
   refreshing: boolean
 }) {
+  const homeHref = buildPublicAppPath({
+    name: "feed",
+    channel: "featured",
+    search: new URLSearchParams(),
+  })
   return (
     <div className="min-h-screen bg-[hsl(42_33%_98%)] text-foreground">
       <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur">
         <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-4 px-4 py-3 lg:px-6">
-          <a href="#/feed" className="flex min-w-0 items-center gap-3">
+          <a href={homeHref} className="flex min-w-0 items-center gap-3">
             <div className="flex size-9 items-center justify-center rounded-md border border-primary/25 bg-primary/5 text-primary">
               <BookOpenIcon className="size-5" aria-hidden="true" />
             </div>
@@ -520,6 +527,12 @@ export default function App() {
         ? feedTargetId
         : null
   const { analysis, analysisError } = usePublicAnalysis(analysisTargetId)
+  const selectedTargetId = analysisTargetId ?? feedTargetId ?? targets[0]?.target_id ?? null
+  const selectedTargetLabel =
+    targets.find((target) => target.target_id === selectedTargetId)?.display_name ??
+    feed.feedState.items.find((item) => item.targetId === selectedTargetId)?.targetLabel ??
+    null
+  const siteOrigin = window.location.origin || "https://news-sentry.com"
 
   const updateFilters = useCallback(
     (patch: Partial<FeedFilters>) => {
@@ -567,6 +580,15 @@ export default function App() {
     />
   )
   const latestItem = feed.feedState.items[0] ?? null
+  const appSeoPayload = useMemo(() => {
+    if (route.name === "event") return null
+    return buildRouteSeoPayload({
+      origin: siteOrigin,
+      route,
+      selectedTargetLabel,
+      analysis,
+    })
+  }, [analysis, route, selectedTargetLabel, siteOrigin])
 
   let mainContent: React.ReactNode
   let showLeftRail = true
@@ -611,6 +633,7 @@ export default function App() {
 
   return (
     <AppShell onRefresh={() => void feed.loadFeed("refresh")} refreshing={feed.refreshing}>
+      <SeoHead payload={appSeoPayload} />
       <main
         className={
           showLeftRail && showRightRail
