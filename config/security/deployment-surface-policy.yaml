@@ -1,0 +1,78 @@
+# Schema: ../../schemas/deploymentsurfacepolicy.schema.json
+policy_id: deployed-surface-v1
+
+surface_rules:
+  public_exact:
+    - "/public-app/"
+    - "/robots.txt"
+    - "/sitemap.xml"
+    - "/llms.txt"
+    - "/api/v1/targets"
+    - "/api/v1/health"
+  public_prefixes:
+    - "/public-app/assets/"
+    - "/api/v1/public/"
+  protected_exact:
+    - "/api/v1/status"
+    - "/api/v1/runtime/info"
+  protected_prefixes:
+    - "/api/v1/auth/"
+    - "/api/v1/admin/"
+  architecture_exact:
+    - "/#/admin/login"
+  architecture_prefixes:
+    - "/#/admin"
+    - "/admin/"
+  default_probe_surfaces:
+    public:
+      - "/public-app/"
+      - "/robots.txt"
+      - "/sitemap.xml"
+      - "/llms.txt"
+      - "/api/v1/public/news?page_size=1"
+      - "/api/v1/targets"
+      - "/api/v1/health"
+    protected:
+      - "/api/v1/runtime/info"
+      - "/api/v1/status"
+      - "/api/v1/auth/login"
+      - "/api/v1/auth/token"
+      - "/api/v1/admin/overview"
+      - "/api/v1/admin/targets"
+    architecture:
+      - "/#/admin/login"
+
+auto_fixable_finding_classes:
+  - "protected-surface-public"
+  - "diagnostic-surface-public"
+  - "cloudflare-access-drift"
+  - "response-header-drift"
+  - "cloudflare-rate-limit-drift"
+  - "cloudflare-waf-drift"
+  - "cors-boundary-drift"
+
+blocker_finding_classes:
+  - "admin-ui-path-migration"
+  - "cloudflare-access-token-missing"
+  - "cloudflare-state-unavailable"
+  - "production-verification-unavailable"
+  - "public-portal-regression-risk"
+
+cloudflare_expected:
+  required_access_protected_prefixes:
+    - "/api/v1/auth/"
+    - "/api/v1/admin/"
+    - "/api/v1/status"
+    - "/api/v1/runtime/info"
+  required_response_headers:
+    - "strict-transport-security"
+    - "content-security-policy"
+    - "referrer-policy"
+    - "permissions-policy"
+    - "x-frame-options"
+  required_rate_limit_paths:
+    - "/api/v1/auth/login"
+    - "/api/v1/auth/token"
+  required_waf_path_prefixes:
+    - "/api/v1/auth/"
+    - "/api/v1/admin/"

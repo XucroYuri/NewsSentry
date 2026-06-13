@@ -1,0 +1,109 @@
+# Schema: ../../schemas/targetconfig.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015, ADR-0016
+target_id: fusion
+display_name: "Fusion Codes Intelligence"
+monitoring_type: topic
+topic_label: "Fusion Industry Intelligence"
+
+language_scope:
+  primary: en
+  secondary: []
+  output: zh
+
+timezone: Asia/Shanghai
+
+# fusion.codes MVP: start with high-signal sector, project, and company sources.
+source_channel_refs:
+  - fusion-industry-association
+  - iter-newsline
+  - mit-fusion
+  - world-nuclear-news
+  - ans-nuclear-newswire
+  - cfs-news
+  - helion-news
+
+filter_rules_ref: config/filters/fusion/default.yaml
+classification_rules_ref: config/classification/rules-fusion.yaml
+sandbox_profile_ref: config/sandbox/default.yaml
+provider_routes_ref: config/provider/routes.yaml
+output_destinations_ref: config/output/destinations.yaml
+
+classification:
+  country_axes:
+    politics: false
+    economics: true
+    crime: false
+    sports: false
+    culture: false
+    eu_relations: false
+    china_italy_relations: false
+    immigration: false
+    energy: true
+    judicial: false
+  home_relevance_keywords:
+    - "fusion"
+    - "fusion energy"
+    - "fusion power"
+    - "plasma"
+    - "tokamak"
+    - "stellarator"
+    - "inertial fusion"
+    - "magnetized target fusion"
+    - "commercial fusion"
+    - "pilot plant"
+    - "power purchase agreement"
+    - "tritium"
+    - "high-temperature superconducting"
+    - "HTS magnet"
+    - "blanket"
+    - "divertor"
+    - "ITER"
+    - "SPARC"
+    - "ARC"
+    - "NIF"
+    - "Commonwealth Fusion Systems"
+    - "Helion"
+    - "TAE Technologies"
+    - "Zap Energy"
+    - "Tokamak Energy"
+    - "Type One Energy"
+    - "Proxima Fusion"
+
+focus_areas:
+  - id: company-milestones
+    weight: 3.0
+    keywords:
+      - "funding"
+      - "Series A"
+      - "Series B"
+      - "plant"
+      - "pilot plant"
+      - "demonstration"
+      - "construction"
+      - "grid"
+      - "power purchase agreement"
+      - "PPA"
+  - id: technical-readiness
+    weight: 2.5
+    keywords:
+      - "Q"
+      - "net energy"
+      - "plasma"
+      - "magnet"
+      - "HTS"
+      - "tritium"
+      - "blanket"
+      - "divertor"
+      - "first plasma"
+      - "burning plasma"
+  - id: policy-and-capital
+    weight: 2.0
+    keywords:
+      - "Department of Energy"
+      - "ARPA-E"
+      - "regulation"
+      - "supply chain"
+      - "investment"
+      - "procurement"
+      - "grant"
