@@ -116,6 +116,9 @@ network_policy:
     - "www.beehive.govt.nz"
     - "www.nzherald.co.nz"
     - "www.open.online"
+    - "www.rte.ie"
+    - "www.independent.ie"
+    - "www.thejournal.ie"
   blocked_hosts:
     - "169.254.169.254"
     - "metadata.google.internal"

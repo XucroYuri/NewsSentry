@@ -1,0 +1,88 @@
+# Schema: ../../schemas/filterrules.schema.json
+# 契约: docs/contracts-canonical.md §3
+# ADR: ADR-0009
+rules_version: "1.0.0"
+target_id: ireland
+
+score_threshold: 30
+max_age_hours: 72
+dedup_window_hours: 24
+
+keyword_rules:
+  # ── 政治与治理 ───────────────────────────────────────
+  - keyword: "Ireland"
+    weight: 0.75
+    language: en
+  - keyword: "Irish"
+    weight: 0.7
+    language: en
+  - keyword: "Dublin"
+    weight: 0.8
+    language: en
+  - keyword: "Micheál Martin"
+    weight: 0.95
+    language: en
+  - keyword: "Taoiseach"
+    weight: 0.95
+    language: en
+  - keyword: "Oireachtas"
+    weight: 0.9
+    language: en
+  - keyword: "Dáil"
+    weight: 0.9
+    language: en
+  - keyword: "EU presidency"
+    weight: 0.95
+    language: en
+
+  # ── 经济、科技与民生 ─────────────────────────────────
+  - keyword: "housing"
+    weight: 0.8
+    language: en
+  - keyword: "cost of living"
+    weight: 0.85
+    language: en
+  - keyword: "FDI"
+    weight: 0.85
+    language: en
+  - keyword: "technology"
+    weight: 0.75
+    language: en
+  - keyword: "AI"
+    weight: 0.8
+    language: en
+  - keyword: "data centre"
+    weight: 0.8
+    language: en
+  - keyword: "energy"
+    weight: 0.8
+    language: en
+  - keyword: "growth"
+    weight: 0.7
+    language: en
+
+  # ── 外交、边境与司法 ─────────────────────────────────
+  - keyword: "China"
+    weight: 0.95
+    language: en
+  - keyword: "Beijing"
+    weight: 0.85
+    language: en
+  - keyword: "migration pact"
+    weight: 0.9
+    language: en
+  - keyword: "asylum"
+    weight: 0.8
+    language: en
+  - keyword: "Common Travel Area"
+    weight: 0.95
+    language: en
+  - keyword: "foreign affairs"
+    weight: 0.8
+    language: en
+  - keyword: "security"
+    weight: 0.75
+    language: en
+  - keyword: "courts"
+    weight: 0.65
+    language: en
