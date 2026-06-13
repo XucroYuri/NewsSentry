@@ -42,10 +42,19 @@ def test_ireland_filter_covers_governance_migration_and_growth_signals(
     threshold = int(config["score_threshold"])
 
     samples = [
-        "Ireland prepares its EU presidency as Micheál Martin and the Dáil push foreign affairs priorities",
-        "Dublin reviews asylum appeals and Common Travel Area safeguards as migration pact rules take effect",
+        (
+            "Ireland prepares its EU presidency as Micheál Martin and the Dáil "
+            "push foreign affairs priorities"
+        ),
+        (
+            "Dublin reviews asylum appeals and Common Travel Area safeguards "
+            "as migration pact rules take effect"
+        ),
         "Irish FDI and AI investment stay in focus as data centre growth and energy policy collide",
-        "Housing affordability and public services remain central to Ireland's cost of living debate",
+        (
+            "Housing affordability and public services remain central to "
+            "Ireland's cost of living debate"
+        ),
     ]
 
     scores = [
