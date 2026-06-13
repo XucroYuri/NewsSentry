@@ -6831,11 +6831,14 @@ def create_app(
                 bool(since_cursor),
             )
         )
-        query_limit = (
-            _PUBLIC_NEWS_MAX_SCAN
-            if before_cursor or since_cursor or q or date
-            else min(_PUBLIC_NEWS_MAX_SCAN, max(page_size * 4, _PUBLIC_NEWS_MIN_SCAN))
-        )
+        if allow_projection_first:
+            query_limit = min(_PUBLIC_NEWS_MAX_SCAN, page_size + 1)
+        else:
+            query_limit = (
+                _PUBLIC_NEWS_MAX_SCAN
+                if before_cursor or since_cursor or q or date
+                else min(_PUBLIC_NEWS_MAX_SCAN, max(page_size * 4, _PUBLIC_NEWS_MIN_SCAN))
+            )
         candidates, candidate_total = await _public_news_candidate_events(
             _data_dir,
             target_ids,
