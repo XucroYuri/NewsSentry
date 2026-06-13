@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote, urlencode
 
 from news_sentry.core.async_store import AsyncStore
@@ -80,9 +80,11 @@ class PublicSiteProjectionStore:
         return entries
 
     def _item_from_row(self, row: dict[str, Any]) -> PublicSiteProjectionItem:
-        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        raw_metadata = row.get("metadata")
+        metadata = cast(dict[str, Any], raw_metadata) if isinstance(raw_metadata, dict) else {}
+        raw_translation = metadata.get("translation")
         translation = (
-            metadata.get("translation") if isinstance(metadata.get("translation"), dict) else {}
+            cast(dict[str, Any], raw_translation) if isinstance(raw_translation, dict) else {}
         )
         event_id = str(row.get("event_id") or "").strip()
         target_id = str(row.get("target_id") or "").strip()

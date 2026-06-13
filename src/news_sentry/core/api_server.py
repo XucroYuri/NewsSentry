@@ -2122,14 +2122,20 @@ def _public_projection_text(value: Any) -> str | None:
 def _public_projection_event(row: dict[str, Any]) -> dict[str, Any]:
     """把 public projection row 补齐到 PublicNewsItem 所需的最小展示事件形状。"""
     event = _event_from_index_row(row)
-    metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+    raw_metadata = row.get("metadata")
+    metadata = cast(dict[str, Any], raw_metadata) if isinstance(raw_metadata, dict) else {}
+    raw_translation = metadata.get("translation")
     translation = (
-        metadata.get("translation") if isinstance(metadata.get("translation"), dict) else {}
+        cast(dict[str, Any], raw_translation) if isinstance(raw_translation, dict) else {}
     )
+    raw_judge_result = metadata.get("judge_result")
     judge_result = (
-        metadata.get("judge_result") if isinstance(metadata.get("judge_result"), dict) else {}
+        cast(dict[str, Any], raw_judge_result) if isinstance(raw_judge_result, dict) else {}
     )
-    source_meta = metadata.get("source") if isinstance(metadata.get("source"), dict) else {}
+    raw_source_meta = metadata.get("source")
+    source_meta = (
+        cast(dict[str, Any], raw_source_meta) if isinstance(raw_source_meta, dict) else {}
+    )
 
     if translated_title := _public_projection_text(translation.get("title_pre")):
         event["title_translated"] = translated_title
