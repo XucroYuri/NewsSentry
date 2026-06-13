@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://news-sentry.local/schemas/deploymentsurfacepolicy.schema.json",
+  "title": "DeploymentSurfacePolicy",
+  "description": "Policy for deployed public surface audit and autofix gating.",
+  "type": "object",
+  "required": [
+    "policy_id",
+    "surface_rules",
+    "auto_fixable_finding_classes",
+    "blocker_finding_classes",
+    "cloudflare_expected"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "policy_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]*$"
+    },
+    "surface_rules": {
+      "type": "object",
+      "required": [
+        "public_exact",
+        "public_prefixes",
+        "protected_exact",
+        "protected_prefixes",
+        "architecture_exact",
+        "architecture_prefixes",
+        "default_probe_surfaces"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "public_exact": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "public_prefixes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "protected_exact": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "protected_prefixes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "architecture_exact": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "architecture_prefixes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "default_probe_surfaces": {
+          "type": "object",
+          "required": ["public", "protected", "architecture"],
+          "additionalProperties": false,
+          "properties": {
+            "public": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "protected": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "architecture": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "auto_fixable_finding_classes": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "blocker_finding_classes": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "cloudflare_expected": {
+      "type": "object",
+      "required": [
+        "required_access_protected_prefixes",
+        "required_response_headers",
+        "required_rate_limit_paths",
+        "required_waf_path_prefixes"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "required_access_protected_prefixes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "required_response_headers": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "required_rate_limit_paths": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "required_waf_path_prefixes": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

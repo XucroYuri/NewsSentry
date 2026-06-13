@@ -1,0 +1,71 @@
+# Schema: ../../schemas/classification.schema.json
+# 契约: docs/contracts-canonical.md §9
+# ADR: ADR-0009
+rules_version: "1.0.0"
+
+l0_domains:
+  - code: fusion-company
+    label_zh: "聚变公司"
+    keywords_en: [company, startup, funding, investor, valuation, partnership, customer, plant, commercialization]
+    keywords_zh: [公司, 初创, 融资, 投资人, 估值, 合作, 客户, 电站, 商业化]
+
+  - code: fusion-technology
+    label_zh: "聚变技术"
+    keywords_en: [tokamak, stellarator, inertial, laser, plasma, magnet, superconducting, tritium, blanket, divertor]
+    keywords_zh: [托卡马克, 仿星器, 惯性约束, 激光, 等离子体, 磁体, 超导, 氚, 包层, 偏滤器]
+
+  - code: fusion-project
+    label_zh: "大型项目"
+    keywords_en: [ITER, NIF, SPARC, ARC, DEMO, pilot plant, demonstration plant, construction, first plasma]
+    keywords_zh: [ITER, NIF, SPARC, ARC, 示范堆, 试点电站, 建设, 首次等离子体]
+
+  - code: fusion-policy-capital
+    label_zh: "政策与资本"
+    keywords_en: [Department of Energy, ARPA-E, grant, regulation, investment, supply chain, procurement, milestone program]
+    keywords_zh: [能源部, ARPA-E, 拨款, 监管, 投资, 供应链, 采购, 里程碑计划]
+
+  - code: fusion-talent
+    label_zh: "人才与招聘"
+    keywords_en: [hiring, jobs, engineer, scientist, plasma physicist, materials scientist, recruiter, career]
+    keywords_zh: [招聘, 职位, 工程师, 科学家, 等离子体物理, 材料科学家, 招聘方, 职业]
+
+l1_topics:
+  - code: financing
+    l0_domain: fusion-company
+    label_zh: "融资与估值"
+    keywords_en: [funding, Series A, Series B, investment, investor, valuation, venture]
+
+  - code: commercial-contract
+    l0_domain: fusion-company
+    label_zh: "商业合同"
+    keywords_en: [power purchase agreement, PPA, customer, offtake, grid, utility, data center]
+
+  - code: tokamak-route
+    l0_domain: fusion-technology
+    label_zh: "托卡马克路线"
+    keywords_en: [tokamak, spherical tokamak, HTS magnet, SPARC, ARC]
+
+  - code: stellarator-route
+    l0_domain: fusion-technology
+    label_zh: "仿星器路线"
+    keywords_en: [stellarator, optimized stellarator, quasi-isodynamic, Wendelstein]
+
+  - code: inertial-route
+    l0_domain: fusion-technology
+    label_zh: "惯性约束路线"
+    keywords_en: [inertial fusion, laser fusion, target, capsule, National Ignition Facility, NIF]
+
+  - code: fuel-cycle
+    l0_domain: fusion-technology
+    label_zh: "燃料循环"
+    keywords_en: [tritium, deuterium, fuel cycle, breeding blanket, lithium, neutron]
+
+  - code: public-program
+    l0_domain: fusion-policy-capital
+    label_zh: "公共项目"
+    keywords_en: [DOE, ARPA-E, FES, milestone, grant, public-private partnership]
+
+  - code: supply-chain
+    l0_domain: fusion-policy-capital
+    label_zh: "供应链"
+    keywords_en: [supply chain, procurement, manufacturing, magnet, vacuum vessel, diagnostics, gyrotron]
