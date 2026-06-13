@@ -744,7 +744,10 @@ class TestLoadTarget:
             sid = opencli_src["source_id"]
             assert "tool_ref" in opencli_src, f"OpenCLI source {sid} missing tool_ref"
 
-    @pytest.mark.parametrize("target_id", ["china-watch-en", "france", "germany", "italy", "japan"])
+    @pytest.mark.parametrize(
+        "target_id",
+        ["china-watch-en", "france", "germany", "italy", "japan", "united-kingdom"],
+    )
     def test_real_configured_targets_load(self, target_id: str):
         """验证所有真实 target 引用的 source 配置都存在且可加载。"""
         loader = ConfigLoader(Path("."))

@@ -119,6 +119,8 @@ network_policy:
     - "www.rte.ie"
     - "www.independent.ie"
     - "www.thejournal.ie"
+    - "feeds.skynews.com"
+    - "www.gov.uk"
   blocked_hosts:
     - "169.254.169.254"
     - "metadata.google.internal"
