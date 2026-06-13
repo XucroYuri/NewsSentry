@@ -191,6 +191,12 @@ def test_public_app_homepage_injects_canonical_and_json_ld(tmp_path: Path) -> No
     response = client.get("/public-app")
 
     assert response.status_code == 200
-    assert '<link rel="canonical" href="https://preview.news-sentry.com/public-app/" />' in response.text
-    assert 'property="og:url" content="https://preview.news-sentry.com/public-app/"' in response.text
+    assert (
+        '<link rel="canonical" href="https://preview.news-sentry.com/public-app/" />'
+        in response.text
+    )
+    assert (
+        'property="og:url" content="https://preview.news-sentry.com/public-app/"'
+        in response.text
+    )
     assert 'type="application/ld+json"' in response.text
