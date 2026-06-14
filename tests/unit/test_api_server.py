@@ -35,7 +35,9 @@ def _close_test_store(store: Any) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _reset_api_server_store_state() -> Iterator[None]:
+def _reset_api_server_store_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    monkeypatch.setenv("NEWSSENTRY_DEPLOYMENT_ENV", "local")
+    monkeypatch.setattr(api_server_module, "_deployment_env", "")
     yield
     _close_test_store(api_server_module._store)
     api_server_module._store = None
@@ -6733,9 +6735,11 @@ class TestLocalAuthBypassBoundary:
     """本地免登录边界测试。"""
 
     def test_loopback_request_without_explicit_local_env_requires_auth(
-        self, tmp_path: Path
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """未显式声明 local 时，127.0.0.1 host 不再自动免登录。"""
+        monkeypatch.delenv("NEWSSENTRY_DEPLOYMENT_ENV", raising=False)
+        monkeypatch.setattr(api_server_module, "_deployment_env", "")
         app = create_app(data_dir=tmp_path, auto_store=False)
         client = TestClient(app)
 
