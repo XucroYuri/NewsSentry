@@ -1,8 +1,8 @@
 # Deployment Surface Security Automation Progress
 
-> 日期: 2026-06-13
+> 日期: 2026-06-14
 > 范围: `news-sentry.com` 部署后公网暴露面审计与低风险自动修复发布
-> 状态: 初始化
+> 状态: absorbed-under-composite-governance
 
 ## 固定边界
 
@@ -16,6 +16,7 @@
 | round | timestamp | automation | environment | findings | fixable | blockers | publish_result | notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 0 | 2026-06-13T00:00:00Z | bootstrap | production/preview | 0 | 0 | 0 | pending | 初始化账本，等待首轮每日审计与发布器执行 |
+| 1 | 2026-06-14T00:00:00Z | composite-governance | preview -> main -> production | package-absorbed | n/a | `admin-ui-path-migration`, `cloudflare-access-token-missing` remain policy blockers | merged via `#21/#22` | 部署面审计/发布策略文件已并入主线并随 production deploy 通过；独立审计器/发布器已退役，由 `news-sentry-composite-automation-governance` 统一调度 |
 
 ## 当前 blocker
 
@@ -24,7 +25,6 @@
 
 ## 自动化约定
 
-- 审计器名称: `news-sentry-deployed-surface-audit`
-- 发布器名称: `news-sentry-security-autofix-publisher`
-- 审计器职责: 只读访问 production / preview，生成标准化 JSON 审计结果
-- 发布器职责: 只处理 `auto_fixable=true` 的低风险项；任一 blocker 或外部验收失败即停止
+- 当前唯一执行器：`news-sentry-composite-automation-governance`
+- 历史独立任务 `news-sentry-deployed-surface-audit` 与 `news-sentry-security-autofix-publisher` 已删除
+- 只读审计与低风险自动修复能力仍保留，但由综合自动化按 lane 调度
