@@ -6,6 +6,8 @@
 > 规则: 每轮先读本账本，再决定新增 target、既有 target 维护、最少信源 target 复查与是否部署。
 >
 > 2026-06-13 起，本文件降级为 `target-source` lane 子账本。跨 lane 编排、历史分支吸收结论与 `preview/main` 总 receipt 统一记录在 [comprehensive-automation-governance-progress.md](./comprehensive-automation-governance-progress.md)。新轮次不得再新增长期 automation branch，只能挂到单一 `preview` 集成线。
+>
+> 2026-06-14 归档残差复核结论：`south-korea + france` 这组曾经来自本地 archive 快照的残差已被证实存在于当前 `main`/production，**无需再次重放**。
 
 ## 当前状态
 

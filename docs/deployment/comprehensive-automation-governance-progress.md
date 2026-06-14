@@ -1,56 +1,89 @@
 # News Sentry Comprehensive Automation Governance Progress
 
-- last_updated: 2026-06-13
-- governance_branch: `codex/composite-automation-governance`
-- authority_baseline_main: `origin/main@cdacadb6`
-- authority_baseline_preview: `origin/preview@b4905b08`
-- status: active
+- last_updated: 2026-06-14
+- authority_baseline_main: `origin/main@04868bae`
+- authority_baseline_preview: `origin/preview@b27d7621`
+- status: stable
 
 ## Governance Rules
 
-- 所有综合自动化轮次都以 `origin/main` 为生产权威基线；本地 `main` 只保留为历史参照，不参与吸收判断。
-- 未来持续集成只走 `preview` 一条线；`main` 只接受从 `preview` 提升的 PR，不再新增长期 automation topic branch。
-- `frontend-audit`、`target-source`、`seo-geo` 三条 lane 都必须在本账本里留下 `source branch`、`preview receipt`、`main receipt`、`archive outcome`。
-- `docs/deployment/target-source-expansion-automation-progress.md` 与 `docs/seo-geo/automation-progress.md` 继续作为 lane 内部明细账本；本文件负责统一编排、吸收结论与分支治理。
+- 所有综合自动化轮次都以 `origin/main` 为生产权威基线；本地脏工作区只作为用户现场或冷备份来源，不参与直接合并判断。
+- 持续集成只走 `preview` 一条线；`main` 只接受从 `preview` 提升的 PR。
+- 历史 worktree / branch 只有三种命运：`absorbed`、`archive-only backup`、`deleted after absorption`。
+- `docs/deployment/target-source-expansion-automation-progress.md`、`docs/seo-geo/automation-progress.md`、`docs/deployment/deployment-surface-security-automation-progress.md` 继续作为 lane 子账本；本文件负责记录最终吸收结论与恢复策略。
 
 ## Lane Registry
 
-| lane | source ledger | current focus | latest governance receipt | next gate |
+| lane | source ledger | final receipt | current state | next gate |
 | --- | --- | --- | --- | --- |
-| `frontend-audit` | `docs/design/news-sentry-frontend-automation-progress.md` | 审计历史 phase89 reader-facing 改动是否已在主线吸收 | `phase89` / `favicon` / `layout-hotfix` 已记为 `absorbed` | 若发现真实缺口，再在最新基线上补最小 UX 差异 |
-| `target-source` | `docs/deployment/target-source-expansion-automation-progress.md` | 把 `preview` 相对 `main` 的有效国别 target/source 增量收拢到治理分支 | 已重放 `canada`、`new-zealand`、`ireland`、`united-kingdom` 与 `china-watch-en` 清理 | 跑窄验证后给出 `preview` receipt |
-| `seo-geo` | `docs/seo-geo/automation-progress.md` | 把 `r001` 的 projection-first public reads、SEO runtime、discoverability、校验脚本收口到干净基线 | 已拆批并重放到治理分支 | 跑窄验证后给出 `preview` receipt |
+| `frontend-audit` | `docs/design/news-sentry-frontend-automation-progress.md` | `phase89` / `favicon` / `layout-hotfix` 全部 `absorbed` | 主线 reader-facing 结果已吸收，历史 worktree 已删除 | 仅在未来出现真实缺口时重开 |
+| `target-source` | `docs/deployment/target-source-expansion-automation-progress.md` | `preview` 中的有效国别/source 增量已在 `#19/#20` 后进入主线 | `south-korea + france` 归档残差已复核为“主线已存在，无需重放” | 无 |
+| `seo-geo` | `docs/seo-geo/automation-progress.md` | projection-first / SEO runtime / discoverability / verify script 已在 `#19/#20` 完成 `preview -> main -> production` | 稳定 | 无 |
+| `deployment-surface-security` | `docs/deployment/deployment-surface-security-automation-progress.md` | 审计/发布策略包已在 `#21/#22` 完成 `preview -> main -> production` | 稳定 | 无 |
 
 ## Historical Branch Disposition
 
 | branch | lane | decision | evidence | preview receipt | main receipt | archive outcome |
 | --- | --- | --- | --- | --- | --- | --- |
-| `codex/phase89-interaction-latency` | `frontend-audit` | `absorbed` | `git cherry -v origin/main codex/phase89-interaction-latency` 仅剩 patch-equivalent `fix: reduce public app interaction latency` | not-needed | `origin/main` already contains equivalent reader-facing behavior | 保留为只读历史分支，后续可手动归档 |
-| `codex/phase89-public-app-favicon` | `frontend-audit` | `absorbed` | `git cherry -v origin/main codex/phase89-public-app-favicon` 仅剩 patch-equivalent `interaction latency` 与 `favicon` | not-needed | `origin/main` 已包含共享 favicon 声明 | 保留为只读历史分支，后续可手动归档 |
-| `codex/public-app-layout-hotfix` | `frontend-audit` | `absorbed` | `git cherry -v origin/main codex/public-app-layout-hotfix` 无唯一 patch | not-needed | `origin/main` 已包含等效布局约束 | 保留为只读历史分支，后续可手动归档 |
-| `origin/preview` unique target/source stack | `target-source` | `replayed` | 已在本分支重放 `554aa475`、`2fa7178b`、`068196bb`、`94d4655d`、`656162ef`、`fd0dc7f2` | pending-local-verification | not-started | 合入 `preview` 后即可把历史 round branch 视为已吸收 |
-| `codex/target-source-expansion-r009-united-kingdom-china-watch-en` | `target-source` | `replayed` | 已在本分支重放 `83cdab8c` | pending-local-verification | not-started | 合入 `preview` 后即可归档 round 9 分支 |
-| `codex/target-source-expansion-r001-india` | `seo-geo` | `replayed-in-batches` | 已拆为 4 个治理批次并重放到本分支 | pending-local-verification | not-started | 合入 `preview` 后再决定是否保留原分支作历史参照 |
+| `codex/phase89-interaction-latency` | `frontend-audit` | `absorbed` | `git cherry -v origin/main codex/phase89-interaction-latency` 仅剩 patch-equivalent 结果；读者路径已留在主线 | not-needed | done | worktree deleted, branch retired |
+| `codex/phase89-public-app-favicon` | `frontend-audit` | `absorbed` | `frontend/public/index.html` 与 `App.test.tsx` 保留共享 favicon 结果 | not-needed | done | worktree deleted, branch retired |
+| `codex/public-app-layout-hotfix` | `frontend-audit` | `absorbed` | 当前 `App.tsx` / `public-pages.tsx` 保留等效布局约束 | not-needed | done | worktree deleted, branch retired |
+| `origin/preview` historical target/source stack | `target-source` | `absorbed` | `#19`、`#20`、`#22` 后 `main` 与 `preview` 的公开 target/source 结果一致 | done | done | old release worktrees deleted |
+| `codex/target-source-expansion-r009-united-kingdom-china-watch-en` | `target-source` | `absorbed` | `united-kingdom` + `china-watch-en` 维护已上线并通过生产验证 | done | done | old round branch deleted |
+| `codex/target-source-expansion-r001-india` | `archive-r001` | `archive-only backup` | 该分支现场被封存到 archive snapshot；只抽取有价值子包，不做 bulk merge | partial by extracted packages | partial by extracted packages | keep dirty root checkout + archive branch + bundle |
 
-## R001 Batch Split
+## Archive Snapshot Extraction
 
-| batch | scope | source branch | governance commits | preview receipt | main receipt | archive outcome |
+| package | source | decision | preview receipt | main receipt | production proof | notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| `r001-docs-governance` | SEO/GEO 设计、规则源治理、进度脚手架 | `codex/target-source-expansion-r001-india` | `4170d04c` `0e2b16c8` `4a630ec6` `262b6c09` `42b4f4cb` | not-started | not-started | 合入 `preview` 后保留文档历史即可 |
-| `r001-projection-api` | `public_site_projection`、projection-first public reads、public detail 读取清理 | `codex/target-source-expansion-r001-india` | `efa854e5` `d0315f51` `b4b58e16` `3d7a16db` `4e2b2c38` `92ce7065` `42229775` | not-started | not-started | 通过验证后吸收原分支对应 API 改动 |
-| `r001-seo-runtime` | public app SEO head、canonical URL、reader URL 输出 | `codex/target-source-expansion-r001-india` | `49c390bb` `e931a43c` `62d0164c` `bb381457` `6ad29975` `8d636d17` | not-started | not-started | 通过验证后吸收原分支对应前端运行时改动 |
-| `r001-discoverability-scripts` | `robots.txt`、`llms.txt`、sitemap、规则同步与公开站点校验脚本 | `codex/target-source-expansion-r001-india` | `f56025c1` `01ea2f75` `9837a336` `26469fe2` `dcd3a32f` `a38ae484` | not-started | not-started | 通过验证后吸收原分支对应 discoverability/tooling 改动 |
+| `r001-projection-api` | `codex/archive-r001-dirty-snapshot-20260613T224303` | `absorbed` | `#19` / `#20` done | `#20` done | `health` / `public news` / `verify_public_site.py` 通过 | 不再从 archive 重放 |
+| `r001-seo-runtime` | `codex/archive-r001-dirty-snapshot-20260613T224303` | `absorbed` | `#19` / `#20` done | `#20` done | canonical / JSON-LD / discoverability 通过 | 不再从 archive 重放 |
+| `deployment-surface-security` | `codex/archive-r001-dirty-snapshot-20260613T224303` | `absorbed` | `#21` done | `#22` done | `main` CI / Deploy / Scan Secrets 通过 | 现由综合自动化统一调度 |
+| `fusion baseline` | `codex/archive-r001-dirty-snapshot-20260613T224303` | `absorbed` | `#21` done | `#22` done | 作为配置型目标包随主线发布成功 | 不再单独作为 archive 任务 |
+| `south-korea + france` residue | `codex/archive-r001-dirty-snapshot-20260613T224303` | `already absorbed` | not-needed | done | 主线 targets/source counts 与公开验证一致 | 明确不再重放 |
 
-## Current Integration Receipt
+## Archive-Only Residue Policy
 
-- worktree: `.worktrees/composite-automation-governance`
-- branch: `codex/composite-automation-governance`
-- target-source replay: `origin/preview` 相对 `origin/main` 的非文档增量，外加 round 9 的 `united-kingdom` 与 `china-watch-en` 维护，已全部重放到治理分支。
-- seo-geo replay: `r001` 的 24 个唯一 patch 已按治理分支顺序重放，并在冲突点按“保持现有 API 形状，只引入 projection-first / SEO runtime / discoverability 行为”解决。
-- remaining gate: 先跑窄验证，再决定是否推送到 `preview`；未拿到验证回执前，不给 `main` receipt。
+- 剩余 `archive-r001` 内容 **不是可合并分支**，只作为冷备份保存。
+- 未来若发现缺失行为，只允许按“文件级证据”从 archive 精确摘取，不允许再次整包回放。
+- 固定恢复资产：
+  - 本地分支：`codex/archive-r001-dirty-snapshot-20260613T224303`
+  - bundle： [codex__archive-r001-dirty-snapshot-20260613T224303.bundle](/Users/xuyu/Documents/Codex/worktree-cleanup-backups/news-sentry-20260613T224041/codex__archive-r001-dirty-snapshot-20260613T224303.bundle)
+  - 备份索引： [backup-index.json](/Users/xuyu/Documents/Codex/worktree-cleanup-backups/news-sentry-20260613T224041/backup-index.json)
+  - 当前主工作区快照： [root-current-checkout/manifest.json](/Users/xuyu/Documents/Codex/worktree-cleanup-backups/news-sentry-20260613T224041/root-current-checkout/manifest.json)
+
+## Final Release Receipts
+
+- `preview` absorption:
+  - `#21` merged `codex/archive-r001-integration -> preview`
+  - merge commit: `b27d7621834283576fb1a1e23c92b46dca85607b`
+  - preview workflow runs:
+    - `CI` `27470297720` success
+    - `Deploy` `27470297721` success
+    - `Scan Secrets` `27470297724` success
+- `main` absorption:
+  - `#22` merged `preview -> main`
+  - merge commit: `04868bae44c3d21916f1deef91a844f34711e076`
+  - main workflow runs:
+    - `CI` `27470382740` success
+    - `Deploy` `27470382762` success
+    - `Scan Secrets` `27470382730` success
+- production external proof:
+  - `https://news-sentry.com/api/v1/health` -> `{"status":"ok"}`
+  - `https://news-sentry.com/api/v1/targets` contains `canada / ireland / new-zealand / united-kingdom / italy / china-watch-en`
+  - `https://news-sentry.com/api/v1/public/news?featured=true&page_size=1` returns non-empty data
+  - `python tools/seo_geo/verify_public_site.py --base-url https://news-sentry.com` -> `22/22` pass
+
+## Integration Artifact Cleanup
+
+- local worktree `.worktrees/archive-r001-integration`: removed after `#21/#22` absorbed
+- local branch `codex/archive-r001-integration`: removed after `#21/#22` absorbed
+- remote branch `codex/archive-r001-integration`: remove once governance docs are merged; no open PR must remain
+- `codex/archive-r001-dirty-snapshot-*` archive branch and bundle: retained
+- current dirty root checkout `codex/target-source-expansion-r001-india`: retained untouched
 
 ## Follow-up Rules
 
-- 新一轮综合自动化必须先读本文件，再读 lane 子账本，优先处理 `preview receipt = not-started` 的已重放工作，而不是继续扩张新的 branch family。
-- 若本账本某行已经是 `absorbed`，后续自动化不得再尝试 merge 同名历史分支，只能在最新基线上补真实缺口。
-- 若 `preview` 外部健康或 `.deploy-sha` 证据链不完整，可以停在 `preview receipt`，但必须把 blocker 写回本文件和对应 lane 子账本。
+- 综合自动化不得再把 `archive-r001` 残差当作 bulk merge backlog。
+- 未来若需要恢复 archive 内容，必须先证明当前主线确实缺某个文件或行为，再按最小文件集提取。
+- 对于已经 `main receipt = done` 的 work item，后续轮次只能复核或记录 drift，不得重新建长期 topic branch。
