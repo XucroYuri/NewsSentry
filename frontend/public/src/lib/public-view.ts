@@ -62,7 +62,7 @@ export function buildPublicDetailUrl(item: PublicNewsItem) {
   const params = new URLSearchParams()
   if (item.targetId) params.set("target_id", item.targetId)
   const query = params.toString()
-  return `#/events/${encodeURIComponent(item.id)}${query ? `?${query}` : ""}`
+  return `/public-app/events/${encodeURIComponent(item.id)}${query ? `?${query}` : ""}`
 }
 
 export function summaryText(item: PublicNewsItem) {

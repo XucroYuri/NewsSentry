@@ -663,10 +663,7 @@ class AsyncStore:
     def _deep_merge_dict(self, base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
         merged = dict(base)
         for key, value in patch.items():
-            if (
-                isinstance(value, dict)
-                and isinstance(merged.get(key), dict)
-            ):
+            if isinstance(value, dict) and isinstance(merged.get(key), dict):
                 merged[key] = self._deep_merge_dict(merged[key], value)
             else:
                 merged[key] = value
@@ -4774,6 +4771,14 @@ class AsyncStore:
         await self._db.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
         await self._db.commit()
         return self._db.total_changes > 0
+
+    async def delete_sessions_for_user(self, username: str) -> int:
+        """删除指定用户的所有 session，返回删除数。"""
+        if self._db is None:
+            return 0
+        cur = await self._db.execute("DELETE FROM sessions WHERE username = ?", (username,))
+        await self._db.commit()
+        return cur.rowcount
 
     async def delete_expired_sessions(self) -> int:
         """清理过期 session，返回删除数。"""

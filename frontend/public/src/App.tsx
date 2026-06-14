@@ -123,7 +123,7 @@ function AppShell({
   return (
     <div className="min-h-screen bg-[hsl(42_33%_98%)] text-foreground">
       <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-4 px-4 py-3 lg:px-6">
+        <div className="flex w-full items-center justify-between gap-4 px-4 py-3 lg:px-6">
           <a href={homeHref} className="flex min-w-0 items-center gap-3">
             <div className="flex size-9 items-center justify-center rounded-md border border-primary/25 bg-primary/5 text-primary">
               <BookOpenIcon className="size-5" aria-hidden="true" />
@@ -637,12 +637,12 @@ export default function App() {
       <main
         className={
           showLeftRail && showRightRail
-            ? "mx-auto grid w-full max-w-[1600px] gap-4 px-4 pb-24 pt-4 lg:grid-cols-[260px_minmax(0,1fr)_320px] lg:px-6 lg:pb-8"
+            ? "grid w-full gap-4 px-4 pb-24 pt-4 lg:grid-cols-[280px_minmax(0,1fr)_320px] lg:px-6 lg:pb-8 xl:grid-cols-[300px_minmax(0,1fr)_320px]"
             : "mx-auto grid w-full max-w-[1280px] gap-4 px-4 pb-24 pt-4 lg:px-6 lg:pb-8"
         }
       >
         {showLeftRail ? (
-          <aside className="hidden min-w-0 overflow-hidden lg:block">
+          <aside className="hidden min-w-0 self-start lg:block">
             <div className="sticky top-[4.5rem] grid gap-4">
               <Card className="min-w-0 overflow-hidden rounded-lg">
                 <CardHeader className="pb-3">

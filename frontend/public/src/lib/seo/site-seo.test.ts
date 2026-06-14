@@ -32,7 +32,7 @@ function makeItem(id: string, overrides: Partial<PublicNewsItem> = {}): PublicNe
     summary: "会谈聚焦贸易政策与市场准入，双方同意继续保持沟通。",
     recommendationReason: "该新闻同时涉及欧盟政策、意大利产业与中国相关贸易议题。",
     originalUrl: "https://example.com/news",
-    detailUrl: "#/events/" + id,
+    detailUrl: "/public-app/events/" + id + "?target_id=italy",
     tags: ["国际关系", "贸易"],
     entities: [{ name: "欧盟", type: "organization" }],
     relatedCount: 2,

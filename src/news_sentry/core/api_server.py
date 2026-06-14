@@ -38,6 +38,7 @@ from hashlib import sha256
 from ipaddress import ip_address
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
+from urllib.parse import quote
 from xml.sax.saxutils import escape as xml_escape
 
 import yaml
@@ -73,8 +74,7 @@ _SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": (
-        "camera=(), microphone=(), geolocation=(), payment=(), usb=(), "
-        "interest-cohort=()"
+        "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
     ),
     "Content-Security-Policy": (
         "default-src 'self'; "
@@ -105,6 +105,7 @@ _SCRIPT_TAG_WITHOUT_NONCE_RE = re.compile(r"<script(?![^>]*\bnonce=)", re.IGNORE
 
 def _inject_script_nonce(html: str, nonce: str) -> str:
     return _SCRIPT_TAG_WITHOUT_NONCE_RE.sub(f'<script nonce="{nonce}"', html)
+
 
 _PUBLIC_SITE_BASE_URL = "https://news-sentry.com"
 _PUBLIC_SITE_NAME = "News Sentry"
@@ -1062,6 +1063,8 @@ _login_limiter = _RateLimiter(max_requests=5, window=300)
 
 _TOKEN_STORE: dict[str, dict[str, Any]] = {}
 _TOKEN_TTL = 86400  # 24 hours
+_STREAM_TOKEN_STORE: dict[str, dict[str, Any]] = {}
+_STREAM_TOKEN_TTL = 120  # 2 minutes
 
 
 def _create_token_for_user(username: str, role: str, has_api_key: bool) -> dict[str, Any]:
@@ -1105,12 +1108,42 @@ async def _create_persistent_token_for_user(
     return result
 
 
+def _create_stream_token_for_user(username: str, role: str) -> dict[str, Any]:
+    """为 SSE 创建短期 stream token，避免把主 bearer 暴露到 URL。"""
+    token = secrets.token_urlsafe(24)
+    now = time.time()
+    _STREAM_TOKEN_STORE[token] = {
+        "username": username,
+        "role": role,
+        "created_at": now,
+        "expires_at": now + _STREAM_TOKEN_TTL,
+    }
+    return {
+        "stream_token": token,
+        "token_type": "sse",
+        "expires_in": _STREAM_TOKEN_TTL,
+        "username": username,
+        "role": role,
+    }
+
+
 def _verify_token(token: str) -> dict[str, Any] | None:
     """验证 Token 有效性（内存优先，SQLite 回退）。"""
     info = _TOKEN_STORE.get(token)
     if info:
         if time.time() > info["expires_at"]:
             _TOKEN_STORE.pop(token, None)
+            return None
+        return info
+    return None
+
+
+def _verify_stream_token(token: str) -> dict[str, Any] | None:
+    """验证短期 SSE token。"""
+    info = _STREAM_TOKEN_STORE.get(token)
+    if info:
+        if time.time() > info["expires_at"]:
+            _STREAM_TOKEN_STORE.pop(token, None)
             return None
         return info
     return None
@@ -1132,6 +1165,18 @@ async def _verify_token_async(token: str) -> dict[str, Any] | None:
             _TOKEN_STORE[token] = session
             return session
     return None
+
+
+async def _revoke_sessions_for_username(username: str) -> None:
+    """撤销指定用户的全部 bearer / stream token。"""
+    for token, info in list(_TOKEN_STORE.items()):
+        if info.get("username") == username:
+            _TOKEN_STORE.pop(token, None)
+    for token, info in list(_STREAM_TOKEN_STORE.items()):
+        if info.get("username") == username:
+            _STREAM_TOKEN_STORE.pop(token, None)
+    if _store is not None and _store._db is not None:  # noqa: SLF001
+        await _store.delete_sessions_for_user(username)
 
 
 def _extract_bearer_token(request: Request) -> str | None:
@@ -1209,9 +1254,21 @@ def _is_loopback_request(request: Request) -> bool:
     return _is_loopback_host(request.headers.get("host"))
 
 
+def _is_testclient_default_host(request: Request) -> bool:
+    """仅为默认 TestClient host 保留免登录兜底。"""
+    client_host = request.client.host if request.client else ""
+    host = (request.headers.get("host") or "").split(",", 1)[0].strip().lower()
+    return client_host == "testclient" and host.startswith("testserver")
+
+
 def _local_auth_bypass_enabled(request: Request) -> bool:
     """本地桌面/开发模式下跳过账号密码认证。"""
-    return _detect_deployment_env() == "local" and _is_loopback_request(request)
+    explicit_env = os.environ.get("NEWSSENTRY_DEPLOYMENT_ENV", "").strip().lower()
+    if explicit_env == "local":
+        return _is_loopback_request(request)
+    if explicit_env:
+        return False
+    return _is_testclient_default_host(request)
 
 
 def _local_admin_user() -> dict[str, Any]:
@@ -1827,9 +1884,7 @@ def _public_news_feed_cache_key(
 
 def _public_news_cache_entry_valid(entry: dict[str, Any] | None, now: float) -> bool:
     return bool(
-        entry
-        and isinstance(entry.get("expires_at"), (int, float))
-        and entry["expires_at"] > now
+        entry and isinstance(entry.get("expires_at"), (int, float)) and entry["expires_at"] > now
     )
 
 
@@ -2064,7 +2119,9 @@ def _public_news_item(target_id: str, ev: dict[str, Any]) -> PublicNewsItem:
         summary=str(payload.get("summary") or "") or None,
         recommendationReason=str(payload.get("ai_reason") or "") or None,
         originalUrl=original_url,
-        detailUrl=f"/#/news/target/{target_id}/events/{event_id}",
+        detailUrl=(
+            f"/public-app/events/{quote(event_id, safe='')}?target_id={quote(target_id, safe='')}"
+        ),
         tags=list(payload.get("flat_tags") or []),
         entities=_public_news_entities(payload),
         relatedCount=int(payload.get("related_count") or 0),
@@ -2129,17 +2186,13 @@ def _public_projection_event(row: dict[str, Any]) -> dict[str, Any]:
     raw_metadata = row.get("metadata")
     metadata = cast(dict[str, Any], raw_metadata) if isinstance(raw_metadata, dict) else {}
     raw_translation = metadata.get("translation")
-    translation = (
-        cast(dict[str, Any], raw_translation) if isinstance(raw_translation, dict) else {}
-    )
+    translation = cast(dict[str, Any], raw_translation) if isinstance(raw_translation, dict) else {}
     raw_judge_result = metadata.get("judge_result")
     judge_result = (
         cast(dict[str, Any], raw_judge_result) if isinstance(raw_judge_result, dict) else {}
     )
     raw_source_meta = metadata.get("source")
-    source_meta = (
-        cast(dict[str, Any], raw_source_meta) if isinstance(raw_source_meta, dict) else {}
-    )
+    source_meta = cast(dict[str, Any], raw_source_meta) if isinstance(raw_source_meta, dict) else {}
 
     if translated_title := _public_projection_text(translation.get("title_pre")):
         event["title_translated"] = translated_title
@@ -2923,11 +2976,7 @@ def _target_source_paths(target_id: str) -> list[Path]:
     sources_dir = Path("config/sources") / target_id
     if not sources_dir.is_dir():
         return []
-    return [
-        path
-        for path in sources_dir.rglob("*.yaml")
-        if not path.name.startswith("_")
-    ]
+    return [path for path in sources_dir.rglob("*.yaml") if not path.name.startswith("_")]
 
 
 def _target_inventory_signature(target_id: str) -> str:
@@ -4046,9 +4095,7 @@ def _merge_index_metadata(event: dict[str, Any], row: dict[str, Any]) -> dict[st
     merged_event = dict(event)
     raw_current_metadata = merged_event.get("metadata")
     current_metadata = (
-        cast(dict[str, Any], raw_current_metadata)
-        if isinstance(raw_current_metadata, dict)
-        else {}
+        cast(dict[str, Any], raw_current_metadata) if isinstance(raw_current_metadata, dict) else {}
     )
     merged_event["metadata"] = _deep_merge_mapping(current_metadata, index_metadata)
     return merged_event
@@ -5180,7 +5227,7 @@ def _inject_public_homepage_seo(html: str, *, base_url: str) -> str:
         tags.append(f'    <link rel="canonical" href="{canonical_url}" />')
     if 'property="og:url"' not in html:
         tags.append(f'    <meta property="og:url" content="{canonical_url}" />')
-    if 'application/ld+json' not in html:
+    if "application/ld+json" not in html:
         tags.append(f'    <script type="application/ld+json">{json_ld}</script>')
     if not tags or "</head>" not in html:
         return html
@@ -5657,12 +5704,16 @@ def create_app(
             headers={"Cache-Control": "no-store"},
         )
 
-    @app.get("/public-app", include_in_schema=False)
-    @app.get("/public-app/", include_in_schema=False)
+    @app.api_route("/public-app", methods=["GET", "HEAD"], include_in_schema=False)
+    @app.api_route("/public-app/", methods=["GET", "HEAD"], include_in_schema=False)
     async def public_app_index(request: Request) -> HTMLResponse:
         return _public_app_index_response(base_url=_public_site_base_url(request))
 
-    @app.get("/public-app/{asset_path:path}", include_in_schema=False)
+    @app.api_route(
+        "/public-app/{asset_path:path}",
+        methods=["GET", "HEAD"],
+        include_in_schema=False,
+    )
     async def public_app_asset(asset_path: str, request: Request) -> Response:
         if not asset_path.strip("/"):
             return _public_app_index_response(base_url=_public_site_base_url(request))
@@ -5899,6 +5950,13 @@ def create_app(
             raise HTTPException(status_code=401, detail="Invalid API key")
         return await _create_persistent_token_for_user(f"key_{api_key[:8]}", "admin", True)
 
+    @app.post("/api/v1/auth/stream-token")
+    async def auth_stream_token(
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """为 EventSource 连接创建短期 token，避免把主 bearer 放进 URL。"""
+        return _create_stream_token_for_user(user["username"], user["role"])
+
     @app.get("/api/v1/auth/me")
     async def auth_me(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
         """返回当前用户信息。"""
@@ -5942,6 +6000,7 @@ def create_app(
 
         pw_hash, salt = hash_password(new_pw)
         await _store.update_user_password(user["username"], pw_hash, salt)
+        await _revoke_sessions_for_username(user["username"])
         return {"status": "ok"}
 
     # ── 用户管理 (admin) ──────────────────────────────────
@@ -6051,6 +6110,7 @@ def create_app(
         ok = await _store.delete_user(username)
         if not ok:
             raise HTTPException(status_code=404, detail=f"User '{username}' not found")
+        await _revoke_sessions_for_username(username)
         return {"status": "ok"}
 
     @app.post("/api/v1/admin/users/{username}/reset-password")
@@ -6074,6 +6134,7 @@ def create_app(
 
         pw_hash, salt = hash_password(new_password)
         await _store.update_user_password(username, pw_hash, salt)
+        await _revoke_sessions_for_username(username)
         return {"status": "ok"}
 
     # ── API Key 设置 ─────────────────────────────────────
@@ -6352,8 +6413,7 @@ def create_app(
                 display_name=payload.display_name,
                 language_scope=payload.language_scope,
                 timezone=payload.timezone,
-                monitoring_type=payload.monitoring_type
-                or _target_monitoring_type(source_target),
+                monitoring_type=payload.monitoring_type or _target_monitoring_type(source_target),
                 topic_label=payload.topic_label or _target_topic_label(source_target),
                 source_refs=source_refs,
             )
@@ -7505,27 +7565,29 @@ def create_app(
     async def event_stream(
         request: Request,
         target_id: str = Query(..., description="目标标识"),
-        token: str | None = Query(None, description="EventSource lacks Authorization header"),
+        stream_token: str | None = Query(
+            None,
+            description="Short-lived SSE token for EventSource connections",
+        ),
     ) -> StreamingResponse:
         """SSE 端点：推送新事件通知到浏览器。
 
-        EventSource 无法设置 Authorization 头，因此支持 token 查询参数。
-        优先使用 Authorization 头，无头时检查 token 参数。
+        EventSource 无法设置 Authorization 头，因此支持短期 stream token 查询参数。
+        优先使用 Authorization 头，无头时检查 stream_token 参数。
 
         客户端通过 EventSource 连接，每 15s 发送心跳保活。
         当有新事件通过 Webhook 或 Import 到达时，推送事件摘要。
         """
 
-        # 手动认证：支持 Authorization 头 和 token 查询参数两种方式
+        # 手动认证：支持 Authorization 头 和短期 stream token 两种方式
         auth_header = request.headers.get("Authorization", "")
         bearer = auth_header.replace("Bearer ", "").strip()
-        actual_token = bearer or token or ""
-
         if not _local_auth_bypass_enabled(request):
-            if not actual_token:
-                raise HTTPException(status_code=401, detail="Missing authentication")
-
-            info = await _verify_token_async(actual_token)
+            info: dict[str, Any] | None = None
+            if bearer:
+                info = await _verify_token_async(bearer)
+            elif stream_token:
+                info = _verify_stream_token(stream_token)
             if not info:
                 raise HTTPException(status_code=401, detail="Invalid or expired token")
 

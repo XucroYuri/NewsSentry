@@ -26,7 +26,7 @@ const item: PublicNewsItem = {
   summary: "会谈聚焦贸易政策与市场准入。",
   recommendationReason: "该新闻同时涉及欧盟政策和意大利政府议程。",
   originalUrl: "https://example.com/news",
-  detailUrl: "/#/news/target/italy/events/event-1",
+  detailUrl: "/public-app/events/event-1?target_id=italy",
   tags: ["国际关系"],
   entities: [{ name: "欧盟", type: "organization" }],
   relatedCount: 2,

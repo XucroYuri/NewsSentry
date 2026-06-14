@@ -20,7 +20,7 @@ function item(id: string, overrides: Partial<PublicNewsItem> = {}): PublicNewsIt
     summary: `摘要 ${id}`,
     recommendationReason: `推荐理由 ${id}`,
     originalUrl: `https://example.com/${id}`,
-    detailUrl: "/#/legacy/" + id,
+    detailUrl: "/public-app/events/" + id + "?target_id=italy",
     tags: ["国际关系", "贸易"],
     entities: [{ name: "欧盟", type: "organization" }],
     relatedCount: 0,
@@ -34,7 +34,9 @@ function item(id: string, overrides: Partial<PublicNewsItem> = {}): PublicNewsIt
 
 describe("public reader view helpers", () => {
   it("builds new public app detail links instead of legacy hash URLs", () => {
-    expect(buildPublicDetailUrl(item("event-1"))).toBe("#/events/event-1?target_id=italy")
+    expect(buildPublicDetailUrl(item("event-1"))).toBe(
+      "/public-app/events/event-1?target_id=italy",
+    )
   })
 
   it("aggregates source summaries from public news", () => {

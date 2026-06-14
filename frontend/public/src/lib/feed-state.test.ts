@@ -26,7 +26,7 @@ function item(id: string, title = id): PublicNewsItem {
     summary: "摘要",
     recommendationReason: "推荐理由",
     originalUrl: "https://example.com/news",
-    detailUrl: "/#/news/target/italy/events/" + id,
+    detailUrl: "/public-app/events/" + id + "?target_id=italy",
     tags: ["国际关系"],
     entities: [],
     relatedCount: 0,

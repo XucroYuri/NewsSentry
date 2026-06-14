@@ -750,7 +750,12 @@ function _updateSSEStatus(status) {
   bar.style.opacity = status === "connected" ? "0.6" : "1";
 }
 
-function connectSSE() {
+async function _createSSEStreamToken() {
+  const data = await apiPost("/api/v1/auth/stream-token");
+  return data && typeof data.stream_token === "string" ? data.stream_token : "";
+}
+
+async function connectSSE() {
   // 关闭旧连接
   _sseConnections.forEach(sse => sse.close());
   _sseConnections = [];
@@ -764,7 +769,19 @@ function connectSSE() {
   const base = window.location.origin;
   const url = new URL("/api/v1/events/stream", base);
   url.searchParams.set("target_id", state.currentTarget);
-  if (conn.token) url.searchParams.set("token", conn.token);
+  if (conn.token) {
+    try {
+      const streamToken = await _createSSEStreamToken();
+      if (!streamToken) {
+        _updateSSEStatus("disconnected");
+        return;
+      }
+      url.searchParams.set("stream_token", streamToken);
+    } catch {
+      _updateSSEStatus("disconnected");
+      return;
+    }
+  }
 
   _updateSSEStatus("connecting");
   const sse = new EventSource(url.toString());

@@ -469,6 +469,28 @@ class TestAPIServer:
         assert "legacy-shell" in old_resp.text
         assert '<div id="root"></div>' not in old_resp.text
 
+    def test_public_app_entry_supports_head(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        static_dir = tmp_path / "static"
+        public_app_dir = static_dir / "public_app"
+        public_app_dir.mkdir(parents=True)
+        (static_dir / "index.html").write_text("<html>legacy</html>", encoding="utf-8")
+        (public_app_dir / "index.html").write_text(
+            '<html><body><div id="root"></div></body></html>',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(api_server_module, "_static_dir", lambda: static_dir)
+        app = create_app(data_dir=tmp_path / "data", auto_store=False)
+        client = TestClient(app)
+
+        resp = client.head("/public-app/")
+
+        assert resp.status_code == 200
+        assert resp.headers["cache-control"] == "no-cache"
+
     def test_public_app_assets_use_fingerprinted_cache_policy(
         self,
         tmp_path: Path,
@@ -1027,7 +1049,7 @@ class TestAPIServer:
         assert item["originalUrl"] == "https://example.com"
         assert (
             item["detailUrl"]
-            == "/#/news/target/italy/events/ne-italy-src-20260609-public-news01"
+            == "/public-app/events/ne-italy-src-20260609-public-news01?target_id=italy"
         )
         assert item["tags"] == ["international-relations"]
         assert item["valueLabel"] == "精选"
@@ -6106,6 +6128,19 @@ class TestAuthEndpoints:
         app = create_app(data_dir=tmp_path, store=store, auto_store=False)
         return TestClient(app)
 
+    def _make_initialized_client_with_store(self, tmp_path: Path) -> TestClient:
+        """创建已初始化 SQLite store 的客户端，避免把用例耦合到 lifespan。"""
+        db_path = tmp_path / "test_auth_initialized.db"
+        store = AsyncStore(db_path)
+        asyncio.run(store.initialize())
+        app = create_app(
+            data_dir=tmp_path,
+            store=store,
+            auto_store=False,
+            skip_lifespan=True,
+        )
+        return TestClient(app)
+
     def test_auth_login_missing_fields(self, tmp_path: Path) -> None:
         """登录缺少用户名或密码返回 400。"""
         client = self._make_client_with_store(tmp_path)
@@ -6205,6 +6240,103 @@ class TestAuthEndpoints:
         )
         # 期望 200 或 401 (取决于用户是否存在)，不应是 422/500
         assert resp.status_code in (200, 401)
+
+    def test_auth_change_password_revokes_current_session(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """当前用户改密后，旧 token 立即失效。"""
+        _force_deployment_env(monkeypatch, "cloudflare")
+        client = self._make_initialized_client_with_store(tmp_path)
+        setup_resp = client.post(
+            "/api/v1/auth/setup",
+            json={"username": "admin", "password": "test123456"},
+        )
+        token = setup_resp.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        change_resp = client.post(
+            "/api/v1/auth/change-password",
+            json={"current_password": "test123456", "new_password": "newpass456"},
+            headers=headers,
+        )
+
+        assert change_resp.status_code == 200
+        me_resp = client.get("/api/v1/auth/me", headers=headers)
+        assert me_resp.status_code == 401
+
+    def test_admin_reset_password_revokes_target_user_sessions(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """管理员重置用户密码后，该用户旧 token 立即失效。"""
+        _force_deployment_env(monkeypatch, "cloudflare")
+        client = self._make_initialized_client_with_store(tmp_path)
+        setup_resp = client.post(
+            "/api/v1/auth/setup",
+            json={"username": "admin", "password": "test123456"},
+        )
+        admin_headers = {"Authorization": f"Bearer {setup_resp.json()['access_token']}"}
+
+        create_resp = client.post(
+            "/api/v1/admin/users",
+            json={"username": "reader1", "password": "reader123456", "role": "reader"},
+            headers=admin_headers,
+        )
+        assert create_resp.status_code == 200
+
+        login_resp = client.post(
+            "/api/v1/auth/login",
+            json={"username": "reader1", "password": "reader123456"},
+        )
+        assert login_resp.status_code == 200
+        user_headers = {"Authorization": f"Bearer {login_resp.json()['access_token']}"}
+
+        reset_resp = client.post(
+            "/api/v1/admin/users/reader1/reset-password",
+            json={"new_password": "reader654321"},
+            headers=admin_headers,
+        )
+        assert reset_resp.status_code == 200
+
+        me_resp = client.get("/api/v1/auth/me", headers=user_headers)
+        assert me_resp.status_code == 401
+
+    def test_admin_delete_user_revokes_target_user_sessions(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """管理员删除用户后，该用户旧 token 立即失效。"""
+        _force_deployment_env(monkeypatch, "cloudflare")
+        client = self._make_initialized_client_with_store(tmp_path)
+        setup_resp = client.post(
+            "/api/v1/auth/setup",
+            json={"username": "admin", "password": "test123456"},
+        )
+        admin_headers = {"Authorization": f"Bearer {setup_resp.json()['access_token']}"}
+
+        create_resp = client.post(
+            "/api/v1/admin/users",
+            json={"username": "reader2", "password": "reader123456", "role": "reader"},
+            headers=admin_headers,
+        )
+        assert create_resp.status_code == 200
+
+        login_resp = client.post(
+            "/api/v1/auth/login",
+            json={"username": "reader2", "password": "reader123456"},
+        )
+        assert login_resp.status_code == 200
+        user_headers = {"Authorization": f"Bearer {login_resp.json()['access_token']}"}
+
+        delete_resp = client.delete("/api/v1/admin/users/reader2", headers=admin_headers)
+        assert delete_resp.status_code == 200
+
+        me_resp = client.get("/api/v1/auth/me", headers=user_headers)
+        assert me_resp.status_code == 401
 
     def test_auth_me(self, tmp_path: Path) -> None:
         """auth/me 返回当前用户信息。"""
@@ -6515,7 +6647,13 @@ def _make_store_client(tmp_path: Path) -> tuple[TestClient, dict[str, str]]:
 
     db_path = tmp_path / "test.db"
     store = AsyncStore(db_path)
-    app = create_app(data_dir=tmp_path, store=store, auto_store=False)
+    asyncio.run(store.initialize())
+    app = create_app(
+        data_dir=tmp_path,
+        store=store,
+        auto_store=False,
+        skip_lifespan=True,
+    )
     client = TestClient(app)
     # 首次 setup 创建 admin — setup 直接返回 token
     resp = client.post("/api/v1/auth/setup", json={"username": "admin", "password": "test123456"})
@@ -6546,12 +6684,39 @@ class TestSSEStream:
         )
         assert resp.status_code == 401
 
-    def test_event_stream_token_query_param(self, tmp_path: Path) -> None:
-        """SSE 通过 query param token 认证 — 路由修复后匹配到 SSE handler。"""
+    def test_stream_token_endpoint_requires_auth(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """获取 SSE stream token 需要已有登录态。"""
+        _force_deployment_env(monkeypatch, "cloudflare")
+        client, _ = _make_store_client(tmp_path)
+        resp = client.post("/api/v1/auth/stream-token")
+        assert resp.status_code == 401
+
+    def test_event_stream_rejects_bearer_query_token(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """SSE 不再接受把主 bearer token 放到 query string。"""
+        _force_deployment_env(monkeypatch, "cloudflare")
         client, headers = _make_store_client(tmp_path)
         token = headers["Authorization"].replace("Bearer ", "")
+        resp = client.get(
+            "/api/v1/events/stream",
+            params={"target_id": "italy", "token": token},
+        )
+        assert resp.status_code == 401
 
-        # mock StreamingResponse 避免无限 SSE 循环
+    def test_event_stream_accepts_short_lived_stream_token(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """SSE 使用短期 stream token 认证。"""
+        _force_deployment_env(monkeypatch, "cloudflare")
+        client, headers = _make_store_client(tmp_path)
+
+        token_resp = client.post("/api/v1/auth/stream-token", headers=headers)
+        assert token_resp.status_code == 200
+        stream_token = token_resp.json()["stream_token"]
+
         async def _fake_generate() -> AsyncGenerator[str, None]:
             yield ": test\n\n"
 
@@ -6559,10 +6724,38 @@ class TestSSEStream:
             mock_sr.return_value = MagicMock()
             resp = client.get(
                 "/api/v1/events/stream",
-                params={"target_id": "italy", "token": token},
+                params={"target_id": "italy", "stream_token": stream_token},
             )
-            # StreamingResponse 被 mock，只要没返回 401/404 就说明路由+认证通过
-            assert resp.status_code in (200, 401, 404)
+            assert resp.status_code == 200
+
+
+class TestLocalAuthBypassBoundary:
+    """本地免登录边界测试。"""
+
+    def test_loopback_request_without_explicit_local_env_requires_auth(
+        self, tmp_path: Path
+    ) -> None:
+        """未显式声明 local 时，127.0.0.1 host 不再自动免登录。"""
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/status", headers={"host": "127.0.0.1:8000"})
+
+        assert resp.status_code == 401
+
+    def test_loopback_request_with_explicit_local_env_still_bypasses_auth(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """显式 local 模式仍保留本地免登录能力。"""
+        _force_deployment_env(monkeypatch, "local")
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/status", headers={"host": "127.0.0.1:8000"})
+
+        assert resp.status_code == 200
 
 
 class TestApiKeyCRUD:

@@ -24,7 +24,7 @@ function makeItem(id: string, overrides: Partial<PublicNewsItem> = {}): PublicNe
     summary: "会谈聚焦贸易政策与市场准入，双方同意继续保持沟通。",
     recommendationReason: "该新闻同时涉及欧盟政策、意大利产业与中国相关贸易议题。",
     originalUrl: "https://example.com/news",
-    detailUrl: "/#/news/target/italy/events/" + id,
+    detailUrl: "/public-app/events/" + id + "?target_id=italy",
     tags: ["国际关系", "贸易"],
     entities: [{ name: "欧盟", type: "organization" }],
     relatedCount: 2,
@@ -184,6 +184,30 @@ describe("Phase 84 public portal app", () => {
     expect(screen.getAllByText("ANSA.it").length).toBeGreaterThan(0)
     expect(screen.getAllByText(/推荐理由/).length).toBeGreaterThan(0)
     expect(screen.queryByText("公共新闻 API smoke")).not.toBeInTheDocument()
+  })
+
+  it("keeps the feed shell on a full-width desktop grid instead of centering it in a max-width wrapper", async () => {
+    installFetchMock()
+
+    const { container } = render(<App />)
+
+    await screen.findByRole("heading", { name: "精选新闻" })
+    const main = container.querySelector("main")
+    expect(main).not.toBeNull()
+    expect(main?.className).toContain("w-full")
+    expect(main?.className).not.toContain("max-w-[1600px]")
+  })
+
+  it("does not clip the left desktop rail, so the sticky column stays aligned with the feed header", async () => {
+    installFetchMock()
+
+    const { container } = render(<App />)
+
+    await screen.findByRole("heading", { name: "精选新闻" })
+    const leftAside = container.querySelector("main > aside")
+    expect(leftAside).not.toBeNull()
+    expect(leftAside?.className).not.toContain("overflow-hidden")
+    expect(leftAside?.className).toContain("self-start")
   })
 
   it("does not reload the same feed during initial route hydration", async () => {

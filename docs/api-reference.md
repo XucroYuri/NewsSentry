@@ -158,7 +158,7 @@ Phase 86 起，旧 `/` 仍返回 legacy shell；浏览器端会把旧公开 hash
       "summary": "新闻摘要。",
       "recommendationReason": "推荐理由。",
       "originalUrl": "https://example.com/news",
-      "detailUrl": "/public-app/#/events/ne-italy-ansa-20260609-abcd1234?target_id=italy",
+      "detailUrl": "/public-app/events/ne-italy-ansa-20260609-abcd1234?target_id=italy",
       "tags": ["international-relations"],
       "entities": [],
       "relatedCount": 0,
