@@ -578,3 +578,27 @@ free -h                         # 内存余量充足
   - `GET https://news-sentry.com/api/v1/runtime/info` -> `200`，仍需 production deploy/保护面复验
 
 结论：preview 代码回放与部署链路已恢复，但 public-reader 内容收据仍为空；production 保护面仍未收敛，不能补写完整 `main receipt`。
+
+## 2026-06-15 preview health evidence headers 记录
+
+本轮继续在单一 `preview` 集成线上发布只读版本证据，不改变 `/api/v1/health` JSON body，也不扩大公开 API wire shape。
+
+- code commit: `799fb0c2` (`feat: expose deploy evidence on health`)
+- receipt basis deployed on preview: `563cc571` (后续 docs-only receipt commit 可能只推进 deploy commit header，不改变 health header 功能)
+- `Scan Secrets` run `27552402784` -> success
+- `CI` run `27552402853` -> success
+- `Deploy` run `27552402837` -> success
+- 本地验证:
+  - focused pytest: health/runtime-info/deployment-surface tests -> `9 passed`
+  - `tools/scan_sensitive_data.py` -> pass
+  - `git diff --cached --check` -> pass
+  - `tools/check_no_hardcoded_target.py` -> pass
+  - `mypy src/news_sentry/ --ignore-missing-imports` -> pass
+  - diff-scoped Codex Security report: `/tmp/codex-security-scans/NewsSentry/health-evidence-preview_20260615-141011/report.md` and `report.html` (`no findings`)
+- preview 外部验证（pre-ledger receipt basis）:
+  - `GET https://preview.news-sentry.com/api/v1/health` -> `200 {"status":"ok"}`
+  - response headers include `cache-control: no-store`, `x-news-sentry-deploy-commit: 563cc571b687`, `x-news-sentry-static-build: 000484d39674`
+  - unauthenticated `GET https://preview.news-sentry.com/api/v1/runtime/info` -> `401 {"detail":"Missing authentication"}`
+- production 状态:
+  - 本轮未从 preview 提升到 `main`，因此不写 `main receipt`
+  - production `/api/v1/runtime/info` 仍需在后续 preview -> main -> production 流程里复验收敛

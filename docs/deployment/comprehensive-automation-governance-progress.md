@@ -2,8 +2,8 @@
 
 - last_updated: 2026-06-15
 - authority_baseline_main: `origin/main@6743d1e2`
-- authority_baseline_preview: `origin/preview@6743d1e2`
-- status: preview-replayed-main-receipt-blocked
+- authority_baseline_preview: `origin/preview@563cc571`
+- status: preview-health-evidence-done-main-receipt-blocked
 
 ## Governance Rules
 
@@ -19,13 +19,14 @@
 | `frontend-audit` | `docs/design/news-sentry-frontend-automation-progress.md` | `phase89` / `favicon` / `layout-hotfix` 全部 `absorbed` | 主线 reader-facing 结果已吸收，历史 worktree 已删除 | 仅在未来出现真实缺口时重开 |
 | `target-source` | `docs/deployment/target-source-expansion-automation-progress.md` | `preview` 中的有效国别/source 增量已在 `#19/#20` 后进入主线 | `south-korea + france` 归档残差已复核为“主线已存在，无需重放” | 无 |
 | `seo-geo` | `docs/seo-geo/automation-progress.md` | projection-first / SEO runtime / discoverability / verify script 已在 `#19/#20` 完成 `preview -> main -> production` | 稳定 | 无 |
-| `deployment-surface-security` | `docs/deployment/deployment-surface-security-automation-progress.md` | 审计/发布策略包已在 `#21/#22` 完成 `preview -> main -> production`；2026-06-15 已把 `origin/main@6743d1e2` 快进回 `preview` | preview CI/Deploy/Scan Secrets 成功，runtime/info 在 preview 已收敛为 `401`；main receipt 仍被 production runtime/info 与 preview public-news-empty 阻断 | 修复 preview 数据空窗或补等价 public read 证据；production 需重新部署/复验后才能补 `main receipt` |
+| `deployment-surface-security` | `docs/deployment/deployment-surface-security-automation-progress.md` | 审计/发布策略包已在 `#21/#22` 完成 `preview -> main -> production`；2026-06-15 已把 `origin/main@6743d1e2` 快进回 `preview` | preview CI/Deploy/Scan Secrets 成功，runtime/info 在 preview 已收敛为 `401`；health 版本证据头已在 preview 外部验证；main receipt 仍被 production runtime/info 与 preview public-news-empty 阻断 | 修复 preview 数据空窗或补等价 public read 证据；production 需从 preview 提升并复验后才能补 `main receipt` |
 
 ## Active Receipt Recovery Queue
 
 | work item | lane | source branch | scope | preview receipt | main receipt | archive outcome | blockers |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `receipt-recovery-20260615-main-only-bundle` | `governance / deployment-surface-security` | `origin/main` direct commits `81d477a2..6743d1e2` | `archive-r001` 治理收口、公开运行审计/安全加固、本地认证测试环境声明 | partial: `preview` fast-forwarded to `6743d1e2`; `CI 27551573375`, `Deploy 27551573403`, `Scan Secrets 27551573359` all success; health/targets/discoverability pass; `runtime/info` now `401`; blocked by `public/news total=0` | blocked: production health/public-news/discoverability pass, but production `/api/v1/runtime/info` still returns `200`; no new production deploy/promotion receipt was written | not-applicable | preview public-news-empty, production runtime-info-public, `cloudflare-state-unavailable`, `admin-ui-path-migration` |
+| `health-evidence-headers-20260615` | `deployment-surface-security` | `preview` direct commit `799fb0c2` + receipt basis `563cc571` | `/api/v1/health` response body unchanged; adds `Cache-Control: no-store`, `X-News-Sentry-Deploy-Commit`, `X-News-Sentry-Static-Build` for external deploy evidence | done: `CI 27552402853`, `Deploy 27552402837`, `Scan Secrets 27552402784` success; pre-ledger `curl -D - https://preview.news-sentry.com/api/v1/health` -> `200`, `x-news-sentry-deploy-commit: 563cc571b687`, `x-news-sentry-static-build: 000484d39674`; `GET /api/v1/runtime/info` -> `401` | pending: requires preview promotion to `main` and production recheck before writing | not-applicable | production-runtime-info-public, preview-public-news-empty, `cloudflare-state-unavailable`, `admin-ui-path-migration` |
 
 ## Historical Branch Disposition
 
@@ -84,7 +85,7 @@
 
 - git reality:
   - `origin/main` -> `6743d1e2`
-  - `origin/preview` -> `6743d1e2`
+  - `origin/preview` -> `563cc571` after health evidence and receipt docs (`799fb0c2` code commit, `563cc571` docs receipt commit)
   - `git push origin origin/main:refs/heads/preview` fast-forwarded `preview` from `b27d7621` to `6743d1e2`
   - `git log origin/preview..origin/main --oneline` -> empty after fetch
 - preview workflow receipt:
@@ -98,6 +99,13 @@
   - `uv run --with 'httpx[socks]' python tools/seo_geo/verify_public_site.py --base-url https://preview.news-sentry.com` -> `22/22` pass
   - `GET https://preview.news-sentry.com/api/v1/runtime/info` -> `401`
   - preview `deployed_surface_audit.py` after replay -> `2 findings`: `admin-ui-path-migration`, `cloudflare-state-unavailable`
+- preview health evidence receipt:
+  - `preview` commit `799fb0c2` added health evidence headers; receipt basis `563cc571` was deployed afterward
+  - `Scan Secrets` run `27552402784` -> success
+  - `CI` run `27552402853` -> success
+  - `Deploy` run `27552402837` -> success
+  - pre-ledger `GET https://preview.news-sentry.com/api/v1/health` -> `200 {"status":"ok"}`, `cache-control: no-store`, `x-news-sentry-deploy-commit: 563cc571b687`, `x-news-sentry-static-build: 000484d39674`; later docs-only receipt deploys may advance only the deploy-commit header
+  - `GET https://preview.news-sentry.com/api/v1/runtime/info` without auth -> `401 {"detail":"Missing authentication"}`
 - production external proof:
   - `GET https://news-sentry.com/api/v1/health` -> `200 {"status":"ok"}`
   - `GET https://news-sentry.com/api/v1/targets` spot check -> `china-watch-en=15`, `france=25`, `india=6`, `south-korea=5`
