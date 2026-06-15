@@ -1281,6 +1281,17 @@ def _local_admin_user() -> dict[str, Any]:
     }
 
 
+async def _read_json_object(request: Request) -> dict[str, Any]:
+    """读取 JSON object body，并把空/非法 JSON 转成 400。"""
+    try:
+        body = await request.json()
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="Request body must be valid JSON") from exc
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Request body must be a JSON object")
+    return cast(dict[str, Any], body)
+
+
 async def get_current_user(request: Request) -> dict[str, Any]:
     """提取并验证 Bearer token，返回用户信息（内存 + SQLite 回退）。"""
     token = _extract_bearer_token(request)
@@ -5621,7 +5632,10 @@ def create_app(
         return {"status": "ok"}
 
     @app.get("/api/v1/runtime/info")
-    async def runtime_info(response: Response) -> dict[str, Any]:
+    async def runtime_info(
+        response: Response,
+        _user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
         manifest = _build_static_manifest()
         response.headers["Cache-Control"] = "no-store"
         return {
@@ -5924,7 +5938,7 @@ def create_app(
     @app.post("/api/v1/auth/token")
     async def auth_token(request: Request) -> dict[str, Any]:
         """API Key 换取短期 Token（向后兼容 CLI/cron）。"""
-        body = await request.json()
+        body = await _read_json_object(request)
         api_key = body.get("api_key", "")
         valid_keys = _get_valid_api_keys()
 
