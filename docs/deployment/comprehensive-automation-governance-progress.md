@@ -1,9 +1,9 @@
 # News Sentry Comprehensive Automation Governance Progress
 
-- last_updated: 2026-06-14
-- authority_baseline_main: `origin/main@04868bae`
-- authority_baseline_preview: `origin/preview@b27d7621`
-- status: stable
+- last_updated: 2026-06-15
+- authority_baseline_main: `origin/main@6743d1e2`
+- authority_baseline_preview: `origin/preview@6743d1e2`
+- status: preview-replayed-main-receipt-blocked
 
 ## Governance Rules
 
@@ -19,7 +19,13 @@
 | `frontend-audit` | `docs/design/news-sentry-frontend-automation-progress.md` | `phase89` / `favicon` / `layout-hotfix` 全部 `absorbed` | 主线 reader-facing 结果已吸收，历史 worktree 已删除 | 仅在未来出现真实缺口时重开 |
 | `target-source` | `docs/deployment/target-source-expansion-automation-progress.md` | `preview` 中的有效国别/source 增量已在 `#19/#20` 后进入主线 | `south-korea + france` 归档残差已复核为“主线已存在，无需重放” | 无 |
 | `seo-geo` | `docs/seo-geo/automation-progress.md` | projection-first / SEO runtime / discoverability / verify script 已在 `#19/#20` 完成 `preview -> main -> production` | 稳定 | 无 |
-| `deployment-surface-security` | `docs/deployment/deployment-surface-security-automation-progress.md` | 审计/发布策略包已在 `#21/#22` 完成 `preview -> main -> production` | 稳定 | 无 |
+| `deployment-surface-security` | `docs/deployment/deployment-surface-security-automation-progress.md` | 审计/发布策略包已在 `#21/#22` 完成 `preview -> main -> production`；2026-06-15 已把 `origin/main@6743d1e2` 快进回 `preview` | preview CI/Deploy/Scan Secrets 成功，runtime/info 在 preview 已收敛为 `401`；main receipt 仍被 production runtime/info 与 preview public-news-empty 阻断 | 修复 preview 数据空窗或补等价 public read 证据；production 需重新部署/复验后才能补 `main receipt` |
+
+## Active Receipt Recovery Queue
+
+| work item | lane | source branch | scope | preview receipt | main receipt | archive outcome | blockers |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `receipt-recovery-20260615-main-only-bundle` | `governance / deployment-surface-security` | `origin/main` direct commits `81d477a2..6743d1e2` | `archive-r001` 治理收口、公开运行审计/安全加固、本地认证测试环境声明 | partial: `preview` fast-forwarded to `6743d1e2`; `CI 27551573375`, `Deploy 27551573403`, `Scan Secrets 27551573359` all success; health/targets/discoverability pass; `runtime/info` now `401`; blocked by `public/news total=0` | blocked: production health/public-news/discoverability pass, but production `/api/v1/runtime/info` still returns `200`; no new production deploy/promotion receipt was written | not-applicable | preview public-news-empty, production runtime-info-public, `cloudflare-state-unavailable`, `admin-ui-path-migration` |
 
 ## Historical Branch Disposition
 
@@ -73,6 +79,36 @@
   - `https://news-sentry.com/api/v1/targets` contains `canada / ireland / new-zealand / united-kingdom / italy / china-watch-en`
   - `https://news-sentry.com/api/v1/public/news?featured=true&page_size=1` returns non-empty data
   - `python tools/seo_geo/verify_public_site.py --base-url https://news-sentry.com` -> `22/22` pass
+
+## 2026-06-15 Live Verification Snapshot
+
+- git reality:
+  - `origin/main` -> `6743d1e2`
+  - `origin/preview` -> `6743d1e2`
+  - `git push origin origin/main:refs/heads/preview` fast-forwarded `preview` from `b27d7621` to `6743d1e2`
+  - `git log origin/preview..origin/main --oneline` -> empty after fetch
+- preview workflow receipt:
+  - `Scan Secrets` run `27551573359` -> success
+  - `CI` run `27551573375` -> success
+  - `Deploy` run `27551573403` -> success; `Deploy preview` job `81440277760` succeeded
+- preview external proof:
+  - `GET https://preview.news-sentry.com/api/v1/health` -> `200 {"status":"ok"}`
+  - `GET https://preview.news-sentry.com/api/v1/targets` spot check -> `china-watch-en=15`, `france=25`, `india=6`, `south-korea=5`
+  - `GET https://preview.news-sentry.com/api/v1/public/news?featured=true&page_size=1` -> `total=0`, `item_count=0`
+  - `uv run --with 'httpx[socks]' python tools/seo_geo/verify_public_site.py --base-url https://preview.news-sentry.com` -> `22/22` pass
+  - `GET https://preview.news-sentry.com/api/v1/runtime/info` -> `401`
+  - preview `deployed_surface_audit.py` after replay -> `2 findings`: `admin-ui-path-migration`, `cloudflare-state-unavailable`
+- production external proof:
+  - `GET https://news-sentry.com/api/v1/health` -> `200 {"status":"ok"}`
+  - `GET https://news-sentry.com/api/v1/targets` spot check -> `china-watch-en=15`, `france=25`, `india=6`, `south-korea=5`
+  - `GET https://news-sentry.com/api/v1/public/news?featured=true&page_size=1` -> `total=25166`, `item_count=1`
+  - `uv run --with 'httpx[socks]' python tools/seo_geo/verify_public_site.py --base-url https://news-sentry.com` -> `22/22` pass
+  - `GET https://news-sentry.com/api/v1/runtime/info` -> `200`, still exposing the static build payload
+  - production `deployed_surface_audit.py` after preview replay -> `3 findings`: `protected-surface-public(/api/v1/runtime/info)`, `admin-ui-path-migration`, `cloudflare-state-unavailable`
+- deployment-surface readonly audit:
+  - `GET https://preview.news-sentry.com/api/v1/status` / `GET https://news-sentry.com/api/v1/status` -> `401`
+- receipt rule:
+  - `verify_public_site.py` 的 `22/22` 通过只能证明 SEO/GEO discoverability 面可用；当 preview `public/news` 仍为空、production `runtime/info` 仍公开时，**不能**据此补写完整 `preview receipt` 或 `main receipt`
 
 ## Integration Artifact Cleanup
 

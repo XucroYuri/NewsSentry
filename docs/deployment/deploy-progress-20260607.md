@@ -557,3 +557,24 @@ free -h                         # 内存余量充足
 - **Xray 共存**: 49 客户依赖代理服务，部署过程不能修改 iptables/nftables，venv 方式已规避此风险
 - **deploy.yml 执行用户**: 脚本以 root 身份通过 SSH 执行，但 systemd 服务以 newssentry 用户运行
 - **私钥安全**: 部署私钥仅存储在 GitHub Secrets（加密）和 VPS authorized_keys（公钥），不写入任何 git-tracked 文件
+
+## 2026-06-15 preview receipt recovery 记录
+
+本轮按综合治理建议，将 `preview` 从 `b27d7621` fast-forward 到 `6743d1e2`，把已经进入 `main` 的 `81d477a2..6743d1e2` 包重新放回唯一持续集成线。
+
+- git push: `git push origin origin/main:refs/heads/preview` -> `b27d7621..6743d1e2`
+- `Scan Secrets` run `27551573359` -> success
+- `CI` run `27551573375` -> success
+- `Deploy` run `27551573403` -> success；`Deploy preview` job `81440277760` succeeded
+- preview 外部验证:
+  - `GET https://preview.news-sentry.com/api/v1/health` -> `200 {"status":"ok"}`
+  - `GET https://preview.news-sentry.com/api/v1/targets` -> `13` targets，`china-watch-en=15`、`france=25`、`india=6`、`south-korea=5`
+  - `GET https://preview.news-sentry.com/api/v1/public/news?featured=true&page_size=1` -> `total=0`
+  - `uv run --with 'httpx[socks]' python tools/seo_geo/verify_public_site.py --base-url https://preview.news-sentry.com` -> `22/22` pass
+  - `GET https://preview.news-sentry.com/api/v1/runtime/info` -> `401`
+- production 复核:
+  - `GET https://news-sentry.com/api/v1/public/news?featured=true&page_size=1` -> 非空，`total=25166`
+  - `uv run --with 'httpx[socks]' python tools/seo_geo/verify_public_site.py --base-url https://news-sentry.com` -> `22/22` pass
+  - `GET https://news-sentry.com/api/v1/runtime/info` -> `200`，仍需 production deploy/保护面复验
+
+结论：preview 代码回放与部署链路已恢复，但 public-reader 内容收据仍为空；production 保护面仍未收敛，不能补写完整 `main receipt`。
