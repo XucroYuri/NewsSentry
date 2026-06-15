@@ -5628,7 +5628,14 @@ def create_app(
     # ── 公开端点（无需认证）─────────────────────────────
 
     @app.get("/api/v1/health")
-    async def health() -> dict[str, str]:
+    async def health(response: Response) -> dict[str, str]:
+        manifest = _build_static_manifest()
+        commit = _git_commit_for_path(Path(__file__))
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["X-News-Sentry-Deploy-Commit"] = (
+            commit[:12] if commit != "unknown" else commit
+        )
+        response.headers["X-News-Sentry-Static-Build"] = manifest["build"]
         return {"status": "ok"}
 
     @app.get("/api/v1/runtime/info")

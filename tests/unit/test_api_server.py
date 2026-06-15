@@ -383,6 +383,15 @@ class TestAPIServer:
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
 
+    def test_health_endpoint_exposes_deploy_evidence_headers(self, tmp_path: Path) -> None:
+        client = self._make_client(tmp_path)
+        resp = client.get("/api/v1/health")
+
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}
+        assert re.fullmatch(r"[0-9a-f]{12}|unknown", resp.headers["x-news-sentry-deploy-commit"])
+        assert re.fullmatch(r"[0-9a-f]{12}|development", resp.headers["x-news-sentry-static-build"])
+
     def test_runtime_info_endpoint_reports_static_build(self, tmp_path: Path) -> None:
         client = self._make_client(tmp_path)
         resp = client.get("/api/v1/runtime/info")
