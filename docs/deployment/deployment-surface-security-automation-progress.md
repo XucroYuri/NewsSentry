@@ -1,6 +1,6 @@
 # Deployment Surface Security Automation Progress
 
-> 日期: 2026-06-15
+> 日期: 2026-06-16
 > 范围: `news-sentry.com` 部署后公网暴露面审计与低风险自动修复发布
 > 状态: preview-health-evidence-done-main-receipt-blocked
 
@@ -20,11 +20,12 @@
 | 2 | 2026-06-15T11:36:46Z | composite-governance | preview + production readonly audit | `protected-surface-public(/api/v1/runtime/info)`, `admin-ui-path-migration`, `cloudflare-state-unavailable` | `/api/v1/runtime/info` boundary fix remains auto-fixable but was not published in this docs-only governance round | `admin-ui-path-migration`, `cloudflare-state-unavailable` | blocked | preview / production `deployed_surface_audit.py` 均产出 3 findings；`verify_public_site.py` 虽然两边都是 `22/22`，但 preview `public/news` 仍为空，不能据此补写 receipt |
 | 3 | 2026-06-15T14:08:10Z | composite-governance | preview replay + readonly audit | preview=`admin-ui-path-migration`, `cloudflare-state-unavailable`; production still also has `protected-surface-public(/api/v1/runtime/info)` | preview `/api/v1/runtime/info` fixed by replay; production `/api/v1/runtime/info` still needs deploy/verification | `preview-public-news-empty`, `production-runtime-info-public`, `cloudflare-state-unavailable`, `admin-ui-path-migration` | preview-code-replayed; main-receipt-blocked | `preview` fast-forwarded to `6743d1e2`; `CI 27551573375`, `Deploy 27551573403`, `Scan Secrets 27551573359` all succeeded; preview health/targets/discoverability pass, but public news is still empty |
 | 4 | 2026-06-15T14:19:05Z | composite-governance | preview health evidence | 0 report-level findings in diff-scoped security scan | health deploy evidence now externally visible on preview | `preview-public-news-empty`, `production-runtime-info-public`, `cloudflare-state-unavailable`, `admin-ui-path-migration` | preview-receipt-done; main-receipt-pending | code commit `799fb0c2` + receipt basis `563cc571`; `CI 27552402853`, `Deploy 27552402837`, `Scan Secrets 27552402784` success; pre-ledger preview `GET /api/v1/health` returned `x-news-sentry-deploy-commit: 563cc571b687` and `x-news-sentry-static-build: 000484d39674`; preview `GET /api/v1/runtime/info` without auth returned `401` |
+| 5 | 2026-06-16T17:34:00Z | composite-governance | preview + production + Cloudflare readonly recheck | preview=`admin-ui-path-migration`, `cloudflare-state-unavailable`; production also=`protected-surface-public(/api/v1/runtime/info)` | preview health evidence still visible at `origin/preview@27a36643`; production runtime boundary still unpublished | `preview-public-news-empty`, `production-runtime-info-public`, `cloudflare-state-unavailable`, `admin-ui-path-migration` | blocked | preview `GET /api/v1/health` now returns `x-news-sentry-deploy-commit: 27a36643f491`; `preview /api/v1/public/news` still `total=0`; production `/api/v1/public/news` is non-empty but `/api/v1/runtime/info` remains `200`; Cloudflare `access/apps` is readable but empty, while `rate_limits` and `rulesets/phases/http_ratelimit/entrypoint` still return auth errors |
 
 ## 当前 blocker
 
 - `admin-ui-path-migration`: 后台 UI 仍为同域 hash shell，Cloudflare v1 只能直接保护服务端路径与接口。
-- `cloudflare-state-unavailable`: 本轮只有公网只读探针，没有可审阅的 Cloudflare Access / WAF / rate-limit 状态 JSON，发布器必须停止并记录 blocker。
+- `cloudflare-state-unavailable`: 2026-06-16 已能只读列出 zone `access/apps`，结果为空；但 `rate_limits` 与 ruleset entrypoint 仍返回 auth error / not authorized，缺少完整 Cloudflare Access / WAF / rate-limit 状态 JSON，发布器必须停止并记录 blocker。
 - `preview-public-news-empty`: `GET https://preview.news-sentry.com/api/v1/public/news?featured=true&page_size=1` 仍返回 `total=0`，不能作为有内容的 public-reader receipt。
 - `production-runtime-info-public`: `GET https://news-sentry.com/api/v1/runtime/info` 仍返回 `200`；同路径在 replay 后的 preview 已返回 `401`。
 - `production-promotion-pending`: health evidence headers 只在 `preview` 完成外部验证；必须从 `preview` 提升并复验 production 后，才能写 `main receipt`。
@@ -34,6 +35,7 @@
 - `protected-surface-public(/api/v1/runtime/info)`:
   - 2026-06-15 replay 后，`https://preview.news-sentry.com/api/v1/runtime/info` 已返回 `401`
   - 2026-06-15 health evidence round 再次复验 preview 无认证 `runtime/info` -> `401 {"detail":"Missing authentication"}`
+  - 2026-06-16 live recheck 中 preview 继续返回 `401`
   - `https://news-sentry.com/api/v1/runtime/info` 仍返回 `200`
   - 按 `config/security/deployment-surface-policy.yaml`，该路径属于默认保护面而非公开白名单
   - 当前更像 production deploy/verification lag，而不是需要从 archive 回收或扩大 API wire shape 的问题
