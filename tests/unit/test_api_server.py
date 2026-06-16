@@ -342,6 +342,20 @@ class TestLocalAuthBypass:
 
         assert resp.status_code == 503
 
+    def test_cloud_env_auth_token_without_body_returns_400(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """云端环境下空请求体不能把 auth/token 打成 500。"""
+        _force_deployment_env(monkeypatch, "cloudflare")
+        monkeypatch.delenv("NEWSSENTRY_API_KEY", raising=False)
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app, base_url="https://news.example")
+
+        resp = client.post("/api/v1/auth/token", content=b"")
+
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "Request body must be valid JSON"
+
 
 class TestAPIServer:
     """FastAPI 端点集成测试。"""
@@ -369,6 +383,15 @@ class TestAPIServer:
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
 
+    def test_health_endpoint_exposes_deploy_evidence_headers(self, tmp_path: Path) -> None:
+        client = self._make_client(tmp_path)
+        resp = client.get("/api/v1/health")
+
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}
+        assert re.fullmatch(r"[0-9a-f]{12}|unknown", resp.headers["x-news-sentry-deploy-commit"])
+        assert re.fullmatch(r"[0-9a-f]{12}|development", resp.headers["x-news-sentry-static-build"])
+
     def test_runtime_info_endpoint_reports_static_build(self, tmp_path: Path) -> None:
         client = self._make_client(tmp_path)
         resp = client.get("/api/v1/runtime/info")
@@ -378,6 +401,14 @@ class TestAPIServer:
         assert data["static_build"]
         assert data["static_cache_name"] == f"news-sentry-{data['static_build']}"
         assert set(data) == {"status", "static_build", "static_cache_name"}
+
+    def test_runtime_info_endpoint_requires_bearer(self, tmp_path: Path) -> None:
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app, base_url="https://news.example")
+
+        resp = client.get("/api/v1/runtime/info")
+
+        assert resp.status_code == 401
 
     def test_security_headers_are_attached_to_public_responses(self, tmp_path: Path) -> None:
         app = create_app(data_dir=tmp_path, auto_store=False)

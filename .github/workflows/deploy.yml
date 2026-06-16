@@ -222,6 +222,7 @@ jobs:
             NEWSSENTRY_DEPLOYMENT_ENV=vps
             NEWSSENTRY_PROFILE=cloud-vps
             NEWSSENTRY_DATA_DIR=__DATA_DIR__
+            NEWSSENTRY_ALLOW_EXTERNAL_DATA_DIR=1
             NEWSSENTRY_AI_BUDGET_USD=1.0
             NEWSSENTRY_LOG_LEVEL=INFO
             ENVEOF
@@ -241,6 +242,7 @@ jobs:
             Group=newssentry
             WorkingDirectory=${REPO_DIR}
             EnvironmentFile=${DEPLOY_BASE}/${ENV}/.env
+            Environment=NEWSSENTRY_ALLOW_EXTERNAL_DATA_DIR=1
             ExecStart=${VENV}/bin/python -m uvicorn news_sentry.core.api_server:create_app --factory --host 127.0.0.1 --port ${PORT}
             Restart=on-failure
             RestartSec=10

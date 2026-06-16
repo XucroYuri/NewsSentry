@@ -28,6 +28,13 @@ NEWSSENTRY_API_KEY=your-key uvicorn news_sentry.core.api_server:create_app --fac
 
 健康检查端点。
 
+**响应头:**
+
+| Header | 说明 |
+|------|------|
+| `X-News-Sentry-Deploy-Commit` | 当前运行代码的 12 位 commit 标识；无法读取时为 `unknown`。 |
+| `X-News-Sentry-Static-Build` | 当前静态资源内容 hash，用于和页面资源版本对齐。 |
+
 **响应:**
 ```json
 {"status": "ok"}
