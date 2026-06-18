@@ -1857,6 +1857,41 @@ _PUBLIC_NEWS_EVENT_DIRS = {
     "reviewed",
 }
 _public_news_feed_cache: dict[str, dict[str, Any]] = {}
+_PUBLIC_TEXT_LATIN1_HINTS = ("Ã", "Â", "â€")
+_STRAY_ACCENTED_CAPS = str.maketrans(
+    {
+        "À": "à",
+        "Á": "á",
+        "Â": "â",
+        "Ã": "ã",
+        "Ä": "ä",
+        "Å": "å",
+        "Æ": "æ",
+        "Ç": "ç",
+        "È": "è",
+        "É": "é",
+        "Ê": "ê",
+        "Ë": "ë",
+        "Ì": "ì",
+        "Í": "í",
+        "Î": "î",
+        "Ï": "ï",
+        "Ñ": "ñ",
+        "Ò": "ò",
+        "Ó": "ó",
+        "Ô": "ô",
+        "Õ": "õ",
+        "Ö": "ö",
+        "Ø": "ø",
+        "Œ": "œ",
+        "Ù": "ù",
+        "Ú": "ú",
+        "Û": "û",
+        "Ü": "ü",
+        "Ý": "ý",
+        "Ÿ": "ÿ",
+    }
+)
 
 
 def _public_news_feed_cache_ttl(*, q: str | None, since_cursor: str | None) -> float:
@@ -1865,6 +1900,39 @@ def _public_news_feed_cache_ttl(*, q: str | None, since_cursor: str | None) -> f
     if since_cursor:
         return _PUBLIC_NEWS_FEED_UPDATE_CACHE_TTL_SECONDS
     return _PUBLIC_NEWS_FEED_CACHE_TTL_SECONDS
+
+
+def _repair_utf8_mojibake(text: str) -> str:
+    if not any(hint in text for hint in _PUBLIC_TEXT_LATIN1_HINTS):
+        return text
+    try:
+        repaired = text.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
+    return repaired.strip() or text
+
+
+def _normalize_stray_accented_caps(text: str) -> str:
+    chars = list(text)
+    for index, char in enumerate(chars):
+        lowered = char.translate(_STRAY_ACCENTED_CAPS)
+        if lowered == char:
+            continue
+        previous = chars[index - 1] if index > 0 else ""
+        if previous and previous.islower():
+            chars[index] = lowered
+    return "".join(chars)
+
+
+def _normalize_public_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    text = _repair_utf8_mojibake(text)
+    text = _normalize_stray_accented_caps(text)
+    return text or None
 
 
 def _public_news_feed_cache_key(
@@ -2185,10 +2253,7 @@ def _public_news_matches(
 
 
 def _public_projection_text(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
+    return _normalize_public_text(value)
 
 
 def _public_projection_event(row: dict[str, Any]) -> dict[str, Any]:
@@ -2465,9 +2530,14 @@ def _feed_event_payload(ev: dict[str, Any]) -> dict[str, Any]:
     classification = _event_classification(ev) or {}
     raw_translation = metadata.get("translation")
     translation = raw_translation if isinstance(raw_translation, dict) else {}
-    title_pre = str(translation.get("title_pre") or "").strip()
-    original_title = str(ev.get("title_original") or event_id)
-    display_title = ev.get("title_translated") or title_pre or original_title or event_id
+    title_pre = _normalize_public_text(translation.get("title_pre")) or ""
+    original_title = _normalize_public_text(ev.get("title_original") or event_id) or event_id
+    display_title = (
+        _normalize_public_text(ev.get("title_translated"))
+        or title_pre
+        or original_title
+        or event_id
+    )
     payload = dict(ev)
     payload["event_id"] = event_id
     payload["display_title"] = display_title

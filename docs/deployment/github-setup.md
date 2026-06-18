@@ -53,7 +53,7 @@ git push origin preview
 
 | Secret 名称 | 说明 | 获取方式 |
 |-------------|------|---------|
-| `BWH_HOST` | BWH VPS IP | `97.64.29.114` |
+| `BWH_HOST` | BWH VPS IP | `174.137.51.201` |
 | `BWH_SSH_USER` | SSH 用户名 | `root` |
 | `BWH_SSH_KEY` | SSH 私钥 | 需新生成 deploy key（见下方） |
 | `BWH_SSH_PORT` | SSH 端口 | `22` |
@@ -68,9 +68,9 @@ git push origin preview
 ssh-keygen -t ed25519 -C "github-actions@news-sentry" -f ~/.ssh/news-sentry-deploy
 
 # 公钥上传到 BWH
-ssh-copy-id -i ~/.ssh/news-sentry-deploy.pub root@97.64.29.114
-# 或通过 DMIT 跳板:
-ssh-copy-id -i ~/.ssh/news-sentry-deploy.pub -o "ProxyJump root@64.186.226.51" root@97.64.29.114
+ssh-copy-id -i ~/.ssh/news-sentry-deploy.pub root@174.137.51.201
+# 如果直连 SSH 受网络策略影响，可通过可用跳板:
+ssh-copy-id -i ~/.ssh/news-sentry-deploy.pub -o "ProxyJump root@<jump-host>" root@174.137.51.201
 
 # 私钥内容复制到 GitHub Secret BWH_SSH_KEY
 cat ~/.ssh/news-sentry-deploy
@@ -170,7 +170,7 @@ GitHub → Actions → Deploy → Run workflow
 
 ## 7. VPS 预配置（一次性）
 
-在 BWH 上创建 deploy key 授权和基础目录：
+在 BWH `174.137.51.201` 上创建 deploy key 授权和基础目录：
 
 ```bash
 # 将 GitHub Actions 的 SSH 公钥加入 authorized_keys
@@ -193,11 +193,17 @@ apt update && apt install -y python3-venv python3-pip
 
 ## 8. Cloudflare Tunnel 路由
 
-在 Cloudflare Tunnel 配置中添加两条路由：
+生产迁移时继续使用既有 Tunnel `news-sentry`。不要把 DNS 改成直连 VPS
+A 记录；新 VPS 需要安装同一个 `cloudflared` connector，让 Tunnel 的
+连接源 IP 切换到 `174.137.51.201`。
+
+在 Cloudflare Tunnel 配置中保持三条路由：
 
 ```yaml
 ingress:
   - hostname: news-sentry.com
+    service: http://127.0.0.1:18080
+  - hostname: www.news-sentry.com
     service: http://127.0.0.1:18080
   - hostname: preview.news-sentry.com
     service: http://127.0.0.1:18081
@@ -205,5 +211,14 @@ ingress:
 ```
 
 DNS 记录：
-- `news-sentry.com` → Tunnel CNAME（已有）
-- `preview.news-sentry.com` → Tunnel CNAME（新增）
+- `news-sentry.com` → proxied Tunnel CNAME
+- `www.news-sentry.com` → proxied Tunnel CNAME
+- `preview.news-sentry.com` → proxied Tunnel CNAME
+
+迁移后验证：
+
+```bash
+curl -f https://news-sentry.com/api/v1/health
+curl -f https://www.news-sentry.com/api/v1/health
+curl -f https://preview.news-sentry.com/api/v1/health
+```

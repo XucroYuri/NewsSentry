@@ -373,6 +373,29 @@ describe("Phase 84 public portal app", () => {
     expect(screen.getByText("同来源信号")).toBeInTheDocument()
   })
 
+  it("preserves the targets channel context when opening and leaving an event detail page", async () => {
+    installFetchMock()
+    window.history.replaceState({}, "", "/public-app/?channel=targets&target_id=italy")
+
+    render(<App />)
+
+    await screen.findByText("意大利总理与欧盟领导人讨论对华贸易关系")
+    const detailLink = screen.getAllByRole("link", { name: /详情/ })[0]
+    expect(detailLink.getAttribute("href")).toContain("return_to=%2Fpublic-app%2F%3Fchannel%3Dtargets%26target_id%3Ditaly")
+
+    fireEvent.click(detailLink)
+
+    expect(
+      await screen.findByRole("heading", { name: "意大利总理与欧盟领导人讨论对华贸易关系" }),
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("link", { name: "返回新闻流" }))
+
+    await screen.findByRole("heading", { name: "目标新闻" })
+    expect(window.location.pathname).toBe("/public-app/")
+    expect(window.location.search).toContain("channel=targets")
+    expect(window.location.search).toContain("target_id=italy")
+  })
+
   it("shows event detail before related signals finish loading", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input)
@@ -408,6 +431,28 @@ describe("Phase 84 public portal app", () => {
       ),
     ).toBeInTheDocument()
     expect(screen.getByText("Italy and EU leaders discuss trade in Rome")).toBeInTheDocument()
+  })
+
+  it("uses a smaller related-signals request window on the detail page", async () => {
+    const fetchMock = installFetchMock()
+    render(<App />)
+
+    await screen.findByText("意大利总理与欧盟领导人讨论对华贸易关系")
+    fireEvent.click(screen.getAllByRole("link", { name: /详情/ })[0])
+
+    await screen.findByRole("heading", { name: "意大利总理与欧盟领导人讨论对华贸易关系" })
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([input]) =>
+          String(input).startsWith("/api/v1/public/news?target_id=italy&page_size=12"),
+        ),
+      ).toBe(true),
+    )
+    expect(
+      fetchMock.mock.calls.some(([input]) =>
+        String(input).startsWith("/api/v1/public/news?target_id=italy&page_size=50"),
+      ),
+    ).toBe(false)
   })
 
   it("renders source directory and source detail routes from the existing news API", async () => {

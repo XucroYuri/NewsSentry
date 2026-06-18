@@ -1,7 +1,7 @@
 # News Sentry 上线操作手册
 
-> 版本: v1.1 | 日期: 2026-06-07
-> 架构: 搬瓦工 VPS (加州, 97.64.29.114) + Cloudflare Tunnel + news-sentry.com
+> 版本: v1.2 | 日期: 2026-06-19
+> 架构: 搬瓦工 VPS (当前 IP: 174.137.51.201) + Cloudflare Tunnel + news-sentry.com
 > 前置文档: docs/deployment/2026-05-31-vps-cloudflare-tunnel-hypothesis.md
 >
 > ⚠️ **共存约束**: BWH 上运行 Xray 代理服务（49 客户）+ WireGuard 隧道。
@@ -24,7 +24,7 @@ BWH 上的服务隔离：
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  BWH VPS (97.64.29.114)                                 │
+│  BWH VPS (174.137.51.201)                                │
 │                                                          │
 │  现有服务（root 用户）:                                    │
 │    Xray :443 (REALITY)      ← 49 客户                    │
@@ -86,9 +86,11 @@ git push origin v1.9.1
 ### 1.1 SSH 连接 VPS
 
 ```bash
-# BWH IP 已被 GFW 封禁，需通过 DMIT 跳板或搬瓦工面板 SSH
-ssh -J root@64.186.226.51 root@97.64.29.114
-# 或使用 KiwiVM 面板的 Web SSH 终端
+# 当前 VPS IP: 174.137.51.201
+ssh root@174.137.51.201
+
+# 如果直连 SSH 受网络策略影响，再使用可用跳板或 KiwiVM 面板的 Web SSH 终端
+# ssh -J root@<jump-host> root@174.137.51.201
 ```
 
 ### 1.2 共存安全检查（部署前必做）
@@ -351,7 +353,48 @@ sudo apt update
 sudo apt install -y cloudflared
 ```
 
-### 2.2 创建 Tunnel
+### 2.2 接管现有 Tunnel（迁移场景）
+
+当前生产架构使用既有 Cloudflare Tunnel `news-sentry`，不要把
+`news-sentry.com` 改成直连 VPS 的 A 记录。迁移到新 VPS 时，应在
+Cloudflare Dashboard 中进入 `news-sentry` Tunnel，复制 `cloudflared`
+安装命令或 token，然后在新 VPS 上安装同一个 tunnel connector：
+
+```bash
+sudo cloudflared service install <TUNNEL_TOKEN>
+sudo systemctl enable cloudflared
+sudo systemctl restart cloudflared
+sudo systemctl status cloudflared
+```
+
+迁移验收：
+
+```bash
+systemctl is-active cloudflared
+curl -f http://127.0.0.1:18080/api/v1/health
+curl -f https://news-sentry.com/api/v1/health
+```
+
+Cloudflare Tunnel 应保持以下 published applications：
+
+```yaml
+ingress:
+  - hostname: news-sentry.com
+    service: http://127.0.0.1:18080
+  - hostname: www.news-sentry.com
+    service: http://127.0.0.1:18080
+  - hostname: preview.news-sentry.com
+    service: http://127.0.0.1:18081
+  - service: http_status:404
+```
+
+DNS 记录应继续为 proxied CNAME 到 `<TUNNEL-ID>.cfargotunnel.com`：
+
+- `news-sentry.com`
+- `www.news-sentry.com`
+- `preview.news-sentry.com`
+
+### 2.3 创建新 Tunnel（仅首次部署或重建时）
 
 方式 A: 通过 Cloudflare Dashboard（推荐，更直观）
 
@@ -384,7 +427,7 @@ cloudflared route dns news-sentry news-sentry.com
 cloudflared route dns news-sentry www.news-sentry.com
 ```
 
-### 2.3 配置 cloudflared 服务
+### 2.4 配置 cloudflared 服务（本地管理 Tunnel 时）
 
 ```bash
 # 创建配置文件
@@ -395,6 +438,10 @@ credentials-file: /root/.cloudflared/<TUNNEL-ID>.json
 ingress:
   - hostname: news-sentry.com
     service: http://127.0.0.1:18080
+  - hostname: www.news-sentry.com
+    service: http://127.0.0.1:18080
+  - hostname: preview.news-sentry.com
+    service: http://127.0.0.1:18081
   - service: http_status:404
 EOF
 
@@ -408,7 +455,7 @@ sudo systemctl start cloudflared
 sudo systemctl status cloudflared
 ```
 
-### 2.4 安全配置
+### 2.5 安全配置
 
 在 Cloudflare Dashboard 中:
 

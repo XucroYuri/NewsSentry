@@ -1,3 +1,4 @@
+import { buildPublicAppPath, type PublicRoute } from "@/lib/routes"
 import type { PublicNewsItem, PublicNewsSourceType } from "@/types/public-news"
 
 export interface SourceSummary {
@@ -58,9 +59,13 @@ export function sourceTypeLabel(type: PublicNewsSourceType) {
   return labels[type] ?? "来源"
 }
 
-export function buildPublicDetailUrl(item: PublicNewsItem) {
+export function buildPublicDetailUrl(
+  item: PublicNewsItem,
+  options: { returnTo?: PublicRoute | null } = {},
+) {
   const params = new URLSearchParams()
   if (item.targetId) params.set("target_id", item.targetId)
+  if (options.returnTo) params.set("return_to", buildPublicAppPath(options.returnTo))
   const query = params.toString()
   return `/public-app/events/${encodeURIComponent(item.id)}${query ? `?${query}` : ""}`
 }

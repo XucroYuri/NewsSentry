@@ -35,7 +35,7 @@ import {
 import { buildEventSeoPayload } from "@/lib/seo/site-seo"
 import type { FeedState } from "@/hooks/use-public-feed"
 import type { PublicAnalysisResponse, PublicNewsItem, PublicTargetInfo } from "@/types/public-news"
-import { buildPublicAppPath, type PublicRoute } from "@/lib/routes"
+import { buildPublicAppPath, parseLocationRoute, type PublicRoute } from "@/lib/routes"
 
 const channels: Array<{
   id: PublicChannel
@@ -69,12 +69,17 @@ function channelTitle(channel: PublicChannel) {
   return channels.find((item) => item.id === channel)?.label ?? "精选"
 }
 
-function buildDetailRoute(item: PublicNewsItem): Extract<PublicRoute, { name: "event" }> {
+function buildDetailRoute(
+  item: PublicNewsItem,
+  returnTo?: PublicRoute | null,
+): Extract<PublicRoute, { name: "event" }> {
+  const search = new URLSearchParams(item.targetId ? { target_id: item.targetId } : undefined)
+  if (returnTo) search.set("return_to", buildPublicAppPath(returnTo))
   return {
     name: "event",
     eventId: item.id,
     targetId: item.targetId || undefined,
-    search: new URLSearchParams(item.targetId ? { target_id: item.targetId } : undefined),
+    search,
   }
 }
 
@@ -129,7 +134,7 @@ function LiveUpdateBanner({ count, onApply }: { count: number; onApply: () => vo
   )
 }
 
-function NewsCard({ item }: { item: PublicNewsItem }) {
+function NewsCard({ item, returnTo }: { item: PublicNewsItem; returnTo?: PublicRoute | null }) {
   const tags = item.tags.slice(0, 4)
   const reason = item.recommendationReason || "已进入公共新闻流，等待更多背景和关联信号增强。"
   const discussionLabel =
@@ -138,6 +143,8 @@ function NewsCard({ item }: { item: PublicNewsItem }) {
       : item.relatedCount > 0
         ? `${item.relatedCount} 条关联信号`
         : "关联信号待形成"
+
+  const detailRoute = buildDetailRoute(item, returnTo)
 
   return (
     <article className="border-b bg-background px-4 py-4 transition-colors hover:bg-accent/35 sm:px-5">
@@ -187,8 +194,8 @@ function NewsCard({ item }: { item: PublicNewsItem }) {
         <div className="flex flex-wrap items-center gap-2">
           <Button asChild variant="outline" size="sm">
             <a
-              href={buildPublicAppPath(buildDetailRoute(item))}
-              onClick={(event) => handleRouteAnchorClick(event, buildDetailRoute(item))}
+              href={buildPublicAppPath(detailRoute)}
+              onClick={(event) => handleRouteAnchorClick(event, detailRoute)}
             >
               详情
               <ChevronRightIcon className="size-4" aria-hidden="true" />
@@ -278,6 +285,19 @@ export function NewsFeedPage({
 }) {
   const grouped = useMemo(() => groupItemsByDate(state.items), [state.items])
   const activeChannel = channels.find((item) => item.id === filters.channel)
+  const feedRoute = useMemo(() => {
+    const search = new URLSearchParams()
+    if (filters.targetId) search.set("target_id", filters.targetId)
+    if (filters.sourceId) search.set("source_id", filters.sourceId)
+    if (filters.category) search.set("category", filters.category)
+    if (filters.search) search.set("q", filters.search)
+    if (filters.date) search.set("date", filters.date)
+    return {
+      name: "feed",
+      channel: filters.channel,
+      search,
+    } satisfies Extract<PublicRoute, { name: "feed" }>
+  }, [filters.category, filters.channel, filters.date, filters.search, filters.sourceId, filters.targetId])
   const hasItems = state.items.length > 0
   const emptyDescription =
     filters.channel === "analysis"
@@ -330,7 +350,7 @@ export function NewsFeedPage({
               </div>
               <div className="divide-y">
                 {group.items.map((item) => (
-                  <NewsCard key={item.id} item={item} />
+                  <NewsCard key={item.id} item={item} returnTo={feedRoute} />
                 ))}
               </div>
             </section>
@@ -355,7 +375,15 @@ export function NewsFeedPage({
   )
 }
 
-function RelatedSection({ title, items }: { title: string; items: PublicNewsItem[] }) {
+function RelatedSection({
+  title,
+  items,
+  returnTo,
+}: {
+  title: string
+  items: PublicNewsItem[]
+  returnTo?: PublicRoute | null
+}) {
   return (
     <section className="grid gap-2">
       <h3 className="text-base font-semibold">{title}</h3>
@@ -363,7 +391,7 @@ function RelatedSection({ title, items }: { title: string; items: PublicNewsItem
         <div className="grid gap-2">
           {items.map((item) => (
             (() => {
-              const detailRoute = buildDetailRoute(item)
+              const detailRoute = buildDetailRoute(item, returnTo)
               return (
             <a
               key={item.id}
@@ -403,11 +431,30 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
       }),
     [item, route],
   )
-  const feedRoute: Extract<PublicRoute, { name: "feed" }> = {
-    name: "feed",
-    channel: "featured",
-    search: new URLSearchParams(),
-  }
+  const feedRoute = useMemo(() => {
+    const returnTo = route.search.get("return_to")
+    if (!returnTo) {
+      return {
+        name: "feed",
+        channel: "featured",
+        search: new URLSearchParams(),
+      } satisfies Extract<PublicRoute, { name: "feed" }>
+    }
+    try {
+      const url = new URL(returnTo, window.location.origin)
+      return parseLocationRoute({
+        pathname: url.pathname,
+        search: url.search,
+        hash: url.hash,
+      })
+    } catch {
+      return {
+        name: "feed",
+        channel: "featured",
+        search: new URLSearchParams(),
+      } satisfies Extract<PublicRoute, { name: "feed" }>
+    }
+  }, [route.search])
   const sourceRoute: Extract<PublicRoute, { name: "sourceDetail" }> | null = item
     ? {
         name: "sourceDetail",
@@ -432,7 +479,7 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
         try {
           const relatedResult = await listPublicNews({
             targetId: route.targetId ?? detail.targetId,
-            pageSize: 50,
+            pageSize: 12,
           })
           if (!cancelled) {
             setRelated(relatedResult.data?.items ?? [])
@@ -564,9 +611,9 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
           </aside>
         </div>
         <div className="grid gap-4 border-t px-4 py-5 sm:px-6 lg:grid-cols-3">
-          <RelatedSection title="同来源信号" items={buckets.sameSource} />
-          <RelatedSection title="同目标信号" items={buckets.sameTarget} />
-          <RelatedSection title="同主题信号" items={buckets.sameTopic} />
+          <RelatedSection title="同来源信号" items={buckets.sameSource} returnTo={feedRoute} />
+          <RelatedSection title="同目标信号" items={buckets.sameTarget} returnTo={feedRoute} />
+          <RelatedSection title="同主题信号" items={buckets.sameTopic} returnTo={feedRoute} />
         </div>
       </article>
     </>
@@ -682,6 +729,12 @@ export function SourceDetailPage({ sourceId }: { sourceId: string }) {
   const heading = source?.name ?? sourceId
   const summary = buildSourceSummaries(items)[0]
 
+  const sourceRoute: Extract<PublicRoute, { name: "sourceDetail" }> = {
+    name: "sourceDetail",
+    sourceId,
+    search: new URLSearchParams(),
+  }
+
   return (
     <section className="overflow-hidden rounded-lg border bg-background shadow-sm">
       <div className="border-b px-4 py-4 sm:px-5">
@@ -712,7 +765,7 @@ export function SourceDetailPage({ sourceId }: { sourceId: string }) {
         <EmptyExplanation title="该来源暂无公开新闻" description="采集仍在进行中，稍后会显示该来源最近报道。" />
       ) : null}
       {items.map((item) => (
-        <NewsCard key={item.id} item={item} />
+        <NewsCard key={item.id} item={item} returnTo={sourceRoute} />
       ))}
     </section>
   )

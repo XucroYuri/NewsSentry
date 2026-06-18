@@ -102,8 +102,9 @@ export function routeToChannel(route: PublicRoute): PublicChannel {
 
 export function buildPublicAppPath(route: PublicRoute) {
   if (route.name === "event") {
-    const params = new URLSearchParams()
+    const params = new URLSearchParams(route.search)
     if (route.targetId) params.set("target_id", route.targetId)
+    else params.delete("target_id")
     const query = params.toString()
     return `/public-app/events/${encodeURIComponent(route.eventId)}${query ? `?${query}` : ""}`
   }
@@ -136,8 +137,9 @@ export function buildPublicAppPath(route: PublicRoute) {
 
 export function buildRouteHash(route: PublicRoute) {
   if (route.name === "event") {
-    const params = new URLSearchParams()
+    const params = new URLSearchParams(route.search)
     if (route.targetId) params.set("target_id", route.targetId)
+    else params.delete("target_id")
     const query = params.toString()
     return `#/events/${encodeURIComponent(route.eventId)}${query ? `?${query}` : ""}`
   }

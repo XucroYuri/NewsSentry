@@ -146,6 +146,48 @@ def test_public_news_list_prefers_projection_rows_over_file_scan(
     assert item["entities"][0]["name"] == "Meloni"
 
 
+def test_public_news_list_normalizes_common_gdelt_title_mojibake(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    raw_title = (
+        "litalia sarÀ sempre al fianco dellucraina - lo ha detto sergio mattarella "
+        "a zelensky affinchÉ ..."
+    )
+    expected_title = (
+        "litalia sarà sempre al fianco dellucraina - lo ha detto sergio mattarella "
+        "a zelensky affinché ..."
+    )
+    store = ProjectionOnlyStore(
+        [
+            _projection_row(
+                event_id="ne-italy-projection-list-002",
+                source_id="gdelt-italy",
+                title_original=raw_title,
+            )
+        ]
+    )
+    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
+    client = TestClient(app)
+    monkeypatch.setattr(
+        api_server,
+        "_visible_index_events_page",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not read index page")),
+    )
+    monkeypatch.setattr(
+        api_server,
+        "_load_all_events",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not scan files")),
+    )
+
+    response = client.get("/api/v1/public/news", params={"target_id": "italy"})
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["title"] == expected_title
+    assert item["originalTitle"] == expected_title
+
+
 def test_public_news_list_keeps_indexed_filtered_path_for_selective_reads(
     tmp_path: Path,
     monkeypatch,

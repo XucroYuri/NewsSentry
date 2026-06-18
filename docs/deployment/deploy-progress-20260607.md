@@ -13,7 +13,7 @@
 用户浏览器
   → Cloudflare DNS / TLS / WAF / Access
   → Cloudflare Tunnel (仅出站)
-  → VPS 97.64.29.114 上的 cloudflared
+  → VPS 174.137.51.201 上的 cloudflared
   → 127.0.0.1:18080
   → News Sentry FastAPI + Web UI (newssentry 用户)
 ```
@@ -532,8 +532,8 @@ free -h                         # 内存余量充足
 
 | 项目 | 值 |
 |------|-----|
-| VPS IP | `97.64.29.114`（被 GFW 封禁，需跳板或 KiwiVM） |
-| SSH 跳板 | DMIT `root@64.186.226.51`（仅 key 认证，当前无法从外部跳） |
+| VPS IP | `174.137.51.201` |
+| SSH 跳板 | 直连 SSH 优先；如网络策略限制，再使用可用跳板或 KiwiVM |
 | KiwiVM 面板 | 搬瓦工后台 → KiwiVM（Web SSH 可用） |
 | 服务用户 | `newssentry` |
 | 服务端口 | `18080`（仅 127.0.0.1） |
@@ -602,3 +602,64 @@ free -h                         # 内存余量充足
 - production 状态:
   - 本轮未从 preview 提升到 `main`，因此不写 `main receipt`
   - production `/api/v1/runtime/info` 仍需在后续 preview -> main -> production 流程里复验收敛
+
+## 2026-06-19 VPS 设备迁移核验记录
+
+本轮只读排查 VPS 迁移后的部署链路，确认服务器已迁移到新 IP
+`174.137.51.201`，公网入口仍应保持 Cloudflare Tunnel 架构，不改为直连
+A 记录。
+
+已确认事实：
+
+- Cloudflare zone `news-sentry.com` 为 active。
+- DNS 仍是 proxied Tunnel CNAME：
+  - `news-sentry.com` -> `4ad9a278-f0de-4b26-bae2-82e0db21b206.cfargotunnel.com`
+  - `www.news-sentry.com` -> `4ad9a278-f0de-4b26-bae2-82e0db21b206.cfargotunnel.com`
+  - `preview.news-sentry.com` -> `4ad9a278-f0de-4b26-bae2-82e0db21b206.cfargotunnel.com`
+- Tunnel `news-sentry` (`4ad9a278-f0de-4b26-bae2-82e0db21b206`) 为 healthy。
+- Tunnel connector 运行在 `linux_amd64`，`cloudflared` 版本 `2026.5.2`。
+- Tunnel 当前 4 条连接的 `origin_ip` 均为 `174.137.51.201`。
+- `https://news-sentry.com/api/v1/health` -> `200 {"status":"ok"}`，
+  response header 包含 `x-news-sentry-deploy-commit: 8b82bfcaa1f3`。
+- `https://preview.news-sentry.com/api/v1/health` -> `200 {"status":"ok"}`，
+  response header 包含 `x-news-sentry-deploy-commit: 7f0155efd5e7`。
+- `https://news-sentry.com/public-app/` -> `200`，返回公共门户 HTML。
+- `https://news-sentry.com/api/v1/public/news?featured=true&page_size=3`
+  返回真实新闻条目。
+- 新 VPS `174.137.51.201` 的 `22`、`443`、`8443` TCP 端口从当前环境可达。
+- `tools/seo_geo/verify_public_site.py --base-url https://news-sentry.com`
+  -> `22/22` pass。
+- `tools/deployed_surface_audit.py` 加入本轮 Cloudflare state JSON 后仍有 2 个
+  既有 blocker：`admin-ui-path-migration` 与
+  `cloudflare-access-token-missing`。二者属于后台路径 / Access 治理缺口，
+  不是本次 VPS IP 迁移导致的公网可用性故障。
+- 已将 GitHub Actions repository secret `BWH_HOST` 重新写入为
+  `174.137.51.201`；GitHub secret 更新时间为 `2026-06-18T20:19:23Z`。
+- 迁移闭环 Deploy workflow 已通过：
+  - preview run `27786864234` -> success；`Deploy via SSH` 成功，
+    head SHA `7f0155efd5e73413f4850160589a542ee23a5d5c`。
+  - production run `27786864205` -> success；`Deploy via SSH` 成功，
+    head SHA `8b82bfcaa1f33622566d996e68b111162671d94d`。
+- workflow 之后复验公网：
+  - `https://news-sentry.com/api/v1/health` -> `200 {"status":"ok"}`，
+    `x-news-sentry-deploy-commit: 8b82bfcaa1f3`。
+  - `https://preview.news-sentry.com/api/v1/health` -> `200 {"status":"ok"}`，
+    `x-news-sentry-deploy-commit: 7f0155efd5e7`。
+  - `https://news-sentry.com/api/v1/public/news?featured=true&page_size=3`
+    返回真实新闻条目。
+
+迁移后必须闭环的设置：
+
+1. GitHub Actions repository secret `BWH_HOST` 更新为 `174.137.51.201`。
+   GitHub API 只能看到 secret 存在与更新时间，不能读明文；更新后必须触发
+   preview 和 production Deploy workflow 复验。
+2. 新 VPS root `authorized_keys` 中保留 GitHub Actions deploy key 公钥；
+   如果换了 key，同步更新 `BWH_SSH_KEY`。
+3. 新 VPS 上保留 `newssentry` 用户、`/opt/news-sentry/{production,preview}`
+   与 `/srv/news-sentry/{production,preview}` 目录权限。
+4. 新 VPS 上安装并运行同一个 Cloudflare Tunnel connector；不要修改
+   `news-sentry.com`、`www.news-sentry.com`、`preview.news-sentry.com` 的
+   Tunnel CNAME。
+5. 通过一次 preview deploy 和一次 production deploy 重新生成远端
+   `.deploy-sha`、systemd unit、venv 依赖与 frontend build，并用公网 health
+   header 验证 deploy commit。
