@@ -2802,22 +2802,26 @@ async def _public_news_candidate_events(
     min_score = _PUBLIC_NEWS_FEATURED_SCORE if featured else None
     classification_l0 = category if category else None
     for target_id in target_ids:
-        target_store = await _get_target_store(target_id)
-        store_to_query = target_store if target_store is not None else _store
-        events, target_total = await _public_news_events_for_target(
-            data_dir,
-            target_id,
-            store_to_query,
-            limit=limit,
-            allow_projection_first=allow_projection_first,
-            min_score=min_score,
-            source_id=source_id,
-            classification_l0=classification_l0,
-            date=date,
-            q=q,
-            before_key=before_key,
-            since_key=since_key,
-        )
+        try:
+            target_store = await _get_target_store(target_id)
+            store_to_query = target_store if target_store is not None else _store
+            events, target_total = await _public_news_events_for_target(
+                data_dir,
+                target_id,
+                store_to_query,
+                limit=limit,
+                allow_projection_first=allow_projection_first,
+                min_score=min_score,
+                source_id=source_id,
+                classification_l0=classification_l0,
+                date=date,
+                q=q,
+                before_key=before_key,
+                since_key=since_key,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to collect public news candidates for target %s", target_id)
+            continue
         total += target_total
         for event in events:
             candidates.append((target_id, event))
@@ -3703,9 +3707,22 @@ async def _target_public_event_count(target_id: str, data_dir: Path) -> int:
     try:
         store = await _store_for_target(target_id)
         if store is not None and await _store_has_target_event_index(store, target_id):
-            get_count = getattr(store, "get_public_event_count", None)
-            if get_count is not None:
-                return int(await get_count(target_id, _PUBLIC_ANALYSIS_STAGE))
+            query_public_rows = getattr(store, "query_public_news_rows", None)
+            if query_public_rows is not None:
+                result = await query_public_rows(
+                    target_id=target_id,
+                    stage=_PUBLIC_ANALYSIS_STAGE,
+                    limit=100,
+                )
+                rows = result.get("rows", []) if isinstance(result, dict) else []
+                if isinstance(rows, list):
+                    return sum(
+                        1
+                        for row in rows
+                        if public_translation_ready(
+                            row.get("metadata") if isinstance(row, dict) else None
+                        )
+                    )
             visible = await _visible_index_events_page(
                 store,
                 data_dir,
@@ -3721,6 +3738,7 @@ async def _target_public_event_count(target_id: str, data_dir: Path) -> int:
             return 0
     except Exception:
         logger.exception("Failed to count indexed public events for target %s", target_id)
+        return 0
     return len(
         [
             event
@@ -8761,7 +8779,16 @@ def create_app(
             filtered.append((tid, event))
 
         page_pairs = filtered[:page_size]
-        items = [_public_news_item(tid, event) for tid, event in page_pairs]
+        items: list[PublicNewsItem] = []
+        for tid, event in page_pairs:
+            try:
+                items.append(_public_news_item(tid, event))
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "Failed to render public news item target=%s event_id=%s",
+                    tid,
+                    event.get("event_id") or event.get("id"),
+                )
         latest_cursor = _public_news_encode_cursor(page_pairs[0][1]) if page_pairs else since_cursor
         next_cursor = None
         if page_pairs and len(filtered) > len(page_pairs):
