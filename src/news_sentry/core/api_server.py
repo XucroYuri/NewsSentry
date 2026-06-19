@@ -2705,6 +2705,7 @@ async def _public_news_events_for_target(
     *,
     limit: int,
     allow_projection_first: bool = True,
+    allow_file_fallback: bool = True,
     min_score: int | None = None,
     source_id: str | None = None,
     classification_l0: str | None = None,
@@ -2778,6 +2779,8 @@ async def _public_news_events_for_target(
             total = min(int(result.get("total") or len(ready_events)), len(ready_events))
             return ready_events, total
         return [], 0
+    if not allow_file_fallback:
+        return [], 0
     events = _load_all_events(data_dir, target_id)
     ready_events = [event for event in events if _event_public_translation_ready(event)]
     return ready_events, len(ready_events)
@@ -2789,6 +2792,7 @@ async def _public_news_candidate_events(
     *,
     limit: int,
     allow_projection_first: bool = True,
+    allow_file_fallback: bool = True,
     featured: bool,
     source_id: str | None = None,
     category: str | None = None,
@@ -2811,6 +2815,7 @@ async def _public_news_candidate_events(
                 store_to_query,
                 limit=limit,
                 allow_projection_first=allow_projection_first,
+                allow_file_fallback=allow_file_fallback,
                 min_score=min_score,
                 source_id=source_id,
                 classification_l0=classification_l0,
@@ -3739,13 +3744,7 @@ async def _target_public_event_count(target_id: str, data_dir: Path) -> int:
     except Exception:
         logger.exception("Failed to count indexed public events for target %s", target_id)
         return 0
-    return len(
-        [
-            event
-            for event in _load_all_events(data_dir, target_id)
-            if _event_public_translation_ready(event)
-        ]
-    )
+    return 0
 
 
 async def _target_api_event_count(target_id: str) -> int:
@@ -6893,14 +6892,23 @@ async def _render_public_sitemap_xml(store: Any, *, base_url: str) -> str:
 async def _public_sitemap_entries(*, base_url: str) -> list[Any]:
     entries: list[Any] = []
     for target_id in _public_news_target_ids(_data_dir, None):
-        store = await _store_for_target(target_id)
+        store = await _get_target_store(target_id)
         if store is None:
             continue
         projection_store = PublicSiteProjectionStore(store, base_url=base_url)
-        entries.extend(await projection_store.list_sitemap_entries(target_id=target_id, limit=1000))
+        try:
+            entries.extend(
+                await projection_store.list_sitemap_entries(target_id=target_id, limit=1000)
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to render sitemap entries for target %s", target_id)
     if not entries and _store is not None:
         projection_store = PublicSiteProjectionStore(_store, base_url=base_url)
-        entries = await projection_store.list_sitemap_entries(limit=1000)
+        try:
+            entries = await projection_store.list_sitemap_entries(limit=1000)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to render sitemap entries from global store")
+            entries = []
     if entries:
         return entries
     return [
@@ -8751,6 +8759,7 @@ def create_app(
             target_ids,
             limit=query_limit,
             allow_projection_first=allow_projection_first,
+            allow_file_fallback=target_id is not None,
             featured=featured,
             source_id=source_id,
             category=category,

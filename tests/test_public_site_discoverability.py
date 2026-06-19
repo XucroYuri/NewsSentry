@@ -198,6 +198,27 @@ def test_sitemap_xml_falls_back_to_public_homepage_when_projection_is_empty(tmp_
     assert _extract_sitemap_urls(response.text) == ["https://preview.news-sentry.com/"]
 
 
+def test_sitemap_xml_falls_back_when_projection_store_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def broken_entries(*args: object, **kwargs: object) -> list[object]:
+        raise RuntimeError("projection unavailable")
+
+    monkeypatch.setattr(
+        api_server_module.PublicSiteProjectionStore,
+        "list_sitemap_entries",
+        broken_entries,
+    )
+    app = create_app(data_dir=tmp_path, auto_store=True, skip_lifespan=True)
+    client = TestClient(app, base_url="https://preview.news-sentry.com")
+
+    response = client.get("/sitemap.xml")
+
+    assert response.status_code == 200
+    assert _extract_sitemap_urls(response.text) == ["https://preview.news-sentry.com/"]
+
+
 def test_root_homepage_renders_publication_trust_fallback(tmp_path: Path) -> None:
     app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
     client = TestClient(app, base_url="https://preview.news-sentry.com")

@@ -2129,9 +2129,26 @@ class TestAPIServer:
             topic_label="涉中舆情",
         )
         _write_target_config(config_dir, "empty-sources", "空信源目标", "en", 0)
-        _write_draft(tmp_path, "italy", "evt-1", "ANSA", 70)
-        _write_draft(tmp_path, "china-watch-en", "evt-topic-1", "China Watch", 75)
         monkeypatch.chdir(tmp_path)
+
+        async def seed() -> None:
+            for target_id, event_id, title in (
+                ("italy", "evt-1", "意大利公开新闻"),
+                ("china-watch-en", "evt-topic-1", "涉中公开新闻"),
+            ):
+                store = AsyncStore(tmp_path / target_id / "state.db")
+                await store.initialize()
+                try:
+                    await _insert_index_event(
+                        store,
+                        event_id=event_id,
+                        target_id=target_id,
+                        title_original=title,
+                    )
+                finally:
+                    await store.close()
+
+        asyncio.run(seed())
         client = self._make_client(tmp_path)
         resp = client.get("/api/v1/targets")
         assert resp.status_code == 200
@@ -2157,6 +2174,23 @@ class TestAPIServer:
             "china-watch-en",
             "empty-sources",
         }
+
+    def test_public_news_global_feed_does_not_scan_file_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config_dir = tmp_path / "config" / "targets"
+        _write_target_config(config_dir, "italy", "意大利新闻监控", "it", 5)
+        _write_draft(tmp_path, "italy", "orphan-1", title="Orphan file")
+        monkeypatch.chdir(tmp_path)
+        load_all_events = MagicMock(side_effect=AssertionError("global public feed scanned files"))
+        monkeypatch.setattr(api_server_module, "_load_all_events", load_all_events)
+        client = self._make_client(tmp_path)
+
+        resp = client.get("/api/v1/public/news?featured=true&page_size=3")
+
+        assert resp.status_code == 200
+        assert resp.json()["items"] == []
+        load_all_events.assert_not_called()
 
     def test_targets_endpoint_prefers_target_store_count_over_orphan_drafts(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -5730,6 +5764,21 @@ class TestTargetLifecycleWorkbenchAPI:
     ) -> None:
         client = self._setup_target_tree(tmp_path, monkeypatch)
         _write_draft(tmp_path, "italy", "public-ready-after-restore")
+
+        async def seed() -> None:
+            store = AsyncStore(tmp_path / "italy" / "state.db")
+            await store.initialize()
+            try:
+                await _insert_index_event(
+                    store,
+                    event_id="public-ready-after-restore",
+                    target_id="italy",
+                    title_original="意大利恢复后公开新闻",
+                )
+            finally:
+                await store.close()
+
+        asyncio.run(seed())
 
         resp = client.post(
             "/api/v1/admin/targets/italy/archive",
