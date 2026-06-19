@@ -297,7 +297,10 @@ class TestCollect:
 
         assert len(result) == 1
         assert result[0].title_original == "Allowed"
-        sandbox.check_network_host.assert_called_once_with("allowed.example.com")
+        assert sandbox.check_network_host.call_args_list == [
+            mock.call("allowed.example.com"),
+            mock.call("allowed.example.com"),
+        ]
 
     def test_collect_handles_missing_fields(self):
         """条目缺少 title/url 时生成含空字符串的事件。"""

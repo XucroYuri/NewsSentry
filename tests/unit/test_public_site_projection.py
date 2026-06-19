@@ -35,14 +35,32 @@ async def _insert_public_event_row(
     classification_l0: str = "economics",
     metadata: dict[str, object] | None = None,
 ) -> None:
+    public_metadata: dict[str, object] = {
+        "translation": {
+            "title_pre": "意大利头条",
+            "summary_pre": "这是一条公开中文摘要。",
+        },
+        "publication": {
+            "one_line_summary": "意大利头条进入公开新闻时间线。",
+            "recommendation_reason": "AI 推荐理由指出该新闻具备跨境观察价值。",
+        },
+    }
+    for key, value in (metadata or {}).items():
+        base_value = public_metadata.get(key)
+        if isinstance(base_value, dict) and isinstance(value, dict):
+            merged_value = dict(base_value)
+            merged_value.update(value)
+            public_metadata[key] = merged_value
+        else:
+            public_metadata[key] = value
     async with store._connect() as conn:
         await conn.execute(
             """
             INSERT INTO event_index (
                 event_id, target_id, stage, source_id, news_value_score,
                 china_relevance, classification_l0, title_original, url,
-                published_at, file_path, metadata_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                published_at, file_path, metadata_json, public_translation_ready, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 event_id,
@@ -56,7 +74,8 @@ async def _insert_public_event_row(
                 url,
                 published_at,
                 f"drafts/{event_id}.md",
-                json.dumps(metadata or {}, ensure_ascii=False),
+                json.dumps(public_metadata, ensure_ascii=False),
+                1,
                 published_at,
             ),
         )
@@ -69,8 +88,10 @@ async def test_public_projection_lists_items_from_store_rows(store: AsyncStore) 
         store,
         event_id="it_001",
         metadata={
-            "translation": {"title_pre": "意大利头条"},
-            "summary": "Store-backed summary",
+            "translation": {
+                "title_pre": "意大利头条",
+                "summary_pre": "Store-backed summary",
+            },
         },
     )
     await _insert_public_event_row(
