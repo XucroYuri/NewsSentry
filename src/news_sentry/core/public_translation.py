@@ -91,7 +91,8 @@ def public_translation_field_hash(row: dict[str, Any]) -> str:
 
 
 def retry_delay_minutes(attempts: int) -> int:
-    return min(5 * (2 ** max(attempts - 3, 0)), 360)
+    delay = 5 * (2 ** max(attempts - 3, 0))
+    return int(min(delay, 360))
 
 
 def _source_summary_text(row: dict[str, Any], metadata: dict[str, Any] | None = None) -> str:
