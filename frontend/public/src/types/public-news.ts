@@ -25,6 +25,8 @@ export interface PublicNewsItem {
   originalTitle?: string | null
   summary?: string | null
   recommendationReason?: string | null
+  fullContent?: string | null
+  imageUrls?: string[]
   originalUrl?: string | null
   detailUrl: string
   tags: string[]

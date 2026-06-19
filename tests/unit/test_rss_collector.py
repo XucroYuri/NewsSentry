@@ -423,6 +423,50 @@ class TestCollect:
         # content 字段优先级高于 summary
         assert result[0].content_original == "Full article content here."
 
+    def test_collect_fetches_full_article_body_and_images(self):
+        config = _make_minimal_config(fetch_full_article=True)
+        collector = RSSCollector(config, None)
+
+        entry = _build_rss_entry(
+            title="Short Feed Title",
+            link="https://example.com/article/1",
+            summary="Short feed summary.",
+        )
+        article_html = """
+        <html>
+          <head><meta property="og:image" content="/lead.jpg"></head>
+          <body>
+            <article>
+              <h1>Full Article Title</h1>
+              <p>First full paragraph with enough context for in-site reading.</p>
+              <p>Second full paragraph adds policy and market background.</p>
+              <img src="https://cdn.example.com/photo.jpg">
+            </article>
+          </body>
+        </html>
+        """
+
+        with mock.patch("feedparser.parse") as mock_parse:
+            mock_parse.return_value = _patch_feed([entry])
+            with mock.patch("httpx.get") as mock_get:
+                mock_get.side_effect = [
+                    httpx.Response(200, text="<rss/>", request=httpx.Request("GET", config["url"])),
+                    httpx.Response(
+                        200,
+                        text=article_html,
+                        request=httpx.Request("GET", "https://example.com/article/1"),
+                    ),
+                ]
+                result = collector.collect("run-001")
+
+        assert len(result) == 1
+        assert "First full paragraph" in result[0].content_original
+        assert "Second full paragraph" in result[0].content_original
+        article_meta = result[0].metadata["article"]
+        assert article_meta["status"] == "fetched"
+        assert article_meta["lead_image_url"] == "https://example.com/lead.jpg"
+        assert "https://cdn.example.com/photo.jpg" in article_meta["image_urls"]
+
     def test_entry_without_content_or_summary(self):
         config = _make_minimal_config()
         collector = RSSCollector(config, None)

@@ -10,7 +10,6 @@ import {
   Globe2Icon,
   Loader2Icon,
   NewspaperIcon,
-  RefreshCwIcon,
   SparklesIcon,
 } from "lucide-react"
 
@@ -24,12 +23,14 @@ import { getPublicNewsItem, listPublicNews, PublicNewsApiError } from "@/lib/api
 import { type FeedFilters, groupItemsByDate, type PublicChannel } from "@/lib/feed-state"
 import {
   buildDailyDigest,
+  type DailyDigestTopicGroup,
   buildRelatedBuckets,
   buildSourceSummaries,
   formatFullTime,
   formatTime,
   sourceTypeLabel,
   summaryText,
+  targetShortLabel,
   todayKey,
 } from "@/lib/public-view"
 import { buildEventSeoPayload } from "@/lib/seo/site-seo"
@@ -42,9 +43,9 @@ const channels: Array<{
   label: string
   description: string
 }> = [
-  { id: "featured", label: "精选", description: "优先展示高价值和中国相关信号" },
+  { id: "featured", label: "精选", description: "跨目标展示最高价值新闻，先读判断，再看来源。" },
   { id: "all", label: "全部", description: "按发布时间浏览公共新闻流" },
-  { id: "targets", label: "目标", description: "按监控目标查看新闻" },
+  { id: "targets", label: "目标", description: "按 target 浏览精选新闻流" },
   { id: "sources", label: "来源", description: "按媒体与信源观察覆盖面" },
   { id: "analysis", label: "态势", description: "查看公开态势摘要" },
   { id: "daily", label: "日报", description: "读者化日内摘要入口" },
@@ -54,19 +55,6 @@ function normalizeError(error: unknown) {
   if (error instanceof PublicNewsApiError) return error.message
   if (error instanceof Error) return error.message
   return "公共新闻接口暂时不可用，请稍后重试。"
-}
-
-function channelHeading(channel: PublicChannel) {
-  if (channel === "daily") return "今日日报"
-  if (channel === "analysis") return "态势简报"
-  if (channel === "targets") return "目标新闻"
-  if (channel === "sources") return "来源观察"
-  if (channel === "all") return "全部新闻"
-  return "精选新闻"
-}
-
-function channelTitle(channel: PublicChannel) {
-  return channels.find((item) => item.id === channel)?.label ?? "精选"
 }
 
 function buildDetailRoute(
@@ -135,24 +123,15 @@ function LiveUpdateBanner({ count, onApply }: { count: number; onApply: () => vo
 }
 
 function NewsCard({ item, returnTo }: { item: PublicNewsItem; returnTo?: PublicRoute | null }) {
-  const tags = item.tags.slice(0, 4)
-  const reason = item.recommendationReason || "已进入公共新闻流，等待更多背景和关联信号增强。"
-  const discussionLabel =
-    (item.discussionCount ?? 0) > 0
-      ? `${item.discussionCount} 条讨论`
-      : item.relatedCount > 0
-        ? `${item.relatedCount} 条关联信号`
-        : "关联信号待形成"
-
+  const reason = item.recommendationReason?.trim()
   const detailRoute = buildDetailRoute(item, returnTo)
+  const targetLabel = targetShortLabel(item.targetLabel)
 
   return (
-    <article className="border-b bg-background px-4 py-4 transition-colors hover:bg-accent/35 sm:px-5">
-      <div className="grid gap-3">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <Badge variant={item.valueLabel === "精选" ? "default" : "secondary"}>
-            {item.valueLabel}
-          </Badge>
+    <article className="rounded-lg border bg-card/95 px-3 py-3 transition-colors hover:border-primary/50 hover:bg-accent/20 dark:bg-card/80">
+      <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
+        <div className="grid min-w-0 gap-2">
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1">
             <Clock3Icon className="size-3.5" aria-hidden="true" />
             {formatTime(item.publishedAt)}
@@ -161,37 +140,32 @@ function NewsCard({ item, returnTo }: { item: PublicNewsItem; returnTo?: PublicR
             <Globe2Icon className="size-3.5 shrink-0" aria-hidden="true" />
             <span className="truncate">{item.source.name}</span>
           </span>
-          <span>{sourceTypeLabel(item.source.type)}</span>
-          <span>{item.targetLabel}</span>
+          <Badge variant="outline" className="font-normal" title={item.targetLabel}>{targetLabel}</Badge>
+          <Badge variant={item.valueLabel === "精选" ? "default" : "secondary"} className="rounded-full">
+            {item.valueScore !== undefined && item.valueScore !== null
+              ? `分值 ${Math.round(item.valueScore)}`
+              : item.valueLabel}
+          </Badge>
         </div>
 
-        <div className="grid gap-2">
-          <h2 className="text-lg font-semibold leading-7 text-foreground sm:text-xl">
+        <div className="grid gap-1.5">
+          <h2 className="text-base font-semibold leading-6 text-foreground sm:text-lg">
             {item.title}
           </h2>
-          <p className="text-sm leading-6 text-muted-foreground">
-            {item.summary || item.originalTitle || "这条新闻仍在生成读者摘要，已保留来源与原文入口。"}
+          <p className="line-clamp-2 text-sm leading-5 text-muted-foreground">
+            {item.summary || "中文摘要正在补齐，完成后会进入公共阅读流。"}
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {tags.map((tag) => (
-            <Badge key={tag} variant="outline" className="font-normal">
-              {tag}
-            </Badge>
-          ))}
-          <Badge variant="outline" className="font-normal">
-            对华相关度：{item.chinaRelevanceLabel}
-          </Badge>
-          <span className="text-xs text-muted-foreground">{discussionLabel}</span>
+        {reason ? (
+          <div className="line-clamp-2 rounded-md border border-primary/20 bg-primary/10 px-2.5 py-1.5 text-xs leading-5 text-muted-foreground">
+            <span className="font-medium text-foreground">推荐理由：</span>
+            {reason}
+          </div>
+        ) : null}
         </div>
 
-        <div className="rounded-md border bg-muted/35 px-3 py-2 text-sm leading-6 text-muted-foreground">
-          <span className="font-medium text-foreground">推荐理由：</span>
-          {reason}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 xl:justify-end">
           <Button asChild variant="outline" size="sm">
             <a
               href={buildPublicAppPath(detailRoute)}
@@ -217,20 +191,18 @@ function NewsCard({ item, returnTo }: { item: PublicNewsItem; returnTo?: PublicR
 
 function LoadingFeed() {
   return (
-    <div>
-      <div className="border-b px-4 py-4 sm:px-5">
-        <Badge variant="outline" className="w-fit">
-          正在整理最新新闻
-        </Badge>
-        <p className="mt-2 text-sm text-muted-foreground">新闻流会在最新信号整理好后自动出现。</p>
+    <div aria-label="紧凑加载状态" className="divide-y py-2">
+      <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+        <Loader2Icon className="size-3.5 animate-spin text-primary" aria-hidden="true" />
+        <span className="font-medium text-foreground">更新中</span>
+        <Skeleton className="h-3 w-24" />
       </div>
-      <div className="divide-y">
+      <div>
         {Array.from({ length: 4 }, (_, index) => (
-          <div key={index} className="grid gap-3 px-4 py-5 sm:px-5">
-            <Skeleton className="h-4 w-40" />
-            <Skeleton className="h-6 w-5/6" />
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-2/3" />
+          <div key={index} className="grid gap-2 px-3 py-3">
+            <Skeleton className="h-3 w-36" />
+            <Skeleton className="h-4 w-4/5" />
+            <Skeleton className="h-3 w-2/3" />
           </div>
         ))}
       </div>
@@ -240,26 +212,28 @@ function LoadingFeed() {
 
 function EmptyExplanation({ title, description }: { title: string; description: string }) {
   return (
-    <div className="grid gap-3 px-5 py-8">
+    <div className="flex flex-col gap-1 border-b px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <h2 className="text-sm font-semibold">{title}</h2>
+        <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">{description}</p>
+      </div>
       <Badge variant="outline" className="w-fit">
         等待内容
       </Badge>
-      <div>
-        <h2 className="text-lg font-semibold">{title}</h2>
-        <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">{description}</p>
-      </div>
     </div>
   )
 }
 
 function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <div className="grid gap-3 px-5 py-8">
-      <Badge variant="destructive" className="w-fit">
-        加载失败
-      </Badge>
-      <p className="max-w-xl text-sm leading-6 text-muted-foreground">{message}</p>
-      <Button onClick={onRetry} className="w-fit" size="sm">
+    <div className="flex flex-col gap-2 border-b px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <Badge variant="destructive" className="mb-1 w-fit">
+          加载失败
+        </Badge>
+        <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{message}</p>
+      </div>
+      <Button onClick={onRetry} className="w-fit shrink-0" size="sm">
         重试
       </Button>
     </div>
@@ -269,7 +243,6 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
 export function NewsFeedPage({
   filters,
   state,
-  refreshing,
   loadingMore,
   onRefresh,
   onLoadMore,
@@ -277,14 +250,19 @@ export function NewsFeedPage({
 }: {
   filters: FeedFilters
   state: FeedState
-  refreshing: boolean
   loadingMore: boolean
   onRefresh: () => void
   onLoadMore: () => void
   onApplyPending: () => void
 }) {
   const grouped = useMemo(() => groupItemsByDate(state.items), [state.items])
-  const activeChannel = channels.find((item) => item.id === filters.channel)
+  const topItems = useMemo(
+    () =>
+      [...state.items]
+        .sort((left, right) => (right.valueScore ?? 0) - (left.valueScore ?? 0))
+        .slice(0, 3),
+    [state.items],
+  )
   const feedRoute = useMemo(() => {
     const search = new URLSearchParams()
     if (filters.targetId) search.set("target_id", filters.targetId)
@@ -302,36 +280,10 @@ export function NewsFeedPage({
   const emptyDescription =
     filters.channel === "analysis"
       ? "当前窗口还没有足够样本形成态势。采集与增强继续运行，稍后会补充趋势、实体和追踪链。"
-      : "当前筛选条件下暂时没有可展示新闻。可以切换频道、放宽筛选，或稍后等待新采集结果进入公共流。"
+      : "已采集新闻正在补齐中文标题与中文摘要。完成翻译后会自动进入公共阅读流。"
 
   return (
-    <section className="min-w-0 overflow-hidden rounded-lg border bg-background shadow-sm">
-      <div className="border-b px-4 py-4 sm:px-5">
-        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          <div className="min-w-0">
-            <div className="mb-2 flex flex-wrap items-center gap-2">
-              <Badge variant="outline">{channelTitle(filters.channel)}</Badge>
-              {filters.category ? <Badge variant="secondary">{filters.category}</Badge> : null}
-              {filters.search ? <Badge variant="secondary">搜索：{filters.search}</Badge> : null}
-            </div>
-            <h1 className="text-2xl font-semibold leading-tight sm:text-3xl">
-              {channelHeading(filters.channel)}
-            </h1>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              {activeChannel?.description}
-            </p>
-          </div>
-          <Button variant="outline" size="sm" onClick={onRefresh} disabled={refreshing}>
-            {refreshing ? (
-              <Loader2Icon className="size-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <RefreshCwIcon className="size-4" aria-hidden="true" />
-            )}
-            更新
-          </Button>
-        </div>
-      </div>
-
+    <section className="min-w-0 overflow-hidden rounded-lg border bg-card/95 dark:bg-card/80">
       <LiveUpdateBanner count={state.pendingNewItems.length} onApply={onApplyPending} />
 
       {state.status === "loading" ? <LoadingFeed /> : null}
@@ -339,18 +291,60 @@ export function NewsFeedPage({
         <ErrorState message={state.error ?? "加载失败"} onRetry={onRefresh} />
       ) : null}
       {state.status === "empty" ? (
-        <EmptyExplanation title="还没有可展示的新闻" description={emptyDescription} />
+        <EmptyExplanation title="翻译队列处理中" description={emptyDescription} />
       ) : null}
       {hasItems ? (
         <div>
-          {grouped.map((group) => (
-            <section key={group.key} aria-label={group.label}>
-              <div className="sticky top-[3.75rem] z-10 border-b bg-muted/80 px-4 py-2 text-sm font-medium backdrop-blur sm:px-5">
-                {group.label}
+          <section className="border-b bg-muted/20 px-3 py-3" aria-label="当前热点">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold">当前热点</h2>
               </div>
-              <div className="divide-y">
+              <span className="text-xs text-muted-foreground">TOP {topItems.length}</span>
+            </div>
+            <div className="grid gap-1.5">
+              {topItems.map((item, index) => {
+                const detailRoute = buildDetailRoute(item, feedRoute)
+                return (
+                  <a
+                    key={item.id}
+                    href={buildPublicAppPath(detailRoute)}
+                    onClick={(event) => handleRouteAnchorClick(event, detailRoute)}
+                    className="grid gap-1.5 rounded-md border bg-background/80 p-2 text-sm hover:border-primary/50 md:grid-cols-[2rem_minmax(0,1fr)_auto] md:items-center"
+                  >
+                    <span className="text-base font-semibold text-primary">{index + 1}</span>
+                    <span className="line-clamp-2 font-semibold">{item.title}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {item.source.name} · {formatTime(item.publishedAt)}
+                    </span>
+                    {item.recommendationReason || item.summary || item.originalTitle ? (
+                      <span className="hidden line-clamp-1 text-xs text-muted-foreground sm:block md:col-start-2 md:col-end-4">
+                        {item.recommendationReason || item.summary || item.originalTitle}
+                      </span>
+                    ) : null}
+                  </a>
+                )
+              })}
+            </div>
+          </section>
+          <div className="border-b px-3 py-2 text-sm font-semibold">新闻时间线</div>
+          {grouped.map((group) => (
+            <section key={group.key} aria-label={group.label} className="grid gap-2 px-3 py-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+                <span>{group.label}</span>
+                <span className="h-px flex-1 bg-border" />
+              </div>
+              <div className="grid gap-2">
                 {group.items.map((item) => (
-                  <NewsCard key={item.id} item={item} returnTo={feedRoute} />
+                  <div key={item.id} className="grid gap-2 md:grid-cols-[3.5rem_0.75rem_minmax(0,1fr)]">
+                    <time className="pt-3 text-xs font-semibold text-muted-foreground">
+                      {formatTime(item.publishedAt)}
+                    </time>
+                    <div className="hidden md:grid md:justify-center">
+                      <span className="mt-4 size-2 rounded-full bg-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.18)]" />
+                    </div>
+                    <NewsCard item={item} returnTo={feedRoute} />
+                  </div>
                 ))}
               </div>
             </section>
@@ -524,9 +518,9 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
   return (
     <>
       <SeoHead payload={seoPayload} />
-      <article className="overflow-hidden rounded-lg border bg-background shadow-sm">
-        <div className="border-b px-4 py-4 sm:px-6">
-          <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
+      <article className="overflow-hidden rounded-lg border bg-background">
+        <div className="border-b px-3 py-3 sm:px-4">
+          <Button asChild variant="ghost" size="sm" className="-ml-2 mb-2">
             <a
               href={buildPublicAppPath(feedRoute)}
               onClick={(event) => handleRouteAnchorClick(event, feedRoute)}
@@ -544,23 +538,43 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
             <span>{sourceTypeLabel(item.source.type)}</span>
             {item.source.credibilityLabel ? <span>{item.source.credibilityLabel}</span> : null}
           </div>
-          <h1 className="mt-3 text-2xl font-semibold leading-tight sm:text-3xl">{item.title}</h1>
+          <h1 className="mt-2 text-xl font-semibold leading-tight sm:text-2xl">{item.title}</h1>
           {item.originalTitle ? (
             <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.originalTitle}</p>
           ) : null}
         </div>
-        <div className="grid gap-5 px-4 py-5 sm:px-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-          <section className="grid gap-5">
+        <div className="grid gap-4 px-3 py-4 sm:px-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+          <section className="grid gap-4">
             <div>
               <h2 className="text-base font-semibold">新闻摘要</h2>
               <p className="mt-2 text-sm leading-7 text-muted-foreground">
-                {item.summary || "这条新闻仍在生成读者摘要，已保留来源、原文和推荐理由。"}
+                {item.summary || "这条新闻仍在生成读者摘要，已保留来源与原文入口。"}
               </p>
             </div>
+          {item.recommendationReason ? (
             <div className="rounded-md border bg-muted/35 p-3 text-sm leading-6 text-muted-foreground">
               <span className="font-medium text-foreground">推荐理由：</span>
-              {item.recommendationReason || "等待更多 AI 增强说明。"}
+              {item.recommendationReason}
             </div>
+          ) : null}
+            {item.imageUrls && item.imageUrls.length > 0 ? (
+              <div className="grid gap-2">
+                <img
+                  src={item.imageUrls[0]}
+                  alt=""
+                  className="max-h-[360px] w-full rounded-md border object-cover"
+                  loading="lazy"
+                />
+              </div>
+            ) : null}
+            {item.fullContent ? (
+              <div>
+                <h2 className="text-base font-semibold">全文</h2>
+                <div className="mt-2 whitespace-pre-line text-sm leading-7 text-foreground/90">
+                  {item.fullContent}
+                </div>
+              </div>
+            ) : null}
             <div className="flex flex-wrap gap-2">
               {item.tags.map((tag) => (
                 <Badge key={tag} variant="outline">
@@ -585,7 +599,7 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
               ) : null}
             </div>
           </section>
-          <aside className="grid h-fit gap-4">
+          <aside className="grid h-fit gap-3">
             <Card className="rounded-lg">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">来源</CardTitle>
@@ -610,7 +624,7 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
             </Card>
           </aside>
         </div>
-        <div className="grid gap-4 border-t px-4 py-5 sm:px-6 lg:grid-cols-3">
+        <div className="grid gap-3 border-t px-3 py-4 sm:px-4 lg:grid-cols-3">
           <RelatedSection title="同来源信号" items={buckets.sameSource} returnTo={feedRoute} />
           <RelatedSection title="同目标信号" items={buckets.sameTarget} returnTo={feedRoute} />
           <RelatedSection title="同主题信号" items={buckets.sameTopic} returnTo={feedRoute} />
@@ -647,13 +661,13 @@ export function SourceDirectoryPage() {
   const sources = useMemo(() => buildSourceSummaries(items), [items])
 
   return (
-    <section className="overflow-hidden rounded-lg border bg-background shadow-sm">
-      <div className="border-b px-4 py-4 sm:px-5">
+    <section className="overflow-hidden rounded-lg border bg-background">
+      <div className="border-b px-3 py-3">
         <Badge variant="outline" className="mb-2">
           来源
         </Badge>
-        <h1 className="text-2xl font-semibold leading-tight sm:text-3xl">来源目录</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <h1 className="text-xl font-semibold leading-tight">来源目录</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           按公开新闻聚合媒体和信源，帮助读者理解新闻来自哪里。
         </p>
       </div>
@@ -665,7 +679,7 @@ export function SourceDirectoryPage() {
         <EmptyExplanation title="暂无来源样本" description="公共新闻仍在采集/增强，来源目录会随新闻流自动形成。" />
       ) : null}
       {sources.length > 0 ? (
-        <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
           {sources.map((source) => {
             const sourceRoute: Extract<PublicRoute, { name: "sourceDetail" }> = {
               name: "sourceDetail",
@@ -677,12 +691,12 @@ export function SourceDirectoryPage() {
                 key={source.id}
                 href={buildPublicAppPath(sourceRoute)}
                 onClick={(event) => handleRouteAnchorClick(event, sourceRoute)}
-                className="grid gap-3 rounded-lg border bg-card p-4 transition-colors hover:border-primary/40"
+                className="grid gap-2 rounded-md border bg-card p-3 transition-colors hover:border-primary/40"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <h2 className="truncate text-lg font-semibold">{source.name}</h2>
-                    <p className="mt-1 text-sm text-muted-foreground">
+                    <h2 className="truncate text-base font-semibold">{source.name}</h2>
+                    <p className="mt-1 text-xs text-muted-foreground">
                       {sourceTypeLabel(source.type)}
                     </p>
                   </div>
@@ -736,9 +750,9 @@ export function SourceDetailPage({ sourceId }: { sourceId: string }) {
   }
 
   return (
-    <section className="overflow-hidden rounded-lg border bg-background shadow-sm">
-      <div className="border-b px-4 py-4 sm:px-5">
-        <Button asChild variant="ghost" size="sm" className="-ml-2 mb-3">
+    <section className="overflow-hidden rounded-lg border bg-background">
+      <div className="border-b px-3 py-3">
+        <Button asChild variant="ghost" size="sm" className="-ml-2 mb-2">
           <a
             href={buildPublicAppPath({ name: "sources", search: new URLSearchParams() })}
             onClick={(event) =>
@@ -752,8 +766,8 @@ export function SourceDetailPage({ sourceId }: { sourceId: string }) {
         <Badge variant="outline" className="mb-2">
           来源详情
         </Badge>
-        <h1 className="text-2xl font-semibold leading-tight sm:text-3xl">{heading}</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <h1 className="text-xl font-semibold leading-tight">{heading}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           {summary ? `${sourceTypeLabel(summary.type)} · ${summary.statusLabel}` : "等待更多样本"}
         </p>
       </div>
@@ -767,6 +781,85 @@ export function SourceDetailPage({ sourceId }: { sourceId: string }) {
       {items.map((item) => (
         <NewsCard key={item.id} item={item} returnTo={sourceRoute} />
       ))}
+    </section>
+  )
+}
+
+function DailyBriefRow({
+  item,
+  index,
+  returnTo,
+}: {
+  item: PublicNewsItem
+  index: number
+  returnTo: PublicRoute
+}) {
+  const detailRoute = buildDetailRoute(item, returnTo)
+  return (
+    <article className="grid gap-2 px-3 py-3 sm:grid-cols-[2.25rem_minmax(0,1fr)_auto] sm:items-start">
+      <span className="flex size-7 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+        {index + 1}
+      </span>
+      <div className="grid min-w-0 gap-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+          <span>{formatTime(item.publishedAt)}</span>
+          <span>{item.source.name}</span>
+          <Badge variant="outline" className="h-5 rounded px-1.5 text-[10px]">
+            {targetShortLabel(item.targetLabel)}
+          </Badge>
+          {item.valueScore !== undefined && item.valueScore !== null ? (
+            <span className="font-medium text-primary">分值 {Math.round(item.valueScore)}</span>
+          ) : null}
+        </div>
+        <h2 className="line-clamp-2 text-sm font-semibold leading-5 sm:text-base">{item.title}</h2>
+        <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">
+          {item.recommendationReason || item.summary || "中文摘要正在补齐。"}
+        </p>
+      </div>
+      <Button asChild variant="outline" size="sm" className="h-8 justify-self-start sm:justify-self-end">
+        <a
+          href={buildPublicAppPath(detailRoute)}
+          onClick={(event) => handleRouteAnchorClick(event, detailRoute)}
+        >
+          详情
+          <ChevronRightIcon className="size-3.5" aria-hidden="true" />
+        </a>
+      </Button>
+    </article>
+  )
+}
+
+function DailyTopicGroupCard({
+  group,
+  returnTo,
+}: {
+  group: DailyDigestTopicGroup
+  returnTo: PublicRoute
+}) {
+  return (
+    <section className="grid gap-2 rounded-md border bg-card/80 p-3" aria-label={`${group.label}简报`}>
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold">{group.label}</h3>
+        <span className="text-xs text-muted-foreground">{group.count} 条</span>
+      </div>
+      <div className="grid gap-2">
+        {group.items.map((item) => {
+          const detailRoute = buildDetailRoute(item, returnTo)
+          return (
+            <a
+              key={item.id}
+              href={buildPublicAppPath(detailRoute)}
+              onClick={(event) => handleRouteAnchorClick(event, detailRoute)}
+              className="grid gap-1 rounded-md px-2 py-1.5 hover:bg-accent/35"
+            >
+              <span className="line-clamp-2 text-sm font-medium leading-5">{item.title}</span>
+              <span className="line-clamp-1 text-xs text-muted-foreground">
+                {targetShortLabel(item.targetLabel)} · {item.source.name} · {formatTime(item.publishedAt)}
+              </span>
+            </a>
+          )
+        })}
+      </div>
     </section>
   )
 }
@@ -797,17 +890,22 @@ export function DailyPage({ date }: { date?: string }) {
   }, [selectedDate])
 
   const digest = useMemo(() => buildDailyDigest(items, selectedDate), [items, selectedDate])
+  const dailyRoute: Extract<PublicRoute, { name: "daily" }> = {
+    name: "daily",
+    date: selectedDate,
+    search: new URLSearchParams(),
+  }
 
   return (
-    <section className="overflow-hidden rounded-lg border bg-background shadow-sm">
-      <div className="border-b px-4 py-4 sm:px-5">
-        <Badge variant="outline" className="mb-2">
-          日报
-        </Badge>
-        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold leading-tight sm:text-3xl">今日日报</h1>
-            <p className="mt-2 text-sm text-muted-foreground">{selectedDate}</p>
+    <section className="overflow-hidden rounded-lg border bg-background">
+      <div role="region" aria-label="日报摘要栏" className="border-b px-3 py-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h1 className="text-base font-semibold leading-tight">新闻日报</h1>
+            <span className="text-xs text-muted-foreground">{selectedDate}</span>
+            <span className="rounded border px-1.5 py-0.5 text-[11px] text-muted-foreground">
+              {digest.total > 0 ? `${digest.total} 条` : "采集中"}
+            </span>
           </div>
           <Input
             type="date"
@@ -819,7 +917,7 @@ export function DailyPage({ date }: { date?: string }) {
                 search: new URLSearchParams(),
               })
             }}
-            className="w-full md:w-44"
+            className="h-8 w-full text-xs sm:w-36"
             aria-label="选择日报日期"
           />
         </div>
@@ -835,39 +933,41 @@ export function DailyPage({ date }: { date?: string }) {
         />
       ) : null}
       {digest.total > 0 ? (
-        <div className="grid gap-5 p-4 sm:p-5">
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-md border bg-muted/35 p-3">
-              <p className="text-sm text-muted-foreground">重点新闻</p>
-              <p className="mt-1 text-xl font-semibold">{digest.total} 条</p>
+        <div className="grid gap-3 p-3 sm:p-4">
+          <section className="overflow-hidden rounded-lg border bg-card/70" aria-label="今日速读">
+            <div className="flex flex-col gap-1 border-b px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-base font-semibold">今日速读</h2>
+                <p className="text-xs text-muted-foreground">
+                  先读 {digest.topItems.length} 条高价值信号，快速掌握当天主线。
+                </p>
+              </div>
+              <span className="text-xs text-muted-foreground">{digest.date}</span>
             </div>
-            <div className="rounded-md border bg-muted/35 p-3">
-              <p className="text-sm text-muted-foreground">主要主题</p>
-              <p className="mt-1 text-xl font-semibold">{digest.topicLabels.length}</p>
-            </div>
-            <div className="rounded-md border bg-muted/35 p-3">
-              <p className="text-sm text-muted-foreground">覆盖来源</p>
-              <p className="mt-1 text-xl font-semibold">{digest.sourceLabels.length}</p>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {digest.topicLabels.map((topic) => (
-              <Badge key={topic} variant="outline">
-                {topic}
-              </Badge>
-            ))}
-          </div>
-          <section className="grid gap-3">
-            <h2 className="text-lg font-semibold">重点新闻 {digest.total} 条</h2>
-            <div className="divide-y rounded-lg border">
-              {digest.topItems.map((item) => (
-                <NewsCard key={item.id} item={item} />
+            <div className="divide-y">
+              {digest.topItems.map((item, index) => (
+                <DailyBriefRow key={item.id} item={item} index={index} returnTo={dailyRoute} />
               ))}
             </div>
           </section>
-          <section className="grid gap-2">
-            <h2 className="text-lg font-semibold">来源链接</h2>
-            <p className="text-sm text-muted-foreground">{digest.sourceLabels.join("、")}</p>
+          <section className="grid gap-2" aria-label="主题简报">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h2 className="text-base font-semibold">主题简报</h2>
+                <p className="text-xs text-muted-foreground">
+                  按主题聚合相关报道，避免在长列表里重复扫描。
+                </p>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                来源：{digest.sourceLabels.slice(0, 4).join("、")}
+                {digest.sourceLabels.length > 4 ? ` 等 ${digest.sourceLabels.length} 个` : ""}
+              </p>
+            </div>
+            <div className="grid gap-2 lg:grid-cols-2 2xl:grid-cols-3">
+              {digest.topicGroups.map((group) => (
+                <DailyTopicGroupCard key={group.label} group={group} returnTo={dailyRoute} />
+              ))}
+            </div>
           </section>
         </div>
       ) : null}
@@ -928,17 +1028,17 @@ export function AnalysisPage({
 
   return (
     <section className="grid gap-4">
-      <div className="rounded-lg border bg-background p-4 shadow-sm sm:p-5">
+      <div className="rounded-lg border bg-background p-3 sm:p-4">
         <div className="mb-2 flex flex-wrap gap-2">
           <Badge variant="outline">态势</Badge>
           {preferredSection === "entities" ? <Badge variant="secondary">实体优先</Badge> : null}
         </div>
-        <h1 className="text-2xl font-semibold leading-tight sm:text-3xl">态势简报</h1>
-        <p className="mt-2 text-sm text-muted-foreground">
+        <h1 className="text-xl font-semibold leading-tight">态势简报</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
           趋势、实体、来源分布和追踪链按公开分析快照呈现。
         </p>
       </div>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] 2xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="grid gap-4">
           {analysisError ? (
             <ErrorState message={analysisError} onRetry={() => window.location.reload()} />
@@ -979,7 +1079,7 @@ export function AnalysisPage({
               )}
             </CardContent>
           </Card>
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
             {analysisCards.map((card, index) => (
               <div key={preferredSection === "entities" ? `entities-${index}` : `default-${index}`}>
                 {card}

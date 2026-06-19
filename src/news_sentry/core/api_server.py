@@ -35,6 +35,7 @@ from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
+from html import escape as html_escape
 from ipaddress import ip_address
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
@@ -60,6 +61,13 @@ from news_sentry.core.markdown_export import (
     render_news_event_markdown,
 )
 from news_sentry.core.public_site_projection import PublicSiteProjectionStore, SitemapEntry
+from news_sentry.core.public_translation import (
+    PublicTranslationConfig,
+    PublicTranslationEngine,
+    normalize_public_translation_config,
+    public_publication_ready,
+    public_translation_ready,
+)
 from news_sentry.core.source_inventory import SourceInventoryService
 from news_sentry.models.newsevent import NewsEvent
 from news_sentry.skills.filter.classification_taxonomy import (
@@ -112,6 +120,174 @@ _PUBLIC_SITE_NAME = "News Sentry"
 _PUBLIC_SITE_DESCRIPTION = (
     "News Sentry 公共新闻流提供面向读者的国际新闻摘要、来源脉络与目标监控视角。"
 )
+_PUBLICATION_SITE_TITLE = "News Sentry | 跨境新闻信号过滤器"
+_PUBLICATION_SITE_DESCRIPTION = (
+    "News Sentry 是面向中文专业读者的跨境观察哨兵，追踪海外政策、"
+    "产业、舆论和供应链变化对中国企业与跨境业务的影响。"
+)
+_PUBLICATION_SAMPLE_UPDATED_AT = "2026-06-19 08:00 UTC"
+_PUBLICATION_SAMPLE_SIGNALS: list[dict[str, str]] = [
+    {
+        "level": "S1",
+        "label": "政策变化",
+        "title": "欧盟贸易防御工具仍是对华出口合规的关键观察项",
+        "judgment": (
+            "对依赖欧盟市场的中国制造和跨境卖家，反倾销、反补贴与 "
+            "CBAM 相关更新会直接影响报价、交付周期和客户沟通。"
+        ),
+        "source": "European Commission Trade Defence",
+        "source_url": "https://policy.trade.ec.europa.eu/enforcement-and-protection/trade-defence_en",
+        "source_time": "来源页持续更新",
+        "captured_time": _PUBLICATION_SAMPLE_UPDATED_AT,
+        "impact": "中国出口企业、欧洲渠道商、合规团队",
+        "watch_next": "新立案调查、临时税率、实施条例和企业豁免窗口。",
+    },
+    {
+        "level": "S1",
+        "label": "市场准入",
+        "title": "美国关税与出口管制仍是出海供应链的高敏变量",
+        "judgment": (
+            "面向美国市场的硬件、消费电子和高技术链条需要持续跟踪 "
+            "Section 301、实体清单和关键技术限制的叠加影响。"
+        ),
+        "source": "USTR Section 301 / Tariff Actions",
+        "source_url": "https://ustr.gov/issue-areas/enforcement/section-301-investigations/tariff-actions",
+        "source_time": "来源页持续更新",
+        "captured_time": _PUBLICATION_SAMPLE_UPDATED_AT,
+        "impact": "跨境电商、制造外迁团队、北美销售负责人",
+        "watch_next": "税率复审、公众意见征询、豁免清单和行业游说信号。",
+    },
+    {
+        "level": "S2",
+        "label": "供应链变化",
+        "title": "日本产业政策对先进制造供应链具有早期指示意义",
+        "judgment": (
+            "日本经产省公告常提前暴露半导体、能源和关键材料领域的 "
+            "补贴方向，对区域产能布局和客户需求有参考价值。"
+        ),
+        "source": "METI Press Releases",
+        "source_url": "https://www.meti.go.jp/english/press/",
+        "source_time": "来源页持续更新",
+        "captured_time": _PUBLICATION_SAMPLE_UPDATED_AT,
+        "impact": "半导体链条、新能源企业、日本市场团队",
+        "watch_next": "补贴对象、采购限制、联合研发和区域招商政策。",
+    },
+    {
+        "level": "S2",
+        "label": "产业信号",
+        "title": "德国工业政策和能源价格信号影响欧洲制造需求",
+        "judgment": (
+            "德国制造业订单、能源政策和产业补贴变化，通常会传导到 "
+            "中国零部件、设备和工业服务供应商。"
+        ),
+        "source": "BMWK Federal Ministry for Economic Affairs",
+        "source_url": "https://www.bmwk.de/Navigation/EN/Home/home.html",
+        "source_time": "来源页持续更新",
+        "captured_time": _PUBLICATION_SAMPLE_UPDATED_AT,
+        "impact": "汽车零部件、工业设备、欧洲 B2B 团队",
+        "watch_next": "能源补贴、产业转型基金、汽车链条调整和工会谈判。",
+    },
+    {
+        "level": "S3",
+        "label": "舆论风险",
+        "title": "法国监管与消费者议题会放大跨境品牌声誉风险",
+        "judgment": (
+            "法国市场对平台责任、数据保护和消费权益的监管讨论较敏感，"
+            "跨境品牌需要提前准备客服、合规和公关口径。"
+        ),
+        "source": "French Ministry of Economy",
+        "source_url": "https://www.economie.gouv.fr/",
+        "source_time": "来源页持续更新",
+        "captured_time": _PUBLICATION_SAMPLE_UPDATED_AT,
+        "impact": "DTC 品牌、平台卖家、欧洲合规负责人",
+        "watch_next": "平台规则、消费者保护处罚、数据监管和媒体关注度。",
+    },
+]
+_PUBLICATION_TARGETS: list[dict[str, str]] = [
+    {
+        "id": "china-watch-en",
+        "name": "China Watch EN",
+        "summary": "跟踪英文世界对中国政策、产业和地缘议题的外部叙事。",
+    },
+    {
+        "id": "france",
+        "name": "France",
+        "summary": "观察法国监管、消费市场和欧盟政策互动。",
+    },
+    {
+        "id": "germany",
+        "name": "Germany",
+        "summary": "关注德国工业、能源、汽车链和欧洲制造需求。",
+    },
+    {
+        "id": "italy",
+        "name": "Italy",
+        "summary": "跟踪意大利政经、产业政策和地中海供应链信号。",
+    },
+    {
+        "id": "japan",
+        "name": "Japan",
+        "summary": "观察日本产业政策、先进制造和区域供应链变化。",
+    },
+]
+_PUBLICATION_TRUST_PAGES: dict[str, dict[str, Any]] = {
+    "about": {
+        "title": "关于 News Sentry",
+        "eyebrow": "About",
+        "intro": (
+            "News Sentry 是跨境观察哨兵，服务需要快速理解海外变化的中文"
+            "专业读者。我们把公开新闻、官方文件和权威来源整理成可追踪的信号。"
+        ),
+        "needle": "编辑标准",
+        "points": [
+            "编辑标准：优先选择对中国企业、跨境业务和供应链有实质影响的事件。",
+            "产品边界：News Sentry 增强人工研判，不自动替代编辑判断。",
+            "信任承诺：事实来源可追溯，样例内容清楚标记，不伪装成实时自动结果。",
+        ],
+    },
+    "method": {
+        "title": "方法论",
+        "eyebrow": "Method",
+        "intro": (
+            "News Sentry 的方法论不是追求全量搬运，而是把采集、过滤、研判、"
+            "输出和反馈串成可审计流程。"
+        ),
+        "needle": "筛选流程",
+        "points": [
+            "筛选流程：先确认来源与事实，再判断对地区、产业链和主体对象的影响。",
+            "AI 辅助：AI 用于摘要、归类和初步研判，关键发布判断保留人工介入。",
+            "质量门槛：首页精选必须有摘要、推荐理由和明确分类。",
+        ],
+    },
+    "sources": {
+        "title": "来源透明度",
+        "eyebrow": "Sources",
+        "intro": (
+            "公开站把来源视为信任资产。来源页会逐步展示覆盖范围、活跃度、"
+            "可信度说明和最近进入精选的内容。"
+        ),
+        "needle": "来源透明度",
+        "points": [
+            "来源透明度：优先使用官方机构、权威媒体、监管公告和可验证的一手材料。",
+            "覆盖范围：P0 聚焦中外互动、海外政策、产业和供应链信号。",
+            "后续升级：P1 将来源页扩展为来源雷达，展示活跃度和精选记录。",
+        ],
+    },
+    "subscribe": {
+        "title": "订阅 News Sentry",
+        "eyebrow": "Subscribe",
+        "intro": (
+            "P0 先开放订阅入口和内容形态说明，P2 会补齐邮件确认、退订页、"
+            "目标订阅和 RSS 输出。"
+        ),
+        "needle": "每日信号",
+        "points": [
+            "每日信号：每天汇总 3-5 条最值得跨境团队关注的变化。",
+            "每周观察：把一周信号串联成趋势判断，适合管理层和团队同步。",
+            "目标更新：围绕国家、政策议题、产业链或主体对象发送变化提醒。",
+        ],
+    },
+}
 
 # ── Pydantic 模型 ──────────────────────────────────────
 
@@ -349,6 +525,17 @@ class AIEnrichmentConfigUpdate(BaseModel):
     cooldown_after_429_minutes: int | None = Field(default=None, ge=5, le=1440)
     targets: list[str] | str | None = None
     candidate_limit: int | None = Field(default=None, ge=1, le=2000)
+
+
+class PublicTranslationConfigUpdate(BaseModel):
+    """公共站翻译 worker 运行配置更新请求。"""
+
+    enabled: bool | None = None
+    interval_minutes: int | None = Field(default=None, ge=1, le=1440)
+    per_cycle_limit: int | None = Field(default=None, ge=1, le=500)
+    candidate_limit: int | None = Field(default=None, ge=1, le=5000)
+    source_lang: str | None = None
+    target_lang: str | None = None
 
 
 class CanonicalBackfillRequest(BaseModel):
@@ -843,6 +1030,8 @@ class PublicNewsItem(BaseModel):
     original_title: str | None = Field(default=None, alias="originalTitle")
     summary: str | None = None
     recommendation_reason: str | None = Field(default=None, alias="recommendationReason")
+    full_content: str | None = Field(default=None, alias="fullContent")
+    image_urls: list[str] = Field(default_factory=list, alias="imageUrls")
     original_url: str | None = Field(default=None, alias="originalUrl")
     detail_url: str = Field(alias="detailUrl")
     tags: list[str] = Field(default_factory=list)
@@ -1807,23 +1996,120 @@ def _event_flat_tags(ev: dict[str, Any]) -> list[str]:
 
 
 def _event_ai_reason(ev: dict[str, Any]) -> str:
-    judge = ev.get("judge_result")
-    rationale = judge.get("rationale") if isinstance(judge, dict) else None
-    if isinstance(rationale, str) and rationale.strip():
-        return _first_sentence(rationale)
-    for key in ("content_translated", "content_original"):
-        value = ev.get(key)
-        if isinstance(value, str) and value.strip():
-            return _first_sentence(value)
-    return ""
+    public_reason = _event_explicit_recommendation_reason(ev)
+    if public_reason:
+        return public_reason
+    raw_judge = ev.get("judge_result")
+    judge = raw_judge if isinstance(raw_judge, dict) else {}
+    rationale = judge.get("rationale")
+    return _first_sentence(rationale) if isinstance(rationale, str) else ""
+
+
+_PUBLIC_CLASSIFICATION_LABELS = {
+    "international-relations": "国际关系",
+    "politics": "政治",
+    "economy": "经济",
+    "society": "社会",
+    "culture": "文化",
+    "technology": "科技",
+}
+
+
+def _public_target_reason_label(target_id: str) -> str:
+    label = _target_display_name(target_id).strip() or target_id
+    for suffix in ("新闻监控", "监控目标", "监控"):
+        if label.endswith(suffix):
+            label = label[: -len(suffix)].strip()
+    return label or target_id
+
+
+def _public_classification_reason_label(ev: dict[str, Any]) -> str:
+    classification = _event_classification(ev) or {}
+    l0 = canonical_l0(str(classification.get("l0") or ""))
+    return _PUBLIC_CLASSIFICATION_LABELS.get(l0, "")
+
+
+def _public_synthesized_recommendation_reason(target_id: str, ev: dict[str, Any]) -> str:
+    target_label = _public_target_reason_label(target_id)
+    category_label = _public_classification_reason_label(ev)
+    score = _event_score(ev)
+    china_label = _public_china_relevance_label(ev.get("china_relevance"))
+
+    subject = f"{target_label}相关"
+    if category_label:
+        subject += f"{category_label}信号"
+    else:
+        subject += "新闻信号"
+
+    signals: list[str] = []
+    if score is not None:
+        signals.append(f"价值分 {round(score)}")
+    if china_label != "未知":
+        signals.append(f"涉中关联{china_label}")
+    source_name = str(ev.get("source_display_name") or "").strip()
+    if source_name:
+        signals.append(f"来源：{source_name}")
+
+    signal_text = "，".join(signals)
+    if signal_text:
+        return f"{subject}，{signal_text}，建议纳入同一时间线持续跟踪。"
+    return f"{subject}，建议纳入同一时间线持续跟踪。"
 
 
 def _event_summary(ev: dict[str, Any]) -> str:
+    summary = _event_public_summary(ev)
+    if summary:
+        return _first_sentence(summary, max_chars=96)
     for key in ("summary", "description", "content_translated", "content_original"):
         value = ev.get(key)
         if isinstance(value, str) and value.strip():
             return _first_sentence(value, max_chars=96)
     return ""
+
+
+def _event_translation(ev: dict[str, Any]) -> dict[str, Any]:
+    metadata = ev.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    translation = metadata.get("translation")
+    return translation if isinstance(translation, dict) else {}
+
+
+def _event_public_title(ev: dict[str, Any]) -> str:
+    title = _event_translation(ev).get("title_pre")
+    return " ".join(str(title or "").split())
+
+
+def _event_public_summary(ev: dict[str, Any]) -> str:
+    summary = _event_translation(ev).get("summary_pre")
+    return " ".join(str(summary or "").split())
+
+
+def _event_public_translation_ready(ev: dict[str, Any]) -> bool:
+    metadata = ev.get("metadata")
+    return public_translation_ready(metadata if isinstance(metadata, dict) else None)
+
+
+def _event_explicit_recommendation_reason(ev: dict[str, Any]) -> str:
+    metadata = ev.get("metadata")
+    if isinstance(metadata, dict):
+        raw_publication = metadata.get("publication")
+        publication = raw_publication if isinstance(raw_publication, dict) else {}
+        reason = publication.get("recommendation_reason")
+        if isinstance(reason, str) and reason.strip():
+            return _first_sentence(reason)
+    return ""
+
+
+def _public_news_has_featured_quality(ev: dict[str, Any]) -> bool:
+    if not _event_summary(ev):
+        return False
+    if not _event_explicit_recommendation_reason(ev):
+        return False
+    classification = _event_classification(ev) or {}
+    if canonical_l0(str(classification.get("l0") or "")) == "uncategorized":
+        return False
+    return True
 
 
 _PUBLIC_NEWS_STAGE = "drafts"
@@ -2182,21 +2468,67 @@ def _public_china_relevance_label(value: Any) -> Literal["高", "中", "低", "�
     return "低"
 
 
-def _public_news_item(target_id: str, ev: dict[str, Any]) -> PublicNewsItem:
+def _event_article_payload(ev: dict[str, Any]) -> dict[str, Any]:
+    metadata = ev.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    article = metadata.get("article")
+    return article if isinstance(article, dict) else {}
+
+
+def _event_full_content(ev: dict[str, Any]) -> str:
+    article = _event_article_payload(ev)
+    for value in (
+        article.get("full_text"),
+        ev.get("content_translated"),
+        ev.get("content_original"),
+    ):
+        text = " ".join(str(value or "").split())
+        if text:
+            return text[:50_000]
+    return ""
+
+
+def _event_image_urls(ev: dict[str, Any]) -> list[str]:
+    article = _event_article_payload(ev)
+    urls: list[str] = []
+    raw_urls = article.get("image_urls")
+    if isinstance(raw_urls, list):
+        urls.extend(str(url) for url in raw_urls if str(url or "").strip())
+    lead = str(article.get("lead_image_url") or "").strip()
+    if lead:
+        urls.insert(0, lead)
+    deduped: list[str] = []
+    for url in urls:
+        if url not in deduped:
+            deduped.append(url)
+    return deduped[:8]
+
+
+def _public_news_item(
+    target_id: str,
+    ev: dict[str, Any],
+    *,
+    include_content: bool = False,
+) -> PublicNewsItem:
     payload = _feed_event_payload(ev)
     event_id = str(payload.get("event_id") or payload.get("id") or "")
     score = _event_score(payload)
     original_url = str(payload.get("url") or "").strip() or None
+    recommendation_reason = str(payload.get("ai_reason") or "").strip()
+    public_title = _event_public_title(payload) or str(payload.get("display_title") or event_id)
     return PublicNewsItem(
         id=event_id,
         targetId=target_id,
         targetLabel=_target_display_name(target_id),
         source=_public_source_info(target_id, str(payload.get("source_id") or ""), payload),
         publishedAt=str(payload.get("published_at") or ""),
-        title=str(payload.get("display_title") or payload.get("title_original") or event_id),
+        title=public_title,
         originalTitle=str(payload.get("original_title") or "") or None,
         summary=str(payload.get("summary") or "") or None,
-        recommendationReason=str(payload.get("ai_reason") or "") or None,
+        recommendationReason=recommendation_reason or None,
+        fullContent=_event_full_content(payload) if include_content else None,
+        imageUrls=_event_image_urls(payload) if include_content else [],
         originalUrl=original_url,
         detailUrl=(
             f"/public-app/events/{quote(event_id, safe='')}?target_id={quote(target_id, safe='')}"
@@ -2222,7 +2554,11 @@ def _public_news_matches(
     date: str | None,
     q: str | None,
 ) -> bool:
+    if not _event_public_translation_ready(ev):
+        return False
     if featured and (_event_score(ev) or 0) < _PUBLIC_NEWS_FEATURED_SCORE:
+        return False
+    if featured and not _public_news_has_featured_quality(ev):
         return False
     if source_id and ev.get("source_id") != source_id:
         return False
@@ -2236,16 +2572,15 @@ def _public_news_matches(
     if q:
         keyword = q.lower()
         haystack = " ".join(
-            str(ev.get(key) or "")
-            for key in (
-                "title_original",
-                "title_translated",
-                "content_original",
-                "content_translated",
-                "summary",
-                "source_id",
-                "source_display_name",
+            value
+            for value in (
+                _event_public_title(ev),
+                _event_public_summary(ev),
+                str(ev.get("source_id") or ""),
+                str(ev.get("source_display_name") or ""),
+                " ".join(_event_flat_tags(ev)),
             )
+            if value
         ).lower()
         if keyword not in haystack:
             return False
@@ -2263,26 +2598,25 @@ def _public_projection_event(row: dict[str, Any]) -> dict[str, Any]:
     metadata = cast(dict[str, Any], raw_metadata) if isinstance(raw_metadata, dict) else {}
     raw_translation = metadata.get("translation")
     translation = cast(dict[str, Any], raw_translation) if isinstance(raw_translation, dict) else {}
-    raw_judge_result = metadata.get("judge_result")
-    judge_result = (
-        cast(dict[str, Any], raw_judge_result) if isinstance(raw_judge_result, dict) else {}
-    )
+    raw_publication = metadata.get("publication")
+    publication = cast(dict[str, Any], raw_publication) if isinstance(raw_publication, dict) else {}
     raw_source_meta = metadata.get("source")
     source_meta = cast(dict[str, Any], raw_source_meta) if isinstance(raw_source_meta, dict) else {}
 
     if translated_title := _public_projection_text(translation.get("title_pre")):
         event["title_translated"] = translated_title
 
-    if summary := _public_projection_text(metadata.get("summary")):
+    if summary := _public_projection_text(translation.get("summary_pre")):
         event["summary"] = summary
         event.setdefault("description", summary)
         event.setdefault("content_translated", summary)
 
-    recommendation_reason = _public_projection_text(
-        judge_result.get("rationale")
-        or metadata.get("ai_reason")
-        or metadata.get("recommendation_reason")
-    )
+    article = metadata.get("article")
+    if isinstance(article, dict):
+        if full_text := _public_projection_text(article.get("full_text")):
+            event["content_original"] = full_text
+
+    recommendation_reason = _public_projection_text(publication.get("recommendation_reason"))
     if recommendation_reason:
         event["judge_result"] = {"rationale": recommendation_reason}
 
@@ -2337,7 +2671,11 @@ async def _query_public_projection_events(
     return [
         _public_projection_event(row)
         for row in rows
-        if isinstance(row, dict) and str(row.get("event_id") or row.get("id") or "").strip()
+        if isinstance(row, dict)
+        and str(row.get("event_id") or row.get("id") or "").strip()
+        and public_translation_ready(
+            row.get("metadata") if isinstance(row.get("metadata"), dict) else None
+        )
     ]
 
 
@@ -2378,6 +2716,10 @@ async def _load_public_projection_detail(
         if row is None:
             return None
         if row.get("stage") != _PUBLIC_NEWS_STAGE:
+            return _INVISIBLE_INDEXED_EVENT
+        if not public_translation_ready(
+            row.get("metadata") if isinstance(row.get("metadata"), dict) else None
+        ):
             return _INVISIBLE_INDEXED_EVENT
         return _public_projection_event(row)
     return await _find_public_projection_event(store, target_id=target_id, event_id=event_id)
@@ -2436,6 +2778,9 @@ async def _public_news_events_for_target(
                 events = [
                     _merge_index_metadata(_event_from_index_row(row), row)
                     for row in cast(list[dict[str, Any]], rows)
+                    if public_translation_ready(
+                        row.get("metadata") if isinstance(row.get("metadata"), dict) else None
+                    )
                 ]
                 return events, int(result.get("total") or len(events))
             return [], 0
@@ -2456,10 +2801,13 @@ async def _public_news_events_for_target(
         )
         events = result.get("events", [])
         if isinstance(events, list):
-            return events, int(result.get("total") or len(events))
+            ready_events = [event for event in events if _event_public_translation_ready(event)]
+            total = min(int(result.get("total") or len(ready_events)), len(ready_events))
+            return ready_events, total
         return [], 0
     events = _load_all_events(data_dir, target_id)
-    return events, len(events)
+    ready_events = [event for event in events if _event_public_translation_ready(event)]
+    return ready_events, len(ready_events)
 
 
 async def _public_news_candidate_events(
@@ -2528,16 +2876,9 @@ def _feed_event_payload(ev: dict[str, Any]) -> dict[str, Any]:
     raw_clustering = metadata.get("clustering")
     clustering: dict[str, Any] = raw_clustering if isinstance(raw_clustering, dict) else {}
     classification = _event_classification(ev) or {}
-    raw_translation = metadata.get("translation")
-    translation = raw_translation if isinstance(raw_translation, dict) else {}
-    title_pre = _normalize_public_text(translation.get("title_pre")) or ""
+    title_pre = _event_public_title(ev)
     original_title = _normalize_public_text(ev.get("title_original") or event_id) or event_id
-    display_title = (
-        _normalize_public_text(ev.get("title_translated"))
-        or title_pre
-        or original_title
-        or event_id
-    )
+    display_title = _normalize_public_text(ev.get("title_translated")) or original_title or event_id
     payload = dict(ev)
     payload["event_id"] = event_id
     payload["display_title"] = display_title
@@ -3389,7 +3730,7 @@ async def _target_public_event_count(target_id: str, data_dir: Path) -> int:
     try:
         store = await _store_for_target(target_id)
         if store is not None and await _store_has_target_event_index(store, target_id):
-            get_count = getattr(store, "get_event_count", None)
+            get_count = getattr(store, "get_public_event_count", None)
             if get_count is not None:
                 return int(await get_count(target_id, _PUBLIC_ANALYSIS_STAGE))
             visible = await _visible_index_events_page(
@@ -3401,10 +3742,19 @@ async def _target_public_event_count(target_id: str, data_dir: Path) -> int:
                 page_size=1,
                 exact_total=False,
             )
-            return int(visible["total"])
+            events = visible.get("events") if isinstance(visible, dict) else []
+            if isinstance(events, list):
+                return len([event for event in events if _event_public_translation_ready(event)])
+            return 0
     except Exception:
         logger.exception("Failed to count indexed public events for target %s", target_id)
-    return len(_load_all_events(data_dir, target_id))
+    return len(
+        [
+            event
+            for event in _load_all_events(data_dir, target_id)
+            if _event_public_translation_ready(event)
+        ]
+    )
 
 
 async def _target_api_event_count(target_id: str) -> int:
@@ -4362,7 +4712,6 @@ async def _load_indexed_event_detail(
     row = await get_row(target_id, event_id)
     if row is None or row.get("stage") != "drafts":
         return _INVISIBLE_INDEXED_EVENT if row is not None else None
-
     file_path = row.get("file_path")
     if not _indexed_file_path_is_visible_in_stage(data_dir, target_id, "drafts", file_path):
         return _INVISIBLE_INDEXED_EVENT
@@ -4410,6 +4759,7 @@ _auto_collector_state: dict[str, Any] = {
 
 _log = logging.getLogger("news_sentry.auto_collector")
 _ai_enrichment_log = logging.getLogger("news_sentry.ai_enrichment")
+_public_translation_log = logging.getLogger("news_sentry.public_translation")
 
 _ai_enrichment_state: dict[str, Any] = {
     "enabled": True,
@@ -4420,6 +4770,23 @@ _ai_enrichment_state: dict[str, Any] = {
     "cooldown_after_429_minutes": 120,
     "targets": ["all"],
     "candidate_limit": 200,
+    "running": False,
+    "last_run_at": None,
+    "last_run_status": None,
+    "last_error": None,
+    "next_run_at": None,
+    "total_runs": 0,
+    "last_updates": 0,
+    "task": None,
+}
+
+_public_translation_state: dict[str, Any] = {
+    "enabled": True,
+    "interval_minutes": 5,
+    "per_cycle_limit": 50,
+    "candidate_limit": 500,
+    "source_lang": "auto",
+    "target_lang": "zh",
     "running": False,
     "last_run_at": None,
     "last_run_status": None,
@@ -4741,6 +5108,104 @@ def _current_ai_enrichment_config() -> AIEnrichmentConfig:
     )
 
 
+def _public_translation_config_path() -> Path:
+    return Path("config/runtime/public_translation.yaml")
+
+
+def _safe_int_env(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_int_env_value(value: str | None, default: int) -> int:
+    try:
+        return int(value or str(default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _public_translation_env_defaults() -> dict[str, Any]:
+    publication_interval = os.environ.get(
+        "NEWSSENTRY_PUBLIC_PUBLICATION_INTERVAL",
+        os.environ.get("NEWSSENTRY_PUBLIC_TRANSLATION_INTERVAL", "5"),
+    )
+    publication_per_cycle = os.environ.get(
+        "NEWSSENTRY_PUBLIC_PUBLICATION_PER_CYCLE",
+        os.environ.get("NEWSSENTRY_PUBLIC_TRANSLATION_PER_CYCLE", "50"),
+    )
+    return {
+        "enabled": os.environ.get("NEWSSENTRY_PUBLIC_TRANSLATION", "1") == "1",
+        "interval_minutes": _safe_int_env_value(publication_interval, 5),
+        "per_cycle_limit": _safe_int_env_value(publication_per_cycle, 50),
+        "candidate_limit": _safe_int_env("NEWSSENTRY_PUBLIC_TRANSLATION_CANDIDATES", 500),
+        "source_lang": os.environ.get("NEWSSENTRY_PUBLIC_TRANSLATION_SOURCE_LANG", "auto"),
+        "target_lang": os.environ.get("NEWSSENTRY_PUBLIC_TRANSLATION_TARGET_LANG", "zh"),
+    }
+
+
+def _public_translation_config_to_dict(config: PublicTranslationConfig) -> dict[str, Any]:
+    return {
+        "enabled": config.enabled,
+        "interval_minutes": config.interval_minutes,
+        "per_cycle_limit": config.per_cycle_limit,
+        "candidate_limit": config.candidate_limit,
+        "source_lang": config.source_lang,
+        "target_lang": config.target_lang,
+    }
+
+
+def _normalize_public_translation_config(
+    raw: dict[str, Any] | None,
+) -> PublicTranslationConfig:
+    return normalize_public_translation_config(
+        {**_public_translation_env_defaults(), **(raw or {})}
+    )
+
+
+def _load_public_translation_config() -> PublicTranslationConfig:
+    path = _public_translation_config_path()
+    loaded: dict[str, Any] = {}
+    if path.is_file():
+        loaded = _load_yaml_file(path) or {}
+    return _normalize_public_translation_config(loaded)
+
+
+def _save_public_translation_config(config: dict[str, Any]) -> PublicTranslationConfig:
+    normalized = _normalize_public_translation_config(config)
+    path = _public_translation_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write_yaml(path, _public_translation_config_to_dict(normalized))
+    return normalized
+
+
+def _apply_public_translation_config(
+    config: PublicTranslationConfig | dict[str, Any],
+) -> PublicTranslationConfig:
+    normalized = (
+        config
+        if isinstance(config, PublicTranslationConfig)
+        else _normalize_public_translation_config(config)
+    )
+    for key, value in _public_translation_config_to_dict(normalized).items():
+        _public_translation_state[key] = value
+    return normalized
+
+
+def _current_public_translation_config() -> PublicTranslationConfig:
+    return normalize_public_translation_config(
+        {
+            "enabled": _public_translation_state["enabled"],
+            "interval_minutes": _public_translation_state["interval_minutes"],
+            "per_cycle_limit": _public_translation_state["per_cycle_limit"],
+            "candidate_limit": _public_translation_state["candidate_limit"],
+            "source_lang": _public_translation_state["source_lang"],
+            "target_lang": _public_translation_state["target_lang"],
+        }
+    )
+
+
 def _ai_enrichment_today() -> str:
     return datetime.now(UTC).date().isoformat()
 
@@ -4972,6 +5437,188 @@ async def _run_ai_enrichment_once(
     }
 
 
+def _public_translation_target_ids(target_id: str | None = None) -> list[str]:
+    if target_id and target_id != "all":
+        return [target_id]
+    return [item["target_id"] for item in _load_target_configs() if item.get("target_id")]
+
+
+async def _public_translation_store_for_target(target_id: str) -> AsyncStore | None:
+    target_store = await _get_target_store(target_id)
+    return target_store if target_store is not None else _store
+
+
+async def _public_translation_rows_for_target(
+    target_id: str,
+    store: AsyncStore | None,
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    if store is None:
+        return []
+    list_candidates = getattr(store, "list_public_translation_candidates", None)
+    if list_candidates is None:
+        return []
+    rows = await list_candidates(target_id, limit=limit)
+    return list(rows or [])
+
+
+def _provider_available(provider_name: str) -> bool:
+    try:
+        provider_factory = _build_ai_provider_factory()
+        provider = provider_factory(provider_name)
+        return bool(provider is not None and provider.health_check())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _missing_publication_reason(row: dict[str, Any]) -> bool:
+    metadata = row.get("metadata")
+    if not isinstance(metadata, dict) or public_publication_ready(metadata):
+        return False
+    translation = metadata.get("translation")
+    publication = metadata.get("publication")
+    if not isinstance(translation, dict):
+        return False
+    title = str(translation.get("title_pre") or "").strip()
+    summary = str(translation.get("summary_pre") or "").strip()
+    if not title or not summary:
+        return False
+    if not isinstance(publication, dict):
+        return True
+    return not str(publication.get("recommendation_reason") or "").strip()
+
+
+async def _public_translation_status_payload() -> dict[str, Any]:
+    config = _current_public_translation_config()
+    target_ids = _public_translation_target_ids()
+    publication_ready_count = 0
+    pending_reason_count = 0
+    for tid in target_ids:
+        publication_ready_count += await _target_public_event_count(tid, _data_dir)
+        store = await _public_translation_store_for_target(tid)
+        rows = await _public_translation_rows_for_target(
+            tid,
+            store,
+            limit=min(config.candidate_limit, 1000),
+        )
+        pending_reason_count += sum(1 for row in rows if _missing_publication_reason(row))
+    return {
+        "enabled": _public_translation_state["enabled"],
+        "running": _public_translation_state["running"],
+        "config": _public_translation_config_to_dict(config),
+        "publication_ready_count": publication_ready_count,
+        "pending_reason_count": pending_reason_count,
+        "freellmapi_available": _provider_available("freellmapi"),
+        "last_run_at": _public_translation_state.get("last_run_at"),
+        "last_run_status": _public_translation_state.get("last_run_status"),
+        "last_error": _public_translation_state.get("last_error"),
+        "next_run_at": _public_translation_state.get("next_run_at"),
+        "total_runs": _public_translation_state["total_runs"],
+        "last_updates": _public_translation_state.get("last_updates", 0),
+    }
+
+
+async def _run_public_translation_once(
+    *,
+    target_id: str | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    config = _current_public_translation_config()
+    engine = PublicTranslationEngine(config)
+    target_ids = _public_translation_target_ids(target_id)
+    stores_by_target: dict[str, AsyncStore | None] = {}
+    rows_by_target: dict[str, list[dict[str, Any]]] = {}
+    for tid in target_ids:
+        store = await _public_translation_store_for_target(tid)
+        stores_by_target[tid] = store
+        rows_by_target[tid] = await _public_translation_rows_for_target(
+            tid,
+            store,
+            limit=config.candidate_limit,
+        )
+
+    if dry_run:
+        candidates = [
+            {
+                "target_id": tid,
+                "event_id": row.get("event_id"),
+                "title_original": row.get("title_original"),
+                "published_at": row.get("published_at"),
+                "attempts": row.get("translation_attempts") or 0,
+            }
+            for tid in target_ids
+            for row in rows_by_target[tid]
+            if engine.row_is_due(row)
+        ][: config.per_cycle_limit]
+        return {
+            "dry_run": True,
+            "targets": target_ids,
+            "candidates": candidates,
+            "total_candidates": sum(len(rows_by_target[tid]) for tid in target_ids),
+        }
+
+    router = _create_ai_provider_router()
+    if router is None:
+        return {"dry_run": False, "status": "no_router", "targets": target_ids, "updates": []}
+
+    provider_factory = _build_ai_provider_factory()
+    total_updates: list[dict[str, Any]] = []
+    total_failed = 0
+    target_results: list[dict[str, Any]] = []
+    for tid in target_ids:
+        store = stores_by_target[tid]
+        if store is None:
+            target_results.append({"target_id": tid, "status": "no_store", "updated": 0})
+            continue
+        remaining = config.per_cycle_limit - len(total_updates)
+        if remaining <= 0:
+            break
+        target_config = PublicTranslationConfig(
+            **{
+                **_public_translation_config_to_dict(config),
+                "per_cycle_limit": remaining,
+            }
+        )
+        result = await PublicTranslationEngine(target_config).run_rows(
+            target_id=tid,
+            rows=rows_by_target[tid],
+            store=store,
+            router=router,
+            provider_factory=provider_factory,
+        )
+        updates = list(result.get("updates") or [])
+        total_updates.extend(updates)
+        total_failed += int(result.get("failed") or 0)
+        target_results.append(
+            {
+                "target_id": tid,
+                "status": result.get("status"),
+                "updated": len(updates),
+                "failed": int(result.get("failed") or 0),
+            }
+        )
+        if len(total_updates) >= config.per_cycle_limit:
+            break
+
+    if total_updates and total_failed:
+        status = "partial"
+    elif total_updates:
+        status = "ok"
+    elif total_failed:
+        status = "retrying"
+    else:
+        status = "empty"
+    return {
+        "dry_run": False,
+        "status": status,
+        "targets": target_ids,
+        "updates": total_updates,
+        "failed": total_failed,
+        "target_results": target_results,
+    }
+
+
 def _update_collector_run_metrics(contexts: Any) -> None:
     """把多 target pipeline 上下文汇总到采集器状态。"""
     if contexts is None:
@@ -5075,6 +5722,43 @@ async def _ai_enrichment_loop() -> None:
     _ai_enrichment_state["running"] = False
     _ai_enrichment_state["next_run_at"] = None
     _ai_enrichment_log.info("AI 增强循环停止")
+
+
+async def _public_translation_loop() -> None:
+    """Public translation loop: run immediately, then retry with interval backoff."""
+    _public_translation_state["running"] = True
+    _public_translation_log.info(
+        "公共翻译循环启动: interval=%dmin per_cycle=%d candidates=%d",
+        _public_translation_state["interval_minutes"],
+        _public_translation_state["per_cycle_limit"],
+        _public_translation_state["candidate_limit"],
+    )
+
+    while _public_translation_state["enabled"]:
+        try:
+            result = await _run_public_translation_once()
+            _public_translation_state["last_run_at"] = datetime.now(UTC).isoformat()
+            _public_translation_state["last_run_status"] = result.get("status")
+            _public_translation_state["last_error"] = result.get("error")
+            _public_translation_state["last_updates"] = len(result.get("updates") or [])
+            _public_translation_state["total_runs"] += 1
+        except Exception as exc:  # noqa: BLE001
+            _public_translation_state["last_run_at"] = datetime.now(UTC).isoformat()
+            _public_translation_state["last_run_status"] = "error"
+            _public_translation_state["last_error"] = str(exc)
+            _public_translation_state["last_updates"] = 0
+            _public_translation_state["total_runs"] += 1
+            _public_translation_log.error("公共翻译循环失败", exc_info=True)
+
+        interval = int(_public_translation_state["interval_minutes"]) * 60
+        _public_translation_state["next_run_at"] = (
+            datetime.now(UTC) + timedelta(seconds=interval)
+        ).isoformat()
+        await asyncio.sleep(interval)
+
+    _public_translation_state["running"] = False
+    _public_translation_state["next_run_at"] = None
+    _public_translation_log.info("公共翻译循环停止")
 
 
 async def _bootstrap_users() -> None:
@@ -5211,6 +5895,956 @@ def _index_html_response() -> HTMLResponse:
     )
 
 
+def _publication_json_ld_script(data: dict[str, Any], *, nonce: str) -> str:
+    body = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
+    return f'<script nonce="{nonce}" type="application/ld+json">{body}</script>'
+
+
+def _publication_nav() -> str:
+    links = [
+        ("/", "新闻哨兵", "Breaking News"),
+        ("/public-app/?channel=all", "新闻纵览", "All News"),
+        ("/public-app/daily", "新闻日报", "Daily News"),
+        ("/public-app/agent", "Agent", ""),
+        ("/public-app/update", "Update", ""),
+    ]
+    return "\n".join(
+        (
+            f'<a class="side-link" href="{html_escape(href, quote=True)}">'
+            f"<span>{html_escape(label)}</span>"
+            f"{f'<small>{html_escape(sublabel)}</small>' if sublabel else ''}"
+            "</a>"
+        )
+        for href, label, sublabel in links
+    )
+
+
+def _publication_sidebar() -> str:
+    return f"""
+      <aside class="sidebar" aria-label="公共站侧边栏">
+        <a class="sidebar-brand" href="/" aria-label="News Sentry 首页">
+          <span>News</span><strong>Sentry</strong>
+        </a>
+        <nav aria-label="公开站点导航">
+          {_publication_nav()}
+        </nav>
+        <div class="sidebar-footer">
+          <a href="/about">关于 About</a>
+          <a href="/method">方法论 Method</a>
+          <a href="/sources">来源 Sources</a>
+          <a href="/subscribe">订阅 Subscribe</a>
+        </div>
+      </aside>
+    """
+
+
+def _publication_styles() -> str:
+    return """
+    :root {
+      color-scheme: light;
+      --ink: #172033;
+      --muted: #5d6678;
+      --line: #d9dee8;
+      --panel: #f7f9fc;
+      --paper: #ffffff;
+      --brand: #8f1d2c;
+      --brand-strong: #721523;
+      --brand-soft: rgba(143, 29, 44, 0.1);
+      --brand-border: rgba(143, 29, 44, 0.24);
+      --amber: #a15c00;
+      --page-pad: clamp(16px, 2.4vw, 36px);
+      font-family: Inter, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-size: 16px;
+      line-height: 1.65;
+    }
+    a { color: inherit; text-decoration: none; }
+    .site-header {
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.96);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .bar, main, .site-footer {
+      width: 100%;
+      max-width: none;
+      margin: 0;
+    }
+    .bar {
+      min-height: 68px;
+      padding-left: var(--page-pad);
+      padding-right: var(--page-pad);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 760;
+      letter-spacing: 0;
+      white-space: nowrap;
+    }
+    .brand img { width: 30px; height: 30px; }
+    nav {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      color: var(--muted);
+      font-size: 14px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    nav a:hover { color: var(--brand); }
+    .hero {
+      padding: 52px var(--page-pad) 28px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.18fr) minmax(380px, 0.82fr);
+      gap: 32px;
+      align-items: start;
+      border-bottom: 1px solid var(--line);
+    }
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--brand);
+      font-size: 14px;
+      font-weight: 720;
+    }
+    h1 {
+      margin: 0;
+      max-width: 760px;
+      font-size: clamp(34px, 5vw, 64px);
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+    h2 {
+      margin: 0 0 16px;
+      font-size: 25px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+    h3 {
+      margin: 0 0 8px;
+      font-size: 18px;
+      line-height: 1.3;
+      letter-spacing: 0;
+    }
+    p { margin: 0; }
+    .lede {
+      margin-top: 18px;
+      max-width: 720px;
+      color: var(--muted);
+      font-size: 18px;
+    }
+    .meta-row {
+      margin-top: 22px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .pill {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 5px 10px;
+      background: var(--panel);
+    }
+    .actions { margin-top: 26px; display: flex; gap: 12px; flex-wrap: wrap; }
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 42px;
+      padding: 0 16px;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      font-weight: 680;
+    }
+    .button.primary {
+      color: #fff;
+      background: var(--brand);
+      border-color: var(--brand);
+    }
+    .headline, .signal, .trust-panel, .target {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+    }
+    .headline { padding: 22px; box-shadow: 0 14px 36px rgba(23, 32, 51, 0.08); }
+    .badge-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      padding: 0 8px;
+      border-radius: 5px;
+      background: #f9e9ec;
+      color: var(--brand-strong);
+      font-size: 12px;
+      font-weight: 740;
+    }
+    .badge.level { background: #fff4df; color: var(--amber); }
+    .section {
+      padding: 34px var(--page-pad);
+      border-bottom: 1px solid var(--line);
+    }
+    .reader-home {
+      padding: 22px var(--page-pad) 40px;
+    }
+    .reader-intro {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--line);
+    }
+    .reader-intro h1 {
+      max-width: 760px;
+      font-size: clamp(30px, 4vw, 48px);
+      line-height: 1.08;
+    }
+    .reader-intro .lede {
+      max-width: 760px;
+      font-size: 16px;
+    }
+    .reader-section {
+      padding: 28px 0 0;
+    }
+    .hotspot-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 14px;
+    }
+    .latest-list {
+      display: grid;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--paper);
+    }
+    .latest-list .signal {
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      border-radius: 0;
+    }
+    .latest-list .signal:last-child {
+      border-bottom: 0;
+    }
+    .section-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 18px;
+    }
+    .section-head p { color: var(--muted); max-width: 640px; }
+    .signal-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 14px;
+    }
+    .signal { padding: 18px; }
+    .signal dl {
+      margin: 14px 0 0;
+      display: grid;
+      grid-template-columns: 86px minmax(0, 1fr);
+      gap: 6px 12px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .signal dt { color: var(--ink); font-weight: 700; }
+    .signal dd { margin: 0; overflow-wrap: anywhere; }
+    .signal a { color: var(--brand); }
+    .targets {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+    }
+    .target { padding: 16px; background: var(--panel); }
+    .target strong { display: block; margin-bottom: 6px; }
+    .target p { color: var(--muted); font-size: 14px; }
+    .trust-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 12px;
+    }
+    .trust-panel { padding: 16px; min-height: 150px; }
+    .trust-panel p { color: var(--muted); font-size: 14px; }
+    .trust-panel a { color: var(--brand); font-weight: 700; }
+    .note {
+      margin-top: 18px;
+      padding: 14px 16px;
+      border-left: 4px solid var(--brand);
+      background: #f9e9ec;
+      color: var(--brand-strong);
+      font-size: 14px;
+    }
+    .site-footer {
+      padding: 28px var(--page-pad) 44px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .publication-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 160px minmax(0, 1fr);
+      background: #f8fafc;
+    }
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 12px;
+      padding: 12px 8px;
+      background: #070b14;
+      color: #f1f5f9;
+      border-right: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .sidebar-brand {
+      min-height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.035);
+      font-size: 18px;
+      font-weight: 850;
+      letter-spacing: 0;
+    }
+    .sidebar-brand strong { color: var(--brand); }
+    .sidebar nav {
+      display: grid;
+      align-content: start;
+      gap: 4px;
+      color: #64748b;
+      font-size: 13px;
+    }
+    .side-link {
+      display: grid;
+      min-height: 36px;
+      padding: 7px 10px;
+      border-radius: 8px;
+      font-weight: 650;
+    }
+    .side-link:hover,
+    .side-link:first-child {
+      color: var(--brand);
+      background: var(--brand-soft);
+      box-shadow: inset 0 0 0 1px var(--brand-border);
+    }
+    .side-link small {
+      color: inherit;
+      opacity: 0.72;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .sidebar-footer {
+      display: grid;
+      gap: 4px;
+      padding: 8px;
+      color: #64748b;
+      font-size: 12px;
+    }
+    .sidebar-footer a:hover { color: var(--brand); }
+    .app-main {
+      min-width: 0;
+      padding: 16px clamp(12px, 1.6vw, 24px) 36px;
+    }
+    .page-theme {
+      display: grid;
+      gap: 12px;
+    }
+    .feed-hero,
+    .hot-panel,
+    .timeline-panel,
+    .trust-page.panel {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--paper);
+      box-shadow: none;
+    }
+    .feed-hero {
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+    .feed-hero h1 {
+      font-size: clamp(30px, 4vw, 46px);
+      max-width: none;
+    }
+    .hero-row {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .segmented {
+      display: flex;
+      gap: 6px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .segmented::-webkit-scrollbar { display: none; }
+    .segmented a,
+    .search-pill {
+      min-height: 32px;
+      padding: 6px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: var(--panel);
+      font-size: 13px;
+      white-space: nowrap;
+    }
+    .segmented a:first-child {
+      color: var(--brand);
+      border-color: var(--brand-border);
+      background: var(--brand-soft);
+    }
+    .hot-panel,
+    .timeline-panel { padding: 12px 14px; }
+    .hot-list {
+      display: grid;
+      gap: 6px;
+      margin-top: 8px;
+    }
+    .hot-item {
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 7px 0;
+      border-top: 1px solid var(--line);
+    }
+    .hot-rank { color: var(--brand); font-weight: 800; }
+    .hot-title {
+      font-weight: 740;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .hot-meta { color: var(--muted); font-size: 13px; }
+    .timeline-day {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 740;
+    }
+    .timeline-row {
+      display: grid;
+      grid-template-columns: 58px 12px minmax(0, 1fr);
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .timeline-time {
+      padding-top: 12px;
+      color: var(--muted);
+      font-weight: 760;
+    }
+    .timeline-dot {
+      margin-top: 16px;
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--brand);
+      box-shadow: 0 0 0 3px var(--brand-soft);
+    }
+    .timeline-card {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--paper);
+    }
+    .timeline-card h3 { margin-bottom: 8px; }
+    .timeline-card p { color: var(--muted); }
+    .recommendation {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border: 1px solid var(--brand-border);
+      border-radius: 6px;
+      background: var(--brand-soft);
+      color: var(--muted);
+      font-size: 14px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: dark;
+        --ink: #f1f5f9;
+        --muted: #94a3b8;
+        --line: rgba(148, 163, 184, 0.2);
+        --panel: rgba(15, 23, 42, 0.72);
+        --paper: #111827;
+        --brand: #d45b67;
+        --brand-strong: #f0a0a9;
+        --brand-soft: rgba(212, 91, 103, 0.14);
+        --brand-border: rgba(212, 91, 103, 0.28);
+        background: #080d18;
+      }
+      body { background: #080d18; }
+      .publication-shell { background: #080d18; }
+      .feed-hero,
+      .hot-panel,
+      .timeline-panel,
+      .trust-page.panel {
+        box-shadow: none;
+      }
+    }
+    .trust-page {
+      padding: 46px var(--page-pad);
+      max-width: none;
+    }
+    .trust-page > .eyebrow,
+    .trust-page > h1,
+    .trust-page > .lede,
+    .trust-page > ul,
+    .trust-page > .actions {
+      max-width: 880px;
+    }
+    .trust-page ul { margin: 22px 0; padding-left: 20px; }
+    .trust-page li { margin-bottom: 10px; }
+    .subscription-box {
+      margin-top: 22px;
+      max-width: 960px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      display: flex;
+      align-items: end;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .subscription-box label,
+    .subscription-box p {
+      flex-basis: 100%;
+    }
+    .subscription-box input {
+      width: min(360px, 100%);
+      min-height: 42px;
+      padding: 0 12px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      font: inherit;
+      background: #fff;
+    }
+    @media (max-width: 900px) {
+      .bar {
+        align-items: flex-start;
+        flex-direction: column;
+        padding-top: 16px;
+        padding-bottom: 16px;
+      }
+      nav { justify-content: flex-start; gap: 12px; }
+      .hero, .signal-grid, .targets, .trust-grid { grid-template-columns: 1fr; }
+      .hero { padding-top: 34px; }
+      .reader-intro { align-items: flex-start; flex-direction: column; }
+      .section-head { align-items: flex-start; flex-direction: column; }
+      .subscription-box { align-items: stretch; }
+      .publication-shell {
+        display: block;
+        max-width: 100%;
+        overflow-x: hidden;
+      }
+      .sidebar {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        height: auto;
+        max-width: 100%;
+        grid-template-columns: auto minmax(0, 1fr);
+        grid-template-rows: auto;
+        align-items: center;
+        padding: 10px var(--page-pad);
+        overflow: hidden;
+      }
+      .sidebar-brand {
+        min-height: 44px;
+        padding: 0 12px;
+        border-radius: 14px;
+        font-size: 15px;
+        white-space: nowrap;
+      }
+      .sidebar nav {
+        display: flex;
+        min-width: 0;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        scrollbar-width: none;
+      }
+      .sidebar nav::-webkit-scrollbar { display: none; }
+      .side-link {
+        min-width: max-content;
+        min-height: 36px;
+        padding: 7px 10px;
+      }
+      .sidebar-footer { display: none; }
+      .app-main { padding: 10px var(--page-pad) 34px; }
+      .page-theme { gap: 10px; }
+      .feed-hero {
+        padding: 10px;
+        gap: 8px;
+      }
+      .feed-hero h1 {
+        font-size: clamp(22px, 7vw, 30px);
+      }
+      .feed-hero .lede,
+      .search-pill {
+        display: none;
+      }
+      .feed-hero,
+      .hot-panel,
+      .timeline-panel,
+      .timeline-card {
+        max-width: 100%;
+        min-width: 0;
+      }
+      .hot-panel,
+      .timeline-panel {
+        padding: 10px;
+      }
+      .hot-list {
+        gap: 0;
+        margin-top: 6px;
+      }
+      .hot-item {
+        grid-template-columns: 24px minmax(0, 1fr);
+        gap: 8px;
+        padding: 6px 0;
+      }
+      .hot-meta {
+        grid-column: 2;
+        font-size: 12px;
+      }
+      .timeline-row { grid-template-columns: 1fr; }
+      .timeline-time, .timeline-dot { display: none; }
+      .timeline-card h3,
+      .timeline-card p,
+      .hot-title {
+        overflow-wrap: anywhere;
+      }
+    }
+    """
+
+
+def _publication_signal_card(signal: dict[str, str], *, index: int = 0) -> str:
+    label = html_escape(signal["label"])
+    level = html_escape(signal["level"])
+    title = html_escape(signal["title"])
+    judgment = html_escape(signal["judgment"])
+    source = html_escape(signal["source"])
+    source_url = html_escape(signal["source_url"], quote=True)
+    source_time = html_escape(signal["source_time"])
+    captured_time = html_escape(signal["captured_time"])
+    impact = html_escape(signal["impact"])
+    watch_next = html_escape(signal["watch_next"])
+    display_time = source_time.split(" ")[-1] if " " in source_time else source_time
+    return f"""
+      <div class="timeline-row">
+        <time class="timeline-time">{html_escape(display_time)}</time>
+        <span class="timeline-dot" aria-hidden="true"></span>
+        <article class="timeline-card">
+          <div class="badge-row">
+            <span class="badge level">精选 {level}</span>
+            <span class="badge">{label}</span>
+            <span class="badge">TOP {index}</span>
+          </div>
+          <h3>{title}</h3>
+          <p>{judgment}</p>
+          <div class="recommendation"><strong>推荐理由：</strong>{judgment}</div>
+          <dl>
+            <dt>事实来源</dt>
+            <dd><a href="{source_url}" rel="nofollow noopener">{source}</a></dd>
+            <dt>原文时间</dt>
+            <dd>{source_time}</dd>
+            <dt>本站更新</dt>
+            <dd>{captured_time}</dd>
+            <dt>影响对象</dt>
+            <dd>{impact}</dd>
+            <dt>继续观察</dt>
+            <dd>{watch_next}</dd>
+          </dl>
+        </article>
+      </div>
+    """
+
+
+def _publication_hot_item(signal: dict[str, str], *, index: int) -> str:
+    title = html_escape(signal["title"])
+    source = html_escape(signal["source"])
+    source_time = html_escape(signal["source_time"])
+    source_url = html_escape(signal["source_url"], quote=True)
+    return f"""
+      <a class="hot-item" href="{source_url}" rel="nofollow noopener">
+        <span class="hot-rank">{index}</span>
+        <span class="hot-title">{title}</span>
+        <span class="hot-meta">{source} · {source_time}</span>
+      </a>
+    """
+
+
+def _publication_base_head(
+    *,
+    title: str,
+    description: str,
+    canonical_url: str,
+    nonce: str,
+    json_ld: dict[str, Any],
+) -> str:
+    escaped_title = html_escape(title)
+    escaped_description = html_escape(description)
+    escaped_canonical = html_escape(canonical_url, quote=True)
+    return f"""
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{escaped_title}</title>
+  <meta name="description" content="{escaped_description}">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="{escaped_canonical}">
+  <link rel="icon" href="/icons/icon-192.svg" type="image/svg+xml">
+  <meta name="theme-color" content="#ffffff">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="News Sentry">
+  <meta property="og:title" content="{escaped_title}">
+  <meta property="og:description" content="{escaped_description}">
+  <meta property="og:url" content="{escaped_canonical}">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="{escaped_title}">
+  <meta name="twitter:description" content="{escaped_description}">
+  {_publication_json_ld_script(json_ld, nonce=nonce)}
+  <style>{_publication_styles()}</style>
+    """
+
+
+def _publication_header() -> str:
+    return f"""
+  <header class="site-header">
+    <div class="bar">
+      <a class="brand" href="/" aria-label="News Sentry 首页">
+        <img src="/icons/icon-192.svg" alt="" width="30" height="30">
+        <span>News Sentry</span>
+      </a>
+      <nav aria-label="公开站点导航">
+        {_publication_nav()}
+      </nav>
+    </div>
+  </header>
+    """
+
+
+def _publication_homepage_response(*, base_url: str) -> HTMLResponse:
+    nonce = secrets.token_urlsafe(16)
+    canonical_url = f"{base_url}/"
+    updated_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
+    json_ld = {
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        "name": _PUBLICATION_SITE_TITLE,
+        "description": _PUBLICATION_SITE_DESCRIPTION,
+        "url": canonical_url,
+        "isPartOf": {
+            "@type": "WebSite",
+            "name": "News Sentry",
+            "url": canonical_url,
+        },
+        "about": [
+            "cross-border intelligence",
+            "China-related signals",
+            "policy monitoring",
+            "supply chain risk",
+        ],
+        "hasPart": [
+            {
+                "@type": "CreativeWork",
+                "name": signal["title"],
+                "description": signal["judgment"],
+            }
+            for signal in _PUBLICATION_SAMPLE_SIGNALS
+        ],
+    }
+    head = _publication_base_head(
+        title=_PUBLICATION_SITE_TITLE,
+        description=_PUBLICATION_SITE_DESCRIPTION,
+        canonical_url=canonical_url,
+        nonce=nonce,
+        json_ld=json_ld,
+    )
+    hotspot_cards = "\n".join(
+        _publication_hot_item(signal, index=index)
+        for index, signal in enumerate(_PUBLICATION_SAMPLE_SIGNALS[:3], start=1)
+    )
+    latest_cards = "\n".join(
+        _publication_signal_card(signal, index=index)
+        for index, signal in enumerate(_PUBLICATION_SAMPLE_SIGNALS, start=1)
+    )
+    html = f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+{head}
+</head>
+<body>
+  <div class="publication-shell">
+    {_publication_sidebar()}
+    <main class="app-main">
+      <div class="page-theme page-theme-feed">
+        <section class="feed-hero" aria-labelledby="publication-title">
+          <div class="hero-row">
+            <div>
+              <p class="eyebrow">跨境观察哨兵</p>
+              <h1 id="publication-title">新闻哨兵</h1>
+              <p class="lede">
+                Breaking News · AI 辅助从公共新闻流中筛出重大、时效性高、
+                对中国企业和跨境业务有影响的新闻信号。
+              </p>
+            </div>
+            <div class="meta-row">
+              <span class="pill">最近更新时间：{html_escape(updated_at)}</span>
+              <span class="pill">样例信号已标注来源</span>
+            </div>
+          </div>
+          <div class="hero-row">
+            <div class="segmented" aria-label="频道筛选">
+              <a href="/">全部</a>
+              <a href="/public-app/?category=policy">政策</a>
+              <a href="/public-app/?category=industry">产业</a>
+              <a href="/public-app/?category=supply-chain">供应链</a>
+              <a href="/public-app/?category=market">市场准入</a>
+            </div>
+            <a class="search-pill" href="/public-app/">搜索标题/摘要...</a>
+          </div>
+        </section>
+
+        <section class="hot-panel" id="today-hotspots">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Hot Signals</p>
+              <h2>当前热点</h2>
+            </div>
+            <p>多来源重要度 · 随时间衰减</p>
+          </div>
+          <div class="hot-list">{hotspot_cards}</div>
+        </section>
+
+        <section class="timeline-panel" id="latest">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Timeline</p>
+              <h2>新闻时间线</h2>
+            </div>
+            <p>按日期分组，快速扫读来源、分值、摘要和推荐理由。</p>
+          </div>
+          <div class="timeline-day">今天</div>
+          {latest_cards}
+        </section>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
+"""
+    return HTMLResponse(
+        html,
+        headers={
+            **_security_headers_with_script_nonce(nonce),
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
+def _publication_trust_page_response(*, page: str, base_url: str) -> HTMLResponse:
+    content = _PUBLICATION_TRUST_PAGES.get(page)
+    if content is None:
+        raise HTTPException(status_code=404, detail="Trust page not found")
+    nonce = secrets.token_urlsafe(16)
+    path = f"/{page}"
+    canonical_url = f"{base_url}{path}"
+    title = f"{content['title']} | News Sentry"
+    intro = str(content["intro"])
+    json_ld = {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "name": title,
+        "description": intro,
+        "url": canonical_url,
+        "isPartOf": {
+            "@type": "WebSite",
+            "name": "News Sentry",
+            "url": f"{base_url}/",
+        },
+    }
+    head = _publication_base_head(
+        title=title,
+        description=intro,
+        canonical_url=canonical_url,
+        nonce=nonce,
+        json_ld=json_ld,
+    )
+    points = "\n".join(
+        f"<li>{html_escape(str(point))}</li>" for point in cast(list[Any], content["points"])
+    )
+    subscribe_extra = ""
+    if page == "subscribe":
+        subscribe_extra = """
+        <div class="subscription-box">
+          <label for="email">邮件订阅入口</label>
+          <p>订阅数据模型会在 P2 接入；P0 先固定公开入口和内容承诺。</p>
+          <input id="email" type="email" name="email" placeholder="you@example.com">
+          <a class="button primary" href="/public-app/">先浏览今日信号</a>
+        </div>
+        """
+    html = f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+{head}
+</head>
+<body>
+  <div class="publication-shell">
+    {_publication_sidebar()}
+    <main class="app-main">
+      <section class="trust-page panel">
+        <p class="eyebrow">{html_escape(str(content["eyebrow"]))}</p>
+        <h1>{html_escape(str(content["title"]))}</h1>
+        <p class="lede">{html_escape(intro)}</p>
+        <ul>{points}</ul>
+        {subscribe_extra}
+        <div class="actions">
+          <a class="button primary" href="/public-app/">进入今日信号</a>
+          <a class="button" href="/">回到首页</a>
+        </div>
+      </section>
+      <footer class="site-footer">
+        News Sentry · {html_escape(str(content["needle"]))} ·
+        <a href="/sources">来源</a> · <a href="/method">方法论</a>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>
+"""
+    return HTMLResponse(
+        html,
+        headers={
+            **_security_headers_with_script_nonce(nonce),
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
 def _public_app_dir(static_dir: Path | None = None) -> Path:
     return (static_dir or _static_dir()) / "public_app"
 
@@ -5280,7 +6914,7 @@ async def _public_sitemap_entries(*, base_url: str) -> list[Any]:
         return entries
     return [
         SitemapEntry(
-            loc=f"{base_url}/public-app/",
+            loc=f"{base_url}/",
             lastmod=datetime.now(UTC).isoformat(),
         )
     ]
@@ -5569,12 +7203,16 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
         await _restore_sessions()
     task = None
     ai_task = None
+    translation_task = None
     if _auto_collector_state["enabled"] and not _skip_lifespan:
         task = asyncio.create_task(_auto_collect_loop())
         _auto_collector_state["task"] = task
     if _ai_enrichment_state["enabled"] and not _skip_lifespan:
         ai_task = asyncio.create_task(_ai_enrichment_loop())
         _ai_enrichment_state["task"] = ai_task
+    if _public_translation_state["enabled"] and not _skip_lifespan:
+        translation_task = asyncio.create_task(_public_translation_loop())
+        _public_translation_state["task"] = translation_task
     yield
     if task is not None:
         _auto_collector_state["enabled"] = False
@@ -5588,6 +7226,13 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
         ai_task.cancel()
         try:
             await ai_task
+        except asyncio.CancelledError:
+            pass
+    if translation_task is not None:
+        _public_translation_state["enabled"] = False
+        translation_task.cancel()
+        try:
+            await translation_task
         except asyncio.CancelledError:
             pass
     if _store is not None:
@@ -5694,6 +7339,7 @@ def create_app(
     _config_cache = ConfigCache(ttl=60, maxsize=128)
     _apply_collector_config(_load_collector_config())
     _apply_ai_enrichment_config(_load_ai_enrichment_config())
+    _apply_public_translation_config(_load_public_translation_config())
 
     # ── 公开端点（无需认证）─────────────────────────────
 
@@ -5723,7 +7369,25 @@ def create_app(
 
     @app.get("/", include_in_schema=False)
     @app.get("/index.html", include_in_schema=False)
-    async def index_html() -> HTMLResponse:
+    async def index_html(request: Request) -> HTMLResponse:
+        return _publication_homepage_response(base_url=_public_site_base_url(request))
+
+    @app.get("/about", include_in_schema=False)
+    @app.get("/method", include_in_schema=False)
+    @app.get("/sources", include_in_schema=False)
+    @app.get("/subscribe", include_in_schema=False)
+    async def publication_trust_page(request: Request) -> HTMLResponse:
+        page = request.url.path.strip("/")
+        return _publication_trust_page_response(page=page, base_url=_public_site_base_url(request))
+
+    @app.get("/admin", include_in_schema=False)
+    @app.get("/admin/", include_in_schema=False)
+    async def admin_index_html() -> HTMLResponse:
+        return _index_html_response()
+
+    @app.get("/admin/{path:path}", include_in_schema=False)
+    async def admin_path_html(path: str) -> HTMLResponse:
+        _ = path
         return _index_html_response()
 
     @app.get("/build_manifest.json")
@@ -5901,6 +7565,40 @@ def create_app(
         _ai_enrichment_state["last_error"] = result.get("error")
         _ai_enrichment_state["last_updates"] = len(result.get("updates") or [])
         _ai_enrichment_state["total_runs"] += 0 if dry_run else 1
+        return result
+
+    @app.get("/api/v1/ai/translation/status")
+    async def public_translation_status(
+        _user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """返回公共站翻译 worker 状态。"""
+        return await _public_translation_status_payload()
+
+    @app.put("/api/v1/ai/translation/config")
+    async def update_public_translation_config(
+        config: PublicTranslationConfigUpdate,
+        _user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """更新公共站翻译 worker 配置并持久化。"""
+        current = _public_translation_config_to_dict(_current_public_translation_config())
+        update = config.model_dump(exclude_none=True)
+        normalized = _save_public_translation_config({**current, **update})
+        _apply_public_translation_config(normalized)
+        return await _public_translation_status_payload()
+
+    @app.post("/api/v1/ai/translation/run")
+    async def run_public_translation(
+        dry_run: bool = Query(False, description="只返回待翻译候选，不调用 Provider"),
+        target_id: str | None = Query(None, description="指定 target；默认全部公开 target"),
+        _user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """手动触发公共站翻译；dry-run 不消耗外部翻译额度。"""
+        result = await _run_public_translation_once(target_id=target_id, dry_run=dry_run)
+        _public_translation_state["last_run_at"] = datetime.now(UTC).isoformat()
+        _public_translation_state["last_run_status"] = result.get("status", "dry_run")
+        _public_translation_state["last_error"] = result.get("error")
+        _public_translation_state["last_updates"] = len(result.get("updates") or [])
+        _public_translation_state["total_runs"] += 0 if dry_run else 1
         return result
 
     @app.get("/api/v1/status")
@@ -6440,7 +8138,10 @@ def create_app(
         for config in configs:
             if _target_is_archived(config):
                 continue
-            targets.append(await _target_info_from_config_for_response(config, _data_dir))
+            target = await _target_info_from_config_for_response(config, _data_dir)
+            if target.source_count <= 0 or target.event_count <= 0:
+                continue
+            targets.append(target)
         return TargetListResponse(targets=targets)
 
     @app.get("/api/v1/admin/targets")
@@ -6883,8 +8584,12 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
         """管理后台总览聚合：目标、采集、诊断、健康、反馈与告警。"""
-        targets_response = await list_targets()
-        targets = [target.model_dump() for target in targets_response.targets]
+        targets = []
+        for config in _load_target_configs():
+            if _target_is_archived(config):
+                continue
+            target = await _target_info_from_config_for_response(config, _data_dir)
+            targets.append(target.model_dump())
         selected_target = target_id or (targets[0]["target_id"] if targets else "")
 
         diagnostics = await collector_diagnostics(user)
@@ -7159,18 +8864,18 @@ def create_app(
                 if isinstance(projection_event, InvisibleIndexedEvent):
                     raise HTTPException(status_code=404, detail="Event not found")
                 if projection_event is not None:
-                    return _public_news_item(tid, projection_event)
+                    return _public_news_item(tid, projection_event, include_content=True)
                 event = await _load_indexed_event_detail(_data_dir, tid, store, event_id)
                 if isinstance(event, InvisibleIndexedEvent):
                     raise HTTPException(status_code=404, detail="Event not found")
-                if event is not None:
-                    return _public_news_item(tid, event)
+                if event is not None and _event_public_translation_ready(event):
+                    return _public_news_item(tid, event, include_content=True)
                 if target_id and await _store_has_target_event_index(store, tid):
                     raise HTTPException(status_code=404, detail="Event not found")
 
             event = _load_single_event(_data_dir, tid, event_id)
-            if event is not None:
-                return _public_news_item(tid, event)
+            if event is not None and _event_public_translation_ready(event):
+                return _public_news_item(tid, event, include_content=True)
         raise HTTPException(status_code=404, detail="Event not found")
 
     @app.get("/api/v1/stats", response_model=StatsResponse)

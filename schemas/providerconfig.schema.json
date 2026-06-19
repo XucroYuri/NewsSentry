@@ -25,7 +25,8 @@
             "nlp",
             "cluster",
             "judge_review",
-            "ai_enrichment"
+            "ai_enrichment",
+            "public_enrichment"
           ]
         },
         "provider": { "type": "string" },

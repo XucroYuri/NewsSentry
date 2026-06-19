@@ -27,6 +27,20 @@ from news_sentry.core.api_server import (
     create_app,
 )
 from news_sentry.core.async_store import AsyncStore
+from news_sentry.core.public_translation import public_translation_ready
+
+
+def _ready_public_metadata(title: str = "公开新闻") -> dict[str, Any]:
+    return {
+        "translation": {
+            "title_pre": title if re.search(r"[\u4e00-\u9fff]", title) else f"中文：{title}",
+            "summary_pre": "这是一条已经完成中文摘要的公开新闻。",
+        },
+        "publication": {
+            "one_line_summary": "一句话概括这条公开新闻。",
+            "recommendation_reason": "AI 推荐理由指出这条新闻对跨境观察具有具体影响。",
+        },
+    }
 
 
 def _close_test_store(store: Any) -> None:
@@ -75,6 +89,7 @@ def _write_draft(
         "url": "https://example.com",
         "title_original": title,
         "pipeline_stage": "outputted",
+        "metadata": _ready_public_metadata(title),
     }
     if news_value_score is not None:
         data["news_value_score"] = news_value_score
@@ -133,16 +148,21 @@ async def _insert_index_event(
     sentiment: str | None = None,
     entity_names: str | None = None,
     topic_tags: str | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> None:
     """辅助：写入 event_index 行。"""
     assert store._db is not None  # noqa: SLF001
     now = datetime.now(UTC).isoformat()
+    if metadata is None:
+        metadata = _ready_public_metadata(title_original)
+    ready = 1 if public_translation_ready(metadata) else 0
     await store._db.execute(  # noqa: SLF001
         "INSERT OR REPLACE INTO event_index "
         "(event_id, target_id, stage, source_id, news_value_score, "
         "china_relevance, classification_l0, title_original, "
-        "published_at, file_path, created_at, sentiment, entity_names, topic_tags) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "published_at, file_path, created_at, sentiment, entity_names, topic_tags, "
+        "metadata_json, public_translation_ready) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             event_id,
             target_id,
@@ -158,6 +178,8 @@ async def _insert_index_event(
             sentiment,
             entity_names,
             topic_tags,
+            json.dumps(metadata, ensure_ascii=False),
+            ready,
         ),
     )
     await store._db.commit()  # noqa: SLF001
@@ -208,6 +230,7 @@ class TestAIEnrichmentAPI:
                 store,
                 event_id="ne-ai-dry-run",
                 title_original="Titolo da tradurre",
+                metadata={},
             )
         )
         app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
@@ -219,6 +242,70 @@ class TestAIEnrichmentAPI:
         data = resp.json()
         assert data["dry_run"] is True
         assert data["batches"][0]["items"][0]["event_id"] == "ne-ai-dry-run"
+
+
+class TestPublicTranslationAPI:
+    def test_public_translation_status_returns_fast_defaults(self, tmp_path, monkeypatch) -> None:
+        _force_deployment_env(monkeypatch, "local")
+        app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/ai/translation/status")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["config"]["interval_minutes"] == 5
+        assert data["config"]["per_cycle_limit"] == 50
+        assert data["running"] is False
+
+    def test_public_translation_dry_run_lists_untranslated_candidates(
+        self,
+        tmp_path,
+        monkeypatch,
+    ) -> None:
+        _force_deployment_env(monkeypatch, "local")
+        store = AsyncStore(tmp_path / "async_store.db")
+        asyncio.run(store.initialize())
+        asyncio.run(
+            _insert_index_event(
+                store,
+                event_id="ne-translation-dry-run",
+                title_original="Titre français à traduire",
+                metadata={"summary": "Résumé en français."},
+            )
+        )
+        app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+        client = TestClient(app)
+
+        resp = client.post("/api/v1/ai/translation/run?dry_run=true&target_id=italy")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["dry_run"] is True
+        assert data["targets"] == ["italy"]
+        assert data["candidates"][0]["event_id"] == "ne-translation-dry-run"
+
+    def test_public_news_api_hides_untranslated_index_rows(self, tmp_path, monkeypatch) -> None:
+        _force_deployment_env(monkeypatch, "local")
+        store = AsyncStore(tmp_path / "async_store.db")
+        asyncio.run(store.initialize())
+        asyncio.run(
+            _insert_index_event(
+                store,
+                event_id="ne-hidden-untranslated",
+                title_original="Untranslated French title must not leak",
+                metadata={"summary": "French summary should not leak either."},
+            )
+        )
+        app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/public/news", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["items"] == []
+        assert data["total"] == 0
 
 
 class TestVerifyApiKey:
@@ -461,7 +548,7 @@ class TestAPIServer:
             assert resp.status_code == 200
             assert resp.headers["cache-control"] == "no-cache"
 
-    def test_public_app_entry_is_served_without_replacing_old_shell(
+    def test_public_app_entry_is_served_without_replacing_publication_homepage(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -484,7 +571,7 @@ class TestAPIServer:
         client = TestClient(app)
 
         public_resp = client.get("/public-app/")
-        old_resp = client.get("/")
+        homepage_resp = client.get("/")
 
         assert public_resp.status_code == 200
         assert '<div id="root"></div>' in public_resp.text
@@ -498,9 +585,10 @@ class TestAPIServer:
             'src="/public-app/assets/index-abc123.js"></script>'
         )
         assert expected_module_script in public_resp.text
-        assert old_resp.status_code == 200
-        assert "legacy-shell" in old_resp.text
-        assert '<div id="root"></div>' not in old_resp.text
+        assert homepage_resp.status_code == 200
+        assert "跨境新闻信号过滤器" in homepage_resp.text
+        assert "legacy-shell" not in homepage_resp.text
+        assert '<div id="root"></div>' not in homepage_resp.text
 
     def test_public_app_entry_supports_head(
         self,
@@ -1074,7 +1162,8 @@ class TestAPIServer:
         assert item["id"] == "ne-italy-src-20260609-public-news01"
         assert item["targetId"] == "italy"
         assert item["targetLabel"]
-        assert item["title"] == "Italy public news story"
+        assert item["title"] == "中文：Italy public news story"
+        assert item["originalTitle"] == "Italy public news story"
         assert item["source"]["id"] == "ansa"
         assert item["source"]["name"]
         assert item["source"]["type"] in {"rss", "api", "web", "social", "official", "unknown"}
@@ -1118,7 +1207,9 @@ class TestAPIServer:
 
         assert first.status_code == 200
         first_data = first.json()
-        assert [item["title"] for item in first_data["items"]] == ["Current public story"]
+        assert [item["title"] for item in first_data["items"]] == [
+            "中文：Current public story"
+        ]
         assert first_data["latestCursor"]
         assert first_data["nextCursor"]
 
@@ -1132,7 +1223,9 @@ class TestAPIServer:
         )
 
         assert older.status_code == 200
-        assert [item["title"] for item in older.json()["items"]] == ["Older public story"]
+        assert [item["title"] for item in older.json()["items"]] == [
+            "中文：Older public story"
+        ]
 
         empty_update = client.get(
             "/api/v1/public/news",
@@ -1158,7 +1251,9 @@ class TestAPIServer:
         assert update.status_code == 200
         update_data = update.json()
         assert update_data["hasNewer"] is True
-        assert [item["title"] for item in update_data["items"]] == ["New automatic story"]
+        assert [item["title"] for item in update_data["items"]] == [
+            "中文：New automatic story"
+        ]
 
     def test_public_news_api_returns_304_for_matching_etag(self, tmp_path: Path) -> None:
         """公共新闻流无变化时可用 ETag 轻响应，减少重复传输。"""
@@ -1220,7 +1315,7 @@ class TestAPIServer:
         assert resp.status_code == 200
         item = resp.json()["items"][0]
         assert item["id"] == "ne-italy-index-only-001"
-        assert item["title"] == "Index only public story"
+        assert item["title"] == "中文：Index only public story"
 
     def test_public_news_api_page_size_one_does_not_scan_default_batch(
         self,
@@ -1249,7 +1344,7 @@ class TestAPIServer:
                             "published_at": "2026-06-09T10:00:00+00:00",
                             "file_path": None,
                             "title_original": "Small page story",
-                            "metadata": {},
+                            "metadata": _ready_public_metadata("Small page story"),
                         }
                     ],
                 }
@@ -1264,7 +1359,7 @@ class TestAPIServer:
         )
 
         assert resp.status_code == 200
-        assert resp.json()["items"][0]["title"] == "Small page story"
+        assert resp.json()["items"][0]["title"] == "中文：Small page story"
         assert store.limits
         assert max(store.limits) <= 2
 
@@ -1292,7 +1387,7 @@ class TestAPIServer:
                             "published_at": f"2026-06-09T10:{idx:02d}:00+00:00",
                             "file_path": None,
                             "title_original": f"Source cached story {idx}",
-                            "metadata": {},
+                            "metadata": _ready_public_metadata(f"Source cached story {idx}"),
                         }
                         for idx in range(20)
                     ],
@@ -1354,7 +1449,7 @@ class TestAPIServer:
                             "published_at": "2026-06-09T10:00:00+00:00",
                             "file_path": None,
                             "title_original": "Cached public story",
-                            "metadata": {},
+                            "metadata": _ready_public_metadata("Cached public story"),
                         }
                     ],
                 }
@@ -1412,7 +1507,7 @@ class TestAPIServer:
                             "published_at": "2026-06-09T10:00:00+00:00",
                             "file_path": None,
                             "title_original": "Cached ETag story",
-                            "metadata": {},
+                            "metadata": _ready_public_metadata("Cached ETag story"),
                         }
                     ],
                 }
@@ -1460,7 +1555,7 @@ class TestAPIServer:
                             "published_at": "2026-06-09T10:00:00+00:00",
                             "file_path": None,
                             "title_original": "Slow log story",
-                            "metadata": {},
+                            "metadata": _ready_public_metadata("Slow log story"),
                         }
                     ],
                 }
@@ -1503,7 +1598,7 @@ class TestAPIServer:
         assert resp.status_code == 200
         item = resp.json()
         assert item["id"] == event_id
-        assert item["title"] == "Public detail presentation"
+        assert item["title"] == "中文：Public detail presentation"
         assert item["valueLabel"] == "关注"
         assert "pipeline_stage" not in item
 
@@ -2033,13 +2128,16 @@ class TestAPIServer:
             monitoring_type="topic",
             topic_label="涉中舆情",
         )
+        _write_target_config(config_dir, "empty-sources", "空信源目标", "en", 0)
         _write_draft(tmp_path, "italy", "evt-1", "ANSA", 70)
+        _write_draft(tmp_path, "china-watch-en", "evt-topic-1", "China Watch", 75)
         monkeypatch.chdir(tmp_path)
         client = self._make_client(tmp_path)
         resp = client.get("/api/v1/targets")
         assert resp.status_code == 200
         data = resp.json()
         assert len(data["targets"]) == 2
+        assert {target["target_id"] for target in data["targets"]} == {"italy", "china-watch-en"}
         italy = next(t for t in data["targets"] if t["target_id"] == "italy")
         assert italy["display_name"] == "意大利新闻监控"
         assert italy["primary_language"] == "it"
@@ -2051,6 +2149,14 @@ class TestAPIServer:
         assert topic["monitoring_type"] == "topic"
         assert topic["monitoring_label"] == "专题监控目标"
         assert topic["topic_label"] == "涉中舆情"
+
+        admin_resp = client.get("/api/v1/admin/targets")
+        assert admin_resp.status_code == 200
+        assert {target["target_id"] for target in admin_resp.json()["targets"]} == {
+            "italy",
+            "china-watch-en",
+            "empty-sources",
+        }
 
     def test_targets_endpoint_prefers_target_store_count_over_orphan_drafts(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -5623,6 +5729,7 @@ class TestTargetLifecycleWorkbenchAPI:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         client = self._setup_target_tree(tmp_path, monkeypatch)
+        _write_draft(tmp_path, "italy", "public-ready-after-restore")
 
         resp = client.post(
             "/api/v1/admin/targets/italy/archive",

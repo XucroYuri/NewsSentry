@@ -159,8 +159,20 @@ function pageCopy(
 ) {
   if (route.name === "daily") {
     return {
-      title: route.date ? `${route.date} 日报` : "今日日报",
+      title: route.date ? `${route.date} 新闻日报` : "新闻日报",
       description: "按日期浏览 News Sentry 公共新闻流中的重点新闻、主要主题与来源。 ",
+    }
+  }
+  if (route.name === "agent") {
+    return {
+      title: "Agent",
+      description: "面向机器可读与自动化接入的 News Sentry 公共入口说明。",
+    }
+  }
+  if (route.name === "update") {
+    return {
+      title: "Update",
+      description: "News Sentry 公共站更新、刷新节奏与产品变更说明。",
     }
   }
 
@@ -199,7 +211,7 @@ function feedChannelTitle(channel: PublicChannel) {
   if (channel === "targets") return "目标新闻"
   if (channel === "sources") return "来源观察"
   if (channel === "analysis") return "态势简报"
-  if (channel === "daily") return "今日日报"
+  if (channel === "daily") return "新闻日报"
   return "精选新闻"
 }
 

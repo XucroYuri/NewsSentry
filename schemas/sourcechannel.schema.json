@@ -87,6 +87,11 @@
       "minimum": 1,
       "maximum": 300
     },
+    "fetch_full_article": {
+      "type": "boolean",
+      "default": true,
+      "description": "Best-effort fetch of linked article HTML to extract full text and images for public in-site reading."
+    },
     "enabled": { "type": "boolean" },
     "deprecated": {
       "type": "boolean",

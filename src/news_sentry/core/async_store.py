@@ -22,6 +22,7 @@ from typing import Any
 
 import aiosqlite
 
+from news_sentry.core.public_translation import public_translation_ready
 from news_sentry.skills.filter.classification_taxonomy import canonical_l0, l0_query_values
 
 if not _os.environ.get("PYTEST_CURRENT_TEST"):
@@ -96,6 +97,7 @@ CREATE TABLE IF NOT EXISTS event_index (
     published_at      TEXT,
     file_path         TEXT,
     metadata_json     TEXT,
+    public_translation_ready INTEGER NOT NULL DEFAULT 0,
     sentiment         TEXT,
     entity_names      TEXT,
     topic_tags        TEXT,
@@ -438,6 +440,11 @@ _SCHEMA_MIGRATIONS: list[tuple[int, str, list[str]]] = [
         "create AI enrichment state tables",
         [_DDL_AI_ENRICHMENT_USAGE, _DDL_AI_ENRICHMENT_EVENTS],
     ),
+    (
+        11,
+        "Add public translation readiness to event_index",
+        ["ALTER TABLE event_index ADD COLUMN public_translation_ready INTEGER NOT NULL DEFAULT 0"],
+    ),
 ]
 
 _DDL_INDEXES = (
@@ -458,6 +465,8 @@ _DDL_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_narrative_target ON chain_narratives(target_id)",
     "CREATE INDEX IF NOT EXISTS idx_event_links_type ON event_links(link_type, strength)",
     "CREATE INDEX IF NOT EXISTS idx_event_created ON event_index(created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_event_public_translation_ready "
+    "ON event_index(target_id, stage, public_translation_ready, published_at DESC)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_history_key "
     "ON alert_history(target_id, alert_key)",
     "CREATE INDEX IF NOT EXISTS idx_canonical_events_target_status_time "
@@ -580,6 +589,7 @@ class AsyncStore:
         await self._db.execute(_DDL_AI_ENRICHMENT_EVENTS)
         await self._db.execute(_DDL_SCHEMA_VERSION)
         await self._migrate_schema()
+        await self._refresh_public_translation_readiness()
         await self._cleanup_duplicate_canonical_graph_operation_artifacts()
         for idx_sql in _DDL_INDEXES:
             await self._db.execute(idx_sql)
@@ -673,6 +683,22 @@ class AsyncStore:
         item = dict(zip(columns, row, strict=True))
         item["metadata"] = self._json_loads(item.pop("metadata_json", None))
         return item
+
+    async def _refresh_public_translation_readiness(self) -> None:
+        assert self._db is not None
+        try:
+            rows = await self._db.execute_fetchall(
+                "SELECT event_id, target_id, metadata_json FROM event_index"
+            )
+        except sqlite3.OperationalError:
+            return
+        for event_id, target_id, metadata_json in rows:
+            ready = 1 if public_translation_ready(self._json_loads(metadata_json)) else 0
+            await self._db.execute(
+                "UPDATE event_index SET public_translation_ready = ? "
+                "WHERE target_id = ? AND event_id = ?",
+                (ready, target_id, event_id),
+            )
 
     def _research_artifact_from_row(self, row: Sequence[Any]) -> dict[str, Any]:
         artifact = self._row_with_metadata(_RESEARCH_ARTIFACT_COLUMNS, row)
@@ -959,6 +985,7 @@ class AsyncStore:
         if self._db is None:
             return
         metadata = self._safe_metadata_attr(event)
+        translation_ready = 1 if public_translation_ready(metadata) else 0
         classification = metadata.get("classification", {})
         classification_l0 = classification.get("l0") if isinstance(classification, dict) else None
         classification_l0 = canonical_l0(classification_l0)
@@ -967,9 +994,10 @@ class AsyncStore:
             """INSERT OR REPLACE INTO event_index
                (event_id, target_id, stage, source_id, news_value_score,
                 china_relevance, classification_l0, title_original,
-                url, published_at, file_path, metadata_json, sentiment, entity_names, topic_tags,
+                url, published_at, file_path, metadata_json, public_translation_ready,
+                sentiment, entity_names, topic_tags,
                 created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(
                    (SELECT created_at FROM event_index WHERE event_id = ?), ?))""",
             (
                 getattr(event, "id", ""),
@@ -984,6 +1012,7 @@ class AsyncStore:
                 getattr(event, "published_at", None),
                 file_path,
                 self._json_dumps(metadata),
+                translation_ready,
                 *self._extract_nlp_fields(event),
                 getattr(event, "id", ""),
                 now,
@@ -1100,7 +1129,7 @@ class AsyncStore:
             sql = (
                 "SELECT event_id, target_id, source_id, title_original, url, published_at, "
                 "created_at, news_value_score, china_relevance, classification_l0, metadata_json "
-                "FROM event_index WHERE stage = ? "
+                "FROM event_index WHERE stage = ? AND public_translation_ready = 1 "
                 "ORDER BY datetime(COALESCE(published_at, created_at)) DESC, event_id DESC "
                 "LIMIT ? OFFSET ?"
             )
@@ -1110,6 +1139,7 @@ class AsyncStore:
                 "SELECT event_id, target_id, source_id, title_original, url, published_at, "
                 "created_at, news_value_score, china_relevance, classification_l0, metadata_json "
                 "FROM event_index WHERE stage = ? AND target_id = ? "
+                "AND public_translation_ready = 1 "
                 "ORDER BY datetime(COALESCE(published_at, created_at)) DESC, event_id DESC "
                 "LIMIT ? OFFSET ?"
             )
@@ -1154,6 +1184,18 @@ class AsyncStore:
         async with self._db.execute(
             "SELECT COUNT(*) FROM event_index WHERE target_id = ?",
             (target_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        return row[0] if row else 0
+
+    async def get_public_event_count(self, target_id: str, stage: str = "drafts") -> int:
+        """统计公共读者站当前可见的翻译完成事件数。"""
+        if self._db is None:
+            return 0
+        async with self._db.execute(
+            "SELECT COUNT(*) FROM event_index "
+            "WHERE target_id = ? AND stage = ? AND public_translation_ready = 1",
+            (target_id, stage),
         ) as cursor:
             row = await cursor.fetchone()
         return row[0] if row else 0
@@ -1287,7 +1329,7 @@ class AsyncStore:
         if self._db is None:
             return {"total": 0, "rows": []}
 
-        conditions = ["target_id = ?", "stage = ?"]
+        conditions = ["target_id = ?", "stage = ?", "public_translation_ready = 1"]
         params: list[Any] = [target_id, stage]
         sort_expr = "datetime(COALESCE(published_at, created_at))"
 
@@ -1333,7 +1375,8 @@ class AsyncStore:
         data_sql = (
             "SELECT event_id, source_id, news_value_score, china_relevance, "  # noqa: S608
             "classification_l0, published_at, file_path, title_original, "
-            "sentiment, entity_names, topic_tags, metadata_json, created_at "
+            "sentiment, entity_names, topic_tags, metadata_json, created_at, "
+            "public_translation_ready "
             f"FROM event_index WHERE {where} "
             f"ORDER BY {sort_expr} DESC, event_id DESC LIMIT ?"
         )
@@ -1357,10 +1400,68 @@ class AsyncStore:
                     "topic_tags": r[10],
                     "metadata": self._json_loads(r[11]),
                     "created_at": r[12],
+                    "public_translation_ready": r[13],
                 }
             )
 
         return {"total": total, "rows": result_rows}
+
+    async def list_public_translation_candidates(
+        self,
+        target_id: str,
+        *,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        """Return public draft rows that still need title/summary translation."""
+        if self._db is None:
+            return []
+        safe_limit = max(1, min(int(limit), 5000))
+        sql = """
+            SELECT ei.event_id, ei.target_id, ei.stage, ei.source_id,
+                   ei.news_value_score, ei.china_relevance, ei.classification_l0,
+                   ei.title_original, ei.url, ei.published_at, ei.created_at,
+                   ei.file_path, ei.metadata_json, ei.public_translation_ready,
+                   ae.status, ae.attempts, ae.last_error, ae.route_id, ae.model, ae.updated_at
+            FROM event_index ei
+            LEFT JOIN ai_enrichment_events ae
+              ON ae.target_id = ei.target_id AND ae.event_id = ei.event_id
+            WHERE ei.target_id = ?
+              AND ei.stage = 'drafts'
+              AND ei.public_translation_ready = 0
+            ORDER BY COALESCE(ei.news_value_score, 0) DESC,
+                     datetime(COALESCE(ei.published_at, ei.created_at)) DESC,
+                     ei.event_id DESC
+            LIMIT ?
+        """
+        async with self._db.execute(sql, (target_id, safe_limit)) as cursor:
+            rows = await cursor.fetchall()
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            result.append(
+                {
+                    "event_id": row[0],
+                    "target_id": row[1],
+                    "stage": row[2],
+                    "source_id": row[3],
+                    "news_value_score": row[4],
+                    "china_relevance": row[5],
+                    "classification_l0": canonical_l0(row[6]),
+                    "title_original": row[7],
+                    "url": row[8],
+                    "published_at": row[9],
+                    "created_at": row[10],
+                    "file_path": row[11],
+                    "metadata": self._json_loads(row[12]),
+                    "public_translation_ready": row[13],
+                    "translation_status": row[14],
+                    "translation_attempts": row[15],
+                    "translation_last_error": row[16],
+                    "translation_route_id": row[17],
+                    "translation_model": row[18],
+                    "translation_updated_at": row[19],
+                }
+            )
+        return result
 
     async def get_stats_aggregated(self, target_id: str) -> dict[str, Any]:
         """聚合统计查询，返回事件总数、平均分、按分类/来源计数。"""
@@ -1476,7 +1577,8 @@ class AsyncStore:
             """SELECT event_id, target_id, stage, source_id,
                       news_value_score, china_relevance, classification_l0,
                       title_original, published_at, file_path, sentiment,
-                      entity_names, topic_tags, metadata_json, created_at
+                      entity_names, topic_tags, metadata_json, created_at,
+                      public_translation_ready
                FROM event_index
                WHERE target_id = ? AND event_id = ?""",
             (target_id, event_id),
@@ -1500,6 +1602,7 @@ class AsyncStore:
             "topic_tags",
             "metadata_json",
             "created_at",
+            "public_translation_ready",
         )
         item = dict(zip(cols, row, strict=True))
         item["metadata"] = self._json_loads(item.pop("metadata_json", None))
@@ -1522,9 +1625,11 @@ class AsyncStore:
             return None
         existing = self._json_loads(row[0])
         merged = self._deep_merge_dict(existing, metadata_patch)
+        ready = 1 if public_translation_ready(merged) else 0
         await db.execute(
-            "UPDATE event_index SET metadata_json = ? WHERE target_id = ? AND event_id = ?",
-            (self._json_dumps(merged), target_id, event_id),
+            "UPDATE event_index SET metadata_json = ?, public_translation_ready = ? "
+            "WHERE target_id = ? AND event_id = ?",
+            (self._json_dumps(merged), ready, target_id, event_id),
         )
         await db.commit()
         return merged

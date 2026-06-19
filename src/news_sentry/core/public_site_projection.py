@@ -90,12 +90,12 @@ class PublicSiteProjectionStore:
         target_id = str(row.get("target_id") or "").strip()
         original_title = _clean_text(row.get("title_original"))
         translated_title = _clean_text(translation.get("title_pre"))
-        summary = _clean_text(metadata.get("summary"))
+        summary = _clean_text(translation.get("summary_pre"))
         return PublicSiteProjectionItem(
             event_id=event_id,
             target_id=target_id,
             source_id=_clean_text(row.get("source_id")) or "",
-            title=translated_title or original_title or event_id,
+            title=translated_title or event_id,
             original_title=original_title,
             summary=summary,
             original_url=_clean_text(row.get("url")),

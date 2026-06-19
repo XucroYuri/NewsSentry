@@ -1,0 +1,28 @@
+# Schema: ../../../schemas/sourcechannel.schema.json
+source_id: gdelt-australia
+display_name: GDELT API — 澳大利亚
+type: api
+endpoint:
+  url: https://api.gdeltproject.org/api/v2/doc/doc
+  method: GET
+  params:
+    query: Australia OR Canberra
+    mode: ArtList
+    maxrecords: 25
+    format: json
+api_mapping:
+  items_key: articles
+  title: title
+  url: url
+  content: snippet
+  published_at: seendate
+language: en
+fetch_interval_minutes: 30
+max_items_per_run: 25
+timeout_seconds: 30
+fetch_full_article: true
+enabled: true
+credibility_base: 0.7
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -1,0 +1,45 @@
+# Schema: ../../../schemas/filterrules.schema.json
+# 契约: docs/contracts-canonical.md §3
+# ADR: ADR-0009
+rules_version: 1.0.0
+target_id: south-africa
+score_threshold: 30
+max_age_hours: 72
+dedup_window_hours: 24
+keyword_rules:
+- keyword: South Africa
+  weight: 0.8
+  language: en
+- keyword: Pretoria
+  weight: 0.8
+  language: en
+- keyword: Johannesburg
+  weight: 0.8
+  language: en
+- keyword: Ramaphosa
+  weight: 0.8
+  language: en
+- keyword: ANC
+  weight: 0.8
+  language: en
+- keyword: BRICS
+  weight: 0.8
+  language: en
+- keyword: China
+  weight: 1.0
+  language: en
+- keyword: Beijing
+  weight: 1.0
+  language: en
+- keyword: mining
+  weight: 0.8
+  language: en
+- keyword: energy
+  weight: 0.8
+  language: en
+- keyword: ports
+  weight: 0.8
+  language: en
+- keyword: Africa
+  weight: 0.8
+  language: en

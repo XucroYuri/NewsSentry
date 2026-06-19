@@ -1,0 +1,45 @@
+# Schema: ../../../schemas/filterrules.schema.json
+# 契约: docs/contracts-canonical.md §3
+# ADR: ADR-0009
+rules_version: 1.0.0
+target_id: australia
+score_threshold: 30
+max_age_hours: 72
+dedup_window_hours: 24
+keyword_rules:
+- keyword: Australia
+  weight: 0.8
+  language: en
+- keyword: Canberra
+  weight: 0.8
+  language: en
+- keyword: Albanese
+  weight: 0.8
+  language: en
+- keyword: Parliament
+  weight: 0.8
+  language: en
+- keyword: China
+  weight: 1.0
+  language: en
+- keyword: Beijing
+  weight: 1.0
+  language: en
+- keyword: AUKUS
+  weight: 0.8
+  language: en
+- keyword: critical minerals
+  weight: 0.8
+  language: en
+- keyword: LNG
+  weight: 0.8
+  language: en
+- keyword: iron ore
+  weight: 0.8
+  language: en
+- keyword: Pacific
+  weight: 0.8
+  language: en
+- keyword: tariff
+  weight: 0.8
+  language: en

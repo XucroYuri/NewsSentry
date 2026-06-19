@@ -42,6 +42,21 @@ function normalizeError(error: unknown) {
   return "公共新闻接口暂时不可用，请稍后重试。"
 }
 
+function shouldFallbackFeatured(filters: FeedFilters) {
+  return (
+    filters.channel === "featured" &&
+    !filters.targetId &&
+    !filters.sourceId &&
+    !filters.category &&
+    !filters.search &&
+    !filters.date
+  )
+}
+
+function sortByValue(items: PublicNewsItem[]) {
+  return [...items].sort((left, right) => (right.valueScore ?? 0) - (left.valueScore ?? 0))
+}
+
 export function usePublicFeed(filters: FeedFilters, options: { poll?: boolean } = {}) {
   const [feedState, setFeedState] = useState<FeedState>(initialFeedState)
   const [refreshing, setRefreshing] = useState(false)
@@ -61,8 +76,16 @@ export function usePublicFeed(filters: FeedFilters, options: { poll?: boolean } 
         pendingNewItems: mode === "replace" ? [] : current.pendingNewItems,
       }))
       try {
-        const result = await listPublicNews(makeFeedQuery(filters))
-        const items = result.data?.items ?? []
+        let result = await listPublicNews(makeFeedQuery(filters))
+        let items = result.data?.items ?? []
+        if (items.length === 0 && shouldFallbackFeatured(filters)) {
+          const fallback = await listPublicNews({ pageSize: filters.pageSize })
+          const fallbackItems = fallback.data?.items ?? []
+          if (fallbackItems.length > 0) {
+            result = fallback
+            items = sortByValue(fallbackItems)
+          }
+        }
         setFeedState({
           status: items.length > 0 ? "ready" : "empty",
           items,

@@ -19,6 +19,12 @@ import yaml
 
 from news_sentry.adapters.providers.anthropic_provider import AnthropicProvider
 from news_sentry.adapters.providers.base import AIProvider
+from news_sentry.adapters.providers.cloudflare_workers_ai_provider import (
+    CloudflareWorkersAIProvider,
+)
+from news_sentry.adapters.providers.freellmapi_provider import FreeLLMAPIProvider
+from news_sentry.adapters.providers.libretranslate_provider import LibreTranslateProvider
+from news_sentry.adapters.providers.mymemory_provider import MyMemoryProvider
 from news_sentry.adapters.providers.openai_provider import OpenAIProvider
 from news_sentry.adapters.providers.openrouter_provider import OpenRouterProvider
 from news_sentry.adapters.providers.rules_provider import RulesProvider
@@ -689,7 +695,8 @@ def _init_ai_judge(
 def _build_provider_factory() -> Callable[[str], AIProvider | None]:
     """构建 provider_name → AIProvider 实例的工厂函数。
 
-    支持的 provider_name: openrouter, openai, anthropic, local。
+    支持的 provider_name: libretranslate, cloudflare_workers_ai, mymemory, freellmapi,
+    openrouter, openai, anthropic, local。
     通过环境变量配置 API key 和 base URL。
     """
     # 惰性初始化，避免在 import 时读取环境变量
@@ -699,8 +706,17 @@ def _build_provider_factory() -> Callable[[str], AIProvider | None]:
         if name in _cache:
             return _cache[name]
 
-        if name == "openai":
-            provider: AIProvider | None = OpenAIProvider({})
+        provider: AIProvider | None
+        if name == "libretranslate":
+            provider = LibreTranslateProvider({})
+        elif name == "cloudflare_workers_ai":
+            provider = CloudflareWorkersAIProvider({})
+        elif name == "mymemory":
+            provider = MyMemoryProvider({})
+        elif name == "freellmapi":
+            provider = FreeLLMAPIProvider({})
+        elif name == "openai":
+            provider = OpenAIProvider({})
         elif name == "openrouter":
             provider = OpenRouterProvider({})
         elif name == "anthropic":

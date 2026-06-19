@@ -1,0 +1,51 @@
+# Schema: ../../../schemas/filterrules.schema.json
+# 契约: docs/contracts-canonical.md §3
+# ADR: ADR-0009
+rules_version: 1.0.0
+target_id: united-states
+score_threshold: 30
+max_age_hours: 72
+dedup_window_hours: 24
+keyword_rules:
+- keyword: United States
+  weight: 0.8
+  language: en
+- keyword: America
+  weight: 0.8
+  language: en
+- keyword: Washington
+  weight: 0.8
+  language: en
+- keyword: White House
+  weight: 0.8
+  language: en
+- keyword: Congress
+  weight: 0.8
+  language: en
+- keyword: Federal Reserve
+  weight: 0.8
+  language: en
+- keyword: tariff
+  weight: 0.8
+  language: en
+- keyword: sanctions
+  weight: 0.8
+  language: en
+- keyword: China
+  weight: 1.0
+  language: en
+- keyword: Beijing
+  weight: 1.0
+  language: en
+- keyword: AI
+  weight: 0.8
+  language: en
+- keyword: semiconductor
+  weight: 0.8
+  language: en
+- keyword: energy
+  weight: 0.8
+  language: en
+- keyword: defense
+  weight: 0.8
+  language: en

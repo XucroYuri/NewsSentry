@@ -1,29 +1,43 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
+import type { ComponentType, ReactNode } from "react"
 import {
+  BotIcon,
   BookOpenIcon,
   CalendarDaysIcon,
   FilterIcon,
-  Globe2Icon,
+  HistoryIcon,
+  InfoIcon,
+  ListIcon,
   Loader2Icon,
-  RadioTowerIcon,
+  MailIcon,
+  MenuIcon,
+  MoonIcon,
   RefreshCwIcon,
+  RadioIcon,
   SearchIcon,
   SparklesIcon,
-  TrendingUpIcon,
+  SunIcon,
+  ZapIcon,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { SeoHead } from "@/components/seo/seo-head"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
 import { Toaster } from "@/components/ui/sonner"
 import { useHashRoute } from "@/hooks/use-hash-route"
 import { usePublicAnalysis } from "@/hooks/use-public-analysis"
 import { usePublicFeed } from "@/hooks/use-public-feed"
 import { usePublicTargets } from "@/hooks/use-public-targets"
 import { type FeedFilters, type PublicChannel } from "@/lib/feed-state"
-import { formatFullTime, todayKey } from "@/lib/public-view"
+import { targetShortLabel, todayKey } from "@/lib/public-view"
 import { buildPublicAppPath, routeToChannel, type PublicRoute } from "@/lib/routes"
 import { buildRouteSeoPayload } from "@/lib/seo/site-seo"
 import {
@@ -34,21 +48,24 @@ import {
   SourceDetailPage,
   SourceDirectoryPage,
 } from "@/pages/public-pages"
-import type { PublicAnalysisResponse, PublicNewsItem, PublicTargetInfo } from "@/types/public-news"
+import type { PublicTargetInfo } from "@/types/public-news"
 
 const PAGE_SIZE = 20
 
-const channels: Array<{
-  id: PublicChannel
+type NavId = "breaking" | "all" | "daily" | "agent" | "update"
+type ThemePreference = "system" | "light" | "dark"
+
+const navItems: Array<{
+  id: NavId
   label: string
-  description: string
+  sublabel?: string
+  icon: ComponentType<{ className?: string }>
 }> = [
-  { id: "featured", label: "精选", description: "优先展示高价值和中国相关信号" },
-  { id: "all", label: "全部", description: "按发布时间浏览公共新闻流" },
-  { id: "targets", label: "目标", description: "按监控目标查看新闻" },
-  { id: "sources", label: "来源", description: "按媒体与信源观察覆盖面" },
-  { id: "analysis", label: "态势", description: "查看公开态势摘要" },
-  { id: "daily", label: "日报", description: "读者化日内摘要入口" },
+  { id: "breaking", label: "新闻哨兵", sublabel: "Breaking News", icon: ZapIcon },
+  { id: "all", label: "新闻纵览", sublabel: "All News", icon: ListIcon },
+  { id: "daily", label: "新闻日报", sublabel: "Daily News", icon: CalendarDaysIcon },
+  { id: "agent", label: "Agent", icon: BotIcon },
+  { id: "update", label: "Update", icon: HistoryIcon },
 ]
 
 const categories = ["国际关系", "政治", "经济", "社会", "文化", "科技"]
@@ -94,6 +111,31 @@ function feedRouteFromFilters(filters: FeedFilters): PublicRoute {
   }
 }
 
+function routeForNav(id: NavId): PublicRoute {
+  if (id === "all") {
+    return { name: "feed", channel: "all", search: new URLSearchParams() }
+  }
+  if (id === "daily") {
+    return { name: "daily", date: todayKey(), search: new URLSearchParams() }
+  }
+  if (id === "agent") {
+    return { name: "agent", search: new URLSearchParams() }
+  }
+  if (id === "update") {
+    return { name: "update", search: new URLSearchParams() }
+  }
+  return { name: "feed", channel: "featured", search: new URLSearchParams() }
+}
+
+function activeNavFromRoute(route: PublicRoute, filters: FeedFilters): NavId {
+  if (route.name === "agent") return "agent"
+  if (route.name === "update") return "update"
+  if (route.name === "daily") return "daily"
+  if (route.name === "sources" || route.name === "sourceDetail") return "all"
+  if (route.name === "feed" && (filters.channel === "all" || filters.channel === "targets")) return "all"
+  return "breaking"
+}
+
 function filtersEqual(left: FeedFilters, right: FeedFilters) {
   return (
     left.channel === right.channel &&
@@ -106,75 +148,292 @@ function filtersEqual(left: FeedFilters, right: FeedFilters) {
   )
 }
 
+function isCountryTarget(target: PublicTargetInfo) {
+  const type = target.monitoring_type.toLowerCase()
+  return type === "country" || target.monitoring_label.includes("国别")
+}
+
+function groupTargets(targets: PublicTargetInfo[]) {
+  const countryTargets: PublicTargetInfo[] = []
+  const topicTargets: PublicTargetInfo[] = []
+
+  targets
+    .filter((target) => target.source_count > 0 && target.event_count > 0)
+    .forEach((target) => {
+    if (isCountryTarget(target)) {
+      countryTargets.push(target)
+    } else {
+      topicTargets.push(target)
+    }
+    })
+
+  return { countryTargets, topicTargets }
+}
+
+function useThemePreference() {
+  const [theme, setTheme] = useState<ThemePreference>(() => {
+    try {
+      const saved = window.localStorage.getItem("news-sentry-theme")
+      if (saved === "dark" || saved === "light" || saved === "system") return saved
+    } catch {
+      // Ignore storage failures; system theme remains the default.
+    }
+    return "system"
+  })
+
+  useEffect(() => {
+    const root = document.documentElement
+    root.classList.remove("dark", "light")
+    if (theme !== "system") root.classList.add(theme)
+    try {
+      window.localStorage.setItem("news-sentry-theme", theme)
+    } catch {
+      // Theme preference is nice-to-have; rendering should not depend on storage.
+    }
+  }, [theme])
+
+  return { theme, setTheme }
+}
+
+function ThemeToggle({
+  theme,
+  onChange,
+}: {
+  theme: ThemePreference
+  onChange: (theme: ThemePreference) => void
+}) {
+  const nextTheme: ThemePreference =
+    theme === "system" ? "light" : theme === "light" ? "dark" : "system"
+  const labels: Record<ThemePreference, string> = {
+    system: "跟随系统",
+    light: "浅色",
+    dark: "深色",
+  }
+  const Icon = theme === "dark" ? MoonIcon : theme === "light" ? SunIcon : SparklesIcon
+
+  return (
+    <button
+      type="button"
+      aria-label={`切换主题：当前${labels[theme]}，点击切换到${labels[nextTheme]}`}
+      onClick={() => onChange(nextTheme)}
+      className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-primary/10 hover:text-primary"
+    >
+      <Icon className="size-3" aria-hidden="true" />
+    </button>
+  )
+}
+
+function NavButton({
+  item,
+  active,
+  onSelect,
+}: {
+  item: (typeof navItems)[number]
+  active: boolean
+  onSelect: (id: NavId) => void
+}) {
+  const Icon = item.icon
+  return (
+    <button
+      type="button"
+      aria-label={item.sublabel ? `${item.label} ${item.sublabel}` : item.label}
+      aria-pressed={active}
+      onClick={() => onSelect(item.id)}
+      className="group flex w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-lg px-2.5 py-2 text-left text-xs font-medium text-muted-foreground transition hover:bg-primary/10 hover:text-primary aria-pressed:border aria-pressed:border-primary/30 aria-pressed:bg-primary/15 aria-pressed:text-primary"
+    >
+      <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+      <span className="min-w-0 flex-1 overflow-hidden">
+        <span className="block truncate">{item.label}</span>
+        {item.sublabel ? (
+          <span className="block truncate text-[10px] font-normal opacity-70">{item.sublabel}</span>
+        ) : null}
+      </span>
+    </button>
+  )
+}
+
+function UtilityMenu({
+  theme,
+  onThemeChange,
+}: {
+  theme: ThemePreference
+  onThemeChange: (theme: ThemePreference) => void
+}) {
+  const utilityLinks = [
+    { label: "About", href: "/about", icon: InfoIcon },
+    { label: "Method", href: "/method", icon: BookOpenIcon },
+    { label: "Sources", href: "/public-app/sources", icon: RadioIcon },
+    { label: "Subscribe", href: "/subscribe", icon: MailIcon },
+  ]
+
+  return (
+    <nav
+      aria-label="侧边栏辅助菜单"
+      className="grid w-full min-w-0 max-w-full grid-cols-5 gap-0.5 self-start overflow-hidden rounded-full border border-border bg-background/70 p-0.5 dark:border-white/10 dark:bg-white/[0.03]"
+    >
+      {utilityLinks.map((link) => {
+        const Icon = link.icon
+        return (
+          <a
+            key={link.href}
+            href={link.href}
+            aria-label={link.label}
+            className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-primary/10 hover:text-primary"
+            title={link.label}
+          >
+            <Icon className="size-3" aria-hidden="true" />
+          </a>
+        )
+      })}
+      <ThemeToggle theme={theme} onChange={onThemeChange} />
+    </nav>
+  )
+}
+
+function SidebarNav({
+  active,
+  theme,
+  onThemeChange,
+  onSelect,
+}: {
+  active: NavId
+  theme: ThemePreference
+  onThemeChange: (theme: ThemePreference) => void
+  onSelect: (id: NavId) => void
+}) {
+  return (
+    <aside className="sticky top-0 hidden h-screen w-40 min-w-0 overflow-hidden border-r border-border bg-card px-2 py-3 text-foreground dark:border-white/10 dark:bg-[#070b14] lg:grid lg:grid-rows-[auto_1fr_auto]">
+      <a href="/public-app/" className="mb-3 flex h-10 min-w-0 max-w-full items-center overflow-hidden px-2">
+        <span className="text-base font-black tracking-wide">
+          News<span className="text-primary">Sentry</span>
+        </span>
+      </a>
+      <nav aria-label="公共站侧边栏" className="grid min-w-0 content-start gap-1 overflow-hidden">
+        {navItems.map((item) => (
+          <NavButton key={item.id} item={item} active={active === item.id} onSelect={onSelect} />
+        ))}
+      </nav>
+      <UtilityMenu theme={theme} onThemeChange={onThemeChange} />
+    </aside>
+  )
+}
+
+function MobileNavigation({
+  active,
+  onSelect,
+}: {
+  active: NavId
+  onSelect: (id: NavId) => void
+}) {
+  return (
+    <nav
+      aria-label="移动端公共菜单"
+      className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t bg-background/95 px-2 pb-[calc(env(safe-area-inset-bottom)+0.2rem)] pt-1 shadow-[0_-2px_12px_rgba(15,23,42,0.1)] backdrop-blur lg:hidden"
+    >
+      {navItems.map((item) => {
+        const Icon = item.icon
+        return (
+          <button
+            key={item.id}
+            type="button"
+            aria-pressed={active === item.id}
+            onClick={() => onSelect(item.id)}
+            className="flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 text-xs text-muted-foreground aria-pressed:text-primary"
+          >
+            <Icon className="size-4" aria-hidden="true" />
+            <span className="truncate">{item.label}</span>
+          </button>
+        )
+      })}
+    </nav>
+  )
+}
+
+function MobileHeader({
+  onRefresh,
+  refreshing,
+  theme,
+  onThemeChange,
+  onNavigate,
+}: {
+  onRefresh: () => void
+  refreshing: boolean
+  theme: ThemePreference
+  onThemeChange: (theme: ThemePreference) => void
+  onNavigate: (id: NavId) => void
+}) {
+  return (
+    <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b bg-background/90 px-3 py-3 backdrop-blur lg:hidden">
+      <a href="/public-app/" className="min-w-0">
+        <p className="truncate text-sm font-black">News Sentry</p>
+        <p className="truncate text-xs text-muted-foreground">新闻哨兵</p>
+      </a>
+      <div className="flex items-center gap-2">
+        <Sheet>
+          <SheetTrigger asChild>
+            <Button variant="outline" size="icon" aria-label="打开菜单">
+              <MenuIcon className="size-4" aria-hidden="true" />
+            </Button>
+          </SheetTrigger>
+          <SheetContent>
+            <SheetHeader>
+              <SheetTitle>News Sentry</SheetTitle>
+              <SheetDescription className="text-xs text-muted-foreground">
+                选择公共站栏目或切换主题。
+              </SheetDescription>
+            </SheetHeader>
+            <div className="grid gap-4 pr-4">
+              <div className="grid gap-2">
+                {navItems.map((item) => (
+                  <NavButton key={item.id} item={item} active={false} onSelect={onNavigate} />
+                ))}
+              </div>
+              <UtilityMenu theme={theme} onThemeChange={onThemeChange} />
+            </div>
+          </SheetContent>
+        </Sheet>
+        <Button variant="outline" size="icon" onClick={onRefresh} disabled={refreshing} aria-label="刷新">
+          {refreshing ? (
+            <Loader2Icon className="size-4 animate-spin" aria-hidden="true" />
+          ) : (
+            <RefreshCwIcon className="size-4" aria-hidden="true" />
+          )}
+        </Button>
+      </div>
+    </header>
+  )
+}
+
 function AppShell({
   children,
   onRefresh,
   refreshing,
+  activeNav,
+  onNavigate,
 }: {
-  children: React.ReactNode
+  children: ReactNode
   onRefresh: () => void
   refreshing: boolean
+  activeNav: NavId
+  onNavigate: (id: NavId) => void
 }) {
-  const homeHref = buildPublicAppPath({
-    name: "feed",
-    channel: "featured",
-    search: new URLSearchParams(),
-  })
+  const { theme, setTheme } = useThemePreference()
   return (
-    <div className="min-h-screen bg-[hsl(42_33%_98%)] text-foreground">
-      <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur">
-        <div className="flex w-full items-center justify-between gap-4 px-4 py-3 lg:px-6">
-          <a href={homeHref} className="flex min-w-0 items-center gap-3">
-            <div className="flex size-9 items-center justify-center rounded-md border border-primary/25 bg-primary/5 text-primary">
-              <BookOpenIcon className="size-5" aria-hidden="true" />
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-base font-semibold leading-5">News Sentry</p>
-              <p className="truncate text-xs text-muted-foreground">公共新闻流 · 灰度入口</p>
-            </div>
-          </a>
-          <Button variant="outline" size="sm" onClick={onRefresh} disabled={refreshing}>
-            {refreshing ? (
-              <Loader2Icon className="size-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <RefreshCwIcon className="size-4" aria-hidden="true" />
-            )}
-            刷新
-          </Button>
-        </div>
-      </header>
-      {children}
+    <div className="min-h-screen bg-background text-foreground lg:grid lg:grid-cols-[160px_minmax(0,1fr)]">
+      <SidebarNav active={activeNav} theme={theme} onThemeChange={setTheme} onSelect={onNavigate} />
+      <div className="min-w-0">
+        <MobileHeader
+          onRefresh={onRefresh}
+          refreshing={refreshing}
+          theme={theme}
+          onThemeChange={setTheme}
+          onNavigate={onNavigate}
+        />
+        {children}
+      </div>
+      <MobileNavigation active={activeNav} onSelect={onNavigate} />
       <Toaster position="top-center" richColors closeButton />
     </div>
-  )
-}
-
-function ChannelNav({
-  active,
-  onChange,
-}: {
-  active: PublicChannel
-  onChange: (channel: PublicChannel) => void
-}) {
-  return (
-    <nav
-      aria-label="公共频道"
-      className="flex min-w-0 max-w-full gap-2 overflow-x-auto pb-1 lg:grid lg:grid-cols-2 lg:overflow-visible lg:pb-0"
-    >
-      {channels.map((channel) => (
-        <Button
-          key={channel.id}
-          type="button"
-          variant={active === channel.id ? "default" : "outline"}
-          size="sm"
-          aria-pressed={active === channel.id}
-          onClick={() => onChange(channel.id)}
-          className="min-w-0 shrink-0 lg:w-full lg:shrink"
-        >
-          {channel.label}
-        </Button>
-      ))}
-    </nav>
   )
 }
 
@@ -196,7 +455,7 @@ function FilterPanel({
   }, [filters.search])
 
   return (
-    <div className="grid w-full min-w-0 max-w-full overflow-hidden gap-4">
+    <div className="grid w-full min-w-0 max-w-full gap-4 overflow-hidden">
       <form
         className="grid w-full min-w-0 max-w-full gap-2"
         onSubmit={(event) => {
@@ -275,7 +534,7 @@ function FilterPanel({
                 }
                 className="h-auto w-full min-w-0 justify-between gap-3 px-3 py-2 text-left"
               >
-                <span className="min-w-0 flex-1 truncate">{target.display_name}</span>
+                <span className="min-w-0 flex-1 truncate">{targetShortLabel(target.display_name)}</span>
                 <span className="shrink-0 text-xs text-muted-foreground">{target.event_count}</span>
               </Button>
             ))
@@ -327,18 +586,21 @@ function FilterPanel({
   )
 }
 
-function MobileFilterSheet({ children }: { children: React.ReactNode }) {
+function FilterSheet({ children }: { children: ReactNode }) {
   return (
     <Sheet>
       <SheetTrigger asChild>
-        <Button variant="outline" size="sm" className="lg:hidden">
-          <FilterIcon className="size-4" aria-hidden="true" />
+        <Button variant="outline" size="sm" className="h-8 shrink-0 rounded-md px-2.5">
+          <FilterIcon className="size-3.5" aria-hidden="true" />
           筛选
         </Button>
       </SheetTrigger>
       <SheetContent>
         <SheetHeader>
           <SheetTitle>筛选新闻</SheetTitle>
+          <SheetDescription className="text-xs text-muted-foreground">
+            按关键词、分类、目标和来源收窄新闻流。
+          </SheetDescription>
         </SheetHeader>
         <div className="min-h-0 overflow-y-auto pr-4">{children}</div>
       </SheetContent>
@@ -346,159 +608,200 @@ function MobileFilterSheet({ children }: { children: React.ReactNode }) {
   )
 }
 
-function RightRail({
-  analysis,
-  analysisError,
+function TargetFilterRow({
+  label,
   targets,
-  latestItem,
+  filters,
+  includeAll = false,
+  onChange,
 }: {
-  analysis: PublicAnalysisResponse | null
-  analysisError: string | null
+  label: string
   targets: PublicTargetInfo[]
-  latestItem: PublicNewsItem | null
+  filters: FeedFilters
+  includeAll?: boolean
+  onChange: (patch: Partial<FeedFilters>) => void
 }) {
-  const summary = analysis?.summary
-  const statusItems = [
-    {
-      label: "事件样本",
-      value: summary ? `${summary.total_events}` : "等待",
-      helper: summary && summary.total_events > 0 ? "当前窗口" : "样本不足",
-    },
-    {
-      label: "高价值事件",
-      value: summary ? `${summary.high_value_events}` : "等待",
-      helper: "需要持续复核",
-    },
-    {
-      label: "新闻价值",
-      value:
-        summary?.avg_news_value_score !== undefined && summary.avg_news_value_score !== null
-          ? Math.round(summary.avg_news_value_score).toString()
-          : "待增强",
-      helper: "均值",
-    },
-  ]
+  if (!includeAll && targets.length === 0) return null
+
   return (
-    <aside className="grid h-fit min-w-0 gap-4">
-      <Card className="rounded-lg">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <TrendingUpIcon className="size-4 text-primary" aria-hidden="true" />
-            态势摘要
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3">
-          <div className="grid min-w-0 grid-cols-3 gap-2">
-            {statusItems.map((item) => (
-              <div key={item.label} className="min-w-0 rounded-md border bg-muted/35 p-2">
-                <p className="truncate text-xs text-muted-foreground">{item.label}</p>
-                <p className="mt-1 truncate text-lg font-semibold">{item.value}</p>
-                <p className="truncate text-xs text-muted-foreground">{item.helper}</p>
-              </div>
-            ))}
-          </div>
-          {analysisError ? (
-            <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-              态势摘要暂时不可用，新闻流仍可正常浏览。
-            </p>
-          ) : null}
-          {analysis && analysis.topic_trends.length === 0 ? (
-            <p className="rounded-md border border-dashed p-3 text-sm leading-6 text-muted-foreground">
-              当前窗口趋势样本不足，等待更多实体/主题增强数据后会形成趋势。
-            </p>
-          ) : null}
-          {analysis?.source_distribution.slice(0, 4).map((source) => (
-            <div key={source.source_id} className="flex items-center justify-between gap-3 text-sm">
-              <span className="min-w-0 truncate text-muted-foreground">{source.display_name}</span>
-              <span className="font-medium">{source.count}</span>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      <Card className="rounded-lg">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <RadioTowerIcon className="size-4 text-primary" aria-hidden="true" />
-            监控目标
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-2 text-sm">
-          {targets.slice(0, 5).map((target) => (
-            <div key={target.target_id} className="flex items-center justify-between gap-3">
-              <span className="min-w-0 truncate">{target.display_name}</span>
-              <span className="text-muted-foreground">{target.event_count}</span>
-            </div>
-          ))}
-          {targets.length === 0 ? (
-            <p className="text-muted-foreground">目标列表正在加载。</p>
-          ) : null}
-        </CardContent>
-      </Card>
-
-      <Card className="rounded-lg">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <CalendarDaysIcon className="size-4 text-primary" aria-hidden="true" />
-            更新节奏
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-2 text-sm text-muted-foreground">
-          <p className="break-words">
-            {latestItem ? `最新新闻：${formatFullTime(latestItem.publishedAt)}` : "等待新闻进入公共流。"}
-          </p>
-          <p>页面会低频轮询，有新内容时只提示，不打断当前阅读位置。</p>
-        </CardContent>
-      </Card>
-    </aside>
+    <div className="grid min-w-0 gap-1 md:grid-cols-[4.25rem_minmax(0,1fr)] md:items-center">
+      <span className="text-[11px] font-semibold leading-none text-muted-foreground">{label}</span>
+      <div
+        className="flex min-w-0 gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        aria-label={`${label}目标`}
+      >
+        {includeAll ? (
+          <Button
+            type="button"
+            variant={filters.targetId ? "outline" : "default"}
+            size="sm"
+            aria-pressed={!filters.targetId}
+            className="h-7 shrink-0 rounded-md px-2 text-xs"
+            onClick={() =>
+              onChange({
+                channel: filters.channel === "featured" ? "featured" : "all",
+                targetId: undefined,
+              })
+            }
+          >
+            全部目标
+          </Button>
+        ) : null}
+        {targets.map((target) => (
+          <Button
+            key={target.target_id}
+            type="button"
+            variant={filters.targetId === target.target_id ? "default" : "outline"}
+            size="sm"
+            aria-pressed={filters.targetId === target.target_id}
+            className="h-7 shrink-0 rounded-md px-2 text-xs"
+            onClick={() => onChange({ channel: "targets", targetId: target.target_id })}
+          >
+            {targetShortLabel(target.display_name)}
+          </Button>
+        ))}
+      </div>
+    </div>
   )
 }
 
-function MobileBottomNav({
-  active,
+function ReaderControls({
+  filters,
+  targets,
+  selectedTargetLabel,
+  filterPanel,
   onChange,
 }: {
-  active: PublicChannel
-  onChange: (channel: PublicChannel) => void
+  filters: FeedFilters
+  targets: PublicTargetInfo[]
+  selectedTargetLabel?: string
+  filterPanel: ReactNode
+  onChange: (patch: Partial<FeedFilters>) => void
 }) {
-  const mobileItems: Array<{
-    id: PublicChannel
-    label: string
-    icon: React.ComponentType<{ className?: string }>
-  }> = [
-    { id: "featured", label: "信号", icon: SparklesIcon },
-    { id: "targets", label: "目标", icon: RadioTowerIcon },
-    { id: "sources", label: "来源", icon: Globe2Icon },
-    { id: "analysis", label: "态势", icon: TrendingUpIcon },
-    { id: "daily", label: "日报", icon: CalendarDaysIcon },
-  ]
+  const [search, setSearch] = useState(filters.search ?? "")
+  const { countryTargets, topicTargets } = useMemo(() => groupTargets(targets), [targets])
+  const heading = selectedTargetLabel
+    ? targetShortLabel(selectedTargetLabel)
+    : filters.channel === "all" || filters.channel === "targets"
+      ? "新闻纵览"
+      : "新闻哨兵"
+  const description = selectedTargetLabel
+    ? `正在浏览 ${targetShortLabel(selectedTargetLabel)} 的精选新闻流。`
+    : filters.channel === "all" || filters.channel === "targets"
+      ? "按国别或话题筛选，直接进入同一条时间线阅读。"
+      : "AI 辅助从公共新闻流里挑选时效性高、影响更明确的重大新闻。"
+
+  useEffect(() => {
+    setSearch(filters.search ?? "")
+  }, [filters.search])
+
   return (
-    <nav
-      aria-label="移动端公共频道"
-      className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t bg-background/95 px-2 pb-[calc(env(safe-area-inset-bottom)+0.25rem)] pt-1.5 shadow-[0_-4px_16px_rgba(15,23,42,0.08)] backdrop-blur lg:hidden"
+    <section className="grid gap-2 rounded-lg border bg-card/95 p-3 dark:bg-card/80">
+      <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-lg font-semibold tracking-tight">{heading}</h1>
+          <p className="hidden text-xs text-muted-foreground sm:block">{description}</p>
+        </div>
+        <form
+          className="grid min-w-0 grid-cols-[minmax(0,1fr)_2rem_auto] gap-1.5 xl:w-[500px]"
+          onSubmit={(event) => {
+            event.preventDefault()
+            onChange({ search })
+          }}
+        >
+          <Input
+            value={search}
+            aria-label="快速搜索"
+            placeholder="搜索标题/摘要/来源..."
+            onChange={(event) => setSearch(event.currentTarget.value)}
+            className="h-8 min-w-0 rounded-md"
+          />
+          <Button type="submit" size="icon" aria-label="搜索" className="size-8 rounded-md">
+            <SearchIcon className="size-3.5" aria-hidden="true" />
+          </Button>
+          <FilterSheet>{filterPanel}</FilterSheet>
+        </form>
+      </div>
+
+      <div className="grid gap-1.5" role="region" aria-label="目标分组筛选">
+        <TargetFilterRow
+          label="国别分类"
+          targets={countryTargets}
+          filters={filters}
+          includeAll
+          onChange={onChange}
+        />
+        <TargetFilterRow
+          label="话题分类"
+          targets={topicTargets}
+          filters={filters}
+          onChange={onChange}
+        />
+      </div>
+    </section>
+  )
+}
+
+function InfoPanel({
+  title,
+  children,
+}: {
+  title: string
+  children: ReactNode
+}) {
+  return (
+    <section
+      aria-label={`${title} 信息页`}
+      className="overflow-hidden rounded-lg border bg-card/95 py-2 dark:bg-card/80"
     >
-      {mobileItems.map((item) => {
-        const Icon = item.icon
-        return (
-          <button
-            key={item.id}
-            type="button"
-            aria-pressed={active === item.id}
-            onClick={() => onChange(item.id)}
-            className="flex min-w-0 flex-col items-center justify-center gap-1 rounded-md px-1 py-1.5 text-xs text-muted-foreground aria-pressed:text-primary"
-          >
-            <Icon className="size-4" aria-hidden="true" />
-            <span className="truncate">{item.label}</span>
-          </button>
-        )
-      })}
-    </nav>
+      <div className="border-b px-3 py-2">
+        <h1 className="text-base font-semibold leading-tight">{title}</h1>
+      </div>
+      <div className="grid gap-2 p-3 text-sm leading-5 text-muted-foreground">{children}</div>
+    </section>
+  )
+}
+
+function AgentPage() {
+  return (
+    <InfoPanel title="Agent">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <a className="rounded-md border bg-background/60 px-3 py-2 hover:border-primary/50" href="/llms.txt">
+          <strong className="block text-sm text-foreground">llms.txt</strong>
+          <span className="text-xs">AI 阅读器站点说明</span>
+        </a>
+        <a className="rounded-md border bg-background/60 px-3 py-2 hover:border-primary/50" href="/api/v1/public/news">
+          <strong className="block text-sm text-foreground">Public API</strong>
+          <span className="text-xs">公共新闻流</span>
+        </a>
+        <a className="rounded-md border bg-background/60 px-3 py-2 hover:border-primary/50" href="/subscribe">
+          <strong className="block text-sm text-foreground">Subscribe</strong>
+          <span className="text-xs">每日/每周摘要</span>
+        </a>
+        <a className="rounded-md border bg-background/60 px-3 py-2 hover:border-primary/50" href="/method">
+          <strong className="block text-sm text-foreground">Method</strong>
+          <span className="text-xs">筛选方法</span>
+        </a>
+      </div>
+    </InfoPanel>
+  )
+}
+
+function UpdatePage({ updatedAt }: { updatedAt?: string | null }) {
+  return (
+    <InfoPanel title="Update">
+      <div className="grid gap-2 rounded-md border bg-background/60 px-3 py-2 text-xs sm:grid-cols-[auto_1fr] sm:items-center">
+        <span className="font-medium text-foreground">最近新闻刷新</span>
+        <span>{updatedAt ? new Date(updatedAt).toLocaleString("zh-CN") : "等待新闻流"}</span>
+        <span className="font-medium text-foreground">当前版本</span>
+        <span>AIHOT 化公共阅读体验</span>
+      </div>
+    </InfoPanel>
   )
 }
 
 export default function App() {
   const { route, navigate } = useHashRoute()
-  const activeChannel = routeToChannel(route)
   const [filters, setFilters] = useState<FeedFilters>(() => filtersFromRoute(route))
 
   useEffect(() => {
@@ -523,16 +826,15 @@ export default function App() {
   const analysisTargetId =
     route.name === "analysis"
       ? route.targetId || feedTargetId || targets[0]?.target_id || null
-      : route.name === "feed"
-        ? feedTargetId
-        : null
+      : null
   const { analysis, analysisError } = usePublicAnalysis(analysisTargetId)
-  const selectedTargetId = analysisTargetId ?? feedTargetId ?? targets[0]?.target_id ?? null
+  const selectedTargetId = analysisTargetId ?? filters.targetId ?? feedTargetId ?? null
   const selectedTargetLabel =
     targets.find((target) => target.target_id === selectedTargetId)?.display_name ??
     feed.feedState.items.find((item) => item.targetId === selectedTargetId)?.targetLabel ??
     null
   const siteOrigin = window.location.origin || "https://news-sentry.com"
+  const activeNav = activeNavFromRoute(route, filters)
 
   const updateFilters = useCallback(
     (patch: Partial<FeedFilters>) => {
@@ -545,30 +847,16 @@ export default function App() {
     [filters, navigate, route.name],
   )
 
-  const changeChannel = useCallback(
-    (channel: PublicChannel) => {
-      if (channel === "sources") {
-        navigate({ name: "sources", search: new URLSearchParams() })
-        return
+  const navigatePrimary = useCallback(
+    (id: NavId) => {
+      const nextRoute = routeForNav(id)
+      if (nextRoute.name === "feed") {
+        const nextFilters = filtersFromRoute(nextRoute)
+        setFilters(nextFilters)
       }
-      if (channel === "daily") {
-        navigate({ name: "daily", date: todayKey(), search: new URLSearchParams() })
-        return
-      }
-      if (channel === "analysis") {
-        navigate({
-          name: "analysis",
-          targetId: feedTargetId ?? targets[0]?.target_id,
-          section: undefined,
-          search: new URLSearchParams(),
-        })
-        return
-      }
-      const nextFilters = { ...filters, channel, pageSize: PAGE_SIZE }
-      setFilters(nextFilters)
-      navigate(feedRouteFromFilters(nextFilters))
+      navigate(nextRoute)
     },
-    [feedTargetId, filters, navigate, targets],
+    [navigate],
   )
 
   const filterPanel = (
@@ -579,7 +867,6 @@ export default function App() {
       onChange={updateFilters}
     />
   )
-  const latestItem = feed.feedState.items[0] ?? null
   const appSeoPayload = useMemo(() => {
     if (route.name === "event") return null
     return buildRouteSeoPayload({
@@ -590,25 +877,21 @@ export default function App() {
     })
   }, [analysis, route, selectedTargetLabel, siteOrigin])
 
-  let mainContent: React.ReactNode
-  let showLeftRail = true
-  let showRightRail = true
+  let mainContent: ReactNode
 
   if (route.name === "event") {
-    showLeftRail = false
-    showRightRail = false
     mainContent = <EventDetailPage route={route} />
   } else if (route.name === "sources") {
-    showRightRail = false
     mainContent = <SourceDirectoryPage />
   } else if (route.name === "sourceDetail") {
-    showRightRail = false
     mainContent = <SourceDetailPage sourceId={route.sourceId} />
   } else if (route.name === "daily") {
-    showRightRail = false
     mainContent = <DailyPage date={route.date} />
+  } else if (route.name === "agent") {
+    mainContent = <AgentPage />
+  } else if (route.name === "update") {
+    mainContent = <UpdatePage updatedAt={feed.feedState.items[0]?.publishedAt} />
   } else if (route.name === "analysis") {
-    showRightRail = false
     mainContent = (
       <AnalysisPage
         analysis={analysis}
@@ -618,76 +901,42 @@ export default function App() {
       />
     )
   } else {
+    const selectedFeedTargetLabel = filters.targetId
+      ? targets.find((target) => target.target_id === filters.targetId)?.display_name ??
+        feed.feedState.items.find((item) => item.targetId === filters.targetId)?.targetLabel
+      : undefined
     mainContent = (
-      <NewsFeedPage
-        filters={filters}
-        state={feed.feedState}
-        refreshing={feed.refreshing}
-        loadingMore={feed.loadingMore}
-        onRefresh={() => void feed.loadFeed("refresh")}
-        onLoadMore={() => void feed.loadMore()}
-        onApplyPending={feed.applyPending}
-      />
+      <>
+        <ReaderControls
+          filters={filters}
+          targets={targets}
+          selectedTargetLabel={selectedFeedTargetLabel}
+          filterPanel={filterPanel}
+          onChange={updateFilters}
+        />
+        <NewsFeedPage
+          filters={filters}
+          state={feed.feedState}
+          loadingMore={feed.loadingMore}
+          onRefresh={() => void feed.loadFeed("refresh")}
+          onLoadMore={() => void feed.loadMore()}
+          onApplyPending={feed.applyPending}
+        />
+      </>
     )
   }
 
   return (
-    <AppShell onRefresh={() => void feed.loadFeed("refresh")} refreshing={feed.refreshing}>
+    <AppShell
+      onRefresh={() => void feed.loadFeed("refresh")}
+      refreshing={feed.refreshing}
+      activeNav={activeNav}
+      onNavigate={navigatePrimary}
+    >
       <SeoHead payload={appSeoPayload} />
-      <main
-        className={
-          showLeftRail && showRightRail
-            ? "grid w-full gap-4 px-4 pb-24 pt-4 lg:grid-cols-[280px_minmax(0,1fr)_320px] lg:px-6 lg:pb-8 xl:grid-cols-[300px_minmax(0,1fr)_320px]"
-            : "mx-auto grid w-full max-w-[1280px] gap-4 px-4 pb-24 pt-4 lg:px-6 lg:pb-8"
-        }
-      >
-        {showLeftRail ? (
-          <aside className="hidden min-w-0 self-start lg:block">
-            <div className="sticky top-[4.5rem] grid gap-4">
-              <Card className="min-w-0 overflow-hidden rounded-lg">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">公共频道</CardTitle>
-                </CardHeader>
-                <CardContent className="grid min-w-0 gap-3">
-                  <ChannelNav active={activeChannel} onChange={changeChannel} />
-                </CardContent>
-              </Card>
-              {route.name === "feed" ? (
-                <Card className="min-w-0 overflow-hidden rounded-lg">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base">筛选</CardTitle>
-                  </CardHeader>
-                  <CardContent className="min-w-0">{filterPanel}</CardContent>
-                </Card>
-              ) : null}
-            </div>
-          </aside>
-        ) : null}
-
-        <section className="grid min-w-0 gap-3">
-          <div className="flex min-w-0 items-center justify-between gap-3 lg:hidden">
-            <div className="min-w-0 flex-1">
-              <ChannelNav active={activeChannel} onChange={changeChannel} />
-            </div>
-            {route.name === "feed" ? <MobileFilterSheet>{filterPanel}</MobileFilterSheet> : null}
-          </div>
-          {mainContent}
-        </section>
-
-        {showRightRail ? (
-          <div className="hidden min-w-0 lg:block">
-            <div className="sticky top-[4.5rem]">
-              <RightRail
-                analysis={analysis}
-                analysisError={analysisError}
-                targets={targets}
-                latestItem={latestItem}
-              />
-            </div>
-          </div>
-        ) : null}
+      <main className="grid w-full min-w-0 gap-3 px-2.5 pb-20 pt-2.5 sm:px-3 lg:px-4 lg:py-4 2xl:px-5">
+        <section className="grid min-w-0 gap-3">{mainContent}</section>
       </main>
-      <MobileBottomNav active={activeChannel} onChange={changeChannel} />
     </AppShell>
   )
 }

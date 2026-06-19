@@ -9,6 +9,10 @@
 # 可选覆盖:
 #   OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 #   OPENROUTER_DEFAULT_MODEL=openai/gpt-oss-20b:free
+# FreeLLMAPI 本地 sidecar:
+#   FREELLMAPI_BASE_URL=http://127.0.0.1:3001/v1
+#   FREELLMAPI_API_KEY
+#   FREELLMAPI_DEFAULT_MODEL=auto
 # Nvidia 低并发兜底复用 Anthropic-compatible provider:
 #   ANTHROPIC_BASE_URL=https://integrate.api.nvidia.com
 #   ANTHROPIC_AUTH_TOKEN=<set in runtime env>
@@ -17,6 +21,75 @@ routes_version: "1.2.0"
 routes:
 
   # ── 翻译任务 ──────────────────────────────────────────
+
+  - route_id: translate.public
+    task_type: translate
+    provider: libretranslate
+    model: libretranslate
+    timeout_seconds: 20
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    fallback_route_ids:
+      - cloudflare.translation
+      - mymemory.translation
+      - public.enrichment
+      - translate.batch
+    notes: "公共站发布前置翻译：metadata.translation.title_pre / summary_pre"
+
+  - route_id: cloudflare.translation
+    task_type: translate
+    provider: cloudflare_workers_ai
+    model: "@cf/meta/m2m100-1.2b"
+    timeout_seconds: 30
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    fallback_route_ids:
+      - mymemory.translation
+      - public.enrichment
+      - translate.batch
+    notes: "Cloudflare Workers AI 免费额度兜底：短字段翻译"
+
+  - route_id: mymemory.translation
+    task_type: translate
+    provider: mymemory
+    model: mymemory
+    timeout_seconds: 20
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    fallback_route_ids:
+      - public.enrichment
+      - translate.batch
+    notes: "MyMemory 免费短字段兜底；单字段不超过 500 bytes"
+
+  - route_id: public.summary_reason
+    task_type: public_enrichment
+    provider: freellmapi
+    model: auto
+    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    timeout_seconds: 45
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    fallback_route_ids:
+      - ai.enrichment.batch
+      - translate.batch
+    notes: "公共站出版加工：一句话概括与 AI 个性化推荐理由"
+
+  - route_id: public.enrichment
+    task_type: translate
+    provider: freellmapi
+    model: auto
+    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    timeout_seconds: 45
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    fallback_route_ids:
+      - translate.batch
+    notes: "FreeLLMAPI OpenAI-compatible sidecar：公共翻译/出版加工兜底"
 
   - route_id: translate.fast
     task_type: translate

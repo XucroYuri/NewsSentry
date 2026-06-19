@@ -16,9 +16,16 @@ export interface DailyDigest {
   date: string
   total: number
   topItems: PublicNewsItem[]
+  topicGroups: DailyDigestTopicGroup[]
   topicLabels: string[]
   sourceLabels: string[]
   riskLabels: string[]
+}
+
+export interface DailyDigestTopicGroup {
+  label: string
+  count: number
+  items: PublicNewsItem[]
 }
 
 export interface RelatedBuckets {
@@ -57,6 +64,19 @@ export function sourceTypeLabel(type: PublicNewsSourceType) {
     unknown: "来源",
   }
   return labels[type] ?? "来源"
+}
+
+export function targetShortLabel(label?: string | null) {
+  const value = label?.trim()
+  if (!value) return "目标"
+  return (
+    value
+      .replace(/新闻监控/g, "")
+      .replace(/监控目标/g, "")
+      .replace(/国别监控/g, "")
+      .replace(/观察/g, "")
+      .trim() || value
+  )
 }
 
 export function buildPublicDetailUrl(
@@ -134,22 +154,77 @@ export function buildDailyDigest(items: PublicNewsItem[], date: string): DailyDi
   const dailyItems = items.filter((item) => dateKey(item.publishedAt) === date)
   const topItems = [...dailyItems]
     .sort((a, b) => (b.valueScore ?? 0) - (a.valueScore ?? 0))
-    .slice(0, 5)
-  const topicLabels = unique(dailyItems.flatMap((item) => item.tags)).slice(0, 8)
+    .slice(0, 6)
+  const topicLabels = unique(dailyItems.flatMap((item) => item.tags.map(readableTopicLabel))).slice(
+    0,
+    8,
+  )
   const sourceLabels = unique(dailyItems.map((item) => item.source.name)).slice(0, 8)
   const riskLabels = unique(
     dailyItems
       .filter((item) => item.valueLabel === "精选" || (item.valueScore ?? 0) >= 85)
-      .flatMap((item) => item.tags),
+      .flatMap((item) => item.tags.map(readableTopicLabel)),
   ).slice(0, 5)
+  const topicGroups = buildDailyTopicGroups(dailyItems)
   return {
     date,
     total: dailyItems.length,
     topItems,
+    topicGroups,
     topicLabels,
     sourceLabels,
     riskLabels,
   }
+}
+
+function buildDailyTopicGroups(items: PublicNewsItem[]): DailyDigestTopicGroup[] {
+  const groups = new Map<string, PublicNewsItem[]>()
+  for (const item of items) {
+    const label = primaryTopicLabel(item)
+    const bucket = groups.get(label) ?? []
+    bucket.push(item)
+    groups.set(label, bucket)
+  }
+  return [...groups.entries()]
+    .map(([label, groupItems]) => ({
+      label,
+      count: groupItems.length,
+      items: [...groupItems]
+        .sort(
+          (a, b) =>
+            (b.valueScore ?? 0) - (a.valueScore ?? 0) ||
+            new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime(),
+        )
+        .slice(0, 3),
+    }))
+    .sort(
+      (a, b) =>
+        b.count - a.count ||
+        (b.items[0]?.valueScore ?? 0) - (a.items[0]?.valueScore ?? 0) ||
+        a.label.localeCompare(b.label),
+    )
+    .slice(0, 6)
+}
+
+function primaryTopicLabel(item: PublicNewsItem) {
+  const tag = item.tags.map(readableTopicLabel).find(Boolean)
+  return tag || targetShortLabel(item.targetLabel)
+}
+
+function readableTopicLabel(value: string) {
+  const normalized = value.trim()
+  const labels: Record<string, string> = {
+    uncategorized: "",
+    "public-safety": "公共安全",
+    politics: "政治",
+    "international-relations": "国际关系",
+    culture: "文化",
+    society: "社会",
+    economy: "经济",
+    tech: "科技",
+    technology: "科技",
+  }
+  return labels[normalized] ?? normalized
 }
 
 export function buildRelatedBuckets(

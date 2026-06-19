@@ -6,6 +6,8 @@ export type PublicRoute =
   | { name: "sources"; search: URLSearchParams }
   | { name: "sourceDetail"; sourceId: string; search: URLSearchParams }
   | { name: "daily"; date?: string; search: URLSearchParams }
+  | { name: "agent"; search: URLSearchParams }
+  | { name: "update"; search: URLSearchParams }
   | { name: "analysis"; targetId?: string; section?: string; search: URLSearchParams }
 
 const feedChannels = new Set<PublicChannel>([
@@ -54,6 +56,12 @@ function parseRouteParts(pathPart: string, search: URLSearchParams): PublicRoute
   if (root === "daily") {
     return { name: "daily", date: search.get("date") ?? undefined, search }
   }
+  if (root === "agent") {
+    return { name: "agent", search }
+  }
+  if (root === "update") {
+    return { name: "update", search }
+  }
   if (root === "analysis") {
     return {
       name: "analysis",
@@ -96,6 +104,7 @@ export function routeToChannel(route: PublicRoute): PublicChannel {
   if (route.name === "feed") return route.channel
   if (route.name === "sources" || route.name === "sourceDetail") return "sources"
   if (route.name === "daily") return "daily"
+  if (route.name === "agent" || route.name === "update") return "featured"
   if (route.name === "analysis") return "analysis"
   return "featured"
 }
@@ -116,6 +125,8 @@ export function buildPublicAppPath(route: PublicRoute) {
     const query = params.toString()
     return `/public-app/daily${query ? `?${query}` : ""}`
   }
+  if (route.name === "agent") return "/public-app/agent"
+  if (route.name === "update") return "/public-app/update"
   if (route.name === "analysis") {
     const params = new URLSearchParams()
     if (route.targetId) params.set("target_id", route.targetId)
@@ -151,6 +162,8 @@ export function buildRouteHash(route: PublicRoute) {
     const query = params.toString()
     return `#/daily${query ? `?${query}` : ""}`
   }
+  if (route.name === "agent") return "#/agent"
+  if (route.name === "update") return "#/update"
   if (route.name === "analysis") {
     const params = new URLSearchParams()
     if (route.targetId) params.set("target_id", route.targetId)
