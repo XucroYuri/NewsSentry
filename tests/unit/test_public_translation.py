@@ -128,6 +128,43 @@ async def test_public_news_rows_only_return_translation_ready_events(tmp_path) -
 
 
 @pytest.mark.asyncio
+async def test_public_news_rows_can_query_ready_events_across_targets(tmp_path) -> None:
+    store = AsyncStore(tmp_path / "state.db")
+    await store.initialize()
+    ready_metadata = {
+        "translation": {
+            "title_pre": "法国公共新闻完成加工",
+            "summary_pre": "该新闻已有中文摘要，可以进入公共站。",
+        },
+        "publication": {
+            "one_line_summary": "法国公共新闻完成加工。",
+            "recommendation_reason": "AI 推荐理由指出该事件影响跨境观察的政策判断。",
+        },
+    }
+    try:
+        await store.index_event(
+            _event("ne-france", metadata=ready_metadata, score=90),
+            "france",
+            "drafts",
+        )
+        await store.index_event(
+            _event("ne-japan", metadata=ready_metadata, score=85),
+            "japan",
+            "drafts",
+        )
+        await store.index_event(_event("ne-hidden", score=99), "italy", "drafts")
+
+        result = await store.query_public_news_rows(None, "drafts", limit=10)
+
+        assert result["total"] == 2
+        rows = result["rows"]
+        assert {row["event_id"] for row in rows} == {"ne-france", "ne-japan"}
+        assert {row["target_id"] for row in rows} == {"france", "japan"}
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
 async def test_update_event_metadata_recomputes_public_translation_ready(tmp_path) -> None:
     store = AsyncStore(tmp_path / "state.db")
     await store.initialize()

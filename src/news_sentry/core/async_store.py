@@ -1313,7 +1313,7 @@ class AsyncStore:
 
     async def query_public_news_rows(
         self,
-        target_id: str,
+        target_id: str | None,
         stage: str,
         *,
         limit: int,
@@ -1329,10 +1329,13 @@ class AsyncStore:
         if self._db is None:
             return {"total": 0, "rows": []}
 
-        conditions = ["target_id = ?", "stage = ?", "public_translation_ready = 1"]
-        params: list[Any] = [target_id, stage]
+        conditions = ["stage = ?", "public_translation_ready = 1"]
+        params: list[Any] = [stage]
         sort_expr = "datetime(COALESCE(published_at, created_at))"
 
+        if target_id is not None:
+            conditions.append("target_id = ?")
+            params.append(target_id)
         if source_id is not None:
             conditions.append("source_id = ?")
             params.append(source_id)
@@ -1373,7 +1376,7 @@ class AsyncStore:
             total = row[0] if row else 0
 
         data_sql = (
-            "SELECT event_id, source_id, news_value_score, china_relevance, "  # noqa: S608
+            "SELECT event_id, target_id, source_id, news_value_score, china_relevance, "  # noqa: S608
             "classification_l0, published_at, file_path, title_original, "
             "sentiment, entity_names, topic_tags, metadata_json, created_at, "
             "public_translation_ready "
@@ -1388,19 +1391,20 @@ class AsyncStore:
             result_rows.append(
                 {
                     "event_id": r[0],
-                    "source_id": r[1],
-                    "news_value_score": r[2],
-                    "china_relevance": r[3],
-                    "classification_l0": canonical_l0(r[4]),
-                    "published_at": r[5],
-                    "file_path": r[6],
-                    "title_original": r[7],
-                    "sentiment": r[8],
-                    "entity_names": r[9],
-                    "topic_tags": r[10],
-                    "metadata": self._json_loads(r[11]),
-                    "created_at": r[12],
-                    "public_translation_ready": r[13],
+                    "target_id": r[1],
+                    "source_id": r[2],
+                    "news_value_score": r[3],
+                    "china_relevance": r[4],
+                    "classification_l0": canonical_l0(r[5]),
+                    "published_at": r[6],
+                    "file_path": r[7],
+                    "title_original": r[8],
+                    "sentiment": r[9],
+                    "entity_names": r[10],
+                    "topic_tags": r[11],
+                    "metadata": self._json_loads(r[12]),
+                    "created_at": r[13],
+                    "public_translation_ready": r[14],
                 }
             )
 

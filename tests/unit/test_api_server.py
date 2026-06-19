@@ -2192,6 +2192,42 @@ class TestAPIServer:
         assert resp.json()["items"] == []
         load_all_events.assert_not_called()
 
+    def test_public_news_global_feed_queries_global_store_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config_dir = tmp_path / "config" / "targets"
+        _write_target_config(config_dir, "france", "法国新闻监控", "fr", 5)
+        _write_draft(tmp_path, "france", "orphan-1", title="Orphan file")
+        monkeypatch.chdir(tmp_path)
+        load_all_events = MagicMock(side_effect=AssertionError("global public feed scanned files"))
+        monkeypatch.setattr(api_server_module, "_load_all_events", load_all_events)
+        store = AsyncStore(tmp_path / "state.db")
+
+        async def seed() -> None:
+            await store.initialize()
+            await _insert_index_event(
+                store,
+                event_id="global-ready-1",
+                target_id="france",
+                title_original="法国全局索引公开新闻",
+                news_value_score=90,
+            )
+
+        asyncio.run(seed())
+        try:
+            app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
+            client = TestClient(app)
+
+            resp = client.get("/api/v1/public/news?featured=true&page_size=3")
+
+            assert resp.status_code == 200
+            data = resp.json()
+            assert [item["id"] for item in data["items"]] == ["global-ready-1"]
+            assert data["items"][0]["targetId"] == "france"
+            load_all_events.assert_not_called()
+        finally:
+            asyncio.run(store.close())
+
     def test_targets_endpoint_prefers_target_store_count_over_orphan_drafts(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -2805,6 +2805,44 @@ async def _public_news_candidate_events(
     total = 0
     min_score = _PUBLIC_NEWS_FEATURED_SCORE if featured else None
     classification_l0 = category if category else None
+    if not allow_file_fallback and _store is not None:
+        query_public_rows = getattr(_store, "query_public_news_rows", None)
+        if query_public_rows is not None:
+            try:
+                result = await query_public_rows(
+                    target_id=None,
+                    stage=_PUBLIC_NEWS_STAGE,
+                    limit=limit,
+                    source_id=source_id,
+                    classification_l0=classification_l0,
+                    min_score=min_score,
+                    date=date,
+                    search=q,
+                    before_key=_public_news_store_cursor_key(before_key),
+                    since_key=_public_news_store_cursor_key(since_key),
+                )
+                allowed_targets = set(target_ids)
+                rows = result.get("rows", []) if isinstance(result, dict) else []
+                if isinstance(rows, list):
+                    for row in cast(list[dict[str, Any]], rows):
+                        row_target_id = str(row.get("target_id") or "").strip()
+                        if not row_target_id or row_target_id not in allowed_targets:
+                            continue
+                        if not public_translation_ready(
+                            row.get("metadata") if isinstance(row.get("metadata"), dict) else None
+                        ):
+                            continue
+                        candidates.append(
+                            (
+                                row_target_id,
+                                _merge_index_metadata(_event_from_index_row(row), row),
+                            )
+                        )
+                    candidates.sort(key=lambda item: _public_news_sort_key(item[1]), reverse=True)
+                    return candidates, max(len(candidates), int(result.get("total") or 0))
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to collect global public news candidates from store")
+                return [], 0
     for target_id in target_ids:
         try:
             target_store = await _get_target_store(target_id)
@@ -3710,7 +3748,7 @@ def _target_info_from_config(data: dict[str, Any], data_dir: Path) -> TargetInfo
 async def _target_public_event_count(target_id: str, data_dir: Path) -> int:
     """Return the count the public feed can actually show for a target."""
     try:
-        store = await _store_for_target(target_id)
+        store = await _get_target_store(target_id)
         if store is not None and await _store_has_target_event_index(store, target_id):
             query_public_rows = getattr(store, "query_public_news_rows", None)
             if query_public_rows is not None:
