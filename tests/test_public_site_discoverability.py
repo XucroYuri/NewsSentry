@@ -81,7 +81,10 @@ async def _insert_public_event_row(
                         },
                         "publication": {
                             "one_line_summary": "意大利头条进入公开新闻时间线。",
-                            "recommendation_reason": "AI 推荐理由指出该新闻具备跨境观察价值，可用于公开检索入口。",
+                            "recommendation_reason": (
+                                "AI 推荐理由指出该新闻具备跨境观察价值，"
+                                "可用于公开检索入口。"
+                            ),
                         },
                     },
                     ensure_ascii=False,
