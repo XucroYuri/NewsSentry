@@ -203,33 +203,6 @@ _PUBLICATION_SAMPLE_SIGNALS: list[dict[str, str]] = [
         "watch_next": "平台规则、消费者保护处罚、数据监管和媒体关注度。",
     },
 ]
-_PUBLICATION_TARGETS: list[dict[str, str]] = [
-    {
-        "id": "china-watch-en",
-        "name": "China Watch EN",
-        "summary": "跟踪英文世界对中国政策、产业和地缘议题的外部叙事。",
-    },
-    {
-        "id": "france",
-        "name": "France",
-        "summary": "观察法国监管、消费市场和欧盟政策互动。",
-    },
-    {
-        "id": "germany",
-        "name": "Germany",
-        "summary": "关注德国工业、能源、汽车链和欧洲制造需求。",
-    },
-    {
-        "id": "italy",
-        "name": "Italy",
-        "summary": "跟踪意大利政经、产业政策和地中海供应链信号。",
-    },
-    {
-        "id": "japan",
-        "name": "Japan",
-        "summary": "观察日本产业政策、先进制造和区域供应链变化。",
-    },
-]
 _PUBLICATION_TRUST_PAGES: dict[str, dict[str, Any]] = {
     "about": {
         "title": "关于 News Sentry",
