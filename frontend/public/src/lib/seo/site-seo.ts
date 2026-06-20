@@ -3,10 +3,10 @@ import { buildPublicAppPath, type PublicRoute } from "@/lib/routes"
 import type { PublicAnalysisResponse, PublicNewsItem } from "@/types/public-news"
 
 const SITE_NAME = "News Sentry"
-const DEFAULT_TITLE = "News Sentry Public"
+const DEFAULT_TITLE = "News Sentry | 新闻哨兵"
 const PUBLIC_APP_ROOT = "/public-app/"
 const DEFAULT_DESCRIPTION =
-  "News Sentry 公共新闻流提供面向中文读者的国际新闻精选、时间线和日报。"
+  "News Sentry 新闻哨兵面向中文读者追踪全球新闻，按地区、议题和相关对象筛选重点事件，提供中文摘要、原文标题、信源信息与 Breaking News 指数。"
 const MANAGED_ATTR = "data-news-sentry-seo"
 
 export interface SiteSeoPayload {
@@ -213,12 +213,12 @@ function pageCopy(
 }
 
 function feedChannelTitle(channel: PublicChannel) {
-  if (channel === "all") return "全部新闻"
-  if (channel === "targets") return "目标新闻"
+  if (channel === "all") return "新闻纵览"
+  if (channel === "targets") return "地区新闻"
   if (channel === "sources") return "来源观察"
   if (channel === "analysis") return "态势简报"
   if (channel === "daily") return "新闻日报"
-  return "精选新闻"
+  return "新闻哨兵"
 }
 
 function upsertMeta(

@@ -247,13 +247,13 @@ describe("public site seo runtime", () => {
 
     rerender(createElement(SeoHead, { payload: null }))
 
-    expect(document.title).toBe("News Sentry Public")
+    expect(document.title).toBe("News Sentry | 新闻哨兵")
     expect(document.head.querySelector('link[rel="canonical"]')).not.toBeInTheDocument()
     expect(document.head.querySelector('script[type="application/ld+json"]')).not.toBeInTheDocument()
     expect(document.head.querySelector('meta[property="og:url"]')).not.toBeInTheDocument()
     expect(document.head.querySelector('meta[name="description"]')).toHaveAttribute(
       "content",
-      "News Sentry 公共新闻流提供面向中文读者的国际新闻精选、时间线和日报。",
+      "News Sentry 新闻哨兵面向中文读者追踪全球新闻，按地区、议题和相关对象筛选重点事件，提供中文摘要、原文标题、信源信息与 Breaking News 指数。",
     )
   })
 

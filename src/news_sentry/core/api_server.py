@@ -117,8 +117,10 @@ def _inject_script_nonce(html: str, nonce: str) -> str:
 
 _PUBLIC_SITE_BASE_URL = "https://news-sentry.com"
 _PUBLIC_SITE_NAME = "News Sentry"
+_PUBLIC_SITE_TITLE = "News Sentry | 新闻哨兵"
 _PUBLIC_SITE_DESCRIPTION = (
-    "News Sentry 公共新闻流提供面向中文读者的国际新闻精选、时间线和日报。"
+    "News Sentry 新闻哨兵面向中文读者追踪全球新闻，按地区、议题和相关对象筛选重点事件，"
+    "提供中文摘要、原文标题、信源信息与 Breaking News 指数。"
 )
 # ── Pydantic 模型 ──────────────────────────────────────
 
@@ -6103,7 +6105,7 @@ def _public_app_page_copy(canonical_path: str) -> tuple[str, str]:
             "订阅 Subscribe",
             "接收 News Sentry 每日信号、新闻日报与目标更新。",
         )
-    return ("News Sentry Public", _PUBLIC_SITE_DESCRIPTION)
+    return (_PUBLIC_SITE_TITLE, _PUBLIC_SITE_DESCRIPTION)
 
 
 def _inject_public_homepage_seo(

@@ -1,8 +1,12 @@
 News Sentry
 
-News Sentry is a public news intelligence surface for reading curated event coverage and related analysis.
+News Sentry 新闻哨兵 is a public global-news reader for Chinese readers.
+It organizes ready-to-read stories by regions, issues, related entities, sources, and Breaking News scoring signals.
 
 Primary public routes:
 - /public-app
+- /api/v1/public/news
+- /api/v1/regions
+- /api/v1/public/facets
 - /public-app/events/{event_id}?target_id={target_id}
 - /sitemap.xml

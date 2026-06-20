@@ -264,6 +264,8 @@ def test_root_homepage_uses_reader_shell_not_legacy_publication_fallback(tmp_pat
     assert response.status_code == 200
     assert '<div id="root"></div>' in response.text
     assert "/public-app/assets/" in response.text
+    assert "News Sentry | 新闻哨兵" in response.text
+    assert "按地区、议题和相关对象筛选重点事件" in response.text
     assert '<link rel="canonical" href="https://preview.news-sentry.com/" />' in response.text
     assert 'property="og:url" content="https://preview.news-sentry.com/"' in response.text
     assert 'type="application/ld+json"' in response.text
@@ -369,6 +371,8 @@ def test_public_app_homepage_injects_canonical_and_json_ld(tmp_path: Path) -> No
     response = client.get("/public-app")
 
     assert response.status_code == 200
+    assert "News Sentry | 新闻哨兵" in response.text
+    assert "按地区、议题和相关对象筛选重点事件" in response.text
     assert (
         '<link rel="canonical" href="https://preview.news-sentry.com/public-app/" />'
         in response.text
