@@ -66,7 +66,7 @@ from news_sentry.core.public_translation import (
     PublicTranslationEngine,
     normalize_public_translation_config,
     public_publication_ready,
-    public_translation_ready,
+    public_publication_ready_for_row,
 )
 from news_sentry.core.source_inventory import SourceInventoryService
 from news_sentry.models.newsevent import NewsEvent
@@ -1978,57 +1978,6 @@ def _event_ai_reason(ev: dict[str, Any]) -> str:
     return _first_sentence(rationale) if isinstance(rationale, str) else ""
 
 
-_PUBLIC_CLASSIFICATION_LABELS = {
-    "international-relations": "国际关系",
-    "politics": "政治",
-    "economy": "经济",
-    "society": "社会",
-    "culture": "文化",
-    "technology": "科技",
-}
-
-
-def _public_target_reason_label(target_id: str) -> str:
-    label = _target_display_name(target_id).strip() or target_id
-    for suffix in ("新闻监控", "监控目标", "监控"):
-        if label.endswith(suffix):
-            label = label[: -len(suffix)].strip()
-    return label or target_id
-
-
-def _public_classification_reason_label(ev: dict[str, Any]) -> str:
-    classification = _event_classification(ev) or {}
-    l0 = canonical_l0(str(classification.get("l0") or ""))
-    return _PUBLIC_CLASSIFICATION_LABELS.get(l0, "")
-
-
-def _public_synthesized_recommendation_reason(target_id: str, ev: dict[str, Any]) -> str:
-    target_label = _public_target_reason_label(target_id)
-    category_label = _public_classification_reason_label(ev)
-    score = _event_score(ev)
-    china_label = _public_china_relevance_label(ev.get("china_relevance"))
-
-    subject = f"{target_label}相关"
-    if category_label:
-        subject += f"{category_label}信号"
-    else:
-        subject += "新闻信号"
-
-    signals: list[str] = []
-    if score is not None:
-        signals.append(f"价值分 {round(score)}")
-    if china_label != "未知":
-        signals.append(f"涉中关联{china_label}")
-    source_name = str(ev.get("source_display_name") or "").strip()
-    if source_name:
-        signals.append(f"来源：{source_name}")
-
-    signal_text = "，".join(signals)
-    if signal_text:
-        return f"{subject}，{signal_text}，建议纳入同一时间线持续跟踪。"
-    return f"{subject}，建议纳入同一时间线持续跟踪。"
-
-
 def _event_summary(ev: dict[str, Any]) -> str:
     summary = _event_public_summary(ev)
     if summary:
@@ -2058,9 +2007,12 @@ def _event_public_summary(ev: dict[str, Any]) -> str:
     return " ".join(str(summary or "").split())
 
 
+def _row_publication_ready(row: dict[str, Any]) -> bool:
+    return public_publication_ready_for_row(row)
+
+
 def _event_public_translation_ready(ev: dict[str, Any]) -> bool:
-    metadata = ev.get("metadata")
-    return public_translation_ready(metadata if isinstance(metadata, dict) else None)
+    return _row_publication_ready(ev)
 
 
 def _event_explicit_recommendation_reason(ev: dict[str, Any]) -> str:
@@ -2646,9 +2598,7 @@ async def _query_public_projection_events(
         for row in rows
         if isinstance(row, dict)
         and str(row.get("event_id") or row.get("id") or "").strip()
-        and public_translation_ready(
-            row.get("metadata") if isinstance(row.get("metadata"), dict) else None
-        )
+        and _row_publication_ready(row)
     ]
 
 
@@ -2690,9 +2640,7 @@ async def _load_public_projection_detail(
             return None
         if row.get("stage") != _PUBLIC_NEWS_STAGE:
             return _INVISIBLE_INDEXED_EVENT
-        if not public_translation_ready(
-            row.get("metadata") if isinstance(row.get("metadata"), dict) else None
-        ):
+        if not _row_publication_ready(row):
             return _INVISIBLE_INDEXED_EVENT
         return _public_projection_event(row)
     return await _find_public_projection_event(store, target_id=target_id, event_id=event_id)
@@ -2749,14 +2697,16 @@ async def _public_news_events_for_target(
             )
             rows = result.get("rows", [])
             if isinstance(rows, list):
+                typed_rows = cast(list[dict[str, Any]], rows)
                 events = [
                     _merge_index_metadata(_event_from_index_row(row), row)
-                    for row in cast(list[dict[str, Any]], rows)
-                    if public_translation_ready(
-                        row.get("metadata") if isinstance(row.get("metadata"), dict) else None
-                    )
+                    for row in typed_rows
+                    if _row_publication_ready(row)
                 ]
-                return events, int(result.get("total") or len(events))
+                total = int(result.get("total") or len(events))
+                if len(events) != len(typed_rows):
+                    total = len(events)
+                return events, total
             return [], 0
 
         result = await _visible_index_events_page(
@@ -2828,9 +2778,7 @@ async def _public_news_candidate_events(
                         row_target_id = str(row.get("target_id") or "").strip()
                         if not row_target_id or row_target_id not in allowed_targets:
                             continue
-                        if not public_translation_ready(
-                            row.get("metadata") if isinstance(row.get("metadata"), dict) else None
-                        ):
+                        if not _row_publication_ready(row):
                             continue
                         candidates.append(
                             (
@@ -2839,7 +2787,10 @@ async def _public_news_candidate_events(
                             )
                         )
                     candidates.sort(key=lambda item: _public_news_sort_key(item[1]), reverse=True)
-                    return candidates, max(len(candidates), int(result.get("total") or 0))
+                    total = int(result.get("total") or 0)
+                    if len(candidates) != len(rows):
+                        total = len(candidates)
+                    return candidates, max(len(candidates), total)
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to collect global public news candidates from store")
                 return [], 0

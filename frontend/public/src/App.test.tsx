@@ -590,6 +590,22 @@ describe("Phase 84 public portal app", () => {
     expect(screen.queryByText("推荐理由：")).not.toBeInTheDocument()
   })
 
+  it("shows a compact Chinese processing empty state without leaking raw titles", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.startsWith("/api/v1/targets")) return jsonResponse({ targets: [] })
+      if (url.startsWith("/api/v1/public/news")) return jsonResponse(feed([]))
+      return jsonResponse({})
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByRole("heading", { name: "中文加工中" })).toBeInTheDocument()
+    expect(screen.getByText("中文标题、摘要和 AI 推荐理由完成后会自动进入公共阅读流。")).toBeInTheDocument()
+    expect(screen.queryByText(/Untranslated|French title|正在整理最新新闻/)).not.toBeInTheDocument()
+  })
+
   it("shows reader-friendly copy while the first news request is slow", () => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>(() => undefined)))
 

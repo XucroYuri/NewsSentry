@@ -1,7 +1,8 @@
-"""Public-site translation readiness and retry worker.
+"""Public-site publication readiness and retry worker.
 
-公共站发布门槛只依赖展示型 metadata：中文标题预译与中文摘要预译。
-该模块不写 canonical `title_translated` / `content_translated` 字段。
+公共站发布门槛只依赖展示型 metadata：中文标题、中文摘要、
+一句话概括和 AI 个性化推荐理由。该模块不写 canonical
+`title_translated` / `content_translated` 字段。
 """
 
 from __future__ import annotations
@@ -78,12 +79,26 @@ def public_publication_ready(metadata: dict[str, Any] | None) -> bool:
     )
 
 
+def public_publication_ready_for_row(row: dict[str, Any]) -> bool:
+    """Return readiness for the current indexed row, including source hash freshness."""
+    metadata = _metadata_dict(row)
+    if not public_publication_ready(metadata):
+        return False
+    publication = metadata.get("publication")
+    if not isinstance(publication, dict):
+        return False
+    field_hash = str(publication.get("field_hash") or "").strip()
+    if not field_hash:
+        return True
+    return field_hash == public_translation_field_hash(row)
+
+
 def public_translation_field_hash(row: dict[str, Any]) -> str:
     metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
     material = {
         "event_id": row.get("event_id") or row.get("id") or "",
         "title": row.get("title_original") or "",
-        "summary": _source_summary_text(row, metadata),
+        "summary": _raw_source_summary_text(row, metadata),
         "content": str(row.get("content_original") or row.get("description") or "")[:600],
     }
     raw = json.dumps(material, ensure_ascii=False, sort_keys=True)
@@ -102,6 +117,22 @@ def _source_summary_text(row: dict[str, Any], metadata: dict[str, Any] | None = 
     translation = raw_translation if isinstance(raw_translation, dict) else {}
     for value in (
         translation.get("summary_pre"),
+        meta.get("summary"),
+        row.get("summary"),
+        row.get("description"),
+        row.get("content_original"),
+        row.get("title_original"),
+    ):
+        text = str(value or "").strip()
+        if text:
+            return " ".join(text.split())[:420]
+    return ""
+
+
+def _raw_source_summary_text(row: dict[str, Any], metadata: dict[str, Any] | None = None) -> str:
+    raw_metadata = metadata if isinstance(metadata, dict) else row.get("metadata")
+    meta = raw_metadata if isinstance(raw_metadata, dict) else {}
+    for value in (
         meta.get("summary"),
         row.get("summary"),
         row.get("description"),
@@ -223,7 +254,7 @@ class PublicTranslationEngine:
         return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
     def row_is_due(self, row: dict[str, Any], *, now: datetime | None = None) -> bool:
-        if public_translation_ready(row.get("metadata")):
+        if public_publication_ready_for_row(row):
             return False
         attempts = _safe_int(row.get("translation_attempts")) or 0
         updated_at = _parse_iso_datetime(row.get("translation_updated_at"))

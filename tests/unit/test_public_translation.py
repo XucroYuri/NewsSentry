@@ -14,6 +14,7 @@ from news_sentry.core.public_translation import (
     PublicTranslationConfig,
     PublicTranslationEngine,
     public_publication_ready,
+    public_translation_field_hash,
     public_translation_ready,
 )
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
@@ -201,6 +202,57 @@ async def test_update_event_metadata_recomputes_public_translation_ready(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_index_event_marks_ready_publication_stale_when_source_hash_changes(
+    tmp_path,
+) -> None:
+    store = AsyncStore(tmp_path / "state.db")
+    await store.initialize()
+    try:
+        metadata = {
+            "translation": {
+                "title_pre": "法国获得欧盟贷款用于军备采购",
+                "summary_pre": "这条新闻涉及欧盟资金流向和法国防务采购。",
+            },
+            "publication": {
+                "one_line_summary": "法国获得欧盟贷款支持军备采购。",
+                "recommendation_reason": "这会影响欧盟资金流向和法国防务采购节奏。",
+            },
+        }
+        first_event = _event(
+            "ne-stale-hash",
+            title="Original French defence loan",
+            metadata=metadata,
+        )
+        metadata["publication"]["field_hash"] = public_translation_field_hash(
+            {
+                "event_id": first_event.id,
+                "target_id": "france",
+                "title_original": first_event.title_original,
+                "content_original": first_event.content_original,
+                "metadata": metadata,
+            }
+        )
+
+        await store.index_event(first_event, "france", "drafts")
+        ready_row = await store.get_event_index_row("france", "ne-stale-hash")
+        assert ready_row is not None and ready_row["public_translation_ready"] == 1
+
+        changed_event = _event(
+            "ne-stale-hash",
+            title="Changed French defence loan with new facts",
+            metadata=metadata,
+        )
+        await store.index_event(changed_event, "france", "drafts")
+
+        stale_row = await store.get_event_index_row("france", "ne-stale-hash")
+        assert stale_row is not None and stale_row["public_translation_ready"] == 0
+        candidates = await store.list_public_translation_candidates("france", limit=10)
+        assert [row["event_id"] for row in candidates] == ["ne-stale-hash"]
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
 async def test_public_translation_engine_writes_publication_fields_and_marks_ready(
     tmp_path,
 ) -> None:
@@ -266,6 +318,7 @@ async def test_public_translation_engine_writes_publication_fields_and_marks_rea
         assert publication["one_line_summary"] == "法国获得欧盟贷款支持军备采购。"
         assert "法国防务采购链条" in publication["recommendation_reason"]
         assert publication["route_id"] == "public.summary_reason"
+        assert publication["field_hash"]
         assert row["public_translation_ready"] == 1
     finally:
         await store.close()

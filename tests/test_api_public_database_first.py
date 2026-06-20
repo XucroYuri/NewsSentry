@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from news_sentry.core import api_server
 from news_sentry.core.api_server import create_app
+from news_sentry.core.public_translation import public_translation_field_hash
 
 
 def _ready_translation(
@@ -515,5 +516,48 @@ def test_public_news_detail_prefers_direct_store_row_without_projection_scan(
     assert item["summary"] == "投影详情中文摘要"
     assert item["originalUrl"] == "https://example.com/story"
     assert item["source"]["id"] == "ansa"
+    assert store.direct_row_reads == 1
+    assert store.projection_scan_attempted is False
+
+
+def test_public_news_detail_hides_stale_publication_hash(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    event_id = "ne-italy-stale-publication-001"
+    metadata = _ready_translation(
+        title="旧标题对应的中文标题",
+        summary="旧标题对应的中文摘要。",
+        one_line="旧标题对应的一句话概括。",
+        reason="旧标题对应的推荐理由，已经不应继续公开。",
+    )
+    metadata["publication"]["field_hash"] = public_translation_field_hash(
+        {
+            "event_id": event_id,
+            "target_id": "italy",
+            "title_original": "Old source title",
+            "metadata": metadata,
+        }
+    )
+    store = DirectRowProjectionDetailStore(
+        [
+            _projection_row(
+                event_id=event_id,
+                title_original="Changed source title",
+                metadata=metadata,
+            )
+        ]
+    )
+    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
+    client = TestClient(app)
+    monkeypatch.setattr(
+        api_server,
+        "_load_single_event",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not read markdown")),
+    )
+
+    response = client.get(f"/api/v1/public/news/{event_id}", params={"target_id": "italy"})
+
+    assert response.status_code == 404
     assert store.direct_row_reads == 1
     assert store.projection_scan_attempted is False

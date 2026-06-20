@@ -152,9 +152,11 @@ function NewsCard({ item, returnTo }: { item: PublicNewsItem; returnTo?: PublicR
           <h2 className="text-base font-semibold leading-6 text-foreground sm:text-lg">
             {item.title}
           </h2>
-          <p className="line-clamp-2 text-sm leading-5 text-muted-foreground">
-            {item.summary || "中文摘要正在补齐，完成后会进入公共阅读流。"}
-          </p>
+          {item.summary ? (
+            <p className="line-clamp-2 text-sm leading-5 text-muted-foreground">
+              {item.summary}
+            </p>
+          ) : null}
         </div>
 
         {reason ? (
@@ -280,7 +282,7 @@ export function NewsFeedPage({
   const emptyDescription =
     filters.channel === "analysis"
       ? "当前窗口还没有足够样本形成态势。采集与增强继续运行，稍后会补充趋势、实体和追踪链。"
-      : "已采集新闻正在补齐中文标题与中文摘要。完成翻译后会自动进入公共阅读流。"
+      : "中文标题、摘要和 AI 推荐理由完成后会自动进入公共阅读流。"
 
   return (
     <section className="min-w-0 overflow-hidden rounded-lg border bg-card/95 dark:bg-card/80">
@@ -291,7 +293,7 @@ export function NewsFeedPage({
         <ErrorState message={state.error ?? "加载失败"} onRetry={onRefresh} />
       ) : null}
       {state.status === "empty" ? (
-        <EmptyExplanation title="翻译队列处理中" description={emptyDescription} />
+        <EmptyExplanation title="中文加工中" description={emptyDescription} />
       ) : null}
       {hasItems ? (
         <div>
@@ -547,9 +549,11 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
           <section className="grid gap-4">
             <div>
               <h2 className="text-base font-semibold">新闻摘要</h2>
-              <p className="mt-2 text-sm leading-7 text-muted-foreground">
-                {item.summary || "这条新闻仍在生成读者摘要，已保留来源与原文入口。"}
-              </p>
+              {item.summary ? (
+                <p className="mt-2 text-sm leading-7 text-muted-foreground">
+                  {item.summary}
+                </p>
+              ) : null}
             </div>
           {item.recommendationReason ? (
             <div className="rounded-md border bg-muted/35 p-3 text-sm leading-6 text-muted-foreground">
@@ -812,9 +816,15 @@ function DailyBriefRow({
           ) : null}
         </div>
         <h2 className="line-clamp-2 text-sm font-semibold leading-5 sm:text-base">{item.title}</h2>
-        <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">
-          {item.recommendationReason || item.summary || "中文摘要正在补齐。"}
-        </p>
+        {item.summary ? (
+          <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{item.summary}</p>
+        ) : null}
+        {item.recommendationReason ? (
+          <p className="line-clamp-1 text-xs leading-5 text-muted-foreground">
+            <span className="font-medium text-foreground">推荐理由：</span>
+            {item.recommendationReason}
+          </p>
+        ) : null}
       </div>
       <Button asChild variant="outline" size="sm" className="h-8 justify-self-start sm:justify-self-end">
         <a

@@ -257,6 +257,9 @@ class TestPublicTranslationAPI:
         assert data["config"]["interval_minutes"] == 5
         assert data["config"]["per_cycle_limit"] == 50
         assert data["running"] is False
+        assert data["publication_ready_count"] == 0
+        assert data["pending_reason_count"] == 0
+        assert data["freellmapi_available"] is False
 
     def test_public_translation_dry_run_lists_untranslated_candidates(
         self,

@@ -22,7 +22,7 @@ from typing import Any
 
 import aiosqlite
 
-from news_sentry.core.public_translation import public_translation_ready
+from news_sentry.core.public_translation import public_publication_ready_for_row
 from news_sentry.skills.filter.classification_taxonomy import canonical_l0, l0_query_values
 
 if not _os.environ.get("PYTEST_CURRENT_TEST"):
@@ -684,16 +684,41 @@ class AsyncStore:
         item["metadata"] = self._json_loads(item.pop("metadata_json", None))
         return item
 
+    def _publication_ready_from_index_row(self, row: dict[str, Any]) -> int:
+        return 1 if public_publication_ready_for_row(row) else 0
+
+    def _publication_row_from_event(
+        self,
+        event: object,
+        target_id: str,
+        metadata: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "event_id": getattr(event, "id", ""),
+            "target_id": target_id,
+            "title_original": getattr(event, "title_original", None),
+            "content_original": getattr(event, "content_original", None),
+            "description": getattr(event, "description", None),
+            "metadata": metadata,
+        }
+
     async def _refresh_public_translation_readiness(self) -> None:
         assert self._db is not None
         try:
             rows = await self._db.execute_fetchall(
-                "SELECT event_id, target_id, metadata_json FROM event_index"
+                "SELECT event_id, target_id, title_original, metadata_json FROM event_index"
             )
         except sqlite3.OperationalError:
             return
-        for event_id, target_id, metadata_json in rows:
-            ready = 1 if public_translation_ready(self._json_loads(metadata_json)) else 0
+        for event_id, target_id, title_original, metadata_json in rows:
+            ready = self._publication_ready_from_index_row(
+                {
+                    "event_id": event_id,
+                    "target_id": target_id,
+                    "title_original": title_original,
+                    "metadata": self._json_loads(metadata_json),
+                }
+            )
             await self._db.execute(
                 "UPDATE event_index SET public_translation_ready = ? "
                 "WHERE target_id = ? AND event_id = ?",
@@ -985,7 +1010,9 @@ class AsyncStore:
         if self._db is None:
             return
         metadata = self._safe_metadata_attr(event)
-        translation_ready = 1 if public_translation_ready(metadata) else 0
+        translation_ready = self._publication_ready_from_index_row(
+            self._publication_row_from_event(event, target_id, metadata)
+        )
         classification = metadata.get("classification", {})
         classification_l0 = classification.get("l0") if isinstance(classification, dict) else None
         classification_l0 = canonical_l0(classification_l0)
@@ -1634,15 +1661,23 @@ class AsyncStore:
         """Merge metadata patch into event_index.metadata_json for one event."""
         db = await self._ensure_db()
         async with db.execute(
-            "SELECT metadata_json FROM event_index WHERE target_id = ? AND event_id = ?",
+            "SELECT event_id, target_id, title_original, metadata_json "
+            "FROM event_index WHERE target_id = ? AND event_id = ?",
             (target_id, event_id),
         ) as cursor:
             row = await cursor.fetchone()
         if row is None:
             return None
-        existing = self._json_loads(row[0])
+        existing = self._json_loads(row[3])
         merged = self._deep_merge_dict(existing, metadata_patch)
-        ready = 1 if public_translation_ready(merged) else 0
+        ready = self._publication_ready_from_index_row(
+            {
+                "event_id": row[0],
+                "target_id": row[1],
+                "title_original": row[2],
+                "metadata": merged,
+            }
+        )
         await db.execute(
             "UPDATE event_index SET metadata_json = ?, public_translation_ready = ? "
             "WHERE target_id = ? AND event_id = ?",
