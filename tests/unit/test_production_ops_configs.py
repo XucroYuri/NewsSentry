@@ -90,6 +90,7 @@ def test_deploy_workflow_has_one_off_cloudflare_state_bypass_guard() -> None:
 
     assert "allow_temporary_cloudflare_state_bypass" in workflow
     assert "TEMPORARY_CLOUDFLARE_STATE_BYPASS" in workflow
+    assert "TEMPORARY_CLOUDFLARE_PREVIEW_ACCESS_BYPASS" in workflow
     assert "[temporary-cloudflare-state-bypass]" in workflow
     assert "docs/deployment/cloudflare-state-json.example.json" in workflow
     assert "Missing CLOUDFLARE_STATE_JSON secret" in workflow
