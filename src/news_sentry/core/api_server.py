@@ -3758,7 +3758,24 @@ async def _target_public_event_count(target_id: str, _data_dir: Path) -> int:
     except Exception:
         logger.exception("Failed to count indexed public events for target %s", target_id)
         return 0
-    return 0
+
+
+async def _public_target_event_counts(data_dir: Path) -> dict[str, int]:
+    """Return public-ready event counts without scanning every target when global store exists."""
+    if _store is not None:
+        get_counts = getattr(_store, "get_public_event_counts_by_target", None)
+        if get_counts is not None:
+            try:
+                return cast(dict[str, int], await get_counts(_PUBLIC_ANALYSIS_STAGE))
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to count public targets from global store")
+                return {}
+    counts: dict[str, int] = {}
+    for target_id in _public_news_target_ids(data_dir, None):
+        count = await _target_public_event_count(target_id, data_dir)
+        if count > 0:
+            counts[target_id] = count
+    return counts
 
 
 async def _target_api_event_count(target_id: str) -> int:
@@ -6922,6 +6939,21 @@ async def _render_public_sitemap_xml(store: Any, *, base_url: str) -> str:
 
 async def _public_sitemap_entries(*, base_url: str) -> list[Any]:
     entries: list[Any] = []
+    if _store is not None:
+        projection_store = PublicSiteProjectionStore(_store, base_url=base_url)
+        try:
+            entries = await projection_store.list_sitemap_entries(limit=1000)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to render sitemap entries from global store")
+            entries = []
+        if entries:
+            return entries
+        return [
+            SitemapEntry(
+                loc=f"{base_url}/",
+                lastmod=datetime.now(UTC).isoformat(),
+            )
+        ]
     for target_id in _public_news_target_ids(_data_dir, None):
         try:
             store = await _get_target_store(target_id)
@@ -6937,13 +6969,6 @@ async def _public_sitemap_entries(*, base_url: str) -> list[Any]:
             )
         except Exception:  # noqa: BLE001
             logger.exception("Failed to render sitemap entries for target %s", target_id)
-    if not entries and _store is not None:
-        projection_store = PublicSiteProjectionStore(_store, base_url=base_url)
-        try:
-            entries = await projection_store.list_sitemap_entries(limit=1000)
-        except Exception:  # noqa: BLE001
-            logger.exception("Failed to render sitemap entries from global store")
-            entries = []
     if entries:
         return entries
     return [
@@ -8168,11 +8193,16 @@ def create_app(
     async def list_targets() -> TargetListResponse:
         """返回公开可浏览的 active target 列表。"""
         configs = _load_target_configs()
+        event_counts = await _public_target_event_counts(_data_dir)
         targets = []
         for config in configs:
             if _target_is_archived(config):
                 continue
-            target = await _target_info_from_config_for_response(config, _data_dir)
+            target = _target_info_from_config(config, _data_dir)
+            if target.target_id:
+                target = target.model_copy(
+                    update={"event_count": event_counts.get(target.target_id, 0)}
+                )
             if target.source_count <= 0 or target.event_count <= 0:
                 continue
             targets.append(target)

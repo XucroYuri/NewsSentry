@@ -1200,6 +1200,19 @@ class AsyncStore:
             row = await cursor.fetchone()
         return row[0] if row else 0
 
+    async def get_public_event_counts_by_target(self, stage: str = "drafts") -> dict[str, int]:
+        """Return public-ready event counts grouped by target."""
+        if self._db is None:
+            return {}
+        async with self._db.execute(
+            "SELECT target_id, COUNT(*) FROM event_index "
+            "WHERE stage = ? AND public_translation_ready = 1 "
+            "GROUP BY target_id",
+            (stage,),
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return {str(row[0]): int(row[1] or 0) for row in rows if row[0]}
+
     async def get_stats(self, target_id: str) -> dict[str, Any]:
         if self._db is None:
             return {"total_events": 0, "stage_counts": {}, "avg_news_value_score": 0.0}
