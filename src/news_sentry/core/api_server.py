@@ -3804,11 +3804,15 @@ def _target_info_from_config(data: dict[str, Any], data_dir: Path) -> TargetInfo
 def _region_info_from_config(data: dict[str, Any], data_dir: Path) -> RegionInfo:
     target = _target_info_from_config(data, data_dir)
     region_type = _target_region_type(data)
+    region_type_value = cast(
+        Literal["country", "region", "continent", "global"],
+        region_type if region_type in _REGION_TYPES else "country",
+    )
     return RegionInfo(
         region_id=target.target_id,
         display_name=target.display_name,
         primary_language=target.primary_language,
-        region_type=region_type if region_type in _REGION_TYPES else "country",
+        region_type=region_type_value,
         source_count=target.source_count,
         event_count=target.event_count,
         lifecycle=target.lifecycle,
@@ -3837,17 +3841,17 @@ async def _public_target_event_counts(data_dir: Path) -> dict[str, int]:
         get_counts = getattr(_store, "get_public_event_counts_by_target", None)
         if get_counts is not None:
             try:
-                counts = cast(dict[str, int], await get_counts(_PUBLIC_ANALYSIS_STAGE))
-                if counts:
-                    return counts
+                store_counts = cast(dict[str, int], await get_counts(_PUBLIC_ANALYSIS_STAGE))
+                if store_counts:
+                    return store_counts
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to count public targets from global store")
-    counts: dict[str, int] = {}
+    target_counts: dict[str, int] = {}
     for target_id in _public_news_target_ids(data_dir, None):
         count = await _target_public_event_count(target_id, data_dir)
         if count > 0:
-            counts[target_id] = count
-    return counts
+            target_counts[target_id] = count
+    return target_counts
 
 
 async def _target_api_event_count(target_id: str) -> int:
