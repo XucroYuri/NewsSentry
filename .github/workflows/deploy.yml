@@ -119,7 +119,7 @@ jobs:
           username: ${{ secrets.BWH_SSH_USER }}
           key: ${{ secrets.BWH_SSH_KEY }}
           port: ${{ secrets.BWH_SSH_PORT || 22 }}
-          command_timeout: 5m
+          command_timeout: 15m
           script: |
             set -euo pipefail
 
