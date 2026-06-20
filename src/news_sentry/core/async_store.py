@@ -467,6 +467,11 @@ _DDL_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_event_created ON event_index(created_at)",
     "CREATE INDEX IF NOT EXISTS idx_event_public_translation_ready "
     "ON event_index(target_id, stage, public_translation_ready, published_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_event_public_stage_ready_target "
+    "ON event_index(stage, public_translation_ready, target_id)",
+    "CREATE INDEX IF NOT EXISTS idx_event_public_stage_ready_time "
+    "ON event_index(stage, public_translation_ready, "
+    "published_at DESC, created_at DESC, event_id DESC)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_alert_history_key "
     "ON alert_history(target_id, alert_key)",
     "CREATE INDEX IF NOT EXISTS idx_canonical_events_target_status_time "

@@ -2784,26 +2784,23 @@ async def _public_news_candidate_events(
                 allowed_targets = set(target_ids)
                 rows = result.get("rows", []) if isinstance(result, dict) else []
                 if isinstance(rows, list):
-                    if rows:
-                        for row in cast(list[dict[str, Any]], rows):
-                            row_target_id = str(row.get("target_id") or "").strip()
-                            if not row_target_id or row_target_id not in allowed_targets:
-                                continue
-                            if not _row_publication_ready(row):
-                                continue
-                            candidates.append(
-                                (
-                                    row_target_id,
-                                    _merge_index_metadata(_event_from_index_row(row), row),
-                                )
+                    for row in cast(list[dict[str, Any]], rows):
+                        row_target_id = str(row.get("target_id") or "").strip()
+                        if not row_target_id or row_target_id not in allowed_targets:
+                            continue
+                        if not _row_publication_ready(row):
+                            continue
+                        candidates.append(
+                            (
+                                row_target_id,
+                                _merge_index_metadata(_event_from_index_row(row), row),
                             )
-                        candidates.sort(
-                            key=lambda item: _public_news_sort_key(item[1]), reverse=True
                         )
-                        total = int(result.get("total") or 0)
-                        if len(candidates) != len(rows):
-                            total = len(candidates)
-                        return candidates, max(len(candidates), total)
+                    candidates.sort(key=lambda item: _public_news_sort_key(item[1]), reverse=True)
+                    total = int(result.get("total") or 0)
+                    if len(candidates) != len(rows):
+                        total = len(candidates)
+                    return candidates, max(len(candidates), total)
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to collect global public news candidates from store")
     for target_id in target_ids:

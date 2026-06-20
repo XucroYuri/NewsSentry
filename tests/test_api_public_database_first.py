@@ -276,24 +276,11 @@ def test_public_news_list_returns_fresh_hashed_projection_rows(
     assert [item["id"] for item in body["items"]] == ["ne-italy-projection-list-hashed-ready"]
 
 
-def test_public_news_all_targets_falls_back_to_target_store_when_global_store_is_empty(
+def test_public_news_all_targets_does_not_scan_target_stores_when_global_store_is_empty(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    row = _projection_row(
-        event_id="ne-canada-target-store-visible",
-        target_id="canada",
-        source_id="globalnews-canada",
-        title_original="Target-store ready story",
-            metadata=_ready_translation(
-                title="加拿大目标库新闻",
-                summary="这条加拿大新闻已经完成中文摘要。",
-                one_line="加拿大新闻从目标库进入全站公共流。",
-                reason="AI 推荐理由说明该新闻具备跨境观察价值。",
-            ),
-        )
     global_store = EmptyGlobalPublicStore([])
-    target_store = TargetReadyProjectionStore([row])
 
     monkeypatch.setattr(
         api_server,
@@ -310,7 +297,7 @@ def test_public_news_all_targets_falls_back_to_target_store_when_global_store_is
     )
 
     async def _fake_target_store(target_id: str):
-        return target_store if target_id == "canada" else None
+        raise AssertionError(f"should not scan target store for global feed: {target_id}")
 
     monkeypatch.setattr(api_server, "_get_target_store", _fake_target_store)
     app = create_app(data_dir=tmp_path, store=global_store, auto_store=False, skip_lifespan=True)
@@ -320,8 +307,8 @@ def test_public_news_all_targets_falls_back_to_target_store_when_global_store_is
 
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 1
-    assert [item["id"] for item in body["items"]] == ["ne-canada-target-store-visible"]
+    assert body["total"] == 0
+    assert body["items"] == []
 
 
 def test_public_targets_fall_back_to_target_store_counts_when_global_store_is_empty(
