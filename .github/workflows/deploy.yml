@@ -17,6 +17,12 @@ on:
         default: "false"
         type: choice
         options: ["false", "true"]
+      deploy_freellmapi_sidecar:
+        description: "Update/rebuild the FreeLLMAPI sidecar during this deploy. Defaults off to keep app deploys fast and reliable."
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
 
 permissions:
   contents: write
@@ -136,6 +142,7 @@ jobs:
             FREELLMAPI_REPO="${FREELLMAPI_DIR}/repo"
             FREELLMAPI_ENV_FILE="${FREELLMAPI_DIR}/.env"
             FREELLMAPI_SERVICE="${SERVICE}-freellmapi"
+            DEPLOY_FREELLMAPI_SIDECAR="${{ github.event_name == 'workflow_dispatch' && inputs.deploy_freellmapi_sidecar == 'true' && 'true' || 'false' }}"
             REPO_URL="https://github.com/XucroYuri/NewsSentry.git"
             DEPLOY_GITHUB_TOKEN="${{ secrets.GHCR_PAT || github.token }}"
             if [ -z "${DEPLOY_GITHUB_TOKEN}" ]; then
@@ -245,31 +252,32 @@ jobs:
 
             # ── 3a. FreeLLMAPI sidecar: OpenAI-compatible local routing layer ──
             mkdir -p "${FREELLMAPI_DIR}/data"
-            if [ -d "${FREELLMAPI_REPO}/.git" ]; then
-              git config --global --add safe.directory "${FREELLMAPI_REPO}"
-              cd "${FREELLMAPI_REPO}"
-              git remote set-url origin "https://github.com/tashfeenahmed/freellmapi.git"
-              git fetch origin
-              DEFAULT_FREELLMAPI_BRANCH="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#origin/##' || echo main)"
-              git reset --hard "origin/${DEFAULT_FREELLMAPI_BRANCH}"
-              git clean -fd
-            else
-              git clone "https://github.com/tashfeenahmed/freellmapi.git" "${FREELLMAPI_REPO}"
-              cd "${FREELLMAPI_REPO}"
-            fi
-            rm -rf node_modules server/node_modules client/node_modules apps/node_modules packages/node_modules
-            npm ci
-            npm run build
-            rm -rf "${FREELLMAPI_REPO}/server/data"
-            ln -s "${FREELLMAPI_DIR}/data" "${FREELLMAPI_REPO}/server/data"
-            ensure_env_kv_missing "${FREELLMAPI_ENV_FILE}" "ENCRYPTION_KEY" "$(openssl rand -hex 32)"
-            upsert_env_kv "${FREELLMAPI_ENV_FILE}" "NODE_ENV" "production"
-            upsert_env_kv "${FREELLMAPI_ENV_FILE}" "PORT" "${FREELLMAPI_PORT}"
-            upsert_env_kv "${FREELLMAPI_ENV_FILE}" "HOST" "127.0.0.1"
-            upsert_env_kv "${FREELLMAPI_ENV_FILE}" "REQUEST_ANALYTICS_RETENTION_DAYS" "30"
-            upsert_env_kv "${FREELLMAPI_ENV_FILE}" "REQUEST_ANALYTICS_MAX_ROWS" "50000"
-            NPM_BIN="$(command -v npm)"
-            cat > "/etc/systemd/system/${FREELLMAPI_SERVICE}.service" <<FREESVCEOF
+            if [ "${DEPLOY_FREELLMAPI_SIDECAR}" = "true" ]; then
+              if [ -d "${FREELLMAPI_REPO}/.git" ]; then
+                git config --global --add safe.directory "${FREELLMAPI_REPO}"
+                cd "${FREELLMAPI_REPO}"
+                git remote set-url origin "https://github.com/tashfeenahmed/freellmapi.git"
+                git fetch origin
+                DEFAULT_FREELLMAPI_BRANCH="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#origin/##' || echo main)"
+                git reset --hard "origin/${DEFAULT_FREELLMAPI_BRANCH}"
+                git clean -fd
+              else
+                git clone "https://github.com/tashfeenahmed/freellmapi.git" "${FREELLMAPI_REPO}"
+                cd "${FREELLMAPI_REPO}"
+              fi
+              rm -rf node_modules server/node_modules client/node_modules apps/node_modules packages/node_modules
+              npm ci
+              npm run build
+              rm -rf "${FREELLMAPI_REPO}/server/data"
+              ln -s "${FREELLMAPI_DIR}/data" "${FREELLMAPI_REPO}/server/data"
+              ensure_env_kv_missing "${FREELLMAPI_ENV_FILE}" "ENCRYPTION_KEY" "$(openssl rand -hex 32)"
+              upsert_env_kv "${FREELLMAPI_ENV_FILE}" "NODE_ENV" "production"
+              upsert_env_kv "${FREELLMAPI_ENV_FILE}" "PORT" "${FREELLMAPI_PORT}"
+              upsert_env_kv "${FREELLMAPI_ENV_FILE}" "HOST" "127.0.0.1"
+              upsert_env_kv "${FREELLMAPI_ENV_FILE}" "REQUEST_ANALYTICS_RETENTION_DAYS" "30"
+              upsert_env_kv "${FREELLMAPI_ENV_FILE}" "REQUEST_ANALYTICS_MAX_ROWS" "50000"
+              NPM_BIN="$(command -v npm)"
+              cat > "/etc/systemd/system/${FREELLMAPI_SERVICE}.service" <<FREESVCEOF
             [Unit]
             Description=FreeLLMAPI sidecar for News Sentry ${ENV}
             After=network.target
@@ -295,22 +303,25 @@ jobs:
             [Install]
             WantedBy=multi-user.target
             FREESVCEOF
-            chown -R newssentry:newssentry "${FREELLMAPI_DIR}"
-            systemctl daemon-reload
-            systemctl enable "${FREELLMAPI_SERVICE}"
-            systemctl restart "${FREELLMAPI_SERVICE}"
-            for i in $(seq 1 12); do
-              if curl -sf "http://127.0.0.1:${FREELLMAPI_PORT}/api/ping" > /dev/null 2>&1; then
-                echo "✅ FreeLLMAPI sidecar running on 127.0.0.1:${FREELLMAPI_PORT}"
-                break
-              fi
-              if [ "$i" -eq 12 ]; then
-                echo "❌ FreeLLMAPI sidecar health check failed after 60s"
-                journalctl -u "${FREELLMAPI_SERVICE}" --no-pager -n 30 | redact_sensitive_log
-                exit 1
-              fi
-              sleep 5
-            done
+              chown -R newssentry:newssentry "${FREELLMAPI_DIR}"
+              systemctl daemon-reload
+              systemctl enable "${FREELLMAPI_SERVICE}"
+              systemctl restart "${FREELLMAPI_SERVICE}"
+              for i in $(seq 1 12); do
+                if curl -sf "http://127.0.0.1:${FREELLMAPI_PORT}/api/ping" > /dev/null 2>&1; then
+                  echo "✅ FreeLLMAPI sidecar running on 127.0.0.1:${FREELLMAPI_PORT}"
+                  break
+                fi
+                if [ "$i" -eq 12 ]; then
+                  echo "❌ FreeLLMAPI sidecar health check failed after 60s"
+                  journalctl -u "${FREELLMAPI_SERVICE}" --no-pager -n 30 | redact_sensitive_log
+                  exit 1
+                fi
+                sleep 5
+              done
+            else
+              echo "ℹ️  Skipping FreeLLMAPI sidecar update; set deploy_freellmapi_sidecar=true to rebuild it."
+            fi
 
             cd "${REPO_DIR}/frontend/public"
             npm ci
