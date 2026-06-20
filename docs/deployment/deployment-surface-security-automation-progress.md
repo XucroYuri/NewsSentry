@@ -21,14 +21,16 @@
 | 3 | 2026-06-15T14:08:10Z | composite-governance | preview replay + readonly audit | preview=`admin-ui-path-migration`, `cloudflare-state-unavailable`; production still also has `protected-surface-public(/api/v1/runtime/info)` | preview `/api/v1/runtime/info` fixed by replay; production `/api/v1/runtime/info` still needs deploy/verification | `preview-public-news-empty`, `production-runtime-info-public`, `cloudflare-state-unavailable`, `admin-ui-path-migration` | preview-code-replayed; main-receipt-blocked | `preview` fast-forwarded to `6743d1e2`; `CI 27551573375`, `Deploy 27551573403`, `Scan Secrets 27551573359` all succeeded; preview health/targets/discoverability pass, but public news is still empty |
 | 4 | 2026-06-15T14:19:05Z | composite-governance | preview health evidence | 0 report-level findings in diff-scoped security scan | health deploy evidence now externally visible on preview | `preview-public-news-empty`, `production-runtime-info-public`, `cloudflare-state-unavailable`, `admin-ui-path-migration` | preview-receipt-done; main-receipt-pending | code commit `799fb0c2` + receipt basis `563cc571`; `CI 27552402853`, `Deploy 27552402837`, `Scan Secrets 27552402784` success; pre-ledger preview `GET /api/v1/health` returned `x-news-sentry-deploy-commit: 563cc571b687` and `x-news-sentry-static-build: 000484d39674`; preview `GET /api/v1/runtime/info` without auth returned `401` |
 | 5 | 2026-06-16T17:34:00Z | composite-governance | preview + production + Cloudflare readonly recheck | preview=`admin-ui-path-migration`, `cloudflare-state-unavailable`; production also=`protected-surface-public(/api/v1/runtime/info)` | preview health evidence still visible at `origin/preview@27a36643`; production runtime boundary still unpublished | `preview-public-news-empty`, `production-runtime-info-public`, `cloudflare-state-unavailable`, `admin-ui-path-migration` | blocked | preview `GET /api/v1/health` now returns `x-news-sentry-deploy-commit: 27a36643f491`; `preview /api/v1/public/news` still `total=0`; production `/api/v1/public/news` is non-empty but `/api/v1/runtime/info` remains `200`; Cloudflare `access/apps` is readable but empty, while `rate_limits` and `rulesets/phases/http_ratelimit/entrypoint` still return auth errors |
+| 6 | 2026-06-20T12:10:00Z | manual release-blocker remediation | production + preview Cloudflare Access | partial state audit leaves `cloudflare-rate-limit-drift`, `cloudflare-waf-drift` | `/admin/`, `/admin/login`, `/api/v1/admin/*`, `/api/v1/auth/*`, `/api/v1/status`, `/api/v1/runtime/info` now covered by Cloudflare Access 302/Access app destinations | `cloudflare-ruleset-detail-unreadable`, `cloudflare-state-json-incomplete` | blocked | Created production and preview Access apps for admin/auth/status/runtime paths; live `GET https://news-sentry.com/admin/` now redirects to Cloudflare Access. Updated deployed-surface audit to treat Cloudflare Access login redirects as protected. Current Cloudflare token can list zone rulesets, including rate limits and managed WAF, but cannot read rule details, so path-level rate-limit/WAF evidence remains missing. |
 
 ## 当前 blocker
 
-- `admin-ui-path-migration`: 后台 UI 仍为同域 hash shell，Cloudflare v1 只能直接保护服务端路径与接口。
-- `cloudflare-state-unavailable`: 2026-06-16 已能只读列出 zone `access/apps`，结果为空；但 `rate_limits` 与 ruleset entrypoint 仍返回 auth error / not authorized，缺少完整 Cloudflare Access / WAF / rate-limit 状态 JSON，发布器必须停止并记录 blocker。
-- `preview-public-news-empty`: `GET https://preview.news-sentry.com/api/v1/public/news?featured=true&page_size=1` 仍返回 `total=0`，不能作为有内容的 public-reader receipt。
-- `production-runtime-info-public`: `GET https://news-sentry.com/api/v1/runtime/info` 仍返回 `200`；同路径在 replay 后的 preview 已返回 `401`。
-- `production-promotion-pending`: health evidence headers 只在 `preview` 完成外部验证；必须从 `preview` 提升并复验 production 后，才能写 `main receipt`。
+- `cloudflare-state-json-incomplete`: Access app 写入与 live 302 已完成，但
+  `CLOUDFLARE_STATE_JSON` 仍缺少 rate-limit/WAF 路径级可审计证据。
+- `cloudflare-ruleset-detail-unreadable`: 当前 Cloudflare API token 与本机 Wrangler
+  OAuth 会话可列出 zone rulesets，但不能读取 `http_ratelimit` / WAF ruleset 详情。
+- `production-promotion-pending`: health evidence headers 只在旧 `preview/main`
+  生产链完成；必须从新版 `preview` 提升并复验 production 后，才能写新 `main receipt`。
 
 ## 当前高优先级 finding
 

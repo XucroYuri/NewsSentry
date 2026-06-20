@@ -19,9 +19,9 @@ surface_rules:
     - "/api/v1/auth/"
     - "/api/v1/admin/"
   architecture_exact:
-    - "/#/admin/login"
+    - "/admin/"
+    - "/admin/login"
   architecture_prefixes:
-    - "/#/admin"
     - "/admin/"
   default_probe_surfaces:
     public:
@@ -40,7 +40,8 @@ surface_rules:
       - "/api/v1/admin/overview"
       - "/api/v1/admin/targets"
     architecture:
-      - "/#/admin/login"
+      - "/admin/"
+      - "/admin/login"
 
 auto_fixable_finding_classes:
   - "protected-surface-public"

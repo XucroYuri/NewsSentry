@@ -22,7 +22,7 @@
 | `codex/composite-governance-receipt-recovery-20260615` | `6743d1e2` | 是 | 是 | 生产验证后可删 |
 | `codex/deployment-surface-hardening-20260615` | `27a36643` | 是 | 是 | 生产验证后可删 |
 | `codex/deployment-surface-hardening-20260615-clean` | `49fabea1` | 是 | 是 | 生产验证后可删 |
-| `codex/vnext-publication-trust-p0` | `e74c249f` | 否 | 否 | 当前工作承载分支，禁止删除 |
+| `codex/vnext-publication-trust-p0` | `b59f4d6d` | 否 | 否 | 当前工作承载分支，禁止删除 |
 | `preview` | `7f0155ef` | 是 | 是 | 长期保留 |
 | `main` | `afecb041` | 否 | 是 | 长期保留 |
 
@@ -36,12 +36,21 @@
 
 ## 当前生产阻断项
 
-本地执行 deployed surface audit 时，当前线上生产基线仍有 2 个 blocker：
+本地执行 deployed surface audit 时，当前线上生产基线已完成后台根路径
+Cloudflare Access 收紧：
 
-- `/#/admin/login -> HTTP 200`
-- `Cloudflare state JSON unavailable`
+- `https://news-sentry.com/admin/` -> Cloudflare Access `302`
+- `https://news-sentry.com/admin/login` -> Cloudflare Access `302`
 
-这两个 blocker 属于生产外部验收前置项。在它们解决并完成 production receipt 前，不执行远端 codex 分支删除。
+当前剩余生产发布前置项是 Cloudflare state JSON 的路径级证据：
+
+- Access protected prefixes 已可由 live 302 与 Access app 配置证明。
+- 当前 token 能列出 zone rulesets，包含 `News Sentry rate limits` 与
+  `News Sentry managed free WAF`，但不能读取 ruleset 详情。
+- 因此 `cloudflare://rate-limits` 与 `cloudflare://waf` 的具体路径覆盖仍不可审计。
+
+在补齐可读的 Cloudflare state JSON 或更高权限 ruleset 读 token 前，不执行
+preview -> main 自动推进，也不执行远端 codex 分支删除。
 
 部署 workflow 已要求生产环境提供 `CLOUDFLARE_STATE_JSON` secret，并把它作为 `tools/deployed_surface_audit.py --cloudflare-state-json` 的输入。未配置该 secret 时，production verify 会显式失败，而不是静默跳过 Cloudflare 证据。
 

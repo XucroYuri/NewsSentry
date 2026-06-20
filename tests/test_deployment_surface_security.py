@@ -13,6 +13,7 @@ sys.path.insert(0, str(TOOLS_DIR))
 
 from deployment_surface_security import (  # noqa: E402
     build_cloudflare_state_findings,
+    build_surface_findings,
     classify_surface,
     load_policy,
     plan_autofix_publish,
@@ -104,6 +105,25 @@ def test_plan_autofix_publish_filters_out_architecture_and_permission_blockers()
         "admin-ui-path-migration",
         "cloudflare-access-token-missing",
     ]
+
+
+def test_cloudflare_access_login_redirect_counts_as_protected_surface() -> None:
+    policy = load_policy(POLICY_PATH)
+
+    findings = build_surface_findings(
+        [
+            {
+                "surface": "/admin/",
+                "status_code": 302,
+                "headers": {
+                    "location": "https://xuyu-personal.cloudflareaccess.com/cdn-cgi/access/login/news-sentry.com"
+                },
+            }
+        ],
+        policy,
+    )
+
+    assert findings == []
 
 
 def test_deployed_surface_audit_script_marks_public_runtime_info_and_missing_cloudflare_state(

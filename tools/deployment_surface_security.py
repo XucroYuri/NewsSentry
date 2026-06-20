@@ -124,6 +124,22 @@ def _build_finding(
     }
 
 
+def _is_cloudflare_access_redirect(probe: dict[str, Any]) -> bool:
+    status_code = int(probe.get("status_code", 0))
+    if status_code not in {301, 302, 303, 307, 308}:
+        return False
+    headers = probe.get("headers", {})
+    location = ""
+    for key, value in headers.items():
+        if str(key).lower() == "location":
+            location = str(value)
+            break
+    return (
+        "cloudflareaccess.com/cdn-cgi/access/login" in location
+        or "/cdn-cgi/access/login/" in location
+    )
+
+
 def build_surface_findings(
     probes: list[dict[str, Any]],
     policy: dict[str, Any],
@@ -148,6 +164,8 @@ def build_surface_findings(
             continue
 
         if status_code >= 400:
+            continue
+        if _is_cloudflare_access_redirect(probe):
             continue
 
         group = classified["surface_group"]
