@@ -3839,8 +3839,7 @@ async def _public_target_event_counts(data_dir: Path) -> dict[str, int]:
         if get_counts is not None:
             try:
                 store_counts = cast(dict[str, int], await get_counts(_PUBLIC_ANALYSIS_STAGE))
-                if store_counts:
-                    return store_counts
+                return store_counts
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to count public targets from global store")
     target_counts: dict[str, int] = {}
