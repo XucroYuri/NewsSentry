@@ -3745,40 +3745,16 @@ def _target_info_from_config(data: dict[str, Any], data_dir: Path) -> TargetInfo
     )
 
 
-async def _target_public_event_count(target_id: str, data_dir: Path) -> int:
+async def _target_public_event_count(target_id: str, _data_dir: Path) -> int:
     """Return the count the public feed can actually show for a target."""
     try:
         store = await _get_target_store(target_id)
-        if store is not None and await _store_has_target_event_index(store, target_id):
-            query_public_rows = getattr(store, "query_public_news_rows", None)
-            if query_public_rows is not None:
-                result = await query_public_rows(
-                    target_id=target_id,
-                    stage=_PUBLIC_ANALYSIS_STAGE,
-                    limit=100,
-                )
-                rows = result.get("rows", []) if isinstance(result, dict) else []
-                if isinstance(rows, list):
-                    return sum(
-                        1
-                        for row in rows
-                        if public_translation_ready(
-                            row.get("metadata") if isinstance(row, dict) else None
-                        )
-                    )
-            visible = await _visible_index_events_page(
-                store,
-                data_dir,
-                target_id,
-                stage=_PUBLIC_ANALYSIS_STAGE,
-                page=1,
-                page_size=1,
-                exact_total=False,
-            )
-            events = visible.get("events") if isinstance(visible, dict) else []
-            if isinstance(events, list):
-                return len([event for event in events if _event_public_translation_ready(event)])
+        if store is None:
             return 0
+        get_public_count = getattr(store, "get_public_event_count", None)
+        if get_public_count is None:
+            return 0
+        return int(await get_public_count(target_id, _PUBLIC_ANALYSIS_STAGE) or 0)
     except Exception:
         logger.exception("Failed to count indexed public events for target %s", target_id)
         return 0
@@ -6909,17 +6885,34 @@ def _public_site_base_url(request: Request | None = None) -> str:
 
 
 async def _render_public_sitemap_xml(store: Any, *, base_url: str) -> str:
-    entries = await _public_sitemap_entries(base_url=base_url)
+    try:
+        entries = await _public_sitemap_entries(base_url=base_url)
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to collect public sitemap entries")
+        entries = [
+            SitemapEntry(
+                loc=f"{base_url}/",
+                lastmod=datetime.now(UTC).isoformat(),
+            )
+        ]
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
     ]
     for entry in entries:
+        try:
+            loc = str(entry.loc).strip()
+            lastmod = str(entry.lastmod).strip()
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to normalize sitemap entry")
+            continue
+        if not loc or not lastmod:
+            continue
         lines.extend(
             [
                 "  <url>",
-                f"    <loc>{xml_escape(entry.loc)}</loc>",
-                f"    <lastmod>{xml_escape(entry.lastmod)}</lastmod>",
+                f"    <loc>{xml_escape(loc)}</loc>",
+                f"    <lastmod>{xml_escape(lastmod)}</lastmod>",
                 "  </url>",
             ]
         )
@@ -6930,7 +6923,11 @@ async def _render_public_sitemap_xml(store: Any, *, base_url: str) -> str:
 async def _public_sitemap_entries(*, base_url: str) -> list[Any]:
     entries: list[Any] = []
     for target_id in _public_news_target_ids(_data_dir, None):
-        store = await _get_target_store(target_id)
+        try:
+            store = await _get_target_store(target_id)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to open target store for sitemap target %s", target_id)
+            continue
         if store is None:
             continue
         projection_store = PublicSiteProjectionStore(store, base_url=base_url)
