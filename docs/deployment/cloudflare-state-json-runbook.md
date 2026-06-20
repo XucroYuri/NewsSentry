@@ -89,6 +89,24 @@ Cloudflare Access apps 已可读，当前包含:
 
 ## 设置 GitHub Secret
 
+优先使用仓库工具自动生成 JSON:
+
+```bash
+uv run --extra dev --extra api \
+  python tools/build_cloudflare_state_json.py \
+    --zone-id 440f9b3a531ab3a93a3e749425b0a646 \
+    --base-url https://news-sentry.com \
+    --output /tmp/news-sentry-cloudflare-state.json
+```
+
+该工具读取顺序:
+
+1. `--api-token`
+2. `CLOUDFLARE_API_TOKEN` / `CF_API_TOKEN`
+3. `wrangler auth token --json`
+
+如果当前凭据不能读取 ruleset 详情，工具会失败，不会生成伪通过证据。
+
 完成 Dashboard/API 审计后，把 JSON 写入 production 环境 secret:
 
 ```bash
@@ -111,4 +129,3 @@ uv run --no-project --with 'httpx[socks]' --with pyyaml \
 ```
 
 只有该命令无 finding，才允许进入 preview -> main 发布链。
-

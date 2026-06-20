@@ -11,6 +11,7 @@ POLICY_PATH = PROJECT_ROOT / "config/security/deployment-surface-policy.yaml"
 
 sys.path.insert(0, str(TOOLS_DIR))
 
+from build_cloudflare_state_json import build_state_from_payloads  # noqa: E402
 from deployment_surface_security import (  # noqa: E402
     build_cloudflare_state_findings,
     build_surface_findings,
@@ -124,6 +125,87 @@ def test_cloudflare_access_login_redirect_counts_as_protected_surface() -> None:
     )
 
     assert findings == []
+
+
+def test_cloudflare_state_builder_derives_audit_json_from_access_and_rulesets() -> None:
+    policy = load_policy(POLICY_PATH)
+    state = build_state_from_payloads(
+        policy=policy,
+        access_apps=[
+            {
+                "name": "News Sentry Admin Production",
+                "destinations": [
+                    {"uri": "news-sentry.com/api/v1/admin*"},
+                    {"uri": "news-sentry.com/api/v1/auth*"},
+                    {"uri": "news-sentry.com/api/v1/status"},
+                    {"uri": "news-sentry.com/api/v1/runtime/info"},
+                ],
+            }
+        ],
+        rulesets=[
+            {
+                "name": "News Sentry rate limits",
+                "phase": "http_ratelimit",
+                "rules": [
+                    {
+                        "description": "limit login",
+                        "expression": 'http.request.uri.path eq "/api/v1/auth/login"',
+                    },
+                    {
+                        "description": "limit token",
+                        "expression": 'http.request.uri.path eq "/api/v1/auth/token"',
+                    },
+                ],
+            },
+            {
+                "name": "News Sentry managed free WAF",
+                "phase": "http_request_firewall_managed",
+                "rules": [
+                    {
+                        "description": "protect admin",
+                        "expression": 'starts_with(http.request.uri.path, "/api/v1/admin/")',
+                    },
+                    {
+                        "description": "protect auth",
+                        "expression": 'starts_with(http.request.uri.path, "/api/v1/auth/")',
+                    },
+                ],
+            },
+        ],
+        live_response_headers={
+            "Strict-Transport-Security": "max-age=31536000",
+            "Content-Security-Policy": "default-src 'self'",
+            "Referrer-Policy": "strict-origin-when-cross-origin",
+            "Permissions-Policy": "geolocation=()",
+            "X-Frame-Options": "DENY",
+        },
+    )
+
+    assert state == {
+        "access_read_ok": True,
+        "access_write_ok": True,
+        "protected_prefixes": [
+            "/api/v1/admin/",
+            "/api/v1/auth/",
+            "/api/v1/runtime/info",
+            "/api/v1/status",
+        ],
+        "response_headers": [
+            "content-security-policy",
+            "permissions-policy",
+            "referrer-policy",
+            "strict-transport-security",
+            "x-frame-options",
+        ],
+        "rate_limit_paths": [
+            "/api/v1/auth/login",
+            "/api/v1/auth/token",
+        ],
+        "waf_path_prefixes": [
+            "/api/v1/admin/",
+            "/api/v1/auth/",
+        ],
+    }
 
 
 def test_deployed_surface_audit_script_marks_public_runtime_info_and_missing_cloudflare_state(

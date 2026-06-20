@@ -60,6 +60,11 @@ preview -> main 自动推进，也不执行远端 codex 分支删除。
 `docs/deployment/cloudflare-state-json.example.json`。该模板不能直接作为通过证据，必须先由
 Cloudflare Dashboard 或具备 `Zone WAF Read` 的 API token 证明 rate limit / WAF 路径覆盖。
 
+已新增 `tools/build_cloudflare_state_json.py`，用于在具备足够 Cloudflare API 权限时自动生成
+`CLOUDFLARE_STATE_JSON`。2026-06-20 本机复验显示 `wrangler 4.75.0` 的当前 OAuth
+token 不能读取 Cloudflare Access/rulesets API 详情，工具会失败且不生成 JSON，因此仍需补齐
+`Zone WAF Read` token 或手动审计 JSON。
+
 ## 收束规则
 
 - 不再创建长期 `codex/*` 分支。
