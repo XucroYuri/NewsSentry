@@ -1,0 +1,45 @@
+# Schema: ../../schemas/targetconfig.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015, ADR-0016
+target_id: spain
+display_name: 西班牙新闻监控
+monitoring_type: country
+region_type: country
+language_scope:
+  primary: en
+  secondary: [es]
+  output: zh
+timezone: Europe/Madrid
+source_channel_refs:
+- api/gdelt-topic
+- pool:global/gdelt-china-impact
+- pool:global/gdelt-geopolitics
+filter_rules_ref: config/filters/spain/default.yaml
+classification_rules_ref: config/classification/rules-v1.yaml
+sandbox_profile_ref: config/sandbox/default.yaml
+provider_routes_ref: config/provider/routes.yaml
+output_destinations_ref: config/output/destinations.yaml
+classification:
+  country_axes:
+    politics: true
+    economics: true
+    culture: true
+    immigration: true
+    energy: true
+    china_relations: true
+  home_relevance_keywords:
+  - Spain
+  - Madrid
+  - Spanish government
+  - EU
+  - China
+  - ports
+  - tourism
+  - energy
+focus_areas:
+- id: eu-policy-and-china
+  weight: 2.0
+  keywords: [Spain, EU, China, trade, regulation]
+- id: markets-energy-and-tourism
+  weight: 1.6
+  keywords: [Spain, energy, tourism, infrastructure, ports]

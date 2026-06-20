@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -20,13 +23,17 @@ def test_realtime_systemd_service_uses_production_paths() -> None:
 
 def test_realtime_runner_covers_active_targets_with_locking() -> None:
     runner = (ROOT / "tools/run_realtime_collection.sh").read_text(encoding="utf-8")
-    default_targets = (
-        'TARGETS="${NEWSSENTRY_REALTIME_TARGETS:-italy japan germany france china-watch-en}"'
+    collector = yaml.safe_load(
+        (ROOT / "config/runtime/collector.yaml").read_text(encoding="utf-8")
     )
+    collector_targets = set(collector["target_ids"])
+    match = re.search(r'TARGETS="\$\{NEWSSENTRY_REALTIME_TARGETS:-([^}]*)\}"', runner)
+    assert match is not None
+    default_targets = set(match.group(1).split())
 
     assert "flock" in runner
     assert "news-sentry-realtime.lock" in runner
-    assert default_targets in runner
+    assert collector_targets <= default_targets
     assert '--profile "${PROFILE}"' in runner
     assert "--stage all" in runner
     assert "/srv/news-sentry/production/data" in runner
@@ -59,3 +66,20 @@ def test_health_monitor_supports_systemd_service_mode() -> None:
     assert "systemctl is-active" in monitor
     assert "SERVICE_STATUS" in monitor
     assert "service_status" in monitor
+
+
+def test_deploy_workflow_gates_preview_before_main_promotion() -> None:
+    workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+
+    assert "Verify preview" in workflow
+    assert "Promote main" in workflow
+    assert "Verify production" in workflow
+    assert "git merge-base --is-ancestor origin/main" in workflow
+    assert "git push origin" in workflow
+    assert "/api/v1/regions" in workflow
+    assert "/api/v1/public/news" in workflow
+    assert "/public-app/" in workflow
+    assert "x-news-sentry-deploy-commit" in workflow
+    assert "--policy config/security/deployment-surface-policy.yaml" in workflow
+    assert "CLOUDFLARE_STATE_JSON" in workflow
+    assert "--cloudflare-state-json /tmp/news-sentry-cloudflare-state.json" in workflow

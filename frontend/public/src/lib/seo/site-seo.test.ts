@@ -34,6 +34,9 @@ function makeItem(id: string, overrides: Partial<PublicNewsItem> = {}): PublicNe
     originalUrl: "https://example.com/news",
     detailUrl: "/public-app/events/" + id + "?target_id=italy",
     tags: ["国际关系", "贸易"],
+    issueTags: ["国际关系"],
+    relatedTags: ["涉欧"],
+    regionTags: ["意大利"],
     entities: [{ name: "欧盟", type: "organization" }],
     relatedCount: 2,
     discussionCount: 1,
@@ -120,6 +123,16 @@ describe("public site seo runtime", () => {
         search: new URLSearchParams(),
       }),
     ).toBe("/public-app/analysis?target_id=italy")
+  })
+
+  it("uses the source management title for the sources route", () => {
+    const payload = buildRouteSeoPayload({
+      origin: "https://news-sentry.com",
+      route: { name: "sources", search: new URLSearchParams() },
+    })
+
+    expect(payload.title).toBe("信源管理 | News Sentry")
+    expect(payload.description).toContain("管理")
   })
 
   it("builds a detail seo payload with news article json ld", () => {
@@ -240,7 +253,7 @@ describe("public site seo runtime", () => {
     expect(document.head.querySelector('meta[property="og:url"]')).not.toBeInTheDocument()
     expect(document.head.querySelector('meta[name="description"]')).toHaveAttribute(
       "content",
-      "News Sentry 公共新闻流提供面向读者的国际新闻摘要、来源脉络与目标监控视角。",
+      "News Sentry 公共新闻流提供面向中文读者的国际新闻精选、时间线和日报。",
     )
   })
 

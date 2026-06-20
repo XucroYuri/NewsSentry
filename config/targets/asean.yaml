@@ -1,0 +1,43 @@
+# Schema: ../../schemas/targetconfig.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015, ADR-0016
+target_id: asean
+display_name: 东盟新闻监控
+monitoring_type: region
+region_type: region
+language_scope:
+  primary: en
+  secondary: []
+  output: zh
+timezone: Asia/Jakarta
+source_channel_refs:
+  - api/gdelt-topic
+  - pool:global/gdelt-geopolitics
+  - pool:global/gdelt-supply-chain
+  - pool:global/gdelt-official-orgs
+filter_rules_ref: config/filters/asean/default.yaml
+classification_rules_ref: config/classification/rules-v1.yaml
+sandbox_profile_ref: config/sandbox/default.yaml
+provider_routes_ref: config/provider/routes.yaml
+output_destinations_ref: config/output/destinations.yaml
+classification:
+  country_axes:
+    politics: true
+    economics: true
+    culture: true
+    immigration: true
+    energy: true
+    china_relations: true
+  home_relevance_keywords:
+      - "ASEAN"
+      - "Southeast Asia"
+      - "Asean summit"
+      - "South China Sea"
+      - "trade"
+focus_areas:
+  - id: regional-geopolitics-and-institutions
+    weight: 2.0
+    keywords: ["ASEAN", "diplomacy", "security", "summit", "regulation"]
+  - id: trade-markets-and-china-impact
+    weight: 1.8
+    keywords: ["ASEAN", "China", "trade", "supply chain", "investment"]

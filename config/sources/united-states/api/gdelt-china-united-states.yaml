@@ -6,7 +6,7 @@ endpoint:
   url: https://api.gdeltproject.org/api/v2/doc/doc
   method: GET
   params:
-    query: China United States OR China America OR Beijing Washington
+    query: 'China United States OR China America OR Beijing Washington'
     mode: ArtList
     maxrecords: 25
     format: json

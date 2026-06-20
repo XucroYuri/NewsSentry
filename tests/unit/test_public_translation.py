@@ -58,6 +58,9 @@ def _event(
                 "publication": {
                     "one_line_summary": "法国获得欧盟贷款支持军备采购。",
                     "recommendation_reason": "这会影响欧盟资金流向和法国防务采购节奏。",
+                    "issue_tags": ["国际关系"],
+                    "related_tags": ["涉欧"],
+                    "region_tags": ["法国"],
                 },
             },
             True,
@@ -82,6 +85,27 @@ def test_public_translation_ready_requires_chinese_title_and_summary(
     assert public_publication_ready(metadata) is ready
 
 
+def test_public_publication_ready_rejects_chineseish_fragment_summary() -> None:
+    metadata = {
+        "translation": {
+            "title_pre": "罗马举行中意文化交流活动",
+            "summary_pre": (
+                '自己会15 "罗马对话"——第十二届中意花火大会议题转向关于accia'
+                "上做全境全移民，让读者难以判断新闻事实。"
+            ),
+        },
+        "publication": {
+            "one_line_summary": "罗马举行中意文化交流活动。",
+            "recommendation_reason": "这条新闻反映意大利公共文化交流动态，值得观察对外叙事变化。",
+            "issue_tags": ["文化"],
+            "related_tags": ["涉欧"],
+            "region_tags": ["意大利"],
+        },
+    }
+
+    assert public_publication_ready(metadata) is False
+
+
 @pytest.mark.asyncio
 async def test_public_news_rows_only_return_translation_ready_events(tmp_path) -> None:
     store = AsyncStore(tmp_path / "state.db")
@@ -98,6 +122,9 @@ async def test_public_news_rows_only_return_translation_ready_events(tmp_path) -
                     "publication": {
                         "one_line_summary": "法国获得欧盟贷款支持军备采购。",
                         "recommendation_reason": "这会影响欧盟资金流向和法国防务采购节奏。",
+                        "issue_tags": ["国际关系"],
+                        "related_tags": ["涉欧"],
+                        "region_tags": ["法国"],
                     },
                 },
                 score=91,
@@ -138,10 +165,13 @@ async def test_public_news_rows_can_query_ready_events_across_targets(tmp_path) 
             "summary_pre": "该新闻已有中文摘要，可以进入公共站。",
         },
         "publication": {
-            "one_line_summary": "法国公共新闻完成加工。",
-            "recommendation_reason": "AI 推荐理由指出该事件影响跨境观察的政策判断。",
-        },
-    }
+                    "one_line_summary": "法国公共新闻完成加工。",
+                    "recommendation_reason": "AI 推荐理由指出该事件影响跨境观察的政策判断。",
+                    "issue_tags": ["国际关系"],
+                    "related_tags": ["涉欧"],
+                    "region_tags": ["法国"],
+                },
+            }
     try:
         await store.index_event(
             _event("ne-france", metadata=ready_metadata, score=90),
@@ -189,6 +219,9 @@ async def test_update_event_metadata_recomputes_public_translation_ready(tmp_pat
                         "这条新闻揭示公共资金与防务采购链条变化，"
                         "值得跨境供应商关注。"
                     ),
+                    "issue_tags": ["国际关系"],
+                    "related_tags": ["涉欧"],
+                    "region_tags": ["法国"],
                 },
             },
         )
@@ -216,6 +249,9 @@ async def test_index_event_marks_ready_publication_stale_when_source_hash_change
             "publication": {
                 "one_line_summary": "法国获得欧盟贷款支持军备采购。",
                 "recommendation_reason": "这会影响欧盟资金流向和法国防务采购节奏。",
+                "issue_tags": ["国际关系"],
+                "related_tags": ["涉欧"],
+                "region_tags": ["法国"],
             },
         }
         first_event = _event(
@@ -283,6 +319,9 @@ async def test_public_translation_engine_writes_publication_fields_and_marks_rea
                                 "这条新闻揭示欧盟资金正在进入法国防务采购链条，"
                                 "值得持续跟踪对供应商和公共预算的影响。"
                             ),
+                            "issue_tags": ["国际关系", "公共安全"],
+                            "related_tags": ["涉欧"],
+                            "region_tags": ["法国"],
                         },
                         ensure_ascii=False,
                     ),
@@ -317,6 +356,9 @@ async def test_public_translation_engine_writes_publication_fields_and_marks_rea
         publication = row["metadata"]["publication"]
         assert publication["one_line_summary"] == "法国获得欧盟贷款支持军备采购。"
         assert "法国防务采购链条" in publication["recommendation_reason"]
+        assert publication["issue_tags"] == ["国际关系", "公共安全"]
+        assert publication["related_tags"] == ["涉欧"]
+        assert publication["region_tags"] == ["法国"]
         assert publication["route_id"] == "public.summary_reason"
         assert publication["field_hash"]
         assert row["public_translation_ready"] == 1
@@ -352,6 +394,9 @@ async def test_public_translation_engine_rejects_template_publication_reason(tmp
                             "recommendation_reason": (
                                 "已进入公共新闻流，等待更多背景和关联信号增强。"
                             ),
+                            "issue_tags": ["国际关系"],
+                            "related_tags": ["涉欧"],
+                            "region_tags": ["法国"],
                         },
                         ensure_ascii=False,
                     ),
@@ -376,6 +421,130 @@ async def test_public_translation_engine_rejects_template_publication_reason(tmp
         row = await store.get_event_index_row("france", "ne-template")
         assert row is not None and row["public_translation_ready"] == 0
         assert "publication" not in row["metadata"]
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_public_translation_engine_rejects_garbled_chineseish_title(tmp_path) -> None:
+    store = AsyncStore(tmp_path / "state.db")
+    await store.initialize()
+    try:
+        await store.index_event(_event("ne-garbled", score=86), "france", "drafts")
+        router = MagicMock()
+        router.route_async = AsyncMock(
+            side_effect=[
+                {
+                    "content": (
+                        '庶务就是好™尼德 ball卫生间 rail "bird poop**： - " Dog" '
+                        'Steve (" fuck ing " Madrid")== flowers { JSON }'
+                    ),
+                    "route_id": "translate.public",
+                    "model": "auto",
+                    "provider": "freellmapi",
+                },
+                {
+                    "content": "这条新闻涉及欧盟资金流向和法国防务采购，对供应链观察有价值。",
+                    "route_id": "translate.public",
+                    "model": "auto",
+                    "provider": "freellmapi",
+                },
+                {
+                    "content": json.dumps(
+                        {
+                            "one_line_summary": "法国获得欧盟贷款支持军备采购。",
+                            "recommendation_reason": (
+                                "这条新闻揭示法国防务采购链条变化，"
+                                "值得跟踪后续预算和供应商影响。"
+                            ),
+                            "issue_tags": ["国际关系"],
+                            "related_tags": ["涉欧"],
+                            "region_tags": ["法国"],
+                        },
+                        ensure_ascii=False,
+                    ),
+                    "route_id": "public.summary_reason",
+                    "model": "auto",
+                    "provider": "freellmapi",
+                },
+            ]
+        )
+        engine = PublicTranslationEngine(PublicTranslationConfig(per_cycle_limit=5))
+        rows = await store.list_public_translation_candidates("france", limit=10)
+
+        result = await engine.run_rows(
+            target_id="france",
+            rows=rows,
+            store=store,
+            router=router,
+            provider_factory=lambda name: MagicMock(),
+        )
+
+        assert result["status"] == "retrying"
+        assert result["updated"] == 0
+        row = await store.get_event_index_row("france", "ne-garbled")
+        assert row is not None and row["public_translation_ready"] == 0
+        assert "translation" not in row["metadata"]
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_public_translation_engine_repairs_fenced_publication_json(tmp_path) -> None:
+    store = AsyncStore(tmp_path / "state.db")
+    await store.initialize()
+    try:
+        await store.index_event(_event("ne-fenced-json", score=88), "france", "drafts")
+        router = MagicMock()
+        router.route_async = AsyncMock(
+            side_effect=[
+                {
+                    "content": "法国获得欧盟贷款用于军备采购",
+                    "route_id": "translate.public",
+                    "model": "libretranslate",
+                    "provider": "libretranslate",
+                },
+                {
+                    "content": "这条新闻涉及欧盟资金流向和法国防务采购，对供应链观察有价值。",
+                    "route_id": "translate.public",
+                    "model": "libretranslate",
+                    "provider": "libretranslate",
+                },
+                {
+                    "content": (
+                        "```json\n"
+                        "{\n"
+                        '  "one_line_summary": "法国获得欧盟贷款支持军备采购。",\n'
+                        '  "recommendation_reason": "这条新闻揭示欧盟资金进入法国防务采购链条，'
+                        '值得跟踪对供应商和公共预算的影响。",\n'
+                        '  "issue_tags": ["国际关系"],\n'
+                        '  "related_tags": ["涉欧"],\n'
+                        '  "region_tags": ["法国"]\n'
+                        "}\n"
+                        "```"
+                    ),
+                    "route_id": "public.summary_reason",
+                    "model": "auto",
+                    "provider": "freellmapi",
+                },
+            ]
+        )
+        engine = PublicTranslationEngine(PublicTranslationConfig(per_cycle_limit=5))
+        rows = await store.list_public_translation_candidates("france", limit=10)
+
+        result = await engine.run_rows(
+            target_id="france",
+            rows=rows,
+            store=store,
+            router=router,
+            provider_factory=lambda name: MagicMock(),
+        )
+
+        assert result["status"] == "ok"
+        assert result["updated"] == 1
+        row = await store.get_event_index_row("france", "ne-fenced-json")
+        assert row is not None and row["public_translation_ready"] == 1
+        assert "法国防务采购链条" in row["metadata"]["publication"]["recommendation_reason"]
     finally:
         await store.close()
 
@@ -440,3 +609,135 @@ def test_public_translation_prompt_payload_is_short_field_specific() -> None:
 
     assert json.loads(title_prompt)["field"] == "title"
     assert json.loads(summary_prompt)["field"] == "summary"
+
+
+def test_publication_prompt_prefers_preset_issue_and_related_tags() -> None:
+    engine = PublicTranslationEngine(PublicTranslationConfig())
+    row = {
+        "event_id": "ne-tag-policy",
+        "target_id": "italy",
+        "source_id": "gdelt",
+        "source_display_name": "GDELT",
+        "title_original": "Italy and EU leaders discuss trade",
+        "metadata": {"summary": "The talks focus on trade and diplomacy."},
+        "news_value_score": 88,
+        "china_relevance": 40,
+    }
+
+    payload = json.loads(
+        engine.prompt_for_publication(
+            row,
+            title_zh="意大利与欧盟领导人讨论贸易",
+            summary_zh="会谈聚焦贸易和外交议程。",
+        )
+    )
+
+    assert payload["tag_policy"]["mode"] == "preset_first"
+    assert "优先使用 preset_issue_tags 与 preset_related_tags" in payload["instruction"]
+    assert "国际关系" in payload["tag_policy"]["preset_issue_tags"]
+    assert "国际贸易" in payload["tag_policy"]["preset_issue_tags"]
+    assert "涉中" in payload["tag_policy"]["preset_related_tags"]
+    assert "亚太" in payload["tag_policy"]["preset_related_tags"]
+    assert payload["tag_policy"]["custom_tag_policy"] == (
+        "只有预设标签无法概括新闻事实时，才生成简短中文自定义标签。"
+    )
+
+
+@pytest.mark.asyncio
+async def test_publication_generation_normalizes_common_tag_aliases() -> None:
+    router = MagicMock()
+    router.route_async = AsyncMock(
+        return_value={
+            "content": json.dumps(
+                {
+                    "one_line_summary": "欧盟与意大利讨论贸易和外交议程。",
+                    "recommendation_reason": "这会影响欧盟贸易谈判和意大利对外政策节奏。",
+                    "issue_tags": ["外交", "外贸", "新兴产业观察"],
+                    "related_tags": ["欧美", "亚太地区", "新兴市场"],
+                    "region_tags": ["意大利", "欧洲"],
+                },
+                ensure_ascii=False,
+            ),
+            "route_id": "public.summary_reason",
+            "model": "auto",
+            "provider": "freellmapi",
+        }
+    )
+    engine = PublicTranslationEngine(PublicTranslationConfig())
+
+    result = await engine._generate_publication_fields(
+        {
+            "event_id": "ne-tag-aliases",
+            "target_id": "italy",
+            "source_id": "gdelt",
+            "source_display_name": "GDELT",
+            "title_original": "Italy and EU discuss trade",
+            "metadata": {"summary": "The talks focus on trade and diplomacy."},
+            "news_value_score": 90,
+        },
+        title_zh="欧盟与意大利讨论贸易",
+        summary_zh="会谈聚焦贸易和外交。",
+        router=router,
+        provider_factory=lambda name: MagicMock(),
+    )
+
+    assert result["issue_tags"] == ["国际关系", "国际贸易", "新兴产业观察"]
+    assert result["related_tags"] == ["涉美", "涉欧", "亚太", "新兴市场"]
+    assert result["region_tags"] == ["意大利", "欧洲"]
+
+
+@pytest.mark.asyncio
+async def test_public_translation_engine_rejects_publication_without_tags(tmp_path) -> None:
+    store = AsyncStore(tmp_path / "state.db")
+    await store.initialize()
+    try:
+        await store.index_event(_event("ne-missing-tags", score=88), "france", "drafts")
+        router = MagicMock()
+        router.route_async = AsyncMock(
+            side_effect=[
+                {
+                    "content": "法国获得欧盟贷款用于军备采购",
+                    "route_id": "translate.public",
+                    "model": "auto",
+                    "provider": "freellmapi",
+                },
+                {
+                    "content": "这条新闻涉及欧盟资金流向和法国防务采购，对供应链观察有价值。",
+                    "route_id": "translate.public",
+                    "model": "auto",
+                    "provider": "freellmapi",
+                },
+                {
+                    "content": json.dumps(
+                        {
+                            "one_line_summary": "法国获得欧盟贷款支持军备采购。",
+                            "recommendation_reason": (
+                                "这条新闻揭示法国防务采购链条变化，"
+                                "值得跟踪后续预算和供应商影响。"
+                            ),
+                        },
+                        ensure_ascii=False,
+                    ),
+                    "route_id": "public.summary_reason",
+                    "model": "auto",
+                    "provider": "freellmapi",
+                },
+            ]
+        )
+        engine = PublicTranslationEngine(PublicTranslationConfig(per_cycle_limit=5))
+        rows = await store.list_public_translation_candidates("france", limit=10)
+
+        result = await engine.run_rows(
+            target_id="france",
+            rows=rows,
+            store=store,
+            router=router,
+            provider_factory=lambda name: MagicMock(),
+        )
+
+        assert result["status"] == "retrying"
+        row = await store.get_event_index_row("france", "ne-missing-tags")
+        assert row is not None and row["public_translation_ready"] == 0
+        assert "publication" not in row["metadata"]
+    finally:
+        await store.close()

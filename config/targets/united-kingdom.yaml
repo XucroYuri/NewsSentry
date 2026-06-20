@@ -4,6 +4,7 @@
 target_id: united-kingdom
 display_name: "英国新闻监控"
 monitoring_type: country
+region_type: country
 
 language_scope:
   primary: en

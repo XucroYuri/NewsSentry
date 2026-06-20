@@ -4,6 +4,7 @@
 target_id: france
 display_name: "法国新闻监控"
 monitoring_type: country
+region_type: country
 
 language_scope:
   primary: fr

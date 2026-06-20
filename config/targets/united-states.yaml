@@ -4,14 +4,16 @@
 target_id: united-states
 display_name: 美国新闻监控
 monitoring_type: country
+region_type: country
 language_scope:
   primary: en
   secondary: []
   output: zh
 timezone: America/New_York
 source_channel_refs:
-- api/gdelt-united-states
-- api/gdelt-china-united-states
+  - api/gdelt-united-states
+  - api/gdelt-china-united-states
+  - pool:global/gdelt-geopolitics
 filter_rules_ref: config/filters/united-states/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml

@@ -1,0 +1,42 @@
+# Schema: ../../schemas/targetconfig.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015, ADR-0016
+target_id: malaysia
+display_name: 马来西亚新闻监控
+monitoring_type: country
+region_type: country
+language_scope:
+  primary: en
+  secondary: [ms]
+  output: zh
+timezone: Asia/Kuala_Lumpur
+source_channel_refs:
+- api/gdelt-topic
+- pool:global/gdelt-china-impact
+- pool:global/gdelt-supply-chain
+filter_rules_ref: config/filters/malaysia/default.yaml
+classification_rules_ref: config/classification/rules-v1.yaml
+sandbox_profile_ref: config/sandbox/default.yaml
+provider_routes_ref: config/provider/routes.yaml
+output_destinations_ref: config/output/destinations.yaml
+classification:
+  country_axes:
+    politics: true
+    economics: true
+    culture: true
+    energy: true
+    china_relations: true
+  home_relevance_keywords:
+  - Malaysia
+  - Kuala Lumpur
+  - ASEAN
+  - semiconductor
+  - data center
+  - China
+focus_areas:
+- id: semiconductors-and-data-centers
+  weight: 2.0
+  keywords: [Malaysia, semiconductor, data center, electronics, investment]
+- id: asean-and-china-trade
+  weight: 1.8
+  keywords: [Malaysia, ASEAN, China, trade, port]

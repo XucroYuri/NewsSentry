@@ -8,6 +8,8 @@
 
 target_id: "example-target"            # 全局唯一，字母数字加连字符
 display_name: "Example Target"
+monitoring_type: country
+region_type: country
 
 language_scope:
   primary: "en"                         # ISO 639-1 / BCP-47 主语言，如 it/fr/de/en

@@ -28,6 +28,9 @@ const item: PublicNewsItem = {
   originalUrl: "https://example.com/news",
   detailUrl: "/public-app/events/event-1?target_id=italy",
   tags: ["国际关系"],
+  issueTags: ["国际关系"],
+  relatedTags: ["涉欧"],
+  regionTags: ["意大利"],
   entities: [{ name: "欧盟", type: "organization" }],
   relatedCount: 2,
   discussionCount: 0,
@@ -131,13 +134,12 @@ describe("public news API client", () => {
   it("loads public targets for reader filters", async () => {
     const fetcher = vi.fn(async () =>
       jsonResponse({
-        targets: [
+        regions: [
           {
-            target_id: "italy",
+            region_id: "italy",
             display_name: "意大利新闻监控",
             primary_language: "it",
-            monitoring_type: "country",
-            monitoring_label: "国别监控目标",
+            region_type: "country",
             source_count: 163,
             event_count: 52,
             lifecycle: {},
@@ -149,7 +151,7 @@ describe("public news API client", () => {
 
     const response = await listTargets({ fetcher })
 
-    expect(fetcher).toHaveBeenCalledWith("/api/v1/targets", {
+    expect(fetcher).toHaveBeenCalledWith("/api/v1/regions", {
       signal: undefined,
     })
     expect(response.targets[0]?.display_name).toBe("意大利新闻监控")

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { buildRouteHash, parseHashRoute, routeToChannel } from "@/lib/routes"
+import { buildPublicAppPath, buildRouteHash, parseHashRoute, parseLocationRoute, routeToChannel } from "@/lib/routes"
 
 describe("public app hash routes", () => {
   it("defaults the public app root to the featured feed", () => {
@@ -36,6 +36,33 @@ describe("public app hash routes", () => {
       targetId: "italy",
       section: "entities",
     })
+    expect(parseHashRoute("#/subscribe")).toMatchObject({ name: "subscribe" })
+  })
+
+  it("parses top-level public helper pages into the React reader shell", () => {
+    expect(parseLocationRoute({ pathname: "/subscribe", search: "", hash: "" })).toMatchObject({
+      name: "subscribe",
+    })
+    expect(parseLocationRoute({ pathname: "/sources", search: "", hash: "" })).toMatchObject({
+      name: "sources",
+    })
+    expect(
+      parseLocationRoute({ pathname: "/public-app/subscribe", search: "", hash: "" }),
+    ).toMatchObject({
+      name: "subscribe",
+    })
+    expect(parseLocationRoute({ pathname: "/public-app/sources", search: "", hash: "" })).toMatchObject({
+      name: "sources",
+    })
+  })
+
+  it("builds top-level paths for public helper pages", () => {
+    expect(buildPublicAppPath({ name: "subscribe", search: new URLSearchParams() })).toBe(
+      "/subscribe",
+    )
+    expect(buildPublicAppPath({ name: "sources", search: new URLSearchParams() })).toBe(
+      "/sources",
+    )
   })
 
   it("builds reader route hashes with encoded query params and preserves feed filters", () => {

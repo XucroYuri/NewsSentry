@@ -8,6 +8,7 @@ export type PublicRoute =
   | { name: "daily"; date?: string; search: URLSearchParams }
   | { name: "agent"; search: URLSearchParams }
   | { name: "update"; search: URLSearchParams }
+  | { name: "subscribe"; search: URLSearchParams }
   | { name: "analysis"; targetId?: string; section?: string; search: URLSearchParams }
 
 const feedChannels = new Set<PublicChannel>([
@@ -62,6 +63,9 @@ function parseRouteParts(pathPart: string, search: URLSearchParams): PublicRoute
   if (root === "update") {
     return { name: "update", search }
   }
+  if (root === "subscribe") {
+    return { name: "subscribe", search }
+  }
   if (root === "analysis") {
     return {
       name: "analysis",
@@ -94,9 +98,18 @@ function parsePublicAppPath(pathname: string, search: string): PublicRoute | nul
   return parseRouteParts(pathPart || "/", params)
 }
 
-export function parseLocationRoute(locationLike: Pick<Location, "pathname" | "search" | "hash">) {
+export function parseLocationRoute(
+  locationLike: Pick<Location, "pathname" | "search" | "hash">,
+): PublicRoute {
   const hash = locationLike.hash?.trim() ?? ""
   if (hash.startsWith("#/")) return parseHashRoute(hash)
+  const params = buildSearchParams(locationLike.search)
+  if (locationLike.pathname.replace(/\/+$/, "") === "/sources") {
+    return { name: "sources", search: params }
+  }
+  if (locationLike.pathname.replace(/\/+$/, "") === "/subscribe") {
+    return { name: "subscribe", search: params }
+  }
   return parsePublicAppPath(locationLike.pathname, locationLike.search) ?? parseHashRoute(hash)
 }
 
@@ -104,7 +117,7 @@ export function routeToChannel(route: PublicRoute): PublicChannel {
   if (route.name === "feed") return route.channel
   if (route.name === "sources" || route.name === "sourceDetail") return "sources"
   if (route.name === "daily") return "daily"
-  if (route.name === "agent" || route.name === "update") return "featured"
+  if (route.name === "agent" || route.name === "update" || route.name === "subscribe") return "featured"
   if (route.name === "analysis") return "analysis"
   return "featured"
 }
@@ -118,7 +131,7 @@ export function buildPublicAppPath(route: PublicRoute) {
     return `/public-app/events/${encodeURIComponent(route.eventId)}${query ? `?${query}` : ""}`
   }
   if (route.name === "sourceDetail") return `/public-app/sources/${encodeURIComponent(route.sourceId)}`
-  if (route.name === "sources") return "/public-app/sources"
+  if (route.name === "sources") return "/sources"
   if (route.name === "daily") {
     const params = new URLSearchParams()
     if (route.date) params.set("date", route.date)
@@ -127,6 +140,7 @@ export function buildPublicAppPath(route: PublicRoute) {
   }
   if (route.name === "agent") return "/public-app/agent"
   if (route.name === "update") return "/public-app/update"
+  if (route.name === "subscribe") return "/subscribe"
   if (route.name === "analysis") {
     const params = new URLSearchParams()
     if (route.targetId) params.set("target_id", route.targetId)
@@ -164,6 +178,7 @@ export function buildRouteHash(route: PublicRoute) {
   }
   if (route.name === "agent") return "#/agent"
   if (route.name === "update") return "#/update"
+  if (route.name === "subscribe") return "#/subscribe"
   if (route.name === "analysis") {
     const params = new URLSearchParams()
     if (route.targetId) params.set("target_id", route.targetId)

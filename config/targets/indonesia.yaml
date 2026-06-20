@@ -4,14 +4,16 @@
 target_id: indonesia
 display_name: 印度尼西亚新闻监控
 monitoring_type: country
+region_type: country
 language_scope:
   primary: en
   secondary: []
   output: zh
 timezone: Asia/Jakarta
 source_channel_refs:
-- api/gdelt-indonesia
-- api/gdelt-china-indonesia
+  - api/gdelt-indonesia
+  - api/gdelt-china-indonesia
+  - pool:global/gdelt-geopolitics
 filter_rules_ref: config/filters/indonesia/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml

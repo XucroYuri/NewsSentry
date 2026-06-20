@@ -4,6 +4,7 @@
 target_id: ireland
 display_name: "爱尔兰新闻监控"
 monitoring_type: country
+region_type: country
 
 language_scope:
   primary: en

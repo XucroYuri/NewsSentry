@@ -1,11 +1,14 @@
 import type {
   PublicAnalysisResponse,
+  PublicFacetsResponse,
+  PublicFacetItem,
   PublicNewsFeedResponse,
   PublicNewsItem,
   PublicNewsListResult,
   PublicNewsQuery,
   PublicNewsRequestOptions,
-  PublicTargetInfo,
+  PublicRegionInfo,
+  PublicRegionListResponse,
   PublicTargetListResponse,
 } from "@/types/public-news"
 
@@ -28,8 +31,11 @@ export function buildPublicNewsUrl(query: PublicNewsQuery = {}) {
   const params = new URLSearchParams()
   appendParam(params, "featured", query.featured)
   appendParam(params, "target_id", query.targetId)
+  appendParam(params, "region_id", query.regionId)
   appendParam(params, "source_id", query.sourceId)
   appendParam(params, "category", query.category)
+  appendParam(params, "issue", query.issue)
+  appendParam(params, "related", query.related)
   appendParam(params, "date", query.date)
   appendParam(params, "q", query.q)
   appendParam(params, "before_cursor", query.beforeCursor)
@@ -63,12 +69,68 @@ function assertPublicNewsItem(value: unknown): asserts value is PublicNewsItem {
     typeof value.title !== "string" ||
     typeof value.detailUrl !== "string" ||
     !isStringArray(value.tags) ||
+    !isStringArray(value.issueTags) ||
+    !isStringArray(value.relatedTags) ||
+    !isStringArray(value.regionTags) ||
     !Array.isArray(value.entities) ||
     typeof value.relatedCount !== "number" ||
     typeof value.valueLabel !== "string" ||
     typeof value.chinaRelevanceLabel !== "string"
   ) {
     throw new PublicNewsApiError("Public news item response shape is invalid")
+  }
+}
+
+function assertRegion(value: unknown): asserts value is PublicRegionInfo {
+  if (!isRecord(value)) {
+    throw new PublicNewsApiError("Region item is not an object")
+  }
+  if (
+    typeof value.region_id !== "string" ||
+    typeof value.display_name !== "string" ||
+    typeof value.primary_language !== "string" ||
+    typeof value.region_type !== "string" ||
+    typeof value.source_count !== "number" ||
+    typeof value.event_count !== "number" ||
+    typeof value.archived !== "boolean"
+  ) {
+    throw new PublicNewsApiError("Region list response shape is invalid")
+  }
+}
+
+function assertRegionList(value: unknown): asserts value is PublicRegionListResponse {
+  if (!isRecord(value) || !Array.isArray(value.regions)) {
+    throw new PublicNewsApiError("Region list response shape is invalid")
+  }
+  for (const region of value.regions) {
+    assertRegion(region)
+  }
+}
+
+function assertFacetItem(value: unknown): asserts value is PublicFacetItem {
+  if (!isRecord(value)) {
+    throw new PublicNewsApiError("Facet item is not an object")
+  }
+  if (
+    typeof value.id !== "string" ||
+    typeof value.label !== "string" ||
+    typeof value.count !== "number"
+  ) {
+    throw new PublicNewsApiError("Facet response shape is invalid")
+  }
+}
+
+function assertPublicFacets(value: unknown): asserts value is PublicFacetsResponse {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.regions) ||
+    !Array.isArray(value.issues) ||
+    !Array.isArray(value.related)
+  ) {
+    throw new PublicNewsApiError("Facet response shape is invalid")
+  }
+  for (const item of [...value.regions, ...value.issues, ...value.related]) {
+    assertFacetItem(item)
   }
 }
 
@@ -85,33 +147,6 @@ function assertPublicNewsFeed(value: unknown): asserts value is PublicNewsFeedRe
     typeof value.total !== "number"
   ) {
     throw new PublicNewsApiError("Public news feed metadata is invalid")
-  }
-}
-
-function assertTarget(value: unknown): asserts value is PublicTargetInfo {
-  if (!isRecord(value)) {
-    throw new PublicNewsApiError("Target item is not an object")
-  }
-  if (
-    typeof value.target_id !== "string" ||
-    typeof value.display_name !== "string" ||
-    typeof value.primary_language !== "string" ||
-    typeof value.monitoring_type !== "string" ||
-    typeof value.monitoring_label !== "string" ||
-    typeof value.source_count !== "number" ||
-    typeof value.event_count !== "number" ||
-    typeof value.archived !== "boolean"
-  ) {
-    throw new PublicNewsApiError("Target list response shape is invalid")
-  }
-}
-
-function assertTargetList(value: unknown): asserts value is PublicTargetListResponse {
-  if (!isRecord(value) || !Array.isArray(value.targets)) {
-    throw new PublicNewsApiError("Target list response shape is invalid")
-  }
-  for (const target of value.targets) {
-    assertTarget(target)
   }
 }
 
@@ -209,13 +244,47 @@ export async function listTargets(
   options: PublicNewsRequestOptions = {},
 ): Promise<PublicTargetListResponse> {
   const fetcher = options.fetcher ?? fetch
-  const response = await fetcher("/api/v1/targets", {
+  const response = await fetcher("/api/v1/regions", {
     signal: options.signal,
   })
   if (!response.ok) {
-    throw new PublicNewsApiError(`Target list request failed with ${response.status}`, response.status)
+    throw new PublicNewsApiError(`Region list request failed with ${response.status}`, response.status)
   }
-  return parseJsonResponse(response, assertTargetList)
+  const regionList = await parseJsonResponse(response, assertRegionList)
+  return {
+    targets: regionList.regions.map((region) => ({
+      target_id: region.region_id,
+      display_name: region.display_name,
+      primary_language: region.primary_language,
+      monitoring_type: region.region_type,
+      monitoring_label: "地区",
+      source_count: region.source_count,
+      event_count: region.event_count,
+      lifecycle: region.lifecycle,
+      archived: region.archived,
+    })),
+  }
+}
+
+export async function listPublicFacets(
+  query: Pick<PublicNewsQuery, "regionId" | "targetId" | "issue" | "related" | "date" | "q"> = {},
+  options: PublicNewsRequestOptions = {},
+): Promise<PublicFacetsResponse> {
+  const fetcher = options.fetcher ?? fetch
+  const params = new URLSearchParams()
+  appendParam(params, "region_id", query.regionId ?? query.targetId)
+  appendParam(params, "issue", query.issue)
+  appendParam(params, "related", query.related)
+  appendParam(params, "date", query.date)
+  appendParam(params, "q", query.q)
+  const suffix = params.toString()
+  const response = await fetcher(`/api/v1/public/facets${suffix ? `?${suffix}` : ""}`, {
+    signal: options.signal,
+  })
+  if (!response.ok) {
+    throw new PublicNewsApiError(`Public facets request failed with ${response.status}`, response.status)
+  }
+  return parseJsonResponse(response, assertPublicFacets)
 }
 
 export async function getPublicTargetAnalysis(

@@ -1,0 +1,43 @@
+# Schema: ../../schemas/targetconfig.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015, ADR-0016
+target_id: qatar
+display_name: 卡塔尔新闻监控
+monitoring_type: country
+region_type: country
+language_scope:
+  primary: en
+  secondary: [ar]
+  output: zh
+timezone: Asia/Qatar
+source_channel_refs:
+  - api/gdelt-topic
+  - pool:global/gdelt-geopolitics
+  - pool:global/gdelt-supply-chain
+filter_rules_ref: config/filters/qatar/default.yaml
+classification_rules_ref: config/classification/rules-v1.yaml
+sandbox_profile_ref: config/sandbox/default.yaml
+provider_routes_ref: config/provider/routes.yaml
+output_destinations_ref: config/output/destinations.yaml
+classification:
+  country_axes:
+    politics: true
+    economics: true
+    culture: true
+    immigration: true
+    energy: true
+    china_relations: true
+  home_relevance_keywords:
+      - "Qatar"
+      - "Doha"
+      - "LNG"
+      - "Gulf"
+      - "mediation"
+      - "China"
+focus_areas:
+  - id: country-geopolitics-and-policy
+    weight: 2.0
+    keywords: ["Qatar", "Doha", "government", "election", "diplomacy"]
+  - id: trade-markets-and-china-impact
+    weight: 1.8
+    keywords: ["Qatar", "China", "trade", "investment", "supply chain"]

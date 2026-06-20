@@ -4,6 +4,7 @@
 target_id: italy
 display_name: "意大利新闻监控"
 monitoring_type: country
+region_type: country
 
 language_scope:
   primary: it

@@ -53,7 +53,8 @@ FreeLLMAPI upstream provider keys to configure manually:
 - The deploy workflow creates and preserves `ENCRYPTION_KEY` in `/opt/news-sentry/<env>/freellmapi/.env`.
 - The sidecar database is stored outside the git checkout at `/opt/news-sentry/<env>/freellmapi/data`.
 - Public News Sentry calls use `FREELLMAPI_BASE_URL=http://127.0.0.1:<port>/v1` and `FREELLMAPI_DEFAULT_MODEL=auto`.
-- If `FREELLMAPI_API_KEY` is missing, public publication processing falls back to the older provider routes, and items without AI publication fields remain hidden from the public site.
+- Public publication translation now uses the same FreeLLMAPI route as AI summary/reason generation. LibreTranslate, Cloudflare Workers AI, and MyMemory adapters are no longer in the default public publication path.
+- If `FREELLMAPI_API_KEY` is missing, public publication processing can only fall back to the low-frequency OpenRouter/NVIDIA translation routes. Items without AI publication fields remain hidden from the public site.
 
 ## Public Publication Env Defaults
 

@@ -118,150 +118,8 @@ def _inject_script_nonce(html: str, nonce: str) -> str:
 _PUBLIC_SITE_BASE_URL = "https://news-sentry.com"
 _PUBLIC_SITE_NAME = "News Sentry"
 _PUBLIC_SITE_DESCRIPTION = (
-    "News Sentry 公共新闻流提供面向读者的国际新闻摘要、来源脉络与目标监控视角。"
+    "News Sentry 公共新闻流提供面向中文读者的国际新闻精选、时间线和日报。"
 )
-_PUBLICATION_SITE_TITLE = "News Sentry | 跨境新闻信号过滤器"
-_PUBLICATION_SITE_DESCRIPTION = (
-    "News Sentry 是面向中文专业读者的跨境观察哨兵，追踪海外政策、"
-    "产业、舆论和供应链变化对中国企业与跨境业务的影响。"
-)
-_PUBLICATION_SAMPLE_UPDATED_AT = "2026-06-19 08:00 UTC"
-_PUBLICATION_SAMPLE_SIGNALS: list[dict[str, str]] = [
-    {
-        "level": "S1",
-        "label": "政策变化",
-        "title": "欧盟贸易防御工具仍是对华出口合规的关键观察项",
-        "judgment": (
-            "对依赖欧盟市场的中国制造和跨境卖家，反倾销、反补贴与 "
-            "CBAM 相关更新会直接影响报价、交付周期和客户沟通。"
-        ),
-        "source": "European Commission Trade Defence",
-        "source_url": "https://policy.trade.ec.europa.eu/enforcement-and-protection/trade-defence_en",
-        "source_time": "来源页持续更新",
-        "captured_time": _PUBLICATION_SAMPLE_UPDATED_AT,
-        "impact": "中国出口企业、欧洲渠道商、合规团队",
-        "watch_next": "新立案调查、临时税率、实施条例和企业豁免窗口。",
-    },
-    {
-        "level": "S1",
-        "label": "市场准入",
-        "title": "美国关税与出口管制仍是出海供应链的高敏变量",
-        "judgment": (
-            "面向美国市场的硬件、消费电子和高技术链条需要持续跟踪 "
-            "Section 301、实体清单和关键技术限制的叠加影响。"
-        ),
-        "source": "USTR Section 301 / Tariff Actions",
-        "source_url": "https://ustr.gov/issue-areas/enforcement/section-301-investigations/tariff-actions",
-        "source_time": "来源页持续更新",
-        "captured_time": _PUBLICATION_SAMPLE_UPDATED_AT,
-        "impact": "跨境电商、制造外迁团队、北美销售负责人",
-        "watch_next": "税率复审、公众意见征询、豁免清单和行业游说信号。",
-    },
-    {
-        "level": "S2",
-        "label": "供应链变化",
-        "title": "日本产业政策对先进制造供应链具有早期指示意义",
-        "judgment": (
-            "日本经产省公告常提前暴露半导体、能源和关键材料领域的 "
-            "补贴方向，对区域产能布局和客户需求有参考价值。"
-        ),
-        "source": "METI Press Releases",
-        "source_url": "https://www.meti.go.jp/english/press/",
-        "source_time": "来源页持续更新",
-        "captured_time": _PUBLICATION_SAMPLE_UPDATED_AT,
-        "impact": "半导体链条、新能源企业、日本市场团队",
-        "watch_next": "补贴对象、采购限制、联合研发和区域招商政策。",
-    },
-    {
-        "level": "S2",
-        "label": "产业信号",
-        "title": "德国工业政策和能源价格信号影响欧洲制造需求",
-        "judgment": (
-            "德国制造业订单、能源政策和产业补贴变化，通常会传导到 "
-            "中国零部件、设备和工业服务供应商。"
-        ),
-        "source": "BMWK Federal Ministry for Economic Affairs",
-        "source_url": "https://www.bmwk.de/Navigation/EN/Home/home.html",
-        "source_time": "来源页持续更新",
-        "captured_time": _PUBLICATION_SAMPLE_UPDATED_AT,
-        "impact": "汽车零部件、工业设备、欧洲 B2B 团队",
-        "watch_next": "能源补贴、产业转型基金、汽车链条调整和工会谈判。",
-    },
-    {
-        "level": "S3",
-        "label": "舆论风险",
-        "title": "法国监管与消费者议题会放大跨境品牌声誉风险",
-        "judgment": (
-            "法国市场对平台责任、数据保护和消费权益的监管讨论较敏感，"
-            "跨境品牌需要提前准备客服、合规和公关口径。"
-        ),
-        "source": "French Ministry of Economy",
-        "source_url": "https://www.economie.gouv.fr/",
-        "source_time": "来源页持续更新",
-        "captured_time": _PUBLICATION_SAMPLE_UPDATED_AT,
-        "impact": "DTC 品牌、平台卖家、欧洲合规负责人",
-        "watch_next": "平台规则、消费者保护处罚、数据监管和媒体关注度。",
-    },
-]
-_PUBLICATION_TRUST_PAGES: dict[str, dict[str, Any]] = {
-    "about": {
-        "title": "关于 News Sentry",
-        "eyebrow": "About",
-        "intro": (
-            "News Sentry 是跨境观察哨兵，服务需要快速理解海外变化的中文"
-            "专业读者。我们把公开新闻、官方文件和权威来源整理成可追踪的信号。"
-        ),
-        "needle": "编辑标准",
-        "points": [
-            "编辑标准：优先选择对中国企业、跨境业务和供应链有实质影响的事件。",
-            "产品边界：News Sentry 增强人工研判，不自动替代编辑判断。",
-            "信任承诺：事实来源可追溯，样例内容清楚标记，不伪装成实时自动结果。",
-        ],
-    },
-    "method": {
-        "title": "方法论",
-        "eyebrow": "Method",
-        "intro": (
-            "News Sentry 的方法论不是追求全量搬运，而是把采集、过滤、研判、"
-            "输出和反馈串成可审计流程。"
-        ),
-        "needle": "筛选流程",
-        "points": [
-            "筛选流程：先确认来源与事实，再判断对地区、产业链和主体对象的影响。",
-            "AI 辅助：AI 用于摘要、归类和初步研判，关键发布判断保留人工介入。",
-            "质量门槛：首页精选必须有摘要、推荐理由和明确分类。",
-        ],
-    },
-    "sources": {
-        "title": "来源透明度",
-        "eyebrow": "Sources",
-        "intro": (
-            "公开站把来源视为信任资产。来源页会逐步展示覆盖范围、活跃度、"
-            "可信度说明和最近进入精选的内容。"
-        ),
-        "needle": "来源透明度",
-        "points": [
-            "来源透明度：优先使用官方机构、权威媒体、监管公告和可验证的一手材料。",
-            "覆盖范围：P0 聚焦中外互动、海外政策、产业和供应链信号。",
-            "后续升级：P1 将来源页扩展为来源雷达，展示活跃度和精选记录。",
-        ],
-    },
-    "subscribe": {
-        "title": "订阅 News Sentry",
-        "eyebrow": "Subscribe",
-        "intro": (
-            "P0 先开放订阅入口和内容形态说明，P2 会补齐邮件确认、退订页、"
-            "目标订阅和 RSS 输出。"
-        ),
-        "needle": "每日信号",
-        "points": [
-            "每日信号：每天汇总 3-5 条最值得跨境团队关注的变化。",
-            "每周观察：把一周信号串联成趋势判断，适合管理层和团队同步。",
-            "目标更新：围绕国家、政策议题、产业链或主体对象发送变化提醒。",
-        ],
-    },
-}
-
 # ── Pydantic 模型 ──────────────────────────────────────
 
 
@@ -336,6 +194,41 @@ class TargetListResponse(BaseModel):
     """Target 列表响应。"""
 
     targets: list[TargetInfo]
+
+
+class RegionInfo(BaseModel):
+    """公共地区入口，作为新版 public target 的语义承载。"""
+
+    region_id: str
+    display_name: str
+    primary_language: str
+    region_type: Literal["country", "region", "continent", "global"] = "country"
+    source_count: int
+    event_count: int = 0
+    lifecycle: dict[str, Any] = Field(default_factory=dict)
+    archived: bool = False
+
+
+class RegionListResponse(BaseModel):
+    """公共地区列表响应。"""
+
+    regions: list[RegionInfo]
+
+
+class PublicFacetItem(BaseModel):
+    """公共新闻动态筛选标签。"""
+
+    id: str
+    label: str
+    count: int
+
+
+class PublicFacetsResponse(BaseModel):
+    """公共新闻当前可见内容的动态 facets。"""
+
+    regions: list[PublicFacetItem]
+    issues: list[PublicFacetItem]
+    related: list[PublicFacetItem]
 
 
 class StatsResponse(BaseModel):
@@ -611,8 +504,8 @@ class TargetCreateRequest(BaseModel):
     display_name: str
     language_scope: dict[str, Any]
     timezone: str
-    monitoring_type: Literal["country", "topic"] | None = None
-    topic_label: str | None = None
+    monitoring_type: Literal["country", "region", "continent", "global"] | None = None
+    region_type: Literal["country", "region", "continent", "global"] | None = None
     source_target_id: str | None = None
     template_id: str | None = None
 
@@ -621,8 +514,8 @@ class TargetPatchRequest(BaseModel):
     """Target 生命周期工作台内的基础资料更新。"""
 
     display_name: str | None = None
-    monitoring_type: Literal["country", "topic"] | None = None
-    topic_label: str | None = None
+    monitoring_type: Literal["country", "region", "continent", "global"] | None = None
+    region_type: Literal["country", "region", "continent", "global"] | None = None
     language_scope: dict[str, Any] | None = None
     timezone: str | None = None
     classification: dict[str, Any] | None = None
@@ -1008,6 +901,9 @@ class PublicNewsItem(BaseModel):
     original_url: str | None = Field(default=None, alias="originalUrl")
     detail_url: str = Field(alias="detailUrl")
     tags: list[str] = Field(default_factory=list)
+    issue_tags: list[str] = Field(default_factory=list, alias="issueTags")
+    related_tags: list[str] = Field(default_factory=list, alias="relatedTags")
+    region_tags: list[str] = Field(default_factory=list, alias="regionTags")
     entities: list[PublicNewsEntity] = Field(default_factory=list)
     related_count: int = Field(default=0, alias="relatedCount")
     discussion_count: int | None = Field(default=None, alias="discussionCount")
@@ -1929,6 +1825,49 @@ def _event_topic_tags(ev: dict[str, Any]) -> list[str]:
     return [str(tag) for tag in raw[:2]] if isinstance(raw, list) else []
 
 
+def _clean_public_tag_list(value: Any, *, limit: int = 8) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    tags: list[str] = []
+    for item in value:
+        tag = " ".join(str(item or "").split())
+        if not tag or tag in tags:
+            continue
+        tags.append(tag)
+        if len(tags) >= limit:
+            break
+    return tags
+
+
+def _event_publication_payload(ev: dict[str, Any]) -> dict[str, Any]:
+    metadata = ev.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    publication = metadata.get("publication")
+    return publication if isinstance(publication, dict) else {}
+
+
+def _event_issue_tags(ev: dict[str, Any]) -> list[str]:
+    raw = ev.get("issue_tags")
+    if isinstance(raw, list):
+        return _clean_public_tag_list(raw)
+    return _clean_public_tag_list(_event_publication_payload(ev).get("issue_tags"))
+
+
+def _event_related_tags(ev: dict[str, Any]) -> list[str]:
+    raw = ev.get("related_tags")
+    if isinstance(raw, list):
+        return _clean_public_tag_list(raw)
+    return _clean_public_tag_list(_event_publication_payload(ev).get("related_tags"))
+
+
+def _event_region_tags(ev: dict[str, Any]) -> list[str]:
+    raw = ev.get("region_tags")
+    if isinstance(raw, list):
+        return _clean_public_tag_list(raw)
+    return _clean_public_tag_list(_event_publication_payload(ev).get("region_tags"))
+
+
 def _tag_text(value: Any) -> str:
     if isinstance(value, dict):
         for key in ("code", "name", "label", "title"):
@@ -1940,6 +1879,16 @@ def _tag_text(value: Any) -> str:
 
 def _event_flat_tags(ev: dict[str, Any]) -> list[str]:
     tags: list[str] = []
+    tags.extend(_event_issue_tags(ev)[:2])
+    tags.extend(_event_related_tags(ev)[:2])
+    tags.extend(_event_region_tags(ev)[:2])
+    if tags:
+        deduped_publication_tags: list[str] = []
+        for tag in tags:
+            if tag not in deduped_publication_tags:
+                deduped_publication_tags.append(tag)
+        return deduped_publication_tags[:4]
+
     classification = _event_classification(ev)
     if classification:
         l0 = classification.get("l0")
@@ -2008,6 +1957,9 @@ def _event_public_summary(ev: dict[str, Any]) -> str:
 
 
 def _row_publication_ready(row: dict[str, Any]) -> bool:
+    if row.get("_public_projection_ready") is True:
+        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        return public_publication_ready(metadata)
     return public_publication_ready_for_row(row)
 
 
@@ -2059,6 +2011,27 @@ _PUBLIC_NEWS_INTERNAL_DATA_DIRS = {
     "memory",
     "tmp",
 }
+_RETIRED_TOPIC_TARGET_IDS = frozenset(
+    {
+        "africa-watch",
+        "china-watch-en",
+        "climate-water-food",
+        "crisis-conflict",
+        "critical-minerals",
+        "defense-security",
+        "digital-regulation",
+        "energy-transition",
+        "eu-policy",
+        "fusion",
+        "latin-america-watch",
+        "middle-east-gulf",
+        "migration-labor",
+        "public-opinion-culture",
+        "supply-chain-trade",
+        "tech-ai-semiconductors",
+        "us-policy",
+    }
+)
 _PUBLIC_NEWS_EVENT_DIRS = {
     "archive",
     "drafts",
@@ -2150,6 +2123,8 @@ def _public_news_feed_cache_key(
     *,
     featured: bool,
     target_id: str | None,
+    issue: str | None = None,
+    related: str | None = None,
     source_id: str | None,
     category: str | None,
     date: str | None,
@@ -2163,8 +2138,10 @@ def _public_news_feed_cache_key(
         "category": category or "",
         "date": date or "",
         "featured": bool(featured),
+        "issue": issue or "",
         "page_size": int(page_size),
         "q": q or "",
+        "related": related or "",
         "since_cursor": since_cursor or "",
         "source_id": source_id or "",
         "target_id": target_id or "",
@@ -2280,6 +2257,8 @@ def _is_public_target_id(value: str) -> bool:
     normalized = target_id.lower()
     if normalized in _PUBLIC_NEWS_INTERNAL_DATA_DIRS:
         return False
+    if normalized in _RETIRED_TOPIC_TARGET_IDS:
+        return False
     return not (normalized == "example-target" or normalized.startswith("example-"))
 
 
@@ -2292,17 +2271,17 @@ def _looks_like_public_target_data_dir(path: Path) -> bool:
 
 
 def _public_news_target_ids(data_dir: Path, target_id: str | None) -> list[str]:
+    del data_dir  # Public region discovery is config-first; runtime dirs are not authority.
     if target_id:
-        return [target_id]
+        for config in _load_target_configs():
+            if config.get("target_id") == target_id and _target_is_public_region(config):
+                return [target_id]
+        return []
     ids: set[str] = set()
     for config in _load_target_configs():
         value = config.get("target_id")
-        if isinstance(value, str) and _is_public_target_id(value):
+        if isinstance(value, str) and _is_public_target_id(value) and _target_is_public_region(config):
             ids.add(value.strip())
-    if data_dir.is_dir():
-        for child in data_dir.iterdir():
-            if _looks_like_public_target_data_dir(child):
-                ids.add(child.name)
     return sorted(ids)
 
 
@@ -2459,6 +2438,9 @@ def _public_news_item(
             f"/public-app/events/{quote(event_id, safe='')}?target_id={quote(target_id, safe='')}"
         ),
         tags=list(payload.get("flat_tags") or []),
+        issueTags=_event_issue_tags(payload),
+        relatedTags=_event_related_tags(payload),
+        regionTags=_event_region_tags(payload),
         entities=_public_news_entities(payload),
         relatedCount=int(payload.get("related_count") or 0),
         discussionCount=int(payload["discussion_count"])
@@ -2476,6 +2458,8 @@ def _public_news_matches(
     featured: bool,
     source_id: str | None,
     category: str | None,
+    issue: str | None = None,
+    related: str | None = None,
     date: str | None,
     q: str | None,
 ) -> bool:
@@ -2491,6 +2475,14 @@ def _public_news_matches(
         normalized_category = canonical_l0(category)
         classification = _event_classification(ev) or {}
         if canonical_l0(str(classification.get("l0") or "")) != normalized_category:
+            return False
+    if issue:
+        issue_normalized = issue.strip()
+        if issue_normalized not in _event_issue_tags(ev):
+            return False
+    if related:
+        related_normalized = related.strip()
+        if related_normalized not in _event_related_tags(ev):
             return False
     if date and not str(ev.get("published_at") or "").startswith(date):
         return False
@@ -2518,6 +2510,7 @@ def _public_projection_text(value: Any) -> str | None:
 
 def _public_projection_event(row: dict[str, Any]) -> dict[str, Any]:
     """把 public projection row 补齐到 PublicNewsItem 所需的最小展示事件形状。"""
+    source_row_ready = _row_publication_ready(row)
     event = _event_from_index_row(row)
     raw_metadata = row.get("metadata")
     metadata = cast(dict[str, Any], raw_metadata) if isinstance(raw_metadata, dict) else {}
@@ -2544,6 +2537,16 @@ def _public_projection_event(row: dict[str, Any]) -> dict[str, Any]:
     recommendation_reason = _public_projection_text(publication.get("recommendation_reason"))
     if recommendation_reason:
         event["judge_result"] = {"rationale": recommendation_reason}
+
+    issue_tags = _clean_public_tag_list(publication.get("issue_tags"))
+    related_tags = _clean_public_tag_list(publication.get("related_tags"))
+    region_tags = _clean_public_tag_list(publication.get("region_tags"))
+    if issue_tags:
+        event["issue_tags"] = issue_tags
+    if related_tags:
+        event["related_tags"] = related_tags
+    if region_tags:
+        event["region_tags"] = region_tags
 
     if source_display_name := _public_projection_text(
         metadata.get("source_display_name")
@@ -2576,6 +2579,8 @@ def _public_projection_event(row: dict[str, Any]) -> dict[str, Any]:
         event["related_count"] = metadata["related_count"]
     if isinstance(metadata.get("discussion_count"), int):
         event["discussion_count"] = metadata["discussion_count"]
+    if source_row_ready:
+        event["_public_projection_ready"] = True
 
     return event
 
@@ -2774,26 +2779,28 @@ async def _public_news_candidate_events(
                 allowed_targets = set(target_ids)
                 rows = result.get("rows", []) if isinstance(result, dict) else []
                 if isinstance(rows, list):
-                    for row in cast(list[dict[str, Any]], rows):
-                        row_target_id = str(row.get("target_id") or "").strip()
-                        if not row_target_id or row_target_id not in allowed_targets:
-                            continue
-                        if not _row_publication_ready(row):
-                            continue
-                        candidates.append(
-                            (
-                                row_target_id,
-                                _merge_index_metadata(_event_from_index_row(row), row),
+                    if rows:
+                        for row in cast(list[dict[str, Any]], rows):
+                            row_target_id = str(row.get("target_id") or "").strip()
+                            if not row_target_id or row_target_id not in allowed_targets:
+                                continue
+                            if not _row_publication_ready(row):
+                                continue
+                            candidates.append(
+                                (
+                                    row_target_id,
+                                    _merge_index_metadata(_event_from_index_row(row), row),
+                                )
                             )
+                        candidates.sort(
+                            key=lambda item: _public_news_sort_key(item[1]), reverse=True
                         )
-                    candidates.sort(key=lambda item: _public_news_sort_key(item[1]), reverse=True)
-                    total = int(result.get("total") or 0)
-                    if len(candidates) != len(rows):
-                        total = len(candidates)
-                    return candidates, max(len(candidates), total)
+                        total = int(result.get("total") or 0)
+                        if len(candidates) != len(rows):
+                            total = len(candidates)
+                        return candidates, max(len(candidates), total)
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to collect global public news candidates from store")
-                return [], 0
     for target_id in target_ids:
         try:
             target_store = await _get_target_store(target_id)
@@ -2821,6 +2828,40 @@ async def _public_news_candidate_events(
             candidates.append((target_id, event))
     candidates.sort(key=lambda item: _public_news_sort_key(item[1]), reverse=True)
     return candidates, total
+
+
+def _public_region_label(target_id: str) -> str:
+    label = _target_display_name(target_id)
+    for suffix in ("新闻监控", "监控", " News", " news"):
+        if label.endswith(suffix):
+            label = label[: -len(suffix)]
+    return label.strip() or target_id
+
+
+def _public_facet_items(counts: dict[str, int], *, limit: int = 60) -> list[PublicFacetItem]:
+    pairs = [
+        (str(label), int(count))
+        for label, count in counts.items()
+        if str(label).strip() and int(count) > 0
+    ]
+    pairs.sort(key=lambda item: (-item[1], item[0]))
+    return [
+        PublicFacetItem(id=label, label=label, count=count)
+        for label, count in pairs[:limit]
+    ]
+
+
+def _public_region_facet_items(counts: dict[str, int], *, limit: int = 60) -> list[PublicFacetItem]:
+    pairs = [
+        (str(region_id), int(count))
+        for region_id, count in counts.items()
+        if str(region_id).strip() and int(count) > 0
+    ]
+    pairs.sort(key=lambda item: (-item[1], _public_region_label(item[0])))
+    return [
+        PublicFacetItem(id=region_id, label=_public_region_label(region_id), count=count)
+        for region_id, count in pairs[:limit]
+    ]
 
 
 def _public_news_etag(items: list[PublicNewsItem], latest_cursor: str | None) -> str:
@@ -3313,12 +3354,39 @@ def _load_yaml_file(path: Path) -> dict[str, Any] | None:
         return None
 
 
+def _source_path_for_ref(target_id: str, source_ref: str) -> Path:
+    """Resolve target-local refs and shared source-pool refs to YAML files."""
+    raw_ref = str(source_ref or "")
+    ref = _normalize_source_ref(
+        raw_ref.removeprefix("pool:") if raw_ref.startswith("pool:") else raw_ref
+    )
+    if raw_ref.startswith("pool:"):
+        return Path("config/source-pools") / f"{ref}.yaml"
+    return Path("config/sources") / target_id / f"{ref}.yaml"
+
+
 def _load_source_configs(target_id: str) -> list[dict[str, Any]]:
-    """从 config/sources/{target_id}/ 读取所有源渠道配置。"""
+    """Load source configs referenced by target, including shared source-pool refs."""
     sources_dir = Path(f"config/sources/{target_id}")
-    if not sources_dir.is_dir():
+    target_config = _load_target_config(target_id)
+    refs = [
+        str(ref)
+        for ref in (target_config or {}).get("source_channel_refs", [])
+        if isinstance(ref, str) and not str(ref).startswith("social/")
+    ]
+    if not refs and not sources_dir.is_dir():
         return []
     sources: list[dict[str, Any]] = []
+    if refs:
+        for source_ref in refs:
+            yaml_file = _source_path_for_ref(target_id, source_ref)
+            data = _load_yaml_file(yaml_file)
+            if data and isinstance(data, dict):
+                data["_source_id"] = source_ref
+                data["_source_ref"] = source_ref
+                data["_file_path"] = str(yaml_file)
+                sources.append(data)
+        return sources
     for yaml_file in sorted(sources_dir.rglob("*.yaml")):
         if yaml_file.name.startswith("_"):
             continue
@@ -3326,6 +3394,7 @@ def _load_source_configs(target_id: str) -> list[dict[str, Any]]:
         if data and isinstance(data, dict):
             rel = yaml_file.relative_to(sources_dir).with_suffix("")
             data["_source_id"] = str(rel)
+            data["_source_ref"] = str(rel)
             data["_file_path"] = str(yaml_file)
             sources.append(data)
     return sources
@@ -3454,7 +3523,7 @@ def _source_ids_for_target(target_id: str) -> set[str]:
             continue
         if lifecycle.get("status") == "archived":
             continue
-        for key in ("source_id", "id", "_source_id"):
+        for key in ("source_id", "id", "_source_id", "_source_ref"):
             value = source.get(key)
             if value:
                 normalized = str(value).strip()
@@ -3631,10 +3700,14 @@ def _target_is_archived(data: dict[str, Any]) -> bool:
     return _target_lifecycle(data).get("status") == "archived"
 
 
-_TARGET_MONITORING_LABELS = {
-    "country": "国别监控目标",
-    "topic": "专题监控目标",
+_REGION_TYPE_LABELS = {
+    "country": "地区",
+    "region": "地区",
+    "continent": "大洲",
+    "global": "全球",
 }
+
+_REGION_TYPES = frozenset(_REGION_TYPE_LABELS)
 
 
 def _target_monitoring_type(data: dict[str, Any]) -> str:
@@ -3664,6 +3737,33 @@ def _target_monitoring_type(data: dict[str, Any]) -> str:
     return "country"
 
 
+def _target_region_type(data: dict[str, Any]) -> str:
+    raw = data.get("region_type") or data.get("monitoring_type") or data.get("target_type")
+    aliases = {
+        "country": "country",
+        "country-target": "country",
+        "country_monitoring": "country",
+        "nation": "country",
+        "region": "region",
+        "regional": "region",
+        "area": "region",
+        "continent": "continent",
+        "global": "global",
+        "world": "global",
+    }
+    if isinstance(raw, str):
+        normalized = raw.strip().lower().replace("_", "-")
+        if normalized in aliases:
+            return aliases[normalized]
+    return "country"
+
+
+def _target_is_public_region(data: dict[str, Any]) -> bool:
+    if _target_monitoring_type(data) == "topic" or data.get("topic_label"):
+        return False
+    return _target_region_type(data) in _REGION_TYPES
+
+
 def _target_topic_label(data: dict[str, Any]) -> str | None:
     for key in ("topic_label", "monitoring_topic", "topic_name"):
         value = data.get(key)
@@ -3678,7 +3778,7 @@ def _target_topic_label(data: dict[str, Any]) -> str | None:
 def _target_info_from_config(data: dict[str, Any], data_dir: Path) -> TargetInfo:
     target_id = data.get("target_id", "")
     lifecycle = _target_lifecycle(data)
-    monitoring_type = _target_monitoring_type(data)
+    monitoring_type = _target_region_type(data) if _target_is_public_region(data) else "topic"
     refs = [ref for ref in data.get("source_channel_refs", []) if isinstance(ref, str)]
     return TargetInfo(
         target_id=target_id,
@@ -3687,12 +3787,27 @@ def _target_info_from_config(data: dict[str, Any], data_dir: Path) -> TargetInfo
         if isinstance(data.get("language_scope"), dict)
         else "",
         monitoring_type=monitoring_type,
-        monitoring_label=_TARGET_MONITORING_LABELS.get(monitoring_type, "监控目标"),
-        topic_label=_target_topic_label(data),
+        monitoring_label=_REGION_TYPE_LABELS.get(monitoring_type, "地区"),
+        topic_label=None if _target_is_public_region(data) else _target_topic_label(data),
         source_count=len(refs),
         event_count=0,
         lifecycle=lifecycle,
         archived=lifecycle.get("status") == "archived",
+    )
+
+
+def _region_info_from_config(data: dict[str, Any], data_dir: Path) -> RegionInfo:
+    target = _target_info_from_config(data, data_dir)
+    region_type = _target_region_type(data)
+    return RegionInfo(
+        region_id=target.target_id,
+        display_name=target.display_name,
+        primary_language=target.primary_language,
+        region_type=region_type if region_type in _REGION_TYPES else "country",
+        source_count=target.source_count,
+        event_count=target.event_count,
+        lifecycle=target.lifecycle,
+        archived=target.archived,
     )
 
 
@@ -3717,10 +3832,11 @@ async def _public_target_event_counts(data_dir: Path) -> dict[str, int]:
         get_counts = getattr(_store, "get_public_event_counts_by_target", None)
         if get_counts is not None:
             try:
-                return cast(dict[str, int], await get_counts(_PUBLIC_ANALYSIS_STAGE))
+                counts = cast(dict[str, int], await get_counts(_PUBLIC_ANALYSIS_STAGE))
+                if counts:
+                    return counts
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to count public targets from global store")
-                return {}
     counts: dict[str, int] = {}
     for target_id in _public_news_target_ids(data_dir, None):
         count = await _target_public_event_count(target_id, data_dir)
@@ -3858,14 +3974,16 @@ def _template_target_config(
     language_scope: dict[str, Any],
     timezone: str,
     monitoring_type: str | None = None,
-    topic_label: str | None = None,
+    region_type: str | None = None,
     source_refs: list[str] | None = None,
 ) -> dict[str, Any]:
     refs = source_refs if source_refs is not None else ["rss-template"]
+    resolved_region_type = region_type or monitoring_type or "country"
     data = {
         "target_id": target_id,
         "display_name": display_name,
-        "monitoring_type": monitoring_type or "country",
+        "monitoring_type": resolved_region_type,
+        "region_type": resolved_region_type,
         "language_scope": language_scope,
         "timezone": timezone,
         "source_channel_refs": refs,
@@ -3878,8 +3996,6 @@ def _template_target_config(
         "focus_areas": [],
         "lifecycle": {"status": "active"},
     }
-    if topic_label:
-        data["topic_label"] = topic_label
     return data
 
 
@@ -4039,7 +4155,9 @@ def _validate_target_config(target_id: str) -> dict[str, Any]:
     refs = [str(ref) for ref in data.get("source_channel_refs", []) if isinstance(ref, str)]
     duplicate_refs = sorted({ref for ref in refs if refs.count(ref) > 1})
     missing_refs = [
-        ref for ref in refs if not (Path("config/sources") / target_id / f"{ref}.yaml").is_file()
+        ref
+        for ref in refs
+        if not ref.startswith("social/") and not _source_path_for_ref(target_id, ref).is_file()
     ]
     checks.append(
         {
@@ -5867,956 +5985,6 @@ def _index_html_response() -> HTMLResponse:
     )
 
 
-def _publication_json_ld_script(data: dict[str, Any], *, nonce: str) -> str:
-    body = json.dumps(data, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
-    return f'<script nonce="{nonce}" type="application/ld+json">{body}</script>'
-
-
-def _publication_nav() -> str:
-    links = [
-        ("/", "新闻哨兵", "Breaking News"),
-        ("/public-app/?channel=all", "新闻纵览", "All News"),
-        ("/public-app/daily", "新闻日报", "Daily News"),
-        ("/public-app/agent", "Agent", ""),
-        ("/public-app/update", "Update", ""),
-    ]
-    return "\n".join(
-        (
-            f'<a class="side-link" href="{html_escape(href, quote=True)}">'
-            f"<span>{html_escape(label)}</span>"
-            f"{f'<small>{html_escape(sublabel)}</small>' if sublabel else ''}"
-            "</a>"
-        )
-        for href, label, sublabel in links
-    )
-
-
-def _publication_sidebar() -> str:
-    return f"""
-      <aside class="sidebar" aria-label="公共站侧边栏">
-        <a class="sidebar-brand" href="/" aria-label="News Sentry 首页">
-          <span>News</span><strong>Sentry</strong>
-        </a>
-        <nav aria-label="公开站点导航">
-          {_publication_nav()}
-        </nav>
-        <div class="sidebar-footer">
-          <a href="/about">关于 About</a>
-          <a href="/method">方法论 Method</a>
-          <a href="/sources">来源 Sources</a>
-          <a href="/subscribe">订阅 Subscribe</a>
-        </div>
-      </aside>
-    """
-
-
-def _publication_styles() -> str:
-    return """
-    :root {
-      color-scheme: light;
-      --ink: #172033;
-      --muted: #5d6678;
-      --line: #d9dee8;
-      --panel: #f7f9fc;
-      --paper: #ffffff;
-      --brand: #8f1d2c;
-      --brand-strong: #721523;
-      --brand-soft: rgba(143, 29, 44, 0.1);
-      --brand-border: rgba(143, 29, 44, 0.24);
-      --amber: #a15c00;
-      --page-pad: clamp(16px, 2.4vw, 36px);
-      font-family: Inter, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      background: var(--paper);
-      color: var(--ink);
-      font-size: 16px;
-      line-height: 1.65;
-    }
-    a { color: inherit; text-decoration: none; }
-    .site-header {
-      border-bottom: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.96);
-      position: sticky;
-      top: 0;
-      z-index: 10;
-    }
-    .bar, main, .site-footer {
-      width: 100%;
-      max-width: none;
-      margin: 0;
-    }
-    .bar {
-      min-height: 68px;
-      padding-left: var(--page-pad);
-      padding-right: var(--page-pad);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 24px;
-    }
-    .brand {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      font-weight: 760;
-      letter-spacing: 0;
-      white-space: nowrap;
-    }
-    .brand img { width: 30px; height: 30px; }
-    nav {
-      display: flex;
-      align-items: center;
-      gap: 18px;
-      color: var(--muted);
-      font-size: 14px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
-    nav a:hover { color: var(--brand); }
-    .hero {
-      padding: 52px var(--page-pad) 28px;
-      display: grid;
-      grid-template-columns: minmax(0, 1.18fr) minmax(380px, 0.82fr);
-      gap: 32px;
-      align-items: start;
-      border-bottom: 1px solid var(--line);
-    }
-    .eyebrow {
-      margin: 0 0 10px;
-      color: var(--brand);
-      font-size: 14px;
-      font-weight: 720;
-    }
-    h1 {
-      margin: 0;
-      max-width: 760px;
-      font-size: clamp(34px, 5vw, 64px);
-      line-height: 1.05;
-      letter-spacing: 0;
-    }
-    h2 {
-      margin: 0 0 16px;
-      font-size: 25px;
-      line-height: 1.2;
-      letter-spacing: 0;
-    }
-    h3 {
-      margin: 0 0 8px;
-      font-size: 18px;
-      line-height: 1.3;
-      letter-spacing: 0;
-    }
-    p { margin: 0; }
-    .lede {
-      margin-top: 18px;
-      max-width: 720px;
-      color: var(--muted);
-      font-size: 18px;
-    }
-    .meta-row {
-      margin-top: 22px;
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      color: var(--muted);
-      font-size: 14px;
-    }
-    .pill {
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      padding: 5px 10px;
-      background: var(--panel);
-    }
-    .actions { margin-top: 26px; display: flex; gap: 12px; flex-wrap: wrap; }
-    .button {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 42px;
-      padding: 0 16px;
-      border-radius: 6px;
-      border: 1px solid var(--line);
-      font-weight: 680;
-    }
-    .button.primary {
-      color: #fff;
-      background: var(--brand);
-      border-color: var(--brand);
-    }
-    .headline, .signal, .trust-panel, .target {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--paper);
-    }
-    .headline { padding: 22px; box-shadow: 0 14px 36px rgba(23, 32, 51, 0.08); }
-    .badge-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      min-height: 26px;
-      padding: 0 8px;
-      border-radius: 5px;
-      background: #f9e9ec;
-      color: var(--brand-strong);
-      font-size: 12px;
-      font-weight: 740;
-    }
-    .badge.level { background: #fff4df; color: var(--amber); }
-    .section {
-      padding: 34px var(--page-pad);
-      border-bottom: 1px solid var(--line);
-    }
-    .reader-home {
-      padding: 22px var(--page-pad) 40px;
-    }
-    .reader-intro {
-      display: flex;
-      align-items: end;
-      justify-content: space-between;
-      gap: 24px;
-      padding-bottom: 20px;
-      border-bottom: 1px solid var(--line);
-    }
-    .reader-intro h1 {
-      max-width: 760px;
-      font-size: clamp(30px, 4vw, 48px);
-      line-height: 1.08;
-    }
-    .reader-intro .lede {
-      max-width: 760px;
-      font-size: 16px;
-    }
-    .reader-section {
-      padding: 28px 0 0;
-    }
-    .hotspot-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 14px;
-    }
-    .latest-list {
-      display: grid;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      overflow: hidden;
-      background: var(--paper);
-    }
-    .latest-list .signal {
-      border: 0;
-      border-bottom: 1px solid var(--line);
-      border-radius: 0;
-    }
-    .latest-list .signal:last-child {
-      border-bottom: 0;
-    }
-    .section-head {
-      display: flex;
-      align-items: end;
-      justify-content: space-between;
-      gap: 20px;
-      margin-bottom: 18px;
-    }
-    .section-head p { color: var(--muted); max-width: 640px; }
-    .signal-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-      gap: 14px;
-    }
-    .signal { padding: 18px; }
-    .signal dl {
-      margin: 14px 0 0;
-      display: grid;
-      grid-template-columns: 86px minmax(0, 1fr);
-      gap: 6px 12px;
-      color: var(--muted);
-      font-size: 14px;
-    }
-    .signal dt { color: var(--ink); font-weight: 700; }
-    .signal dd { margin: 0; overflow-wrap: anywhere; }
-    .signal a { color: var(--brand); }
-    .targets {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 12px;
-    }
-    .target { padding: 16px; background: var(--panel); }
-    .target strong { display: block; margin-bottom: 6px; }
-    .target p { color: var(--muted); font-size: 14px; }
-    .trust-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 12px;
-    }
-    .trust-panel { padding: 16px; min-height: 150px; }
-    .trust-panel p { color: var(--muted); font-size: 14px; }
-    .trust-panel a { color: var(--brand); font-weight: 700; }
-    .note {
-      margin-top: 18px;
-      padding: 14px 16px;
-      border-left: 4px solid var(--brand);
-      background: #f9e9ec;
-      color: var(--brand-strong);
-      font-size: 14px;
-    }
-    .site-footer {
-      padding: 28px var(--page-pad) 44px;
-      color: var(--muted);
-      font-size: 14px;
-    }
-    .publication-shell {
-      min-height: 100vh;
-      display: grid;
-      grid-template-columns: 160px minmax(0, 1fr);
-      background: #f8fafc;
-    }
-    .sidebar {
-      position: sticky;
-      top: 0;
-      height: 100vh;
-      display: grid;
-      grid-template-rows: auto 1fr auto;
-      gap: 12px;
-      padding: 12px 8px;
-      background: #070b14;
-      color: #f1f5f9;
-      border-right: 1px solid rgba(255, 255, 255, 0.08);
-    }
-    .sidebar-brand {
-      min-height: 52px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 3px;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 10px;
-      background: rgba(255, 255, 255, 0.035);
-      font-size: 18px;
-      font-weight: 850;
-      letter-spacing: 0;
-    }
-    .sidebar-brand strong { color: var(--brand); }
-    .sidebar nav {
-      display: grid;
-      align-content: start;
-      gap: 4px;
-      color: #64748b;
-      font-size: 13px;
-    }
-    .side-link {
-      display: grid;
-      min-height: 36px;
-      padding: 7px 10px;
-      border-radius: 8px;
-      font-weight: 650;
-    }
-    .side-link:hover,
-    .side-link:first-child {
-      color: var(--brand);
-      background: var(--brand-soft);
-      box-shadow: inset 0 0 0 1px var(--brand-border);
-    }
-    .side-link small {
-      color: inherit;
-      opacity: 0.72;
-      font-size: 11px;
-      font-weight: 500;
-    }
-    .sidebar-footer {
-      display: grid;
-      gap: 4px;
-      padding: 8px;
-      color: #64748b;
-      font-size: 12px;
-    }
-    .sidebar-footer a:hover { color: var(--brand); }
-    .app-main {
-      min-width: 0;
-      padding: 16px clamp(12px, 1.6vw, 24px) 36px;
-    }
-    .page-theme {
-      display: grid;
-      gap: 12px;
-    }
-    .feed-hero,
-    .hot-panel,
-    .timeline-panel,
-    .trust-page.panel {
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: var(--paper);
-      box-shadow: none;
-    }
-    .feed-hero {
-      padding: 14px;
-      display: grid;
-      gap: 12px;
-    }
-    .feed-hero h1 {
-      font-size: clamp(30px, 4vw, 46px);
-      max-width: none;
-    }
-    .hero-row {
-      display: flex;
-      align-items: end;
-      justify-content: space-between;
-      gap: 16px;
-      flex-wrap: wrap;
-    }
-    .segmented {
-      display: flex;
-      gap: 6px;
-      overflow-x: auto;
-      scrollbar-width: none;
-    }
-    .segmented::-webkit-scrollbar { display: none; }
-    .segmented a,
-    .search-pill {
-      min-height: 32px;
-      padding: 6px 10px;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      color: var(--muted);
-      background: var(--panel);
-      font-size: 13px;
-      white-space: nowrap;
-    }
-    .segmented a:first-child {
-      color: var(--brand);
-      border-color: var(--brand-border);
-      background: var(--brand-soft);
-    }
-    .hot-panel,
-    .timeline-panel { padding: 12px 14px; }
-    .hot-list {
-      display: grid;
-      gap: 6px;
-      margin-top: 8px;
-    }
-    .hot-item {
-      display: grid;
-      grid-template-columns: 28px minmax(0, 1fr) auto;
-      gap: 10px;
-      align-items: center;
-      padding: 7px 0;
-      border-top: 1px solid var(--line);
-    }
-    .hot-rank { color: var(--brand); font-weight: 800; }
-    .hot-title {
-      font-weight: 740;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-    }
-    .hot-meta { color: var(--muted); font-size: 13px; }
-    .timeline-day {
-      margin-top: 12px;
-      color: var(--muted);
-      font-size: 14px;
-      font-weight: 740;
-    }
-    .timeline-row {
-      display: grid;
-      grid-template-columns: 58px 12px minmax(0, 1fr);
-      gap: 10px;
-      margin-top: 8px;
-    }
-    .timeline-time {
-      padding-top: 12px;
-      color: var(--muted);
-      font-weight: 760;
-    }
-    .timeline-dot {
-      margin-top: 16px;
-      width: 8px;
-      height: 8px;
-      border-radius: 999px;
-      background: var(--brand);
-      box-shadow: 0 0 0 3px var(--brand-soft);
-    }
-    .timeline-card {
-      padding: 12px;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: var(--paper);
-    }
-    .timeline-card h3 { margin-bottom: 8px; }
-    .timeline-card p { color: var(--muted); }
-    .recommendation {
-      margin-top: 8px;
-      padding: 8px 10px;
-      border: 1px solid var(--brand-border);
-      border-radius: 6px;
-      background: var(--brand-soft);
-      color: var(--muted);
-      font-size: 14px;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        color-scheme: dark;
-        --ink: #f1f5f9;
-        --muted: #94a3b8;
-        --line: rgba(148, 163, 184, 0.2);
-        --panel: rgba(15, 23, 42, 0.72);
-        --paper: #111827;
-        --brand: #d45b67;
-        --brand-strong: #f0a0a9;
-        --brand-soft: rgba(212, 91, 103, 0.14);
-        --brand-border: rgba(212, 91, 103, 0.28);
-        background: #080d18;
-      }
-      body { background: #080d18; }
-      .publication-shell { background: #080d18; }
-      .feed-hero,
-      .hot-panel,
-      .timeline-panel,
-      .trust-page.panel {
-        box-shadow: none;
-      }
-    }
-    .trust-page {
-      padding: 46px var(--page-pad);
-      max-width: none;
-    }
-    .trust-page > .eyebrow,
-    .trust-page > h1,
-    .trust-page > .lede,
-    .trust-page > ul,
-    .trust-page > .actions {
-      max-width: 880px;
-    }
-    .trust-page ul { margin: 22px 0; padding-left: 20px; }
-    .trust-page li { margin-bottom: 10px; }
-    .subscription-box {
-      margin-top: 22px;
-      max-width: 960px;
-      padding: 18px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--panel);
-      display: flex;
-      align-items: end;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-    .subscription-box label,
-    .subscription-box p {
-      flex-basis: 100%;
-    }
-    .subscription-box input {
-      width: min(360px, 100%);
-      min-height: 42px;
-      padding: 0 12px;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      font: inherit;
-      background: #fff;
-    }
-    @media (max-width: 900px) {
-      .bar {
-        align-items: flex-start;
-        flex-direction: column;
-        padding-top: 16px;
-        padding-bottom: 16px;
-      }
-      nav { justify-content: flex-start; gap: 12px; }
-      .hero, .signal-grid, .targets, .trust-grid { grid-template-columns: 1fr; }
-      .hero { padding-top: 34px; }
-      .reader-intro { align-items: flex-start; flex-direction: column; }
-      .section-head { align-items: flex-start; flex-direction: column; }
-      .subscription-box { align-items: stretch; }
-      .publication-shell {
-        display: block;
-        max-width: 100%;
-        overflow-x: hidden;
-      }
-      .sidebar {
-        position: sticky;
-        top: 0;
-        z-index: 20;
-        height: auto;
-        max-width: 100%;
-        grid-template-columns: auto minmax(0, 1fr);
-        grid-template-rows: auto;
-        align-items: center;
-        padding: 10px var(--page-pad);
-        overflow: hidden;
-      }
-      .sidebar-brand {
-        min-height: 44px;
-        padding: 0 12px;
-        border-radius: 14px;
-        font-size: 15px;
-        white-space: nowrap;
-      }
-      .sidebar nav {
-        display: flex;
-        min-width: 0;
-        overflow-x: auto;
-        overscroll-behavior-x: contain;
-        scrollbar-width: none;
-      }
-      .sidebar nav::-webkit-scrollbar { display: none; }
-      .side-link {
-        min-width: max-content;
-        min-height: 36px;
-        padding: 7px 10px;
-      }
-      .sidebar-footer { display: none; }
-      .app-main { padding: 10px var(--page-pad) 34px; }
-      .page-theme { gap: 10px; }
-      .feed-hero {
-        padding: 10px;
-        gap: 8px;
-      }
-      .feed-hero h1 {
-        font-size: clamp(22px, 7vw, 30px);
-      }
-      .feed-hero .lede,
-      .search-pill {
-        display: none;
-      }
-      .feed-hero,
-      .hot-panel,
-      .timeline-panel,
-      .timeline-card {
-        max-width: 100%;
-        min-width: 0;
-      }
-      .hot-panel,
-      .timeline-panel {
-        padding: 10px;
-      }
-      .hot-list {
-        gap: 0;
-        margin-top: 6px;
-      }
-      .hot-item {
-        grid-template-columns: 24px minmax(0, 1fr);
-        gap: 8px;
-        padding: 6px 0;
-      }
-      .hot-meta {
-        grid-column: 2;
-        font-size: 12px;
-      }
-      .timeline-row { grid-template-columns: 1fr; }
-      .timeline-time, .timeline-dot { display: none; }
-      .timeline-card h3,
-      .timeline-card p,
-      .hot-title {
-        overflow-wrap: anywhere;
-      }
-    }
-    """
-
-
-def _publication_signal_card(signal: dict[str, str], *, index: int = 0) -> str:
-    label = html_escape(signal["label"])
-    level = html_escape(signal["level"])
-    title = html_escape(signal["title"])
-    judgment = html_escape(signal["judgment"])
-    source = html_escape(signal["source"])
-    source_url = html_escape(signal["source_url"], quote=True)
-    source_time = html_escape(signal["source_time"])
-    captured_time = html_escape(signal["captured_time"])
-    impact = html_escape(signal["impact"])
-    watch_next = html_escape(signal["watch_next"])
-    display_time = source_time.split(" ")[-1] if " " in source_time else source_time
-    return f"""
-      <div class="timeline-row">
-        <time class="timeline-time">{html_escape(display_time)}</time>
-        <span class="timeline-dot" aria-hidden="true"></span>
-        <article class="timeline-card">
-          <div class="badge-row">
-            <span class="badge level">精选 {level}</span>
-            <span class="badge">{label}</span>
-            <span class="badge">TOP {index}</span>
-          </div>
-          <h3>{title}</h3>
-          <p>{judgment}</p>
-          <div class="recommendation"><strong>推荐理由：</strong>{judgment}</div>
-          <dl>
-            <dt>事实来源</dt>
-            <dd><a href="{source_url}" rel="nofollow noopener">{source}</a></dd>
-            <dt>原文时间</dt>
-            <dd>{source_time}</dd>
-            <dt>本站更新</dt>
-            <dd>{captured_time}</dd>
-            <dt>影响对象</dt>
-            <dd>{impact}</dd>
-            <dt>继续观察</dt>
-            <dd>{watch_next}</dd>
-          </dl>
-        </article>
-      </div>
-    """
-
-
-def _publication_hot_item(signal: dict[str, str], *, index: int) -> str:
-    title = html_escape(signal["title"])
-    source = html_escape(signal["source"])
-    source_time = html_escape(signal["source_time"])
-    source_url = html_escape(signal["source_url"], quote=True)
-    return f"""
-      <a class="hot-item" href="{source_url}" rel="nofollow noopener">
-        <span class="hot-rank">{index}</span>
-        <span class="hot-title">{title}</span>
-        <span class="hot-meta">{source} · {source_time}</span>
-      </a>
-    """
-
-
-def _publication_base_head(
-    *,
-    title: str,
-    description: str,
-    canonical_url: str,
-    nonce: str,
-    json_ld: dict[str, Any],
-) -> str:
-    escaped_title = html_escape(title)
-    escaped_description = html_escape(description)
-    escaped_canonical = html_escape(canonical_url, quote=True)
-    return f"""
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{escaped_title}</title>
-  <meta name="description" content="{escaped_description}">
-  <meta name="robots" content="index, follow">
-  <link rel="canonical" href="{escaped_canonical}">
-  <link rel="icon" href="/icons/icon-192.svg" type="image/svg+xml">
-  <meta name="theme-color" content="#ffffff">
-  <meta property="og:type" content="website">
-  <meta property="og:site_name" content="News Sentry">
-  <meta property="og:title" content="{escaped_title}">
-  <meta property="og:description" content="{escaped_description}">
-  <meta property="og:url" content="{escaped_canonical}">
-  <meta name="twitter:card" content="summary">
-  <meta name="twitter:title" content="{escaped_title}">
-  <meta name="twitter:description" content="{escaped_description}">
-  {_publication_json_ld_script(json_ld, nonce=nonce)}
-  <style>{_publication_styles()}</style>
-    """
-
-
-def _publication_header() -> str:
-    return f"""
-  <header class="site-header">
-    <div class="bar">
-      <a class="brand" href="/" aria-label="News Sentry 首页">
-        <img src="/icons/icon-192.svg" alt="" width="30" height="30">
-        <span>News Sentry</span>
-      </a>
-      <nav aria-label="公开站点导航">
-        {_publication_nav()}
-      </nav>
-    </div>
-  </header>
-    """
-
-
-def _publication_homepage_response(*, base_url: str) -> HTMLResponse:
-    nonce = secrets.token_urlsafe(16)
-    canonical_url = f"{base_url}/"
-    updated_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
-    json_ld = {
-        "@context": "https://schema.org",
-        "@type": "CollectionPage",
-        "name": _PUBLICATION_SITE_TITLE,
-        "description": _PUBLICATION_SITE_DESCRIPTION,
-        "url": canonical_url,
-        "isPartOf": {
-            "@type": "WebSite",
-            "name": "News Sentry",
-            "url": canonical_url,
-        },
-        "about": [
-            "cross-border intelligence",
-            "China-related signals",
-            "policy monitoring",
-            "supply chain risk",
-        ],
-        "hasPart": [
-            {
-                "@type": "CreativeWork",
-                "name": signal["title"],
-                "description": signal["judgment"],
-            }
-            for signal in _PUBLICATION_SAMPLE_SIGNALS
-        ],
-    }
-    head = _publication_base_head(
-        title=_PUBLICATION_SITE_TITLE,
-        description=_PUBLICATION_SITE_DESCRIPTION,
-        canonical_url=canonical_url,
-        nonce=nonce,
-        json_ld=json_ld,
-    )
-    hotspot_cards = "\n".join(
-        _publication_hot_item(signal, index=index)
-        for index, signal in enumerate(_PUBLICATION_SAMPLE_SIGNALS[:3], start=1)
-    )
-    latest_cards = "\n".join(
-        _publication_signal_card(signal, index=index)
-        for index, signal in enumerate(_PUBLICATION_SAMPLE_SIGNALS, start=1)
-    )
-    html = f"""<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-{head}
-</head>
-<body>
-  <div class="publication-shell">
-    {_publication_sidebar()}
-    <main class="app-main">
-      <div class="page-theme page-theme-feed">
-        <section class="feed-hero" aria-labelledby="publication-title">
-          <div class="hero-row">
-            <div>
-              <p class="eyebrow">跨境观察哨兵</p>
-              <h1 id="publication-title">新闻哨兵</h1>
-              <p class="lede">
-                Breaking News · AI 辅助从公共新闻流中筛出重大、时效性高、
-                对中国企业和跨境业务有影响的新闻信号。
-              </p>
-            </div>
-            <div class="meta-row">
-              <span class="pill">最近更新时间：{html_escape(updated_at)}</span>
-              <span class="pill">样例信号已标注来源</span>
-            </div>
-          </div>
-          <div class="hero-row">
-            <div class="segmented" aria-label="频道筛选">
-              <a href="/">全部</a>
-              <a href="/public-app/?category=policy">政策</a>
-              <a href="/public-app/?category=industry">产业</a>
-              <a href="/public-app/?category=supply-chain">供应链</a>
-              <a href="/public-app/?category=market">市场准入</a>
-            </div>
-            <a class="search-pill" href="/public-app/">搜索标题/摘要...</a>
-          </div>
-        </section>
-
-        <section class="hot-panel" id="today-hotspots">
-          <div class="section-head">
-            <div>
-              <p class="eyebrow">Hot Signals</p>
-              <h2>当前热点</h2>
-            </div>
-            <p>多来源重要度 · 随时间衰减</p>
-          </div>
-          <div class="hot-list">{hotspot_cards}</div>
-        </section>
-
-        <section class="timeline-panel" id="latest">
-          <div class="section-head">
-            <div>
-              <p class="eyebrow">Timeline</p>
-              <h2>新闻时间线</h2>
-            </div>
-            <p>按日期分组，快速扫读来源、分值、摘要和推荐理由。</p>
-          </div>
-          <div class="timeline-day">今天</div>
-          {latest_cards}
-        </section>
-      </div>
-    </main>
-  </div>
-</body>
-</html>
-"""
-    return HTMLResponse(
-        html,
-        headers={
-            **_security_headers_with_script_nonce(nonce),
-            "Cache-Control": "no-cache",
-        },
-    )
-
-
-def _publication_trust_page_response(*, page: str, base_url: str) -> HTMLResponse:
-    content = _PUBLICATION_TRUST_PAGES.get(page)
-    if content is None:
-        raise HTTPException(status_code=404, detail="Trust page not found")
-    nonce = secrets.token_urlsafe(16)
-    path = f"/{page}"
-    canonical_url = f"{base_url}{path}"
-    title = f"{content['title']} | News Sentry"
-    intro = str(content["intro"])
-    json_ld = {
-        "@context": "https://schema.org",
-        "@type": "WebPage",
-        "name": title,
-        "description": intro,
-        "url": canonical_url,
-        "isPartOf": {
-            "@type": "WebSite",
-            "name": "News Sentry",
-            "url": f"{base_url}/",
-        },
-    }
-    head = _publication_base_head(
-        title=title,
-        description=intro,
-        canonical_url=canonical_url,
-        nonce=nonce,
-        json_ld=json_ld,
-    )
-    points = "\n".join(
-        f"<li>{html_escape(str(point))}</li>" for point in cast(list[Any], content["points"])
-    )
-    subscribe_extra = ""
-    if page == "subscribe":
-        subscribe_extra = """
-        <div class="subscription-box">
-          <label for="email">邮件订阅入口</label>
-          <p>订阅数据模型会在 P2 接入；P0 先固定公开入口和内容承诺。</p>
-          <input id="email" type="email" name="email" placeholder="you@example.com">
-          <a class="button primary" href="/public-app/">先浏览今日信号</a>
-        </div>
-        """
-    html = f"""<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-{head}
-</head>
-<body>
-  <div class="publication-shell">
-    {_publication_sidebar()}
-    <main class="app-main">
-      <section class="trust-page panel">
-        <p class="eyebrow">{html_escape(str(content["eyebrow"]))}</p>
-        <h1>{html_escape(str(content["title"]))}</h1>
-        <p class="lede">{html_escape(intro)}</p>
-        <ul>{points}</ul>
-        {subscribe_extra}
-        <div class="actions">
-          <a class="button primary" href="/public-app/">进入今日信号</a>
-          <a class="button" href="/">回到首页</a>
-        </div>
-      </section>
-      <footer class="site-footer">
-        News Sentry · {html_escape(str(content["needle"]))} ·
-        <a href="/sources">来源</a> · <a href="/method">方法论</a>
-      </footer>
-    </main>
-  </div>
-</body>
-</html>
-"""
-    return HTMLResponse(
-        html,
-        headers={
-            **_security_headers_with_script_nonce(nonce),
-            "Cache-Control": "no-cache",
-        },
-    )
-
-
 def _public_app_dir(static_dir: Path | None = None) -> Path:
     return (static_dir or _static_dir()) / "public_app"
 
@@ -6899,12 +6067,6 @@ async def _public_sitemap_entries(*, base_url: str) -> list[Any]:
             entries = []
         if entries:
             return entries
-        return [
-            SitemapEntry(
-                loc=f"{base_url}/",
-                lastmod=datetime.now(UTC).isoformat(),
-            )
-        ]
     for target_id in _public_news_target_ids(_data_dir, None):
         try:
             store = await _get_target_store(target_id)
@@ -6930,19 +6092,39 @@ async def _public_sitemap_entries(*, base_url: str) -> list[Any]:
     ]
 
 
-def _inject_public_homepage_seo(html: str, *, base_url: str) -> str:
-    canonical_url = f"{base_url}/public-app/"
+def _public_app_page_copy(canonical_path: str) -> tuple[str, str]:
+    if canonical_path == "/sources":
+        return (
+            "来源目录",
+            "按公开新闻聚合媒体与信源，帮助读者理解 News Sentry 新闻来自哪里。",
+        )
+    if canonical_path == "/subscribe":
+        return (
+            "订阅 Subscribe",
+            "接收 News Sentry 每日信号、新闻日报与目标更新。",
+        )
+    return ("News Sentry Public", _PUBLIC_SITE_DESCRIPTION)
+
+
+def _inject_public_homepage_seo(
+    html: str,
+    *,
+    base_url: str,
+    canonical_path: str = "/public-app/",
+) -> str:
+    canonical_url = f"{base_url}{canonical_path}"
+    page_name, description = _public_app_page_copy(canonical_path)
     json_ld = json.dumps(
         {
             "@context": "https://schema.org",
             "@type": "CollectionPage",
-            "name": "News Sentry Public",
-            "description": _PUBLIC_SITE_DESCRIPTION,
+            "name": page_name,
+            "description": description,
             "url": canonical_url,
             "isPartOf": {
                 "@type": "WebSite",
                 "name": _PUBLIC_SITE_NAME,
-                "url": canonical_url,
+                "url": f"{base_url}/public-app/",
             },
         },
         ensure_ascii=False,
@@ -6954,19 +6136,37 @@ def _inject_public_homepage_seo(html: str, *, base_url: str) -> str:
         tags.append(f'    <meta property="og:url" content="{canonical_url}" />')
     if "application/ld+json" not in html:
         tags.append(f'    <script type="application/ld+json">{json_ld}</script>')
-    if not tags or "</head>" not in html:
+    if not tags:
         return html
-    return html.replace("</head>", "\n" + "\n".join(tags) + "\n  </head>", 1)
+    injected = "\n" + "\n".join(tags) + "\n"
+    if "</head>" not in html:
+        if "<html" in html and ">" in html:
+            return re.sub(
+                r"(<html[^>]*>)",
+                lambda match: f"{match.group(1)}<head>{injected}</head>",
+                html,
+                count=1,
+            )
+        return f"<head>{injected}</head>{html}"
+    return html.replace("</head>", f"{injected}  </head>", 1)
 
 
-def _public_app_index_response(*, base_url: str | None = None) -> HTMLResponse:
+def _public_app_index_response(
+    *,
+    base_url: str | None = None,
+    canonical_path: str = "/public-app/",
+) -> HTMLResponse:
     index_path = _public_app_dir() / "index.html"
     if not index_path.is_file():
         raise HTTPException(status_code=404, detail="Public app not built")
     nonce = secrets.token_urlsafe(16)
     html = index_path.read_text(encoding="utf-8")
     if base_url:
-        html = _inject_public_homepage_seo(html, base_url=base_url)
+        html = _inject_public_homepage_seo(
+            html,
+            base_url=base_url,
+            canonical_path=canonical_path,
+        )
     html = _inject_script_nonce(html, nonce)
     return HTMLResponse(
         html,
@@ -6977,11 +6177,16 @@ def _public_app_index_response(*, base_url: str | None = None) -> HTMLResponse:
     )
 
 
-def _public_app_asset_response(asset_path: str) -> Response:
+def _public_app_asset_response(
+    asset_path: str,
+    *,
+    base_url: str | None = None,
+    canonical_path: str = "/public-app/",
+) -> Response:
     public_root = _public_app_dir().resolve()
     clean_asset_path = asset_path.strip("/")
     if not clean_asset_path:
-        return _public_app_index_response()
+        return _public_app_index_response(base_url=base_url, canonical_path=canonical_path)
     file_path = (public_root / clean_asset_path).resolve()
     try:
         file_path.relative_to(public_root)
@@ -6996,7 +6201,7 @@ def _public_app_asset_response(asset_path: str) -> Response:
         return FileResponse(file_path, headers={"Cache-Control": cache_control})
     if clean_asset_path.startswith("assets/"):
         raise HTTPException(status_code=404, detail="Static asset not found")
-    return _public_app_index_response()
+    return _public_app_index_response(base_url=base_url, canonical_path=canonical_path)
 
 
 def _git_dir_for_path(path: Path) -> Path | None:
@@ -7380,15 +6585,18 @@ def create_app(
     @app.get("/", include_in_schema=False)
     @app.get("/index.html", include_in_schema=False)
     async def index_html(request: Request) -> HTMLResponse:
-        return _publication_homepage_response(base_url=_public_site_base_url(request))
+        return _public_app_index_response(
+            base_url=_public_site_base_url(request),
+            canonical_path="/",
+        )
 
-    @app.get("/about", include_in_schema=False)
-    @app.get("/method", include_in_schema=False)
     @app.get("/sources", include_in_schema=False)
     @app.get("/subscribe", include_in_schema=False)
-    async def publication_trust_page(request: Request) -> HTMLResponse:
-        page = request.url.path.strip("/")
-        return _publication_trust_page_response(page=page, base_url=_public_site_base_url(request))
+    async def publication_reader_page(request: Request) -> HTMLResponse:
+        return _public_app_index_response(
+            base_url=_public_site_base_url(request),
+            canonical_path=request.url.path,
+        )
 
     @app.get("/admin", include_in_schema=False)
     @app.get("/admin/", include_in_schema=False)
@@ -7482,7 +6690,16 @@ def create_app(
     async def public_app_asset(asset_path: str, request: Request) -> Response:
         if not asset_path.strip("/"):
             return _public_app_index_response(base_url=_public_site_base_url(request))
-        return _public_app_asset_response(asset_path)
+        canonical_path = f"/public-app/{asset_path.strip('/')}"
+        if asset_path.strip("/") == "sources":
+            canonical_path = "/sources"
+        elif asset_path.strip("/") == "subscribe":
+            canonical_path = "/subscribe"
+        return _public_app_asset_response(
+            asset_path,
+            base_url=_public_site_base_url(request),
+            canonical_path=canonical_path,
+        )
 
     @app.get("/api/v1/collector/status")
     async def collector_status(
@@ -8142,12 +7359,12 @@ def create_app(
 
     @app.get("/api/v1/targets", response_model=TargetListResponse)
     async def list_targets() -> TargetListResponse:
-        """返回公开可浏览的 active target 列表。"""
+        """兼容旧接口：返回公开可浏览的地区列表。"""
         configs = _load_target_configs()
         event_counts = await _public_target_event_counts(_data_dir)
         targets = []
         for config in configs:
-            if _target_is_archived(config):
+            if _target_is_archived(config) or not _target_is_public_region(config):
                 continue
             target = _target_info_from_config(config, _data_dir)
             if target.target_id:
@@ -8158,6 +7375,25 @@ def create_app(
                 continue
             targets.append(target)
         return TargetListResponse(targets=targets)
+
+    @app.get("/api/v1/regions", response_model=RegionListResponse)
+    async def list_regions() -> RegionListResponse:
+        """返回公开可浏览的地区入口；topic target 不再作为公共入口。"""
+        configs = _load_target_configs()
+        event_counts = await _public_target_event_counts(_data_dir)
+        regions = []
+        for config in configs:
+            if _target_is_archived(config) or not _target_is_public_region(config):
+                continue
+            region = _region_info_from_config(config, _data_dir)
+            if region.region_id:
+                region = region.model_copy(
+                    update={"event_count": event_counts.get(region.region_id, 0)}
+                )
+            if region.source_count <= 0 or region.event_count <= 0:
+                continue
+            regions.append(region)
+        return RegionListResponse(regions=regions)
 
     @app.get("/api/v1/admin/targets")
     async def list_admin_targets(
@@ -8196,7 +7432,7 @@ def create_app(
                 language_scope=payload.language_scope,
                 timezone=payload.timezone,
                 monitoring_type=payload.monitoring_type,
-                topic_label=payload.topic_label,
+                region_type=payload.region_type,
             )
             _atomic_write_yaml(
                 _source_config_path(payload.target_id, "rss-template"),
@@ -8220,8 +7456,8 @@ def create_app(
                 display_name=payload.display_name,
                 language_scope=payload.language_scope,
                 timezone=payload.timezone,
-                monitoring_type=payload.monitoring_type or _target_monitoring_type(source_target),
-                topic_label=payload.topic_label or _target_topic_label(source_target),
+                monitoring_type=payload.monitoring_type or _target_region_type(source_target),
+                region_type=payload.region_type or _target_region_type(source_target),
                 source_refs=source_refs,
             )
             for key in ("sandbox_profile_ref", "provider_routes_ref", "output_destinations_ref"):
@@ -8247,8 +7483,9 @@ def create_app(
         updates = payload.model_dump(exclude_unset=True)
         data = _deep_merge(data, updates)
         data["target_id"] = target_id
-        if data.get("monitoring_type") != "topic" or not data.get("topic_label"):
-            data.pop("topic_label", None)
+        data.pop("topic_label", None)
+        if data.get("region_type") in _REGION_TYPES:
+            data["monitoring_type"] = data["region_type"]
         _atomic_write_yaml(_target_config_path(target_id), data)
         _config_cache.clear()
         return data
@@ -8693,14 +7930,67 @@ def create_app(
             generated_at=datetime.now(UTC).isoformat(),
         )
 
+    @app.get("/api/v1/public/facets", response_model=PublicFacetsResponse)
+    async def list_public_facets(
+        region_id: str | None = Query(None, description="按地区筛选"),
+        target_id: str | None = Query(None, description="兼容旧参数：按地区筛选"),
+        issue: str | None = Query(None, description="按议题标签筛选"),
+        related: str | None = Query(None, description="按相关对象标签筛选"),
+        date: str | None = Query(None, description="日期筛选 YYYY-MM-DD"),
+        q: str | None = Query(None, description="全文关键词搜索"),
+    ) -> PublicFacetsResponse:
+        """返回当前可见公共新闻中的地区、议题与相关对象 facets。"""
+        effective_region_id = region_id or target_id
+        target_ids = _public_news_target_ids(_data_dir, effective_region_id)
+        candidates, _total = await _public_news_candidate_events(
+            _data_dir,
+            target_ids,
+            limit=_PUBLIC_NEWS_MAX_SCAN,
+            allow_projection_first=True,
+            allow_file_fallback=effective_region_id is not None,
+            featured=False,
+            source_id=None,
+            category=None,
+            date=date,
+            q=q,
+        )
+        region_counts: dict[str, int] = defaultdict(int)
+        issue_counts: dict[str, int] = defaultdict(int)
+        related_counts: dict[str, int] = defaultdict(int)
+        for tid, event in candidates:
+            if not _public_news_matches(
+                event,
+                featured=False,
+                source_id=None,
+                category=None,
+                issue=issue,
+                related=related,
+                date=date,
+                q=q,
+            ):
+                continue
+            region_counts[tid] += 1
+            for tag in _event_issue_tags(event):
+                issue_counts[tag] += 1
+            for tag in _event_related_tags(event):
+                related_counts[tag] += 1
+        return PublicFacetsResponse(
+            regions=_public_region_facet_items(region_counts),
+            issues=_public_facet_items(issue_counts),
+            related=_public_facet_items(related_counts),
+        )
+
     @app.get("/api/v1/public/news", response_model=PublicNewsFeedResponse)
     async def list_public_news(
         request: Request,
         response: Response,
         featured: bool = Query(False, description="仅返回精选/关注新闻"),
-        target_id: str | None = Query(None, description="按 target 筛选"),
+        target_id: str | None = Query(None, description="兼容旧参数：按地区筛选"),
+        region_id: str | None = Query(None, description="按地区筛选"),
         source_id: str | None = Query(None, description="按来源筛选"),
         category: str | None = Query(None, description="按 classification.l0 筛选"),
+        issue: str | None = Query(None, description="按议题标签筛选"),
+        related: str | None = Query(None, description="按相关对象标签筛选"),
         date: str | None = Query(None, description="日期筛选 YYYY-MM-DD"),
         q: str | None = Query(None, description="全文关键词搜索"),
         before_cursor: str | None = Query(None, description="加载更早新闻的 cursor"),
@@ -8719,10 +8009,13 @@ def create_app(
             )
         before_key = _public_news_decode_cursor(before_cursor)
         since_key = _public_news_decode_cursor(since_cursor)
+        effective_region_id = region_id or target_id
         started = time.perf_counter()
         cache_key = _public_news_feed_cache_key(
             featured=featured,
-            target_id=target_id,
+            target_id=effective_region_id,
+            issue=issue,
+            related=related,
             source_id=source_id,
             category=category,
             date=date,
@@ -8750,7 +8043,7 @@ def create_app(
             response.headers.update(headers)
             return cached_payload
 
-        target_ids = _public_news_target_ids(_data_dir, target_id)
+        target_ids = _public_news_target_ids(_data_dir, effective_region_id)
         allow_projection_first = not any(
             (
                 featured,
@@ -8775,7 +8068,7 @@ def create_app(
             target_ids,
             limit=query_limit,
             allow_projection_first=allow_projection_first,
-            allow_file_fallback=target_id is not None,
+            allow_file_fallback=effective_region_id is not None,
             featured=featured,
             source_id=source_id,
             category=category,
@@ -8792,6 +8085,8 @@ def create_app(
                 featured=featured,
                 source_id=source_id,
                 category=category,
+                issue=issue,
+                related=related,
                 date=date,
                 q=q,
             ):
@@ -8842,7 +8137,7 @@ def create_app(
             filtered_count=len(filtered),
             item_count=len(items),
             featured=featured,
-            has_target=target_id is not None,
+            has_target=effective_region_id is not None,
             has_source=source_id is not None,
             has_category=category is not None,
             has_date=date is not None,
@@ -8993,31 +8288,7 @@ def create_app(
         raw_sources = _load_source_configs(target_id)
         sources: list[SourceInfo] = []
         for s in raw_sources:
-            # 提取 url：RSS 的 url 字段，API 的 endpoint.url
-            url_val = s.get("url")
-            if url_val is None:
-                ep = s.get("endpoint")
-                if isinstance(ep, dict):
-                    url_val = ep.get("url")
-            # 提取 health 信息
-            health = s.get("health")
-            health_last = None
-            health_failures = None
-            if isinstance(health, dict):
-                health_last = health.get("last_success_at")
-                health_failures = health.get("consecutive_failures")
-            sources.append(
-                SourceInfo(
-                    source_id=s.get("source_id", s["_source_id"]),
-                    display_name=s.get("display_name", ""),
-                    type=s.get("type", "unknown"),
-                    enabled=s.get("enabled", True),
-                    credibility_base=s.get("credibility_base"),
-                    health_last_success=health_last,
-                    health_consecutive_failures=health_failures,
-                    url=url_val,
-                )
-            )
+            sources.append(_source_info_from_config(s))
         return SourceListResponse(target_id=target_id, sources=sources)
 
     @app.get("/api/v1/config/targets/{target_id}/sources/{source_id:path}")

@@ -30,15 +30,24 @@ from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.public_translation import public_translation_ready
 
 
+def _ready_public_title(title: str = "公开新闻") -> str:
+    if re.search(r"[\u4e00-\u9fff]", title):
+        return title
+    return f"中文测试新闻{len(title)}"
+
+
 def _ready_public_metadata(title: str = "公开新闻") -> dict[str, Any]:
     return {
         "translation": {
-            "title_pre": title if re.search(r"[\u4e00-\u9fff]", title) else f"中文：{title}",
+            "title_pre": _ready_public_title(title),
             "summary_pre": "这是一条已经完成中文摘要的公开新闻。",
         },
         "publication": {
             "one_line_summary": "一句话概括这条公开新闻。",
             "recommendation_reason": "AI 推荐理由指出这条新闻对跨境观察具有具体影响。",
+            "issue_tags": ["政治"],
+            "related_tags": ["涉欧"],
+            "region_tags": ["意大利"],
         },
     }
 
@@ -551,7 +560,7 @@ class TestAPIServer:
             assert resp.status_code == 200
             assert resp.headers["cache-control"] == "no-cache"
 
-    def test_public_app_entry_is_served_without_replacing_publication_homepage(
+    def test_public_app_entry_and_root_use_same_reader_shell(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -589,9 +598,13 @@ class TestAPIServer:
         )
         assert expected_module_script in public_resp.text
         assert homepage_resp.status_code == 200
-        assert "跨境新闻信号过滤器" in homepage_resp.text
+        assert '<div id="root"></div>' in homepage_resp.text
+        assert (
+            '<link rel="canonical" href="https://news-sentry.com/" />'
+            in homepage_resp.text
+        )
+        assert "跨境新闻信号过滤器" not in homepage_resp.text
         assert "legacy-shell" not in homepage_resp.text
-        assert '<div id="root"></div>' not in homepage_resp.text
 
     def test_public_app_entry_supports_head(
         self,
@@ -1118,7 +1131,7 @@ class TestAPIServer:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """默认公开 feed 不能把模板、locks、logs 等运行目录当成新闻目标扫描。"""
+        """默认公开 feed 只信任地区配置，不从运行目录补公共地区。"""
         monkeypatch.setattr(
             api_server_module,
             "_load_target_configs",
@@ -1136,7 +1149,7 @@ class TestAPIServer:
 
         target_ids = api_server_module._public_news_target_ids(tmp_path, None)  # noqa: SLF001
 
-        assert target_ids == ["germany", "italy", "japan"]
+        assert target_ids == ["italy"]
 
     def test_public_news_api_returns_reader_shape_without_auth(self, tmp_path: Path) -> None:
         """公共新闻 API 返回读者侧字段，不暴露 pipeline 参数作为主响应。"""
@@ -1165,7 +1178,7 @@ class TestAPIServer:
         assert item["id"] == "ne-italy-src-20260609-public-news01"
         assert item["targetId"] == "italy"
         assert item["targetLabel"]
-        assert item["title"] == "中文：Italy public news story"
+        assert item["title"] == _ready_public_title("Italy public news story")
         assert item["originalTitle"] == "Italy public news story"
         assert item["source"]["id"] == "ansa"
         assert item["source"]["name"]
@@ -1176,7 +1189,10 @@ class TestAPIServer:
             item["detailUrl"]
             == "/public-app/events/ne-italy-src-20260609-public-news01?target_id=italy"
         )
-        assert item["tags"] == ["international-relations"]
+        assert item["tags"] == ["政治", "涉欧", "意大利"]
+        assert item["issueTags"] == ["政治"]
+        assert item["relatedTags"] == ["涉欧"]
+        assert item["regionTags"] == ["意大利"]
         assert item["valueLabel"] == "精选"
         assert item["chinaRelevanceLabel"] == "高"
         assert "pipeline_stage" not in item
@@ -1211,7 +1227,7 @@ class TestAPIServer:
         assert first.status_code == 200
         first_data = first.json()
         assert [item["title"] for item in first_data["items"]] == [
-            "中文：Current public story"
+            _ready_public_title("Current public story")
         ]
         assert first_data["latestCursor"]
         assert first_data["nextCursor"]
@@ -1227,7 +1243,7 @@ class TestAPIServer:
 
         assert older.status_code == 200
         assert [item["title"] for item in older.json()["items"]] == [
-            "中文：Older public story"
+            _ready_public_title("Older public story")
         ]
 
         empty_update = client.get(
@@ -1255,7 +1271,7 @@ class TestAPIServer:
         update_data = update.json()
         assert update_data["hasNewer"] is True
         assert [item["title"] for item in update_data["items"]] == [
-            "中文：New automatic story"
+            _ready_public_title("New automatic story")
         ]
 
     def test_public_news_api_returns_304_for_matching_etag(self, tmp_path: Path) -> None:
@@ -1318,7 +1334,7 @@ class TestAPIServer:
         assert resp.status_code == 200
         item = resp.json()["items"][0]
         assert item["id"] == "ne-italy-index-only-001"
-        assert item["title"] == "中文：Index only public story"
+        assert item["title"] == _ready_public_title("Index only public story")
 
     def test_public_news_api_page_size_one_does_not_scan_default_batch(
         self,
@@ -1362,7 +1378,7 @@ class TestAPIServer:
         )
 
         assert resp.status_code == 200
-        assert resp.json()["items"][0]["title"] == "中文：Small page story"
+        assert resp.json()["items"][0]["title"] == _ready_public_title("Small page story")
         assert store.limits
         assert max(store.limits) <= 2
 
@@ -1601,7 +1617,7 @@ class TestAPIServer:
         assert resp.status_code == 200
         item = resp.json()
         assert item["id"] == event_id
-        assert item["title"] == "中文：Public detail presentation"
+        assert item["title"] == _ready_public_title("Public detail presentation")
         assert item["valueLabel"] == "关注"
         assert "pipeline_stage" not in item
 
@@ -2156,19 +2172,19 @@ class TestAPIServer:
         resp = client.get("/api/v1/targets")
         assert resp.status_code == 200
         data = resp.json()
-        assert len(data["targets"]) == 2
-        assert {target["target_id"] for target in data["targets"]} == {"italy", "china-watch-en"}
+        assert len(data["targets"]) == 1
+        assert {target["target_id"] for target in data["targets"]} == {"italy"}
         italy = next(t for t in data["targets"] if t["target_id"] == "italy")
         assert italy["display_name"] == "意大利新闻监控"
         assert italy["primary_language"] == "it"
         assert italy["source_count"] == 5
         assert italy["event_count"] == 1
         assert italy["monitoring_type"] == "country"
-        assert italy["monitoring_label"] == "国别监控目标"
-        topic = next(t for t in data["targets"] if t["target_id"] == "china-watch-en")
-        assert topic["monitoring_type"] == "topic"
-        assert topic["monitoring_label"] == "专题监控目标"
-        assert topic["topic_label"] == "涉中舆情"
+        assert italy["monitoring_label"] == "地区"
+
+        regions_resp = client.get("/api/v1/regions")
+        assert regions_resp.status_code == 200
+        assert {region["region_id"] for region in regions_resp.json()["regions"]} == {"italy"}
 
         admin_resp = client.get("/api/v1/admin/targets")
         assert admin_resp.status_code == 200
@@ -2465,6 +2481,76 @@ class TestConfigAPI:
         assert data["sources"][0]["source_id"] == "ansa"
         assert data["sources"][0]["type"] == "rss"
         assert data["sources"][0]["enabled"] is True
+
+    def test_list_sources_resolves_source_pool_refs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._setup_config(tmp_path, monkeypatch)
+        target_dir = tmp_path / "config" / "targets"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        (target_dir / "spain.yaml").write_text(
+            yaml.dump(
+                {
+                    "target_id": "spain",
+                    "display_name": "西班牙新闻监控",
+                    "language_scope": {"primary": "en", "secondary": ["es"], "output": "zh"},
+                    "source_channel_refs": [
+                        "api/gdelt-topic",
+                        "pool:global/gdelt-geopolitics",
+                    ],
+                },
+                allow_unicode=True,
+                default_flow_style=False,
+                sort_keys=False,
+            ),
+            encoding="utf-8",
+        )
+        local_dir = tmp_path / "config" / "sources" / "spain" / "api"
+        local_dir.mkdir(parents=True, exist_ok=True)
+        (local_dir / "gdelt-topic.yaml").write_text(
+            yaml.dump(
+                {
+                    "source_id": "gdelt-topic",
+                    "display_name": "GDELT Spain",
+                    "type": "api",
+                    "enabled": True,
+                    "credibility_base": 0.7,
+                },
+                allow_unicode=True,
+                default_flow_style=False,
+                sort_keys=False,
+            ),
+            encoding="utf-8",
+        )
+        pool_dir = tmp_path / "config" / "source-pools" / "global"
+        pool_dir.mkdir(parents=True, exist_ok=True)
+        (pool_dir / "gdelt-geopolitics.yaml").write_text(
+            yaml.dump(
+                {
+                    "source_id": "gdelt-geopolitics",
+                    "display_name": "GDELT Geopolitics",
+                    "type": "api",
+                    "enabled": True,
+                    "credibility_base": 0.7,
+                },
+                allow_unicode=True,
+                default_flow_style=False,
+                sort_keys=False,
+            ),
+            encoding="utf-8",
+        )
+
+        client = self._make_client(tmp_path)
+        resp = client.get("/api/v1/config/targets/spain/sources")
+
+        assert resp.status_code == 200
+        sources = resp.json()["sources"]
+        refs = {source["source_ref"] for source in sources}
+        assert refs == {"api/gdelt-topic", "pool:global/gdelt-geopolitics"}
+        assert {source["source_id"] for source in sources} == {
+            "gdelt-topic",
+            "gdelt-geopolitics",
+        }
 
     def test_list_sources_empty(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         self._setup_config(tmp_path, monkeypatch)

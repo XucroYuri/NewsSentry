@@ -1,0 +1,42 @@
+# Schema: ../../schemas/targetconfig.schema.json
+# 契约: docs/contracts-canonical.md §2
+# ADR: ADR-0015, ADR-0016
+target_id: philippines
+display_name: 菲律宾新闻监控
+monitoring_type: country
+region_type: country
+language_scope:
+  primary: en
+  secondary: [tl]
+  output: zh
+timezone: Asia/Manila
+source_channel_refs:
+- api/gdelt-topic
+- pool:global/gdelt-china-impact
+- pool:global/gdelt-geopolitics
+filter_rules_ref: config/filters/philippines/default.yaml
+classification_rules_ref: config/classification/rules-v1.yaml
+sandbox_profile_ref: config/sandbox/default.yaml
+provider_routes_ref: config/provider/routes.yaml
+output_destinations_ref: config/output/destinations.yaml
+classification:
+  country_axes:
+    politics: true
+    economics: true
+    culture: true
+    energy: true
+    china_relations: true
+  home_relevance_keywords:
+  - Philippines
+  - Manila
+  - South China Sea
+  - ASEAN
+  - China
+  - security
+focus_areas:
+- id: south-china-sea
+  weight: 2.4
+  keywords: [Philippines, South China Sea, China, security, coast guard]
+- id: labor-and-consumption
+  weight: 1.4
+  keywords: [Philippines, labor, remittances, consumer, services]

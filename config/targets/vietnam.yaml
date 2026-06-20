@@ -4,6 +4,7 @@
 target_id: vietnam
 display_name: "越南新闻监控"
 monitoring_type: country
+region_type: country
 
 language_scope:
   primary: en

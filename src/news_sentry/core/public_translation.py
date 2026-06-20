@@ -15,6 +15,150 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
+_FENCED_JSON_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.IGNORECASE | re.DOTALL)
+_LATIN_WORD_RE = re.compile(r"[A-Za-z]{3,}")
+_VISIBLE_CHAR_RE = re.compile(r"[^\s，。！？；：、“”‘’（）《》—…·,.!?;:'\"()\\-]")
+_PUBLIC_TEXT_BLOCKLIST_RE = re.compile(
+    r"\b(fuck|shit|bitch|piss|cunt|motherfucker)\b",
+    re.IGNORECASE,
+)
+_CODELIKE_TOKENS = ("{", "}", "[", "]", "<", ">", "`", "==", "=>", "</", "\\")
+_MARKDOWN_ARTIFACT_TOKENS = ("**", "__", "```")
+_LATIN_INLINE_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]{3,}")
+_ALLOWED_INLINE_LATIN_TERMS = {
+    "ai",
+    "api",
+    "asean",
+    "bbc",
+    "ceo",
+    "chatgpt",
+    "covid",
+    "eu",
+    "g7",
+    "g20",
+    "gdelt",
+    "google",
+    "gpt",
+    "imf",
+    "iphone",
+    "microsoft",
+    "nato",
+    "nvidia",
+    "openai",
+    "reuters",
+    "spacex",
+    "tiktok",
+    "twitter",
+    "who",
+    "youtube",
+}
+_PRESET_PUBLIC_ISSUE_TAGS = (
+    "政治",
+    "经济",
+    "社会",
+    "文化",
+    "科技",
+    "能源",
+    "国际关系",
+    "国际贸易",
+    "公共安全",
+    "军事防务",
+    "金融市场",
+    "产业链",
+    "供应链",
+    "法律监管",
+    "气候环境",
+    "农业粮食",
+    "公共卫生",
+    "教育",
+    "体育",
+    "灾害事故",
+    "人道主义援助",
+    "移民劳工",
+    "媒体舆论",
+    "地方治理",
+    "交通物流",
+)
+_PRESET_PUBLIC_RELATED_TAGS = (
+    "涉中",
+    "涉美",
+    "涉欧",
+    "涉俄",
+    "中东",
+    "拉美",
+    "东亚",
+    "东南亚",
+    "南亚",
+    "非洲",
+    "亚太",
+    "北美",
+    "欧洲",
+    "海湾",
+    "印太",
+    "全球南方",
+    "一带一路",
+    "七国集团",
+    "二十国集团",
+    "欧盟",
+    "北约",
+    "联合国",
+)
+_ISSUE_TAG_ALIASES: dict[str, str | tuple[str, ...]] = {
+    "外交": "国际关系",
+    "外交关系": "国际关系",
+    "国际政治": "国际关系",
+    "地缘政治": "国际关系",
+    "外贸": "国际贸易",
+    "贸易": "国际贸易",
+    "跨境贸易": "国际贸易",
+    "进出口": "国际贸易",
+    "关税": "国际贸易",
+    "防务": "军事防务",
+    "国防": "军事防务",
+    "安全": "公共安全",
+    "公共卫生安全": "公共卫生",
+    "产业": "产业链",
+    "供应链安全": "供应链",
+    "气候": "气候环境",
+    "环境": "气候环境",
+    "农业": "农业粮食",
+    "粮食": "农业粮食",
+    "人道援助": "人道主义援助",
+    "移民": "移民劳工",
+    "劳工": "移民劳工",
+    "媒体": "媒体舆论",
+    "舆论": "媒体舆论",
+    "地方": "地方治理",
+    "市政": "地方治理",
+    "物流": "交通物流",
+    "交通": "交通物流",
+}
+_RELATED_TAG_ALIASES: dict[str, str | tuple[str, ...]] = {
+    "欧美": ("涉美", "涉欧"),
+    "亚太地区": "亚太",
+    "涉美国": "涉美",
+    "美国": "涉美",
+    "涉欧洲": "涉欧",
+    "欧洲相关": "涉欧",
+    "俄罗斯": "涉俄",
+    "涉俄罗斯": "涉俄",
+    "中东地区": "中东",
+    "拉丁美洲": "拉美",
+    "东亚地区": "东亚",
+    "东南亚地区": "东南亚",
+    "南亚地区": "南亚",
+    "非洲地区": "非洲",
+    "北美地区": "北美",
+    "海湾地区": "海湾",
+    "印太地区": "印太",
+    "全球南方国家": "全球南方",
+    "一带一路沿线": "一带一路",
+    "G7": "七国集团",
+    "G20": "二十国集团",
+    "EU": "欧盟",
+    "NATO": "北约",
+    "UN": "联合国",
+}
 
 
 @dataclass(frozen=True)
@@ -51,6 +195,49 @@ def contains_chinese(text: Any) -> bool:  # noqa: ANN401
     return bool(_CJK_RE.search(str(text or "")))
 
 
+def _public_text_quality_ok(text: Any) -> bool:  # noqa: ANN401
+    value = " ".join(str(text or "").split())
+    if not contains_chinese(value):
+        return False
+    if _PUBLIC_TEXT_BLOCKLIST_RE.search(value):
+        return False
+
+    cjk_count = len(_CJK_RE.findall(value))
+    visible_count = max(len(_VISIBLE_CHAR_RE.findall(value)), 1)
+    latin_words = _LATIN_WORD_RE.findall(value)
+    codelike_count = sum(value.count(token) for token in _CODELIKE_TOKENS)
+
+    if any(token in value for token in _MARKDOWN_ARTIFACT_TOKENS):
+        return False
+    if codelike_count >= 4:
+        return False
+    if cjk_count / visible_count < 0.28:
+        return False
+    if len(latin_words) >= 8 and cjk_count < 24:
+        return False
+    if _contains_untranslated_latin_fragment(value):
+        return False
+    return True
+
+
+def _contains_untranslated_latin_fragment(value: str) -> bool:
+    """Detect LLM output that is neither clean Chinese nor a preserved acronym."""
+    for match in _LATIN_INLINE_RE.finditer(value):
+        token = match.group(0)
+        normalized = token.strip(".+-").lower()
+        if normalized in _ALLOWED_INLINE_LATIN_TERMS:
+            continue
+        if token.isupper() and len(token) <= 8:
+            continue
+        if token.islower():
+            return True
+        previous_char = value[match.start() - 1] if match.start() > 0 else ""
+        next_char = value[match.end()] if match.end() < len(value) else ""
+        if _CJK_RE.match(previous_char) or _CJK_RE.match(next_char):
+            return True
+    return False
+
+
 def public_translation_ready(metadata: dict[str, Any] | None) -> bool:
     return public_publication_ready(metadata)
 
@@ -66,17 +253,59 @@ def public_publication_ready(metadata: dict[str, Any] | None) -> bool:
     summary = str(translation.get("summary_pre") or "").strip()
     one_line = str(publication.get("one_line_summary") or "").strip()
     reason = str(publication.get("recommendation_reason") or "").strip()
+    tags = (
+        _publication_tags(publication.get("issue_tags"), aliases=_ISSUE_TAG_ALIASES)
+        + _publication_tags(publication.get("related_tags"), aliases=_RELATED_TAG_ALIASES)
+        + _publication_tags(publication.get("region_tags"))
+    )
     return bool(
         title
         and summary
         and one_line
         and reason
+        and tags
         and contains_chinese(title)
         and contains_chinese(summary)
         and contains_chinese(one_line)
         and contains_chinese(reason)
+        and _public_text_quality_ok(title)
+        and _public_text_quality_ok(summary)
+        and _public_text_quality_ok(one_line)
+        and _public_text_quality_ok(reason)
         and not _looks_like_template_reason(reason)
     )
+
+
+def _canonical_public_tags(
+    value: Any,  # noqa: ANN401
+    *,
+    aliases: dict[str, str | tuple[str, ...]] | None = None,
+) -> list[str]:
+    tag = " ".join(str(value or "").split())
+    if not tag:
+        return []
+    replacement = (aliases or {}).get(tag)
+    if replacement is None:
+        return [tag] if contains_chinese(tag) else []
+    if isinstance(replacement, str):
+        return [replacement] if contains_chinese(replacement) else []
+    return [item for item in replacement if contains_chinese(item)]
+
+
+def _publication_tags(
+    value: Any,  # noqa: ANN401
+    *,
+    aliases: dict[str, str | tuple[str, ...]] | None = None,
+) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    tags: list[str] = []
+    for item in value:
+        for tag in _canonical_public_tags(item, aliases=aliases):
+            if not tag or tag in tags:
+                continue
+            tags.append(tag)
+    return tags[:8]
 
 
 def public_publication_ready_for_row(row: dict[str, Any]) -> bool:
@@ -160,7 +389,8 @@ def _existing_translation(row: dict[str, Any], field: str) -> str:
         return ""
     key = "title_pre" if field == "title" else "summary_pre"
     value = str(translation.get(key) or "").strip()
-    return " ".join(value.split()) if value and contains_chinese(value) else ""
+    normalized = " ".join(value.split())
+    return normalized if normalized and _public_text_quality_ok(normalized) else ""
 
 
 def _looks_like_template_reason(reason: str) -> bool:
@@ -230,11 +460,33 @@ class PublicTranslationEngine:
             "instruction": (
                 "请基于新闻事实生成面向中文专业读者的出版加工结果，只返回 JSON。"
                 "one_line_summary 用一句话概括新闻本身；recommendation_reason 说明为什么值得看，"
-                "必须结合具体事实、来源、target、分值或影响对象，不得使用固定模板。"
+                "必须结合具体事实、来源、地区、分值或影响对象，不得使用固定模板。"
+                "同时提取中文议题标签、相关对象范畴标签和地区提及标签。"
+                "标签生成必须优先使用 preset_issue_tags 与 preset_related_tags；"
+                "只有预设标签无法概括新闻事实时才生成简短中文自定义标签。"
             ),
             "output_contract": {
                 "one_line_summary": "一句中文内容概括，30字以内",
                 "recommendation_reason": "一句中文个性化推荐理由，60字以内",
+                "issue_tags": (
+                    "中文数组，优先从 preset_issue_tags 选择，必要时补充简短自定义议题"
+                ),
+                "related_tags": (
+                    "中文数组，优先从 preset_related_tags 选择，必要时补充简短自定义相关对象"
+                ),
+                "region_tags": "中文数组，新闻提及地区、国家、大洲或全球范畴，按事实生成",
+            },
+            "tag_policy": {
+                "mode": "preset_first",
+                "preset_issue_tags": list(_PRESET_PUBLIC_ISSUE_TAGS),
+                "preset_related_tags": list(_PRESET_PUBLIC_RELATED_TAGS),
+                "custom_tag_policy": "只有预设标签无法概括新闻事实时，才生成简短中文自定义标签。",
+                "normalization_examples": {
+                    "外交": "国际关系",
+                    "外贸": "国际贸易",
+                    "欧美": ["涉美", "涉欧"],
+                    "亚太地区": "亚太",
+                },
             },
             "event": {
                 "event_id": row.get("event_id") or row.get("id"),
@@ -322,11 +574,15 @@ class PublicTranslationEngine:
             summary = summary_result["content"]
             one_line = publication_result["one_line_summary"]
             reason = publication_result["recommendation_reason"]
+            issue_tags = publication_result["issue_tags"]
+            related_tags = publication_result["related_tags"]
+            region_tags = publication_result["region_tags"]
             if not (
-                contains_chinese(title)
-                and contains_chinese(summary)
-                and contains_chinese(one_line)
-                and contains_chinese(reason)
+                _public_text_quality_ok(title)
+                and _public_text_quality_ok(summary)
+                and _public_text_quality_ok(one_line)
+                and _public_text_quality_ok(reason)
+                and (issue_tags or related_tags or region_tags)
                 and not _looks_like_template_reason(reason)
             ):
                 failures += 1
@@ -358,6 +614,9 @@ class PublicTranslationEngine:
                 "publication": {
                     "one_line_summary": one_line,
                     "recommendation_reason": reason,
+                    "issue_tags": issue_tags,
+                    "related_tags": related_tags,
+                    "region_tags": region_tags,
                     "status": "completed",
                     "model": model,
                     "route_id": route_id,
@@ -414,8 +673,8 @@ class PublicTranslationEngine:
             exc.model = result.get("model")  # type: ignore[attr-defined]
             raise exc
         content = self._clean_provider_content(str(result.get("content") or ""))
-        if not content:
-            exc = RuntimeError("empty translation")
+        if not content or not _public_text_quality_ok(content):
+            exc = RuntimeError("empty or low-quality translation")
             exc.route_id = result.get("route_id")  # type: ignore[attr-defined]
             exc.model = result.get("model")  # type: ignore[attr-defined]
             raise exc
@@ -451,7 +710,7 @@ class PublicTranslationEngine:
         summary_zh: str,
         router: Any,  # noqa: ANN401
         provider_factory: Any,  # noqa: ANN401
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         result = await router.route_async(
             task_type="public_enrichment",
             prompt=self.prompt_for_publication(row, title_zh=title_zh, summary_zh=summary_zh),
@@ -466,16 +725,20 @@ class PublicTranslationEngine:
             exc.model = result.get("model")  # type: ignore[attr-defined]
             raise exc
         raw_content = str(result.get("content") or "").strip()
-        try:
-            parsed = json.loads(raw_content)
-        except json.JSONDecodeError as exc:
-            raise RuntimeError("publication response is not JSON") from exc
+        parsed = self._parse_publication_json(raw_content)
         if not isinstance(parsed, dict):
             raise RuntimeError("publication response is not an object")
         one_line = " ".join(str(parsed.get("one_line_summary") or "").split())
         reason = " ".join(str(parsed.get("recommendation_reason") or "").split())
+        issue_tags = _publication_tags(parsed.get("issue_tags"), aliases=_ISSUE_TAG_ALIASES)
+        related_tags = _publication_tags(parsed.get("related_tags"), aliases=_RELATED_TAG_ALIASES)
+        region_tags = _publication_tags(parsed.get("region_tags"))
         if not one_line or not reason:
             raise RuntimeError("publication response missing required fields")
+        if not (issue_tags or related_tags or region_tags):
+            raise RuntimeError("publication response missing public tags")
+        if not _public_text_quality_ok(one_line) or not _public_text_quality_ok(reason):
+            raise RuntimeError("publication response failed quality gate")
         if _looks_like_template_reason(reason):
             raise RuntimeError("publication recommendation reason looks templated")
         if one_line in {_source_title_text(row), _source_summary_text(row)}:
@@ -485,9 +748,35 @@ class PublicTranslationEngine:
         return {
             "one_line_summary": one_line,
             "recommendation_reason": reason,
+            "issue_tags": issue_tags,
+            "related_tags": related_tags,
+            "region_tags": region_tags,
             "route_id": str(result.get("route_id") or "public.summary_reason"),
             "model": str(result.get("model") or ""),
         }
+
+    @staticmethod
+    def _parse_publication_json(content: str) -> Any:  # noqa: ANN401
+        text = content.strip()
+        if not text:
+            raise RuntimeError("publication response is not JSON")
+        candidates = [text]
+        if match := _FENCED_JSON_RE.search(text):
+            candidates.append(match.group(1).strip())
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end > start:
+            candidates.append(text[start : end + 1])
+        seen: set[str] = set()
+        for candidate in candidates:
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+        raise RuntimeError("publication response is not JSON")
 
     @staticmethod
     def _clean_provider_content(content: str) -> str:

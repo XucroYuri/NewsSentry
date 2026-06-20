@@ -17,6 +17,7 @@ export interface FeedState {
   status: FeedStatus
   items: PublicNewsItem[]
   pendingNewItems: PublicNewsItem[]
+  recentlyInsertedIds: string[]
   latestCursor: string | null
   nextCursor: string | null
   etag: string | null
@@ -29,6 +30,7 @@ const initialFeedState: FeedState = {
   status: "loading",
   items: [],
   pendingNewItems: [],
+  recentlyInsertedIds: [],
   latestCursor: null,
   nextCursor: null,
   etag: null,
@@ -74,6 +76,7 @@ export function usePublicFeed(filters: FeedFilters, options: { poll?: boolean } 
         status: current.items.length > 0 && mode === "refresh" ? "ready" : "loading",
         error: undefined,
         pendingNewItems: mode === "replace" ? [] : current.pendingNewItems,
+        recentlyInsertedIds: mode === "replace" ? [] : current.recentlyInsertedIds,
       }))
       try {
         let result = await listPublicNews(makeFeedQuery(filters))
@@ -90,6 +93,7 @@ export function usePublicFeed(filters: FeedFilters, options: { poll?: boolean } 
           status: items.length > 0 ? "ready" : "empty",
           items,
           pendingNewItems: [],
+          recentlyInsertedIds: [],
           latestCursor: result.data?.latestCursor ?? null,
           nextCursor: result.data?.nextCursor ?? null,
           etag: result.etag,
@@ -149,17 +153,22 @@ export function usePublicFeed(filters: FeedFilters, options: { poll?: boolean } 
             }))
             return
           }
-          setFeedState((current) => ({
-            ...current,
-            pendingNewItems:
-              result.data && result.data.items.length > 0
-                ? mergeNewerItems(current.pendingNewItems, result.data.items)
-                : current.pendingNewItems,
-            latestCursor: result.data?.latestCursor ?? current.latestCursor,
-            etag: result.etag,
-            pollAfterMs: result.pollAfterMs ?? result.data?.pollAfterMs ?? current.pollAfterMs,
-            total: result.data?.total ?? current.total,
-          }))
+          setFeedState((current) => {
+            const incomingItems = result.data?.items ?? []
+            const existingIds = new Set(current.items.map((item) => item.id))
+            const newItems = incomingItems.filter((item) => !existingIds.has(item.id))
+            return {
+              ...current,
+              items: newItems.length > 0 ? mergeNewerItems(current.items, newItems) : current.items,
+              pendingNewItems: [],
+              recentlyInsertedIds: newItems.map((item) => item.id),
+              status: current.items.length > 0 || newItems.length > 0 ? "ready" : current.status,
+              latestCursor: result.data?.latestCursor ?? current.latestCursor,
+              etag: result.etag,
+              pollAfterMs: result.pollAfterMs ?? result.data?.pollAfterMs ?? current.pollAfterMs,
+              total: result.data?.total ?? current.total,
+            }
+          })
         } catch {
           setPollFailures((current) => current + 1)
         } finally {
@@ -195,6 +204,7 @@ export function usePublicFeed(filters: FeedFilters, options: { poll?: boolean } 
         ...current,
         status: current.items.length > 0 || olderItems.length > 0 ? "ready" : "empty",
         items: appendOlderItems(current.items, olderItems),
+        recentlyInsertedIds: [],
         nextCursor: result.data?.nextCursor ?? null,
         latestCursor: result.data?.latestCursor ?? current.latestCursor,
         etag: result.etag ?? current.etag,
@@ -217,6 +227,7 @@ export function usePublicFeed(filters: FeedFilters, options: { poll?: boolean } 
       ...current,
       items: mergeNewerItems(current.items, current.pendingNewItems),
       pendingNewItems: [],
+      recentlyInsertedIds: current.pendingNewItems.map((item) => item.id),
       status: "ready",
     }))
   }, [])

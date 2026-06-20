@@ -18,6 +18,38 @@ from news_sentry.core.config import ConfigLoader
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 SCHEMA_DIR = PROJECT_ROOT / "schemas"
 CONFIG_DIR = PROJECT_ROOT / "config"
+NEW_PUBLIC_TARGET_IDS = {
+    "spain",
+    "netherlands",
+    "poland",
+    "israel",
+    "ukraine",
+    "thailand",
+    "malaysia",
+    "philippines",
+    "nigeria",
+    "egypt",
+}
+
+REMOVED_TOPIC_TARGET_IDS = {
+    "africa-watch",
+    "china-watch-en",
+    "climate-water-food",
+    "crisis-conflict",
+    "critical-minerals",
+    "defense-security",
+    "digital-regulation",
+    "energy-transition",
+    "eu-policy",
+    "fusion",
+    "latin-america-watch",
+    "middle-east-gulf",
+    "migration-labor",
+    "public-opinion-culture",
+    "supply-chain-trade",
+    "tech-ai-semiconductors",
+    "us-policy",
+}
 
 
 def _load_schema(name: str) -> dict:
@@ -125,6 +157,83 @@ class TestTargetConfigSchema:
         schema = _load_schema("targetconfig.schema.json")
         data = _load_yaml(target_file)
         validate(data, schema)
+
+    def test_public_target_network_is_region_only(self) -> None:
+        targets = []
+        for path in CONFIG_DIR.glob("targets/*.yaml"):
+            if path.name.startswith("_"):
+                continue
+            data = _load_yaml(path)
+            lifecycle = data.get("lifecycle") if isinstance(data, dict) else None
+            if isinstance(lifecycle, dict) and lifecycle.get("status") == "archived":
+                continue
+            targets.append(data)
+
+        region_targets = [
+            item for item in targets if item.get("region_type", item.get("monitoring_type")) in {"country", "region", "continent", "global"}
+        ]
+        topic_targets = [item for item in targets if item.get("monitoring_type") == "topic"]
+
+        assert len(targets) >= 32
+        assert len(region_targets) == len(targets)
+        assert topic_targets == []
+
+    def test_removed_topic_target_configs_do_not_exist(self) -> None:
+        existing = {path.stem for path in CONFIG_DIR.glob("targets/*.yaml")}
+
+        assert REMOVED_TOPIC_TARGET_IDS.isdisjoint(existing)
+
+    def test_target_config_schema_rejects_topic_monitoring_type(self) -> None:
+        schema = _load_schema("targetconfig.schema.json")
+        data = {
+            "target_id": "energy-transition",
+            "display_name": "能源转型观察",
+            "monitoring_type": "topic",
+            "language_scope": {"primary": "en", "output": "zh"},
+            "timezone": "Asia/Shanghai",
+            "source_channel_refs": ["api/gdelt-topic"],
+            "filter_rules_ref": "config/filters/energy-transition/default.yaml",
+            "classification_rules_ref": "config/classification/rules-v1.yaml",
+            "sandbox_profile_ref": "config/sandbox/default.yaml",
+            "provider_routes_ref": "config/provider/routes.yaml",
+            "output_destinations_ref": "config/output/destinations.yaml",
+        }
+
+        with pytest.raises(Exception):
+            validate(data, schema)
+
+    def test_all_public_target_source_refs_resolve(self) -> None:
+        loader = ConfigLoader(PROJECT_ROOT)
+        failures: list[str] = []
+
+        for path in sorted(CONFIG_DIR.glob("targets/*.yaml")):
+            if path.name.startswith("_") or path.stem == "fusion":
+                continue
+            data = _load_yaml(path)
+            lifecycle = data.get("lifecycle") if isinstance(data, dict) else None
+            if isinstance(lifecycle, dict) and lifecycle.get("status") == "archived":
+                continue
+            try:
+                loaded = loader.load_target(path.stem)
+            except Exception as exc:  # noqa: BLE001
+                failures.append(f"{path.stem}: {exc}")
+                continue
+            active = [source for source in loaded.sources if source.get("enabled") is True]
+            if path.stem in NEW_PUBLIC_TARGET_IDS and len(active) < 3:
+                failures.append(f"{path.stem}: expected >=3 active resolved sources")
+
+        assert failures == []
+
+    def test_source_pool_refs_are_loaded_into_runtime_sources(self) -> None:
+        loader = ConfigLoader(PROJECT_ROOT)
+
+        config = loader.load_target("spain")
+
+        refs = {source.get("_source_ref") for source in config.sources}
+        assert "pool:global/gdelt-geopolitics" in refs
+        pooled = next(source for source in config.sources if source.get("_source_ref") == "pool:global/gdelt-geopolitics")
+        assert pooled["target_id"] == "spain"
+        assert pooled["enabled"] is True
 
 
 # ── SandboxPolicy ──────────────────────────────────────────────

@@ -11,6 +11,8 @@ from news_sentry.core import api_server as api_server_module
 from news_sentry.core.api_server import create_app
 from news_sentry.core.async_store import AsyncStore
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
 
 def _extract_sitemap_urls(xml: str) -> list[str]:
     return [match.strip() for match in re.findall(r"<(?:\w+:)?loc>(.*?)</(?:\w+:)?loc>", xml)]
@@ -77,7 +79,7 @@ async def _insert_public_event_row(
                     {
                         "translation": {
                             "title_pre": "意大利头条",
-                            "summary_pre": "这是一条 sitemap 可见的中文摘要。",
+                            "summary_pre": "这是一条站点地图可见的中文摘要。",
                         },
                         "publication": {
                             "one_line_summary": "意大利头条进入公开新闻时间线。",
@@ -85,6 +87,9 @@ async def _insert_public_event_row(
                                 "AI 推荐理由指出该新闻具备跨境观察价值，"
                                 "可用于公开检索入口。"
                             ),
+                            "issue_tags": ["经济"],
+                            "related_tags": ["涉欧"],
+                            "region_tags": ["意大利"],
                         },
                     },
                     ensure_ascii=False,
@@ -156,6 +161,37 @@ async def test_sitemap_xml_prefers_target_store_when_global_store_is_absent(
         await target_store.close()
 
 
+@pytest.mark.asyncio
+async def test_sitemap_xml_falls_back_to_target_store_when_global_store_is_empty(
+    tmp_path: Path,
+    store: AsyncStore,
+) -> None:
+    target_dir = tmp_path / "canada"
+    target_dir.mkdir(parents=True)
+    target_store = AsyncStore(target_dir / "state.db")
+    await target_store.initialize()
+    try:
+        await _insert_public_event_row(
+            target_store,
+            event_id="ca_target_store_visible",
+            target_id="canada",
+            published_at="2026-06-13T12:00:00Z",
+        )
+        app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
+        client = TestClient(app)
+
+        response = client.get("/sitemap.xml")
+
+        assert response.status_code == 200
+        assert "<urlset" in response.text
+        urls = _extract_sitemap_urls(response.text)
+        assert urls == [
+            "https://news-sentry.com/public-app/events/ca_target_store_visible?target_id=canada"
+        ]
+    finally:
+        await target_store.close()
+
+
 def test_robots_txt_is_served_from_app_root_and_references_sitemap(tmp_path: Path) -> None:
     app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
     client = TestClient(app)
@@ -219,46 +255,24 @@ def test_sitemap_xml_falls_back_when_projection_store_errors(
     assert _extract_sitemap_urls(response.text) == ["https://preview.news-sentry.com/"]
 
 
-def test_root_homepage_renders_publication_trust_fallback(tmp_path: Path) -> None:
+def test_root_homepage_uses_reader_shell_not_legacy_publication_fallback(tmp_path: Path) -> None:
     app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
     client = TestClient(app, base_url="https://preview.news-sentry.com")
 
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "News Sentry" in response.text
-    assert "跨境观察哨兵" in response.text
-    assert "新闻哨兵" in response.text
-    assert "Breaking News" in response.text
-    assert "新闻纵览" in response.text
-    assert "All News" in response.text
-    assert "新闻日报" in response.text
-    assert "Daily News" in response.text
-    assert "Agent" in response.text
-    assert "Update" in response.text
-    assert "最近更新时间" in response.text
-    assert "当前热点" in response.text
-    assert "新闻时间线" in response.text
-    assert "订阅" in response.text
-    assert "来源" in response.text
-    assert "推荐理由" in response.text
-    assert "继续观察" in response.text
-    assert "目标监控" not in response.text
-    assert "信任与订阅" not in response.text
-    assert "跨境新闻信号过滤器</h1>" not in response.text
-    assert "正在加载" not in response.text
-    assert "admin/login" not in response.text
-    assert '<link rel="canonical" href="https://preview.news-sentry.com/"' in response.text
+    assert '<div id="root"></div>' in response.text
+    assert "/public-app/assets/" in response.text
+    assert '<link rel="canonical" href="https://preview.news-sentry.com/" />' in response.text
     assert 'property="og:url" content="https://preview.news-sentry.com/"' in response.text
     assert 'type="application/ld+json"' in response.text
-    assert "width: min(1160px" not in response.text
-    assert "max-width: 820px" not in response.text
-    assert "--blue" not in response.text
-    assert "--teal" not in response.text
-    assert "#22d3ee" not in response.text
-    assert "#0891b2" not in response.text
-    assert "rgba(34, 211, 238" not in response.text
-    assert "#8f1d2c" in response.text
+    assert "trust-page" not in response.text
+    assert "subscription-page" not in response.text
+    assert "跨境新闻信号过滤器" not in response.text
+    assert "目标监控" not in response.text
+    assert "信任与订阅" not in response.text
+    assert "admin/login" not in response.text
 
 
 def test_admin_path_keeps_legacy_shell_out_of_public_homepage(tmp_path: Path) -> None:
@@ -270,25 +284,40 @@ def test_admin_path_keeps_legacy_shell_out_of_public_homepage(tmp_path: Path) ->
 
     assert homepage.status_code == 200
     assert admin.status_code == 200
-    assert "跨境新闻信号过滤器" in homepage.text
+    assert '<div id="root"></div>' in homepage.text
+    assert "跨境新闻信号过滤器" not in homepage.text
     assert "admin/login" not in homepage.text
     assert "管理后台登录" in admin.text
     assert "admin/login" in admin.text
 
 
+def test_legacy_server_rendered_public_pages_are_removed_from_production_code() -> None:
+    source = (PROJECT_ROOT / "src" / "news_sentry" / "core" / "api_server.py").read_text(
+        encoding="utf-8"
+    )
+
+    forbidden = [
+        "_PUBLICATION_TRUST_PAGES",
+        "_publication_trust_page_response",
+        "_publication_subscribe_page_response",
+        "_publication_homepage_response",
+        "trust-page",
+        "subscription-page",
+    ]
+    for token in forbidden:
+        assert token not in source
+
+
 @pytest.mark.parametrize(
-    ("path", "needle"),
+    "path",
     [
-        ("/about", "编辑标准"),
-        ("/method", "筛选流程"),
-        ("/sources", "来源透明度"),
-        ("/subscribe", "每日信号"),
+        "/sources",
+        "/subscribe",
     ],
 )
-def test_public_trust_pages_render_server_readable_copy(
+def test_public_helper_pages_return_reader_app_shell(
     tmp_path: Path,
     path: str,
-    needle: str,
 ) -> None:
     app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
     client = TestClient(app, base_url="https://preview.news-sentry.com")
@@ -296,14 +325,41 @@ def test_public_trust_pages_render_server_readable_copy(
     response = client.get(path)
 
     assert response.status_code == 200
-    assert "News Sentry" in response.text
-    assert needle in response.text
-    assert "<main" in response.text
-    assert "/public-app/" in response.text
+    assert '<div id="root"></div>' in response.text
+    assert "/public-app/assets/" in response.text
     assert f'<link rel="canonical" href="https://preview.news-sentry.com{path}"' in response.text
     assert 'type="application/ld+json"' in response.text
-    assert "width: min(1160px" not in response.text
-    assert "max-width: 820px" not in response.text
+    assert "trust-page panel" not in response.text
+    assert "subscription-page" not in response.text
+
+
+def test_subscribe_page_uses_reader_shell_not_legacy_trust_layout(tmp_path: Path) -> None:
+    app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
+    client = TestClient(app, base_url="https://preview.news-sentry.com")
+
+    response = client.get("/subscribe")
+
+    assert response.status_code == 200
+    assert '<div id="root"></div>' in response.text
+    assert "/public-app/assets/" in response.text
+    assert "subscription-page" not in response.text
+    assert "trust-page panel" not in response.text
+    assert "邮件订阅入口" not in response.text
+    assert "P0 先开放订阅入口" not in response.text
+    assert "P2 会补齐" not in response.text
+    assert 'type="email"' not in response.text
+    assert '<link rel="canonical" href="https://preview.news-sentry.com/subscribe"' in response.text
+    assert 'type="application/ld+json"' in response.text
+
+
+@pytest.mark.parametrize("path", ["/about", "/method"])
+def test_about_and_method_pages_are_removed(tmp_path: Path, path: str) -> None:
+    app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
+    client = TestClient(app, base_url="https://preview.news-sentry.com")
+
+    response = client.get(path)
+
+    assert response.status_code == 404
 
 
 def test_public_app_homepage_injects_canonical_and_json_ld(tmp_path: Path) -> None:

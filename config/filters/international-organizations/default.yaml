@@ -1,0 +1,36 @@
+# Schema: ../../../schemas/filterrules.schema.json
+# 契约: docs/contracts-canonical.md §3
+# ADR: ADR-0009
+rules_version: 1.0.0
+target_id: international-organizations
+score_threshold: 30
+max_age_hours: 72
+dedup_window_hours: 24
+keyword_rules:
+      - keyword: "UN"
+        weight: 0.85
+        language: en
+      - keyword: "IMF"
+        weight: 0.85
+        language: en
+      - keyword: "World Bank"
+        weight: 0.85
+        language: en
+      - keyword: "WTO"
+        weight: 0.85
+        language: en
+      - keyword: "OECD"
+        weight: 0.85
+        language: en
+      - keyword: "G20"
+        weight: 0.85
+        language: en
+      - keyword: "G7"
+        weight: 0.85
+        language: en
+      - keyword: "BRICS"
+        weight: 0.85
+        language: en
+      - keyword: "ASEAN"
+        weight: 0.85
+        language: en

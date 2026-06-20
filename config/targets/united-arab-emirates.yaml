@@ -4,14 +4,16 @@
 target_id: united-arab-emirates
 display_name: 阿联酋新闻监控
 monitoring_type: country
+region_type: country
 language_scope:
   primary: en
   secondary: []
   output: zh
 timezone: Asia/Dubai
 source_channel_refs:
-- api/gdelt-united-arab-emirates
-- api/gdelt-china-united-arab-emirates
+  - api/gdelt-united-arab-emirates
+  - api/gdelt-china-united-arab-emirates
+  - pool:global/gdelt-geopolitics
 filter_rules_ref: config/filters/united-arab-emirates/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml

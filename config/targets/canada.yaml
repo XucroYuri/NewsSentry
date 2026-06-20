@@ -4,6 +4,7 @@
 target_id: canada
 display_name: "加拿大新闻监控"
 monitoring_type: country
+region_type: country
 
 language_scope:
   primary: en

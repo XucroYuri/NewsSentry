@@ -7,6 +7,8 @@ export interface FeedFilters {
   targetId?: string
   sourceId?: string
   category?: string
+  issue?: string
+  related?: string
   search?: string
   date?: string
   pageSize?: number
@@ -36,6 +38,8 @@ export function makeFeedQuery(filters: FeedFilters): PublicNewsQuery {
   query.targetId = clean(filters.targetId)
   query.sourceId = clean(filters.sourceId)
   query.category = clean(filters.category)
+  query.issue = clean(filters.issue)
+  query.related = clean(filters.related)
   query.date = clean(filters.date)
   query.q = clean(filters.search)
   if (filters.pageSize !== undefined) query.pageSize = filters.pageSize

@@ -1,0 +1,24 @@
+# Schema: ../../../schemas/filterrules.schema.json
+# 契约: docs/contracts-canonical.md §3
+# ADR: ADR-0009
+rules_version: 1.0.0
+target_id: africa
+score_threshold: 30
+max_age_hours: 72
+dedup_window_hours: 24
+keyword_rules:
+      - keyword: "Africa"
+        weight: 0.85
+        language: en
+      - keyword: "African economy"
+        weight: 0.85
+        language: en
+      - keyword: "security"
+        weight: 0.85
+        language: en
+      - keyword: "minerals"
+        weight: 0.85
+        language: en
+      - keyword: "China"
+        weight: 0.85
+        language: en

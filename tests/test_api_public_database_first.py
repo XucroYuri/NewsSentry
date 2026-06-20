@@ -15,12 +15,18 @@ def _ready_translation(
     summary: str = "这是一条中文摘要。",
     one_line: str = "一句话概括这条中文新闻。",
     reason: str = "AI 推荐理由指出这条新闻对跨境观察具有具体影响。",
+    issue_tags: list[str] | None = None,
+    related_tags: list[str] | None = None,
+    region_tags: list[str] | None = None,
 ) -> dict[str, Any]:
     return {
         "translation": {"title_pre": title, "summary_pre": summary},
         "publication": {
             "one_line_summary": one_line,
             "recommendation_reason": reason,
+            "issue_tags": issue_tags if issue_tags is not None else ["国际关系"],
+            "related_tags": related_tags if related_tags is not None else ["涉欧"],
+            "region_tags": region_tags if region_tags is not None else ["意大利"],
         },
     }
 
@@ -71,6 +77,23 @@ class ProjectionOnlyStore:
         if target_id is not None:
             rows = [row for row in rows if row.get("target_id") == target_id]
         return rows[offset : offset + limit]
+
+
+class EmptyGlobalPublicStore(ProjectionOnlyStore):
+    async def query_public_news_rows(self, **_: Any) -> dict[str, Any]:
+        return {"rows": [], "total": 0}
+
+    async def get_public_event_counts_by_target(self, stage: str = "drafts") -> dict[str, int]:
+        return {}
+
+
+class TargetReadyProjectionStore(ProjectionOnlyStore):
+    async def get_public_event_count(self, target_id: str, stage: str = "drafts") -> int:
+        return sum(
+            1
+            for row in self._rows
+            if row.get("target_id") == target_id and api_server._row_publication_ready(row)
+        )
 
 
 class DirectRowProjectionDetailStore(ProjectionOnlyStore):
@@ -192,8 +215,202 @@ def test_public_news_list_prefers_projection_rows_over_file_scan(
     assert item["title"] == "投影列表标题"
     assert item["summary"] == "投影列表中文摘要"
     assert item["originalUrl"] == "https://example.com/story"
-    assert item["tags"][0] == "international-relations"
+    assert item["tags"][0] == "国际关系"
     assert item["entities"][0]["name"] == "Meloni"
+
+
+def test_public_projection_event_preserves_ready_hash_for_fresh_index_row() -> None:
+    row = _projection_row(
+        event_id="ne-italy-projection-hashed-ready",
+        title_original="Fresh source title",
+        metadata=_ready_translation(
+            title="已加工中文标题",
+            summary="已加工中文摘要。",
+            one_line="这是一句中文概括。",
+            reason="这条新闻的推荐理由来自具体内容判断。",
+        ),
+    )
+    row["metadata"]["publication"]["field_hash"] = public_translation_field_hash(row)
+
+    assert api_server._row_publication_ready(row) is True
+
+    event = api_server._public_projection_event(row)
+
+    assert api_server._row_publication_ready(event) is True
+
+
+def test_public_news_list_returns_fresh_hashed_projection_rows(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    row = _projection_row(
+        event_id="ne-italy-projection-list-hashed-ready",
+        title_original="Fresh source title",
+        metadata=_ready_translation(
+            title="已加工中文标题",
+            summary="已加工中文摘要。",
+            one_line="这是一句中文概括。",
+            reason="这条新闻的推荐理由来自具体内容判断。",
+        ),
+    )
+    row["metadata"]["publication"]["field_hash"] = public_translation_field_hash(row)
+    store = ProjectionOnlyStore([row])
+    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
+    client = TestClient(app)
+    monkeypatch.setattr(
+        api_server,
+        "_visible_index_events_page",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not read index page")),
+    )
+    monkeypatch.setattr(
+        api_server,
+        "_load_all_events",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not scan files")),
+    )
+
+    response = client.get("/api/v1/public/news", params={"target_id": "italy"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert [item["id"] for item in body["items"]] == ["ne-italy-projection-list-hashed-ready"]
+
+
+def test_public_news_all_targets_falls_back_to_target_store_when_global_store_is_empty(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    row = _projection_row(
+        event_id="ne-canada-target-store-visible",
+        target_id="canada",
+        source_id="globalnews-canada",
+        title_original="Target-store ready story",
+            metadata=_ready_translation(
+                title="加拿大目标库新闻",
+                summary="这条加拿大新闻已经完成中文摘要。",
+                one_line="加拿大新闻从目标库进入全站公共流。",
+                reason="AI 推荐理由说明该新闻具备跨境观察价值。",
+            ),
+        )
+    global_store = EmptyGlobalPublicStore([])
+    target_store = TargetReadyProjectionStore([row])
+
+    monkeypatch.setattr(
+        api_server,
+        "_load_target_configs",
+        lambda: [
+            {
+                "target_id": "canada",
+                "display_name": "加拿大",
+                "language_scope": {"primary": "en"},
+                "monitoring_type": "country",
+                "source_channel_refs": ["rss:globalnews-canada"],
+            }
+        ],
+    )
+
+    async def _fake_target_store(target_id: str):
+        return target_store if target_id == "canada" else None
+
+    monkeypatch.setattr(api_server, "_get_target_store", _fake_target_store)
+    app = create_app(data_dir=tmp_path, store=global_store, auto_store=False, skip_lifespan=True)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/public/news", params={"page_size": 5})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert [item["id"] for item in body["items"]] == ["ne-canada-target-store-visible"]
+
+
+def test_public_targets_fall_back_to_target_store_counts_when_global_store_is_empty(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    row = _projection_row(
+        event_id="ne-canada-target-count-visible",
+        target_id="canada",
+        source_id="globalnews-canada",
+        metadata=_ready_translation(
+            title="加拿大公开目标标题",
+            summary="这条新闻让加拿大目标应进入公开目标列表。",
+            one_line="加拿大目标存在公开可读新闻。",
+            reason="AI 推荐理由说明该目标有实际可读内容。",
+        ),
+    )
+    global_store = EmptyGlobalPublicStore([])
+    target_store = TargetReadyProjectionStore([row])
+
+    monkeypatch.setattr(
+        api_server,
+        "_load_target_configs",
+        lambda: [
+            {
+                "target_id": "canada",
+                "display_name": "加拿大",
+                "language_scope": {"primary": "en"},
+                "monitoring_type": "country",
+                "source_channel_refs": ["rss:globalnews-canada"],
+            }
+        ],
+    )
+
+    async def _fake_target_store(target_id: str):
+        return target_store if target_id == "canada" else None
+
+    monkeypatch.setattr(api_server, "_get_target_store", _fake_target_store)
+    app = create_app(data_dir=tmp_path, store=global_store, auto_store=False, skip_lifespan=True)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/targets")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [target["target_id"] for target in body["targets"]] == ["canada"]
+    assert body["targets"][0]["event_count"] == 1
+
+
+def test_public_regions_and_targets_hide_topic_targets(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        api_server,
+        "_load_target_configs",
+        lambda: [
+            {
+                "target_id": "italy",
+                "display_name": "意大利新闻监控",
+                "region_type": "country",
+                "language_scope": {"primary": "it"},
+                "source_channel_refs": ["ansa"],
+            },
+            {
+                "target_id": "energy-transition",
+                "display_name": "能源转型观察",
+                "monitoring_type": "topic",
+                "language_scope": {"primary": "en"},
+                "source_channel_refs": ["api/gdelt-topic"],
+            },
+        ],
+    )
+
+    async def _fake_counts(_data_dir: Path) -> dict[str, int]:
+        return {"italy": 3, "energy-transition": 7}
+
+    monkeypatch.setattr(api_server, "_public_target_event_counts", _fake_counts)
+    app = create_app(data_dir=tmp_path, store=EmptyGlobalPublicStore([]), auto_store=False, skip_lifespan=True)
+    client = TestClient(app)
+
+    regions_response = client.get("/api/v1/regions")
+    targets_response = client.get("/api/v1/targets")
+
+    assert regions_response.status_code == 200
+    assert targets_response.status_code == 200
+    assert [item["region_id"] for item in regions_response.json()["regions"]] == ["italy"]
+    assert regions_response.json()["regions"][0]["region_type"] == "country"
+    assert [item["target_id"] for item in targets_response.json()["targets"]] == ["italy"]
 
 
 def test_public_news_list_normalizes_common_gdelt_title_mojibake(
@@ -240,6 +457,77 @@ def test_public_news_list_normalizes_common_gdelt_title_mojibake(
     item = response.json()["items"][0]
     assert item["title"] == "意大利继续站在乌克兰一边"
     assert item["originalTitle"] == expected_title
+
+
+def test_public_facets_and_news_filter_use_publication_tags(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    store = ProjectionOnlyStore(
+        [
+            _projection_row(
+                event_id="ne-italy-tech-china",
+                target_id="italy",
+                metadata=_ready_translation(
+                    title="意大利科技政策更新",
+                    summary="这条新闻涉及意大利科技政策与中国企业。",
+                    issue_tags=["科技"],
+                    related_tags=["涉中"],
+                    region_tags=["意大利", "欧洲"],
+                ),
+            ),
+            _projection_row(
+                event_id="ne-france-energy-eu",
+                target_id="france",
+                metadata=_ready_translation(
+                    title="法国能源政策更新",
+                    summary="这条新闻涉及法国能源政策与欧盟规则。",
+                    issue_tags=["能源"],
+                    related_tags=["涉欧"],
+                    region_tags=["法国", "欧洲"],
+                ),
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        api_server,
+        "_load_target_configs",
+        lambda: [
+            {
+                "target_id": "italy",
+                "display_name": "意大利新闻监控",
+                "region_type": "country",
+                "language_scope": {"primary": "it"},
+                "source_channel_refs": ["ansa"],
+            },
+            {
+                "target_id": "france",
+                "display_name": "法国新闻监控",
+                "region_type": "country",
+                "language_scope": {"primary": "fr"},
+                "source_channel_refs": ["lemonde"],
+            },
+        ],
+    )
+    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
+    client = TestClient(app)
+
+    facets_response = client.get("/api/v1/public/facets")
+    issue_response = client.get("/api/v1/public/news", params={"issue": "科技"})
+    related_response = client.get("/api/v1/public/news", params={"related": "涉欧"})
+    region_response = client.get("/api/v1/public/news", params={"region_id": "italy"})
+
+    assert facets_response.status_code == 200
+    facets = facets_response.json()
+    assert facets["issues"][0] == {"id": "科技", "label": "科技", "count": 1}
+    assert {"id": "涉中", "label": "涉中", "count": 1} in facets["related"]
+    assert {"id": "italy", "label": "意大利", "count": 1} in facets["regions"]
+    assert [item["id"] for item in issue_response.json()["items"]] == ["ne-italy-tech-china"]
+    assert [item["id"] for item in related_response.json()["items"]] == ["ne-france-energy-eu"]
+    assert [item["id"] for item in region_response.json()["items"]] == ["ne-italy-tech-china"]
+    assert issue_response.json()["items"][0]["issueTags"] == ["科技"]
+    assert issue_response.json()["items"][0]["relatedTags"] == ["涉中"]
+    assert issue_response.json()["items"][0]["regionTags"] == ["意大利", "欧洲"]
 
 
 def test_public_news_list_keeps_indexed_filtered_path_for_selective_reads(
@@ -494,6 +782,12 @@ def test_public_news_detail_prefers_direct_store_row_without_projection_scan(
                         "title_pre": "投影详情标题",
                         "summary_pre": "投影详情中文摘要",
                     },
+                    "article": {
+                        "status": "fetched",
+                        "full_text": "这是一段已提取的站内阅读全文正文。",
+                        "image_urls": ["https://example.com/body-image.jpg"],
+                        "lead_image_url": "https://example.com/lead-image.jpg",
+                    },
                     "source_display_name": "ANSA",
                 },
             )
@@ -514,6 +808,11 @@ def test_public_news_detail_prefers_direct_store_row_without_projection_scan(
     assert item["id"] == event_id
     assert item["title"] == "投影详情标题"
     assert item["summary"] == "投影详情中文摘要"
+    assert item["fullContent"] == "这是一段已提取的站内阅读全文正文。"
+    assert item["imageUrls"] == [
+        "https://example.com/lead-image.jpg",
+        "https://example.com/body-image.jpg",
+    ]
     assert item["originalUrl"] == "https://example.com/story"
     assert item["source"]["id"] == "ansa"
     assert store.direct_row_reads == 1

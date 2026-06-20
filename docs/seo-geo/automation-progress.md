@@ -14,9 +14,10 @@
 | round-001 | 2026-06-13 | rule-sync + public-site verification scripts | `tools/seo_geo/update_rule_sources.py`, `tools/seo_geo/verify_public_site.py`, focused tests | script-ready | local-tests-pass | not-started | not-started | 新增规则源稳定导出脚本与公开站点校验脚本；当前可本地输出启用规则源清单，并对 `/robots.txt`、`/llms.txt`、`/sitemap.xml`、`/public-app` 首页 meta/canonical/JSON-LD 做机器化检查，是否通过取决于目标环境当前输出而非脚本默认假设 |
 | round-002 | 2026-06-13 | cron automation created | Codex app automation + local memory seed | automation-created | automation-toml-verified | not-started | not-started | 已创建 `news-sentry-seo-geo-rollout-2`，本地核对 `automation.toml` 包含 `model = \"gpt-5.4\"`、workspace cwd、RRULE 与完整 rollout prompt；memory 已同步到 automation 实际目录 |
 | round-003 | 2026-06-13~14 | database-first public reads + seo runtime + discoverability | `public_site_projection`, `api_server`, `/robots.txt`, `/llms.txt`, `/sitemap.xml`, `tools/seo_geo/verify_public_site.py` | done | done | done | done | 已通过 `#19/#20` 进入主线并完成 production 外部验证；`verify_public_site.py --base-url https://news-sentry.com` 为 `22/22` pass |
+| round-004 | 2026-06-20 | region-publication public baseline | React public shell, `/api/v1/regions`, `/api/v1/public/facets`, projection-first public reads | local-ready | local-tests-pass | pending-preview | pending-production | 新基线为“地区 / 议题 / 相关”，不再恢复 server-rendered legacy trust pages 或 topic target；后续 SEO/GEO 自动化以 `/regions`、`/public/facets`、公共 sitemap/discoverability 和 production deploy header 为验收口径 |
 
 ## 下一步约束
 
 - archive 快照中的剩余 `seo-geo` 相关残差只作为冷备份保留，不再整包回放
 - 新轮次若重开 SEO/GEO lane，应先证明当前主线缺少具体文件或行为，再从 archive 精确提取
-- 进入 preview 或 production verify 前，优先运行 `tools/seo_geo/verify_public_site.py --base-url <site>`，把失败项按 check name 回写到本 ledger
+- 进入 preview 或 production verify 前，优先运行 `tools/seo_geo/verify_public_site.py --base-url <site>`，同时抽查 `/api/v1/regions` 与 `/api/v1/public/facets`，把失败项按 check name 回写到本 ledger

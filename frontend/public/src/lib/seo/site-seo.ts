@@ -6,7 +6,7 @@ const SITE_NAME = "News Sentry"
 const DEFAULT_TITLE = "News Sentry Public"
 const PUBLIC_APP_ROOT = "/public-app/"
 const DEFAULT_DESCRIPTION =
-  "News Sentry 公共新闻流提供面向读者的国际新闻摘要、来源脉络与目标监控视角。"
+  "News Sentry 公共新闻流提供面向中文读者的国际新闻精选、时间线和日报。"
 const MANAGED_ATTR = "data-news-sentry-seo"
 
 export interface SiteSeoPayload {
@@ -50,7 +50,7 @@ export function buildEventSeoPayload({
     targetId: effectiveTargetId,
   }
   const canonicalUrl = buildCanonicalUrl(origin, buildRouteCanonicalPath(canonicalRoute))
-  const title = item?.title ?? "新闻详情"
+  const title = item?.title || item?.originalTitle?.trim() || "新闻详情"
   const description =
     item?.summary ||
     item?.recommendationReason ||
@@ -65,7 +65,7 @@ export function buildEventSeoPayload({
     jsonLd: {
       "@context": "https://schema.org",
       "@type": "NewsArticle",
-      headline: item?.title ?? title,
+      headline: title,
       description,
       datePublished: item?.publishedAt,
       dateModified: item?.publishedAt,
@@ -175,6 +175,12 @@ function pageCopy(
       description: "News Sentry 公共站更新、刷新节奏与产品变更说明。",
     }
   }
+  if (route.name === "subscribe") {
+    return {
+      title: "订阅 Subscribe",
+      description: "接收 News Sentry 每日信号、新闻日报与地区更新。",
+    }
+  }
 
   if (route.name === "analysis") {
     const targetName = analysis?.target_name || selectedTargetLabel || "监控目标"
@@ -186,8 +192,8 @@ function pageCopy(
 
   if (route.name === "sources") {
     return {
-      title: "来源目录",
-      description: "按公开新闻聚合媒体与信源，帮助读者理解 News Sentry 新闻来自哪里。",
+      title: "信源管理",
+      description: "按类型、地区和活跃度管理 News Sentry 公开信源、覆盖范围与最近样本。",
     }
   }
 

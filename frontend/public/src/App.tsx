@@ -2,11 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import type { ComponentType, ReactNode } from "react"
 import {
   BotIcon,
-  BookOpenIcon,
   CalendarDaysIcon,
   FilterIcon,
   HistoryIcon,
-  InfoIcon,
   ListIcon,
   Loader2Icon,
   MailIcon,
@@ -36,6 +34,7 @@ import { useHashRoute } from "@/hooks/use-hash-route"
 import { usePublicAnalysis } from "@/hooks/use-public-analysis"
 import { usePublicFeed } from "@/hooks/use-public-feed"
 import { usePublicTargets } from "@/hooks/use-public-targets"
+import { listPublicFacets } from "@/lib/api"
 import { type FeedFilters, type PublicChannel } from "@/lib/feed-state"
 import { targetShortLabel, todayKey } from "@/lib/public-view"
 import { buildPublicAppPath, routeToChannel, type PublicRoute } from "@/lib/routes"
@@ -48,9 +47,10 @@ import {
   SourceDetailPage,
   SourceDirectoryPage,
 } from "@/pages/public-pages"
-import type { PublicTargetInfo } from "@/types/public-news"
+import type { PublicFacetsResponse, PublicTargetInfo } from "@/types/public-news"
 
 const PAGE_SIZE = 20
+const PUBLIC_APP_VERSION = "v2.0.0"
 
 type NavId = "breaking" | "all" | "daily" | "agent" | "update"
 type ThemePreference = "system" | "light" | "dark"
@@ -68,11 +68,30 @@ const navItems: Array<{
   { id: "update", label: "Update", icon: HistoryIcon },
 ]
 
-const categories = ["国际关系", "政治", "经济", "社会", "文化", "科技"]
-
 function queryValue(search: URLSearchParams, key: string) {
   const value = search.get(key)?.trim()
   return value || undefined
+}
+
+const facetLabelAliases: Record<string, string> = {
+  "LGBTQ+权益": "LGBTQ",
+  "中东局势": "中东",
+  "产业改革": "产业",
+  "人道主义援助": "人道援助",
+  "体育产业": "体育",
+  "公共安全": "安全",
+  "北美政治": "北美政局",
+  "国际关系": "外交",
+  "国际援助": "援助",
+  "国际贸易": "外贸",
+  "地方文化": "地方",
+  "职业高尔夫": "高尔夫",
+  "赛事管理": "赛事",
+}
+
+function displayFacetLabel(label: string) {
+  const normalized = label.trim()
+  return facetLabelAliases[normalized] ?? normalized
 }
 
 function searchFromFilters(filters: FeedFilters) {
@@ -80,6 +99,8 @@ function searchFromFilters(filters: FeedFilters) {
   if (filters.targetId) search.set("target_id", filters.targetId)
   if (filters.sourceId) search.set("source_id", filters.sourceId)
   if (filters.category) search.set("category", filters.category)
+  if (filters.issue) search.set("issue", filters.issue)
+  if (filters.related) search.set("related", filters.related)
   if (filters.search) search.set("q", filters.search)
   if (filters.date) search.set("date", filters.date)
   return search
@@ -97,6 +118,8 @@ function filtersFromRoute(route: PublicRoute): FeedFilters {
     targetId: queryValue(route.search, "target_id"),
     sourceId: queryValue(route.search, "source_id"),
     category: queryValue(route.search, "category"),
+    issue: queryValue(route.search, "issue"),
+    related: queryValue(route.search, "related"),
     search: queryValue(route.search, "q"),
     date: queryValue(route.search, "date"),
     pageSize: PAGE_SIZE,
@@ -142,32 +165,12 @@ function filtersEqual(left: FeedFilters, right: FeedFilters) {
     left.targetId === right.targetId &&
     left.sourceId === right.sourceId &&
     left.category === right.category &&
+    left.issue === right.issue &&
+    left.related === right.related &&
     left.search === right.search &&
     left.date === right.date &&
     left.pageSize === right.pageSize
   )
-}
-
-function isCountryTarget(target: PublicTargetInfo) {
-  const type = target.monitoring_type.toLowerCase()
-  return type === "country" || target.monitoring_label.includes("国别")
-}
-
-function groupTargets(targets: PublicTargetInfo[]) {
-  const countryTargets: PublicTargetInfo[] = []
-  const topicTargets: PublicTargetInfo[] = []
-
-  targets
-    .filter((target) => target.source_count > 0 && target.event_count > 0)
-    .forEach((target) => {
-    if (isCountryTarget(target)) {
-      countryTargets.push(target)
-    } else {
-      topicTargets.push(target)
-    }
-    })
-
-  return { countryTargets, topicTargets }
 }
 
 function useThemePreference() {
@@ -223,6 +226,45 @@ function ThemeToggle({
   )
 }
 
+function usePublicFacets(filters: FeedFilters) {
+  const [facets, setFacets] = useState<PublicFacetsResponse>({
+    regions: [],
+    issues: [],
+    related: [],
+  })
+
+  useEffect(() => {
+    let cancelled = false
+    const controller = new AbortController()
+    async function loadFacets() {
+      try {
+        const response = await listPublicFacets(
+          {
+            targetId: filters.targetId,
+            issue: filters.issue,
+            related: filters.related,
+            date: filters.date,
+            q: filters.search,
+          },
+          { signal: controller.signal },
+        )
+        if (!cancelled) setFacets(response)
+      } catch {
+        if (!cancelled) {
+          setFacets({ regions: [], issues: [], related: [] })
+        }
+      }
+    }
+    void loadFacets()
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [filters.date, filters.issue, filters.related, filters.search, filters.targetId])
+
+  return facets
+}
+
 function NavButton({
   item,
   active,
@@ -260,16 +302,14 @@ function UtilityMenu({
   onThemeChange: (theme: ThemePreference) => void
 }) {
   const utilityLinks = [
-    { label: "About", href: "/about", icon: InfoIcon },
-    { label: "Method", href: "/method", icon: BookOpenIcon },
-    { label: "Sources", href: "/public-app/sources", icon: RadioIcon },
+    { label: "Sources", href: "/sources", icon: RadioIcon },
     { label: "Subscribe", href: "/subscribe", icon: MailIcon },
   ]
 
   return (
     <nav
       aria-label="侧边栏辅助菜单"
-      className="grid w-full min-w-0 max-w-full grid-cols-5 gap-0.5 self-start overflow-hidden rounded-full border border-border bg-background/70 p-0.5 dark:border-white/10 dark:bg-white/[0.03]"
+      className="grid w-full min-w-0 max-w-full grid-cols-3 gap-0.5 self-start overflow-hidden rounded-full border border-border bg-background/70 p-0.5 dark:border-white/10 dark:bg-white/[0.03]"
     >
       {utilityLinks.map((link) => {
         const Icon = link.icon
@@ -440,11 +480,13 @@ function AppShell({
 function FilterPanel({
   filters,
   targets,
+  facets,
   sources,
   onChange,
 }: {
   filters: FeedFilters
   targets: PublicTargetInfo[]
+  facets: PublicFacetsResponse
   sources: Array<{ id: string; name: string; count: number }>
   onChange: (patch: Partial<FeedFilters>) => void
 }) {
@@ -480,37 +522,69 @@ function FilterPanel({
         </div>
       </form>
 
-      <section className="grid w-full min-w-0 gap-2" aria-label="分类筛选">
+      <section className="grid w-full min-w-0 gap-2" aria-label="议题筛选">
         <div className="flex items-center justify-between">
-          <p className="text-xs font-medium text-muted-foreground">分类</p>
-          {filters.category ? (
-            <Button variant="ghost" size="sm" onClick={() => onChange({ category: undefined })}>
+          <p className="text-xs font-medium text-muted-foreground">议题</p>
+          {filters.issue ? (
+            <Button variant="ghost" size="sm" onClick={() => onChange({ issue: undefined })}>
               清除
             </Button>
           ) : null}
         </div>
         <div className="flex w-full min-w-0 gap-2 overflow-x-auto lg:grid lg:grid-cols-2">
-          {categories.map((category) => (
+          {facets.issues.map((issue) => (
             <Button
-              key={category}
+              key={issue.id}
               type="button"
-              variant={filters.category === category ? "default" : "outline"}
+              variant={filters.issue === issue.label ? "default" : "outline"}
               size="sm"
-              aria-pressed={filters.category === category}
+              aria-pressed={filters.issue === issue.label}
               onClick={() =>
-                onChange({ category: filters.category === category ? undefined : category })
+                onChange({ issue: filters.issue === issue.label ? undefined : issue.label })
               }
               className="min-w-0 shrink-0 justify-start lg:w-full lg:shrink"
             >
-              {category}
+              <span className="truncate">{issue.label}</span>
+              <span className="ml-auto text-[10px] opacity-70">{issue.count}</span>
             </Button>
           ))}
         </div>
       </section>
 
-      <section className="grid w-full min-w-0 gap-2" aria-label="目标筛选">
+      <section className="grid w-full min-w-0 gap-2" aria-label="相关筛选">
         <div className="flex items-center justify-between">
-          <p className="text-xs font-medium text-muted-foreground">目标</p>
+          <p className="text-xs font-medium text-muted-foreground">相关</p>
+          {filters.related ? (
+            <Button variant="ghost" size="sm" onClick={() => onChange({ related: undefined })}>
+              清除
+            </Button>
+          ) : null}
+        </div>
+        <div className="flex w-full min-w-0 gap-2 overflow-x-auto lg:grid lg:grid-cols-2">
+          {facets.related.map((related) => (
+            <Button
+              key={related.id}
+              type="button"
+              variant={filters.related === related.label ? "default" : "outline"}
+              size="sm"
+              aria-pressed={filters.related === related.label}
+              onClick={() =>
+                onChange({
+                  related: filters.related === related.label ? undefined : related.label,
+                })
+              }
+              className="min-w-0 shrink-0 justify-start lg:w-full lg:shrink"
+            >
+              <span className="truncate">{related.label}</span>
+              <span className="ml-auto text-[10px] opacity-70">{related.count}</span>
+            </Button>
+          ))}
+        </div>
+      </section>
+
+      <section className="grid w-full min-w-0 gap-2" aria-label="地区筛选">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-medium text-muted-foreground">地区</p>
           {filters.targetId ? (
             <Button variant="ghost" size="sm" onClick={() => onChange({ targetId: undefined })}>
               全部
@@ -540,7 +614,7 @@ function FilterPanel({
             ))
           ) : (
             <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-              目标列表正在加载，新闻流仍可浏览。
+              地区列表正在加载，新闻流仍可浏览。
             </p>
           )}
         </div>
@@ -577,7 +651,7 @@ function FilterPanel({
             ))
           ) : (
             <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-              加载新闻后会显示可筛选来源。
+          加载新闻后会显示可筛选来源。
             </p>
           )}
         </div>
@@ -599,7 +673,7 @@ function FilterSheet({ children }: { children: ReactNode }) {
         <SheetHeader>
           <SheetTitle>筛选新闻</SheetTitle>
           <SheetDescription className="text-xs text-muted-foreground">
-            按关键词、分类、目标和来源收窄新闻流。
+            按关键词、地区、议题、相关和来源收窄新闻流。
           </SheetDescription>
         </SheetHeader>
         <div className="min-h-0 overflow-y-auto pr-4">{children}</div>
@@ -608,56 +682,56 @@ function FilterSheet({ children }: { children: ReactNode }) {
   )
 }
 
-function TargetFilterRow({
+function FacetFilterRow({
   label,
-  targets,
-  filters,
-  includeAll = false,
-  onChange,
+  allLabel,
+  items,
+  activeValue,
+  onSelect,
 }: {
   label: string
-  targets: PublicTargetInfo[]
-  filters: FeedFilters
-  includeAll?: boolean
-  onChange: (patch: Partial<FeedFilters>) => void
+  allLabel?: string
+  items: Array<{ id: string; label: string; count?: number }>
+  activeValue?: string
+  onSelect: (value?: string) => void
 }) {
-  if (!includeAll && targets.length === 0) return null
+  if (!allLabel && items.length === 0) return null
 
   return (
-    <div className="grid min-w-0 gap-1 md:grid-cols-[4.25rem_minmax(0,1fr)] md:items-center">
-      <span className="text-[11px] font-semibold leading-none text-muted-foreground">{label}</span>
-      <div
-        className="flex min-w-0 gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        aria-label={`${label}目标`}
-      >
-        {includeAll ? (
+    <div className="grid min-w-0 gap-1 md:grid-cols-[4.25rem_minmax(0,1fr)] md:items-start">
+      <span className="pt-1.5 text-[11px] font-semibold leading-none text-muted-foreground">
+        {label}
+      </span>
+      <div className="flex min-w-0 flex-wrap gap-1.5 overflow-visible" aria-label={`${label}筛选`}>
+        {allLabel ? (
           <Button
             type="button"
-            variant={filters.targetId ? "outline" : "default"}
+            variant={activeValue ? "outline" : "default"}
             size="sm"
-            aria-pressed={!filters.targetId}
+            aria-pressed={!activeValue}
             className="h-7 shrink-0 rounded-md px-2 text-xs"
-            onClick={() =>
-              onChange({
-                channel: filters.channel === "featured" ? "featured" : "all",
-                targetId: undefined,
-              })
-            }
+            onClick={() => onSelect(undefined)}
           >
-            全部目标
+            {allLabel}
           </Button>
         ) : null}
-        {targets.map((target) => (
+        {items.map((item) => (
           <Button
-            key={target.target_id}
+            key={item.id}
             type="button"
-            variant={filters.targetId === target.target_id ? "default" : "outline"}
+            variant={activeValue === item.id ? "default" : "outline"}
             size="sm"
-            aria-pressed={filters.targetId === target.target_id}
-            className="h-7 shrink-0 rounded-md px-2 text-xs"
-            onClick={() => onChange({ channel: "targets", targetId: target.target_id })}
+            aria-pressed={activeValue === item.id}
+            title={item.label}
+            className="h-7 max-w-[9rem] rounded-md px-2 text-xs"
+            onClick={() => onSelect(item.id)}
           >
-            {targetShortLabel(target.display_name)}
+            <span className="truncate">{displayFacetLabel(item.label)}</span>
+            {typeof item.count === "number" ? (
+              <span aria-hidden="true" className="ml-1 text-[10px] opacity-70">
+                {item.count}
+              </span>
+            ) : null}
           </Button>
         ))}
       </div>
@@ -668,18 +742,38 @@ function TargetFilterRow({
 function ReaderControls({
   filters,
   targets,
+  facets,
   selectedTargetLabel,
   filterPanel,
   onChange,
 }: {
   filters: FeedFilters
   targets: PublicTargetInfo[]
+  facets: PublicFacetsResponse
   selectedTargetLabel?: string
   filterPanel: ReactNode
   onChange: (patch: Partial<FeedFilters>) => void
 }) {
   const [search, setSearch] = useState(filters.search ?? "")
-  const { countryTargets, topicTargets } = useMemo(() => groupTargets(targets), [targets])
+  const regionItems = useMemo(
+    () =>
+      targets
+        .filter((target) => target.source_count > 0 && target.event_count > 0)
+        .map((target) => ({
+          id: target.target_id,
+          label: targetShortLabel(target.display_name),
+          count: target.event_count,
+        })),
+    [targets],
+  )
+  const issueItems = useMemo(
+    () => facets.issues.map((item) => ({ id: item.label, label: item.label, count: item.count })),
+    [facets.issues],
+  )
+  const relatedItems = useMemo(
+    () => facets.related.map((item) => ({ id: item.label, label: item.label, count: item.count })),
+    [facets.related],
+  )
   const heading = selectedTargetLabel
     ? targetShortLabel(selectedTargetLabel)
     : filters.channel === "all" || filters.channel === "targets"
@@ -688,7 +782,7 @@ function ReaderControls({
   const description = selectedTargetLabel
     ? `正在浏览 ${targetShortLabel(selectedTargetLabel)} 的精选新闻流。`
     : filters.channel === "all" || filters.channel === "targets"
-      ? "按国别或话题筛选，直接进入同一条时间线阅读。"
+      ? "按地区、议题与相关标签筛选，直接进入同一条时间线阅读。"
       : "AI 辅助从公共新闻流里挑选时效性高、影响更明确的重大新闻。"
 
   useEffect(() => {
@@ -723,19 +817,30 @@ function ReaderControls({
         </form>
       </div>
 
-      <div className="grid gap-1.5" role="region" aria-label="目标分组筛选">
-        <TargetFilterRow
-          label="国别分类"
-          targets={countryTargets}
-          filters={filters}
-          includeAll
-          onChange={onChange}
+      <div className="grid gap-1.5" role="region" aria-label="地区议题相关筛选">
+        <FacetFilterRow
+          label="地区"
+          allLabel="全部"
+          items={regionItems}
+          activeValue={filters.targetId}
+          onSelect={(value) =>
+            onChange({
+              channel: value ? "targets" : filters.channel === "featured" ? "featured" : "all",
+              targetId: value,
+            })
+          }
         />
-        <TargetFilterRow
-          label="话题分类"
-          targets={topicTargets}
-          filters={filters}
-          onChange={onChange}
+        <FacetFilterRow
+          label="议题"
+          items={issueItems}
+          activeValue={filters.issue}
+          onSelect={(value) => onChange({ issue: value })}
+        />
+        <FacetFilterRow
+          label="相关"
+          items={relatedItems}
+          activeValue={filters.related}
+          onSelect={(value) => onChange({ related: value })}
         />
       </div>
     </section>
@@ -778,10 +883,49 @@ function AgentPage() {
           <strong className="block text-sm text-foreground">Subscribe</strong>
           <span className="text-xs">每日/每周摘要</span>
         </a>
-        <a className="rounded-md border bg-background/60 px-3 py-2 hover:border-primary/50" href="/method">
-          <strong className="block text-sm text-foreground">Method</strong>
-          <span className="text-xs">筛选方法</span>
+      </div>
+    </InfoPanel>
+  )
+}
+
+function SubscribePage() {
+  const links = [
+    {
+      title: "每日信号",
+      description: "每日高价值新闻摘要",
+      href: "/public-app/",
+    },
+    {
+      title: "新闻日报",
+      description: "按日期聚合的简报",
+      href: "/public-app/daily",
+    },
+    {
+      title: "地区更新",
+      description: "围绕重点地区的变化提醒",
+      href: "/public-app/",
+    },
+  ]
+
+  return (
+    <InfoPanel title="订阅 Subscribe">
+      <div className="flex flex-col gap-2 border-b pb-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+        <span>接收每日信号、新闻日报与地区更新。</span>
+        <a className="font-medium text-primary hover:underline" href="/public-app/">
+          进入新闻哨兵
         </a>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {links.map((link) => (
+          <a
+            key={link.title}
+            className="rounded-md border bg-background/60 px-3 py-2 hover:border-primary/50"
+            href={link.href}
+          >
+            <strong className="block text-sm text-foreground">{link.title}</strong>
+            <span className="text-xs">{link.description}</span>
+          </a>
+        ))}
       </div>
     </InfoPanel>
   )
@@ -794,7 +938,7 @@ function UpdatePage({ updatedAt }: { updatedAt?: string | null }) {
         <span className="font-medium text-foreground">最近新闻刷新</span>
         <span>{updatedAt ? new Date(updatedAt).toLocaleString("zh-CN") : "等待新闻流"}</span>
         <span className="font-medium text-foreground">当前版本</span>
-        <span>AIHOT 化公共阅读体验</span>
+        <span>{PUBLIC_APP_VERSION}</span>
       </div>
     </InfoPanel>
   )
@@ -813,6 +957,7 @@ export default function App() {
 
   const feed = usePublicFeed(filters, { poll: route.name === "feed" })
   const targets = usePublicTargets()
+  const facets = usePublicFacets(filters)
   const sourceOptions = useMemo(() => {
     const sources = new Map<string, { id: string; name: string; count: number }>()
     for (const item of feed.feedState.items) {
@@ -863,6 +1008,7 @@ export default function App() {
     <FilterPanel
       filters={filters}
       targets={targets}
+      facets={facets}
       sources={sourceOptions}
       onChange={updateFilters}
     />
@@ -891,6 +1037,8 @@ export default function App() {
     mainContent = <AgentPage />
   } else if (route.name === "update") {
     mainContent = <UpdatePage updatedAt={feed.feedState.items[0]?.publishedAt} />
+  } else if (route.name === "subscribe") {
+    mainContent = <SubscribePage />
   } else if (route.name === "analysis") {
     mainContent = (
       <AnalysisPage
@@ -910,6 +1058,7 @@ export default function App() {
         <ReaderControls
           filters={filters}
           targets={targets}
+          facets={facets}
           selectedTargetLabel={selectedFeedTargetLabel}
           filterPanel={filterPanel}
           onChange={updateFilters}

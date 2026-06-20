@@ -1,16 +1,15 @@
 import { useEffect, useMemo, useState } from "react"
-import type { MouseEvent } from "react"
+import type { KeyboardEvent, MouseEvent } from "react"
 import {
   ArrowLeftIcon,
   ArrowUpRightIcon,
   BellIcon,
   ChevronRightIcon,
-  Clock3Icon,
   CopyIcon,
   Globe2Icon,
   Loader2Icon,
   NewspaperIcon,
-  SparklesIcon,
+  XIcon,
 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -35,7 +34,7 @@ import {
 } from "@/lib/public-view"
 import { buildEventSeoPayload } from "@/lib/seo/site-seo"
 import type { FeedState } from "@/hooks/use-public-feed"
-import type { PublicAnalysisResponse, PublicNewsItem, PublicTargetInfo } from "@/types/public-news"
+import type { PublicAnalysisResponse, PublicNewsItem, PublicNewsSourceType, PublicTargetInfo } from "@/types/public-news"
 import { buildPublicAppPath, parseLocationRoute, type PublicRoute } from "@/lib/routes"
 
 const channels: Array<{
@@ -45,7 +44,7 @@ const channels: Array<{
 }> = [
   { id: "featured", label: "精选", description: "跨目标展示最高价值新闻，先读判断，再看来源。" },
   { id: "all", label: "全部", description: "按发布时间浏览公共新闻流" },
-  { id: "targets", label: "目标", description: "按 target 浏览精选新闻流" },
+  { id: "targets", label: "地区", description: "按地区浏览精选新闻流" },
   { id: "sources", label: "来源", description: "按媒体与信源观察覆盖面" },
   { id: "analysis", label: "态势", description: "查看公开态势摘要" },
   { id: "daily", label: "日报", description: "读者化日内摘要入口" },
@@ -55,6 +54,65 @@ function normalizeError(error: unknown) {
   if (error instanceof PublicNewsApiError) return error.message
   if (error instanceof Error) return error.message
   return "公共新闻接口暂时不可用，请稍后重试。"
+}
+
+function primaryNewsTitle(item: PublicNewsItem) {
+  return item.title?.trim() || item.originalTitle?.trim() || item.id
+}
+
+function originalNewsTitle(item: PublicNewsItem) {
+  const original = item.originalTitle?.trim()
+  const primary = primaryNewsTitle(item)
+  if (!original || original === primary) return null
+  return original
+}
+
+function normalizeComparableText(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "")
+    .replace(/[的了和与及在是]/gu, "")
+}
+
+function isNearDuplicateText(left: string, right: string) {
+  const leftText = normalizeComparableText(left)
+  const rightText = normalizeComparableText(right)
+  if (leftText.length < 8 || rightText.length < 8) return false
+  if (leftText.includes(rightText) || rightText.includes(leftText)) return true
+
+  const leftChars = new Set([...leftText])
+  const rightChars = new Set([...rightText])
+  const smallerSize = Math.min(leftChars.size, rightChars.size)
+  if (smallerSize < 8) return false
+  let overlap = 0
+  for (const char of leftChars) {
+    if (rightChars.has(char)) overlap += 1
+  }
+  return overlap / smallerSize >= 0.78
+}
+
+function hotTopicSupplement(item: PublicNewsItem) {
+  const title = primaryNewsTitle(item)
+  const candidates = [item.summary?.trim(), originalNewsTitle(item)].filter(Boolean) as string[]
+  return candidates.find((candidate) => !isNearDuplicateText(title, candidate)) ?? null
+}
+
+function uniqueNewsTags(item: PublicNewsItem) {
+  const seen = new Set<string>()
+  const labels = [
+    ...item.regionTags,
+    ...item.issueTags,
+    ...item.relatedTags,
+    ...item.tags,
+  ]
+  return labels
+    .map((label) => label.trim())
+    .filter((label) => {
+      if (!label || seen.has(label)) return false
+      seen.add(label)
+      return true
+    })
+    .slice(0, 12)
 }
 
 function buildDetailRoute(
@@ -91,6 +149,12 @@ function handleRouteAnchorClick(event: MouseEvent<HTMLAnchorElement>, route: Pub
   navigateToPublicRoute(route)
 }
 
+function handleRouteCardKeyDown(event: KeyboardEvent<HTMLElement>, route: PublicRoute) {
+  if (event.key !== "Enter" && event.key !== " ") return
+  event.preventDefault()
+  navigateToPublicRoute(route)
+}
+
 function CopySummaryButton({ item }: { item: PublicNewsItem }) {
   const [copied, setCopied] = useState(false)
   return (
@@ -122,72 +186,140 @@ function LiveUpdateBanner({ count, onApply }: { count: number; onApply: () => vo
   )
 }
 
-function NewsCard({ item, returnTo }: { item: PublicNewsItem; returnTo?: PublicRoute | null }) {
-  const reason = item.recommendationReason?.trim()
+function NewsCard({
+  item,
+  returnTo,
+  isNew = false,
+}: {
+  item: PublicNewsItem
+  returnTo?: PublicRoute | null
+  isNew?: boolean
+}) {
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
+  const title = primaryNewsTitle(item)
+  const originalTitle = originalNewsTitle(item)
+  const summary = item.summary?.trim()
   const detailRoute = buildDetailRoute(item, returnTo)
   const targetLabel = targetShortLabel(item.targetLabel)
+  const imageUrl = item.imageUrls?.find((url) => url.trim())
+  const tags = uniqueNewsTags(item)
+  const breakingScore = Math.round(item.valueScore ?? 0)
+  const detailPath = buildPublicAppPath(detailRoute)
 
   return (
-    <article className="rounded-lg border bg-card/95 px-3 py-3 transition-colors hover:border-primary/50 hover:bg-accent/20 dark:bg-card/80">
-      <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
-        <div className="grid min-w-0 gap-2">
-        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground">
-          <span className="inline-flex items-center gap-1">
-            <Clock3Icon className="size-3.5" aria-hidden="true" />
-            {formatTime(item.publishedAt)}
-          </span>
-          <span className="inline-flex min-w-0 items-center gap-1">
-            <Globe2Icon className="size-3.5 shrink-0" aria-hidden="true" />
-            <span className="truncate">{item.source.name}</span>
-          </span>
-          <Badge variant="outline" className="font-normal" title={item.targetLabel}>{targetLabel}</Badge>
-          <Badge variant={item.valueLabel === "精选" ? "default" : "secondary"} className="rounded-full">
-            {item.valueScore !== undefined && item.valueScore !== null
-              ? `分值 ${Math.round(item.valueScore)}`
-              : item.valueLabel}
-          </Badge>
-        </div>
-
-        <div className="grid gap-1.5">
-          <h2 className="text-base font-semibold leading-6 text-foreground sm:text-lg">
-            {item.title}
-          </h2>
-          {item.summary ? (
-            <p className="line-clamp-2 text-sm leading-5 text-muted-foreground">
-              {item.summary}
-            </p>
-          ) : null}
-        </div>
-
-        {reason ? (
-          <div className="line-clamp-2 rounded-md border border-primary/20 bg-primary/10 px-2.5 py-1.5 text-xs leading-5 text-muted-foreground">
-            <span className="font-medium text-foreground">推荐理由：</span>
-            {reason}
-          </div>
-        ) : null}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1.5 xl:justify-end">
-          <Button asChild variant="outline" size="sm">
-            <a
-              href={buildPublicAppPath(detailRoute)}
-              onClick={(event) => handleRouteAnchorClick(event, detailRoute)}
+    <>
+      <article
+        role="link"
+        tabIndex={0}
+        aria-label={`${title}${originalTitle ? ` ${originalTitle}` : ""}`}
+        data-href={detailPath}
+        data-new-entry={isNew ? "true" : undefined}
+        onClick={() => navigateToPublicRoute(detailRoute)}
+        onKeyDown={(event) => handleRouteCardKeyDown(event, detailRoute)}
+        className={`group block cursor-pointer rounded-md border bg-card/95 px-2.5 py-2 text-card-foreground transition-colors hover:border-primary/45 hover:bg-accent/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:bg-card/80 ${
+          isNew ? "news-card-entering" : ""
+        }`}
+      >
+        <div className="grid min-w-0 gap-1.5">
+          <div className="flex min-w-0 items-start justify-between gap-2 text-[11px] text-muted-foreground">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+              <span className="inline-flex min-w-0 items-center gap-1">
+                <Globe2Icon className="size-3 shrink-0" aria-hidden="true" />
+                <span className="truncate">{item.source.name}</span>
+              </span>
+              <span className="text-muted-foreground/80">{sourceTypeLabel(item.source.type)}</span>
+              <Badge variant="outline" className="h-4 rounded px-1 text-[9px] font-normal" title={item.targetLabel}>
+                {targetLabel}
+              </Badge>
+              {tags.map((tag) => (
+                <Badge
+                  key={tag}
+                  variant="secondary"
+                  className="h-4 rounded px-1 text-[9px] font-normal"
+                >
+                  {tag}
+                </Badge>
+              ))}
+            </div>
+            <Badge
+              aria-label={`Breaking News 分值 ${breakingScore}`}
+              className="ml-auto h-5 rounded-full px-2 text-[11px] font-semibold"
             >
-              详情
-              <ChevronRightIcon className="size-4" aria-hidden="true" />
-            </a>
-          </Button>
-          {item.originalUrl ? (
-            <Button asChild variant="ghost" size="sm">
-              <a href={item.originalUrl} target="_blank" rel="noreferrer">
-                原文
-                <ArrowUpRightIcon className="size-4" aria-hidden="true" />
-              </a>
-            </Button>
-          ) : null}
+              {breakingScore}
+            </Badge>
+          </div>
+
+          <div className="grid min-w-0 gap-2">
+            <div className="grid min-w-0 gap-1.5">
+              <div className={imageUrl ? "grid gap-2 md:grid-cols-[minmax(0,1fr)_148px]" : "grid gap-1.5"}>
+                <div className="grid min-w-0 gap-1">
+                  <h2 className="text-sm font-semibold leading-5 text-foreground">
+                    {title}
+                  </h2>
+                  {originalTitle ? (
+                    <p className="line-clamp-1 text-xs leading-4 text-muted-foreground">
+                      {originalTitle}
+                    </p>
+                  ) : null}
+                  {summary ? (
+                    <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">
+                      {summary}
+                    </p>
+                  ) : null}
+                </div>
+                {imageUrl ? (
+                  <button
+                    type="button"
+                    aria-label={`浏览大图：${title}`}
+                    className="group/image overflow-hidden rounded-md border bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      setPreviewImage(imageUrl)
+                    }}
+                  >
+                    <img
+                      src={imageUrl}
+                      alt={`新闻缩略图：${title}`}
+                      className="aspect-[16/10] h-full w-full object-cover transition-transform group-hover/image:scale-[1.02]"
+                      loading="lazy"
+                    />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
-    </article>
+      </article>
+      {previewImage ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="新闻图片预览"
+          className="fixed inset-0 z-50 grid place-items-center bg-background/80 p-4 backdrop-blur-sm"
+          onClick={() => setPreviewImage(null)}
+        >
+          <div className="relative max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-lg border bg-card shadow-xl">
+            <button
+              type="button"
+              aria-label="关闭图片预览"
+              className="absolute right-2 top-2 z-10 inline-flex size-8 items-center justify-center rounded-md border bg-background/90 text-foreground shadow-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={(event) => {
+                event.stopPropagation()
+                setPreviewImage(null)
+              }}
+            >
+              <XIcon className="size-4" aria-hidden="true" />
+            </button>
+            <img
+              src={previewImage}
+              alt={`新闻大图：${title}`}
+              className="max-h-[90vh] w-full object-contain"
+            />
+          </div>
+        </div>
+      ) : null}
+    </>
   )
 }
 
@@ -257,7 +389,12 @@ export function NewsFeedPage({
   onLoadMore: () => void
   onApplyPending: () => void
 }) {
+  const [collapsedGroupKeys, setCollapsedGroupKeys] = useState<Set<string>>(() => new Set())
   const grouped = useMemo(() => groupItemsByDate(state.items), [state.items])
+  const recentlyInsertedIds = useMemo(
+    () => new Set(state.recentlyInsertedIds),
+    [state.recentlyInsertedIds],
+  )
   const topItems = useMemo(
     () =>
       [...state.items]
@@ -279,10 +416,6 @@ export function NewsFeedPage({
     } satisfies Extract<PublicRoute, { name: "feed" }>
   }, [filters.category, filters.channel, filters.date, filters.search, filters.sourceId, filters.targetId])
   const hasItems = state.items.length > 0
-  const emptyDescription =
-    filters.channel === "analysis"
-      ? "当前窗口还没有足够样本形成态势。采集与增强继续运行，稍后会补充趋势、实体和追踪链。"
-      : "中文标题、摘要和 AI 推荐理由完成后会自动进入公共阅读流。"
 
   return (
     <section className="min-w-0 overflow-hidden rounded-lg border bg-card/95 dark:bg-card/80">
@@ -292,36 +425,34 @@ export function NewsFeedPage({
       {state.status === "error" ? (
         <ErrorState message={state.error ?? "加载失败"} onRetry={onRefresh} />
       ) : null}
-      {state.status === "empty" ? (
-        <EmptyExplanation title="中文加工中" description={emptyDescription} />
-      ) : null}
       {hasItems ? (
         <div>
-          <section className="border-b bg-muted/20 px-3 py-3" aria-label="当前热点">
-            <div className="mb-2 flex items-center justify-between gap-3">
+          <section className="border-b px-3 py-1.5" aria-label="当前热点">
+            <div className="mb-1 flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-base font-semibold">当前热点</h2>
+                <h2 className="text-xs font-semibold">当前热点</h2>
               </div>
-              <span className="text-xs text-muted-foreground">TOP {topItems.length}</span>
+              <span className="text-[10px] uppercase text-muted-foreground">TOP {topItems.length}</span>
             </div>
-            <div className="grid gap-1.5">
+            <div className="divide-y">
               {topItems.map((item, index) => {
                 const detailRoute = buildDetailRoute(item, feedRoute)
+                const supplement = hotTopicSupplement(item)
                 return (
                   <a
                     key={item.id}
                     href={buildPublicAppPath(detailRoute)}
                     onClick={(event) => handleRouteAnchorClick(event, detailRoute)}
-                    className="grid gap-1.5 rounded-md border bg-background/80 p-2 text-sm hover:border-primary/50 md:grid-cols-[2rem_minmax(0,1fr)_auto] md:items-center"
+                    className="grid gap-x-2 gap-y-0.5 px-1 py-1 text-sm hover:bg-muted/30 md:grid-cols-[1.25rem_minmax(0,1fr)_auto] md:items-center"
                   >
-                    <span className="text-base font-semibold text-primary">{index + 1}</span>
-                    <span className="line-clamp-2 font-semibold">{item.title}</span>
-                    <span className="text-xs text-muted-foreground">
+                    <span className="text-xs font-semibold text-primary">{index + 1}</span>
+                    <span className="line-clamp-1 font-semibold">{item.title}</span>
+                    <span className="text-[11px] text-muted-foreground">
                       {item.source.name} · {formatTime(item.publishedAt)}
                     </span>
-                    {item.recommendationReason || item.summary || item.originalTitle ? (
-                      <span className="hidden line-clamp-1 text-xs text-muted-foreground sm:block md:col-start-2 md:col-end-4">
-                        {item.recommendationReason || item.summary || item.originalTitle}
+                    {supplement ? (
+                      <span className="hidden line-clamp-1 text-[11px] text-muted-foreground sm:block md:col-start-2 md:col-end-4">
+                        {supplement}
                       </span>
                     ) : null}
                   </a>
@@ -329,15 +460,37 @@ export function NewsFeedPage({
               })}
             </div>
           </section>
-          <div className="border-b px-3 py-2 text-sm font-semibold">新闻时间线</div>
-          {grouped.map((group) => (
+          {grouped.map((group) => {
+            const collapsed = collapsedGroupKeys.has(group.key)
+            return (
             <section key={group.key} aria-label={group.label} className="grid gap-2 px-3 py-3">
-              <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+              <button
+                type="button"
+                aria-expanded={!collapsed}
+                className="flex items-center gap-2 text-left text-sm font-semibold text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() =>
+                  setCollapsedGroupKeys((current) => {
+                    const next = new Set(current)
+                    if (next.has(group.key)) {
+                      next.delete(group.key)
+                    } else {
+                      next.add(group.key)
+                    }
+                    return next
+                  })
+                }
+              >
                 <span>{group.label}</span>
                 <span className="h-px flex-1 bg-border" />
-              </div>
-              <div className="grid gap-2">
-                {group.items.map((item) => (
+                <span className="text-xs font-normal text-muted-foreground">{group.items.length} 条</span>
+                <ChevronRightIcon
+                  className={`size-3.5 transition-transform ${collapsed ? "" : "rotate-90"}`}
+                  aria-hidden="true"
+                />
+              </button>
+              {collapsed ? null : (
+                <div className="grid gap-2">
+                  {group.items.map((item) => (
                   <div key={item.id} className="grid gap-2 md:grid-cols-[3.5rem_0.75rem_minmax(0,1fr)]">
                     <time className="pt-3 text-xs font-semibold text-muted-foreground">
                       {formatTime(item.publishedAt)}
@@ -345,12 +498,14 @@ export function NewsFeedPage({
                     <div className="hidden md:grid md:justify-center">
                       <span className="mt-4 size-2 rounded-full bg-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.18)]" />
                     </div>
-                    <NewsCard item={item} returnTo={feedRoute} />
+                    <NewsCard item={item} returnTo={feedRoute} isNew={recentlyInsertedIds.has(item.id)} />
                   </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </section>
-          ))}
+            )
+          })}
           <div className="flex items-center justify-center border-t px-4 py-4">
             <Button
               variant="outline"
@@ -395,7 +550,7 @@ function RelatedSection({
               onClick={(event) => handleRouteAnchorClick(event, detailRoute)}
               className="rounded-md border bg-background p-3 text-sm hover:border-primary/40"
             >
-              <span className="font-medium">{item.title}</span>
+              <span className="font-medium">{primaryNewsTitle(item)}</span>
               <span className="mt-1 block text-xs text-muted-foreground">
                 {item.source.name} · {formatFullTime(item.publishedAt)}
               </span>
@@ -516,6 +671,8 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
   }
 
   const buckets = buildRelatedBuckets(item, related)
+  const title = primaryNewsTitle(item)
+  const originalTitle = originalNewsTitle(item)
 
   return (
     <>
@@ -540,9 +697,9 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
             <span>{sourceTypeLabel(item.source.type)}</span>
             {item.source.credibilityLabel ? <span>{item.source.credibilityLabel}</span> : null}
           </div>
-          <h1 className="mt-2 text-xl font-semibold leading-tight sm:text-2xl">{item.title}</h1>
-          {item.originalTitle ? (
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.originalTitle}</p>
+          <h1 className="mt-2 text-xl font-semibold leading-tight sm:text-2xl">{title}</h1>
+          {originalTitle ? (
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{originalTitle}</p>
           ) : null}
         </div>
         <div className="grid gap-4 px-3 py-4 sm:px-4 lg:grid-cols-[minmax(0,1fr)_260px]">
@@ -641,6 +798,9 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
 export function SourceDirectoryPage() {
   const [items, setItems] = useState<PublicNewsItem[]>([])
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading")
+  const [typeFilter, setTypeFilter] = useState("all")
+  const [statusFilter, setStatusFilter] = useState("all")
+  const [regionFilter, setRegionFilter] = useState("all")
 
   useEffect(() => {
     let cancelled = false
@@ -663,59 +823,239 @@ export function SourceDirectoryPage() {
   }, [])
 
   const sources = useMemo(() => buildSourceSummaries(items), [items])
+  const activeCount = sources.filter((source) => source.statusLabel === "近期活跃").length
+  const typeOptions = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const source of sources) counts.set(source.type, (counts.get(source.type) ?? 0) + 1)
+    return [...counts.entries()]
+      .map(([type, count]) => ({ id: type, label: sourceTypeLabel(type as PublicNewsSourceType), count }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+  }, [sources])
+  const statusOptions = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const source of sources) counts.set(source.statusLabel, (counts.get(source.statusLabel) ?? 0) + 1)
+    return [...counts.entries()]
+      .map(([label, count]) => ({ id: label, label, count }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+  }, [sources])
+  const regionOptions = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const source of sources) {
+      for (const label of source.regionLabels) counts.set(label, (counts.get(label) ?? 0) + 1)
+    }
+    return [...counts.entries()]
+      .map(([label, count]) => ({ id: label, label, count }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+      .slice(0, 16)
+  }, [sources])
+  const filteredSources = sources.filter((source) => {
+    if (typeFilter !== "all" && source.type !== typeFilter) return false
+    if (statusFilter !== "all" && source.statusLabel !== statusFilter) return false
+    if (regionFilter !== "all" && !source.regionLabels.includes(regionFilter)) return false
+    return true
+  })
+  const groupedSources = useMemo(() => {
+    const groups = new Map<string, typeof filteredSources>()
+    for (const source of filteredSources) {
+      const label = sourceTypeLabel(source.type)
+      groups.set(label, [...(groups.get(label) ?? []), source])
+    }
+    return [...groups.entries()]
+      .map(([label, groupSources]) => ({
+        label,
+        sources: groupSources.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
+      }))
+      .sort((a, b) => b.sources.length - a.sources.length || a.label.localeCompare(b.label))
+  }, [filteredSources])
+  const totalNewsCount = sources.reduce((total, source) => total + source.count, 0)
 
   return (
-    <section className="overflow-hidden rounded-lg border bg-background">
-      <div className="border-b px-3 py-3">
-        <Badge variant="outline" className="mb-2">
-          来源
-        </Badge>
-        <h1 className="text-xl font-semibold leading-tight">来源目录</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          按公开新闻聚合媒体和信源，帮助读者理解新闻来自哪里。
-        </p>
+    <section className="overflow-hidden rounded-lg border bg-background" aria-label="信源管理">
+      <div className="grid gap-3 border-b px-3 py-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold leading-tight">信源管理</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            按类型、地区和活跃度整理公开信源，方便编辑维护采集覆盖和最近样本。
+          </p>
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-xs sm:min-w-[320px]">
+          <div className="rounded-md border bg-card px-2.5 py-2">
+            <p className="text-muted-foreground">信源</p>
+            <p className="mt-1 text-lg font-semibold">{sources.length}</p>
+          </div>
+          <div className="rounded-md border bg-card px-2.5 py-2">
+            <p className="text-muted-foreground">活跃</p>
+            <p className="mt-1 text-lg font-semibold">{activeCount}</p>
+          </div>
+          <div className="rounded-md border bg-card px-2.5 py-2">
+            <p className="text-muted-foreground">样本</p>
+            <p className="mt-1 text-lg font-semibold">{totalNewsCount}</p>
+          </div>
+        </div>
       </div>
       {status === "loading" ? <LoadingFeed /> : null}
       {status === "error" ? (
-        <ErrorState message="来源目录暂时不可用。" onRetry={() => window.location.reload()} />
+        <ErrorState message="信源管理暂时不可用。" onRetry={() => window.location.reload()} />
       ) : null}
       {status === "ready" && sources.length === 0 ? (
-        <EmptyExplanation title="暂无来源样本" description="公共新闻仍在采集/增强，来源目录会随新闻流自动形成。" />
+        <EmptyExplanation title="暂无信源样本" description="公共新闻进入后，信源管理会自动形成分类和最近样本。" />
       ) : null}
       {sources.length > 0 ? (
-        <div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-          {sources.map((source) => {
-            const sourceRoute: Extract<PublicRoute, { name: "sourceDetail" }> = {
-              name: "sourceDetail",
-              sourceId: source.id,
-              search: new URLSearchParams(),
-            }
-            return (
-              <a
-                key={source.id}
-                href={buildPublicAppPath(sourceRoute)}
-                onClick={(event) => handleRouteAnchorClick(event, sourceRoute)}
-                className="grid gap-2 rounded-md border bg-card p-3 transition-colors hover:border-primary/40"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h2 className="truncate text-base font-semibold">{source.name}</h2>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {sourceTypeLabel(source.type)}
-                    </p>
-                  </div>
-                  <Badge variant={source.statusLabel === "近期活跃" ? "default" : "secondary"}>
-                    {source.statusLabel}
-                  </Badge>
-                </div>
-                <p className="text-sm text-muted-foreground">近期 {source.count} 条新闻</p>
-                {source.latestTitle ? <p className="line-clamp-2 text-sm">{source.latestTitle}</p> : null}
-              </a>
-            )
-          })}
+        <div className="grid gap-3 p-3">
+          <section
+            aria-label="信源分类筛选"
+            className="grid gap-2 rounded-md border bg-card/70 p-2 text-xs"
+          >
+            <SourceFilterRow
+              label="类型"
+              value={typeFilter}
+              onChange={setTypeFilter}
+              allLabel="类型"
+              allCount={sources.length}
+              options={typeOptions}
+            />
+            <SourceFilterRow
+              label="活跃"
+              value={statusFilter}
+              onChange={setStatusFilter}
+              allLabel="状态"
+              allCount={sources.length}
+              options={statusOptions}
+            />
+            {regionOptions.length > 0 ? (
+              <SourceFilterRow
+                label="地区"
+                value={regionFilter}
+                onChange={setRegionFilter}
+                allLabel="地区"
+                allCount={sources.length}
+                options={regionOptions}
+              />
+            ) : null}
+          </section>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <h2 className="font-semibold">按类型分组</h2>
+            <span className="text-xs text-muted-foreground">
+              当前显示 {filteredSources.length} / {sources.length} 个信源
+            </span>
+          </div>
+          {groupedSources.map((group) => (
+            <section key={group.label} className="overflow-hidden rounded-md border bg-card/80">
+              <div className="flex items-center justify-between border-b bg-muted/25 px-3 py-2">
+                <h3 className="text-sm font-semibold">{group.label}</h3>
+                <span className="text-xs text-muted-foreground">{group.sources.length} 个信源</span>
+              </div>
+              <div className="hidden grid-cols-[minmax(11rem,1.4fr)_minmax(7rem,0.8fr)_minmax(8rem,1fr)_minmax(12rem,1.2fr)_minmax(16rem,1.6fr)] gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground lg:grid">
+                <span>信源 ID</span>
+                <span>状态</span>
+                <span>覆盖地区</span>
+                <span>议题 / 相关</span>
+                <span>最新样本</span>
+              </div>
+              <div className="divide-y">
+                {group.sources.map((source) => {
+                  const sourceRoute: Extract<PublicRoute, { name: "sourceDetail" }> = {
+                    name: "sourceDetail",
+                    sourceId: source.id,
+                    search: new URLSearchParams(),
+                  }
+                  const topicLabels = [...source.issueLabels, ...source.relatedLabels].slice(0, 4)
+                  return (
+                    <a
+                      key={source.id}
+                      href={buildPublicAppPath(sourceRoute)}
+                      onClick={(event) => handleRouteAnchorClick(event, sourceRoute)}
+                      className="grid gap-2 px-3 py-2.5 text-sm transition-colors hover:bg-accent/20 lg:grid-cols-[minmax(11rem,1.4fr)_minmax(7rem,0.8fr)_minmax(8rem,1fr)_minmax(12rem,1.2fr)_minmax(16rem,1.6fr)] lg:items-start lg:gap-3"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="truncate font-semibold">{source.name}</span>
+                          <Badge variant="outline" className="h-5 rounded px-1.5 text-[10px] font-normal">
+                            {source.count}
+                          </Badge>
+                        </div>
+                        <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">{source.id}</p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge variant={source.statusLabel === "近期活跃" ? "default" : "secondary"} className="h-5 rounded px-1.5 text-[10px]">
+                          {source.statusLabel}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">近期 {source.count} 条</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {source.regionLabels.slice(0, 3).map((label) => (
+                          <Badge key={label} variant="secondary" className="h-5 rounded px-1.5 text-[10px] font-normal">
+                            {label}
+                          </Badge>
+                        ))}
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {topicLabels.length > 0 ? topicLabels.map((label) => (
+                          <Badge key={label} variant="outline" className="h-5 rounded px-1.5 text-[10px] font-normal">
+                            {label}
+                          </Badge>
+                        )) : <span className="text-xs text-muted-foreground">待补充标签</span>}
+                      </div>
+                      <div className="min-w-0">
+                        {source.latestTitle ? <p className="line-clamp-1 font-medium">{source.latestTitle}</p> : null}
+                        {source.latestSummary ? (
+                          <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">{source.latestSummary}</p>
+                        ) : null}
+                      </div>
+                    </a>
+                  )
+                })}
+              </div>
+            </section>
+          ))}
         </div>
       ) : null}
     </section>
+  )
+}
+
+function SourceFilterRow({
+  label,
+  value,
+  onChange,
+  allLabel,
+  allCount,
+  options,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  allLabel: string
+  allCount: number
+  options: Array<{ id: string; label: string; count: number }>
+}) {
+  return (
+    <div className="grid items-start gap-2 sm:grid-cols-[3rem_minmax(0,1fr)]">
+      <span className="pt-1 text-xs font-medium text-muted-foreground">{label}</span>
+      <div className="flex flex-wrap gap-1.5">
+        <Button
+          type="button"
+          variant={value === "all" ? "default" : "outline"}
+          size="sm"
+          className="h-7 rounded-md px-2 text-xs"
+          onClick={() => onChange("all")}
+        >
+          {allLabel} <span className="ml-1 text-[10px] opacity-75">{allCount}</span>
+        </Button>
+        {options.map((option) => (
+          <Button
+            key={option.id}
+            type="button"
+            variant={value === option.id ? "default" : "outline"}
+            size="sm"
+            className="h-7 rounded-md px-2 text-xs"
+            onClick={() => onChange(option.id)}
+          >
+            {option.label} <span className="ml-1 text-[10px] opacity-75">{option.count}</span>
+          </Button>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -764,7 +1104,7 @@ export function SourceDetailPage({ sourceId }: { sourceId: string }) {
             }
           >
             <ArrowLeftIcon className="size-4" aria-hidden="true" />
-            来源目录
+            信源管理
           </a>
         </Button>
         <Badge variant="outline" className="mb-2">
@@ -799,6 +1139,8 @@ function DailyBriefRow({
   returnTo: PublicRoute
 }) {
   const detailRoute = buildDetailRoute(item, returnTo)
+  const title = primaryNewsTitle(item)
+  const originalTitle = originalNewsTitle(item)
   return (
     <article className="grid gap-2 px-3 py-3 sm:grid-cols-[2.25rem_minmax(0,1fr)_auto] sm:items-start">
       <span className="flex size-7 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
@@ -812,10 +1154,15 @@ function DailyBriefRow({
             {targetShortLabel(item.targetLabel)}
           </Badge>
           {item.valueScore !== undefined && item.valueScore !== null ? (
-            <span className="font-medium text-primary">分值 {Math.round(item.valueScore)}</span>
+            <span className="font-medium text-primary">{Math.round(item.valueScore)}</span>
           ) : null}
         </div>
-        <h2 className="line-clamp-2 text-sm font-semibold leading-5 sm:text-base">{item.title}</h2>
+        <h2 className="line-clamp-2 text-sm font-semibold leading-5 sm:text-base">{title}</h2>
+        {originalTitle ? (
+          <p className="line-clamp-1 text-[11px] leading-4 text-muted-foreground">
+            {originalTitle}
+          </p>
+        ) : null}
         {item.summary ? (
           <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{item.summary}</p>
         ) : null}
@@ -862,7 +1209,7 @@ function DailyTopicGroupCard({
               onClick={(event) => handleRouteAnchorClick(event, detailRoute)}
               className="grid gap-1 rounded-md px-2 py-1.5 hover:bg-accent/35"
             >
-              <span className="line-clamp-2 text-sm font-medium leading-5">{item.title}</span>
+              <span className="line-clamp-2 text-sm font-medium leading-5">{primaryNewsTitle(item)}</span>
               <span className="line-clamp-1 text-xs text-muted-foreground">
                 {targetShortLabel(item.targetLabel)} · {item.source.name} · {formatTime(item.publishedAt)}
               </span>
@@ -935,12 +1282,6 @@ export function DailyPage({ date }: { date?: string }) {
       {status === "loading" ? <LoadingFeed /> : null}
       {status === "error" ? (
         <ErrorState message="日报暂时不可用。" onRetry={() => window.location.reload()} />
-      ) : null}
-      {status === "ready" && digest.total === 0 ? (
-        <EmptyExplanation
-          title="今日样本仍在采集/增强"
-          description="日报会在公开新闻进入后自动形成重点、主题、来源和风险摘要。"
-        />
       ) : null}
       {digest.total > 0 ? (
         <div className="grid gap-3 p-3 sm:p-4">

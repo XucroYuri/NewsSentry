@@ -9,6 +9,10 @@ export interface SourceSummary {
   count: number
   latestPublishedAt: string | null
   latestTitle: string | null
+  latestSummary: string | null
+  regionLabels: string[]
+  issueLabels: string[]
+  relatedLabels: string[]
   statusLabel: "近期活跃" | "近期较少更新" | "等待更多样本"
 }
 
@@ -115,17 +119,32 @@ export function buildSourceSummaries(items: PublicNewsItem[]): SourceSummary[] {
         count: 1,
         latestPublishedAt: item.publishedAt,
         latestTitle: item.title,
+        latestSummary: item.summary ?? null,
+        regionLabels: unique([targetShortLabel(item.targetLabel), ...item.regionTags]),
+        issueLabels: unique(item.issueTags.length > 0 ? item.issueTags : item.tags),
+        relatedLabels: unique(item.relatedTags),
         statusLabel: "等待更多样本",
       })
       continue
     }
     existing.count += 1
+    existing.regionLabels = unique([
+      ...existing.regionLabels,
+      targetShortLabel(item.targetLabel),
+      ...item.regionTags,
+    ])
+    existing.issueLabels = unique([
+      ...existing.issueLabels,
+      ...(item.issueTags.length > 0 ? item.issueTags : item.tags),
+    ])
+    existing.relatedLabels = unique([...existing.relatedLabels, ...item.relatedTags])
     if (
       !existing.latestPublishedAt ||
       new Date(item.publishedAt).getTime() > new Date(existing.latestPublishedAt).getTime()
     ) {
       existing.latestPublishedAt = item.publishedAt
       existing.latestTitle = item.title
+      existing.latestSummary = item.summary ?? null
     }
   }
   return [...summaries.values()]

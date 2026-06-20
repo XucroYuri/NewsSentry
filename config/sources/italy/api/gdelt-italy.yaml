@@ -7,7 +7,7 @@ endpoint:
   url: "https://api.gdeltproject.org/api/v2/doc/doc"
   method: GET
   params:
-    query: "Italy sourcelang:ita"
+    query: '"Italy sourcelang:ita"'
     mode: "ArtList"
     format: "json"
     maxrecords: 20

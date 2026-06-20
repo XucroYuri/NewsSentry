@@ -26,13 +26,15 @@
     "display_name": { "type": "string" },
     "monitoring_type": {
       "type": "string",
-      "enum": ["country", "topic"],
+      "enum": ["country", "region", "continent", "global"],
       "default": "country",
-      "description": "Public/admin grouping type. country=国别监控目标, topic=专题监控目标."
+      "description": "Legacy-compatible region grouping type. Public targets are region-only."
     },
-    "topic_label": {
+    "region_type": {
       "type": "string",
-      "description": "Human topic label for topic targets, e.g. 涉中舆情."
+      "enum": ["country", "region", "continent", "global"],
+      "default": "country",
+      "description": "Public region semantics for countries, regions, continents, or global scopes."
     },
     "language_scope": {
       "type": "object",
@@ -62,7 +64,7 @@
       "type": "array",
       "items": { "type": "string" },
       "minItems": 1,
-      "description": "File refs under config/sources/{target_id}/"
+      "description": "File refs under config/sources/{target_id}/, or shared refs in the form pool:<pool_id>/<source_id>"
     },
     "filter_rules_ref": { "type": "string" },
     "classification_rules_ref": { "type": "string" },

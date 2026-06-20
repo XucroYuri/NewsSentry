@@ -108,3 +108,27 @@
     cursor: pointer;
   }
 }
+
+@layer components {
+  .news-card-entering {
+    animation: news-card-enter 520ms ease-out both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .news-card-entering {
+      animation: none;
+    }
+  }
+}
+
+@keyframes news-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

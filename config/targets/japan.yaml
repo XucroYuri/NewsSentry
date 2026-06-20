@@ -4,6 +4,7 @@
 target_id: japan
 display_name: "日本新闻监控"
 monitoring_type: country
+region_type: country
 
 language_scope:
   primary: ja

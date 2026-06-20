@@ -4,14 +4,16 @@
 target_id: south-africa
 display_name: 南非新闻监控
 monitoring_type: country
+region_type: country
 language_scope:
   primary: en
   secondary: []
   output: zh
 timezone: Africa/Johannesburg
 source_channel_refs:
-- api/gdelt-south-africa
-- api/gdelt-china-south-africa
+  - api/gdelt-south-africa
+  - api/gdelt-china-south-africa
+  - pool:global/gdelt-geopolitics
 filter_rules_ref: config/filters/south-africa/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml

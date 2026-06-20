@@ -30,6 +30,9 @@ export interface PublicNewsItem {
   originalUrl?: string | null
   detailUrl: string
   tags: string[]
+  issueTags: string[]
+  relatedTags: string[]
+  regionTags: string[]
   entities: PublicNewsEntity[]
   relatedCount: number
   discussionCount?: number | null
@@ -50,8 +53,11 @@ export interface PublicNewsFeedResponse {
 export interface PublicNewsQuery {
   featured?: boolean
   targetId?: string
+  regionId?: string
   sourceId?: string
   category?: string
+  issue?: string
+  related?: string
   date?: string
   q?: string
   beforeCursor?: string
@@ -79,7 +85,6 @@ export interface PublicTargetInfo {
   primary_language: string
   monitoring_type: string
   monitoring_label: string
-  topic_label?: string | null
   source_count: number
   event_count: number
   lifecycle: Record<string, unknown>
@@ -88,6 +93,33 @@ export interface PublicTargetInfo {
 
 export interface PublicTargetListResponse {
   targets: PublicTargetInfo[]
+}
+
+export interface PublicRegionInfo {
+  region_id: string
+  display_name: string
+  primary_language: string
+  region_type: "country" | "region" | "continent" | "global"
+  source_count: number
+  event_count: number
+  lifecycle: Record<string, unknown>
+  archived: boolean
+}
+
+export interface PublicRegionListResponse {
+  regions: PublicRegionInfo[]
+}
+
+export interface PublicFacetItem {
+  id: string
+  label: string
+  count: number
+}
+
+export interface PublicFacetsResponse {
+  regions: PublicFacetItem[]
+  issues: PublicFacetItem[]
+  related: PublicFacetItem[]
 }
 
 export interface PublicAnalysisSummary {

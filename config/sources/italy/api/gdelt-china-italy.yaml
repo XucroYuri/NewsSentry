@@ -6,7 +6,7 @@ endpoint:
   url: https://api.gdeltproject.org/api/v2/doc/doc
   method: GET
   params:
-    query: China Italy
+    query: 'China Italy'
     mode: artlist
     maxrecords: 30
     format: json
