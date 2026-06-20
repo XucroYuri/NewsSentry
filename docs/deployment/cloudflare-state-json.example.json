@@ -1,0 +1,30 @@
+{
+  "_meta": {
+    "purpose": "Example payload for GitHub production secret CLOUDFLARE_STATE_JSON.",
+    "warning": "Do not use this example as evidence until Cloudflare Dashboard or API confirms the actual rules.",
+    "last_reviewed": "2026-06-20"
+  },
+  "access_read_ok": true,
+  "access_write_ok": true,
+  "protected_prefixes": [
+    "/api/v1/auth/",
+    "/api/v1/admin/",
+    "/api/v1/status",
+    "/api/v1/runtime/info"
+  ],
+  "response_headers": [
+    "strict-transport-security",
+    "content-security-policy",
+    "referrer-policy",
+    "permissions-policy",
+    "x-frame-options"
+  ],
+  "rate_limit_paths": [
+    "/api/v1/auth/login",
+    "/api/v1/auth/token"
+  ],
+  "waf_path_prefixes": [
+    "/api/v1/auth/",
+    "/api/v1/admin/"
+  ]
+}

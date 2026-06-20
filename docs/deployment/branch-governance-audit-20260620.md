@@ -47,12 +47,18 @@ Cloudflare Access 收紧：
 - Access protected prefixes 已可由 live 302 与 Access app 配置证明。
 - 当前 token 能列出 zone rulesets，包含 `News Sentry rate limits` 与
   `News Sentry managed free WAF`，但不能读取 ruleset 详情。
+- 本地 `.env` 与 `/Users/xuyu/.news-sentry/env` 中的 `CLOUDFLARE_API_TOKEN`
+  当前为空值，不能作为替代的高权限 ruleset read token。
 - 因此 `cloudflare://rate-limits` 与 `cloudflare://waf` 的具体路径覆盖仍不可审计。
 
 在补齐可读的 Cloudflare state JSON 或更高权限 ruleset 读 token 前，不执行
 preview -> main 自动推进，也不执行远端 codex 分支删除。
 
 部署 workflow 已要求生产环境提供 `CLOUDFLARE_STATE_JSON` secret，并把它作为 `tools/deployed_surface_audit.py --cloudflare-state-json` 的输入。未配置该 secret 时，production verify 会显式失败，而不是静默跳过 Cloudflare 证据。
+
+可执行补齐路径见 `docs/deployment/cloudflare-state-json-runbook.md`；模板见
+`docs/deployment/cloudflare-state-json.example.json`。该模板不能直接作为通过证据，必须先由
+Cloudflare Dashboard 或具备 `Zone WAF Read` 的 API token 证明 rate limit / WAF 路径覆盖。
 
 ## 收束规则
 
