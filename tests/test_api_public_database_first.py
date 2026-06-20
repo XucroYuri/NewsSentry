@@ -400,7 +400,12 @@ def test_public_regions_and_targets_hide_topic_targets(
         return {"italy": 3, "energy-transition": 7}
 
     monkeypatch.setattr(api_server, "_public_target_event_counts", _fake_counts)
-    app = create_app(data_dir=tmp_path, store=EmptyGlobalPublicStore([]), auto_store=False, skip_lifespan=True)
+    app = create_app(
+        data_dir=tmp_path,
+        store=EmptyGlobalPublicStore([]),
+        auto_store=False,
+        skip_lifespan=True,
+    )
     client = TestClient(app)
 
     regions_response = client.get("/api/v1/regions")

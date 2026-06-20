@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from jsonschema import validate
+from jsonschema import ValidationError, validate
 
 from news_sentry.core.config import ConfigLoader
 
@@ -170,7 +170,10 @@ class TestTargetConfigSchema:
             targets.append(data)
 
         region_targets = [
-            item for item in targets if item.get("region_type", item.get("monitoring_type")) in {"country", "region", "continent", "global"}
+            item
+            for item in targets
+            if item.get("region_type", item.get("monitoring_type"))
+            in {"country", "region", "continent", "global"}
         ]
         topic_targets = [item for item in targets if item.get("monitoring_type") == "topic"]
 
@@ -199,7 +202,7 @@ class TestTargetConfigSchema:
             "output_destinations_ref": "config/output/destinations.yaml",
         }
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             validate(data, schema)
 
     def test_all_public_target_source_refs_resolve(self) -> None:
@@ -231,7 +234,11 @@ class TestTargetConfigSchema:
 
         refs = {source.get("_source_ref") for source in config.sources}
         assert "pool:global/gdelt-geopolitics" in refs
-        pooled = next(source for source in config.sources if source.get("_source_ref") == "pool:global/gdelt-geopolitics")
+        pooled = next(
+            source
+            for source in config.sources
+            if source.get("_source_ref") == "pool:global/gdelt-geopolitics"
+        )
         assert pooled["target_id"] == "spain"
         assert pooled["enabled"] is True
 

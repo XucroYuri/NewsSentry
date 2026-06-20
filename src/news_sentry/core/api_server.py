@@ -35,7 +35,6 @@ from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from html import escape as html_escape
 from ipaddress import ip_address
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
@@ -2282,7 +2281,11 @@ def _public_news_target_ids(data_dir: Path, target_id: str | None) -> list[str]:
     ids: set[str] = set()
     for config in _load_target_configs():
         value = config.get("target_id")
-        if isinstance(value, str) and _is_public_target_id(value) and _target_is_public_region(config):
+        if (
+            isinstance(value, str)
+            and _is_public_target_id(value)
+            and _target_is_public_region(config)
+        ):
             ids.add(value.strip())
     return sorted(ids)
 
