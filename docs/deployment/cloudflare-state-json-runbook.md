@@ -20,7 +20,9 @@
 - 本地 `.env` 和 `/Users/xuyu/.news-sentry/env` 中的 `CLOUDFLARE_API_TOKEN`
   目前为空值，无法作为更高权限只读 token 使用。
 
-因此，当前不能把 preview 自动推进到 main。
+因此，正常情况下不能把 preview 自动推进到 main。2026-06-20 这次发布允许使用
+`TEMPORARY_CLOUDFLARE_STATE_BYPASS` 做一次性应急放行，但这不是安全证据，
+发布后仍必须补齐真实 `CLOUDFLARE_STATE_JSON`。
 
 ## 需要的 Cloudflare API Token 权限
 
@@ -33,6 +35,28 @@
 
 如果只做人工 Dashboard 审计并手动维护 `CLOUDFLARE_STATE_JSON`，可以不提供
 write 权限，但 JSON 必须和 Dashboard 中的实际规则一致。
+
+Cloudflare Dashboard 获取 token 的推荐路径:
+
+1. 进入 Cloudflare Dashboard -> My Profile -> API Tokens -> Create Token。
+2. 选择 Custom token。
+3. Permissions 至少添加:
+   - Zone -> Zone WAF -> Read
+   - Account -> Access: Apps and Policies -> Read
+   - Zone -> Zone -> Read
+4. Zone Resources 限定为 Include -> Specific zone -> `news-sentry.com`。
+5. 创建后复制 token，只写入本机 shell 或安全 secret store，不提交仓库。
+
+本机临时使用:
+
+```bash
+export CLOUDFLARE_API_TOKEN="你的只读审计 token"
+```
+
+如果需要让 GitHub Actions 直接生成或复核 Cloudflare state，可把同一个 token
+配置成 GitHub environment secret，例如 production 环境的 `CLOUDFLARE_API_TOKEN`。
+当前 workflow 只要求最终 `CLOUDFLARE_STATE_JSON`，所以更推荐本地生成 JSON 后
+只上传 JSON 证据。
 
 ## 必须证明的字段
 
@@ -129,3 +153,34 @@ uv run --no-project --with 'httpx[socks]' --with pyyaml \
 ```
 
 只有该命令无 finding，才允许进入 preview -> main 发布链。
+
+## 临时一次性放行
+
+仅当需要先恢复线上部署、且已经确认 Cloudflare Access 至少保护了 admin/auth/status/runtime
+高风险入口时，可以使用一次性 bypass。该 bypass 会使用
+`docs/deployment/cloudflare-state-json.example.json` 让 deployed-surface audit 继续执行，
+并在 GitHub Actions 日志中输出 `TEMPORARY_CLOUDFLARE_STATE_BYPASS` warning。
+
+触发条件之一即可:
+
+- 手动运行 workflow 时选择 production，并把
+  `allow_temporary_cloudflare_state_bypass` 设置为 `true`。
+- 或发布提交消息包含 `[temporary-cloudflare-state-bypass]`。
+
+示例:
+
+```bash
+gh workflow run deploy.yml \
+  --repo XucroYuri/NewsSentry \
+  --ref main \
+  -f environment=production \
+  -f allow_temporary_cloudflare_state_bypass=true
+```
+
+注意:
+
+- 这是应急发布开关，不是长期门禁策略。
+- 下一次普通 production deploy 如果没有提交消息标记或手动输入，仍会要求真实
+  `CLOUDFLARE_STATE_JSON`。
+- 发布完成后必须尽快用上文的 Cloudflare token 或 Dashboard 审计方式补齐 production
+  environment secret。

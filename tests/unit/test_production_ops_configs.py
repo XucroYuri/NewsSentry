@@ -83,3 +83,14 @@ def test_deploy_workflow_gates_preview_before_main_promotion() -> None:
     assert "--policy config/security/deployment-surface-policy.yaml" in workflow
     assert "CLOUDFLARE_STATE_JSON" in workflow
     assert "--cloudflare-state-json /tmp/news-sentry-cloudflare-state.json" in workflow
+
+
+def test_deploy_workflow_has_one_off_cloudflare_state_bypass_guard() -> None:
+    workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+
+    assert "allow_temporary_cloudflare_state_bypass" in workflow
+    assert "TEMPORARY_CLOUDFLARE_STATE_BYPASS" in workflow
+    assert "[temporary-cloudflare-state-bypass]" in workflow
+    assert "docs/deployment/cloudflare-state-json.example.json" in workflow
+    assert "Missing CLOUDFLARE_STATE_JSON secret" in workflow
+    assert "production deployed-surface audit requires Cloudflare state evidence" in workflow

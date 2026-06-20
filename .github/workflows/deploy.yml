@@ -11,6 +11,12 @@ on:
         default: preview
         type: choice
         options: [preview, production]
+      allow_temporary_cloudflare_state_bypass:
+        description: "TEMPORARY: allow one-off production deploy without CLOUDFLARE_STATE_JSON while Cloudflare evidence is being backfilled"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
 
 permissions:
   contents: write
@@ -549,14 +555,22 @@ jobs:
       - name: Audit deployed surface
         env:
           CLOUDFLARE_STATE_JSON: ${{ secrets.CLOUDFLARE_STATE_JSON }}
+          ALLOW_TEMPORARY_CLOUDFLARE_STATE_BYPASS: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production' && github.event.inputs.allow_temporary_cloudflare_state_bypass == 'true' && 'true' || 'false' }}
         run: |
           python -m pip install --upgrade pip -q
           python -m pip install uv -q
           if [ -z "${CLOUDFLARE_STATE_JSON}" ]; then
-            echo "Missing CLOUDFLARE_STATE_JSON secret; production deployed-surface audit requires Cloudflare state evidence."
-            exit 1
+            # One-off emergency release marker: [temporary-cloudflare-state-bypass]
+            if [ "${ALLOW_TEMPORARY_CLOUDFLARE_STATE_BYPASS}" = "true" ] || git log -1 --pretty=%B | grep -q "\[temporary-cloudflare-state-bypass\]"; then
+              echo "::warning title=TEMPORARY_CLOUDFLARE_STATE_BYPASS::Using example Cloudflare state JSON for this one-off production deploy. Replace it with a real CLOUDFLARE_STATE_JSON secret immediately."
+              cp docs/deployment/cloudflare-state-json.example.json /tmp/news-sentry-cloudflare-state.json
+            else
+              echo "Missing CLOUDFLARE_STATE_JSON secret; production deployed-surface audit requires Cloudflare state evidence."
+              exit 1
+            fi
+          else
+            printf '%s' "${CLOUDFLARE_STATE_JSON}" > /tmp/news-sentry-cloudflare-state.json
           fi
-          printf '%s' "${CLOUDFLARE_STATE_JSON}" > /tmp/news-sentry-cloudflare-state.json
           uv run --no-project --with 'httpx[socks]' --with pyyaml \
             python tools/deployed_surface_audit.py \
               --policy config/security/deployment-surface-policy.yaml \
