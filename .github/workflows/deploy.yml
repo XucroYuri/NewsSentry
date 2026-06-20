@@ -257,6 +257,7 @@ jobs:
               git clone "https://github.com/tashfeenahmed/freellmapi.git" "${FREELLMAPI_REPO}"
               cd "${FREELLMAPI_REPO}"
             fi
+            rm -rf node_modules server/node_modules client/node_modules apps/node_modules packages/node_modules
             npm ci
             npm run build
             rm -rf "${FREELLMAPI_REPO}/server/data"
