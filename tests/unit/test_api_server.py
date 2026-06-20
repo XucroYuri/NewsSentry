@@ -744,6 +744,36 @@ class TestAPIServer:
         persisted = yaml.safe_load((tmp_path / "config" / "runtime" / "collector.yaml").read_text())
         assert persisted["target_ids"] == ["italy", "japan"]
 
+    def test_collector_env_disable_overrides_runtime_yaml(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """部署进程显式禁用自动采集时，不能被 runtime YAML 重新开启。"""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("NEWSSENTRY_AUTO_COLLECT", "0")
+        runtime = tmp_path / "config" / "runtime"
+        runtime.mkdir(parents=True)
+        (runtime / "collector.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "enabled": True,
+                    "target_ids": ["italy"],
+                    "interval_minutes": 15,
+                    "stage": "all",
+                },
+                allow_unicode=True,
+            ),
+            encoding="utf-8",
+        )
+
+        client = self._make_client(tmp_path)
+
+        resp = client.get("/api/v1/collector/status")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["enabled"] is False
+        assert data["target_ids"] == ["italy"]
+
     def test_collector_start_stop_toggle_enabled_state(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

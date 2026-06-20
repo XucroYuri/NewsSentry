@@ -4916,10 +4916,24 @@ def _collector_env_defaults() -> dict[str, Any]:
     }
 
 
+def _collector_env_enabled_override() -> bool | None:
+    """返回显式环境变量采集开关。
+
+    YAML 保存的是后台 UI 的运行时偏好；环境变量是进程启动边界。
+    部署时需要能明确把 Web 进程和采集任务拆开，避免 API 服务启动时
+    立即跑全量采集并拖慢健康检查。
+    """
+    value = os.environ.get("NEWSSENTRY_AUTO_COLLECT")
+    if value is None:
+        return None
+    return value == "1"
+
+
 def _normalize_collector_config(raw: dict[str, Any]) -> dict[str, Any]:
     """规范化采集器配置，保证 API 与 YAML 使用同一形状。"""
     defaults = _collector_env_defaults()
     data = {**defaults, **{k: v for k, v in raw.items() if v is not None}}
+    enabled_override = _collector_env_enabled_override()
 
     target_ids_raw = data.get("target_ids", defaults["target_ids"])
     if isinstance(target_ids_raw, str):
@@ -4940,7 +4954,7 @@ def _normalize_collector_config(raw: dict[str, Any]) -> dict[str, Any]:
     interval = max(1, min(interval, 1440))
 
     return {
-        "enabled": bool(data.get("enabled")),
+        "enabled": enabled_override if enabled_override is not None else bool(data.get("enabled")),
         "target_ids": target_ids,
         "interval_minutes": interval,
         "stage": stage,

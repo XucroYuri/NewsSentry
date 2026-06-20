@@ -352,6 +352,7 @@ jobs:
             fi
             upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "FREELLMAPI_BASE_URL" "http://127.0.0.1:${FREELLMAPI_PORT}/v1"
             upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "FREELLMAPI_DEFAULT_MODEL" "auto"
+            upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_AUTO_COLLECT" "0"
             upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_PUBLIC_TRANSLATION" "1"
             upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_PUBLIC_TRANSLATION_INTERVAL" "5"
             upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_PUBLIC_TRANSLATION_PER_CYCLE" "50"
@@ -404,15 +405,15 @@ jobs:
 
             # ── 8. 健康检查 ──
             echo "Waiting for service..."
-            for i in $(seq 1 12); do
+            for i in $(seq 1 24); do
               if curl -sf "http://127.0.0.1:${PORT}/api/v1/health" > /dev/null 2>&1; then
                 echo "✅ Health check passed (attempt ${i})"
                 curl -s "http://127.0.0.1:${PORT}/api/v1/health"
                 echo ""
                 break
               fi
-              if [ "$i" -eq 12 ]; then
-                echo "❌ Health check failed after 60s"
+              if [ "$i" -eq 24 ]; then
+                echo "❌ Health check failed after 120s"
                 journalctl -u "${SERVICE}" --no-pager -n 30 | redact_sensitive_log
                 exit 1
               fi

@@ -85,6 +85,14 @@ def test_deploy_workflow_gates_preview_before_main_promotion() -> None:
     assert "--cloudflare-state-json /tmp/news-sentry-cloudflare-state.json" in workflow
 
 
+def test_deploy_workflow_keeps_web_service_out_of_auto_collection_path() -> None:
+    workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+
+    assert 'upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_AUTO_COLLECT" "0"' in workflow
+    assert "for i in $(seq 1 24)" in workflow
+    assert "Health check failed after 120s" in workflow
+
+
 def test_deploy_workflow_has_one_off_cloudflare_state_bypass_guard() -> None:
     workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
 
