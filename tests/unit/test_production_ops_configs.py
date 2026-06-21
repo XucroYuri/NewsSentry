@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import yaml
@@ -27,16 +26,23 @@ def test_realtime_runner_covers_active_targets_with_locking() -> None:
         (ROOT / "config/runtime/collector.yaml").read_text(encoding="utf-8")
     )
     collector_targets = set(collector["target_ids"])
-    match = re.search(r'TARGETS="\$\{NEWSSENTRY_REALTIME_TARGETS:-([^}]*)\}"', runner)
-    assert match is not None
-    default_targets = set(match.group(1).split())
 
     assert "flock" in runner
     assert "news-sentry-realtime.lock" in runner
-    assert collector_targets <= default_targets
-    assert '--profile "${PROFILE}"' in runner
+    assert (
+        'COLLECTOR_CONFIG="${NEWSSENTRY_COLLECTOR_CONFIG:-${REPO_DIR}/config/runtime/'
+        'collector.yaml}"'
+    ) in runner
+    assert 'TARGETS="${NEWSSENTRY_REALTIME_TARGETS:-' not in runner
+    assert "payload.get(\"target_ids\")" in runner
     assert "--stage all" in runner
+    assert '--profile "${PROFILE}"' in runner
+    assert "NEWSSENTRY_REALTIME_BATCH_SIZE" in runner
+    assert "realtime-target-cursor.txt" in runner
+    assert "selected_targets" in runner
+    assert "NEWSSENTRY_REALTIME_STRICT" in runner
     assert "/srv/news-sentry/production/data" in runner
+    assert len(collector_targets) >= 70
 
 
 def test_realtime_crontab_is_marked_legacy_fallback() -> None:
@@ -77,6 +83,7 @@ def test_deploy_workflow_gates_preview_before_main_promotion() -> None:
     assert "git merge-base --is-ancestor origin/main" in workflow
     assert "git push origin" in workflow
     assert "/api/v1/regions" in workflow
+    assert "/api/v1/regions?include_empty=true" in workflow
     assert "/api/v1/public/news" in workflow
     assert "/public-app/" in workflow
     assert "x-news-sentry-deploy-commit" in workflow
@@ -91,6 +98,22 @@ def test_deploy_workflow_keeps_web_service_out_of_auto_collection_path() -> None
     assert 'upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_AUTO_COLLECT" "0"' in workflow
     assert "for i in $(seq 1 24)" in workflow
     assert "Health check failed after 120s" in workflow
+
+
+def test_deploy_workflow_enables_production_realtime_timer() -> None:
+    workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+
+    assert (
+        'upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" '
+        '"NEWSSENTRY_REALTIME_BATCH_SIZE" "12"'
+    ) in workflow
+    assert 'upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_REALTIME_STRICT" "0"' in workflow
+    assert 'if [ "${ENV}" = "production" ]; then' in workflow
+    assert "config/news-sentry-realtime.service" in workflow
+    assert "config/news-sentry-realtime.timer" in workflow
+    assert "systemctl enable --now news-sentry-realtime.timer" in workflow
+    assert "systemctl start --no-block news-sentry-realtime.service" in workflow
+    assert "Skipping realtime collection timer for ${ENV}" in workflow
 
 
 def test_deploy_workflow_has_one_off_cloudflare_state_bypass_guard() -> None:

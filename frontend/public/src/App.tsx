@@ -815,11 +815,11 @@ function ReaderControls({
   const regionItems = useMemo(
     () =>
       targets
-        .filter((target) => target.source_count > 0 && target.event_count > 0)
+        .filter((target) => target.source_count > 0)
         .map((target) => ({
           id: target.target_id,
           label: targetShortLabel(target.display_name),
-          count: target.event_count,
+          count: target.event_count > 0 ? target.event_count : undefined,
         })),
     [targets],
   )

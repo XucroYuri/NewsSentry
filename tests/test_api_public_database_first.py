@@ -267,6 +267,67 @@ def test_public_bootstrap_returns_cached_reader_payload(
     assert payload["generatedAt"].endswith("Z")
 
 
+def test_public_regions_can_include_empty_source_backed_regions(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    async def _fake_public_target_event_counts(_data_dir: Path) -> dict[str, int]:
+        return {"italy": 2}
+
+    monkeypatch.setattr(api_server, "_public_target_event_counts", _fake_public_target_event_counts)
+    monkeypatch.setattr(
+        api_server,
+        "_load_target_configs",
+        lambda: [
+            {
+                "target_id": "italy",
+                "display_name": "意大利新闻监控",
+                "region_type": "country",
+                "language_scope": {"primary": "it"},
+                "source_channel_refs": ["gdelt-italy"],
+            },
+            {
+                "target_id": "france",
+                "display_name": "法国新闻监控",
+                "region_type": "country",
+                "language_scope": {"primary": "fr"},
+                "source_channel_refs": ["gdelt-france"],
+            },
+            {
+                "target_id": "china-watch-en",
+                "display_name": "涉中话题监控",
+                "monitoring_type": "topic",
+                "language_scope": {"primary": "en"},
+                "source_channel_refs": ["china-pool"],
+            },
+        ],
+    )
+    app = create_app(
+        data_dir=tmp_path,
+        store=ProjectionOnlyStore([]),
+        auto_store=False,
+        skip_lifespan=True,
+    )
+    client = TestClient(app)
+
+    default_regions = client.get("/api/v1/regions")
+    expanded_regions = client.get("/api/v1/regions", params={"include_empty": "true"})
+    expanded_targets = client.get("/api/v1/targets", params={"include_empty": "true"})
+
+    assert default_regions.status_code == 200
+    assert expanded_regions.status_code == 200
+    assert expanded_targets.status_code == 200
+    assert [item["region_id"] for item in default_regions.json()["regions"]] == ["italy"]
+    assert [item["region_id"] for item in expanded_regions.json()["regions"]] == [
+        "italy",
+        "france",
+    ]
+    assert [item["target_id"] for item in expanded_targets.json()["targets"]] == [
+        "italy",
+        "france",
+    ]
+
+
 def test_public_projection_event_preserves_ready_hash_for_fresh_index_row() -> None:
     row = _projection_row(
         event_id="ne-italy-projection-hashed-ready",

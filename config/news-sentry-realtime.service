@@ -14,7 +14,7 @@ WorkingDirectory=/opt/news-sentry/production/repo
 EnvironmentFile=/opt/news-sentry/production/.env
 ExecStart=/opt/news-sentry/production/repo/tools/run_realtime_collection.sh
 
-# One full multi-target cycle should normally finish well under this.
+# One config-driven batch should normally finish well under this.
 TimeoutStartSec=900
 
 # Hardening

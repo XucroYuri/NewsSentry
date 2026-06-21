@@ -7446,7 +7446,12 @@ def create_app(
             raise HTTPException(status_code=500, detail=f"Failed to send email: {exc}") from exc
 
     @app.get("/api/v1/targets", response_model=TargetListResponse)
-    async def list_targets() -> TargetListResponse:
+    async def list_targets(
+        include_empty: bool = Query(
+            False,
+            description="是否包含已有信源但暂无公开 ready 新闻的地区入口",
+        ),
+    ) -> TargetListResponse:
         """兼容旧接口：返回公开可浏览的地区列表。"""
         configs = _load_target_configs()
         event_counts = await _public_target_event_counts(_data_dir)
@@ -7459,12 +7464,14 @@ def create_app(
                 target = target.model_copy(
                     update={"event_count": event_counts.get(target.target_id, 0)}
                 )
-            if target.source_count <= 0 or target.event_count <= 0:
+            if target.source_count <= 0:
+                continue
+            if not include_empty and target.event_count <= 0:
                 continue
             targets.append(target)
         return TargetListResponse(targets=targets)
 
-    async def _public_regions_payload() -> RegionListResponse:
+    async def _public_regions_payload(*, include_empty: bool = False) -> RegionListResponse:
         configs = _load_target_configs()
         event_counts = await _public_target_event_counts(_data_dir)
         regions = []
@@ -7476,14 +7483,20 @@ def create_app(
                 region = region.model_copy(
                     update={"event_count": event_counts.get(region.region_id, 0)}
                 )
-            if region.source_count <= 0 or region.event_count <= 0:
+            if region.source_count <= 0:
+                continue
+            if not include_empty and region.event_count <= 0:
                 continue
             regions.append(region)
         return RegionListResponse(regions=regions)
 
-    async def _cached_public_regions(response: Response | None = None) -> RegionListResponse:
+    async def _cached_public_regions(
+        response: Response | None = None,
+        *,
+        include_empty: bool = False,
+    ) -> RegionListResponse:
         started = time.perf_counter()
-        cache_key = f"{_data_dir.resolve()}:{id(_store)}:regions"
+        cache_key = f"{_data_dir.resolve()}:{id(_store)}:regions:include_empty={int(include_empty)}"
         now = time.monotonic()
         cache_entry = _public_regions_cache.get(cache_key)
         if _public_cache_entry_valid(cache_entry, now):
@@ -7501,7 +7514,7 @@ def create_app(
                 response.headers.update(headers)
             return payload
 
-        payload = await _public_regions_payload()
+        payload = await _public_regions_payload(include_empty=include_empty)
         etag = _public_payload_etag("public-regions", payload)
         _public_regions_cache[cache_key] = {
             "etag": etag,
@@ -7633,9 +7646,15 @@ def create_app(
         return payload
 
     @app.get("/api/v1/regions", response_model=RegionListResponse)
-    async def list_regions(response: Response) -> RegionListResponse:
+    async def list_regions(
+        response: Response,
+        include_empty: bool = Query(
+            False,
+            description="是否包含已有信源但暂无公开 ready 新闻的地区入口",
+        ),
+    ) -> RegionListResponse:
         """返回公开可浏览的地区入口；topic target 不再作为公共入口。"""
-        return await _cached_public_regions(response)
+        return await _cached_public_regions(response, include_empty=include_empty)
 
     @app.get("/api/v1/admin/targets")
     async def list_admin_targets(
@@ -8362,7 +8381,7 @@ def create_app(
             q=q,
             page_size=page_size,
         )
-        regions = await _cached_public_regions()
+        regions = await _cached_public_regions(include_empty=True)
         facets = await _cached_public_facets(
             region_id=effective_region_id,
             issue=issue,

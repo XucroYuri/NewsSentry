@@ -288,7 +288,7 @@ export async function listTargets(
   options: PublicNewsRequestOptions = {},
 ): Promise<PublicTargetListResponse> {
   const fetcher = options.fetcher ?? fetch
-  const response = await fetcher("/api/v1/regions", {
+  const response = await fetcher("/api/v1/regions?include_empty=true", {
     signal: options.signal,
   })
   if (!response.ok) {

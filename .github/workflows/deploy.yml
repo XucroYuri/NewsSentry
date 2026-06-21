@@ -359,6 +359,10 @@ jobs:
             upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_PUBLIC_TRANSLATION_CANDIDATES" "500"
             upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_PUBLIC_PUBLICATION_INTERVAL" "5"
             upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_PUBLIC_PUBLICATION_PER_CYCLE" "50"
+            if [ "${ENV}" = "production" ]; then
+              upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_REALTIME_BATCH_SIZE" "12"
+              upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_REALTIME_STRICT" "0"
+            fi
             if ! grep -qE "^FREELLMAPI_API_KEY=" "${DEPLOY_BASE}/${ENV}/.env"; then
               echo "⚠️  FREELLMAPI_API_KEY missing in ${DEPLOY_BASE}/${ENV}/.env; AI publication routes will stay unavailable until configured"
             fi
@@ -419,6 +423,19 @@ jobs:
               fi
               sleep 5
             done
+
+            # ── 8a. 生产实时采集 timer：配置驱动、分批轮转扩展地区网络 ──
+            if [ "${ENV}" = "production" ]; then
+              install -m 0644 "${REPO_DIR}/config/news-sentry-realtime.service" /etc/systemd/system/news-sentry-realtime.service
+              install -m 0644 "${REPO_DIR}/config/news-sentry-realtime.timer" /etc/systemd/system/news-sentry-realtime.timer
+              systemctl daemon-reload
+              systemctl enable --now news-sentry-realtime.timer
+              systemctl start --no-block news-sentry-realtime.service || true
+              systemctl list-timers --all news-sentry-realtime.timer || true
+              echo "✅ Production realtime collection timer enabled"
+            else
+              echo "ℹ️  Skipping realtime collection timer for ${ENV}"
+            fi
 
             # ── 9. 共存安全确认 ──
             systemctl is-active x-ui > /dev/null 2>&1 && echo "✅ Xray proxy: running" || echo "⚠️  Xray proxy: not running"
@@ -486,7 +503,7 @@ jobs:
           fi
 
           curl -fsS "${BASE_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json
-          curl -fsS "${BASE_URL}/api/v1/regions" > /tmp/regions.json
+          curl -fsS "${BASE_URL}/api/v1/regions?include_empty=true" > /tmp/regions.json
           curl -fsS "${BASE_URL}/api/v1/public/facets" > /tmp/facets.json
           curl -fsS -o /tmp/public-app.html "${BASE_URL}/public-app/"
 
@@ -560,7 +577,7 @@ jobs:
           fi
 
           curl -fsS "${BASE_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json
-          curl -fsS "${BASE_URL}/api/v1/regions" > /tmp/regions.json
+          curl -fsS "${BASE_URL}/api/v1/regions?include_empty=true" > /tmp/regions.json
           curl -fsS "${BASE_URL}/api/v1/public/facets" > /tmp/facets.json
           curl -fsS -o /tmp/public-app.html "${BASE_URL}/public-app/"
 

@@ -152,7 +152,7 @@ describe("public news API client", () => {
 
     const response = await listTargets({ fetcher })
 
-    expect(fetcher).toHaveBeenCalledWith("/api/v1/regions", {
+    expect(fetcher).toHaveBeenCalledWith("/api/v1/regions?include_empty=true", {
       signal: undefined,
     })
     expect(response.targets[0]?.display_name).toBe("意大利新闻监控")
