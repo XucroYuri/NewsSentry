@@ -276,11 +276,26 @@ def test_public_news_list_returns_fresh_hashed_projection_rows(
     assert [item["id"] for item in body["items"]] == ["ne-italy-projection-list-hashed-ready"]
 
 
-def test_public_news_all_targets_does_not_scan_target_stores_when_global_store_is_empty(
+def test_public_news_all_targets_falls_back_to_target_stores_when_global_store_is_empty(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     global_store = EmptyGlobalPublicStore([])
+    target_store = TargetReadyProjectionStore(
+        [
+            _projection_row(
+                event_id="ne-canada-ready-target-store-001",
+                target_id="canada",
+                source_id="globalnews-canada",
+                title_original="Ready Canada title",
+                metadata=_ready_translation(
+                    title="加拿大已公开标题",
+                    summary="加拿大已公开摘要。",
+                    region_tags=["加拿大", "北美"],
+                ),
+            )
+        ]
+    )
 
     monkeypatch.setattr(
         api_server,
@@ -297,7 +312,8 @@ def test_public_news_all_targets_does_not_scan_target_stores_when_global_store_i
     )
 
     async def _fake_target_store(target_id: str):
-        raise AssertionError(f"should not scan target store for global feed: {target_id}")
+        assert target_id == "canada"
+        return target_store
 
     monkeypatch.setattr(api_server, "_get_target_store", _fake_target_store)
     app = create_app(data_dir=tmp_path, store=global_store, auto_store=False, skip_lifespan=True)
@@ -307,15 +323,31 @@ def test_public_news_all_targets_does_not_scan_target_stores_when_global_store_i
 
     assert response.status_code == 200
     body = response.json()
-    assert body["total"] == 0
-    assert body["items"] == []
+    assert body["total"] == 1
+    assert [item["id"] for item in body["items"]] == ["ne-canada-ready-target-store-001"]
+    assert body["items"][0]["title"] == "加拿大已公开标题"
 
 
-def test_public_targets_and_regions_do_not_scan_target_stores_when_global_store_is_empty(
+def test_public_targets_and_regions_fall_back_to_target_stores_when_global_store_is_empty(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     global_store = EmptyGlobalPublicStore([])
+    target_store = TargetReadyProjectionStore(
+        [
+            _projection_row(
+                event_id="ne-canada-ready-region-001",
+                target_id="canada",
+                source_id="globalnews-canada",
+                title_original="Ready Canada title",
+                metadata=_ready_translation(
+                    title="加拿大地区公开标题",
+                    summary="加拿大地区公开摘要。",
+                    region_tags=["加拿大", "北美"],
+                ),
+            )
+        ]
+    )
 
     monkeypatch.setattr(
         api_server,
@@ -332,7 +364,8 @@ def test_public_targets_and_regions_do_not_scan_target_stores_when_global_store_
     )
 
     async def _fake_target_store(target_id: str):
-        raise AssertionError(f"should not scan target store for region list: {target_id}")
+        assert target_id == "canada"
+        return target_store
 
     monkeypatch.setattr(api_server, "_get_target_store", _fake_target_store)
     app = create_app(data_dir=tmp_path, store=global_store, auto_store=False, skip_lifespan=True)
@@ -343,8 +376,10 @@ def test_public_targets_and_regions_do_not_scan_target_stores_when_global_store_
 
     assert targets_response.status_code == 200
     assert regions_response.status_code == 200
-    assert targets_response.json()["targets"] == []
-    assert regions_response.json()["regions"] == []
+    assert [item["target_id"] for item in targets_response.json()["targets"]] == ["canada"]
+    assert targets_response.json()["targets"][0]["event_count"] == 1
+    assert [item["region_id"] for item in regions_response.json()["regions"]] == ["canada"]
+    assert regions_response.json()["regions"][0]["event_count"] == 1
 
 
 def test_public_regions_and_targets_hide_topic_targets(

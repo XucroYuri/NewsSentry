@@ -499,7 +499,7 @@ jobs:
           facets = json.loads(Path("/tmp/facets.json").read_text())
 
           assert isinstance(news.get("items"), list), "public news response missing items"
-          assert isinstance(regions, list) or isinstance(regions.get("items"), list), "regions response is not a list payload"
+          assert isinstance(regions, list) or isinstance(regions.get("regions"), list), "regions response is not a regions list payload"
           assert {"regions", "issues", "related"} <= set(facets), "facets payload missing expected keys"
           assert "NewsSentry" in Path("/tmp/public-app.html").read_text(errors="ignore")
           PY
@@ -573,7 +573,7 @@ jobs:
           facets = json.loads(Path("/tmp/facets.json").read_text())
 
           assert isinstance(news.get("items"), list), "public news response missing items"
-          assert isinstance(regions, list) or isinstance(regions.get("items"), list), "regions response is not a list payload"
+          assert isinstance(regions, list) or isinstance(regions.get("regions"), list), "regions response is not a regions list payload"
           assert {"regions", "issues", "related"} <= set(facets), "facets payload missing expected keys"
           assert "NewsSentry" in Path("/tmp/public-app.html").read_text(errors="ignore")
           PY

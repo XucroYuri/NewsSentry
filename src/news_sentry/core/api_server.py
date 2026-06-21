@@ -2800,7 +2800,8 @@ async def _public_news_candidate_events(
                     total = int(result.get("total") or 0)
                     if len(candidates) != len(rows):
                         total = len(candidates)
-                    return candidates, max(len(candidates), total)
+                    if candidates or total > 0:
+                        return candidates, max(len(candidates), total)
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to collect global public news candidates from store")
     for target_id in target_ids:
@@ -3839,7 +3840,8 @@ async def _public_target_event_counts(data_dir: Path) -> dict[str, int]:
         if get_counts is not None:
             try:
                 store_counts = cast(dict[str, int], await get_counts(_PUBLIC_ANALYSIS_STAGE))
-                return store_counts
+                if store_counts:
+                    return store_counts
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to count public targets from global store")
     target_counts: dict[str, int] = {}
