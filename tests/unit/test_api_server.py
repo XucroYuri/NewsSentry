@@ -587,7 +587,9 @@ class TestAPIServer:
 
         assert public_resp.status_code == 200
         assert '<div id="root"></div>' in public_resp.text
-        assert public_resp.headers["cache-control"] == "no-cache"
+        assert public_resp.headers["cache-control"] == (
+            "public, max-age=60, s-maxage=60, stale-while-revalidate=300"
+        )
         csp = public_resp.headers["content-security-policy"]
         assert "'nonce-" in csp
         nonce = csp.split("'nonce-", maxsplit=1)[1].split("'", maxsplit=1)[0]
@@ -626,7 +628,9 @@ class TestAPIServer:
         resp = client.head("/public-app/")
 
         assert resp.status_code == 200
-        assert resp.headers["cache-control"] == "no-cache"
+        assert resp.headers["cache-control"] == (
+            "public, max-age=60, s-maxage=60, stale-while-revalidate=300"
+        )
 
     def test_public_app_assets_use_fingerprinted_cache_policy(
         self,

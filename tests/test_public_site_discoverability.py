@@ -371,6 +371,9 @@ def test_public_app_homepage_injects_canonical_and_json_ld(tmp_path: Path) -> No
     response = client.get("/public-app")
 
     assert response.status_code == 200
+    assert response.headers["cache-control"] == (
+        "public, max-age=60, s-maxage=60, stale-while-revalidate=300"
+    )
     assert "News Sentry | 新闻哨兵" in response.text
     assert "按地区、议题和相关对象筛选重点事件" in response.text
     assert (

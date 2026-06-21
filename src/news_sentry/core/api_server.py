@@ -6260,7 +6260,7 @@ def _public_app_index_response(
         html,
         headers={
             **_security_headers_with_script_nonce(nonce),
-            "Cache-Control": "no-cache",
+            "Cache-Control": _PUBLIC_APP_SHELL_CACHE_CONTROL,
         },
     )
 
