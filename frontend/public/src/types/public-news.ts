@@ -122,6 +122,18 @@ export interface PublicFacetsResponse {
   related: PublicFacetItem[]
 }
 
+export interface PublicBootstrapResponse {
+  news: PublicNewsFeedResponse
+  regions: PublicRegionListResponse
+  facets: PublicFacetsResponse
+  generatedAt: string
+}
+
+export interface PublicBootstrapResult {
+  data: PublicBootstrapResponse
+  etag: string | null
+}
+
 export interface PublicAnalysisSummary {
   total_events: number
   high_value_events: number

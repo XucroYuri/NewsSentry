@@ -34,8 +34,8 @@ import { useHashRoute } from "@/hooks/use-hash-route"
 import { usePublicAnalysis } from "@/hooks/use-public-analysis"
 import { usePublicFeed } from "@/hooks/use-public-feed"
 import { usePublicTargets } from "@/hooks/use-public-targets"
-import { listPublicFacets } from "@/lib/api"
-import { type FeedFilters, type PublicChannel } from "@/lib/feed-state"
+import { getPublicBootstrap, listPublicFacets } from "@/lib/api"
+import { type FeedFilters, makeFeedQuery, type PublicChannel } from "@/lib/feed-state"
 import { targetShortLabel, todayKey } from "@/lib/public-view"
 import { buildPublicAppPath, routeToChannel, type PublicRoute } from "@/lib/routes"
 import { buildRouteSeoPayload } from "@/lib/seo/site-seo"
@@ -47,7 +47,7 @@ import {
   SourceDetailPage,
   SourceDirectoryPage,
 } from "@/pages/public-pages"
-import type { PublicFacetsResponse, PublicTargetInfo } from "@/types/public-news"
+import type { PublicBootstrapResponse, PublicFacetsResponse, PublicTargetInfo } from "@/types/public-news"
 
 const PAGE_SIZE = 20
 const PUBLIC_APP_VERSION = "v2.0.0"
@@ -226,7 +226,58 @@ function ThemeToggle({
   )
 }
 
-function usePublicFacets(filters: FeedFilters) {
+type BootstrapState =
+  | { status: "loading"; data: null }
+  | { status: "ready"; data: PublicBootstrapResponse }
+  | { status: "error"; data: null }
+
+function regionsToTargets(payload: PublicBootstrapResponse | null): PublicTargetInfo[] | null {
+  if (!payload) return null
+  return payload.regions.regions.map((region) => ({
+    target_id: region.region_id,
+    display_name: region.display_name,
+    primary_language: region.primary_language,
+    monitoring_type: region.region_type,
+    monitoring_label: "地区",
+    source_count: region.source_count,
+    event_count: region.event_count,
+    lifecycle: region.lifecycle,
+    archived: region.archived,
+  }))
+}
+
+function usePublicBootstrap(filters: FeedFilters): BootstrapState {
+  const [state, setState] = useState<BootstrapState>({ status: "loading", data: null })
+
+  useEffect(() => {
+    let cancelled = false
+    const controller = new AbortController()
+    setState({ status: "loading", data: null })
+    async function loadBootstrap() {
+      try {
+        const result = await getPublicBootstrap(makeFeedQuery(filters), {
+          signal: controller.signal,
+        })
+        if (!cancelled) setState({ status: "ready", data: result.data })
+      } catch {
+        if (!cancelled) setState({ status: "error", data: null })
+      }
+    }
+    void loadBootstrap()
+    return () => {
+      cancelled = true
+      controller.abort()
+    }
+  }, [filters])
+
+  return state
+}
+
+function usePublicFacets(
+  filters: FeedFilters,
+  initialFacets: PublicFacetsResponse | null = null,
+  waitForInitialData = false,
+) {
   const [facets, setFacets] = useState<PublicFacetsResponse>({
     regions: [],
     issues: [],
@@ -234,6 +285,12 @@ function usePublicFacets(filters: FeedFilters) {
   })
 
   useEffect(() => {
+    if (!initialFacets) return
+    setFacets(initialFacets)
+  }, [initialFacets])
+
+  useEffect(() => {
+    if (waitForInitialData) return
     let cancelled = false
     const controller = new AbortController()
     async function loadFacets() {
@@ -260,7 +317,7 @@ function usePublicFacets(filters: FeedFilters) {
       cancelled = true
       controller.abort()
     }
-  }, [filters.date, filters.issue, filters.related, filters.search, filters.targetId])
+  }, [filters.date, filters.issue, filters.related, filters.search, filters.targetId, waitForInitialData])
 
   return facets
 }
@@ -955,9 +1012,20 @@ export default function App() {
     }
   }, [route])
 
-  const feed = usePublicFeed(filters, { poll: route.name === "feed" })
-  const targets = usePublicTargets()
-  const facets = usePublicFacets(filters)
+  const bootstrap = usePublicBootstrap(filters)
+  const bootstrapTargets = useMemo(() => regionsToTargets(bootstrap.data), [bootstrap.data])
+  const waitForBootstrap = bootstrap.status === "loading"
+  const feed = usePublicFeed(filters, {
+    poll: route.name === "feed",
+    initialFeed: bootstrap.data?.news ?? null,
+    waitForInitialData: waitForBootstrap,
+  })
+  const targets = usePublicTargets(bootstrapTargets, waitForBootstrap)
+  const facets = usePublicFacets(
+    filters,
+    bootstrap.data?.facets ?? null,
+    waitForBootstrap,
+  )
   const sourceOptions = useMemo(() => {
     const sources = new Map<string, { id: string; name: string; count: number }>()
     for (const item of feed.feedState.items) {

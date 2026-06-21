@@ -219,6 +219,54 @@ def test_public_news_list_prefers_projection_rows_over_file_scan(
     assert item["entities"][0]["name"] == "Meloni"
 
 
+def test_public_bootstrap_returns_cached_reader_payload(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    store = ProjectionOnlyStore(
+        [
+            _projection_row(
+                event_id="ne-italy-bootstrap-001",
+                metadata=_ready_translation(
+                    title="意大利公共首屏标题",
+                    summary="这是一条用于首屏启动的中文摘要。",
+                    issue_tags=["外交"],
+                    related_tags=["涉欧"],
+                    region_tags=["意大利"],
+                ),
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        api_server,
+        "_load_target_configs",
+        lambda: [
+            {
+                "target_id": "italy",
+                "display_name": "意大利新闻监控",
+                "region_type": "country",
+                "language_scope": {"primary": "it"},
+                "source_channel_refs": ["ansa"],
+            }
+        ],
+    )
+    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/public/bootstrap")
+
+    assert response.status_code == 200
+    assert "public" in response.headers["cache-control"]
+    assert "stale-while-revalidate" in response.headers["cache-control"]
+    assert response.headers["etag"].startswith('"public-bootstrap-')
+    assert "public-bootstrap" in response.headers["server-timing"]
+    payload = response.json()
+    assert payload["news"]["items"][0]["title"] == "意大利公共首屏标题"
+    assert payload["regions"]["regions"][0]["region_id"] == "italy"
+    assert payload["facets"]["issues"] == [{"id": "外交", "label": "外交", "count": 1}]
+    assert payload["generatedAt"].endswith("Z")
+
+
 def test_public_projection_event_preserves_ready_hash_for_fresh_index_row() -> None:
     row = _projection_row(
         event_id="ne-italy-projection-hashed-ready",
@@ -544,6 +592,48 @@ def test_public_facets_and_news_filter_use_publication_tags(
     assert issue_response.json()["items"][0]["issueTags"] == ["科技"]
     assert issue_response.json()["items"][0]["relatedTags"] == ["涉中"]
     assert issue_response.json()["items"][0]["regionTags"] == ["意大利", "欧洲"]
+
+
+def test_public_facets_reuses_short_cache_for_same_query(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    store = FilterAwareProjectionStore(
+        [
+            _projection_row(
+                event_id="ne-italy-facet-cache",
+                metadata=_ready_translation(
+                    issue_tags=["科技"],
+                    related_tags=["涉中"],
+                    region_tags=["意大利"],
+                ),
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        api_server,
+        "_load_target_configs",
+        lambda: [
+            {
+                "target_id": "italy",
+                "display_name": "意大利新闻监控",
+                "region_type": "country",
+                "language_scope": {"primary": "it"},
+                "source_channel_refs": ["ansa"],
+            }
+        ],
+    )
+    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
+    client = TestClient(app)
+
+    first = client.get("/api/v1/public/facets")
+    second = client.get("/api/v1/public/facets")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.headers["x-news-sentry-facets-cache"] == "miss"
+    assert second.headers["x-news-sentry-facets-cache"] == "hit"
+    assert store.projection_calls == 1
 
 
 def test_public_news_list_keeps_indexed_filtered_path_for_selective_reads(

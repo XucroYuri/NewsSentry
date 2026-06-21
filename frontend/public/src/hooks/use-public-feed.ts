@@ -9,7 +9,7 @@ import {
   nextPollDelayMs,
   shouldPausePolling,
 } from "@/lib/feed-state"
-import type { PublicNewsItem } from "@/types/public-news"
+import type { PublicNewsFeedResponse, PublicNewsItem } from "@/types/public-news"
 
 export type FeedStatus = "loading" | "ready" | "empty" | "error"
 
@@ -38,6 +38,20 @@ const initialFeedState: FeedState = {
   total: 0,
 }
 
+function feedStateFromResponse(response: PublicNewsFeedResponse): FeedState {
+  return {
+    status: response.items.length > 0 ? "ready" : "empty",
+    items: response.items,
+    pendingNewItems: [],
+    recentlyInsertedIds: [],
+    latestCursor: response.latestCursor ?? null,
+    nextCursor: response.nextCursor ?? null,
+    etag: null,
+    pollAfterMs: response.pollAfterMs ?? 30_000,
+    total: response.total ?? response.items.length,
+  }
+}
+
 function normalizeError(error: unknown) {
   if (error instanceof PublicNewsApiError) return error.message
   if (error instanceof Error) return error.message
@@ -59,13 +73,22 @@ function sortByValue(items: PublicNewsItem[]) {
   return [...items].sort((left, right) => (right.valueScore ?? 0) - (left.valueScore ?? 0))
 }
 
-export function usePublicFeed(filters: FeedFilters, options: { poll?: boolean } = {}) {
+export function usePublicFeed(
+  filters: FeedFilters,
+  options: {
+    poll?: boolean
+    initialFeed?: PublicNewsFeedResponse | null
+    waitForInitialData?: boolean
+  } = {},
+) {
   const [feedState, setFeedState] = useState<FeedState>(initialFeedState)
   const [refreshing, setRefreshing] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [pollFailures, setPollFailures] = useState(0)
   const [pollNonce, setPollNonce] = useState(0)
   const poll = options.poll ?? true
+  const initialFeed = options.initialFeed ?? null
+  const waitForInitialData = options.waitForInitialData ?? false
 
   const loadFeed = useCallback(
     async (mode: "replace" | "refresh" = "replace") => {
@@ -114,8 +137,14 @@ export function usePublicFeed(filters: FeedFilters, options: { poll?: boolean } 
   )
 
   useEffect(() => {
-    void loadFeed("replace")
-  }, [loadFeed])
+    if (!initialFeed) return
+    setFeedState(feedStateFromResponse(initialFeed))
+  }, [initialFeed])
+
+  useEffect(() => {
+    if (waitForInitialData) return
+    void loadFeed(initialFeed ? "refresh" : "replace")
+  }, [initialFeed, loadFeed, waitForInitialData])
 
   useEffect(() => {
     if (!poll || !feedState.latestCursor || feedState.status === "loading") return

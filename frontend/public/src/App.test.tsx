@@ -67,6 +67,50 @@ function jsonResponse(payload: unknown, init: ResponseInit = {}) {
 function installFetchMock() {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const url = String(input)
+    if (url.startsWith("/api/v1/public/bootstrap")) {
+      return jsonResponse({
+        news: feed([
+          makeItem("event-1"),
+          makeItem("event-ansa-2", {
+            title: "ANSA 追踪欧盟产业政策后续",
+            originalTitle: "ANSA tracks follow-up on EU industrial policy",
+            tags: ["国际关系", "产业"],
+          }),
+          makeItem("event-reuters", {
+            source: { id: "reuters", name: "Reuters", type: "api", credibilityLabel: "主流媒体" },
+            title: "路透关注意大利能源政策调整",
+            originalTitle: "Reuters follows Italy energy policy adjustments",
+            tags: ["经济", "能源"],
+          }),
+        ]),
+        regions: {
+          regions: [
+            {
+              region_id: "italy",
+              display_name: "意大利新闻监控",
+              primary_language: "it",
+              region_type: "country",
+              source_count: 163,
+              event_count: 52,
+              lifecycle: {},
+              archived: false,
+            },
+          ],
+        },
+        facets: {
+          regions: [{ id: "italy", label: "意大利", count: 52 }],
+          issues: [
+            { id: "国际关系", label: "国际关系", count: 20 },
+            { id: "能源", label: "能源", count: 8 },
+          ],
+          related: [
+            { id: "涉中", label: "涉中", count: 14 },
+            { id: "涉欧", label: "涉欧", count: 10 },
+          ],
+        },
+        generatedAt: "2026-06-21T00:00:00Z",
+      })
+    }
     if (url.startsWith("/api/v1/regions")) {
       return jsonResponse({
         regions: [
@@ -232,7 +276,7 @@ describe("Phase 84 public portal app", () => {
 
     expect(await screen.findByRole("heading", { name: "新闻哨兵" })).toBeInTheDocument()
     expect(screen.getAllByRole("heading", { name: "新闻哨兵" })).toHaveLength(1)
-    expect(screen.getByRole("heading", { name: "当前热点" })).toBeInTheDocument()
+    expect(await screen.findByRole("region", { name: "当前热点" })).toBeInTheDocument()
     expect(screen.queryByText("新闻时间线")).not.toBeInTheDocument()
     const nav = screen.getByRole("navigation", { name: "公共站侧边栏" })
     expect(within(nav).getByRole("button", { name: /新闻哨兵 Breaking News/ })).toBeInTheDocument()
@@ -622,6 +666,48 @@ describe("Phase 84 public portal app", () => {
       ([input]) => String(input) === "/api/v1/public/news?featured=true&page_size=20",
     )
     expect(initialFeedCalls).toHaveLength(1)
+  })
+
+  it("renders first-paint news from bootstrap while standalone feed is slow", async () => {
+    const bootstrapTitle = "首屏启动数据里的意大利新闻"
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.startsWith("/api/v1/public/bootstrap")) {
+        return jsonResponse({
+          news: feed([makeItem("event-bootstrap", { title: bootstrapTitle })]),
+          regions: {
+            regions: [
+              {
+                region_id: "italy",
+                display_name: "意大利新闻监控",
+                primary_language: "it",
+                region_type: "country",
+                source_count: 163,
+                event_count: 52,
+                lifecycle: {},
+                archived: false,
+              },
+            ],
+          },
+          facets: {
+            regions: [{ id: "italy", label: "意大利", count: 52 }],
+            issues: [{ id: "外交", label: "外交", count: 3 }],
+            related: [{ id: "涉欧", label: "涉欧", count: 2 }],
+          },
+          generatedAt: "2026-06-21T00:00:00Z",
+        })
+      }
+      if (url.startsWith("/api/v1/public/news")) {
+        return new Promise<Response>(() => undefined)
+      }
+      return jsonResponse({ regions: [], issues: [], related: [] })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<App />)
+
+    expect((await screen.findAllByText(bootstrapTitle)).length).toBeGreaterThan(0)
+    expect(fetchMock.mock.calls.some(([input]) => String(input).startsWith("/api/v1/public/bootstrap"))).toBe(true)
   })
 
   it("falls back to the all-news stream when the featured feed is empty", async () => {

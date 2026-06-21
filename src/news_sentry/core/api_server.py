@@ -931,6 +931,17 @@ class PublicNewsFeedResponse(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class PublicBootstrapResponse(BaseModel):
+    """公共阅读首屏启动 payload，避免首屏拆成多次动态查询。"""
+
+    news: PublicNewsFeedResponse
+    regions: RegionListResponse
+    facets: PublicFacetsResponse
+    generated_at: str = Field(alias="generatedAt")
+
+    model_config = {"populate_by_name": True}
+
+
 class SmartAlertItem(BaseModel):
     """智能告警条目。"""
 
@@ -2002,6 +2013,11 @@ _PUBLIC_NEWS_FEATURED_SCORE = 60
 _PUBLIC_NEWS_FEED_CACHE_TTL_SECONDS = 15.0
 _PUBLIC_NEWS_FEED_UPDATE_CACHE_TTL_SECONDS = 30.0
 _PUBLIC_NEWS_FEED_SEARCH_CACHE_TTL_SECONDS = 5.0
+_PUBLIC_SHARED_JSON_CACHE_CONTROL = "public, max-age=30, s-maxage=60, stale-while-revalidate=300"
+_PUBLIC_APP_SHELL_CACHE_CONTROL = "public, max-age=60, s-maxage=60, stale-while-revalidate=300"
+_PUBLIC_BOOTSTRAP_CACHE_TTL_SECONDS = 60.0
+_PUBLIC_REGIONS_CACHE_TTL_SECONDS = 60.0
+_PUBLIC_FACETS_CACHE_TTL_SECONDS = 60.0
 _PUBLIC_NEWS_SLOW_LOG_MS = 3000
 _PUBLIC_NEWS_INTERNAL_DATA_DIRS = {
     "backup",
@@ -2042,6 +2058,9 @@ _PUBLIC_NEWS_EVENT_DIRS = {
     "reviewed",
 }
 _public_news_feed_cache: dict[str, dict[str, Any]] = {}
+_public_regions_cache: dict[str, dict[str, Any]] = {}
+_public_facets_cache: dict[str, dict[str, Any]] = {}
+_public_bootstrap_cache: dict[str, dict[str, Any]] = {}
 _PUBLIC_TEXT_LATIN1_HINTS = ("Ã", "Â", "â€")
 _STRAY_ACCENTED_CAPS = str.maketrans(
     {
@@ -2156,6 +2175,43 @@ def _public_news_cache_entry_valid(entry: dict[str, Any] | None, now: float) -> 
     )
 
 
+def _public_cache_entry_valid(entry: dict[str, Any] | None, now: float) -> bool:
+    return bool(
+        entry and isinstance(entry.get("expires_at"), (int, float)) and entry["expires_at"] > now
+    )
+
+
+def _public_model_json(payload: BaseModel) -> str:
+    return json.dumps(
+        payload.model_dump(by_alias=True, mode="json"),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _public_payload_etag(prefix: str, payload: BaseModel) -> str:
+    digest = sha256(_public_model_json(payload).encode("utf-8")).hexdigest()[:16]
+    return f'"{prefix}-{digest}"'
+
+
+def _public_shared_cache_headers(
+    *,
+    etag: str,
+    cache_status: Literal["hit", "miss"],
+    timing_name: str,
+    header_name: str,
+    elapsed_ms: int,
+) -> dict[str, str]:
+    return {
+        "ETag": etag,
+        "Cache-Control": _PUBLIC_SHARED_JSON_CACHE_CONTROL,
+        "Server-Timing": f"{timing_name};dur={max(0, int(elapsed_ms))}",
+        f"X-News-Sentry-{header_name}-Cache": cache_status,
+        f"X-News-Sentry-{header_name}-Elapsed-Ms": str(max(0, int(elapsed_ms))),
+    }
+
+
 def _public_news_cache_headers(
     *,
     cache_status: Literal["hit", "miss", "bypass"],
@@ -2165,10 +2221,11 @@ def _public_news_cache_headers(
 ) -> dict[str, str]:
     return {
         "ETag": etag,
-        "Cache-Control": "private, max-age=0, must-revalidate",
+        "Cache-Control": _PUBLIC_SHARED_JSON_CACHE_CONTROL,
         "X-Poll-After-Ms": str(poll_after_ms),
         "X-News-Sentry-Feed-Cache": cache_status,
         "X-News-Sentry-Feed-Elapsed-Ms": str(max(0, int(elapsed_ms))),
+        "Server-Timing": f"public-news;dur={max(0, int(elapsed_ms))}",
     }
 
 
@@ -2675,7 +2732,6 @@ async def _public_news_events_for_target(
     if (
         allow_projection_first
         and store is not None
-        and min_score is None
         and source_id is None
         and classification_l0 is None
         and date is None
@@ -2689,6 +2745,12 @@ async def _public_news_events_for_target(
             limit=limit,
         )
         if projection_events:
+            if min_score is not None:
+                projection_events = [
+                    event
+                    for event in projection_events
+                    if (_event_score(event) or 0) >= min_score
+                ]
             return projection_events, len(projection_events)
     if store is not None and await _store_has_target_event_index(store, target_id):
         query_public_rows = getattr(store, "query_public_news_rows", None)
@@ -3823,11 +3885,20 @@ async def _target_public_event_count(target_id: str, _data_dir: Path) -> int:
     try:
         store = await _get_target_store(target_id)
         if store is None:
+            store = _store
+        if store is None:
             return 0
         get_public_count = getattr(store, "get_public_event_count", None)
-        if get_public_count is None:
-            return 0
-        return int(await get_public_count(target_id, _PUBLIC_ANALYSIS_STAGE) or 0)
+        if get_public_count is not None:
+            return int(await get_public_count(target_id, _PUBLIC_ANALYSIS_STAGE) or 0)
+        projection_events = await _query_public_projection_events(
+            store,
+            target_id=target_id,
+            limit=_PUBLIC_NEWS_MAX_SCAN,
+        )
+        if projection_events is not None:
+            return len(projection_events)
+        return 0
     except Exception:
         logger.exception("Failed to count indexed public events for target %s", target_id)
         return 0
@@ -5997,7 +6068,7 @@ def _index_html_response() -> HTMLResponse:
         html,
         headers={
             **_security_headers_with_script_nonce(nonce),
-            "Cache-Control": "no-cache",
+            "Cache-Control": _PUBLIC_APP_SHELL_CACHE_CONTROL,
         },
     )
 
@@ -6213,7 +6284,7 @@ def _public_app_asset_response(
         cache_control = (
             "public, max-age=31536000, immutable"
             if clean_asset_path.startswith("assets/")
-            else "no-cache"
+            else _PUBLIC_APP_SHELL_CACHE_CONTROL
         )
         return FileResponse(file_path, headers={"Cache-Control": cache_control})
     if clean_asset_path.startswith("assets/"):
@@ -7393,9 +7464,7 @@ def create_app(
             targets.append(target)
         return TargetListResponse(targets=targets)
 
-    @app.get("/api/v1/regions", response_model=RegionListResponse)
-    async def list_regions() -> RegionListResponse:
-        """返回公开可浏览的地区入口；topic target 不再作为公共入口。"""
+    async def _public_regions_payload() -> RegionListResponse:
         configs = _load_target_configs()
         event_counts = await _public_target_event_counts(_data_dir)
         regions = []
@@ -7411,6 +7480,162 @@ def create_app(
                 continue
             regions.append(region)
         return RegionListResponse(regions=regions)
+
+    async def _cached_public_regions(response: Response | None = None) -> RegionListResponse:
+        started = time.perf_counter()
+        cache_key = f"{_data_dir.resolve()}:{id(_store)}:regions"
+        now = time.monotonic()
+        cache_entry = _public_regions_cache.get(cache_key)
+        if _public_cache_entry_valid(cache_entry, now):
+            assert cache_entry is not None
+            payload = cast(RegionListResponse, cache_entry["payload"])
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            headers = _public_shared_cache_headers(
+                etag=str(cache_entry["etag"]),
+                cache_status="hit",
+                timing_name="public-regions",
+                header_name="Regions",
+                elapsed_ms=elapsed_ms,
+            )
+            if response is not None:
+                response.headers.update(headers)
+            return payload
+
+        payload = await _public_regions_payload()
+        etag = _public_payload_etag("public-regions", payload)
+        _public_regions_cache[cache_key] = {
+            "etag": etag,
+            "expires_at": time.monotonic() + _PUBLIC_REGIONS_CACHE_TTL_SECONDS,
+            "payload": payload,
+        }
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        headers = _public_shared_cache_headers(
+            etag=etag,
+            cache_status="miss",
+            timing_name="public-regions",
+            header_name="Regions",
+            elapsed_ms=elapsed_ms,
+        )
+        if response is not None:
+            response.headers.update(headers)
+        return payload
+
+    async def _public_facets_payload(
+        *,
+        region_id: str | None,
+        issue: str | None,
+        related: str | None,
+        date: str | None,
+        q: str | None,
+    ) -> PublicFacetsResponse:
+        target_ids = _public_news_target_ids(_data_dir, region_id)
+        candidates, _total = await _public_news_candidate_events(
+            _data_dir,
+            target_ids,
+            limit=_PUBLIC_NEWS_MAX_SCAN,
+            allow_projection_first=True,
+            allow_file_fallback=region_id is not None,
+            featured=False,
+            source_id=None,
+            category=None,
+            date=date,
+            q=q,
+        )
+        region_counts: dict[str, int] = defaultdict(int)
+        issue_counts: dict[str, int] = defaultdict(int)
+        related_counts: dict[str, int] = defaultdict(int)
+        for tid, event in candidates:
+            if not _public_news_matches(
+                event,
+                featured=False,
+                source_id=None,
+                category=None,
+                issue=issue,
+                related=related,
+                date=date,
+                q=q,
+            ):
+                continue
+            region_counts[tid] += 1
+            for tag in _event_issue_tags(event):
+                issue_counts[tag] += 1
+            for tag in _event_related_tags(event):
+                related_counts[tag] += 1
+        return PublicFacetsResponse(
+            regions=_public_region_facet_items(region_counts),
+            issues=_public_facet_items(issue_counts),
+            related=_public_facet_items(related_counts),
+        )
+
+    async def _cached_public_facets(
+        *,
+        response: Response | None = None,
+        region_id: str | None,
+        issue: str | None,
+        related: str | None,
+        date: str | None,
+        q: str | None,
+    ) -> PublicFacetsResponse:
+        started = time.perf_counter()
+        cache_key = json.dumps(
+            {
+                "data_dir": str(_data_dir.resolve()),
+                "store": id(_store),
+                "region_id": region_id or "",
+                "issue": issue or "",
+                "related": related or "",
+                "date": date or "",
+                "q": q or "",
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        now = time.monotonic()
+        cache_entry = _public_facets_cache.get(cache_key)
+        if _public_cache_entry_valid(cache_entry, now):
+            assert cache_entry is not None
+            payload = cast(PublicFacetsResponse, cache_entry["payload"])
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            headers = _public_shared_cache_headers(
+                etag=str(cache_entry["etag"]),
+                cache_status="hit",
+                timing_name="public-facets",
+                header_name="Facets",
+                elapsed_ms=elapsed_ms,
+            )
+            if response is not None:
+                response.headers.update(headers)
+            return payload
+
+        payload = await _public_facets_payload(
+            region_id=region_id,
+            issue=issue,
+            related=related,
+            date=date,
+            q=q,
+        )
+        etag = _public_payload_etag("public-facets", payload)
+        _public_facets_cache[cache_key] = {
+            "etag": etag,
+            "expires_at": time.monotonic() + _PUBLIC_FACETS_CACHE_TTL_SECONDS,
+            "payload": payload,
+        }
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        headers = _public_shared_cache_headers(
+            etag=etag,
+            cache_status="miss",
+            timing_name="public-facets",
+            header_name="Facets",
+            elapsed_ms=elapsed_ms,
+        )
+        if response is not None:
+            response.headers.update(headers)
+        return payload
+
+    @app.get("/api/v1/regions", response_model=RegionListResponse)
+    async def list_regions(response: Response) -> RegionListResponse:
+        """返回公开可浏览的地区入口；topic target 不再作为公共入口。"""
+        return await _cached_public_regions(response)
 
     @app.get("/api/v1/admin/targets")
     async def list_admin_targets(
@@ -7949,6 +8174,7 @@ def create_app(
 
     @app.get("/api/v1/public/facets", response_model=PublicFacetsResponse)
     async def list_public_facets(
+        response: Response,
         region_id: str | None = Query(None, description="按地区筛选"),
         target_id: str | None = Query(None, description="兼容旧参数：按地区筛选"),
         issue: str | None = Query(None, description="按议题标签筛选"),
@@ -7958,44 +8184,216 @@ def create_app(
     ) -> PublicFacetsResponse:
         """返回当前可见公共新闻中的地区、议题与相关对象 facets。"""
         effective_region_id = region_id or target_id
-        target_ids = _public_news_target_ids(_data_dir, effective_region_id)
-        candidates, _total = await _public_news_candidate_events(
-            _data_dir,
-            target_ids,
-            limit=_PUBLIC_NEWS_MAX_SCAN,
-            allow_projection_first=True,
-            allow_file_fallback=effective_region_id is not None,
-            featured=False,
-            source_id=None,
-            category=None,
+        return await _cached_public_facets(
+            response=response,
+            region_id=effective_region_id,
+            issue=issue,
+            related=related,
             date=date,
             q=q,
         )
-        region_counts: dict[str, int] = defaultdict(int)
-        issue_counts: dict[str, int] = defaultdict(int)
-        related_counts: dict[str, int] = defaultdict(int)
+
+    async def _public_news_feed_payload_for_bootstrap(
+        *,
+        featured: bool,
+        region_id: str | None,
+        source_id: str | None,
+        category: str | None,
+        issue: str | None,
+        related: str | None,
+        date: str | None,
+        q: str | None,
+        page_size: int,
+    ) -> tuple[PublicNewsFeedResponse, str, int]:
+        started = time.perf_counter()
+        cache_key = _public_news_feed_cache_key(
+            featured=featured,
+            target_id=region_id,
+            issue=issue,
+            related=related,
+            source_id=source_id,
+            category=category,
+            date=date,
+            q=q,
+            before_cursor=None,
+            since_cursor=None,
+            page_size=page_size,
+        )
+        now = time.monotonic()
+        cache_entry = _public_news_feed_cache.get(cache_key)
+        if _public_news_cache_entry_valid(cache_entry, now):
+            assert cache_entry is not None
+            return (
+                cast(PublicNewsFeedResponse, cache_entry["payload"]),
+                str(cache_entry["etag"]),
+                int((time.perf_counter() - started) * 1000),
+            )
+
+        target_ids = _public_news_target_ids(_data_dir, region_id)
+        allow_projection_first = not any((bool(source_id), bool(category), bool(date), bool(q)))
+        query_limit = (
+            min(_PUBLIC_NEWS_MAX_SCAN, page_size + 1)
+            if allow_projection_first
+            else min(_PUBLIC_NEWS_MAX_SCAN, max(page_size * 4, _PUBLIC_NEWS_MIN_SCAN))
+        )
+        candidates, candidate_total = await _public_news_candidate_events(
+            _data_dir,
+            target_ids,
+            limit=query_limit,
+            allow_projection_first=allow_projection_first,
+            allow_file_fallback=region_id is not None,
+            featured=featured,
+            source_id=source_id,
+            category=category,
+            date=date,
+            q=q,
+        )
+        filtered: list[tuple[str, dict[str, Any]]] = []
         for tid, event in candidates:
-            if not _public_news_matches(
+            if _public_news_matches(
                 event,
-                featured=False,
-                source_id=None,
-                category=None,
+                featured=featured,
+                source_id=source_id,
+                category=category,
                 issue=issue,
                 related=related,
                 date=date,
                 q=q,
             ):
-                continue
-            region_counts[tid] += 1
-            for tag in _event_issue_tags(event):
-                issue_counts[tag] += 1
-            for tag in _event_related_tags(event):
-                related_counts[tag] += 1
-        return PublicFacetsResponse(
-            regions=_public_region_facet_items(region_counts),
-            issues=_public_facet_items(issue_counts),
-            related=_public_facet_items(related_counts),
+                filtered.append((tid, event))
+        page_pairs = filtered[:page_size]
+        items: list[PublicNewsItem] = []
+        for tid, event in page_pairs:
+            try:
+                items.append(_public_news_item(tid, event))
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "Failed to render bootstrap public news item target=%s event_id=%s",
+                    tid,
+                    event.get("event_id") or event.get("id"),
+                )
+        latest_cursor = _public_news_encode_cursor(page_pairs[0][1]) if page_pairs else None
+        next_cursor = (
+            _public_news_encode_cursor(page_pairs[-1][1])
+            if len(filtered) > len(page_pairs) and page_pairs
+            else None
         )
+        payload = PublicNewsFeedResponse(
+            items=items,
+            latestCursor=latest_cursor,
+            nextCursor=next_cursor,
+            pollAfterMs=_PUBLIC_NEWS_DEFAULT_POLL_AFTER_MS,
+            hasNewer=False,
+            total=max(candidate_total, len(filtered)),
+        )
+        etag = _public_news_etag(items, latest_cursor)
+        _public_news_feed_cache[cache_key] = {
+            "etag": etag,
+            "expires_at": time.monotonic() + _public_news_feed_cache_ttl(q=q, since_cursor=None),
+            "payload": payload,
+            "poll_after_ms": _PUBLIC_NEWS_DEFAULT_POLL_AFTER_MS,
+        }
+        return payload, etag, int((time.perf_counter() - started) * 1000)
+
+    @app.get("/api/v1/public/bootstrap", response_model=PublicBootstrapResponse)
+    async def get_public_bootstrap(
+        request: Request,
+        response: Response,
+        featured: bool = Query(True, description="首屏是否优先取精选新闻"),
+        target_id: str | None = Query(None, description="兼容旧参数：按地区筛选"),
+        region_id: str | None = Query(None, description="按地区筛选"),
+        source_id: str | None = Query(None, description="按来源筛选"),
+        category: str | None = Query(None, description="按 classification.l0 筛选"),
+        issue: str | None = Query(None, description="按议题标签筛选"),
+        related: str | None = Query(None, description="按相关对象标签筛选"),
+        date: str | None = Query(None, description="日期筛选 YYYY-MM-DD"),
+        q: str | None = Query(None, description="全文关键词搜索"),
+        page_size: int = Query(
+            20,
+            ge=1,
+            le=_PUBLIC_NEWS_MAX_PAGE_SIZE,
+        ),
+    ) -> PublicBootstrapResponse | Response:
+        started = time.perf_counter()
+        effective_region_id = region_id or target_id
+        cache_key = json.dumps(
+            {
+                "data_dir": str(_data_dir.resolve()),
+                "store": id(_store),
+                "featured": featured,
+                "region_id": effective_region_id or "",
+                "source_id": source_id or "",
+                "category": category or "",
+                "issue": issue or "",
+                "related": related or "",
+                "date": date or "",
+                "q": q or "",
+                "page_size": page_size,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        now = time.monotonic()
+        cache_entry = _public_bootstrap_cache.get(cache_key)
+        if _public_cache_entry_valid(cache_entry, now):
+            assert cache_entry is not None
+            payload = cast(PublicBootstrapResponse, cache_entry["payload"])
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            headers = _public_shared_cache_headers(
+                etag=str(cache_entry["etag"]),
+                cache_status="hit",
+                timing_name="public-bootstrap",
+                header_name="Bootstrap",
+                elapsed_ms=elapsed_ms,
+            )
+            if request.headers.get("if-none-match") == headers["ETag"]:
+                return Response(status_code=304, headers=headers)
+            response.headers.update(headers)
+            return payload
+
+        news, _news_etag, _news_elapsed_ms = await _public_news_feed_payload_for_bootstrap(
+            featured=featured,
+            region_id=effective_region_id,
+            source_id=source_id,
+            category=category,
+            issue=issue,
+            related=related,
+            date=date,
+            q=q,
+            page_size=page_size,
+        )
+        regions = await _cached_public_regions()
+        facets = await _cached_public_facets(
+            region_id=effective_region_id,
+            issue=issue,
+            related=related,
+            date=date,
+            q=q,
+        )
+        payload = PublicBootstrapResponse(
+            news=news,
+            regions=regions,
+            facets=facets,
+            generatedAt=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        )
+        etag = _public_payload_etag("public-bootstrap", payload)
+        _public_bootstrap_cache[cache_key] = {
+            "etag": etag,
+            "expires_at": time.monotonic() + _PUBLIC_BOOTSTRAP_CACHE_TTL_SECONDS,
+            "payload": payload,
+        }
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        headers = _public_shared_cache_headers(
+            etag=etag,
+            cache_status="miss",
+            timing_name="public-bootstrap",
+            header_name="Bootstrap",
+            elapsed_ms=elapsed_ms,
+        )
+        if request.headers.get("if-none-match") == etag:
+            return Response(status_code=304, headers=headers)
+        response.headers.update(headers)
+        return payload
 
     @app.get("/api/v1/public/news", response_model=PublicNewsFeedResponse)
     async def list_public_news(
@@ -8063,7 +8461,6 @@ def create_app(
         target_ids = _public_news_target_ids(_data_dir, effective_region_id)
         allow_projection_first = not any(
             (
-                featured,
                 bool(source_id),
                 bool(category),
                 bool(date),

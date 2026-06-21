@@ -1,5 +1,7 @@
 import type {
   PublicAnalysisResponse,
+  PublicBootstrapResponse,
+  PublicBootstrapResult,
   PublicFacetsResponse,
   PublicFacetItem,
   PublicNewsFeedResponse,
@@ -43,6 +45,22 @@ export function buildPublicNewsUrl(query: PublicNewsQuery = {}) {
   appendParam(params, "page_size", query.pageSize)
   const suffix = params.toString()
   return `/api/v1/public/news${suffix ? `?${suffix}` : ""}`
+}
+
+export function buildPublicBootstrapUrl(query: PublicNewsQuery = {}) {
+  const params = new URLSearchParams()
+  appendParam(params, "featured", query.featured)
+  appendParam(params, "target_id", query.targetId)
+  appendParam(params, "region_id", query.regionId)
+  appendParam(params, "source_id", query.sourceId)
+  appendParam(params, "category", query.category)
+  appendParam(params, "issue", query.issue)
+  appendParam(params, "related", query.related)
+  appendParam(params, "date", query.date)
+  appendParam(params, "q", query.q)
+  appendParam(params, "page_size", query.pageSize)
+  const suffix = params.toString()
+  return `/api/v1/public/bootstrap${suffix ? `?${suffix}` : ""}`
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -150,6 +168,15 @@ function assertPublicNewsFeed(value: unknown): asserts value is PublicNewsFeedRe
   }
 }
 
+function assertPublicBootstrap(value: unknown): asserts value is PublicBootstrapResponse {
+  if (!isRecord(value) || typeof value.generatedAt !== "string") {
+    throw new PublicNewsApiError("Public bootstrap response shape is invalid")
+  }
+  assertPublicNewsFeed(value.news)
+  assertRegionList(value.regions)
+  assertPublicFacets(value.facets)
+}
+
 function assertDistributionList(value: unknown) {
   if (!Array.isArray(value)) {
     throw new PublicNewsApiError("Public analysis distribution is invalid")
@@ -182,6 +209,23 @@ async function parseJsonResponse<T>(response: Response, assertShape: (value: unk
   const payload: unknown = await response.json()
   assertShape(payload)
   return payload
+}
+
+export async function getPublicBootstrap(
+  query: PublicNewsQuery = {},
+  options: PublicNewsRequestOptions = {},
+): Promise<PublicBootstrapResult> {
+  const fetcher = options.fetcher ?? fetch
+  const response = await fetcher(buildPublicBootstrapUrl(query), {
+    signal: options.signal,
+  })
+  if (!response.ok) {
+    throw new PublicNewsApiError(`Public bootstrap request failed with ${response.status}`, response.status)
+  }
+  return {
+    data: await parseJsonResponse(response, assertPublicBootstrap),
+    etag: response.headers.get("ETag"),
+  }
 }
 
 export async function listPublicNews(

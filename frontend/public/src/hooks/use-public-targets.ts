@@ -3,10 +3,19 @@ import { useEffect, useState } from "react"
 import { listTargets } from "@/lib/api"
 import type { PublicTargetInfo } from "@/types/public-news"
 
-export function usePublicTargets() {
+export function usePublicTargets(
+  initialTargets: PublicTargetInfo[] | null = null,
+  waitForInitialData = false,
+) {
   const [targets, setTargets] = useState<PublicTargetInfo[]>([])
 
   useEffect(() => {
+    if (!initialTargets) return
+    setTargets(initialTargets)
+  }, [initialTargets])
+
+  useEffect(() => {
+    if (waitForInitialData) return
     let cancelled = false
     async function loadTargetList() {
       try {
@@ -20,7 +29,7 @@ export function usePublicTargets() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [waitForInitialData])
 
   return targets
 }
