@@ -23,9 +23,7 @@ REQUIRED_DIRS = [
 ]
 
 AI_PROVIDER_ENV_VARS = [
-    "OPENROUTER_API_KEY",
-    "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY",
+    "FREELLMAPI_API_KEY",
 ]
 
 
@@ -102,7 +100,7 @@ def run_doctor(target_id: str, data_root: str = "data") -> DoctorReport:
         else:
             provider_details.append(f"{var} not set")
     if not provider_ok:
-        provider_details.append("set OPENROUTER_API_KEY for the default OpenRouter route")
+        provider_details.append("set FREELLMAPI_API_KEY for the default FreeLLMAPI route")
 
     # Browser Bridge check（core 镜像中为 optional）
     image_type = os.environ.get("NEWSSENTRY_IMAGE_TYPE", "full")

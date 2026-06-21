@@ -5041,16 +5041,12 @@ def _build_collector_diagnostics_payload() -> dict[str, Any]:
         }
     )
 
-    has_ai_key = bool(
-        os.environ.get("OPENROUTER_API_KEY")
-        or os.environ.get("ANTHROPIC_API_KEY")
-        or os.environ.get("OPENAI_API_KEY")
-    )
+    has_ai_key = bool(os.environ.get("FREELLMAPI_API_KEY"))
     checks.append(
         {
             "name": "ai_api_key",
             "ok": has_ai_key,
-            "message": "已配置" if has_ai_key else "未配置 AI API Key — 研判/翻译将跳过",
+            "message": "已配置" if has_ai_key else "未配置 FREELLMAPI_API_KEY — 研判/翻译将跳过",
         }
     )
 

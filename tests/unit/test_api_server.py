@@ -833,13 +833,14 @@ class TestAPIServer:
         source_check = [c for c in data["checks"] if c["name"] == "source_health"][0]
         assert source_check["ok"] is True
 
-    def test_collector_diagnostics_accepts_openrouter_key(
+    def test_collector_diagnostics_accepts_freellmapi_key(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """默认 OpenRouter Key 存在时 AI Key 诊断应通过。"""
+        """默认 FreeLLMAPI Key 存在时 AI Key 诊断应通过。"""
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        monkeypatch.setenv("FREELLMAPI_API_KEY", "freellmapi-test")
 
         client = self._make_client(tmp_path)
         resp = client.get("/api/v1/collector/diagnostics")

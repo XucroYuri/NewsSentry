@@ -82,6 +82,27 @@ class TestDeclaredConfigSchemas:
         loader._validate_resolved_schema(data or {}, schema_declared_file)
 
 
+# ── ProviderRoutes ─────────────────────────────────────────────
+
+
+class TestProviderRoutesConfig:
+    """Provider routes must keep FreeLLMAPI as the only remote AI entrypoint."""
+
+    @pytest.fixture(params=list(CONFIG_DIR.glob("provider/routes*.yaml")))
+    def provider_routes_file(self, request: pytest.FixtureRequest) -> Path:
+        return request.param
+
+    def test_only_freellmapi_remote_provider(self, provider_routes_file: Path) -> None:
+        data = _load_yaml(provider_routes_file)
+        remote_providers = {
+            route.get("provider")
+            for route in data.get("routes", [])
+            if route.get("provider") != "local"
+        }
+
+        assert remote_providers == {"freellmapi"}
+
+
 # ── SourceChannel ──────────────────────────────────────────────
 
 

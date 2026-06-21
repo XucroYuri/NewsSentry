@@ -348,7 +348,7 @@ jobs:
             NEWSSENTRY_LOG_LEVEL=INFO
             ENVEOF
               sed -i "s|__DATA_DIR__|/srv/news-sentry/${ENV}/data|" "${DEPLOY_BASE}/${ENV}/.env"
-              echo "⚠️  Created .env template — please add OPENROUTER_API_KEY, NEWSSENTRY_API_KEY, and FREELLMAPI_API_KEY"
+              echo "⚠️  Created .env template — please add NEWSSENTRY_API_KEY and FREELLMAPI_API_KEY"
             fi
             upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "FREELLMAPI_BASE_URL" "http://127.0.0.1:${FREELLMAPI_PORT}/v1"
             upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "FREELLMAPI_DEFAULT_MODEL" "auto"
@@ -360,7 +360,7 @@ jobs:
             upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_PUBLIC_PUBLICATION_INTERVAL" "5"
             upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_PUBLIC_PUBLICATION_PER_CYCLE" "50"
             if ! grep -qE "^FREELLMAPI_API_KEY=" "${DEPLOY_BASE}/${ENV}/.env"; then
-              echo "⚠️  FREELLMAPI_API_KEY missing in ${DEPLOY_BASE}/${ENV}/.env; public publication worker will fall back to other routes until configured"
+              echo "⚠️  FREELLMAPI_API_KEY missing in ${DEPLOY_BASE}/${ENV}/.env; AI publication routes will stay unavailable until configured"
             fi
 
             # ── 6. systemd 服务文件（首次或更新） ──

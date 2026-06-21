@@ -2,54 +2,63 @@
 # 契约: docs/contracts-canonical.md §7
 # ADR: ADR-0005
 #
-# AI Provider 路由配置 — Phase 5 多 Provider 路由
-# 默认使用 OpenRouter（OpenAI-compatible API）free 模型池。
+# AI Provider 路由配置 — FreeLLMAPI 统一接入版
+# 所有远程 AI 能力只通过本机 FreeLLMAPI OpenAI-compatible sidecar 调用。
+# 上游 Google / Groq / OpenRouter / NVIDIA / OpenCode 等 provider keys
+# 只在 FreeLLMAPI Dashboard 中维护，News Sentry 不再直接持有这些上游 key。
+#
 # 需要设置:
-#   OPENROUTER_API_KEY
-# 可选覆盖:
-#   OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-#   OPENROUTER_DEFAULT_MODEL=openai/gpt-oss-20b:free
-# FreeLLMAPI 本地 sidecar:
 #   FREELLMAPI_BASE_URL=http://127.0.0.1:3001/v1
 #   FREELLMAPI_API_KEY
 #   FREELLMAPI_DEFAULT_MODEL=auto
-# Nvidia 低并发兜底复用 Anthropic-compatible provider:
-#   ANTHROPIC_BASE_URL=https://integrate.api.nvidia.com
-#   ANTHROPIC_AUTH_TOKEN=<set in runtime env>
-routes_version: "1.3.0"
+routes_version: "1.4.0"
 
 routes:
 
-  # ── 翻译任务 ──────────────────────────────────────────
+  # ── 公共出版加工 ──────────────────────────────────────
 
   - route_id: translate.public
     task_type: translate
     provider: freellmapi
     model: auto
     model_env_var: FREELLMAPI_DEFAULT_MODEL
-    timeout_seconds: 45
+    timeout_seconds: 60
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
     fallback_route_ids:
       - translate.batch
-    notes: "公共站发布前置翻译：由 FreeLLMAPI OpenAI-compatible sidecar 统一生成 metadata.translation.title_pre / summary_pre"
+    notes: "公共站发布前置翻译：由 FreeLLMAPI 统一生成中文标题与摘要"
 
   - route_id: public.summary_reason
     task_type: public_enrichment
     provider: freellmapi
     model: auto
     model_env_var: FREELLMAPI_DEFAULT_MODEL
-    timeout_seconds: 45
+    timeout_seconds: 60
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
     fallback_route_ids:
       - ai.enrichment.batch
-      - translate.batch
-    notes: "公共站出版加工：一句话概括与 AI 个性化推荐理由"
+    notes: "公共站出版加工：一句话概括、摘要、推荐理由与标签"
 
   - route_id: public.enrichment
+    task_type: translate
+    provider: freellmapi
+    model: auto
+    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    timeout_seconds: 60
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    fallback_route_ids:
+      - translate.batch
+    notes: "公共翻译与出版加工兼容入口"
+
+  # ── 翻译任务 ──────────────────────────────────────────
+
+  - route_id: translate.fast
     task_type: translate
     provider: freellmapi
     model: auto
@@ -57,220 +66,195 @@ routes:
     timeout_seconds: 45
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
-    audit: true
-    fallback_route_ids:
-      - translate.batch
-    notes: "FreeLLMAPI OpenAI-compatible sidecar：公共翻译/出版加工兜底"
-
-  - route_id: translate.fast
-    task_type: translate
-    provider: openrouter
-    model: openai/gpt-oss-20b:free
-    model_pool: &openrouter_free_model_pool
-      - openai/gpt-oss-20b:free
-      - openai/gpt-oss-120b:free
-      - google/gemma-4-31b-it:free
-      - google/gemma-4-26b-a4b-it:free
-      - qwen/qwen3-next-80b-a3b-instruct:free
-      - z-ai/glm-4.5-air:free
-      - liquid/lfm-2.5-1.2b-instruct:free
-      - meta-llama/llama-3.3-70b-instruct:free
-    timeout_seconds: 30
-    max_cost_usd_per_call: 0.0
-    output_schema_ref: null
     audit: false
     fallback_route_ids:
-      - translate.nvidia
-    notes: "collect 阶段快速预翻译标题（metadata.translation.title_pre）"
+      - translate.batch
+    notes: "collect 阶段快速预翻译标题"
 
   - route_id: translate.high
     task_type: translate
-    provider: openrouter
-    model: openai/gpt-oss-20b:free
-    model_pool: *openrouter_free_model_pool
-    timeout_seconds: 60
-    max_cost_usd_per_call: 0.0
-    output_schema_ref: null
-    audit: true
-    fallback_route_ids:
-      - translate.nvidia
-    notes: "judge 阶段高质量翻译（title_translated / content_translated）"
-
-  - route_id: translate.batch
-    task_type: translate
-    provider: openrouter
-    model: openai/gpt-oss-20b:free
-    model_pool: *openrouter_free_model_pool
-    timeout_seconds: 60
-    max_cost_usd_per_call: 0.0
-    output_schema_ref: null
-    audit: true
-    fallback_route_ids:
-      - translate.nvidia
-    notes: "低频 AI 增强批处理：JSON 标题翻译"
-
-  - route_id: translate.nvidia
-    task_type: translate
-    provider: anthropic
-    model: deepseek-ai/deepseek-v4-flash
-    model_env_var: ANTHROPIC_DEFAULT_HAIKU_MODEL
+    provider: freellmapi
+    model: auto
+    model_env_var: FREELLMAPI_DEFAULT_MODEL
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
-    notes: "Nvidia 低并发免费计划兜底：翻译任务"
+    fallback_route_ids:
+      - translate.batch
+    notes: "judge 阶段高质量翻译"
+
+  - route_id: translate.batch
+    task_type: translate
+    provider: freellmapi
+    model: auto
+    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    timeout_seconds: 90
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    notes: "低频 AI 增强批处理：JSON 标题与摘要翻译"
+
+  - route_id: translate.nvidia
+    task_type: translate
+    provider: freellmapi
+    model: auto
+    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    timeout_seconds: 90
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    notes: "历史 route_id 兼容：当前统一指向 FreeLLMAPI"
+
+  # ── 聚类 / 复核 / 增强 ────────────────────────────────
 
   - route_id: cluster.brief
     task_type: cluster
-    provider: openrouter
-    model: openai/gpt-oss-20b:free
-    model_pool: *openrouter_free_model_pool
-    timeout_seconds: 60
+    provider: freellmapi
+    model: auto
+    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
     fallback_route_ids:
       - cluster.nvidia
-    notes: "低频 AI 增强批处理：聚类中文标签和摘要"
+    notes: "聚类中文标签和摘要"
 
   - route_id: cluster.nvidia
     task_type: cluster
-    provider: anthropic
-    model: z-ai/glm-5.1
-    model_env_var: ANTHROPIC_DEFAULT_SONNET_MODEL
+    provider: freellmapi
+    model: auto
+    model_env_var: FREELLMAPI_DEFAULT_MODEL
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
-    notes: "Nvidia 低并发免费计划兜底：聚类摘要"
+    notes: "历史 route_id 兼容：当前统一指向 FreeLLMAPI"
 
   - route_id: judge.review.batch
     task_type: judge_review
-    provider: openrouter
-    model: openai/gpt-oss-20b:free
-    model_pool: *openrouter_free_model_pool
-    timeout_seconds: 60
+    provider: freellmapi
+    model: auto
+    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
     fallback_route_ids:
       - judge.review.nvidia
-    notes: "低频 AI 增强批处理：疑难事件复核建议"
+    notes: "疑难事件复核建议"
 
   - route_id: judge.review.nvidia
     task_type: judge_review
-    provider: anthropic
-    model: z-ai/glm-5.1
-    model_env_var: ANTHROPIC_DEFAULT_SONNET_MODEL
+    provider: freellmapi
+    model: auto
+    model_env_var: FREELLMAPI_DEFAULT_MODEL
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
-    notes: "Nvidia 低并发免费计划兜底：疑难事件复核"
+    notes: "历史 route_id 兼容：当前统一指向 FreeLLMAPI"
 
   - route_id: ai.enrichment.batch
     task_type: ai_enrichment
-    provider: openrouter
-    model: openai/gpt-oss-20b:free
-    model_pool: *openrouter_free_model_pool
-    timeout_seconds: 90
-    max_cost_usd_per_call: 0.0
-    output_schema_ref: null
-    audit: true
-    fallback_route_ids:
-      - ai.enrichment.nvidia
-    notes: "低频 AI 增强合并路由：单次 JSON 同时处理翻译、聚类摘要和复核建议"
-
-  - route_id: ai.enrichment.nvidia
-    task_type: ai_enrichment
-    provider: anthropic
-    model: z-ai/glm-5.1
-    model_env_var: ANTHROPIC_DEFAULT_SONNET_MODEL
+    provider: freellmapi
+    model: auto
+    model_env_var: FREELLMAPI_DEFAULT_MODEL
     timeout_seconds: 120
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
-    notes: "Nvidia 低并发免费计划兜底：低频 AI 增强合并任务"
+    notes: "低频 AI 增强合并任务：翻译、摘要、聚类、复核"
+
+  - route_id: ai.enrichment.nvidia
+    task_type: ai_enrichment
+    provider: freellmapi
+    model: auto
+    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    timeout_seconds: 120
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    notes: "历史 route_id 兼容：当前统一指向 FreeLLMAPI"
 
   # ── 判断任务 ──────────────────────────────────────────
 
   - route_id: judge.primary
     task_type: judge
-    provider: openrouter
-    model: openai/gpt-oss-20b:free
-    model_pool: *openrouter_free_model_pool
-    timeout_seconds: 60
+    provider: freellmapi
+    model: auto
+    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: "schemas/toolrunresult.schema.json"
     audit: true
     fallback_route_ids:
-      - judge.nvidia
       - fallback.local
     notes: "主研判路由：计算 news_value_score / china_relevance / recommendation"
 
   - route_id: judge.anthropic
     task_type: judge
-    provider: anthropic
-    model: z-ai/glm-5.1
-    model_env_var: ANTHROPIC_DEFAULT_SONNET_MODEL
-    timeout_seconds: 60
-    max_cost_usd_per_call: 0.0
-    output_schema_ref: "schemas/toolrunresult.schema.json"
-    audit: true
-    fallback_route_ids:
-      - fallback.local
-    notes: "研判备用路由：历史 route_id 保留，当前指向 Anthropic-compatible/Nvidia"
-
-  - route_id: judge.nvidia
-    task_type: judge
-    provider: anthropic
-    model: z-ai/glm-5.1
-    model_env_var: ANTHROPIC_DEFAULT_SONNET_MODEL
+    provider: freellmapi
+    model: auto
+    model_env_var: FREELLMAPI_DEFAULT_MODEL
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: "schemas/toolrunresult.schema.json"
     audit: true
     fallback_route_ids:
       - fallback.local
-    notes: "Nvidia 低并发免费计划兜底：研判任务"
+    notes: "历史 route_id 兼容：当前统一指向 FreeLLMAPI"
+
+  - route_id: judge.nvidia
+    task_type: judge
+    provider: freellmapi
+    model: auto
+    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    timeout_seconds: 90
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: "schemas/toolrunresult.schema.json"
+    audit: true
+    fallback_route_ids:
+      - fallback.local
+    notes: "历史 route_id 兼容：当前统一指向 FreeLLMAPI"
 
   # ── 分类任务 ──────────────────────────────────────────
 
   - route_id: classify.primary
     task_type: classify
-    provider: openrouter
-    model: openai/gpt-oss-20b:free
-    model_pool: *openrouter_free_model_pool
-    timeout_seconds: 30
+    provider: freellmapi
+    model: auto
+    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    timeout_seconds: 60
     max_cost_usd_per_call: 0.0
     output_schema_ref: "schemas/classification.schema.json"
     audit: true
     fallback_route_ids:
-      - classify.nvidia
       - fallback.local
-    notes: "LLM 分类路由（L0–L3），失败回退到规则引擎"
+    notes: "LLM 分类路由（L0-L3），失败回退到规则引擎"
 
   - route_id: classify.nvidia
     task_type: classify
-    provider: anthropic
-    model: deepseek-ai/deepseek-v4-flash
-    model_env_var: ANTHROPIC_DEFAULT_HAIKU_MODEL
+    provider: freellmapi
+    model: auto
+    model_env_var: FREELLMAPI_DEFAULT_MODEL
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: "schemas/classification.schema.json"
     audit: true
     fallback_route_ids:
       - fallback.local
-    notes: "Nvidia 低并发免费计划兜底：分类任务"
+    notes: "历史 route_id 兼容：当前统一指向 FreeLLMAPI"
 
-  # ── NLP 分析任务 ──────────────────────────────────────────
+  # ── NLP 分析任务 ──────────────────────────────────────
 
   - route_id: nlp.ai-fast
     task_type: nlp
-    provider: openrouter
-    model: openai/gpt-oss-20b:free
-    model_pool: *openrouter_free_model_pool
-    timeout_seconds: 30
+    provider: freellmapi
+    model: auto
+    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    timeout_seconds: 60
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: false
@@ -280,14 +264,14 @@ routes:
 
   - route_id: nlp.nvidia
     task_type: nlp
-    provider: anthropic
-    model: deepseek-ai/deepseek-v4-flash
-    model_env_var: ANTHROPIC_DEFAULT_HAIKU_MODEL
+    provider: freellmapi
+    model: auto
+    model_env_var: FREELLMAPI_DEFAULT_MODEL
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
-    notes: "Nvidia 低并发免费计划兜底：NLP 增强"
+    notes: "历史 route_id 兼容：当前统一指向 FreeLLMAPI"
 
   # ── 本地回退路由 ──────────────────────────────────────
 
@@ -299,7 +283,6 @@ routes:
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: false
-    notes: "最终回退：本地规则引擎，无 API 依赖，输出质量较低"
+    notes: "最终回退：本地规则引擎，无 API 依赖"
 
-# 所有路由失败时的最终回退
 fallback_route_id: fallback.local
