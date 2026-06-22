@@ -52,6 +52,68 @@ def _ready_public_metadata(title: str = "公开新闻") -> dict[str, Any]:
     }
 
 
+def _public_home_bootstrap_payload(title: str = "快照首屏标题") -> api_server_module.PublicBootstrapResponse:
+    return api_server_module.PublicBootstrapResponse(
+        news=api_server_module.PublicNewsFeedResponse(
+            items=[
+                api_server_module.PublicNewsItem(
+                    id="snapshot-event-001",
+                    targetId="italy",
+                    targetLabel="意大利新闻监控",
+                    source={
+                        "id": "ansa",
+                        "name": "ANSA",
+                        "type": "rss",
+                        "credibilityLabel": "主流媒体",
+                    },
+                    publishedAt="2026-06-13T09:00:00Z",
+                    title=title,
+                    originalTitle="Snapshot original",
+                    summary="快照首屏摘要",
+                    recommendationReason="快照推荐理由",
+                    originalUrl="https://example.com/snapshot",
+                    detailUrl="/public-app/events/snapshot-event-001?target_id=italy",
+                    tags=["国际关系"],
+                    issueTags=["外交"],
+                    relatedTags=["涉欧"],
+                    regionTags=["意大利"],
+                    entities=[],
+                    relatedCount=0,
+                    discussionCount=0,
+                    valueLabel="精选",
+                    valueScore=83,
+                    chinaRelevanceLabel="高",
+                )
+            ],
+            latestCursor=None,
+            nextCursor=None,
+            pollAfterMs=60000,
+            hasNewer=False,
+            total=1,
+        ),
+        regions=api_server_module.RegionListResponse(
+            regions=[
+                api_server_module.RegionInfo(
+                    region_id="italy",
+                    display_name="意大利新闻监控",
+                    primary_language="it",
+                    region_type="country",
+                    source_count=3,
+                    event_count=1,
+                    lifecycle={},
+                    archived=False,
+                )
+            ]
+        ),
+        facets=api_server_module.PublicFacetsResponse(
+            regions=[api_server_module.PublicFacetItem(id="italy", label="意大利", count=1)],
+            issues=[api_server_module.PublicFacetItem(id="外交", label="外交", count=1)],
+            related=[api_server_module.PublicFacetItem(id="涉欧", label="涉欧", count=1)],
+        ),
+        generatedAt="2026-06-21T00:00:00Z",
+    )
+
+
 def _close_test_store(store: Any) -> None:
     if isinstance(store, AsyncStore) and store._db is not None:  # noqa: SLF001
         asyncio.run(store.close())
@@ -607,6 +669,38 @@ class TestAPIServer:
         )
         assert "跨境新闻信号过滤器" not in homepage_resp.text
         assert "legacy-shell" not in homepage_resp.text
+
+    def test_public_app_embeds_home_snapshot_for_first_paint(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        static_dir = tmp_path / "static"
+        public_app_dir = static_dir / "public_app"
+        public_app_dir.mkdir(parents=True)
+        (public_app_dir / "index.html").write_text(
+            '<html><body><div id="root"></div></body></html>',
+            encoding="utf-8",
+        )
+        data_dir = tmp_path / "data"
+        snapshot_path = data_dir / "public" / "bootstrap-home-snapshot.json"
+        snapshot_path.parent.mkdir(parents=True)
+        snapshot_path.write_text(
+            api_server_module._public_model_json(_public_home_bootstrap_payload("快照 <首屏> 标题")),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(api_server_module, "_static_dir", lambda: static_dir)
+        app = create_app(data_dir=data_dir, auto_store=False)
+        client = TestClient(app)
+
+        response = client.get("/public-app/")
+
+        assert response.status_code == 200
+        assert 'id="news-sentry-bootstrap"' in response.text
+        assert 'type="application/json"' in response.text
+        assert "快照 \\u003c首屏> 标题" in response.text
+        assert response.headers["x-news-sentry-first-paint-mode"] == "inline"
+        assert int(response.headers["x-news-sentry-snapshot-age-seconds"]) <= 180
 
     def test_public_app_entry_supports_head(
         self,

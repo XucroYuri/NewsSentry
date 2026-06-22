@@ -8,6 +8,7 @@ import {
   listPublicNews,
   listTargets,
   PublicNewsApiError,
+  readInlineBootstrap,
 } from "@/lib/api"
 import type { PublicNewsFeedResponse, PublicNewsItem } from "@/types/public-news"
 
@@ -58,6 +59,32 @@ function jsonResponse(payload: unknown, init: ResponseInit = {}) {
 }
 
 describe("public news API client", () => {
+  function bootstrapPayload() {
+    return {
+      news: feed,
+      regions: {
+        regions: [
+          {
+            region_id: "italy",
+            display_name: "意大利新闻监控",
+            primary_language: "it",
+            region_type: "country",
+            source_count: 163,
+            event_count: 52,
+            lifecycle: {},
+            archived: false,
+          },
+        ],
+      },
+      facets: {
+        regions: [{ id: "italy", label: "意大利", count: 52 }],
+        issues: [{ id: "外交", label: "外交", count: 3 }],
+        related: [{ id: "涉欧", label: "涉欧", count: 2 }],
+      },
+      generatedAt: "2026-06-21T00:00:00Z",
+    }
+  }
+
   it("builds the public news query with backend parameter names", () => {
     expect(
       buildPublicNewsUrl({
@@ -161,29 +188,7 @@ describe("public news API client", () => {
   it("loads the public bootstrap payload for first paint", async () => {
     const fetcher = vi.fn(async () =>
       jsonResponse(
-        {
-          news: feed,
-          regions: {
-            regions: [
-              {
-                region_id: "italy",
-                display_name: "意大利新闻监控",
-                primary_language: "it",
-                region_type: "country",
-                source_count: 163,
-                event_count: 52,
-                lifecycle: {},
-                archived: false,
-              },
-            ],
-          },
-          facets: {
-            regions: [{ id: "italy", label: "意大利", count: 52 }],
-            issues: [{ id: "外交", label: "外交", count: 3 }],
-            related: [{ id: "涉欧", label: "涉欧", count: 2 }],
-          },
-          generatedAt: "2026-06-21T00:00:00Z",
-        },
+        bootstrapPayload(),
         { headers: { ETag: '"bootstrap-tag"' } },
       ),
     ) as typeof fetch
@@ -196,6 +201,25 @@ describe("public news API client", () => {
     expect(result.data.news.items[0]?.title).toContain("意大利总理")
     expect(result.data.facets.issues[0]?.label).toBe("外交")
     expect(result.etag).toBe('"bootstrap-tag"')
+  })
+
+  it("reads inline public bootstrap JSON for first paint", () => {
+    document.body.innerHTML = `<script id="news-sentry-bootstrap" type="application/json">${JSON.stringify(
+      bootstrapPayload(),
+    )}</script>`
+
+    const result = readInlineBootstrap()
+
+    expect(result?.etag).toBeNull()
+    expect(result?.data.news.items[0]?.title).toContain("意大利总理")
+    expect(result?.data.facets.issues[0]?.label).toBe("外交")
+  })
+
+  it("ignores malformed inline bootstrap JSON and lets callers use the network", () => {
+    document.body.innerHTML =
+      '<script id="news-sentry-bootstrap" type="application/json">{"news":</script>'
+
+    expect(readInlineBootstrap()).toBeNull()
   })
 
   it("loads public target analysis for the right rail", async () => {

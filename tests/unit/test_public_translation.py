@@ -196,6 +196,131 @@ async def test_public_news_rows_can_query_ready_events_across_targets(tmp_path) 
 
 
 @pytest.mark.asyncio
+async def test_public_news_rows_filter_public_issue_and_related_tags(tmp_path) -> None:
+    store = AsyncStore(tmp_path / "state.db")
+    await store.initialize()
+    common_translation = {
+        "translation": {
+            "title_pre": "公共新闻完成加工",
+            "summary_pre": "该新闻已有中文摘要，可以进入公共站。",
+        },
+    }
+    try:
+        await store.index_event(
+            _event(
+                "ne-tech-china",
+                metadata={
+                    **common_translation,
+                    "publication": {
+                        "one_line_summary": "科技政策进入公共新闻流。",
+                        "recommendation_reason": "AI 推荐理由指出该事件影响产业与政策判断。",
+                        "issue_tags": ["科技"],
+                        "related_tags": ["涉中"],
+                        "region_tags": ["意大利"],
+                    },
+                },
+                score=92,
+            ),
+            "italy",
+            "drafts",
+        )
+        await store.index_event(
+            _event(
+                "ne-diplomacy-eu",
+                metadata={
+                    **common_translation,
+                    "publication": {
+                        "one_line_summary": "外交新闻进入公共新闻流。",
+                        "recommendation_reason": "AI 推荐理由指出该事件影响欧洲政策判断。",
+                        "issue_tags": ["外交"],
+                        "related_tags": ["涉欧"],
+                        "region_tags": ["法国"],
+                    },
+                },
+                score=88,
+            ),
+            "france",
+            "drafts",
+        )
+
+        issue_result = await store.query_public_news_rows(
+            None,
+            "drafts",
+            limit=10,
+            issue="科技",
+        )
+        related_result = await store.query_public_news_rows(
+            None,
+            "drafts",
+            limit=10,
+            related="涉欧",
+        )
+
+        assert issue_result["total"] == 1
+        assert [row["event_id"] for row in issue_result["rows"]] == ["ne-tech-china"]
+        assert related_result["total"] == 1
+        assert [row["event_id"] for row in related_result["rows"]] == ["ne-diplomacy-eu"]
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_public_facet_rows_aggregate_ready_publication_tags(tmp_path) -> None:
+    store = AsyncStore(tmp_path / "state.db")
+    await store.initialize()
+    france_metadata = {
+        "translation": {
+            "title_pre": "法国公共新闻完成加工",
+            "summary_pre": "该新闻已有中文摘要，可以进入公共站。",
+        },
+        "publication": {
+            "one_line_summary": "法国公共新闻完成加工。",
+            "recommendation_reason": "AI 推荐理由指出该事件影响跨境观察的政策判断。",
+            "issue_tags": ["国际关系"],
+            "related_tags": ["涉欧"],
+            "region_tags": ["法国"],
+        },
+    }
+    italy_metadata = {
+        "translation": {
+            "title_pre": "意大利科技政策完成加工",
+            "summary_pre": "该新闻已有中文摘要，可以进入公共站。",
+        },
+        "publication": {
+            "one_line_summary": "意大利科技政策完成加工。",
+            "recommendation_reason": "AI 推荐理由指出该事件影响跨境观察的产业判断。",
+            "issue_tags": ["科技", "国际关系"],
+            "related_tags": ["涉中"],
+            "region_tags": ["意大利"],
+        },
+    }
+    try:
+        await store.index_event(
+            _event("ne-france-facet", metadata=france_metadata, score=90),
+            "france",
+            "drafts",
+        )
+        await store.index_event(
+            _event("ne-italy-facet", metadata=italy_metadata, score=86),
+            "italy",
+            "drafts",
+        )
+        await store.index_event(_event("ne-hidden-facet", score=99), "italy", "drafts")
+
+        facets = await store.query_public_facet_rows(stage="drafts")
+        filtered = await store.query_public_facet_rows(stage="drafts", issue="科技")
+
+        assert facets["regions"] == {"france": 1, "italy": 1}
+        assert facets["issues"] == {"国际关系": 2, "科技": 1}
+        assert facets["related"] == {"涉中": 1, "涉欧": 1}
+        assert filtered["regions"] == {"italy": 1}
+        assert filtered["issues"] == {"国际关系": 1, "科技": 1}
+        assert filtered["related"] == {"涉中": 1}
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
 async def test_update_event_metadata_recomputes_public_translation_ready(tmp_path) -> None:
     store = AsyncStore(tmp_path / "state.db")
     await store.initialize()

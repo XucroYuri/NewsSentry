@@ -34,7 +34,7 @@ import { useHashRoute } from "@/hooks/use-hash-route"
 import { usePublicAnalysis } from "@/hooks/use-public-analysis"
 import { usePublicFeed } from "@/hooks/use-public-feed"
 import { usePublicTargets } from "@/hooks/use-public-targets"
-import { getPublicBootstrap, listPublicFacets } from "@/lib/api"
+import { getPublicBootstrap, listPublicFacets, readInlineBootstrap } from "@/lib/api"
 import { type FeedFilters, makeFeedQuery, type PublicChannel } from "@/lib/feed-state"
 import { targetShortLabel, todayKey } from "@/lib/public-view"
 import { buildPublicAppPath, routeToChannel, type PublicRoute } from "@/lib/routes"
@@ -246,13 +246,42 @@ function regionsToTargets(payload: PublicBootstrapResponse | null): PublicTarget
   }))
 }
 
+function isDefaultHomeBootstrapFilters(filters: FeedFilters) {
+  return (
+    filters.channel === "featured" &&
+    filters.pageSize === PAGE_SIZE &&
+    !filters.targetId &&
+    !filters.sourceId &&
+    !filters.category &&
+    !filters.issue &&
+    !filters.related &&
+    !filters.search &&
+    !filters.date
+  )
+}
+
+function inlineBootstrapForFilters(filters: FeedFilters): PublicBootstrapResponse | null {
+  if (!isDefaultHomeBootstrapFilters(filters)) return null
+  return readInlineBootstrap()?.data ?? null
+}
+
 function usePublicBootstrap(filters: FeedFilters): BootstrapState {
-  const [state, setState] = useState<BootstrapState>({ status: "loading", data: null })
+  const [state, setState] = useState<BootstrapState>(() => {
+    const inlineBootstrap = inlineBootstrapForFilters(filters)
+    return inlineBootstrap
+      ? { status: "ready", data: inlineBootstrap }
+      : { status: "loading", data: null }
+  })
 
   useEffect(() => {
     let cancelled = false
     const controller = new AbortController()
-    setState({ status: "loading", data: null })
+    const inlineBootstrap = inlineBootstrapForFilters(filters)
+    setState(
+      inlineBootstrap
+        ? { status: "ready", data: inlineBootstrap }
+        : { status: "loading", data: null },
+    )
     async function loadBootstrap() {
       try {
         const result = await getPublicBootstrap(makeFeedQuery(filters), {
@@ -260,7 +289,7 @@ function usePublicBootstrap(filters: FeedFilters): BootstrapState {
         })
         if (!cancelled) setState({ status: "ready", data: result.data })
       } catch {
-        if (!cancelled) setState({ status: "error", data: null })
+        if (!cancelled && !inlineBootstrap) setState({ status: "error", data: null })
       }
     }
     void loadBootstrap()

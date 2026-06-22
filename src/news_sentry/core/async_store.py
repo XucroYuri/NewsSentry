@@ -1242,8 +1242,86 @@ class AsyncStore:
             "GROUP BY target_id",
             (stage,),
         ) as cursor:
-            rows = await cursor.fetchall()
+                rows = await cursor.fetchall()
         return {str(row[0]): int(row[1] or 0) for row in rows if row[0]}
+
+    async def query_public_facet_rows(
+        self,
+        *,
+        target_id: str | None = None,
+        stage: str = "drafts",
+        issue: str | None = None,
+        related: str | None = None,
+        date: str | None = None,
+    ) -> dict[str, dict[str, int]]:
+        """Aggregate public reader facets from event_index without materializing news rows."""
+        if self._db is None:
+            return {"regions": {}, "issues": {}, "related": {}}
+
+        conditions = [
+            "ei.stage = ?",
+            "ei.public_translation_ready = 1",
+            "json_valid(COALESCE(ei.metadata_json, '{}'))",
+        ]
+        params: list[Any] = [stage]
+        if target_id is not None:
+            conditions.append("ei.target_id = ?")
+            params.append(target_id)
+        if date is not None:
+            conditions.append("substr(COALESCE(ei.published_at, ei.created_at), 1, 10) = ?")
+            params.append(date)
+        if issue is not None:
+            conditions.append(
+                "EXISTS ("
+                "SELECT 1 FROM json_each(COALESCE(ei.metadata_json, '{}'), "
+                "'$.publication.issue_tags') AS issue_filter "
+                "WHERE issue_filter.value = ?"
+                ")"
+            )
+            params.append(issue)
+        if related is not None:
+            conditions.append(
+                "EXISTS ("
+                "SELECT 1 FROM json_each(COALESCE(ei.metadata_json, '{}'), "
+                "'$.publication.related_tags') AS related_filter "
+                "WHERE related_filter.value = ?"
+                ")"
+            )
+            params.append(related)
+        where = " AND ".join(conditions)
+
+        async def _count_tags(path: str) -> dict[str, int]:
+            sql = (
+                "SELECT tag.value, COUNT(*) "
+                "FROM event_index AS ei "
+                f"JOIN json_each(COALESCE(ei.metadata_json, '{{}}'), '{path}') AS tag "  # noqa: S608
+                f"WHERE {where} AND typeof(tag.value) = 'text' AND tag.value <> '' "  # noqa: S608
+                "GROUP BY tag.value "
+                "ORDER BY COUNT(*) DESC, tag.value ASC"
+            )
+            async with self._db.execute(sql, params) as cursor:
+                rows = await cursor.fetchall()
+            return {str(row[0]): int(row[1] or 0) for row in rows if row[0]}
+
+        region_sql = (
+            "SELECT ei.target_id, COUNT(*) "
+            "FROM event_index AS ei "
+            f"WHERE {where} "  # noqa: S608
+            "GROUP BY ei.target_id "
+            "ORDER BY COUNT(*) DESC, ei.target_id ASC"
+        )
+        async with self._db.execute(region_sql, params) as cursor:
+            region_rows = await cursor.fetchall()
+
+        return {
+            "regions": {
+                str(row[0]): int(row[1] or 0)
+                for row in region_rows
+                if row[0]
+            },
+            "issues": await _count_tags("$.publication.issue_tags"),
+            "related": await _count_tags("$.publication.related_tags"),
+        }
 
     async def get_stats(self, target_id: str) -> dict[str, Any]:
         if self._db is None:
@@ -1367,6 +1445,8 @@ class AsyncStore:
         min_score: int | None = None,
         date: str | None = None,
         search: str | None = None,
+        issue: str | None = None,
+        related: str | None = None,
         before_key: tuple[str, str] | None = None,
         since_key: tuple[str, str] | None = None,
     ) -> dict[str, Any]:
@@ -1401,6 +1481,26 @@ class AsyncStore:
                 "COALESCE(source_id, '') || ' ' || COALESCE(metadata_json, '')) LIKE ?"
             )
             params.append(f"%{search.lower()}%")
+        if issue is not None:
+            conditions.append(
+                "EXISTS ("
+                "SELECT 1 FROM json_each("
+                "CASE WHEN json_valid(COALESCE(metadata_json, '{}')) "
+                "THEN COALESCE(metadata_json, '{}') ELSE '{}' END, "
+                "'$.publication.issue_tags'"
+                ") AS issue_filter WHERE issue_filter.value = ?)"
+            )
+            params.append(issue)
+        if related is not None:
+            conditions.append(
+                "EXISTS ("
+                "SELECT 1 FROM json_each("
+                "CASE WHEN json_valid(COALESCE(metadata_json, '{}')) "
+                "THEN COALESCE(metadata_json, '{}') ELSE '{}' END, "
+                "'$.publication.related_tags'"
+                ") AS related_filter WHERE related_filter.value = ?)"
+            )
+            params.append(related)
         if before_key is not None:
             before_time, before_event_id = before_key
             conditions.append(

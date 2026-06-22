@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -79,6 +80,11 @@ class ProjectionOnlyStore:
         return rows[offset : offset + limit]
 
 
+class ExplodingProjectionStore(ProjectionOnlyStore):
+    async def query_public_projection_rows(self, **_: Any) -> list[dict[str, Any]]:
+        raise AssertionError("fresh home bootstrap snapshot should not recompute news")
+
+
 class EmptyGlobalPublicStore(ProjectionOnlyStore):
     async def query_public_news_rows(self, **_: Any) -> dict[str, Any]:
         return {"rows": [], "total": 0}
@@ -143,6 +149,73 @@ class FilterAwareProjectionStore(ProjectionOnlyStore):
         )
 
 
+class StoreBackedFacetStore(ProjectionOnlyStore):
+    def __init__(self) -> None:
+        super().__init__([])
+        self.facet_calls = 0
+        self.facet_kwargs: dict[str, Any] = {}
+
+    async def query_public_facet_rows(self, **kwargs: Any) -> dict[str, dict[str, int]]:
+        self.facet_calls += 1
+        self.facet_kwargs = kwargs
+        return {
+            "regions": {"italy": 2, "france": 1},
+            "issues": {"科技": 2, "能源": 1},
+            "related": {"涉中": 2, "涉欧": 1},
+        }
+
+    async def query_public_projection_rows(self, **_: Any) -> list[dict[str, Any]]:
+        raise AssertionError("facets should use store-backed aggregation")
+
+
+class GlobalBootstrapNewsStore(ProjectionOnlyStore):
+    def __init__(self, row: dict[str, Any]) -> None:
+        super().__init__([row])
+        self.global_news_calls = 0
+
+    async def query_public_news_rows(
+        self,
+        target_id: str | None,
+        stage: str,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        self.global_news_calls += 1
+        assert target_id is None
+        assert stage == "drafts"
+        assert kwargs["min_score"] == api_server._PUBLIC_NEWS_FEATURED_SCORE
+        return {"total": 1, "rows": self._rows}
+
+    async def query_public_facet_rows(self, **_: Any) -> dict[str, dict[str, int]]:
+        return {
+            "regions": {"italy": 1},
+            "issues": {"外交": 1},
+            "related": {"涉欧": 1},
+        }
+
+    async def query_public_projection_rows(self, **_: Any) -> list[dict[str, Any]]:
+        raise AssertionError("default bootstrap should use global store news rows")
+
+
+class GlobalFilteredNewsStore(ProjectionOnlyStore):
+    def __init__(self, row: dict[str, Any]) -> None:
+        super().__init__([row])
+        self.news_kwargs: dict[str, Any] = {}
+
+    async def query_public_news_rows(
+        self,
+        target_id: str | None,
+        stage: str,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        assert target_id is None
+        assert stage == "drafts"
+        self.news_kwargs = kwargs
+        return {"total": 1, "rows": self._rows}
+
+    async def query_public_projection_rows(self, **_: Any) -> list[dict[str, Any]]:
+        raise AssertionError("global filtered news should use store rows")
+
+
 def _projection_row(
     *,
     event_id: str,
@@ -172,6 +245,78 @@ def _projection_row(
         "classification_l0": classification_l0,
         "metadata": _merge_metadata(base_metadata, metadata),
     }
+
+
+def _home_bootstrap_snapshot_payload(title: str = "快照首屏标题") -> api_server.PublicBootstrapResponse:
+    return api_server.PublicBootstrapResponse(
+        news=api_server.PublicNewsFeedResponse(
+            items=[
+                api_server.PublicNewsItem(
+                    id="snapshot-event-001",
+                    targetId="italy",
+                    targetLabel="意大利新闻监控",
+                    source={
+                        "id": "ansa",
+                        "name": "ANSA",
+                        "type": "rss",
+                        "credibilityLabel": "主流媒体",
+                    },
+                    publishedAt="2026-06-13T09:00:00Z",
+                    title=title,
+                    originalTitle="Snapshot original",
+                    summary="快照首屏摘要",
+                    recommendationReason="快照推荐理由",
+                    originalUrl="https://example.com/snapshot",
+                    detailUrl="/public-app/events/snapshot-event-001?target_id=italy",
+                    tags=["国际关系"],
+                    issueTags=["外交"],
+                    relatedTags=["涉欧"],
+                    regionTags=["意大利"],
+                    entities=[],
+                    relatedCount=0,
+                    discussionCount=0,
+                    valueLabel="精选",
+                    valueScore=83,
+                    chinaRelevanceLabel="高",
+                )
+            ],
+            latestCursor=None,
+            nextCursor=None,
+            pollAfterMs=60000,
+            hasNewer=False,
+            total=1,
+        ),
+        regions=api_server.RegionListResponse(
+            regions=[
+                api_server.RegionInfo(
+                    region_id="italy",
+                    display_name="意大利新闻监控",
+                    primary_language="it",
+                    region_type="country",
+                    source_count=3,
+                    event_count=1,
+                    lifecycle={},
+                    archived=False,
+                )
+            ]
+        ),
+        facets=api_server.PublicFacetsResponse(
+            regions=[api_server.PublicFacetItem(id="italy", label="意大利", count=1)],
+            issues=[api_server.PublicFacetItem(id="外交", label="外交", count=1)],
+            related=[api_server.PublicFacetItem(id="涉欧", label="涉欧", count=1)],
+        ),
+        generatedAt="2026-06-21T00:00:00Z",
+    )
+
+
+def _write_home_bootstrap_snapshot(
+    data_dir: Path,
+    payload: api_server.PublicBootstrapResponse,
+) -> Path:
+    snapshot_path = data_dir / "public" / "bootstrap-home-snapshot.json"
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    snapshot_path.write_text(api_server._public_model_json(payload), encoding="utf-8")
+    return snapshot_path
 
 
 def test_public_news_list_prefers_projection_rows_over_file_scan(
@@ -217,6 +362,51 @@ def test_public_news_list_prefers_projection_rows_over_file_scan(
     assert item["originalUrl"] == "https://example.com/story"
     assert item["tags"][0] == "国际关系"
     assert item["entities"][0]["name"] == "Meloni"
+
+
+def test_public_news_global_issue_related_filters_use_store_rows(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    store = GlobalFilteredNewsStore(
+        _projection_row(
+            event_id="ne-global-filtered-store",
+            metadata=_ready_translation(
+                title="全局筛选 SQL 标题",
+                summary="这是一条全局公共筛选新闻。",
+                one_line="全局筛选公共新闻进入列表。",
+                reason="这条新闻影响科技政策与涉中观察，值得持续跟踪。",
+                issue_tags=["科技"],
+                related_tags=["涉中"],
+                region_tags=["意大利"],
+            ),
+        )
+    )
+    monkeypatch.setattr(
+        api_server,
+        "_load_target_configs",
+        lambda: [
+            {
+                "target_id": "italy",
+                "display_name": "意大利新闻监控",
+                "region_type": "country",
+                "language_scope": {"primary": "it"},
+                "source_channel_refs": ["ansa"],
+            }
+        ],
+    )
+    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/v1/public/news",
+        params={"issue": "科技", "related": "涉中", "page_size": 5},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["id"] == "ne-global-filtered-store"
+    assert store.news_kwargs["issue"] == "科技"
+    assert store.news_kwargs["related"] == "涉中"
 
 
 def test_public_bootstrap_returns_cached_reader_payload(
@@ -265,6 +455,76 @@ def test_public_bootstrap_returns_cached_reader_payload(
     assert payload["regions"]["regions"][0]["region_id"] == "italy"
     assert payload["facets"]["issues"] == [{"id": "外交", "label": "外交", "count": 1}]
     assert payload["generatedAt"].endswith("Z")
+    assert response.headers["x-news-sentry-first-paint-mode"] == "live"
+    assert response.headers["x-news-sentry-snapshot-age-seconds"] == "0"
+    snapshot_path = tmp_path / "public" / "bootstrap-home-snapshot.json"
+    assert snapshot_path.is_file()
+    snapshot_payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    assert snapshot_payload["news"]["items"][0]["title"] == "意大利公共首屏标题"
+
+
+def test_public_bootstrap_serves_fresh_snapshot_without_recomputing(tmp_path: Path) -> None:
+    snapshot = _home_bootstrap_snapshot_payload("快照立即返回标题")
+    _write_home_bootstrap_snapshot(tmp_path, snapshot)
+    app = create_app(
+        data_dir=tmp_path,
+        store=ExplodingProjectionStore([]),
+        auto_store=False,
+        skip_lifespan=True,
+    )
+    client = TestClient(app)
+
+    response = client.get("/api/v1/public/bootstrap")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["news"]["items"][0]["title"] == "快照立即返回标题"
+    assert payload["generatedAt"] == "2026-06-21T00:00:00Z"
+    assert response.headers["x-news-sentry-first-paint-mode"] == "snapshot"
+    assert int(response.headers["x-news-sentry-snapshot-age-seconds"]) <= 180
+
+
+def test_public_bootstrap_uses_global_store_news_rows_for_live_snapshot(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    store = GlobalBootstrapNewsStore(
+        _projection_row(
+            event_id="ne-global-bootstrap-store",
+            metadata=_ready_translation(
+                title="全局存储首屏标题",
+                summary="这是一条直接来自全局存储查询的中文摘要。",
+                one_line="意大利外交消息进入公共首屏。",
+                reason="这条新闻影响欧盟政策与意大利外交议程，值得持续观察。",
+                issue_tags=["外交"],
+                related_tags=["涉欧"],
+                region_tags=["意大利"],
+            ),
+        )
+    )
+    monkeypatch.setattr(
+        api_server,
+        "_load_target_configs",
+        lambda: [
+            {
+                "target_id": "italy",
+                "display_name": "意大利新闻监控",
+                "region_type": "country",
+                "language_scope": {"primary": "it"},
+                "source_channel_refs": ["ansa"],
+            }
+        ],
+    )
+    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/public/bootstrap")
+
+    assert response.status_code == 200
+    assert response.json()["news"]["items"][0]["title"] == "全局存储首屏标题"
+    assert response.headers["x-news-sentry-first-paint-mode"] == "live"
+    assert store.global_news_calls == 1
+    assert (tmp_path / "public" / "bootstrap-home-snapshot.json").is_file()
 
 
 def test_public_regions_can_include_empty_source_backed_regions(
@@ -653,6 +913,46 @@ def test_public_facets_and_news_filter_use_publication_tags(
     assert issue_response.json()["items"][0]["issueTags"] == ["科技"]
     assert issue_response.json()["items"][0]["relatedTags"] == ["涉中"]
     assert issue_response.json()["items"][0]["regionTags"] == ["意大利", "欧洲"]
+
+
+def test_public_facets_uses_store_backed_aggregation_without_search(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    store = StoreBackedFacetStore()
+    monkeypatch.setattr(
+        api_server,
+        "_load_target_configs",
+        lambda: [
+            {
+                "target_id": "italy",
+                "display_name": "意大利新闻监控",
+                "region_type": "country",
+                "language_scope": {"primary": "it"},
+                "source_channel_refs": ["ansa"],
+            },
+            {
+                "target_id": "france",
+                "display_name": "法国新闻监控",
+                "region_type": "country",
+                "language_scope": {"primary": "fr"},
+                "source_channel_refs": ["lemonde"],
+            },
+        ],
+    )
+    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/public/facets", params={"issue": "科技"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["regions"][0] == {"id": "italy", "label": "意大利", "count": 2}
+    assert payload["issues"][0] == {"id": "科技", "label": "科技", "count": 2}
+    assert payload["related"][0] == {"id": "涉中", "label": "涉中", "count": 2}
+    assert store.facet_calls == 1
+    assert store.facet_kwargs["issue"] == "科技"
+    assert store.facet_kwargs["target_id"] is None
 
 
 def test_public_facets_reuses_short_cache_for_same_query(

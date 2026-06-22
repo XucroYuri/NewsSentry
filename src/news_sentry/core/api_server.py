@@ -2016,6 +2016,8 @@ _PUBLIC_NEWS_FEED_SEARCH_CACHE_TTL_SECONDS = 5.0
 _PUBLIC_SHARED_JSON_CACHE_CONTROL = "public, max-age=30, s-maxage=60, stale-while-revalidate=300"
 _PUBLIC_APP_SHELL_CACHE_CONTROL = "public, max-age=60, s-maxage=60, stale-while-revalidate=300"
 _PUBLIC_BOOTSTRAP_CACHE_TTL_SECONDS = 60.0
+_PUBLIC_HOME_BOOTSTRAP_SNAPSHOT_PATH = Path("public") / "bootstrap-home-snapshot.json"
+_PUBLIC_HOME_BOOTSTRAP_SNAPSHOT_MAX_AGE_SECONDS = 180
 _PUBLIC_REGIONS_CACHE_TTL_SECONDS = 60.0
 _PUBLIC_FACETS_CACHE_TTL_SECONDS = 60.0
 _PUBLIC_NEWS_SLOW_LOG_MS = 3000
@@ -2193,6 +2195,135 @@ def _public_model_json(payload: BaseModel) -> str:
 def _public_payload_etag(prefix: str, payload: BaseModel) -> str:
     digest = sha256(_public_model_json(payload).encode("utf-8")).hexdigest()[:16]
     return f'"{prefix}-{digest}"'
+
+
+def _public_home_bootstrap_snapshot_path(data_dir: Path | None = None) -> Path:
+    return (data_dir or _data_dir) / _PUBLIC_HOME_BOOTSTRAP_SNAPSHOT_PATH
+
+
+def _public_home_bootstrap_snapshot_payload(
+    data_dir: Path | None = None,
+) -> tuple[PublicBootstrapResponse, int] | None:
+    path = _public_home_bootstrap_snapshot_path(data_dir)
+    try:
+        stat = path.stat()
+        payload = PublicBootstrapResponse.model_validate_json(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, json.JSONDecodeError, ValidationError):
+        logger.warning("Failed to read public home bootstrap snapshot: %s", path, exc_info=True)
+        return None
+    age_seconds = max(0, int(time.time() - stat.st_mtime))
+    return payload, age_seconds
+
+
+def _write_public_home_bootstrap_snapshot(
+    payload: PublicBootstrapResponse,
+    data_dir: Path | None = None,
+) -> bool:
+    path = _public_home_bootstrap_snapshot_path(data_dir)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        temp_path.write_text(_public_model_json(payload), encoding="utf-8")
+        temp_path.replace(path)
+    except OSError:
+        logger.warning("Failed to write public home bootstrap snapshot: %s", path, exc_info=True)
+        return False
+    return True
+
+
+def _is_public_home_bootstrap_query(
+    *,
+    featured: bool,
+    region_id: str | None,
+    source_id: str | None,
+    category: str | None,
+    issue: str | None,
+    related: str | None,
+    date: str | None,
+    q: str | None,
+    page_size: int,
+) -> bool:
+    return (
+        featured
+        and page_size == 20
+        and not any(
+            (
+                region_id,
+                source_id,
+                category,
+                issue,
+                related,
+                date,
+                q,
+            )
+        )
+    )
+
+
+def _public_bootstrap_cache_key(
+    *,
+    data_dir: Path,
+    store_id: int,
+    featured: bool,
+    region_id: str | None,
+    source_id: str | None,
+    category: str | None,
+    issue: str | None,
+    related: str | None,
+    date: str | None,
+    q: str | None,
+    page_size: int,
+) -> str:
+    return json.dumps(
+        {
+            "data_dir": str(data_dir.resolve()),
+            "store": store_id,
+            "featured": featured,
+            "region_id": region_id or "",
+            "source_id": source_id or "",
+            "category": category or "",
+            "issue": issue or "",
+            "related": related or "",
+            "date": date or "",
+            "q": q or "",
+            "page_size": page_size,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
+def _with_public_first_paint_headers(
+    headers: dict[str, str],
+    *,
+    mode: Literal["inline", "snapshot", "live", "stale-snapshot"],
+    snapshot_age_seconds: int | None = None,
+) -> dict[str, str]:
+    headers["X-News-Sentry-First-Paint-Mode"] = mode
+    if snapshot_age_seconds is not None:
+        headers["X-News-Sentry-Snapshot-Age-Seconds"] = str(max(0, snapshot_age_seconds))
+    return headers
+
+
+def _inline_public_home_bootstrap_snapshot(
+    html: str,
+    payload: PublicBootstrapResponse,
+) -> str:
+    json_text = (
+        _public_model_json(payload)
+        .replace("<", "\\u003c")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
+    script = (
+        '<script id="news-sentry-bootstrap" type="application/json">'
+        f"{json_text}</script>"
+    )
+    if "</body>" in html:
+        return html.replace("</body>", f"{script}</body>", 1)
+    return f"{html}{script}"
 
 
 def _public_shared_cache_headers(
@@ -2726,6 +2857,8 @@ async def _public_news_events_for_target(
     classification_l0: str | None = None,
     date: str | None = None,
     q: str | None = None,
+    issue: str | None = None,
+    related: str | None = None,
     before_key: tuple[datetime, str] | None = None,
     since_key: tuple[datetime, str] | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
@@ -2736,6 +2869,10 @@ async def _public_news_events_for_target(
         and classification_l0 is None
         and date is None
         and q is None
+        and (
+            (issue is None and related is None)
+            or getattr(store, "query_public_news_rows", None) is None
+        )
         and before_key is None
         and since_key is None
     ):
@@ -2764,6 +2901,8 @@ async def _public_news_events_for_target(
                 min_score=min_score,
                 date=date,
                 search=q,
+                issue=issue,
+                related=related,
                 before_key=_public_news_store_cursor_key(before_key),
                 since_key=_public_news_store_cursor_key(since_key),
             )
@@ -2771,7 +2910,7 @@ async def _public_news_events_for_target(
             if isinstance(rows, list):
                 typed_rows = cast(list[dict[str, Any]], rows)
                 events = [
-                    _merge_index_metadata(_event_from_index_row(row), row)
+                    _public_projection_event(row)
                     for row in typed_rows
                     if _row_publication_ready(row)
                 ]
@@ -2818,6 +2957,8 @@ async def _public_news_candidate_events(
     featured: bool,
     source_id: str | None = None,
     category: str | None = None,
+    issue: str | None = None,
+    related: str | None = None,
     date: str | None = None,
     q: str | None = None,
     before_key: tuple[datetime, str] | None = None,
@@ -2840,6 +2981,8 @@ async def _public_news_candidate_events(
                     min_score=min_score,
                     date=date,
                     search=q,
+                    issue=issue,
+                    related=related,
                     before_key=_public_news_store_cursor_key(before_key),
                     since_key=_public_news_store_cursor_key(since_key),
                 )
@@ -2855,7 +2998,7 @@ async def _public_news_candidate_events(
                         candidates.append(
                             (
                                 row_target_id,
-                                _merge_index_metadata(_event_from_index_row(row), row),
+                                _public_projection_event(row),
                             )
                         )
                     candidates.sort(key=lambda item: _public_news_sort_key(item[1]), reverse=True)
@@ -2882,6 +3025,8 @@ async def _public_news_candidate_events(
                 classification_l0=classification_l0,
                 date=date,
                 q=q,
+                issue=issue,
+                related=related,
                 before_key=before_key,
                 since_key=since_key,
             )
@@ -6255,13 +6400,23 @@ def _public_app_index_response(
             base_url=base_url,
             canonical_path=canonical_path,
         )
+    snapshot = _public_home_bootstrap_snapshot_payload()
+    headers = {
+        **_security_headers_with_script_nonce(nonce),
+        "Cache-Control": _PUBLIC_APP_SHELL_CACHE_CONTROL,
+    }
+    if snapshot is not None:
+        payload, age_seconds = snapshot
+        html = _inline_public_home_bootstrap_snapshot(html, payload)
+        _with_public_first_paint_headers(
+            headers,
+            mode="inline",
+            snapshot_age_seconds=age_seconds,
+        )
     html = _inject_script_nonce(html, nonce)
     return HTMLResponse(
         html,
-        headers={
-            **_security_headers_with_script_nonce(nonce),
-            "Cache-Control": _PUBLIC_APP_SHELL_CACHE_CONTROL,
-        },
+        headers=headers,
     )
 
 
@@ -7541,6 +7696,54 @@ def create_app(
         date: str | None,
         q: str | None,
     ) -> PublicFacetsResponse:
+        if not q and _store is not None:
+            query_public_facet_rows = getattr(_store, "query_public_facet_rows", None)
+            if query_public_facet_rows is not None:
+                try:
+                    facet_counts = await query_public_facet_rows(
+                        target_id=region_id,
+                        stage=_PUBLIC_NEWS_STAGE,
+                        issue=issue,
+                        related=related,
+                        date=date,
+                    )
+                    if isinstance(facet_counts, dict):
+                        regions = facet_counts.get("regions")
+                        issues = facet_counts.get("issues")
+                        related_counts = facet_counts.get("related")
+                        if (
+                            isinstance(regions, dict)
+                            and isinstance(issues, dict)
+                            and isinstance(related_counts, dict)
+                        ):
+                            return PublicFacetsResponse(
+                                regions=_public_region_facet_items(
+                                    {
+                                        str(key): int(value)
+                                        for key, value in regions.items()
+                                        if isinstance(value, int)
+                                    }
+                                ),
+                                issues=_public_facet_items(
+                                    {
+                                        str(key): int(value)
+                                        for key, value in issues.items()
+                                        if isinstance(value, int)
+                                    }
+                                ),
+                                related=_public_facet_items(
+                                    {
+                                        str(key): int(value)
+                                        for key, value in related_counts.items()
+                                        if isinstance(value, int)
+                                    }
+                                ),
+                            )
+                except Exception:
+                    logger.debug(
+                        "Public facets store aggregation failed; falling back to event scan",
+                        exc_info=True,
+                    )
         target_ids = _public_news_target_ids(_data_dir, region_id)
         candidates, _total = await _public_news_candidate_events(
             _data_dir,
@@ -7551,6 +7754,8 @@ def create_app(
             featured=False,
             source_id=None,
             category=None,
+            issue=issue,
+            related=related,
             date=date,
             q=q,
         )
@@ -8248,6 +8453,91 @@ def create_app(
                 int((time.perf_counter() - started) * 1000),
             )
 
+        if (
+            _store is not None
+            and region_id is None
+            and not any((source_id, category, issue, related, date, q))
+        ):
+            query_public_rows = getattr(_store, "query_public_news_rows", None)
+            if query_public_rows is not None:
+                try:
+                    query_limit = min(
+                        _PUBLIC_NEWS_MAX_SCAN,
+                        max(page_size * 4, _PUBLIC_NEWS_MIN_SCAN),
+                    )
+                    store_result = await query_public_rows(
+                        None,
+                        _PUBLIC_NEWS_STAGE,
+                        limit=query_limit,
+                        min_score=_PUBLIC_NEWS_FEATURED_SCORE if featured else None,
+                    )
+                    raw_rows = store_result.get("rows") if isinstance(store_result, dict) else None
+                    if isinstance(raw_rows, list):
+                        filtered: list[tuple[str, dict[str, Any]]] = []
+                        for row in raw_rows:
+                            if not isinstance(row, dict):
+                                continue
+                            tid = str(row.get("target_id") or "")
+                            if not tid:
+                                continue
+                            event = _public_projection_event(row)
+                            if _public_news_matches(
+                                event,
+                                featured=featured,
+                                source_id=source_id,
+                                category=category,
+                                issue=issue,
+                                related=related,
+                                date=date,
+                                q=q,
+                            ):
+                                filtered.append((tid, event))
+                        if filtered or int(store_result.get("total") or 0) > 0:
+                            page_pairs = filtered[:page_size]
+                            items = []
+                            for tid, event in page_pairs:
+                                try:
+                                    items.append(_public_news_item(tid, event))
+                                except Exception:  # noqa: BLE001
+                                    logger.exception(
+                                        "Failed to render bootstrap store news item target=%s "
+                                        "event_id=%s",
+                                        tid,
+                                        event.get("event_id") or event.get("id"),
+                                    )
+                            latest_cursor = (
+                                _public_news_encode_cursor(page_pairs[0][1])
+                                if page_pairs
+                                else None
+                            )
+                            next_cursor = (
+                                _public_news_encode_cursor(page_pairs[-1][1])
+                                if len(filtered) > len(page_pairs) and page_pairs
+                                else None
+                            )
+                            payload = PublicNewsFeedResponse(
+                                items=items,
+                                latestCursor=latest_cursor,
+                                nextCursor=next_cursor,
+                                pollAfterMs=_PUBLIC_NEWS_DEFAULT_POLL_AFTER_MS,
+                                hasNewer=False,
+                                total=max(int(store_result.get("total") or 0), len(filtered)),
+                            )
+                            etag = _public_news_etag(items, latest_cursor)
+                            _public_news_feed_cache[cache_key] = {
+                                "etag": etag,
+                                "expires_at": time.monotonic()
+                                + _public_news_feed_cache_ttl(q=q, since_cursor=None),
+                                "payload": payload,
+                                "poll_after_ms": _PUBLIC_NEWS_DEFAULT_POLL_AFTER_MS,
+                            }
+                            return payload, etag, int((time.perf_counter() - started) * 1000)
+                except Exception:
+                    logger.debug(
+                        "Public bootstrap store news query failed; falling back to candidates",
+                        exc_info=True,
+                    )
+
         target_ids = _public_news_target_ids(_data_dir, region_id)
         allow_projection_first = not any((bool(source_id), bool(category), bool(date), bool(q)))
         query_limit = (
@@ -8264,6 +8554,8 @@ def create_app(
             featured=featured,
             source_id=source_id,
             category=category,
+            issue=issue,
+            related=related,
             date=date,
             q=q,
         )
@@ -8314,6 +8606,87 @@ def create_app(
         }
         return payload, etag, int((time.perf_counter() - started) * 1000)
 
+    async def _render_public_bootstrap_payload(
+        *,
+        featured: bool,
+        region_id: str | None,
+        source_id: str | None,
+        category: str | None,
+        issue: str | None,
+        related: str | None,
+        date: str | None,
+        q: str | None,
+        page_size: int,
+    ) -> PublicBootstrapResponse:
+        news, _news_etag, _news_elapsed_ms = await _public_news_feed_payload_for_bootstrap(
+            featured=featured,
+            region_id=region_id,
+            source_id=source_id,
+            category=category,
+            issue=issue,
+            related=related,
+            date=date,
+            q=q,
+            page_size=page_size,
+        )
+        regions = await _cached_public_regions(include_empty=True)
+        facets = await _cached_public_facets(
+            region_id=region_id,
+            issue=issue,
+            related=related,
+            date=date,
+            q=q,
+        )
+        return PublicBootstrapResponse(
+            news=news,
+            regions=regions,
+            facets=facets,
+            generatedAt=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        )
+
+    def _store_public_bootstrap_cache(
+        cache_key: str,
+        payload: PublicBootstrapResponse,
+    ) -> str:
+        etag = _public_payload_etag("public-bootstrap", payload)
+        _public_bootstrap_cache[cache_key] = {
+            "etag": etag,
+            "expires_at": time.monotonic() + _PUBLIC_BOOTSTRAP_CACHE_TTL_SECONDS,
+            "payload": payload,
+        }
+        return etag
+
+    home_bootstrap_refresh_state = {"active": False}
+    home_bootstrap_refresh_tasks: set[asyncio.Task[None]] = set()
+
+    async def _refresh_public_home_bootstrap_snapshot(cache_key: str) -> None:
+        if home_bootstrap_refresh_state["active"]:
+            return
+        home_bootstrap_refresh_state["active"] = True
+        try:
+            payload = await _render_public_bootstrap_payload(
+                featured=True,
+                region_id=None,
+                source_id=None,
+                category=None,
+                issue=None,
+                related=None,
+                date=None,
+                q=None,
+                page_size=20,
+            )
+            _write_public_home_bootstrap_snapshot(payload, _data_dir)
+            _store_public_bootstrap_cache(cache_key, payload)
+        except Exception:
+            logger.warning("Failed to refresh public home bootstrap snapshot", exc_info=True)
+        finally:
+            home_bootstrap_refresh_state["active"] = False
+
+    def _schedule_public_home_bootstrap_refresh(cache_key: str) -> None:
+        task = asyncio.create_task(_refresh_public_home_bootstrap_snapshot(cache_key))
+        home_bootstrap_refresh_tasks.add(task)
+        task.add_done_callback(home_bootstrap_refresh_tasks.discard)
+
     @app.get("/api/v1/public/bootstrap", response_model=PublicBootstrapResponse)
     async def get_public_bootstrap(
         request: Request,
@@ -8335,42 +8708,9 @@ def create_app(
     ) -> PublicBootstrapResponse | Response:
         started = time.perf_counter()
         effective_region_id = region_id or target_id
-        cache_key = json.dumps(
-            {
-                "data_dir": str(_data_dir.resolve()),
-                "store": id(_store),
-                "featured": featured,
-                "region_id": effective_region_id or "",
-                "source_id": source_id or "",
-                "category": category or "",
-                "issue": issue or "",
-                "related": related or "",
-                "date": date or "",
-                "q": q or "",
-                "page_size": page_size,
-            },
-            ensure_ascii=False,
-            sort_keys=True,
-        )
-        now = time.monotonic()
-        cache_entry = _public_bootstrap_cache.get(cache_key)
-        if _public_cache_entry_valid(cache_entry, now):
-            assert cache_entry is not None
-            payload = cast(PublicBootstrapResponse, cache_entry["payload"])
-            elapsed_ms = int((time.perf_counter() - started) * 1000)
-            headers = _public_shared_cache_headers(
-                etag=str(cache_entry["etag"]),
-                cache_status="hit",
-                timing_name="public-bootstrap",
-                header_name="Bootstrap",
-                elapsed_ms=elapsed_ms,
-            )
-            if request.headers.get("if-none-match") == headers["ETag"]:
-                return Response(status_code=304, headers=headers)
-            response.headers.update(headers)
-            return payload
-
-        news, _news_etag, _news_elapsed_ms = await _public_news_feed_payload_for_bootstrap(
+        cache_key = _public_bootstrap_cache_key(
+            data_dir=_data_dir,
+            store_id=id(_store),
             featured=featured,
             region_id=effective_region_id,
             source_id=source_id,
@@ -8381,33 +8721,91 @@ def create_app(
             q=q,
             page_size=page_size,
         )
-        regions = await _cached_public_regions(include_empty=True)
-        facets = await _cached_public_facets(
+        is_home_bootstrap_query = _is_public_home_bootstrap_query(
+            featured=featured,
             region_id=effective_region_id,
+            source_id=source_id,
+            category=category,
             issue=issue,
             related=related,
             date=date,
             q=q,
+            page_size=page_size,
         )
-        payload = PublicBootstrapResponse(
-            news=news,
-            regions=regions,
-            facets=facets,
-            generatedAt=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        if is_home_bootstrap_query:
+            snapshot = _public_home_bootstrap_snapshot_payload(_data_dir)
+            if snapshot is not None:
+                payload, age_seconds = snapshot
+                elapsed_ms = int((time.perf_counter() - started) * 1000)
+                etag = _public_payload_etag("public-bootstrap", payload)
+                if age_seconds > _PUBLIC_HOME_BOOTSTRAP_SNAPSHOT_MAX_AGE_SECONDS:
+                    _schedule_public_home_bootstrap_refresh(cache_key)
+                    mode: Literal["snapshot", "stale-snapshot"] = "stale-snapshot"
+                else:
+                    mode = "snapshot"
+                headers = _with_public_first_paint_headers(
+                    _public_shared_cache_headers(
+                        etag=etag,
+                        cache_status="hit",
+                        timing_name="public-bootstrap",
+                        header_name="Bootstrap",
+                        elapsed_ms=elapsed_ms,
+                    ),
+                    mode=mode,
+                    snapshot_age_seconds=age_seconds,
+                )
+                if request.headers.get("if-none-match") == etag:
+                    return Response(status_code=304, headers=headers)
+                response.headers.update(headers)
+                return payload
+
+        now = time.monotonic()
+        cache_entry = _public_bootstrap_cache.get(cache_key)
+        if _public_cache_entry_valid(cache_entry, now):
+            assert cache_entry is not None
+            payload = cast(PublicBootstrapResponse, cache_entry["payload"])
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            headers = _with_public_first_paint_headers(
+                _public_shared_cache_headers(
+                    etag=str(cache_entry["etag"]),
+                    cache_status="hit",
+                    timing_name="public-bootstrap",
+                    header_name="Bootstrap",
+                    elapsed_ms=elapsed_ms,
+                ),
+                mode="live",
+                snapshot_age_seconds=0 if is_home_bootstrap_query else None,
+            )
+            if request.headers.get("if-none-match") == headers["ETag"]:
+                return Response(status_code=304, headers=headers)
+            response.headers.update(headers)
+            return payload
+
+        payload = await _render_public_bootstrap_payload(
+            featured=featured,
+            region_id=effective_region_id,
+            source_id=source_id,
+            category=category,
+            issue=issue,
+            related=related,
+            date=date,
+            q=q,
+            page_size=page_size,
         )
-        etag = _public_payload_etag("public-bootstrap", payload)
-        _public_bootstrap_cache[cache_key] = {
-            "etag": etag,
-            "expires_at": time.monotonic() + _PUBLIC_BOOTSTRAP_CACHE_TTL_SECONDS,
-            "payload": payload,
-        }
+        etag = _store_public_bootstrap_cache(cache_key, payload)
+        if is_home_bootstrap_query:
+            _write_public_home_bootstrap_snapshot(payload, _data_dir)
         elapsed_ms = int((time.perf_counter() - started) * 1000)
-        headers = _public_shared_cache_headers(
-            etag=etag,
-            cache_status="miss",
-            timing_name="public-bootstrap",
-            header_name="Bootstrap",
-            elapsed_ms=elapsed_ms,
+        headers = _with_public_first_paint_headers(
+            _public_shared_cache_headers(
+                etag=etag,
+                cache_status="miss",
+                timing_name="public-bootstrap",
+                header_name="Bootstrap",
+                elapsed_ms=elapsed_ms,
+            ),
+            mode="live",
+            snapshot_age_seconds=0 if is_home_bootstrap_query else None,
         )
         if request.headers.get("if-none-match") == etag:
             return Response(status_code=304, headers=headers)
@@ -8505,6 +8903,8 @@ def create_app(
             featured=featured,
             source_id=source_id,
             category=category,
+            issue=issue,
+            related=related,
             date=date,
             q=q,
             before_key=before_key,

@@ -24,6 +24,8 @@ export class PublicNewsApiError extends Error {
   }
 }
 
+export const INLINE_PUBLIC_BOOTSTRAP_ID = "news-sentry-bootstrap"
+
 function appendParam(params: URLSearchParams, key: string, value: string | number | boolean | undefined) {
   if (value === undefined || value === "") return
   params.set(key, String(value))
@@ -209,6 +211,21 @@ async function parseJsonResponse<T>(response: Response, assertShape: (value: unk
   const payload: unknown = await response.json()
   assertShape(payload)
   return payload
+}
+
+export function readInlineBootstrap(
+  sourceDocument: Document | null | undefined = typeof document === "undefined" ? null : document,
+): PublicBootstrapResult | null {
+  const script = sourceDocument?.getElementById(INLINE_PUBLIC_BOOTSTRAP_ID)
+  const text = script?.textContent?.trim()
+  if (!text) return null
+  try {
+    const payload: unknown = JSON.parse(text)
+    assertPublicBootstrap(payload)
+    return { data: payload, etag: null }
+  } catch {
+    return null
+  }
 }
 
 export async function getPublicBootstrap(

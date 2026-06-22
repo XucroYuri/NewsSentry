@@ -263,6 +263,7 @@ describe("Phase 84 public portal app", () => {
 
   afterEach(() => {
     cleanup()
+    document.body.innerHTML = ""
     window.history.replaceState({}, "", "/")
     window.location.hash = ""
     vi.useRealTimers()
@@ -708,6 +709,51 @@ describe("Phase 84 public portal app", () => {
 
     expect((await screen.findAllByText(bootstrapTitle)).length).toBeGreaterThan(0)
     expect(fetchMock.mock.calls.some(([input]) => String(input).startsWith("/api/v1/public/bootstrap"))).toBe(true)
+  })
+
+  it("renders inline bootstrap news before the bootstrap network request resolves", async () => {
+    const inlineTitle = "内联快照里的首屏新闻"
+    const inlineBootstrap = {
+      news: feed([makeItem("event-inline-bootstrap", { title: inlineTitle })]),
+      regions: {
+        regions: [
+          {
+            region_id: "italy",
+            display_name: "意大利新闻监控",
+            primary_language: "it",
+            region_type: "country",
+            source_count: 163,
+            event_count: 52,
+            lifecycle: {},
+            archived: false,
+          },
+        ],
+      },
+      facets: {
+        regions: [{ id: "italy", label: "意大利", count: 52 }],
+        issues: [{ id: "外交", label: "外交", count: 3 }],
+        related: [{ id: "涉欧", label: "涉欧", count: 2 }],
+      },
+      generatedAt: "2026-06-21T00:00:00Z",
+    }
+    document.body.innerHTML = `<script id="news-sentry-bootstrap" type="application/json">${JSON.stringify(
+      inlineBootstrap,
+    )}</script>`
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.startsWith("/api/v1/public/bootstrap") || url.startsWith("/api/v1/public/news")) {
+        return new Promise<Response>(() => undefined)
+      }
+      return jsonResponse({ regions: [], issues: [], related: [] })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<App />)
+
+    expect((await screen.findAllByText(inlineTitle)).length).toBeGreaterThan(0)
+    expect(fetchMock.mock.calls.some(([input]) => String(input).startsWith("/api/v1/public/bootstrap"))).toBe(
+      true,
+    )
   })
 
   it("falls back to the all-news stream when the featured feed is empty", async () => {
