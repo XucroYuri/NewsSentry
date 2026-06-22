@@ -168,6 +168,35 @@ class StoreBackedFacetStore(ProjectionOnlyStore):
         raise AssertionError("facets should use store-backed aggregation")
 
 
+class EmptyPublicTagFacetStore(ProjectionOnlyStore):
+    def __init__(self, rows: list[dict[str, Any]]) -> None:
+        super().__init__(rows)
+        self.facet_calls = 0
+        self.projection_calls = 0
+
+    async def query_public_facet_rows(self, **_: Any) -> dict[str, dict[str, int]]:
+        self.facet_calls += 1
+        return {
+            "regions": {"italy": 2},
+            "issues": {},
+            "related": {},
+        }
+
+    async def query_public_projection_rows(
+        self,
+        *,
+        target_id: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        self.projection_calls += 1
+        return await super().query_public_projection_rows(
+            target_id=target_id,
+            limit=limit,
+            offset=offset,
+        )
+
+
 class GlobalBootstrapNewsStore(ProjectionOnlyStore):
     def __init__(self, row: dict[str, Any]) -> None:
         super().__init__([row])
@@ -955,6 +984,48 @@ def test_public_facets_uses_store_backed_aggregation_without_search(
     assert store.facet_calls == 1
     assert store.facet_kwargs["issue"] == "科技"
     assert store.facet_kwargs["target_id"] is None
+
+
+def test_public_facets_fallback_when_store_tags_are_empty(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    store = EmptyPublicTagFacetStore(
+        [
+            _projection_row(
+                event_id="ne-italy-public-tags-fallback",
+                metadata=_ready_translation(
+                    issue_tags=["科技"],
+                    related_tags=["涉中"],
+                    region_tags=["意大利"],
+                ),
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        api_server,
+        "_load_target_configs",
+        lambda: [
+            {
+                "target_id": "italy",
+                "display_name": "意大利新闻监控",
+                "region_type": "country",
+                "language_scope": {"primary": "it"},
+                "source_channel_refs": ["ansa"],
+            }
+        ],
+    )
+    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
+    client = TestClient(app)
+
+    response = client.get("/api/v1/public/facets")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["issues"] == [{"id": "科技", "label": "科技", "count": 1}]
+    assert payload["related"] == [{"id": "涉中", "label": "涉中", "count": 1}]
+    assert store.facet_calls == 1
+    assert store.projection_calls == 1
 
 
 def test_public_facets_reuses_short_cache_for_same_query(

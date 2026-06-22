@@ -7716,29 +7716,42 @@ def create_app(
                             and isinstance(store_issues, dict)
                             and isinstance(store_related, dict)
                         ):
-                            return PublicFacetsResponse(
-                                regions=_public_region_facet_items(
-                                    {
-                                        str(key): int(value)
-                                        for key, value in store_regions.items()
-                                        if isinstance(value, int)
-                                    }
-                                ),
-                                issues=_public_facet_items(
-                                    {
-                                        str(key): int(value)
-                                        for key, value in store_issues.items()
-                                        if isinstance(value, int)
-                                    }
-                                ),
-                                related=_public_facet_items(
-                                    {
-                                        str(key): int(value)
-                                        for key, value in store_related.items()
-                                        if isinstance(value, int)
-                                    }
-                                ),
-                            )
+                            if (
+                                not region_id
+                                and not issue
+                                and not related
+                                and not date
+                                and not store_issues
+                                and not store_related
+                            ):
+                                logger.debug(
+                                    "Public facets store aggregation returned no public tags; "
+                                    "falling back to event scan"
+                                )
+                            else:
+                                return PublicFacetsResponse(
+                                    regions=_public_region_facet_items(
+                                        {
+                                            str(key): int(value)
+                                            for key, value in store_regions.items()
+                                            if isinstance(value, int)
+                                        }
+                                    ),
+                                    issues=_public_facet_items(
+                                        {
+                                            str(key): int(value)
+                                            for key, value in store_issues.items()
+                                            if isinstance(value, int)
+                                        }
+                                    ),
+                                    related=_public_facet_items(
+                                        {
+                                            str(key): int(value)
+                                            for key, value in store_related.items()
+                                            if isinstance(value, int)
+                                        }
+                                    ),
+                                )
                 except Exception:
                     logger.debug(
                         "Public facets store aggregation failed; falling back to event scan",

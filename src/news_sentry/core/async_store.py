@@ -1262,7 +1262,6 @@ class AsyncStore:
         conditions = [
             "ei.stage = ?",
             "ei.public_translation_ready = 1",
-            "json_valid(COALESCE(ei.metadata_json, '{}'))",
         ]
         params: list[Any] = [stage]
         if target_id is not None:
@@ -1274,19 +1273,21 @@ class AsyncStore:
         if issue is not None:
             conditions.append(
                 "EXISTS ("
-                "SELECT 1 FROM json_each(COALESCE(ei.metadata_json, '{}'), "
-                "'$.publication.issue_tags') AS issue_filter "
-                "WHERE issue_filter.value = ?"
-                ")"
+                "SELECT 1 FROM json_each("
+                "CASE WHEN json_valid(COALESCE(ei.metadata_json, '{}')) "
+                "THEN COALESCE(ei.metadata_json, '{}') ELSE '{}' END, "
+                "'$.publication.issue_tags'"
+                ") AS issue_filter WHERE issue_filter.value = ?)"
             )
             params.append(issue)
         if related is not None:
             conditions.append(
                 "EXISTS ("
-                "SELECT 1 FROM json_each(COALESCE(ei.metadata_json, '{}'), "
-                "'$.publication.related_tags') AS related_filter "
-                "WHERE related_filter.value = ?"
-                ")"
+                "SELECT 1 FROM json_each("
+                "CASE WHEN json_valid(COALESCE(ei.metadata_json, '{}')) "
+                "THEN COALESCE(ei.metadata_json, '{}') ELSE '{}' END, "
+                "'$.publication.related_tags'"
+                ") AS related_filter WHERE related_filter.value = ?)"
             )
             params.append(related)
         where = " AND ".join(conditions)
@@ -1295,7 +1296,10 @@ class AsyncStore:
             sql = (
                 "SELECT tag.value, COUNT(*) "  # noqa: S608
                 "FROM event_index AS ei "
-                f"JOIN json_each(COALESCE(ei.metadata_json, '{{}}'), '{path}') AS tag "
+                "JOIN json_each("
+                "CASE WHEN json_valid(COALESCE(ei.metadata_json, '{}')) "
+                "THEN COALESCE(ei.metadata_json, '{}') ELSE '{}' END, "
+                f"'{path}') AS tag "
                 f"WHERE {where} AND typeof(tag.value) = 'text' AND tag.value <> '' "
                 "GROUP BY tag.value "
                 "ORDER BY COUNT(*) DESC, tag.value ASC"
