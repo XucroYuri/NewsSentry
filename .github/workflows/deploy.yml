@@ -477,6 +477,7 @@ jobs:
       BASE_URL: https://preview.news-sentry.com
       EXPECTED_SHA: ${{ github.sha }}
       COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+      VERIFY_CURL_USER_AGENT: NewsSentry-Deploy-Verify/1.0
     steps:
       - name: Verify preview public endpoints
         run: |
@@ -484,7 +485,7 @@ jobs:
           short_sha="${EXPECTED_SHA:0:12}"
           tmp_headers="$(mktemp)"
 
-          health_status="$(curl -sS -D "${tmp_headers}" -o /tmp/health.json -w "%{http_code}" "${BASE_URL}/api/v1/health" || true)"
+          health_status="$(curl -A "${VERIFY_CURL_USER_AGENT}" -sS -D "${tmp_headers}" -o /tmp/health.json -w "%{http_code}" "${BASE_URL}/api/v1/health" || true)"
           if [[ "${health_status}" == "403" ]] && printf '%s' "${COMMIT_MESSAGE}" | grep -q "\[temporary-cloudflare-state-bypass\]"; then
             echo "::warning title=TEMPORARY_CLOUDFLARE_PREVIEW_ACCESS_BYPASS::Preview public verification is blocked by Cloudflare 403 for this one-off release. Production verification will still run after promotion."
             cat "${tmp_headers}"
@@ -502,10 +503,10 @@ jobs:
             exit 1
           fi
 
-          curl -fsS "${BASE_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json
-          curl -fsS "${BASE_URL}/api/v1/regions?include_empty=true" > /tmp/regions.json
-          curl -fsS "${BASE_URL}/api/v1/public/facets" > /tmp/facets.json
-          curl -fsS -o /tmp/public-app.html "${BASE_URL}/public-app/"
+          curl -A "${VERIFY_CURL_USER_AGENT}" -fsS "${BASE_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json
+          curl -A "${VERIFY_CURL_USER_AGENT}" -fsS "${BASE_URL}/api/v1/regions?include_empty=true" > /tmp/regions.json
+          curl -A "${VERIFY_CURL_USER_AGENT}" -fsS "${BASE_URL}/api/v1/public/facets" > /tmp/facets.json
+          curl -A "${VERIFY_CURL_USER_AGENT}" -fsS -o /tmp/public-app.html "${BASE_URL}/public-app/"
 
           python - <<'PY'
           import json
@@ -549,6 +550,7 @@ jobs:
       BASE_URL: https://news-sentry.com
       EXPECTED_SHA: ${{ github.sha }}
       ALLOW_TEMPORARY_CLOUDFLARE_STATE_BYPASS: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production' && github.event.inputs.allow_temporary_cloudflare_state_bypass == 'true' && 'true' || 'false' }}
+      VERIFY_CURL_USER_AGENT: NewsSentry-Deploy-Verify/1.0
     steps:
       - uses: actions/checkout@v4
       - name: Verify production public endpoints
@@ -557,7 +559,7 @@ jobs:
           short_sha="${EXPECTED_SHA:0:12}"
           tmp_headers="$(mktemp)"
 
-          health_status="$(curl -sS -D "${tmp_headers}" -o /tmp/health.json -w "%{http_code}" "${BASE_URL}/api/v1/health" || true)"
+          health_status="$(curl -A "${VERIFY_CURL_USER_AGENT}" -sS -D "${tmp_headers}" -o /tmp/health.json -w "%{http_code}" "${BASE_URL}/api/v1/health" || true)"
           if [[ "${health_status}" == "403" ]] && { [ "${ALLOW_TEMPORARY_CLOUDFLARE_STATE_BYPASS}" = "true" ] || git log -1 --pretty=%B | grep -q "\[temporary-cloudflare-state-bypass\]"; }; then
             echo "::warning title=TEMPORARY_CLOUDFLARE_PRODUCTION_ENDPOINT_BYPASS::Production public verification is blocked by Cloudflare 403 from the GitHub runner for this one-off release. Operator-side external verification is required."
             cat "${tmp_headers}"
@@ -576,10 +578,10 @@ jobs:
             exit 1
           fi
 
-          curl -fsS "${BASE_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json
-          curl -fsS "${BASE_URL}/api/v1/regions?include_empty=true" > /tmp/regions.json
-          curl -fsS "${BASE_URL}/api/v1/public/facets" > /tmp/facets.json
-          curl -fsS -o /tmp/public-app.html "${BASE_URL}/public-app/"
+          curl -A "${VERIFY_CURL_USER_AGENT}" -fsS "${BASE_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json
+          curl -A "${VERIFY_CURL_USER_AGENT}" -fsS "${BASE_URL}/api/v1/regions?include_empty=true" > /tmp/regions.json
+          curl -A "${VERIFY_CURL_USER_AGENT}" -fsS "${BASE_URL}/api/v1/public/facets" > /tmp/facets.json
+          curl -A "${VERIFY_CURL_USER_AGENT}" -fsS -o /tmp/public-app.html "${BASE_URL}/public-app/"
 
           python - <<'PY'
           import json
