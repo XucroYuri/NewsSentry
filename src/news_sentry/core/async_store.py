@@ -1257,6 +1257,7 @@ class AsyncStore:
         """Aggregate public reader facets from event_index without materializing news rows."""
         if self._db is None:
             return {"regions": {}, "issues": {}, "related": {}}
+        db = self._db
 
         conditions = [
             "ei.stage = ?",
@@ -1299,7 +1300,7 @@ class AsyncStore:
                 "GROUP BY tag.value "
                 "ORDER BY COUNT(*) DESC, tag.value ASC"
             )
-            async with self._db.execute(sql, params) as cursor:
+            async with db.execute(sql, params) as cursor:
                 rows = await cursor.fetchall()
             return {str(row[0]): int(row[1] or 0) for row in rows if row[0]}
 
@@ -1310,7 +1311,7 @@ class AsyncStore:
             "GROUP BY ei.target_id "
             "ORDER BY COUNT(*) DESC, ei.target_id ASC"
         )
-        async with self._db.execute(region_sql, params) as cursor:
+        async with db.execute(region_sql, params) as cursor:
             region_rows = await cursor.fetchall()
 
         return {

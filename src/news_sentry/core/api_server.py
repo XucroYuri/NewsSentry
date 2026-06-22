@@ -7708,33 +7708,33 @@ def create_app(
                         date=date,
                     )
                     if isinstance(facet_counts, dict):
-                        regions = facet_counts.get("regions")
-                        issues = facet_counts.get("issues")
-                        related_counts = facet_counts.get("related")
+                        store_regions = facet_counts.get("regions")
+                        store_issues = facet_counts.get("issues")
+                        store_related = facet_counts.get("related")
                         if (
-                            isinstance(regions, dict)
-                            and isinstance(issues, dict)
-                            and isinstance(related_counts, dict)
+                            isinstance(store_regions, dict)
+                            and isinstance(store_issues, dict)
+                            and isinstance(store_related, dict)
                         ):
                             return PublicFacetsResponse(
                                 regions=_public_region_facet_items(
                                     {
                                         str(key): int(value)
-                                        for key, value in regions.items()
+                                        for key, value in store_regions.items()
                                         if isinstance(value, int)
                                     }
                                 ),
                                 issues=_public_facet_items(
                                     {
                                         str(key): int(value)
-                                        for key, value in issues.items()
+                                        for key, value in store_issues.items()
                                         if isinstance(value, int)
                                     }
                                 ),
                                 related=_public_facet_items(
                                     {
                                         str(key): int(value)
-                                        for key, value in related_counts.items()
+                                        for key, value in store_related.items()
                                         if isinstance(value, int)
                                     }
                                 ),
@@ -8473,7 +8473,7 @@ def create_app(
                     )
                     raw_rows = store_result.get("rows") if isinstance(store_result, dict) else None
                     if isinstance(raw_rows, list):
-                        filtered: list[tuple[str, dict[str, Any]]] = []
+                        store_filtered: list[tuple[str, dict[str, Any]]] = []
                         for row in raw_rows:
                             if not isinstance(row, dict):
                                 continue
@@ -8491,13 +8491,13 @@ def create_app(
                                 date=date,
                                 q=q,
                             ):
-                                filtered.append((tid, event))
-                        if filtered or int(store_result.get("total") or 0) > 0:
-                            page_pairs = filtered[:page_size]
-                            items = []
-                            for tid, event in page_pairs:
+                                store_filtered.append((tid, event))
+                        if store_filtered or int(store_result.get("total") or 0) > 0:
+                            store_page_pairs = store_filtered[:page_size]
+                            store_items = []
+                            for tid, event in store_page_pairs:
                                 try:
-                                    items.append(_public_news_item(tid, event))
+                                    store_items.append(_public_news_item(tid, event))
                                 except Exception:  # noqa: BLE001
                                     logger.exception(
                                         "Failed to render bootstrap store news item target=%s "
@@ -8506,24 +8506,28 @@ def create_app(
                                         event.get("event_id") or event.get("id"),
                                     )
                             latest_cursor = (
-                                _public_news_encode_cursor(page_pairs[0][1])
-                                if page_pairs
+                                _public_news_encode_cursor(store_page_pairs[0][1])
+                                if store_page_pairs
                                 else None
                             )
                             next_cursor = (
-                                _public_news_encode_cursor(page_pairs[-1][1])
-                                if len(filtered) > len(page_pairs) and page_pairs
+                                _public_news_encode_cursor(store_page_pairs[-1][1])
+                                if len(store_filtered) > len(store_page_pairs)
+                                and store_page_pairs
                                 else None
                             )
                             payload = PublicNewsFeedResponse(
-                                items=items,
+                                items=store_items,
                                 latestCursor=latest_cursor,
                                 nextCursor=next_cursor,
                                 pollAfterMs=_PUBLIC_NEWS_DEFAULT_POLL_AFTER_MS,
                                 hasNewer=False,
-                                total=max(int(store_result.get("total") or 0), len(filtered)),
+                                total=max(
+                                    int(store_result.get("total") or 0),
+                                    len(store_filtered),
+                                ),
                             )
-                            etag = _public_news_etag(items, latest_cursor)
+                            etag = _public_news_etag(store_items, latest_cursor)
                             _public_news_feed_cache[cache_key] = {
                                 "etag": etag,
                                 "expires_at": time.monotonic()
