@@ -52,7 +52,9 @@ def _ready_public_metadata(title: str = "公开新闻") -> dict[str, Any]:
     }
 
 
-def _public_home_bootstrap_payload(title: str = "快照首屏标题") -> api_server_module.PublicBootstrapResponse:
+def _public_home_bootstrap_payload(
+    title: str = "快照首屏标题",
+) -> api_server_module.PublicBootstrapResponse:
     return api_server_module.PublicBootstrapResponse(
         news=api_server_module.PublicNewsFeedResponse(
             items=[
@@ -686,7 +688,9 @@ class TestAPIServer:
         snapshot_path = data_dir / "public" / "bootstrap-home-snapshot.json"
         snapshot_path.parent.mkdir(parents=True)
         snapshot_path.write_text(
-            api_server_module._public_model_json(_public_home_bootstrap_payload("快照 <首屏> 标题")),
+            api_server_module._public_model_json(
+                _public_home_bootstrap_payload("快照 <首屏> 标题")
+            ),
             encoding="utf-8",
         )
         monkeypatch.setattr(api_server_module, "_static_dir", lambda: static_dir)

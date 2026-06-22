@@ -1292,10 +1292,10 @@ class AsyncStore:
 
         async def _count_tags(path: str) -> dict[str, int]:
             sql = (
-                "SELECT tag.value, COUNT(*) "
+                "SELECT tag.value, COUNT(*) "  # noqa: S608
                 "FROM event_index AS ei "
-                f"JOIN json_each(COALESCE(ei.metadata_json, '{{}}'), '{path}') AS tag "  # noqa: S608
-                f"WHERE {where} AND typeof(tag.value) = 'text' AND tag.value <> '' "  # noqa: S608
+                f"JOIN json_each(COALESCE(ei.metadata_json, '{{}}'), '{path}') AS tag "
+                f"WHERE {where} AND typeof(tag.value) = 'text' AND tag.value <> '' "
                 "GROUP BY tag.value "
                 "ORDER BY COUNT(*) DESC, tag.value ASC"
             )
@@ -1304,9 +1304,9 @@ class AsyncStore:
             return {str(row[0]): int(row[1] or 0) for row in rows if row[0]}
 
         region_sql = (
-            "SELECT ei.target_id, COUNT(*) "
+            "SELECT ei.target_id, COUNT(*) "  # noqa: S608
             "FROM event_index AS ei "
-            f"WHERE {where} "  # noqa: S608
+            f"WHERE {where} "
             "GROUP BY ei.target_id "
             "ORDER BY COUNT(*) DESC, ei.target_id ASC"
         )

@@ -247,7 +247,9 @@ def _projection_row(
     }
 
 
-def _home_bootstrap_snapshot_payload(title: str = "快照首屏标题") -> api_server.PublicBootstrapResponse:
+def _home_bootstrap_snapshot_payload(
+    title: str = "快照首屏标题",
+) -> api_server.PublicBootstrapResponse:
     return api_server.PublicBootstrapResponse(
         news=api_server.PublicNewsFeedResponse(
             items=[
