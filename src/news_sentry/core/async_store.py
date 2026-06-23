@@ -33,9 +33,9 @@ if not _os.environ.get("PYTEST_CURRENT_TEST"):
     class _DaemonThread(_OrigThread):  # type: ignore[misc, valid-type]
         def __init__(self, *args: object, **kwargs: object) -> None:
             kwargs.setdefault("daemon", True)
-            super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+            super().__init__(*args, **kwargs)
 
-    _aiosqlite_core.Thread = _DaemonThread  # type: ignore[assignment, attr-defined]
+    _aiosqlite_core.Thread = _DaemonThread  # type: ignore[attr-defined]
 
 logger = logging.getLogger(__name__)
 
