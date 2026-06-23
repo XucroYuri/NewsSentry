@@ -50,6 +50,7 @@ from news_sentry.api.middleware.auth import (
     _TOKEN_STORE,
     _create_persistent_token_for_user,
     _create_stream_token_for_user,
+    _create_token_for_user,  # noqa: F401 — re-export for tests
     _extract_bearer_token,
     _get_valid_api_keys,
     _local_auth_bypass_enabled,
