@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest import mock
 from unittest.mock import patch
 
 import pytest
@@ -1115,3 +1118,180 @@ class TestSmartAlerts:
             assert "entity_name" in a["details"]
             assert a["details"]["today_count"] > 0
             assert a["details"]["avg_count"] > 0
+
+
+# ──────────────────────────────────────────────────
+# Phase 6 coverage push — additional targeted tests
+# ──────────────────────────────────────────────────
+
+
+class TestDedupPrune:
+    """测试 _prune_dedup 过期清理逻辑。"""
+
+    def test_prune_removes_expired_entries(self) -> None:
+        """超过 dedup_window 的条目被清理。"""
+        pipeline = AlertPipeline([])
+        pipeline._dedup_window = 1  # 1 second window
+
+        # 插入一条"过期"的条目
+        pipeline._alerted["old_event"] = time.time() - 10
+
+        # 插入一条"有效"的条目
+        pipeline._alerted["new_event"] = time.time()
+
+        pipeline._prune_dedup()
+
+        assert "old_event" not in pipeline._alerted
+        assert "new_event" in pipeline._alerted
+
+    def test_prune_keeps_within_window(self) -> None:
+        """窗口内的条目不被清理。"""
+        pipeline = AlertPipeline([])
+        pipeline._dedup_window = 3600
+        pipeline._alerted["recent"] = time.time()
+
+        pipeline._prune_dedup()
+        assert "recent" in pipeline._alerted
+
+
+class TestFormatTierL3Fallback:
+    """测试 L3 tier 格式化中的 content_translated fallback。"""
+
+    def test_l3_with_content_translated_fallback(self, make_event) -> None:
+        """L3 无 editorial_draft 但有 content_translated 时使用摘要。"""
+        pipeline = AlertPipeline([])
+        event = make_event(
+            title="Test Event",
+            score=92,
+            metadata={"editorial_draft": "", "translation": {}},
+        )
+        event.content_translated = "这是一段翻译后的内容摘要。"
+        if event.judge_result:
+            event.judge_result.recommendation.value = "publish"
+
+        result = pipeline._format_tier_alert(event, "run-l3", "L3")
+        assert "摘要" in result
+        assert "翻译后的内容摘要" in result
+
+
+class TestSendGenericWebhook:
+    """测试 generic_webhook 通道。"""
+
+    def test_send_dispatches_to_generic_webhook(self, make_event) -> None:
+        """_send dispatch 将 generic_webhook dest 路由到正确方法。"""
+        pipeline = AlertPipeline([])
+        event = make_event(title="Webhook Test", score=85)
+
+        with (
+            patch.object(pipeline, "_send_generic_webhook") as mock_send,
+        ):
+            pipeline._send(
+                {"type": "generic_webhook", "url": "https://hook.example"},
+                "body",
+                event,
+                "test-run-001",
+            )
+            mock_send.assert_called_once()
+
+    def test_generic_webhook_sends_payload(self) -> None:
+        """generic_webhook POST JSON 到指定 URL。"""
+        pipeline = AlertPipeline([])
+
+        with patch("news_sentry.core.alert_pipeline.urlopen") as mock_urlopen:
+            mock_resp = mock.MagicMock()
+            mock_resp.status = 200
+            mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+            pipeline._send_generic_webhook(
+                {"url": "https://hook.example/api"},
+                "alert body content",
+                _make_event("test-001", 88),
+            )
+            mock_urlopen.assert_called_once()
+
+    def test_generic_webhook_no_url_skips(self) -> None:
+        """URL 未配置时跳过。"""
+        pipeline = AlertPipeline([])
+
+        with patch("news_sentry.core.alert_pipeline.urlopen") as mock_urlopen:
+            pipeline._send_generic_webhook({}, "body", _make_event("test-001", 88))
+            mock_urlopen.assert_not_called()
+
+    def test_generic_webhook_high_status_logs_warning(self, caplog) -> None:
+        """HTTP >=300 时记录 warning。"""
+        pipeline = AlertPipeline([])
+
+        with patch("news_sentry.core.alert_pipeline.urlopen") as mock_urlopen:
+            mock_resp = mock.MagicMock()
+            mock_resp.status = 500
+            mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+            with caplog.at_level(logging.WARNING):
+                pipeline._send_generic_webhook(
+                    {"url": "https://hook.example/api"},
+                    "body",
+                    _make_event("test-001", 88),
+                )
+            assert any("响应异常" in r.message for r in caplog.records)
+
+
+class TestFeishuTelegramHighStatus:
+    """测试飞书/Telegram 异常 HTTP 状态码路径。"""
+
+    def test_feishu_high_status_logs_warning(self, caplog) -> None:
+        """飞书 webhook 返回 >=300 状态码时记录 warning。"""
+        pipeline = AlertPipeline([])
+
+        with patch("news_sentry.core.alert_pipeline.urlopen") as mock_urlopen:
+            mock_resp = mock.MagicMock()
+            mock_resp.status = 429
+            mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+            with caplog.at_level(logging.WARNING):
+                pipeline._send_feishu(
+                    {"url": "https://open.feishu.cn/hook/test"},
+                    "body",
+                    _make_event("test-001", 88),
+                )
+            assert any("响应异常" in r.message for r in caplog.records)
+
+    def test_telegram_high_status_logs_warning(self, caplog) -> None:
+        """Telegram bot 返回 >=300 状态码时记录 warning。"""
+        pipeline = AlertPipeline([])
+
+        with patch("news_sentry.core.alert_pipeline.urlopen") as mock_urlopen:
+            mock_resp = mock.MagicMock()
+            mock_resp.status = 502
+            mock_urlopen.return_value.__enter__.return_value = mock_resp
+
+            with caplog.at_level(logging.WARNING):
+                pipeline._send_telegram(
+                    {"bot_token": "test-token", "chat_id": "123"},
+                    "alert body",
+                    _make_event("test-001", 88),
+                )
+            assert any("响应异常" in r.message for r in caplog.records)
+
+
+class TestSmartAlertSaveFailure:
+    """测试 smart alerts 持久化失败不抛异常。"""
+
+    @pytest.mark.asyncio
+    async def test_save_alert_history_failure_no_exception(self, tmp_path: Path) -> None:
+        """告警持久化失败时不抛异常，仍返回告警列表。"""
+        # Use a minimal store — override save_alert_history with exception-raising stub
+        store = AsyncStore(tmp_path / "state.db")
+        await store.initialize()
+
+        async def failing_save(target_id, alerts):  # noqa: ANN
+            raise RuntimeError("DB write failed")
+
+        store.save_alert_history = failing_save
+
+        pipeline = AlertPipeline([])
+
+        # Even with no events, smart alert check should not raise
+        alerts = await pipeline.check_smart_alerts(store, "italy")
+        assert isinstance(alerts, list)
+
+        await store.close()

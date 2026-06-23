@@ -13,6 +13,8 @@ from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.public_translation import (
     PublicTranslationConfig,
     PublicTranslationEngine,
+    _looks_like_template_reason,
+    normalize_public_translation_config,
     public_publication_ready,
     public_translation_field_hash,
     public_translation_ready,
@@ -738,3 +740,70 @@ async def test_public_translation_engine_rejects_publication_without_tags(tmp_pa
         assert "publication" not in row["metadata"]
     finally:
         await store.close()
+
+
+# ──────────────────────────────────────────────────
+# Phase 6 coverage push — normalize + template check
+# ──────────────────────────────────────────────────
+
+
+class TestNormalizeConfig:
+    """测试 normalize_public_translation_config 边界条件。"""
+
+    def test_invalid_int_values_fall_back_to_defaults(self) -> None:
+        """非整数值应回退到默认值而非崩溃。"""
+        result = normalize_public_translation_config(
+            {
+                "interval_minutes": "not-a-number",
+                "per_cycle_limit": None,
+                "candidate_limit": "also-invalid",
+            }
+        )
+        assert result.interval_minutes == 5  # default
+        assert result.per_cycle_limit == 50  # default
+        assert result.candidate_limit == 500  # default
+
+    def test_out_of_range_values_are_clamped(self) -> None:
+        """超出范围的整数应被 clamp 到边界值。"""
+        result = normalize_public_translation_config(
+            {
+                "interval_minutes": -1,
+                "per_cycle_limit": 9999,
+                "candidate_limit": 0,
+            }
+        )
+        assert result.interval_minutes == 1  # min 1
+        assert result.per_cycle_limit == 500  # max 500
+        assert result.candidate_limit == 1  # min 1
+
+    def test_empty_dict_returns_defaults(self) -> None:
+        """空 dict 使用所有默认值。"""
+        result = normalize_public_translation_config({})
+        assert result.enabled is True
+        assert result.interval_minutes == 5
+        assert result.source_lang == "auto"
+        assert result.target_lang == "zh"
+
+
+class TestTemplateReason:
+    """测试 _looks_like_template_reason 函数。"""
+
+    def test_template_marker_detected(self) -> None:
+        """模板标记应被检测为 True。"""
+        markers = [
+            "已进入公共新闻流",
+            "等待更多背景",
+            "等待更多理据",
+            "建议纳入同一时间线持续跟踪",
+        ]
+        for marker in markers:
+            assert _looks_like_template_reason(marker) is True
+
+    def test_real_reason_passes(self) -> None:
+        """真实推荐理由不应被误判为模板。"""
+        assert _looks_like_template_reason("意大利最新民调显示中右联盟支持率上升3个百分点") is False
+
+    def test_empty_reason_is_template(self) -> None:
+        """空理由是模板。"""
+        assert _looks_like_template_reason("") is True
+        assert _looks_like_template_reason(None) is True

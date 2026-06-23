@@ -8,7 +8,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from news_sentry.core.ai_enrichment import AIEnrichmentConfig, AIEnrichmentEngine
+from news_sentry.core.ai_enrichment import (
+    AIEnrichmentConfig,
+    AIEnrichmentEngine,
+    normalize_ai_enrichment_config,
+)
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
 
@@ -42,8 +46,7 @@ class TestAIEnrichmentEngine:
         config = AIEnrichmentConfig(max_chars_per_request=900, per_cycle_request_limit=10)
         engine = AIEnrichmentEngine(config)
         rows = [
-            _row(f"ne-{idx}", title=f"Titolo economico {idx} " + ("x" * 90))
-            for idx in range(12)
+            _row(f"ne-{idx}", title=f"Titolo economico {idx} " + ("x" * 90)) for idx in range(12)
         ]
 
         batches = engine.plan_batches("italy", rows)
@@ -85,9 +88,7 @@ class TestAIEnrichmentEngine:
         )
         content = json.dumps(
             {
-                "translations": [
-                    {"event_id": "ne-review", "title": "意大利经济措施进入审议"}
-                ],
+                "translations": [{"event_id": "ne-review", "title": "意大利经济措施进入审议"}],
                 "cluster_briefs": [
                     {
                         "cluster_id": "cluster-italy-stable",
@@ -165,3 +166,43 @@ async def test_async_store_updates_ai_enriched_metadata(tmp_path) -> None:
     assert row is not None
     assert row["metadata"]["translation"]["title_pre"] == "中文标题"
     await store.close()
+
+
+# ──────────────────────────────────────────────────
+# Phase 6 coverage push — normalize config edge cases
+# ──────────────────────────────────────────────────
+
+
+class TestNormalizeConfig:
+    """测试 normalize_ai_enrichment_config 边界条件。"""
+
+    def test_invalid_int_values_fall_back_to_defaults(self) -> None:
+        """非整数值应回退到默认值而非崩溃。"""
+        result = normalize_ai_enrichment_config(
+            {
+                "interval_minutes": "bad",
+                "daily_request_limit": None,
+                "per_cycle_request_limit": "",
+            }
+        )
+        assert result.interval_minutes == 60  # default
+        assert result.daily_request_limit == 45  # default
+        assert result.per_cycle_request_limit == 3  # default
+
+    def test_out_of_range_values_are_clamped(self) -> None:
+        """超出范围的整数应被 clamp 到边界值。"""
+        result = normalize_ai_enrichment_config(
+            {
+                "interval_minutes": 0,
+                "per_cycle_request_limit": 999,
+            }
+        )
+        # interval min 15
+        assert result.interval_minutes == 15
+        # per_cycle max 20
+        assert result.per_cycle_request_limit == 20
+
+    def test_targets_as_comma_string(self) -> None:
+        """逗号分隔字符串形式的 targets 应被正确解析。"""
+        result = normalize_ai_enrichment_config({"targets": "italy, france , germany"})
+        assert result.targets == ("italy", "france", "germany")
