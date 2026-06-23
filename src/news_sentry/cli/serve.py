@@ -293,7 +293,7 @@ def serve(
 
     if platform.system() != "Windows":
 
-        def _handle_signal(signum: int, frame: object) -> None:
+        def _handle_signal(_signum: int, _frame: object) -> None:
             sys.exit(0)
 
         signal.signal(signal.SIGTERM, _handle_signal)

@@ -33,7 +33,7 @@ class HealthHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
-    def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+    def log_message(self, _format: str, *args: object) -> None:  # noqa: A002
         """Suppress default stderr logging."""
         pass
 

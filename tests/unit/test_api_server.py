@@ -557,7 +557,9 @@ class TestAPIServer:
         for path in ("/app.js", "/public.css"):
             resp = client.get(path)
             assert resp.status_code == 200
-            assert resp.headers["cache-control"] == "no-cache"
+            # v2 performance: static assets cached 1 year with immutable
+            assert "max-age=31536000" in resp.headers["cache-control"]
+            assert "immutable" in resp.headers["cache-control"]
 
     def test_public_app_entry_and_root_use_same_reader_shell(
         self,
