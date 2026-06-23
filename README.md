@@ -1,8 +1,10 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.9.1-blue.svg" alt="version" />
+  <img src="https://img.shields.io/badge/version-2.0.0--rc2-blue.svg" alt="version" />
   <img src="https://img.shields.io/badge/python-3.11+-3776AB.svg?logo=python&logoColor=white" alt="python" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-orange.svg" alt="license" />
   <img src="https://img.shields.io/badge/ruff-0%20errors-success.svg" alt="ruff" />
+  <img src="https://img.shields.io/badge/tests-3001%20passed-brightgreen.svg" alt="tests" />
+  <img src="https://img.shields.io/badge/coverage-87%25-9cf.svg" alt="coverage" />
 </p>
 
 <h1 align="center">News Sentry</h1>
