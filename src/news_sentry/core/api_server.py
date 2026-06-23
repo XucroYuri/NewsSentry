@@ -46,18 +46,19 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Str
 from pydantic import BaseModel, BeforeValidator, ValidationError
 
 from news_sentry.api.middleware.auth import (
-    _API_KEY_ENV,
     _PERMISSIONS,
-    _RATE_LIMIT_MAX,
-    _RATE_LIMIT_WINDOW,
-    _STREAM_TOKEN_STORE,
-    _STREAM_TOKEN_TTL,
     _TOKEN_STORE,
-    _TOKEN_TTL,
-    _is_loopback_request,
-    _is_testclient_default_host,
+    _create_persistent_token_for_user,
+    _create_stream_token_for_user,
+    _extract_bearer_token,
+    _get_valid_api_keys,
+    _local_auth_bypass_enabled,
     _login_limiter,
-    _rate_limiter,
+    _revoke_sessions_for_username,
+    _verify_stream_token,
+    _verify_token_async,
+    get_current_user,
+    require_permission,
 )
 
 # ── Pydantic 模型（已提取至 news_sentry.api.schemas）───
@@ -229,155 +230,8 @@ _PUBLIC_SITE_DESCRIPTION = (
     "提供中文摘要、原文标题、信源信息与 Breaking News 指数。"
 )
 
-# ── 权限（已提取至 middleware/auth）─────────────────
-
-
-class _RateLimiter:
-    """简易内存速率限制器（每用户独立计数）。"""
-
-    def __init__(
-        self,
-        max_requests: int = _RATE_LIMIT_MAX,
-        window: int = _RATE_LIMIT_WINDOW,
-    ) -> None:
-        self._max = max_requests
-        self._window = window
-        self._hits: dict[str, list[float]] = defaultdict(list)
-
-    def check(self, key: str) -> bool:
-        """检查是否超限。返回 True 表示允许。"""
-        now = time.monotonic()
-        cutoff = now - self._window
-        self._hits[key] = [t for t in self._hits[key] if t > cutoff]
-        if len(self._hits[key]) >= self._max:
-            return False
-        self._hits[key].append(now)
-        return True
-
-
-def _create_token_for_user(username: str, role: str, has_api_key: bool) -> dict[str, Any]:
-    """为已认证用户创建 session token（内存写入）。"""
-    token = secrets.token_hex(32)
-    now = time.time()
-    info = {
-        "username": username,
-        "role": role,
-        "has_api_key": has_api_key,
-        "created_at": now,
-        "expires_at": now + _TOKEN_TTL,
-    }
-    _TOKEN_STORE[token] = info
-
-    return {
-        "access_token": token,
-        "token_type": "Bearer",
-        "expires_in": _TOKEN_TTL,
-        "username": username,
-        "role": role,
-        "has_api_key": has_api_key,
-    }
-
-
-async def _create_persistent_token_for_user(
-    username: str,
-    role: str,
-    has_api_key: bool,
-) -> dict[str, Any]:
-    """创建 token，并在 SQLite 已就绪时同步持久化 session。"""
-    result = _create_token_for_user(username, role, has_api_key)
-    if _store is not None and _store._db is not None:  # noqa: SLF001
-        await _store.create_session(
-            result["access_token"],
-            username,
-            role,
-            has_api_key,
-            _TOKEN_TTL,
-        )
-    return result
-
-
-def _create_stream_token_for_user(username: str, role: str) -> dict[str, Any]:
-    """为 SSE 创建短期 stream token，避免把主 bearer 暴露到 URL。"""
-    token = secrets.token_urlsafe(24)
-    now = time.time()
-    _STREAM_TOKEN_STORE[token] = {
-        "username": username,
-        "role": role,
-        "created_at": now,
-        "expires_at": now + _STREAM_TOKEN_TTL,
-    }
-    return {
-        "stream_token": token,
-        "token_type": "sse",
-        "expires_in": _STREAM_TOKEN_TTL,
-        "username": username,
-        "role": role,
-    }
-
-
-def _verify_token(token: str) -> dict[str, Any] | None:
-    """验证 Token 有效性（内存优先，SQLite 回退）。"""
-    info = _TOKEN_STORE.get(token)
-    if info:
-        if time.time() > info["expires_at"]:
-            _TOKEN_STORE.pop(token, None)
-            return None
-        return info
-    return None
-
-
-def _verify_stream_token(token: str) -> dict[str, Any] | None:
-    """验证短期 SSE token。"""
-    info = _STREAM_TOKEN_STORE.get(token)
-    if info:
-        if time.time() > info["expires_at"]:
-            _STREAM_TOKEN_STORE.pop(token, None)
-            return None
-        return info
-    return None
-
-
-async def _verify_token_async(token: str) -> dict[str, Any] | None:
-    """异步验证 Token（含 SQLite 回退 + 内存回填）。"""
-    info = _verify_token(token)
-    if info:
-        return info
-    # SQLite 回退：服务重启后内存为空，从持久化存储恢复
-    if _store is not None and _store._db is not None:  # noqa: SLF001
-        session = await _store.get_session(token)
-        if session:
-            if time.time() > session["expires_at"]:
-                await _store.delete_session(token)
-                return None
-            # 回填到内存
-            _TOKEN_STORE[token] = session
-            return session
-    return None
-
-
-async def _revoke_sessions_for_username(username: str) -> None:
-    """撤销指定用户的全部 bearer / stream token。"""
-    for token, info in list(_TOKEN_STORE.items()):
-        if info.get("username") == username:
-            _TOKEN_STORE.pop(token, None)
-    for token, info in list(_STREAM_TOKEN_STORE.items()):
-        if info.get("username") == username:
-            _STREAM_TOKEN_STORE.pop(token, None)
-    if _store is not None and _store._db is not None:  # noqa: SLF001
-        await _store.delete_sessions_for_user(username)
-
-
-def _extract_bearer_token(request: Request) -> str | None:
-    """从 Authorization header 提取 Bearer token。"""
-    auth = request.headers.get("authorization", "")
-    if auth.startswith("Bearer "):
-        return auth[7:]
-    return None
-
-
 # ── FastAPI 认证依赖 ───────────────────────────────────
 
-# _store 在 create_app() 内赋值，此处为模块级引用占位
 _store: AsyncStore | None = None
 _target_stores: dict[str, AsyncStore] = {}  # target_id → state.db 缓存
 _deployment_env: str = ""  # cloudflare|hetzner|docker|local|unknown
@@ -417,26 +271,6 @@ class InvisibleIndexedEvent:
 _INVISIBLE_INDEXED_EVENT = InvisibleIndexedEvent()
 
 
-def _local_auth_bypass_enabled(request: Request) -> bool:
-    """本地桌面/开发模式下跳过账号密码认证。"""
-    explicit_env = os.environ.get("NEWSSENTRY_DEPLOYMENT_ENV", "").strip().lower()
-    if explicit_env == "local":
-        return _is_loopback_request(request)
-    if explicit_env:
-        return False
-    return _is_testclient_default_host(request)
-
-
-def _local_admin_user() -> dict[str, Any]:
-    """本地免登录模式使用的虚拟管理员。"""
-    return {
-        "username": "local-admin",
-        "role": "admin",
-        "has_api_key": False,
-        "local": True,
-    }
-
-
 async def _read_json_object(request: Request) -> dict[str, Any]:
     """读取 JSON object body，并把空/非法 JSON 转成 400。"""
     try:
@@ -446,56 +280,6 @@ async def _read_json_object(request: Request) -> dict[str, Any]:
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="Request body must be a JSON object")
     return cast(dict[str, Any], body)
-
-
-async def get_current_user(request: Request) -> dict[str, Any]:
-    """提取并验证 Bearer token，返回用户信息（内存 + SQLite 回退）。"""
-    token = _extract_bearer_token(request)
-    if token:
-        info = await _verify_token_async(token)
-        if info:
-            # 检查 store 中的最新 api_key 状态
-            if _store is not None:
-                user = await _store.get_user(info["username"])
-                if user:
-                    info["has_api_key"] = bool(user.get("api_key"))
-                    info["role"] = user.get("role", info["role"])
-            return info
-        if not _local_auth_bypass_enabled(request):
-            raise HTTPException(status_code=401, detail="Invalid or expired token")
-
-    if _local_auth_bypass_enabled(request):
-        return _local_admin_user()
-
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing authentication")
-    raise HTTPException(status_code=401, detail="Invalid or expired token")
-
-
-def require_permission(permission: str) -> Any:
-    """依赖工厂：检查用户权限。"""
-
-    async def _check(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
-        role = user.get("role", "reader")
-        if permission not in _PERMISSIONS.get(role, set()):
-            raise HTTPException(status_code=403, detail="Insufficient permissions")
-        if not _rate_limiter.check(user["username"]):
-            raise HTTPException(status_code=429, detail="Rate limit exceeded")
-        return user
-
-    return _check
-
-
-def _get_valid_api_keys() -> set[str]:
-    """从环境变量 + 用户存储加载有效 API Key。"""
-    keys: set[str] = set()
-    raw = os.environ.get(_API_KEY_ENV, "")
-    if raw:
-        keys.update(k.strip() for k in raw.split(",") if k.strip())
-    return keys
-
-
-# ── 运行日志读取 ────────────────────────────────────────
 
 
 def _load_run_logs(

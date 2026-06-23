@@ -16,13 +16,13 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
+from news_sentry.api.middleware.auth import _TOKEN_STORE, _RateLimiter
 from news_sentry.core import api_server as api_server_module
 from news_sentry.core.api_server import (
     _get_valid_api_keys,
     _parse_frontmatter,
     _parse_target_ids,
     _public_analysis_from_store,
-    _RateLimiter,
     _tag_text,
     create_app,
 )
@@ -6537,7 +6537,7 @@ class TestAuthEndpoints:
         assert token_resp.status_code == 200
         token = token_resp.json()["access_token"]
 
-        api_server_module._TOKEN_STORE.pop(token, None)
+        _TOKEN_STORE.pop(token, None)
         session = asyncio.run(store.get_session(token))
         assert session is not None
         assert session["username"] == "dev"
