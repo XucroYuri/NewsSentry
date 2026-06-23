@@ -1,9 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 24 24" fill="none" stroke="#e0e0e0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-  <rect x="2" y="3" width="20" height="18" rx="2" ry="2" fill="#1a1a2e"/>
-  <path d="M2 9h20" stroke="#3b82f6" stroke-width="1.5"/>
-  <path d="M7 13h4" stroke="#888" stroke-width="1.5"/>
-  <path d="M7 17h4" stroke="#888" stroke-width="1.5"/>
-  <path d="M14 13h4" stroke="#888" stroke-width="1.5"/>
-  <path d="M14 17h4" stroke="#888" stroke-width="1.5"/>
-  <circle cx="18" cy="6" r="1.5" fill="#ef4444"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1e1b4b"/>
+      <stop offset="100%" stop-color="#312e81"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect x="24" y="24" width="464" height="464" rx="96" fill="url(#bgGrad)"/>
+
+  <!-- Simple house/watchtower silhouette -->
+  <path d="M160 380 L160 200 L256 120 L352 200 L352 380 L288 380 L288 280 L224 280 L224 380 Z" fill="#fbbf24"/>
+
+  <!-- Window/eye in center -->
+  <circle cx="256" cy="220" r="32" fill="#1e1b4b"/>
+  <circle cx="256" cy="220" r="14" fill="#fbbf24"/>
 </svg>
