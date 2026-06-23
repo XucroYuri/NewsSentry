@@ -327,10 +327,16 @@ flowchart LR
 
 **当前状态：** Phase 1-8 全部完成。项目处于 v2.0 稳定的重构基线。
 - **Tag:** v2.0.0-rc2
-- **测试:** 3,013 passed, 0 failed, 0 warnings
+- **测试:** 2,969 passed, 0 failed, 0 warnings
 - **覆盖率:** 86%
 - **Type:** mypy strict + ruff: 零错误
 - **生产:** news-sentry.com — `{"status": "ok"}`
+
+**Phase 9 优先事项:**
+1. api_server.py 拆分 (9,209 lines → ~15 route files)
+2. async_store.py 测试增补 (86% → 92%)
+3. 小覆盖率提升 (source_registry, libretranslate, mymemory)
+4. 前端 vitest 覆盖审计
 
 ---
 
