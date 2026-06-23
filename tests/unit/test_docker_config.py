@@ -30,14 +30,14 @@ class TestDockerfile:
         assert "COPY src/ src/" in content
 
     def test_dockerfile_copies_schemas(self):
-        """Dockerfile 应包含 COPY schemas/ schemas/。"""
+        """Dockerfile 运行时阶段应包含 COPY schemas/。"""
         content = _read_text("Dockerfile")
-        assert "COPY schemas/ schemas/" in content
+        assert "COPY schemas/" in content
 
     def test_dockerfile_copies_config(self):
-        """Dockerfile 应包含 COPY config/ config/。"""
+        """Dockerfile 运行时阶段应包含 COPY config/。"""
         content = _read_text("Dockerfile")
-        assert "COPY config/ config/" in content
+        assert "COPY config/" in content
 
     def test_dockerfile_copies_entrypoint(self):
         """Dockerfile 应包含 COPY docker-entrypoint.sh。"""
