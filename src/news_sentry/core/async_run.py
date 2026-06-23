@@ -45,18 +45,12 @@ from news_sentry.skills.collect.api_collector import APICollector
 from news_sentry.skills.collect.rss_collector import RSSCollector
 from news_sentry.skills.judge.rules_judge import RulesJudgeSkill
 
-# SocialKOLCollector 按需导入 — 无浏览器环境（core 镜像）可能缺失依赖
-_SOCIAL_KOL_AVAILABLE = True
-try:
-    from news_sentry.skills.collect.social_kol_collector import SocialKOLCollector
-except ImportError:
-    _SOCIAL_KOL_AVAILABLE = False
-
 
 def _pipeline_translation_enabled() -> bool:
     """Legacy in-pipeline translation is opt-in; AI enrichment owns default translation."""
     value = os.environ.get("NEWS_SENTRY_PIPELINE_TRANSLATE", "")
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
 
 logger = logging.getLogger(__name__)
 
@@ -367,21 +361,6 @@ async def _run_collect_async(
         if should_close:
             await client.aclose()
 
-    # 社媒采集：从 source_channel_refs 中筛选 social/ 开头的条目
-    social_refs = [
-        ref for ref in config.target.get("source_channel_refs", []) if ref.startswith("social/")
-    ]
-    if social_refs and _SOCIAL_KOL_AVAILABLE:
-        social_events = await _collect_social_sources(
-            social_refs=social_refs,
-            target_id=config.target_id,
-            config_root=_find_project_root(),
-            sandbox=sandbox,
-            run_id=run_id,
-            run_log=run_log,
-        )
-        all_events.extend(social_events)
-
     for event in all_events:
         file_writer.write_event(event)
 
@@ -489,63 +468,6 @@ async def _run_rules_judge_async(
     run_log.log_phase_end("judge", len(events), duration_ms)
     logger.info("规则研判完成: total=%d remote_ai_skipped=%d", len(events), len(events))
     return judged
-
-
-async def _collect_social_sources(
-    social_refs: list[str],
-    target_id: str,
-    config_root: Path,
-    sandbox: SandboxEnforcer,
-    run_id: str,
-    run_log: RunLog,
-) -> list[NewsEvent]:
-    """加载社媒源配置并尝试采集。
-
-    社媒采集依赖浏览器（Playwright/OpenCLI Bridge），
-    无浏览器环境（如 core 镜像）会优雅跳过。
-    """
-    import yaml
-
-    from news_sentry.core.sandbox import SandboxViolationError
-
-    all_events: list[NewsEvent] = []
-
-    for ref in social_refs:
-        # ref 格式: "social/twitter/A-politics-governance"
-        source_path = config_root / "config" / "sources" / target_id / f"{ref}.yaml"
-        if not source_path.is_file():
-            logger.warning("社媒源配置不存在: %s", source_path)
-            continue
-
-        try:
-            with open(source_path, encoding="utf-8") as fh:
-                source_config: dict[str, Any] = yaml.safe_load(fh) or {}
-        except Exception as e:
-            logger.warning("社媒源配置加载失败 [%s]: %s", ref, e)
-            continue
-
-        source_id = source_config.get("dimension", ref)
-        try:
-            # SocialKOLCollector 要求 kol-experiment sandbox 策略
-            collector = SocialKOLCollector(
-                registry=None,
-                sandbox=sandbox,
-                kol_state={},
-                config=source_config,
-            )
-            events = await asyncio.to_thread(collector.collect, run_id)
-            for evt in events:
-                evt.metadata["target_id"] = target_id
-                run_log.log_event("collect", evt.id, "collected")
-            all_events.extend(events)
-            logger.info("社媒采集 [%s]: %d 条事件", source_id, len(events))
-        except SandboxViolationError as e:
-            logger.warning("社媒采集跳过 [%s]: sandbox 策略不匹配 (%s)", source_id, e)
-        except Exception as e:
-            logger.warning("社媒采集失败 [%s]: %s", source_id, e)
-            run_log.log_error("collect", str(e), event_id=source_id)
-
-    return all_events
 
 
 async def _run_filter_async(

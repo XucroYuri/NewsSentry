@@ -149,9 +149,7 @@ def test_vnext_global_region_network_is_configured() -> None:
     assert not missing_aggregates, f"missing aggregate region targets: {sorted(missing_aggregates)}"
 
     country_targets = {
-        target_id
-        for target_id, target in targets.items()
-        if target.get("region_type") == "country"
+        target_id for target_id, target in targets.items() if target.get("region_type") == "country"
     }
     aggregate_targets = {
         target_id

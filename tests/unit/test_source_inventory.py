@@ -69,7 +69,7 @@ def test_source_inventory_reconciles_refs_files_social_and_health(tmp_path: Path
         {
             "platform": "twitter",
             "dimension": "politics",
-            "collect_mode": "opencli_bridge",
+            "collect_mode": "rss_bridge",
             "accounts": [
                 {"handle": "@active", "monitor_mode": "active"},
                 {"handle": "@archived", "monitor_mode": "archived"},

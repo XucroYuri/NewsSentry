@@ -119,10 +119,7 @@ async def test_public_projection_lists_items_from_store_rows(store: AsyncStore) 
     assert items[0].original_title == "Italy story"
     assert items[0].summary == "Store-backed summary"
     assert items[0].original_url == "https://example.com/story"
-    assert (
-        items[0].detail_url
-        == "https://news-sentry.com/public-app/events/it_001?target_id=italy"
-    )
+    assert items[0].detail_url == "https://news-sentry.com/public-app/events/it_001?target_id=italy"
     assert items[0].classification_l0 == "economy"
 
 

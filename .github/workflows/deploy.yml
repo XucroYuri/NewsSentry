@@ -17,13 +17,6 @@ on:
         default: "false"
         type: choice
         options: ["false", "true"]
-      deploy_freellmapi_sidecar:
-        description: "Update/rebuild the FreeLLMAPI sidecar during this deploy. Defaults off to keep app deploys fast and reliable."
-        required: false
-        default: "false"
-        type: choice
-        options: ["false", "true"]
-
 permissions:
   contents: write
 
@@ -110,12 +103,10 @@ jobs:
             echo "ENV=production" >> "$GITHUB_OUTPUT"
             echo "SERVICE=news-sentry" >> "$GITHUB_OUTPUT"
             echo "PORT=18080" >> "$GITHUB_OUTPUT"
-            echo "FREELLMAPI_PORT=13080" >> "$GITHUB_OUTPUT"
           else
             echo "ENV=preview" >> "$GITHUB_OUTPUT"
             echo "SERVICE=news-sentry-preview" >> "$GITHUB_OUTPUT"
             echo "PORT=18081" >> "$GITHUB_OUTPUT"
-            echo "FREELLMAPI_PORT=13081" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Deploy via SSH
@@ -132,17 +123,11 @@ jobs:
             ENV="${{ steps.env.outputs.ENV }}"
             SERVICE="${{ steps.env.outputs.SERVICE }}"
             PORT="${{ steps.env.outputs.PORT }}"
-            FREELLMAPI_PORT="${{ steps.env.outputs.FREELLMAPI_PORT }}"
             BRANCH="${{ github.ref_name }}"
             SHA="${{ github.sha }}"
             SHORT_SHA="$(echo ${SHA} | cut -c1-7)"
             DEPLOY_BASE="/opt/news-sentry"
             REPO_DIR="${DEPLOY_BASE}/${ENV}/repo"
-            FREELLMAPI_DIR="${DEPLOY_BASE}/${ENV}/freellmapi"
-            FREELLMAPI_REPO="${FREELLMAPI_DIR}/repo"
-            FREELLMAPI_ENV_FILE="${FREELLMAPI_DIR}/.env"
-            FREELLMAPI_SERVICE="${SERVICE}-freellmapi"
-            DEPLOY_FREELLMAPI_SIDECAR="${{ github.event_name == 'workflow_dispatch' && inputs.deploy_freellmapi_sidecar == 'true' && 'true' || 'false' }}"
             REPO_URL="https://github.com/XucroYuri/NewsSentry.git"
             DEPLOY_GITHUB_TOKEN="${{ secrets.GHCR_PAT || github.token }}"
             if [ -z "${DEPLOY_GITHUB_TOKEN}" ]; then
@@ -250,77 +235,42 @@ jobs:
               fi
             }
 
-            # ── 3a. FreeLLMAPI sidecar: OpenAI-compatible local routing layer ──
-            mkdir -p "${FREELLMAPI_DIR}/data"
-            if [ "${DEPLOY_FREELLMAPI_SIDECAR}" = "true" ]; then
-              if [ -d "${FREELLMAPI_REPO}/.git" ]; then
-                git config --global --add safe.directory "${FREELLMAPI_REPO}"
-                cd "${FREELLMAPI_REPO}"
-                git remote set-url origin "https://github.com/tashfeenahmed/freellmapi.git"
                 git fetch origin
-                DEFAULT_FREELLMAPI_BRANCH="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#origin/##' || echo main)"
-                git reset --hard "origin/${DEFAULT_FREELLMAPI_BRANCH}"
                 git clean -fd
               else
-                git clone "https://github.com/tashfeenahmed/freellmapi.git" "${FREELLMAPI_REPO}"
-                cd "${FREELLMAPI_REPO}"
               fi
               rm -rf node_modules server/node_modules client/node_modules apps/node_modules packages/node_modules
               npm ci
               npm run build
-              rm -rf "${FREELLMAPI_REPO}/server/data"
-              ln -s "${FREELLMAPI_DIR}/data" "${FREELLMAPI_REPO}/server/data"
-              ensure_env_kv_missing "${FREELLMAPI_ENV_FILE}" "ENCRYPTION_KEY" "$(openssl rand -hex 32)"
-              upsert_env_kv "${FREELLMAPI_ENV_FILE}" "NODE_ENV" "production"
-              upsert_env_kv "${FREELLMAPI_ENV_FILE}" "PORT" "${FREELLMAPI_PORT}"
-              upsert_env_kv "${FREELLMAPI_ENV_FILE}" "HOST" "127.0.0.1"
-              upsert_env_kv "${FREELLMAPI_ENV_FILE}" "REQUEST_ANALYTICS_RETENTION_DAYS" "30"
-              upsert_env_kv "${FREELLMAPI_ENV_FILE}" "REQUEST_ANALYTICS_MAX_ROWS" "50000"
               NPM_BIN="$(command -v npm)"
-              cat > "/etc/systemd/system/${FREELLMAPI_SERVICE}.service" <<FREESVCEOF
             [Unit]
-            Description=FreeLLMAPI sidecar for News Sentry ${ENV}
             After=network.target
 
             [Service]
             Type=simple
             User=newssentry
             Group=newssentry
-            WorkingDirectory=${FREELLMAPI_REPO}
-            EnvironmentFile=${FREELLMAPI_ENV_FILE}
-            Environment=FREEAPI_ENV_PATH=${FREELLMAPI_ENV_FILE}
-            ExecStart=${NPM_BIN} --workspace @freellmapi/server run start
             Restart=on-failure
             RestartSec=10
             NoNewPrivileges=true
             ProtectSystem=strict
-            ReadWritePaths=${FREELLMAPI_DIR} ${FREELLMAPI_REPO}
             PrivateTmp=true
             StandardOutput=journal
             StandardError=journal
-            SyslogIdentifier=${FREELLMAPI_SERVICE}
 
             [Install]
             WantedBy=multi-user.target
             FREESVCEOF
-              chown -R newssentry:newssentry "${FREELLMAPI_DIR}"
               systemctl daemon-reload
-              systemctl enable "${FREELLMAPI_SERVICE}"
-              systemctl restart "${FREELLMAPI_SERVICE}"
               for i in $(seq 1 12); do
-                if curl -sf "http://127.0.0.1:${FREELLMAPI_PORT}/api/ping" > /dev/null 2>&1; then
-                  echo "✅ FreeLLMAPI sidecar running on 127.0.0.1:${FREELLMAPI_PORT}"
                   break
                 fi
                 if [ "$i" -eq 12 ]; then
-                  echo "❌ FreeLLMAPI sidecar health check failed after 60s"
-                  journalctl -u "${FREELLMAPI_SERVICE}" --no-pager -n 30 | redact_sensitive_log
                   exit 1
                 fi
                 sleep 5
               done
             else
-              echo "ℹ️  Skipping FreeLLMAPI sidecar update; set deploy_freellmapi_sidecar=true to rebuild it."
             fi
 
             cd "${REPO_DIR}/frontend/public"
@@ -348,10 +298,7 @@ jobs:
             NEWSSENTRY_LOG_LEVEL=INFO
             ENVEOF
               sed -i "s|__DATA_DIR__|/srv/news-sentry/${ENV}/data|" "${DEPLOY_BASE}/${ENV}/.env"
-              echo "⚠️  Created .env template — please add NEWSSENTRY_API_KEY and FREELLMAPI_API_KEY"
             fi
-            upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "FREELLMAPI_BASE_URL" "http://127.0.0.1:${FREELLMAPI_PORT}/v1"
-            upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "FREELLMAPI_DEFAULT_MODEL" "auto"
             upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_AUTO_COLLECT" "0"
             upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_PUBLIC_TRANSLATION" "1"
             upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_PUBLIC_TRANSLATION_INTERVAL" "5"
@@ -363,8 +310,6 @@ jobs:
               upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_REALTIME_BATCH_SIZE" "12"
               upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_REALTIME_STRICT" "0"
             fi
-            if ! grep -qE "^FREELLMAPI_API_KEY=" "${DEPLOY_BASE}/${ENV}/.env"; then
-              echo "⚠️  FREELLMAPI_API_KEY missing in ${DEPLOY_BASE}/${ENV}/.env; AI publication routes will stay unavailable until configured"
             fi
 
             # ── 6. systemd 服务文件（首次或更新） ──
@@ -452,7 +397,6 @@ jobs:
             echo "  Branch:      ${BRANCH}"
             echo "  Commit:      ${SHORT_SHA}"
             echo "  Port:        ${PORT}"
-            echo "  FreeLLMAPI:  127.0.0.1:${FREELLMAPI_PORT}"
             echo "  Service:     ${SERVICE}"
 
       - name: Post-deploy summary
@@ -465,7 +409,6 @@ jobs:
           echo "| Branch | ${{ github.ref_name }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Commit | ${{ github.sha }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Port | ${{ steps.env.outputs.PORT }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| FreeLLMAPI Port | ${{ steps.env.outputs.FREELLMAPI_PORT }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Service | ${{ steps.env.outputs.SERVICE }} |" >> "$GITHUB_STEP_SUMMARY"
 
   verify-preview:

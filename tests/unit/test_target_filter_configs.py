@@ -116,12 +116,7 @@ def test_g20_target_has_minimum_enabled_source_coverage() -> None:
         else:
             source_type, source_id = ref.split("/", 1)
             source_path = (
-                PROJECT_ROOT
-                / "config"
-                / "sources"
-                / "g20"
-                / source_type
-                / f"{source_id}.yaml"
+                PROJECT_ROOT / "config" / "sources" / "g20" / source_type / f"{source_id}.yaml"
             )
         assert source_path.is_file()
         source = yaml.safe_load(source_path.read_text(encoding="utf-8"))

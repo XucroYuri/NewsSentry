@@ -1,11 +1,11 @@
-"""Implements: docs/spec/phase-4-tool-skill-registry-opencli.md §3.4
+"""Implements: docs/spec/phase-4-sandbox-hardening.md §3.4
 
 ReviewQueue — 人工检查队列，存储 sandbox violation、auth_required、low_quality
 等需要人工介入的条目。存储于 memory/review-queue.yaml。
 
 触发场景：
 - SandboxViolationError（见 src/news_sentry/core/sandbox.py）
-- OpenCLI 工具返回 exit_code=77（auth_required）
+- 外部工具返回 auth_required exit code
 - 低质量/空结果自动降级
 """
 

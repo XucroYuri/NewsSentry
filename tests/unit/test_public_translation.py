@@ -165,13 +165,13 @@ async def test_public_news_rows_can_query_ready_events_across_targets(tmp_path) 
             "summary_pre": "该新闻已有中文摘要，可以进入公共站。",
         },
         "publication": {
-                    "one_line_summary": "法国公共新闻完成加工。",
-                    "recommendation_reason": "AI 推荐理由指出该事件影响跨境观察的政策判断。",
-                    "issue_tags": ["国际关系"],
-                    "related_tags": ["涉欧"],
-                    "region_tags": ["法国"],
-                },
-            }
+            "one_line_summary": "法国公共新闻完成加工。",
+            "recommendation_reason": "AI 推荐理由指出该事件影响跨境观察的政策判断。",
+            "issue_tags": ["国际关系"],
+            "related_tags": ["涉欧"],
+            "region_tags": ["法国"],
+        },
+    }
     try:
         await store.index_event(
             _event("ne-france", metadata=ready_metadata, score=90),
@@ -216,8 +216,7 @@ async def test_update_event_metadata_recomputes_public_translation_ready(tmp_pat
                 "publication": {
                     "one_line_summary": "法国贷款事件进入持续观察。",
                     "recommendation_reason": (
-                        "这条新闻揭示公共资金与防务采购链条变化，"
-                        "值得跨境供应商关注。"
+                        "这条新闻揭示公共资金与防务采购链条变化，值得跨境供应商关注。"
                     ),
                     "issue_tags": ["国际关系"],
                     "related_tags": ["涉欧"],
@@ -454,8 +453,7 @@ async def test_public_translation_engine_rejects_garbled_chineseish_title(tmp_pa
                         {
                             "one_line_summary": "法国获得欧盟贷款支持军备采购。",
                             "recommendation_reason": (
-                                "这条新闻揭示法国防务采购链条变化，"
-                                "值得跟踪后续预算和供应商影响。"
+                                "这条新闻揭示法国防务采购链条变化，值得跟踪后续预算和供应商影响。"
                             ),
                             "issue_tags": ["国际关系"],
                             "related_tags": ["涉欧"],
@@ -712,8 +710,7 @@ async def test_public_translation_engine_rejects_publication_without_tags(tmp_pa
                         {
                             "one_line_summary": "法国获得欧盟贷款支持军备采购。",
                             "recommendation_reason": (
-                                "这条新闻揭示法国防务采购链条变化，"
-                                "值得跟踪后续预算和供应商影响。"
+                                "这条新闻揭示法国防务采购链条变化，值得跟踪后续预算和供应商影响。"
                             ),
                         },
                         ensure_ascii=False,

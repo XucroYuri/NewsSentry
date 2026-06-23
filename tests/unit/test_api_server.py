@@ -16,13 +16,13 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
+from news_sentry.api.middleware.auth import _TOKEN_STORE, _RateLimiter
 from news_sentry.core import api_server as api_server_module
 from news_sentry.core.api_server import (
     _get_valid_api_keys,
     _parse_frontmatter,
     _parse_target_ids,
     _public_analysis_from_store,
-    _RateLimiter,
     _tag_text,
     create_app,
 )
@@ -268,7 +268,6 @@ class TestPublicTranslationAPI:
         assert data["running"] is False
         assert data["publication_ready_count"] == 0
         assert data["pending_reason_count"] == 0
-        assert data["freellmapi_available"] is False
 
     def test_public_translation_dry_run_lists_untranslated_candidates(
         self,
@@ -601,10 +600,7 @@ class TestAPIServer:
         assert expected_module_script in public_resp.text
         assert homepage_resp.status_code == 200
         assert '<div id="root"></div>' in homepage_resp.text
-        assert (
-            '<link rel="canonical" href="https://news-sentry.com/" />'
-            in homepage_resp.text
-        )
+        assert '<link rel="canonical" href="https://news-sentry.com/" />' in homepage_resp.text
         assert "跨境新闻信号过滤器" not in homepage_resp.text
         assert "legacy-shell" not in homepage_resp.text
 
@@ -6541,7 +6537,7 @@ class TestAuthEndpoints:
         assert token_resp.status_code == 200
         token = token_resp.json()["access_token"]
 
-        api_server_module._TOKEN_STORE.pop(token, None)
+        _TOKEN_STORE.pop(token, None)
         session = asyncio.run(store.get_session(token))
         assert session is not None
         assert session["username"] == "dev"

@@ -468,9 +468,7 @@ class PublicTranslationEngine:
             "output_contract": {
                 "one_line_summary": "一句中文内容概括，30字以内",
                 "recommendation_reason": "一句中文个性化推荐理由，60字以内",
-                "issue_tags": (
-                    "中文数组，优先从 preset_issue_tags 选择，必要时补充简短自定义议题"
-                ),
+                "issue_tags": ("中文数组，优先从 preset_issue_tags 选择，必要时补充简短自定义议题"),
                 "related_tags": (
                     "中文数组，优先从 preset_related_tags 选择，必要时补充简短自定义相关对象"
                 ),

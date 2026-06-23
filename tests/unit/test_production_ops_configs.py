@@ -22,9 +22,7 @@ def test_realtime_systemd_service_uses_production_paths() -> None:
 
 def test_realtime_runner_covers_active_targets_with_locking() -> None:
     runner = (ROOT / "tools/run_realtime_collection.sh").read_text(encoding="utf-8")
-    collector = yaml.safe_load(
-        (ROOT / "config/runtime/collector.yaml").read_text(encoding="utf-8")
-    )
+    collector = yaml.safe_load((ROOT / "config/runtime/collector.yaml").read_text(encoding="utf-8"))
     collector_targets = set(collector["target_ids"])
 
     assert "flock" in runner
@@ -34,7 +32,7 @@ def test_realtime_runner_covers_active_targets_with_locking() -> None:
         'collector.yaml}"'
     ) in runner
     assert 'TARGETS="${NEWSSENTRY_REALTIME_TARGETS:-' not in runner
-    assert "payload.get(\"target_ids\")" in runner
+    assert 'payload.get("target_ids")' in runner
     assert "--stage all" in runner
     assert '--profile "${PROFILE}"' in runner
     assert "NEWSSENTRY_REALTIME_BATCH_SIZE" in runner
@@ -104,8 +102,7 @@ def test_deploy_workflow_enables_production_realtime_timer() -> None:
     workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
 
     assert (
-        'upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" '
-        '"NEWSSENTRY_REALTIME_BATCH_SIZE" "12"'
+        'upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_REALTIME_BATCH_SIZE" "12"'
     ) in workflow
     assert 'upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_REALTIME_STRICT" "0"' in workflow
     assert 'if [ "${ENV}" = "production" ]; then' in workflow

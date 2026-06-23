@@ -661,8 +661,7 @@ class TestRouteOrchestration:
         assert provider.call.call_count == 2
         assert provider.call.call_args_list[0].kwargs["model"] == "openai/gpt-oss-20b:free"
         assert (
-            provider.call.call_args_list[1].kwargs["model"]
-            == "liquid/lfm-2.5-1.2b-instruct:free"
+            provider.call.call_args_list[1].kwargs["model"] == "liquid/lfm-2.5-1.2b-instruct:free"
         )
 
     def test_route_cools_down_rate_limited_pool_model(self) -> None:

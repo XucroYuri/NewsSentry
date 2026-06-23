@@ -62,9 +62,7 @@ async def test_cloudflare_workers_ai_provider_parses_translation_response() -> N
         )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        provider = CloudflareWorkersAIProvider(
-            {"account_id": "acc-123", "api_token": "cf-token"}
-        )
+        provider = CloudflareWorkersAIProvider({"account_id": "acc-123", "api_token": "cf-token"})
         result = await provider.call_async(
             "cloudflare.translation",
             "Hello",

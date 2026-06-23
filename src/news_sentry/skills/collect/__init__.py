@@ -1,1 +1,1 @@
-"""Collect skills — RSS, API, and OpenCLI-based news collection."""
+"""Collect skills — RSS and API-based news collection."""

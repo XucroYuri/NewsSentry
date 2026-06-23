@@ -312,22 +312,6 @@ class TestClassificationSchema:
         validate(data, schema)
 
 
-# ── ToolManifest ───────────────────────────────────────────────
-
-
-class TestToolManifestSchema:
-    """所有 tool manifest YAML 通过 toolmanifest.schema.json 校验。"""
-
-    @pytest.fixture(params=list(CONFIG_DIR.glob("toolmanifest/*.yaml")))
-    def manifest_file(self, request: pytest.FixtureRequest) -> Path:
-        return request.param
-
-    def test_tool_manifest_valid(self, manifest_file: Path) -> None:
-        schema = _load_schema("toolmanifest.schema.json")
-        data = _load_yaml(manifest_file)
-        validate(data, schema)
-
-
 # ── OutputDestinations ────────────────────────────────────────
 
 

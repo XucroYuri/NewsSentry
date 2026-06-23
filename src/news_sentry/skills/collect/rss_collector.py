@@ -397,8 +397,10 @@ class RSSCollector:
         if not self._fetch_full_article or not event.url:
             return
         parsed = urlparse(event.url)
-        if self._sandbox is not None and parsed.hostname and not self._sandbox.check_network_host(
-            parsed.hostname
+        if (
+            self._sandbox is not None
+            and parsed.hostname
+            and not self._sandbox.check_network_host(parsed.hostname)
         ):
             return
         try:
@@ -421,8 +423,10 @@ class RSSCollector:
         if not self._fetch_full_article or not event.url:
             return
         parsed = urlparse(event.url)
-        if self._sandbox is not None and parsed.hostname and not self._sandbox.check_network_host(
-            parsed.hostname
+        if (
+            self._sandbox is not None
+            and parsed.hostname
+            and not self._sandbox.check_network_host(parsed.hostname)
         ):
             return
         try:
