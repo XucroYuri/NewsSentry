@@ -5612,7 +5612,7 @@ def create_app(
         return FileResponse(
             app_js_path,
             media_type="application/javascript",
-            headers={"Cache-Control": "no-cache"},
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
         )
 
     @app.get("/public.css", include_in_schema=False)
@@ -5623,7 +5623,7 @@ def create_app(
         return FileResponse(
             public_css_path,
             media_type="text/css",
-            headers={"Cache-Control": "no-cache"},
+            headers={"Cache-Control": "public, max-age=31536000, immutable"},
         )
 
     @app.get("/sw.js", include_in_schema=False)
