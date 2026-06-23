@@ -46,8 +46,18 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Str
 from pydantic import BaseModel, BeforeValidator, ValidationError
 
 from news_sentry.api.middleware.auth import (
+    _API_KEY_ENV,
+    _PERMISSIONS,
+    _RATE_LIMIT_MAX,
+    _RATE_LIMIT_WINDOW,
+    _STREAM_TOKEN_STORE,
+    _STREAM_TOKEN_TTL,
+    _TOKEN_STORE,
+    _TOKEN_TTL,
     _is_loopback_request,
     _is_testclient_default_host,
+    _login_limiter,
+    _rate_limiter,
 )
 
 # ── Pydantic 模型（已提取至 news_sentry.api.schemas）───
@@ -219,18 +229,7 @@ _PUBLIC_SITE_DESCRIPTION = (
     "提供中文摘要、原文标题、信源信息与 Breaking News 指数。"
 )
 
-# ── 用户认证 ───────────────────────────────────────────
-
-_PERMISSIONS: dict[str, set[str]] = {
-    "reader": {"read"},
-    "admin": {"read", "write", "admin"},
-}
-
-
-# ── 速率限制 ────────────────────────────────────────────
-
-_RATE_LIMIT_WINDOW = 60  # seconds
-_RATE_LIMIT_MAX = 60  # requests per window
+# ── 权限（已提取至 middleware/auth）─────────────────
 
 
 class _RateLimiter:
@@ -254,20 +253,6 @@ class _RateLimiter:
             return False
         self._hits[key].append(now)
         return True
-
-
-_rate_limiter = _RateLimiter()
-
-# 登录暴力破解保护：每用户名 5 次/5 分钟
-_login_limiter = _RateLimiter(max_requests=5, window=300)
-
-
-# ── Token 认证 ─────────────────────────────────────────
-
-_TOKEN_STORE: dict[str, dict[str, Any]] = {}
-_TOKEN_TTL = 86400  # 24 hours
-_STREAM_TOKEN_STORE: dict[str, dict[str, Any]] = {}
-_STREAM_TOKEN_TTL = 120  # 2 minutes
 
 
 def _create_token_for_user(username: str, role: str, has_api_key: bool) -> dict[str, Any]:
@@ -499,11 +484,6 @@ def require_permission(permission: str) -> Any:
         return user
 
     return _check
-
-
-# ── API Key 向后兼容 ──────────────────────────────────
-
-_API_KEY_ENV = "NEWSSENTRY_API_KEY"
 
 
 def _get_valid_api_keys() -> set[str]:
