@@ -27,6 +27,29 @@ from news_sentry.core.api_server import (
     create_app,
 )
 from news_sentry.core.async_store import AsyncStore
+from news_sentry.core.public_translation import public_translation_ready
+
+
+def _ready_public_title(title: str = "公开新闻") -> str:
+    if re.search(r"[\u4e00-\u9fff]", title):
+        return title
+    return f"中文测试新闻{len(title)}"
+
+
+def _ready_public_metadata(title: str = "公开新闻") -> dict[str, Any]:
+    return {
+        "translation": {
+            "title_pre": _ready_public_title(title),
+            "summary_pre": "这是一条已经完成中文摘要的公开新闻。",
+        },
+        "publication": {
+            "one_line_summary": "一句话概括这条公开新闻。",
+            "recommendation_reason": "AI 推荐理由指出这条新闻对跨境观察具有具体影响。",
+            "issue_tags": ["政治"],
+            "related_tags": ["涉欧"],
+            "region_tags": ["意大利"],
+        },
+    }
 
 
 def _close_test_store(store: Any) -> None:
@@ -75,6 +98,7 @@ def _write_draft(
         "url": "https://example.com",
         "title_original": title,
         "pipeline_stage": "outputted",
+        "metadata": _ready_public_metadata(title),
     }
     if news_value_score is not None:
         data["news_value_score"] = news_value_score
@@ -133,16 +157,21 @@ async def _insert_index_event(
     sentiment: str | None = None,
     entity_names: str | None = None,
     topic_tags: str | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> None:
     """辅助：写入 event_index 行。"""
     assert store._db is not None  # noqa: SLF001
     now = datetime.now(UTC).isoformat()
+    if metadata is None:
+        metadata = _ready_public_metadata(title_original)
+    ready = 1 if public_translation_ready(metadata) else 0
     await store._db.execute(  # noqa: SLF001
         "INSERT OR REPLACE INTO event_index "
         "(event_id, target_id, stage, source_id, news_value_score, "
         "china_relevance, classification_l0, title_original, "
-        "published_at, file_path, created_at, sentiment, entity_names, topic_tags) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "published_at, file_path, created_at, sentiment, entity_names, topic_tags, "
+        "metadata_json, public_translation_ready) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (
             event_id,
             target_id,
@@ -158,6 +187,8 @@ async def _insert_index_event(
             sentiment,
             entity_names,
             topic_tags,
+            json.dumps(metadata, ensure_ascii=False),
+            ready,
         ),
     )
     await store._db.commit()  # noqa: SLF001
@@ -208,6 +239,7 @@ class TestAIEnrichmentAPI:
                 store,
                 event_id="ne-ai-dry-run",
                 title_original="Titolo da tradurre",
+                metadata={},
             )
         )
         app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
@@ -219,6 +251,72 @@ class TestAIEnrichmentAPI:
         data = resp.json()
         assert data["dry_run"] is True
         assert data["batches"][0]["items"][0]["event_id"] == "ne-ai-dry-run"
+
+
+class TestPublicTranslationAPI:
+    def test_public_translation_status_returns_fast_defaults(self, tmp_path, monkeypatch) -> None:
+        _force_deployment_env(monkeypatch, "local")
+        app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/ai/translation/status")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["config"]["interval_minutes"] == 5
+        assert data["config"]["per_cycle_limit"] == 50
+        assert data["running"] is False
+        assert data["publication_ready_count"] == 0
+        assert data["pending_reason_count"] == 0
+
+    def test_public_translation_dry_run_lists_untranslated_candidates(
+        self,
+        tmp_path,
+        monkeypatch,
+    ) -> None:
+        _force_deployment_env(monkeypatch, "local")
+        store = AsyncStore(tmp_path / "async_store.db")
+        asyncio.run(store.initialize())
+        asyncio.run(
+            _insert_index_event(
+                store,
+                event_id="ne-translation-dry-run",
+                title_original="Titre français à traduire",
+                metadata={"summary": "Résumé en français."},
+            )
+        )
+        app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+        client = TestClient(app)
+
+        resp = client.post("/api/v1/ai/translation/run?dry_run=true&target_id=italy")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["dry_run"] is True
+        assert data["targets"] == ["italy"]
+        assert data["candidates"][0]["event_id"] == "ne-translation-dry-run"
+
+    def test_public_news_api_hides_untranslated_index_rows(self, tmp_path, monkeypatch) -> None:
+        _force_deployment_env(monkeypatch, "local")
+        store = AsyncStore(tmp_path / "async_store.db")
+        asyncio.run(store.initialize())
+        asyncio.run(
+            _insert_index_event(
+                store,
+                event_id="ne-hidden-untranslated",
+                title_original="Untranslated French title must not leak",
+                metadata={"summary": "French summary should not leak either."},
+            )
+        )
+        app = create_app(data_dir=tmp_path, store=store, skip_lifespan=True)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/public/news", params={"target_id": "italy"})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["items"] == []
+        assert data["total"] == 0
 
 
 class TestVerifyApiKey:
@@ -461,7 +559,7 @@ class TestAPIServer:
             assert resp.status_code == 200
             assert resp.headers["cache-control"] == "no-cache"
 
-    def test_public_app_entry_is_served_without_replacing_old_shell(
+    def test_public_app_entry_and_root_use_same_reader_shell(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -484,11 +582,13 @@ class TestAPIServer:
         client = TestClient(app)
 
         public_resp = client.get("/public-app/")
-        old_resp = client.get("/")
+        homepage_resp = client.get("/")
 
         assert public_resp.status_code == 200
         assert '<div id="root"></div>' in public_resp.text
-        assert public_resp.headers["cache-control"] == "no-cache"
+        assert public_resp.headers["cache-control"] == (
+            "public, max-age=60, s-maxage=60, stale-while-revalidate=300"
+        )
         csp = public_resp.headers["content-security-policy"]
         assert "'nonce-" in csp
         nonce = csp.split("'nonce-", maxsplit=1)[1].split("'", maxsplit=1)[0]
@@ -498,9 +598,11 @@ class TestAPIServer:
             'src="/public-app/assets/index-abc123.js"></script>'
         )
         assert expected_module_script in public_resp.text
-        assert old_resp.status_code == 200
-        assert "legacy-shell" in old_resp.text
-        assert '<div id="root"></div>' not in old_resp.text
+        assert homepage_resp.status_code == 200
+        assert '<div id="root"></div>' in homepage_resp.text
+        assert '<link rel="canonical" href="https://news-sentry.com/" />' in homepage_resp.text
+        assert "跨境新闻信号过滤器" not in homepage_resp.text
+        assert "legacy-shell" not in homepage_resp.text
 
     def test_public_app_entry_supports_head(
         self,
@@ -522,7 +624,9 @@ class TestAPIServer:
         resp = client.head("/public-app/")
 
         assert resp.status_code == 200
-        assert resp.headers["cache-control"] == "no-cache"
+        assert resp.headers["cache-control"] == (
+            "public, max-age=60, s-maxage=60, stale-while-revalidate=300"
+        )
 
     def test_public_app_assets_use_fingerprinted_cache_policy(
         self,
@@ -640,6 +744,36 @@ class TestAPIServer:
         persisted = yaml.safe_load((tmp_path / "config" / "runtime" / "collector.yaml").read_text())
         assert persisted["target_ids"] == ["italy", "japan"]
 
+    def test_collector_env_disable_overrides_runtime_yaml(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """部署进程显式禁用自动采集时，不能被 runtime YAML 重新开启。"""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("NEWSSENTRY_AUTO_COLLECT", "0")
+        runtime = tmp_path / "config" / "runtime"
+        runtime.mkdir(parents=True)
+        (runtime / "collector.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "enabled": True,
+                    "target_ids": ["italy"],
+                    "interval_minutes": 15,
+                    "stage": "all",
+                },
+                allow_unicode=True,
+            ),
+            encoding="utf-8",
+        )
+
+        client = self._make_client(tmp_path)
+
+        resp = client.get("/api/v1/collector/status")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["enabled"] is False
+        assert data["target_ids"] == ["italy"]
+
     def test_collector_start_stop_toggle_enabled_state(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -699,13 +833,14 @@ class TestAPIServer:
         source_check = [c for c in data["checks"] if c["name"] == "source_health"][0]
         assert source_check["ok"] is True
 
-    def test_collector_diagnostics_accepts_openrouter_key(
+    def test_collector_diagnostics_accepts_freellmapi_key(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """默认 OpenRouter Key 存在时 AI Key 诊断应通过。"""
+        """默认 FreeLLMAPI Key 存在时 AI Key 诊断应通过。"""
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        monkeypatch.setenv("FREELLMAPI_API_KEY", "freellmapi-test")
 
         client = self._make_client(tmp_path)
         resp = client.get("/api/v1/collector/diagnostics")
@@ -1027,7 +1162,7 @@ class TestAPIServer:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """默认公开 feed 不能把模板、locks、logs 等运行目录当成新闻目标扫描。"""
+        """默认公开 feed 只信任地区配置，不从运行目录补公共地区。"""
         monkeypatch.setattr(
             api_server_module,
             "_load_target_configs",
@@ -1045,7 +1180,7 @@ class TestAPIServer:
 
         target_ids = api_server_module._public_news_target_ids(tmp_path, None)  # noqa: SLF001
 
-        assert target_ids == ["germany", "italy", "japan"]
+        assert target_ids == ["italy"]
 
     def test_public_news_api_returns_reader_shape_without_auth(self, tmp_path: Path) -> None:
         """公共新闻 API 返回读者侧字段，不暴露 pipeline 参数作为主响应。"""
@@ -1074,7 +1209,8 @@ class TestAPIServer:
         assert item["id"] == "ne-italy-src-20260609-public-news01"
         assert item["targetId"] == "italy"
         assert item["targetLabel"]
-        assert item["title"] == "Italy public news story"
+        assert item["title"] == _ready_public_title("Italy public news story")
+        assert item["originalTitle"] == "Italy public news story"
         assert item["source"]["id"] == "ansa"
         assert item["source"]["name"]
         assert item["source"]["type"] in {"rss", "api", "web", "social", "official", "unknown"}
@@ -1084,7 +1220,10 @@ class TestAPIServer:
             item["detailUrl"]
             == "/public-app/events/ne-italy-src-20260609-public-news01?target_id=italy"
         )
-        assert item["tags"] == ["international-relations"]
+        assert item["tags"] == ["政治", "涉欧", "意大利"]
+        assert item["issueTags"] == ["政治"]
+        assert item["relatedTags"] == ["涉欧"]
+        assert item["regionTags"] == ["意大利"]
         assert item["valueLabel"] == "精选"
         assert item["chinaRelevanceLabel"] == "高"
         assert "pipeline_stage" not in item
@@ -1118,7 +1257,9 @@ class TestAPIServer:
 
         assert first.status_code == 200
         first_data = first.json()
-        assert [item["title"] for item in first_data["items"]] == ["Current public story"]
+        assert [item["title"] for item in first_data["items"]] == [
+            _ready_public_title("Current public story")
+        ]
         assert first_data["latestCursor"]
         assert first_data["nextCursor"]
 
@@ -1132,7 +1273,9 @@ class TestAPIServer:
         )
 
         assert older.status_code == 200
-        assert [item["title"] for item in older.json()["items"]] == ["Older public story"]
+        assert [item["title"] for item in older.json()["items"]] == [
+            _ready_public_title("Older public story")
+        ]
 
         empty_update = client.get(
             "/api/v1/public/news",
@@ -1158,7 +1301,9 @@ class TestAPIServer:
         assert update.status_code == 200
         update_data = update.json()
         assert update_data["hasNewer"] is True
-        assert [item["title"] for item in update_data["items"]] == ["New automatic story"]
+        assert [item["title"] for item in update_data["items"]] == [
+            _ready_public_title("New automatic story")
+        ]
 
     def test_public_news_api_returns_304_for_matching_etag(self, tmp_path: Path) -> None:
         """公共新闻流无变化时可用 ETag 轻响应，减少重复传输。"""
@@ -1220,7 +1365,7 @@ class TestAPIServer:
         assert resp.status_code == 200
         item = resp.json()["items"][0]
         assert item["id"] == "ne-italy-index-only-001"
-        assert item["title"] == "Index only public story"
+        assert item["title"] == _ready_public_title("Index only public story")
 
     def test_public_news_api_page_size_one_does_not_scan_default_batch(
         self,
@@ -1249,7 +1394,7 @@ class TestAPIServer:
                             "published_at": "2026-06-09T10:00:00+00:00",
                             "file_path": None,
                             "title_original": "Small page story",
-                            "metadata": {},
+                            "metadata": _ready_public_metadata("Small page story"),
                         }
                     ],
                 }
@@ -1264,7 +1409,7 @@ class TestAPIServer:
         )
 
         assert resp.status_code == 200
-        assert resp.json()["items"][0]["title"] == "Small page story"
+        assert resp.json()["items"][0]["title"] == _ready_public_title("Small page story")
         assert store.limits
         assert max(store.limits) <= 2
 
@@ -1292,7 +1437,7 @@ class TestAPIServer:
                             "published_at": f"2026-06-09T10:{idx:02d}:00+00:00",
                             "file_path": None,
                             "title_original": f"Source cached story {idx}",
-                            "metadata": {},
+                            "metadata": _ready_public_metadata(f"Source cached story {idx}"),
                         }
                         for idx in range(20)
                     ],
@@ -1354,7 +1499,7 @@ class TestAPIServer:
                             "published_at": "2026-06-09T10:00:00+00:00",
                             "file_path": None,
                             "title_original": "Cached public story",
-                            "metadata": {},
+                            "metadata": _ready_public_metadata("Cached public story"),
                         }
                     ],
                 }
@@ -1412,7 +1557,7 @@ class TestAPIServer:
                             "published_at": "2026-06-09T10:00:00+00:00",
                             "file_path": None,
                             "title_original": "Cached ETag story",
-                            "metadata": {},
+                            "metadata": _ready_public_metadata("Cached ETag story"),
                         }
                     ],
                 }
@@ -1460,7 +1605,7 @@ class TestAPIServer:
                             "published_at": "2026-06-09T10:00:00+00:00",
                             "file_path": None,
                             "title_original": "Slow log story",
-                            "metadata": {},
+                            "metadata": _ready_public_metadata("Slow log story"),
                         }
                     ],
                 }
@@ -1503,7 +1648,7 @@ class TestAPIServer:
         assert resp.status_code == 200
         item = resp.json()
         assert item["id"] == event_id
-        assert item["title"] == "Public detail presentation"
+        assert item["title"] == _ready_public_title("Public detail presentation")
         assert item["valueLabel"] == "关注"
         assert "pipeline_stage" not in item
 
@@ -2033,24 +2178,105 @@ class TestAPIServer:
             monitoring_type="topic",
             topic_label="涉中舆情",
         )
-        _write_draft(tmp_path, "italy", "evt-1", "ANSA", 70)
+        _write_target_config(config_dir, "empty-sources", "空信源目标", "en", 0)
         monkeypatch.chdir(tmp_path)
+
+        async def seed() -> None:
+            for target_id, event_id, title in (
+                ("italy", "evt-1", "意大利公开新闻"),
+                ("china-watch-en", "evt-topic-1", "涉中公开新闻"),
+            ):
+                store = AsyncStore(tmp_path / target_id / "state.db")
+                await store.initialize()
+                try:
+                    await _insert_index_event(
+                        store,
+                        event_id=event_id,
+                        target_id=target_id,
+                        title_original=title,
+                    )
+                finally:
+                    await store.close()
+
+        asyncio.run(seed())
         client = self._make_client(tmp_path)
         resp = client.get("/api/v1/targets")
         assert resp.status_code == 200
         data = resp.json()
-        assert len(data["targets"]) == 2
+        assert len(data["targets"]) == 1
+        assert {target["target_id"] for target in data["targets"]} == {"italy"}
         italy = next(t for t in data["targets"] if t["target_id"] == "italy")
         assert italy["display_name"] == "意大利新闻监控"
         assert italy["primary_language"] == "it"
         assert italy["source_count"] == 5
         assert italy["event_count"] == 1
         assert italy["monitoring_type"] == "country"
-        assert italy["monitoring_label"] == "国别监控目标"
-        topic = next(t for t in data["targets"] if t["target_id"] == "china-watch-en")
-        assert topic["monitoring_type"] == "topic"
-        assert topic["monitoring_label"] == "专题监控目标"
-        assert topic["topic_label"] == "涉中舆情"
+        assert italy["monitoring_label"] == "地区"
+
+        regions_resp = client.get("/api/v1/regions")
+        assert regions_resp.status_code == 200
+        assert {region["region_id"] for region in regions_resp.json()["regions"]} == {"italy"}
+
+        admin_resp = client.get("/api/v1/admin/targets")
+        assert admin_resp.status_code == 200
+        assert {target["target_id"] for target in admin_resp.json()["targets"]} == {
+            "italy",
+            "china-watch-en",
+            "empty-sources",
+        }
+
+    def test_public_news_global_feed_does_not_scan_file_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config_dir = tmp_path / "config" / "targets"
+        _write_target_config(config_dir, "italy", "意大利新闻监控", "it", 5)
+        _write_draft(tmp_path, "italy", "orphan-1", title="Orphan file")
+        monkeypatch.chdir(tmp_path)
+        load_all_events = MagicMock(side_effect=AssertionError("global public feed scanned files"))
+        monkeypatch.setattr(api_server_module, "_load_all_events", load_all_events)
+        client = self._make_client(tmp_path)
+
+        resp = client.get("/api/v1/public/news?featured=true&page_size=3")
+
+        assert resp.status_code == 200
+        assert resp.json()["items"] == []
+        load_all_events.assert_not_called()
+
+    def test_public_news_global_feed_queries_global_store_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        config_dir = tmp_path / "config" / "targets"
+        _write_target_config(config_dir, "france", "法国新闻监控", "fr", 5)
+        _write_draft(tmp_path, "france", "orphan-1", title="Orphan file")
+        monkeypatch.chdir(tmp_path)
+        load_all_events = MagicMock(side_effect=AssertionError("global public feed scanned files"))
+        monkeypatch.setattr(api_server_module, "_load_all_events", load_all_events)
+        store = AsyncStore(tmp_path / "state.db")
+
+        async def seed() -> None:
+            await store.initialize()
+            await _insert_index_event(
+                store,
+                event_id="global-ready-1",
+                target_id="france",
+                title_original="法国全局索引公开新闻",
+                news_value_score=90,
+            )
+
+        asyncio.run(seed())
+        try:
+            app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
+            client = TestClient(app)
+
+            resp = client.get("/api/v1/public/news?featured=true&page_size=3")
+
+            assert resp.status_code == 200
+            data = resp.json()
+            assert [item["id"] for item in data["items"]] == ["global-ready-1"]
+            assert data["items"][0]["targetId"] == "france"
+            load_all_events.assert_not_called()
+        finally:
+            asyncio.run(store.close())
 
     def test_targets_endpoint_prefers_target_store_count_over_orphan_drafts(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -2286,6 +2512,76 @@ class TestConfigAPI:
         assert data["sources"][0]["source_id"] == "ansa"
         assert data["sources"][0]["type"] == "rss"
         assert data["sources"][0]["enabled"] is True
+
+    def test_list_sources_resolves_source_pool_refs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._setup_config(tmp_path, monkeypatch)
+        target_dir = tmp_path / "config" / "targets"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        (target_dir / "spain.yaml").write_text(
+            yaml.dump(
+                {
+                    "target_id": "spain",
+                    "display_name": "西班牙新闻监控",
+                    "language_scope": {"primary": "en", "secondary": ["es"], "output": "zh"},
+                    "source_channel_refs": [
+                        "api/gdelt-topic",
+                        "pool:global/gdelt-geopolitics",
+                    ],
+                },
+                allow_unicode=True,
+                default_flow_style=False,
+                sort_keys=False,
+            ),
+            encoding="utf-8",
+        )
+        local_dir = tmp_path / "config" / "sources" / "spain" / "api"
+        local_dir.mkdir(parents=True, exist_ok=True)
+        (local_dir / "gdelt-topic.yaml").write_text(
+            yaml.dump(
+                {
+                    "source_id": "gdelt-topic",
+                    "display_name": "GDELT Spain",
+                    "type": "api",
+                    "enabled": True,
+                    "credibility_base": 0.7,
+                },
+                allow_unicode=True,
+                default_flow_style=False,
+                sort_keys=False,
+            ),
+            encoding="utf-8",
+        )
+        pool_dir = tmp_path / "config" / "source-pools" / "global"
+        pool_dir.mkdir(parents=True, exist_ok=True)
+        (pool_dir / "gdelt-geopolitics.yaml").write_text(
+            yaml.dump(
+                {
+                    "source_id": "gdelt-geopolitics",
+                    "display_name": "GDELT Geopolitics",
+                    "type": "api",
+                    "enabled": True,
+                    "credibility_base": 0.7,
+                },
+                allow_unicode=True,
+                default_flow_style=False,
+                sort_keys=False,
+            ),
+            encoding="utf-8",
+        )
+
+        client = self._make_client(tmp_path)
+        resp = client.get("/api/v1/config/targets/spain/sources")
+
+        assert resp.status_code == 200
+        sources = resp.json()["sources"]
+        refs = {source["source_ref"] for source in sources}
+        assert refs == {"api/gdelt-topic", "pool:global/gdelt-geopolitics"}
+        assert {source["source_id"] for source in sources} == {
+            "gdelt-topic",
+            "gdelt-geopolitics",
+        }
 
     def test_list_sources_empty(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         self._setup_config(tmp_path, monkeypatch)
@@ -5623,6 +5919,22 @@ class TestTargetLifecycleWorkbenchAPI:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         client = self._setup_target_tree(tmp_path, monkeypatch)
+        _write_draft(tmp_path, "italy", "public-ready-after-restore")
+
+        async def seed() -> None:
+            store = AsyncStore(tmp_path / "italy" / "state.db")
+            await store.initialize()
+            try:
+                await _insert_index_event(
+                    store,
+                    event_id="public-ready-after-restore",
+                    target_id="italy",
+                    title_original="意大利恢复后公开新闻",
+                )
+            finally:
+                await store.close()
+
+        asyncio.run(seed())
 
         resp = client.post(
             "/api/v1/admin/targets/italy/archive",
