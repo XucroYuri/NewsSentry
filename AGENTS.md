@@ -322,8 +322,15 @@ flowchart LR
 | P4 | v2 重构: 内置 AI Provider Chain | ✅ |
 | P5 | v2 重构: 质量加固 + 部署对齐 | ✅ |
 | P6 | v2 重构: 测试覆盖率 + Type 质量 + 部署验证 | ✅ |
+| P7 | v2 重构: 文档对齐 (architecture.md, README.md) | ✅ |
+| P8 | v2 重构: CI 修复 (Docker workflow) + config 清理 (5K lines) | ✅ |
 
-**当前状态：** Phase 1-6 全部完成。项目处于 v2.0 稳定的重构基线。
+**当前状态：** Phase 1-8 全部完成。项目处于 v2.0 稳定的重构基线。
+- **Tag:** v2.0.0-rc2
+- **测试:** 3,013 passed, 0 failed, 0 warnings
+- **覆盖率:** 86%
+- **Type:** mypy strict + ruff: 零错误
+- **生产:** news-sentry.com — `{"status": "ok"}`
 
 ---
 
