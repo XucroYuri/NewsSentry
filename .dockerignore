@@ -1,21 +1,58 @@
-.venv/
+# Python
 __pycache__/
 *.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+frontend/public/node_modules/
+
+# Git
 .git/
 .gitignore
-data/
-.omc/
-.claude/
-docs/
-tests/
-*.md
-!CLAUDE.md
-!AGENTS.md
-.env*
-.DS_Store
-session-profiles/
-chrome-data/
-chrome-profiles/
+
+# Runtime data (generated, not needed for build)
 data/
 logs/
 *.log
+
+# Tests
+tests/
+
+# Docs
+docs/
+*.md
+!CLAUDE.md
+!AGENTS.md
+
+# CI / IDE
+.github/
+.claude/
+.cursor/
+.vscode/
+.idea/
+
+# OS junk
+.DS_Store
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Browser / session profiles (removed in v2)
+session-profiles/
+chrome-data/
+chrome-profiles/
+
+# Build artifacts
+dist/
+build/
+.eggs/
+.omc/
