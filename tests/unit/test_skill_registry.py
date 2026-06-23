@@ -19,7 +19,7 @@ def skills_dir(tmp_path: Path) -> Path:
     """创建模拟 skills 目录，含 collect / filter / judge / output 四个子目录。"""
     skills_root = tmp_path / "skills"
     stages = {
-        "collect": "Collect skills — RSS, API, and OpenCLI-based news collection.",
+        "collect": "Collect skills — RSS, API, Reddit, and HN-based news collection.",
         "filter": "Filter skills — rule-based filtering and classification of NewsEvents.",
         "judge": "Judge skills — AI-powered news value judgement.",
         "output": "Output skills — Markdown and other output format writers.",
@@ -64,7 +64,7 @@ class TestDiscoverSkills:
     def test_uses_docstring_as_display_name(self, skills_dir: Path) -> None:
         result = discover_skills(skills_dir)
         assert result["collect"].display_name == (
-            "Collect skills — RSS, API, and OpenCLI-based news collection."
+            "Collect skills — RSS, API, Reddit, and HN-based news collection."
         )
 
     def test_missing_init_skipped(self, tmp_path: Path) -> None:

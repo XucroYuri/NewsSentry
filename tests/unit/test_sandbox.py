@@ -135,12 +135,12 @@ class TestCheckCommand:
 
     def test_check_command_entry_with_trailing_space(self) -> None:
         """白名单条目自身含尾部空格时，不再追加空格避免双空格。"""
-        policy = SandboxPolicy(allowed_commands=["opencli "])
+        policy = SandboxPolicy(allowed_commands=["git "])
         enforcer = SandboxEnforcer(policy)
-        # "opencli fetch" 以 "opencli " 开头 → 通过
-        assert enforcer.check_command("opencli fetch") is True
-        # "opencli" 不等于 "opencli "，也不以 "opencli " 开头 → 拒绝
-        assert enforcer.check_command("opencli") is False
+        # "git fetch" 以 "git " 开头 → 通过
+        assert enforcer.check_command("git fetch") is True
+        # "git" 不等于 "git "，也不以 "git " 开头 → 拒绝
+        assert enforcer.check_command("git") is False
 
     def test_check_command_rejects_partial_prefix(self) -> None:
         """'cur' 不匹配 'curl'（非完整命令名前缀）。"""

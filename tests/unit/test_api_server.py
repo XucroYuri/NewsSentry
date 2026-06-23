@@ -5602,7 +5602,7 @@ class TestTargetLifecycleWorkbenchAPI:
             {
                 "platform": "twitter",
                 "dimension": "politics",
-                "collect_mode": "opencli_bridge",
+                "collect_mode": "rss_bridge",
                 "session_profile_ref": "config/session-profiles/italy/twitter.session.yaml",
                 "accounts": [
                     {
@@ -5875,7 +5875,7 @@ class TestTargetLifecycleWorkbenchAPI:
                 {
                     "platform": "twitter",
                     "dimension": "economy",
-                    "collect_mode": "opencli_bridge",
+                    "collect_mode": "rss_bridge",
                     "session_profile_ref": "config/session-profiles/italy/twitter.session.yaml",
                 },
             ),
@@ -6065,7 +6065,7 @@ class TestTargetLifecycleWorkbenchAPI:
             json={
                 "platform": "twitter",
                 "dimension": "economy",
-                "collect_mode": "opencli_bridge",
+                "collect_mode": "rss_bridge",
                 "session_profile_ref": "config/session-profiles/italy/twitter.session.yaml",
             },
         )

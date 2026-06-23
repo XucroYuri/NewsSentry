@@ -60,7 +60,7 @@ class TestCheckCommand:
 
     @pytest.fixture
     def enforcer(self) -> SandboxEnforcer:
-        policy = SandboxPolicy(allowed_commands=["curl", "wget", "python ", "opencli", "cat"])
+        policy = SandboxPolicy(allowed_commands=["curl", "wget", "python ", "cat"])
         return SandboxEnforcer(policy)
 
     def test_exact_match(self, enforcer: SandboxEnforcer) -> None:

@@ -28,8 +28,6 @@ def test_japan_target_keeps_broader_public_source_coverage() -> None:
     assert "env-go-jp" not in refs
     assert "moj-immigration" not in refs
     assert "reuters-jp" not in refs
-    assert len(refs) >= 13
-    assert (
-        PROJECT_ROOT / "config" / "sources" / "japan" / "japantimes-topstories.yaml"
-    ).is_file()
+    assert len(refs) >= 12  # v2: opencli source removed
+    assert (PROJECT_ROOT / "config" / "sources" / "japan" / "japantimes-topstories.yaml").is_file()
     assert (PROJECT_ROOT / "config" / "sources" / "japan" / "asahi-headlines.yaml").is_file()

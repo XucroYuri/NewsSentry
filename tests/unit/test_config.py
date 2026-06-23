@@ -705,7 +705,7 @@ class TestLoadTarget:
         loader = ConfigLoader(Path("."))
         config = loader.load_target("italy")
         assert config.target_id == "italy"
-        assert len(config.sources) >= 52  # active RSS/API refs; dead RSS 保留归档但不加载
+        assert len(config.sources) >= 47  # v2: opencli/social sources removed
         source_ids = {s["source_id"] for s in config.sources}
         # 验证核心 RSS 源仍然存在
         core_ids = {

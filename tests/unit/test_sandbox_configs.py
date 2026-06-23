@@ -18,7 +18,6 @@ SANDBOX_YAMLS = [
     "local-workstation.yaml",
     "cloud-vps.yaml",
     "full.yaml",
-    "kol-experiment.yaml",
 ]
 
 
