@@ -341,7 +341,7 @@ flowchart LR
 ## 项目当前状态速查
 
 - **Python 版本**：3.11+ / Pydantic v2
-- **测试规模**：~2994 tests, 86% 覆盖率，ruff=0，mypy=0
+- **测试规模**：3,013 tests, 86% 覆盖率, ruff=0, mypy=0, frontend=0
 - **监控目标**：italy, china-watch-en, japan, germany, france + 18 个多 Target
 - **信源规模**：163 源 + RSS-Bridge 社媒桥接
 - **AI Provider**：内置 chain: Gemini → DeepSeek → Groq → Cloudflare Workers AI
