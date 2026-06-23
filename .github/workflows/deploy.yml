@@ -248,7 +248,7 @@ jobs:
             fi
             source "${VENV}/bin/activate"
             pip install --upgrade pip -q
-            pip install -e ".[api]" -q
+            pip install -e ".[api,proxy]" -q
 
             # ── 5. 环境变量 ──
             if [ ! -f "${DEPLOY_BASE}/${ENV}/.env" ]; then
