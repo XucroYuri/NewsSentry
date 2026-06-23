@@ -235,45 +235,8 @@ jobs:
               fi
             }
 
-                git fetch origin
-                git clean -fd
-              else
-              fi
-              rm -rf node_modules server/node_modules client/node_modules apps/node_modules packages/node_modules
-              npm ci
-              npm run build
-              NPM_BIN="$(command -v npm)"
-            [Unit]
-            After=network.target
-
-            [Service]
-            Type=simple
-            User=newssentry
-            Group=newssentry
-            Restart=on-failure
-            RestartSec=10
-            NoNewPrivileges=true
-            ProtectSystem=strict
-            PrivateTmp=true
-            StandardOutput=journal
-            StandardError=journal
-
-            [Install]
-            WantedBy=multi-user.target
-            FREESVCEOF
-              systemctl daemon-reload
-              for i in $(seq 1 12); do
-                  break
-                fi
-                if [ "$i" -eq 12 ]; then
-                  exit 1
-                fi
-                sleep 5
-              done
-            else
-            fi
-
-            cd "${REPO_DIR}/frontend/public"
+            # ── 3a. 公共门户前端构建 ──
+              cd "${REPO_DIR}/frontend/public"
             npm ci
             npm run build
             cd "${REPO_DIR}"
@@ -296,6 +259,10 @@ jobs:
             NEWSSENTRY_ALLOW_EXTERNAL_DATA_DIR=1
             NEWSSENTRY_AI_BUDGET_USD=1.0
             NEWSSENTRY_LOG_LEVEL=INFO
+            # AI Provider keys — fill at least one after deploy:
+            # GEMINI_API_KEY=xxxxxxxx
+            # DEEPSEEK_API_KEY=sk-xxxxxxxx
+            # GROQ_API_KEY=gsk_xxxxxxxx
             ENVEOF
               sed -i "s|__DATA_DIR__|/srv/news-sentry/${ENV}/data|" "${DEPLOY_BASE}/${ENV}/.env"
             fi
@@ -309,7 +276,6 @@ jobs:
             if [ "${ENV}" = "production" ]; then
               upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_REALTIME_BATCH_SIZE" "12"
               upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_REALTIME_STRICT" "0"
-            fi
             fi
 
             # ── 6. systemd 服务文件（首次或更新） ──
