@@ -3399,3 +3399,123 @@ async def test_upsert_canonical_relation_is_idempotent(store: AsyncStore):
     relations = await store.list_canonical_relations("ce_source")
     assert len(relations) == 1
     assert relations[0]["confidence"] == 75.0
+
+
+# ──────────────────────────────────────────────────
+# Phase 9 coverage push — user + session management
+# ──────────────────────────────────────────────────
+
+
+class TestUserManagement:
+    """测试用户 CRUD 方法。"""
+
+    @pytest.mark.asyncio
+    async def test_create_and_get_user(self, store: AsyncStore) -> None:
+        """创建用户后可以通过 get_user 获取。"""
+        created = await store.create_user("admin", "hash123", "salt123")
+        assert created is True
+
+        user = await store.get_user("admin")
+        assert user is not None
+        assert user["username"] == "admin"
+        assert user["password_hash"] == "hash123"  # noqa: S105
+        assert user["role"] == "admin"
+
+    @pytest.mark.asyncio
+    async def test_get_nonexistent_user(self, store: AsyncStore) -> None:
+        """不存在的用户返回 None。"""
+        user = await store.get_user("nonexistent")
+        assert user is None
+
+    @pytest.mark.asyncio
+    async def test_list_users(self, store: AsyncStore) -> None:
+        """列出所有用户。"""
+        await store.create_user("user1", "h1", "s1")
+        await store.create_user("user2", "h2", "s2", role="viewer")
+
+        users = await store.list_users()
+        assert len(users) == 2
+        usernames = {u["username"] for u in users}
+        assert usernames == {"user1", "user2"}
+
+    @pytest.mark.asyncio
+    async def test_update_user_password(self, store: AsyncStore) -> None:
+        """更新用户密码。"""
+        await store.create_user("admin", "old_hash", "old_salt")
+        ok = await store.update_user_password("admin", "new_hash", "new_salt")
+        assert ok is True
+
+        user = await store.get_user("admin")
+        assert user["password_hash"] == "new_hash"  # noqa: S105
+
+    @pytest.mark.asyncio
+    async def test_update_user_api_key(self, store: AsyncStore) -> None:
+        """设置和清除 API Key。"""
+        await store.create_user("admin", "hash", "salt")
+        ok = await store.update_user_api_key("admin", "ns-key-123")
+        assert ok is True
+
+        user = await store.get_user("admin")
+        assert user["api_key"] == "ns-key-123"
+
+        # Clear
+        await store.update_user_api_key("admin", None)
+        user = await store.get_user("admin")
+        assert user["api_key"] is None
+
+    @pytest.mark.asyncio
+    async def test_delete_user(self, store: AsyncStore) -> None:
+        """删除用户。"""
+        await store.create_user("temp", "h", "s")
+        ok = await store.delete_user("temp")
+        assert ok is True
+        assert await store.get_user("temp") is None
+
+    @pytest.mark.asyncio
+    async def test_delete_nonexistent_user_no_error(self, store: AsyncStore) -> None:
+        """删除不存在的用户不报错（幂等）。"""
+        ok = await store.delete_user("ghost")
+        # 删除不存在的用户是幂等操作，不抛异常
+        assert ok is True or ok is False
+
+
+class TestSessionManagement:
+    """测试 session token 持久化。"""
+
+    @pytest.mark.asyncio
+    async def test_create_and_get_session(self, store: AsyncStore) -> None:
+        """创建 session 后可通过 token 查询。"""
+        await store.create_user("admin", "hash", "salt")
+        await store.create_session("token-abc", "admin", "admin", True, 3600.0)
+
+        session = await store.get_session("token-abc")
+        assert session is not None
+        assert session["username"] == "admin"
+        assert session["role"] == "admin"
+        assert session["has_api_key"] is True
+
+    @pytest.mark.asyncio
+    async def test_get_nonexistent_session(self, store: AsyncStore) -> None:
+        """不存在的 session 返回 None。"""
+        session = await store.get_session("no-such-token")
+        assert session is None
+
+    @pytest.mark.asyncio
+    async def test_delete_session(self, store: AsyncStore) -> None:
+        """删除 session 后无法再查询。"""
+        await store.create_user("admin", "hash", "salt")
+        await store.create_session("token-del", "admin", "admin", False, 3600.0)
+
+        ok = await store.delete_session("token-del")
+        assert ok is True
+        assert await store.get_session("token-del") is None
+
+    @pytest.mark.asyncio
+    async def test_delete_sessions_for_user(self, store: AsyncStore) -> None:
+        """删除用户的所有 session。"""
+        await store.create_user("admin", "hash", "salt")
+        await store.create_session("t1", "admin", "admin", False, 3600.0)
+        await store.create_session("t2", "admin", "admin", False, 3600.0)
+
+        count = await store.delete_sessions_for_user("admin")
+        assert count == 2
