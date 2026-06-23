@@ -20,9 +20,7 @@ REQUIRED_DIRS = [
     "logs",
 ]
 
-AI_PROVIDER_ENV_VARS = [
-    "FREELLMAPI_API_KEY",
-]
+_AI_KEY_VARS = ("GEMINI_API_KEY", "DEEPSEEK_API_KEY", "GROQ_API_KEY")
 
 
 class DoctorReport(BaseModel):
@@ -90,15 +88,17 @@ def run_doctor(target_id: str, data_root: str = "data") -> DoctorReport:
     source_details = ["source reachability check requires network (skip in CI)"]
 
     # Provider check
-    provider_ok = any(os.environ.get(var) for var in AI_PROVIDER_ENV_VARS)
+    provider_ok = any(os.environ.get(var) for var in _AI_KEY_VARS)
     provider_details: list[str] = []
-    for var in AI_PROVIDER_ENV_VARS:
+    for var in _AI_KEY_VARS:
         if os.environ.get(var):
             provider_details.append(f"{var} is set")
         else:
             provider_details.append(f"{var} not set")
     if not provider_ok:
-        provider_details.append("set OPENAI_API_KEY for the default OpenAI route")
+        provider_details.append(
+            "set GEMINI_API_KEY, DEEPSEEK_API_KEY, or GROQ_API_KEY for AI enrichment"
+        )
 
     # Browser Bridge（v2 已移除，社媒采集由 RSS-Bridge 替代）
     bridge_ok = True
