@@ -242,10 +242,17 @@ jobs:
             }
 
             # ── 3a. 公共门户前端构建 ──
+            # 仅在 package.json 或源码变更时重新构建
+            NPM_HASH_FILE="${DEPLOY_BASE}/${ENV}/.npm-build-hash"
+            NPM_HASH_SRC="$(sha256sum "${REPO_DIR}/frontend/public/package.json" | cut -d' ' -f1)"
+            NPM_HASH_SRC="${NPM_HASH_SRC}-$(find "${REPO_DIR}/frontend/public/src" -type f -exec sha256sum {} \; | sha256sum | cut -d' ' -f1)"
+            if [ ! -f "${NPM_HASH_FILE}" ] || [ "$(cat "${NPM_HASH_FILE}")" != "${NPM_HASH_SRC}" ]; then
               cd "${REPO_DIR}/frontend/public"
-            npm ci
-            npm run build
-            cd "${REPO_DIR}"
+              npm ci
+              npm run build
+              cd "${REPO_DIR}"
+              echo "${NPM_HASH_SRC}" > "${NPM_HASH_FILE}"
+            fi
 
             # ── 4. venv + 依赖 ──
             VENV="${DEPLOY_BASE}/${ENV}/venv"
@@ -254,7 +261,14 @@ jobs:
             fi
             source "${VENV}/bin/activate"
             pip install --upgrade pip -q
-            pip install -e ".[api,proxy]" -q
+
+            # 仅在 pyproject.toml 变更或首次安装时重新安装依赖
+            PIP_HASH_FILE="${DEPLOY_BASE}/${ENV}/.pip-install-hash"
+            PYPROJECT_HASH="$(sha256sum "${REPO_DIR}/pyproject.toml" | cut -d' ' -f1)"
+            if [ ! -f "${PIP_HASH_FILE}" ] || [ "$(cat "${PIP_HASH_FILE}")" != "${PYPROJECT_HASH}" ]; then
+              pip install -e ".[api,proxy]" -q
+              echo "${PYPROJECT_HASH}" > "${PIP_HASH_FILE}"
+            fi
 
             # ── 5. 环境变量 ──
             if [ ! -f "${DEPLOY_BASE}/${ENV}/.env" ]; then
