@@ -156,8 +156,8 @@ def test_routes_config_from_yaml_file(tmp_path: Path) -> None:
     assert config.routes[1].audit is True
 
 
-def test_public_translation_route_uses_freellmapi_without_dedicated_stack() -> None:
-    """公共发布翻译必须直接走 FreeLLMAPI，不再默认绕到专用翻译 provider。"""
+def test_public_translation_route_uses_builtin_chain() -> None:
+    """公共发布翻译使用内置 provider chain（不依赖 FreeLLMAPI sidecar）。"""
     routes_path = Path(__file__).resolve().parents[2] / "config" / "provider" / "routes.yaml"
     with open(routes_path, encoding="utf-8") as f:
         config = ProviderRoutesConfig(**yaml.safe_load(f))
@@ -165,18 +165,16 @@ def test_public_translation_route_uses_freellmapi_without_dedicated_stack() -> N
     routes = {route.route_id: route for route in config.routes}
     public_translation = routes["translate.public"]
 
-    assert public_translation.provider == "freellmapi"
-    assert public_translation.model == "auto"
-    assert public_translation.model_env_var == "FREELLMAPI_DEFAULT_MODEL"
+    # 不应引用已删除的 freellmapi
+    assert public_translation.provider != "freellmapi"
+    assert "freellmapi" not in public_translation.fallback_route_ids
+    # 应有 fallback 链
+    assert len(public_translation.fallback_route_ids) >= 1
+    assert public_translation.provider == "gemini"
 
-    dedicated_translation_routes = {
-        "cloudflare.translation",
-        "mymemory.translation",
-    }
-    assert dedicated_translation_routes.isdisjoint(routes)
-    assert dedicated_translation_routes.isdisjoint(public_translation.fallback_route_ids)
-    assert routes["public.summary_reason"].provider == "freellmapi"
-    assert routes["public.enrichment"].provider == "freellmapi"
+    # 公共发布的路由链不应有空
+    assert routes["public.summary_reason"].provider != "freellmapi"
+    assert routes["public.enrichment"].provider != "freellmapi"
 
 
 def test_provider_route_defaults() -> None:

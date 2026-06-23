@@ -117,8 +117,9 @@ class TestCall:
         with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY 未设置"):
             provider.call("translate.fast", "Test")
 
-    def test_call_success(self):
+    def test_call_success(self, monkeypatch):
         """mock httpx.post 成功，验证返回 dict 含 content/model/usage/route_id/provider。"""
+        monkeypatch.delenv("ANTHROPIC_DEFAULT_HAIKU_MODEL", raising=False)
         mock_response = _make_mock_response(
             json_data={
                 "content": [{"type": "text", "text": "Hello from Claude!"}],

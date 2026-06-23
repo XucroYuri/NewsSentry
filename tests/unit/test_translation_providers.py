@@ -10,7 +10,6 @@ import pytest
 from news_sentry.adapters.providers.cloudflare_workers_ai_provider import (
     CloudflareWorkersAIProvider,
 )
-from news_sentry.adapters.providers.freellmapi_provider import FreeLLMAPIProvider
 from news_sentry.adapters.providers.libretranslate_provider import LibreTranslateProvider
 from news_sentry.adapters.providers.mymemory_provider import MyMemoryProvider
 
@@ -117,47 +116,3 @@ async def test_mymemory_provider_rejects_segments_over_500_bytes() -> None:
             source_lang="en",
             target_lang="zh-CN",
         )
-
-
-@pytest.mark.asyncio
-async def test_freellmapi_provider_uses_openai_compatible_chat_endpoint() -> None:
-    seen: dict[str, object] = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen["url"] = str(request.url)
-        seen["auth"] = request.headers.get("Authorization")
-        seen["payload"] = json.loads(request.content.decode())
-        return httpx.Response(
-            200,
-            json={
-                "model": "auto",
-                "choices": [{"message": {"content": "这是一条个性化推荐理由。"}}],
-                "usage": {"total_tokens": 18},
-            },
-            headers={"x-routed-via": "google/gemini-2.5-flash"},
-        )
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        provider = FreeLLMAPIProvider(
-            {
-                "base_url": "http://127.0.0.1:33001/v1",
-                "api_key": "freellmapi-test-key",
-                "default_model": "auto",
-            }
-        )
-        result = await provider.call_async(
-            "public.summary_reason",
-            "请生成推荐理由",
-            http_client=client,
-        )
-
-    assert seen["url"] == "http://127.0.0.1:33001/v1/chat/completions"
-    assert seen["auth"] == "Bearer freellmapi-test-key"
-    assert seen["payload"] == {
-        "model": "auto",
-        "messages": [{"role": "user", "content": "请生成推荐理由"}],
-        "max_tokens": 1000,
-    }
-    assert result["content"] == "这是一条个性化推荐理由。"
-    assert result["provider"] == "freellmapi"
-    assert result["routed_via"] == "google/gemini-2.5-flash"

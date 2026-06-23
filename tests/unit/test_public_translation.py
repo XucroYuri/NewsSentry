@@ -326,7 +326,7 @@ async def test_public_translation_engine_writes_publication_fields_and_marks_rea
                     ),
                     "route_id": "public.summary_reason",
                     "model": "auto",
-                    "provider": "freellmapi",
+                    "provider": "gemini",
                 },
             ]
         )
@@ -401,7 +401,7 @@ async def test_public_translation_engine_rejects_template_publication_reason(tmp
                     ),
                     "route_id": "public.summary_reason",
                     "model": "auto",
-                    "provider": "freellmapi",
+                    "provider": "gemini",
                 },
             ]
         )
@@ -440,13 +440,13 @@ async def test_public_translation_engine_rejects_garbled_chineseish_title(tmp_pa
                     ),
                     "route_id": "translate.public",
                     "model": "auto",
-                    "provider": "freellmapi",
+                    "provider": "gemini",
                 },
                 {
                     "content": "这条新闻涉及欧盟资金流向和法国防务采购，对供应链观察有价值。",
                     "route_id": "translate.public",
                     "model": "auto",
-                    "provider": "freellmapi",
+                    "provider": "gemini",
                 },
                 {
                     "content": json.dumps(
@@ -463,7 +463,7 @@ async def test_public_translation_engine_rejects_garbled_chineseish_title(tmp_pa
                     ),
                     "route_id": "public.summary_reason",
                     "model": "auto",
-                    "provider": "freellmapi",
+                    "provider": "gemini",
                 },
             ]
         )
@@ -523,7 +523,7 @@ async def test_public_translation_engine_repairs_fenced_publication_json(tmp_pat
                     ),
                     "route_id": "public.summary_reason",
                     "model": "auto",
-                    "provider": "freellmapi",
+                    "provider": "gemini",
                 },
             ]
         )
@@ -658,7 +658,7 @@ async def test_publication_generation_normalizes_common_tag_aliases() -> None:
             ),
             "route_id": "public.summary_reason",
             "model": "auto",
-            "provider": "freellmapi",
+            "provider": "gemini",
         }
     )
     engine = PublicTranslationEngine(PublicTranslationConfig())
@@ -697,13 +697,13 @@ async def test_public_translation_engine_rejects_publication_without_tags(tmp_pa
                     "content": "法国获得欧盟贷款用于军备采购",
                     "route_id": "translate.public",
                     "model": "auto",
-                    "provider": "freellmapi",
+                    "provider": "gemini",
                 },
                 {
                     "content": "这条新闻涉及欧盟资金流向和法国防务采购，对供应链观察有价值。",
                     "route_id": "translate.public",
                     "model": "auto",
-                    "provider": "freellmapi",
+                    "provider": "gemini",
                 },
                 {
                     "content": json.dumps(
@@ -717,7 +717,7 @@ async def test_public_translation_engine_rejects_publication_without_tags(tmp_pa
                     ),
                     "route_id": "public.summary_reason",
                     "model": "auto",
-                    "provider": "freellmapi",
+                    "provider": "gemini",
                 },
             ]
         )

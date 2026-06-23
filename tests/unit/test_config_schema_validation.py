@@ -86,13 +86,13 @@ class TestDeclaredConfigSchemas:
 
 
 class TestProviderRoutesConfig:
-    """Provider routes must keep FreeLLMAPI as the only remote AI entrypoint."""
+    """Provider routes must use built-in provider chain (gemini/deepseek/groq/cloudflare)."""
 
     @pytest.fixture(params=list(CONFIG_DIR.glob("provider/routes*.yaml")))
     def provider_routes_file(self, request: pytest.FixtureRequest) -> Path:
         return request.param
 
-    def test_only_freellmapi_remote_provider(self, provider_routes_file: Path) -> None:
+    def test_no_freellmapi_remote_provider(self, provider_routes_file: Path) -> None:
         data = _load_yaml(provider_routes_file)
         remote_providers = {
             route.get("provider")
@@ -100,7 +100,9 @@ class TestProviderRoutesConfig:
             if route.get("provider") != "local"
         }
 
-        assert remote_providers == {"freellmapi"}
+        # FreeLLMAPI has been removed; all routes now use built-in provider chain
+        assert "freellmapi" not in remote_providers
+        assert remote_providers  # there should be at least one provider
 
 
 # ── SourceChannel ──────────────────────────────────────────────

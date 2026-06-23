@@ -62,18 +62,18 @@ def test_run_doctor_existing_dirs():
         assert report.directory_check["passed"] is True
 
 
-def test_run_doctor_provider_check_accepts_freellmapi_key(monkeypatch):
-    """默认 FreeLLMAPI Key 存在时 provider_check 应通过。"""
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setenv("FREELLMAPI_API_KEY", "freellmapi-test")
+def test_run_doctor_provider_check_accepts_gemini_key(monkeypatch):
+    """Gemini Key 存在时 provider_check 应通过。"""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-test")
 
     with TemporaryDirectory() as tmp:
         report = run_doctor("test-target", data_root=tmp)
 
     assert report.provider_check["passed"] is True
-    assert any("FREELLMAPI_API_KEY is set" in d for d in report.provider_check["details"])
+    assert any("GEMINI_API_KEY is set" in d for d in report.provider_check["details"])
 
 
 def test_doctor_command_json_output(capsys):
