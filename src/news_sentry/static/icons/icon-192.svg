@@ -1,6 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 512 512" fill="none">
-  <rect x="24" y="24" width="464" height="464" rx="96" fill="#1e1b4b"/>
-  <path d="M160 380 L160 200 L256 120 L352 200 L352 380 L288 380 L288 280 L224 280 L224 380 Z" fill="#fbbf24"/>
-  <circle cx="256" cy="220" r="32" fill="#1e1b4b"/>
-  <circle cx="256" cy="220" r="14" fill="#fbbf24"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Outer ring — thin branded border -->
+  <rect x="24" y="24" width="464" height="464" rx="96" fill="url(#bgGrad)" stroke="#fbbf24" stroke-width="2" opacity="0.3"/>
+
+  <!-- Watchtower shape -->
+  <path d="M160 380 L160 200 L256 120 L352 200 L352 380 L288 380 L288 280 L224 280 L224 380 Z" fill="url(#goldGrad)"/>
+
+  <!-- Window/eye -->
+  <circle cx="256" cy="220" r="32" fill="#0f172a"/>
+  <circle cx="256" cy="220" r="14" fill="url(#goldGrad)"/>
 </svg>
