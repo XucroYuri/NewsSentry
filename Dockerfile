@@ -25,8 +25,8 @@ COPY config/ /app/config/
 COPY schemas/ /app/schemas/
 COPY tools/ /app/tools/
 
-# 非 editable 安装：仅注册包元数据，依赖已从 builder 复制
-RUN cd /app && pip install --no-cache-dir --no-deps -e . && \
+# 安装包元数据：依赖已从 builder 复制，--no-deps 跳过下载
+RUN cd /app && pip install --no-cache-dir --no-deps . && \
     useradd --create-home --shell /bin/bash appuser && \
     mkdir -p /app/data /app/config /app/logs && \
     chown -R appuser:appuser /app

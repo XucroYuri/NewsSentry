@@ -46,7 +46,6 @@ from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, Str
 from pydantic import BaseModel, BeforeValidator, ValidationError
 
 from news_sentry.api.middleware.auth import (
-    _is_loopback_host,  # noqa: F401 — re-export for local use
     _is_loopback_request,
     _is_testclient_default_host,
 )

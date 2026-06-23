@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import yaml
 
@@ -88,7 +88,7 @@ def load_sources_from_config(target_id: str, config_dir: str | Path) -> list[Sou
         stype = str(data.get("type", "rss")).strip().lower()
         platform: SourcePlatform | None = None
         if stype in {"rss", "api", "reddit", "hackernews", "twitter"}:
-            platform = stype  # type: ignore[assignment]
+            platform = cast(SourcePlatform, stype)
 
         if platform is None:
             logger.debug("跳过未知信源类型 type=%r source_id=%r", stype, data.get("source_id"))
