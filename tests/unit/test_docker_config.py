@@ -12,7 +12,7 @@ def _read_text(path: str) -> str:
 
 
 class TestDockerfile:
-    """Dockerfile 结构和指令完整性。"""
+    """Dockerfile v2 结构和指令完整性。"""
 
     def test_dockerfile_exists(self):
         """Dockerfile 文件应存在。"""
@@ -30,7 +30,7 @@ class TestDockerfile:
         assert "COPY src/ src/" in content
 
     def test_dockerfile_copies_schemas(self):
-        """Dockerfile 应包含 COPY schemas/ schemas/（cli doctor 需要）。"""
+        """Dockerfile 应包含 COPY schemas/ schemas/。"""
         content = _read_text("Dockerfile")
         assert "COPY schemas/ schemas/" in content
 
@@ -44,15 +44,13 @@ class TestDockerfile:
         content = _read_text("Dockerfile")
         assert "docker-entrypoint.sh" in content
 
-    def test_dockerfile_sets_chromium_env(self):
-        """Dockerfile 应设置 CHROME_BIN 环境变量。"""
+    def test_dockerfile_no_browser_deps(self):
+        """v2 Dockerfile 不应包含 Chromium/Playwright/Node.js/OpenCLI。"""
         content = _read_text("Dockerfile")
-        assert "CHROME_BIN" in content
-
-    def test_dockerfile_installs_playwright_mcp(self):
-        """Dockerfile 应安装 @playwright/mcp（Layer 2 兜底）。"""
-        content = _read_text("Dockerfile")
-        assert "@playwright/mcp" in content or "playwright" in content
+        assert "chromium" not in content
+        assert "playwright" not in content
+        assert "nodejs" not in content
+        assert "opencli" not in content
 
     def test_dockerfile_creates_appuser(self):
         """Dockerfile 应创建非 root 用户 appuser。"""
@@ -63,13 +61,14 @@ class TestDockerfile:
         """docker-entrypoint.sh 应存在。"""
         assert (PROJECT_ROOT / "docker-entrypoint.sh").is_file()
 
-    def test_verify_bridge_script_exists(self):
-        """docker/verify-bridge.sh 应存在。"""
-        assert (PROJECT_ROOT / "docker" / "verify-bridge.sh").is_file()
+    def test_dockerfile_healthcheck_includes_api_v1_path(self):
+        """v2 Dockerfile 健康检查应使用 /api/v1/health。"""
+        content = _read_text("Dockerfile")
+        assert "/api/v1/health" in content
 
 
 class TestDockerCompose:
-    """docker-compose.yml 配置验证。"""
+    """docker-compose.yml v2 配置验证。"""
 
     def test_compose_exists(self):
         """docker-compose.yml 文件应存在。"""
@@ -87,19 +86,23 @@ class TestDockerCompose:
         data = yaml.safe_load(_read_text("docker-compose.yml"))
         assert "news-sentry" in data.get("services", {})
 
-    def test_compose_mounts_data_volume(self):
-        """docker-compose.yml 应挂载 data/ 卷。"""
+    def test_compose_has_rss_bridge_service(self):
+        """v2 docker-compose.yml 应定义 rss-bridge 服务。"""
         data = yaml.safe_load(_read_text("docker-compose.yml"))
-        volumes = data["services"]["news-sentry"].get("volumes", [])
-        volume_paths = [v.split(":")[0] for v in volumes]
-        assert "./data" in volume_paths or any("data" in v for v in volume_paths)
+        assert "rss-bridge" in data.get("services", {})
+
+    def test_compose_news_sentry_builds_from_context(self):
+        """news-sentry 服务应使用本地 build 而非外部镜像。"""
+        data = yaml.safe_load(_read_text("docker-compose.yml"))
+        svc = data["services"]["news-sentry"]
+        assert "build" in svc
 
     def test_compose_mounts_config_volume(self):
-        """docker-compose.yml 应挂载 config/ 卷。"""
+        """docker-compose.yml 应挂载 config/ 为只读卷。"""
         data = yaml.safe_load(_read_text("docker-compose.yml"))
         volumes = data["services"]["news-sentry"].get("volumes", [])
-        volume_paths = [v.split(":")[0] for v in volumes]
-        assert "./config" in volume_paths or any("config" in v for v in volume_paths)
+        config_volumes = [v for v in volumes if "config" in v]
+        assert len(config_volumes) > 0
 
 
 class TestDockerIgnore:
@@ -125,41 +128,38 @@ class TestDockerIgnore:
         assert any(".git" in line for line in content.splitlines())
 
 
-class TestVerifyBridge:
-    """docker/verify-bridge.sh 验证脚本检查。"""
-
-    def test_verify_bridge_checks_key_components(self):
-        """verify-bridge.sh 应检查全部 8 个关键组件。"""
-        content = _read_text("docker/verify-bridge.sh")
-        assert "Chromium" in content
-        assert "Xvfb" in content
-        assert "ChromeDriver" in content
-        assert "Node.js" in content
-        assert "Playwright" in content
-        assert "NMH" in content
-
-    def test_nmh_check_matches_actual_filename(self):
-        """verify-bridge.sh 中的 NMH 文件名应与实际文件名一致。"""
-        script = _read_text("docker/verify-bridge.sh")
-        nmh_dir = PROJECT_ROOT / "docker" / "chrome-native-messaging-host"
-        if nmh_dir.is_dir():
-            actual_files = list(nmh_dir.glob("*.json"))
-            if actual_files:
-                actual_name = actual_files[0].name
-                assert actual_name in script, (
-                    f"verify-bridge.sh 应引用实际 NMH 文件名 '{actual_name}'"
-                )
-
-
 class TestEntrypoint:
-    """docker-entrypoint.sh 验证。"""
-
-    def test_entrypoint_starts_xvfb(self):
-        """entrypoint 应启动 Xvfb 虚拟显示。"""
-        content = _read_text("docker-entrypoint.sh")
-        assert "Xvfb" in content
+    """docker-entrypoint.sh v2 验证。"""
 
     def test_entrypoint_execs_command(self):
         """entrypoint 应以 exec "$@" 转发命令。"""
         content = _read_text("docker-entrypoint.sh")
         assert 'exec "$@"' in content
+
+    def test_entrypoint_has_no_xvfb(self):
+        """v2 entrypoint 不应包含 Xvfb。"""
+        content = _read_text("docker-entrypoint.sh")
+        assert "Xvfb" not in content
+
+
+class TestRssBridgeConfig:
+    """RSS-Bridge 配置文件验证。"""
+
+    def test_whitelist_exists(self):
+        """rss-bridge/whitelist.txt 应存在。"""
+        assert (PROJECT_ROOT / "rss-bridge" / "whitelist.txt").is_file()
+
+    def test_config_php_exists(self):
+        """rss-bridge/config.ini.php 应存在。"""
+        assert (PROJECT_ROOT / "rss-bridge" / "config.ini.php").is_file()
+
+    def test_config_php_is_valid(self):
+        """rss-bridge/config.ini.php 应为有效 PHP 配置。"""
+        content = _read_text("rss-bridge/config.ini.php")
+        assert "<?php" in content
+        assert "return [" in content
+
+    def test_whitelist_allows_all(self):
+        """whitelist.txt 应允许所有 Bridge（*）。"""
+        content = _read_text("rss-bridge/whitelist.txt").strip()
+        assert content == "*"

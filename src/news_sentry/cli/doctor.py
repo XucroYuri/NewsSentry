@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -102,60 +100,9 @@ def run_doctor(target_id: str, data_root: str = "data") -> DoctorReport:
     if not provider_ok:
         provider_details.append("set OPENAI_API_KEY for the default OpenAI route")
 
-    # Browser Bridge check（core 镜像中为 optional）
-    image_type = os.environ.get("NEWSSENTRY_IMAGE_TYPE", "full")
-    is_core = image_type == "core"
+    # Browser Bridge（v2 已移除，社媒采集由 RSS-Bridge 替代）
     bridge_ok = True
-    bridge_details: list[str] = []
-
-    if is_core:
-        bridge_details.append("core image: browser features not available (use browser/full image)")
-    else:
-        chromium = shutil.which("chromium") or shutil.which("chromium-browser")
-        chromedriver = shutil.which("chromedriver")
-        xdpyinfo = shutil.which("xdpyinfo")
-
-        if chromium:
-            bridge_details.append(f"Chromium found at {chromium}")
-        else:
-            bridge_details.append("Chromium not found")
-        if chromedriver:
-            bridge_details.append(f"ChromeDriver found at {chromedriver}")
-        else:
-            bridge_details.append("ChromeDriver not found")
-
-        # Xvfb display check
-        display_ok = False
-        if xdpyinfo:
-            try:
-                result = subprocess.run(
-                    ["xdpyinfo", "-display", ":99"],  # noqa: S607 — xdpyinfo path varies by distro
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                display_ok = result.returncode == 0
-            except Exception:  # noqa: S110 — Xvfb may not be running, health check handles this
-                pass
-        bridge_details.append(f"Xvfb display :99 {'available' if display_ok else 'not running'}")
-
-        # Playwright check
-        npx = shutil.which("npx")
-        playwright_ok = False
-        if npx:
-            try:
-                result = subprocess.run(  # noqa: S603 — npx path from shutil.which, trusted input
-                    [npx, "playwright", "--version"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                playwright_ok = result.returncode == 0
-            except Exception:  # noqa: S110 — playwright may not be installed, health check handles this
-                pass
-        bridge_details.append(f"Playwright {'available' if playwright_ok else 'not available'}")
-
-        bridge_ok = bool(chromium) and bool(chromedriver)
+    bridge_details: list[str] = ["browser features removed in v2 (use rss-bridge for social media)"]
 
     # Session Profiles check
     session_ok = True
