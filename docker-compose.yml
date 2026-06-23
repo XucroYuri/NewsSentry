@@ -6,6 +6,7 @@
 # 首次启动请设置环境变量（.env 或直接 export）:
 #   GEMINI_API_KEY=xxx
 #   DEEPSEEK_API_KEY=xxx
+#   GROQ_API_KEY=xxx
 
 services:
   news-sentry:
@@ -18,6 +19,7 @@ services:
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 30s

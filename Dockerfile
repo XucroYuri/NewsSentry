@@ -5,7 +5,7 @@ COPY pyproject.toml ./
 COPY src/ src/
 COPY tools/ tools/
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -e ".[api]"
+    pip install --no-cache-dir -e ".[api,proxy]"
 
 # ── Stage 2: Runtime ──────────────────────────────────
 FROM python:3.12-slim AS runtime
@@ -37,6 +37,7 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 WORKDIR /app
 USER appuser
 ENV PYTHONUNBUFFERED=1
+ENV NEWSSENTRY_PROFILE=docker
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:8000/api/v1/health || exit 1
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
