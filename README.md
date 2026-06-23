@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/XucroYuri/NewsSentry/main/src/news_sentry/static/icons/logo.svg" width="96" height="96" alt="News Sentry" />
+  <img src="https://raw.githubusercontent.com/XucroYuri/NewsSentry/main/src/news_sentry/static/icons/icon-192.svg" width="96" height="96" alt="News Sentry" />
 </p>
 
 <h1 align="center">News Sentry</h1>
