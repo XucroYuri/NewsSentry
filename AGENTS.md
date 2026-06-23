@@ -321,8 +321,9 @@ flowchart LR
 | P3 | v2 重构: Reddit/HN 采集器 + Docker 瘦身 | ✅ |
 | P4 | v2 重构: 内置 AI Provider Chain | ✅ |
 | P5 | v2 重构: 质量加固 + 部署对齐 | ✅ |
+| P6 | v2 重构: 测试覆盖率 + Type 质量 + 部署验证 | ✅ |
 
-**下一阶段：** Phase 6+ — 前端强化、多 Target 扩展、性能优化。
+**当前状态：** Phase 1-6 全部完成。项目处于 v2.0 稳定的重构基线。
 
 ---
 
