@@ -36,9 +36,8 @@ flowchart TB
     end
 
     subgraph ADAPTERS["外部适配"]
-        AP["AI Providers<br/>OpenAI / Anthropic / Rules"]
-        TOOL["OpenCLI Tools<br/>ToolManifest"]
-        RT["Runtime Adapters<br/>Hermes / OpenClaw"]
+        AP["AI Providers<br/>Gemini → DeepSeek → Groq → Cloudflare"]
+        RT["Runtime Adapters<br/>RSS-Bridge / API"]
     end
 
     subgraph STORAGE["文件存储"]
@@ -70,7 +69,7 @@ flowchart TB
 - **CLI 层**：两个入口——批处理模式（`run`）和服务模式（`serve`）
 - **核心运行时**：`bounded_run` 驱动整条管道，`AsyncStore` 提供 SQLite 持久化
 - **管道阶段**：四个顺序执行的阶段，每个阶段处理并传递 NewsEvent
-- **外部适配**：AI Provider 供研判使用，OpenCLI 供采集使用
+- **外部适配**：AI Provider 供研判/翻译使用，RSS-Bridge 供社媒采集使用
 - **文件存储**：文件系统目录协议，每个目录有明确的语义
 
 ---
@@ -82,8 +81,8 @@ flowchart LR
     subgraph 输入
         RSS["📡 RSS 源"]
         API["🔌 API 源"]
-        OC["⚙ OpenCLI 工具"]
-        SK["🌐 社媒 KOL"]
+        REDDIT["🔴 Reddit RSS"]
+        HN["🟠 HN REST"]
     end
 
     subgraph 采集["📥 1. 采集 (Collect)"]
@@ -111,7 +110,7 @@ flowchart LR
         FB_OPT["RulesOptimizer<br/>规则权重优化"]
     end
 
-    RSS & API & OC & SK --> C_OUT
+    RSS & API & REDDIT & HN --> C_OUT
     C_OUT --> F_RULES --> F_OUT
     F_OUT --> J_RULES --> J_AI --> J_OUT
     J_OUT --> O_MD & O_ALERT
@@ -120,7 +119,7 @@ flowchart LR
 ```
 
 **关键设计原则**：
-- **采集阶段零 Token 消耗**：RSS/API/OpenCLI 四种采集方式都不消耗 AI token
+- **采集阶段零 Token 消耗**：RSS/API/Reddit/HN 四种采集方式都不消耗 AI token
 - **两面下注策略**：规则和 AI 同时执行，规则不足时 AI 升级补位
 - **反馈闭环**：人工标记→规则优化→下次运行生效
 
@@ -134,8 +133,8 @@ flowchart LR
 |------|------|-----------|
 | `docs/contracts-canonical.md` | **口径规范基准** | 字段命名、分值量纲、目录映射、pipeline_stage 枚举的唯一权威来源 |
 | `docs/architecture.md` | **架构总览** | 系统架构、数据流、目录结构 |
-| `docs/external-integration-strategy.md` | **外部接入策略** | OpenCLI 接入原则、ToolManifest 骨架意图 |
-| `schemas/` (18 份 JSON Schema) | **机器可读契约** | 与 contracts-canonical.md 双向绑定 (ADR-0014) |
+| `docs/external-integration-strategy.md` | **外部接入策略** | RSS-Bridge 接入原则、Provider chain 设计 |
+| `schemas/` (13 份 JSON Schema) | **机器可读契约** | 与 contracts-canonical.md 双向绑定 (ADR-0014) |
 | `config/` | **运行时配置骨架** | 各国参数独立封装 (ADR-0015) |
 | `src/news_sentry/` | **Python 实现** | Python 3.11+ / Pydantic v2 (ADR-0012, ADR-0013) |
 
@@ -149,9 +148,8 @@ flowchart LR
 flowchart TD
     subgraph 框架["框架选择"]
         NEUTRAL["框架中立<br/>核心不绑定任何 Agent 框架"]
-        HERMES["Hermes = 主力调度器<br/>(长时 cron / 网关监控)"]
-        OPENCLAW["OpenClaw = Skill 运行时<br/>(生态兼容层)"]
-        FALLBACK["Codex / Claude Cowork<br/>= 备用的自动化方案"]
+        FASTAPI["FastAPI = API 服务器<br/>(Web UI + 管理面板)"]
+        DOCKER["Docker Compose = 部署<br/>(+ RSS-Bridge sidecar)"]
     end
 
     subgraph 数据["数据模型"]
@@ -175,6 +173,7 @@ flowchart TD
 | 规则 | 内容 | 参考 |
 |------|------|------|
 | **前端策略** | CLI-first，FastAPI + Vanilla JS 可选，无重型框架 | ADR-0025（替代 ADR-0010） |
+| **AI Provider** | 内置 chain: Gemini → DeepSeek → Groq → Cloudflare Workers AI | ADR-0005 |
 | **分类存储** | L0-L3 走 `metadata.classification`，不做顶层字段 | ADR-0009 |
 | **实现语言** | Python 3.11+ / Pydantic v2 | ADR-0012 |
 | **配置管理** | 所有国家参数入 config/，禁止硬编码到 src/ | ADR-0015 |
@@ -184,6 +183,7 @@ flowchart TD
 | **告警策略** | v1 止于通知，不自动对外发布 | — |
 | **翻译策略** | 采集阶段机译入 metadata.translation.title_pre，研判阶段 canonical 翻译入 title_translated | ADR-0004 |
 | **信源生命周期** | active → degraded(3次失败) → dead(10次失败) → archive | ADR-0019 |
+| **社媒采集** | RSS-Bridge Docker sidecar 替代浏览器驱动 | Phase 2 |
 
 ---
 
@@ -300,7 +300,7 @@ flowchart LR
 
 ## Phase 完成状态
 
-**v1.0.0 主线 23 个 Phase 全部完成。**
+**v1.0.0 主线 23 个 Phase 全部完成。v2.0 重构 Phase 1-5 已完成。**
 
 | Phase | 名称 | 状态 |
 |-------|------|------|
@@ -316,8 +316,13 @@ flowchart LR
 | 19-21 | 多语言 + 反馈闭环 + RSS 自动发现 | ✅ |
 | 22 | API Gateway | ✅ |
 | 23 | Release v1.0 | ✅ |
+| P1 | v2 重构: 删除 OpenCLI + 浏览器降级层 | ✅ |
+| P2 | v2 重构: API 服务器模块化 | ✅ |
+| P3 | v2 重构: Reddit/HN 采集器 + Docker 瘦身 | ✅ |
+| P4 | v2 重构: 内置 AI Provider Chain | ✅ |
+| P5 | v2 重构: 质量加固 + 部署对齐 | ✅ |
 
-**v1.5.0 之后（当前开发阶段）：** Phase 49-55，涵盖 Web UI 产品化、Windows 安装支持、质量加固、实时通知等。
+**下一阶段：** Phase 6+ — 前端强化、多 Target 扩展、性能优化。
 
 ---
 
@@ -335,8 +340,11 @@ flowchart LR
 ## 项目当前状态速查
 
 - **Python 版本**：3.11+ / Pydantic v2
-- **测试规模**：~1650 tests, ~90% 覆盖率, ruff=0
-- **监控目标**：italy, china-watch-en, japan, germany, france
-- **信源规模**：163 源 + 14 社媒维度 YAML (492 accounts)
-- **部署方式**：Cloudflare Worker + Container / Docker / 裸机 systemd
+- **测试规模**：~2994 tests, 86% 覆盖率，ruff=0，mypy=0
+- **监控目标**：italy, china-watch-en, japan, germany, france + 18 个多 Target
+- **信源规模**：163 源 + RSS-Bridge 社媒桥接
+- **AI Provider**：内置 chain: Gemini → DeepSeek → Groq → Cloudflare Workers AI
+- **部署方式**：Docker Compose / systemd (VPS) / Cloudflare CDN
 - **可选组件**：`[api]` FastAPI + Web UI, `[proxy]` SOCKS 代理
+- **新增模块**：`collect/reddit.py`, `collect/hn.py`, `adapters/providers/gemini_provider.py`, `adapters/providers/deepseek_provider.py`, `adapters/providers/groq_provider.py`
+- **已删除模块**：`freellmapi_provider.py`, `opencli_*.py`, `browser_*.py`, `social_kol_*.py`
