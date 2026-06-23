@@ -79,6 +79,7 @@ config/**/*.local.yml
 
 # Superpowers plugin cache (session-local, not project code)
 .superpowers/
+docs/superpowers/
 
 # Cloudflare Wrangler state (account info, not project code)
 .wrangler/
