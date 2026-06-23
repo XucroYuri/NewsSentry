@@ -102,6 +102,12 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
 addopts = "--cov=news_sentry --cov-report=term-missing"
+filterwarnings = [
+    # aiosqlite/httpx 后台线程在测试结束后残留 — 无害
+    "ignore:coroutine 'AsyncMockMixin._execute_mock_call' was never awaited:RuntimeWarning",
+    # async 测试中 SQLite connection 未关闭 — pytest 会在测试后清理
+    "ignore:unclosed database:ResourceWarning",
+]
 
 [tool.mypy]
 python_version = "3.11"
