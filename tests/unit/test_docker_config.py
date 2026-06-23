@@ -136,7 +136,6 @@ class TestVerifyBridge:
         assert "ChromeDriver" in content
         assert "Node.js" in content
         assert "Playwright" in content
-        assert "OpenCLI" in content
         assert "NMH" in content
 
     def test_nmh_check_matches_actual_filename(self):

@@ -1,4 +1,4 @@
-"""Tests for adapter_health — pre-run validation of tools and skills."""
+"""Tests for adapter_health — pre-run validation of skills."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import pytest
 
 from news_sentry.core.adapter_health import check_all_adapters
 from news_sentry.core.skill_registry import SkillRegistry
-from news_sentry.core.tool_registry import ToolRegistry
 
 # ──────────────────────────────────────────────────────────────
 # Fixtures
@@ -26,30 +25,6 @@ def skills_dir(tmp_path: Path) -> Path:
     return skills_root
 
 
-@pytest.fixture
-def manifest_dir(tmp_path: Path) -> Path:
-    """创建模拟 toolmanifest 目录。"""
-    import yaml
-
-    d = tmp_path / "toolmanifest"
-    d.mkdir()
-    manifest = {
-        "tools": [
-            {
-                "tool_id": "opencli.echo",
-                "display_name": "Echo Test",
-                "version": "1.0.0",
-                "execution_type": "subprocess",
-                "command_template": "echo hello",
-                "exit_codes": {"0": "success"},
-                "permissions": {"risk_level": "low"},
-            },
-        ]
-    }
-    (d / "test.yaml").write_text(yaml.dump(manifest), encoding="utf-8")
-    return d
-
-
 # ──────────────────────────────────────────────────────────────
 # Tests
 # ──────────────────────────────────────────────────────────────
@@ -58,87 +33,54 @@ def manifest_dir(tmp_path: Path) -> Path:
 class TestCheckAllAdapters:
     """check_all_adapters() 测试。"""
 
-    def test_returns_list(self, manifest_dir: Path, skills_dir: Path) -> None:
-        tr = ToolRegistry(manifest_dir)
+    def test_returns_list(self, skills_dir: Path) -> None:
         sr = SkillRegistry(skills_dir)
-        results = check_all_adapters(tr, sr)
+        results = check_all_adapters(sr)
         assert isinstance(results, list)
 
-    def test_includes_skills_and_tools(self, manifest_dir: Path, skills_dir: Path) -> None:
-        tr = ToolRegistry(manifest_dir)
+    def test_includes_skills(self, skills_dir: Path) -> None:
         sr = SkillRegistry(skills_dir)
-        results = check_all_adapters(tr, sr)
-        # 2 skills + 1 tool = 3 results
-        assert len(results) == 3
+        results = check_all_adapters(sr)
+        assert len(results) == 2
         names = [r["name"] for r in results]
-        assert any("Skill:" in n for n in names)
-        assert any("Tool:" in n for n in names)
+        assert all("Skill:" in n for n in names)
 
-    def test_each_result_has_required_fields(self, manifest_dir: Path, skills_dir: Path) -> None:
-        tr = ToolRegistry(manifest_dir)
+    def test_each_result_has_required_fields(self, skills_dir: Path) -> None:
         sr = SkillRegistry(skills_dir)
-        results = check_all_adapters(tr, sr)
+        results = check_all_adapters(sr)
         for r in results:
             assert "name" in r
             assert "ok" in r
             assert "severity" in r
             assert "message" in r
 
-    def test_skill_with_valid_entry_point_ok(self, manifest_dir: Path, skills_dir: Path) -> None:
-        tr = ToolRegistry(manifest_dir)
+    def test_skill_with_valid_entry_point_ok(self, skills_dir: Path) -> None:
         sr = SkillRegistry(skills_dir)
-        results = check_all_adapters(tr, sr)
+        results = check_all_adapters(sr)
         skill_results = [r for r in results if r["name"].startswith("Skill:")]
-        # 实际 skills 目录中的模块应该可导入
         for sr_item in skill_results:
             assert "news_sentry.skills" in str(sr_item["message"])
 
-    def test_skill_missing_entry_point(self, manifest_dir: Path, tmp_path: Path) -> None:
+    def test_skill_missing_entry_point(self, tmp_path: Path) -> None:
         """entry_point 不存在时报告 warning。"""
-
-        tr = ToolRegistry(manifest_dir)
-
-        # 手动构造一个含不存在模块的 SkillManifest
         broken_skills_dir = tmp_path / "broken_skills"
         broken_skills_dir.mkdir()
         broken_stage = broken_skills_dir / "broken"
         broken_stage.mkdir()
         (broken_stage / "__init__.py").write_text('"""broken"""\n', encoding="utf-8")
         sr = SkillRegistry(broken_skills_dir)
-        # 手动覆盖 entry_point 为不存在的模块
         skill = sr.get_skill("broken")
         assert skill is not None
         skill.entry_point = "nonexistent.module.path"
 
-        results = check_all_adapters(tr, sr)
+        results = check_all_adapters(sr)
         broken_results = [r for r in results if "broken" in str(r["name"])]
         assert len(broken_results) == 1
         assert broken_results[0]["ok"] is False
         assert broken_results[0]["severity"] == "warning"
 
-    def test_tool_health_not_ok(self, manifest_dir: Path, skills_dir: Path, monkeypatch) -> None:
-        """工具健康检查失败时应报告 warning。"""
-        tr = ToolRegistry(manifest_dir)
-        sr = SkillRegistry(skills_dir)
-
-        # mock check_tool_health 返回 not ok
-        monkeypatch.setattr(
-            tr,
-            "check_tool_health",
-            lambda tid: {"ok": False, "error": "not found"},
-        )
-
-        results = check_all_adapters(tr, sr)
-        tool_results = [r for r in results if r["name"].startswith("Tool:")]
-        assert len(tool_results) == 1
-        assert tool_results[0]["ok"] is False
-        assert tool_results[0]["severity"] == "warning"
-        assert "not found" in tool_results[0]["message"]
-
-    def test_skill_import_error(self, manifest_dir: Path, tmp_path: Path, monkeypatch) -> None:
+    def test_skill_import_error(self, tmp_path: Path, monkeypatch) -> None:
         """skill entry_point 导入失败时报告 warning。"""
-        tr = ToolRegistry(manifest_dir)
-
         broken_skills_dir = tmp_path / "broken_skills"
         broken_skills_dir.mkdir()
         broken_stage = broken_skills_dir / "broken"
@@ -146,7 +88,6 @@ class TestCheckAllAdapters:
         (broken_stage / "__init__.py").write_text('"""broken"""\n', encoding="utf-8")
         sr = SkillRegistry(broken_skills_dir)
 
-        # mock find_spec 抛出 ImportError
         from importlib.util import find_spec as real_find_spec
 
         def fake_find_spec(name, *args, **kwargs):
@@ -156,17 +97,16 @@ class TestCheckAllAdapters:
 
         monkeypatch.setattr("news_sentry.core.adapter_health.find_spec", fake_find_spec)
 
-        results = check_all_adapters(tr, sr)
+        results = check_all_adapters(sr)
         skill_results = [r for r in results if "broken" in str(r["name"])]
         assert len(skill_results) == 1
         assert skill_results[0]["ok"] is False
         assert skill_results[0]["severity"] == "warning"
 
-    def test_empty_registries(self, tmp_path: Path) -> None:
+    def test_empty_registry(self, tmp_path: Path) -> None:
         """空注册中心返回空结果列表。"""
         empty_dir = tmp_path / "empty"
         empty_dir.mkdir()
-        tr = ToolRegistry(empty_dir)
         sr = SkillRegistry(empty_dir)
-        results = check_all_adapters(tr, sr)
+        results = check_all_adapters(sr)
         assert results == []

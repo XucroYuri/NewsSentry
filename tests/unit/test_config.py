@@ -705,7 +705,7 @@ class TestLoadTarget:
         loader = ConfigLoader(Path("."))
         config = loader.load_target("italy")
         assert config.target_id == "italy"
-        assert len(config.sources) >= 52  # active RSS/API/OpenCLI refs; dead RSS 保留归档但不加载
+        assert len(config.sources) >= 52  # active RSS/API refs; dead RSS 保留归档但不加载
         source_ids = {s["source_id"] for s in config.sources}
         # 验证核心 RSS 源仍然存在
         core_ids = {
@@ -727,22 +727,16 @@ class TestLoadTarget:
         assert "l0_domains" in config.classification_rules
         assert "command_policy" in config.sandbox_policy
 
-        # Phase 12: 验证三种采集类型都有源
+        # Phase 12: 验证两种采集类型都有源
         by_type = {}
         for s in config.sources:
             by_type.setdefault(s["type"], []).append(s)
         assert len(by_type.get("rss", [])) >= 30
         assert len(by_type.get("api", [])) >= 4
-        assert len(by_type.get("opencli", [])) >= 5
 
         # 验证 API 源有 endpoint 配置
         for api_src in by_type["api"]:
             assert "endpoint" in api_src, f"API source {api_src['source_id']} missing endpoint"
-
-        # 验证 OpenCLI 源有 tool_ref 配置
-        for opencli_src in by_type["opencli"]:
-            sid = opencli_src["source_id"]
-            assert "tool_ref" in opencli_src, f"OpenCLI source {sid} missing tool_ref"
 
     @pytest.mark.parametrize(
         "target_id",

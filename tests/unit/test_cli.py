@@ -135,20 +135,6 @@ def test_skill_list_no_error():
 
 
 # ------------------------------------------------------------------
-# tool list
-# ------------------------------------------------------------------
-
-
-def test_tool_list_outputs_tool_ids():
-    """tool list 应输出 config/toolmanifest/ 中定义的工具 ID。"""
-    result = CliRunner().invoke(main, ["tool", "list"])
-    assert result.exit_code == 0
-    # opencli-baseline.yaml 中定义的 12 条工具
-    for tool_id in ("opencli.fetch", "opencli.search", "opencli.extract"):
-        assert tool_id in result.output
-
-
-# ------------------------------------------------------------------
 # doctor
 # ------------------------------------------------------------------
 

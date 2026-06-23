@@ -532,7 +532,7 @@ class ConfigLoader:
             language_scope.get("primary", "mixed") if isinstance(language_scope, dict) else "mixed"
         )
         for sid in source_ids:
-            # 跳过社媒渠道配置 — 由 SocialKOLCollector 独立加载
+            # 跳过社媒渠道配置 — 社媒采集将在 Phase 3 通过 RSS-Bridge 替代
             if sid.startswith("social/"):
                 continue
             source_path = sources_dir / f"{sid}.yaml"
