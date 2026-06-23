@@ -9,7 +9,6 @@ default_action: deny
 
 command_policy:
   allowed_commands:
-    - opencli
     - curl
     - wget
   # 匹配任何子字符串即拒绝，防止误操作
@@ -40,11 +39,6 @@ network_policy:
     - "169.254.169.254"
     - "metadata.google.internal"
     - "169.254.170.2"
-
-browser_policy:
-  # 生产环境不允许使用浏览器 session（避免泄露 cookie）
-  # 需要浏览器时须在 cloud-vps.yaml 中显式配置
-  session_profiles_allowed: []
 
 budget_policy:
   max_run_duration_seconds: 1800   # 单次运行最长 30 分钟

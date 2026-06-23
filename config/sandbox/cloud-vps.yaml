@@ -9,7 +9,6 @@ default_action: deny
 
 command_policy:
   allowed_commands:
-    - opencli
     - curl
     - wget
     - python
@@ -125,12 +124,6 @@ network_policy:
     - "169.254.169.254"
     - "metadata.google.internal"
     - "169.254.170.2"
-
-browser_policy:
-  # 服务器环境可使用无头浏览器 session（用于 opencli.screenshot 等）
-  # 禁止包含登录凭据的 profile
-  session_profiles_allowed:
-    - headless-default
 
 budget_policy:
   max_run_duration_seconds: 3600   # VPS 单次运行最长 60 分钟

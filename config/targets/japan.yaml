@@ -37,7 +37,6 @@ source_channel_refs:
   - asahi-culture
 
   # ── K. 涉华议题 ──────────────────────────────────
-  - opencli/china-japan-observer
   - api/gdelt-china-japan
 
   # ── L. Other 开放式兜底 ──────────────────────────

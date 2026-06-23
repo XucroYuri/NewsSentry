@@ -1,7 +1,7 @@
 # Schema: ../../schemas/deploymentprofile.schema.json
 # 契约: docs/spec/phase-2-runtime-carrier-alignment.md §3
 profile_id: cloud-vps
-description: "Portable cloud VPS profile for Hermes-triggered bounded runs"
+description: "Portable cloud VPS profile for systemd+scheduled bounded runs"
 
 paths:
   cwd: "."

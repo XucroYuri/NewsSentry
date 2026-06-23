@@ -88,29 +88,6 @@ source_channel_refs:
   - api/gdelt-italy
   - api/istat
 
-  # ── OpenCLI 信源 ─────────────────────────────────
-  - opencli/governo-it
-  - opencli/parlamento-it
-  - opencli/openpolis
-  - opencli/corte-costituzionale
-  - opencli/fondazione-italia-cina
-
-  # ── 社媒信源（社媒采集独立管理，此处注册维度入口）──
-  - social/twitter/A-politics-governance
-  - social/twitter/B-economy-business
-  - social/twitter/C-diplomacy-intl
-  - social/twitter/D-security-defense
-  - social/twitter/E-justice-law
-  - social/twitter/F-society-livelihood
-  - social/twitter/G-tech-digital
-  - social/twitter/H-environment-energy
-  - social/twitter/I-immigration-demographics
-  - social/twitter/J-culture-heritage
-  - social/twitter/K-religion-vatican
-  - social/twitter/L-china-relations
-  - social/twitter/L-china-topics
-  - social/twitter/M-other-open
-
 # 各子系统规则/路由配置的相对路径（相对于项目根目录）
 filter_rules_ref: config/filters/italy/default.yaml
 classification_rules_ref: config/classification/rules-italy.yaml

@@ -9,7 +9,6 @@ default_action: deny
 
 command_policy:
   allowed_commands:
-    - opencli
     - curl
     - wget
     - python3
@@ -38,12 +37,6 @@ network_policy:
     - "*"
   blocked_hosts:
     - "169.254.169.254"    # 仍阻止元数据接口
-
-browser_policy:
-  # 开发环境允许本地 Chrome/Firefox profile（用于调试 opencli 浏览器工具）
-  session_profiles_allowed:
-    - headless-default
-    - local-chrome-debug
 
 budget_policy:
   # 开发调试时限制较低，避免意外大规模 AI 调用

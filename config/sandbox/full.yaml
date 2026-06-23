@@ -9,7 +9,6 @@ default_action: deny
 
 command_policy:
   allowed_commands:
-    - opencli
     - curl
     - wget
     - python
@@ -59,10 +58,6 @@ network_policy:
     - "169.254.169.254"
     - "metadata.google.internal"
     - "169.254.170.2"
-
-browser_policy:
-  # Full 模式默认禁用浏览器 session
-  session_profiles_allowed: []
 
 budget_policy:
   max_run_duration_seconds: 3600   # 全量运行最长 60 分钟
