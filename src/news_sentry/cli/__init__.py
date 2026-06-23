@@ -493,20 +493,7 @@ def _run_doctor_checks() -> list[dict[str, object]]:
                 }
             )
 
-    # 6. Optional: opencli in PATH
-    from shutil import which
-
-    opencli_path = which("opencli")
-    results.append(
-        {
-            "name": "opencli (optional)",
-            "ok": True,
-            "severity": "info",
-            "message": opencli_path if opencli_path else "not found",
-        }
-    )
-
-    # 7. Optional: git repo
+    # 6. Optional: git repo
     git_dir = project_root / ".git"
     results.append(
         {
@@ -517,17 +504,14 @@ def _run_doctor_checks() -> list[dict[str, object]]:
         }
     )
 
-    # 8. Adapter health — skills and tools
+    # 7. Adapter health — skills
     try:
         from news_sentry.core.adapter_health import check_all_adapters
         from news_sentry.core.skill_registry import SkillRegistry
-        from news_sentry.core.tool_registry import ToolRegistry
 
         skills_dir_path = project_root / "src" / "news_sentry" / "skills"
-        tool_dir_path = project_root / "config" / "toolmanifest"
-        tr = ToolRegistry(tool_dir_path)
         sr = SkillRegistry(skills_dir_path)
-        adapter_results = check_all_adapters(tr, sr)
+        adapter_results = check_all_adapters(sr)
         results.extend(adapter_results)
     except Exception as e:
         results.append(

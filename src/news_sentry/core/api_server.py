@@ -60,6 +60,13 @@ from news_sentry.core.markdown_export import (
     render_news_event_markdown,
 )
 from news_sentry.core.public_site_projection import PublicSiteProjectionStore, SitemapEntry
+from news_sentry.core.public_translation import (
+    PublicTranslationConfig,
+    PublicTranslationEngine,
+    normalize_public_translation_config,
+    public_publication_ready,
+    public_publication_ready_for_row,
+)
 from news_sentry.core.source_inventory import SourceInventoryService
 from news_sentry.models.newsevent import NewsEvent
 from news_sentry.skills.filter.classification_taxonomy import (
@@ -109,10 +116,11 @@ def _inject_script_nonce(html: str, nonce: str) -> str:
 
 _PUBLIC_SITE_BASE_URL = "https://news-sentry.com"
 _PUBLIC_SITE_NAME = "News Sentry"
+_PUBLIC_SITE_TITLE = "News Sentry | 新闻哨兵"
 _PUBLIC_SITE_DESCRIPTION = (
-    "News Sentry 公共新闻流提供面向读者的国际新闻摘要、来源脉络与目标监控视角。"
+    "News Sentry 新闻哨兵面向中文读者追踪全球新闻，按地区、议题和相关对象筛选重点事件，"
+    "提供中文摘要、原文标题、信源信息与 Breaking News 指数。"
 )
-
 # ── Pydantic 模型 ──────────────────────────────────────
 
 
@@ -189,6 +197,41 @@ class TargetListResponse(BaseModel):
     targets: list[TargetInfo]
 
 
+class RegionInfo(BaseModel):
+    """公共地区入口，作为新版 public target 的语义承载。"""
+
+    region_id: str
+    display_name: str
+    primary_language: str
+    region_type: Literal["country", "region", "continent", "global"] = "country"
+    source_count: int
+    event_count: int = 0
+    lifecycle: dict[str, Any] = Field(default_factory=dict)
+    archived: bool = False
+
+
+class RegionListResponse(BaseModel):
+    """公共地区列表响应。"""
+
+    regions: list[RegionInfo]
+
+
+class PublicFacetItem(BaseModel):
+    """公共新闻动态筛选标签。"""
+
+    id: str
+    label: str
+    count: int
+
+
+class PublicFacetsResponse(BaseModel):
+    """公共新闻当前可见内容的动态 facets。"""
+
+    regions: list[PublicFacetItem]
+    issues: list[PublicFacetItem]
+    related: list[PublicFacetItem]
+
+
 class StatsResponse(BaseModel):
     """事件统计响应。"""
 
@@ -208,7 +251,7 @@ class SourceInfo(BaseModel):
     source_id: str
     source_ref: str | None = None
     display_name: str
-    type: str  # rss | api | opencli | social
+    type: str  # rss | api | social
     enabled: bool
     archived: bool = False
     deprecated: bool = False
@@ -351,6 +394,17 @@ class AIEnrichmentConfigUpdate(BaseModel):
     candidate_limit: int | None = Field(default=None, ge=1, le=2000)
 
 
+class PublicTranslationConfigUpdate(BaseModel):
+    """公共站翻译 worker 运行配置更新请求。"""
+
+    enabled: bool | None = None
+    interval_minutes: int | None = Field(default=None, ge=1, le=1440)
+    per_cycle_limit: int | None = Field(default=None, ge=1, le=500)
+    candidate_limit: int | None = Field(default=None, ge=1, le=5000)
+    source_lang: str | None = None
+    target_lang: str | None = None
+
+
 class CanonicalBackfillRequest(BaseModel):
     target_id: str
     since: str | None = None
@@ -451,8 +505,8 @@ class TargetCreateRequest(BaseModel):
     display_name: str
     language_scope: dict[str, Any]
     timezone: str
-    monitoring_type: Literal["country", "topic"] | None = None
-    topic_label: str | None = None
+    monitoring_type: Literal["country", "region", "continent", "global"] | None = None
+    region_type: Literal["country", "region", "continent", "global"] | None = None
     source_target_id: str | None = None
     template_id: str | None = None
 
@@ -461,8 +515,8 @@ class TargetPatchRequest(BaseModel):
     """Target 生命周期工作台内的基础资料更新。"""
 
     display_name: str | None = None
-    monitoring_type: Literal["country", "topic"] | None = None
-    topic_label: str | None = None
+    monitoring_type: Literal["country", "region", "continent", "global"] | None = None
+    region_type: Literal["country", "region", "continent", "global"] | None = None
     language_scope: dict[str, Any] | None = None
     timezone: str | None = None
     classification: dict[str, Any] | None = None
@@ -481,14 +535,13 @@ class SourceCreateRequest(BaseModel):
 
     source_id: str
     display_name: str
-    type: Literal["rss", "api", "opencli"]
+    type: Literal["rss", "api"]
     source_ref: str | None = None
     url: str | None = None
     endpoint: dict[str, Any] | None = None
     api_mapping: dict[str, Any] | None = None
     tool_ref: str | None = None
     tool_params: dict[str, Any] | None = None
-    opencli_command: str | None = None
     sandbox_profile_ref: str | None = None
     credibility_base: float = Field(default=0.75, ge=0.0, le=1.0)
     fetch_interval_minutes: int = Field(default=30, ge=1)
@@ -507,7 +560,6 @@ class SourcePatchRequest(BaseModel):
     api_mapping: dict[str, Any] | None = None
     tool_ref: str | None = None
     tool_params: dict[str, Any] | None = None
-    opencli_command: str | None = None
     sandbox_profile_ref: str | None = None
     credibility_base: float | None = Field(default=None, ge=0.0, le=1.0)
     fetch_interval_minutes: int | None = Field(default=None, ge=1)
@@ -522,7 +574,7 @@ class SocialDimensionCreateRequest(BaseModel):
 
     platform: str = "twitter"
     dimension: str
-    collect_mode: str = "opencli_bridge"
+    collect_mode: str = "rss_bridge"
     session_profile_ref: str | None = None
     notes: str | None = None
 
@@ -843,9 +895,14 @@ class PublicNewsItem(BaseModel):
     original_title: str | None = Field(default=None, alias="originalTitle")
     summary: str | None = None
     recommendation_reason: str | None = Field(default=None, alias="recommendationReason")
+    full_content: str | None = Field(default=None, alias="fullContent")
+    image_urls: list[str] = Field(default_factory=list, alias="imageUrls")
     original_url: str | None = Field(default=None, alias="originalUrl")
     detail_url: str = Field(alias="detailUrl")
     tags: list[str] = Field(default_factory=list)
+    issue_tags: list[str] = Field(default_factory=list, alias="issueTags")
+    related_tags: list[str] = Field(default_factory=list, alias="relatedTags")
+    region_tags: list[str] = Field(default_factory=list, alias="regionTags")
     entities: list[PublicNewsEntity] = Field(default_factory=list)
     related_count: int = Field(default=0, alias="relatedCount")
     discussion_count: int | None = Field(default=None, alias="discussionCount")
@@ -868,6 +925,17 @@ class PublicNewsFeedResponse(BaseModel):
     poll_after_ms: int = Field(default=60000, alias="pollAfterMs")
     has_newer: bool = Field(default=False, alias="hasNewer")
     total: int = 0
+
+    model_config = {"populate_by_name": True}
+
+
+class PublicBootstrapResponse(BaseModel):
+    """公共阅读首屏启动 payload，避免首屏拆成多次动态查询。"""
+
+    news: PublicNewsFeedResponse
+    regions: RegionListResponse
+    facets: PublicFacetsResponse
+    generated_at: str = Field(alias="generatedAt")
 
     model_config = {"populate_by_name": True}
 
@@ -1767,6 +1835,49 @@ def _event_topic_tags(ev: dict[str, Any]) -> list[str]:
     return [str(tag) for tag in raw[:2]] if isinstance(raw, list) else []
 
 
+def _clean_public_tag_list(value: Any, *, limit: int = 8) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    tags: list[str] = []
+    for item in value:
+        tag = " ".join(str(item or "").split())
+        if not tag or tag in tags:
+            continue
+        tags.append(tag)
+        if len(tags) >= limit:
+            break
+    return tags
+
+
+def _event_publication_payload(ev: dict[str, Any]) -> dict[str, Any]:
+    metadata = ev.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    publication = metadata.get("publication")
+    return publication if isinstance(publication, dict) else {}
+
+
+def _event_issue_tags(ev: dict[str, Any]) -> list[str]:
+    raw = ev.get("issue_tags")
+    if isinstance(raw, list):
+        return _clean_public_tag_list(raw)
+    return _clean_public_tag_list(_event_publication_payload(ev).get("issue_tags"))
+
+
+def _event_related_tags(ev: dict[str, Any]) -> list[str]:
+    raw = ev.get("related_tags")
+    if isinstance(raw, list):
+        return _clean_public_tag_list(raw)
+    return _clean_public_tag_list(_event_publication_payload(ev).get("related_tags"))
+
+
+def _event_region_tags(ev: dict[str, Any]) -> list[str]:
+    raw = ev.get("region_tags")
+    if isinstance(raw, list):
+        return _clean_public_tag_list(raw)
+    return _clean_public_tag_list(_event_publication_payload(ev).get("region_tags"))
+
+
 def _tag_text(value: Any) -> str:
     if isinstance(value, dict):
         for key in ("code", "name", "label", "title"):
@@ -1778,6 +1889,16 @@ def _tag_text(value: Any) -> str:
 
 def _event_flat_tags(ev: dict[str, Any]) -> list[str]:
     tags: list[str] = []
+    tags.extend(_event_issue_tags(ev)[:2])
+    tags.extend(_event_related_tags(ev)[:2])
+    tags.extend(_event_region_tags(ev)[:2])
+    if tags:
+        deduped_publication_tags: list[str] = []
+        for tag in tags:
+            if tag not in deduped_publication_tags:
+                deduped_publication_tags.append(tag)
+        return deduped_publication_tags[:4]
+
     classification = _event_classification(ev)
     if classification:
         l0 = classification.get("l0")
@@ -1807,23 +1928,75 @@ def _event_flat_tags(ev: dict[str, Any]) -> list[str]:
 
 
 def _event_ai_reason(ev: dict[str, Any]) -> str:
-    judge = ev.get("judge_result")
-    rationale = judge.get("rationale") if isinstance(judge, dict) else None
-    if isinstance(rationale, str) and rationale.strip():
-        return _first_sentence(rationale)
-    for key in ("content_translated", "content_original"):
-        value = ev.get(key)
-        if isinstance(value, str) and value.strip():
-            return _first_sentence(value)
-    return ""
+    public_reason = _event_explicit_recommendation_reason(ev)
+    if public_reason:
+        return public_reason
+    raw_judge = ev.get("judge_result")
+    judge = raw_judge if isinstance(raw_judge, dict) else {}
+    rationale = judge.get("rationale")
+    return _first_sentence(rationale) if isinstance(rationale, str) else ""
 
 
 def _event_summary(ev: dict[str, Any]) -> str:
+    summary = _event_public_summary(ev)
+    if summary:
+        return _first_sentence(summary, max_chars=96)
     for key in ("summary", "description", "content_translated", "content_original"):
         value = ev.get(key)
         if isinstance(value, str) and value.strip():
             return _first_sentence(value, max_chars=96)
     return ""
+
+
+def _event_translation(ev: dict[str, Any]) -> dict[str, Any]:
+    metadata = ev.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    translation = metadata.get("translation")
+    return translation if isinstance(translation, dict) else {}
+
+
+def _event_public_title(ev: dict[str, Any]) -> str:
+    title = _event_translation(ev).get("title_pre")
+    return " ".join(str(title or "").split())
+
+
+def _event_public_summary(ev: dict[str, Any]) -> str:
+    summary = _event_translation(ev).get("summary_pre")
+    return " ".join(str(summary or "").split())
+
+
+def _row_publication_ready(row: dict[str, Any]) -> bool:
+    if row.get("_public_projection_ready") is True:
+        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        return public_publication_ready(metadata)
+    return public_publication_ready_for_row(row)
+
+
+def _event_public_translation_ready(ev: dict[str, Any]) -> bool:
+    return _row_publication_ready(ev)
+
+
+def _event_explicit_recommendation_reason(ev: dict[str, Any]) -> str:
+    metadata = ev.get("metadata")
+    if isinstance(metadata, dict):
+        raw_publication = metadata.get("publication")
+        publication = raw_publication if isinstance(raw_publication, dict) else {}
+        reason = publication.get("recommendation_reason")
+        if isinstance(reason, str) and reason.strip():
+            return _first_sentence(reason)
+    return ""
+
+
+def _public_news_has_featured_quality(ev: dict[str, Any]) -> bool:
+    if not _event_summary(ev):
+        return False
+    if not _event_explicit_recommendation_reason(ev):
+        return False
+    classification = _event_classification(ev) or {}
+    if canonical_l0(str(classification.get("l0") or "")) == "uncategorized":
+        return False
+    return True
 
 
 _PUBLIC_NEWS_STAGE = "drafts"
@@ -1838,6 +2011,11 @@ _PUBLIC_NEWS_FEATURED_SCORE = 60
 _PUBLIC_NEWS_FEED_CACHE_TTL_SECONDS = 15.0
 _PUBLIC_NEWS_FEED_UPDATE_CACHE_TTL_SECONDS = 30.0
 _PUBLIC_NEWS_FEED_SEARCH_CACHE_TTL_SECONDS = 5.0
+_PUBLIC_SHARED_JSON_CACHE_CONTROL = "public, max-age=30, s-maxage=60, stale-while-revalidate=300"
+_PUBLIC_APP_SHELL_CACHE_CONTROL = "public, max-age=60, s-maxage=60, stale-while-revalidate=300"
+_PUBLIC_BOOTSTRAP_CACHE_TTL_SECONDS = 60.0
+_PUBLIC_REGIONS_CACHE_TTL_SECONDS = 60.0
+_PUBLIC_FACETS_CACHE_TTL_SECONDS = 60.0
 _PUBLIC_NEWS_SLOW_LOG_MS = 3000
 _PUBLIC_NEWS_INTERNAL_DATA_DIRS = {
     "backup",
@@ -1848,6 +2026,27 @@ _PUBLIC_NEWS_INTERNAL_DATA_DIRS = {
     "memory",
     "tmp",
 }
+_RETIRED_TOPIC_TARGET_IDS = frozenset(
+    {
+        "africa-watch",
+        "china-watch-en",
+        "climate-water-food",
+        "crisis-conflict",
+        "critical-minerals",
+        "defense-security",
+        "digital-regulation",
+        "energy-transition",
+        "eu-policy",
+        "fusion",
+        "latin-america-watch",
+        "middle-east-gulf",
+        "migration-labor",
+        "public-opinion-culture",
+        "supply-chain-trade",
+        "tech-ai-semiconductors",
+        "us-policy",
+    }
+)
 _PUBLIC_NEWS_EVENT_DIRS = {
     "archive",
     "drafts",
@@ -1857,6 +2056,9 @@ _PUBLIC_NEWS_EVENT_DIRS = {
     "reviewed",
 }
 _public_news_feed_cache: dict[str, dict[str, Any]] = {}
+_public_regions_cache: dict[str, dict[str, Any]] = {}
+_public_facets_cache: dict[str, dict[str, Any]] = {}
+_public_bootstrap_cache: dict[str, dict[str, Any]] = {}
 _PUBLIC_TEXT_LATIN1_HINTS = ("Ã", "Â", "â€")
 _STRAY_ACCENTED_CAPS = str.maketrans(
     {
@@ -1939,6 +2141,8 @@ def _public_news_feed_cache_key(
     *,
     featured: bool,
     target_id: str | None,
+    issue: str | None = None,
+    related: str | None = None,
     source_id: str | None,
     category: str | None,
     date: str | None,
@@ -1952,8 +2156,10 @@ def _public_news_feed_cache_key(
         "category": category or "",
         "date": date or "",
         "featured": bool(featured),
+        "issue": issue or "",
         "page_size": int(page_size),
         "q": q or "",
+        "related": related or "",
         "since_cursor": since_cursor or "",
         "source_id": source_id or "",
         "target_id": target_id or "",
@@ -1967,6 +2173,43 @@ def _public_news_cache_entry_valid(entry: dict[str, Any] | None, now: float) -> 
     )
 
 
+def _public_cache_entry_valid(entry: dict[str, Any] | None, now: float) -> bool:
+    return bool(
+        entry and isinstance(entry.get("expires_at"), (int, float)) and entry["expires_at"] > now
+    )
+
+
+def _public_model_json(payload: BaseModel) -> str:
+    return json.dumps(
+        payload.model_dump(by_alias=True, mode="json"),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _public_payload_etag(prefix: str, payload: BaseModel) -> str:
+    digest = sha256(_public_model_json(payload).encode("utf-8")).hexdigest()[:16]
+    return f'"{prefix}-{digest}"'
+
+
+def _public_shared_cache_headers(
+    *,
+    etag: str,
+    cache_status: Literal["hit", "miss"],
+    timing_name: str,
+    header_name: str,
+    elapsed_ms: int,
+) -> dict[str, str]:
+    return {
+        "ETag": etag,
+        "Cache-Control": _PUBLIC_SHARED_JSON_CACHE_CONTROL,
+        "Server-Timing": f"{timing_name};dur={max(0, int(elapsed_ms))}",
+        f"X-News-Sentry-{header_name}-Cache": cache_status,
+        f"X-News-Sentry-{header_name}-Elapsed-Ms": str(max(0, int(elapsed_ms))),
+    }
+
+
 def _public_news_cache_headers(
     *,
     cache_status: Literal["hit", "miss", "bypass"],
@@ -1976,10 +2219,11 @@ def _public_news_cache_headers(
 ) -> dict[str, str]:
     return {
         "ETag": etag,
-        "Cache-Control": "private, max-age=0, must-revalidate",
+        "Cache-Control": _PUBLIC_SHARED_JSON_CACHE_CONTROL,
         "X-Poll-After-Ms": str(poll_after_ms),
         "X-News-Sentry-Feed-Cache": cache_status,
         "X-News-Sentry-Feed-Elapsed-Ms": str(max(0, int(elapsed_ms))),
+        "Server-Timing": f"public-news;dur={max(0, int(elapsed_ms))}",
     }
 
 
@@ -2069,6 +2313,8 @@ def _is_public_target_id(value: str) -> bool:
     normalized = target_id.lower()
     if normalized in _PUBLIC_NEWS_INTERNAL_DATA_DIRS:
         return False
+    if normalized in _RETIRED_TOPIC_TARGET_IDS:
+        return False
     return not (normalized == "example-target" or normalized.startswith("example-"))
 
 
@@ -2081,17 +2327,21 @@ def _looks_like_public_target_data_dir(path: Path) -> bool:
 
 
 def _public_news_target_ids(data_dir: Path, target_id: str | None) -> list[str]:
+    del data_dir  # Public region discovery is config-first; runtime dirs are not authority.
     if target_id:
-        return [target_id]
+        for config in _load_target_configs():
+            if config.get("target_id") == target_id and _target_is_public_region(config):
+                return [target_id]
+        return []
     ids: set[str] = set()
     for config in _load_target_configs():
         value = config.get("target_id")
-        if isinstance(value, str) and _is_public_target_id(value):
+        if (
+            isinstance(value, str)
+            and _is_public_target_id(value)
+            and _target_is_public_region(config)
+        ):
             ids.add(value.strip())
-    if data_dir.is_dir():
-        for child in data_dir.iterdir():
-            if _looks_like_public_target_data_dir(child):
-                ids.add(child.name)
     return sorted(ids)
 
 
@@ -2101,7 +2351,7 @@ def _public_source_type(
     text = str(value or "").strip().lower()
     if text in {"rss", "api", "web", "social", "official"}:
         return cast(Literal["rss", "api", "web", "social", "official"], text)
-    if text in {"opencli", "browser", "scraper"}:
+    if text in {"browser", "scraper"}:
         return "web"
     return "unknown"
 
@@ -2182,26 +2432,75 @@ def _public_china_relevance_label(value: Any) -> Literal["高", "中", "低", "�
     return "低"
 
 
-def _public_news_item(target_id: str, ev: dict[str, Any]) -> PublicNewsItem:
+def _event_article_payload(ev: dict[str, Any]) -> dict[str, Any]:
+    metadata = ev.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    article = metadata.get("article")
+    return article if isinstance(article, dict) else {}
+
+
+def _event_full_content(ev: dict[str, Any]) -> str:
+    article = _event_article_payload(ev)
+    for value in (
+        article.get("full_text"),
+        ev.get("content_translated"),
+        ev.get("content_original"),
+    ):
+        text = " ".join(str(value or "").split())
+        if text:
+            return text[:50_000]
+    return ""
+
+
+def _event_image_urls(ev: dict[str, Any]) -> list[str]:
+    article = _event_article_payload(ev)
+    urls: list[str] = []
+    raw_urls = article.get("image_urls")
+    if isinstance(raw_urls, list):
+        urls.extend(str(url) for url in raw_urls if str(url or "").strip())
+    lead = str(article.get("lead_image_url") or "").strip()
+    if lead:
+        urls.insert(0, lead)
+    deduped: list[str] = []
+    for url in urls:
+        if url not in deduped:
+            deduped.append(url)
+    return deduped[:8]
+
+
+def _public_news_item(
+    target_id: str,
+    ev: dict[str, Any],
+    *,
+    include_content: bool = False,
+) -> PublicNewsItem:
     payload = _feed_event_payload(ev)
     event_id = str(payload.get("event_id") or payload.get("id") or "")
     score = _event_score(payload)
     original_url = str(payload.get("url") or "").strip() or None
+    recommendation_reason = str(payload.get("ai_reason") or "").strip()
+    public_title = _event_public_title(payload) or str(payload.get("display_title") or event_id)
     return PublicNewsItem(
         id=event_id,
         targetId=target_id,
         targetLabel=_target_display_name(target_id),
         source=_public_source_info(target_id, str(payload.get("source_id") or ""), payload),
         publishedAt=str(payload.get("published_at") or ""),
-        title=str(payload.get("display_title") or payload.get("title_original") or event_id),
+        title=public_title,
         originalTitle=str(payload.get("original_title") or "") or None,
         summary=str(payload.get("summary") or "") or None,
-        recommendationReason=str(payload.get("ai_reason") or "") or None,
+        recommendationReason=recommendation_reason or None,
+        fullContent=_event_full_content(payload) if include_content else None,
+        imageUrls=_event_image_urls(payload) if include_content else [],
         originalUrl=original_url,
         detailUrl=(
             f"/public-app/events/{quote(event_id, safe='')}?target_id={quote(target_id, safe='')}"
         ),
         tags=list(payload.get("flat_tags") or []),
+        issueTags=_event_issue_tags(payload),
+        relatedTags=_event_related_tags(payload),
+        regionTags=_event_region_tags(payload),
         entities=_public_news_entities(payload),
         relatedCount=int(payload.get("related_count") or 0),
         discussionCount=int(payload["discussion_count"])
@@ -2219,10 +2518,16 @@ def _public_news_matches(
     featured: bool,
     source_id: str | None,
     category: str | None,
+    issue: str | None = None,
+    related: str | None = None,
     date: str | None,
     q: str | None,
 ) -> bool:
+    if not _event_public_translation_ready(ev):
+        return False
     if featured and (_event_score(ev) or 0) < _PUBLIC_NEWS_FEATURED_SCORE:
+        return False
+    if featured and not _public_news_has_featured_quality(ev):
         return False
     if source_id and ev.get("source_id") != source_id:
         return False
@@ -2231,21 +2536,28 @@ def _public_news_matches(
         classification = _event_classification(ev) or {}
         if canonical_l0(str(classification.get("l0") or "")) != normalized_category:
             return False
+    if issue:
+        issue_normalized = issue.strip()
+        if issue_normalized not in _event_issue_tags(ev):
+            return False
+    if related:
+        related_normalized = related.strip()
+        if related_normalized not in _event_related_tags(ev):
+            return False
     if date and not str(ev.get("published_at") or "").startswith(date):
         return False
     if q:
         keyword = q.lower()
         haystack = " ".join(
-            str(ev.get(key) or "")
-            for key in (
-                "title_original",
-                "title_translated",
-                "content_original",
-                "content_translated",
-                "summary",
-                "source_id",
-                "source_display_name",
+            value
+            for value in (
+                _event_public_title(ev),
+                _event_public_summary(ev),
+                str(ev.get("source_id") or ""),
+                str(ev.get("source_display_name") or ""),
+                " ".join(_event_flat_tags(ev)),
             )
+            if value
         ).lower()
         if keyword not in haystack:
             return False
@@ -2258,33 +2570,43 @@ def _public_projection_text(value: Any) -> str | None:
 
 def _public_projection_event(row: dict[str, Any]) -> dict[str, Any]:
     """把 public projection row 补齐到 PublicNewsItem 所需的最小展示事件形状。"""
+    source_row_ready = _row_publication_ready(row)
     event = _event_from_index_row(row)
     raw_metadata = row.get("metadata")
     metadata = cast(dict[str, Any], raw_metadata) if isinstance(raw_metadata, dict) else {}
     raw_translation = metadata.get("translation")
     translation = cast(dict[str, Any], raw_translation) if isinstance(raw_translation, dict) else {}
-    raw_judge_result = metadata.get("judge_result")
-    judge_result = (
-        cast(dict[str, Any], raw_judge_result) if isinstance(raw_judge_result, dict) else {}
-    )
+    raw_publication = metadata.get("publication")
+    publication = cast(dict[str, Any], raw_publication) if isinstance(raw_publication, dict) else {}
     raw_source_meta = metadata.get("source")
     source_meta = cast(dict[str, Any], raw_source_meta) if isinstance(raw_source_meta, dict) else {}
 
     if translated_title := _public_projection_text(translation.get("title_pre")):
         event["title_translated"] = translated_title
 
-    if summary := _public_projection_text(metadata.get("summary")):
+    if summary := _public_projection_text(translation.get("summary_pre")):
         event["summary"] = summary
         event.setdefault("description", summary)
         event.setdefault("content_translated", summary)
 
-    recommendation_reason = _public_projection_text(
-        judge_result.get("rationale")
-        or metadata.get("ai_reason")
-        or metadata.get("recommendation_reason")
-    )
+    article = metadata.get("article")
+    if isinstance(article, dict):
+        if full_text := _public_projection_text(article.get("full_text")):
+            event["content_original"] = full_text
+
+    recommendation_reason = _public_projection_text(publication.get("recommendation_reason"))
     if recommendation_reason:
         event["judge_result"] = {"rationale": recommendation_reason}
+
+    issue_tags = _clean_public_tag_list(publication.get("issue_tags"))
+    related_tags = _clean_public_tag_list(publication.get("related_tags"))
+    region_tags = _clean_public_tag_list(publication.get("region_tags"))
+    if issue_tags:
+        event["issue_tags"] = issue_tags
+    if related_tags:
+        event["related_tags"] = related_tags
+    if region_tags:
+        event["region_tags"] = region_tags
 
     if source_display_name := _public_projection_text(
         metadata.get("source_display_name")
@@ -2317,6 +2639,8 @@ def _public_projection_event(row: dict[str, Any]) -> dict[str, Any]:
         event["related_count"] = metadata["related_count"]
     if isinstance(metadata.get("discussion_count"), int):
         event["discussion_count"] = metadata["discussion_count"]
+    if source_row_ready:
+        event["_public_projection_ready"] = True
 
     return event
 
@@ -2337,7 +2661,9 @@ async def _query_public_projection_events(
     return [
         _public_projection_event(row)
         for row in rows
-        if isinstance(row, dict) and str(row.get("event_id") or row.get("id") or "").strip()
+        if isinstance(row, dict)
+        and str(row.get("event_id") or row.get("id") or "").strip()
+        and _row_publication_ready(row)
     ]
 
 
@@ -2379,6 +2705,8 @@ async def _load_public_projection_detail(
             return None
         if row.get("stage") != _PUBLIC_NEWS_STAGE:
             return _INVISIBLE_INDEXED_EVENT
+        if not _row_publication_ready(row):
+            return _INVISIBLE_INDEXED_EVENT
         return _public_projection_event(row)
     return await _find_public_projection_event(store, target_id=target_id, event_id=event_id)
 
@@ -2390,6 +2718,7 @@ async def _public_news_events_for_target(
     *,
     limit: int,
     allow_projection_first: bool = True,
+    allow_file_fallback: bool = True,
     min_score: int | None = None,
     source_id: str | None = None,
     classification_l0: str | None = None,
@@ -2401,7 +2730,6 @@ async def _public_news_events_for_target(
     if (
         allow_projection_first
         and store is not None
-        and min_score is None
         and source_id is None
         and classification_l0 is None
         and date is None
@@ -2415,6 +2743,10 @@ async def _public_news_events_for_target(
             limit=limit,
         )
         if projection_events:
+            if min_score is not None:
+                projection_events = [
+                    event for event in projection_events if (_event_score(event) or 0) >= min_score
+                ]
             return projection_events, len(projection_events)
     if store is not None and await _store_has_target_event_index(store, target_id):
         query_public_rows = getattr(store, "query_public_news_rows", None)
@@ -2433,11 +2765,16 @@ async def _public_news_events_for_target(
             )
             rows = result.get("rows", [])
             if isinstance(rows, list):
+                typed_rows = cast(list[dict[str, Any]], rows)
                 events = [
                     _merge_index_metadata(_event_from_index_row(row), row)
-                    for row in cast(list[dict[str, Any]], rows)
+                    for row in typed_rows
+                    if _row_publication_ready(row)
                 ]
-                return events, int(result.get("total") or len(events))
+                total = int(result.get("total") or len(events))
+                if len(events) != len(typed_rows):
+                    total = len(events)
+                return events, total
             return [], 0
 
         result = await _visible_index_events_page(
@@ -2456,10 +2793,15 @@ async def _public_news_events_for_target(
         )
         events = result.get("events", [])
         if isinstance(events, list):
-            return events, int(result.get("total") or len(events))
+            ready_events = [event for event in events if _event_public_translation_ready(event)]
+            total = min(int(result.get("total") or len(ready_events)), len(ready_events))
+            return ready_events, total
+        return [], 0
+    if not allow_file_fallback:
         return [], 0
     events = _load_all_events(data_dir, target_id)
-    return events, len(events)
+    ready_events = [event for event in events if _event_public_translation_ready(event)]
+    return ready_events, len(ready_events)
 
 
 async def _public_news_candidate_events(
@@ -2468,6 +2810,7 @@ async def _public_news_candidate_events(
     *,
     limit: int,
     allow_projection_first: bool = True,
+    allow_file_fallback: bool = True,
     featured: bool,
     source_id: str | None = None,
     category: str | None = None,
@@ -2480,28 +2823,103 @@ async def _public_news_candidate_events(
     total = 0
     min_score = _PUBLIC_NEWS_FEATURED_SCORE if featured else None
     classification_l0 = category if category else None
+    if not allow_file_fallback and _store is not None:
+        query_public_rows = getattr(_store, "query_public_news_rows", None)
+        if query_public_rows is not None:
+            try:
+                result = await query_public_rows(
+                    target_id=None,
+                    stage=_PUBLIC_NEWS_STAGE,
+                    limit=limit,
+                    source_id=source_id,
+                    classification_l0=classification_l0,
+                    min_score=min_score,
+                    date=date,
+                    search=q,
+                    before_key=_public_news_store_cursor_key(before_key),
+                    since_key=_public_news_store_cursor_key(since_key),
+                )
+                allowed_targets = set(target_ids)
+                rows = result.get("rows", []) if isinstance(result, dict) else []
+                if isinstance(rows, list):
+                    for row in cast(list[dict[str, Any]], rows):
+                        row_target_id = str(row.get("target_id") or "").strip()
+                        if not row_target_id or row_target_id not in allowed_targets:
+                            continue
+                        if not _row_publication_ready(row):
+                            continue
+                        candidates.append(
+                            (
+                                row_target_id,
+                                _merge_index_metadata(_event_from_index_row(row), row),
+                            )
+                        )
+                    candidates.sort(key=lambda item: _public_news_sort_key(item[1]), reverse=True)
+                    total = int(result.get("total") or 0)
+                    if len(candidates) != len(rows):
+                        total = len(candidates)
+                    if candidates or total > 0:
+                        return candidates, max(len(candidates), total)
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to collect global public news candidates from store")
     for target_id in target_ids:
-        target_store = await _get_target_store(target_id)
-        store_to_query = target_store if target_store is not None else _store
-        events, target_total = await _public_news_events_for_target(
-            data_dir,
-            target_id,
-            store_to_query,
-            limit=limit,
-            allow_projection_first=allow_projection_first,
-            min_score=min_score,
-            source_id=source_id,
-            classification_l0=classification_l0,
-            date=date,
-            q=q,
-            before_key=before_key,
-            since_key=since_key,
-        )
+        try:
+            target_store = await _get_target_store(target_id)
+            store_to_query = target_store if target_store is not None else _store
+            events, target_total = await _public_news_events_for_target(
+                data_dir,
+                target_id,
+                store_to_query,
+                limit=limit,
+                allow_projection_first=allow_projection_first,
+                allow_file_fallback=allow_file_fallback,
+                min_score=min_score,
+                source_id=source_id,
+                classification_l0=classification_l0,
+                date=date,
+                q=q,
+                before_key=before_key,
+                since_key=since_key,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to collect public news candidates for target %s", target_id)
+            continue
         total += target_total
         for event in events:
             candidates.append((target_id, event))
     candidates.sort(key=lambda item: _public_news_sort_key(item[1]), reverse=True)
     return candidates, total
+
+
+def _public_region_label(target_id: str) -> str:
+    label = _target_display_name(target_id)
+    for suffix in ("新闻监控", "监控", " News", " news"):
+        if label.endswith(suffix):
+            label = label[: -len(suffix)]
+    return label.strip() or target_id
+
+
+def _public_facet_items(counts: dict[str, int], *, limit: int = 60) -> list[PublicFacetItem]:
+    pairs = [
+        (str(label), int(count))
+        for label, count in counts.items()
+        if str(label).strip() and int(count) > 0
+    ]
+    pairs.sort(key=lambda item: (-item[1], item[0]))
+    return [PublicFacetItem(id=label, label=label, count=count) for label, count in pairs[:limit]]
+
+
+def _public_region_facet_items(counts: dict[str, int], *, limit: int = 60) -> list[PublicFacetItem]:
+    pairs = [
+        (str(region_id), int(count))
+        for region_id, count in counts.items()
+        if str(region_id).strip() and int(count) > 0
+    ]
+    pairs.sort(key=lambda item: (-item[1], _public_region_label(item[0])))
+    return [
+        PublicFacetItem(id=region_id, label=_public_region_label(region_id), count=count)
+        for region_id, count in pairs[:limit]
+    ]
 
 
 def _public_news_etag(items: list[PublicNewsItem], latest_cursor: str | None) -> str:
@@ -2528,16 +2946,9 @@ def _feed_event_payload(ev: dict[str, Any]) -> dict[str, Any]:
     raw_clustering = metadata.get("clustering")
     clustering: dict[str, Any] = raw_clustering if isinstance(raw_clustering, dict) else {}
     classification = _event_classification(ev) or {}
-    raw_translation = metadata.get("translation")
-    translation = raw_translation if isinstance(raw_translation, dict) else {}
-    title_pre = _normalize_public_text(translation.get("title_pre")) or ""
+    title_pre = _event_public_title(ev)
     original_title = _normalize_public_text(ev.get("title_original") or event_id) or event_id
-    display_title = (
-        _normalize_public_text(ev.get("title_translated"))
-        or title_pre
-        or original_title
-        or event_id
-    )
+    display_title = _normalize_public_text(ev.get("title_translated")) or original_title or event_id
     payload = dict(ev)
     payload["event_id"] = event_id
     payload["display_title"] = display_title
@@ -3001,12 +3412,39 @@ def _load_yaml_file(path: Path) -> dict[str, Any] | None:
         return None
 
 
+def _source_path_for_ref(target_id: str, source_ref: str) -> Path:
+    """Resolve target-local refs and shared source-pool refs to YAML files."""
+    raw_ref = str(source_ref or "")
+    ref = _normalize_source_ref(
+        raw_ref.removeprefix("pool:") if raw_ref.startswith("pool:") else raw_ref
+    )
+    if raw_ref.startswith("pool:"):
+        return Path("config/source-pools") / f"{ref}.yaml"
+    return Path("config/sources") / target_id / f"{ref}.yaml"
+
+
 def _load_source_configs(target_id: str) -> list[dict[str, Any]]:
-    """从 config/sources/{target_id}/ 读取所有源渠道配置。"""
+    """Load source configs referenced by target, including shared source-pool refs."""
     sources_dir = Path(f"config/sources/{target_id}")
-    if not sources_dir.is_dir():
+    target_config = _load_target_config(target_id)
+    refs = [
+        str(ref)
+        for ref in (target_config or {}).get("source_channel_refs", [])
+        if isinstance(ref, str) and not str(ref).startswith("social/")
+    ]
+    if not refs and not sources_dir.is_dir():
         return []
     sources: list[dict[str, Any]] = []
+    if refs:
+        for source_ref in refs:
+            yaml_file = _source_path_for_ref(target_id, source_ref)
+            data = _load_yaml_file(yaml_file)
+            if data and isinstance(data, dict):
+                data["_source_id"] = source_ref
+                data["_source_ref"] = source_ref
+                data["_file_path"] = str(yaml_file)
+                sources.append(data)
+        return sources
     for yaml_file in sorted(sources_dir.rglob("*.yaml")):
         if yaml_file.name.startswith("_"):
             continue
@@ -3014,6 +3452,7 @@ def _load_source_configs(target_id: str) -> list[dict[str, Any]]:
         if data and isinstance(data, dict):
             rel = yaml_file.relative_to(sources_dir).with_suffix("")
             data["_source_id"] = str(rel)
+            data["_source_ref"] = str(rel)
             data["_file_path"] = str(yaml_file)
             sources.append(data)
     return sources
@@ -3142,7 +3581,7 @@ def _source_ids_for_target(target_id: str) -> set[str]:
             continue
         if lifecycle.get("status") == "archived":
             continue
-        for key in ("source_id", "id", "_source_id"):
+        for key in ("source_id", "id", "_source_id", "_source_ref"):
             value = source.get(key)
             if value:
                 normalized = str(value).strip()
@@ -3319,10 +3758,14 @@ def _target_is_archived(data: dict[str, Any]) -> bool:
     return _target_lifecycle(data).get("status") == "archived"
 
 
-_TARGET_MONITORING_LABELS = {
-    "country": "国别监控目标",
-    "topic": "专题监控目标",
+_REGION_TYPE_LABELS = {
+    "country": "地区",
+    "region": "地区",
+    "continent": "大洲",
+    "global": "全球",
 }
+
+_REGION_TYPES = frozenset(_REGION_TYPE_LABELS)
 
 
 def _target_monitoring_type(data: dict[str, Any]) -> str:
@@ -3352,6 +3795,33 @@ def _target_monitoring_type(data: dict[str, Any]) -> str:
     return "country"
 
 
+def _target_region_type(data: dict[str, Any]) -> str:
+    raw = data.get("region_type") or data.get("monitoring_type") or data.get("target_type")
+    aliases = {
+        "country": "country",
+        "country-target": "country",
+        "country_monitoring": "country",
+        "nation": "country",
+        "region": "region",
+        "regional": "region",
+        "area": "region",
+        "continent": "continent",
+        "global": "global",
+        "world": "global",
+    }
+    if isinstance(raw, str):
+        normalized = raw.strip().lower().replace("_", "-")
+        if normalized in aliases:
+            return aliases[normalized]
+    return "country"
+
+
+def _target_is_public_region(data: dict[str, Any]) -> bool:
+    if _target_monitoring_type(data) == "topic" or data.get("topic_label"):
+        return False
+    return _target_region_type(data) in _REGION_TYPES
+
+
 def _target_topic_label(data: dict[str, Any]) -> str | None:
     for key in ("topic_label", "monitoring_topic", "topic_name"):
         value = data.get(key)
@@ -3366,7 +3836,7 @@ def _target_topic_label(data: dict[str, Any]) -> str | None:
 def _target_info_from_config(data: dict[str, Any], data_dir: Path) -> TargetInfo:
     target_id = data.get("target_id", "")
     lifecycle = _target_lifecycle(data)
-    monitoring_type = _target_monitoring_type(data)
+    monitoring_type = _target_region_type(data) if _target_is_public_region(data) else "topic"
     refs = [ref for ref in data.get("source_channel_refs", []) if isinstance(ref, str)]
     return TargetInfo(
         target_id=target_id,
@@ -3375,8 +3845,8 @@ def _target_info_from_config(data: dict[str, Any], data_dir: Path) -> TargetInfo
         if isinstance(data.get("language_scope"), dict)
         else "",
         monitoring_type=monitoring_type,
-        monitoring_label=_TARGET_MONITORING_LABELS.get(monitoring_type, "监控目标"),
-        topic_label=_target_topic_label(data),
+        monitoring_label=_REGION_TYPE_LABELS.get(monitoring_type, "地区"),
+        topic_label=None if _target_is_public_region(data) else _target_topic_label(data),
         source_count=len(refs),
         event_count=0,
         lifecycle=lifecycle,
@@ -3384,27 +3854,66 @@ def _target_info_from_config(data: dict[str, Any], data_dir: Path) -> TargetInfo
     )
 
 
-async def _target_public_event_count(target_id: str, data_dir: Path) -> int:
+def _region_info_from_config(data: dict[str, Any], data_dir: Path) -> RegionInfo:
+    target = _target_info_from_config(data, data_dir)
+    region_type = _target_region_type(data)
+    region_type_value = cast(
+        Literal["country", "region", "continent", "global"],
+        region_type if region_type in _REGION_TYPES else "country",
+    )
+    return RegionInfo(
+        region_id=target.target_id,
+        display_name=target.display_name,
+        primary_language=target.primary_language,
+        region_type=region_type_value,
+        source_count=target.source_count,
+        event_count=target.event_count,
+        lifecycle=target.lifecycle,
+        archived=target.archived,
+    )
+
+
+async def _target_public_event_count(target_id: str, _data_dir: Path) -> int:
     """Return the count the public feed can actually show for a target."""
     try:
-        store = await _store_for_target(target_id)
-        if store is not None and await _store_has_target_event_index(store, target_id):
-            get_count = getattr(store, "get_event_count", None)
-            if get_count is not None:
-                return int(await get_count(target_id, _PUBLIC_ANALYSIS_STAGE))
-            visible = await _visible_index_events_page(
-                store,
-                data_dir,
-                target_id,
-                stage=_PUBLIC_ANALYSIS_STAGE,
-                page=1,
-                page_size=1,
-                exact_total=False,
-            )
-            return int(visible["total"])
+        store = await _get_target_store(target_id)
+        if store is None:
+            store = _store
+        if store is None:
+            return 0
+        get_public_count = getattr(store, "get_public_event_count", None)
+        if get_public_count is not None:
+            return int(await get_public_count(target_id, _PUBLIC_ANALYSIS_STAGE) or 0)
+        projection_events = await _query_public_projection_events(
+            store,
+            target_id=target_id,
+            limit=_PUBLIC_NEWS_MAX_SCAN,
+        )
+        if projection_events is not None:
+            return len(projection_events)
+        return 0
     except Exception:
         logger.exception("Failed to count indexed public events for target %s", target_id)
-    return len(_load_all_events(data_dir, target_id))
+        return 0
+
+
+async def _public_target_event_counts(data_dir: Path) -> dict[str, int]:
+    """Return public-ready event counts without scanning every target when global store exists."""
+    if _store is not None:
+        get_counts = getattr(_store, "get_public_event_counts_by_target", None)
+        if get_counts is not None:
+            try:
+                store_counts = cast(dict[str, int], await get_counts(_PUBLIC_ANALYSIS_STAGE))
+                if store_counts:
+                    return store_counts
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to count public targets from global store")
+    target_counts: dict[str, int] = {}
+    for target_id in _public_news_target_ids(data_dir, None):
+        count = await _target_public_event_count(target_id, data_dir)
+        if count > 0:
+            target_counts[target_id] = count
+    return target_counts
 
 
 async def _target_api_event_count(target_id: str) -> int:
@@ -3434,7 +3943,7 @@ async def _target_info_from_config_for_response(
 
 
 def _source_is_standard(source: dict[str, Any]) -> bool:
-    return source.get("type") in {"rss", "api", "opencli"}
+    return source.get("type") in {"rss", "api"}
 
 
 def _source_is_archived(source: dict[str, Any]) -> bool:
@@ -3536,14 +4045,16 @@ def _template_target_config(
     language_scope: dict[str, Any],
     timezone: str,
     monitoring_type: str | None = None,
-    topic_label: str | None = None,
+    region_type: str | None = None,
     source_refs: list[str] | None = None,
 ) -> dict[str, Any]:
     refs = source_refs if source_refs is not None else ["rss-template"]
+    resolved_region_type = region_type or monitoring_type or "country"
     data = {
         "target_id": target_id,
         "display_name": display_name,
-        "monitoring_type": monitoring_type or "country",
+        "monitoring_type": resolved_region_type,
+        "region_type": resolved_region_type,
         "language_scope": language_scope,
         "timezone": timezone,
         "source_channel_refs": refs,
@@ -3556,8 +4067,6 @@ def _template_target_config(
         "focus_areas": [],
         "lifecycle": {"status": "active"},
     }
-    if topic_label:
-        data["topic_label"] = topic_label
     return data
 
 
@@ -3648,15 +4157,6 @@ def _build_source_config(payload: SourceCreateRequest) -> tuple[str, dict[str, A
             raise HTTPException(status_code=400, detail="API source requires endpoint.url")
         data["endpoint"] = endpoint
         data["api_mapping"] = payload.api_mapping or {}
-    elif payload.type == "opencli":
-        tool_ref = payload.tool_ref or payload.opencli_command
-        if not tool_ref:
-            raise HTTPException(status_code=400, detail="OpenCLI source requires tool_ref")
-        data["tool_ref"] = tool_ref
-        data["opencli_command"] = tool_ref
-        data["tool_params"] = payload.tool_params or {}
-        if payload.sandbox_profile_ref:
-            data["sandbox_profile_ref"] = payload.sandbox_profile_ref
     return source_ref, data
 
 
@@ -3717,7 +4217,9 @@ def _validate_target_config(target_id: str) -> dict[str, Any]:
     refs = [str(ref) for ref in data.get("source_channel_refs", []) if isinstance(ref, str)]
     duplicate_refs = sorted({ref for ref in refs if refs.count(ref) > 1})
     missing_refs = [
-        ref for ref in refs if not (Path("config/sources") / target_id / f"{ref}.yaml").is_file()
+        ref
+        for ref in refs
+        if not ref.startswith("social/") and not _source_path_for_ref(target_id, ref).is_file()
     ]
     checks.append(
         {
@@ -3761,11 +4263,7 @@ def _validate_target_config(target_id: str) -> dict[str, Any]:
         url_val = source.get("url")
         if url_val is None and isinstance(source.get("endpoint"), dict):
             url_val = source["endpoint"].get("url")
-        if (
-            source.get("type") != "opencli"
-            and url_val
-            and not str(url_val).startswith(("http://", "https://"))
-        ):
+        if url_val and not str(url_val).startswith(("http://", "https://")):
             bad_urls.append({"source_ref": str(source.get("_source_id", "")), "url": str(url_val)})
     checks.append(
         {
@@ -4362,7 +4860,6 @@ async def _load_indexed_event_detail(
     row = await get_row(target_id, event_id)
     if row is None or row.get("stage") != "drafts":
         return _INVISIBLE_INDEXED_EVENT if row is not None else None
-
     file_path = row.get("file_path")
     if not _indexed_file_path_is_visible_in_stage(data_dir, target_id, "drafts", file_path):
         return _INVISIBLE_INDEXED_EVENT
@@ -4410,6 +4907,7 @@ _auto_collector_state: dict[str, Any] = {
 
 _log = logging.getLogger("news_sentry.auto_collector")
 _ai_enrichment_log = logging.getLogger("news_sentry.ai_enrichment")
+_public_translation_log = logging.getLogger("news_sentry.public_translation")
 
 _ai_enrichment_state: dict[str, Any] = {
     "enabled": True,
@@ -4420,6 +4918,23 @@ _ai_enrichment_state: dict[str, Any] = {
     "cooldown_after_429_minutes": 120,
     "targets": ["all"],
     "candidate_limit": 200,
+    "running": False,
+    "last_run_at": None,
+    "last_run_status": None,
+    "last_error": None,
+    "next_run_at": None,
+    "total_runs": 0,
+    "last_updates": 0,
+    "task": None,
+}
+
+_public_translation_state: dict[str, Any] = {
+    "enabled": True,
+    "interval_minutes": 5,
+    "per_cycle_limit": 50,
+    "candidate_limit": 500,
+    "source_lang": "auto",
+    "target_lang": "zh",
     "running": False,
     "last_run_at": None,
     "last_run_status": None,
@@ -4454,10 +4969,24 @@ def _collector_env_defaults() -> dict[str, Any]:
     }
 
 
+def _collector_env_enabled_override() -> bool | None:
+    """返回显式环境变量采集开关。
+
+    YAML 保存的是后台 UI 的运行时偏好；环境变量是进程启动边界。
+    部署时需要能明确把 Web 进程和采集任务拆开，避免 API 服务启动时
+    立即跑全量采集并拖慢健康检查。
+    """
+    value = os.environ.get("NEWSSENTRY_AUTO_COLLECT")
+    if value is None:
+        return None
+    return value == "1"
+
+
 def _normalize_collector_config(raw: dict[str, Any]) -> dict[str, Any]:
     """规范化采集器配置，保证 API 与 YAML 使用同一形状。"""
     defaults = _collector_env_defaults()
     data = {**defaults, **{k: v for k, v in raw.items() if v is not None}}
+    enabled_override = _collector_env_enabled_override()
 
     target_ids_raw = data.get("target_ids", defaults["target_ids"])
     if isinstance(target_ids_raw, str):
@@ -4478,7 +5007,7 @@ def _normalize_collector_config(raw: dict[str, Any]) -> dict[str, Any]:
     interval = max(1, min(interval, 1440))
 
     return {
-        "enabled": bool(data.get("enabled")),
+        "enabled": enabled_override if enabled_override is not None else bool(data.get("enabled")),
         "target_ids": target_ids,
         "interval_minutes": interval,
         "stage": stage,
@@ -4563,16 +5092,12 @@ def _build_collector_diagnostics_payload() -> dict[str, Any]:
         }
     )
 
-    has_ai_key = bool(
-        os.environ.get("OPENROUTER_API_KEY")
-        or os.environ.get("ANTHROPIC_API_KEY")
-        or os.environ.get("OPENAI_API_KEY")
-    )
+    has_ai_key = bool(os.environ.get("FREELLMAPI_API_KEY"))
     checks.append(
         {
             "name": "ai_api_key",
             "ok": has_ai_key,
-            "message": "已配置" if has_ai_key else "未配置 AI API Key — 研判/翻译将跳过",
+            "message": "已配置" if has_ai_key else "未配置 FREELLMAPI_API_KEY — 研判/翻译将跳过",
         }
     )
 
@@ -4737,6 +5262,104 @@ def _current_ai_enrichment_config() -> AIEnrichmentConfig:
             "cooldown_after_429_minutes": _ai_enrichment_state["cooldown_after_429_minutes"],
             "targets": _ai_enrichment_state["targets"],
             "candidate_limit": _ai_enrichment_state["candidate_limit"],
+        }
+    )
+
+
+def _public_translation_config_path() -> Path:
+    return Path("config/runtime/public_translation.yaml")
+
+
+def _safe_int_env(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_int_env_value(value: str | None, default: int) -> int:
+    try:
+        return int(value or str(default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _public_translation_env_defaults() -> dict[str, Any]:
+    publication_interval = os.environ.get(
+        "NEWSSENTRY_PUBLIC_PUBLICATION_INTERVAL",
+        os.environ.get("NEWSSENTRY_PUBLIC_TRANSLATION_INTERVAL", "5"),
+    )
+    publication_per_cycle = os.environ.get(
+        "NEWSSENTRY_PUBLIC_PUBLICATION_PER_CYCLE",
+        os.environ.get("NEWSSENTRY_PUBLIC_TRANSLATION_PER_CYCLE", "50"),
+    )
+    return {
+        "enabled": os.environ.get("NEWSSENTRY_PUBLIC_TRANSLATION", "1") == "1",
+        "interval_minutes": _safe_int_env_value(publication_interval, 5),
+        "per_cycle_limit": _safe_int_env_value(publication_per_cycle, 50),
+        "candidate_limit": _safe_int_env("NEWSSENTRY_PUBLIC_TRANSLATION_CANDIDATES", 500),
+        "source_lang": os.environ.get("NEWSSENTRY_PUBLIC_TRANSLATION_SOURCE_LANG", "auto"),
+        "target_lang": os.environ.get("NEWSSENTRY_PUBLIC_TRANSLATION_TARGET_LANG", "zh"),
+    }
+
+
+def _public_translation_config_to_dict(config: PublicTranslationConfig) -> dict[str, Any]:
+    return {
+        "enabled": config.enabled,
+        "interval_minutes": config.interval_minutes,
+        "per_cycle_limit": config.per_cycle_limit,
+        "candidate_limit": config.candidate_limit,
+        "source_lang": config.source_lang,
+        "target_lang": config.target_lang,
+    }
+
+
+def _normalize_public_translation_config(
+    raw: dict[str, Any] | None,
+) -> PublicTranslationConfig:
+    return normalize_public_translation_config(
+        {**_public_translation_env_defaults(), **(raw or {})}
+    )
+
+
+def _load_public_translation_config() -> PublicTranslationConfig:
+    path = _public_translation_config_path()
+    loaded: dict[str, Any] = {}
+    if path.is_file():
+        loaded = _load_yaml_file(path) or {}
+    return _normalize_public_translation_config(loaded)
+
+
+def _save_public_translation_config(config: dict[str, Any]) -> PublicTranslationConfig:
+    normalized = _normalize_public_translation_config(config)
+    path = _public_translation_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write_yaml(path, _public_translation_config_to_dict(normalized))
+    return normalized
+
+
+def _apply_public_translation_config(
+    config: PublicTranslationConfig | dict[str, Any],
+) -> PublicTranslationConfig:
+    normalized = (
+        config
+        if isinstance(config, PublicTranslationConfig)
+        else _normalize_public_translation_config(config)
+    )
+    for key, value in _public_translation_config_to_dict(normalized).items():
+        _public_translation_state[key] = value
+    return normalized
+
+
+def _current_public_translation_config() -> PublicTranslationConfig:
+    return normalize_public_translation_config(
+        {
+            "enabled": _public_translation_state["enabled"],
+            "interval_minutes": _public_translation_state["interval_minutes"],
+            "per_cycle_limit": _public_translation_state["per_cycle_limit"],
+            "candidate_limit": _public_translation_state["candidate_limit"],
+            "source_lang": _public_translation_state["source_lang"],
+            "target_lang": _public_translation_state["target_lang"],
         }
     )
 
@@ -4972,6 +5595,187 @@ async def _run_ai_enrichment_once(
     }
 
 
+def _public_translation_target_ids(target_id: str | None = None) -> list[str]:
+    if target_id and target_id != "all":
+        return [target_id]
+    return [item["target_id"] for item in _load_target_configs() if item.get("target_id")]
+
+
+async def _public_translation_store_for_target(target_id: str) -> AsyncStore | None:
+    target_store = await _get_target_store(target_id)
+    return target_store if target_store is not None else _store
+
+
+async def _public_translation_rows_for_target(
+    target_id: str,
+    store: AsyncStore | None,
+    *,
+    limit: int,
+) -> list[dict[str, Any]]:
+    if store is None:
+        return []
+    list_candidates = getattr(store, "list_public_translation_candidates", None)
+    if list_candidates is None:
+        return []
+    rows = await list_candidates(target_id, limit=limit)
+    return list(rows or [])
+
+
+def _provider_available(provider_name: str) -> bool:
+    try:
+        provider_factory = _build_ai_provider_factory()
+        provider = provider_factory(provider_name)
+        return bool(provider is not None and provider.health_check())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _missing_publication_reason(row: dict[str, Any]) -> bool:
+    metadata = row.get("metadata")
+    if not isinstance(metadata, dict) or public_publication_ready(metadata):
+        return False
+    translation = metadata.get("translation")
+    publication = metadata.get("publication")
+    if not isinstance(translation, dict):
+        return False
+    title = str(translation.get("title_pre") or "").strip()
+    summary = str(translation.get("summary_pre") or "").strip()
+    if not title or not summary:
+        return False
+    if not isinstance(publication, dict):
+        return True
+    return not str(publication.get("recommendation_reason") or "").strip()
+
+
+async def _public_translation_status_payload() -> dict[str, Any]:
+    config = _current_public_translation_config()
+    target_ids = _public_translation_target_ids()
+    publication_ready_count = 0
+    pending_reason_count = 0
+    for tid in target_ids:
+        publication_ready_count += await _target_public_event_count(tid, _data_dir)
+        store = await _public_translation_store_for_target(tid)
+        rows = await _public_translation_rows_for_target(
+            tid,
+            store,
+            limit=min(config.candidate_limit, 1000),
+        )
+        pending_reason_count += sum(1 for row in rows if _missing_publication_reason(row))
+    return {
+        "enabled": _public_translation_state["enabled"],
+        "running": _public_translation_state["running"],
+        "config": _public_translation_config_to_dict(config),
+        "publication_ready_count": publication_ready_count,
+        "pending_reason_count": pending_reason_count,
+        "last_run_at": _public_translation_state.get("last_run_at"),
+        "last_run_status": _public_translation_state.get("last_run_status"),
+        "last_error": _public_translation_state.get("last_error"),
+        "next_run_at": _public_translation_state.get("next_run_at"),
+        "total_runs": _public_translation_state["total_runs"],
+        "last_updates": _public_translation_state.get("last_updates", 0),
+    }
+
+
+async def _run_public_translation_once(
+    *,
+    target_id: str | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    config = _current_public_translation_config()
+    engine = PublicTranslationEngine(config)
+    target_ids = _public_translation_target_ids(target_id)
+    stores_by_target: dict[str, AsyncStore | None] = {}
+    rows_by_target: dict[str, list[dict[str, Any]]] = {}
+    for tid in target_ids:
+        store = await _public_translation_store_for_target(tid)
+        stores_by_target[tid] = store
+        rows_by_target[tid] = await _public_translation_rows_for_target(
+            tid,
+            store,
+            limit=config.candidate_limit,
+        )
+
+    if dry_run:
+        candidates = [
+            {
+                "target_id": tid,
+                "event_id": row.get("event_id"),
+                "title_original": row.get("title_original"),
+                "published_at": row.get("published_at"),
+                "attempts": row.get("translation_attempts") or 0,
+            }
+            for tid in target_ids
+            for row in rows_by_target[tid]
+            if engine.row_is_due(row)
+        ][: config.per_cycle_limit]
+        return {
+            "dry_run": True,
+            "targets": target_ids,
+            "candidates": candidates,
+            "total_candidates": sum(len(rows_by_target[tid]) for tid in target_ids),
+        }
+
+    router = _create_ai_provider_router()
+    if router is None:
+        return {"dry_run": False, "status": "no_router", "targets": target_ids, "updates": []}
+
+    provider_factory = _build_ai_provider_factory()
+    total_updates: list[dict[str, Any]] = []
+    total_failed = 0
+    target_results: list[dict[str, Any]] = []
+    for tid in target_ids:
+        store = stores_by_target[tid]
+        if store is None:
+            target_results.append({"target_id": tid, "status": "no_store", "updated": 0})
+            continue
+        remaining = config.per_cycle_limit - len(total_updates)
+        if remaining <= 0:
+            break
+        target_config = PublicTranslationConfig(
+            **{
+                **_public_translation_config_to_dict(config),
+                "per_cycle_limit": remaining,
+            }
+        )
+        result = await PublicTranslationEngine(target_config).run_rows(
+            target_id=tid,
+            rows=rows_by_target[tid],
+            store=store,
+            router=router,
+            provider_factory=provider_factory,
+        )
+        updates = list(result.get("updates") or [])
+        total_updates.extend(updates)
+        total_failed += int(result.get("failed") or 0)
+        target_results.append(
+            {
+                "target_id": tid,
+                "status": result.get("status"),
+                "updated": len(updates),
+                "failed": int(result.get("failed") or 0),
+            }
+        )
+        if len(total_updates) >= config.per_cycle_limit:
+            break
+
+    if total_updates and total_failed:
+        status = "partial"
+    elif total_updates:
+        status = "ok"
+    elif total_failed:
+        status = "retrying"
+    else:
+        status = "empty"
+    return {
+        "dry_run": False,
+        "status": status,
+        "targets": target_ids,
+        "updates": total_updates,
+        "failed": total_failed,
+        "target_results": target_results,
+    }
+
+
 def _update_collector_run_metrics(contexts: Any) -> None:
     """把多 target pipeline 上下文汇总到采集器状态。"""
     if contexts is None:
@@ -5075,6 +5879,43 @@ async def _ai_enrichment_loop() -> None:
     _ai_enrichment_state["running"] = False
     _ai_enrichment_state["next_run_at"] = None
     _ai_enrichment_log.info("AI 增强循环停止")
+
+
+async def _public_translation_loop() -> None:
+    """Public translation loop: run immediately, then retry with interval backoff."""
+    _public_translation_state["running"] = True
+    _public_translation_log.info(
+        "公共翻译循环启动: interval=%dmin per_cycle=%d candidates=%d",
+        _public_translation_state["interval_minutes"],
+        _public_translation_state["per_cycle_limit"],
+        _public_translation_state["candidate_limit"],
+    )
+
+    while _public_translation_state["enabled"]:
+        try:
+            result = await _run_public_translation_once()
+            _public_translation_state["last_run_at"] = datetime.now(UTC).isoformat()
+            _public_translation_state["last_run_status"] = result.get("status")
+            _public_translation_state["last_error"] = result.get("error")
+            _public_translation_state["last_updates"] = len(result.get("updates") or [])
+            _public_translation_state["total_runs"] += 1
+        except Exception as exc:  # noqa: BLE001
+            _public_translation_state["last_run_at"] = datetime.now(UTC).isoformat()
+            _public_translation_state["last_run_status"] = "error"
+            _public_translation_state["last_error"] = str(exc)
+            _public_translation_state["last_updates"] = 0
+            _public_translation_state["total_runs"] += 1
+            _public_translation_log.error("公共翻译循环失败", exc_info=True)
+
+        interval = int(_public_translation_state["interval_minutes"]) * 60
+        _public_translation_state["next_run_at"] = (
+            datetime.now(UTC) + timedelta(seconds=interval)
+        ).isoformat()
+        await asyncio.sleep(interval)
+
+    _public_translation_state["running"] = False
+    _public_translation_state["next_run_at"] = None
+    _public_translation_log.info("公共翻译循环停止")
 
 
 async def _bootstrap_users() -> None:
@@ -5206,7 +6047,7 @@ def _index_html_response() -> HTMLResponse:
         html,
         headers={
             **_security_headers_with_script_nonce(nonce),
-            "Cache-Control": "no-cache",
+            "Cache-Control": _PUBLIC_APP_SHELL_CACHE_CONTROL,
         },
     )
 
@@ -5247,17 +6088,34 @@ def _public_site_base_url(request: Request | None = None) -> str:
 
 
 async def _render_public_sitemap_xml(store: Any, *, base_url: str) -> str:
-    entries = await _public_sitemap_entries(base_url=base_url)
+    try:
+        entries = await _public_sitemap_entries(base_url=base_url)
+    except Exception:  # noqa: BLE001
+        logger.exception("Failed to collect public sitemap entries")
+        entries = [
+            SitemapEntry(
+                loc=f"{base_url}/",
+                lastmod=datetime.now(UTC).isoformat(),
+            )
+        ]
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
     ]
     for entry in entries:
+        try:
+            loc = str(entry.loc).strip()
+            lastmod = str(entry.lastmod).strip()
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to normalize sitemap entry")
+            continue
+        if not loc or not lastmod:
+            continue
         lines.extend(
             [
                 "  <url>",
-                f"    <loc>{xml_escape(entry.loc)}</loc>",
-                f"    <lastmod>{xml_escape(entry.lastmod)}</lastmod>",
+                f"    <loc>{xml_escape(loc)}</loc>",
+                f"    <lastmod>{xml_escape(lastmod)}</lastmod>",
                 "  </url>",
             ]
         )
@@ -5267,38 +6125,73 @@ async def _render_public_sitemap_xml(store: Any, *, base_url: str) -> str:
 
 async def _public_sitemap_entries(*, base_url: str) -> list[Any]:
     entries: list[Any] = []
+    if _store is not None:
+        projection_store = PublicSiteProjectionStore(_store, base_url=base_url)
+        try:
+            entries = await projection_store.list_sitemap_entries(limit=1000)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to render sitemap entries from global store")
+            entries = []
+        if entries:
+            return entries
     for target_id in _public_news_target_ids(_data_dir, None):
-        store = await _store_for_target(target_id)
+        try:
+            store = await _get_target_store(target_id)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to open target store for sitemap target %s", target_id)
+            continue
         if store is None:
             continue
         projection_store = PublicSiteProjectionStore(store, base_url=base_url)
-        entries.extend(await projection_store.list_sitemap_entries(target_id=target_id, limit=1000))
-    if not entries and _store is not None:
-        projection_store = PublicSiteProjectionStore(_store, base_url=base_url)
-        entries = await projection_store.list_sitemap_entries(limit=1000)
+        try:
+            entries.extend(
+                await projection_store.list_sitemap_entries(target_id=target_id, limit=1000)
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to render sitemap entries for target %s", target_id)
     if entries:
         return entries
     return [
         SitemapEntry(
-            loc=f"{base_url}/public-app/",
+            loc=f"{base_url}/",
             lastmod=datetime.now(UTC).isoformat(),
         )
     ]
 
 
-def _inject_public_homepage_seo(html: str, *, base_url: str) -> str:
-    canonical_url = f"{base_url}/public-app/"
+def _public_app_page_copy(canonical_path: str) -> tuple[str, str]:
+    if canonical_path == "/sources":
+        return (
+            "来源目录",
+            "按公开新闻聚合媒体与信源，帮助读者理解 News Sentry 新闻来自哪里。",
+        )
+    if canonical_path == "/subscribe":
+        return (
+            "订阅 Subscribe",
+            "接收 News Sentry 每日信号、新闻日报与目标更新。",
+        )
+    return (_PUBLIC_SITE_TITLE, _PUBLIC_SITE_DESCRIPTION)
+
+
+def _inject_public_homepage_seo(
+    html: str,
+    *,
+    base_url: str,
+    canonical_path: str = "/public-app/",
+) -> str:
+    canonical_url = f"{base_url}{canonical_path}"
+    page_name, description = _public_app_page_copy(canonical_path)
     json_ld = json.dumps(
         {
             "@context": "https://schema.org",
             "@type": "CollectionPage",
-            "name": "News Sentry Public",
-            "description": _PUBLIC_SITE_DESCRIPTION,
+            "name": page_name,
+            "description": description,
             "url": canonical_url,
             "isPartOf": {
                 "@type": "WebSite",
                 "name": _PUBLIC_SITE_NAME,
-                "url": canonical_url,
+                "url": f"{base_url}/public-app/",
             },
         },
         ensure_ascii=False,
@@ -5310,34 +6203,57 @@ def _inject_public_homepage_seo(html: str, *, base_url: str) -> str:
         tags.append(f'    <meta property="og:url" content="{canonical_url}" />')
     if "application/ld+json" not in html:
         tags.append(f'    <script type="application/ld+json">{json_ld}</script>')
-    if not tags or "</head>" not in html:
+    if not tags:
         return html
-    return html.replace("</head>", "\n" + "\n".join(tags) + "\n  </head>", 1)
+    injected = "\n" + "\n".join(tags) + "\n"
+    if "</head>" not in html:
+        if "<html" in html and ">" in html:
+            return re.sub(
+                r"(<html[^>]*>)",
+                lambda match: f"{match.group(1)}<head>{injected}</head>",
+                html,
+                count=1,
+            )
+        return f"<head>{injected}</head>{html}"
+    return html.replace("</head>", f"{injected}  </head>", 1)
 
 
-def _public_app_index_response(*, base_url: str | None = None) -> HTMLResponse:
+def _public_app_index_response(
+    *,
+    base_url: str | None = None,
+    canonical_path: str = "/public-app/",
+) -> HTMLResponse:
     index_path = _public_app_dir() / "index.html"
     if not index_path.is_file():
         raise HTTPException(status_code=404, detail="Public app not built")
     nonce = secrets.token_urlsafe(16)
     html = index_path.read_text(encoding="utf-8")
     if base_url:
-        html = _inject_public_homepage_seo(html, base_url=base_url)
+        html = _inject_public_homepage_seo(
+            html,
+            base_url=base_url,
+            canonical_path=canonical_path,
+        )
     html = _inject_script_nonce(html, nonce)
     return HTMLResponse(
         html,
         headers={
             **_security_headers_with_script_nonce(nonce),
-            "Cache-Control": "no-cache",
+            "Cache-Control": _PUBLIC_APP_SHELL_CACHE_CONTROL,
         },
     )
 
 
-def _public_app_asset_response(asset_path: str) -> Response:
+def _public_app_asset_response(
+    asset_path: str,
+    *,
+    base_url: str | None = None,
+    canonical_path: str = "/public-app/",
+) -> Response:
     public_root = _public_app_dir().resolve()
     clean_asset_path = asset_path.strip("/")
     if not clean_asset_path:
-        return _public_app_index_response()
+        return _public_app_index_response(base_url=base_url, canonical_path=canonical_path)
     file_path = (public_root / clean_asset_path).resolve()
     try:
         file_path.relative_to(public_root)
@@ -5347,12 +6263,12 @@ def _public_app_asset_response(asset_path: str) -> Response:
         cache_control = (
             "public, max-age=31536000, immutable"
             if clean_asset_path.startswith("assets/")
-            else "no-cache"
+            else _PUBLIC_APP_SHELL_CACHE_CONTROL
         )
         return FileResponse(file_path, headers={"Cache-Control": cache_control})
     if clean_asset_path.startswith("assets/"):
         raise HTTPException(status_code=404, detail="Static asset not found")
-    return _public_app_index_response()
+    return _public_app_index_response(base_url=base_url, canonical_path=canonical_path)
 
 
 def _git_dir_for_path(path: Path) -> Path | None:
@@ -5569,12 +6485,16 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
         await _restore_sessions()
     task = None
     ai_task = None
+    translation_task = None
     if _auto_collector_state["enabled"] and not _skip_lifespan:
         task = asyncio.create_task(_auto_collect_loop())
         _auto_collector_state["task"] = task
     if _ai_enrichment_state["enabled"] and not _skip_lifespan:
         ai_task = asyncio.create_task(_ai_enrichment_loop())
         _ai_enrichment_state["task"] = ai_task
+    if _public_translation_state["enabled"] and not _skip_lifespan:
+        translation_task = asyncio.create_task(_public_translation_loop())
+        _public_translation_state["task"] = translation_task
     yield
     if task is not None:
         _auto_collector_state["enabled"] = False
@@ -5588,6 +6508,13 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
         ai_task.cancel()
         try:
             await ai_task
+        except asyncio.CancelledError:
+            pass
+    if translation_task is not None:
+        _public_translation_state["enabled"] = False
+        translation_task.cancel()
+        try:
+            await translation_task
         except asyncio.CancelledError:
             pass
     if _store is not None:
@@ -5694,6 +6621,7 @@ def create_app(
     _config_cache = ConfigCache(ttl=60, maxsize=128)
     _apply_collector_config(_load_collector_config())
     _apply_ai_enrichment_config(_load_ai_enrichment_config())
+    _apply_public_translation_config(_load_public_translation_config())
 
     # ── 公开端点（无需认证）─────────────────────────────
 
@@ -5723,7 +6651,28 @@ def create_app(
 
     @app.get("/", include_in_schema=False)
     @app.get("/index.html", include_in_schema=False)
-    async def index_html() -> HTMLResponse:
+    async def index_html(request: Request) -> HTMLResponse:
+        return _public_app_index_response(
+            base_url=_public_site_base_url(request),
+            canonical_path="/",
+        )
+
+    @app.get("/sources", include_in_schema=False)
+    @app.get("/subscribe", include_in_schema=False)
+    async def publication_reader_page(request: Request) -> HTMLResponse:
+        return _public_app_index_response(
+            base_url=_public_site_base_url(request),
+            canonical_path=request.url.path,
+        )
+
+    @app.get("/admin", include_in_schema=False)
+    @app.get("/admin/", include_in_schema=False)
+    async def admin_index_html() -> HTMLResponse:
+        return _index_html_response()
+
+    @app.get("/admin/{path:path}", include_in_schema=False)
+    async def admin_path_html(path: str) -> HTMLResponse:
+        _ = path
         return _index_html_response()
 
     @app.get("/build_manifest.json")
@@ -5808,7 +6757,16 @@ def create_app(
     async def public_app_asset(asset_path: str, request: Request) -> Response:
         if not asset_path.strip("/"):
             return _public_app_index_response(base_url=_public_site_base_url(request))
-        return _public_app_asset_response(asset_path)
+        canonical_path = f"/public-app/{asset_path.strip('/')}"
+        if asset_path.strip("/") == "sources":
+            canonical_path = "/sources"
+        elif asset_path.strip("/") == "subscribe":
+            canonical_path = "/subscribe"
+        return _public_app_asset_response(
+            asset_path,
+            base_url=_public_site_base_url(request),
+            canonical_path=canonical_path,
+        )
 
     @app.get("/api/v1/collector/status")
     async def collector_status(
@@ -5901,6 +6859,40 @@ def create_app(
         _ai_enrichment_state["last_error"] = result.get("error")
         _ai_enrichment_state["last_updates"] = len(result.get("updates") or [])
         _ai_enrichment_state["total_runs"] += 0 if dry_run else 1
+        return result
+
+    @app.get("/api/v1/ai/translation/status")
+    async def public_translation_status(
+        _user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """返回公共站翻译 worker 状态。"""
+        return await _public_translation_status_payload()
+
+    @app.put("/api/v1/ai/translation/config")
+    async def update_public_translation_config(
+        config: PublicTranslationConfigUpdate,
+        _user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """更新公共站翻译 worker 配置并持久化。"""
+        current = _public_translation_config_to_dict(_current_public_translation_config())
+        update = config.model_dump(exclude_none=True)
+        normalized = _save_public_translation_config({**current, **update})
+        _apply_public_translation_config(normalized)
+        return await _public_translation_status_payload()
+
+    @app.post("/api/v1/ai/translation/run")
+    async def run_public_translation(
+        dry_run: bool = Query(False, description="只返回待翻译候选，不调用 Provider"),
+        target_id: str | None = Query(None, description="指定 target；默认全部公开 target"),
+        _user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> dict[str, Any]:
+        """手动触发公共站翻译；dry-run 不消耗外部翻译额度。"""
+        result = await _run_public_translation_once(target_id=target_id, dry_run=dry_run)
+        _public_translation_state["last_run_at"] = datetime.now(UTC).isoformat()
+        _public_translation_state["last_run_status"] = result.get("status", "dry_run")
+        _public_translation_state["last_error"] = result.get("error")
+        _public_translation_state["last_updates"] = len(result.get("updates") or [])
+        _public_translation_state["total_runs"] += 0 if dry_run else 1
         return result
 
     @app.get("/api/v1/status")
@@ -6433,15 +7425,215 @@ def create_app(
             raise HTTPException(status_code=500, detail=f"Failed to send email: {exc}") from exc
 
     @app.get("/api/v1/targets", response_model=TargetListResponse)
-    async def list_targets() -> TargetListResponse:
-        """返回公开可浏览的 active target 列表。"""
+    async def list_targets(
+        include_empty: bool = Query(
+            False,
+            description="是否包含已有信源但暂无公开 ready 新闻的地区入口",
+        ),
+    ) -> TargetListResponse:
+        """兼容旧接口：返回公开可浏览的地区列表。"""
         configs = _load_target_configs()
+        event_counts = await _public_target_event_counts(_data_dir)
         targets = []
         for config in configs:
-            if _target_is_archived(config):
+            if _target_is_archived(config) or not _target_is_public_region(config):
                 continue
-            targets.append(await _target_info_from_config_for_response(config, _data_dir))
+            target = _target_info_from_config(config, _data_dir)
+            if target.target_id:
+                target = target.model_copy(
+                    update={"event_count": event_counts.get(target.target_id, 0)}
+                )
+            if target.source_count <= 0:
+                continue
+            if not include_empty and target.event_count <= 0:
+                continue
+            targets.append(target)
         return TargetListResponse(targets=targets)
+
+    async def _public_regions_payload(*, include_empty: bool = False) -> RegionListResponse:
+        configs = _load_target_configs()
+        event_counts = await _public_target_event_counts(_data_dir)
+        regions = []
+        for config in configs:
+            if _target_is_archived(config) or not _target_is_public_region(config):
+                continue
+            region = _region_info_from_config(config, _data_dir)
+            if region.region_id:
+                region = region.model_copy(
+                    update={"event_count": event_counts.get(region.region_id, 0)}
+                )
+            if region.source_count <= 0:
+                continue
+            if not include_empty and region.event_count <= 0:
+                continue
+            regions.append(region)
+        return RegionListResponse(regions=regions)
+
+    async def _cached_public_regions(
+        response: Response | None = None,
+        *,
+        include_empty: bool = False,
+    ) -> RegionListResponse:
+        started = time.perf_counter()
+        cache_key = f"{_data_dir.resolve()}:{id(_store)}:regions:include_empty={int(include_empty)}"
+        now = time.monotonic()
+        cache_entry = _public_regions_cache.get(cache_key)
+        if _public_cache_entry_valid(cache_entry, now):
+            assert cache_entry is not None
+            payload = cast(RegionListResponse, cache_entry["payload"])
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            headers = _public_shared_cache_headers(
+                etag=str(cache_entry["etag"]),
+                cache_status="hit",
+                timing_name="public-regions",
+                header_name="Regions",
+                elapsed_ms=elapsed_ms,
+            )
+            if response is not None:
+                response.headers.update(headers)
+            return payload
+
+        payload = await _public_regions_payload(include_empty=include_empty)
+        etag = _public_payload_etag("public-regions", payload)
+        _public_regions_cache[cache_key] = {
+            "etag": etag,
+            "expires_at": time.monotonic() + _PUBLIC_REGIONS_CACHE_TTL_SECONDS,
+            "payload": payload,
+        }
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        headers = _public_shared_cache_headers(
+            etag=etag,
+            cache_status="miss",
+            timing_name="public-regions",
+            header_name="Regions",
+            elapsed_ms=elapsed_ms,
+        )
+        if response is not None:
+            response.headers.update(headers)
+        return payload
+
+    async def _public_facets_payload(
+        *,
+        region_id: str | None,
+        issue: str | None,
+        related: str | None,
+        date: str | None,
+        q: str | None,
+    ) -> PublicFacetsResponse:
+        target_ids = _public_news_target_ids(_data_dir, region_id)
+        candidates, _total = await _public_news_candidate_events(
+            _data_dir,
+            target_ids,
+            limit=_PUBLIC_NEWS_MAX_SCAN,
+            allow_projection_first=True,
+            allow_file_fallback=region_id is not None,
+            featured=False,
+            source_id=None,
+            category=None,
+            date=date,
+            q=q,
+        )
+        region_counts: dict[str, int] = defaultdict(int)
+        issue_counts: dict[str, int] = defaultdict(int)
+        related_counts: dict[str, int] = defaultdict(int)
+        for tid, event in candidates:
+            if not _public_news_matches(
+                event,
+                featured=False,
+                source_id=None,
+                category=None,
+                issue=issue,
+                related=related,
+                date=date,
+                q=q,
+            ):
+                continue
+            region_counts[tid] += 1
+            for tag in _event_issue_tags(event):
+                issue_counts[tag] += 1
+            for tag in _event_related_tags(event):
+                related_counts[tag] += 1
+        return PublicFacetsResponse(
+            regions=_public_region_facet_items(region_counts),
+            issues=_public_facet_items(issue_counts),
+            related=_public_facet_items(related_counts),
+        )
+
+    async def _cached_public_facets(
+        *,
+        response: Response | None = None,
+        region_id: str | None,
+        issue: str | None,
+        related: str | None,
+        date: str | None,
+        q: str | None,
+    ) -> PublicFacetsResponse:
+        started = time.perf_counter()
+        cache_key = json.dumps(
+            {
+                "data_dir": str(_data_dir.resolve()),
+                "store": id(_store),
+                "region_id": region_id or "",
+                "issue": issue or "",
+                "related": related or "",
+                "date": date or "",
+                "q": q or "",
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        now = time.monotonic()
+        cache_entry = _public_facets_cache.get(cache_key)
+        if _public_cache_entry_valid(cache_entry, now):
+            assert cache_entry is not None
+            payload = cast(PublicFacetsResponse, cache_entry["payload"])
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            headers = _public_shared_cache_headers(
+                etag=str(cache_entry["etag"]),
+                cache_status="hit",
+                timing_name="public-facets",
+                header_name="Facets",
+                elapsed_ms=elapsed_ms,
+            )
+            if response is not None:
+                response.headers.update(headers)
+            return payload
+
+        payload = await _public_facets_payload(
+            region_id=region_id,
+            issue=issue,
+            related=related,
+            date=date,
+            q=q,
+        )
+        etag = _public_payload_etag("public-facets", payload)
+        _public_facets_cache[cache_key] = {
+            "etag": etag,
+            "expires_at": time.monotonic() + _PUBLIC_FACETS_CACHE_TTL_SECONDS,
+            "payload": payload,
+        }
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        headers = _public_shared_cache_headers(
+            etag=etag,
+            cache_status="miss",
+            timing_name="public-facets",
+            header_name="Facets",
+            elapsed_ms=elapsed_ms,
+        )
+        if response is not None:
+            response.headers.update(headers)
+        return payload
+
+    @app.get("/api/v1/regions", response_model=RegionListResponse)
+    async def list_regions(
+        response: Response,
+        include_empty: bool = Query(
+            False,
+            description="是否包含已有信源但暂无公开 ready 新闻的地区入口",
+        ),
+    ) -> RegionListResponse:
+        """返回公开可浏览的地区入口；topic target 不再作为公共入口。"""
+        return await _cached_public_regions(response, include_empty=include_empty)
 
     @app.get("/api/v1/admin/targets")
     async def list_admin_targets(
@@ -6480,7 +7672,7 @@ def create_app(
                 language_scope=payload.language_scope,
                 timezone=payload.timezone,
                 monitoring_type=payload.monitoring_type,
-                topic_label=payload.topic_label,
+                region_type=payload.region_type,
             )
             _atomic_write_yaml(
                 _source_config_path(payload.target_id, "rss-template"),
@@ -6504,8 +7696,8 @@ def create_app(
                 display_name=payload.display_name,
                 language_scope=payload.language_scope,
                 timezone=payload.timezone,
-                monitoring_type=payload.monitoring_type or _target_monitoring_type(source_target),
-                topic_label=payload.topic_label or _target_topic_label(source_target),
+                monitoring_type=payload.monitoring_type or _target_region_type(source_target),
+                region_type=payload.region_type or _target_region_type(source_target),
                 source_refs=source_refs,
             )
             for key in ("sandbox_profile_ref", "provider_routes_ref", "output_destinations_ref"):
@@ -6531,8 +7723,9 @@ def create_app(
         updates = payload.model_dump(exclude_unset=True)
         data = _deep_merge(data, updates)
         data["target_id"] = target_id
-        if data.get("monitoring_type") != "topic" or not data.get("topic_label"):
-            data.pop("topic_label", None)
+        data.pop("topic_label", None)
+        if data.get("region_type") in _REGION_TYPES:
+            data["monitoring_type"] = data["region_type"]
         _atomic_write_yaml(_target_config_path(target_id), data)
         _config_cache.clear()
         return data
@@ -6584,7 +7777,7 @@ def create_app(
         standard_inventory_sources = [
             item
             for item in inventory_sources
-            if item.get("type") in {"rss", "api", "opencli"} and not item.get("missing_file")
+            if item.get("type") in {"rss", "api"} and not item.get("missing_file")
         ]
         target_info = await _target_info_from_config_for_response(target_data, _data_dir)
         target_store = await _get_target_store(target_id)
@@ -6653,7 +7846,7 @@ def create_app(
         include_archived: bool = Query(False, description="是否包含已归档信源"),
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
-        """列出 target 的标准 RSS/API/OpenCLI 信源。"""
+        """列出 target 的标准 RSS/API 信源。"""
         _ensure_target_exists(target_id)
         sources = []
         for source in _load_source_configs(target_id):
@@ -6883,8 +8076,12 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
         """管理后台总览聚合：目标、采集、诊断、健康、反馈与告警。"""
-        targets_response = await list_targets()
-        targets = [target.model_dump() for target in targets_response.targets]
+        targets = []
+        for config in _load_target_configs():
+            if _target_is_archived(config):
+                continue
+            target = await _target_info_from_config_for_response(config, _data_dir)
+            targets.append(target.model_dump())
         selected_target = target_id or (targets[0]["target_id"] if targets else "")
 
         diagnostics = await collector_diagnostics(user)
@@ -6973,14 +8170,240 @@ def create_app(
             generated_at=datetime.now(UTC).isoformat(),
         )
 
+    @app.get("/api/v1/public/facets", response_model=PublicFacetsResponse)
+    async def list_public_facets(
+        response: Response,
+        region_id: str | None = Query(None, description="按地区筛选"),
+        target_id: str | None = Query(None, description="兼容旧参数：按地区筛选"),
+        issue: str | None = Query(None, description="按议题标签筛选"),
+        related: str | None = Query(None, description="按相关对象标签筛选"),
+        date: str | None = Query(None, description="日期筛选 YYYY-MM-DD"),
+        q: str | None = Query(None, description="全文关键词搜索"),
+    ) -> PublicFacetsResponse:
+        """返回当前可见公共新闻中的地区、议题与相关对象 facets。"""
+        effective_region_id = region_id or target_id
+        return await _cached_public_facets(
+            response=response,
+            region_id=effective_region_id,
+            issue=issue,
+            related=related,
+            date=date,
+            q=q,
+        )
+
+    async def _public_news_feed_payload_for_bootstrap(
+        *,
+        featured: bool,
+        region_id: str | None,
+        source_id: str | None,
+        category: str | None,
+        issue: str | None,
+        related: str | None,
+        date: str | None,
+        q: str | None,
+        page_size: int,
+    ) -> tuple[PublicNewsFeedResponse, str, int]:
+        started = time.perf_counter()
+        cache_key = _public_news_feed_cache_key(
+            featured=featured,
+            target_id=region_id,
+            issue=issue,
+            related=related,
+            source_id=source_id,
+            category=category,
+            date=date,
+            q=q,
+            before_cursor=None,
+            since_cursor=None,
+            page_size=page_size,
+        )
+        now = time.monotonic()
+        cache_entry = _public_news_feed_cache.get(cache_key)
+        if _public_news_cache_entry_valid(cache_entry, now):
+            assert cache_entry is not None
+            return (
+                cast(PublicNewsFeedResponse, cache_entry["payload"]),
+                str(cache_entry["etag"]),
+                int((time.perf_counter() - started) * 1000),
+            )
+
+        target_ids = _public_news_target_ids(_data_dir, region_id)
+        allow_projection_first = not any((bool(source_id), bool(category), bool(date), bool(q)))
+        query_limit = (
+            min(_PUBLIC_NEWS_MAX_SCAN, page_size + 1)
+            if allow_projection_first
+            else min(_PUBLIC_NEWS_MAX_SCAN, max(page_size * 4, _PUBLIC_NEWS_MIN_SCAN))
+        )
+        candidates, candidate_total = await _public_news_candidate_events(
+            _data_dir,
+            target_ids,
+            limit=query_limit,
+            allow_projection_first=allow_projection_first,
+            allow_file_fallback=region_id is not None,
+            featured=featured,
+            source_id=source_id,
+            category=category,
+            date=date,
+            q=q,
+        )
+        filtered: list[tuple[str, dict[str, Any]]] = []
+        for tid, event in candidates:
+            if _public_news_matches(
+                event,
+                featured=featured,
+                source_id=source_id,
+                category=category,
+                issue=issue,
+                related=related,
+                date=date,
+                q=q,
+            ):
+                filtered.append((tid, event))
+        page_pairs = filtered[:page_size]
+        items: list[PublicNewsItem] = []
+        for tid, event in page_pairs:
+            try:
+                items.append(_public_news_item(tid, event))
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "Failed to render bootstrap public news item target=%s event_id=%s",
+                    tid,
+                    event.get("event_id") or event.get("id"),
+                )
+        latest_cursor = _public_news_encode_cursor(page_pairs[0][1]) if page_pairs else None
+        next_cursor = (
+            _public_news_encode_cursor(page_pairs[-1][1])
+            if len(filtered) > len(page_pairs) and page_pairs
+            else None
+        )
+        payload = PublicNewsFeedResponse(
+            items=items,
+            latestCursor=latest_cursor,
+            nextCursor=next_cursor,
+            pollAfterMs=_PUBLIC_NEWS_DEFAULT_POLL_AFTER_MS,
+            hasNewer=False,
+            total=max(candidate_total, len(filtered)),
+        )
+        etag = _public_news_etag(items, latest_cursor)
+        _public_news_feed_cache[cache_key] = {
+            "etag": etag,
+            "expires_at": time.monotonic() + _public_news_feed_cache_ttl(q=q, since_cursor=None),
+            "payload": payload,
+            "poll_after_ms": _PUBLIC_NEWS_DEFAULT_POLL_AFTER_MS,
+        }
+        return payload, etag, int((time.perf_counter() - started) * 1000)
+
+    @app.get("/api/v1/public/bootstrap", response_model=PublicBootstrapResponse)
+    async def get_public_bootstrap(
+        request: Request,
+        response: Response,
+        featured: bool = Query(True, description="首屏是否优先取精选新闻"),
+        target_id: str | None = Query(None, description="兼容旧参数：按地区筛选"),
+        region_id: str | None = Query(None, description="按地区筛选"),
+        source_id: str | None = Query(None, description="按来源筛选"),
+        category: str | None = Query(None, description="按 classification.l0 筛选"),
+        issue: str | None = Query(None, description="按议题标签筛选"),
+        related: str | None = Query(None, description="按相关对象标签筛选"),
+        date: str | None = Query(None, description="日期筛选 YYYY-MM-DD"),
+        q: str | None = Query(None, description="全文关键词搜索"),
+        page_size: int = Query(
+            20,
+            ge=1,
+            le=_PUBLIC_NEWS_MAX_PAGE_SIZE,
+        ),
+    ) -> PublicBootstrapResponse | Response:
+        started = time.perf_counter()
+        effective_region_id = region_id or target_id
+        cache_key = json.dumps(
+            {
+                "data_dir": str(_data_dir.resolve()),
+                "store": id(_store),
+                "featured": featured,
+                "region_id": effective_region_id or "",
+                "source_id": source_id or "",
+                "category": category or "",
+                "issue": issue or "",
+                "related": related or "",
+                "date": date or "",
+                "q": q or "",
+                "page_size": page_size,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        now = time.monotonic()
+        cache_entry = _public_bootstrap_cache.get(cache_key)
+        if _public_cache_entry_valid(cache_entry, now):
+            assert cache_entry is not None
+            payload = cast(PublicBootstrapResponse, cache_entry["payload"])
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            headers = _public_shared_cache_headers(
+                etag=str(cache_entry["etag"]),
+                cache_status="hit",
+                timing_name="public-bootstrap",
+                header_name="Bootstrap",
+                elapsed_ms=elapsed_ms,
+            )
+            if request.headers.get("if-none-match") == headers["ETag"]:
+                return Response(status_code=304, headers=headers)
+            response.headers.update(headers)
+            return payload
+
+        news, _news_etag, _news_elapsed_ms = await _public_news_feed_payload_for_bootstrap(
+            featured=featured,
+            region_id=effective_region_id,
+            source_id=source_id,
+            category=category,
+            issue=issue,
+            related=related,
+            date=date,
+            q=q,
+            page_size=page_size,
+        )
+        regions = await _cached_public_regions(include_empty=True)
+        facets = await _cached_public_facets(
+            region_id=effective_region_id,
+            issue=issue,
+            related=related,
+            date=date,
+            q=q,
+        )
+        payload = PublicBootstrapResponse(
+            news=news,
+            regions=regions,
+            facets=facets,
+            generatedAt=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        )
+        etag = _public_payload_etag("public-bootstrap", payload)
+        _public_bootstrap_cache[cache_key] = {
+            "etag": etag,
+            "expires_at": time.monotonic() + _PUBLIC_BOOTSTRAP_CACHE_TTL_SECONDS,
+            "payload": payload,
+        }
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        headers = _public_shared_cache_headers(
+            etag=etag,
+            cache_status="miss",
+            timing_name="public-bootstrap",
+            header_name="Bootstrap",
+            elapsed_ms=elapsed_ms,
+        )
+        if request.headers.get("if-none-match") == etag:
+            return Response(status_code=304, headers=headers)
+        response.headers.update(headers)
+        return payload
+
     @app.get("/api/v1/public/news", response_model=PublicNewsFeedResponse)
     async def list_public_news(
         request: Request,
         response: Response,
         featured: bool = Query(False, description="仅返回精选/关注新闻"),
-        target_id: str | None = Query(None, description="按 target 筛选"),
+        target_id: str | None = Query(None, description="兼容旧参数：按地区筛选"),
+        region_id: str | None = Query(None, description="按地区筛选"),
         source_id: str | None = Query(None, description="按来源筛选"),
         category: str | None = Query(None, description="按 classification.l0 筛选"),
+        issue: str | None = Query(None, description="按议题标签筛选"),
+        related: str | None = Query(None, description="按相关对象标签筛选"),
         date: str | None = Query(None, description="日期筛选 YYYY-MM-DD"),
         q: str | None = Query(None, description="全文关键词搜索"),
         before_cursor: str | None = Query(None, description="加载更早新闻的 cursor"),
@@ -6999,10 +8422,13 @@ def create_app(
             )
         before_key = _public_news_decode_cursor(before_cursor)
         since_key = _public_news_decode_cursor(since_cursor)
+        effective_region_id = region_id or target_id
         started = time.perf_counter()
         cache_key = _public_news_feed_cache_key(
             featured=featured,
-            target_id=target_id,
+            target_id=effective_region_id,
+            issue=issue,
+            related=related,
             source_id=source_id,
             category=category,
             date=date,
@@ -7030,10 +8456,9 @@ def create_app(
             response.headers.update(headers)
             return cached_payload
 
-        target_ids = _public_news_target_ids(_data_dir, target_id)
+        target_ids = _public_news_target_ids(_data_dir, effective_region_id)
         allow_projection_first = not any(
             (
-                featured,
                 bool(source_id),
                 bool(category),
                 bool(date),
@@ -7055,6 +8480,7 @@ def create_app(
             target_ids,
             limit=query_limit,
             allow_projection_first=allow_projection_first,
+            allow_file_fallback=effective_region_id is not None,
             featured=featured,
             source_id=source_id,
             category=category,
@@ -7071,6 +8497,8 @@ def create_app(
                 featured=featured,
                 source_id=source_id,
                 category=category,
+                issue=issue,
+                related=related,
                 date=date,
                 q=q,
             ):
@@ -7083,7 +8511,16 @@ def create_app(
             filtered.append((tid, event))
 
         page_pairs = filtered[:page_size]
-        items = [_public_news_item(tid, event) for tid, event in page_pairs]
+        items: list[PublicNewsItem] = []
+        for tid, event in page_pairs:
+            try:
+                items.append(_public_news_item(tid, event))
+            except Exception:  # noqa: BLE001
+                logger.exception(
+                    "Failed to render public news item target=%s event_id=%s",
+                    tid,
+                    event.get("event_id") or event.get("id"),
+                )
         latest_cursor = _public_news_encode_cursor(page_pairs[0][1]) if page_pairs else since_cursor
         next_cursor = None
         if page_pairs and len(filtered) > len(page_pairs):
@@ -7112,7 +8549,7 @@ def create_app(
             filtered_count=len(filtered),
             item_count=len(items),
             featured=featured,
-            has_target=target_id is not None,
+            has_target=effective_region_id is not None,
             has_source=source_id is not None,
             has_category=category is not None,
             has_date=date is not None,
@@ -7159,18 +8596,18 @@ def create_app(
                 if isinstance(projection_event, InvisibleIndexedEvent):
                     raise HTTPException(status_code=404, detail="Event not found")
                 if projection_event is not None:
-                    return _public_news_item(tid, projection_event)
+                    return _public_news_item(tid, projection_event, include_content=True)
                 event = await _load_indexed_event_detail(_data_dir, tid, store, event_id)
                 if isinstance(event, InvisibleIndexedEvent):
                     raise HTTPException(status_code=404, detail="Event not found")
-                if event is not None:
-                    return _public_news_item(tid, event)
+                if event is not None and _event_public_translation_ready(event):
+                    return _public_news_item(tid, event, include_content=True)
                 if target_id and await _store_has_target_event_index(store, tid):
                     raise HTTPException(status_code=404, detail="Event not found")
 
             event = _load_single_event(_data_dir, tid, event_id)
-            if event is not None:
-                return _public_news_item(tid, event)
+            if event is not None and _event_public_translation_ready(event):
+                return _public_news_item(tid, event, include_content=True)
         raise HTTPException(status_code=404, detail="Event not found")
 
     @app.get("/api/v1/stats", response_model=StatsResponse)
@@ -7263,31 +8700,7 @@ def create_app(
         raw_sources = _load_source_configs(target_id)
         sources: list[SourceInfo] = []
         for s in raw_sources:
-            # 提取 url：RSS 的 url 字段，API 的 endpoint.url
-            url_val = s.get("url")
-            if url_val is None:
-                ep = s.get("endpoint")
-                if isinstance(ep, dict):
-                    url_val = ep.get("url")
-            # 提取 health 信息
-            health = s.get("health")
-            health_last = None
-            health_failures = None
-            if isinstance(health, dict):
-                health_last = health.get("last_success_at")
-                health_failures = health.get("consecutive_failures")
-            sources.append(
-                SourceInfo(
-                    source_id=s.get("source_id", s["_source_id"]),
-                    display_name=s.get("display_name", ""),
-                    type=s.get("type", "unknown"),
-                    enabled=s.get("enabled", True),
-                    credibility_base=s.get("credibility_base"),
-                    health_last_success=health_last,
-                    health_consecutive_failures=health_failures,
-                    url=url_val,
-                )
-            )
+            sources.append(_source_info_from_config(s))
         return SourceListResponse(target_id=target_id, sources=sources)
 
     @app.get("/api/v1/config/targets/{target_id}/sources/{source_id:path}")

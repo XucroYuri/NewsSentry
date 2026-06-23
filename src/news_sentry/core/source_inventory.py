@@ -13,7 +13,7 @@ from typing import Any
 
 import yaml
 
-STANDARD_SOURCE_TYPES = {"rss", "api", "opencli"}
+STANDARD_SOURCE_TYPES = {"rss", "api"}
 
 
 def _load_yaml_file(path: Path) -> dict[str, Any] | None:

@@ -19,10 +19,14 @@ import yaml
 
 from news_sentry.adapters.providers.anthropic_provider import AnthropicProvider
 from news_sentry.adapters.providers.base import AIProvider
+from news_sentry.adapters.providers.cloudflare_workers_ai_provider import (
+    CloudflareWorkersAIProvider,
+)
+from news_sentry.adapters.providers.libretranslate_provider import LibreTranslateProvider
+from news_sentry.adapters.providers.mymemory_provider import MyMemoryProvider
 from news_sentry.adapters.providers.openai_provider import OpenAIProvider
 from news_sentry.adapters.providers.openrouter_provider import OpenRouterProvider
 from news_sentry.adapters.providers.rules_provider import RulesProvider
-from news_sentry.adapters.tools.opencli import OpenCLIToolAdapter
 from news_sentry.core.alert_pipeline import AlertPipeline
 from news_sentry.core.confidence_router import ConfidenceRouter
 from news_sentry.core.config import ConfigLoader, ResolvedConfig
@@ -46,7 +50,6 @@ from news_sentry.models.newsevent import (
 from news_sentry.models.pipeline_context import PipelineContext
 from news_sentry.models.provider_config import ProviderRoutesConfig
 from news_sentry.skills.collect.api_collector import APICollector
-from news_sentry.skills.collect.opencli_collector import OpenCLICollector
 from news_sentry.skills.collect.rss_collector import RSSCollector
 from news_sentry.skills.filter.classifier_rules import ClassifierRules
 from news_sentry.skills.filter.event_clustering import assign_lightweight_clusters
@@ -254,9 +257,6 @@ def _run_collect(
     # 共享速率限制器，跨所有采集器协调按源最小抓取间隔
     rate_limiter = RateLimiter()
 
-    # 延迟初始化 OpenCLI adapter（首次遇到 opencli 类型时加载）
-    _opencli_adapter: OpenCLIToolAdapter | None = None
-
     all_events: list[NewsEvent] = []
     for source_cfg in config.sources:
         source_id = source_cfg.get("source_id", "?")
@@ -284,15 +284,7 @@ def _run_collect(
         try:
             source_cfg["target_id"] = config.target_id
 
-            if source_type == "opencli":
-                if _opencli_adapter is None:
-                    _opencli_adapter = OpenCLIToolAdapter(sandbox_enforcer=sandbox)
-                collector_obj: RSSCollector | OpenCLICollector | APICollector = OpenCLICollector(
-                    source_cfg,
-                    _opencli_adapter,
-                    sandbox,
-                )
-            elif source_type == "api":
+            if source_type == "api":
                 collector_obj = APICollector(source_cfg, sandbox, rate_limiter)
             else:
                 # 默认 rss
@@ -689,7 +681,8 @@ def _init_ai_judge(
 def _build_provider_factory() -> Callable[[str], AIProvider | None]:
     """构建 provider_name → AIProvider 实例的工厂函数。
 
-    支持的 provider_name: openrouter, openai, anthropic, local。
+    支持的 provider_name: libretranslate, cloudflare_workers_ai, mymemory,
+    openrouter, openai, anthropic, local。
     通过环境变量配置 API key 和 base URL。
     """
     # 惰性初始化，避免在 import 时读取环境变量
@@ -699,8 +692,15 @@ def _build_provider_factory() -> Callable[[str], AIProvider | None]:
         if name in _cache:
             return _cache[name]
 
-        if name == "openai":
-            provider: AIProvider | None = OpenAIProvider({})
+        provider: AIProvider | None
+        if name == "libretranslate":
+            provider = LibreTranslateProvider({})
+        elif name == "cloudflare_workers_ai":
+            provider = CloudflareWorkersAIProvider({})
+        elif name == "mymemory":
+            provider = MyMemoryProvider({})
+        elif name == "openai":
+            provider = OpenAIProvider({})
         elif name == "openrouter":
             provider = OpenRouterProvider({})
         elif name == "anthropic":

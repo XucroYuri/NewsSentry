@@ -23,9 +23,7 @@ REQUIRED_DIRS = [
 ]
 
 AI_PROVIDER_ENV_VARS = [
-    "OPENROUTER_API_KEY",
-    "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY",
+    "FREELLMAPI_API_KEY",
 ]
 
 
@@ -102,7 +100,7 @@ def run_doctor(target_id: str, data_root: str = "data") -> DoctorReport:
         else:
             provider_details.append(f"{var} not set")
     if not provider_ok:
-        provider_details.append("set OPENROUTER_API_KEY for the default OpenRouter route")
+        provider_details.append("set OPENAI_API_KEY for the default OpenAI route")
 
     # Browser Bridge check（core 镜像中为 optional）
     image_type = os.environ.get("NEWSSENTRY_IMAGE_TYPE", "full")
@@ -140,22 +138,6 @@ def run_doctor(target_id: str, data_root: str = "data") -> DoctorReport:
             except Exception:  # noqa: S110 — Xvfb may not be running, health check handles this
                 pass
         bridge_details.append(f"Xvfb display :99 {'available' if display_ok else 'not running'}")
-
-        # OpenCLI check
-        opencli = shutil.which("opencli")
-        opencli_ok = False
-        if opencli:
-            try:
-                result = subprocess.run(  # noqa: S603 — opencli path from shutil.which, trusted input
-                    [opencli, "--version"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-                opencli_ok = result.returncode == 0
-            except Exception:  # noqa: S110 — opencli may not be installed, health check handles this
-                pass
-        bridge_details.append(f"OpenCLI {'available' if opencli_ok else 'not found'}")
 
         # Playwright check
         npx = shutil.which("npx")

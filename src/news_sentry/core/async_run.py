@@ -45,18 +45,15 @@ from news_sentry.skills.collect.api_collector import APICollector
 from news_sentry.skills.collect.rss_collector import RSSCollector
 from news_sentry.skills.judge.rules_judge import RulesJudgeSkill
 
-# SocialKOLCollector 按需导入 — 无浏览器环境（core 镜像）可能缺失依赖
-_SOCIAL_KOL_AVAILABLE = True
-try:
-    from news_sentry.skills.collect.social_kol_collector import SocialKOLCollector
-except ImportError:
-    _SOCIAL_KOL_AVAILABLE = False
+# SocialKOLCollector 将在 Task 2 中随社媒采集器一起移除
+_SOCIAL_KOL_AVAILABLE = False
 
 
 def _pipeline_translation_enabled() -> bool:
     """Legacy in-pipeline translation is opt-in; AI enrichment owns default translation."""
     value = os.environ.get("NEWS_SENTRY_PIPELINE_TRANSLATE", "")
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
 
 logger = logging.getLogger(__name__)
 
@@ -501,7 +498,7 @@ async def _collect_social_sources(
 ) -> list[NewsEvent]:
     """加载社媒源配置并尝试采集。
 
-    社媒采集依赖浏览器（Playwright/OpenCLI Bridge），
+    社媒采集依赖浏览器（Playwright），
     无浏览器环境（如 core 镜像）会优雅跳过。
     """
     import yaml
@@ -527,7 +524,8 @@ async def _collect_social_sources(
         source_id = source_config.get("dimension", ref)
         try:
             # SocialKOLCollector 要求 kol-experiment sandbox 策略
-            collector = SocialKOLCollector(
+            # Task 2 将完整移除社媒采集器；当前 _SOCIAL_KOL_AVAILABLE=False 使此代码不可达
+            collector = SocialKOLCollector(  # noqa: F821
                 registry=None,
                 sandbox=sandbox,
                 kol_state={},
