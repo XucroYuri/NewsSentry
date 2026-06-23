@@ -84,9 +84,14 @@ cp .env.example .env
 
 # 5. 运行全链路
 ./run.sh run --target italy --stage all
+
+# 6. 启动 Web 管理面板（可选）
+./run.sh serve --target italy
+# 打开浏览器访问 http://localhost:8000/admin/
 ```
 
 > **首次运行预计 1-2 分钟**，包含：采集意大利 19+ RSS 源 → 过滤 100+ 关键词 → AI 研判 → 输出 Markdown
+> **管理面板** 提供完整的目标工作台、采集信源管理、审核队列和系统运维界面。
 
 ---
 
