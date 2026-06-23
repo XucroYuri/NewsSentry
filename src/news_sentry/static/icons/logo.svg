@@ -12,6 +12,10 @@
       <stop offset="0%" stop-color="#22d3ee"/>
       <stop offset="100%" stop-color="#06b6d4"/>
     </linearGradient>
+    <linearGradient id="warmGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#fbbf24"/>
+    </linearGradient>
   </defs>
 
   <!-- Rounded rectangle background -->
@@ -27,4 +31,8 @@
   <!-- Diagonal -->
   <line x1="184" y1="356" x2="328" y2="156" stroke="url(#blueGrad)" stroke-width="28" stroke-linecap="round"/>
   <line x1="184" y1="356" x2="328" y2="156" stroke="#e0f2fe" stroke-width="7" stroke-linecap="round" opacity="0.4"/>
+
+  <!-- Warm accent dot — a signal / pulse / news flash -->
+  <circle cx="256" cy="330" r="12" fill="url(#warmGrad)" opacity="0.9"/>
+  <circle cx="256" cy="330" r="6" fill="#0f172a" opacity="0.6"/>
 </svg>
