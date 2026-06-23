@@ -5723,8 +5723,15 @@ def create_app(
     _detect_deployment_env()
     if store is not None:
         _store = store
+        # 同步到 auth middleware
+        from news_sentry.api.middleware.auth import configure as _auth_configure
+
+        _auth_configure(store)
     elif _store is None and auto_store:
         _store = AsyncStore(_data_dir / "async_store.db")
+        from news_sentry.api.middleware.auth import configure as _auth_configure
+
+        _auth_configure(_store)
         # 确保 SQLite 连接在端点接收请求前就绪。
         # 生产环境（uvicorn）下生命周期会调用 initialize()，此处仅
         # 在没有运行中事件循环时（如某些测试场景）做同步初始化兜底。
