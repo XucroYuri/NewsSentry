@@ -5388,6 +5388,9 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
     if _store is not None:
         await _store.close()
         _store = None
+        from news_sentry.api.middleware.auth import configure as _auth_configure
+
+        _auth_configure(None)
     await _close_target_stores()
 
 
@@ -5493,6 +5496,9 @@ def create_app(
                 _atexit.register(_cleanup)
     elif not auto_store:
         _store = None  # 显式禁用，测试环境重置
+        from news_sentry.api.middleware.auth import configure as _auth_configure
+
+        _auth_configure(None)
     _config_cache = ConfigCache(ttl=60, maxsize=128)
     _apply_collector_config(_load_collector_config())
     _apply_ai_enrichment_config(_load_ai_enrichment_config())
