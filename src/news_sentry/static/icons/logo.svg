@@ -6,23 +6,23 @@
     </linearGradient>
     <linearGradient id="goldGrad" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#f59e0b"/>
-      <stop offset="50%" stop-color="#fbbf24"/>
-      <stop offset="100%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#fbbf24"/>
     </linearGradient>
   </defs>
 
   <!-- Background circle -->
   <circle cx="256" cy="256" r="232" fill="url(#bgGrad)"/>
 
-  <!-- Stylized globe meridians — news is global -->
-  <ellipse cx="256" cy="256" rx="90" ry="180" fill="none" stroke="url(#goldGrad)" stroke-width="3" opacity="0.35"/>
-  <ellipse cx="256" cy="256" rx="180" ry="90" fill="none" stroke="url(#goldGrad)" stroke-width="3" opacity="0.25"/>
-  <line x1="76" y1="256" x2="436" y2="256" stroke="url(#goldGrad)" stroke-width="2" opacity="0.2"/>
+  <!-- Globe: horizontal equator line -->
+  <ellipse cx="256" cy="256" rx="180" ry="72" fill="none" stroke="url(#goldGrad)" stroke-width="2.5" opacity="0.3"/>
 
-  <!-- Central type — "NS" monogram as a news fold -->
-  <text x="256" y="220" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="120" font-weight="700" fill="url(#goldGrad)" letter-spacing="-4">N</text>
-  <text x="256" y="370" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="56" font-weight="400" fill="url(#goldGrad)" opacity="0.85" letter-spacing="8">S</text>
+  <!-- Globe: vertical meridian -->
+  <ellipse cx="256" cy="256" rx="72" ry="180" fill="none" stroke="url(#goldGrad)" stroke-width="2.5" opacity="0.25"/>
 
-  <!-- Thin gold ring around the whole thing -->
-  <circle cx="256" cy="256" r="224" fill="none" stroke="#f59e0b" stroke-width="1.5" opacity="0.3"/>
+  <!-- "NS" monogram — balanced sizes -->
+  <text x="256" y="220" text-anchor="middle" font-family="Georgia, serif" font-size="100" font-weight="700" fill="url(#goldGrad)" letter-spacing="-2">N</text>
+  <text x="256" y="370" text-anchor="middle" font-family="Georgia, serif" font-size="72" font-weight="400" fill="url(#goldGrad)" opacity="0.9" letter-spacing="6">S</text>
+
+  <!-- Outer ring -->
+  <circle cx="256" cy="256" r="224" fill="none" stroke="url(#goldGrad)" stroke-width="1.5" opacity="0.3"/>
 </svg>
