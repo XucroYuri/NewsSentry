@@ -324,19 +324,28 @@ flowchart LR
 | P6 | v2 重构: 测试覆盖率 + Type 质量 + 部署验证 | ✅ |
 | P7 | v2 重构: 文档对齐 (architecture.md, README.md) | ✅ |
 | P8 | v2 重构: CI 修复 (Docker workflow) + config 清理 (5K lines) | ✅ |
-| P9 | v2 重构: 测试覆盖率 86→87% + api_server 分拆评估 | ✅ |
+| P9 | v2 重构: 质量收尾 + 品牌 + 性能优化 | ✅ |
 
 **当前状态：** Phase 1-9 全部完成。项目处于 v2.0 稳定的重构基线。
 - **Tag:** v2.0.0-rc2
-- **测试:** 3,001 passed, 0 failed, 0 warnings
+- **测试:** 3,011 passed, 0 failed, 0 warnings
 - **覆盖率:** 87%
 - **Type:** mypy strict + ruff: 零错误
+- **Lint:** 零未使用变量 (vulture 100% clean)
+- **品牌:** 暖金信号柱 logo, 已挂载管理面板 + README
 - **生产:** news-sentry.com — `{"status": "ok"}`
 
-**Phase 9 成果:**
-1. api_server.py 拆分 — 评估后取消（风险>收益），改用路由分组文档化
-2. source_registry 测试 — 0%→98% (+23 tests)
-3. LibreTranslate/MyMemory 测试 — +9 tests
+**Phase 9 全部成果:**
+1. 测试覆盖率: 2,969→3,011 tests, 86→87% (+42 tests)
+2. async_store: user/session management 测试 (+11 tests, +60 lines)
+3. source_registry: 0→98% (+23 tests)
+4. 翻译 providers: +9 tests (libretranslate, mymemory)
+5. 品牌: logo 设计 (6 iterations), admin 面板挂载, README 现代化
+6. 性能: 静态资源 1yr cache, API TTL 15s→60s, deploy 缓存
+7. 安全审计: 零严重/高危漏洞
+8. 死代码清理: vulture 100% confidence clean
+9. 贡献规范: docs/contributing.md
+10. CI: concurrency group, deploy 效率 +60s
 4. 总体: 2969→3001 tests, 86→87% coverage
 
 ---
