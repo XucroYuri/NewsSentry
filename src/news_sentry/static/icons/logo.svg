@@ -5,32 +5,30 @@
       <stop offset="100%" stop-color="#1e3a5f"/>
     </linearGradient>
     <linearGradient id="blueGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#38bdf8"/>
-      <stop offset="100%" stop-color="#2563eb"/>
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
     </linearGradient>
     <linearGradient id="cyanGrad" x1="0" y1="1" x2="0" y2="0">
-      <stop offset="0%" stop-color="#06b6d4"/>
-      <stop offset="100%" stop-color="#22d3ee"/>
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
     </linearGradient>
   </defs>
 
   <!-- Rounded rectangle background -->
-  <rect x="20" y="20" width="472" height="472" rx="64" fill="url(#bgGrad)"/>
+  <rect x="16" y="16" width="480" height="480" rx="72" fill="url(#bgGrad)"/>
 
-  <!-- Left vertical bar (N's left stroke) -->
-  <rect x="130" y="120" width="28" height="272" rx="14" fill="url(#blueGrad)"/>
+  <!-- "N" letterform built from bars -->
+  <!-- Left vertical bar -->
+  <rect x="138" y="120" width="32" height="272" rx="16" fill="url(#blueGrad)"/>
 
-  <!-- Right vertical bar (N's right stroke) -->
-  <rect x="354" y="120" width="28" height="272" rx="14" fill="url(#cyanGrad)"/>
+  <!-- Right vertical bar -->
+  <rect x="342" y="120" width="32" height="272" rx="16" fill="url(#cyanGrad)"/>
 
-  <!-- Diagonal slash — news ticker / alert line -->
-  <line x1="144" y1="360" x2="368" y2="152" stroke="url(#blueGrad)" stroke-width="28" stroke-linecap="round"/>
+  <!-- Diagonal — steeper angle from bottom-left to top-right -->
+  <line x1="154" y1="376" x2="358" y2="136" stroke="url(#blueGrad)" stroke-width="32" stroke-linecap="round"/>
 
-  <!-- Glow accent on diagonal -->
-  <line x1="144" y1="360" x2="368" y2="152" stroke="url(#cyanGrad)" stroke-width="12" stroke-linecap="round" opacity="0.5"/>
+  <!-- Inner glow line -->
+  <line x1="154" y1="376" x2="358" y2="136" stroke="#e0f2fe" stroke-width="8" stroke-linecap="round" opacity="0.4"/>
 
-  <!-- Top right star accent -->
-  <g transform="translate(396, 100)">
-    <path d="M0,-20 L5,-7 L20,-7 L9,3 L13,18 L0,9 L-13,18 L-9,3 L-20,-7 L-5,-7 Z" fill="#fbbf24"/>
-  </g>
+  <!-- No star — keep it pure letterform -->
 </svg>
