@@ -19,6 +19,7 @@ import httpx
 from news_sentry.core.ratelimit import RateLimiter
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
 from news_sentry.skills.collect.language_utils import coerce_language
+from news_sentry.skills.collect.rss_collector import _compact_article_text, _extract_article_payload
 
 
 def _raise_on_redirect(resp: httpx.Response, source_id: str) -> None:
@@ -88,6 +89,10 @@ class APICollector:
         self._language: Language = coerce_language(config.get("language"))
         self._timeout: float = float(config.get("timeout_seconds", 30))
         self._max_items: int = int(config.get("max_items_per_run", 50))
+        env_default = os.environ.get("NEWSSENTRY_FETCH_FULL_ARTICLE", "1").lower()
+        self._fetch_full_article: bool = bool(
+            config.get("fetch_full_article", env_default not in {"0", "false", "no"})
+        )
         # 可选：JSON 响应到 NewsEvent 的字段映射
         self._mapping: dict[str, str] = config.get("api_mapping", {}) or {}
         # Phase 12: 支持 endpoint 配置对象（优先）或 url 字段
@@ -188,11 +193,49 @@ class APICollector:
                 continue
             try:
                 event = self._item_to_event(item, run_id)
+                self._enrich_full_article(event)
                 events.append(event)
             except Exception:  # noqa: S112
                 continue
 
         return events
+
+    def _enrich_full_article(self, event: NewsEvent) -> None:
+        if not self._fetch_full_article or not event.url:
+            return
+        parsed = urlparse(event.url)
+        if (
+            self._sandbox is not None
+            and parsed.hostname
+            and not self._sandbox.check_network_host(parsed.hostname)
+        ):
+            return
+        try:
+            response = _retry_fetch(
+                lambda: httpx.get(event.url, timeout=self._timeout, follow_redirects=False),
+                self._source_id,
+                max_retries=1,
+            )
+            payload = _extract_article_payload(response.text, base_url=event.url)
+            self._apply_article_payload(event, payload)
+        except Exception as exc:  # noqa: BLE001
+            event.metadata.setdefault("article", {})["status"] = "fetch_failed"
+            event.metadata["article"]["last_error"] = str(exc)[:240]
+
+    @staticmethod
+    def _apply_article_payload(event: NewsEvent, payload: dict[str, Any]) -> None:
+        article_text = _compact_article_text(str(payload.get("full_text") or ""))
+        image_urls = [str(url) for url in payload.get("image_urls") or [] if url]
+        if article_text and len(article_text) > len(_compact_article_text(event.content_original)):
+            event.content_original = article_text[:50_000]
+        event.metadata["article"] = {
+            "status": "fetched" if article_text or image_urls else "empty",
+            "title": str(payload.get("title") or "")[:220],
+            "full_text": article_text[:50_000],
+            "image_urls": image_urls[:8],
+            "lead_image_url": str(payload.get("lead_image_url") or ""),
+            "fetched_at": datetime.now(UTC).isoformat(),
+        }
 
     def _item_to_event(self, item: dict[str, Any], run_id: str) -> NewsEvent:
         """将单个 API 响应条目转换为 NewsEvent。
@@ -307,11 +350,48 @@ class APICollector:
                 continue
             try:
                 event = self._item_to_event(item, run_id)
+                await self._enrich_full_article_async(event, http_client)
                 events.append(event)
             except Exception:  # noqa: S112
                 continue
 
         return events
+
+    async def _enrich_full_article_async(
+        self,
+        event: NewsEvent,
+        client: httpx.AsyncClient | None,
+    ) -> None:
+        if not self._fetch_full_article or not event.url:
+            return
+        parsed = urlparse(event.url)
+        if (
+            self._sandbox is not None
+            and parsed.hostname
+            and not self._sandbox.check_network_host(parsed.hostname)
+        ):
+            return
+        try:
+            if client is not None:
+                response = await client.get(
+                    event.url,
+                    timeout=self._timeout,
+                    follow_redirects=False,
+                )
+            else:
+                async with httpx.AsyncClient() as temp_client:
+                    response = await temp_client.get(
+                        event.url,
+                        timeout=self._timeout,
+                        follow_redirects=False,
+                    )
+            _raise_on_redirect(response, self._source_id)
+            response.raise_for_status()
+            payload = _extract_article_payload(response.text, base_url=event.url)
+            self._apply_article_payload(event, payload)
+        except Exception as exc:  # noqa: BLE001
+            event.metadata.setdefault("article", {})["status"] = "fetch_failed"
+            event.metadata["article"]["last_error"] = str(exc)[:240]
 
     async def _retry_fetch_async(
         self,

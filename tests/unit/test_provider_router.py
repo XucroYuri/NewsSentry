@@ -156,6 +156,29 @@ def test_routes_config_from_yaml_file(tmp_path: Path) -> None:
     assert config.routes[1].audit is True
 
 
+def test_public_translation_route_uses_freellmapi_without_dedicated_stack() -> None:
+    """公共发布翻译必须直接走 FreeLLMAPI，不再默认绕到专用翻译 provider。"""
+    routes_path = Path(__file__).resolve().parents[2] / "config" / "provider" / "routes.yaml"
+    with open(routes_path, encoding="utf-8") as f:
+        config = ProviderRoutesConfig(**yaml.safe_load(f))
+
+    routes = {route.route_id: route for route in config.routes}
+    public_translation = routes["translate.public"]
+
+    assert public_translation.provider == "freellmapi"
+    assert public_translation.model == "auto"
+    assert public_translation.model_env_var == "FREELLMAPI_DEFAULT_MODEL"
+
+    dedicated_translation_routes = {
+        "cloudflare.translation",
+        "mymemory.translation",
+    }
+    assert dedicated_translation_routes.isdisjoint(routes)
+    assert dedicated_translation_routes.isdisjoint(public_translation.fallback_route_ids)
+    assert routes["public.summary_reason"].provider == "freellmapi"
+    assert routes["public.enrichment"].provider == "freellmapi"
+
+
 def test_provider_route_defaults() -> None:
     """验证 ProviderRoute 的默认字段值。"""
     route = ProviderRoute(
@@ -638,8 +661,7 @@ class TestRouteOrchestration:
         assert provider.call.call_count == 2
         assert provider.call.call_args_list[0].kwargs["model"] == "openai/gpt-oss-20b:free"
         assert (
-            provider.call.call_args_list[1].kwargs["model"]
-            == "liquid/lfm-2.5-1.2b-instruct:free"
+            provider.call.call_args_list[1].kwargs["model"] == "liquid/lfm-2.5-1.2b-instruct:free"
         )
 
     def test_route_cools_down_rate_limited_pool_model(self) -> None:

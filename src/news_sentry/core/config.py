@@ -526,7 +526,6 @@ class ConfigLoader:
             SourceChannel 数据列表（已校验）。
         """
         sources: list[dict[str, Any]] = []
-        sources_dir = self._config_root / "config" / "sources" / target_id
         language_scope = (target_data or {}).get("language_scope", {})
         target_language = (
             language_scope.get("primary", "mixed") if isinstance(language_scope, dict) else "mixed"
@@ -535,15 +534,28 @@ class ConfigLoader:
             # 跳过社媒渠道配置 — 社媒采集将在 Phase 3 通过 RSS-Bridge 替代
             if sid.startswith("social/"):
                 continue
-            source_path = sources_dir / f"{sid}.yaml"
+            source_path = self._source_path_for_ref(target_id, sid)
             if not source_path.is_file():
                 raise FileNotFoundError(f"Source 配置文件不存在: {source_path}")
             data = self._load_yaml(source_path)
             self._validate_resolved_schema(data, source_path)
+            data["_source_ref"] = sid
             data["target_id"] = target_id
             data["language"] = str(data.get("language") or target_language or "mixed").lower()
             sources.append(data)
         return sources
+
+    def _source_path_for_ref(self, target_id: str, source_ref: str) -> Path:
+        """Resolve a target-local or shared source-pool ref to a YAML file."""
+        ref = str(source_ref or "").replace("\\", "/").strip("/")
+        if not ref or ".." in ref.split("/"):
+            raise ValueError(f"非法 source ref: {source_ref}")
+        if ref.startswith("pool:"):
+            pool_ref = ref.removeprefix("pool:").strip("/")
+            if not pool_ref or ".." in pool_ref.split("/"):
+                raise ValueError(f"非法 source pool ref: {source_ref}")
+            return self._config_root / "config" / "source-pools" / f"{pool_ref}.yaml"
+        return self._config_root / "config" / "sources" / target_id / f"{ref}.yaml"
 
 
 # ── country_axes 隔离验证 ─────────────────────────────────────

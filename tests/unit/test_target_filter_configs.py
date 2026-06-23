@@ -53,28 +53,44 @@ def test_japan_filter_covers_current_domestic_and_geopolitical_signals(tmp_path:
     assert scores == [score for score in scores if score >= threshold]
 
 
-def test_china_watch_target_has_minimum_public_source_coverage() -> None:
-    """China Watch needs enough independent public sources to avoid 0/1-output oscillation."""
-    target_path = PROJECT_ROOT / "config" / "targets" / "china-watch-en.yaml"
+def test_international_organizations_target_has_minimum_public_source_coverage() -> None:
+    """国际组织聚合 target 需要足够的共享公开信源覆盖。"""
+    target_path = PROJECT_ROOT / "config" / "targets" / "international-organizations.yaml"
     target = yaml.safe_load(target_path.read_text(encoding="utf-8"))
     refs = target["source_channel_refs"]
 
-    assert len(refs) >= 8
+    assert len(refs) >= 3
     for ref in refs:
-        assert (PROJECT_ROOT / "config" / "sources" / "china-watch-en" / f"{ref}.yaml").is_file()
+        if ref.startswith("pool:"):
+            _, pool_ref = ref.split(":", 1)
+            pool_id, source_id = pool_ref.split("/", 1)
+            source_path = PROJECT_ROOT / "config" / "source-pools" / pool_id / f"{source_id}.yaml"
+        else:
+            source_type, source_id = ref.split("/", 1)
+            source_path = (
+                PROJECT_ROOT
+                / "config"
+                / "sources"
+                / "international-organizations"
+                / source_type
+                / f"{source_id}.yaml"
+            )
+        assert source_path.is_file()
 
 
-def test_fusion_filter_covers_commercialization_and_technical_signals(tmp_path: Path) -> None:
-    """Fusion target should keep high-signal commercial, project, and engineering headlines."""
-    config = _filter_config("fusion")
+def test_international_organizations_filter_covers_major_institution_signals(
+    tmp_path: Path,
+) -> None:
+    """国际组织聚合 target 应保留主要机构和多边机制相关高信号标题。"""
+    config = _filter_config("international-organizations")
     rules_filter = RulesFilter(config, Memory(tmp_path))
     threshold = int(config["score_threshold"])
 
     samples = [
-        "Commonwealth Fusion Systems raises Series B funding for SPARC and ARC commercialization",
-        "Helion fusion power purchase agreement with Microsoft targets grid electricity by 2028",
-        "ITER installs high-temperature superconducting magnet systems for first plasma milestone",
-        "Stellarator startup announces pilot plant supply chain partnership for fusion energy",
+        "UN Security Council schedules emergency session on regional ceasefire monitoring",
+        "IMF warns global debt pressures could slow emerging market growth",
+        "World Bank approves new supply chain resilience program for developing economies",
+        "G20 finance ministers agree to coordinate trade and investment risk monitoring",
     ]
 
     scores = [
@@ -85,15 +101,23 @@ def test_fusion_filter_covers_commercialization_and_technical_signals(tmp_path: 
     assert scores == [score for score in scores if score >= threshold]
 
 
-def test_fusion_target_has_minimum_enabled_source_coverage() -> None:
-    """fusion.codes MVP needs at least three enabled sources before adding webpage collectors."""
-    target_path = PROJECT_ROOT / "config" / "targets" / "fusion.yaml"
+def test_g20_target_has_minimum_enabled_source_coverage() -> None:
+    """G20 聚合 target 至少应具备三条可解析的 active source refs。"""
+    target_path = PROJECT_ROOT / "config" / "targets" / "g20.yaml"
     target = yaml.safe_load(target_path.read_text(encoding="utf-8"))
     refs = target["source_channel_refs"]
     enabled_refs = []
 
     for ref in refs:
-        source_path = PROJECT_ROOT / "config" / "sources" / "fusion" / f"{ref}.yaml"
+        if ref.startswith("pool:"):
+            _, pool_ref = ref.split(":", 1)
+            pool_id, source_id = pool_ref.split("/", 1)
+            source_path = PROJECT_ROOT / "config" / "source-pools" / pool_id / f"{source_id}.yaml"
+        else:
+            source_type, source_id = ref.split("/", 1)
+            source_path = (
+                PROJECT_ROOT / "config" / "sources" / "g20" / source_type / f"{source_id}.yaml"
+            )
         assert source_path.is_file()
         source = yaml.safe_load(source_path.read_text(encoding="utf-8"))
         if source["enabled"]:

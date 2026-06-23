@@ -740,7 +740,15 @@ class TestLoadTarget:
 
     @pytest.mark.parametrize(
         "target_id",
-        ["china-watch-en", "france", "germany", "italy", "japan", "united-kingdom"],
+        [
+            "france",
+            "germany",
+            "global",
+            "international-organizations",
+            "italy",
+            "japan",
+            "united-kingdom",
+        ],
     )
     def test_real_configured_targets_load(self, target_id: str):
         """验证所有真实 target 引用的 source 配置都存在且可加载。"""
@@ -757,15 +765,15 @@ class TestLoadTarget:
         assert allowed_languages
         assert all(source["language"] in allowed_languages for source in config.sources)
 
-    def test_china_watch_has_diverse_english_sources(self):
-        """China Watch 不应只依赖单一来源形成英文涉华信息流。"""
+    def test_international_organizations_has_shared_global_sources(self):
+        """国际组织聚合 target 应复用全球信源池形成稳定覆盖。"""
         loader = ConfigLoader(Path("."))
-        config = loader.load_target("china-watch-en")
+        config = loader.load_target("international-organizations")
         source_ids = {source["source_id"] for source in config.sources}
 
         assert {
-            "voa-china",
-            "voa-east-asia",
-            "china-digital-times",
-            "asia-times-china",
+            "gdelt-topic",
+            "gdelt-geopolitics",
+            "gdelt-official-orgs",
+            "gdelt-supply-chain",
         }.issubset(source_ids)
