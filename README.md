@@ -1,17 +1,22 @@
 <p align="center">
+  <img src="https://raw.githubusercontent.com/XucroYuri/NewsSentry/main/src/news_sentry/static/icons/logo.svg" width="96" height="96" alt="News Sentry" />
+</p>
+
+<h1 align="center">News Sentry</h1>
+
+<p align="center">
+  <strong>AI 驱动的多语种新闻情报平台</strong><br>
+  实时追踪全球信源 · 智能研判关键事件 · 主动推送决策简报<br>
+  3001 tests · 87% coverage · mypy strict · ruff zero
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/version-2.0.0--rc2-blue.svg" alt="version" />
   <img src="https://img.shields.io/badge/python-3.11+-3776AB.svg?logo=python&logoColor=white" alt="python" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-orange.svg" alt="license" />
   <img src="https://img.shields.io/badge/ruff-0%20errors-success.svg" alt="ruff" />
   <img src="https://img.shields.io/badge/tests-3001%20passed-brightgreen.svg" alt="tests" />
   <img src="https://img.shields.io/badge/coverage-87%25-9cf.svg" alt="coverage" />
-</p>
-
-<h1 align="center">News Sentry</h1>
-
-<p align="center">
-  <strong>开源 AI 新闻情报与 OSINT 监控平台</strong><br>
-  多语言新闻与社媒采集 → 信源健康 → canonical event graph → 专业研究工作流
 </p>
 
 <p align="center">
