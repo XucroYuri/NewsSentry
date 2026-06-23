@@ -683,8 +683,8 @@ def _init_ai_judge(
 def _build_provider_factory() -> Callable[[str], AIProvider | None]:
     """构建 provider_name → AIProvider 实例的工厂函数。
 
-    支持的 provider_name: libretranslate, cloudflare_workers_ai, mymemory,
-    openrouter, openai, anthropic, local。
+    支持的 provider_name: cloudflare_workers_ai, deepseek, gemini, groq,
+    libretranslate, mymemory, openrouter, openai, anthropic, local。
     通过环境变量配置 API key 和 base URL。
     """
     # 惰性初始化，避免在 import 时读取环境变量
@@ -699,6 +699,20 @@ def _build_provider_factory() -> Callable[[str], AIProvider | None]:
             provider = LibreTranslateProvider({})
         elif name == "cloudflare_workers_ai":
             provider = CloudflareWorkersAIProvider({})
+        elif name == "deepseek":
+            from news_sentry.adapters.providers.deepseek_provider import (
+                DeepSeekProvider,
+            )
+
+            provider = DeepSeekProvider({})
+        elif name == "gemini":
+            from news_sentry.adapters.providers.gemini_provider import GeminiProvider
+
+            provider = GeminiProvider({})
+        elif name == "groq":
+            from news_sentry.adapters.providers.groq_provider import GroqProvider
+
+            provider = GroqProvider({})
         elif name == "mymemory":
             provider = MyMemoryProvider({})
         elif name == "openai":

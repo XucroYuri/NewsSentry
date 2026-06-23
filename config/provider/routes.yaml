@@ -2,16 +2,11 @@
 # 契约: docs/contracts-canonical.md §7
 # ADR: ADR-0005
 #
-# AI Provider 路由配置 — FreeLLMAPI 统一接入版
-# 所有远程 AI 能力只通过本机 FreeLLMAPI OpenAI-compatible sidecar 调用。
-# 上游 Google / Groq / OpenRouter / NVIDIA / OpenCode 等 provider keys
-# 只在 FreeLLMAPI Dashboard 中维护，News Sentry 不再直接持有这些上游 key。
+# AI Provider 路由配置 — 内置多 Provider 链式兜底版
+# 所有 AI 能力由内置 Provider 直接调用：gemini → deepseek → groq → cloudflare_workers_ai → local。
+# 各 Provider 通过自身的 API key 环境变量鉴权，不再经过中间层 sidecar。
 #
-# 需要设置:
-#   FREELLMAPI_BASE_URL=http://127.0.0.1:3001/v1
-#   FREELLMAPI_API_KEY
-#   FREELLMAPI_DEFAULT_MODEL=auto
-routes_version: "1.4.0"
+routes_version: "2.0.0"
 
 routes:
 
@@ -19,22 +14,20 @@ routes:
 
   - route_id: translate.public
     task_type: translate
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: gemini
+    model: gemini-2.5-flash
     timeout_seconds: 60
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
     fallback_route_ids:
-      - translate.batch
-    notes: "公共站发布前置翻译：由 FreeLLMAPI 统一生成中文标题与摘要"
+      - translate.deepseek
+    notes: "公共站发布前置翻译：由 Gemini 生成中文标题与摘要"
 
   - route_id: public.summary_reason
     task_type: public_enrichment
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: gemini
+    model: gemini-2.5-flash
     timeout_seconds: 60
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
@@ -45,187 +38,232 @@ routes:
 
   - route_id: public.enrichment
     task_type: translate
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: gemini
+    model: gemini-2.5-flash
     timeout_seconds: 60
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
     fallback_route_ids:
-      - translate.batch
+      - translate.deepseek
     notes: "公共翻译与出版加工兼容入口"
 
   # ── 翻译任务 ──────────────────────────────────────────
 
   - route_id: translate.fast
     task_type: translate
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: gemini
+    model: gemini-2.5-flash
     timeout_seconds: 45
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: false
     fallback_route_ids:
-      - translate.batch
+      - translate.deepseek
     notes: "collect 阶段快速预翻译标题"
 
   - route_id: translate.high
     task_type: translate
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: gemini
+    model: gemini-2.5-flash
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
     fallback_route_ids:
-      - translate.batch
+      - translate.deepseek
     notes: "judge 阶段高质量翻译"
 
-  - route_id: translate.batch
+  - route_id: translate.deepseek
     task_type: translate
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: deepseek
+    model: deepseek-chat
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
+    fallback_route_ids:
+      - translate.groq
+    notes: "翻译兜底链：Gemini 失败后由 DeepSeek 接管"
+
+  - route_id: translate.groq
+    task_type: translate
+    provider: groq
+    model: llama-3.3-70b-versatile
+    timeout_seconds: 90
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    fallback_route_ids:
+      - translate.cloudflare
+    notes: "翻译兜底链：DeepSeek 失败后由 Groq 接管"
+
+  - route_id: translate.cloudflare
+    task_type: translate
+    provider: cloudflare_workers_ai
+    model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+    timeout_seconds: 90
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    fallback_route_ids:
+      - fallback.local
+    notes: "翻译兜底链：Groq 失败后由 Cloudflare Workers AI 接管"
+
+  - route_id: translate.batch
+    task_type: translate
+    provider: gemini
+    model: gemini-2.5-flash
+    timeout_seconds: 90
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    fallback_route_ids:
+      - translate.deepseek
     notes: "低频 AI 增强批处理：JSON 标题与摘要翻译"
 
   - route_id: translate.nvidia
     task_type: translate
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: gemini
+    model: gemini-2.5-flash
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
-    notes: "历史 route_id 兼容：当前统一指向 FreeLLMAPI"
+    fallback_route_ids:
+      - translate.deepseek
+    notes: "历史 route_id 兼容：当前指向 Gemini"
 
   # ── 聚类 / 复核 / 增强 ────────────────────────────────
 
   - route_id: cluster.brief
     task_type: cluster
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: gemini
+    model: gemini-2.5-flash
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
     fallback_route_ids:
       - cluster.nvidia
-    notes: "聚类中文标签和摘要"
+    notes: "聚类中文标签和摘要：Gemini 主路由"
 
   - route_id: cluster.nvidia
     task_type: cluster
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: deepseek
+    model: deepseek-chat
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
-    notes: "历史 route_id 兼容：当前统一指向 FreeLLMAPI"
+    fallback_route_ids:
+      - fallback.local
+    notes: "聚类兜底：DeepSeek 接管，失败回退本地规则"
 
   - route_id: judge.review.batch
     task_type: judge_review
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: gemini
+    model: gemini-2.5-flash
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
     fallback_route_ids:
       - judge.review.nvidia
-    notes: "疑难事件复核建议"
+    notes: "疑难事件复核建议：Gemini 主路由"
 
   - route_id: judge.review.nvidia
     task_type: judge_review
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: deepseek
+    model: deepseek-chat
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
-    notes: "历史 route_id 兼容：当前统一指向 FreeLLMAPI"
+    fallback_route_ids:
+      - fallback.local
+    notes: "复核兜底：DeepSeek 接管，失败回退本地规则"
 
   - route_id: ai.enrichment.batch
     task_type: ai_enrichment
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: gemini
+    model: gemini-2.5-flash
     timeout_seconds: 120
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
-    notes: "低频 AI 增强合并任务：翻译、摘要、聚类、复核"
+    fallback_route_ids:
+      - translate.deepseek
+    notes: "低频 AI 增强合并任务：翻译、摘要、聚类、复核 — Gemini 主路由"
 
   - route_id: ai.enrichment.nvidia
     task_type: ai_enrichment
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: deepseek
+    model: deepseek-chat
     timeout_seconds: 120
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
-    notes: "历史 route_id 兼容：当前统一指向 FreeLLMAPI"
+    fallback_route_ids:
+      - fallback.local
+    notes: "AI 增强兜底：DeepSeek 接管，失败回退本地规则"
 
   # ── 判断任务 ──────────────────────────────────────────
 
   - route_id: judge.primary
     task_type: judge
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: gemini
+    model: gemini-2.5-flash
+    timeout_seconds: 90
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: "schemas/toolrunresult.schema.json"
+    audit: true
+    fallback_route_ids:
+      - judge.deepseek
+    notes: "主研判路由：计算 news_value_score / china_relevance / recommendation"
+
+  - route_id: judge.deepseek
+    task_type: judge
+    provider: deepseek
+    model: deepseek-chat
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: "schemas/toolrunresult.schema.json"
     audit: true
     fallback_route_ids:
       - fallback.local
-    notes: "主研判路由：计算 news_value_score / china_relevance / recommendation"
+    notes: "研判兜底：DeepSeek 接管，失败回退本地规则引擎"
 
   - route_id: judge.anthropic
     task_type: judge
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: gemini
+    model: gemini-2.5-flash
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: "schemas/toolrunresult.schema.json"
     audit: true
     fallback_route_ids:
-      - fallback.local
-    notes: "历史 route_id 兼容：当前统一指向 FreeLLMAPI"
+      - judge.deepseek
+    notes: "历史 route_id 兼容：当前指向 Gemini"
 
   - route_id: judge.nvidia
     task_type: judge
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: gemini
+    model: gemini-2.5-flash
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: "schemas/toolrunresult.schema.json"
     audit: true
     fallback_route_ids:
-      - fallback.local
-    notes: "历史 route_id 兼容：当前统一指向 FreeLLMAPI"
+      - judge.deepseek
+    notes: "历史 route_id 兼容：当前指向 Gemini"
 
   # ── 分类任务 ──────────────────────────────────────────
 
   - route_id: classify.primary
     task_type: classify
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: gemini
+    model: gemini-2.5-flash
     timeout_seconds: 60
     max_cost_usd_per_call: 0.0
     output_schema_ref: "schemas/classification.schema.json"
@@ -236,42 +274,41 @@ routes:
 
   - route_id: classify.nvidia
     task_type: classify
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: gemini
+    model: gemini-2.5-flash
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: "schemas/classification.schema.json"
     audit: true
     fallback_route_ids:
       - fallback.local
-    notes: "历史 route_id 兼容：当前统一指向 FreeLLMAPI"
+    notes: "历史 route_id 兼容：当前指向 Gemini"
 
   # ── NLP 分析任务 ──────────────────────────────────────
 
   - route_id: nlp.ai-fast
     task_type: nlp
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: gemini
+    model: gemini-2.5-flash
     timeout_seconds: 60
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: false
     fallback_route_ids:
       - nlp.nvidia
-    notes: "NLP 深度分析路由：情感/实体/关联/摘要增强"
+    notes: "NLP 深度分析路由：情感/实体/关联/摘要增强 — Gemini 主路由"
 
   - route_id: nlp.nvidia
     task_type: nlp
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: deepseek
+    model: deepseek-chat
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
-    notes: "历史 route_id 兼容：当前统一指向 FreeLLMAPI"
+    fallback_route_ids:
+      - fallback.local
+    notes: "NLP 兜底：DeepSeek 接管，失败回退本地规则"
 
   # ── 本地回退路由 ──────────────────────────────────────
 

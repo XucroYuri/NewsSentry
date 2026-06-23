@@ -2,90 +2,85 @@
 # 契约: docs/contracts-canonical.md §7
 # ADR: ADR-0005
 #
-# Cloudflare 部署变体 — 当前同样采用 FreeLLMAPI 统一接入。
-# Cloudflare 只负责站点/网络边界；AI 上游 provider keys 仍只进入
-# FreeLLMAPI Dashboard，News Sentry 不直接配置 OpenAI / Anthropic / OpenRouter key。
+# Cloudflare 部署变体 — 内置多 Provider 链式兜底版。
+# Cloudflare 只负责站点/网络边界；AI 调用由内置 Provider 直接发起，
+# gemini → deepseek → groq → cloudflare_workers_ai → local 链式兜底。
+#
 routes_version: "2.2.0"
 
 routes:
 
   - route_id: translate.fast
     task_type: translate
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: gemini
+    model: gemini-2.5-flash
     timeout_seconds: 45
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: false
     fallback_route_ids:
       - fallback.local
-    notes: "Cloudflare 变体：翻译任务统一走 FreeLLMAPI"
+    notes: "Cloudflare 变体：快速翻译由 Gemini 主路由"
 
   - route_id: translate.high
     task_type: translate
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: gemini
+    model: gemini-2.5-flash
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
     fallback_route_ids:
       - fallback.local
-    notes: "Cloudflare 变体：高质量翻译统一走 FreeLLMAPI"
+    notes: "Cloudflare 变体：高质量翻译由 Gemini 主路由"
 
   - route_id: judge.primary
     task_type: judge
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: gemini
+    model: gemini-2.5-flash
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: "schemas/toolrunresult.schema.json"
     audit: true
     fallback_route_ids:
       - fallback.local
-    notes: "Cloudflare 变体：主研判统一走 FreeLLMAPI"
+    notes: "Cloudflare 变体：主研判由 Gemini 主路由"
 
   - route_id: judge.anthropic
     task_type: judge
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: gemini
+    model: gemini-2.5-flash
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: "schemas/toolrunresult.schema.json"
     audit: true
     fallback_route_ids:
       - fallback.local
-    notes: "历史 route_id 兼容：当前统一指向 FreeLLMAPI"
+    notes: "Cloudflare 变体：历史 route_id 兼容，指向 Gemini"
 
   - route_id: classify.primary
     task_type: classify
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: gemini
+    model: gemini-2.5-flash
     timeout_seconds: 60
     max_cost_usd_per_call: 0.0
     output_schema_ref: "schemas/classification.schema.json"
     audit: true
     fallback_route_ids:
       - fallback.local
-    notes: "Cloudflare 变体：分类统一走 FreeLLMAPI"
+    notes: "Cloudflare 变体：分类由 Gemini 主路由"
 
   - route_id: nlp.ai-fast
     task_type: nlp
-    provider: freellmapi
-    model: auto
-    model_env_var: FREELLMAPI_DEFAULT_MODEL
+    provider: gemini
+    model: gemini-2.5-flash
     timeout_seconds: 60
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: false
     fallback_route_ids:
       - fallback.local
-    notes: "Cloudflare 变体：NLP 增强统一走 FreeLLMAPI"
+    notes: "Cloudflare 变体：NLP 增强由 Gemini 主路由"
 
   - route_id: fallback.local
     task_type: judge
