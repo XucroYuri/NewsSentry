@@ -14,18 +14,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# 从 builder 复制完整的 site-packages 和 console scripts
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
-COPY src/ src/
-COPY pyproject.toml ./
-COPY config/ config/
-COPY schemas/ schemas/
-COPY tools/ tools/
-RUN pip install --no-cache-dir -e . --no-deps
 
-RUN useradd --create-home --shell /bin/bash appuser \
-    && mkdir -p /app/data /app/config /app/logs \
-    && chown -R appuser:appuser /app
+# 项目文件
+COPY src/ /app/src/
+COPY pyproject.toml /app/
+COPY config/ /app/config/
+COPY schemas/ /app/schemas/
+COPY tools/ /app/tools/
+
+# 非 editable 安装：仅注册包元数据，依赖已从 builder 复制
+RUN cd /app && pip install --no-cache-dir --no-deps -e . && \
+    useradd --create-home --shell /bin/bash appuser && \
+    mkdir -p /app/data /app/config /app/logs && \
+    chown -R appuser:appuser /app
 
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
