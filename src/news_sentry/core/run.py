@@ -285,7 +285,9 @@ def _run_collect(
             source_cfg["target_id"] = config.target_id
 
             if source_type == "api":
-                collector_obj = APICollector(source_cfg, sandbox, rate_limiter)
+                collector_obj: RSSCollector | APICollector = APICollector(
+                    source_cfg, sandbox, rate_limiter
+                )
             else:
                 # 默认 rss
                 collector_obj = RSSCollector(source_cfg, sandbox, rate_limiter)
