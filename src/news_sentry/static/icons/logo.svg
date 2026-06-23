@@ -15,20 +15,16 @@
   </defs>
 
   <!-- Rounded rectangle background -->
-  <rect x="16" y="16" width="480" height="480" rx="72" fill="url(#bgGrad)"/>
+  <rect x="72" y="72" width="368" height="368" rx="64" fill="url(#bgGrad)"/>
 
-  <!-- "N" letterform built from bars -->
-  <!-- Left vertical bar -->
-  <rect x="138" y="120" width="32" height="272" rx="16" fill="url(#blueGrad)"/>
+  <!-- "N" letterform -->
+  <!-- Left bar -->
+  <rect x="170" y="140" width="28" height="232" rx="14" fill="url(#blueGrad)"/>
 
-  <!-- Right vertical bar -->
-  <rect x="342" y="120" width="32" height="272" rx="16" fill="url(#cyanGrad)"/>
+  <!-- Right bar -->
+  <rect x="314" y="140" width="28" height="232" rx="14" fill="url(#cyanGrad)"/>
 
-  <!-- Diagonal — steeper angle from bottom-left to top-right -->
-  <line x1="154" y1="376" x2="358" y2="136" stroke="url(#blueGrad)" stroke-width="32" stroke-linecap="round"/>
-
-  <!-- Inner glow line -->
-  <line x1="154" y1="376" x2="358" y2="136" stroke="#e0f2fe" stroke-width="8" stroke-linecap="round" opacity="0.4"/>
-
-  <!-- No star — keep it pure letterform -->
+  <!-- Diagonal -->
+  <line x1="184" y1="356" x2="328" y2="156" stroke="url(#blueGrad)" stroke-width="28" stroke-linecap="round"/>
+  <line x1="184" y1="356" x2="328" y2="156" stroke="#e0f2fe" stroke-width="7" stroke-linecap="round" opacity="0.4"/>
 </svg>
