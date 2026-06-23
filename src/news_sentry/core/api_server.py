@@ -35,7 +35,6 @@ from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
-from ipaddress import ip_address
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 from urllib.parse import quote
@@ -45,6 +44,12 @@ import yaml
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, BeforeValidator, ValidationError
+
+from news_sentry.api.middleware.auth import (
+    _is_loopback_host,  # noqa: F401 — re-export for local use
+    _is_loopback_request,
+    _is_testclient_default_host,
+)
 
 # ── Pydantic 模型（已提取至 news_sentry.api.schemas）───
 from news_sentry.api.schemas import (
@@ -426,38 +431,6 @@ class InvisibleIndexedEvent:
 
 
 _INVISIBLE_INDEXED_EVENT = InvisibleIndexedEvent()
-
-
-def _is_loopback_host(host: str | None) -> bool:
-    """判断主机名/IP 是否为本机回环地址。"""
-    value = (host or "").split(",", 1)[0].strip().lower()
-    if not value:
-        return False
-    if value.startswith("[") and "]" in value:
-        value = value[1 : value.index("]")]
-    elif value.count(":") == 1:
-        value = value.split(":", 1)[0]
-    if value in {"localhost", "testserver"}:
-        return True
-    try:
-        return ip_address(value).is_loopback
-    except ValueError:
-        return False
-
-
-def _is_loopback_request(request: Request) -> bool:
-    """优先使用真实客户端地址，TestClient 回退到 Host。"""
-    client_host = request.client.host if request.client else ""
-    if client_host and client_host != "testclient":
-        return _is_loopback_host(client_host)
-    return _is_loopback_host(request.headers.get("host"))
-
-
-def _is_testclient_default_host(request: Request) -> bool:
-    """仅为默认 TestClient host 保留免登录兜底。"""
-    client_host = request.client.host if request.client else ""
-    host = (request.headers.get("host") or "").split(",", 1)[0].strip().lower()
-    return client_host == "testclient" and host.startswith("testserver")
 
 
 def _local_auth_bypass_enabled(request: Request) -> bool:
