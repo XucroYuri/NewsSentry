@@ -4,6 +4,7 @@ import {
   ArrowUpRightIcon,
   BotIcon,
   CalendarDaysIcon,
+  ChevronRightIcon,
   FilterIcon,
   HistoryIcon,
   ListIcon,
@@ -832,6 +833,104 @@ function FacetFilterRow({
   )
 }
 
+function CategorySidebar({
+  facets,
+  filters,
+  onSelectIssue,
+  onSelectRelated,
+}: {
+  facets: PublicFacetsResponse
+  filters: FeedFilters
+  onSelectIssue: (issue?: string) => void
+  onSelectRelated: (related?: string) => void
+}) {
+  const [collapsed, setCollapsed] = useState(true)
+
+  const issueList = useMemo(
+    () => facets.issues.sort((a, b) => b.count - a.count).slice(0, 12),
+    [facets.issues],
+  )
+  const relatedList = useMemo(
+    () => facets.related.sort((a, b) => b.count - a.count).slice(0, 12),
+    [facets.related],
+  )
+
+  if (issueList.length === 0 && relatedList.length === 0) return null
+
+  return (
+    <section
+      className="hidden rounded-lg border bg-card/95 p-3 dark:bg-card/80 lg:block"
+      aria-label="分类导航"
+    >
+      <button
+        type="button"
+        onClick={() => setCollapsed(!collapsed)}
+        className="flex w-full items-center justify-between gap-2 text-xs font-semibold text-muted-foreground hover:text-foreground"
+      >
+        <span>分类浏览</span>
+        <ChevronRightIcon
+          className={`size-3.5 transition-transform ${collapsed ? "" : "rotate-90"}`}
+          aria-hidden="true"
+        />
+      </button>
+      {collapsed ? null : (
+        <div className="mt-2 grid gap-3">
+          {issueList.length > 0 ? (
+            <div className="grid gap-1.5">
+              <h3 className="text-[11px] font-medium text-muted-foreground">议题</h3>
+              <div className="flex flex-wrap gap-1">
+                {issueList.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() =>
+                      onSelectIssue(filters.issue === item.label ? undefined : item.label)
+                    }
+                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] transition-colors hover:border-primary/40 hover:bg-accent ${
+                      filters.issue === item.label
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "text-muted-foreground"
+                    }`}
+                  >
+                    {displayFacetLabel(item.label)}
+                    <span className="text-[9px] opacity-60">{item.count}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {relatedList.length > 0 ? (
+            <div className="grid gap-1.5">
+              <h3 className="text-[11px] font-medium text-muted-foreground">相关</h3>
+              <div className="flex flex-wrap gap-1">
+                {relatedList.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() =>
+                      onSelectRelated(
+                        filters.related === item.label ? undefined : item.label,
+                      )
+                    }
+                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] transition-colors hover:border-primary/40 hover:bg-accent ${
+                      filters.related === item.label
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "text-muted-foreground"
+                    }`}
+                  >
+                    {displayFacetLabel(item.label)}
+                    <span className="text-[9px] opacity-60">{item.count}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </section>
+  )
+}
+
 function ReaderControls({
   filters,
   targets,
@@ -1359,7 +1458,17 @@ export default function App() {
     >
       <SeoHead payload={appSeoPayload} />
       <main className="grid w-full min-w-0 gap-3 px-2.5 pb-20 pt-2.5 sm:px-3 lg:px-4 lg:py-4 2xl:px-5">
-        <section className="grid min-w-0 gap-3">{mainContent}</section>
+        <section className="grid min-w-0 gap-3">
+          {route.name === "feed" && (
+            <CategorySidebar
+              facets={facets}
+              filters={filters}
+              onSelectIssue={(issue) => updateFilters({ issue })}
+              onSelectRelated={(related) => updateFilters({ related })}
+            />
+          )}
+          {mainContent}
+        </section>
       </main>
     </AppShell>
   )

@@ -663,13 +663,52 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
           setStatus("ready")
           markAsRead(detail.id)
         }
-        try {
-          const relatedResult = await listPublicNews({
+        // 加载相关新闻：同目标 + 基于 issue/related tags 的更深关联
+        const relatedQueries: Promise<Awaited<ReturnType<typeof listPublicNews>>>[] = [
+          listPublicNews({
             targetId: route.targetId ?? detail.targetId,
             pageSize: 12,
+          }),
+        ]
+        // 如果新闻有 issue/related tags，额外按首个 tag 查询扩大关联范围
+        const crossTag = detail.issueTags[0] || detail.relatedTags[0]
+        if (crossTag) {
+          relatedQueries.push(
+            listPublicNews({
+              targetId: route.targetId ?? detail.targetId,
+              issue: crossTag,
+              pageSize: 8,
+            }),
+          )
+        }
+        // 如果有不同的第二个 tag 也查一次
+        const secondTag = detail.relatedTags[0] || detail.issueTags[1]
+        if (secondTag && secondTag !== crossTag) {
+          relatedQueries.push(
+            listPublicNews({
+              targetId: route.targetId ?? detail.targetId,
+              related: secondTag,
+              pageSize: 8,
+            }),
+          )
+        }
+        try {
+          const results = await Promise.allSettled(relatedQueries)
+          const allItems: PublicNewsItem[] = []
+          for (const result of results) {
+            if (result.status === "fulfilled" && result.value.data?.items) {
+              allItems.push(...result.value.data.items)
+            }
+          }
+          // 去重
+          const seen = new Set<string>()
+          const uniqueItems = allItems.filter((item) => {
+            if (seen.has(item.id)) return false
+            seen.add(item.id)
+            return true
           })
           if (!cancelled) {
-            setRelated(relatedResult.data?.items ?? [])
+            setRelated(uniqueItems)
           }
         } catch {
           // Related signals are useful context, but should never block the article itself.

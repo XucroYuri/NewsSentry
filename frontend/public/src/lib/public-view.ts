@@ -36,6 +36,8 @@ export interface RelatedBuckets {
   sameSource: PublicNewsItem[]
   sameTarget: PublicNewsItem[]
   sameTopic: PublicNewsItem[]
+  /** 基于 issue + related tags 交叉匹配的更强关联 */
+  deepRelated: PublicNewsItem[]
 }
 
 export function formatTime(value: string) {
@@ -252,12 +254,30 @@ export function buildRelatedBuckets(
 ): RelatedBuckets {
   const pool = candidates.filter((item) => item.id !== current.id)
   const firstTopic = current.tags[0]
+  // 基于 issue + related tags 的交叉匹配
+  const currentTagSet = new Set([
+    ...current.issueTags,
+    ...current.relatedTags,
+  ])
+  const scored = pool.map((item) => {
+    const itemTagSet = new Set([...item.issueTags, ...item.relatedTags])
+    let overlap = 0
+    for (const tag of currentTagSet) {
+      if (itemTagSet.has(tag)) overlap += 1
+    }
+    return { item, overlap }
+  })
   return {
     sameSource: pool.filter((item) => item.source.id === current.source.id).slice(0, 5),
     sameTarget: pool.filter((item) => item.targetId === current.targetId).slice(0, 5),
     sameTopic: firstTopic
       ? pool.filter((item) => item.tags.includes(firstTopic)).slice(0, 5)
       : [],
+    deepRelated: scored
+      .filter(({ overlap }) => overlap >= 1)
+      .sort((a, b) => b.overlap - a.overlap)
+      .map(({ item }) => item)
+      .slice(0, 6),
   }
 }
 
