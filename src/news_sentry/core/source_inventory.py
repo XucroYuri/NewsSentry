@@ -39,6 +39,17 @@ def _source_is_archived(source: dict[str, Any]) -> bool:
     )
 
 
+def _source_is_archived_or_disabled(source: dict[str, Any]) -> bool:
+    """信源在运行时是否被跳过（已归档 或 enabled 明确为 false）。
+
+    明确设置 enabled: false（无 deprecated_reason）意味着用户通过 UI 手动暂停采集，
+    与 run.py 第 263 行的跳过逻辑（source_cfg.get("enabled") is False）一致。
+    inventory 的 archived 字段使用此函数，使前端可以安全地通过 !item.archived 判断
+    信源在当前配置下是否会被实际采集。
+    """
+    return _source_is_archived(source) or source.get("enabled") is False
+
+
 def _memory_health_status(entry: dict[str, Any]) -> str:
     failures = int(entry.get("consecutive_failures") or 0)
     total_runs = int(entry.get("total_runs") or 0)
@@ -268,7 +279,7 @@ class SourceInventoryService:
             "display_name": source.get("display_name") or source.get("dimension") or "",
             "type": source_type,
             "enabled": bool(source.get("enabled", True)),
-            "archived": _source_is_archived(source),
+            "archived": _source_is_archived_or_disabled(source),
             "deprecated": bool(source.get("deprecated", False)),
             "deprecated_reason": source.get("deprecated_reason"),
             "credibility_base": source.get("credibility_base"),

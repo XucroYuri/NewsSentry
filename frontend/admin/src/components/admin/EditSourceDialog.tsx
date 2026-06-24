@@ -35,7 +35,7 @@ export default function EditSourceDialog({
 }: EditSourceDialogProps) {
   const initialName = item.display_name ?? item.name ?? ""
   const initialUrl = item.url ?? ""
-  const initialEnabled = !item.archived
+  const initialEnabled = item.enabled ?? !item.archived
   const initialCredibility = item.credibility_base ?? 0.75
 
   // Note: fetch_interval_minutes, max_items_per_run, timeout_seconds, notes

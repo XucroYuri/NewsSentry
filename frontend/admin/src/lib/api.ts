@@ -203,6 +203,7 @@ export interface SourceInventoryItem {
   display_name?: string
   url?: string
   language?: string
+  enabled?: boolean
   archived?: boolean
   status?: string
   missing_file?: boolean
