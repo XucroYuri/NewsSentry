@@ -10,16 +10,19 @@ import {
   MenuIcon,
   NewspaperIcon,
   ServerIcon,
+  TagIcon,
   Users2Icon,
 } from "lucide-react"
 
 import { useNotificationWebSocket } from "@/hooks/useNotificationWebSocket"
 import NotificationToast from "@/components/NotificationToast"
+import AnnotationsPage from "@/pages/AnnotationsPage"
 import { getApiBase, setApiBase } from "@/lib/locals-settings"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import DashboardOverview from "@/pages/DashboardOverview"
 import DiagnosticsPage from "@/pages/DiagnosticsPage"
 import DraftsPage from "@/pages/DraftsPage"
+import EntitiesPage from "@/pages/EntitiesPage"
 import EventsPage from "@/pages/EventsPage"
 import LoginPage from "@/pages/LoginPage"
 import TargetList from "@/pages/TargetList"
@@ -27,7 +30,7 @@ import TargetDetail from "@/pages/TargetDetail"
 import UsersPage from "@/pages/UsersPage"
 import NotificationsPage from "@/pages/NotificationsPage"
 
-type AdminPage = "overview" | "events" | "drafts" | "targets" | "target-detail" | "users" | "diagnostics" | "notifications"
+type AdminPage = "overview" | "events" | "drafts" | "targets" | "target-detail" | "users" | "diagnostics" | "notifications" | "entities" | "annotations"
 
 function App() {
   const [token, setToken] = useState<string | null>(() =>
@@ -126,6 +129,8 @@ function App() {
     { id: "drafts", label: "草稿审核", icon: ClipboardCheckIcon },
     { id: "targets", label: "目标工作台", icon: GlobeIcon },
     { id: "notifications", label: "通知规则", icon: BellIcon },
+    { id: "entities", label: "实体管理", icon: TagIcon },
+    { id: "annotations", label: "注解日志", icon: ClipboardCheckIcon },
     { id: "diagnostics", label: "可观测性诊断", icon: ActivityIcon },
     { id: "users", label: "用户管理", icon: Users2Icon },
   ]
@@ -292,6 +297,8 @@ function App() {
           )}
           {page === "users" && <UsersPage />}
           {page === "notifications" && <NotificationsPage />}
+          {page === "entities" && <EntitiesPage />}
+          {page === "annotations" && <AnnotationsPage />}
           {page === "diagnostics" && <DiagnosticsPage />}
           </ErrorBoundary>
 
