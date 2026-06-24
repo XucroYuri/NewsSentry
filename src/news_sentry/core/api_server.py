@@ -244,9 +244,11 @@ from news_sentry.core.public_news_utils import (
     _public_news_sort_key,
     _public_news_target_ids,
     _public_payload_etag,
+    _public_projection_event,  # noqa: F401 re-exported for test access
     _public_region_facet_items,
     _public_shared_cache_headers,
     _public_summary_from_events,
+    _row_publication_ready,  # noqa: F401 re-exported for test access
     _target_display_name,
 )
 from news_sentry.core.site_utils import (
