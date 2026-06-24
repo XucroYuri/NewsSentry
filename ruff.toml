@@ -24,6 +24,7 @@ ignore = [
 [lint.per-file-ignores]
 "tests/**" = ["ANN", "S101"]
 "tools/**" = ["S603", "S607"]
+"src/news_sentry/core/async_store.py" = ["ANN"]
 
 [lint.isort]
 known-first-party = ["news_sentry"]
