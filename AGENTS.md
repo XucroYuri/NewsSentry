@@ -338,8 +338,9 @@ flowchart LR
 | M-28 | ADR-0011 标记为 Superseded（OpenCLI 已移除） | ✅ |
 | M-29 | 前端死代码清理 — 移除未引用 tabs.tsx + @radix-ui/react-tabs | ✅ |
 | M-30 | CLAUDE.md 过时引用更新 — 前端栈/Phase/目录/验证 | ✅ |
+| M-31 | 前端依赖管理规范化 — 根 package.json scripts 转发 + 根 .nvmrc + CI 锁定 Node 22 | ✅ |
 
-**当前状态：** Phase 1-10 全部完成。M-12 ~ M-30 完成。项目处于 v2.0 RC 稳定基线。
+**当前状态：** Phase 1-10 全部完成。M-12 ~ M-31 完成。项目处于 v2.0 RC 稳定基线。
 - **Tag:** v2.0.0-rc3
 - **Commit:** `c2a052e0`
 - **测试:** 2,738 collected, 2,736 passed, 2 skipped

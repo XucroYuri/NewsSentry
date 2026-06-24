@@ -1,0 +1,11 @@
+{
+  "name": "@news-sentry/monorepo",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "npm run build --prefix frontend/public && npm run build --prefix frontend/admin",
+    "lint": "npm run lint --prefix frontend/public && npm run lint --prefix frontend/admin",
+    "test": "npm run test --prefix frontend/public"
+  }
+}
