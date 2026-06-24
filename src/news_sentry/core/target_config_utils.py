@@ -18,6 +18,7 @@ from typing import Any, Literal, cast
 import yaml
 from fastapi import HTTPException
 
+import news_sentry.core._state as _st
 from news_sentry.api.schemas import RegionInfo, SourceCreateRequest, SourceInfo, TargetInfo
 from news_sentry.core._state import (
     _OVERVIEW_CACHE_TTL_SECONDS,
@@ -32,7 +33,6 @@ from news_sentry.core._state import (
     _source_inventory_cache,
     _target_validation_cache,
 )
-import news_sentry.core._state as _st
 from news_sentry.core.public_news_utils import (
     _public_news_target_ids,
     _query_public_projection_events,

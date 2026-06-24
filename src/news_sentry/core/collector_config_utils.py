@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
+import news_sentry.core._state as _st
 from news_sentry.core._state import (
     _COLLECTOR_STAGES,
     _OVERVIEW_CACHE_TTL_SECONDS,
@@ -25,7 +26,6 @@ from news_sentry.core._state import (
     _public_translation_log,
     _public_translation_state,
 )
-import news_sentry.core._state as _st
 from news_sentry.core.ai_enrichment import (
     AIEnrichmentConfig,
     AIEnrichmentEngine,
@@ -241,7 +241,11 @@ def _build_collector_diagnostics_payload() -> dict[str, Any]:
     )
 
     data_exists = _st._data_dir.exists()
-    target_dirs = sorted([d.name for d in _st._data_dir.iterdir() if d.is_dir()]) if data_exists else []
+    target_dirs = (
+        sorted([d.name for d in _st._data_dir.iterdir() if d.is_dir()])
+        if data_exists
+        else []
+    )
     checks.append(
         {
             "name": "data_directory",

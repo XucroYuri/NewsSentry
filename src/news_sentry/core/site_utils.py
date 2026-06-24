@@ -19,6 +19,7 @@ from xml.sax.saxutils import escape as xml_escape
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response
 
+import news_sentry.core._state as _st
 from news_sentry.core._state import (
     _PUBLIC_APP_SHELL_CACHE_CONTROL,
     _PUBLIC_SITE_BASE_URL,
@@ -28,7 +29,6 @@ from news_sentry.core._state import (
     _PUBLIC_SITE_TITLE,
     _PUBLIC_SITE_TITLE_IT,
 )
-import news_sentry.core._state as _st
 from news_sentry.core.public_news_utils import _public_news_target_ids
 
 logger = logging.getLogger(__name__)

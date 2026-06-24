@@ -18,6 +18,7 @@ from urllib.parse import quote
 from fastapi import HTTPException
 from pydantic import BaseModel
 
+import news_sentry.core._state as _st
 from news_sentry.api.schemas import (
     DailySentimentCount,
     PublicAnalysisResponse,
@@ -53,7 +54,6 @@ from news_sentry.core._state import (
     _admin_overview_cache,
     _admin_targets_cache,
 )
-import news_sentry.core._state as _st
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.public_translation import (
     public_publication_ready,

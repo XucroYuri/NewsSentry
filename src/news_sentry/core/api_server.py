@@ -1140,27 +1140,24 @@ def create_app(
     # 到 event_io_utils 模块。event_io_utils 用 None 占位初始化，这些函数定义在
     # api_server 或 target_store_utils 中，需要在 create_app() 时同步过去，
     # 避免调用时 'NoneType' object is not callable。
-    _event_io_mod = _sys.modules.get("news_sentry.core.event_io_utils")
+    _event_io_mod = cast(Any, _sys.modules.get("news_sentry.core.event_io_utils"))
     if _event_io_mod is not None:
         _event_io_mod._store_for_target = _store_for_target
         _event_io_mod._store_has_target_event_index = _store_has_target_event_index
         _event_io_mod._visible_index_events_page = _visible_index_events_page
         _event_io_mod._validate_target_slug = _validate_target_slug
 
-    # 同步到 public_news_utils（同样的 None 占位问题）
-    _public_news_mod = _sys.modules.get("news_sentry.core.public_news_utils")
+    _public_news_mod = cast(Any, _sys.modules.get("news_sentry.core.public_news_utils"))
     if _public_news_mod is not None:
         _public_news_mod._get_target_store = _get_target_store
         _public_news_mod._store_has_target_event_index = _store_has_target_event_index
         _public_news_mod._visible_index_events_page = _visible_index_events_page
 
-    # 同步到 target_config_utils
-    _tcu_mod = _sys.modules.get("news_sentry.core.target_config_utils")
+    _tcu_mod = cast(Any, _sys.modules.get("news_sentry.core.target_config_utils"))
     if _tcu_mod is not None:
         _tcu_mod._store_for_target = _store_for_target
 
-    # 同步到 site_utils（SitemapEntry / PublicSiteProjectionStore / _get_target_store）
-    _site_mod = _sys.modules.get("news_sentry.core.site_utils")
+    _site_mod = cast(Any, _sys.modules.get("news_sentry.core.site_utils"))
     if _site_mod is not None:
         from news_sentry.core.public_site_projection import (
             PublicSiteProjectionStore as _PublicSiteProjectionStore,
