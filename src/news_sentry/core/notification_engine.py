@@ -144,6 +144,14 @@ class NotificationEngine:
         self, channel: str, rule: dict[str, Any], event: dict[str, Any]
     ) -> None:
         """路由到具体通知频道。"""
+        now = time.time()
+        latency_ms = 0.0
+
+        # 计算告警延迟（judge 完成 -> dispatch 执行）
+        judged_at = event.get("judged_at_ts")
+        if judged_at and isinstance(judged_at, (int, float)):
+            latency_ms = round((now - float(judged_at)) * 1000, 2)
+
         if channel == "browser":
             await self._bus.publish(
                 "alert.triggered.browser",
@@ -155,6 +163,7 @@ class NotificationEngine:
                     "sentiment": event.get("sentiment", ""),
                     "news_value_score": event.get("news_value_score", 0),
                     "entity_names": event.get("entity_names", []),
+                    "latency_ms": latency_ms,
                 },
             )
         elif channel == "email":
@@ -164,6 +173,17 @@ class NotificationEngine:
                 rule.get("id"),
                 event.get("event_id"),
             )
+
+        # R4.2: 结构化指标日志
+        logger.info(
+            "METRICS alert_dispatched channel=%s rule_id=%s event_id=%s "
+            "latency_ms=%.2f value_score=%s",
+            channel,
+            rule.get("id", ""),
+            event.get("event_id", ""),
+            latency_ms,
+            event.get("news_value_score", 0),
+        )
 
     async def _load_active_rules(self) -> list[dict[str, Any]]:
         """从 SQLite 加载所有活跃通知规则。"""

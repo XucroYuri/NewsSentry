@@ -8,6 +8,7 @@ _run_filter_async/_run_output_async 通过 asyncio.to_thread
 import asyncio
 import logging
 import os
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -647,6 +648,7 @@ async def _run_judge_async(
                     "sentiment": str(sentiment),
                     "entity_names": entity_names,
                     "title": getattr(event, "title", ""),
+                    "judged_at_ts": time.time(),
                 }
                 await event_bus.publish(topic, payload)
         except Exception as e:

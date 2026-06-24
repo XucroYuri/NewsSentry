@@ -3813,7 +3813,7 @@ _auto_collector_state: dict[str, Any] = {
     "target_ids": _parse_target_ids(
         os.environ.get("NEWSSENTRY_TARGET_ID", os.environ.get("TARGET_ID", "all"))
     ),
-    "interval_minutes": int(os.environ.get("NEWSSENTRY_COLLECT_INTERVAL", "15")),
+    "interval_minutes": int(os.environ.get("NEWSSENTRY_COLLECT_INTERVAL", "2")),
     "stage": os.environ.get("NEWSSENTRY_COLLECT_STAGE", "collect"),
     "running": False,
     "last_run_at": None,

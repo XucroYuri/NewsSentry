@@ -186,9 +186,9 @@ def _setup_log_file(log_path: Path, log_dir: Path) -> None:
 )
 @click.option(
     "--interval",
-    default=15,
+    default=2,
     type=int,
-    help="Auto-collect interval in minutes (default 15). Sets NEWSSENTRY_COLLECT_INTERVAL.",
+    help="Auto-collect interval in minutes (default 2). Sets NEWSSENTRY_COLLECT_INTERVAL.",
 )
 @click.option(
     "--stage",
@@ -396,7 +396,7 @@ _SERVE_OPTIONS = [
     click.option("--host", default="127.0.0.1", help="Bind address."),
     click.option("--port", default=8000, type=int, help="Bind port."),
     click.option("--target", default="all", help="Comma-separated target IDs or 'all'."),
-    click.option("--interval", default=15, type=int, help="Auto-collect interval (minutes)."),
+    click.option("--interval", default=2, type=int, help="Auto-collect interval (minutes)."),
     click.option(
         "--stage",
         default="all",
