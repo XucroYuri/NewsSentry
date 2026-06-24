@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+# 自动取消排队的旧 CI run，避免资源浪费
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest

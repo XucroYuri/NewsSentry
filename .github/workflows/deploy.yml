@@ -18,11 +18,6 @@ on:
         type: choice
         options: ["false", "true"]
 
-# 自动取消排队的旧 workflow，确保只有最新的 commit 被部署
-concurrency:
-  group: deploy-${{ github.ref }}
-  cancel-in-progress: true
-
 permissions:
   contents: write
 
