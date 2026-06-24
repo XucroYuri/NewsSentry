@@ -127,7 +127,7 @@ LLM 能力分布是锯齿状的——某些维度超人，某些维度犯蠢：
 - **NewsEvent 为唯一数据对象**：不引入竞争 schema
 - **0-100 分值**（除 sentiment_score: -1.0~1.0 和 ValueDimension.weight 外）
 - **外部项目只 install 不 vendor**：不 fork、不 submodule
-- **前端可选**：默认可视化为 Obsidian Markdown + 飞书/邮件/推送；可选 API 服务器 (FastAPI) + Web UI (React + shadcn/ui, 管理后台 + 公开阅读器)，由 `[api]` extras 控制（ADR-0025，ADR-0027）
+- **前端可选**：默认可视化为 Obsidian Markdown + 飞书/邮件/推送；可选 API 服务器 (FastAPI) + Web UI (React + shadcn/ui，管理后台 + 公开阅读器)，由 `[api]` extras 控制（ADR-0025）；公开阅读器支持 Cloudflare Pages 独立部署（ADR-0027）
 - **新闻分类走 metadata.classification**：不进 schema 顶层
 - **Python 3.11+ / Pydantic v2**：`src/news_sentry/` 全栈
 - **配置走 config/**：禁止硬编码意大利参数到 src/

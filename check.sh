@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # check.sh — News Sentry 一键质量检查
-# 用法: ./check.sh [--fix] [--no-slow]
+# 用法: ./check.sh [--fix] [--no-slow] [--frontend]
 #   --fix      自动修复可修复的问题 (ruff format)
 #   --no-slow  跳过 pytest + coverage (快速模式，仅 lint + type)
+#   --frontend 同时运行前端 public 的 lint + test
 
 set -euo pipefail
 
@@ -16,10 +17,12 @@ export PYTHONPATH="${SCRIPT_DIR}/src:${PYTHONPATH:-}"
 
 FIX_MODE=false
 FAST_MODE=false
+FRONTEND_MODE=false
 for arg in "$@"; do
     case "$arg" in
         --fix) FIX_MODE=true ;;
         --no-slow) FAST_MODE=true ;;
+        --frontend) FRONTEND_MODE=true ;;
     esac
 done
 
@@ -62,6 +65,14 @@ if $FAST_MODE; then
 else
     echo "── Tests ──"
     check "pytest"   python -m pytest tests/ -q --tb=short
+fi
+
+# ── Frontend (可选) ──
+if $FRONTEND_MODE; then
+    echo ""
+    echo "── Frontend (public) ──"
+    check "npm lint (public)"  bash -c "cd frontend/public && npm run lint"
+    check "npm test (public)"  bash -c "cd frontend/public && npm run test"
 fi
 
 # ── Summary ──

@@ -3,13 +3,12 @@ import path from "node:path"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vitest/config"
 
-const defaultOutDir = "../../src/news_sentry/static/public_app"
-const outDir = process.env.FRONTEND_OUTPUT_SUBDIR
-  ? path.resolve(process.env.FRONTEND_OUTPUT_SUBDIR, "public_app")
-  : defaultOutDir
+const isCloudflarePages = process.env.FRONTEND_OUTPUT_SUBDIR === undefined
+const defaultOutDir = isCloudflarePages ? "dist" : path.resolve(process.env.FRONTEND_OUTPUT_SUBDIR!, "public_app")
+const base = isCloudflarePages ? "/" : "/public-app/"
 
 export default defineConfig({
-  base: "/public-app/",
+  base,
   plugins: [react()],
   resolve: {
     alias: {
@@ -17,7 +16,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir,
+    outDir: defaultOutDir,
     emptyOutDir: true,
     assetsDir: "assets",
   },

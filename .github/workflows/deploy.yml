@@ -252,13 +252,14 @@ jobs:
 
             # ── 3a. 公共门户前端构建 ──
             # 仅在 package.json 或源码变更时重新构建
+            # FRONTEND_OUTPUT_SUBDIR 确保构建产物写回 FastAPI 能发现的位置
             NPM_HASH_FILE="${DEPLOY_BASE}/${ENV}/.npm-build-hash"
             NPM_HASH_SRC="$(sha256sum "${REPO_DIR}/frontend/public/package.json" | cut -d' ' -f1)"
             NPM_HASH_SRC="${NPM_HASH_SRC}-$(find "${REPO_DIR}/frontend/public/src" -type f -exec sha256sum {} \; | sha256sum | cut -d' ' -f1)"
             if [ ! -f "${NPM_HASH_FILE}" ] || [ "$(cat "${NPM_HASH_FILE}")" != "${NPM_HASH_SRC}" ]; then
               cd "${REPO_DIR}/frontend/public"
               npm ci
-              npm run build
+              FRONTEND_OUTPUT_SUBDIR="${REPO_DIR}/src/news_sentry/static" npm run build
               cd "${REPO_DIR}"
               echo "${NPM_HASH_SRC}" > "${NPM_HASH_FILE}"
             fi
@@ -270,7 +271,7 @@ jobs:
             if [ ! -f "${ADMIN_HASH_FILE}" ] || [ "$(cat "${ADMIN_HASH_FILE}")" != "${ADMIN_HASH_SRC}" ]; then
               cd "${REPO_DIR}/frontend/admin"
               npm ci
-              npm run build
+              FRONTEND_OUTPUT_SUBDIR="${REPO_DIR}/src/news_sentry/static" npm run build
               cd "${REPO_DIR}"
               echo "${ADMIN_HASH_SRC}" > "${ADMIN_HASH_FILE}"
             fi
@@ -474,6 +475,61 @@ jobs:
           done
           echo "❌ Cloudflare Worker health check failed after 10 attempts"
           exit 1
+
+  # ── Stage 2c: Deploy Cloudflare Pages (public frontend) ────────
+  # 仅 main 分支 push 且 frontend/public 目录变更时触发，或手动 workflow_dispatch
+  deploy-cloudflare-pages:
+    name: Deploy Cloudflare Pages ${{ github.ref == 'refs/heads/main' && '(production)' || '' }}
+    runs-on: ubuntu-latest
+    needs: ci
+    if: |
+      github.ref == 'refs/heads/main' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        contains(toJSON(github.event.head_commit.modified), 'frontend/public/') ||
+        contains(toJSON(github.event.head_commit.added), 'frontend/public/')
+      )
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/public/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend/public
+        run: npm ci
+
+      - name: Build
+        working-directory: frontend/public
+        run: npm run build
+
+      - name: Deploy to Cloudflare Pages
+        working-directory: frontend/public
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx wrangler pages deploy dist/ \
+            --project-name=news-sentry \
+            --commit-dirty=true
+
+      - name: Verify Pages deployment
+        run: |
+          for i in $(seq 1 10); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://news-sentry.pages.dev" || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Cloudflare Pages deployment verified"
+              exit 0
+            fi
+            echo "Waiting for Pages deployment... (attempt $i, HTTP $STATUS)"
+            sleep 5
+          done
+          echo "⚠️ Cloudflare Pages verification timed out (may be first deploy)"
 
   verify-preview:
     name: Verify preview
