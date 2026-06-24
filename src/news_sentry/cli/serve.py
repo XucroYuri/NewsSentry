@@ -299,7 +299,18 @@ def serve(
         signal.signal(signal.SIGTERM, _handle_signal)
         signal.signal(signal.SIGINT, _handle_signal)
 
-    # 8. Check uvicorn availability before proceeding
+    # 8. ENABLE_CLOUDFLARE guard — refuse to start API server when Cloudflare mode is active
+    enable_cloudflare = os.environ.get("ENABLE_CLOUDFLARE", "false").strip().lower()
+    if enable_cloudflare == "true":
+        click.echo(
+            "Error: ENABLE_CLOUDFLARE=true — API server is disabled.\n"
+            "Deploy to Cloudflare Workers + Pages instead:\n"
+            "  cd frontend/cloudflare && npm run deploy",
+            err=True,
+        )
+        sys.exit(1)
+
+    # 9. Check uvicorn availability before proceeding
     try:
         import uvicorn  # noqa: F401 — verify uvicorn is importable
     except ImportError:

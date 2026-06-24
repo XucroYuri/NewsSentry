@@ -3,6 +3,11 @@ import path from "node:path"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vitest/config"
 
+const defaultOutDir = "../../src/news_sentry/static/admin"
+const outDir = process.env.FRONTEND_OUTPUT_SUBDIR
+  ? path.resolve(process.env.FRONTEND_OUTPUT_SUBDIR, "admin")
+  : defaultOutDir
+
 export default defineConfig({
   base: "/admin/",
   plugins: [react()],
@@ -12,7 +17,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: "../../src/news_sentry/static/admin",
+    outDir,
     emptyOutDir: true,
     assetsDir: "assets",
   },

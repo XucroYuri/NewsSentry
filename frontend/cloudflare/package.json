@@ -1,0 +1,19 @@
+{
+  "name": "@news-sentry/cloudflare-workers",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "deploy": "wrangler deploy",
+    "deploy:prod": "wrangler deploy --env production",
+    "tail": "wrangler tail",
+    "db:init": "wrangler d1 execute ns-db --file=db/schema.sql",
+    "db:init:dev": "wrangler d1 execute ns-db-dev --file=db/schema.sql",
+    "build:frontend": "cd ../.. && npm run build --workspace=admin && npm run build --workspace=public",
+    "pages:deploy": "wrangler pages deploy ../../dist/cloudflare"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

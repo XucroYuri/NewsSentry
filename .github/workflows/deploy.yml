@@ -306,6 +306,13 @@ jobs:
             upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_PUBLIC_TRANSLATION_CANDIDATES" "500"
             upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_PUBLIC_PUBLICATION_INTERVAL" "5"
             upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_PUBLIC_PUBLICATION_PER_CYCLE" "50"
+            # Admin 密码：从 GitHub Secrets 注入（必设）
+            ADMIN_PW="${{ secrets.NEWSSENTRY_ADMIN_PASSWORD }}"
+            if [ -n "${ADMIN_PW}" ]; then
+              upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_ADMIN_PASSWORD" "${ADMIN_PW}"
+            else
+              echo "⚠️  NEWSSENTRY_ADMIN_PASSWORD secret is empty — a random password will be generated on first launch"
+            fi
             if [ "${ENV}" = "production" ]; then
               upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_REALTIME_BATCH_SIZE" "12"
               upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_REALTIME_STRICT" "0"
@@ -409,6 +416,56 @@ jobs:
           echo "| Commit | ${{ github.sha }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Port | ${{ steps.env.outputs.PORT }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Service | ${{ steps.env.outputs.SERVICE }} |" >> "$GITHUB_STEP_SUMMARY"
+
+  # ── Stage 2b: Deploy Cloudflare Workers (API server) ──────────
+  # 仅 main 分支 push 且 cloudflare 目录变更时触发，或手动 workflow_dispatch
+  deploy-cloudflare-worker:
+    name: Deploy Cloudflare Worker ${{ github.ref == 'refs/heads/main' && '(production)' || '' }}
+    runs-on: ubuntu-latest
+    needs: ci
+    if: |
+      github.ref == 'refs/heads/main' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        contains(toJSON(github.event.head_commit.modified), 'frontend/cloudflare/') ||
+        contains(toJSON(github.event.head_commit.added), 'frontend/cloudflare/')
+      )
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/cloudflare/package-lock.json
+
+      - name: Install wrangler
+        working-directory: frontend/cloudflare
+        run: npm ci
+
+      - name: Deploy Worker
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy
+
+      - name: Verify Worker health
+        run: |
+          for i in $(seq 1 10); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://news-sentry-api.xuyu.workers.dev/api/v1/health" || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Cloudflare Worker health check passed"
+              curl -s "https://news-sentry-api.xuyu.workers.dev/api/v1/health"
+              exit 0
+            fi
+            echo "Waiting for Worker deployment... (attempt $i, HTTP $STATUS)"
+            sleep 5
+          done
+          echo "❌ Cloudflare Worker health check failed after 10 attempts"
+          exit 1
 
   verify-preview:
     name: Verify preview

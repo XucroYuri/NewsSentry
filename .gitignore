@@ -111,6 +111,9 @@ src/news_sentry/static/admin/
 frontend/public/node_modules/
 src/news_sentry/static/public_app/
 
+# Cloudflare 部署产物 (M-8)
+dist/cloudflare/
+
 # Tauri
 clients/tauri/target/
 clients/tauri/gen/

@@ -327,23 +327,6 @@ class CanonicalBackfillRequest(BaseModel):
     projection_run_id: str | None = None
 
 
-RESEARCH_ARTIFACT_TYPES = {
-    "review_state",
-    "annotation",
-    "note",
-    "merge_decision",
-    "split_decision",
-}
-RESEARCH_ARTIFACT_STATUSES = {"open", "resolved", "archived"}
-RESEARCH_REVIEW_DECISIONS = {
-    "confirmed",
-    "needs_merge",
-    "needs_split",
-    "needs_more_evidence",
-    "not_relevant",
-}
-
-
 class ResearchArtifactCreateRequest(BaseModel):
     target_id: str
     artifact_type: str
@@ -996,3 +979,86 @@ class AlertHistoryResponse(BaseModel):
 
     alerts: list[AlertHistoryItem]
     total: int
+
+
+# ═══════════════════════════════════════════════
+# Admin Response Models
+# ═══════════════════════════════════════════════
+
+
+class AdminTargetItem(BaseModel):
+    """管理后台 target 列表项。"""
+
+    target_id: str
+    name: str
+    kind: str
+    languages: list[str] = []
+    source_count: int = 0
+    event_count: int = 0
+    status: str = "active"
+    created_at: str | None = None
+    updated_at: str | None = None
+    classification_profile: str | None = None
+    total_events: int = 0
+
+
+class AdminTargetListResponse(BaseModel):
+    """管理后台 target 列表响应。"""
+
+    targets: list[AdminTargetItem]
+    total: int
+
+
+class AdminUserItem(BaseModel):
+    """管理后台用户列表项（不含密码哈希/盐）。"""
+
+    username: str
+    role: str
+    has_api_key: bool = False
+    must_change_pw: bool = False
+    created_at: str | None = None
+
+
+class AdminUserListResponse(BaseModel):
+    """管理后台用户列表响应。"""
+
+    users: list[AdminUserItem]
+    total: int
+
+
+class AdminSourceHealthItem(BaseModel):
+    """信源健康摘要项。"""
+
+    source_ref: str
+    status: str = "unknown"
+    last_fetch_at: str | None = None
+    last_error: str | None = None
+    error_count: int = 0
+
+
+class AdminOverviewResponse(BaseModel):
+    """管理总览聚合响应。"""
+
+    target_id: str
+    targets: list[dict[str, Any]]
+    collector: dict[str, Any]
+    diagnostics: dict[str, Any]
+    source_health: dict[str, Any]
+    recent_runs: list[dict[str, Any]]
+    feedback: dict[str, Any]
+    alerts: dict[str, Any]
+    rules_metrics: dict[str, Any] | None = None
+
+
+class AdminTargetOverviewResponse(BaseModel):
+    """单个 target 工作台总览响应。"""
+
+    target: dict[str, Any]
+    profile: dict[str, Any]
+    sources: dict[str, Any]
+    social: dict[str, Any]
+    events: list[dict[str, Any]]
+    diagnostics: dict[str, Any]
+    validation: dict[str, Any]
+    recent_runs: list[dict[str, Any]]
+    pipeline_status: dict[str, Any] | None = None

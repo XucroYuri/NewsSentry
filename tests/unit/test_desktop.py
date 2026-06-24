@@ -131,7 +131,10 @@ class TestCheckUpdate:
         mock_response.__enter__ = lambda s: mock_response
         mock_response.__exit__ = MagicMock(return_value=False)
 
-        with patch("urllib.request.urlopen", return_value=mock_response):
+        with (
+            patch("urllib.request.urlopen", return_value=mock_response),
+            patch("news_sentry.cli.desktop.__version__", "99.0.0"),
+        ):
             result = _check_update()
             assert result is None
 

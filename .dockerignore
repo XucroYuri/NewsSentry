@@ -11,6 +11,7 @@ venv/
 
 # Node
 frontend/public/node_modules/
+frontend/admin/node_modules/
 
 # Git
 .git/

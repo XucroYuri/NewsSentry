@@ -1,0 +1,8 @@
+# Cloudflare Workers 本地开发状态（wrangler dev --local 生成）
+.wrangler/
+
+# 依赖
+node_modules/
+
+# 构建产物
+dist/
