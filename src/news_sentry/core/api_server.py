@@ -41,7 +41,7 @@ from urllib.parse import quote
 from xml.sax.saxutils import escape as xml_escape
 
 import yaml
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import (
     FileResponse,
     HTMLResponse,
@@ -5620,7 +5620,6 @@ def create_app(
 
     # ── 公开端点（无需认证）─────────────────────────────
 
-    @app.get("/api/v1/health")
     async def health(response: Response) -> dict[str, Any]:
         build = _static_build_hash()
         commit = _git_commit_for_path(Path(__file__))
@@ -5651,7 +5650,6 @@ def create_app(
             "latest_collected_at": latest_collected_at,
         }
 
-    @app.get("/api/v1/diagnostics")
     async def global_diagnostics(
         response: Response,
     ) -> dict[str, Any]:
@@ -5758,7 +5756,6 @@ def create_app(
             "recent_runs": recent_runs[:5],
         }
 
-    @app.get("/api/v1/metrics", include_in_schema=False)
     async def prometheus_metrics(
         response: Response,
         _user: dict[str, Any] = Depends(get_current_user),
@@ -5794,7 +5791,6 @@ def create_app(
         response.headers["Cache-Control"] = "no-store"
         return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; charset=utf-8")
 
-    @app.get("/api/v1/runtime/info", include_in_schema=False)
     async def runtime_info(
         response: Response,
         _user: dict[str, Any] = Depends(get_current_user),
@@ -5808,28 +5804,21 @@ def create_app(
 
     # ── 静态资源 / SPA 前端路由 ──────
 
-    @app.get("/", include_in_schema=False)
-    @app.get("/index.html", include_in_schema=False)
     async def index_html(request: Request) -> HTMLResponse:  # type: ignore[no-redef]
         return _public_app_index_response(
             base_url=_public_site_base_url(request),
             canonical_path="/",
         )
 
-    @app.get("/sources", include_in_schema=False)
-    @app.get("/subscribe", include_in_schema=False)
     async def publication_reader_page(request: Request) -> HTMLResponse:  # type: ignore[no-redef]
         return _public_app_index_response(
             base_url=_public_site_base_url(request),
             canonical_path=request.url.path,
         )
 
-    @app.get("/admin", include_in_schema=False)
-    @app.get("/admin/", include_in_schema=False)
     async def admin_index_html() -> HTMLResponse:  # type: ignore[no-redef]
         return _index_html_response()
 
-    @app.get("/admin/{path:path}", include_in_schema=False)
     async def admin_path_html(path: str) -> Response:  # type: ignore[no-redef]
         # Serve static assets (JS/CSS/images) directly; everything else is an SPA fallback
         admin_root = _static_dir() / "admin"
@@ -5848,7 +5837,6 @@ def create_app(
             return FileResponse(file_path, headers={"Cache-Control": cache_control})
         return _index_html_response()
 
-    @app.get("/robots.txt", include_in_schema=False)
     async def robots_txt(request: Request) -> PlainTextResponse:  # type: ignore[no-redef]
         base_url = _public_site_base_url(request)
         body = _public_discoverability_text("robots.txt").replace(
@@ -5860,14 +5848,12 @@ def create_app(
             headers={"Cache-Control": "public, max-age=3600"},
         )
 
-    @app.get("/llms.txt", include_in_schema=False)
     async def llms_txt() -> PlainTextResponse:  # type: ignore[no-redef]
         return PlainTextResponse(
             _public_discoverability_text("llms.txt"),
             headers={"Cache-Control": "public, max-age=3600"},
         )
 
-    @app.get("/sitemap.xml", include_in_schema=False)
     async def sitemap_xml(request: Request) -> Response:  # type: ignore[no-redef]
         xml = await _render_public_sitemap_xml(
             _store,
@@ -5879,8 +5865,6 @@ def create_app(
             headers={"Cache-Control": "public, max-age=3600"},
         )
 
-    @app.api_route("/public-app", methods=["GET", "HEAD"], include_in_schema=False)
-    @app.api_route("/public-app/", methods=["GET", "HEAD"], include_in_schema=False)
     async def public_app_index(request: Request) -> HTMLResponse:  # type: ignore[no-redef]
         async def _ssr_bootstrap_json_impl() -> str | None:
             """尝试获取公开首页 bootstrap 数据，失败时返回 None 使前端正常回退。"""
@@ -5928,11 +5912,6 @@ def create_app(
             bootstrap_json=bootstrap_json,
         )
 
-    @app.api_route(
-        "/public-app/{asset_path:path}",
-        methods=["GET", "HEAD"],
-        include_in_schema=False,
-    )
     async def public_app_asset(asset_path: str, request: Request) -> Response:  # type: ignore[no-redef]
         if not asset_path.strip("/"):
             return _public_app_index_response(base_url=_public_site_base_url(request))
@@ -5947,21 +5926,18 @@ def create_app(
             canonical_path=canonical_path,
         )
 
-    @app.get("/api/v1/collector/status")
     async def collector_status(
         _user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
         """返回后台自动采集循环的状态。"""
         return _collector_payload()
 
-    @app.get("/api/v1/collector/config")
     async def collector_config(
         _user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
         """返回可编辑的自动采集配置与当前运行状态。"""
         return _collector_payload()
 
-    @app.put("/api/v1/collector/config")
     async def update_collector_config(
         config: CollectorConfigUpdate,
         _user: dict[str, Any] = Depends(require_permission("write")),
@@ -5973,7 +5949,6 @@ def create_app(
         _save_collector_config(normalized)
         return _collector_payload()
 
-    @app.post("/api/v1/collector/start")
     async def start_collector(
         _user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
@@ -5985,7 +5960,6 @@ def create_app(
             _auto_collector_state["task"] = asyncio.create_task(_auto_collect_loop())
         return _collector_payload()
 
-    @app.post("/api/v1/collector/stop")
     async def stop_collector(
         _user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
@@ -5999,21 +5973,18 @@ def create_app(
         _auto_collector_state["next_run_at"] = None
         return _collector_payload()
 
-    @app.get("/api/v1/collector/diagnostics")
     async def collector_diagnostics(
         _user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
         """返回采集系统诊断信息，帮助排查"无数据"问题。"""
         return _cached_collector_diagnostics_payload()
 
-    @app.get("/api/v1/ai/enrichment/status")
     async def ai_enrichment_status(
         _user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
         """返回低频 AI 增强 worker 状态、额度和冷却信息。"""
         return await _ai_enrichment_status_payload()
 
-    @app.put("/api/v1/ai/enrichment/config")
     async def update_ai_enrichment_config(
         config: AIEnrichmentConfigUpdate,
         _user: dict[str, Any] = Depends(require_permission("write")),
@@ -6025,7 +5996,6 @@ def create_app(
         _apply_ai_enrichment_config(normalized)
         return await _ai_enrichment_status_payload()
 
-    @app.post("/api/v1/ai/enrichment/run")
     async def run_ai_enrichment(
         dry_run: bool = Query(False, description="只返回计划批次，不调用 Provider"),
         target_id: str | None = Query(None, description="指定 target；默认按配置"),
@@ -6040,14 +6010,12 @@ def create_app(
         _ai_enrichment_state["total_runs"] += 0 if dry_run else 1
         return result
 
-    @app.get("/api/v1/ai/translation/status")
     async def public_translation_status(
         _user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
         """返回公共站翻译 worker 状态。"""
         return await _public_translation_status_payload()
 
-    @app.put("/api/v1/ai/translation/config")
     async def update_public_translation_config(
         config: PublicTranslationConfigUpdate,
         _user: dict[str, Any] = Depends(require_permission("write")),
@@ -6059,7 +6027,6 @@ def create_app(
         _apply_public_translation_config(normalized)
         return await _public_translation_status_payload()
 
-    @app.post("/api/v1/ai/translation/run")
     async def run_public_translation(
         dry_run: bool = Query(False, description="只返回待翻译候选，不调用 Provider"),
         target_id: str | None = Query(None, description="指定 target；默认全部公开 target"),
@@ -6074,7 +6041,6 @@ def create_app(
         _public_translation_state["total_runs"] += 0 if dry_run else 1
         return result
 
-    @app.get("/api/v1/status")
     async def data_status(
         _user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
@@ -6152,7 +6118,6 @@ def create_app(
             },
         }
 
-    @app.post("/api/v1/auth/login", response_model=LoginResponse)
     async def auth_login(login: LoginRequest) -> LoginResponse:  # type: ignore[no-redef]
         """用户名+密码登录（返回 access token 和用户信息）。"""
         username = login.username.strip()
@@ -6189,7 +6154,6 @@ def create_app(
             must_change_password=bool(user.get("must_change_pw", 0)),
         )
 
-    @app.post("/api/v1/auth/token")
     async def auth_token(request: Request) -> dict[str, Any]:
         """API Key 换取短期 Token（向后兼容 CLI/cron）。"""
         body = await _read_json_object(request)
@@ -6218,14 +6182,12 @@ def create_app(
             raise HTTPException(status_code=401, detail="Invalid API key")
         return await _create_persistent_token_for_user(f"key_{api_key[:8]}", "admin", True)
 
-    @app.post("/api/v1/auth/stream-token")
     async def auth_stream_token(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
         """为 EventSource 连接创建短期 token，避免把主 bearer 放进 URL。"""
         return _create_stream_token_for_user(user["username"], user["role"])
 
-    @app.get("/api/v1/auth/me")
     async def auth_me(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
         """返回当前用户信息。"""
         return {
@@ -6235,7 +6197,6 @@ def create_app(
             "has_api_key": user.get("has_api_key", False),
         }
 
-    @app.post("/api/v1/auth/logout")
     async def auth_logout(request: Request) -> dict[str, str]:
         """注销当前 token（内存 + SQLite 双删）。"""
         token = _extract_bearer_token(request)
@@ -6245,7 +6206,6 @@ def create_app(
                 await _store.delete_session(token)
         return {"status": "ok"}
 
-    @app.post("/api/v1/auth/change-password")
     async def auth_change_password(
         request: Request, user: dict[str, Any] = Depends(get_current_user)
     ) -> dict[str, str]:
@@ -6273,7 +6233,6 @@ def create_app(
 
     # ── 用户管理 (admin) ──────────────────────────────────
 
-    @app.get("/api/v1/auth/setup-status")
     async def auth_setup_status() -> dict[str, Any]:
         """检查是否已完成初始设置（创建管理员）。"""
         if _store is None:
@@ -6285,7 +6244,6 @@ def create_app(
         all_must_change = all(bool(u.get("must_change_pw", 0)) for u in users)
         return {"setup_completed": not all_must_change, "needs_setup": all_must_change}
 
-    @app.post("/api/v1/auth/setup")
     async def auth_setup(request: Request) -> dict[str, Any]:
         """首次设置：创建管理员账户（仅在无用户时可用）。"""
         if _store is None:
@@ -6312,7 +6270,6 @@ def create_app(
         result = await _create_persistent_token_for_user(username, "admin", False)
         return result
 
-    @app.get("/api/v1/admin/users")
     async def admin_list_users(
         user: dict[str, Any] = Depends(require_permission("admin")),
     ) -> dict[str, Any]:
@@ -6334,7 +6291,6 @@ def create_app(
             )
         return {"users": safe_users}
 
-    @app.post("/api/v1/admin/users")
     async def admin_create_user(
         request: Request,
         user: dict[str, Any] = Depends(require_permission("admin")),
@@ -6366,7 +6322,6 @@ def create_app(
         _clear_admin_caches()
         return {"status": "ok", "username": username}
 
-    @app.delete("/api/v1/admin/users/{username}")
     async def admin_delete_user(
         username: str,
         user: dict[str, Any] = Depends(require_permission("admin")),
@@ -6383,7 +6338,6 @@ def create_app(
         _clear_admin_caches()
         return {"status": "ok"}
 
-    @app.post("/api/v1/admin/users/{username}/reset-password")
     async def admin_reset_password(
         username: str,
         request: Request,
@@ -6410,7 +6364,6 @@ def create_app(
 
     # ── API Key 设置 ─────────────────────────────────────
 
-    @app.get("/api/v1/settings/api-key")
     async def get_api_key_setting(
         user: dict[str, Any] = Depends(require_permission("admin")),
     ) -> dict[str, Any]:
@@ -6425,7 +6378,6 @@ def create_app(
             "api_key_preview": preview,
         }
 
-    @app.put("/api/v1/settings/api-key")
     async def set_api_key_setting(
         request: Request,
         user: dict[str, Any] = Depends(require_permission("admin")),
@@ -6444,7 +6396,6 @@ def create_app(
             _TOKEN_STORE[token]["has_api_key"] = True
         return {"status": "ok"}
 
-    @app.delete("/api/v1/settings/api-key")
     async def delete_api_key_setting(
         request: Request,
         user: dict[str, Any] = Depends(require_permission("admin")),
@@ -6514,14 +6465,12 @@ def create_app(
         nf = _data_dir / "notifications.json"
         nf.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    @app.get("/api/v1/settings/notifications")
     async def get_notifications(
         user: dict[str, Any] = Depends(require_permission("admin")),
     ) -> dict[str, Any]:
         """获取通知渠道配置。"""
         return await _load_notifications()
 
-    @app.put("/api/v1/settings/notifications")
     async def update_notifications(
         request: Request,
         user: dict[str, Any] = Depends(require_permission("admin")),
@@ -6533,7 +6482,6 @@ def create_app(
 
     # ── 简报邮件发送 ──────────────────────────────────────
 
-    @app.post("/api/v1/briefing/send")
     async def send_briefing(
         request: Request,
         user: dict[str, Any] = Depends(require_permission("write")),
@@ -6612,7 +6560,6 @@ def create_app(
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"Failed to send email: {exc}") from exc
 
-    @app.get("/api/v1/targets", response_model=TargetListResponse)
     async def list_targets(
         include_empty: bool = Query(
             False,
@@ -6812,7 +6759,6 @@ def create_app(
             response.headers.update(headers)
         return payload
 
-    @app.get("/api/v1/regions", response_model=RegionListResponse)
     async def list_regions(
         response: Response,
         include_empty: bool = Query(
@@ -6823,7 +6769,6 @@ def create_app(
         """返回公开可浏览的地区入口；topic target 不再作为公共入口。"""
         return await _cached_public_regions(response, include_empty=include_empty)
 
-    @app.get("/api/v1/admin/targets")
     async def list_admin_targets(
         include_archived: bool = Query(False, description="是否包含已归档 target"),
         user: dict[str, Any] = Depends(get_current_user),
@@ -6845,7 +6790,6 @@ def create_app(
         _admin_targets_cache[cache_key] = (now, result)
         return result
 
-    @app.post("/api/v1/admin/targets")
     async def create_admin_target(
         payload: TargetCreateRequest,
         user: dict[str, Any] = Depends(require_permission("write")),
@@ -6908,7 +6852,6 @@ def create_app(
         _clear_admin_caches()
         return _target_info_from_config(target_data, _data_dir).model_dump()
 
-    @app.patch("/api/v1/admin/targets/{target_id}")
     async def patch_admin_target(
         target_id: str,
         payload: TargetPatchRequest,
@@ -6927,7 +6870,6 @@ def create_app(
         _clear_admin_caches()
         return data
 
-    @app.post("/api/v1/admin/targets/{target_id}/archive")
     async def archive_admin_target(
         target_id: str,
         payload: ArchiveRequest | None = None,
@@ -6947,7 +6889,6 @@ def create_app(
         _clear_admin_caches()
         return data
 
-    @app.post("/api/v1/admin/targets/{target_id}/restore")
     async def restore_admin_target(
         target_id: str,
         user: dict[str, Any] = Depends(require_permission("write")),
@@ -6963,7 +6904,6 @@ def create_app(
         _clear_admin_caches()
         return data
 
-    @app.get("/api/v1/admin/targets/{target_id}/overview")
     async def admin_target_overview(
         target_id: str,
         user: dict[str, Any] = Depends(get_current_user),
@@ -7022,7 +6962,6 @@ def create_app(
             "collector": _collector_payload(),
         }
 
-    @app.post("/api/v1/admin/targets/{target_id}/validate")
     async def validate_admin_target(
         target_id: str,
         user: dict[str, Any] = Depends(get_current_user),
@@ -7030,7 +6969,6 @@ def create_app(
         """预检 target 配置链路。"""
         return _cached_target_validation(target_id)
 
-    @app.get("/api/v1/admin/targets/{target_id}/inventory")
     async def admin_target_inventory(
         target_id: str,
         user: dict[str, Any] = Depends(get_current_user),
@@ -7039,7 +6977,6 @@ def create_app(
         _ensure_target_exists(target_id)
         return _cached_source_inventory(target_id)
 
-    @app.get("/api/v1/admin/targets/{target_id}/sources")
     async def list_admin_target_sources(
         target_id: str,
         include_archived: bool = Query(False, description="是否包含已归档信源"),
@@ -7056,7 +6993,6 @@ def create_app(
             sources.append(_source_info_from_config(source).model_dump())
         return {"target_id": target_id, "sources": sources}
 
-    @app.post("/api/v1/admin/targets/{target_id}/sources")
     async def create_admin_target_source(
         target_id: str,
         payload: SourceCreateRequest,
@@ -7076,7 +7012,6 @@ def create_app(
         _clear_admin_caches()
         return _source_info_from_config(data).model_dump()
 
-    @app.patch("/api/v1/admin/targets/{target_id}/sources/{source_ref:path}")
     async def patch_admin_target_source(
         target_id: str,
         source_ref: str,
@@ -7102,7 +7037,6 @@ def create_app(
         _clear_admin_caches()
         return _source_info_from_config(data).model_dump()
 
-    @app.post("/api/v1/admin/targets/{target_id}/sources/{source_ref:path}/archive")
     async def archive_admin_target_source(
         target_id: str,
         source_ref: str,
@@ -7126,7 +7060,6 @@ def create_app(
         _clear_admin_caches()
         return _source_info_from_config(data).model_dump()
 
-    @app.post("/api/v1/admin/targets/{target_id}/sources/{source_ref:path}/restore")
     async def restore_admin_target_source(
         target_id: str,
         source_ref: str,
@@ -7149,7 +7082,6 @@ def create_app(
         _clear_admin_caches()
         return _source_info_from_config(data).model_dump()
 
-    @app.get("/api/v1/admin/targets/{target_id}/social")
     async def get_admin_target_social(
         target_id: str,
         user: dict[str, Any] = Depends(get_current_user),
@@ -7159,7 +7091,6 @@ def create_app(
         dimensions = _social_dimensions(target_id)
         return {"target_id": target_id, "dimensions": dimensions}
 
-    @app.post("/api/v1/admin/targets/{target_id}/social/dimensions")
     async def create_admin_social_dimension(
         target_id: str,
         payload: SocialDimensionCreateRequest,
@@ -7196,7 +7127,6 @@ def create_app(
         _clear_admin_caches()
         return data
 
-    @app.patch("/api/v1/admin/targets/{target_id}/social/dimensions/{dimension}")
     async def patch_admin_social_dimension(
         target_id: str,
         dimension: str,
@@ -7217,7 +7147,6 @@ def create_app(
         _clear_admin_caches()
         return data
 
-    @app.post("/api/v1/admin/targets/{target_id}/social/dimensions/{dimension}/accounts")
     async def create_admin_social_account(
         target_id: str,
         dimension: str,
@@ -7249,7 +7178,6 @@ def create_app(
         _clear_admin_caches()
         return account
 
-    @app.patch("/api/v1/admin/targets/{target_id}/social/dimensions/{dimension}/accounts/{handle}")
     async def patch_admin_social_account(
         target_id: str,
         dimension: str,
@@ -7277,7 +7205,6 @@ def create_app(
                 return account
         raise HTTPException(status_code=404, detail=f"Account '{handle}' not found")
 
-    @app.get("/api/v1/admin/overview")
     async def admin_overview(
         target_id: str | None = Query(None, description="目标标识"),
         user: dict[str, Any] = Depends(get_current_user),
@@ -7342,10 +7269,6 @@ def create_app(
         _admin_overview_cache[cache_key] = (now, result)
         return result
 
-    @app.get(
-        "/api/v1/public/targets/{target_id}/analysis",
-        response_model=PublicAnalysisResponse,
-    )
     async def get_public_target_analysis(
         target_id: str,
         days: Annotated[
@@ -7384,7 +7307,6 @@ def create_app(
             generated_at=datetime.now(UTC).isoformat(),
         )
 
-    @app.get("/api/v1/public/facets", response_model=PublicFacetsResponse)
     async def list_public_facets(
         response: Response,
         region_id: str | None = Query(None, description="按地区筛选"),
@@ -7507,7 +7429,6 @@ def create_app(
         }
         return payload, etag, int((time.perf_counter() - started) * 1000)
 
-    @app.get("/api/v1/public/bootstrap", response_model=PublicBootstrapResponse)
     async def get_public_bootstrap(
         request: Request,
         response: Response,
@@ -7603,7 +7524,6 @@ def create_app(
         response.headers.update(headers)
         return payload
 
-    @app.get("/api/v1/public/news", response_model=PublicNewsFeedResponse)
     async def list_public_news(
         request: Request,
         response: Response,
@@ -7787,7 +7707,6 @@ def create_app(
         response.headers.update(headers)
         return payload
 
-    @app.get("/api/v1/public/news/{event_id}", response_model=PublicNewsItem)
     async def get_public_news_item(
         event_id: str,
         target_id: str | None = Query(None, description="可选 target 提示"),
@@ -7820,7 +7739,6 @@ def create_app(
                 return _public_news_item(tid, event, include_content=True)
         raise HTTPException(status_code=404, detail="Event not found")
 
-    @app.get("/api/v1/stats", response_model=StatsResponse)
     async def get_stats(
         target_id: str = Query(..., description="目标标识"),
         user: dict[str, Any] = Depends(get_current_user),
@@ -7886,7 +7804,6 @@ def create_app(
 
     # ── 配置读取端点（无需认证）─────────────────────────
 
-    @app.get("/api/v1/config/targets/{target_id}")
     async def get_target_config(
         target_id: str,
         user: dict[str, Any] = Depends(get_current_user),
@@ -7898,10 +7815,6 @@ def create_app(
             raise HTTPException(status_code=404, detail=f"Target '{target_id}' not found")
         return data
 
-    @app.get(
-        "/api/v1/config/targets/{target_id}/sources",
-        response_model=SourceListResponse,
-    )
     async def list_sources(
         target_id: str,
         user: dict[str, Any] = Depends(get_current_user),
@@ -7913,7 +7826,6 @@ def create_app(
             sources.append(_source_info_from_config(s))
         return SourceListResponse(target_id=target_id, sources=sources)
 
-    @app.get("/api/v1/config/targets/{target_id}/sources/{source_id:path}")
     async def get_source_config(
         target_id: str,
         source_id: str,
@@ -7928,10 +7840,6 @@ def create_app(
             )
         return data
 
-    @app.get(
-        "/api/v1/config/targets/{target_id}/filters",
-        response_model=FilterRulesResponse,
-    )
     async def get_filter_rules(
         target_id: str,
         user: dict[str, Any] = Depends(get_current_user),
@@ -7956,10 +7864,6 @@ def create_app(
             keyword_rules=keyword_rules,
         )
 
-    @app.get(
-        "/api/v1/config/output/destinations",
-        response_model=DestinationListResponse,
-    )
     async def list_destinations(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> DestinationListResponse:
@@ -7991,10 +7895,6 @@ def create_app(
             )
         return DestinationListResponse(destinations=destinations)
 
-    @app.get(
-        "/api/v1/config/provider/routes",
-        response_model=ProviderRoutesResponse,
-    )
     async def get_provider_routes(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> ProviderRoutesResponse:
@@ -8032,7 +7932,6 @@ def create_app(
 
     # ── 实体端点 ────────────────────────────────────────
 
-    @app.get("/api/v1/entities", response_model=EntityListResponse)
     async def list_entities(
         entity_type: str | None = Query(None, description="按实体类型过滤"),
         target_id: str | None = Query(None, description="按目标过滤"),
@@ -8062,7 +7961,6 @@ def create_app(
             entities=[EntityInfo(**e) for e in entities],
         )
 
-    @app.get("/api/v1/entities/{entity_id}", response_model=EntityDetailResponse)
     async def get_entity(
         entity_id: int,
         user: dict[str, Any] = Depends(get_current_user),
@@ -8081,7 +7979,6 @@ def create_app(
 
     # ── 需认证端点 ────────────────────────────────────
 
-    @app.get("/api/v1/stats/today", response_model=TodayStatsResponse)
     async def get_today_stats_api(
         target_id: str = Query(..., description="目标标识"),
         user: dict[str, Any] = Depends(get_current_user),
@@ -8093,7 +7990,6 @@ def create_app(
         stats = await store_to_query.get_today_stats(target_id)
         return TodayStatsResponse(target_id=target_id, **stats)
 
-    @app.get("/api/v1/events/top", response_model=TopEventsResponse)
     async def get_top_events_api(
         target_id: str = Query(..., description="目标标识"),
         days: int = Query(7, ge=1, le=30, description="天数"),
@@ -8110,7 +8006,6 @@ def create_app(
             events=[TopEventInfo(**e) for e in events],
         )
 
-    @app.get("/api/v1/events", response_model=EventResponse)
     async def list_events(
         target_id: str = Query(..., description="目标标识"),
         page: int = Query(1, ge=1),
@@ -8172,7 +8067,6 @@ def create_app(
 
     # ── 新闻流 Feed API ─────────────────────────────────────
 
-    @app.get("/api/v1/events/feed", include_in_schema=False)
     async def events_feed(
         target_id: str = Query(..., description="目标标识"),
         date: str | None = Query(None, description="日期筛选 YYYY-MM-DD"),
@@ -8224,7 +8118,6 @@ def create_app(
             "groups": grouped,
         }
 
-    @app.get("/api/v1/news/target/{target_id}/events/{event_id}/export/markdown")
     async def export_public_event_markdown(
         target_id: str,
         event_id: str,
@@ -8275,7 +8168,6 @@ def create_app(
 
     # ── SSE 实时推送 ─────────────────────────────────────
 
-    @app.get("/api/v1/events/stream", include_in_schema=False)
     async def event_stream(
         request: Request,
         target_id: str = Query(..., description="目标标识"),
@@ -8337,7 +8229,6 @@ def create_app(
             },
         )
 
-    @app.get("/api/v1/events/{event_id}")
     async def get_event(
         event_id: str,
         target_id: str = Query(..., description="目标标识"),
@@ -8379,7 +8270,6 @@ def create_app(
             raise HTTPException(status_code=404, detail="Event not found")
         return event
 
-    @app.post("/api/v1/webhook", response_model=WebhookResponse)
     async def receive_webhook(
         payload: WebhookPayload,
         target_id: str = Query(..., description="目标标识"),
@@ -8395,7 +8285,6 @@ def create_app(
             message=f"Event {event_id} saved to {target_id}/raw/",
         )
 
-    @app.post("/api/v1/events/import", response_model=ImportResponse)
     async def import_events(
         events: list[ImportEventItem],
         user: dict[str, Any] = Depends(require_permission("write")),
@@ -8490,7 +8379,6 @@ def create_app(
 
         return ImportResponse(imported=imported, skipped=skipped, errors=errors)
 
-    @app.post("/api/v1/config/reload")
     async def reload_config(
         user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, str]:
@@ -8500,7 +8388,6 @@ def create_app(
 
     # ── M-35.2: 事件审核阶段转换 ───────────────────────────
 
-    @app.post("/api/v1/admin/events/{event_id}/transition")
     async def transition_event_stage(
         event_id: str,
         body: TransitionEventRequest,
@@ -8564,7 +8451,6 @@ def create_app(
 
     # ── Phase 42: 配置写入端点 ────────────────────────────
 
-    @app.put("/api/v1/config/targets/{target_id}")
     async def update_target_config(
         target_id: str,
         body: TargetConfigUpdate,
@@ -8588,7 +8474,6 @@ def create_app(
 
         return merged
 
-    @app.patch("/api/v1/config/targets/{target_id}/sources/{source_id:path}")
     async def update_source_config(
         target_id: str,
         source_id: str,
@@ -8613,7 +8498,6 @@ def create_app(
 
         return merged
 
-    @app.patch("/api/v1/config/targets/{target_id}/filters")
     async def update_filter_config(
         target_id: str,
         body: FilterConfigUpdate,
@@ -8637,7 +8521,6 @@ def create_app(
 
         return merged
 
-    @app.patch("/api/v1/config/output/destinations/{destination_id}")
     async def update_destination_config(
         destination_id: str,
         body: DestinationConfigUpdate,
@@ -8672,7 +8555,6 @@ def create_app(
 
         return result
 
-    @app.patch("/api/v1/config/provider/routes/{route_id}")
     async def update_provider_route(
         route_id: str,
         body: RouteConfigUpdate,
@@ -8709,7 +8591,6 @@ def create_app(
 
     # ── Phase 34: 运维端点 ────────────────────────────────
 
-    @app.get("/api/v1/runs", response_model=RunListResponse)
     async def list_runs(
         target_id: str = Query(..., description="目标标识"),
         limit: int = Query(20, ge=1, le=100),
@@ -8718,7 +8599,6 @@ def create_app(
         runs = _load_run_logs(_data_dir, target_id, limit)
         return RunListResponse(runs=[RunInfo(**r) for r in runs])
 
-    @app.get("/api/v1/runs/active", response_model=HeartbeatResponse)
     async def get_active_run(
         target_id: str = Query(..., description="目标标识"),
         user: dict[str, Any] = Depends(get_current_user),
@@ -8726,7 +8606,6 @@ def create_app(
         data = _load_heartbeat(_data_dir, target_id)
         return HeartbeatResponse(**data)
 
-    @app.get("/api/v1/runs/{run_id:path}", response_model=RunDetailResponse)
     async def get_run_detail(
         run_id: str,
         target_id: str = Query(..., description="目标标识"),
@@ -8746,7 +8625,6 @@ def create_app(
             summary=data.get("summary", {}),
         )
 
-    @app.get("/api/v1/sources/health", response_model=SourceHealthListResponse)
     async def list_source_health(
         target_id: str = Query(..., description="目标标识"),
         user: dict[str, Any] = Depends(get_current_user),
@@ -8754,7 +8632,6 @@ def create_app(
         records = await _source_health_records_for_target(target_id)
         return SourceHealthListResponse(sources=[SourceHealthInfo(**r) for r in records])
 
-    @app.post("/api/v1/runs/trigger", response_model=TriggerResponse)
     async def trigger_run(
         target_id: str = Query(..., description="目标标识"),
         stage: str = Query("all", description="执行阶段"),
@@ -8791,7 +8668,6 @@ def create_app(
 
     # ── Phase 35: 追踪链端点 ──────────────────────────────
 
-    @app.get("/api/v1/events/{event_id}/links", response_model=EventLinksResponse)
     async def get_event_links(
         event_id: str,
         target_id: str = Query(..., description="目标标识"),
@@ -8828,7 +8704,6 @@ def create_app(
             )
         return EventLinksResponse(event_id=event_id, links=result_links)
 
-    @app.get("/api/v1/events/{event_id}/chain", response_model=EventChainResponse)
     async def get_event_chain(
         event_id: str,
         target_id: str = Query(..., description="目标标识"),
@@ -8850,7 +8725,6 @@ def create_app(
             )
         return EventChainResponse(chain_id=event_id, events=events, total=len(events))
 
-    @app.get("/api/v1/chains", response_model=ChainListResponse)
     async def list_chains(
         target_id: str = Query(..., description="目标标识"),
         user: dict[str, Any] = Depends(get_current_user),
@@ -8863,7 +8737,6 @@ def create_app(
             chains=[ChainSummaryInfo(**c) for c in chains],
         )
 
-    @app.get("/api/v1/chains/{root_id}/narrative", response_model=NarrativeResponse)
     async def get_chain_narrative(
         root_id: str,
         target_id: str = Query(..., description="目标标识"),
@@ -8883,7 +8756,6 @@ def create_app(
             generated_at=result["updated_at"],
         )
 
-    @app.post("/api/v1/chains/{root_id}/narrative", response_model=NarrativeResponse)
     async def regenerate_chain_narrative(
         root_id: str,
         target_id: str = Query(..., description="目标标识"),
@@ -8920,7 +8792,6 @@ def create_app(
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e)) from e
 
-    @app.get("/api/v1/trends/topics", response_model=TopicTrendsResponse)
     async def get_topic_trends(
         target_id: str = Query(..., description="目标标识"),
         days: int = Query(14, ge=7, le=30, description="天数"),
@@ -8950,7 +8821,6 @@ def create_app(
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e)) from e
 
-    @app.get("/api/v1/trends/sentiment", response_model=SentimentTrendsResponse)
     async def get_sentiment_trends(
         target_id: str = Query(..., description="目标标识"),
         days: int = Query(14, ge=7, le=30, description="天数"),
@@ -8991,7 +8861,6 @@ def create_app(
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e)) from e
 
-    @app.get("/api/v1/alerts/smart", response_model=SmartAlertsResponse)
     async def get_smart_alerts(
         target_id: str = Query(..., description="目标标识"),
         user: dict[str, Any] = Depends(get_current_user),
@@ -9015,7 +8884,6 @@ def create_app(
 
     # ── Canonical projection endpoints ─────────────────
 
-    @app.get("/api/v1/canonical/diagnostics")
     async def canonical_diagnostics(
         target_id: str,
         since: str | None = None,
@@ -9031,7 +8899,6 @@ def create_app(
         )
         return diagnostics.to_dict()
 
-    @app.post("/api/v1/canonical/backfill")
     async def canonical_backfill(
         payload: CanonicalBackfillRequest,
         user: dict[str, Any] = Depends(require_permission("write")),
@@ -9051,7 +8918,6 @@ def create_app(
         )
         return diagnostics.to_dict()
 
-    @app.get("/api/v1/canonical/events")
     async def list_canonical_events(
         target_id: str,
         limit: int = Query(50, ge=1, le=5000),
@@ -9080,7 +8946,6 @@ def create_app(
             raise HTTPException(status_code=404, detail="Canonical event not found")
         return event
 
-    @app.get("/api/v1/canonical/events/{canonical_event_id}")
     async def get_canonical_event(
         canonical_event_id: str,
         target_id: str,
@@ -9091,7 +8956,6 @@ def create_app(
             raise HTTPException(status_code=404, detail="Canonical event not found")
         return await _canonical_event_or_404(store, canonical_event_id, target_id)
 
-    @app.get("/api/v1/canonical/events/{canonical_event_id}/mentions")
     async def list_canonical_event_mentions(
         canonical_event_id: str,
         target_id: str,
@@ -9104,7 +8968,6 @@ def create_app(
         mentions = await store.list_event_mentions(canonical_event_id)
         return {"canonical_event_id": canonical_event_id, "mentions": mentions}
 
-    @app.get("/api/v1/canonical/events/{canonical_event_id}/relations")
     async def list_canonical_event_relations(
         canonical_event_id: str,
         target_id: str,
@@ -9117,7 +8980,6 @@ def create_app(
         relations = await store.list_canonical_relations(canonical_event_id)
         return {"canonical_event_id": canonical_event_id, "relations": relations}
 
-    @app.get("/api/v1/canonical/events/{canonical_event_id}/export/markdown")
     async def export_canonical_event_markdown(
         canonical_event_id: str,
         target_id: str,
@@ -9141,7 +9003,6 @@ def create_app(
 
     # ── Research workflow endpoints ────────────────────
 
-    @app.get("/api/v1/research/queue")
     async def research_queue(
         target_id: str,
         status: str = Query("open", pattern="^(open|resolved|all)$"),
@@ -9159,7 +9020,6 @@ def create_app(
             offset=offset,
         )
 
-    @app.post("/api/v1/research/graph/merge")
     async def research_graph_merge(
         payload: ResearchGraphMergeRequest,
         user: dict[str, Any] = Depends(require_permission("write")),
@@ -9193,7 +9053,6 @@ def create_app(
         except ValueError as exc:
             raise _research_graph_error(exc) from exc
 
-    @app.post("/api/v1/research/graph/split")
     async def research_graph_split(
         payload: ResearchGraphSplitRequest,
         user: dict[str, Any] = Depends(require_permission("write")),
@@ -9227,7 +9086,6 @@ def create_app(
         except ValueError as exc:
             raise _research_graph_error(exc) from exc
 
-    @app.get("/api/v1/research/graph/operations")
     async def research_graph_operations(
         target_id: str,
         operation_type: str | None = Query(None, pattern="^(merge|split)$"),
@@ -9251,7 +9109,6 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return {"operations": operations, "limit": limit, "offset": offset}
 
-    @app.get("/api/v1/research/events/{canonical_event_id}")
     async def research_event_detail(
         canonical_event_id: str,
         target_id: str,
@@ -9276,7 +9133,6 @@ def create_app(
             "artifacts": artifacts,
         }
 
-    @app.get("/api/v1/research/artifacts")
     async def list_research_artifacts(
         target_id: str,
         subject_type: str = Query("canonical_event", pattern="^canonical_event$"),
@@ -9306,7 +9162,6 @@ def create_app(
         )
         return {"artifacts": artifacts, "limit": limit, "offset": offset}
 
-    @app.post("/api/v1/research/artifacts")
     async def create_research_artifact(
         payload: ResearchArtifactCreateRequest,
         user: dict[str, Any] = Depends(require_permission("write")),
@@ -9351,7 +9206,6 @@ def create_app(
         artifact = await store.get_research_artifact(artifact_id)
         return {"artifact": artifact}
 
-    @app.patch("/api/v1/research/artifacts/{artifact_id}")
     async def patch_research_artifact(
         artifact_id: str,
         target_id: str,
@@ -9381,7 +9235,6 @@ def create_app(
 
     # ── 维护端点 (Phase 40) ─────────────────────────────
 
-    @app.get("/api/v1/maintenance/draft-diagnostics")
     async def maintenance_draft_diagnostics(
         target_id: str = Query(..., description="目标标识"),
         user: dict[str, Any] = Depends(get_current_user),
@@ -9389,7 +9242,6 @@ def create_app(
         """只读诊断 draft 文件与运行时索引的一致性。"""
         return await _draft_diagnostics(_data_dir, target_id)
 
-    @app.post("/api/v1/maintenance/archive-duplicate-drafts")
     async def maintenance_archive_duplicate_drafts(
         target_id: str = Query(..., description="目标标识"),
         dry_run: bool = Query(False, description="仅返回计划，不移动文件"),
@@ -9398,7 +9250,6 @@ def create_app(
         """将重复 event_id 的多余 draft 文件归档，保留可公开读取的 canonical 文件。"""
         return await _archive_duplicate_drafts(_data_dir, target_id, dry_run=dry_run)
 
-    @app.post("/api/v1/maintenance/prune", response_model=PruneResponse)
     async def maintenance_prune(
         target_id: str = Query(..., description="目标标识"),
         max_age_days: int = Query(30, ge=7, le=365, description="保留天数"),
@@ -9410,7 +9261,6 @@ def create_app(
         result = await _store.prune_old_data(target_id, max_age_days=max_age_days)
         return PruneResponse(target_id=target_id, **result)
 
-    @app.post("/api/v1/maintenance/backup", response_model=BackupResponse)
     async def maintenance_backup(
         user: dict[str, Any] = Depends(require_permission("write")),
     ) -> BackupResponse:
@@ -9422,7 +9272,6 @@ def create_app(
         size = backup_path.stat().st_size if backup_path.exists() else 0
         return BackupResponse(backup_path=str(backup_path), size_bytes=size)
 
-    @app.get("/api/v1/maintenance/backups")
     async def list_backups(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
@@ -9443,7 +9292,6 @@ def create_app(
             )
         return {"backups": backups}
 
-    @app.post("/api/v1/maintenance/restore")
     async def restore_backup(
         filename: str = Query(..., description="备份文件名"),
         user: dict[str, Any] = Depends(require_permission("admin")),
@@ -9474,7 +9322,6 @@ def create_app(
 
     # ── 反馈闭环 + 告警管理 (Phase 41) ──────────────────
 
-    @app.post("/api/v1/feedback", response_model=FeedbackSubmitResponse)
     async def submit_feedback(
         req: FeedbackSubmitRequest,
         user: dict[str, Any] = Depends(require_permission("write")),
@@ -9500,7 +9347,6 @@ def create_app(
             id=row_id, event_id=req.event_id, verdict_type=req.verdict_type
         )
 
-    @app.get("/api/v1/feedback", response_model=FeedbackListResponse)
     async def list_feedback(
         target_id: str = Query(..., description="目标标识"),
         user: dict[str, Any] = Depends(get_current_user),
@@ -9525,7 +9371,6 @@ def create_app(
         ]
         return FeedbackListResponse(feedback=feedback, total=len(feedback))
 
-    @app.get("/api/v1/feedback/stats", response_model=FeedbackStatsResponse)
     async def feedback_stats(
         target_id: str = Query(..., description="目标标识"),
         user: dict[str, Any] = Depends(get_current_user),
@@ -9536,7 +9381,6 @@ def create_app(
         stats = await _store.get_feedback_stats(target_id)
         return FeedbackStatsResponse(**stats)
 
-    @app.post("/api/v1/rules/optimize", response_model=RulesOptimizeResponse)
     async def optimize_rules(
         req: RulesOptimizeRequest,
         user: dict[str, Any] = Depends(require_permission("write")),
@@ -9557,7 +9401,6 @@ def create_app(
             written=result["written"],
         )
 
-    @app.get("/api/v1/alerts/history", response_model=AlertHistoryResponse)
     async def alert_history(
         target_id: str = Query(..., description="目标标识"),
         user: dict[str, Any] = Depends(get_current_user),
@@ -9580,6 +9423,199 @@ def create_app(
         ]
         return AlertHistoryResponse(alerts=alerts, total=len(alerts))
 
+
+    # ── 路由注册（通过 APIRouter）──────────────────
+    from news_sentry.api.routes.admin import register_admin_routes
+    from news_sentry.api.routes.public import register_public_routes
+
+    public_router = APIRouter()
+    admin_router = APIRouter()
+
+    # 构建 handler + response_model 字典
+    _public_handlers = {
+        "health": health,
+        "global_diagnostics": global_diagnostics,
+        "index_html": index_html,
+        "publication_reader_page": publication_reader_page,
+        "admin_index_html": admin_index_html,
+        "admin_path_html": admin_path_html,
+        "robots_txt": robots_txt,
+        "llms_txt": llms_txt,
+        "sitemap_xml": sitemap_xml,
+        "public_app_index": public_app_index,
+        "public_app_asset": public_app_asset,
+        "auth_login": auth_login,
+        "auth_token": auth_token,
+        "auth_logout": auth_logout,
+        "auth_setup_status": auth_setup_status,
+        "auth_setup": auth_setup,
+        "list_targets": list_targets,
+        "list_regions": list_regions,
+        "get_public_target_analysis": get_public_target_analysis,
+        "list_public_facets": list_public_facets,
+        "get_public_bootstrap": get_public_bootstrap,
+        "list_public_news": list_public_news,
+        "get_public_news_item": get_public_news_item,
+        "list_events": list_events,
+        "events_feed": events_feed,
+        "event_stream": event_stream,
+        "get_event": get_event,
+        "list_research_artifacts": list_research_artifacts,
+        # response_model classes
+        "LoginResponse": LoginResponse,
+        "TargetListResponse": TargetListResponse,
+        "RegionListResponse": RegionListResponse,
+        "PublicAnalysisResponse": PublicAnalysisResponse,
+        "PublicFacetsResponse": PublicFacetsResponse,
+        "PublicBootstrapResponse": PublicBootstrapResponse,
+        "PublicNewsFeedResponse": PublicNewsFeedResponse,
+        "PublicNewsItem": PublicNewsItem,
+        "EventResponse": EventResponse,
+    }
+    register_public_routes(public_router, _public_handlers)
+
+    _admin_handlers = {
+        "prometheus_metrics": prometheus_metrics,
+        "runtime_info": runtime_info,
+        "collector_status": collector_status,
+        "collector_config": collector_config,
+        "update_collector_config": update_collector_config,
+        "start_collector": start_collector,
+        "stop_collector": stop_collector,
+        "collector_diagnostics": collector_diagnostics,
+        "ai_enrichment_status": ai_enrichment_status,
+        "update_ai_enrichment_config": update_ai_enrichment_config,
+        "run_ai_enrichment": run_ai_enrichment,
+        "public_translation_status": public_translation_status,
+        "update_public_translation_config": update_public_translation_config,
+        "run_public_translation": run_public_translation,
+        "data_status": data_status,
+        "auth_stream_token": auth_stream_token,
+        "auth_me": auth_me,
+        "auth_change_password": auth_change_password,
+        "admin_list_users": admin_list_users,
+        "admin_create_user": admin_create_user,
+        "admin_delete_user": admin_delete_user,
+        "admin_reset_password": admin_reset_password,
+        "get_api_key_setting": get_api_key_setting,
+        "set_api_key_setting": set_api_key_setting,
+        "delete_api_key_setting": delete_api_key_setting,
+        "get_notifications": get_notifications,
+        "update_notifications": update_notifications,
+        "send_briefing": send_briefing,
+        "list_admin_targets": list_admin_targets,
+        "create_admin_target": create_admin_target,
+        "patch_admin_target": patch_admin_target,
+        "archive_admin_target": archive_admin_target,
+        "restore_admin_target": restore_admin_target,
+        "admin_target_overview": admin_target_overview,
+        "validate_admin_target": validate_admin_target,
+        "admin_target_inventory": admin_target_inventory,
+        "list_admin_target_sources": list_admin_target_sources,
+        "create_admin_target_source": create_admin_target_source,
+        "patch_admin_target_source": patch_admin_target_source,
+        "archive_admin_target_source": archive_admin_target_source,
+        "restore_admin_target_source": restore_admin_target_source,
+        "get_admin_target_social": get_admin_target_social,
+        "create_admin_social_dimension": create_admin_social_dimension,
+        "patch_admin_social_dimension": patch_admin_social_dimension,
+        "create_admin_social_account": create_admin_social_account,
+        "patch_admin_social_account": patch_admin_social_account,
+        "admin_overview": admin_overview,
+        "get_stats": get_stats,
+        "get_today_stats_api": get_today_stats_api,
+        "get_top_events_api": get_top_events_api,
+        "get_target_config": get_target_config,
+        "list_sources": list_sources,
+        "get_source_config": get_source_config,
+        "get_filter_rules": get_filter_rules,
+        "list_destinations": list_destinations,
+        "get_provider_routes": get_provider_routes,
+        "update_target_config": update_target_config,
+        "update_source_config": update_source_config,
+        "update_filter_config": update_filter_config,
+        "update_destination_config": update_destination_config,
+        "update_provider_route": update_provider_route,
+        "reload_config": reload_config,
+        "list_entities": list_entities,
+        "get_entity": get_entity,
+        "receive_webhook": receive_webhook,
+        "import_events": import_events,
+        "transition_event_stage": transition_event_stage,
+        "list_runs": list_runs,
+        "get_active_run": get_active_run,
+        "get_run_detail": get_run_detail,
+        "list_source_health": list_source_health,
+        "trigger_run": trigger_run,
+        "get_event_links": get_event_links,
+        "get_event_chain": get_event_chain,
+        "list_chains": list_chains,
+        "get_chain_narrative": get_chain_narrative,
+        "regenerate_chain_narrative": regenerate_chain_narrative,
+        "get_topic_trends": get_topic_trends,
+        "get_sentiment_trends": get_sentiment_trends,
+        "get_smart_alerts": get_smart_alerts,
+        "alert_history": alert_history,
+        "canonical_diagnostics": canonical_diagnostics,
+        "canonical_backfill": canonical_backfill,
+        "list_canonical_events": list_canonical_events,
+        "get_canonical_event": get_canonical_event,
+        "list_canonical_event_mentions": list_canonical_event_mentions,
+        "list_canonical_event_relations": list_canonical_event_relations,
+        "export_canonical_event_markdown": export_canonical_event_markdown,
+        "research_queue": research_queue,
+        "research_graph_merge": research_graph_merge,
+        "research_graph_split": research_graph_split,
+        "research_graph_operations": research_graph_operations,
+        "research_event_detail": research_event_detail,
+        "create_research_artifact": create_research_artifact,
+        "patch_research_artifact": patch_research_artifact,
+        "maintenance_draft_diagnostics": maintenance_draft_diagnostics,
+        "maintenance_archive_duplicate_drafts": maintenance_archive_duplicate_drafts,
+        "maintenance_prune": maintenance_prune,
+        "maintenance_backup": maintenance_backup,
+        "list_backups": list_backups,
+        "restore_backup": restore_backup,
+        "submit_feedback": submit_feedback,
+        "list_feedback": list_feedback,
+        "feedback_stats": feedback_stats,
+        "optimize_rules": optimize_rules,
+        # response_model classes
+        "StatsResponse": StatsResponse,
+        "TodayStatsResponse": TodayStatsResponse,
+        "TopEventsResponse": TopEventsResponse,
+        "SourceListResponse": SourceListResponse,
+        "FilterRulesResponse": FilterRulesResponse,
+        "DestinationListResponse": DestinationListResponse,
+        "ProviderRoutesResponse": ProviderRoutesResponse,
+        "EntityListResponse": EntityListResponse,
+        "EntityDetailResponse": EntityDetailResponse,
+        "WebhookResponse": WebhookResponse,
+        "ImportResponse": ImportResponse,
+        "RunListResponse": RunListResponse,
+        "HeartbeatResponse": HeartbeatResponse,
+        "RunDetailResponse": RunDetailResponse,
+        "SourceHealthListResponse": SourceHealthListResponse,
+        "TriggerResponse": TriggerResponse,
+        "EventLinksResponse": EventLinksResponse,
+        "EventChainResponse": EventChainResponse,
+        "ChainListResponse": ChainListResponse,
+        "NarrativeResponse": NarrativeResponse,
+        "TopicTrendsResponse": TopicTrendsResponse,
+        "SentimentTrendsResponse": SentimentTrendsResponse,
+        "SmartAlertsResponse": SmartAlertsResponse,
+        "AlertHistoryResponse": AlertHistoryResponse,
+        "PruneResponse": PruneResponse,
+        "BackupResponse": BackupResponse,
+        "FeedbackSubmitResponse": FeedbackSubmitResponse,
+        "FeedbackListResponse": FeedbackListResponse,
+        "FeedbackStatsResponse": FeedbackStatsResponse,
+        "RulesOptimizeResponse": RulesOptimizeResponse,
+    }
+    register_admin_routes(admin_router, _admin_handlers)
+
+    app.include_router(admin_router)
+    app.include_router(public_router)
     _mount_spa_routes(app)
 
     return app
@@ -9593,3 +9629,4 @@ def _mount_spa_routes(app: FastAPI) -> None:
         from fastapi.staticfiles import StaticFiles
 
         app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
+

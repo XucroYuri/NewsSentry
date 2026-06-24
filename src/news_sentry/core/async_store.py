@@ -105,6 +105,49 @@ CREATE TABLE IF NOT EXISTS event_index (
 )
 """
 
+_DDL_EVENT_INDEX_FTS = """
+CREATE VIRTUAL TABLE IF NOT EXISTS event_index_fts USING fts5(
+    title_original,
+    source_id,
+    entity_names,
+    topic_tags,
+    metadata_json,
+    content='event_index',
+    content_rowid='rowid',
+    tokenize='unicode61'
+)
+"""
+
+# FTS5 triggers — keep virtual index in sync with event_index table
+_DDL_FTS_TRIGGERS = (
+    """CREATE TRIGGER IF NOT EXISTS event_index_ai AFTER INSERT ON event_index BEGIN
+        INSERT INTO event_index_fts(
+            rowid, title_original, source_id, entity_names, topic_tags, metadata_json
+        ) VALUES (
+            new.rowid, new.title_original, new.source_id,
+            new.entity_names, new.topic_tags, new.metadata_json
+        );
+    END""",
+    """CREATE TRIGGER IF NOT EXISTS event_index_ad AFTER DELETE ON event_index BEGIN
+        INSERT INTO event_index_fts(event_index_fts, rowid, title_original, source_id,
+            entity_names, topic_tags, metadata_json)
+        VALUES ('delete', old.rowid, old.title_original, old.source_id,
+            old.entity_names, old.topic_tags, old.metadata_json);
+    END""",
+    """CREATE TRIGGER IF NOT EXISTS event_index_au AFTER UPDATE ON event_index BEGIN
+        INSERT INTO event_index_fts(event_index_fts, rowid, title_original, source_id,
+            entity_names, topic_tags, metadata_json)
+        VALUES ('delete', old.rowid, old.title_original, old.source_id,
+            old.entity_names, old.topic_tags, old.metadata_json);
+        INSERT INTO event_index_fts(
+            rowid, title_original, source_id, entity_names, topic_tags, metadata_json
+        ) VALUES (
+            new.rowid, new.title_original, new.source_id,
+            new.entity_names, new.topic_tags, new.metadata_json
+        );
+    END""",
+)
+
 _DDL_ENTITIES = """
 CREATE TABLE IF NOT EXISTS entities (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -445,6 +488,11 @@ _SCHEMA_MIGRATIONS: list[tuple[int, str, list[str]]] = [
         "Add public translation readiness to event_index",
         ["ALTER TABLE event_index ADD COLUMN public_translation_ready INTEGER NOT NULL DEFAULT 0"],
     ),
+    (
+        12,
+        "Add FTS5 full-text search virtual table",
+        [_DDL_EVENT_INDEX_FTS] + list(_DDL_FTS_TRIGGERS),
+    ),
 ]
 
 _DDL_INDEXES = (
@@ -594,6 +642,15 @@ class AsyncStore:
         await self._db.execute(_DDL_AI_ENRICHMENT_EVENTS)
         await self._db.execute(_DDL_SCHEMA_VERSION)
         await self._migrate_schema()
+
+        # FTS5 全文搜索虚拟表 + 触发器
+        await self._db.execute(_DDL_EVENT_INDEX_FTS)
+        for trigger_sql in _DDL_FTS_TRIGGERS:
+            try:
+                await self._db.execute(trigger_sql)
+            except Exception:
+                logger.debug("FTS5 trigger already exists, skipping", exc_info=True)
+
         await self._refresh_public_translation_readiness()
         await self._cleanup_duplicate_canonical_graph_operation_artifacts()
         for idx_sql in _DDL_INDEXES:
@@ -1396,11 +1453,25 @@ class AsyncStore:
             conditions.append("substr(COALESCE(published_at, created_at), 1, 10) = ?")
             params.append(date)
         if search is not None:
-            conditions.append(
-                "LOWER(COALESCE(title_original, '') || ' ' || "
-                "COALESCE(source_id, '') || ' ' || COALESCE(metadata_json, '')) LIKE ?"
-            )
-            params.append(f"%{search.lower()}%")
+            # 尝试使用 FTS5 全文搜索（如果虚拟表可用）
+            try:
+                await self._db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='event_index_fts'"
+                )
+                # FTS5 可用 — 用 FTS5 JOIN 替代 LIKE，支持 BM25 排序
+                fts_condition = (
+                    "event_index.rowid IN (SELECT rowid FROM event_index_fts "
+                    "WHERE event_index_fts MATCH ?)"
+                )
+                conditions.append(fts_condition)
+                params.append(f'"{search}"')
+            except Exception:
+                # FTS5 不可用 — 回退到 LIKE 查询
+                conditions.append(
+                    "LOWER(COALESCE(title_original, '') || ' ' || "
+                    "COALESCE(source_id, '') || ' ' || COALESCE(metadata_json, '')) LIKE ?"
+                )
+                params.append(f"%{search.lower()}%")
         if before_key is not None:
             before_time, before_event_id = before_key
             conditions.append(
@@ -1430,6 +1501,93 @@ class AsyncStore:
         )
         async with self._db.execute(data_sql, params + [limit]) as cursor:
             rows = await cursor.fetchall()
+
+        result_rows = []
+        for r in rows:
+            result_rows.append(
+                {
+                    "event_id": r[0],
+                    "target_id": r[1],
+                    "source_id": r[2],
+                    "news_value_score": r[3],
+                    "china_relevance": r[4],
+                    "classification_l0": canonical_l0(r[5]),
+                    "published_at": r[6],
+                    "file_path": r[7],
+                    "title_original": r[8],
+                    "sentiment": r[9],
+                    "entity_names": r[10],
+                    "topic_tags": r[11],
+                    "metadata": self._json_loads(r[12]),
+                    "created_at": r[13],
+                    "public_translation_ready": r[14],
+                }
+            )
+
+        return {"total": total, "rows": result_rows}
+
+    async def search_public_events(
+        self,
+        query: str,
+        *,
+        target_id: str | None = None,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """使用 FTS5 全文搜索公开事件，带 BM25 排序.
+
+        搜索 title_original、source_id、entity_names、topic_tags、metadata_text 字段。
+        如果 FTS5 表不可用，回退到 LIKE 查询（query_public_news_rows）。
+        """
+        if self._db is None:
+            return {"total": 0, "rows": []}
+
+        safe_limit = max(1, min(int(limit), 500))
+
+        # 尝试 FTS5 搜索
+        try:
+            conditions = ["event_index_fts MATCH ?"]
+            params: list[Any] = [query]
+            if target_id is not None:
+                conditions.append("ei.target_id = ?")
+                params.append(target_id)
+            # 只查公开可见的
+            conditions.append("ei.stage = 'drafts'")
+            conditions.append("ei.public_translation_ready = 1")
+
+            where = " AND ".join(conditions)
+
+            # 带 BM25 排序的 FTS 查询
+            count_sql = f"SELECT COUNT(*) FROM event_index_fts fts JOIN event_index ei ON ei.rowid = fts.rowid WHERE {where}"  # noqa: S608, E501
+            async with self._db.execute(count_sql, params) as cursor:
+                row = await cursor.fetchone()
+                total = row[0] if row else 0
+
+            if total == 0:
+                return {"total": 0, "rows": []}
+
+            data_sql = (
+                "SELECT ei.event_id, ei.target_id, ei.source_id, ei.news_value_score, "  # noqa: S608
+                "ei.china_relevance, ei.classification_l0, ei.published_at, ei.file_path, "
+                "ei.title_original, ei.sentiment, ei.entity_names, ei.topic_tags, "
+                "ei.metadata_json, ei.created_at, ei.public_translation_ready, "
+                "bm25(event_index_fts) AS rank "
+                "FROM event_index_fts fts "
+                "JOIN event_index ei ON ei.rowid = fts.rowid "
+                "WHERE " + where + " "
+                "ORDER BY rank "
+                "LIMIT ?"
+            )
+            async with self._db.execute(data_sql, params + [safe_limit]) as cursor:
+                rows = await cursor.fetchall()
+
+        except Exception:
+            # FTS5 不可用，回退到 LIKE 查询
+            return await self.query_public_news_rows(
+                target_id=target_id,
+                stage="drafts",
+                limit=safe_limit,
+                search=query,
+            )
 
         result_rows = []
         for r in rows:

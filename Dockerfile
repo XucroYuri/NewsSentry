@@ -4,7 +4,8 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY src/ src/
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir --target /install ".[api,proxy]"
+    pip install --no-cache-dir --target /install ".[api,proxy]" && \
+    pip cache purge
 
 # ── Stage 2: Runtime ─────────────────────────────────
 FROM python:3.12-slim AS runtime
@@ -27,6 +28,7 @@ COPY docker-entrypoint.sh /usr/local/bin/
 
 # Install package metadata only (deps already copied)
 RUN pip install --no-cache-dir --no-deps . && \
+    pip cache purge && \
     useradd --create-home --shell /bin/bash appuser && \
     chown -R appuser:appuser /app && \
     chmod +x /usr/local/bin/docker-entrypoint.sh && \
