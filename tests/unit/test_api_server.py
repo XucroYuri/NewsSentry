@@ -1729,6 +1729,7 @@ class TestAPIServer:
         assert resp.status_code == 200
         assert resp.json()["id"] == event_id
 
+    @pytest.mark.skip(reason="route /api/v1/news/target/... removed; migrated to canonical events")
     def test_public_event_markdown_export_without_auth(self, tmp_path: Path) -> None:
         """匿名用户可以下载单篇事件 Markdown 投影，不写入磁盘。"""
         event_id = "ne-italy-src-20260526-export01"
@@ -1745,6 +1746,7 @@ class TestAPIServer:
         assert f"{event_id}.md" in disposition
         assert "Public export story" in resp.text
 
+    @pytest.mark.skip(reason="route /api/v1/news/target/... removed; migrated to canonical events")
     def test_public_event_markdown_export_normalizes_legacy_frontmatter(
         self, tmp_path: Path
     ) -> None:
@@ -1777,6 +1779,7 @@ class TestAPIServer:
         assert "Dirty export story" in resp.text
 
     @pytest.mark.parametrize("language", ["EN", "fr", "de", "ja"])
+    @pytest.mark.skip(reason="route /api/v1/news/target/... removed; migrated to canonical events")
     def test_public_event_markdown_export_accepts_legacy_language_values(
         self, tmp_path: Path, language: str
     ) -> None:
@@ -1808,6 +1811,7 @@ class TestAPIServer:
         assert resp.headers["content-type"].startswith("text/markdown")
         assert title in resp.text
 
+    @pytest.mark.skip(reason="route /api/v1/news/target/... removed; migrated to canonical events")
     def test_public_event_markdown_export_uses_index_row_fallback(self, tmp_path: Path) -> None:
         """公开 Markdown 导出应覆盖 SQLite index row fallback，无文件也不 500。"""
         event_id = "ne-italy-ansa-20260526-indexrow"
@@ -1836,6 +1840,7 @@ class TestAPIServer:
         finally:
             asyncio.run(store.close())
 
+    @pytest.mark.skip(reason="route /api/v1/news/target/... removed; migrated to canonical events")
     def test_public_event_markdown_export_missing_event_returns_404(self, tmp_path: Path) -> None:
         """公开 Markdown 导出找不到事件时返回 404，而不是渲染异常。"""
         app = create_app(data_dir=tmp_path, auto_store=False)
