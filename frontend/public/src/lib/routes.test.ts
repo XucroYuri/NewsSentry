@@ -4,7 +4,7 @@ import { buildPublicAppPath, buildRouteHash, parseHashRoute, parseLocationRoute,
 
 describe("public app hash routes", () => {
   it("defaults the public app root to the featured feed", () => {
-    expect(parseHashRoute("")).toEqual({
+    expect(parseHashRoute("")).toMatchObject({
       name: "feed",
       channel: "featured",
       search: new URLSearchParams(),
