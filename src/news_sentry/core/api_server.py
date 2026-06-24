@@ -103,6 +103,8 @@ from news_sentry.api.schemas import (
     HeartbeatResponse,
     ImportEventItem,
     ImportResponse,
+    LoginRequest,
+    LoginResponse,
     NarrativeResponse,
     ProviderRoutesResponse,
     PruneResponse,
@@ -5753,7 +5755,7 @@ def create_app(
             "recent_runs": recent_runs[:5],
         }
 
-    @app.get("/api/v1/metrics")
+    @app.get("/api/v1/metrics", include_in_schema=False)
     async def prometheus_metrics(
         response: Response,
         _user: dict[str, Any] = Depends(get_current_user),
@@ -5789,7 +5791,7 @@ def create_app(
         response.headers["Cache-Control"] = "no-store"
         return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; charset=utf-8")
 
-    @app.get("/api/v1/runtime/info")
+    @app.get("/api/v1/runtime/info", include_in_schema=False)
     async def runtime_info(
         response: Response,
         _user: dict[str, Any] = Depends(get_current_user),
@@ -6147,12 +6149,11 @@ def create_app(
             },
         }
 
-    @app.post("/api/v1/auth/login")
-    async def auth_login(request: Request) -> dict[str, Any]:
-        """用户名+密码登录。"""
-        body = await request.json()
-        username = body.get("username", "").strip()
-        password = body.get("password", "")
+    @app.post("/api/v1/auth/login", response_model=LoginResponse)
+    async def auth_login(login: LoginRequest) -> LoginResponse:  # type: ignore[no-redef]
+        """用户名+密码登录（返回 access token 和用户信息）。"""
+        username = login.username.strip()
+        password = login.password
 
         if not username or not password:
             raise HTTPException(status_code=400, detail="Username and password required")
@@ -6175,8 +6176,15 @@ def create_app(
             user["role"],
             bool(user.get("api_key")),
         )
-        result["must_change_password"] = bool(user.get("must_change_pw", 0))
-        return result
+        return LoginResponse(
+            access_token=result["access_token"],
+            token_type=result["token_type"],
+            expires_in=result["expires_in"],
+            username=result["username"],
+            role=result["role"],
+            has_api_key=result["has_api_key"],
+            must_change_password=bool(user.get("must_change_pw", 0)),
+        )
 
     @app.post("/api/v1/auth/token")
     async def auth_token(request: Request) -> dict[str, Any]:
@@ -8161,7 +8169,7 @@ def create_app(
 
     # ── 新闻流 Feed API ─────────────────────────────────────
 
-    @app.get("/api/v1/events/feed")
+    @app.get("/api/v1/events/feed", include_in_schema=False)
     async def events_feed(
         target_id: str = Query(..., description="目标标识"),
         date: str | None = Query(None, description="日期筛选 YYYY-MM-DD"),
@@ -8264,7 +8272,7 @@ def create_app(
 
     # ── SSE 实时推送 ─────────────────────────────────────
 
-    @app.get("/api/v1/events/stream")
+    @app.get("/api/v1/events/stream", include_in_schema=False)
     async def event_stream(
         request: Request,
         target_id: str = Query(..., description="目标标识"),

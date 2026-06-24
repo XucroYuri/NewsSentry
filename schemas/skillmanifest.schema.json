@@ -50,10 +50,10 @@
       "type": "array",
       "items": {
         "type": "string",
-        "enum": ["hermes", "openclaw", "cli"]
+        "enum": ["cli"]
       },
       "minItems": 1,
-      "description": "Runtimes this skill is compatible with; Hermes is primary, OpenClaw secondary"
+      "description": "Runtimes this skill is compatible with. Hermes/OpenClaw removed per 框架中立原则 — integration lives in runtime adapters, not domain contracts."
     }
   }
 }

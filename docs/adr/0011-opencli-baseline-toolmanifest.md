@@ -2,7 +2,7 @@
 
 | 属性 | 值 |
 |---|---|
-| **状态** | Accepted |
+| **状态** | Superseded（2026-06-24 — v2 Phase 1 重构移除了 OpenCLI，由原生 Reddit/HN Collector + RSS-Bridge Docker sidecar 替代） |
 | **日期** | 2026-05-09 |
 | **决策者** | 项目用户（通过架构讨论确认）|
 | **关联 ADR** | ADR-0008（系统级依赖原则）、ADR-0003（SandboxPolicy 错误枚举）|

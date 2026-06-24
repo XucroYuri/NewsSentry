@@ -18,14 +18,6 @@ RESEARCH_ARTIFACT_TYPES = {
     "merge_decision",
     "split_decision",
 }
-RESEARCH_SUBJECT_TYPES = {
-    "canonical_event",
-    "event_chain",
-    "topic",
-    "trend",
-    "source",
-    "entity",
-}
 RESEARCH_ARTIFACT_STATUSES = {"open", "resolved", "archived"}
 RESEARCH_REVIEW_DECISIONS = {
     "confirmed",
@@ -45,6 +37,25 @@ class EventResponse(BaseModel):
     events: list[dict[str, Any]]
     page: int
     page_size: int
+
+
+class LoginRequest(BaseModel):
+    """登录请求。"""
+
+    username: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    """登录响应 — 与 /api/v1/auth/login 返回值保持一致。"""
+
+    access_token: str
+    token_type: str
+    expires_in: int
+    username: str
+    role: str
+    has_api_key: bool = False
+    must_change_password: bool = False
 
 
 class WebhookPayload(BaseModel):

@@ -53,8 +53,8 @@ class TestDiscoverSkills:
         result = discover_skills(skills_dir)
         for manifest in result.values():
             assert RuntimeCompatibility.CLI in manifest.runtime_compatibility
-            assert RuntimeCompatibility.HERMES in manifest.runtime_compatibility
-            assert RuntimeCompatibility.OPENCLAW in manifest.runtime_compatibility
+            # Hermes/OpenClaw removed per CLAUDE.md 框架中立原则
+            assert len(manifest.runtime_compatibility) == 1
 
     def test_each_has_entry_point(self, skills_dir: Path) -> None:
         result = discover_skills(skills_dir)

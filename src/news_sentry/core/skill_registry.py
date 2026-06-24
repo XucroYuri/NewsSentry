@@ -55,8 +55,6 @@ def discover_skills(skills_dir: Path) -> dict[str, SkillManifest]:
             entry_point=f"news_sentry.skills.{stage}",
             runtime_compatibility=[
                 RuntimeCompatibility.CLI,
-                RuntimeCompatibility.HERMES,
-                RuntimeCompatibility.OPENCLAW,
             ],
         )
         manifests[stage] = manifest

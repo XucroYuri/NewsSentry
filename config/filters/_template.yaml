@@ -1,0 +1,56 @@
+# Schema: ../../schemas/filterrules.schema.json
+# 契约: docs/contracts-canonical.md §3
+# ADR: ADR-0009
+#
+# 使用说明：复制此文件到 config/filters/{target_id}/default.yaml，
+# 并在对应 target.yaml 的 filter_rules_ref 中引用它。
+# 关键词按分类分组添加，weight 为增益因子（与 NewsEvent 的基础分相乘），
+# language 指明关键词所属语言（BCP-47 代码或 "*" 表示全语言匹配）。
+#
+# 各 target 的 keyword_rules 可按需求定制，空列表表示仅按 score_threshold 和
+# max_age_hours 过滤。以下为示例条目，请替换为实际关键词。
+
+rules_version: "1.0.0"
+target_id: "example-target"
+
+# 进入 evaluated/ 阶段所需的最低 news_value_score（0-100）
+score_threshold: 30
+
+# 超过此时间窗口的事件直接归档，不进入 judge 阶段
+max_age_hours: 48
+
+# 去重时间窗口：同 URL 或同 id 在此窗口内只保留一条（0 = 禁用去重）
+dedup_window_hours: 24
+
+keyword_rules: []
+
+# 关键词按分类组织，示例格式：
+#
+#   # ── 政治 ─────────────────────────────────────────────
+#   - keyword: "election"
+#     weight: 0.8
+#     language: en
+#   - keyword: "parliament"
+#     weight: 0.8
+#     language: en
+#
+#   # ── 经济 ─────────────────────────────────────────────
+#   - keyword: "GDP"
+#     weight: 0.8
+#     language: en
+#   - keyword: "inflation"
+#     weight: 0.75
+#     language: en
+#
+#   # ── 国际关系 ──────────────────────────────────────────
+#   - keyword: "trade deal"
+#     weight: 0.8
+#     language: en
+#
+#   # ── 突发事件 ─────────────────────────────────────────
+#   - keyword: "breaking news"
+#     weight: 1.0
+#     language: en
+#   - keyword: "emergency"
+#     weight: 0.80
+#     language: en

@@ -17,7 +17,7 @@
     },
     "collect_mode": {
       "type": "string",
-      "enum": ["opencli_bridge", "api", "manual"]
+      "enum": ["rss_bridge", "api", "manual"]
     },
     "session_profile_ref": {
       "type": "string",

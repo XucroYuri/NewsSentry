@@ -127,7 +127,7 @@ LLM 能力分布是锯齿状的——某些维度超人，某些维度犯蠢：
 - **NewsEvent 为唯一数据对象**：不引入竞争 schema
 - **0-100 分值**（除 sentiment_score: -1.0~1.0 和 ValueDimension.weight 外）
 - **外部项目只 install 不 vendor**：不 fork、不 submodule
-- **前端可选**：默认可视化为 Obsidian Markdown + 飞书/邮件/推送；可选 API 服务器 (FastAPI) + Web UI (Vanilla JS)，由 `[api]` extras 控制（ADR-0025）
+- **前端可选**：默认可视化为 Obsidian Markdown + 飞书/邮件/推送；可选 API 服务器 (FastAPI) + Web UI (React + shadcn/ui, 管理后台 + 公开阅读器)，由 `[api]` extras 控制（ADR-0025，ADR-0027）
 - **新闻分类走 metadata.classification**：不进 schema 顶层
 - **Python 3.11+ / Pydantic v2**：`src/news_sentry/` 全栈
 - **配置走 config/**：禁止硬编码意大利参数到 src/
@@ -144,10 +144,13 @@ LLM 能力分布是锯齿状的——某些维度超人，某些维度犯蠢：
 5. AI Provider Routing ✅
 6. Sandbox Hardening + Social/KOL ✅
 7. Multi-target Expansion ✅
+8. v2 重构: OpenCLI 移除 + API 模块化 + 内置 Provider Chain + 质量加固 ✅
+9. v2 重构: CI 修复 + 文档对齐 + 发布就绪 (v2.0.0-rc3) ✅
+10. M-12 ~ M-29: 代码库质量收尾（测试/类型/前端/文档/CI/ADR） ✅
 
 ### 目录协议与文件事件
 
-- `raw/` → collected events
+- `raw/` → collected events（含源文件下载缓存）
 - `evaluated/` → filtered and judged events
 - `drafts/` → editorial drafts
 - `reviewed/` → human/internal-review candidates
@@ -160,7 +163,7 @@ LLM 能力分布是锯齿状的——某些维度超人，某些维度犯蠢：
 
 ### 验证预期
 
-提交实现代码前，运行最窄但最有意义的检查。禁止提交 `.DS_Store`、`.env*`、token、cookie、日志文件。
+提交实现代码前，运行最窄但最有意义的检查。禁止提交 `.DS_Store`、`.env*`、token、cookie、日志文件。`data/tmp/` 目录仅提交 `.gitkeep`。
 
 ### Git 提交规范
 

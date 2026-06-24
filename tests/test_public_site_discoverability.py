@@ -13,6 +13,15 @@ from news_sentry.core.async_store import AsyncStore
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
+# CI backend job 不包含前端构建产物，自动跳过依赖静态文件的测试
+_FRONTEND_STATIC_DIR = (
+    Path(__file__).resolve().parents[2] / "src" / "news_sentry" / "static" / "public_app"
+)
+pytestmark = pytest.mark.skipif(
+    not (_FRONTEND_STATIC_DIR / "index.html").exists(),
+    reason="前端静态文件未构建（运行 frontend/public: npm run build 后重试）",
+)
+
 
 def _extract_sitemap_urls(xml: str) -> list[str]:
     return [match.strip() for match in re.findall(r"<(?:\w+:)?loc>(.*?)</(?:\w+:)?loc>", xml)]

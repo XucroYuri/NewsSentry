@@ -328,31 +328,27 @@ flowchart LR
 | P10 | v2 重构: 发布就绪 + Prometheus + Makefile 清理 | ✅ |
 | M-12~M-15 | Italy 信源矩阵 + 评测集 + AI Judge + Cloud VPS | ✅ |
 | M-16~M-20 | 管理后台升级 + 诊断/错误处理 + 数据驱动泛化 | ✅ |
+| M-21 | sourcechannel schema 清理 (OpenCLI 残留) | ✅ |
+| M-22 | 过滤器模板 + socialsource schema 清理 | ✅ |
+| M-23 | 外部接入策略文档重写 + 框架中立 schema 清理 | ✅ |
+| M-24 | schemas.py 死代码移除 + OpenAPI schema 清理 | ✅ |
+| M-25 | 登录端点 Pydantic 模型化 + OpenAPI 文档覆盖 | ✅ |
+| M-26 | AGENTS.md 综合性同步（统计/文档清理） | ✅ |
+| M-27 | CI 添加 admin 前端构建（tsc + vite build） | ✅ |
+| M-28 | ADR-0011 标记为 Superseded（OpenCLI 已移除） | ✅ |
+| M-29 | 前端死代码清理 — 移除未引用 tabs.tsx + @radix-ui/react-tabs | ✅ |
+| M-30 | CLAUDE.md 过时引用更新 — 前端栈/Phase/目录/验证 | ✅ |
 
-**当前状态：** Phase 1-10 全部完成。M-12 ~ M-20 完成。项目处于 v2.0 RC 稳定基线。
+**当前状态：** Phase 1-10 全部完成。M-12 ~ M-30 完成。项目处于 v2.0 RC 稳定基线。
 - **Tag:** v2.0.0-rc3
-- **Commit:** `6ae2098a`
-- **测试:** 3,022 passed, 2 skipped
-- **覆盖率:** 87%
+- **Commit:** `c2a052e0`
+- **测试:** 2,738 collected, 2,736 passed, 2 skipped
+- **覆盖率:** 85%
 - **Type:** mypy strict + ruff: 零错误
 - **生产:** news-sentry.com — `{"status": "ok"}`
-- **API:** `/api/v1/metrics` Prometheus 端点已就绪
 - **Docker:** ghcr.io/xucroyuri/news-sentry (299MB)
 - **品牌:** 金色瞭望塔, 已挂载管理面板 + README
 - **发布:** CHANGELOG.md + .github/release.yml 就绪
-
-**Phase 9 全部成果:**
-1. 测试覆盖率: 2,969→3,020 tests, 86→87% (+51 tests)
-2. async_store: user/session management 测试 (+11 tests, +60 lines)
-3. source_registry: 0→98% (+23 tests)
-4. 翻译 providers: +9 tests (libretranslate, mymemory)
-5. 品牌: logo 设计 (6 iterations), admin 面板挂载, README 现代化
-6. 性能: 静态资源 1yr cache, API TTL 15s→60s, deploy 缓存
-7. 安全审计: 零严重/高危漏洞
-8. 死代码清理: vulture 100% confidence clean
-9. 贡献规范: docs/contributing.md
-10. CI: concurrency group, deploy 效率 +60s
-4. 总体: 2969→3020 tests, 86→87% coverage
 
 ---
 
@@ -370,11 +366,9 @@ flowchart LR
 ## 项目当前状态速查
 
 - **Python 版本**：3.11+ / Pydantic v2
-- **测试规模**：3,022 tests, 87% 覆盖率, ruff=0, mypy=0, frontend=0
-- **监控目标**：italy, china-watch-en, japan, germany, france + 18 个多 Target
-- **信源规模**：163 源 + RSS-Bridge 社媒桥接
+- **测试规模**：2,738 tests, 85% 覆盖率, ruff=0, mypy=0, frontend=0
+- **监控目标**：81 targets (italy, china-watch-en, japan, germany, france + 76 更多)
+- **信源规模**：244 源 (147 RSS + 97 API)，覆盖 81 个 target
 - **AI Provider**：内置 chain: Gemini → DeepSeek → Groq → Cloudflare Workers AI
-- **部署方式**：Docker Compose / systemd (VPS) / Cloudflare CDN
-- **可选组件**：`[api]` FastAPI + Web UI, `[proxy]` SOCKS 代理
-- **新增模块**：`collect/reddit.py`, `collect/hn.py`, `adapters/providers/gemini_provider.py`, `adapters/providers/deepseek_provider.py`, `adapters/providers/groq_provider.py`
-- **已删除模块**：`freellmapi_provider.py`, `opencli_*.py`, `browser_*.py`, `social_kol_*.py`
+- **部署方式**：Docker Compose / systemd (VPS) / Cloudflare CDN + Tunnel
+- **可选组件**：`[api]` FastAPI + Web UI（管理后台 + 公开新闻阅读器）

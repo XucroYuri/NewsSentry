@@ -12,9 +12,9 @@ from pydantic import BaseModel, Field
 
 
 class RuntimeCompatibility(StrEnum):
-    HERMES = "hermes"
-    OPENCLAW = "openclaw"  # noqa: ERA001 — reserved, not yet implemented
     CLI = "cli"
+    # Hermes/OpenClaw removed per CLAUDE.md 框架中立原则:
+    # 外部 Agent 框架集成放 runtime adapters，不进领域契约
 
 
 class SkillManifest(BaseModel):

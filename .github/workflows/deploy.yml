@@ -26,7 +26,7 @@ jobs:
   ci:
     name: CI Gate
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 25
     env:
       PYTHONUNBUFFERED: "1"
     steps:
@@ -42,7 +42,9 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: frontend/public/package-lock.json
+          cache-dependency-path: |
+            frontend/public/package-lock.json
+            frontend/admin/package-lock.json
 
       - name: Install dependencies
         run: |
@@ -65,11 +67,17 @@ jobs:
         working-directory: frontend/public
         run: npm run build
 
+      - name: Install admin frontend dependencies
+        working-directory: frontend/admin
+        run: npm ci
+
+      - name: Admin frontend lint
+        working-directory: frontend/admin
+        run: npm run lint
+
       - name: Admin frontend build
         working-directory: frontend/admin
-        run: |
-          npm ci
-          npm run build
+        run: npm run build
 
       - name: Lint (ruff)
         run: python -m ruff check
@@ -77,9 +85,9 @@ jobs:
       - name: Type check (mypy)
         run: python -m mypy src/news_sentry/ --ignore-missing-imports
 
-      - name: Test (pytest + coverage)
+      - name: Test (pytest)
         timeout-minutes: 20
-        run: python -m pytest tests/ -q --tb=short --timeout=300 --durations=25 --cov=src/news_sentry --cov-report=term-missing
+        run: python -m pytest tests/ -q --tb=short --timeout=300 --durations=25
 
       - name: Publication hygiene scan
         run: python tools/check_publication_hygiene.py

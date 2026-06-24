@@ -586,8 +586,21 @@ class TestAPIServer:
 
         assert resp.status_code == 401
 
-    def test_security_headers_are_attached_to_public_responses(self, tmp_path: Path) -> None:
-        app = create_app(data_dir=tmp_path, auto_store=False)
+    def test_security_headers_are_attached_to_public_responses(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # 使用临时静态文件以避免依赖前端构建产物
+        static_dir = tmp_path / "static"
+        public_app_dir = static_dir / "public_app"
+        public_app_dir.mkdir(parents=True)
+        (public_app_dir / "index.html").write_text(
+            '<html><body><div id="root"></div></body></html>',
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(api_server_module, "_static_dir", lambda: static_dir)
+        app = create_app(data_dir=tmp_path / "data", auto_store=False)
         client = TestClient(app)
 
         resp = client.get("/")
@@ -6539,9 +6552,15 @@ class TestAuthEndpoints:
         return TestClient(app)
 
     def test_auth_login_missing_fields(self, tmp_path: Path) -> None:
-        """登录缺少用户名或密码返回 400。"""
+        """登录缺少密码（Pydantic 校验）返回 422。"""
         client = self._make_client_with_store(tmp_path)
         resp = client.post("/api/v1/auth/login", json={"username": ""})
+        assert resp.status_code == 422
+
+    def test_auth_login_empty_credentials(self, tmp_path: Path) -> None:
+        """空用户名/密码返回 400。"""
+        client = self._make_client_with_store(tmp_path)
+        resp = client.post("/api/v1/auth/login", json={"username": "", "password": ""})
         assert resp.status_code == 400
 
     def test_auth_login_invalid_credentials(self, tmp_path: Path) -> None:
