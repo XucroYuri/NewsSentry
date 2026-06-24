@@ -7,7 +7,7 @@
 <p align="center">
   <strong>AI 驱动的多语种新闻情报平台</strong><br>
   实时追踪全球信源 · 智能研判关键事件 · 主动推送决策简报<br>
-  3001 tests · 87% coverage · mypy strict · ruff zero
+  3020 tests · 87% coverage · mypy strict · ruff zero
 </p>
 
 <p align="center">
@@ -111,14 +111,6 @@ cp .env.example .env
 | git | 任意 | 版本控制 |
 
 > **零原生依赖** — 所有 Python 包均为纯 Python wheel，无需 C 编译工具链。
-
-### 一键安装
-
-```bash
-bash install.sh --dev      # 开发模式（含 pytest, ruff, mypy）
-bash install.sh            # 生产模式
-bash install.sh --check    # 安装 + 运行测试
-```
 
 ### 手动安装
 
@@ -364,7 +356,7 @@ python tools/scan_sensitive_data.py  # 扫描敏感数据
 **质量门禁：**
 - `ruff check` — 0 errors
 - `mypy --strict` — 0 issues
-- `pytest` — 3,013 tests pass
+- `pytest` — 3,020 tests pass
 - `tsc --noEmit` (frontend) — 0 errors
 
 ---
