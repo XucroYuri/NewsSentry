@@ -199,7 +199,7 @@ def _collector_diagnostics_signature() -> str:
             paths.append(target_dir / "memory" / "source_health.yaml")
             paths.append(target_dir / "source_health.json")
             paths.extend(_target_source_paths(target_dir.name))
-    return _file_signature(paths)
+    return _file_signature(paths)  # type: ignore[no-any-return]
 
 
 
@@ -567,7 +567,7 @@ def _build_ai_provider_factory() -> Any:  # noqa: ANN401
 
 async def _ai_enrichment_store_for_target(target_id: str) -> AsyncStore | None:
     target_store = await _get_target_store(target_id)
-    return target_store if target_store is not None else _store
+    return target_store if target_store is not None else _store  # type: ignore[no-any-return]
 
 
 
@@ -594,7 +594,7 @@ async def _ai_enrichment_rows_for_target(
 
 async def _ai_enrichment_usage_store(target_stores: list[AsyncStore | None]) -> AsyncStore | None:
     if _store is not None:
-        return _store
+        return _store  # type: ignore[no-any-return]
     for store in target_stores:
         if store is not None:
             return store
@@ -772,7 +772,7 @@ def _public_translation_target_ids(target_id: str | None = None) -> list[str]:
 
 async def _public_translation_store_for_target(target_id: str) -> AsyncStore | None:
     target_store = await _get_target_store(target_id)
-    return target_store if target_store is not None else _store
+    return target_store if target_store is not None else _store  # type: ignore[no-any-return]
 
 
 

@@ -115,7 +115,7 @@ _PUBLIC_NEWS_MIN_POLL_AFTER_MS: int = 15000
 _PUBLIC_NEWS_EVENT_DIRS: tuple[str, ...] = ("published",)
 _PUBLIC_NEWS_INTERNAL_DATA_DIRS: tuple[str, ...] = ("drafts", "reviewed", "published", "archive")
 _PUBLIC_TEXT_LATIN1_HINTS: tuple[str, ...] = ()
-_STRAY_ACCENTED_CAPS: dict[str, str] = {}
+_STRAY_ACCENTED_CAPS: dict[int, str] = {}
 _RETIRED_TOPIC_TARGET_IDS: set[str] = set()
 
 # Regex / validation

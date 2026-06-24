@@ -122,12 +122,12 @@ def _validate_token(token: str) -> str | None:
         return "admin"
 
     try:
-        from news_sentry.api.middleware.auth import decode_access_token
+        from news_sentry.api.middleware.auth import _verify_token
 
-        payload = decode_access_token(token)
-        if payload is None:
+        info = _verify_token(token)
+        if info is None:
             return None
-        return payload.get("sub", "")
+        return str(info.get("username", ""))
     except Exception:
         logger.warning("WS token validation failed", exc_info=True)
         return None

@@ -131,6 +131,13 @@ async def receive_webhook(
                 content={"error": "rate_limited", "detail": "请求过于频繁，请稍后再试"},
             )
 
+    # 0.1 依赖注入检查
+    if _data_dir is None:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "not_initialized", "detail": "Webhook 模块未初始化"},
+        )
+
     # 1. Payload 大小限制
     body = await request.body()
     if len(body) > MAX_PAYLOAD_BYTES:

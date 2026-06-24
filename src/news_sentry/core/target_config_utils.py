@@ -127,7 +127,7 @@ def _load_source_configs(target_id: str) -> list[dict[str, Any]]:
 
 def _cached_public_source_configs(target_id: str) -> list[dict[str, Any]]:
     """Cache source YAML reads used by public feed item projection."""
-    key = (str(Path.cwd()), target_id)
+    key = f"{Path.cwd()}:{target_id}"
     now = time.monotonic()
     cached = _public_source_configs_cache.get(key)
     if (
@@ -199,7 +199,7 @@ def _target_validation_signature(target_id: str) -> str:
 
 def _cached_source_inventory(target_id: str) -> dict[str, Any]:
     signature = _target_inventory_signature(target_id)
-    key = (str(Path.cwd()), str(_data_dir), target_id)
+    key = f"{Path.cwd()}:{_data_dir}:{target_id}"
     now = time.monotonic()
     cached = _source_inventory_cache.get(key)
     if (
@@ -222,7 +222,7 @@ def _cached_source_inventory(target_id: str) -> dict[str, Any]:
 
 def _cached_target_validation(target_id: str) -> dict[str, Any]:
     signature = _target_validation_signature(target_id)
-    key = (str(Path.cwd()), str(_data_dir), target_id)
+    key = f"{Path.cwd()}:{_data_dir}:{target_id}"
     now = time.monotonic()
     cached = _target_validation_cache.get(key)
     if (
