@@ -17,10 +17,12 @@ database_id = "35a52961-e7e1-41ef-934e-7a63882ba465"
 
 # 环境变量（Worker 运行时可通过 env 访问）
 
-# 自定义域名（通过 Cloudflare Dashboard 或 wrangler routes 配置）
-# routes = [
-#   { pattern = "api.news-sentry.com/*", zone_name = "news-sentry.com" }
-# ]
+# 自定义域名路由（Worker → api.news-sentry.com）
+# 在 Cloudflare Dashboard > Workers > news-sentry-api > Triggers > Routes
+# 或取消注释以下行通过 wrangler deploy 管理：
+routes = [
+  { pattern = "api.news-sentry.com", zone_name = "news-sentry.com" }
+]
 
 # 生产环境（可选，覆盖默认值）
 [env.production]

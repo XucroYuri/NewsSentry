@@ -464,10 +464,10 @@ jobs:
       - name: Verify Worker health
         run: |
           for i in $(seq 1 10); do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://news-sentry-api.xuyu.workers.dev/api/v1/health" || echo "000")
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://api.news-sentry.com/api/v1/health" || echo "000")
             if [ "$STATUS" = "200" ]; then
               echo "✅ Cloudflare Worker health check passed"
-              curl -s "https://news-sentry-api.xuyu.workers.dev/api/v1/health"
+              curl -s "https://api.news-sentry.com/api/v1/health"
               exit 0
             fi
             echo "Waiting for Worker deployment... (attempt $i, HTTP $STATUS)"
@@ -507,7 +507,7 @@ jobs:
       - name: Build
         working-directory: frontend/public
         env:
-          VITE_API_BASE: https://news-sentry-api.xuyu.workers.dev
+          VITE_API_BASE: https://api.news-sentry.com
         run: npm run build
 
       - name: Deploy to Cloudflare Pages
@@ -522,10 +522,11 @@ jobs:
 
       - name: Verify Pages deployment
         run: |
+          PAGES_URL="${PAGES_CUSTOM_DOMAIN:-https://news-sentry.pages.dev}"
           for i in $(seq 1 10); do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://news-sentry.pages.dev" || echo "000")
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PAGES_URL" || echo "000")
             if [ "$STATUS" = "200" ]; then
-              echo "✅ Cloudflare Pages deployment verified"
+              echo "✅ Cloudflare Pages deployment verified at $PAGES_URL"
               exit 0
             fi
             echo "Waiting for Pages deployment... (attempt $i, HTTP $STATUS)"

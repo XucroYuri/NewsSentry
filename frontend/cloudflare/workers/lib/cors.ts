@@ -10,6 +10,11 @@ const DEFAULT_ALLOW_ORIGINS = [
   "http://localhost:3000",
   "http://localhost:5173",
   "http://127.0.0.1:5173",
+  // Cloudflare Pages 部署（默认 + 自定义域）
+  "https://news-sentry.pages.dev",
+  "https://app.news-sentry.com",
+  // VPS 主站
+  "https://news-sentry.com",
 ];
 
 function getAllowedOrigins(): string[] {
