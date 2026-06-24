@@ -165,6 +165,19 @@ LLM 能力分布是锯齿状的——某些维度超人，某些维度犯蠢：
 
 提交实现代码前，运行最窄但最有意义的检查。禁止提交 `.DS_Store`、`.env*`、token、cookie、日志文件。`data/tmp/` 目录仅提交 `.gitkeep`。
 
+### 会话启动协议（严格遵循，不可跳过）
+
+每次新会话开始时，在阅读任何文件或进行任何分析之前，必须执行以下命令：
+
+```bash
+git log --all --oneline -5 --no-decorate
+git branch --show-current
+git status --short
+```
+
+注意：`--all` 确保看到所有分支的最近提交，不遗漏 remote/origin 上的更新。
+此检查位于任何工具调用之前，严格遵循，不可跳过。system-reminder 中的 gitStatus 是会话启动前的快照，工具调用后不会自动更新。
+
 ### Git 提交规范
 
 - 所有 commit message 默认使用**简体中文**
