@@ -175,6 +175,12 @@ git branch --show-current
 git status --short
 ```
 
+完成后额外确认本地 main 与 remote 无分歧：
+```bash
+git fetch origin main --quiet 2>/dev/null
+git log main..origin/main --oneline | wc -l | xargs test 0 -eq || echo "WARNING: local main diverged from origin/main"
+```
+
 注意：`--all` 确保看到所有分支的最近提交，不遗漏 remote/origin 上的更新。
 此检查位于任何工具调用之前，严格遵循，不可跳过。system-reminder 中的 gitStatus 是会话启动前的快照，工具调用后不会自动更新。
 
