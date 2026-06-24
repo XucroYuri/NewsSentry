@@ -144,3 +144,54 @@ class TestTranslationBatcher:
 
         await batcher.translate([], router, factory, language="en")
         router.route_async.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_per_item_failure_counted(self) -> None:
+        """逐条重试失败的事件数应正确计数。"""
+        events = [self._make_event(), self._make_event(title="Second", event_id="ne-002")]
+        batcher = TranslationBatcher(batch_size=10)
+
+        call_count = 0
+
+        async def mock_route_async(**kwargs):  # noqa: ANN
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("Batch failed")
+            raise RuntimeError("Item failed")
+
+        router = MagicMock()
+        router.route_async = mock_route_async
+        factory = self._make_factory()
+
+        result = await batcher.translate(events, router, factory, language="en")
+        # 1 batch fail + 2 item fails = all failed
+        assert result == 0
+
+    @pytest.mark.asyncio
+    async def test_malformed_json_content(self) -> None:
+        """无效 JSON 响应触发 per-item degrade。"""
+        events = [self._make_event()]
+        batcher = TranslationBatcher(batch_size=10)
+
+        call_count = 0
+
+        async def mock_route_async(**kwargs):  # noqa: ANN
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return {
+                    "content": "not valid json",
+                    "model": "m",
+                    "usage": {},
+                    "fallback_used": False,
+                    "budget_exceeded": False,
+                }
+
+        router = MagicMock()
+        router.route_async = mock_route_async
+        factory = self._make_factory()
+
+        await batcher.translate(events, router, factory, language="en")
+        # Malformed JSON → per-item degrade triggered
+        assert call_count >= 1
