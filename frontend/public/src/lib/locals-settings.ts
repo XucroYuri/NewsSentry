@@ -16,8 +16,21 @@ export interface LocalSettings {
   apiBase: string | null
 }
 
+/** 构建时可通过 VITE_API_BASE 注入默认 API 地址（如 Cloudflare Pages 部署）。 */
+function buildTimeApiBase(): string | null {
+  try {
+    // Vite 会将 VITE_ 前缀的环境变量暴露在 import.meta.env 上
+    const meta = import.meta as unknown as { env?: { VITE_API_BASE?: string } }
+    const raw = meta.env?.VITE_API_BASE
+    if (raw && raw.trim().length > 0) return raw.trim().replace(/\/+$/, "")
+  } catch {
+    // import.meta.env 不可用时（非 Vite 环境）静默回退
+  }
+  return null
+}
+
 const DEFAULTS: LocalSettings = {
-  apiBase: null,
+  apiBase: buildTimeApiBase(),
 }
 
 function load(): LocalSettings {
