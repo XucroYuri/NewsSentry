@@ -581,6 +581,43 @@ class EntityDetailResponse(BaseModel):
     recent_events: list[dict[str, Any]] = []
 
 
+class AnnotationCreateRequest(BaseModel):
+    """创建人工注解请求。"""
+
+    entity_id: int
+    field: str
+    old_value: str = ""
+    new_value: str = ""
+    event_id: str | None = None
+    annotation_type: str = "manual"
+    created_by: str = "local-user"
+
+
+class AnnotationInfo(BaseModel):
+    """注解记录响应。"""
+
+    id: int
+    entity_id: int
+    event_id: str | None = None
+    field: str
+    old_value: str
+    new_value: str
+    annotation_type: str
+    created_by: str
+    created_at: str
+    reviewed: bool = False
+    reviewed_by: str | None = None
+    reviewed_at: str | None = None
+    canonical_name: str = ""
+
+
+class AnnotationListResponse(BaseModel):
+    """注解列表响应。"""
+
+    annotations: list[AnnotationInfo]
+    total: int = 0
+
+
 class RunInfo(BaseModel):
     """运行历史条目。"""
 

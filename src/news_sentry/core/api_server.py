@@ -75,6 +75,9 @@ from news_sentry.api.schemas import (
     AIEnrichmentConfigUpdate,
     AlertHistoryItem,
     AlertHistoryResponse,
+    AnnotationCreateRequest,
+    AnnotationInfo,
+    AnnotationListResponse,
     ArchiveRequest,
     BackupResponse,
     CanonicalBackfillRequest,
@@ -8015,6 +8018,60 @@ def create_app(
         events = await _store.get_entity_events(entity_id, limit=limit, offset=offset)
         return {"entity_id": entity_id, "total": len(events), "events": events}
 
+    async def create_annotation(
+        body: AnnotationCreateRequest,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> AnnotationInfo:
+        """写入一条人工注解记录。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not ready")
+        ann_id = await _store.upsert_annotation(
+            entity_id=body.entity_id,
+            field=body.field,
+            old_value=body.old_value,
+            new_value=body.new_value,
+            event_id=body.event_id,
+            annotation_type=body.annotation_type,
+            created_by=body.created_by or user.get("username", "local-user"),
+        )
+        if ann_id < 0:
+            raise HTTPException(status_code=500, detail="Failed to create annotation")
+        return AnnotationInfo(
+            id=ann_id,
+            entity_id=body.entity_id,
+            event_id=body.event_id,
+            field=body.field,
+            old_value=body.old_value,
+            new_value=body.new_value,
+            annotation_type=body.annotation_type,
+            created_by=body.created_by or user.get("username", "local-user"),
+            created_at="",
+            reviewed=False,
+        )
+
+    async def list_annotations(
+        entity_id: int | None = Query(None, description="实体ID"),
+        event_id: str | None = Query(None, description="事件ID"),
+        reviewed: bool | None = Query(None, description="审核状态"),
+        limit: int = Query(50, ge=1, le=200),
+        offset: int = Query(0, ge=0),
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> AnnotationListResponse:
+        """列出注解记录（可按实体/事件/审核状态筛选）。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not ready")
+        annotations = await _store.list_annotations(
+            entity_id=entity_id,
+            event_id=event_id,
+            reviewed=reviewed,
+            limit=limit,
+            offset=offset,
+        )
+        return AnnotationListResponse(
+            annotations=[AnnotationInfo(**a) for a in annotations],
+            total=len(annotations),
+        )
+
     # ── 需认证端点 ────────────────────────────────────
 
     async def get_today_stats_api(
@@ -9580,6 +9637,8 @@ def create_app(
         "search_entities": search_entities,
         "merge_entities": merge_entities,
         "get_entity_events": get_entity_events,
+        "create_annotation": create_annotation,
+        "list_annotations": list_annotations,
         "receive_webhook": receive_webhook,
         "import_events": import_events,
         "transition_event_stage": transition_event_stage,
@@ -9632,6 +9691,7 @@ def create_app(
         "EntityListResponse": EntityListResponse,
         "EntityDetailResponse": EntityDetailResponse,
         "EntityMergeResponse": EntityMergeResponse,
+        "AnnotationListResponse": AnnotationListResponse,
         "WebhookResponse": WebhookResponse,
         "ImportResponse": ImportResponse,
         "RunListResponse": RunListResponse,

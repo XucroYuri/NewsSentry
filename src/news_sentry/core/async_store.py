@@ -211,6 +211,25 @@ _DDL_ENTITY_FTS_TRIGGERS = (
     END""",
 )
 
+_DDL_ENTITY_EVENT_ANNOTATIONS = """
+CREATE TABLE IF NOT EXISTS entity_event_annotations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_id INTEGER NOT NULL,
+    event_id TEXT,
+    field TEXT NOT NULL,
+    old_value TEXT NOT NULL DEFAULT '',
+    new_value TEXT NOT NULL DEFAULT '',
+    annotation_type TEXT NOT NULL DEFAULT 'manual',
+    created_by TEXT NOT NULL DEFAULT 'local-user',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    reviewed INTEGER NOT NULL DEFAULT 0,
+    reviewed_by TEXT,
+    reviewed_at TEXT,
+    FOREIGN KEY (entity_id) REFERENCES entities(id),
+    FOREIGN KEY (event_id) REFERENCES event_index(event_id)
+)
+"""
+
 _DDL_EVENT_LINKS = """
 CREATE TABLE IF NOT EXISTS event_links (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -559,6 +578,11 @@ _SCHEMA_MIGRATIONS: list[tuple[int, str, list[str]]] = [
         ]
         + list(_DDL_ENTITY_FTS_TRIGGERS),
     ),
+    (
+        14,
+        "Entity annotations — manual correction audit trail",
+        [_DDL_ENTITY_EVENT_ANNOTATIONS],
+    ),
 ]
 
 _DDL_INDEXES = (
@@ -574,6 +598,9 @@ _DDL_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_eem_event ON entity_event_mentions(event_id)",
     "CREATE INDEX IF NOT EXISTS idx_eem_entity ON entity_event_mentions(entity_id)",
     "CREATE INDEX IF NOT EXISTS idx_eem_source ON entity_event_mentions(source_id)",
+    "CREATE INDEX IF NOT EXISTS idx_eea_entity ON entity_event_annotations(entity_id)",
+    "CREATE INDEX IF NOT EXISTS idx_eea_event ON entity_event_annotations(event_id)",
+    "CREATE INDEX IF NOT EXISTS idx_eea_reviewed ON entity_event_annotations(reviewed)",
     "CREATE INDEX IF NOT EXISTS idx_event_links_source ON event_links(source_event_id)",
     "CREATE INDEX IF NOT EXISTS idx_event_links_target ON event_links(target_event_id)",
     "CREATE INDEX IF NOT EXISTS idx_event_links_target_id ON event_links(target_id)",
@@ -702,6 +729,7 @@ class AsyncStore:
         await self._db.execute(_DDL_EVENT_INDEX)
         await self._db.execute(_DDL_ENTITIES)
         await self._db.execute(_DDL_ENTITY_EVENT_MENTIONS)
+        await self._db.execute(_DDL_ENTITY_EVENT_ANNOTATIONS)
         await self._db.execute(_DDL_EVENT_LINKS)
         await self._db.execute(_DDL_CHAIN_NARRATIVES)
         await self._db.execute(_DDL_FEEDBACK)
@@ -4501,6 +4529,77 @@ class AsyncStore:
         cols = ("event_id", "title_original", "published_at", "sentiment",
                 "news_value_score", "source_id", "mention_confidence")
         return [dict(zip(cols, r, strict=True)) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Entity Event Annotations — L1 人工注解层
+    # ------------------------------------------------------------------
+
+    async def upsert_annotation(
+        self,
+        entity_id: int,
+        field: str,
+        old_value: str,
+        new_value: str,
+        *,
+        event_id: str | None = None,
+        annotation_type: str = "manual",
+        created_by: str = "local-user",
+    ) -> int:
+        """写入一条人工注解记录。返回新记录的 id。"""
+        if self._db is None:
+            return -1
+        now = datetime.now(UTC).isoformat()
+        cursor = await self._db.execute(
+            """INSERT INTO entity_event_annotations
+               (entity_id, event_id, field, old_value, new_value,
+                annotation_type, created_by, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (entity_id, event_id, field, old_value, new_value, annotation_type, created_by, now),
+        )
+        await self._db.commit()
+        return cursor.lastrowid or -1
+
+    async def list_annotations(
+        self,
+        entity_id: int | None = None,
+        event_id: str | None = None,
+        reviewed: bool | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """列出注解记录，可按实体/事件/审核状态筛选。"""
+        if self._db is None:
+            return []
+        wheres: list[str] = []
+        params: list[Any] = []
+        if entity_id is not None:
+            wheres.append("e.entity_id = ?")
+            params.append(entity_id)
+        if event_id is not None:
+            wheres.append("e.event_id = ?")
+            params.append(event_id)
+        if reviewed is not None:
+            wheres.append("e.reviewed = ?")
+            params.append(1 if reviewed else 0)
+        where_clause = ("WHERE " + " AND ".join(wheres)) if wheres else ""
+        cols = (
+            "e.id", "e.entity_id", "e.event_id", "e.field",
+            "e.old_value", "e.new_value", "e.annotation_type",
+            "e.created_by", "e.created_at", "e.reviewed",
+            "e.reviewed_by", "e.reviewed_at",
+            "ent.canonical_name",
+        )
+        sql = (
+            f"SELECT {', '.join(cols)} "  # noqa: S608
+            "FROM entity_event_annotations e "
+            "LEFT JOIN entities ent ON e.entity_id = ent.id "
+            f"{where_clause} "
+            "ORDER BY e.created_at DESC LIMIT ? OFFSET ?"
+        )
+        params.extend([limit, offset])
+        async with self._db.execute(sql, params) as cursor:
+            rows = await cursor.fetchall()
+        return [dict(zip([c.split(".")[-1] for c in cols], r, strict=True)) for r in rows]
 
     # ------------------------------------------------------------------
     # Event Links (Phase 35)

@@ -3676,7 +3676,8 @@ async def test_upsert_entity_tracks_source_id(tmp_path: Path):
     )
 
     cur = await store._db.execute(
-        "SELECT first_seen_source_id, last_seen_source_id FROM entities WHERE canonical_name='Draghi'"
+        "SELECT first_seen_source_id, last_seen_source_id "
+        "FROM entities WHERE canonical_name='Draghi'"
     )
     row = await cur.fetchone()
     assert row[0] == "ansa", f"first_seen_source_id 应为 ansa，实际 {row[0]}"
@@ -3765,5 +3766,153 @@ async def test_merge_entities(tmp_path: Path):
     )
     count = (await cur.fetchone())[0]
     assert count == 2
+
+    await store.close()
+
+
+# ── L1: Entity Event Annotations ──
+
+
+async def test_annotations_table_created(tmp_path: Path):
+    """entity_event_annotations 表已创建（含索引）。"""
+    store = AsyncStore(tmp_path / "test_eea_table.db")
+    await store.initialize()
+    cur = await store._db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='entity_event_annotations'"
+    )
+    row = await cur.fetchone()
+    assert row is not None
+    await store.close()
+
+
+async def test_upsert_annotation_creates_record(tmp_path: Path):
+    """写入注解记录并验证可查询。"""
+    store = AsyncStore(tmp_path / "test_eea_insert.db")
+    await store.initialize()
+
+    # 先创建一个实体和事件
+    await store._db.execute(
+        "INSERT INTO event_index (event_id, target_id, stage, created_at) "
+        "VALUES (?, ?, ?, ?)",
+        ("evt-l1-001", "italy", "judged", "2026-06-25T12:00:00+00:00"),
+    )
+    await store._db.commit()
+    await store.upsert_entity(
+        name="Draghi", entity_type="person", target_id="italy",
+        seen_at="2026-06-25T12:00:00+00:00", confidence=80,
+        event_id="evt-l1-001",
+    )
+
+    cur = await store._db.execute("SELECT id FROM entities WHERE canonical_name='Draghi'")
+    entity_id = (await cur.fetchone())[0]
+
+    ann_id = await store.upsert_annotation(
+        entity_id=entity_id,
+        field="entity_type",
+        old_value="person",
+        new_value="organization",
+        event_id="evt-l1-001",
+        created_by="test-user",
+    )
+    assert ann_id > 0
+
+    annotations = await store.list_annotations(entity_id=entity_id)
+    assert len(annotations) == 1
+    assert annotations[0]["field"] == "entity_type"
+    assert annotations[0]["old_value"] == "person"
+    assert annotations[0]["new_value"] == "organization"
+    assert annotations[0]["annotation_type"] == "manual"
+    assert annotations[0]["created_by"] == "test-user"
+    assert annotations[0]["reviewed"] == 0
+    assert annotations[0]["canonical_name"] == "Draghi"
+
+    await store.close()
+
+
+async def test_list_annotations_filters(tmp_path: Path):
+    """按 entity_id / event_id / reviewed 筛选注解。"""
+    store = AsyncStore(tmp_path / "test_eea_filter.db")
+    await store.initialize()
+
+    await store._db.execute(
+        "INSERT INTO event_index (event_id, target_id, stage, created_at) "
+        "VALUES (?, ?, ?, ?)",
+        ("evt-flt-1", "italy", "judged", "2026-06-25T12:00:00+00:00"),
+    )
+    await store._db.execute(
+        "INSERT INTO event_index (event_id, target_id, stage, created_at) "
+        "VALUES (?, ?, ?, ?)",
+        ("evt-flt-2", "italy", "judged", "2026-06-25T12:30:00+00:00"),
+    )
+    await store._db.commit()
+
+    await store.upsert_entity(
+        name="Conte", entity_type="person", target_id="italy",
+        seen_at="2026-06-25T12:00:00+00:00", event_id="evt-flt-1",
+    )
+    await store.upsert_entity(
+        name="Salvini", entity_type="person", target_id="italy",
+        seen_at="2026-06-25T12:00:00+00:00", event_id="evt-flt-2",
+    )
+
+    cur = await store._db.execute("SELECT id FROM entities WHERE canonical_name='Conte'")
+    conte_id = (await cur.fetchone())[0]
+    cur = await store._db.execute("SELECT id FROM entities WHERE canonical_name='Salvini'")
+    salvini_id = (await cur.fetchone())[0]
+
+    await store.upsert_annotation(
+        entity_id=conte_id, field="entity_type",
+        old_value="person", new_value="organization",
+        event_id="evt-flt-1",
+    )
+    await store.upsert_annotation(
+        entity_id=salvini_id, field="canonical_name",
+        old_value="Salvini", new_value="Matteo Salvini",
+        event_id="evt-flt-2",
+    )
+
+    # 按 entity_id 筛选
+    anns = await store.list_annotations(entity_id=conte_id)
+    assert len(anns) == 1
+    assert anns[0]["canonical_name"] == "Conte"
+
+    # 按 event_id 筛选
+    anns = await store.list_annotations(event_id="evt-flt-2")
+    assert len(anns) == 1
+    assert anns[0]["field"] == "canonical_name"
+
+    # 按 reviewed=False 筛选
+    anns = await store.list_annotations(reviewed=False)
+    assert len(anns) == 2
+
+    # 按 reviewed=True 筛选（无结果）
+    anns = await store.list_annotations(reviewed=True)
+    assert len(anns) == 0
+
+    await store.close()
+
+
+async def test_upsert_annotation_no_event(tmp_path: Path):
+    """注解的 event_id 可以为 NULL（纯实体属性修正）。"""
+    store = AsyncStore(tmp_path / "test_eea_noevent.db")
+    await store.initialize()
+    await store.upsert_entity(
+        name="Chigi", entity_type="organization", target_id="italy",
+        seen_at="2026-06-25T12:00:00+00:00",
+    )
+    cur = await store._db.execute("SELECT id FROM entities WHERE canonical_name='Chigi'")
+    entity_id = (await cur.fetchone())[0]
+
+    ann_id = await store.upsert_annotation(
+        entity_id=entity_id,
+        field="entity_type",
+        old_value="organization",
+        new_value="location",
+    )
+    assert ann_id > 0
+
+    annotations = await store.list_annotations(entity_id=entity_id)
+    assert len(annotations) == 1
+    assert annotations[0]["event_id"] is None
 
     await store.close()
