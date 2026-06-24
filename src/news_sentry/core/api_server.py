@@ -68,6 +68,8 @@ from news_sentry.api.middleware.auth import (
     get_current_user,
     require_permission,
 )
+from news_sentry.api.routes.notifications import init_notifications
+from news_sentry.api.routes.notifications import router as ws_router
 
 # ── Pydantic 模型（已提取至 news_sentry.api.schemas）───
 from news_sentry.api.schemas import (
@@ -78,9 +80,6 @@ from news_sentry.api.schemas import (
     AnnotationCreateRequest,
     AnnotationInfo,
     AnnotationListResponse,
-    NotificationRuleRequest,
-    NotificationRuleInfo,
-    NotificationRuleListResponse,
     ArchiveRequest,
     BackupResponse,
     CanonicalBackfillRequest,
@@ -114,6 +113,9 @@ from news_sentry.api.schemas import (
     LoginRequest,
     LoginResponse,
     NarrativeResponse,
+    NotificationRuleInfo,
+    NotificationRuleListResponse,
+    NotificationRuleRequest,
     ProviderRoutesResponse,
     PruneResponse,
     PublicAnalysisResponse,
@@ -174,6 +176,7 @@ from news_sentry.api.schemas import (
     WebhookPayload,
     WebhookResponse,
 )
+from news_sentry.api.ws_manager import ConnectionManager
 from news_sentry.core.ai_enrichment import (
     AIEnrichmentConfig,
     AIEnrichmentEngine,
@@ -183,12 +186,12 @@ from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.auth import hash_password, verify_password
 from news_sentry.core.canonical_projection import CanonicalProjectionService, ProjectionOptions
 from news_sentry.core.config_cache import ConfigCache
+from news_sentry.core.event_bus import EventBus
 from news_sentry.core.file_writer import FileWriter
 from news_sentry.core.markdown_export import (
     render_canonical_event_markdown,
     render_news_event_markdown,
 )
-from news_sentry.core.public_site_projection import PublicSiteProjectionStore, SitemapEntry
 from news_sentry.core.public_translation import (
     PublicTranslationConfig,
     PublicTranslationEngine,
@@ -5377,6 +5380,13 @@ async def _restore_sessions() -> None:
         logger.info("清理过期 session: %d 条", deleted)
 
 
+
+# R2: WebSocket/EventBus 模块级句柄（在 lifespan 内外共享）
+_event_bus: EventBus | None = None
+_ws_manager: ConnectionManager | None = None
+_ws_sub_id: str | None = None
+
+
 @asynccontextmanager
 async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
     """FastAPI lifespan: 启动引导 + 后台采集循环。"""
@@ -5397,6 +5407,23 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
     if _public_translation_state["enabled"] and not _skip_lifespan:
         translation_task = asyncio.create_task(_public_translation_loop())
         _public_translation_state["task"] = translation_task
+
+    # R2: EventBus + ConnectionManager 初始化
+    global _event_bus, _ws_manager, _ws_sub_id  # noqa: PLW0603
+
+    _event_bus = EventBus()
+    _ws_manager = ConnectionManager()
+    _ws_sub_id = None
+    if not _skip_lifespan:
+        try:
+            from news_sentry.api.routes.notifications import _handle_alert
+
+            _ws_sub_id = await _event_bus.subscribe("alert.triggered.browser", _handle_alert)
+            init_notifications(_ws_manager, _event_bus)
+            logger.info("R2 EventBus + ConnectionManager 已就绪")
+        except Exception as exc:
+            logger.warning("R2 初始化失败（非阻塞）: %s", exc)
+
     yield
     if task is not None:
         _auto_collector_state["enabled"] = False
@@ -5425,6 +5452,14 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
         from news_sentry.api.middleware.auth import configure as _auth_configure
 
         _auth_configure(None)
+    # R2: EventBus 清理
+    try:
+        if _ws_sub_id is not None:
+            await _event_bus.unsubscribe(_ws_sub_id)
+            logger.info("R2 EventBus 订阅已取消")
+    except Exception as exc:
+        logger.warning("R2 清理失败（非阻塞）: %s", exc)
+
     await _close_target_stores()
 
 
@@ -8085,6 +8120,7 @@ def create_app(
         if _store is None:
             raise HTTPException(status_code=503, detail="Store not ready")
         rule_dict = body.model_dump()
+        rule_dict["user_id"] = user.get("sub", "")  # 强制使用认证用户
         await _store.upsert_notification_rule(rule_dict)
         return NotificationRuleInfo(
             id=body.id,
@@ -8113,6 +8149,10 @@ def create_app(
         """删除通知规则。"""
         if _store is None:
             raise HTTPException(status_code=503, detail="Store not ready")
+        # 安全校验：只允许删除自己的规则
+        rules = await _store.list_notification_rules(user_id=user.get("sub", ""))
+        if not any(r["id"] == rule_id for r in rules):
+            raise HTTPException(status_code=403, detail="Not your rule")
         deleted = await _store.delete_notification_rule(rule_id)
         if not deleted:
             raise HTTPException(status_code=404, detail="Rule not found")
@@ -9768,6 +9808,8 @@ def create_app(
 
     app.include_router(admin_router)
     app.include_router(public_router)
+    app.include_router(ws_router)
+
     _mount_spa_routes(app)
 
     return app

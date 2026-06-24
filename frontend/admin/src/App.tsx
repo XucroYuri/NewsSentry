@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react"
 import {
+import { useNotificationWebSocket } from "@/hooks/useNotificationWebSocket"
+import NotificationToast from "@/components/NotificationToast"
+
   ActivityIcon,
   ClipboardCheckIcon,
   GlobeIcon,
@@ -38,6 +41,10 @@ function App() {
   const [apiSource, setApiSource] = useState<string>(() => getApiBase() ?? "")
   const [apiSourceEditing, setApiSourceEditing] = useState(false)
   const [apiSourceDraft, setApiSourceDraft] = useState("")
+
+
+  // R2: WebSocket 通知
+  const { alerts, clearAlert } = useNotificationWebSocket(token)
 
   function handleSaveApiSource() {
     const normalized = apiSourceDraft.trim()
@@ -284,6 +291,9 @@ function App() {
           {page === "users" && <UsersPage />}
           {page === "diagnostics" && <DiagnosticsPage />}
           </ErrorBoundary>
+
+          <NotificationToast alerts={alerts} onDismiss={clearAlert} />
+
         </div>
       </main>
     </div>

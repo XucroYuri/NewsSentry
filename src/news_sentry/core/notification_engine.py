@@ -171,13 +171,15 @@ class NotificationEngine:
             return []
         try:
             async with self._store._db.execute(
-                "SELECT rule_json FROM notification_rules WHERE enabled = 1"
+                "SELECT rule_json, user_id FROM notification_rules WHERE enabled = 1"
             ) as cursor:
                 rows = await cursor.fetchall()
             rules: list[dict[str, Any]] = []
-            for (json_str,) in rows:
+            for json_str, uid in rows:
                 try:
-                    rules.append(json.loads(json_str))
+                    rule = json.loads(json_str)
+                    rule["user_id"] = uid
+                    rules.append(rule)
                 except json.JSONDecodeError:
                     continue
             return rules
