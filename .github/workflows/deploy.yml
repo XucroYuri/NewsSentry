@@ -531,7 +531,8 @@ jobs:
             echo "Waiting for Pages deployment... (attempt $i, HTTP $STATUS)"
             sleep 5
           done
-          echo "⚠️ Cloudflare Pages verification timed out (may be first deploy)"
+          echo "❌ Cloudflare Pages verification timed out after 10 attempts"
+          exit 1
 
   verify-preview:
     name: Verify preview
