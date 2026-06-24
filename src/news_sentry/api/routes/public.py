@@ -15,8 +15,10 @@ def register_public_routes(router: APIRouter, h: dict[str, Any]) -> None:
     """Register all public (no-auth) routes on the given APIRouter."""
 
     # ── 健康 & 诊断 ──
-    router.api_route("/api/v1/health", methods=["GET"])(h["health"])
-    router.api_route("/api/v1/diagnostics", methods=["GET"])(h["global_diagnostics"])
+    router.api_route("/api/v1/health", methods=["GET"], include_in_schema=False)(h["health"])
+    router.api_route("/api/v1/diagnostics", methods=["GET"], include_in_schema=False)(
+        h["global_diagnostics"]
+    )
 
     # ── SPA / 静态前端路由 ──
     router.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)(h["index_html"])
