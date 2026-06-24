@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import {
   AlertTriangleIcon,
   ChevronLeftIcon,
@@ -10,7 +10,7 @@ import {
   XIcon,
 } from "lucide-react"
 
-import { authHeaders, fetchEntities, fetchEntity, fetchEntityEvents, mergeEntities, searchEntities, type EntityInfo, type EntityDetailResponse } from "@/lib/api"
+import { fetchEntities, fetchEntity, fetchEntityEvents, mergeEntities, searchEntities, type EntityInfo, type EntityDetailResponse, type EntityListResponse } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -46,10 +46,11 @@ export default function EntitiesPage() {
   const [detail, setDetail] = useState<EntityDetailResponse | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [entityEvents, setEntityEvents] = useState<Record<string, unknown>[]>([])
-  const [eventsPage, setEventsPage] = useState(0)
 
   // 合并 UI
-  const [sourceId, setSourceId] = useState<number | null>(null)
+  const [mergeSourceQuery, setMergeSourceQuery] = useState("")
+  const [mergeSourceResults, setMergeSourceResults] = useState<EntityInfo[]>([])
+  const [mergeSearchLoading, setMergeSearchLoading] = useState(false)
   const [mergeDialog, setMergeDialog] = useState(false)
   const [mergeLoading, setMergeLoading] = useState(false)
   const [mergeError, setMergeError] = useState<string | null>(null)
@@ -101,7 +102,8 @@ export default function EntitiesPage() {
   async function openDetail(entityId: number) {
     setDetailId(entityId)
     setDetailLoading(true)
-    setEventsPage(0)
+    setMergeSourceQuery("")
+    setMergeSourceResults([])
     try {
       const d = await fetchEntity(entityId)
       setDetail(d)
@@ -118,16 +120,33 @@ export default function EntitiesPage() {
     setDetailId(null)
     setDetail(null)
     setEntityEvents([])
+    setMergeSourceQuery("")
+    setMergeSourceResults([])
   }
 
-  async function handleMerge() {
-    if (sourceId == null || detailId == null) return
+  async function searchMergeSource() {
+    if (!mergeSourceQuery.trim()) return
+    setMergeSearchLoading(true)
+    try {
+      const data: EntityListResponse = await searchEntities(mergeSourceQuery.trim(), 10)
+      // 排除当前详情实体
+      setMergeSourceResults(data.entities.filter((e) => e.id !== detailId))
+    } catch {
+      // ignore
+    } finally {
+      setMergeSearchLoading(false)
+    }
+  }
+
+  async function handleMerge(sourceId: number) {
+    if (detailId == null) return
     setMergeLoading(true)
     setMergeError(null)
     try {
       await mergeEntities(sourceId, detailId)
       setMergeDialog(false)
-      setSourceId(null)
+      setMergeSourceQuery("")
+      setMergeSourceResults([])
       closeDetail()
       void load()
     } catch (err) {
@@ -146,6 +165,16 @@ export default function EntitiesPage() {
       topic: "bg-sky-50 text-sky-700 border-sky-200",
     }
     return colors[type] ?? "bg-muted text-muted-foreground"
+  }
+
+  function formatAliases(aliases: string): string[] {
+    if (!aliases) return []
+    try {
+      const parsed = JSON.parse(aliases)
+      return Array.isArray(parsed) ? parsed : [String(parsed)]
+    } catch {
+      return aliases.split(",").map((s) => s.trim()).filter(Boolean)
+    }
   }
 
   // ── 主列表视图 ──────────────────────────────────────
@@ -246,6 +275,7 @@ export default function EntitiesPage() {
                     <TableRow>
                       <TableHead>名称</TableHead>
                       <TableHead>类型</TableHead>
+                      <TableHead>别名</TableHead>
                       <TableHead className="text-right">提及次数</TableHead>
                       <TableHead>首次出现</TableHead>
                       <TableHead>最晚出现</TableHead>
@@ -266,6 +296,9 @@ export default function EntitiesPage() {
                           <Badge variant="outline" className={`text-[10px] border ${entityTypeBadge(e.entity_type)}`}>
                             {e.entity_type}
                           </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground max-w-[200px] truncate">
+                          {e.aliases || "-"}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">{e.mention_count}</TableCell>
                         <TableCell className="text-xs text-muted-foreground">
@@ -364,6 +397,18 @@ export default function EntitiesPage() {
                       <code className="text-xs">{detail.entity.last_seen_source_id}</code>
                     </div>
                   )}
+                  {detail.entity.target_ids && (
+                    <div className="col-span-2">
+                      <span className="text-muted-foreground">所属 targets：</span>
+                      <code className="text-xs">{detail.entity.target_ids}</code>
+                    </div>
+                  )}
+                  {detail.entity.aliases && (
+                    <div className="col-span-2">
+                      <span className="text-muted-foreground">别名：</span>
+                      <span className="text-xs">{formatAliases(detail.entity.aliases).join("、")}</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* 关联事件 */}
@@ -384,29 +429,61 @@ export default function EntitiesPage() {
                   </div>
                 )}
 
-                {/* 合并操作 */}
+                {/* 合并操作 — 按名称搜索源实体 */}
                 <div className="border-t pt-4">
                   <p className="text-sm text-muted-foreground mb-2">
-                    如需将此实体与其他实体合并，请先输入要合并的来源实体 ID
+                    搜索并选择要合并到此实体的来源实体
                   </p>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 mb-3">
                     <Input
-                      type="number"
-                      placeholder="来源实体 ID"
-                      value={sourceId ?? ""}
-                      onChange={(e) => setSourceId(e.target.value ? Number(e.target.value) : null)}
-                      className="max-w-[160px]"
+                      placeholder="搜索来源实体名称..."
+                      value={mergeSourceQuery}
+                      onChange={(e) => setMergeSourceQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && searchMergeSource()}
+                      className="max-w-xs"
                     />
                     <Button
                       variant="outline"
                       size="sm"
-                      disabled={sourceId == null || sourceId === detailId}
-                      onClick={() => setMergeDialog(true)}
+                      onClick={searchMergeSource}
+                      disabled={mergeSearchLoading || !mergeSourceQuery.trim()}
                     >
-                      <MergeIcon className="h-3.5 w-3.5" />
-                      合并到此实体
+                      <SearchIcon className="h-3.5 w-3.5" />
                     </Button>
                   </div>
+                  {mergeSourceResults.length > 0 && (
+                    <div className="space-y-1 max-h-40 overflow-y-auto border rounded-md p-2 mb-3">
+                      {mergeSourceResults.map((src) => (
+                        <div
+                          key={src.id}
+                          className="flex items-center justify-between py-1 px-2 hover:bg-accent rounded text-xs"
+                        >
+                          <div>
+                            <span className="font-medium">{src.canonical_name}</span>
+                            <Badge variant="outline" className={`ml-2 text-[10px] border ${entityTypeBadge(src.entity_type)}`}>
+                              {src.entity_type}
+                            </Badge>
+                            <span className="text-muted-foreground ml-2">{src.mention_count} 次提及</span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setMergeDialog(true)}
+                            className="text-destructive hover:text-destructive"
+                          >
+                            <MergeIcon className="h-3.5 w-3.5" />
+                            合并
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {mergeSearchLoading && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+                      <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
+                      搜索中...
+                    </div>
+                  )}
                 </div>
               </div>
             </>
@@ -422,7 +499,8 @@ export default function EntitiesPage() {
           <DialogHeader>
             <DialogTitle>确认合并实体</DialogTitle>
             <DialogDescription>
-              将实体 <code className="text-xs">{sourceId}</code> 合并到 <code className="text-xs">{detailId}</code>（{detail?.entity.canonical_name ?? ""}）。此操作不可撤销。
+              将实体 <code className="text-xs">{mergeSourceResults.length > 0 ? mergeSourceResults[0].canonical_name : "?"}</code> 合并到{" "}
+              <code className="text-xs">{detail?.entity.canonical_name ?? ""}</code>。此操作不可撤销。
             </DialogDescription>
           </DialogHeader>
           {mergeError && (
@@ -432,7 +510,13 @@ export default function EntitiesPage() {
             <Button variant="outline" size="sm" onClick={() => setMergeDialog(false)} disabled={mergeLoading}>
               取消
             </Button>
-            <Button size="sm" onClick={handleMerge} disabled={mergeLoading}>
+            <Button
+              size="sm"
+              onClick={() => {
+                if (mergeSourceResults.length > 0) handleMerge(mergeSourceResults[0].id)
+              }}
+              disabled={mergeLoading}
+            >
               {mergeLoading && <Loader2Icon className="h-3.5 w-3.5 mr-1 animate-spin" />}
               确认合并
             </Button>

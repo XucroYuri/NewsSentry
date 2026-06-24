@@ -4618,6 +4618,72 @@ class AsyncStore:
             rows = await cursor.fetchall()
         return [dict(zip([c.split(".")[-1] for c in cols], r, strict=True)) for r in rows]
 
+    async def update_annotation(
+        self,
+        annotation_id: int,
+        *,
+        field: str | None = None,
+        old_value: str | None = None,
+        new_value: str | None = None,
+        annotation_type: str | None = None,
+    ) -> bool:
+        """更新注解的字段内容。"""
+        if self._db is None:
+            return False
+        sets: list[str] = []
+        params: list[Any] = []
+        if field is not None:
+            sets.append("field = ?")
+            params.append(field)
+        if old_value is not None:
+            sets.append("old_value = ?")
+            params.append(old_value)
+        if new_value is not None:
+            sets.append("new_value = ?")
+            params.append(new_value)
+        if annotation_type is not None:
+            sets.append("annotation_type = ?")
+            params.append(annotation_type)
+        if not sets:
+            return False
+        params.append(annotation_id)
+        await self._db.execute(
+            f"UPDATE entity_event_annotations SET {', '.join(sets)} WHERE id = ?",  # noqa: S608
+            params,
+        )
+        await self._db.commit()
+        return True
+
+    async def delete_annotation(self, annotation_id: int) -> bool:
+        """删除一条注解记录。"""
+        if self._db is None:
+            return False
+        cursor = await self._db.execute(
+            "DELETE FROM entity_event_annotations WHERE id = ?",
+            [annotation_id],
+        )
+        await self._db.commit()
+        return cursor.rowcount > 0
+
+    async def review_annotation(
+        self,
+        annotation_id: int,
+        reviewed: bool,
+        reviewed_by: str = "",
+    ) -> bool:
+        """标记注解审核状态。"""
+        if self._db is None:
+            return False
+        now = datetime.now(UTC).isoformat()
+        await self._db.execute(
+            "UPDATE entity_event_annotations "
+            "SET reviewed = ?, reviewed_by = ?, reviewed_at = ? "
+            "WHERE id = ?",
+            [1 if reviewed else 0, reviewed_by, now, annotation_id],
+        )
+        await self._db.commit()
+        return True
+
     # ------------------------------------------------------------------
     # Notification Rules — R1 实时告警引擎
     # ------------------------------------------------------------------

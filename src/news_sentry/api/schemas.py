@@ -549,6 +549,7 @@ class EntityInfo(BaseModel):
     needs_review: bool = False
     first_seen_source_id: str | None = None
     last_seen_source_id: str | None = None
+    aliases: str = ""
 
 
 class EntityMergeRequest(BaseModel):
@@ -616,6 +617,17 @@ class AnnotationListResponse(BaseModel):
 
     annotations: list[AnnotationInfo]
     total: int = 0
+
+
+class AnnotationUpdateRequest(BaseModel):
+    """更新注解请求（编辑内容或审核状态）。"""
+
+    field: str | None = None
+    old_value: str | None = None
+    new_value: str | None = None
+    annotation_type: str | None = None
+    reviewed: bool | None = None
+    reviewed_by: str | None = None
 
 
 class NotificationRuleRequest(BaseModel):

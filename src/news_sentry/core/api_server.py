@@ -78,6 +78,7 @@ from news_sentry.api.schemas import (
     AnnotationCreateRequest,
     AnnotationInfo,
     AnnotationListResponse,
+    AnnotationUpdateRequest,
     ArchiveRequest,
     BackupResponse,
     CanonicalBackfillRequest,
@@ -3903,6 +3904,80 @@ def create_app(
         return AnnotationListResponse(
             annotations=[AnnotationInfo(**a) for a in annotations],
             total=len(annotations),
+        )
+
+    async def update_annotation(
+        annotation_id: int,
+        body: AnnotationUpdateRequest,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> AnnotationInfo:
+        """更新注解内容。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not ready")
+        ok = await _store.update_annotation(
+            annotation_id,
+            field=body.field,
+            old_value=body.old_value,
+            new_value=body.new_value,
+            annotation_type=body.annotation_type,
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="注解未找到或无可更新字段")
+        # 审核状态单独处理（如果有）
+        if body.reviewed is not None:
+            await _store.review_annotation(
+                annotation_id,
+                body.reviewed,
+                body.reviewed_by or user.get("username", "local-user"),
+            )
+        return AnnotationInfo(
+            id=annotation_id,
+            entity_id=0,
+            field=body.field or "",
+            old_value=body.old_value or "",
+            new_value=body.new_value or "",
+            annotation_type=body.annotation_type or "",
+            created_by="",
+            created_at="",
+            reviewed=body.reviewed if body.reviewed is not None else False,
+        )
+
+    async def delete_annotation(
+        annotation_id: int,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, str]:
+        """删除一条注解记录。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not ready")
+        ok = await _store.delete_annotation(annotation_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="注解未找到")
+        return {"status": "deleted", "id": str(annotation_id)}
+
+    async def review_annotation(
+        annotation_id: int,
+        body: dict[str, Any],
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> AnnotationInfo:
+        """标记注解审核状态。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not ready")
+        reviewed = bool(body.get("reviewed", True))
+        reviewed_by = str(body.get("reviewed_by") or user.get("username", "local-user"))
+        ok = await _store.review_annotation(annotation_id, reviewed, reviewed_by)
+        if not ok:
+            raise HTTPException(status_code=404, detail="注解未找到")
+        return AnnotationInfo(
+            id=annotation_id,
+            entity_id=0,
+            field="",
+            old_value="",
+            new_value="",
+            annotation_type="",
+            created_by="",
+            created_at="",
+            reviewed=reviewed,
+            reviewed_by=reviewed_by,
         )
 
     # ── Notification Rules (R1) ────────────────────────

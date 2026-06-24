@@ -157,6 +157,15 @@ def register_admin_routes(router: APIRouter, h: dict[str, Any]) -> None:
         "/api/v1/annotations",
         response_model=h.get("AnnotationListResponse"),
     )(h["list_annotations"])
+    router.patch(
+        "/api/v1/annotations/{annotation_id}",
+    )(h["update_annotation"])
+    router.delete(
+        "/api/v1/annotations/{annotation_id}",
+    )(h["delete_annotation"])
+    router.post(
+        "/api/v1/annotations/{annotation_id}/review",
+    )(h["review_annotation"])
 
     # ── 通知规则 (R1) ──
     router.get(
