@@ -325,13 +325,17 @@ flowchart LR
 | P7 | v2 重构: 文档对齐 (architecture.md, README.md) | ✅ |
 | P8 | v2 重构: CI 修复 (Docker workflow) + config 清理 (5K lines) | ✅ |
 | P9 | v2 重构: 质量收尾 + 品牌 + 性能优化 | ✅ |
+| P10 | v2 重构: Cloudflare routes sync + CI 审计 + 发布就绪 | ✅ |
 
-**当前状态：** Phase 1-9 全部完成。项目处于 v2.0 稳定的重构基线。
+**当前状态：** Phase 1-10 全部完成。项目处于 v2.0 稳定的重构基线。
 - **Tag:** v2.0.0-rc2
-- **测试:** 3,011 passed, 0 failed, 0 warnings
+- **测试:** 3,020 passed, 0 failed, 0 warnings
 - **覆盖率:** 87%
 - **Type:** mypy strict + ruff: 零错误
 - **Lint:** 零未使用变量 (vulture 100% clean)
+- **品牌:** 金色瞭望塔, 已挂载管理面板 + README
+- **生产:** news-sentry.com — `{"status": "ok"}`
+- **发布:** CHANGELOG.md + release.yml 就绪
 - **品牌:** 暖金信号柱 logo, 已挂载管理面板 + README
 - **生产:** news-sentry.com — `{"status": "ok"}`
 
