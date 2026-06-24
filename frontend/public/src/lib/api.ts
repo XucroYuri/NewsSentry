@@ -14,6 +14,8 @@ import type {
   PublicTargetListResponse,
 } from "@/types/public-news"
 
+import { resolveUrl } from "./locals-settings"
+
 /** 模块加载时即从 DOM 读取服务端注入的 bootstrap JSON（仅一次）。 */
 const _SSR_BOOTSTRAP_DATA: PublicBootstrapResponse | null = (() => {
   try {
@@ -237,7 +239,7 @@ export async function getPublicBootstrap(
   options: PublicNewsRequestOptions = {},
 ): Promise<PublicBootstrapResult> {
   const fetcher = options.fetcher ?? fetch
-  const response = await fetcher(buildPublicBootstrapUrl(query), {
+  const response = await fetcher(resolveUrl(buildPublicBootstrapUrl(query)), {
     signal: options.signal,
   })
   if (!response.ok) {
@@ -258,7 +260,7 @@ export async function listPublicNews(
   if (options.etag) {
     headers.set("If-None-Match", options.etag)
   }
-  const response = await fetcher(buildPublicNewsUrl(query), {
+  const response = await fetcher(resolveUrl(buildPublicNewsUrl(query)), {
     headers,
     signal: options.signal,
   })
@@ -296,7 +298,7 @@ export async function getPublicNewsItem(
   const params = new URLSearchParams()
   if (options.targetId) params.set("target_id", options.targetId)
   const suffix = params.toString()
-  const response = await fetcher(`/api/v1/public/news/${encodeURIComponent(eventId)}${suffix ? `?${suffix}` : ""}`, {
+  const response = await fetcher(resolveUrl(`/api/v1/public/news/${encodeURIComponent(eventId)}${suffix ? `?${suffix}` : ""}`), {
     signal: options.signal,
   })
   if (!response.ok) {
@@ -309,7 +311,7 @@ export async function listTargets(
   options: PublicNewsRequestOptions = {},
 ): Promise<PublicTargetListResponse> {
   const fetcher = options.fetcher ?? fetch
-  const response = await fetcher("/api/v1/regions?include_empty=true", {
+  const response = await fetcher(resolveUrl("/api/v1/regions?include_empty=true"), {
     signal: options.signal,
   })
   if (!response.ok) {
@@ -343,7 +345,7 @@ export async function listPublicFacets(
   appendParam(params, "date", query.date)
   appendParam(params, "q", query.q)
   const suffix = params.toString()
-  const response = await fetcher(`/api/v1/public/facets${suffix ? `?${suffix}` : ""}`, {
+  const response = await fetcher(resolveUrl(`/api/v1/public/facets${suffix ? `?${suffix}` : ""}`), {
     signal: options.signal,
   })
   if (!response.ok) {
@@ -362,7 +364,7 @@ export async function getPublicTargetAnalysis(
   }
   const fetcher = options.fetcher ?? fetch
   const response = await fetcher(
-    `/api/v1/public/targets/${encodeURIComponent(targetId)}/analysis?days=${days}`,
+    resolveUrl(`/api/v1/public/targets/${encodeURIComponent(targetId)}/analysis?days=${days}`),
     {
       signal: options.signal,
     },

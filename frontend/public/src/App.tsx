@@ -35,6 +35,7 @@ import { usePublicAnalysis } from "@/hooks/use-public-analysis"
 import { usePublicFeed } from "@/hooks/use-public-feed"
 import { usePublicTargets } from "@/hooks/use-public-targets"
 import { getPublicBootstrap, listPublicFacets, readSSRBootstrap } from "@/lib/api"
+import { getApiBase, setApiBase } from "@/lib/locals-settings"
 import { type FeedFilters, makeFeedQuery, type PublicChannel } from "@/lib/feed-state"
 import { targetShortLabel, todayKey } from "@/lib/public-view"
 import { buildPublicAppPath, routeToChannel, type PublicRoute } from "@/lib/routes"
@@ -1025,13 +1026,53 @@ function SubscribePage() {
 }
 
 function UpdatePage({ updatedAt }: { updatedAt?: string | null }) {
+  const [apiBase, setApiBaseState] = useState<string>(() => getApiBase() ?? "")
+
+  const handleSave = useCallback(() => {
+    const trimmed = apiBase.trim()
+    setApiBase(trimmed || null)
+  }, [apiBase])
+
+  const handleReset = useCallback(() => {
+    setApiBase(null)
+    setApiBaseState("")
+  }, [])
+
   return (
     <InfoPanel title="Update">
-      <div className="grid gap-2 rounded-md border bg-background/60 px-3 py-2 text-xs sm:grid-cols-[auto_1fr] sm:items-center">
-        <span className="font-medium text-foreground">最近新闻刷新</span>
-        <span>{updatedAt ? new Date(updatedAt).toLocaleString("zh-CN") : "等待新闻流"}</span>
-        <span className="font-medium text-foreground">当前版本</span>
-        <span>{PUBLIC_APP_VERSION}</span>
+      <div className="grid gap-3">
+        <div className="grid gap-2 rounded-md border bg-background/60 px-3 py-2 text-xs sm:grid-cols-[auto_1fr] sm:items-center">
+          <span className="font-medium text-foreground">最近新闻刷新</span>
+          <span>{updatedAt ? new Date(updatedAt).toLocaleString("zh-CN") : "等待新闻流"}</span>
+          <span className="font-medium text-foreground">当前版本</span>
+          <span>{PUBLIC_APP_VERSION}</span>
+        </div>
+
+        <div className="grid gap-2 rounded-md border bg-background/60 px-3 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-foreground">API 数据源</span>
+            <span className="text-[10px] text-muted-foreground">
+              {getApiBase() ? "Cloudflare Worker" : "同源（本地）"}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Input
+              value={apiBase}
+              placeholder="留空 = 同源；或输入 https://news-sentry-api.xuyu.workers.dev"
+              onChange={(e) => setApiBaseState(e.currentTarget.value)}
+              className="h-7 min-w-0 flex-1 rounded-md text-xs"
+            />
+            <Button size="sm" className="h-7 shrink-0 rounded-md px-3 text-xs" onClick={handleSave}>
+              保存
+            </Button>
+            <Button variant="outline" size="sm" className="h-7 shrink-0 rounded-md px-2 text-xs" onClick={handleReset}>
+              重置
+            </Button>
+          </div>
+          <p className="text-[10px] leading-relaxed text-muted-foreground">
+            修改后刷新页面生效。同源模式下请求发到当前域名；Cloudflare Worker 模式请求发到指定 Worker URL。
+          </p>
+        </div>
       </div>
     </InfoPanel>
   )
