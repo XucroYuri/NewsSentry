@@ -31,7 +31,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
 
 export default function UsersPage() {
   const [users, setUsers] = useState<AdminUser[]>([])
@@ -174,15 +173,15 @@ export default function UsersPage() {
               <form onSubmit={handleCreate}>
                 <div className="grid gap-4 py-4">
                   <div className="grid gap-2">
-                    <Label htmlFor="new-username">用户名</Label>
+                    <label className="text-sm font-medium leading-none" htmlFor="new-username">用户名</label>
                     <Input id="new-username" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} disabled={creating} />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="new-password">密码</Label>
+                    <label className="text-sm font-medium leading-none" htmlFor="new-password">密码</label>
                     <Input id="new-password" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} disabled={creating} placeholder="至少 8 个字符" />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="new-role">角色</Label>
+                    <label className="text-sm font-medium leading-none" htmlFor="new-role">角色</label>
                     <select
                       id="new-role"
                       value={newRole}
@@ -229,7 +228,7 @@ export default function UsersPage() {
           <form onSubmit={handleResetPassword}>
             <div className="grid gap-4 py-4">
               <div className="grid gap-2">
-                <Label htmlFor="reset-password">新密码</Label>
+                <label className="text-sm font-medium leading-none" htmlFor="reset-password">新密码</label>
                 <Input id="reset-password" type="password" value={resetPassword} onChange={(e) => setResetPassword(e.target.value)} disabled={resetting} placeholder="至少 8 个字符" />
               </div>
               {resetError && (

@@ -4,7 +4,6 @@ import { AlertTriangleIcon, Loader2Icon, LockIcon } from "lucide-react"
 import { loginAdmin } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
 export default function LoginPage({ onLogin }: { onLogin: (token: string) => void }) {
@@ -40,7 +39,7 @@ export default function LoginPage({ onLogin }: { onLogin: (token: string) => voi
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid gap-2">
-              <Label htmlFor="username">用户名</Label>
+              <label className="text-sm font-medium leading-none" htmlFor="username">用户名</label>
               <Input
                 id="username"
                 type="text"
@@ -52,7 +51,7 @@ export default function LoginPage({ onLogin }: { onLogin: (token: string) => voi
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="password">密码</Label>
+              <label className="text-sm font-medium leading-none" htmlFor="password">密码</label>
               <Input
                 id="password"
                 type="password"

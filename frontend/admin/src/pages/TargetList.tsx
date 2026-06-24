@@ -32,7 +32,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
 
 export default function TargetList({
   onNavigate,
@@ -182,7 +181,7 @@ export default function TargetList({
               <form onSubmit={handleCreate}>
                 <div className="grid gap-4 py-4">
                   <div className="grid gap-2">
-                    <Label htmlFor="target-id">目标 ID</Label>
+                    <label className="text-sm font-medium leading-none" htmlFor="target-id">目标 ID</label>
                     <Input
                       id="target-id"
                       placeholder="例如: de-economy"
@@ -192,7 +191,7 @@ export default function TargetList({
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="display-name">显示名称</Label>
+                    <label className="text-sm font-medium leading-none" htmlFor="display-name">显示名称</label>
                     <Input
                       id="display-name"
                       placeholder="例如: 德国经济"
@@ -202,7 +201,7 @@ export default function TargetList({
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="language">语言范围</Label>
+                    <label className="text-sm font-medium leading-none" htmlFor="language">语言范围</label>
                     <Input
                       id="language"
                       placeholder="it / en / de / fr ..."

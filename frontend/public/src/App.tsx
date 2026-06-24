@@ -29,7 +29,6 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet"
-import { Toaster } from "@/components/ui/sonner"
 import { useHashRoute } from "@/hooks/use-hash-route"
 import { usePublicAnalysis } from "@/hooks/use-public-analysis"
 import { usePublicFeed } from "@/hooks/use-public-feed"
@@ -566,7 +565,6 @@ function AppShell({
         {children}
       </div>
       <MobileNavigation active={activeNav} onSelect={onNavigate} />
-      <Toaster position="top-center" richColors closeButton />
     </div>
   )
 }
