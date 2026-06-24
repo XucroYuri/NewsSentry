@@ -70,6 +70,8 @@ from news_sentry.api.middleware.auth import (
 )
 from news_sentry.api.routes.notifications import init_notifications
 from news_sentry.api.routes.notifications import router as ws_router
+from news_sentry.api.routes.webhook import init_webhook
+from news_sentry.api.routes.webhook import router as webhook_router
 
 # ── Pydantic 模型（已提取至 news_sentry.api.schemas）───
 from news_sentry.api.schemas import (
@@ -5420,6 +5422,7 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
 
             _ws_sub_id = await _event_bus.subscribe("alert.triggered.browser", _handle_alert)
             init_notifications(_ws_manager, _event_bus)
+            init_webhook(_data_dir, _event_bus)
             logger.info("R2 EventBus + ConnectionManager 已就绪")
         except Exception as exc:
             logger.warning("R2 初始化失败（非阻塞）: %s", exc)
@@ -9809,6 +9812,7 @@ def create_app(
     app.include_router(admin_router)
     app.include_router(public_router)
     app.include_router(ws_router)
+    app.include_router(webhook_router)
 
     _mount_spa_routes(app)
 
