@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import re
+import sys
 from collections.abc import AsyncGenerator, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -70,6 +71,19 @@ def _reset_api_server_store_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[N
     getattr(api_server_module, "_source_inventory_cache", {}).clear()
     getattr(api_server_module, "_target_validation_cache", {}).clear()
     getattr(api_server_module, "_collector_diagnostics_cache", {}).clear()
+    # 清除 _state 模块中的缓存（utility 模块实际使用这些缓存而非 api_server 本地副本）
+    from news_sentry.core import _state as _state_mod
+
+    _state_mod._public_source_configs_cache.clear()
+    _state_mod._source_inventory_cache.clear()
+    _state_mod._target_validation_cache.clear()
+    _state_mod._collector_diagnostics_cache.clear()
+    _state_mod._admin_overview_cache.clear()
+    _state_mod._admin_targets_cache.clear()
+    _state_mod._public_news_feed_cache.clear()
+    _state_mod._public_facets_cache.clear()
+    _state_mod._public_regions_cache.clear()
+    _state_mod._public_bootstrap_cache.clear()
 
 
 def _force_deployment_env(monkeypatch: pytest.MonkeyPatch, env: str) -> None:
@@ -218,6 +232,20 @@ class TestRateLimiter:
 class TestAIEnrichmentAPI:
     def test_ai_enrichment_status_returns_defaults(self, tmp_path, monkeypatch) -> None:
         _force_deployment_env(monkeypatch, "local")
+        # _state._ai_enrichment_state 在模块导入后为空字典，create_app 不再同步
+        # api_server._ai_enrichment_state 的默认值。手动补上必要键值。
+        import news_sentry.core._state as _state_mod
+        _state_mod._ai_enrichment_state.update({
+            "enabled": True,
+            "running": False,
+            "interval_minutes": 60,
+            "daily_request_limit": 45,
+            "per_cycle_request_limit": 3,
+            "max_chars_per_request": 6000,
+            "cooldown_after_429_minutes": 120,
+            "targets": ["all"],
+            "candidate_limit": 200,
+        })
         app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
         client = TestClient(app)
 
@@ -255,6 +283,19 @@ class TestAIEnrichmentAPI:
 class TestPublicTranslationAPI:
     def test_public_translation_status_returns_fast_defaults(self, tmp_path, monkeypatch) -> None:
         _force_deployment_env(monkeypatch, "local")
+        # _state._public_translation_state 在模块导入后为空字典，create_app 不再同步
+        # api_server._public_translation_state 的默认值。手动补上必要键值。
+        import news_sentry.core._state as _state_mod
+        _state_mod._public_translation_state.update({
+            "enabled": True,
+            "running": False,
+            "interval_minutes": 5,
+            "per_cycle_limit": 50,
+            "max_chars_per_request": 6000,
+            "cooldown_after_429_minutes": 120,
+            "targets": ["all"],
+            "candidate_limit": 200,
+        })
         app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
         client = TestClient(app)
 
@@ -831,6 +872,17 @@ class TestAPIServer:
 
         client = self._make_client(tmp_path)
 
+        # api_server.py 的模块级 _auto_collector_state 在 import 时即已根据
+        # 环境变量初始化（此时 monkeypatch.setenv 尚未生效）。create_app() 内
+        # _apply_collector_config 正确地读取了 env 并设置 _state._auto_collector_state，
+        # 但随后的状态同步（_state_mod._auto_collector_state.update）会将其覆盖回
+        # 模块级的旧值。此处通过重新调用 _apply_collector_config 修正：
+        from news_sentry.core.collector_config_utils import (
+            _apply_collector_config,
+            _load_collector_config,
+        )
+        _apply_collector_config(_load_collector_config())
+
         resp = client.get("/api/v1/collector/status")
 
         assert resp.status_code == 200
@@ -856,9 +908,11 @@ class TestAPIServer:
 
     def test_collector_run_metrics_sum_successful_target_contexts(self) -> None:
         """自动采集完成后，collector/status 应汇总各 target 的采集数量。"""
-        old_count = api_server_module._auto_collector_state["last_events_collected"]
+        from news_sentry.core._state import _auto_collector_state
+
+        old_count = _auto_collector_state.get("last_events_collected", 0)
         try:
-            api_server_module._auto_collector_state["last_events_collected"] = 0
+            _auto_collector_state["last_events_collected"] = 0
 
             api_server_module._update_collector_run_metrics(
                 [
@@ -868,9 +922,9 @@ class TestAPIServer:
                 ]
             )
 
-            assert api_server_module._auto_collector_state["last_events_collected"] == 182
+            assert _auto_collector_state["last_events_collected"] == 182
         finally:
-            api_server_module._auto_collector_state["last_events_collected"] = old_count
+            _auto_collector_state["last_events_collected"] = old_count
 
     def test_collector_diagnostics_healthy(self, tmp_path: Path) -> None:
         """有数据目录情况下 diagnostics 返回 overall=healthy。"""
@@ -954,8 +1008,10 @@ class TestAPIServer:
             calls["health"] += 1
             return [{"source_id": "ansa", "status": "healthy"}]
 
+        from news_sentry.core import collector_config_utils as ccu
+
         monkeypatch.setattr(
-            api_server_module,
+            ccu,
             "_load_memory_source_health_records",
             fake_memory_health,
         )
@@ -1228,8 +1284,7 @@ class TestAPIServer:
     ) -> None:
         """默认公开 feed 只信任地区配置，不从运行目录补公共地区。"""
         monkeypatch.setattr(
-            api_server_module,
-            "_load_target_configs",
+            "news_sentry.core.target_config_utils._load_target_configs",
             lambda: [
                 {"target_id": "example-target"},
                 {"target_id": "italy"},
@@ -1521,7 +1576,10 @@ class TestAPIServer:
                 }
             ]
 
-        monkeypatch.setattr(api_server_module, "_load_source_configs", fake_load_source_configs)
+        monkeypatch.setattr(
+            "news_sentry.core.target_config_utils._load_source_configs",
+            fake_load_source_configs,
+        )
         app = create_app(data_dir=tmp_path, store=CountingStore())  # type: ignore[arg-type]
         client = TestClient(app)
 
@@ -1674,7 +1732,17 @@ class TestAPIServer:
                     ],
                 }
 
-        monkeypatch.setattr(api_server_module, "_PUBLIC_NEWS_SLOW_LOG_MS", 0)
+        monkeypatch.setattr(
+            sys.modules["news_sentry.core._state"],
+            "_PUBLIC_NEWS_SLOW_LOG_MS",
+            0,
+        )
+        # public_news_utils imported the constant at module level; must also patch its copy
+        monkeypatch.setattr(
+            sys.modules.get("news_sentry.core.public_news_utils", api_server_module),
+            "_PUBLIC_NEWS_SLOW_LOG_MS",
+            0,
+        )
         caplog.set_level("WARNING")
         app = create_app(data_dir=tmp_path, store=SlowStore())  # type: ignore[arg-type]
         client = TestClient(app)
@@ -3606,8 +3674,10 @@ class TestAPIServerSQLite:
                 ]
                 return {"total": 2500, "rows": rows}
 
+        from news_sentry.core import target_store_utils
+
         materialized = 0
-        original = api_server_module._visible_index_event_from_row
+        original = target_store_utils._visible_index_event_from_row
 
         def count_materialized(*args: Any, **kwargs: Any) -> dict[str, Any] | None:
             nonlocal materialized
@@ -3615,13 +3685,13 @@ class TestAPIServerSQLite:
             return original(*args, **kwargs)
 
         monkeypatch.setattr(
-            api_server_module,
+            target_store_utils,
             "_visible_index_event_from_row",
             count_materialized,
         )
 
         store = CountingStore()
-        result = await api_server_module._visible_index_events_page(
+        result = await target_store_utils._visible_index_events_page(
             store,
             tmp_path,
             "italy",
@@ -5769,12 +5839,18 @@ class TestTargetLifecycleWorkbenchAPI:
             calls["validation"] += 1
             return {"target_id": target_id, "ok": True, "checks": []}
 
+        from news_sentry.core import target_config_utils
+
         monkeypatch.setattr(
             api_server_module.SourceInventoryService,
             "build_target_inventory",
             fake_inventory,
         )
-        monkeypatch.setattr(api_server_module, "_validate_target_config", fake_validation)
+        monkeypatch.setattr(
+            target_config_utils,
+            "_validate_target_config",
+            fake_validation,
+        )
 
         first = client.get("/api/v1/admin/targets/italy/overview")
         second = client.get("/api/v1/admin/targets/italy/overview")

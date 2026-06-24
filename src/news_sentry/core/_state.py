@@ -5,6 +5,7 @@ Extracted from api_server.py to break circular import dependencies.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
@@ -14,15 +15,51 @@ class InvisibleIndexedEvent:
 
 _INVISIBLE_INDEXED_EVENT = InvisibleIndexedEvent()
 
+_SCRIPT_TAG_WITHOUT_NONCE_RE: re.Pattern[str] = re.compile(
+    r"<script(?![^>]*\bnonce=)", re.IGNORECASE
+)
+
 # ── Runtime state (initialized by api_server._app_lifespan) ──
 _store: Any = None
 _data_dir: Any = None
 _target_stores: dict[str, Any] = {}
 _sse_lock: Any = None
 _auto_collector_state: dict[str, Any] = {}
-_ai_enrichment_state: dict[str, Any] = {}
+_ai_enrichment_state: dict[str, Any] = {
+    "enabled": True,
+    "interval_minutes": 60,
+    "daily_request_limit": 45,
+    "per_cycle_request_limit": 3,
+    "max_chars_per_request": 6000,
+    "cooldown_after_429_minutes": 120,
+    "targets": ["all"],
+    "candidate_limit": 200,
+    "running": False,
+    "last_run_at": None,
+    "last_run_status": None,
+    "last_error": None,
+    "next_run_at": None,
+    "total_runs": 0,
+    "last_updates": 0,
+    "task": None,
+}
 _ai_enrichment_log: Any = None
-_public_translation_state: dict[str, Any] = {}
+_public_translation_state: dict[str, Any] = {
+    "enabled": True,
+    "interval_minutes": 5,
+    "per_cycle_limit": 50,
+    "candidate_limit": 500,
+    "source_lang": "auto",
+    "target_lang": "zh",
+    "running": False,
+    "last_run_at": None,
+    "last_run_status": None,
+    "last_error": None,
+    "next_run_at": None,
+    "total_runs": 0,
+    "last_updates": 0,
+    "task": None,
+}
 _public_translation_log: Any = None
 _log: Any = None
 _admin_overview_cache: dict[str, Any] = {}
@@ -91,7 +128,6 @@ _SECURITY_HEADERS: dict[str, str] = {
         "object-src 'none'"
     ),
 }
-_SCRIPT_TAG_WITHOUT_NONCE_RE: Any = None
 
 # Cache TTLs
 _OVERVIEW_CACHE_TTL_SECONDS: int = 300
@@ -100,10 +136,10 @@ _PUBLIC_SOURCE_CONFIG_CACHE_TTL_SECONDS: int = 300
 _PUBLIC_NEWS_FEED_CACHE_TTL_SECONDS: int = 60
 _PUBLIC_NEWS_FEED_UPDATE_CACHE_TTL_SECONDS: int = 15
 _PUBLIC_NEWS_FEED_SEARCH_CACHE_TTL_SECONDS: int = 300
-_PUBLIC_NEWS_SLOW_LOG_MS: int = 200
-_PUBLIC_NEWS_FEATURED_SCORE: int = 85
-_PUBLIC_NEWS_STAGE: str = "published"
-_PUBLIC_ANALYSIS_STAGE: str = "published"
+_PUBLIC_NEWS_SLOW_LOG_MS: int = 3000
+_PUBLIC_NEWS_FEATURED_SCORE: int = 60
+_PUBLIC_NEWS_STAGE: str = "drafts"
+_PUBLIC_ANALYSIS_STAGE: str = "drafts"
 _PUBLIC_ANALYSIS_CHAIN_LIMIT: int = 10
 _PUBLIC_NEWS_MAX_SCAN: int = 2000
 _PUBLIC_NEWS_MIN_SCAN: int = 100
@@ -112,19 +148,101 @@ _PUBLIC_NEWS_DEFAULT_PAGE_SIZE: int = 20
 _PUBLIC_NEWS_DEFAULT_POLL_AFTER_MS: int = 60000
 _PUBLIC_NEWS_IDLE_POLL_AFTER_MS: int = 120000
 _PUBLIC_NEWS_MIN_POLL_AFTER_MS: int = 15000
-_PUBLIC_NEWS_EVENT_DIRS: tuple[str, ...] = ("published",)
-_PUBLIC_NEWS_INTERNAL_DATA_DIRS: tuple[str, ...] = ("drafts", "reviewed", "published", "archive")
-_PUBLIC_TEXT_LATIN1_HINTS: tuple[str, ...] = ()
-_STRAY_ACCENTED_CAPS: dict[int, str] = {}
-_RETIRED_TOPIC_TARGET_IDS: set[str] = set()
+_PUBLIC_NEWS_EVENT_DIRS: tuple[str, ...] = (
+    "archive",
+    "drafts",
+    "evaluated",
+    "published",
+    "raw",
+    "reviewed",
+)
+_PUBLIC_NEWS_INTERNAL_DATA_DIRS: tuple[str, ...] = (
+    "backup",
+    "cache",
+    "eval",
+    "locks",
+    "logs",
+    "memory",
+    "tmp",
+)
+_PUBLIC_TEXT_LATIN1_HINTS: tuple[str, ...] = ("Ã", "Â", "â€")
+_CHAR_ACCENTED_TO_BASIC = {
+    "À": "à",
+    "Á": "á",
+    "Â": "â",
+    "Ã": "ã",
+    "Ä": "ä",
+    "Å": "å",
+    "Æ": "æ",
+    "Ç": "ç",
+    "È": "è",
+    "É": "é",
+    "Ê": "ê",
+    "Ë": "ë",
+    "Ì": "ì",
+    "Í": "í",
+    "Î": "î",
+    "Ï": "ï",
+    "Ñ": "ñ",
+    "Ò": "ò",
+    "Ó": "ó",
+    "Ô": "ô",
+    "Õ": "õ",
+    "Ö": "ö",
+    "Ø": "ø",
+    "Œ": "œ",
+    "Ù": "ù",
+    "Ú": "ú",
+    "Û": "û",
+    "Ü": "ü",
+    "Ý": "ý",
+    "Ÿ": "ÿ",
+}
+_STRAY_ACCENTED_CAPS = str.maketrans(_CHAR_ACCENTED_TO_BASIC)
+_RETIRED_TOPIC_TARGET_IDS: frozenset[str] = frozenset(
+    {
+        "africa-watch",
+        "china-watch-en",
+        "climate-water-food",
+        "crisis-conflict",
+        "critical-minerals",
+        "defense-security",
+        "digital-regulation",
+        "energy-transition",
+        "eu-policy",
+        "fusion",
+        "latin-america-watch",
+        "middle-east-gulf",
+        "migration-labor",
+        "public-opinion-culture",
+        "supply-chain-trade",
+        "tech-ai-semiconductors",
+        "us-policy",
+    }
+)
 
 # Regex / validation
-_SOURCE_SLUG_RE: Any = None
-_TARGET_SLUG_RE: Any = None
+_SOURCE_SLUG_RE: re.Pattern[str] = re.compile(r"^[a-z][a-z0-9_-]*$")
+_TARGET_SLUG_RE: re.Pattern[str] = re.compile(r"^[a-z][a-z0-9_-]*$")
 
 # Region
-_REGION_TYPES: tuple[str, ...] = ()
-_REGION_TYPE_LABELS: dict[str, str] = {}
+_REGION_TYPE_LABELS: dict[str, str] = {
+    "country": "地区",
+    "region": "地区",
+    "continent": "大洲",
+    "global": "全球",
+}
+_REGION_TYPES: frozenset[str] = frozenset(_REGION_TYPE_LABELS)
 
 # HTTP
-_HTTP_PHRASES: dict[int, str] = {}
+_HTTP_PHRASES: dict[int, str] = {
+    400: "Bad Request",
+    401: "Unauthorized",
+    403: "Forbidden",
+    404: "Not Found",
+    409: "Conflict",
+    422: "Unprocessable Entity",
+    429: "Too Many Requests",
+    500: "Internal Server Error",
+    503: "Service Unavailable",
+}

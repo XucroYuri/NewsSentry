@@ -48,6 +48,7 @@ from fastapi.responses import (
 from pydantic import BeforeValidator, ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+import news_sentry.core.site_utils as _site_utils_patched  # _static_dir 同步用（create_app 内）
 from news_sentry.api.middleware.auth import (
     _PERMISSIONS,
     _TOKEN_STORE,
@@ -168,7 +169,14 @@ from news_sentry.api.schemas import (
 from news_sentry.api.ws_manager import ConnectionManager
 
 # ── 共享状态 ─────────────────────────────────────────
-from news_sentry.core._state import InvisibleIndexedEvent
+from news_sentry.core._state import (
+    _HTTP_PHRASES,
+    _REGION_TYPES,
+    InvisibleIndexedEvent,
+    _ai_enrichment_state,
+    _auto_collector_state,
+    _public_translation_state,
+)
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.auth import hash_password, verify_password
 from news_sentry.core.canonical_projection import CanonicalProjectionService, ProjectionOptions
@@ -206,7 +214,9 @@ from news_sentry.core.event_io_utils import (
     _archive_duplicate_drafts,
     _draft_diagnostics,
     _load_all_events,
+    _load_event_by_id_from_stage,  # noqa: F401 re-exported for test & runtime access
     _load_indexed_event_detail,
+    _load_indexed_event_frontmatter,  # noqa: F401 re-exported for test & runtime access
     _load_single_event,
     _markdown_download_response,
     _render_public_event_markdown,
@@ -264,6 +274,9 @@ from news_sentry.core.site_utils import (
     _static_build_hash,
     _static_dir,
 )
+from news_sentry.core.source_inventory import (
+    SourceInventoryService,  # noqa: F401 re-exported for test access
+)
 from news_sentry.core.target_config_utils import (
     _append_source_ref,
     _atomic_write_yaml,
@@ -303,6 +316,7 @@ from news_sentry.core.target_config_utils import (
     _target_region_type,
     _template_target_config,
     _validate_source_slug,
+    _validate_target_config,  # noqa: F401 re-exported for test & runtime access
     _validate_target_slug,
 )
 from news_sentry.core.target_store_utils import (
@@ -315,8 +329,6 @@ from news_sentry.skills.filter.classification_taxonomy import (
     canonical_l0,
     l0_query_values,
 )
-from news_sentry.core.source_inventory import SourceInventoryService  # noqa: F401 re-exported for test access
-import news_sentry.core.site_utils as _site_utils_patched  # 用于 _static_dir 引用同步（在 create_app 内同步）
 
 _SECURITY_HEADERS = {
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
@@ -343,7 +355,8 @@ _SECURITY_HEADERS = {
 
 
 
-_SCRIPT_TAG_WITHOUT_NONCE_RE = re.compile(r"<script(?![^>]*\bnonce=)", re.IGNORECASE)
+
+
 
 
 
@@ -579,27 +592,6 @@ _PUBLIC_NEWS_INTERNAL_DATA_DIRS = {
     "memory",
     "tmp",
 }
-_RETIRED_TOPIC_TARGET_IDS = frozenset(
-    {
-        "africa-watch",
-        "china-watch-en",
-        "climate-water-food",
-        "crisis-conflict",
-        "critical-minerals",
-        "defense-security",
-        "digital-regulation",
-        "energy-transition",
-        "eu-policy",
-        "fusion",
-        "latin-america-watch",
-        "middle-east-gulf",
-        "migration-labor",
-        "public-opinion-culture",
-        "supply-chain-trade",
-        "tech-ai-semiconductors",
-        "us-policy",
-    }
-)
 _PUBLIC_NEWS_EVENT_DIRS = {
     "archive",
     "drafts",
@@ -619,41 +611,6 @@ _ADMIN_CACHE_TTL_SECONDS = 15.0
 
 
 _public_bootstrap_cache: dict[str, dict[str, Any]] = {}
-_PUBLIC_TEXT_LATIN1_HINTS = ("Ã", "Â", "â€")
-_STRAY_ACCENTED_CAPS = str.maketrans(
-    {
-        "À": "à",
-        "Á": "á",
-        "Â": "â",
-        "Ã": "ã",
-        "Ä": "ä",
-        "Å": "å",
-        "Æ": "æ",
-        "Ç": "ç",
-        "È": "è",
-        "É": "é",
-        "Ê": "ê",
-        "Ë": "ë",
-        "Ì": "ì",
-        "Í": "í",
-        "Î": "î",
-        "Ï": "ï",
-        "Ñ": "ñ",
-        "Ò": "ò",
-        "Ó": "ó",
-        "Ô": "ô",
-        "Õ": "õ",
-        "Ö": "ö",
-        "Ø": "ø",
-        "Œ": "œ",
-        "Ù": "ù",
-        "Ú": "ú",
-        "Û": "û",
-        "Ü": "ü",
-        "Ý": "ý",
-        "Ÿ": "ÿ",
-    }
-)
 
 
 
@@ -664,80 +621,20 @@ _PUBLIC_ANALYSIS_CHAIN_LIMIT = 10
 
 
 
-_TARGET_SLUG_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
-_SOURCE_SLUG_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
 
 
 
 
-_REGION_TYPE_LABELS = {
-    "country": "地区",
-    "region": "地区",
-    "continent": "大洲",
-    "global": "全球",
-}
-
-_REGION_TYPES = frozenset(_REGION_TYPE_LABELS)
 
 
 
 
-_auto_collector_state: dict[str, Any] = {
-    "enabled": os.environ.get("NEWSSENTRY_AUTO_COLLECT", "1") == "1",
-    "target_ids": _parse_target_ids(
-        os.environ.get("NEWSSENTRY_TARGET_ID", os.environ.get("TARGET_ID", "all"))
-    ),
-    "interval_minutes": int(os.environ.get("NEWSSENTRY_COLLECT_INTERVAL", "2")),
-    "stage": os.environ.get("NEWSSENTRY_COLLECT_STAGE", "collect"),
-    "running": False,
-    "last_run_at": None,
-    "last_run_status": None,
-    "last_events_collected": 0,
-    "last_error": None,
-    "next_run_at": None,
-    "total_runs": 0,
-    "task": None,
-}
+
+
 
 _log = logging.getLogger("news_sentry.auto_collector")
 _ai_enrichment_log = logging.getLogger("news_sentry.ai_enrichment")
 _public_translation_log = logging.getLogger("news_sentry.public_translation")
-
-_ai_enrichment_state: dict[str, Any] = {
-    "enabled": True,
-    "interval_minutes": 60,
-    "daily_request_limit": 45,
-    "per_cycle_request_limit": 3,
-    "max_chars_per_request": 6000,
-    "cooldown_after_429_minutes": 120,
-    "targets": ["all"],
-    "candidate_limit": 200,
-    "running": False,
-    "last_run_at": None,
-    "last_run_status": None,
-    "last_error": None,
-    "next_run_at": None,
-    "total_runs": 0,
-    "last_updates": 0,
-    "task": None,
-}
-
-_public_translation_state: dict[str, Any] = {
-    "enabled": True,
-    "interval_minutes": 5,
-    "per_cycle_limit": 50,
-    "candidate_limit": 500,
-    "source_lang": "auto",
-    "target_lang": "zh",
-    "running": False,
-    "last_run_at": None,
-    "last_run_status": None,
-    "last_error": None,
-    "next_run_at": None,
-    "total_runs": 0,
-    "last_updates": 0,
-    "task": None,
-}
 
 _COLLECTOR_STAGES = {"all", "collect", "filter", "judge", "output"}
 
@@ -1023,19 +920,6 @@ async def _app_lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
 # ── FastAPI 应用 ────────────────────────────────────────
 
 
-_HTTP_PHRASES: dict[int, str] = {
-    400: "Bad Request",
-    401: "Unauthorized",
-    403: "Forbidden",
-    404: "Not Found",
-    409: "Conflict",
-    422: "Unprocessable Entity",
-    429: "Too Many Requests",
-    500: "Internal Server Error",
-    503: "Service Unavailable",
-}
-
-
 def _http_status_phrase(status_code: int) -> str:
     return _HTTP_PHRASES.get(status_code, f"HTTP {status_code}")
 
@@ -1175,7 +1059,7 @@ def create_app(
     _data_dir = Path(data_dir or os.environ.get("NEWSSENTRY_DATA_DIR", "./data"))
     _state_mod._data_dir = _data_dir  # 同步到 _state 模块（供 target_store_utils 等使用）
     _state_mod._target_stores.clear()
-    _state_mod._target_stores.update(_target_stores)  # 同步到 _state 模块（原位更新，避免 from-import 引用失效）
+    _state_mod._target_stores.update(_target_stores)  # 原位更新避免 from-import 失效
     _public_news_feed_cache.clear()
     _public_source_configs_cache.clear()
     _detect_deployment_env()
@@ -1221,19 +1105,28 @@ def create_app(
 
         _auth_configure(None)
     _config_cache = ConfigCache(ttl=60, maxsize=128)
+
+    # 用 env 推导的默认值填充 _auto_collector_state
+    # _apply_collector_config 会进一步从 YAML 细化运行参数
+    _auto_collector_state.update({
+        "enabled": os.environ.get("NEWSSENTRY_AUTO_COLLECT", "1") == "1",
+        "target_ids": _parse_target_ids(
+            os.environ.get("NEWSSENTRY_TARGET_ID", os.environ.get("TARGET_ID", "all"))
+        ),
+        "interval_minutes": int(os.environ.get("NEWSSENTRY_COLLECT_INTERVAL", "2")),
+        "stage": os.environ.get("NEWSSENTRY_COLLECT_STAGE", "collect"),
+        "running": False,
+        "last_run_at": None,
+        "last_run_status": None,
+        "last_events_collected": 0,
+        "last_error": None,
+        "next_run_at": None,
+        "total_runs": 0,
+        "task": None,
+    })
     _apply_collector_config(_load_collector_config())
     _apply_ai_enrichment_config(_load_ai_enrichment_config())
     _apply_public_translation_config(_load_public_translation_config())
-    # 同步其他模块级状态到 _state 模块（collector_config_utils 等从 _state 导入）
-    # 注意：使用 .clear() + .update() 而非直接赋值，因为其他模块通过
-    # from _state import X 导入了局部引用；直接赋值只改变 _state.X 的绑定，
-    # 不会更新已导入模块的局部引用。
-    _state_mod._auto_collector_state.clear()
-    _state_mod._auto_collector_state.update(_auto_collector_state)
-    _state_mod._ai_enrichment_state.clear()
-    _state_mod._ai_enrichment_state.update(_ai_enrichment_state)
-    _state_mod._public_translation_state.clear()
-    _state_mod._public_translation_state.update(_public_translation_state)
     _state_mod._deployment_env = _deployment_env
 
     # 同步 _static_dir 到 site_utils：使测试 monkeypatch api_server._static_dir 也能
@@ -1242,6 +1135,42 @@ def create_app(
     import sys as _sys
     _api_server_mod = _sys.modules[__name__]
     _site_utils_patched._static_dir = _api_server_mod._static_dir
+
+    # 同步 _store_for_target / _store_has_target_event_index / _visible_index_events_page
+    # 到 event_io_utils 模块。event_io_utils 用 None 占位初始化，这些函数定义在
+    # api_server 或 target_store_utils 中，需要在 create_app() 时同步过去，
+    # 避免调用时 'NoneType' object is not callable。
+    _event_io_mod = _sys.modules.get("news_sentry.core.event_io_utils")
+    if _event_io_mod is not None:
+        _event_io_mod._store_for_target = _store_for_target
+        _event_io_mod._store_has_target_event_index = _store_has_target_event_index
+        _event_io_mod._visible_index_events_page = _visible_index_events_page
+        _event_io_mod._validate_target_slug = _validate_target_slug
+
+    # 同步到 public_news_utils（同样的 None 占位问题）
+    _public_news_mod = _sys.modules.get("news_sentry.core.public_news_utils")
+    if _public_news_mod is not None:
+        _public_news_mod._get_target_store = _get_target_store
+        _public_news_mod._store_has_target_event_index = _store_has_target_event_index
+        _public_news_mod._visible_index_events_page = _visible_index_events_page
+
+    # 同步到 target_config_utils
+    _tcu_mod = _sys.modules.get("news_sentry.core.target_config_utils")
+    if _tcu_mod is not None:
+        _tcu_mod._store_for_target = _store_for_target
+
+    # 同步到 site_utils（SitemapEntry / PublicSiteProjectionStore / _get_target_store）
+    _site_mod = _sys.modules.get("news_sentry.core.site_utils")
+    if _site_mod is not None:
+        from news_sentry.core.public_site_projection import (
+            PublicSiteProjectionStore as _PublicSiteProjectionStore,
+        )
+        from news_sentry.core.public_site_projection import (
+            SitemapEntry as _SitemapEntry,
+        )
+        _site_mod._get_target_store = _get_target_store
+        _site_mod.SitemapEntry = _SitemapEntry
+        _site_mod.PublicSiteProjectionStore = _PublicSiteProjectionStore
 
     # ── 公开端点（无需认证）─────────────────────────────
 
