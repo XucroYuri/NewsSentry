@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent, MouseEvent } from "react"
 import {
   ArrowLeftIcon,
@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { getPublicNewsItem, listPublicNews, PublicNewsApiError } from "@/lib/api"
 import { type FeedFilters, groupItemsByDate, type PublicChannel } from "@/lib/feed-state"
+import { getReadIds, markAsRead, markManyAsRead } from "@/lib/read-state"
 import {
   buildDailyDigest,
   type DailyDigestTopicGroup,
@@ -190,10 +191,12 @@ function NewsCard({
   item,
   returnTo,
   isNew = false,
+  isRead = false,
 }: {
   item: PublicNewsItem
   returnTo?: PublicRoute | null
   isNew?: boolean
+  isRead?: boolean
 }) {
   const [previewImage, setPreviewImage] = useState<string | null>(null)
   const title = primaryNewsTitle(item)
@@ -214,11 +217,14 @@ function NewsCard({
         aria-label={`${title}${originalTitle ? ` ${originalTitle}` : ""}`}
         data-href={detailPath}
         data-new-entry={isNew ? "true" : undefined}
-        onClick={() => navigateToPublicRoute(detailRoute)}
+        onClick={() => {
+          navigateToPublicRoute(detailRoute)
+          markAsRead(item.id)
+        }}
         onKeyDown={(event) => handleRouteCardKeyDown(event, detailRoute)}
         className={`group block cursor-pointer rounded-md border bg-card/95 px-2.5 py-2 text-card-foreground transition-colors hover:border-primary/45 hover:bg-accent/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:bg-card/80 ${
           isNew ? "news-card-entering" : ""
-        }`}
+        } ${isRead ? "opacity-70" : ""}`}
       >
         <div className="grid min-w-0 gap-1.5">
           <div className="flex min-w-0 items-start justify-between gap-2 text-[11px] text-muted-foreground">
@@ -417,6 +423,27 @@ export function NewsFeedPage({
   }, [filters.category, filters.channel, filters.date, filters.search, filters.sourceId, filters.targetId])
   const hasItems = state.items.length > 0
 
+  // 无限滚动：观察 sentinel div 进入视口时自动加载更多
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  const loadMoreRef = useRef(onLoadMore)
+  loadMoreRef.current = onLoadMore
+  useEffect(() => {
+    const sentinel = sentinelRef.current
+    if (!sentinel || typeof IntersectionObserver === "undefined") return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && !loadingMore && state.nextCursor) {
+          loadMoreRef.current()
+        }
+      },
+      { rootMargin: "200px 0px 0px 0px" },
+    )
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [loadingMore, state.nextCursor])
+
+  const readIds = useMemo(() => getReadIds(), [state.items.length])
+
   return (
     <section className="min-w-0 overflow-hidden rounded-lg border bg-card/95 dark:bg-card/80">
       <LiveUpdateBanner count={state.pendingNewItems.length} onApply={onApplyPending} />
@@ -498,7 +525,7 @@ export function NewsFeedPage({
                     <div className="hidden md:grid md:justify-center">
                       <span className="mt-4 size-2 rounded-full bg-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.18)]" />
                     </div>
-                    <NewsCard item={item} returnTo={feedRoute} isNew={recentlyInsertedIds.has(item.id)} />
+                    <NewsCard item={item} returnTo={feedRoute} isNew={recentlyInsertedIds.has(item.id)} isRead={readIds.has(item.id)} />
                   </div>
                   ))}
                 </div>
@@ -506,19 +533,27 @@ export function NewsFeedPage({
             </section>
             )
           })}
-          <div className="flex items-center justify-center border-t px-4 py-4">
-            <Button
-              variant="outline"
-              onClick={onLoadMore}
-              disabled={loadingMore || !state.nextCursor}
-            >
-              {loadingMore ? (
-                <Loader2Icon className="size-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <NewspaperIcon className="size-4" aria-hidden="true" />
-              )}
-              {state.nextCursor ? "加载更多" : "没有更多了"}
-            </Button>
+          <div
+            ref={sentinelRef}
+            className="flex items-center justify-center border-t px-4 py-4"
+            aria-label="加载更多区域"
+          >
+            {loadingMore ? (
+              <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2Icon className="size-4 animate-spin text-primary" aria-hidden="true" />
+                加载中...
+              </span>
+            ) : state.nextCursor ? (
+              <span className="text-xs text-muted-foreground">
+                <NewspaperIcon className="mr-1.5 inline size-3.5" aria-hidden="true" />
+                加载更多
+              </span>
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                <NewspaperIcon className="mr-1.5 inline size-3.5" aria-hidden="true" />
+                没有更多了
+              </span>
+            )}
           </div>
         </div>
       ) : null}
@@ -626,6 +661,7 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
         if (!cancelled) {
           setItem(detail)
           setStatus("ready")
+          markAsRead(detail.id)
         }
         try {
           const relatedResult = await listPublicNews({
@@ -1062,6 +1098,7 @@ function SourceFilterRow({
 export function SourceDetailPage({ sourceId }: { sourceId: string }) {
   const [items, setItems] = useState<PublicNewsItem[]>([])
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading")
+  const readIds = useMemo(() => getReadIds(), [items.length])
 
   useEffect(() => {
     let cancelled = false
@@ -1123,7 +1160,7 @@ export function SourceDetailPage({ sourceId }: { sourceId: string }) {
         <EmptyExplanation title="该来源暂无公开新闻" description="采集仍在进行中，稍后会显示该来源最近报道。" />
       ) : null}
       {items.map((item) => (
-        <NewsCard key={item.id} item={item} returnTo={sourceRoute} />
+        <NewsCard key={item.id} item={item} returnTo={sourceRoute} isRead={readIds.has(item.id)} />
       ))}
     </section>
   )

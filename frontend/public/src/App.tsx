@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { ComponentType, ReactNode } from "react"
 import {
+  ArrowUpRightIcon,
   BotIcon,
   CalendarDaysIcon,
   FilterIcon,
@@ -847,6 +848,12 @@ function ReaderControls({
   onChange: (patch: Partial<FeedFilters>) => void
 }) {
   const [search, setSearch] = useState(filters.search ?? "")
+  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false)
+  const [suggestionsVisible, setSuggestionsVisible] = useState(false)
+  const [suggestionIndex, setSuggestionIndex] = useState(-1)
+  const suggestionTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const searchContainerRef = useRef<HTMLDivElement>(null)
   const regionItems = useMemo(
     () =>
       targets
@@ -866,6 +873,67 @@ function ReaderControls({
     () => facets.related.map((item) => ({ id: item.label, label: item.label, count: item.count })),
     [facets.related],
   )
+
+  // 搜索建议：在输入时调用 facets API，提取匹配的 issue/related 标签
+  useEffect(() => {
+    const q = search.trim()
+    if (!q || q.length < 1) {
+      setSuggestions([])
+      setSuggestionsVisible(false)
+      setSuggestionIndex(-1)
+      return
+    }
+    // 如果输入匹配当前 facets 中的标签，直接本地过滤
+    const localMatches = [
+      ...facets.issues.map((item) => item.label),
+      ...facets.related.map((item) => item.label),
+    ].filter((label) => label.toLowerCase().includes(q.toLowerCase()))
+    // 去重
+    const localUnique = [...new Set(localMatches)].slice(0, 5)
+    if (localUnique.length >= 3) {
+      setSuggestions(localUnique)
+      setSuggestionsVisible(true)
+      setSuggestionIndex(-1)
+      return
+    }
+    // 去抖动后调用 facets API
+    if (suggestionTimer.current) clearTimeout(suggestionTimer.current)
+    suggestionTimer.current = setTimeout(async () => {
+      try {
+        setSuggestionsLoading(true)
+        const result = await listPublicFacets({ q }, {})
+        const apiLabels = [
+          ...result.issues.map((item) => item.label),
+          ...result.related.map((item) => item.label),
+        ]
+        const apiUnique = [...new Set(apiLabels)].slice(0, 8)
+        if (apiUnique.length > 0) {
+          setSuggestions(apiUnique)
+          setSuggestionsVisible(true)
+        }
+      } catch {
+        // 搜索建议静默失败
+      } finally {
+        setSuggestionsLoading(false)
+      }
+    }, 250)
+    return () => {
+      if (suggestionTimer.current) clearTimeout(suggestionTimer.current)
+    }
+  }, [search, facets.issues, facets.related])
+
+  // 关闭建议（点击外部）
+  useEffect(() => {
+    if (!suggestionsVisible) return
+    const handleClick = (event: MouseEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target as Node)) {
+        setSuggestionsVisible(false)
+        setSuggestionIndex(-1)
+      }
+    }
+    document.addEventListener("mousedown", handleClick)
+    return () => document.removeEventListener("mousedown", handleClick)
+  }, [suggestionsVisible])
   const heading = selectedTargetLabel
     ? targetShortLabel(selectedTargetLabel)
     : filters.channel === "all" || filters.channel === "targets"
@@ -888,25 +956,89 @@ function ReaderControls({
           <h1 className="text-lg font-semibold tracking-tight">{heading}</h1>
           <p className="hidden text-xs text-muted-foreground sm:block">{description}</p>
         </div>
-        <form
-          className="grid min-w-0 grid-cols-[minmax(0,1fr)_2rem_auto] gap-1.5 xl:w-[500px]"
-          onSubmit={(event) => {
-            event.preventDefault()
-            onChange({ search })
-          }}
-        >
-          <Input
-            value={search}
-            aria-label="快速搜索"
-            placeholder="搜索标题/摘要/来源..."
-            onChange={(event) => setSearch(event.currentTarget.value)}
-            className="h-8 min-w-0 rounded-md"
-          />
-          <Button type="submit" size="icon" aria-label="搜索" className="size-8 rounded-md">
-            <SearchIcon className="size-3.5" aria-hidden="true" />
-          </Button>
+        <div className="flex items-center gap-1.5 xl:w-[500px]">
+          <div ref={searchContainerRef} className="relative min-w-0 flex-1">
+            <form
+              className="grid grid-cols-[minmax(0,1fr)_2rem] gap-1.5"
+              onSubmit={(event) => {
+                event.preventDefault()
+                setSuggestionsVisible(false)
+                onChange({ search })
+              }}
+            >
+              <Input
+                value={search}
+                aria-label="快速搜索"
+                placeholder="搜索标题/摘要/来源..."
+                onChange={(event) => setSearch(event.currentTarget.value)}
+                onFocus={() => {
+                  if (search.trim() && suggestions.length > 0) setSuggestionsVisible(true)
+                }}
+                onKeyDown={(event) => {
+                  if (!suggestionsVisible || suggestions.length === 0) return
+                  if (event.key === "ArrowDown") {
+                    event.preventDefault()
+                    setSuggestionIndex((prev) => (prev < suggestions.length - 1 ? prev + 1 : 0))
+                  } else if (event.key === "ArrowUp") {
+                    event.preventDefault()
+                    setSuggestionIndex((prev) => (prev > 0 ? prev - 1 : suggestions.length - 1))
+                  } else if (event.key === "Enter" && suggestionIndex >= 0) {
+                    event.preventDefault()
+                    setSearch(suggestions[suggestionIndex])
+                    setSuggestionsVisible(false)
+                    setSuggestionIndex(-1)
+                    onChange({ search: suggestions[suggestionIndex] })
+                  } else if (event.key === "Escape") {
+                    setSuggestionsVisible(false)
+                    setSuggestionIndex(-1)
+                  }
+                }}
+                className="h-8 min-w-0 rounded-md"
+              />
+              <Button type="submit" size="icon" aria-label="搜索" className="size-8 rounded-md">
+                <SearchIcon className="size-3.5" aria-hidden="true" />
+              </Button>
+            </form>
+            {suggestionsVisible && suggestions.length > 0 ? (
+              <ul
+                role="listbox"
+                aria-label="搜索建议"
+                className="absolute left-0 right-8 top-full z-30 mt-1 max-h-56 overflow-y-auto rounded-md border bg-card shadow-lg"
+              >
+                {suggestionsLoading ? (
+                  <li className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+                    <Loader2Icon className="size-3 animate-spin" aria-hidden="true" />
+                    获取建议中...
+                  </li>
+                ) : null}
+                {suggestions.map((label, index) => (
+                  <li key={label}>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={suggestionIndex === index}
+                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-accent aria-selected:bg-accent ${
+                        suggestionIndex === index ? "bg-accent" : ""
+                      }`}
+                      onMouseDown={(event) => {
+                        event.preventDefault() // 阻止 blur 抢先关闭建议
+                        setSearch(label)
+                        setSuggestionsVisible(false)
+                        setSuggestionIndex(-1)
+                        onChange({ search: label })
+                      }}
+                      onMouseEnter={() => setSuggestionIndex(index)}
+                    >
+                      <SearchIcon className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+                      <span>{label}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
           <FilterSheet>{filterPanel}</FilterSheet>
-        </form>
+        </div>
       </div>
 
       <div className="grid gap-1.5" role="region" aria-label="地区议题相关筛选">
