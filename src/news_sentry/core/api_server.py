@@ -160,6 +160,8 @@ from news_sentry.api.schemas import (
     TopEventsResponse,
     TopicTrendItem,
     TopicTrendsResponse,
+    TransitionEventRequest,
+    TransitionEventResponse,
     TriggerResponse,
     WebhookPayload,
     WebhookResponse,
@@ -173,6 +175,7 @@ from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.auth import hash_password, verify_password
 from news_sentry.core.canonical_projection import CanonicalProjectionService, ProjectionOptions
 from news_sentry.core.config_cache import ConfigCache
+from news_sentry.core.file_writer import FileWriter
 from news_sentry.core.markdown_export import (
     render_canonical_event_markdown,
     render_news_event_markdown,
@@ -8494,6 +8497,70 @@ def create_app(
         """清除配置缓存，下次请求时重新从文件加载。"""
         _config_cache.reload()
         return {"status": "ok", "message": "Configuration cache cleared"}
+
+    # ── M-35.2: 事件审核阶段转换 ───────────────────────────
+
+    @app.post("/api/v1/admin/events/{event_id}/transition")
+    async def transition_event_stage(
+        event_id: str,
+        body: TransitionEventRequest,
+        user: dict[str, Any] = Depends(require_permission("write")),
+    ) -> TransitionEventResponse:
+        """将事件在 drafts → reviewed → published 之间转换。
+
+        读取原事件文件，更新 review_stage，移动目录，同步更新 SQLite 索引。
+        """
+        valid_stages = {"drafts", "reviewed", "published"}
+        if body.new_stage not in valid_stages:
+            raise HTTPException(
+                status_code=422,
+                detail=f"无效的审核阶段: {body.new_stage}，有效值: {sorted(valid_stages)}",
+            )
+
+        target_id = body.target_id
+        store = await _store_for_target(target_id)
+        if store is None:
+            raise HTTPException(status_code=404, detail=f"Target 不存在或无事件索引: {target_id}")
+
+        # 从索引中查找事件
+        row = await store.get_event_index_row(target_id, event_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"事件不存在: {event_id}")
+
+        file_path = row.get("file_path")
+        if not file_path:
+            raise HTTPException(status_code=400, detail="事件无关联文件路径，无法转换")
+
+        source_path = Path(file_path)
+        if not source_path.is_file():
+            raise HTTPException(status_code=404, detail=f"事件文件不存在: {file_path}")
+
+        # 使用 FileWriter 移动文件
+        writer = FileWriter(_data_dir)
+        new_path = writer.move_event_review_stage(source_path, body.new_stage)
+
+        # 更新索引中的 stage 和 file_path
+        index_stage = "drafts"  # event_index 中统一用 "drafts" 表示已输出阶段
+        await store.update_event_stage(
+            target_id,
+            event_id,
+            index_stage,
+            str(new_path),
+        )
+
+        logger.info(
+            "事件审核转换完成: event_id=%s target_id=%s -> %s new_path=%s",
+            event_id,
+            target_id,
+            body.new_stage,
+            new_path,
+        )
+
+        return TransitionEventResponse(
+            event_id=event_id,
+            new_stage=body.new_stage,
+            new_file_path=str(new_path),
+        )
 
     # ── Phase 42: 配置写入端点 ────────────────────────────
 

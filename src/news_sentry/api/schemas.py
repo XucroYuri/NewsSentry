@@ -101,6 +101,21 @@ class ImportResponse(BaseModel):
     errors: list[str]
 
 
+class TransitionEventRequest(BaseModel):
+    """M-35.2: 事件审核阶段转换请求。"""
+
+    target_id: str
+    new_stage: Literal["drafts", "reviewed", "published"]
+
+
+class TransitionEventResponse(BaseModel):
+    """M-35.2: 事件审核阶段转换响应。"""
+
+    event_id: str
+    new_stage: str
+    new_file_path: str
+
+
 class TargetInfo(BaseModel):
     """Target 基本信息。"""
 

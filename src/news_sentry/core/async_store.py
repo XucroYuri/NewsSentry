@@ -1691,6 +1691,31 @@ class AsyncStore:
         await db.commit()
         return merged
 
+    async def update_event_stage(
+        self,
+        target_id: str,
+        event_id: str,
+        new_stage: str,
+        new_file_path: str | None = None,
+    ) -> dict[str, Any] | None:
+        """M-35.2: 更新 event_index 中的 stage 和 file_path。"""
+        db = await self._ensure_db()
+        if new_file_path is not None:
+            await db.execute(
+                "UPDATE event_index SET stage = ?, file_path = ? "
+                "WHERE target_id = ? AND event_id = ?",
+                (new_stage, new_file_path, target_id, event_id),
+            )
+        else:
+            await db.execute(
+                "UPDATE event_index SET stage = ? WHERE target_id = ? AND event_id = ?",
+                (new_stage, target_id, event_id),
+            )
+        await db.commit()
+
+        # 返回更新后的行
+        return await self.get_event_index_row(target_id, event_id)
+
     async def get_ai_enrichment_usage(self, usage_date: str) -> dict[str, Any]:
         db = await self._ensure_db()
         async with db.execute(

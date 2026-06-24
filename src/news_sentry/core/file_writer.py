@@ -28,6 +28,13 @@ class FileWriter:
         PipelineStage.OUTPUTTED: "drafts",
     }
 
+    # M-35.2: 运营审核阶段 — 扩展映射，处理 review/publish 目录
+    _REVIEW_STAGE_DIR: dict[str, str] = {
+        "drafts": "drafts",
+        "reviewed": "reviewed",
+        "published": "published",
+    }
+
     # v1 所有子目录（含非事件目录，用于 ensure_dirs）
     _ALL_DIRS: tuple[str, ...] = (
         "raw",
@@ -101,6 +108,39 @@ class FileWriter:
         source_id = frontmatter_dict.get("source_id", "unknown")
         event_id = frontmatter_dict.get("id", "unknown")
         filename = f"{new_stage.value}_{source_id}_{event_id}.md"
+        filepath = target_dir / filename
+
+        content = self._render_frontmatter_str(frontmatter_dict) + body
+        self._atomic_write(filepath, content)
+
+        path.unlink()
+        return filepath
+
+    def move_event_review_stage(self, path: Path, new_stage: str) -> Path:
+        """M-35.2: 在草稿/审核/发布目录间移动事件文件。
+
+        读取原文件 → 解析并更新 YAML frontmatter → 写入新目录 → 删除原文件。
+        new_stage 必须是 _REVIEW_STAGE_DIR 中的 key：drafts/reviewed/published。
+        """
+        if new_stage not in self._REVIEW_STAGE_DIR:
+            raise ValueError(
+                f"不支持的审核阶段: {new_stage}，有效值: {sorted(self._REVIEW_STAGE_DIR.keys())}"
+            )
+
+        raw_text = path.read_text(encoding="utf-8")
+        frontmatter_dict, body = self._parse_frontmatter(raw_text)
+
+        # 更新 pipeline_stage 为 outputted（通用值）和 review_stage
+        frontmatter_dict["pipeline_stage"] = "outputted"
+        frontmatter_dict["review_stage"] = new_stage
+
+        dirname = self._REVIEW_STAGE_DIR[new_stage]
+        target_dir = self.base_dir / dirname
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        source_id = frontmatter_dict.get("source_id", "unknown")
+        event_id = frontmatter_dict.get("id", "unknown")
+        filename = f"outputted_{source_id}_{event_id}.md"
         filepath = target_dir / filename
 
         content = self._render_frontmatter_str(frontmatter_dict) + body
