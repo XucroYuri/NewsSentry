@@ -74,7 +74,7 @@ api = [
     "uvicorn[standard]>=0.29",
 ]
 cloudflare-deploy = [
-    # Cloudflare Workers + Pages 部署模式（ENABLE_CLOUDFLARE=true）
+    # Cloudflare Workers + Pages 部署模式
     # 无额外 Python 依赖 — Worker 代码为 TypeScript，
     # 部署需 Node.js + wrangler（npm install -g wrangler）
     # 参见 frontend/cloudflare/

@@ -15,9 +15,7 @@ binding = "DB"
 database_name = "ns-db"
 database_id = "35a52961-e7e1-41ef-934e-7a63882ba465"
 
-# 环境变量
-[vars]
-ENABLE_CLOUDFLARE = "true"
+# 环境变量（Worker 运行时可通过 env 访问）
 
 # 自定义域名（通过 Cloudflare Dashboard 或 wrangler routes 配置）
 # routes = [

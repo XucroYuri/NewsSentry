@@ -2,7 +2,6 @@
  * News Sentry Cloudflare Worker — M-8 API 入口。
  *
  * 部署: cd frontend/cloudflare && npx wrangler deploy
- * 环境变量: ENABLE_CLOUDFLARE=true (自动设置)
  *
  * 端点覆盖:
  *   GET  /api/v1/health

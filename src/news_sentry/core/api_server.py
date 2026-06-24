@@ -5428,8 +5428,6 @@ def create_app(
     global _skip_lifespan
     _skip_lifespan = skip_lifespan
 
-    enable_cloudflare = os.environ.get("ENABLE_CLOUDFLARE", "false").strip().lower() == "true"
-
     app = FastAPI(
         title="News Sentry API",
         version="0.1.0",
@@ -5582,147 +5580,146 @@ def create_app(
             "static_build": build,
         }
 
-    # ── 静态资源 / SPA 前端路由（仅 API 模式挂载，Cloudflare 模式跳过）──────
-    if not enable_cloudflare:
+    # ── 静态资源 / SPA 前端路由 ──────
 
-        @app.get("/", include_in_schema=False)
-        @app.get("/index.html", include_in_schema=False)
-        async def index_html(request: Request) -> HTMLResponse:  # type: ignore[no-redef]
-            return _public_app_index_response(
-                base_url=_public_site_base_url(request),
-                canonical_path="/",
-            )
-
-        @app.get("/sources", include_in_schema=False)
-        @app.get("/subscribe", include_in_schema=False)
-        async def publication_reader_page(request: Request) -> HTMLResponse:  # type: ignore[no-redef]
-            return _public_app_index_response(
-                base_url=_public_site_base_url(request),
-                canonical_path=request.url.path,
-            )
-
-        @app.get("/admin", include_in_schema=False)
-        @app.get("/admin/", include_in_schema=False)
-        async def admin_index_html() -> HTMLResponse:  # type: ignore[no-redef]
-            return _index_html_response()
-
-        @app.get("/admin/{path:path}", include_in_schema=False)
-        async def admin_path_html(path: str) -> Response:  # type: ignore[no-redef]
-            # Serve static assets (JS/CSS/images) directly; everything else is an SPA fallback
-            admin_root = _static_dir() / "admin"
-            clean_path = path.strip("/")
-            file_path = (admin_root / clean_path).resolve()
-            try:
-                file_path.relative_to(admin_root.resolve())
-            except ValueError:
-                raise HTTPException(status_code=404, detail="Static asset not found") from None
-            if file_path.is_file():
-                cache_control = (
-                    "public, max-age=31536000, immutable"
-                    if clean_path.startswith("assets/")
-                    else "no-store"
-                )
-                return FileResponse(file_path, headers={"Cache-Control": cache_control})
-            return _index_html_response()
-
-        @app.get("/robots.txt", include_in_schema=False)
-        async def robots_txt(request: Request) -> PlainTextResponse:  # type: ignore[no-redef]
-            base_url = _public_site_base_url(request)
-            body = _public_discoverability_text("robots.txt").replace(
-                f"{_PUBLIC_SITE_BASE_URL}/sitemap.xml",
-                f"{base_url}/sitemap.xml",
-            )
-            return PlainTextResponse(
-                body,
-                headers={"Cache-Control": "public, max-age=3600"},
-            )
-
-        @app.get("/llms.txt", include_in_schema=False)
-        async def llms_txt() -> PlainTextResponse:  # type: ignore[no-redef]
-            return PlainTextResponse(
-                _public_discoverability_text("llms.txt"),
-                headers={"Cache-Control": "public, max-age=3600"},
-            )
-
-        @app.get("/sitemap.xml", include_in_schema=False)
-        async def sitemap_xml(request: Request) -> Response:  # type: ignore[no-redef]
-            xml = await _render_public_sitemap_xml(
-                _store,
-                base_url=_public_site_base_url(request),
-            )
-            return Response(
-                content=xml,
-                media_type="application/xml",
-                headers={"Cache-Control": "public, max-age=3600"},
-            )
-
-        @app.api_route("/public-app", methods=["GET", "HEAD"], include_in_schema=False)
-        @app.api_route("/public-app/", methods=["GET", "HEAD"], include_in_schema=False)
-        async def public_app_index(request: Request) -> HTMLResponse:  # type: ignore[no-redef]
-            async def _ssr_bootstrap_json_impl() -> str | None:
-                """尝试获取公开首页 bootstrap 数据，失败时返回 None 使前端正常回退。"""
-                try:
-                    news_task = _public_news_feed_payload_for_bootstrap(
-                        featured=True,
-                        region_id=None,
-                        source_id=None,
-                        category=None,
-                        issue=None,
-                        related=None,
-                        date=None,
-                        q=None,
-                        page_size=20,
-                    )
-                    regions_task = _cached_public_regions(include_empty=True)
-                    facets_task = _cached_public_facets(
-                        region_id=None,
-                        issue=None,
-                        related=None,
-                        date=None,
-                        q=None,
-                    )
-                    (news, _news_etag, _elapsed_ms), regions, facets = await asyncio.gather(
-                        news_task,
-                        regions_task,
-                        facets_task,
-                    )
-                    payload = PublicBootstrapResponse(
-                        news=news,
-                        regions=regions,
-                        facets=facets,
-                        generatedAt=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-                    )
-                    return payload.model_dump_json(by_alias=True, exclude_none=True)
-                except Exception:
-                    logger.warning(
-                        "SSR bootstrap fetch failed, page will use client-side API", exc_info=True
-                    )
-                    return None
-
-            bootstrap_json = await _ssr_bootstrap_json_impl()
-            return _public_app_index_response(
-                base_url=_public_site_base_url(request),
-                bootstrap_json=bootstrap_json,
-            )
-
-        @app.api_route(
-            "/public-app/{asset_path:path}",
-            methods=["GET", "HEAD"],
-            include_in_schema=False,
+    @app.get("/", include_in_schema=False)
+    @app.get("/index.html", include_in_schema=False)
+    async def index_html(request: Request) -> HTMLResponse:  # type: ignore[no-redef]
+        return _public_app_index_response(
+            base_url=_public_site_base_url(request),
+            canonical_path="/",
         )
-        async def public_app_asset(asset_path: str, request: Request) -> Response:  # type: ignore[no-redef]
-            if not asset_path.strip("/"):
-                return _public_app_index_response(base_url=_public_site_base_url(request))
-            canonical_path = f"/public-app/{asset_path.strip('/')}"
-            if asset_path.strip("/") == "sources":
-                canonical_path = "/sources"
-            elif asset_path.strip("/") == "subscribe":
-                canonical_path = "/subscribe"
-            return _public_app_asset_response(
-                asset_path,
-                base_url=_public_site_base_url(request),
-                canonical_path=canonical_path,
+
+    @app.get("/sources", include_in_schema=False)
+    @app.get("/subscribe", include_in_schema=False)
+    async def publication_reader_page(request: Request) -> HTMLResponse:  # type: ignore[no-redef]
+        return _public_app_index_response(
+            base_url=_public_site_base_url(request),
+            canonical_path=request.url.path,
+        )
+
+    @app.get("/admin", include_in_schema=False)
+    @app.get("/admin/", include_in_schema=False)
+    async def admin_index_html() -> HTMLResponse:  # type: ignore[no-redef]
+        return _index_html_response()
+
+    @app.get("/admin/{path:path}", include_in_schema=False)
+    async def admin_path_html(path: str) -> Response:  # type: ignore[no-redef]
+        # Serve static assets (JS/CSS/images) directly; everything else is an SPA fallback
+        admin_root = _static_dir() / "admin"
+        clean_path = path.strip("/")
+        file_path = (admin_root / clean_path).resolve()
+        try:
+            file_path.relative_to(admin_root.resolve())
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Static asset not found") from None
+        if file_path.is_file():
+            cache_control = (
+                "public, max-age=31536000, immutable"
+                if clean_path.startswith("assets/")
+                else "no-store"
             )
+            return FileResponse(file_path, headers={"Cache-Control": cache_control})
+        return _index_html_response()
+
+    @app.get("/robots.txt", include_in_schema=False)
+    async def robots_txt(request: Request) -> PlainTextResponse:  # type: ignore[no-redef]
+        base_url = _public_site_base_url(request)
+        body = _public_discoverability_text("robots.txt").replace(
+            f"{_PUBLIC_SITE_BASE_URL}/sitemap.xml",
+            f"{base_url}/sitemap.xml",
+        )
+        return PlainTextResponse(
+            body,
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+
+    @app.get("/llms.txt", include_in_schema=False)
+    async def llms_txt() -> PlainTextResponse:  # type: ignore[no-redef]
+        return PlainTextResponse(
+            _public_discoverability_text("llms.txt"),
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+
+    @app.get("/sitemap.xml", include_in_schema=False)
+    async def sitemap_xml(request: Request) -> Response:  # type: ignore[no-redef]
+        xml = await _render_public_sitemap_xml(
+            _store,
+            base_url=_public_site_base_url(request),
+        )
+        return Response(
+            content=xml,
+            media_type="application/xml",
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+
+    @app.api_route("/public-app", methods=["GET", "HEAD"], include_in_schema=False)
+    @app.api_route("/public-app/", methods=["GET", "HEAD"], include_in_schema=False)
+    async def public_app_index(request: Request) -> HTMLResponse:  # type: ignore[no-redef]
+        async def _ssr_bootstrap_json_impl() -> str | None:
+            """尝试获取公开首页 bootstrap 数据，失败时返回 None 使前端正常回退。"""
+            try:
+                news_task = _public_news_feed_payload_for_bootstrap(
+                    featured=True,
+                    region_id=None,
+                    source_id=None,
+                    category=None,
+                    issue=None,
+                    related=None,
+                    date=None,
+                    q=None,
+                    page_size=20,
+                )
+                regions_task = _cached_public_regions(include_empty=True)
+                facets_task = _cached_public_facets(
+                    region_id=None,
+                    issue=None,
+                    related=None,
+                    date=None,
+                    q=None,
+                )
+                (news, _news_etag, _elapsed_ms), regions, facets = await asyncio.gather(
+                    news_task,
+                    regions_task,
+                    facets_task,
+                )
+                payload = PublicBootstrapResponse(
+                    news=news,
+                    regions=regions,
+                    facets=facets,
+                    generatedAt=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                )
+                return payload.model_dump_json(by_alias=True, exclude_none=True)
+            except Exception:
+                logger.warning(
+                    "SSR bootstrap fetch failed, page will use client-side API", exc_info=True
+                )
+                return None
+
+        bootstrap_json = await _ssr_bootstrap_json_impl()
+        return _public_app_index_response(
+            base_url=_public_site_base_url(request),
+            bootstrap_json=bootstrap_json,
+        )
+
+    @app.api_route(
+        "/public-app/{asset_path:path}",
+        methods=["GET", "HEAD"],
+        include_in_schema=False,
+    )
+    async def public_app_asset(asset_path: str, request: Request) -> Response:  # type: ignore[no-redef]
+        if not asset_path.strip("/"):
+            return _public_app_index_response(base_url=_public_site_base_url(request))
+        canonical_path = f"/public-app/{asset_path.strip('/')}"
+        if asset_path.strip("/") == "sources":
+            canonical_path = "/sources"
+        elif asset_path.strip("/") == "subscribe":
+            canonical_path = "/subscribe"
+        return _public_app_asset_response(
+            asset_path,
+            base_url=_public_site_base_url(request),
+            canonical_path=canonical_path,
+        )
 
     @app.get("/api/v1/collector/status")
     async def collector_status(
@@ -9287,19 +9284,13 @@ def create_app(
         ]
         return AlertHistoryResponse(alerts=alerts, total=len(alerts))
 
-    _mount_spa_routes(app, enable_cloudflare)
+    _mount_spa_routes(app)
 
     return app
 
 
-def _mount_spa_routes(app: FastAPI, enable_cloudflare: bool = False) -> None:
-    """挂载 SPA 静态资源与服务路由。
-
-    当 ENABLE_CLOUDFLARE=true 时跳过挂载，
-    FastAPI 不承担前端静态资源服务职责。
-    """
-    if enable_cloudflare:
-        return
+def _mount_spa_routes(app: FastAPI) -> None:
+    """挂载 SPA 静态资源与服务路由。"""
 
     static_dir = _static_dir()
     if static_dir.is_dir():
