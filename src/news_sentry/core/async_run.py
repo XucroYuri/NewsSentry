@@ -18,6 +18,7 @@ import httpx
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.confidence_router import TieredConfidenceRouter
 from news_sentry.core.config import ResolvedConfig
+from news_sentry.core.event_bus import EventBus
 from news_sentry.core.file_writer import FileWriter
 from news_sentry.core.llm_cache_manager import LLMCacheManager
 from news_sentry.core.memory import Memory
@@ -87,6 +88,7 @@ async def bounded_run_async(
     profile_id: str | None = None,
     output_root: str | Path | None = None,
     max_concurrent: int = 10,
+    event_bus: EventBus | None = None,
 ) -> PipelineContext:
     """异步版 pipeline 入口 — 共享同步 bootstrap + 异步存储/缓存叠加。"""
     b = _bootstrap_run(target_id, stage, run_id, dry_run, config_dir, profile_id, output_root)
@@ -134,6 +136,7 @@ async def bounded_run_async(
                 b.ctx,
                 cache_mgr=cache_mgr,
                 store=store,
+                event_bus=event_bus,
             )
         elif b.stage_str == "all":
             collected = await _run_collect_async(
@@ -166,6 +169,7 @@ async def bounded_run_async(
                 b.ctx,
                 cache_mgr=cache_mgr,
                 store=store,
+                event_bus=event_bus,
                 input_events=filtered,
             )
             await _run_output_async(
@@ -502,6 +506,7 @@ async def _run_judge_async(
     cache_mgr: LLMCacheManager | None = None,
     store: AsyncStore | None = None,
     input_events: list[NewsEvent] | None = None,
+    event_bus: EventBus | None = None,
 ) -> list[NewsEvent]:
     """异步研判阶段 — P27 使用 TieredConfidenceRouter 并发研判。
 
@@ -622,6 +627,30 @@ async def _run_judge_async(
                     )
         except Exception as e:
             logger.warning("实体持久化失败（非阻塞）: %s", e)
+
+    # R1: EventBus 发布钩子 — 实体持久化后通知订阅者
+    if event_bus is not None:
+        try:
+            for event in judged:
+                nlp = getattr(event, "judge_result", None) and getattr(
+                    event.judge_result, "nlp_analysis", None
+                )
+                entity_names = [e.name for e in nlp.entities] if nlp else []
+                sentiment = ""
+                if hasattr(event, "judge_result") and event.judge_result:
+                    sentiment = getattr(event.judge_result, "sentiment_label", "") or ""
+                topic = f"news.judged.{config.target_id}"
+                payload = {
+                    "event_id": getattr(event, "id", ""),
+                    "target_id": config.target_id,
+                    "news_value_score": int(getattr(event, "news_value_score", 0)),
+                    "sentiment": str(sentiment),
+                    "entity_names": entity_names,
+                    "title": getattr(event, "title", ""),
+                }
+                await event_bus.publish(topic, payload)
+        except Exception as e:
+            logger.warning("EventBus publish 失败（非阻塞）: %s", e)
 
     # P35: 事件关联扫描
     if store is not None:

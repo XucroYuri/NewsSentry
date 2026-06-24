@@ -158,6 +158,14 @@ def register_admin_routes(router: APIRouter, h: dict[str, Any]) -> None:
         response_model=h.get("AnnotationListResponse"),
     )(h["list_annotations"])
 
+    # ── 通知规则 (R1) ──
+    router.get(
+        "/api/v1/notification-rules",
+        response_model=h.get("NotificationRuleListResponse"),
+    )(h["list_notification_rules"])
+    router.post("/api/v1/notification-rules")(h["upsert_notification_rule"])
+    router.delete("/api/v1/notification-rules/{rule_id}")(h["delete_notification_rule"])
+
     # ── Webhook / 导入 ──
     router.post("/api/v1/webhook", response_model=h.get("WebhookResponse"))(h["receive_webhook"])
     router.post("/api/v1/events/import", response_model=h.get("ImportResponse"))(h["import_events"])

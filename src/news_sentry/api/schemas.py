@@ -618,6 +618,35 @@ class AnnotationListResponse(BaseModel):
     total: int = 0
 
 
+class NotificationRuleRequest(BaseModel):
+    """通知规则创建/更新请求。"""
+
+    id: str
+    user_id: str = ""
+    watch: dict[str, Any] = {}
+    action: dict[str, Any] = {}
+    quiet_hours: dict[str, Any] | None = None
+    enabled: bool = True
+
+
+class NotificationRuleInfo(BaseModel):
+    """通知规则响应。"""
+
+    id: str
+    user_id: str
+    enabled: bool
+    rule: dict[str, Any] = {}
+    created_at: str = ""
+    updated_at: str = ""
+
+
+class NotificationRuleListResponse(BaseModel):
+    """通知规则列表响应。"""
+
+    rules: list[NotificationRuleInfo]
+    total: int = 0
+
+
 class RunInfo(BaseModel):
     """运行历史条目。"""
 

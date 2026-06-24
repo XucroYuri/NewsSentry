@@ -78,6 +78,9 @@ from news_sentry.api.schemas import (
     AnnotationCreateRequest,
     AnnotationInfo,
     AnnotationListResponse,
+    NotificationRuleRequest,
+    NotificationRuleInfo,
+    NotificationRuleListResponse,
     ArchiveRequest,
     BackupResponse,
     CanonicalBackfillRequest,
@@ -8072,6 +8075,49 @@ def create_app(
             total=len(annotations),
         )
 
+    # ── Notification Rules (R1) ────────────────────────
+
+    async def upsert_notification_rule(
+        body: NotificationRuleRequest,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> NotificationRuleInfo:
+        """创建或更新通知规则。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not ready")
+        rule_dict = body.model_dump()
+        await _store.upsert_notification_rule(rule_dict)
+        return NotificationRuleInfo(
+            id=body.id,
+            user_id=body.user_id,
+            enabled=body.enabled,
+            rule={k: v for k, v in rule_dict.items() if k not in ("id", "user_id", "enabled")},
+        )
+
+    async def list_notification_rules(
+        user_id: str | None = Query(None, description="按用户筛选"),
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> NotificationRuleListResponse:
+        """列出通知规则。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not ready")
+        rules = await _store.list_notification_rules(user_id=user_id)
+        return NotificationRuleListResponse(
+            rules=[NotificationRuleInfo(**r) for r in rules],
+            total=len(rules),
+        )
+
+    async def delete_notification_rule(
+        rule_id: str,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """删除通知规则。"""
+        if _store is None:
+            raise HTTPException(status_code=503, detail="Store not ready")
+        deleted = await _store.delete_notification_rule(rule_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Rule not found")
+        return {"deleted": True, "rule_id": rule_id}
+
     # ── 需认证端点 ────────────────────────────────────
 
     async def get_today_stats_api(
@@ -9639,6 +9685,9 @@ def create_app(
         "get_entity_events": get_entity_events,
         "create_annotation": create_annotation,
         "list_annotations": list_annotations,
+        "upsert_notification_rule": upsert_notification_rule,
+        "list_notification_rules": list_notification_rules,
+        "delete_notification_rule": delete_notification_rule,
         "receive_webhook": receive_webhook,
         "import_events": import_events,
         "transition_event_stage": transition_event_stage,
@@ -9692,6 +9741,7 @@ def create_app(
         "EntityDetailResponse": EntityDetailResponse,
         "EntityMergeResponse": EntityMergeResponse,
         "AnnotationListResponse": AnnotationListResponse,
+        "NotificationRuleListResponse": NotificationRuleListResponse,
         "WebhookResponse": WebhookResponse,
         "ImportResponse": ImportResponse,
         "RunListResponse": RunListResponse,

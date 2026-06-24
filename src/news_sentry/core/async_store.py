@@ -471,6 +471,17 @@ CREATE TABLE IF NOT EXISTS ai_enrichment_events (
 )
 """
 
+_DDL_NOTIFICATION_RULES = """
+CREATE TABLE IF NOT EXISTS notification_rules (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    rule_json TEXT NOT NULL DEFAULT '{}',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)
+"""
+
 # Schema 迁移 — 版本化 DDL 变更，确保已有数据库自动升级
 _DDL_SCHEMA_VERSION = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -582,6 +593,11 @@ _SCHEMA_MIGRATIONS: list[tuple[int, str, list[str]]] = [
         14,
         "Entity annotations — manual correction audit trail",
         [_DDL_ENTITY_EVENT_ANNOTATIONS],
+    ),
+    (
+        15,
+        "Notification rules — user alert rule storage",
+        [_DDL_NOTIFICATION_RULES],
     ),
 ]
 
@@ -739,6 +755,7 @@ class AsyncStore:
         await self._db.execute(_DDL_NOTIFICATIONS)
         await self._db.execute(_DDL_AI_ENRICHMENT_USAGE)
         await self._db.execute(_DDL_AI_ENRICHMENT_EVENTS)
+        await self._db.execute(_DDL_NOTIFICATION_RULES)
         await self._db.execute(_DDL_SCHEMA_VERSION)
         await self._migrate_schema()
 
@@ -4600,6 +4617,68 @@ class AsyncStore:
         async with self._db.execute(sql, params) as cursor:
             rows = await cursor.fetchall()
         return [dict(zip([c.split(".")[-1] for c in cols], r, strict=True)) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Notification Rules — R1 实时告警引擎
+    # ------------------------------------------------------------------
+
+    async def upsert_notification_rule(self, rule: dict[str, Any]) -> None:
+        """写入或更新通知规则。rule 必须包含 id 字段。"""
+        if self._db is None:
+            return
+        rule_json = json.dumps(rule, ensure_ascii=False)
+        await self._db.execute(
+            """INSERT INTO notification_rules (id, user_id, rule_json, enabled, updated_at)
+               VALUES (?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(id) DO UPDATE SET
+               rule_json=excluded.rule_json,
+               enabled=excluded.enabled,
+               user_id=excluded.user_id,
+               updated_at=datetime('now')""",
+            (rule["id"], rule.get("user_id", ""), rule_json, int(rule.get("enabled", True))),
+        )
+        await self._db.commit()
+
+    async def delete_notification_rule(self, rule_id: str) -> bool:
+        """删除通知规则。"""
+        if self._db is None:
+            return False
+        cursor = await self._db.execute(
+            "DELETE FROM notification_rules WHERE id = ?", [rule_id]
+        )
+        await self._db.commit()
+        return cursor.rowcount > 0
+
+    async def list_notification_rules(
+        self, user_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """列出通知规则，可按用户筛选。"""
+        if self._db is None:
+            return []
+        if user_id:
+            async with self._db.execute(
+                "SELECT id, user_id, rule_json, enabled, created_at, updated_at "
+                "FROM notification_rules WHERE user_id = ? ORDER BY created_at DESC",
+                [user_id],
+            ) as cursor:
+                rows = await cursor.fetchall()
+        else:
+            async with self._db.execute(
+                "SELECT id, user_id, rule_json, enabled, created_at, updated_at "
+                "FROM notification_rules ORDER BY created_at DESC"
+            ) as cursor:
+                rows = await cursor.fetchall()
+        cols = ("id", "user_id", "rule_json", "enabled", "created_at", "updated_at")
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            d = dict(zip(cols, row, strict=True))
+            try:
+                d["rule"] = json.loads(d.pop("rule_json"))
+            except (json.JSONDecodeError, KeyError):
+                d["rule"] = {}
+            d["enabled"] = bool(d["enabled"])
+            results.append(d)
+        return results
 
     # ------------------------------------------------------------------
     # Event Links (Phase 35)
