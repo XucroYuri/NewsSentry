@@ -186,6 +186,8 @@ git log main..origin/main --oneline | wc -l | xargs test 0 -eq || echo "WARNING:
 
 ### Git 提交规范
 
+- 所有 commit 在推送前必须是已审查完成、无已知质量问题的最终版本。严禁推送后通过 force-push 或 amend 修改已推送的 commit 历史。
+
 - 所有 commit message 默认使用**简体中文**
 - 格式：`<阶段/模块>: <简要描述>`
 - 示例：`Phase 3 Kernel: 实现 ConfigLoader 配置加载与 schema 校验`
