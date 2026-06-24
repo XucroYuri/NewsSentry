@@ -248,6 +248,36 @@ def _inject_script_nonce(html: str, nonce: str) -> str:
     return _SCRIPT_TAG_WITHOUT_NONCE_RE.sub(f'<script nonce="{nonce}"', html)
 
 
+def _inject_inline_css(html: str, nonce: str) -> str:
+    """读取 dist/assets/ 下的 CSS 文件并内联到 <style nonce> 标签中。
+
+    消除首屏 FOUC（flash of unstyled content），让 critical CSS 与 HTML 一同抵达。
+    内联的 <style> 与外部 <link> 共存 -- 浏览器优先使用内联样式，外部 link 作为缓存策略。
+    """
+    dist_dir = _public_app_dir() / "assets"
+    if not dist_dir.is_dir():
+        return html
+
+    css_files = sorted(dist_dir.glob("index-*.css"))
+    if not css_files:
+        return html
+
+    css_path = css_files[0]  # Vite 构建产物通常只有一个 index-{hash}.css
+    try:
+        css_content = css_path.read_text(encoding="utf-8")
+    except OSError:
+        return html
+
+    # 在 </head> 前插入内联 style 标签
+    style_tag = f"\n<style nonce=\"{nonce}\">{css_content}</style>\n"
+    if "</head>" in html:
+        html = html.replace("</head>", f"{style_tag}</head>", 1)
+    else:
+        html = f"{style_tag}\n{html}"
+
+    return html
+
+
 _PUBLIC_SITE_BASE_URL = "https://news-sentry.com"
 _PUBLIC_SITE_NAME = "News Sentry"
 _PUBLIC_SITE_TITLE = "News Sentry | 新闻哨兵"
@@ -5132,6 +5162,8 @@ def _public_app_index_response(
             base_url=base_url,
             canonical_path=canonical_path,
         )
+    # 内联 critical CSS：读取 dist/assets/ 下的 CSS 文件，注入到 <style nonce> 标签
+    html = _inject_inline_css(html, nonce)
     if bootstrap_json:
         bootstrap_tag = (
             f'\n<script id="news-sentry-bootstrap" type="application/json">'
