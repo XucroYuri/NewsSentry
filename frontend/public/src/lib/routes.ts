@@ -1,15 +1,15 @@
 import type { PublicChannel } from "@/lib/feed-state"
 
 export type PublicRoute =
-  | { name: "feed"; channel: PublicChannel; search: URLSearchParams }
-  | { name: "event"; eventId: string; targetId?: string; search: URLSearchParams }
-  | { name: "sources"; search: URLSearchParams }
-  | { name: "sourceDetail"; sourceId: string; search: URLSearchParams }
-  | { name: "daily"; date?: string; search: URLSearchParams }
-  | { name: "agent"; search: URLSearchParams }
-  | { name: "update"; search: URLSearchParams }
-  | { name: "subscribe"; search: URLSearchParams }
-  | { name: "analysis"; targetId?: string; section?: string; search: URLSearchParams }
+  | { name: "feed"; channel: PublicChannel; search: URLSearchParams; locale?: string }
+  | { name: "event"; eventId: string; targetId?: string; search: URLSearchParams; locale?: string }
+  | { name: "sources"; search: URLSearchParams; locale?: string }
+  | { name: "sourceDetail"; sourceId: string; search: URLSearchParams; locale?: string }
+  | { name: "daily"; date?: string; search: URLSearchParams; locale?: string }
+  | { name: "agent"; search: URLSearchParams; locale?: string }
+  | { name: "update"; search: URLSearchParams; locale?: string }
+  | { name: "subscribe"; search: URLSearchParams; locale?: string }
+  | { name: "analysis"; targetId?: string; section?: string; search: URLSearchParams; locale?: string }
 
 const feedChannels = new Set<PublicChannel>([
   "featured",
@@ -36,7 +36,7 @@ function buildSearchParams(search: string) {
   return new URLSearchParams(value)
 }
 
-function parseRouteParts(pathPart: string, search: URLSearchParams): PublicRoute {
+function parseRouteParts(pathPart: string, search: URLSearchParams, locale = "zh"): PublicRoute {
   const segments = pathPart.split("/").filter(Boolean).map(decodeURIComponent)
   const [root, second] = segments
 
@@ -46,25 +46,26 @@ function parseRouteParts(pathPart: string, search: URLSearchParams): PublicRoute
       eventId: second,
       targetId: search.get("target_id") ?? undefined,
       search,
+      locale,
     }
   }
   if (root === "sources" && second) {
-    return { name: "sourceDetail", sourceId: second, search }
+    return { name: "sourceDetail", sourceId: second, search, locale }
   }
   if (root === "sources") {
-    return { name: "sources", search }
+    return { name: "sources", search, locale }
   }
   if (root === "daily") {
-    return { name: "daily", date: search.get("date") ?? undefined, search }
+    return { name: "daily", date: search.get("date") ?? undefined, search, locale }
   }
   if (root === "agent") {
-    return { name: "agent", search }
+    return { name: "agent", search, locale }
   }
   if (root === "update") {
-    return { name: "update", search }
+    return { name: "update", search, locale }
   }
   if (root === "subscribe") {
-    return { name: "subscribe", search }
+    return { name: "subscribe", search, locale }
   }
   if (root === "analysis") {
     return {
@@ -72,30 +73,54 @@ function parseRouteParts(pathPart: string, search: URLSearchParams): PublicRoute
       targetId: search.get("target_id") ?? undefined,
       section: search.get("section") ?? undefined,
       search,
+      locale,
     }
   }
-  return { name: "feed", channel: channelFromSearch(search), search }
+  return { name: "feed", channel: channelFromSearch(search), search, locale }
 }
 
-export function parseHashRoute(hash: string): PublicRoute {
+export function parseHashRoute(hash: string, locale = "zh"): PublicRoute {
   const normalized = normalizeHash(hash || "/feed")
   const [pathPart, queryPart = ""] = normalized.split("?")
-  return parseRouteParts(pathPart, new URLSearchParams(queryPart))
+  return parseRouteParts(pathPart, new URLSearchParams(queryPart), locale)
 }
 
 function parsePublicAppPath(pathname: string, search: string): PublicRoute | null {
   const normalized = pathname.replace(/\/+$/, "") || "/"
+  const isItalian = normalized.startsWith("/public-app/it")
+  const locale = isItalian ? "it" : "zh"
+
+  // 意大利语首页: /public-app/it 或 /public-app/it/
+  if (normalized === "/public-app/it" || normalized === "/public-app/it/") {
+    return {
+      name: "feed",
+      channel: channelFromSearch(buildSearchParams(search)),
+      search: buildSearchParams(search),
+      locale,
+    }
+  }
+
   if (normalized === "/public-app") {
     return {
       name: "feed",
       channel: channelFromSearch(buildSearchParams(search)),
       search: buildSearchParams(search),
+      locale,
     }
   }
   if (!normalized.startsWith("/public-app/")) return null
-  const pathPart = normalized.slice("/public-app".length)
+
+  let pathPart = normalized.slice("/public-app".length)
+  // 剥离 /it/ 前缀以获取实际路由
+  if (pathPart.startsWith("/it/")) {
+    pathPart = pathPart.slice(3) // "/it" → 移除
+    if (!pathPart) pathPart = "/"
+  } else if (pathPart === "/it") {
+    pathPart = "/"
+  }
+
   const params = buildSearchParams(search)
-  return parseRouteParts(pathPart || "/", params)
+  return parseRouteParts(pathPart || "/", params, locale)
 }
 
 export function parseLocationRoute(
@@ -104,13 +129,17 @@ export function parseLocationRoute(
   const hash = locationLike.hash?.trim() ?? ""
   if (hash.startsWith("#/")) return parseHashRoute(hash)
   const params = buildSearchParams(locationLike.search)
-  if (locationLike.pathname.replace(/\/+$/, "") === "/sources") {
-    return { name: "sources", search: params }
+  const pathname = locationLike.pathname
+  // 检测意大利语路径前缀
+  const isItalian = pathname.startsWith("/public-app/it")
+  const locale = isItalian ? "it" : "zh"
+  if (pathname.replace(/\/+$/, "") === "/sources") {
+    return { name: "sources", search: params, locale }
   }
-  if (locationLike.pathname.replace(/\/+$/, "") === "/subscribe") {
-    return { name: "subscribe", search: params }
+  if (pathname.replace(/\/+$/, "") === "/subscribe") {
+    return { name: "subscribe", search: params, locale }
   }
-  return parsePublicAppPath(locationLike.pathname, locationLike.search) ?? parseHashRoute(hash)
+  return parsePublicAppPath(pathname, locationLike.search) ?? parseHashRoute(hash, locale)
 }
 
 export function routeToChannel(route: PublicRoute): PublicChannel {
@@ -122,25 +151,30 @@ export function routeToChannel(route: PublicRoute): PublicChannel {
   return "featured"
 }
 
+function localePrefix(locale: string) {
+  return locale === "it" ? "/public-app/it" : "/public-app"
+}
+
 export function buildPublicAppPath(route: PublicRoute) {
+  const prefix = localePrefix(route.locale ?? "zh")
   if (route.name === "event") {
     const params = new URLSearchParams(route.search)
     if (route.targetId) params.set("target_id", route.targetId)
     else params.delete("target_id")
     const query = params.toString()
-    return `/public-app/events/${encodeURIComponent(route.eventId)}${query ? `?${query}` : ""}`
+    return `${prefix}/events/${encodeURIComponent(route.eventId)}${query ? `?${query}` : ""}`
   }
-  if (route.name === "sourceDetail") return `/public-app/sources/${encodeURIComponent(route.sourceId)}`
-  if (route.name === "sources") return "/sources"
+  if (route.name === "sourceDetail") return `${prefix}/sources/${encodeURIComponent(route.sourceId)}`
+  if (route.name === "sources") return route.locale === "it" ? `${prefix}/sources` : "/sources"
   if (route.name === "daily") {
     const params = new URLSearchParams()
     if (route.date) params.set("date", route.date)
     const query = params.toString()
-    return `/public-app/daily${query ? `?${query}` : ""}`
+    return `${prefix}/daily${query ? `?${query}` : ""}`
   }
-  if (route.name === "agent") return "/public-app/agent"
-  if (route.name === "update") return "/public-app/update"
-  if (route.name === "subscribe") return "/subscribe"
+  if (route.name === "agent") return `${prefix}/agent`
+  if (route.name === "update") return `${prefix}/update`
+  if (route.name === "subscribe") return route.locale === "it" ? `${prefix}/subscribe` : "/subscribe"
   if (route.name === "analysis") {
     const params = new URLSearchParams()
     if (route.targetId) params.set("target_id", route.targetId)
@@ -149,7 +183,7 @@ export function buildPublicAppPath(route: PublicRoute) {
       if (!params.has(key)) params.set(key, value)
     })
     const query = params.toString()
-    return `/public-app/analysis${query ? `?${query}` : ""}`
+    return `${prefix}/analysis${query ? `?${query}` : ""}`
   }
   const params = new URLSearchParams()
   if (route.channel !== "featured") params.set("channel", route.channel)
@@ -157,7 +191,7 @@ export function buildPublicAppPath(route: PublicRoute) {
     if (key !== "channel") params.set(key, value)
   })
   const query = params.toString()
-  return `/public-app/${query ? `?${query}` : ""}`
+  return `${prefix}/${query ? `?${query}` : ""}`
 }
 
 export function buildRouteHash(route: PublicRoute) {

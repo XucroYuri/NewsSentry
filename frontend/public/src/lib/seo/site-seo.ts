@@ -4,9 +4,14 @@ import type { PublicAnalysisResponse, PublicNewsItem } from "@/types/public-news
 
 const SITE_NAME = "News Sentry"
 const DEFAULT_TITLE = "News Sentry | 新闻哨兵"
+const DEFAULT_TITLE_IT = "News Sentry | Sentinella delle Notizie"
 const PUBLIC_APP_ROOT = "/public-app/"
 const DEFAULT_DESCRIPTION =
   "News Sentry 新闻哨兵面向中文读者追踪全球新闻，按地区、议题和相关对象筛选重点事件，提供中文摘要、原文标题、信源信息与 Breaking News 指数。"
+const DEFAULT_DESCRIPTION_IT =
+  "News Sentry è una sentinella delle notizie globali per lettori cinesi e italiani. " +
+  "Traccia eventi chiave per regione, tema e soggetto, offrendo riassunti in cinese, " +
+  "titoli originali, fonti e l'indice Breaking News."
 const MANAGED_ATTR = "data-news-sentry-seo"
 
 export interface SiteSeoPayload {
@@ -22,6 +27,7 @@ export interface RouteSeoInput {
   route: PublicRoute
   selectedTargetLabel?: string | null
   analysis?: PublicAnalysisResponse | null
+  locale?: string
 }
 
 export function buildCanonicalUrl(origin: string, canonicalPath: string) {
@@ -96,9 +102,10 @@ export function buildRouteSeoPayload({
   route,
   selectedTargetLabel,
   analysis,
+  locale,
 }: RouteSeoInput): SiteSeoPayload {
   const canonicalUrl = buildCanonicalUrl(origin, buildRouteCanonicalPath(route))
-  const page = pageCopy(route, selectedTargetLabel, analysis)
+  const page = pageCopy(route, selectedTargetLabel, analysis, locale ?? route.locale ?? "zh")
 
   return {
     title: `${page.title} | ${SITE_NAME}`,
@@ -156,26 +163,56 @@ function pageCopy(
   route: PublicRoute,
   selectedTargetLabel?: string | null,
   analysis?: PublicAnalysisResponse | null,
+  locale = "zh",
 ) {
+  const it = locale === "it"
   if (route.name === "daily") {
+    if (it) {
+      return {
+        title: route.date ? `Bollettino del ${route.date}` : "Bollettino Quotidiano",
+        description:
+          "Sfoglia le notizie principali, i temi e le fonti del feed pubblico di News Sentry per data.",
+      }
+    }
     return {
       title: route.date ? `${route.date} 新闻日报` : "新闻日报",
       description: "按日期浏览 News Sentry 公共新闻流中的重点新闻、主要主题与来源。 ",
     }
   }
   if (route.name === "agent") {
+    if (it) {
+      return {
+        title: "Agent",
+        description:
+          "Istruzioni per l'accesso automatico e machine-readable al feed pubblico di News Sentry.",
+      }
+    }
     return {
       title: "Agent",
       description: "面向机器可读与自动化接入的 News Sentry 公共入口说明。",
     }
   }
   if (route.name === "update") {
+    if (it) {
+      return {
+        title: "Aggiornamenti",
+        description:
+          "Note sulle modifiche, la frequenza di aggiornamento e le novità del sito pubblico di News Sentry.",
+      }
+    }
     return {
       title: "Update",
       description: "News Sentry 公共站更新、刷新节奏与产品变更说明。",
     }
   }
   if (route.name === "subscribe") {
+    if (it) {
+      return {
+        title: "Iscriviti",
+        description:
+          "Ricevi i segnali quotidiani, il bollettino e gli aggiornamenti sui target di News Sentry.",
+      }
+    }
     return {
       title: "订阅 Subscribe",
       description: "接收 News Sentry 每日信号、新闻日报与地区更新。",
@@ -183,7 +220,13 @@ function pageCopy(
   }
 
   if (route.name === "analysis") {
-    const targetName = analysis?.target_name || selectedTargetLabel || "监控目标"
+    const targetName = analysis?.target_name || selectedTargetLabel || (it ? "Obiettivo Monitorato" : "监控目标")
+    if (it) {
+      return {
+        title: `Panoramica di ${targetName}`,
+        description: `Visualizza il riepilogo pubblico, i trend tematici, la distribuzione delle fonti e i segnali sulle entità per ${targetName}.`,
+      }
+    }
     return {
       title: `${targetName} 态势`,
       description: `查看 ${targetName} 的公开态势摘要、主题趋势、来源分布与实体信号。`,
@@ -191,6 +234,13 @@ function pageCopy(
   }
 
   if (route.name === "sources") {
+    if (it) {
+      return {
+        title: "Directory delle Fonti",
+        description:
+          "Esplora le fonti giornalistiche e i media aggregati da cui News Sentry attinge le notizie.",
+      }
+    }
     return {
       title: "信源管理",
       description: "按类型、地区和活跃度管理 News Sentry 公开信源、覆盖范围与最近样本。",
@@ -198,21 +248,36 @@ function pageCopy(
   }
 
   if (route.name === "sourceDetail") {
+    if (it) {
+      return {
+        title: `Dettagli fonte ${route.sourceId}`,
+        description:
+          "Visualizza le notizie recenti e la frequenza di copertura di questa fonte nel feed pubblico.",
+      }
+    }
     return {
       title: `${route.sourceId} 来源详情`,
       description: "查看该来源最近进入公共新闻流的报道与覆盖节奏。",
     }
   }
 
-  const channelTitle = feedChannelTitle(route.name === "feed" ? route.channel : "featured")
+  const channelTitle = feedChannelTitle(route.name === "feed" ? route.channel : "featured", it)
   const targetName = selectedTargetLabel ? ` · ${selectedTargetLabel}` : ""
   return {
     title: `${channelTitle}${targetName}`,
-    description: DEFAULT_DESCRIPTION,
+    description: it ? DEFAULT_DESCRIPTION_IT : DEFAULT_DESCRIPTION,
   }
 }
 
-function feedChannelTitle(channel: PublicChannel) {
+function feedChannelTitle(channel: PublicChannel, it = false) {
+  if (it) {
+    if (channel === "all") return "Panoramica Notizie"
+    if (channel === "targets") return "Notizie Regionali"
+    if (channel === "sources") return "Osservatorio Fonti"
+    if (channel === "analysis") return "Briefing"
+    if (channel === "daily") return "Bollettino"
+    return "Sentinella"
+  }
   if (channel === "all") return "新闻纵览"
   if (channel === "targets") return "地区新闻"
   if (channel === "sources") return "来源观察"
