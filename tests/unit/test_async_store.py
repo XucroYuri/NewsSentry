@@ -3519,3 +3519,45 @@ class TestSessionManagement:
 
         count = await store.delete_sessions_for_user("admin")
         assert count == 2
+
+
+# ---------------------------------------------------------------------------
+# FTS5 infrastructure verification
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fts5_ddl_contains_correct_column_names(tmp_path: Path):
+    """FTS5 建表后 DDL 和所有 trigger 必须包含 metadata_json 列名。
+
+    历史 bug：FTS5 虚拟表的 content 列名叫 metadata_text 但 event_index 表
+    实际列名是 metadata_json，不匹配导致所有 FTS5 trigger 静默失败、索引永远为空。
+    """
+    db_path = tmp_path / "test_fts5_ddl.db"
+    store = AsyncStore(db_path)
+    await store.initialize()
+
+    # 检查 FTS5 虚拟表 DDL
+    cur = await store._db.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='event_index_fts'"
+    )
+    row = await cur.fetchone()
+    assert row is not None, "event_index_fts 表不存在"
+    ddl = row[0]
+    ddl_lower = ddl.lower()
+    assert "metadata_json" in ddl_lower, f"FTS5 DDL 缺少 metadata_json 列:\n{ddl[:300]}"
+
+    # 检查所有 FTS5 相关 trigger（名称为 event_index_ai/ad/au）
+    cur = await store._db.execute(
+        "SELECT sql FROM sqlite_master WHERE type='trigger' AND name IN "
+        "('event_index_ai', 'event_index_ad', 'event_index_au')"
+    )
+    triggers = await cur.fetchall()
+    assert len(triggers) >= 3, f"FTS5 trigger 数量不足，预期至少 3 个，实际 {len(triggers)}"
+    for t in triggers:
+        trigger_sql = t[0]
+        assert "metadata_json" in trigger_sql, (
+            f"FTS5 trigger 缺少 metadata_json:\n{trigger_sql[:300]}"
+        )
+
+    await store.close()
