@@ -198,6 +198,7 @@ from news_sentry.core.collector_config_utils import (
     _save_ai_enrichment_config,
     _save_collector_config,
     _save_public_translation_config,
+    _update_collector_run_metrics,  # noqa: F401 re-exported for test access
 )
 from news_sentry.core.config_cache import ConfigCache
 from news_sentry.core.event_bus import EventBus
@@ -307,12 +308,15 @@ from news_sentry.core.target_config_utils import (
 from news_sentry.core.target_store_utils import (
     _get_target_store,
     _load_run_logs,
+    _visible_index_event_from_row,  # noqa: F401 re-exported for test access
     _visible_index_events_page,
 )
 from news_sentry.skills.filter.classification_taxonomy import (
     canonical_l0,
     l0_query_values,
 )
+from news_sentry.core.source_inventory import SourceInventoryService  # noqa: F401 re-exported for test access
+import news_sentry.core.site_utils as _site_utils_patched  # 用于 _static_dir 引用同步（在 create_app 内同步）
 
 _SECURITY_HEADERS = {
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
@@ -1160,6 +1164,7 @@ def create_app(
         return _build_error_response(500, "An unexpected error occurred")
 
     global _store, _data_dir
+    import news_sentry.core._state as _state_mod
     if _store is not None and _store is not store:
         _close_store_sync_if_possible(_store)
     if _target_stores:
@@ -1168,17 +1173,22 @@ def create_app(
         except RuntimeError:
             asyncio.run(_close_target_stores())
     _data_dir = Path(data_dir or os.environ.get("NEWSSENTRY_DATA_DIR", "./data"))
+    _state_mod._data_dir = _data_dir  # 同步到 _state 模块（供 target_store_utils 等使用）
+    _state_mod._target_stores.clear()
+    _state_mod._target_stores.update(_target_stores)  # 同步到 _state 模块（原位更新，避免 from-import 引用失效）
     _public_news_feed_cache.clear()
     _public_source_configs_cache.clear()
     _detect_deployment_env()
     if store is not None:
         _store = store
+        _state_mod._store = _store  # 同步到 _state 模块（供 collector_config_utils 等使用）
         # 同步到 auth middleware
         from news_sentry.api.middleware.auth import configure as _auth_configure
 
         _auth_configure(store)
     elif _store is None and auto_store:
         _store = AsyncStore(_data_dir / "async_store.db")
+        _state_mod._store = _store  # 同步到 _state 模块
         from news_sentry.api.middleware.auth import configure as _auth_configure
 
         _auth_configure(_store)
@@ -1206,6 +1216,7 @@ def create_app(
                 _atexit.register(_cleanup)
     elif not auto_store:
         _store = None  # 显式禁用，测试环境重置
+        _state_mod._store = None  # 同步到 _state 模块
         from news_sentry.api.middleware.auth import configure as _auth_configure
 
         _auth_configure(None)
@@ -1213,6 +1224,24 @@ def create_app(
     _apply_collector_config(_load_collector_config())
     _apply_ai_enrichment_config(_load_ai_enrichment_config())
     _apply_public_translation_config(_load_public_translation_config())
+    # 同步其他模块级状态到 _state 模块（collector_config_utils 等从 _state 导入）
+    # 注意：使用 .clear() + .update() 而非直接赋值，因为其他模块通过
+    # from _state import X 导入了局部引用；直接赋值只改变 _state.X 的绑定，
+    # 不会更新已导入模块的局部引用。
+    _state_mod._auto_collector_state.clear()
+    _state_mod._auto_collector_state.update(_auto_collector_state)
+    _state_mod._ai_enrichment_state.clear()
+    _state_mod._ai_enrichment_state.update(_ai_enrichment_state)
+    _state_mod._public_translation_state.clear()
+    _state_mod._public_translation_state.update(_public_translation_state)
+    _state_mod._deployment_env = _deployment_env
+
+    # 同步 _static_dir 到 site_utils：使测试 monkeypatch api_server._static_dir 也能
+    # 影响 site_utils._static_dir，从而影响 _public_app_index_response 等函数。
+    # 需在每次 create_app() 调用时同步，因为 monkeypatch 在调用前才设置。
+    import sys as _sys
+    _api_server_mod = _sys.modules[__name__]
+    _site_utils_patched._static_dir = _api_server_mod._static_dir
 
     # ── 公开端点（无需认证）─────────────────────────────
 

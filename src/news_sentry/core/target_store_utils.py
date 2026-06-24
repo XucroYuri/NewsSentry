@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 from typing import Any, cast
 
-from news_sentry.core._state import _data_dir, _target_stores
+import news_sentry.core._state as _st
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.event_io_utils import (
     _event_from_index_row,
@@ -73,7 +73,7 @@ def _latest_run_log_summary(data_dir: Path) -> dict[str, Any] | None:
 
 def _target_db_path(target_id: str) -> Path:
     """目标 state.db 路径: {data_dir}/{target_id}/state.db"""
-    return cast(Path, _data_dir) / target_id / "state.db"
+    return cast(Path, _st._data_dir) / target_id / "state.db"
 
 
 async def _get_target_store(target_id: str) -> AsyncStore | None:
@@ -82,20 +82,20 @@ async def _get_target_store(target_id: str) -> AsyncStore | None:
     缓存已打开的 store，避免重复初始化。
     """
     db_path = _target_db_path(target_id)
-    if target_id in _target_stores:
-        cached = cast(AsyncStore, _target_stores[target_id])
+    if target_id in _st._target_stores:
+        cached = cast(AsyncStore, _st._target_stores[target_id])
         if cached.db_path == db_path:
             return cached
         try:
             await cached.close()
         except Exception:  # noqa: S110
             pass
-        _target_stores.pop(target_id, None)
+        _st._target_stores.pop(target_id, None)
 
     if db_path.exists():
         store = AsyncStore(db_path)
         await store.initialize()
-        _target_stores[target_id] = store
+        _st._target_stores[target_id] = store
         logger.debug("Opened target store: %s", db_path)
         return store
 

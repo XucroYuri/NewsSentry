@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 _store_for_target: Any = None
 _store_has_target_event_index: Any = None
 _visible_index_events_page: Any = None
-_validate_target_slug: Any = None  # lazy from target_config_utils
+_validate_target_slug: Any = None  # lazy from target_config_utils (circular via target_store_utils)
 
 
 def _load_single_event(data_dir: Path, target_id: str, event_id: str) -> dict[str, Any] | None:

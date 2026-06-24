@@ -28,12 +28,11 @@ from news_sentry.core._state import (
     _REGION_TYPES,
     _SOURCE_SLUG_RE,
     _TARGET_SLUG_RE,
-    _data_dir,
     _public_source_configs_cache,
     _source_inventory_cache,
-    _store,
     _target_validation_cache,
 )
+import news_sentry.core._state as _st
 from news_sentry.core.public_news_utils import (
     _public_news_target_ids,
     _query_public_projection_events,
@@ -175,7 +174,7 @@ def _target_inventory_signature(target_id: str) -> str:
     paths = [
         _target_config_path(target_id),
         *_target_source_paths(target_id),
-        _data_dir / target_id / "memory" / "source_health.yaml",
+        _st._data_dir / target_id / "memory" / "source_health.yaml",
     ]
     return _file_signature(paths)
 
@@ -201,7 +200,7 @@ def _target_validation_signature(target_id: str) -> str:
 
 def _cached_source_inventory(target_id: str) -> dict[str, Any]:
     signature = _target_inventory_signature(target_id)
-    key = f"{Path.cwd()}:{_data_dir}:{target_id}"
+    key = f"{Path.cwd()}:{_st._data_dir}:{target_id}"
     now = time.monotonic()
     cached = _source_inventory_cache.get(key)
     if (
@@ -212,7 +211,7 @@ def _cached_source_inventory(target_id: str) -> dict[str, Any]:
         value = cached.get("value")
         if isinstance(value, dict):
             return cast(dict[str, Any], value)
-    value = SourceInventoryService(Path.cwd(), _data_dir).build_target_inventory(target_id)
+    value = SourceInventoryService(Path.cwd(), _st._data_dir).build_target_inventory(target_id)
     _source_inventory_cache[key] = {
         "signature": signature,
         "created_at": now,
@@ -224,7 +223,7 @@ def _cached_source_inventory(target_id: str) -> dict[str, Any]:
 
 def _cached_target_validation(target_id: str) -> dict[str, Any]:
     signature = _target_validation_signature(target_id)
-    key = f"{Path.cwd()}:{_data_dir}:{target_id}"
+    key = f"{Path.cwd()}:{_st._data_dir}:{target_id}"
     now = time.monotonic()
     cached = _target_validation_cache.get(key)
     if (
@@ -310,14 +309,14 @@ def _load_memory_source_health_records(target_id: str | None = None) -> list[dic
     target_ids: list[str]
     if target_id:
         target_ids = [target_id]
-    elif _data_dir.exists():
-        target_ids = sorted(d.name for d in _data_dir.iterdir() if d.is_dir())
+    elif _st._data_dir.exists():
+        target_ids = sorted(d.name for d in _st._data_dir.iterdir() if d.is_dir())
     else:
         target_ids = []
 
     records: list[dict[str, Any]] = []
     for tid in target_ids:
-        path = _data_dir / tid / "memory" / "source_health.yaml"
+        path = _st._data_dir / tid / "memory" / "source_health.yaml"
         if not path.is_file():
             continue
         data = _load_yaml_file(path)
@@ -558,7 +557,7 @@ async def _target_public_event_count(target_id: str, _data_dir: Path) -> int:
     try:
         store = await _get_target_store(target_id)
         if store is None:
-            store = _store
+            store = _st._store
         if store is None:
             return 0
         get_public_count = getattr(store, "get_public_event_count", None)
@@ -580,8 +579,8 @@ async def _target_public_event_count(target_id: str, _data_dir: Path) -> int:
 
 async def _public_target_event_counts(data_dir: Path) -> dict[str, int]:
     """Return public-ready event counts without scanning every target when global store exists."""
-    if _store is not None:
-        get_counts = getattr(_store, "get_public_event_counts_by_target", None)
+    if _st._store is not None:
+        get_counts = getattr(_st._store, "get_public_event_counts_by_target", None)
         if get_counts is not None:
             try:
                 store_counts = cast(dict[str, int], await get_counts(_PUBLIC_ANALYSIS_STAGE))

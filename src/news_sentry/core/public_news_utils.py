@@ -52,8 +52,8 @@ from news_sentry.core._state import (
     InvisibleIndexedEvent,
     _admin_overview_cache,
     _admin_targets_cache,
-    _store,
 )
+import news_sentry.core._state as _st
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.public_translation import (
     public_publication_ready,
@@ -1143,8 +1143,8 @@ async def _public_news_candidate_events(
     total = 0
     min_score = _PUBLIC_NEWS_FEATURED_SCORE if featured else None
     classification_l0 = category if category else None
-    if not allow_file_fallback and _store is not None:
-        query_public_rows = getattr(_store, "query_public_news_rows", None)
+    if not allow_file_fallback and _st._store is not None:
+        query_public_rows = getattr(_st._store, "query_public_news_rows", None)
         if query_public_rows is not None:
             try:
                 result = await query_public_rows(
@@ -1185,7 +1185,7 @@ async def _public_news_candidate_events(
     for target_id in target_ids:
         try:
             target_store = await _get_target_store(target_id)
-            store_to_query = target_store if target_store is not None else _store
+            store_to_query = target_store if target_store is not None else _st._store
             events, target_total = await _public_news_events_for_target(
                 data_dir,
                 target_id,

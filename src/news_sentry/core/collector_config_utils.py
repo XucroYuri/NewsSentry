@@ -21,12 +21,11 @@ from news_sentry.core._state import (
     _ai_enrichment_state,
     _auto_collector_state,
     _collector_diagnostics_cache,
-    _data_dir,
     _log,
     _public_translation_log,
     _public_translation_state,
-    _store,
 )
+import news_sentry.core._state as _st
 from news_sentry.core.ai_enrichment import (
     AIEnrichmentConfig,
     AIEnrichmentEngine,
@@ -169,7 +168,7 @@ def _apply_collector_config(config: dict[str, Any]) -> dict[str, Any]:
 
 def _collector_payload() -> dict[str, Any]:
     """返回统一的采集器状态响应。"""
-    latest_log = _latest_run_log_summary(_data_dir)
+    latest_log = _latest_run_log_summary(_st._data_dir)
     last_run_at = _auto_collector_state["last_run_at"]
     last_run_status = _auto_collector_state["last_run_status"]
     last_events_collected = _auto_collector_state.get("last_events_collected", 0)
@@ -195,8 +194,8 @@ def _collector_payload() -> dict[str, Any]:
 
 def _collector_diagnostics_signature() -> str:
     paths: list[Path] = []
-    if _data_dir.exists():
-        for target_dir in sorted(d for d in _data_dir.iterdir() if d.is_dir()):
+    if _st._data_dir.exists():
+        for target_dir in sorted(d for d in _st._data_dir.iterdir() if d.is_dir()):
             paths.append(target_dir / "memory" / "source_health.yaml")
             paths.append(target_dir / "source_health.json")
             paths.extend(_target_source_paths(target_dir.name))
@@ -241,14 +240,14 @@ def _build_collector_diagnostics_payload() -> dict[str, Any]:
         }
     )
 
-    data_exists = _data_dir.exists()
-    target_dirs = sorted([d.name for d in _data_dir.iterdir() if d.is_dir()]) if data_exists else []
+    data_exists = _st._data_dir.exists()
+    target_dirs = sorted([d.name for d in _st._data_dir.iterdir() if d.is_dir()]) if data_exists else []
     checks.append(
         {
             "name": "data_directory",
             "ok": data_exists and len(target_dirs) > 0,
             "message": (
-                f"数据目录: {_data_dir} — {len(target_dirs)} 个 target: "
+                f"数据目录: {_st._data_dir} — {len(target_dirs)} 个 target: "
                 f"{', '.join(target_dirs) if target_dirs else '无'}"
             ),
         }
@@ -269,7 +268,7 @@ def _build_collector_diagnostics_payload() -> dict[str, Any]:
                     else:
                         unhealthy += 1
                 continue
-            health_file = _data_dir / tid / "source_health.json"
+            health_file = _st._data_dir / tid / "source_health.json"
             if health_file.exists():
                 try:
                     health_data = json.loads(health_file.read_text())
@@ -568,7 +567,7 @@ def _build_ai_provider_factory() -> Any:  # noqa: ANN401
 
 async def _ai_enrichment_store_for_target(target_id: str) -> AsyncStore | None:
     target_store = await _get_target_store(target_id)
-    return target_store if target_store is not None else _store  # type: ignore[no-any-return]
+    return target_store if target_store is not None else _st._store  # type: ignore[no-any-return]
 
 
 
@@ -582,7 +581,7 @@ async def _ai_enrichment_rows_for_target(
         return []
     result = await _visible_index_events_page(
         store,
-        _data_dir,
+        _st._data_dir,
         stage="drafts",
         target_id=target_id,
         page=1,
@@ -594,8 +593,8 @@ async def _ai_enrichment_rows_for_target(
 
 
 async def _ai_enrichment_usage_store(target_stores: list[AsyncStore | None]) -> AsyncStore | None:
-    if _store is not None:
-        return _store  # type: ignore[no-any-return]
+    if _st._store is not None:
+        return _st._store  # type: ignore[no-any-return]
     for store in target_stores:
         if store is not None:
             return store
@@ -773,7 +772,7 @@ def _public_translation_target_ids(target_id: str | None = None) -> list[str]:
 
 async def _public_translation_store_for_target(target_id: str) -> AsyncStore | None:
     target_store = await _get_target_store(target_id)
-    return target_store if target_store is not None else _store  # type: ignore[no-any-return]
+    return target_store if target_store is not None else _st._store  # type: ignore[no-any-return]
 
 
 
@@ -827,7 +826,7 @@ async def _public_translation_status_payload() -> dict[str, Any]:
     publication_ready_count = 0
     pending_reason_count = 0
     for tid in target_ids:
-        publication_ready_count += await _target_public_event_count(tid, _data_dir)
+        publication_ready_count += await _target_public_event_count(tid, _st._data_dir)
         store = await _public_translation_store_for_target(tid)
         rows = await _public_translation_rows_for_target(
             tid,

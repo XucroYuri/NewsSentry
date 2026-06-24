@@ -27,9 +27,8 @@ from news_sentry.core._state import (
     _PUBLIC_SITE_NAME,
     _PUBLIC_SITE_TITLE,
     _PUBLIC_SITE_TITLE_IT,
-    _data_dir,
-    _store,
 )
+import news_sentry.core._state as _st
 from news_sentry.core.public_news_utils import _public_news_target_ids
 
 logger = logging.getLogger(__name__)
@@ -229,8 +228,8 @@ async def _render_public_sitemap_xml(store: Any, *, base_url: str) -> str:
 
 async def _public_sitemap_entries(*, base_url: str) -> list[Any]:
     entries: list[Any] = []
-    if _store is not None:
-        projection_store = PublicSiteProjectionStore(_store, base_url=base_url)
+    if _st._store is not None:
+        projection_store = PublicSiteProjectionStore(_st._store, base_url=base_url)
         try:
             entries = await projection_store.list_sitemap_entries(limit=1000)
         except Exception:  # noqa: BLE001
@@ -238,7 +237,7 @@ async def _public_sitemap_entries(*, base_url: str) -> list[Any]:
             entries = []
         if entries:
             return entries
-    for target_id in _public_news_target_ids(_data_dir, None):
+    for target_id in _public_news_target_ids(_st._data_dir, None):
         try:
             store = await _get_target_store(target_id)
         except Exception:  # noqa: BLE001
