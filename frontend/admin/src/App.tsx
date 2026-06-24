@@ -6,6 +6,7 @@ import {
   Loader2Icon,
   LogOutIcon,
   MenuIcon,
+  NewspaperIcon,
   ServerIcon,
   Users2Icon,
 } from "lucide-react"
@@ -14,12 +15,13 @@ import { getApiBase, setApiBase } from "@/lib/locals-settings"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import DashboardOverview from "@/pages/DashboardOverview"
 import DiagnosticsPage from "@/pages/DiagnosticsPage"
+import EventsPage from "@/pages/EventsPage"
 import LoginPage from "@/pages/LoginPage"
 import TargetList from "@/pages/TargetList"
 import TargetDetail from "@/pages/TargetDetail"
 import UsersPage from "@/pages/UsersPage"
 
-type AdminPage = "overview" | "targets" | "target-detail" | "users" | "diagnostics"
+type AdminPage = "overview" | "events" | "targets" | "target-detail" | "users" | "diagnostics"
 
 function App() {
   const [token, setToken] = useState<string | null>(() =>
@@ -110,6 +112,7 @@ function App() {
     icon: typeof LayoutDashboardIcon
   }> = [
     { id: "overview", label: "管理总览", icon: LayoutDashboardIcon },
+    { id: "events", label: "新闻事件", icon: NewspaperIcon },
     { id: "targets", label: "目标工作台", icon: GlobeIcon },
     { id: "diagnostics", label: "可观测性诊断", icon: ActivityIcon },
     { id: "users", label: "用户管理", icon: Users2Icon },
@@ -169,7 +172,7 @@ function App() {
                 setPage(item.id)
               }}
               className={`flex w-full items-center gap-3 px-3 py-2 text-sm transition-colors ${
-                page === item.id || (page === "target-detail" && item.id === "targets") || (page === "users" && item.id === "users") || (page === "diagnostics" && item.id === "diagnostics")
+                page === item.id || (page === "target-detail" && item.id === "targets")
                   ? "bg-accent text-accent-foreground font-medium"
                   : "text-muted-foreground hover:bg-secondary hover:text-foreground"
               }`}
@@ -267,6 +270,7 @@ function App() {
         <div className="p-6">
           <ErrorBoundary>
           {page === "overview" && <DashboardOverview />}
+          {page === "events" && <EventsPage />}
           {page === "targets" && (
             <TargetList onNavigate={navigateToTarget} />
           )}
