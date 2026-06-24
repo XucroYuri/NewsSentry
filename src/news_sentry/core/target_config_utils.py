@@ -34,7 +34,10 @@ from news_sentry.core._state import (
     _store,
     _target_validation_cache,
 )
-from news_sentry.core.public_news_utils import _public_news_target_ids
+from news_sentry.core.public_news_utils import (
+    _public_news_target_ids,
+    _query_public_projection_events,
+)
 from news_sentry.core.source_inventory import SourceInventoryService
 from news_sentry.core.target_store_utils import _get_target_store
 
@@ -42,7 +45,6 @@ logger = logging.getLogger(__name__)
 
 # ── Late-bound / lazy imports ──
 _store_for_target: Any = None
-_query_public_projection_events: Any = None  # lazy from public_news_utils
 
 
 def _load_target_configs() -> list[dict[str, Any]]:

@@ -30,6 +30,7 @@ from news_sentry.core._state import (
     _data_dir,
     _store,
 )
+from news_sentry.core.public_news_utils import _public_news_target_ids
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,6 @@ logger = logging.getLogger(__name__)
 _get_target_store: Any = None
 SitemapEntry: Any = None
 PublicSiteProjectionStore: Any = None
-_public_news_target_ids: Any = None  # lazy from public_news_utils
 
 
 _SECURITY_HEADERS = {
