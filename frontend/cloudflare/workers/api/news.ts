@@ -13,6 +13,7 @@ import type {
 } from "../lib/contracts";
 import type { PaginationParams } from "../lib/d1";
 import { paginateRows } from "../lib/d1";
+import { notFound } from "../lib/errors";
 
 interface NewsRow {
   event_id: string;
@@ -219,10 +220,7 @@ export async function handleNewsDetail(
       .first<NewsRow>();
 
     if (!result) {
-      return new Response(JSON.stringify({ detail: "Event not found" }), {
-        status: 404,
-        headers: { "Content-Type": "application/json" },
-      });
+      return notFound("Event not found");
     }
 
     const item = rowToPublicNewsItem(result, result.target_id);

@@ -2,6 +2,10 @@ import { useState } from "react"
 import { AlertTriangleIcon, Loader2Icon, LockIcon } from "lucide-react"
 
 import { loginAdmin } from "@/lib/api"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
 export default function LoginPage({ onLogin }: { onLogin: (token: string) => void }) {
   const [username, setUsername] = useState("")
@@ -27,63 +31,55 @@ export default function LoginPage({ onLogin }: { onLogin: (token: string) => voi
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="w-full max-w-sm rounded-xl border border-border bg-card p-8 shadow-sm">
-        <div className="mb-6 text-center">
+      <Card className="w-full max-w-sm">
+        <CardHeader className="text-center pb-4">
           <LockIcon className="mx-auto mb-3 h-8 w-8 text-muted-foreground" />
-          <h1 className="text-xl font-semibold tracking-tight">News Sentry</h1>
-          <p className="mt-1 text-sm text-muted-foreground">管理后台</p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="username" className="mb-1 block text-sm font-medium">
-              用户名
-            </label>
-            <input
-              id="username"
-              type="text"
-              autoComplete="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              placeholder="admin"
-              disabled={loading}
-            />
-          </div>
-
-          <div>
-            <label htmlFor="password" className="mb-1 block text-sm font-medium">
-              密码
-            </label>
-            <input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              placeholder="••••••••"
-              disabled={loading}
-            />
-          </div>
-
-          {error && (
-            <div className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              <AlertTriangleIcon className="h-4 w-4 shrink-0" />
-              {error}
+          <CardTitle>News Sentry</CardTitle>
+          <CardDescription>管理后台</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid gap-2">
+              <Label htmlFor="username">用户名</Label>
+              <Input
+                id="username"
+                type="text"
+                autoComplete="username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="admin"
+                disabled={loading}
+              />
             </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading || !username.trim() || !password.trim()}
-            className="flex h-9 w-full items-center justify-center gap-2 rounded-md bg-primary text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            {loading && <Loader2Icon className="h-4 w-4 animate-spin" />}
-            登 录
-          </button>
-        </form>
-      </div>
+            <div className="grid gap-2">
+              <Label htmlFor="password">密码</Label>
+              <Input
+                id="password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                disabled={loading}
+              />
+            </div>
+            {error && (
+              <div className="flex items-center gap-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                <AlertTriangleIcon className="h-4 w-4 shrink-0" />
+                {error}
+              </div>
+            )}
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={loading || !username.trim() || !password.trim()}
+            >
+              {loading && <Loader2Icon className="h-4 w-4 animate-spin" />}
+              登 录
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   )
 }

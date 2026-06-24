@@ -4,12 +4,20 @@ import {
   ArrowLeftIcon,
   CheckCircleIcon,
   GlobeIcon,
-  Loader2Icon,
   RssIcon,
   UsersIcon,
+  Loader2Icon,
+  RefreshCwIcon,
+  ArchiveIcon,
+  RotateCcwIcon,
 } from "lucide-react"
 
-import { authHeaders } from "@/lib/api"
+import { authHeaders, archiveTarget, restoreTarget, fetchTargetInventory, type SourceInventoryResponse } from "@/lib/api"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Skeleton } from "@/components/ui/skeleton"
 
 const API_BASE = "/api/v1"
 
@@ -45,6 +53,7 @@ interface RunLogEntry {
 
 export default function TargetDetail({ targetId, onBack }: { targetId: string; onBack: () => void }) {
   const [data, setData] = useState<TargetOverviewResponse | null>(null)
+  const [inventory, setInventory] = useState<SourceInventoryResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -64,15 +73,46 @@ export default function TargetDetail({ targetId, onBack }: { targetId: string; o
     }
   }
 
+  async function loadInventory() {
+    try {
+      setInventory(await fetchTargetInventory(targetId))
+    } catch {
+      // silently fail
+    }
+  }
+
   useEffect(() => {
     void load()
+    void loadInventory()
   }, [targetId])
+
+  async function handleArchive() {
+    try {
+      await archiveTarget(targetId)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "归档失败")
+    }
+  }
+
+  async function handleRestore() {
+    try {
+      await restoreTarget(targetId)
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "恢复失败")
+    }
+  }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <Loader2Icon className="mr-2 h-5 w-5 animate-spin text-muted-foreground" />
-        <span className="text-muted-foreground">加载中...</span>
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-64" />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-28 w-full" />
+          ))}
+        </div>
       </div>
     )
   }
@@ -82,7 +122,7 @@ export default function TargetDetail({ targetId, onBack }: { targetId: string; o
       <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center">
         <AlertTriangleIcon className="mx-auto mb-2 h-8 w-8 text-destructive" />
         <p className="text-sm text-destructive">{error ?? "无数据"}</p>
-        <button onClick={load} className="mt-3 text-sm text-primary hover:underline">重试</button>
+        <Button variant="link" onClick={load} className="mt-3">重试</Button>
       </div>
     )
   }
@@ -98,182 +138,209 @@ export default function TargetDetail({ targetId, onBack }: { targetId: string; o
   const isArchived = archivedStatus === "archived"
   const monitoringTypeText: string = t.monitoring_type ?? "country"
   const languageText: string = t.primary_language ?? "N/A"
-  const sourceTotalText: string = String(d.sources.total)
-  const sourceActiveText: string = String(d.sources.active)
-  const eventTotalText: string = String(d.events.total)
-  const socialAccountsText: string = String(d.social.accounts)
-  const socialDimensionsText: string = String(d.social.dimensions)
-  const collectorEnabled: string = String(!!d.collector.enabled ? "已启用" : "未启用")
-  const collectorRunning: string = String(!!d.collector.running ? "运行中" : "空闲")
-  const collectorStageText: string = String(d.collector.stage ?? "—")
-  const integrityValueText: string = d.sources.missing_refs > 0 ? String(d.sources.missing_refs) : "pass"
-  const integrityDetailText: string = d.sources.missing_refs > 0 ? "缺失引用" : "一切正常"
-  const integrityVariant: "ok" | "warn" = d.sources.missing_refs > 0 ? "warn" : "ok"
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <button
-          onClick={onBack}
-          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-sm text-muted-foreground hover:bg-secondary"
-        >
-          <ArrowLeftIcon className="h-3.5 w-3.5" />
-          返回
-        </button>
-        <div>
-          <h2 className="text-2xl font-semibold tracking-tight">{t.display_name}</h2>
-          <p className="text-sm text-muted-foreground">
-            <code className="font-mono text-xs">{t.target_id}</code>
-            {" · " + monitoringTypeText + " · " + languageText}
-            {isArchived && (
-              <span className="ml-2 inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                已归档
-              </span>
-            )}
-          </p>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" onClick={onBack}>
+            <ArrowLeftIcon className="h-3.5 w-3.5" />
+            返回
+          </Button>
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight">{t.display_name}</h2>
+            <p className="text-sm text-muted-foreground">
+              <code className="font-mono text-xs">{t.target_id}</code>
+              {" · " + monitoringTypeText + " · " + languageText}
+              {isArchived && (
+                <Badge variant="secondary" className="ml-2">已归档</Badge>
+              )}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={load}>
+            <RefreshCwIcon className="h-3.5 w-3.5" />
+            刷新
+          </Button>
+          {isArchived ? (
+            <Button variant="outline" size="sm" onClick={handleRestore}>
+              <RotateCcwIcon className="h-3.5 w-3.5" />
+              恢复
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" onClick={handleArchive}>
+              <ArchiveIcon className="h-3.5 w-3.5" />
+              归档
+            </Button>
+          )}
         </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard icon={RssIcon} label="活跃信源" value={sourceActiveText} detail={`共 ${sourceTotalText} 个`} variant="ok" />
-        <StatCard icon={GlobeIcon} label="事件" value={eventTotalText} detail="最新数据集" variant="ok" />
-        <StatCard icon={UsersIcon} label="社媒" value={socialAccountsText} detail={`${socialDimensionsText} 维度`} variant="ok" />
-        <StatCard
-          icon={d.sources.missing_refs > 0 ? AlertTriangleIcon : CheckCircleIcon}
-          label="数据完整性"
-          value={integrityValueText}
-          detail={integrityDetailText}
-          variant={integrityVariant}
-        />
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">活跃信源</CardTitle>
+            <RssIcon className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-semibold">{d.sources.active}</div>
+            <p className="text-xs text-muted-foreground">共 {d.sources.total} 个</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">事件</CardTitle>
+            <GlobeIcon className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-semibold">{d.events.total}</div>
+            <p className="text-xs text-muted-foreground">最新数据集</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">社媒</CardTitle>
+            <UsersIcon className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-semibold">{d.social.accounts}</div>
+            <p className="text-xs text-muted-foreground">{d.social.dimensions} 维度</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">数据完整性</CardTitle>
+            {d.sources.missing_refs > 0 ? (
+              <AlertTriangleIcon className="h-4 w-4 text-amber-500" />
+            ) : (
+              <CheckCircleIcon className="h-4 w-4 text-muted-foreground" />
+            )}
+          </CardHeader>
+          <CardContent>
+            <div className={`text-2xl font-semibold ${d.sources.missing_refs > 0 ? "text-amber-500" : ""}`}>
+              {d.sources.missing_refs > 0 ? d.sources.missing_refs : "pass"}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {d.sources.missing_refs > 0 ? "缺失引用" : "一切正常"}
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
-      <Section title="采集器">
-        <div className="flex items-center gap-6 text-sm">
-          {d.collector.enabled ? (
+      {/* 采集器状态 */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm">采集器</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-6 text-sm">
             <span className="flex items-center gap-2">
-              <StatusDot ok />
+              <span className={`inline-block h-2 w-2 rounded-full ${d.collector.enabled ? "bg-emerald-500" : "bg-destructive"}`} />
               <span className="text-muted-foreground">状态</span>
-              <span className="font-medium">{collectorEnabled}</span>
+              <span className="font-medium">{!!d.collector.enabled ? "已启用" : "未启用"}</span>
             </span>
-          ) : (
             <span className="flex items-center gap-2">
-              <StatusDot ok={false} />
-              <span className="text-muted-foreground">状态</span>
-              <span className="font-medium">{collectorEnabled}</span>
-            </span>
-          )}
-          {d.collector.running ? (
-            <span className="flex items-center gap-2">
-              <StatusDot ok />
+              <span className={`inline-block h-2 w-2 rounded-full ${d.collector.running ? "bg-emerald-500" : "bg-destructive"}`} />
               <span className="text-muted-foreground">运行</span>
-              <span className="font-medium">{collectorRunning}</span>
+              <span className="font-medium">{!!d.collector.running ? "运行中" : "空闲"}</span>
             </span>
-          ) : (
-            <span className="flex items-center gap-2">
-              <StatusDot ok={false} />
-              <span className="text-muted-foreground">运行</span>
-              <span className="font-medium">{collectorRunning}</span>
-            </span>
-          )}
-          <span className="text-muted-foreground">
-            阶段: {collectorStageText}
-          </span>
-        </div>
-      </Section>
+            <span className="text-muted-foreground">阶段: {String(d.collector.stage ?? "—")}</span>
+          </div>
+        </CardContent>
+      </Card>
 
+      {/* 分类分布 */}
       {Boolean(d.classification_diagnostics?.distribution) && (
-        <Section title="分类分布">
-          <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50">
-                <tr>
-                  <th className="px-4 py-2.5 text-left font-medium">类别</th>
-                  <th className="px-4 py-2.5 text-right font-medium">计数</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm">分类分布</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>类别</TableHead>
+                  <TableHead className="text-right">计数</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {Object.entries(
                   d.classification_diagnostics.distribution as Record<string, number>
                 ).map(([cat, count]) => (
-                  <tr key={cat} className="hover:bg-muted/30">
-                    <td className="px-4 py-2.5 font-medium">{cat}</td>
-                    <td className="px-4 py-2.5 text-right tabular-nums">{count}</td>
-                  </tr>
+                  <TableRow key={cat}>
+                    <TableCell className="font-medium">{cat}</TableCell>
+                    <TableCell className="text-right tabular-nums">{count}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </Section>
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       )}
 
-      <Section title="最近运行">
-        {d.recent_runs?.length ? (
-          <ul className="divide-y divide-border rounded-lg border border-border">
-            {d.recent_runs.map((run, i) => (
-              <li key={run.run_id ?? i} className="flex items-center gap-3 px-4 py-2.5">
-                <StatusDot ok={run.status === "ok" || run.status === "success"} />
-                <span className="flex-1 font-mono text-xs">{run.run_id ?? `#${i + 1}`}</span>
-                <span className="text-xs text-muted-foreground">
-                  {run.started_at ? new Date(run.started_at).toLocaleString("zh-CN") : "-"}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted-foreground">无运行记录</p>
-        )}
-      </Section>
-    </div>
-  )
-}
+      {/* 信源对账 (inventory) */}
+      {inventory && inventory.sources.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm">信源对账</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>信源</TableHead>
+                  <TableHead>类型</TableHead>
+                  <TableHead>URL</TableHead>
+                  <TableHead>状态</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {inventory.sources.map((item) => (
+                  <TableRow key={item.source_id}>
+                    <TableCell className="font-medium">{item.display_name ?? item.name ?? item.source_id}</TableCell>
+                    <TableCell className="text-muted-foreground">{item.type ?? "-"}</TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground max-w-xs truncate">
+                      {item.url ?? "-"}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={item.archived ? "secondary" : "success"}>
+                        {item.archived ? "已归档" : item.status ?? "活跃"}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
 
-// ── Sub-components ────────────────────────────────────
-
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  detail,
-  variant,
-}: {
-  icon: typeof RssIcon
-  label: string
-  value: string
-  detail: string
-  variant: "ok" | "warn" | "danger"
-}) {
-  const colorMap: Record<string, string> = {
-    ok: "text-primary",
-    warn: "text-amber-500",
-    danger: "text-destructive",
-  }
-  return (
-    <div className="rounded-lg border border-border bg-card p-4">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <Icon className={`h-4 w-4 ${colorMap[variant]}`} />
-        {label}
-      </div>
-      <div className={`mt-1 text-2xl font-semibold ${colorMap[variant]}`}>{value}</div>
-      <div className="mt-1 text-xs text-muted-foreground">{detail}</div>
-    </div>
-  )
-}
-
-function StatusDot({ ok }: { ok: boolean }) {
-  return (
-    <span
-      className={`inline-block h-2 w-2 rounded-full ${
-        ok ? "bg-emerald-500" : "bg-destructive"
-      }`}
-    />
-  )
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <h3 className="mb-3 text-sm font-semibold tracking-tight">{title}</h3>
-      {children}
+      {/* 最近运行 */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm">最近运行</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {d.recent_runs?.length ? (
+            <div className="space-y-1">
+              {d.recent_runs.map((run, i) => (
+                <div key={run.run_id ?? i} className="flex items-center gap-3 py-1.5">
+                  <span className={`inline-block h-2 w-2 rounded-full ${
+                    run.status === "ok" || run.status === "success" ? "bg-emerald-500" : "bg-destructive"
+                  }`} />
+                  <span className="flex-1 font-mono text-xs">{run.run_id ?? `#${i + 1}`}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {run.started_at ? new Date(run.started_at).toLocaleString("zh-CN") : "-"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">无运行记录</p>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

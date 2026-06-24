@@ -13,6 +13,7 @@
  */
 
 import { addCorsHeaders, corsPreflight } from "./cors";
+import { notFound } from "./errors";
 
 type Handler = (
   request: Request,
@@ -76,10 +77,5 @@ export async function dispatch(
     }
   }
 
-  return addCorsHeaders(
-    new Response(JSON.stringify({ detail: "Not found" }), {
-      status: 404,
-      headers: { "Content-Type": "application/json" },
-    }),
-  );
+  return addCorsHeaders(notFound());
 }

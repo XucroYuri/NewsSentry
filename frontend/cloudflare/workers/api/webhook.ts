@@ -7,6 +7,7 @@
  */
 
 import type { WebhookResponse, ImportResponse, ImportEventItem } from "../lib/contracts";
+import { internalError } from "../lib/errors";
 
 export async function handleWebhook(
   request: Request,
@@ -28,10 +29,7 @@ export async function handleWebhook(
     });
   } catch (err) {
     console.error("webhook error:", err);
-    return new Response(JSON.stringify({ status: "error", event_id: "", message: String(err) }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return internalError(String(err));
   }
 }
 
@@ -64,10 +62,6 @@ export async function handleImport(
     });
   } catch (err) {
     console.error("import error:", err);
-    const fallback: ImportResponse = { imported: 0, skipped: 0, errors: [String(err)] };
-    return new Response(JSON.stringify(fallback), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    return internalError(String(err));
   }
 }

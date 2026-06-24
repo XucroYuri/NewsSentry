@@ -1,18 +1,25 @@
 import { useEffect, useState } from "react"
 import {
+  ActivityIcon,
   GlobeIcon,
   LayoutDashboardIcon,
   Loader2Icon,
   LogOutIcon,
   MenuIcon,
+  ServerIcon,
+  Users2Icon,
 } from "lucide-react"
 
+import { getApiBase, setApiBase } from "@/lib/locals-settings"
+import { ErrorBoundary } from "@/components/ErrorBoundary"
 import DashboardOverview from "@/pages/DashboardOverview"
+import DiagnosticsPage from "@/pages/DiagnosticsPage"
 import LoginPage from "@/pages/LoginPage"
 import TargetList from "@/pages/TargetList"
 import TargetDetail from "@/pages/TargetDetail"
+import UsersPage from "@/pages/UsersPage"
 
-type AdminPage = "overview" | "targets" | "target-detail"
+type AdminPage = "overview" | "targets" | "target-detail" | "users" | "diagnostics"
 
 function App() {
   const [token, setToken] = useState<string | null>(() =>
@@ -22,6 +29,25 @@ function App() {
   const [page, setPage] = useState<AdminPage>("targets")
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null)
+
+  // API 数据源切换
+  const [apiSource, setApiSource] = useState<string>(() => getApiBase() ?? "")
+  const [apiSourceEditing, setApiSourceEditing] = useState(false)
+  const [apiSourceDraft, setApiSourceDraft] = useState("")
+
+  function handleSaveApiSource() {
+    const normalized = apiSourceDraft.trim()
+    setApiBase(normalized || null)
+    setApiSource(normalized)
+    setApiSourceEditing(false)
+  }
+
+  function handleResetApiSource() {
+    setApiBase(null)
+    setApiSource("")
+    setApiSourceDraft("")
+    setApiSourceEditing(false)
+  }
 
   // 首次加载时检查 API 是否免登录即可访问（本地 bypass 模式）
   useEffect(() => {
@@ -85,6 +111,8 @@ function App() {
   }> = [
     { id: "overview", label: "管理总览", icon: LayoutDashboardIcon },
     { id: "targets", label: "目标工作台", icon: GlobeIcon },
+    { id: "diagnostics", label: "可观测性诊断", icon: ActivityIcon },
+    { id: "users", label: "用户管理", icon: Users2Icon },
   ]
 
   function headerLabel(): string {
@@ -141,7 +169,7 @@ function App() {
                 setPage(item.id)
               }}
               className={`flex w-full items-center gap-3 px-3 py-2 text-sm transition-colors ${
-                page === item.id || (page === "target-detail" && item.id === "targets")
+                page === item.id || (page === "target-detail" && item.id === "targets") || (page === "users" && item.id === "users") || (page === "diagnostics" && item.id === "diagnostics")
                   ? "bg-accent text-accent-foreground font-medium"
                   : "text-muted-foreground hover:bg-secondary hover:text-foreground"
               }`}
@@ -151,6 +179,73 @@ function App() {
             </button>
           ))}
         </nav>
+
+        {/* API 数据源切换 */}
+        {sidebarOpen && (
+          <div className="border-t border-border px-3 py-2">
+            <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+              API 数据源
+            </div>
+            {apiSourceEditing ? (
+              <div className="space-y-1.5">
+                <input
+                  type="text"
+                  value={apiSourceDraft}
+                  onChange={(e) => setApiSourceDraft(e.target.value)}
+                  placeholder="留空 = 同源 FastAPI"
+                  className="w-full rounded-md border border-input bg-background px-2 py-1 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  autoFocus
+                />
+                <div className="flex gap-1">
+                  <button
+                    onClick={handleSaveApiSource}
+                    className="flex-1 rounded bg-primary px-2 py-1 text-[10px] text-primary-foreground hover:bg-primary/90"
+                  >
+                    保存
+                  </button>
+                  <button
+                    onClick={() => setApiSourceEditing(false)}
+                    className="rounded bg-secondary px-2 py-1 text-[10px] text-secondary-foreground hover:bg-secondary/80"
+                  >
+                    取消
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <ServerIcon className="h-3 w-3 shrink-0" />
+                  {apiSource ? (
+                    <span className="truncate" title={apiSource}>
+                      {new URL(apiSource).hostname}
+                    </span>
+                  ) : (
+                    <span>同源 FastAPI</span>
+                  )}
+                </div>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => {
+                      setApiSourceDraft(apiSource)
+                      setApiSourceEditing(true)
+                    }}
+                    className="rounded bg-secondary px-2 py-1 text-[10px] text-secondary-foreground hover:bg-secondary/80"
+                  >
+                    编辑
+                  </button>
+                  {apiSource && (
+                    <button
+                      onClick={handleResetApiSource}
+                      className="rounded bg-destructive/10 px-2 py-1 text-[10px] text-destructive hover:bg-destructive/20"
+                    >
+                      重置
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="border-t border-border px-3 py-2">
           <button
@@ -170,6 +265,7 @@ function App() {
         </header>
 
         <div className="p-6">
+          <ErrorBoundary>
           {page === "overview" && <DashboardOverview />}
           {page === "targets" && (
             <TargetList onNavigate={navigateToTarget} />
@@ -177,6 +273,9 @@ function App() {
           {page === "target-detail" && selectedTargetId && (
             <TargetDetail targetId={selectedTargetId} onBack={backToTargets} />
           )}
+          {page === "users" && <UsersPage />}
+          {page === "diagnostics" && <DiagnosticsPage />}
+          </ErrorBoundary>
         </div>
       </main>
     </div>

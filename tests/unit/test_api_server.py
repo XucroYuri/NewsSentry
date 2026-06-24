@@ -493,6 +493,82 @@ class TestAPIServer:
         assert re.fullmatch(r"[0-9a-f]{12}|unknown", resp.headers["x-news-sentry-deploy-commit"])
         assert re.fullmatch(r"[0-9a-f]{12}|development", resp.headers["x-news-sentry-static-build"])
 
+    def test_diagnostics_endpoint_returns_global_summary(self, tmp_path: Path) -> None:
+        """公开 /api/v1/diagnostics 应返回全局可观测性摘要（无需认证）。"""
+        from news_sentry.core.api_server import create_app as _create_diag_app
+
+        app = _create_diag_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        resp = client.get("/api/v1/diagnostics")
+        assert resp.status_code == 200
+        assert resp.headers["cache-control"] == "no-store"
+
+        data = resp.json()
+        # 顶层结构
+        assert set(data.keys()) == {
+            "deploy",
+            "collector",
+            "ai_key_configured",
+            "data",
+            "source_health",
+            "events",
+            "recent_runs",
+        }
+        # deploy
+        assert "commit" in data["deploy"]
+        assert "build" in data["deploy"]
+        # collector
+        assert "enabled" in data["collector"]
+        assert "running" in data["collector"]
+        # ai key
+        assert isinstance(data["ai_key_configured"], bool)
+        # data
+        assert "directory" in data["data"]
+        assert isinstance(data["data"]["target_count"], int)
+        assert isinstance(data["data"]["targets"], list)
+        # source_health
+        assert "healthy" in data["source_health"]
+        assert "unhealthy" in data["source_health"]
+        assert "total" in data["source_health"]
+        # events
+        assert "total" in data["events"]
+        assert "latest_collected_at" in data["events"]
+        # recent_runs
+        assert isinstance(data["recent_runs"], list)
+
+    def test_exception_handler_returns_unified_error_format(self, tmp_path: Path) -> None:
+        """全局异常处理器应将 HTTP/500/Pydantic 错误转为统一 error JSON 格式。"""
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app)
+
+        # 404 — HTTPException
+        resp = client.get("/api/v1/nonexistent-endpoint-xyz")
+        assert resp.status_code == 404
+        body = resp.json()
+        assert body["error"] == "Not Found"
+        assert body["detail"] == "Not Found"
+        assert body["status_code"] == 404
+
+        # 405 — Method Not Allowed (FastAPI 自动生成，应经过 handler)
+        resp = client.post("/api/v1/health")
+        assert resp.status_code == 405
+        body = resp.json()
+        assert "error" in body
+        assert "status_code" in body
+
+    def test_exception_handler_unauthorized_adds_auth_header(self, tmp_path: Path) -> None:
+        """401/403 响应应追加 X-News-Sentry-Auth-Reason 头。"""
+        app = create_app(data_dir=tmp_path, auto_store=False)
+        client = TestClient(app, base_url="https://news.example")
+
+        # 访问需要认证的端点
+        resp = client.get("/api/v1/admin/users")
+        assert resp.status_code == 401
+        assert resp.headers.get("X-News-Sentry-Auth-Reason") == "missing_or_invalid_token"
+        body = resp.json()
+        assert body["error"] == "Unauthorized"
+
     def test_runtime_info_endpoint_reports_static_build(self, tmp_path: Path) -> None:
         client = self._make_client(tmp_path)
         resp = client.get("/api/v1/runtime/info")

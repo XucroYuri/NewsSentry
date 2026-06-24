@@ -22,6 +22,7 @@ import { handleFacets } from "./api/facets";
 import { handleBootstrap } from "./api/bootstrap";
 import { handleNewsFeed, handleNewsDetail } from "./api/news";
 import { handleWebhook, handleImport } from "./api/webhook";
+import { internalError } from "./lib/errors";
 
 // ── Route registration ────────────────────────────────────────────────────
 registerRoute("GET", "/api/v1/health", handleHealth);
@@ -39,13 +40,7 @@ export default {
       return await dispatch(request, env.DB);
     } catch (err) {
       console.error("worker unhandled error:", err);
-      return new Response(
-        JSON.stringify({ detail: "Internal server error" }),
-        {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
+      return internalError();
     }
   },
 };
