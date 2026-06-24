@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react"
 import {
-import { useNotificationWebSocket } from "@/hooks/useNotificationWebSocket"
-import NotificationToast from "@/components/NotificationToast"
-
   ActivityIcon,
+  BellIcon,
   ClipboardCheckIcon,
   GlobeIcon,
   LayoutDashboardIcon,
@@ -15,6 +13,8 @@ import NotificationToast from "@/components/NotificationToast"
   Users2Icon,
 } from "lucide-react"
 
+import { useNotificationWebSocket } from "@/hooks/useNotificationWebSocket"
+import NotificationToast from "@/components/NotificationToast"
 import { getApiBase, setApiBase } from "@/lib/locals-settings"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import DashboardOverview from "@/pages/DashboardOverview"
@@ -25,8 +25,9 @@ import LoginPage from "@/pages/LoginPage"
 import TargetList from "@/pages/TargetList"
 import TargetDetail from "@/pages/TargetDetail"
 import UsersPage from "@/pages/UsersPage"
+import NotificationsPage from "@/pages/NotificationsPage"
 
-type AdminPage = "overview" | "events" | "drafts" | "targets" | "target-detail" | "users" | "diagnostics"
+type AdminPage = "overview" | "events" | "drafts" | "targets" | "target-detail" | "users" | "diagnostics" | "notifications"
 
 function App() {
   const [token, setToken] = useState<string | null>(() =>
@@ -124,6 +125,7 @@ function App() {
     { id: "events", label: "新闻事件", icon: NewspaperIcon },
     { id: "drafts", label: "草稿审核", icon: ClipboardCheckIcon },
     { id: "targets", label: "目标工作台", icon: GlobeIcon },
+    { id: "notifications", label: "通知规则", icon: BellIcon },
     { id: "diagnostics", label: "可观测性诊断", icon: ActivityIcon },
     { id: "users", label: "用户管理", icon: Users2Icon },
   ]
@@ -289,6 +291,7 @@ function App() {
             <TargetDetail targetId={selectedTargetId} onBack={backToTargets} />
           )}
           {page === "users" && <UsersPage />}
+          {page === "notifications" && <NotificationsPage />}
           {page === "diagnostics" && <DiagnosticsPage />}
           </ErrorBoundary>
 
