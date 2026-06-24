@@ -35,7 +35,7 @@ import { useHashRoute } from "@/hooks/use-hash-route"
 import { usePublicAnalysis } from "@/hooks/use-public-analysis"
 import { usePublicFeed } from "@/hooks/use-public-feed"
 import { usePublicTargets } from "@/hooks/use-public-targets"
-import { getPublicBootstrap, listPublicFacets, readSSRBootstrap } from "@/lib/api"
+import { getPublicBootstrap, listPublicFacets, readSSRBootstrap, readSSRFeed } from "@/lib/api"
 import { getApiBase, setApiBase } from "@/lib/locals-settings"
 import { type FeedFilters, makeFeedQuery, type PublicChannel } from "@/lib/feed-state"
 import { targetShortLabel, todayKey } from "@/lib/public-view"
@@ -1320,10 +1320,11 @@ export default function App() {
 
   const bootstrap = usePublicBootstrap(filters)
   const bootstrapTargets = useMemo(() => regionsToTargets(bootstrap.data), [bootstrap.data])
-  const waitForBootstrap = bootstrap.status === "loading"
+  const ssrFeed = useMemo(() => readSSRFeed(), [])
+  const waitForBootstrap = bootstrap.status === "loading" && !ssrFeed
   const feed = usePublicFeed(filters, {
     poll: route.name === "feed",
-    initialFeed: bootstrap.data?.news ?? null,
+    initialFeed: ssrFeed ?? bootstrap.data?.news ?? null,
     waitForInitialData: waitForBootstrap,
   })
   const targets = usePublicTargets(bootstrapTargets, waitForBootstrap)

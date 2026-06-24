@@ -37,6 +37,19 @@ export function readSSRBootstrap(): PublicBootstrapResponse | null {
   return _SSR_BOOTSTRAP_DATA
 }
 
+/** 读取 SSR 注入的新闻正文数据（独立于 bootstrap 的 feed 脚本标签）。 */
+export function readSSRFeed(): PublicNewsFeedResponse | null {
+  try {
+    const el = document.getElementById("news-sentry-feed")
+    if (!el?.textContent) return null
+    const data = JSON.parse(el.textContent) as PublicNewsFeedResponse
+    if (data.items?.length) return data
+  } catch {
+    /* silent */
+  }
+  return null
+}
+
 export class PublicNewsApiError extends Error {
   readonly status?: number
 
