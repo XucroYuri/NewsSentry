@@ -10,14 +10,17 @@ import {
   RefreshCwIcon,
   ArchiveIcon,
   RotateCcwIcon,
+  PencilIcon,
 } from "lucide-react"
 
-import { authHeaders, archiveTarget, restoreTarget, fetchTargetInventory, type SourceInventoryResponse } from "@/lib/api"
+import { authHeaders, archiveTarget, restoreTarget, fetchTargetInventory, patchSource, archiveSource, restoreSource, type SourceInventoryResponse, type SourceInventoryItem } from "@/lib/api"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Skeleton } from "@/components/ui/skeleton"
+import EditSourceDialog from "@/components/admin/EditSourceDialog"
+
 
 const API_BASE = "/api/v1"
 
@@ -56,6 +59,8 @@ export default function TargetDetail({ targetId, onBack }: { targetId: string; o
   const [inventory, setInventory] = useState<SourceInventoryResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [editingItem, setEditingItem] = useState<SourceInventoryItem | null>(null)
+
 
   async function load() {
     setLoading(true)
@@ -101,6 +106,32 @@ export default function TargetDetail({ targetId, onBack }: { targetId: string; o
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : "恢复失败")
+    }
+  }
+
+  async function handleArchiveSource(item: SourceInventoryItem) {
+    const name = item.display_name ?? item.name ?? item.source_id
+    if (!window.confirm(`确定归档信源 "${name}"？归档后将停止采集，但保留历史数据。`)) return
+    try {
+      setLoading(true)
+      await archiveSource(targetId, item.source_ref ?? item.source_id)
+      await loadInventory()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "归档失败")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleRestoreSource(item: SourceInventoryItem) {
+    try {
+      setLoading(true)
+      await restoreSource(targetId, item.source_ref ?? item.source_id)
+      await loadInventory()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "恢复失败")
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -293,6 +324,7 @@ export default function TargetDetail({ targetId, onBack }: { targetId: string; o
                   <TableHead>类型</TableHead>
                   <TableHead>URL</TableHead>
                   <TableHead>状态</TableHead>
+                  <TableHead className="w-20">操作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -308,6 +340,22 @@ export default function TargetDetail({ targetId, onBack }: { targetId: string; o
                         {item.archived ? "已归档" : item.status ?? "活跃"}
                       </Badge>
                     </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => setEditingItem(item)}>
+                          <PencilIcon className="h-3.5 w-3.5" />
+                        </Button>
+                        {item.archived ? (
+                          <Button variant="ghost" size="sm" onClick={() => handleRestoreSource(item)}>
+                            <RotateCcwIcon className="h-3.5 w-3.5" />
+                          </Button>
+                        ) : (
+                          <Button variant="ghost" size="sm" onClick={() => handleArchiveSource(item)}>
+                            <ArchiveIcon className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -315,6 +363,16 @@ export default function TargetDetail({ targetId, onBack }: { targetId: string; o
           </CardContent>
         </Card>
       )}
+        {editingItem && (
+        <EditSourceDialog
+          open={!!editingItem}
+          onOpenChange={(open) => { if (!open) setEditingItem(null) }}
+          targetId={targetId}
+          item={editingItem}
+          onSaved={() => { loadInventory() }}
+        />
+        )}
+
 
       {/* 最近运行 */}
       <Card>
