@@ -71,7 +71,7 @@ class RSSDiscovery:
         """初始化 RSSDiscovery。
 
         Args:
-            source_dir: 信源配置目录（如 config/sources/italy/）。
+            source_dir: 信源配置目录（如 config/sources/my-target/）。
             target_id: 目标标识。
             timeout_seconds: HTTP 请求超时秒数。
         """

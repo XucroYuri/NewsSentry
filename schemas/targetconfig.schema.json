@@ -71,10 +71,17 @@
     "sandbox_profile_ref": { "type": "string" },
     "provider_routes_ref": { "type": "string" },
     "output_destinations_ref": { "type": "string" },
+    "glossary_ref": { "type": "string", "description": "Path to target-specific glossary Markdown file (e.g. docs/it-zh-glossary.md)" },
     "classification": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "specific_axes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Axes exclusive to this target. Other targets' classification results must not contain these axes. Validated by country_axes.py.",
+          "default": []
+        },
         "country_axes": {
           "type": "object",
           "description": "Enable flags for country-specific sub-axes (politics, economics, crime, sports, culture)",

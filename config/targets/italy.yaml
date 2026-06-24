@@ -94,10 +94,13 @@ classification_rules_ref: config/classification/rules-italy.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
 provider_routes_ref: config/provider/routes.yaml
 output_destinations_ref: config/output/destinations.yaml
+glossary_ref: docs/it-zh-glossary.md
 
 # 意大利子轴开关，控制 classification 阶段哪些 country_axes 参与打分
 # 详见 docs/news-classification-framework.md 和 docs/contracts-canonical.md §9
+# specific_axes: 仅本 target 有意义的轴，其他 target 的分类结果不允许包含这些轴
 classification:
+  specific_axes: [coalition, eu_role, region, china_italy_relations]
   country_axes:
     politics: true
     economics: true

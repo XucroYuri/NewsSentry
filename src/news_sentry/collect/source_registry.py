@@ -8,7 +8,7 @@ Usage:
         SourceDefinition, SourcePlatform, load_sources_from_config,
     )
 
-    sources = load_sources_from_config("italy", "config")
+    sources = load_sources_from_config("my-target", "config")
     for src in sources:
         if src.platform == "reddit":
             items = await reddit_collector.subreddit(src.url)
@@ -36,7 +36,7 @@ class SourceDefinition:
     display_name: str
     platform: SourcePlatform
     url: str  # RSS URL / Reddit .rss URL / HN API path / RSS-Bridge URL
-    target_id: str = ""  # e.g. "italy", "global"
+    target_id: str = ""  # e.g. "my-target", "global"
     enabled: bool = True
     fetch_interval_minutes: int = 20
     max_items_per_run: int = 40
@@ -58,7 +58,7 @@ def load_sources_from_config(target_id: str, config_dir: str | Path) -> list[Sou
     未知 type 自动跳过并记录警告。
 
     Args:
-        target_id: 目标标识符 (如 "italy", "global")
+        target_id: 目标标识符 (如 "my-target", "global")
         config_dir: config/ 目录路径
 
     Returns:

@@ -62,7 +62,7 @@ class ConfigLoader:
         """加载 target 的完整配置：加载 YAML → 解析引用 → 合并 → 校验。
 
         Args:
-            target_id: target 标识符（如 "italy"）。
+            target_id: target 标识符（如 "my-target"）。
             profile_id: Deployment profile 标识符。
             output_root_override: 可选数据根目录覆盖。
             allow_external_output_root: 是否允许输出根目录位于项目外。
@@ -281,7 +281,7 @@ class ConfigLoader:
         2. 尝试当作相对于 context_path 父目录的路径
 
         Args:
-            ref_path_str: 引用路径字符串（如 "config/filters/italy/default.yaml"）。
+            ref_path_str: 引用路径字符串（如 "config/filters/my-target/default.yaml"）。
             context_path: 包含此引用的 YAML 文件路径。
 
         Returns:
@@ -485,7 +485,7 @@ class ConfigLoader:
         """加载 target 的所有 source channel 配置。
 
         Args:
-            target_id: target 标识符（如 "italy"）。
+            target_id: target 标识符（如 "my-target"）。
             source_ids: source channel ID 列表（如 ["ansa", "repubblica"]）。
             target_data: target 配置，用于给 source 注入默认语言。
 

@@ -35,7 +35,7 @@ class HermesAdapter:
         """触发一次 bounded run，返回 run_id。
 
         Args:
-            target_id: 目标标识符（如 "italy"）。
+            target_id: 目标标识符（如 "my-target"）。
             stage: pipeline 阶段。
             run_id: 可选运行 ID，不提供则自动生成。
 

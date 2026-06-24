@@ -29,10 +29,14 @@ sandbox_profile_ref: config/sandbox/default.yaml
 provider_routes_ref: config/provider/routes.yaml
 output_destinations_ref: config/output/destinations.yaml
 
-# country_axes 控制 classification 阶段哪些轴参与打分
-# 仅启用与该目标新闻相关的轴，降低误判噪声
-# 完整轴列表见 docs/news-classification-framework.md
+# classification 控制 classification 阶段行为
+# specific_axes: 仅本 target 有意义的轴，其他 target 的分类结果不允许包含这些轴
+#   （详见 src/news_sentry/core/config/country_axes.py）
+# country_axes 控制哪些轴参与打分，仅启用与该 target 相关的轴
+# home_relevance_keywords 用于计算 home_relevance 分数
+# glossary_ref: 可选，指向 target 专属术语表 Markdown 文件
 classification:
+  # specific_axes: []                # 可选，target 独占轴列表
   country_axes:
     politics: true
     economics: true
@@ -40,7 +44,8 @@ classification:
     sports: false
     culture: false
     eu_relations: false
-    china_italy_relations: false    # 仅 Italy 目标使用，其他目标改为 false
     immigration: false
     energy: false
     judicial: false
+  # home_relevance_keywords: []       # 可选
+# glossary_ref: "docs/xx-zh-glossary.md"  # 可选

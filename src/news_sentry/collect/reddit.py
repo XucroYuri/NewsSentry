@@ -109,7 +109,7 @@ def reddit_to_newsevent(
 
     Args:
         raw: feedparser entry dict (含 id/title/link/summary/published/author)
-        target_id: 目标 ID (如 "global", "italy")
+        target_id: 目标 ID (如 "global", "my-target")
         run_id: 采集 run ID
         source_id: 信源标识 (默认 "reddit")
 

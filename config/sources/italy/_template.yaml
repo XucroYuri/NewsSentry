@@ -7,7 +7,7 @@
 
 source_id: "example-source"               # 全局唯一，字母数字加连字符
 display_name: "Example Source"
-type: rss                                 # 支持: rss | api | reddit_rss | hn_rest
+type: rss                                 # 支持: rss | api | reddit | hackernews | twitter
 
 # 原始 feed / API URL
 url: "https://example.com/feed.xml"

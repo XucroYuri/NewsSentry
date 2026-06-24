@@ -890,8 +890,8 @@ def _resolve_targets(target_str: str, config_dir: Path) -> list[str]:
     """将 target 参数字符串解析为 target_id 列表。
 
     支持以下格式：
-    - 单个 target: "italy"
-    - 逗号分隔: "italy,japan,germany"
+    - 单个 target: "my-target"
+    - 逗号分隔: "my-target,japan,germany"
     - 关键字 "all": 从 config/targets/ 发现所有 target
     """
     if target_str == "all":

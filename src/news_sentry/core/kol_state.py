@@ -29,7 +29,7 @@ class KOLEntry(BaseModel):
     first_observed_at: str  # ISO datetime
     last_active_at: str | None = None
     follower_count_approx: int | None = None  # 允许 None
-    relevance_tags: list[str] = []  # 如 ["politics", "italy-pm"]
+    relevance_tags: list[str] = []  # 如 ["politics", "target-pm"]
     last_content_sample: str | None = None  # ≤ 200 字
     china_relevance_score: int | None = None  # 0–100
     observation_enabled: bool = True

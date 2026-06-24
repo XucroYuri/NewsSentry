@@ -61,7 +61,7 @@ class FeedbackCollector:
         """初始化 FeedbackCollector。
 
         Args:
-            data_dir: 数据根目录（如 data/italy/）。
+            data_dir: 数据根目录（如 data/my-target/）。
         """
         self._reviewed_dir = data_dir / "reviewed"
 

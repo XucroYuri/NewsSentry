@@ -190,7 +190,7 @@ class TestRunDoctorSessionProfilesCheck:
         assert any("not found" in d for d in report.session_profiles_check["details"])
 
     def test_session_dir_exists_with_yamls(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        session_dir = tmp_path / "config" / "session-profiles" / "italy"
+        session_dir = tmp_path / "config" / "session-profiles" / "test-target"
         session_dir.mkdir(parents=True)
         (session_dir / "test.yaml").write_text("{}")
         (session_dir / "test2.yaml").write_text("{}")
@@ -203,12 +203,22 @@ class TestRunDoctorSessionProfilesCheck:
 
 class TestRunDoctorGlossaryCheck:
     def test_glossary_file_missing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        # test-target 无 config/targets/test-target.yaml，glossary 优雅跳过
         monkeypatch.chdir(tmp_path)
         report = run_doctor("test-target", data_root=str(tmp_path / "data"))
-        assert report.glossary_check["passed"] is False
-        assert any("not found" in d for d in report.glossary_check["details"])
+        assert report.glossary_check["passed"] is True
+        assert any("no glossary configured" in d for d in report.glossary_check["details"])
 
     def test_glossary_parses_terms(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        # 创建 target 配置指向术语表
+        target_dir = tmp_path / "config" / "targets"
+        target_dir.mkdir(parents=True)
+        import yaml
+
+        (target_dir / "test-target.yaml").write_text(
+            yaml.dump({"target_id": "test-target", "glossary_ref": "docs/it-zh-glossary.md"})
+        )
+
         glossary_path = tmp_path / "docs" / "it-zh-glossary.md"
         glossary_path.parent.mkdir(parents=True)
         glossary_path.write_text(

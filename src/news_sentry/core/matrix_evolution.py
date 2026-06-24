@@ -88,9 +88,9 @@ class MatrixEvolution:
         """初始化 MatrixEvolution。
 
         Args:
-            source_dir: 信源配置目录（如 config/sources/italy/）。
-            target_config_path: target 配置文件路径（如 config/targets/italy.yaml）。
-            state_path: 进化状态持久化路径（如 data/italy/memory/matrix-evolution.yaml）。
+            source_dir: 信源配置目录（如 config/sources/my-target/）。
+            target_config_path: target 配置文件路径（如 config/targets/my-target.yaml）。
+            state_path: 进化状态持久化路径（如 data/my-target/memory/matrix-evolution.yaml）。
             audit_log_path: 审计日志路径（JSONL）。None 时不记日志。
             rss_discovery_cooldown_hours: RSS 发现冷却时间（默认 168h=7d）。
         """

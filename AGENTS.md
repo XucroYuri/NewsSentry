@@ -326,11 +326,13 @@ flowchart LR
 | P8 | v2 重构: CI 修复 (Docker workflow) + config 清理 (5K lines) | ✅ |
 | P9 | v2 重构: 质量收尾 + 品牌 + 性能优化 | ✅ |
 | P10 | v2 重构: 发布就绪 + Prometheus + Makefile 清理 | ✅ |
+| M-12~M-15 | Italy 信源矩阵 + 评测集 + AI Judge + Cloud VPS | ✅ |
+| M-16~M-20 | 管理后台升级 + 诊断/错误处理 + 数据驱动泛化 | ✅ |
 
-**当前状态：** Phase 1-10 全部完成。项目处于 v2.0 RC 稳定基线。
+**当前状态：** Phase 1-10 全部完成。M-12 ~ M-20 完成。项目处于 v2.0 RC 稳定基线。
 - **Tag:** v2.0.0-rc3
-- **Commit:** `0ed423f4`
-- **测试:** 3,020 passed, 0 failed
+- **Commit:** `6ae2098a`
+- **测试:** 3,022 passed, 2 skipped
 - **覆盖率:** 87%
 - **Type:** mypy strict + ruff: 零错误
 - **生产:** news-sentry.com — `{"status": "ok"}`
@@ -338,7 +340,6 @@ flowchart LR
 - **Docker:** ghcr.io/xucroyuri/news-sentry (299MB)
 - **品牌:** 金色瞭望塔, 已挂载管理面板 + README
 - **发布:** CHANGELOG.md + .github/release.yml 就绪
-- **生产:** news-sentry.com — `{"status": "ok"}`
 
 **Phase 9 全部成果:**
 1. 测试覆盖率: 2,969→3,020 tests, 86→87% (+51 tests)
@@ -369,7 +370,7 @@ flowchart LR
 ## 项目当前状态速查
 
 - **Python 版本**：3.11+ / Pydantic v2
-- **测试规模**：3,020 tests, 87% 覆盖率, ruff=0, mypy=0, frontend=0
+- **测试规模**：3,022 tests, 87% 覆盖率, ruff=0, mypy=0, frontend=0
 - **监控目标**：italy, china-watch-en, japan, germany, france + 18 个多 Target
 - **信源规模**：163 源 + RSS-Bridge 社媒桥接
 - **AI Provider**：内置 chain: Gemini → DeepSeek → Groq → Cloudflare Workers AI

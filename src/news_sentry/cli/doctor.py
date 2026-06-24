@@ -107,10 +107,10 @@ def run_doctor(target_id: str, data_root: str = "data") -> DoctorReport:
     # Session Profiles check
     session_ok = True
     session_details: list[str] = []
-    session_dir = Path("config/session-profiles/italy")
+    session_dir = Path(f"config/session-profiles/{target_id}")
     if not session_dir.exists():
         session_ok = False
-        session_details.append("config/session-profiles/italy/ not found")
+        session_details.append(f"config/session-profiles/{target_id}/ not found")
     else:
         yaml_files = list(session_dir.glob("*.yaml"))
         session_files = list(session_dir.glob("*.session.*"))
@@ -118,13 +118,17 @@ def run_doctor(target_id: str, data_root: str = "data") -> DoctorReport:
             f"{len(yaml_files)} session configs, {len(session_files)} session files"
         )
 
-    # Glossary coverage check
+    # Glossary coverage check — 从 target 配置中读取 glossary_ref，
+    # 若无配置则跳过（仅部分 target 有术语表）
     glossary_ok = True
     glossary_details: list[str] = []
-    glossary_path = Path("docs/it-zh-glossary.md")
-    if not glossary_path.is_file():
+    glossary_path = _resolve_glossary_path(target_id)
+    if glossary_path is None:
+        glossary_ok = True  # 无术语表不是错误，跳过
+        glossary_details.append("no glossary configured for this target (skip)")
+    elif not glossary_path.is_file():
         glossary_ok = False
-        glossary_details.append("docs/it-zh-glossary.md not found")
+        glossary_details.append(f"{glossary_path} not found")
     else:
         glossary_terms = _extract_glossary_terms(glossary_path)
         glossary_details.append(f"{len(glossary_terms)} glossary terms")
@@ -168,8 +172,32 @@ def doctor_command(target: str, data_root: str = "data", json_output: bool = Fal
     return 0 if report.all_passed else 1
 
 
+def _resolve_glossary_path(target_id: str) -> Path | None:
+    """从 target 配置中解析术语表路径。
+
+    检查 config/targets/{target_id}.yaml 中的 glossary_ref 字段，
+    若无配置则返回 None（仅部分 target 有术语表）。
+    """
+    import yaml
+
+    target_yaml = Path(f"config/targets/{target_id}.yaml")
+    if not target_yaml.is_file():
+        return None
+    try:
+        data = yaml.safe_load(target_yaml.read_text(encoding="utf-8"))
+    except yaml.YAMLError:
+        return None
+    if not isinstance(data, dict):
+        return None
+
+    ref = data.get("glossary_ref")
+    if isinstance(ref, str) and ref:
+        return Path(ref)
+    return None
+
+
 def _extract_glossary_terms(glossary_path: Path) -> set[str]:
-    """从术语表 Markdown 中提取意大利语词条（第一列）。"""
+    """从术语表 Markdown 中提取第一列词条（语言感知）。"""
     terms: set[str] = set()
     in_table = False
     for line in glossary_path.read_text(encoding="utf-8").splitlines():
