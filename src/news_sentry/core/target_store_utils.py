@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from news_sentry.core._state import _data_dir, _target_stores
 from news_sentry.core.async_store import AsyncStore
@@ -73,7 +73,7 @@ def _latest_run_log_summary(data_dir: Path) -> dict[str, Any] | None:
 
 def _target_db_path(target_id: str) -> Path:
     """目标 state.db 路径: {data_dir}/{target_id}/state.db"""
-    return _data_dir / target_id / "state.db"
+    return cast(Path, _data_dir) / target_id / "state.db"
 
 
 async def _get_target_store(target_id: str) -> AsyncStore | None:
@@ -83,7 +83,7 @@ async def _get_target_store(target_id: str) -> AsyncStore | None:
     """
     db_path = _target_db_path(target_id)
     if target_id in _target_stores:
-        cached = _target_stores[target_id]
+        cached = cast(AsyncStore, _target_stores[target_id])
         if cached.db_path == db_path:
             return cached
         try:
