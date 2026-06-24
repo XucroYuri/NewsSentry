@@ -5522,7 +5522,7 @@ def create_app(
     # ── 公开端点（无需认证）─────────────────────────────
 
     @app.get("/api/v1/health")
-    async def health(response: Response) -> dict[str, str]:
+    async def health(response: Response) -> dict[str, Any]:
         build = _static_build_hash()
         commit = _git_commit_for_path(Path(__file__))
         response.headers["Cache-Control"] = "no-store"
@@ -5530,7 +5530,27 @@ def create_app(
             commit[:12] if commit != "unknown" else commit
         )
         response.headers["X-News-Sentry-Static-Build"] = build
-        return {"status": "ok"}
+
+        # ── 数据新鲜度 ──
+        latest_collected_at: str | None = None
+        total_events: int = 0
+        if _store is not None and _store._db is not None:
+            try:
+                async with _store._db.execute(
+                    "SELECT MAX(collected_at), COUNT(*) FROM event_index"
+                ) as cursor:
+                    row = await cursor.fetchone()
+                if row:
+                    latest_collected_at = row[0]
+                    total_events = row[1] or 0
+            except Exception:  # noqa: S110 — 数据新鲜度查询失败时静默回退
+                pass
+
+        return {
+            "status": "ok",
+            "total_events": total_events,
+            "latest_collected_at": latest_collected_at,
+        }
 
     @app.get("/api/v1/metrics")
     async def prometheus_metrics(

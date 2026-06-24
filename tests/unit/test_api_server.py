@@ -486,7 +486,10 @@ class TestAPIServer:
         resp = client.get("/api/v1/health")
 
         assert resp.status_code == 200
-        assert resp.json() == {"status": "ok"}
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert "total_events" in data
+        assert "latest_collected_at" in data
         assert re.fullmatch(r"[0-9a-f]{12}|unknown", resp.headers["x-news-sentry-deploy-commit"])
         assert re.fullmatch(r"[0-9a-f]{12}|development", resp.headers["x-news-sentry-static-build"])
 

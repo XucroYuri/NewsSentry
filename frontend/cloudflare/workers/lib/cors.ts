@@ -30,7 +30,7 @@ export function addCorsHeaders(response: Response, requestOrigin?: string | null
   }
 
   headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-  headers.set("Access-Control-Allow-Headers", "Authorization, Content-Type");
+  headers.set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-News-Sentry-Deploy-Commit");
   headers.set("Access-Control-Max-Age", "86400");
 
   return new Response(response.body, {

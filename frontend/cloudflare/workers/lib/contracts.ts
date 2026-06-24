@@ -9,9 +9,11 @@
  */
 
 // ── /api/v1/health ───────────────────────────────────────────────────────
-// Python: 无 Pydantic 模型（内联 dict[str, str]）
+// Python: 内联 dict[str, Any]
 export interface HealthResponse {
   status: string;
+  total_events: number;
+  latest_collected_at: string | null;
 }
 
 // ── /api/v1/public/news ──────────────────────────────────────────────────
