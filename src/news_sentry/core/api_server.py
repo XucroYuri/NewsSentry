@@ -880,8 +880,9 @@ _PUBLIC_NEWS_FEED_CACHE_TTL_SECONDS = 60.0  # 从 15s 延长到 60s，减轻源�
 _PUBLIC_NEWS_FEED_UPDATE_CACHE_TTL_SECONDS = 60.0  # since_cursor 轮询也受益
 _PUBLIC_NEWS_FEED_SEARCH_CACHE_TTL_SECONDS = 5.0  # 搜索仍保留短 TTL
 _PUBLIC_SHARED_JSON_CACHE_CONTROL = "public, max-age=30, s-maxage=60, stale-while-revalidate=300"
-_PUBLIC_APP_SHELL_CACHE_CONTROL = "public, max-age=60, s-maxage=60, stale-while-revalidate=300"
-_PUBLIC_BOOTSTRAP_CACHE_TTL_SECONDS = 60.0
+_PUBLIC_APP_SHELL_CACHE_CONTROL = "public, max-age=300, s-maxage=300, stale-while-revalidate=600"
+_PUBLIC_BOOTSTRAP_CACHE_TTL_SECONDS = 300.0
+_PUBLIC_BOOTSTRAP_CACHE_CONTROL = "public, max-age=300, s-maxage=300, stale-while-revalidate=600"
 _PUBLIC_REGIONS_CACHE_TTL_SECONDS = 60.0
 _PUBLIC_FACETS_CACHE_TTL_SECONDS = 60.0
 _PUBLIC_NEWS_SLOW_LOG_MS = 3000
@@ -926,6 +927,17 @@ _PUBLIC_NEWS_EVENT_DIRS = {
 _public_news_feed_cache: dict[str, dict[str, Any]] = {}
 _public_regions_cache: dict[str, dict[str, Any]] = {}
 _public_facets_cache: dict[str, dict[str, Any]] = {}
+_admin_overview_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_admin_targets_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_ADMIN_CACHE_TTL_SECONDS = 15.0
+
+
+def _clear_admin_caches() -> None:
+    """清除所有 admin API 缓存（admin 写操作后调用）。"""
+    _admin_overview_cache.clear()
+    _admin_targets_cache.clear()
+
+
 _public_bootstrap_cache: dict[str, dict[str, Any]] = {}
 _PUBLIC_TEXT_LATIN1_HINTS = ("Ã", "Â", "â€")
 _STRAY_ACCENTED_CAPS = str.maketrans(
@@ -1075,6 +1087,21 @@ def _public_shared_cache_headers(
         "Server-Timing": f"{timing_name};dur={max(0, int(elapsed_ms))}",
         f"X-News-Sentry-{header_name}-Cache": cache_status,
         f"X-News-Sentry-{header_name}-Elapsed-Ms": str(max(0, int(elapsed_ms))),
+    }
+
+
+def _public_bootstrap_cache_headers(
+    *,
+    etag: str,
+    cache_status: Literal["hit", "miss"],
+    elapsed_ms: int,
+) -> dict[str, str]:
+    return {
+        "ETag": etag,
+        "Cache-Control": _PUBLIC_BOOTSTRAP_CACHE_CONTROL,
+        "Server-Timing": f"public-bootstrap;dur={max(0, int(elapsed_ms))}",
+        "X-News-Sentry-Bootstrap-Cache": cache_status,
+        "X-News-Sentry-Bootstrap-Elapsed-Ms": str(max(0, int(elapsed_ms))),
     }
 
 
@@ -4862,65 +4889,30 @@ def _static_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "static"
 
 
-def _load_static_manifest_template(static_dir: Path) -> dict[str, Any]:
-    fallback = {
-        "build": "development",
-        "cacheName": "news-sentry-development",
-        "assets": ["/", "/index.html", "/app.js", "/style.css", "/public.css", "/sw.js"],
-    }
-    manifest_path = static_dir / "build_manifest.json"
-    try:
-        data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return fallback
-    assets = data.get("assets")
-    if not isinstance(assets, list) or not assets:
-        assets = fallback["assets"]
-    clean_assets = [str(asset) for asset in assets if str(asset)]
-    build = str(data.get("build") or fallback["build"])
-    return {
-        "build": build,
-        "cacheName": str(data.get("cacheName") or f"news-sentry-{build}"),
-        "assets": clean_assets,
-    }
-
-
-def _static_asset_path(static_dir: Path, asset: str) -> Path:
-    asset_path = asset.split("?", 1)[0].lstrip("/")
-    if not asset_path:
-        asset_path = "index.html"
-    return static_dir / asset_path
-
-
-def _build_static_manifest(static_dir: Path | None = None) -> dict[str, Any]:
-    """生成当前静态资源内容 hash，避免本地服务继续暴露旧 build id。"""
+def _static_build_hash(static_dir: Path | None = None) -> str:
+    """基于 admin + public_app 构建产物计算散列，用于 health/metrics 端点。"""
     static_root = static_dir or _static_dir()
-    template = _load_static_manifest_template(static_root)
     digest = sha256()
     files_seen = 0
-    for asset in template["assets"]:
-        if asset.startswith(("http://", "https://")) or asset == "/build_manifest.json":
-            continue
-        path = _static_asset_path(static_root, asset)
+    manifests_to_hash = [
+        static_root / "admin" / "index.html",
+        static_root / "public_app" / "index.html",
+    ]
+    for path in manifests_to_hash:
         if not path.is_file():
             continue
-        digest.update(asset.encode("utf-8"))
+        digest.update(str(path.relative_to(static_root)).encode("utf-8"))
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")
         files_seen += 1
-    build = digest.hexdigest()[:12] if files_seen else str(template["build"])
-    return {
-        "build": build,
-        "cacheName": f"news-sentry-{build}",
-        "assets": template["assets"],
-    }
+    return digest.hexdigest()[:12] if files_seen else "development"
 
 
 def _index_html_response() -> HTMLResponse:
-    index_path = _static_dir() / "index.html"
+    index_path = _static_dir() / "admin" / "index.html"
     if not index_path.is_file():
-        raise HTTPException(status_code=404, detail="Static asset not found")
+        raise HTTPException(status_code=404, detail="Admin app not built")
     nonce = secrets.token_urlsafe(16)
     html = index_path.read_text(encoding="utf-8").replace("__CSP_NONCE__", nonce)
     return HTMLResponse(
@@ -5102,6 +5094,7 @@ def _public_app_index_response(
     *,
     base_url: str | None = None,
     canonical_path: str = "/public-app/",
+    bootstrap_json: str | None = None,
 ) -> HTMLResponse:
     index_path = _public_app_dir() / "index.html"
     if not index_path.is_file():
@@ -5114,6 +5107,15 @@ def _public_app_index_response(
             base_url=base_url,
             canonical_path=canonical_path,
         )
+    if bootstrap_json:
+        bootstrap_tag = (
+            f'\n<script id="news-sentry-bootstrap" type="application/json">'
+            f"{bootstrap_json}</script>\n"
+        )
+        if "</head>" in html:
+            html = html.replace("</head>", f"{bootstrap_tag}</head>", 1)
+        else:
+            html = f"{bootstrap_tag}\n{html}"
     html = _inject_script_nonce(html, nonce)
     return HTMLResponse(
         html,
@@ -5520,26 +5522,61 @@ def create_app(
 
     @app.get("/api/v1/health")
     async def health(response: Response) -> dict[str, str]:
-        manifest = _build_static_manifest()
+        build = _static_build_hash()
         commit = _git_commit_for_path(Path(__file__))
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-News-Sentry-Deploy-Commit"] = (
             commit[:12] if commit != "unknown" else commit
         )
-        response.headers["X-News-Sentry-Static-Build"] = manifest["build"]
+        response.headers["X-News-Sentry-Static-Build"] = build
         return {"status": "ok"}
+
+    @app.get("/api/v1/metrics")
+    async def prometheus_metrics(
+        response: Response,
+        _user: dict[str, Any] = Depends(get_current_user),
+    ) -> PlainTextResponse:
+        """Prometheus-compatible metrics endpoint (auth-required)."""
+        import platform as _platform
+        import time as _time
+
+        lines: list[str] = []
+        build = _static_build_hash()
+
+        # Application info
+        lines.append("# HELP news_sentry_info Application metadata")
+        lines.append("# TYPE news_sentry_info gauge")
+        lines.append(f'news_sentry_info{{version="2.0.0", build="{build}"}} 1')
+
+        # Uptime
+        lines.append("# HELP news_sentry_uptime_seconds Process uptime")
+        lines.append("# TYPE news_sentry_uptime_seconds gauge")
+        lines.append(f"news_sentry_uptime_seconds {_time.monotonic():.1f}")
+
+        # Python version
+        lines.append("# HELP news_sentry_python_info Python version")
+        lines.append("# TYPE news_sentry_python_info gauge")
+        lines.append(f'news_sentry_python_info{{version="{_platform.python_version()}"}} 1')
+
+        # Auto-collector status
+        auto_enabled = 1 if os.environ.get("NEWSSENTRY_AUTO_COLLECT", "") == "1" else 0
+        lines.append("# HELP news_sentry_auto_collect_enabled Auto-collector status")
+        lines.append("# TYPE news_sentry_auto_collect_enabled gauge")
+        lines.append(f"news_sentry_auto_collect_enabled {auto_enabled}")
+
+        response.headers["Cache-Control"] = "no-store"
+        return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; charset=utf-8")
 
     @app.get("/api/v1/runtime/info")
     async def runtime_info(
         response: Response,
         _user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
-        manifest = _build_static_manifest()
+        build = _static_build_hash()
         response.headers["Cache-Control"] = "no-store"
         return {
             "status": "ok",
-            "static_build": manifest["build"],
-            "static_cache_name": manifest["cacheName"],
+            "static_build": build,
         }
 
     @app.get("/", include_in_schema=False)
@@ -5564,14 +5601,23 @@ def create_app(
         return _index_html_response()
 
     @app.get("/admin/{path:path}", include_in_schema=False)
-    async def admin_path_html(path: str) -> HTMLResponse:
-        _ = path
+    async def admin_path_html(path: str) -> Response:
+        # Serve static assets (JS/CSS/images) directly; everything else is an SPA fallback
+        admin_root = _static_dir() / "admin"
+        clean_path = path.strip("/")
+        file_path = (admin_root / clean_path).resolve()
+        try:
+            file_path.relative_to(admin_root.resolve())
+        except ValueError:
+            raise HTTPException(status_code=404, detail="Static asset not found") from None
+        if file_path.is_file():
+            cache_control = (
+                "public, max-age=31536000, immutable"
+                if clean_path.startswith("assets/")
+                else "no-store"
+            )
+            return FileResponse(file_path, headers={"Cache-Control": cache_control})
         return _index_html_response()
-
-    @app.get("/build_manifest.json")
-    async def build_manifest(response: Response) -> dict[str, Any]:
-        response.headers["Cache-Control"] = "no-store"
-        return _build_static_manifest()
 
     @app.get("/robots.txt", include_in_schema=False)
     async def robots_txt(request: Request) -> PlainTextResponse:
@@ -5604,43 +5650,54 @@ def create_app(
             headers={"Cache-Control": "public, max-age=3600"},
         )
 
-    @app.get("/app.js", include_in_schema=False)
-    async def app_script() -> FileResponse:
-        app_js_path = _static_dir() / "app.js"
-        if not app_js_path.is_file():
-            raise HTTPException(status_code=404, detail="Static asset not found")
-        return FileResponse(
-            app_js_path,
-            media_type="application/javascript",
-            headers={"Cache-Control": "public, max-age=31536000, immutable"},
-        )
-
-    @app.get("/public.css", include_in_schema=False)
-    async def public_stylesheet() -> FileResponse:
-        public_css_path = _static_dir() / "public.css"
-        if not public_css_path.is_file():
-            raise HTTPException(status_code=404, detail="Static asset not found")
-        return FileResponse(
-            public_css_path,
-            media_type="text/css",
-            headers={"Cache-Control": "public, max-age=31536000, immutable"},
-        )
-
-    @app.get("/sw.js", include_in_schema=False)
-    async def service_worker_script() -> FileResponse:
-        sw_path = _static_dir() / "sw.js"
-        if not sw_path.is_file():
-            raise HTTPException(status_code=404, detail="Service worker not found")
-        return FileResponse(
-            sw_path,
-            media_type="application/javascript",
-            headers={"Cache-Control": "no-store"},
-        )
-
     @app.api_route("/public-app", methods=["GET", "HEAD"], include_in_schema=False)
     @app.api_route("/public-app/", methods=["GET", "HEAD"], include_in_schema=False)
     async def public_app_index(request: Request) -> HTMLResponse:
-        return _public_app_index_response(base_url=_public_site_base_url(request))
+        async def _ssr_bootstrap_json_impl() -> str | None:
+            """尝试获取公开首页 bootstrap 数据，失败时返回 None 使前端正常回退。"""
+            try:
+                news_task = _public_news_feed_payload_for_bootstrap(
+                    featured=True,
+                    region_id=None,
+                    source_id=None,
+                    category=None,
+                    issue=None,
+                    related=None,
+                    date=None,
+                    q=None,
+                    page_size=20,
+                )
+                regions_task = _cached_public_regions(include_empty=True)
+                facets_task = _cached_public_facets(
+                    region_id=None,
+                    issue=None,
+                    related=None,
+                    date=None,
+                    q=None,
+                )
+                (news, _news_etag, _elapsed_ms), regions, facets = await asyncio.gather(
+                    news_task,
+                    regions_task,
+                    facets_task,
+                )
+                payload = PublicBootstrapResponse(
+                    news=news,
+                    regions=regions,
+                    facets=facets,
+                    generatedAt=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                )
+                return payload.model_dump_json(by_alias=True, exclude_none=True)
+            except Exception:
+                logger.warning(
+                    "SSR bootstrap fetch failed, page will use client-side API", exc_info=True
+                )
+                return None
+
+        bootstrap_json = await _ssr_bootstrap_json_impl()
+        return _public_app_index_response(
+            base_url=_public_site_base_url(request),
+            bootstrap_json=bootstrap_json,
+        )
 
     @app.api_route(
         "/public-app/{asset_path:path}",
@@ -6071,6 +6128,7 @@ def create_app(
         ok = await _store.create_user(username, pw_hash, salt, role=role, must_change_pw=1)
         if not ok:
             raise HTTPException(status_code=500, detail="Failed to create user")
+        _clear_admin_caches()
         return {"status": "ok", "username": username}
 
     @app.delete("/api/v1/admin/users/{username}")
@@ -6087,6 +6145,7 @@ def create_app(
         if not ok:
             raise HTTPException(status_code=404, detail=f"User '{username}' not found")
         await _revoke_sessions_for_username(username)
+        _clear_admin_caches()
         return {"status": "ok"}
 
     @app.post("/api/v1/admin/users/{username}/reset-password")
@@ -6111,6 +6170,7 @@ def create_app(
         pw_hash, salt = hash_password(new_password)
         await _store.update_user_password(username, pw_hash, salt)
         await _revoke_sessions_for_username(username)
+        _clear_admin_caches()
         return {"status": "ok"}
 
     # ── API Key 设置 ─────────────────────────────────────
@@ -6533,7 +6593,12 @@ def create_app(
         include_archived: bool = Query(False, description="是否包含已归档 target"),
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
-        """管理后台 target 全生命周期列表。"""
+        """管理后台 target 全生命周期列表（缓存 TTL 15s）。"""
+        cache_key = f"archived={include_archived}"
+        cached = _admin_targets_cache.get(cache_key)
+        now = time.monotonic()
+        if cached is not None and (now - cached[0]) < _ADMIN_CACHE_TTL_SECONDS:
+            return cached[1]
         configs = _load_target_configs()
         targets = []
         for config in configs:
@@ -6541,7 +6606,9 @@ def create_app(
                 continue
             target = await _target_info_from_config_for_response(config, _data_dir)
             targets.append(target.model_dump())
-        return {"targets": targets}
+        result: dict[str, Any] = {"targets": targets}
+        _admin_targets_cache[cache_key] = (now, result)
+        return result
 
     @app.post("/api/v1/admin/targets")
     async def create_admin_target(
@@ -6603,6 +6670,7 @@ def create_app(
 
         _atomic_write_yaml(target_path, target_data)
         _config_cache.clear()
+        _clear_admin_caches()
         return _target_info_from_config(target_data, _data_dir).model_dump()
 
     @app.patch("/api/v1/admin/targets/{target_id}")
@@ -6621,6 +6689,7 @@ def create_app(
             data["monitoring_type"] = data["region_type"]
         _atomic_write_yaml(_target_config_path(target_id), data)
         _config_cache.clear()
+        _clear_admin_caches()
         return data
 
     @app.post("/api/v1/admin/targets/{target_id}/archive")
@@ -6640,6 +6709,7 @@ def create_app(
         _atomic_write_yaml(_target_config_path(target_id), data)
         _stop_target_in_collector_config(target_id)
         _config_cache.clear()
+        _clear_admin_caches()
         return data
 
     @app.post("/api/v1/admin/targets/{target_id}/restore")
@@ -6655,6 +6725,7 @@ def create_app(
         data["lifecycle"] = lifecycle
         _atomic_write_yaml(_target_config_path(target_id), data)
         _config_cache.clear()
+        _clear_admin_caches()
         return data
 
     @app.get("/api/v1/admin/targets/{target_id}/overview")
@@ -6767,6 +6838,7 @@ def create_app(
         _config_cache.clear()
         data["_source_id"] = source_ref
         data["_file_path"] = str(path)
+        _clear_admin_caches()
         return _source_info_from_config(data).model_dump()
 
     @app.patch("/api/v1/admin/targets/{target_id}/sources/{source_ref:path}")
@@ -6792,6 +6864,7 @@ def create_app(
         _config_cache.clear()
         data["_source_id"] = normalized_ref
         data["_file_path"] = str(path)
+        _clear_admin_caches()
         return _source_info_from_config(data).model_dump()
 
     @app.post("/api/v1/admin/targets/{target_id}/sources/{source_ref:path}/archive")
@@ -6815,6 +6888,7 @@ def create_app(
         _config_cache.clear()
         data["_source_id"] = normalized_ref
         data["_file_path"] = str(path)
+        _clear_admin_caches()
         return _source_info_from_config(data).model_dump()
 
     @app.post("/api/v1/admin/targets/{target_id}/sources/{source_ref:path}/restore")
@@ -6837,6 +6911,7 @@ def create_app(
         _config_cache.clear()
         data["_source_id"] = normalized_ref
         data["_file_path"] = str(path)
+        _clear_admin_caches()
         return _source_info_from_config(data).model_dump()
 
     @app.get("/api/v1/admin/targets/{target_id}/social")
@@ -6883,6 +6958,7 @@ def create_app(
         data["_file_path"] = str(path)
         data["account_count"] = 0
         data["archived_count"] = 0
+        _clear_admin_caches()
         return data
 
     @app.patch("/api/v1/admin/targets/{target_id}/social/dimensions/{dimension}")
@@ -6903,6 +6979,7 @@ def create_app(
                 data[key] = value
         _atomic_write_yaml(path, data)
         _config_cache.clear()
+        _clear_admin_caches()
         return data
 
     @app.post("/api/v1/admin/targets/{target_id}/social/dimensions/{dimension}/accounts")
@@ -6934,6 +7011,7 @@ def create_app(
         data["accounts"] = accounts
         _atomic_write_yaml(path, data)
         _config_cache.clear()
+        _clear_admin_caches()
         return account
 
     @app.patch("/api/v1/admin/targets/{target_id}/social/dimensions/{dimension}/accounts/{handle}")
@@ -6960,6 +7038,7 @@ def create_app(
                         account[key] = value
                 _atomic_write_yaml(path, data)
                 _config_cache.clear()
+                _clear_admin_caches()
                 return account
         raise HTTPException(status_code=404, detail=f"Account '{handle}' not found")
 
@@ -6968,7 +7047,12 @@ def create_app(
         target_id: str | None = Query(None, description="目标标识"),
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
-        """管理后台总览聚合：目标、采集、诊断、健康、反馈与告警。"""
+        """管理后台总览聚合：目标、采集、诊断、健康、反馈与告警（缓存 TTL 15s）。"""
+        cache_key = f"overview_tid={target_id or '__default__'}"
+        cached = _admin_overview_cache.get(cache_key)
+        now = time.monotonic()
+        if cached is not None and (now - cached[0]) < _ADMIN_CACHE_TTL_SECONDS:
+            return cached[1]
         targets = []
         for config in _load_target_configs():
             if _target_is_archived(config):
@@ -7001,7 +7085,7 @@ def create_app(
                 alerts = {"total": 0, "items": []}
 
         recent_runs = _load_run_logs(_data_dir, selected_target, 5) if selected_target else []
-        return {
+        result: dict[str, Any] = {
             "target_id": selected_target,
             "targets": targets,
             "collector": _collector_payload(),
@@ -7020,6 +7104,8 @@ def create_app(
             "alerts": alerts,
             "generated_at": datetime.now(UTC).isoformat(),
         }
+        _admin_overview_cache[cache_key] = (now, result)
+        return result
 
     @app.get(
         "/api/v1/public/targets/{target_id}/analysis",
@@ -7230,11 +7316,9 @@ def create_app(
             assert cache_entry is not None
             payload = cast(PublicBootstrapResponse, cache_entry["payload"])
             elapsed_ms = int((time.perf_counter() - started) * 1000)
-            headers = _public_shared_cache_headers(
+            headers = _public_bootstrap_cache_headers(
                 etag=str(cache_entry["etag"]),
                 cache_status="hit",
-                timing_name="public-bootstrap",
-                header_name="Bootstrap",
                 elapsed_ms=elapsed_ms,
             )
             if request.headers.get("if-none-match") == headers["ETag"]:
@@ -7274,11 +7358,9 @@ def create_app(
             "payload": payload,
         }
         elapsed_ms = int((time.perf_counter() - started) * 1000)
-        headers = _public_shared_cache_headers(
+        headers = _public_bootstrap_cache_headers(
             etag=etag,
             cache_status="miss",
-            timing_name="public-bootstrap",
-            header_name="Bootstrap",
             elapsed_ms=elapsed_ms,
         )
         if request.headers.get("if-none-match") == etag:

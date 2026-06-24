@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 import yaml
-from jsonschema.exceptions import ValidationError
 
 from news_sentry.core.config import ConfigLoader, ResolvedConfig
 
@@ -324,7 +323,7 @@ class TestValidate:
                 "properties": {"age": {"type": "integer", "minimum": 0}},
             },
         )
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValueError):
             loader._validate({"age": -1}, schema_path)
 
     def test_missing_schema_file(self, loader, project_root):
@@ -368,7 +367,7 @@ class TestValidateResolvedSchema:
         )
         yaml_path = project_root / "fail.yaml"
         yaml_path.write_text("# Schema: schemas/s.schema.json\nfoo: bar", encoding="utf-8")
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValueError):
             loader._validate_resolved_schema({"foo": "bar"}, yaml_path)
 
 

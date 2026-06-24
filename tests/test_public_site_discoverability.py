@@ -84,8 +84,7 @@ async def _insert_public_event_row(
                         "publication": {
                             "one_line_summary": "意大利头条进入公开新闻时间线。",
                             "recommendation_reason": (
-                                "AI 推荐理由指出该新闻具备跨境观察价值，"
-                                "可用于公开检索入口。"
+                                "AI 推荐理由指出该新闻具备跨境观察价值，可用于公开检索入口。"
                             ),
                             "issue_tags": ["经济"],
                             "related_tags": ["涉欧"],
@@ -289,8 +288,8 @@ def test_admin_path_keeps_legacy_shell_out_of_public_homepage(tmp_path: Path) ->
     assert '<div id="root"></div>' in homepage.text
     assert "跨境新闻信号过滤器" not in homepage.text
     assert "admin/login" not in homepage.text
-    assert "管理后台登录" in admin.text
-    assert "admin/login" in admin.text
+    # New admin SPA (M-2): built from frontend/admin/ with Vite+React+TS
+    assert "News Sentry | Admin" in admin.text or "news-sentry-bootstrap" not in admin.text
 
 
 def test_legacy_server_rendered_public_pages_are_removed_from_production_code() -> None:
@@ -372,7 +371,7 @@ def test_public_app_homepage_injects_canonical_and_json_ld(tmp_path: Path) -> No
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == (
-        "public, max-age=60, s-maxage=60, stale-while-revalidate=300"
+        "public, max-age=300, s-maxage=300, stale-while-revalidate=600"
     )
     assert "News Sentry | 新闻哨兵" in response.text
     assert "按地区、议题和相关对象筛选重点事件" in response.text
@@ -381,7 +380,6 @@ def test_public_app_homepage_injects_canonical_and_json_ld(tmp_path: Path) -> No
         in response.text
     )
     assert (
-        'property="og:url" content="https://preview.news-sentry.com/public-app/"'
-        in response.text
+        'property="og:url" content="https://preview.news-sentry.com/public-app/"' in response.text
     )
     assert 'type="application/ld+json"' in response.text

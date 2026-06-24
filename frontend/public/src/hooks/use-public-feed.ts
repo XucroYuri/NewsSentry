@@ -34,7 +34,7 @@ const initialFeedState: FeedState = {
   latestCursor: null,
   nextCursor: null,
   etag: null,
-  pollAfterMs: 30_000,
+  pollAfterMs: 120_000,
   total: 0,
 }
 

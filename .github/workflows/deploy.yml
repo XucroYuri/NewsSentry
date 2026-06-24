@@ -65,6 +65,12 @@ jobs:
         working-directory: frontend/public
         run: npm run build
 
+      - name: Admin frontend build
+        working-directory: frontend/admin
+        run: |
+          npm ci
+          npm run build
+
       - name: Lint (ruff)
         run: python -m ruff check
 
@@ -247,6 +253,18 @@ jobs:
               npm run build
               cd "${REPO_DIR}"
               echo "${NPM_HASH_SRC}" > "${NPM_HASH_FILE}"
+            fi
+
+            # ── 3b. 管理后台前端构建 ──
+            ADMIN_HASH_FILE="${DEPLOY_BASE}/${ENV}/.admin-build-hash"
+            ADMIN_HASH_SRC="$(sha256sum "${REPO_DIR}/frontend/admin/package.json" | cut -d' ' -f1)"
+            ADMIN_HASH_SRC="${ADMIN_HASH_SRC}-$(find "${REPO_DIR}/frontend/admin/src" -type f -exec sha256sum {} \; | sha256sum | cut -d' ' -f1)"
+            if [ ! -f "${ADMIN_HASH_FILE}" ] || [ "$(cat "${ADMIN_HASH_FILE}")" != "${ADMIN_HASH_SRC}" ]; then
+              cd "${REPO_DIR}/frontend/admin"
+              npm ci
+              npm run build
+              cd "${REPO_DIR}"
+              echo "${ADMIN_HASH_SRC}" > "${ADMIN_HASH_FILE}"
             fi
 
             # ── 4. venv + 依赖 ──

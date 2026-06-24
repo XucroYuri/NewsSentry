@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { ComponentType, ReactNode } from "react"
 import {
   BotIcon,
@@ -34,7 +34,7 @@ import { useHashRoute } from "@/hooks/use-hash-route"
 import { usePublicAnalysis } from "@/hooks/use-public-analysis"
 import { usePublicFeed } from "@/hooks/use-public-feed"
 import { usePublicTargets } from "@/hooks/use-public-targets"
-import { getPublicBootstrap, listPublicFacets } from "@/lib/api"
+import { getPublicBootstrap, listPublicFacets, readSSRBootstrap } from "@/lib/api"
 import { type FeedFilters, makeFeedQuery, type PublicChannel } from "@/lib/feed-state"
 import { targetShortLabel, todayKey } from "@/lib/public-view"
 import { buildPublicAppPath, routeToChannel, type PublicRoute } from "@/lib/routes"
@@ -247,9 +247,30 @@ function regionsToTargets(payload: PublicBootstrapResponse | null): PublicTarget
 }
 
 function usePublicBootstrap(filters: FeedFilters): BootstrapState {
-  const [state, setState] = useState<BootstrapState>({ status: "loading", data: null })
+  const ssrData = readSSRBootstrap()
+
+  // 仅在首页默认查询（featured，无筛选）时使用 SSR 数据
+  const ssrApplicable =
+    ssrData !== null &&
+    filters.channel === "featured" &&
+    !filters.targetId &&
+    !filters.sourceId &&
+    !filters.category &&
+    !filters.issue &&
+    !filters.related &&
+    !filters.search &&
+    !filters.date
+
+  const [state, setState] = useState<BootstrapState>(() =>
+    ssrApplicable ? { status: "ready", data: ssrData } : { status: "loading", data: null },
+  )
+  const didConsumeSSR = useRef(ssrApplicable)
 
   useEffect(() => {
+    if (didConsumeSSR.current) {
+      didConsumeSSR.current = false
+      return
+    }
     let cancelled = false
     const controller = new AbortController()
     setState({ status: "loading", data: null })
@@ -283,14 +304,29 @@ function usePublicFacets(
     issues: [],
     related: [],
   })
+  // 记录“已直接使用静态初始数据且后续 filters 未改变”的版本号
+  const consumedInitialForFilters = useRef<FeedFilters | null>(null)
 
   useEffect(() => {
     if (!initialFacets) return
     setFacets(initialFacets)
-  }, [initialFacets])
+    // 标记：当前 filters 下静态数据已消费
+    if (!waitForInitialData) {
+      consumedInitialForFilters.current = { ...filters }
+    }
+  }, [initialFacets]) // 仅依赖 initialFacets（SSR 注入）变化，不随 filters 变化重置
 
   useEffect(() => {
     if (waitForInitialData) return
+    const filtersWereConsumed =
+      consumedInitialForFilters.current !== null &&
+      filtersEqual(consumedInitialForFilters.current, filters)
+    if (filtersWereConsumed) return
+    // filters 变化后清除标记，避免后续误跳过
+    if (consumedInitialForFilters.current !== null) {
+      consumedInitialForFilters.current = null
+    }
+
     let cancelled = false
     const controller = new AbortController()
     async function loadFacets() {

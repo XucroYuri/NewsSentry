@@ -497,8 +497,7 @@ class TestAPIServer:
         data = resp.json()
         assert data["status"] == "ok"
         assert data["static_build"]
-        assert data["static_cache_name"] == f"news-sentry-{data['static_build']}"
-        assert set(data) == {"status", "static_build", "static_cache_name"}
+        assert set(data) == {"status", "static_build"}
 
     def test_runtime_info_endpoint_requires_bearer(self, tmp_path: Path) -> None:
         app = create_app(data_dir=tmp_path, auto_store=False)
@@ -550,17 +549,6 @@ class TestAPIServer:
         assert "Disallow: /api/" in resp.text
         assert "Disallow: /#/admin" in resp.text
 
-    def test_static_entry_assets_are_not_long_http_cached(self, tmp_path: Path) -> None:
-        app = create_app(data_dir=tmp_path, auto_store=False)
-        client = TestClient(app)
-
-        for path in ("/app.js", "/public.css"):
-            resp = client.get(path)
-            assert resp.status_code == 200
-            # v2 performance: static assets cached 1 year with immutable
-            assert "max-age=31536000" in resp.headers["cache-control"]
-            assert "immutable" in resp.headers["cache-control"]
-
     def test_public_app_entry_and_root_use_same_reader_shell(
         self,
         tmp_path: Path,
@@ -589,7 +577,7 @@ class TestAPIServer:
         assert public_resp.status_code == 200
         assert '<div id="root"></div>' in public_resp.text
         assert public_resp.headers["cache-control"] == (
-            "public, max-age=60, s-maxage=60, stale-while-revalidate=300"
+            "public, max-age=300, s-maxage=300, stale-while-revalidate=600"
         )
         csp = public_resp.headers["content-security-policy"]
         assert "'nonce-" in csp
@@ -627,7 +615,7 @@ class TestAPIServer:
 
         assert resp.status_code == 200
         assert resp.headers["cache-control"] == (
-            "public, max-age=60, s-maxage=60, stale-while-revalidate=300"
+            "public, max-age=300, s-maxage=300, stale-while-revalidate=600"
         )
 
     def test_public_app_assets_use_fingerprinted_cache_policy(
@@ -656,23 +644,6 @@ class TestAPIServer:
         assert resp.status_code == 200
         assert "public app" in resp.text
         assert resp.headers["cache-control"] == "public, max-age=31536000, immutable"
-
-    def test_build_manifest_endpoint_uses_content_hash(self, tmp_path: Path) -> None:
-        client = self._make_client(tmp_path)
-        resp = client.get("/build_manifest.json")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert re.fullmatch(r"[0-9a-f]{12}", data["build"])
-        assert data["cacheName"] == f"news-sentry-{data['build']}"
-        assert "/pages/feed.js" in data["assets"]
-        assert resp.headers["cache-control"] == "no-store"
-
-    def test_service_worker_script_is_not_http_cached(self, tmp_path: Path) -> None:
-        client = self._make_client(tmp_path)
-        resp = client.get("/sw.js")
-        assert resp.status_code == 200
-        assert "self.addEventListener" in resp.text
-        assert resp.headers["cache-control"] == "no-store"
 
     def test_collector_status_returns_target_ids_list(self, tmp_path: Path) -> None:
         """collector/status 返回 target_ids (list) + stage。"""

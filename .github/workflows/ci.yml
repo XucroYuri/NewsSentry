@@ -1,15 +1,8 @@
 name: CI
 
 on:
-  push:
-    branches: [main, preview]
   pull_request:
     branches: [main]
-
-# 自动取消排队的旧 CI run，避免资源浪费
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   test:
@@ -64,6 +57,18 @@ jobs:
         timeout-minutes: 20
         run: python -m pytest tests/ -q --tb=short --timeout=300 --durations=25 --cov=src/news_sentry --cov-report=term-missing --cov-report=xml
 
+      - name: Coverage summary
+        if: always()
+        run: |
+          python -c "
+          import xml.etree.ElementTree as ET
+          tree = ET.parse('coverage.xml')
+          root = tree.getroot()
+          rate = root.attrib.get('line-rate', '0')
+          pct = float(rate) * 100
+          print(f'## Coverage: {pct:.1f}%')
+          " >> "$GITHUB_STEP_SUMMARY"
+
       - name: Publication hygiene scan
         run: python tools/check_publication_hygiene.py
 
@@ -75,3 +80,10 @@ jobs:
 
       - name: Config schema validation
         run: python -m pytest tests/unit/test_config_schema_validation.py -q
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml

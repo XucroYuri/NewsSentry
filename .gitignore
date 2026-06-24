@@ -103,7 +103,11 @@ prd.json
 progress.txt
 src/news_sentry/static/diagnose.html
 
-# Phase 83 public portal frontend
+# Admin portal frontend (M-2)
+frontend/admin/node_modules/
+src/news_sentry/static/admin/
+
+# Public portal frontend (M-2)
 frontend/public/node_modules/
 src/news_sentry/static/public_app/
 

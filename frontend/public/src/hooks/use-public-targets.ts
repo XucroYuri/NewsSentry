@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { listTargets } from "@/lib/api"
 import type { PublicTargetInfo } from "@/types/public-news"
@@ -8,14 +8,17 @@ export function usePublicTargets(
   waitForInitialData = false,
 ) {
   const [targets, setTargets] = useState<PublicTargetInfo[]>([])
+  const initialConsumed = useRef(false)
 
   useEffect(() => {
-    if (!initialTargets) return
+    if (initialConsumed.current) return
+    if (!initialTargets || initialTargets.length === 0) return
+    initialConsumed.current = true
     setTargets(initialTargets)
   }, [initialTargets])
 
   useEffect(() => {
-    if (waitForInitialData) return
+    if (waitForInitialData || initialConsumed.current) return
     let cancelled = false
     async function loadTargetList() {
       try {

@@ -157,23 +157,37 @@ class ConfigLoader:
             return {}
         return data
 
-    def _validate(self, data: dict[str, Any], schema_path: Path) -> None:
+    def _validate(
+        self, data: dict[str, Any], schema_path: Path, yaml_path: Path | None = None
+    ) -> None:
         """用 JSON Schema 校验数据。
 
         Args:
             data: 待校验的 dict。
             schema_path: JSON Schema 文件的绝对路径。
+            yaml_path: 可选的 YAML 源文件路径，用于错误信息定位。
 
         Raises:
             FileNotFoundError: Schema 文件不存在。
-            ValidationError: 校验失败。
+            ValidationError: 校验失败（带文件路径和人类可读的修复建议）。
         """
         if not schema_path.is_file():
             raise FileNotFoundError(f"Schema 文件不存在: {schema_path}")
         with open(schema_path, encoding="utf-8") as fh:
             schema = yaml.safe_load(fh)
-        # jsonschema.validate 在失败时自动抛出 ValidationError
-        jsonschema_validate(instance=data, schema=schema)
+        try:
+            jsonschema_validate(instance=data, schema=schema)
+        except Exception as exc:
+            msgs = [f"配置校验失败: {yaml_path or 'unknown'}"]
+            if hasattr(exc, "message"):
+                msgs.append(f"  错误: {exc.message}")
+            if hasattr(exc, "path") and exc.path:
+                msgs.append(f"  字段: {' → '.join(str(p) for p in exc.path)}")
+            if hasattr(exc, "schema_path") and exc.schema_path:
+                msgs.append(f"  Schema: {' → '.join(str(p) for p in exc.schema_path)}")
+            msgs.append(f"  Schema 文件: {schema_path}")
+            msgs.append("  提示: 请检查 YAML 文件中对应字段的值是否符合 Schema 要求")
+            raise ValueError("\n".join(msgs)) from exc
 
     def _deep_merge(self, base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
         """递归合并两个 dict。
@@ -254,7 +268,7 @@ class ConfigLoader:
         schema_path = self._resolve_schema_path(yaml_path)
         if schema_path is None:
             return  # 无 schema 声明或找不到 schema 文件，跳过校验
-        self._validate(data, schema_path)
+        self._validate(data, schema_path, yaml_path)
 
     def _load_referenced_config(
         self, ref_path_str: str | None, context_path: Path

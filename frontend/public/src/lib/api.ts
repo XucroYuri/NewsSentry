@@ -14,6 +14,27 @@ import type {
   PublicTargetListResponse,
 } from "@/types/public-news"
 
+/** 模块加载时即从 DOM 读取服务端注入的 bootstrap JSON（仅一次）。 */
+const _SSR_BOOTSTRAP_DATA: PublicBootstrapResponse | null = (() => {
+  try {
+    const el = document.getElementById("news-sentry-bootstrap")
+    if (!el?.textContent) return null
+    const data = JSON.parse(el.textContent) as PublicBootstrapResponse
+    if (data.news?.items?.length || data.regions?.regions?.length) {
+      return data
+    }
+  } catch {
+    /* SSR 数据不可用时静默回退 */
+  }
+  return null
+})()
+
+/** 获取模块加载时缓存的 SSR bootstrap 数据；无可用数据时返回 null。
+ *  调用方需自行判断当前筛选条件是否与 SSR 默认查询匹配。 */
+export function readSSRBootstrap(): PublicBootstrapResponse | null {
+  return _SSR_BOOTSTRAP_DATA
+}
+
 export class PublicNewsApiError extends Error {
   readonly status?: number
 
