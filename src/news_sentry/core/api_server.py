@@ -89,6 +89,8 @@ from news_sentry.api.schemas import (
     EntityDetailResponse,
     EntityInfo,
     EntityListResponse,
+    EntityMergeRequest,
+    EntityMergeResponse,
     EventChainResponse,
     EventLinkInfo,
     EventLinksResponse,
@@ -7977,6 +7979,42 @@ def create_app(
             recent_events=recent,
         )
 
+    async def search_entities(
+        q: str = Query(..., min_length=1, description="搜索关键词"),
+        limit: int = Query(20, ge=1, le=100, description="返回数量"),
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> EntityListResponse:
+        """FTS5 全文搜索实体。"""
+        if _store is None:
+            return EntityListResponse(total=0, entities=[])
+        entities = await _store.search_entities_fts(q, limit=limit)
+        return EntityListResponse(
+            total=len(entities),
+            entities=[EntityInfo(**e) for e in entities],
+        )
+
+    async def merge_entities(
+        body: EntityMergeRequest,
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> EntityMergeResponse:
+        """合并两个实体。"""
+        if _store is None:
+            raise HTTPException(status_code=500, detail="Store unavailable")
+        result = await _store.merge_entities(body.source_id, body.target_id)
+        return EntityMergeResponse(**result)
+
+    async def get_entity_events(
+        entity_id: int,
+        limit: int = Query(50, ge=1, le=200, description="返回数量"),
+        offset: int = Query(0, ge=0, description="偏移量"),
+        user: dict[str, Any] = Depends(get_current_user),
+    ) -> dict[str, Any]:
+        """获取实体关联的所有事件（分页）。"""
+        if _store is None:
+            raise HTTPException(status_code=404, detail="Entity not found")
+        events = await _store.get_entity_events(entity_id, limit=limit, offset=offset)
+        return {"entity_id": entity_id, "total": len(events), "events": events}
+
     # ── 需认证端点 ────────────────────────────────────
 
     async def get_today_stats_api(
@@ -9539,6 +9577,9 @@ def create_app(
         "reload_config": reload_config,
         "list_entities": list_entities,
         "get_entity": get_entity,
+        "search_entities": search_entities,
+        "merge_entities": merge_entities,
+        "get_entity_events": get_entity_events,
         "receive_webhook": receive_webhook,
         "import_events": import_events,
         "transition_event_stage": transition_event_stage,
@@ -9590,6 +9631,7 @@ def create_app(
         "ProviderRoutesResponse": ProviderRoutesResponse,
         "EntityListResponse": EntityListResponse,
         "EntityDetailResponse": EntityDetailResponse,
+        "EntityMergeResponse": EntityMergeResponse,
         "WebhookResponse": WebhookResponse,
         "ImportResponse": ImportResponse,
         "RunListResponse": RunListResponse,

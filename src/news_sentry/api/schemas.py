@@ -545,6 +545,26 @@ class EntityInfo(BaseModel):
     first_seen: str
     last_seen: str
     target_ids: str = ""
+    confidence: int = 0
+    needs_review: bool = False
+    first_seen_source_id: str | None = None
+    last_seen_source_id: str | None = None
+
+
+class EntityMergeRequest(BaseModel):
+    """实体合并请求。"""
+
+    source_id: int
+    target_id: int
+
+
+class EntityMergeResponse(BaseModel):
+    """实体合并响应。"""
+
+    merged: bool
+    source_name: str = ""
+    target_name: str = ""
+    error: str | None = None
 
 
 class EntityListResponse(BaseModel):

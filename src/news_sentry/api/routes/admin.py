@@ -140,6 +140,16 @@ def register_admin_routes(router: APIRouter, h: dict[str, Any]) -> None:
         "/api/v1/entities/{entity_id}",
         response_model=h.get("EntityDetailResponse"),
     )(h["get_entity"])
+    router.get(
+        "/api/v1/entities/{entity_id}/events",
+    )(h["get_entity_events"])
+    router.get(
+        "/api/v1/entities/search",
+    )(h["search_entities"])
+    router.post(
+        "/api/v1/entities/merge",
+        response_model=h.get("EntityMergeResponse"),
+    )(h["merge_entities"])
 
     # ── Webhook / 导入 ──
     router.post("/api/v1/webhook", response_model=h.get("WebhookResponse"))(h["receive_webhook"])

@@ -607,9 +607,18 @@ async def _run_judge_async(
                 )
                 if nlp is None:
                     continue
+                event_id = getattr(event, "id", None)
+                source_id = getattr(event, "source_id", None)
                 for entity in nlp.entities:
                     await store.upsert_entity(
-                        entity.name, entity.entity_type, config.target_id, now_iso
+                        name=entity.name,
+                        entity_type=entity.entity_type,
+                        target_id=config.target_id,
+                        seen_at=now_iso,
+                        source_id=source_id,
+                        confidence=entity.relevance,
+                        event_id=event_id,
+                        mention_context="",
                     )
         except Exception as e:
             logger.warning("实体持久化失败（非阻塞）: %s", e)

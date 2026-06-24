@@ -3561,3 +3561,209 @@ async def test_fts5_ddl_contains_correct_column_names(tmp_path: Path):
         )
 
     await store.close()
+
+
+# ---------------------------------------------------------------------------
+# Entity Tracking v2 — entity_event_mentions + entity_fts + merge
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_entity_event_mentions_table_created(tmp_path: Path):
+    """entity_event_mentions 表在 initialize() 后存在。"""
+    store = AsyncStore(tmp_path / "test_entity_mentions.db")
+    await store.initialize()
+    cur = await store._db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='entity_event_mentions'"
+    )
+    row = await cur.fetchone()
+    assert row is not None, "entity_event_mentions 表不存在"
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_entity_fts_virtual_table_created(tmp_path: Path):
+    """entity_fts 虚拟表在 initialize() 后存在。"""
+    store = AsyncStore(tmp_path / "test_entity_fts.db")
+    await store.initialize()
+    cur = await store._db.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='entity_fts'"
+    )
+    row = await cur.fetchone()
+    assert row is not None, "entity_fts 虚拟表不存在"
+    ddl = row[0]
+    assert "canonical_name" in ddl.lower()
+    assert "aliases" in ddl.lower()
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_entity_fts_triggers_exist(tmp_path: Path):
+    """entity_fts 的 INSERT/DELETE/UPDATE trigger 全部创建。"""
+    store = AsyncStore(tmp_path / "test_entity_fts_triggers.db")
+    await store.initialize()
+    cur = await store._db.execute(
+        "SELECT name FROM sqlite_master WHERE type='trigger' AND name IN "
+        "('entity_fts_ai', 'entity_fts_ad', 'entity_fts_au')"
+    )
+    triggers = await cur.fetchall()
+    assert len(triggers) >= 3, f"entity_fts trigger 不足，预期 3，实际 {len(triggers)}"
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_upsert_entity_writes_mention(tmp_path: Path):
+    """upsert_entity 写入 entity_event_mentions 关联表。"""
+    store = AsyncStore(tmp_path / "test_upsert_mention.db")
+    await store.initialize()
+
+    await store._db.execute(
+        "INSERT INTO event_index (event_id, target_id, stage, created_at) "
+        "VALUES (?, ?, ?, ?)",
+        ("evt-001", "italy", "judged", "2026-06-25T10:00:00+00:00"),
+    )
+    await store._db.commit()
+
+    await store.upsert_entity(
+        name="Meloni",
+        entity_type="person",
+        target_id="italy",
+        seen_at="2026-06-25T10:00:00+00:00",
+        source_id="ansa",
+        confidence=85,
+        event_id="evt-001",
+        mention_context="Meloni ha dichiarato...",
+    )
+
+    cur = await store._db.execute(
+        "SELECT eem.entity_id, eem.event_id, eem.confidence, e.canonical_name "
+        "FROM entity_event_mentions eem JOIN entities e ON e.id = eem.entity_id"
+    )
+    rows = await cur.fetchall()
+    assert len(rows) == 1, f"应为 1 条 mention，实际 {len(rows)}"
+    assert rows[0][3] == "Meloni"
+
+    await store.upsert_entity(
+        name="Meloni", entity_type="person", target_id="italy",
+        seen_at="2026-06-25T11:00:00+00:00",
+        event_id="evt-001",
+    )
+    cur = await store._db.execute("SELECT COUNT(*) FROM entity_event_mentions")
+    count = (await cur.fetchone())[0]
+    assert count == 1, f"同 event+entity 不应创建重复 mention，实际 {count}"
+
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_upsert_entity_tracks_source_id(tmp_path: Path):
+    """upsert_entity 更新 first_seen_source_id 和 last_seen_source_id。"""
+    store = AsyncStore(tmp_path / "test_entity_source.db")
+    await store.initialize()
+
+    await store._db.execute(
+        "INSERT INTO event_index (event_id, target_id, stage, created_at) "
+        "VALUES (?, ?, ?, ?)",
+        ("evt-001", "italy", "judged", "2026-06-25T10:00:00+00:00"),
+    )
+    await store._db.commit()
+
+    await store.upsert_entity(
+        name="Draghi", entity_type="person", target_id="italy",
+        seen_at="2026-06-25T10:00:00+00:00",
+        source_id="ansa",
+        event_id="evt-001",
+    )
+
+    cur = await store._db.execute(
+        "SELECT first_seen_source_id, last_seen_source_id FROM entities WHERE canonical_name='Draghi'"
+    )
+    row = await cur.fetchone()
+    assert row[0] == "ansa", f"first_seen_source_id 应为 ansa，实际 {row[0]}"
+    assert row[1] == "ansa", f"last_seen_source_id 应为 ansa，实际 {row[1]}"
+
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_entity_fts_search(tmp_path: Path):
+    """FTS5 搜索实体，BM25 排序。"""
+    store = AsyncStore(tmp_path / "test_entity_search.db")
+    await store.initialize()
+
+    await store._db.execute(
+        "INSERT INTO entities (canonical_name, entity_type, first_seen, last_seen) "
+        "VALUES ('Mario Draghi', 'person', '2026-06-25', '2026-06-25')"
+    )
+    await store._db.execute(
+        "INSERT INTO entities (canonical_name, entity_type, first_seen, last_seen) "
+        "VALUES ('Giorgia Meloni', 'person', '2026-06-25', '2026-06-25')"
+    )
+    await store._db.execute(
+        "INSERT INTO entities (canonical_name, entity_type, first_seen, last_seen) "
+        "VALUES ('Palazzo Chigi', 'location', '2026-06-25', '2026-06-25')"
+    )
+    await store._db.commit()
+
+    results = await store.search_entities_fts("Draghi", limit=10)
+    assert len(results) >= 1, "应至少找到一个实体"
+    assert results[0]["canonical_name"] == "Mario Draghi"
+
+    results = await store.search_entities_fts("Meloni", limit=10)
+    assert len(results) >= 1
+    assert results[0]["canonical_name"] == "Giorgia Meloni"
+
+    results = await store.search_entities_fts("Chigi", limit=10)
+    assert len(results) >= 1
+    assert results[0]["entity_type"] == "location"
+
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_merge_entities(tmp_path: Path):
+    """合并两个实体：source 删除，相关 mentions 转移到 target。"""
+    store = AsyncStore(tmp_path / "test_entity_merge.db")
+    await store.initialize()
+
+    await store._db.execute(
+        "INSERT INTO event_index (event_id, target_id, stage, created_at) "
+        "VALUES (?, ?, ?, ?)",
+        ("evt-001", "italy", "judged", "2026-06-25T10:00:00+00:00"),
+    )
+    await store._db.commit()
+
+    await store.upsert_entity(
+        name="Meloni", entity_type="person", target_id="italy",
+        seen_at="2026-06-25T10:00:00+00:00",
+        confidence=85, event_id="evt-001",
+    )
+    await store.upsert_entity(
+        name="Giorgia Meloni", entity_type="person", target_id="italy",
+        seen_at="2026-06-25T11:00:00+00:00",
+        confidence=90, event_id="evt-001",
+    )
+
+    cur = await store._db.execute("SELECT id, canonical_name FROM entities ORDER BY id")
+    rows = await cur.fetchall()
+    source_id, target_id = rows[0][0], rows[1][0]
+
+    result = await store.merge_entities(source_id, target_id)
+    assert result["merged"] is True
+    assert result["target_name"] == "Giorgia Meloni"
+
+    cur = await store._db.execute("SELECT id FROM entities WHERE id = ?", [source_id])
+    assert (await cur.fetchone()) is None
+
+    cur = await store._db.execute("SELECT aliases FROM entities WHERE id = ?", [target_id])
+    aliases_json = (await cur.fetchone())[0]
+    aliases = json.loads(aliases_json)
+    assert "Meloni" in aliases
+
+    cur = await store._db.execute(
+        "SELECT mention_count FROM entities WHERE id = ?", [target_id]
+    )
+    count = (await cur.fetchone())[0]
+    assert count == 2
+
+    await store.close()

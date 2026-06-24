@@ -157,9 +157,59 @@ CREATE TABLE IF NOT EXISTS entities (
     first_seen TEXT NOT NULL,
     last_seen TEXT NOT NULL,
     target_ids TEXT DEFAULT '',
+    aliases TEXT NOT NULL DEFAULT '',
+    confidence INTEGER NOT NULL DEFAULT 0,
+    needs_review INTEGER NOT NULL DEFAULT 0,
+    first_seen_source_id TEXT,
+    last_seen_source_id TEXT,
+    is_manual INTEGER NOT NULL DEFAULT 0,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
     UNIQUE(canonical_name, entity_type)
 )
 """
+
+_DDL_ENTITY_EVENT_MENTIONS = """
+CREATE TABLE IF NOT EXISTS entity_event_mentions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_id INTEGER NOT NULL,
+    event_id TEXT NOT NULL,
+    source_id TEXT,
+    confidence INTEGER NOT NULL DEFAULT 0,
+    is_manual INTEGER NOT NULL DEFAULT 0,
+    mention_context TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (entity_id) REFERENCES entities(id),
+    FOREIGN KEY (event_id) REFERENCES event_index(event_id),
+    UNIQUE(entity_id, event_id)
+)
+"""
+
+_DDL_ENTITY_FTS = """
+CREATE VIRTUAL TABLE IF NOT EXISTS entity_fts USING fts5(
+    canonical_name,
+    aliases,
+    entity_type,
+    content='entities',
+    content_rowid='id'
+)
+"""
+
+_DDL_ENTITY_FTS_TRIGGERS = (
+    """CREATE TRIGGER IF NOT EXISTS entity_fts_ai AFTER INSERT ON entities BEGIN
+        INSERT INTO entity_fts(rowid, canonical_name, aliases, entity_type)
+        VALUES (new.id, new.canonical_name, new.aliases, new.entity_type);
+    END""",
+    """CREATE TRIGGER IF NOT EXISTS entity_fts_ad AFTER DELETE ON entities BEGIN
+        INSERT INTO entity_fts(entity_fts, rowid, canonical_name, aliases, entity_type)
+        VALUES ('delete', old.id, old.canonical_name, old.aliases, old.entity_type);
+    END""",
+    """CREATE TRIGGER IF NOT EXISTS entity_fts_au AFTER UPDATE ON entities BEGIN
+        INSERT INTO entity_fts(entity_fts, rowid, canonical_name, aliases, entity_type)
+        VALUES ('delete', old.id, old.canonical_name, old.aliases, old.entity_type);
+        INSERT INTO entity_fts(rowid, canonical_name, aliases, entity_type)
+        VALUES (new.id, new.canonical_name, new.aliases, new.entity_type);
+    END""",
+)
 
 _DDL_EVENT_LINKS = """
 CREATE TABLE IF NOT EXISTS event_links (
@@ -493,6 +543,22 @@ _SCHEMA_MIGRATIONS: list[tuple[int, str, list[str]]] = [
         "Add FTS5 full-text search virtual table",
         [_DDL_EVENT_INDEX_FTS] + list(_DDL_FTS_TRIGGERS),
     ),
+    (
+        13,
+        "Entity tracking v2 — extend entities table + entity_event_mentions + entity_fts",
+        [
+            "ALTER TABLE entities ADD COLUMN aliases TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE entities ADD COLUMN confidence INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE entities ADD COLUMN needs_review INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE entities ADD COLUMN first_seen_source_id TEXT",
+            "ALTER TABLE entities ADD COLUMN last_seen_source_id TEXT",
+            "ALTER TABLE entities ADD COLUMN is_manual INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE entities ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'",
+            _DDL_ENTITY_EVENT_MENTIONS,
+            _DDL_ENTITY_FTS,
+        ]
+        + list(_DDL_ENTITY_FTS_TRIGGERS),
+    ),
 ]
 
 _DDL_INDEXES = (
@@ -504,6 +570,10 @@ _DDL_INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_entities_type ON entities(entity_type)",
     "CREATE INDEX IF NOT EXISTS idx_entities_mentions ON entities(mention_count DESC)",
     "CREATE INDEX IF NOT EXISTS idx_entities_last_seen ON entities(last_seen DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_entities_needs_review ON entities(needs_review)",
+    "CREATE INDEX IF NOT EXISTS idx_eem_event ON entity_event_mentions(event_id)",
+    "CREATE INDEX IF NOT EXISTS idx_eem_entity ON entity_event_mentions(entity_id)",
+    "CREATE INDEX IF NOT EXISTS idx_eem_source ON entity_event_mentions(source_id)",
     "CREATE INDEX IF NOT EXISTS idx_event_links_source ON event_links(source_event_id)",
     "CREATE INDEX IF NOT EXISTS idx_event_links_target ON event_links(target_event_id)",
     "CREATE INDEX IF NOT EXISTS idx_event_links_target_id ON event_links(target_id)",
@@ -631,6 +701,7 @@ class AsyncStore:
         await self._db.execute(_DDL_LLM_CACHE)
         await self._db.execute(_DDL_EVENT_INDEX)
         await self._db.execute(_DDL_ENTITIES)
+        await self._db.execute(_DDL_ENTITY_EVENT_MENTIONS)
         await self._db.execute(_DDL_EVENT_LINKS)
         await self._db.execute(_DDL_CHAIN_NARRATIVES)
         await self._db.execute(_DDL_FEEDBACK)
@@ -650,6 +721,14 @@ class AsyncStore:
                 await self._db.execute(trigger_sql)
             except Exception:
                 logger.debug("FTS5 trigger already exists, skipping", exc_info=True)
+
+        # 实体 FTS5 索引 + 触发器
+        await self._db.execute(_DDL_ENTITY_FTS)
+        for trigger_sql in _DDL_ENTITY_FTS_TRIGGERS:
+            try:
+                await self._db.execute(trigger_sql)
+            except Exception:
+                logger.debug("Entity FTS5 trigger already exists, skipping", exc_info=True)
 
         await self._refresh_public_translation_readiness()
         await self._cleanup_duplicate_canonical_graph_operation_artifacts()
@@ -4167,13 +4246,25 @@ class AsyncStore:
         entity_type: str,
         target_id: str,
         seen_at: str,
+        source_id: str | None = None,
+        confidence: int = 0,
+        event_id: str | None = None,
+        mention_context: str = "",
     ) -> None:
-        """插入或更新实体记录（同名+同类型视为同一实体）。"""
+        """插入或更新实体记录（同名+同类型视为同一实体）。
+
+        - 同步写入 entities 表和 entity_event_mentions 关联表
+        - 追踪 source_id（首次/最近出现源）
+        """
         if self._db is None:
             return
+
+        # 1. upsert entities 表
         await self._db.execute(
-            """INSERT INTO entities (canonical_name, entity_type, first_seen, last_seen, target_ids)
-               VALUES (?, ?, ?, ?, ?)
+            """INSERT INTO entities
+               (canonical_name, entity_type, first_seen, last_seen, target_ids,
+                first_seen_source_id, last_seen_source_id, confidence)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(canonical_name, entity_type) DO UPDATE SET
                    mention_count = mention_count + 1,
                    last_seen = excluded.last_seen,
@@ -4181,9 +4272,45 @@ class AsyncStore:
                        WHEN ',' || target_ids || ',' LIKE '%,' || excluded.target_ids || ',%'
                        THEN target_ids
                        ELSE target_ids || ',' || excluded.target_ids
+                   END,
+                   last_seen_source_id = CASE
+                       WHEN excluded.last_seen_source_id IS NOT NULL
+                       THEN excluded.last_seen_source_id
+                       ELSE last_seen_source_id
+                   END,
+                   confidence = (
+                       CASE WHEN mention_count > 0
+                       THEN (confidence * mention_count + excluded.confidence) / (mention_count + 1)
+                       ELSE excluded.confidence
+                       END
+                   ),
+                   needs_review = CASE
+                       WHEN excluded.confidence < 70 THEN 1
+                       ELSE needs_review
                    END""",
-            (name, entity_type, seen_at, seen_at, target_id),
+            (name, entity_type, seen_at, seen_at, target_id,
+             source_id, source_id, confidence),
         )
+
+        # 2. 获取 entity_id（刚插入或已存在）
+        async with self._db.execute(
+            "SELECT id FROM entities WHERE canonical_name = ? AND entity_type = ?",
+            [name, entity_type],
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            return
+        entity_id = row[0]
+
+        # 3. 写入 entity_event_mentions 关联表
+        if event_id is not None:
+            await self._db.execute(
+                """INSERT OR IGNORE INTO entity_event_mentions
+                   (entity_id, event_id, source_id, confidence, mention_context)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (entity_id, event_id, source_id, confidence, mention_context),
+            )
+
         await self._db.commit()
 
     async def query_entities(
@@ -4209,7 +4336,8 @@ class AsyncStore:
         order = "mention_count DESC" if sort == "mention_count" else "last_seen DESC"
         sql = (
             f"SELECT id, canonical_name, entity_type, mention_count, "  # noqa: S608
-            f"first_seen, last_seen, target_ids "
+            f"first_seen, last_seen, target_ids, confidence, needs_review, "
+            f"first_seen_source_id, last_seen_source_id "
             f"FROM entities WHERE {where} ORDER BY {order} LIMIT ?"
         )
         async with self._db.execute(sql, params + [limit]) as cursor:
@@ -4222,16 +4350,22 @@ class AsyncStore:
             "first_seen",
             "last_seen",
             "target_ids",
+            "confidence",
+            "needs_review",
+            "first_seen_source_id",
+            "last_seen_source_id",
         )
         return [dict(zip(cols, row, strict=True)) for row in rows]
 
     async def query_entity_detail(self, entity_id: int) -> dict[str, Any] | None:
-        """查询实体详情，附带最近关联事件。"""
+        """查询实体详情，附带最近关联事件（通过 entity_event_mentions 表）。"""
         if self._db is None:
             return None
         async with self._db.execute(
             "SELECT id, canonical_name, entity_type, mention_count, "
-            "first_seen, last_seen, target_ids FROM entities WHERE id = ?",
+            "first_seen, last_seen, target_ids, confidence, needs_review, "
+            "first_seen_source_id, last_seen_source_id, aliases "
+            "FROM entities WHERE id = ?",
             [entity_id],
         ) as cursor:
             row = await cursor.fetchone()
@@ -4245,22 +4379,128 @@ class AsyncStore:
             "first_seen",
             "last_seen",
             "target_ids",
+            "confidence",
+            "needs_review",
+            "first_seen_source_id",
+            "last_seen_source_id",
+            "aliases",
         )
         entity = dict(zip(cols, row, strict=True))
-        # 关联事件：从 event_index 的 entity_names LIKE 匹配
-        name = entity["canonical_name"]
+        # 关联事件：通过 entity_event_mentions 关联表查询
         recent_events: list[dict[str, Any]] = []
         async with self._db.execute(
-            "SELECT event_id, title_original, published_at, sentiment, news_value_score "
-            "FROM event_index WHERE ',' || entity_names || ',' LIKE '%,' || ? || ',%' "
-            "ORDER BY published_at DESC LIMIT 10",
-            [name],
+            "SELECT ei.event_id, ei.title_original, ei.published_at, "
+            "ei.sentiment, ei.news_value_score, eem.confidence as mention_confidence "
+            "FROM event_index ei "
+            "JOIN entity_event_mentions eem ON ei.event_id = eem.event_id "
+            "WHERE eem.entity_id = ? "
+            "ORDER BY ei.published_at DESC LIMIT 10",
+            [entity_id],
         ) as cursor:
             rows = await cursor.fetchall()
-        ev_cols = ("event_id", "title_original", "published_at", "sentiment", "news_value_score")
+        ev_cols = ("event_id", "title_original", "published_at", "sentiment",
+                    "news_value_score", "mention_confidence")
         recent_events = [dict(zip(ev_cols, r, strict=True)) for r in rows]
         entity["recent_events"] = recent_events
         return entity
+
+    async def search_entities_fts(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
+        """FTS5 搜索实体，BM25 排序。"""
+        if self._db is None:
+            return []
+        escaped = query.replace('"', '""')
+        async with self._db.execute(
+            "SELECT e.id, e.canonical_name, e.entity_type, e.mention_count, "
+            "e.confidence, e.first_seen, e.last_seen "
+            "FROM entity_fts f "
+            "JOIN entities e ON e.id = f.rowid "
+            "WHERE entity_fts MATCH ? "
+            "ORDER BY rank LIMIT ?",
+            [f'"{escaped}"', limit],
+        ) as cursor:
+            rows = await cursor.fetchall()
+        cols = ("id", "canonical_name", "entity_type", "mention_count",
+                "confidence", "first_seen", "last_seen")
+        return [dict(zip(cols, r, strict=True)) for r in rows]
+
+    async def merge_entities(self, source_id: int, target_id: int) -> dict[str, Any]:
+        """合并两个实体：source 的所有 mentions 转移到 target，source 被删除。
+
+        Returns:
+            包含合并结果的 dict: {"merged": bool, "source_name": str, "target_name": str}
+        """
+        if self._db is None:
+            return {"merged": False, "error": "no db"}
+
+        # 1. 获取两个实体的信息
+        async with self._db.execute(
+            "SELECT id, canonical_name, aliases, mention_count FROM entities WHERE id IN (?, ?)",
+            [source_id, target_id],
+        ) as cur:
+            rows = await cur.fetchall()
+        entity_map = {r[0]: {"name": r[1], "aliases": r[2], "count": r[3]} for r in rows}
+        source_info = entity_map.get(source_id)
+        target_info = entity_map.get(target_id)
+        if not source_info or not target_info:
+            return {"merged": False, "error": "entity not found"}
+
+        # 2. 转移 entity_event_mentions（跳过 UNIQUE 冲突）
+        await self._db.execute(
+            """INSERT OR IGNORE INTO entity_event_mentions
+               (entity_id, event_id, source_id, confidence, is_manual, mention_context)
+               SELECT ?, event_id, source_id, confidence, is_manual, mention_context
+               FROM entity_event_mentions WHERE entity_id = ?""",
+            [target_id, source_id],
+        )
+
+        # 3. 更新 target 的 aliases（追加 source 的 canonical_name）
+        source_name = source_info["name"]
+        target_aliases_str = target_info["aliases"] or ""
+        target_aliases: list[str] = json.loads(target_aliases_str) if target_aliases_str else []
+        if source_name not in target_aliases and source_name != target_info["name"]:
+            target_aliases.append(source_name)
+        # 也追加 source 的 aliases
+        source_aliases_str = source_info["aliases"] or ""
+        source_aliases: list[str] = json.loads(source_aliases_str) if source_aliases_str else []
+        for a in source_aliases:
+            if a not in target_aliases and a != target_info["name"]:
+                target_aliases.append(a)
+
+        await self._db.execute(
+            "UPDATE entities SET aliases = ?, mention_count = mention_count + ? WHERE id = ?",
+            [json.dumps(target_aliases, ensure_ascii=False), source_info["count"], target_id],
+        )
+
+        # 4. 删除 source 实体
+        await self._db.execute("DELETE FROM entity_event_mentions WHERE entity_id = ?", [source_id])
+        await self._db.execute("DELETE FROM entities WHERE id = ?", [source_id])
+
+        await self._db.commit()
+        return {
+            "merged": True,
+            "source_name": source_name,
+            "target_name": target_info["name"],
+        }
+
+    async def get_entity_events(
+        self, entity_id: int, limit: int = 50, offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """获取某实体的所有相关事件（分页）。"""
+        if self._db is None:
+            return []
+        async with self._db.execute(
+            "SELECT ei.event_id, ei.title_original, ei.published_at, ei.sentiment, "
+            "ei.news_value_score, ei.source_id, eem.confidence as mention_confidence "
+            "FROM event_index ei "
+            "JOIN entity_event_mentions eem ON ei.event_id = eem.event_id "
+            "WHERE eem.entity_id = ? "
+            "ORDER BY ei.published_at DESC LIMIT ? OFFSET ?",
+            [entity_id, limit, offset],
+        ) as cursor:
+            rows = await cursor.fetchall()
+        cols = ("event_id", "title_original", "published_at", "sentiment",
+                "news_value_score", "source_id", "mention_confidence")
+        return [dict(zip(cols, r, strict=True)) for r in rows]
 
     # ------------------------------------------------------------------
     # Event Links (Phase 35)
