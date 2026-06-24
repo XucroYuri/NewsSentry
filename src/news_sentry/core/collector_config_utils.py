@@ -39,22 +39,23 @@ from news_sentry.core.public_translation import (
     normalize_public_translation_config,
     public_publication_ready,
 )
+from news_sentry.core.target_config_utils import (
+    _atomic_write_yaml,
+    _file_signature,
+    _filter_source_health_records,
+    _load_memory_source_health_records,
+    _load_target_configs,
+    _load_yaml_file,
+    _target_public_event_count,
+    _target_source_paths,
+)
+from news_sentry.core.target_store_utils import (
+    _get_target_store,
+    _latest_run_log_summary,
+    _visible_index_events_page,
+)
 
 logger = logging.getLogger(__name__)
-
-# ── Late-bound / lazy imports ──
-_get_target_store: Any = None
-_latest_run_log_summary: Any = None
-_visible_index_events_page: Any = None
-# Lazy from target_config_utils:
-_atomic_write_yaml: Any = None
-_file_signature: Any = None
-_filter_source_health_records: Any = None
-_load_memory_source_health_records: Any = None
-_load_target_configs: Any = None
-_load_yaml_file: Any = None
-_target_public_event_count: Any = None
-_target_source_paths: Any = None
 
 
 def _parse_target_ids(raw: str) -> list[str]:
