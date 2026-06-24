@@ -1,7 +1,7 @@
 import path from "node:path"
 
 import react from "@vitejs/plugin-react"
-import { defineConfig } from "vitest/config"
+import { defineConfig } from "vite"
 
 const defaultOutDir = "../../src/news_sentry/static/admin"
 const outDir = process.env.FRONTEND_OUTPUT_SUBDIR
@@ -20,8 +20,5 @@ export default defineConfig({
     outDir,
     emptyOutDir: true,
     assetsDir: "assets",
-  },
-  test: {
-    environment: "jsdom",
   },
 })
