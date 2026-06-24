@@ -301,7 +301,7 @@ def _inject_public_homepage_seo(
     canonical_path: str = "/public-app/",
     locale: str = "zh",
 ) -> str:
-    """注入 SEO 元标签（canonical、OG、JSON-LD）及 html lang 属性。
+    """注入 SEO 元标签（canonical、hreflang、OG、Twitter Card、JSON-LD）及 html lang 属性。
 
     根据 locale 注入对应语言：
     - "zh" → lang="zh-CN"（中文站）
@@ -334,8 +334,24 @@ def _inject_public_homepage_seo(
         ensure_ascii=False,
     )
     tags: list[str] = []
+    # meta description（覆盖前端硬编码的中文描述）
+    if 'name="description"' not in html:
+        tags.append(f'    <meta name="description" content="{description}" />')
+    # canonical
     if 'rel="canonical"' not in html:
         tags.append(f'    <link rel="canonical" href="{canonical_url}" />')
+    # hreflang alternate（告知搜索引擎双语版本）
+    if 'hreflang="zh-CN"' not in html:
+        tags.append(
+            f'    <link rel="alternate" hreflang="zh-CN" href="{base_url}/public-app/" />'
+        )
+        tags.append(
+            f'    <link rel="alternate" hreflang="it" href="{base_url}/public-app/it/" />'
+        )
+        tags.append(
+            f'    <link rel="alternate" hreflang="x-default" href="{base_url}/public-app/" />'
+        )
+    # Open Graph
     if 'property="og:title"' not in html:
         tags.append(f'    <meta property="og:title" content="{page_name}" />')
     if 'property="og:description"' not in html:
@@ -345,6 +361,32 @@ def _inject_public_homepage_seo(
     if 'property="og:locale"' not in html:
         og_locale = "it_IT" if locale == "it" else "zh_CN"
         tags.append(f'    <meta property="og:locale" content="{og_locale}" />')
+    if 'property="og:locale:alternate"' not in html:
+        alt_og_locale = "zh_CN" if locale == "it" else "it_IT"
+        tags.append(
+            f'    <meta property="og:locale:alternate" content="{alt_og_locale}" />'
+        )
+    if 'property="og:image"' not in html:
+        tags.append(
+            f'    <meta property="og:image" content="{base_url}/icons/icon-192.svg" />'
+        )
+        tags.append(
+            f'    <meta property="og:image:alt" content="{_PUBLIC_SITE_NAME} logo" />'
+        )
+        tags.append('    <meta property="og:image:width" content="192" />')
+        tags.append('    <meta property="og:image:height" content="192" />')
+    # Twitter Card
+    if 'name="twitter:card"' not in html:
+        tags.append('    <meta name="twitter:card" content="summary" />')
+    if 'name="twitter:title"' not in html:
+        tags.append(f'    <meta name="twitter:title" content="{page_name}" />')
+    if 'name="twitter:description"' not in html:
+        tags.append(f'    <meta name="twitter:description" content="{description}" />')
+    if 'name="twitter:image"' not in html:
+        tags.append(
+            f'    <meta name="twitter:image" content="{base_url}/icons/icon-192.svg" />'
+        )
+    # JSON-LD
     if "application/ld+json" not in html:
         tags.append(f'    <script type="application/ld+json">{json_ld}</script>')
     if not tags:
