@@ -21,6 +21,36 @@ def pytest_configure(config: pytest.Config) -> None:
     )
 
 
+
+def _cleanup_e2e_config_files() -> None:
+    """Remove orphan e2e config files from interrupted E2E test runs.
+
+    Only removes files matching exact E2E test patterns (e2e-test-target-* and
+    e2e-sec-test). Does NOT wildcard-delete every e2e-* prefix.
+    """
+    import shutil
+
+    e2e_patterns: list[tuple[str, bool]] = [
+        ("config/targets/e2e-test-target-*.yaml", False),
+        ("config/targets/e2e-sec-test.yaml", False),
+        ("config/filters/e2e-test-target-*", True),
+        ("config/filters/e2e-sec-test", True),
+        ("config/classification/rules-e2e-test-target-*.yaml", False),
+        ("config/classification/rules-e2e-sec-test.yaml", False),
+        ("config/sources/e2e-test-target-*", True),
+        ("config/sources/e2e-sec-test", True),
+    ]
+    for pattern, is_dir in e2e_patterns:
+        for path in sorted(Path().glob(pattern)):
+            try:
+                if is_dir or path.is_dir():
+                    shutil.rmtree(path, ignore_errors=True)
+                else:
+                    path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
 @pytest.fixture(scope="session")
 def e2e_data_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A fresh temporary data directory for the E2E server.
@@ -53,6 +83,15 @@ def e2e_server(
 
     The server is started **once** per test session.  Cleanup kills the process.
     """
+    # Clean up any stale e2e config files that may have been created by
+    # prior test runs — these would cause 409 Conflict on create_target.
+    #
+    # NOTE: create_admin_target writes to config/targets/ (project source tree),
+    # not to data_dir. The PID-hashed _TEST_TARGET in test_admin_api ensures
+    # uniqueness across concurrent sessions; this cleanup catches orphan files
+    # from interrupted runs.
+    _cleanup_e2e_config_files()
+
     env = os.environ.copy()
     env.update({
         "NEWSSENTRY_DATA_DIR": str(e2e_data_dir),
@@ -118,6 +157,9 @@ def e2e_server(
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait(timeout=5)
+
+    # Clean up e2e config files created by the test session
+    _cleanup_e2e_config_files()
 
 
 @pytest.fixture(scope="session")
