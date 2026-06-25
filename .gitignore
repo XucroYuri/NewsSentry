@@ -113,6 +113,9 @@ frontend/public/node_modules/
 frontend/public/dist/
 src/news_sentry/static/public_app/
 
+# Backend BFF layer
+backend/node_modules/
+
 # Cloudflare 部署产物 (M-8)
 dist/cloudflare/
 
