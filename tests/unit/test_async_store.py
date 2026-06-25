@@ -3563,6 +3563,96 @@ async def test_fts5_ddl_contains_correct_column_names(tmp_path: Path):
     await store.close()
 
 
+@pytest.mark.asyncio
+async def test_search_public_events_uses_fts_and_target_filter(tmp_path: Path):
+    """公开搜索使用 FTS5 匹配内容，并遵守 target_id 过滤。"""
+    store = AsyncStore(tmp_path / "test_public_event_search.db")
+    await store.initialize()
+    now = datetime.now(UTC).isoformat()
+    rows = [
+        (
+            "evt-draghi-it",
+            "italy",
+            "drafts",
+            "ansa",
+            91,
+            64,
+            "politics",
+            "Mario Draghi presenta un piano industriale europeo",
+            "https://example.com/it/draghi",
+            now,
+            "data/italy/drafts/evt-draghi-it.md",
+            json.dumps({"summary": "Italian public story about Draghi"}),
+            1,
+            "neutral",
+            "Mario Draghi",
+            "economy,eu",
+            now,
+        ),
+        (
+            "evt-draghi-jp",
+            "japan",
+            "drafts",
+            "nhk",
+            87,
+            48,
+            "international-relations",
+            "Mario Draghi comment appears in Japan analysis",
+            "https://example.com/jp/draghi",
+            now,
+            "data/japan/drafts/evt-draghi-jp.md",
+            json.dumps({"summary": "Japan public story about Draghi"}),
+            1,
+            "neutral",
+            "Mario Draghi",
+            "analysis",
+            now,
+        ),
+        (
+            "evt-meloni-it",
+            "italy",
+            "drafts",
+            "ansa",
+            85,
+            52,
+            "politics",
+            "Giorgia Meloni incontra imprese italiane",
+            "https://example.com/it/meloni",
+            now,
+            "data/italy/drafts/evt-meloni-it.md",
+            json.dumps({"summary": "Italian public story about Meloni"}),
+            1,
+            "neutral",
+            "Giorgia Meloni",
+            "economy",
+            now,
+        ),
+    ]
+    await store._db.executemany(  # noqa: SLF001
+        "INSERT INTO event_index "
+        "(event_id, target_id, stage, source_id, news_value_score, "
+        "china_relevance, classification_l0, title_original, url, "
+        "published_at, file_path, metadata_json, public_translation_ready, "
+        "sentiment, entity_names, topic_tags, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        rows,
+    )
+    await store._db.commit()  # noqa: SLF001
+
+    all_results = await store.search_public_events("Draghi", limit=10)
+    italy_results = await store.search_public_events("Draghi", target_id="italy", limit=10)
+
+    assert all_results["total"] == 2
+    assert {row["event_id"] for row in all_results["rows"]} == {
+        "evt-draghi-it",
+        "evt-draghi-jp",
+    }
+    assert italy_results["total"] == 1
+    assert italy_results["rows"][0]["event_id"] == "evt-draghi-it"
+
+    await store.close()
+
+
 # ---------------------------------------------------------------------------
 # Entity Tracking v2 — entity_event_mentions + entity_fts + merge
 # ---------------------------------------------------------------------------

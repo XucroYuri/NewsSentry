@@ -410,6 +410,7 @@ def _public_app_index_response(
     base_url: str | None = None,
     canonical_path: str = "/public-app/",
     bootstrap_json: str | None = None,
+    feed_json: str | None = None,
     locale: str = "zh",
 ) -> HTMLResponse:
     index_path = _public_app_dir() / "index.html"
@@ -426,15 +427,22 @@ def _public_app_index_response(
         )
     # 内联 critical CSS：读取 dist/assets/ 下的 CSS 文件，注入到 <style nonce> 标签
     html = _inject_inline_css(html, nonce)
+    hydration_tags: list[str] = []
     if bootstrap_json:
-        bootstrap_tag = (
-            f'\n<script id="news-sentry-bootstrap" type="application/json">'
-            f"{bootstrap_json}</script>\n"
+        hydration_tags.append(
+            f'<script id="news-sentry-bootstrap" type="application/json">'
+            f"{bootstrap_json}</script>"
         )
+    if feed_json:
+        hydration_tags.append(
+            f'<script id="news-sentry-feed" type="application/json">{feed_json}</script>'
+        )
+    if hydration_tags:
+        hydration_html = "\n" + "\n".join(hydration_tags) + "\n"
         if "</head>" in html:
-            html = html.replace("</head>", f"{bootstrap_tag}</head>", 1)
+            html = html.replace("</head>", f"{hydration_html}</head>", 1)
         else:
-            html = f"{bootstrap_tag}\n{html}"
+            html = f"{hydration_html}\n{html}"
     html = _inject_script_nonce(html, nonce)
     return HTMLResponse(
         html,
@@ -528,4 +536,3 @@ def _mount_spa_routes(app: FastAPI) -> None:
         from fastapi.staticfiles import StaticFiles
 
         app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
-

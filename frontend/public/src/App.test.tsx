@@ -263,6 +263,7 @@ describe("Phase 84 public portal app", () => {
 
   afterEach(() => {
     cleanup()
+    document.body.innerHTML = ""
     window.history.replaceState({}, "", "/")
     window.location.hash = ""
     vi.useRealTimers()
@@ -660,7 +661,24 @@ describe("Phase 84 public portal app", () => {
     const initialFeedCalls = fetchMock.mock.calls.filter(
       ([input]) => String(input) === "/api/v1/public/news?featured=true&page_size=20",
     )
-    expect(initialFeedCalls).toHaveLength(1)
+    expect(initialFeedCalls).toHaveLength(0)
+  })
+
+  it("hydrates the default featured feed from SSR without an initial news request", async () => {
+    const ssrTitle = "SSR 注入的首屏新闻"
+    document.body.innerHTML = `<script id="news-sentry-feed" type="application/json">${JSON.stringify(
+      feed([makeItem("event-ssr", { title: ssrTitle })]),
+    )}</script>`
+    const fetchMock = installFetchMock()
+    window.location.hash = "#/feed?channel=featured"
+
+    render(<App />)
+
+    expect((await screen.findAllByText(ssrTitle)).length).toBeGreaterThan(0)
+    const initialNewsCalls = fetchMock.mock.calls.filter(
+      ([input]) => String(input) === "/api/v1/public/news?featured=true&page_size=20",
+    )
+    expect(initialNewsCalls).toHaveLength(0)
   })
 
   it("renders first-paint news from bootstrap while standalone feed is slow", async () => {
@@ -1212,7 +1230,7 @@ describe("Phase 84 public portal app", () => {
       fetchMock.mock.calls.some(([input]) => {
         const url = String(input)
         return (
-          url.startsWith("/api/v1/public/news?") &&
+          url.startsWith("/api/v1/public/bootstrap?") &&
           url.includes("target_id=italy") &&
           url.includes("source_id=ansa") &&
           url.includes("category=%E5%9B%BD%E9%99%85%E5%85%B3%E7%B3%BB") &&

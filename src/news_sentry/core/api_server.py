@@ -85,7 +85,6 @@ from news_sentry.api.schemas import (
     ChainSummaryInfo,
     CollectorConfigUpdate,
     DailySentimentCount,
-    DestinationConfigUpdate,
     DestinationInfo,
     DestinationListResponse,
     EntityDetailResponse,
@@ -100,7 +99,6 @@ from news_sentry.api.schemas import (
     FeedbackStatsResponse,
     FeedbackSubmitRequest,
     FeedbackSubmitResponse,
-    FilterConfigUpdate,
     FilterRulesResponse,
     HeartbeatResponse,
     ImportEventItem,
@@ -124,7 +122,6 @@ from news_sentry.api.schemas import (
     ResearchArtifactPatchRequest,
     ResearchGraphMergeRequest,
     ResearchGraphSplitRequest,
-    RouteConfigUpdate,
     RouteInfo,
     RulesOptimizeRequest,
     RulesOptimizeResponse,
@@ -138,7 +135,6 @@ from news_sentry.api.schemas import (
     SocialAccountPatchRequest,
     SocialDimensionCreateRequest,
     SocialDimensionPatchRequest,
-    SourceConfigUpdate,
     SourceCreateRequest,
     SourceHealthInfo,
     SourceHealthListResponse,
@@ -146,7 +142,6 @@ from news_sentry.api.schemas import (
     SourceListResponse,
     SourcePatchRequest,
     StatsResponse,
-    TargetConfigUpdate,
     TargetCreateRequest,
     TargetListResponse,
     TargetPatchRequest,
@@ -1160,111 +1155,16 @@ def create_app(
             "latest_collected_at": latest_collected_at,
         }
 
-    async def global_diagnostics(
-        response: Response,
-    ) -> dict[str, Any]:
-        """全局可观测性诊断摘要（公开，聚合所有 target）。
+    # ── 从 handlers 模块构建闭包 handler ──
+    from news_sentry.core.handlers.global_diagnostics import make_global_diagnostics
 
-        无需认证，汇总采集器状态、数据目录、最后采集、信源健康、
-        事件总数等关键指标，用于快速定位"无数据"、"采集卡死"等问题。
-        """
-        response.headers["Cache-Control"] = "no-store"
-        build = _static_build_hash()
-        commit = _git_commit_for_path(Path(__file__))
-
-        # ── 采集器状态 ──
-        collector = _collector_payload()
-
-        # ── AI Key ──
-        has_ai_key = bool(
-            os.environ.get("GEMINI_API_KEY")
-            or os.environ.get("DEEPSEEK_API_KEY")
-            or os.environ.get("GROQ_API_KEY")
-        )
-
-        # ── 数据目录与 target 列表 ──
-        data_exists = _data_dir.exists()
-        target_dirs = (
-            sorted([d.name for d in _data_dir.iterdir() if d.is_dir()]) if data_exists else []
-        )
-
-        # ── 信源健康 ──
-        healthy_sources = 0
-        unhealthy_sources = 0
-        if data_exists:
-            for tid in target_dirs:
-                memory_health = _filter_source_health_records(
-                    tid,
-                    _load_memory_source_health_records(tid),
-                )
-                if memory_health:
-                    for item in memory_health:
-                        if item.get("status") == "healthy":
-                            healthy_sources += 1
-                        else:
-                            unhealthy_sources += 1
-                    continue
-                health_file = _data_dir / tid / "source_health.json"
-                if health_file.exists():
-                    try:
-                        health_data = json.loads(health_file.read_text())
-                        items = health_data if isinstance(health_data, list) else []
-                        for item in items:
-                            if item.get("healthy"):
-                                healthy_sources += 1
-                            else:
-                                unhealthy_sources += 1
-                    except Exception:  # noqa: S110
-                        pass
-
-        # ── 事件总数 ──
-        total_events: int = 0
-        latest_collected_at: str | None = None
-        if _store is not None and _store._db is not None:
-            try:
-                async with _store._db.execute(
-                    "SELECT MAX(collected_at), COUNT(*) FROM event_index"
-                ) as cursor:
-                    row = await cursor.fetchone()
-                if row:
-                    latest_collected_at = row[0]
-                    total_events = row[1] or 0
-            except Exception:  # noqa: S110
-                pass
-
-        # ── 最新运行 ──
-        recent_runs: list[dict[str, Any]] = []
-        if target_dirs:
-            recent_runs = _load_run_logs(_data_dir, target_dirs[0], 5)
-
-        return {
-            "deploy": {
-                "commit": commit[:12] if commit != "unknown" else commit,
-                "build": build,
-            },
-            "collector": {
-                "enabled": collector["enabled"],
-                "running": collector["running"],
-                "last_run_at": collector.get("last_run_at"),
-                "next_run_at": collector.get("next_run_at"),
-            },
-            "ai_key_configured": has_ai_key,
-            "data": {
-                "directory": str(_data_dir),
-                "target_count": len(target_dirs),
-                "targets": target_dirs,
-            },
-            "source_health": {
-                "healthy": healthy_sources,
-                "unhealthy": unhealthy_sources,
-                "total": healthy_sources + unhealthy_sources,
-            },
-            "events": {
-                "total": total_events,
-                "latest_collected_at": latest_collected_at,
-            },
-            "recent_runs": recent_runs[:5],
-        }
+    global_diagnostics = make_global_diagnostics(
+        _static_build_hash,
+        _git_commit_for_path,
+        _collector_payload,
+        _filter_source_health_records,
+        _load_memory_source_health_records,
+    )
 
     async def prometheus_metrics(
         response: Response,
@@ -1376,8 +1276,8 @@ def create_app(
         )
 
     async def public_app_index(request: Request) -> HTMLResponse:  # type: ignore[no-redef]
-        async def _ssr_bootstrap_json_impl() -> str | None:
-            """尝试获取公开首页 bootstrap 数据，失败时返回 None 使前端正常回退。"""
+        async def _ssr_bootstrap_json_impl() -> tuple[str | None, str | None]:
+            """尝试获取公开首页 hydration 数据，失败时使前端正常回退。"""
             try:
                 news_task = _public_news_feed_payload_for_bootstrap(
                     featured=True,
@@ -1409,17 +1309,20 @@ def create_app(
                     facets=facets,
                     generatedAt=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
                 )
-                return payload.model_dump_json(by_alias=True, exclude_none=True)
+                bootstrap_json = payload.model_dump_json(by_alias=True, exclude_none=True)
+                feed_json = news.model_dump_json(by_alias=True, exclude_none=True)
+                return bootstrap_json, feed_json
             except Exception:
                 logger.warning(
                     "SSR bootstrap fetch failed, page will use client-side API", exc_info=True
                 )
-                return None
+                return None, None
 
-        bootstrap_json = await _ssr_bootstrap_json_impl()
+        bootstrap_json, feed_json = await _ssr_bootstrap_json_impl()
         return _public_app_index_response(
             base_url=_public_site_base_url(request),
             bootstrap_json=bootstrap_json,
+            feed_json=feed_json,
         )
 
     async def public_app_asset(asset_path: str, request: Request) -> Response:  # type: ignore[no-redef]
@@ -3496,12 +3399,7 @@ def create_app(
             events,
         ))
 
-    async def reload_config(
-        user: dict[str, Any] = Depends(require_permission("write")),
-    ) -> dict[str, str]:
-        """清除配置缓存，下次请求时重新从文件加载。"""
-        _config_cache.reload()
-        return {"status": "ok", "message": "Configuration cache cleared"}
+    # ── reload_config 已提取到 handlers/config_crud.py ──
 
     # ── M-35.2: 事件审核阶段转换 ───────────────────────────
 
@@ -3523,145 +3421,10 @@ def create_app(
             body=body,
         ))
 
-    # ── Phase 42: 配置写入端点 ────────────────────────────
-
-    async def update_target_config(
-        target_id: str,
-        body: TargetConfigUpdate,
-        user: dict[str, Any] = Depends(require_permission("write")),
-    ) -> dict[str, Any]:
-        """更新 target 配置。"""
-
-        filepath = Path(f"config/targets/{target_id}.yaml")
-        if not filepath.exists():
-            raise HTTPException(status_code=404, detail=f"Target config not found: {target_id}")
-
-        existing = _load_yaml_file(filepath)
-        if not existing:
-            raise HTTPException(status_code=500, detail="Failed to load existing config")
-
-        update_data = {k: v for k, v in body.model_dump().items() if v is not None}
-        merged = _deep_merge(existing, update_data)
-
-        _atomic_write_yaml(filepath, merged)
-        _config_cache.clear()
-
-        return merged
-
-    async def update_source_config(
-        target_id: str,
-        source_id: str,
-        body: SourceConfigUpdate,
-        user: dict[str, Any] = Depends(require_permission("write")),
-    ) -> dict[str, Any]:
-        """更新 source 配置。"""
-
-        filepath = _source_config_path(target_id, source_id)
-        if not filepath.exists():
-            raise HTTPException(status_code=404, detail=f"Source config not found: {source_id}")
-
-        existing = _load_yaml_file(filepath)
-        if not existing:
-            raise HTTPException(status_code=500, detail="Failed to load existing config")
-
-        update_data = {k: v for k, v in body.model_dump().items() if v is not None}
-        merged = _deep_merge(existing, update_data)
-
-        _atomic_write_yaml(filepath, merged)
-        _config_cache.clear()
-
-        return merged
-
-    async def update_filter_config(
-        target_id: str,
-        body: FilterConfigUpdate,
-        user: dict[str, Any] = Depends(require_permission("write")),
-    ) -> dict[str, Any]:
-        """更新 filter 配置。"""
-
-        filepath = _config_base_dir() / "filters" / target_id / "default.yaml"
-        if not filepath.exists():
-            raise HTTPException(status_code=404, detail=f"Filter config not found for: {target_id}")
-
-        existing = _load_yaml_file(filepath)
-        if not existing:
-            raise HTTPException(status_code=500, detail="Failed to load existing config")
-
-        update_data = {k: v for k, v in body.model_dump().items() if v is not None}
-        merged = _deep_merge(existing, update_data)
-
-        _atomic_write_yaml(filepath, merged)
-        _config_cache.clear()
-
-        return merged
-
-    async def update_destination_config(
-        destination_id: str,
-        body: DestinationConfigUpdate,
-        user: dict[str, Any] = Depends(require_permission("write")),
-    ) -> dict[str, Any]:
-        """更新 output destination 配置。"""
-
-        filepath = _config_base_dir() / "output" / "destinations.yaml"
-        if not filepath.exists():
-            raise HTTPException(status_code=404, detail="Destinations config not found")
-
-        existing = _load_yaml_file(filepath)
-        if not existing:
-            raise HTTPException(status_code=500, detail="Failed to load existing config")
-
-        dests: list[dict[str, Any]] = existing.get("destinations", [])
-        found = False
-        result: dict[str, Any] = {}
-        for i, d in enumerate(dests):
-            if d.get("destination_id") == destination_id:
-                update_data = {k: v for k, v in body.model_dump().items() if v is not None}
-                dests[i] = _deep_merge(d, update_data)
-                result = dests[i]
-                found = True
-                break
-
-        if not found:
-            raise HTTPException(status_code=404, detail=f"Destination not found: {destination_id}")
-
-        _atomic_write_yaml(filepath, existing)
-        _config_cache.clear()
-
-        return result
-
-    async def update_provider_route(
-        route_id: str,
-        body: RouteConfigUpdate,
-        user: dict[str, Any] = Depends(require_permission("write")),
-    ) -> dict[str, Any]:
-        """更新 provider route 配置。"""
-
-        filepath = _config_base_dir() / "provider" / "routes.yaml"
-        if not filepath.exists():
-            raise HTTPException(status_code=404, detail="Provider routes config not found")
-
-        existing = _load_yaml_file(filepath)
-        if not existing:
-            raise HTTPException(status_code=500, detail="Failed to load existing config")
-
-        routes: list[dict[str, Any]] = existing.get("routes", [])
-        found = False
-        result: dict[str, Any] = {}
-        for i, r in enumerate(routes):
-            if r.get("route_id") == route_id:
-                update_data = {k: v for k, v in body.model_dump().items() if v is not None}
-                routes[i] = _deep_merge(r, update_data)
-                result = routes[i]
-                found = True
-                break
-
-        if not found:
-            raise HTTPException(status_code=404, detail=f"Route not found: {route_id}")
-
-        _atomic_write_yaml(filepath, existing)
-        _config_cache.clear()
-
-        return result
+    # ── Phase 42: 配置写入端点（已提取到 handlers/config_crud.py）──
+    # update_target_config, update_source_config, update_filter_config,
+    # update_destination_config, update_provider_route, reload_config
+    # 由 make_config_crud_handlers() 工厂注入，见路由注册段。
 
     # ── Phase 34: 运维端点 ────────────────────────────────
 
@@ -4251,10 +4014,12 @@ def create_app(
         filter_yaml = (_config_base_dir() / "filters" / req.target_id / "default.yaml").resolve()
         if not filter_yaml.exists():
             raise HTTPException(status_code=404, detail=f"Filter config not found: {filter_yaml}")
+        import news_sentry.core._state as _st2
         from news_sentry.core.rules_optimizer import RulesOptimizer
 
-        import news_sentry.core._state as _st2
-        data_dir = _st2._data_dir / req.target_id if _st2._data_dir else Path("data") / req.target_id
+        data_dir = (
+            _st2._data_dir / req.target_id if _st2._data_dir else Path("data") / req.target_id
+        )
         optimizer = RulesOptimizer(filter_yaml, data_dir)
         result = optimizer.optimize(dry_run=req.dry_run)
         return RulesOptimizeResponse(
@@ -4286,6 +4051,20 @@ def create_app(
         ]
         return AlertHistoryResponse(alerts=alerts, total=len(alerts))
 
+
+    # ── 提取的 handler 工厂 ──────────────────────────
+    from news_sentry.core.handlers.config_crud import make_config_crud_handlers
+
+    _config_handlers = make_config_crud_handlers(
+        config_cache=_config_cache,
+        require_write_permission=require_permission("write"),
+    )
+    reload_config = _config_handlers["reload_config"]
+    update_target_config = _config_handlers["update_target_config"]
+    update_source_config = _config_handlers["update_source_config"]
+    update_filter_config = _config_handlers["update_filter_config"]
+    update_destination_config = _config_handlers["update_destination_config"]
+    update_provider_route = _config_handlers["update_provider_route"]
 
     # ── 路由注册（通过 APIRouter）──────────────────
     from news_sentry.api.routes.admin import register_admin_routes
@@ -4508,4 +4287,3 @@ def create_app(
     _mount_spa_routes(app)
 
     return app
-

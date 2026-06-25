@@ -43,7 +43,7 @@ export function readSSRFeed(): PublicNewsFeedResponse | null {
     const el = document.getElementById("news-sentry-feed")
     if (!el?.textContent) return null
     const data = JSON.parse(el.textContent) as PublicNewsFeedResponse
-    if (data.items?.length) return data
+    if (Array.isArray(data.items)) return data
   } catch {
     /* silent */
   }

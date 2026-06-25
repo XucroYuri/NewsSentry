@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 import { listPublicNews, PublicNewsApiError } from "@/lib/api"
 import {
@@ -64,8 +64,24 @@ function shouldFallbackFeatured(filters: FeedFilters) {
     !filters.targetId &&
     !filters.sourceId &&
     !filters.category &&
+    !filters.issue &&
+    !filters.related &&
     !filters.search &&
     !filters.date
+  )
+}
+
+function filtersEqual(left: FeedFilters, right: FeedFilters) {
+  return (
+    left.channel === right.channel &&
+    left.targetId === right.targetId &&
+    left.sourceId === right.sourceId &&
+    left.category === right.category &&
+    left.issue === right.issue &&
+    left.related === right.related &&
+    left.search === right.search &&
+    left.date === right.date &&
+    left.pageSize === right.pageSize
   )
 }
 
@@ -89,6 +105,7 @@ export function usePublicFeed(
   const poll = options.poll ?? true
   const initialFeed = options.initialFeed ?? null
   const waitForInitialData = options.waitForInitialData ?? false
+  const consumedInitialForFilters = useRef<FeedFilters | null>(null)
 
   const loadFeed = useCallback(
     async (mode: "replace" | "refresh" = "replace") => {
@@ -139,10 +156,20 @@ export function usePublicFeed(
   useEffect(() => {
     if (!initialFeed) return
     setFeedState(feedStateFromResponse(initialFeed))
+    if (!waitForInitialData) {
+      consumedInitialForFilters.current = { ...filters }
+    }
   }, [initialFeed])
 
   useEffect(() => {
     if (waitForInitialData) return
+    const filtersWereConsumed =
+      consumedInitialForFilters.current !== null &&
+      filtersEqual(consumedInitialForFilters.current, filters)
+    if (filtersWereConsumed) return
+    if (consumedInitialForFilters.current !== null) {
+      consumedInitialForFilters.current = null
+    }
     void loadFeed(initialFeed ? "refresh" : "replace")
   }, [initialFeed, loadFeed, waitForInitialData])
 

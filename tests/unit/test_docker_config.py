@@ -52,6 +52,20 @@ class TestDockerfile:
         assert "nodejs" not in content
         assert "opencli" not in content
 
+    def test_dockerfile_installs_api_extra_without_proxy_extra(self):
+        """运行时镜像只安装 API extra，不带 proxy socks 依赖。"""
+        content = _read_text("Dockerfile")
+        assert '".[api]"' in content
+        assert '".[api,proxy]"' not in content
+
+    def test_dockerfile_strips_python_bytecode_caches(self):
+        """builder/runtime 阶段都应清理 Python bytecode 缓存。"""
+        content = _read_text("Dockerfile")
+        assert 'find /install -name "*.pyc" -delete' in content
+        assert 'find /install -name "__pycache__" -type d' in content
+        assert 'find /usr/local/lib/python3.12 -name "__pycache__" -type d' in content
+        assert 'find /usr/local/lib/python3.12 -name "*.pyc" -delete' in content
+
     def test_dockerfile_creates_appuser(self):
         """Dockerfile 应创建非 root 用户 appuser。"""
         content = _read_text("Dockerfile")

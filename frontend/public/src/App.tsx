@@ -175,6 +175,19 @@ function filtersEqual(left: FeedFilters, right: FeedFilters) {
   )
 }
 
+function isDefaultFeaturedFilters(filters: FeedFilters) {
+  return (
+    filters.channel === "featured" &&
+    !filters.targetId &&
+    !filters.sourceId &&
+    !filters.category &&
+    !filters.issue &&
+    !filters.related &&
+    !filters.search &&
+    !filters.date
+  )
+}
+
 function useThemePreference() {
   const [theme, setTheme] = useState<ThemePreference>(() => {
     try {
@@ -1278,10 +1291,12 @@ export default function App() {
   const bootstrap = usePublicBootstrap(filters)
   const bootstrapTargets = useMemo(() => regionsToTargets(bootstrap.data), [bootstrap.data])
   const ssrFeed = useMemo(() => readSSRFeed(), [])
-  const waitForBootstrap = bootstrap.status === "loading" && !ssrFeed
+  const ssrFeedApplicable = ssrFeed !== null && isDefaultFeaturedFilters(filters)
+  const initialFeed = ssrFeedApplicable ? ssrFeed : (bootstrap.data?.news ?? null)
+  const waitForBootstrap = bootstrap.status === "loading" && !ssrFeedApplicable
   const feed = usePublicFeed(filters, {
     poll: route.name === "feed",
-    initialFeed: ssrFeed ?? bootstrap.data?.news ?? null,
+    initialFeed,
     waitForInitialData: waitForBootstrap,
   })
   const targets = usePublicTargets(bootstrapTargets, waitForBootstrap)
