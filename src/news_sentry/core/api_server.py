@@ -92,7 +92,6 @@ from news_sentry.api.schemas import (
     DestinationInfo,
     DestinationListResponse,
     EntityDetailResponse,
-    EntityInfo,
     EntityListResponse,
     EntityMergeRequest,
     EntityMergeResponse,
@@ -3506,6 +3505,22 @@ def create_app(
 
     # ── 实体端点 ────────────────────────────────────────
 
+    # Lazy-imported to avoid circular dependencies at module level
+    from news_sentry.core.entity_handlers import (
+        annotation_create_annotation,
+        annotation_delete_annotation,
+        annotation_list_annotations,
+        annotation_review_annotation,
+        annotation_update_annotation,
+        entity_get_entity,
+        entity_get_entity_events,
+        entity_list_entities,
+        entity_merge_entities,
+        entity_search_entities,
+        notification_list_notification_rules,
+        notification_upsert_notification_rule,
+    )
+
     async def list_entities(
         entity_type: str | None = Query(None, description="按实体类型过滤"),
         target_id: str | None = Query(None, description="按目标过滤"),
@@ -3515,24 +3530,15 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> EntityListResponse:
         """返回实体列表（优先使用 target state.db）。"""
-        # 如果指定了 target_id，优先使用 target 自己的 state.db
-        store_to_query = _store
-        if target_id is not None:
-            ts = await _get_target_store(target_id)
-            if ts is not None:
-                store_to_query = ts
-        if store_to_query is None:
-            return EntityListResponse(total=0, entities=[])
-        entities = await store_to_query.query_entities(
+        return await entity_list_entities(
+            store=_store,
+            get_target_store=_get_target_store,
             entity_type=entity_type,
             target_id=target_id,
             min_mentions=min_mentions,
             limit=limit,
             sort=sort,
-        )
-        return EntityListResponse(
-            total=len(entities),
-            entities=[EntityInfo(**e) for e in entities],
+            user=user,
         )
 
     async def get_entity(
@@ -3540,16 +3546,7 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> EntityDetailResponse:
         """返回实体详情及关联事件。"""
-        if _store is None:
-            raise HTTPException(status_code=404, detail="Entity not found")
-        detail = await _store.query_entity_detail(entity_id)
-        if detail is None:
-            raise HTTPException(status_code=404, detail="Entity not found")
-        recent = detail.pop("recent_events", [])
-        return EntityDetailResponse(
-            entity=EntityInfo(**detail),
-            recent_events=recent,
-        )
+        return await entity_get_entity(store=_store, entity_id=entity_id, user=user)
 
     async def search_entities(
         q: str = Query(..., min_length=1, description="搜索关键词"),
@@ -3557,23 +3554,14 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> EntityListResponse:
         """FTS5 全文搜索实体。"""
-        if _store is None:
-            return EntityListResponse(total=0, entities=[])
-        entities = await _store.search_entities_fts(q, limit=limit)
-        return EntityListResponse(
-            total=len(entities),
-            entities=[EntityInfo(**e) for e in entities],
-        )
+        return await entity_search_entities(store=_store, q=q, limit=limit, user=user)
 
     async def merge_entities(
         body: EntityMergeRequest,
         user: dict[str, Any] = Depends(get_current_user),
     ) -> EntityMergeResponse:
         """合并两个实体。"""
-        if _store is None:
-            raise HTTPException(status_code=500, detail="Store unavailable")
-        result = await _store.merge_entities(body.source_id, body.target_id)
-        return EntityMergeResponse(**result)
+        return await entity_merge_entities(store=_store, body=body, user=user)
 
     async def get_entity_events(
         entity_id: int,
@@ -3582,41 +3570,16 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
         """获取实体关联的所有事件（分页）。"""
-        if _store is None:
-            raise HTTPException(status_code=404, detail="Entity not found")
-        events = await _store.get_entity_events(entity_id, limit=limit, offset=offset)
-        return {"entity_id": entity_id, "total": len(events), "events": events}
+        return await entity_get_entity_events(
+            store=_store, entity_id=entity_id, limit=limit, offset=offset, user=user,
+        )
 
     async def create_annotation(
         body: AnnotationCreateRequest,
         user: dict[str, Any] = Depends(get_current_user),
     ) -> AnnotationInfo:
         """写入一条人工注解记录。"""
-        if _store is None:
-            raise HTTPException(status_code=503, detail="Store not ready")
-        ann_id = await _store.upsert_annotation(
-            entity_id=body.entity_id,
-            field=body.field,
-            old_value=body.old_value,
-            new_value=body.new_value,
-            event_id=body.event_id,
-            annotation_type=body.annotation_type,
-            created_by=body.created_by or user.get("username", "local-user"),
-        )
-        if ann_id < 0:
-            raise HTTPException(status_code=500, detail="Failed to create annotation")
-        return AnnotationInfo(
-            id=ann_id,
-            entity_id=body.entity_id,
-            event_id=body.event_id,
-            field=body.field,
-            old_value=body.old_value,
-            new_value=body.new_value,
-            annotation_type=body.annotation_type,
-            created_by=body.created_by or user.get("username", "local-user"),
-            created_at="",
-            reviewed=False,
-        )
+        return await annotation_create_annotation(store=_store, body=body, user=user)
 
     async def list_annotations(
         entity_id: int | None = Query(None, description="实体ID"),
@@ -3627,18 +3590,14 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> AnnotationListResponse:
         """列出注解记录（可按实体/事件/审核状态筛选）。"""
-        if _store is None:
-            raise HTTPException(status_code=503, detail="Store not ready")
-        annotations = await _store.list_annotations(
+        return await annotation_list_annotations(
+            store=_store,
             entity_id=entity_id,
             event_id=event_id,
             reviewed=reviewed,
             limit=limit,
             offset=offset,
-        )
-        return AnnotationListResponse(
-            annotations=[AnnotationInfo(**a) for a in annotations],
-            total=len(annotations),
+            user=user,
         )
 
     async def update_annotation(
@@ -3647,34 +3606,8 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> AnnotationInfo:
         """更新注解内容。"""
-        if _store is None:
-            raise HTTPException(status_code=503, detail="Store not ready")
-        ok = await _store.update_annotation(
-            annotation_id,
-            field=body.field,
-            old_value=body.old_value,
-            new_value=body.new_value,
-            annotation_type=body.annotation_type,
-        )
-        if not ok:
-            raise HTTPException(status_code=404, detail="注解未找到或无可更新字段")
-        # 审核状态单独处理（如果有）
-        if body.reviewed is not None:
-            await _store.review_annotation(
-                annotation_id,
-                body.reviewed,
-                body.reviewed_by or user.get("username", "local-user"),
-            )
-        return AnnotationInfo(
-            id=annotation_id,
-            entity_id=0,
-            field=body.field or "",
-            old_value=body.old_value or "",
-            new_value=body.new_value or "",
-            annotation_type=body.annotation_type or "",
-            created_by="",
-            created_at="",
-            reviewed=body.reviewed if body.reviewed is not None else False,
+        return await annotation_update_annotation(
+            store=_store, annotation_id=annotation_id, body=body, user=user,
         )
 
     async def delete_annotation(
@@ -3682,12 +3615,9 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, str]:
         """删除一条注解记录。"""
-        if _store is None:
-            raise HTTPException(status_code=503, detail="Store not ready")
-        ok = await _store.delete_annotation(annotation_id)
-        if not ok:
-            raise HTTPException(status_code=404, detail="注解未找到")
-        return {"status": "deleted", "id": str(annotation_id)}
+        return await annotation_delete_annotation(
+            store=_store, annotation_id=annotation_id, user=user,
+        )
 
     async def review_annotation(
         annotation_id: int,
@@ -3695,24 +3625,8 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> AnnotationInfo:
         """标记注解审核状态。"""
-        if _store is None:
-            raise HTTPException(status_code=503, detail="Store not ready")
-        reviewed = bool(body.get("reviewed", True))
-        reviewed_by = str(body.get("reviewed_by") or user.get("username", "local-user"))
-        ok = await _store.review_annotation(annotation_id, reviewed, reviewed_by)
-        if not ok:
-            raise HTTPException(status_code=404, detail="注解未找到")
-        return AnnotationInfo(
-            id=annotation_id,
-            entity_id=0,
-            field="",
-            old_value="",
-            new_value="",
-            annotation_type="",
-            created_by="",
-            created_at="",
-            reviewed=reviewed,
-            reviewed_by=reviewed_by,
+        return await annotation_review_annotation(
+            store=_store, annotation_id=annotation_id, body=body, user=user,
         )
 
     # ── Notification Rules (R1) ────────────────────────
@@ -3722,26 +3636,19 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> NotificationRuleInfo:
         """创建或更新通知规则。"""
-        if _store is None:
-            raise HTTPException(status_code=503, detail="Store not ready")
-        rule_dict = body.model_dump()
-        rule_dict["user_id"] = user.get("sub", "")  # 强制使用认证用户
-        await _store.upsert_notification_rule(rule_dict)
-        return NotificationRuleInfo(
-            id=body.id,
-            user_id=body.user_id,
-            enabled=body.enabled,
-            rule={k: v for k, v in rule_dict.items() if k not in ("id", "user_id", "enabled")},
+        result = await notification_upsert_notification_rule(
+            store=_store, body=body, user=user,
         )
+        return NotificationRuleInfo(**result)
 
     async def list_notification_rules(
         user_id: str | None = Query(None, description="按用户筛选"),
         user: dict[str, Any] = Depends(get_current_user),
     ) -> NotificationRuleListResponse:
         """列出通知规则。"""
-        if _store is None:
-            raise HTTPException(status_code=503, detail="Store not ready")
-        rules = await _store.list_notification_rules(user_id=user_id)
+        rules = await notification_list_notification_rules(
+            store=_store, user_id=user_id, user=user,
+        )
         return NotificationRuleListResponse(
             rules=[NotificationRuleInfo(**r) for r in rules],
             total=len(rules),
@@ -3796,6 +3703,7 @@ def create_app(
         target_id: str = Query(..., description="目标标识"),
         page: int = Query(1, ge=1),
         page_size: int = Query(20, ge=1, le=100),
+        stage: str | None = Query(None, description="按审核阶段筛选: drafts/reviewed/published"),
         classification: str | None = Query(None, description="按 classification.l0 筛选"),
         source_id: str | None = Query(None, description="按 source_id 筛选"),
         min_score: int | None = Query(None, description="最低 news_value_score"),
@@ -3811,12 +3719,13 @@ def create_app(
         # 优先使用 target 自己的 state.db（与 pipeline 共享同一数据库）
         target_store = await _get_target_store(target_id)
         store_to_query = target_store if target_store is not None else _store
+        effective_stage = stage if stage else "drafts"
 
         if store_to_query is not None:
             result = await _visible_index_events_page(
                 store_to_query,
                 _data_dir,
-                stage="drafts",
+                stage=effective_stage,
                 target_id=target_id,
                 page=page,
                 page_size=page_size,
@@ -4215,11 +4124,10 @@ def create_app(
         new_path = writer.move_event_review_stage(source_path, body.new_stage)
 
         # 更新索引中的 stage 和 file_path
-        index_stage = "drafts"  # event_index 中统一用 "drafts" 表示已输出阶段
         await store.update_event_stage(
             target_id,
             event_id,
-            index_stage,
+            body.new_stage,
             str(new_path),
         )
 

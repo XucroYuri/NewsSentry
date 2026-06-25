@@ -126,6 +126,7 @@ export default function DraftsPage() {
       params.set("target_id", selectedTargetId)
       params.set("page", String(page))
       params.set("page_size", String(pageSize))
+      params.set("stage", stage)
       if (search.trim()) params.set("search", search.trim())
       const res = await fetch(
         `${API_BASE}/events?${params}`,
@@ -139,7 +140,7 @@ export default function DraftsPage() {
     } finally {
       setLoading(false)
     }
-  }, [selectedTargetId, page, pageSize, search])
+  }, [selectedTargetId, page, pageSize, search, stage])
 
   useEffect(() => {
     void load()
