@@ -75,9 +75,19 @@ jobs:
         working-directory: frontend/admin
         run: npm run lint
 
+      - name: Admin frontend tests
+        working-directory: frontend/admin
+        run: npm run test
+
       - name: Admin frontend build
         working-directory: frontend/admin
         run: npm run build
+
+      - name: Admin E2E Test (Playwright)
+        working-directory: frontend/admin
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
 
       - name: Lint (ruff)
         run: python -m ruff check
