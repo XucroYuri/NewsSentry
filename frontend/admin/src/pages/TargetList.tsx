@@ -17,6 +17,8 @@ import {
   type AdminTargetInfo,
   type TargetCreateRequest,
 } from "@/lib/api"
+import ErrorBanner from "@/components/ErrorBanner"
+import { getLifecycleStatus } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -121,11 +123,6 @@ export default function TargetList({
     )
   })
 
-  const lifecycleStatus = (t: AdminTargetInfo): string =>
-    typeof t.lifecycle === "object" && t.lifecycle !== null
-      ? String((t.lifecycle as Record<string, unknown>).status ?? "")
-      : ""
-
   if (loading) {
     return (
       <div className="space-y-6">
@@ -136,13 +133,7 @@ export default function TargetList({
   }
 
   if (error) {
-    return (
-      <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center">
-        <AlertTriangleIcon className="mx-auto mb-2 h-8 w-8 text-destructive" />
-        <p className="text-sm text-destructive">{error}</p>
-        <Button variant="link" onClick={load} className="mt-3">重试</Button>
-      </div>
-    )
+    return <ErrorBanner error={error} onRetry={load} />
   }
 
   return (
@@ -261,7 +252,7 @@ export default function TargetList({
               </TableHeader>
               <TableBody>
                 {filtered.map((t) => {
-                  const status = lifecycleStatus(t)
+                  const status = getLifecycleStatus(t.lifecycle as Record<string, unknown>)
                   const isArchived = status === "archived"
                   return (
                     <TableRow key={t.target_id}>

@@ -11,9 +11,6 @@
 import { useCallback, useEffect, useState } from "react"
 import {
   AlertTriangleIcon,
-  ArrowUpDownIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   ExternalLinkIcon,
   GlobeIcon,
   Loader2Icon,
@@ -23,8 +20,10 @@ import {
 } from "lucide-react"
 
 import { fetchAdminTargets, type AdminTargetInfo } from "@/lib/api"
+import { scoreVariant } from "@/lib/utils"
 import { fetchEvents, type EventsResponse } from "@backend/api/events"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import PaginationBar from "@/components/PaginationBar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -55,13 +54,6 @@ interface EventRecord {
   [key: string]: unknown
 }
 
-
-function scoreVariant(score: number | undefined): "success" | "destructive" | "secondary" | "outline" {
-  if (score === undefined) return "outline"
-  if (score >= 80) return "success"
-  if (score >= 50) return "secondary"
-  return "outline"
-}
 
 function sentimentVariant(sentiment: string | undefined): "success" | "destructive" | "secondary" {
   if (!sentiment) return "secondary"
@@ -369,32 +361,13 @@ export default function EventsPage() {
 
           {/* 分页 */}
           {data && data.total > 0 && (
-            <div className="flex items-center justify-between border-t px-4 py-2">
-              <span className="text-xs text-muted-foreground">
-                第 {page} / {totalPages} 页 · 共 {data.total} 条
-              </span>
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page <= 1}
-                  onClick={() => setPage(page - 1)}
-                  className="h-7 text-xs"
-                >
-                  <ChevronLeftIcon className="h-3.5 w-3.5" />
-                  上一页
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page >= totalPages}
-                  onClick={() => setPage(page + 1)}
-                  className="h-7 text-xs"
-                >
-                  下一页
-                  <ChevronRightIcon className="h-3.5 w-3.5" />
-                </Button>
-              </div>
+            <div className="border-t px-4 py-2">
+              <PaginationBar
+                page={page}
+                totalPages={totalPages}
+                total={data.total}
+                onPageChange={setPage}
+              />
             </div>
           )}
         </CardContent>
@@ -402,75 +375,76 @@ export default function EventsPage() {
 
       {/* 详情弹窗 */}
       <Dialog open={!!detailItem} onOpenChange={(open) => { if (!open) setDetailItem(null) }}>
-        <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-base">事件详情</DialogTitle>
+            <DialogTitle className="text-lg">
+              {detailItem?.title_translated ?? detailItem?.title_original ?? "(无标题)"}
+            </DialogTitle>
           </DialogHeader>
           {detailItem && (
-            <div className="grid gap-4 text-sm">
-              <div>
-                <h3 className="mb-1 text-xs font-medium text-muted-foreground">标题 (翻译)</h3>
-                <p className="font-medium">{detailItem.title_translated ?? "-"}</p>
-              </div>
-              <div>
-                <h3 className="mb-1 text-xs font-medium text-muted-foreground">原标题</h3>
-                <p className="text-muted-foreground">{detailItem.title_original ?? "-"}</p>
-              </div>
-              {detailItem.summary_translated && (
+            <div className="space-y-4 text-sm">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <h3 className="mb-1 text-xs font-medium text-muted-foreground">摘要</h3>
-                  <p className="text-muted-foreground">{detailItem.summary_translated}</p>
-                </div>
-              )}
-              <div className="flex flex-wrap gap-2">
-                <div className="flex items-center gap-2 rounded border px-2 py-1 text-xs">
-                  <span className="text-muted-foreground">分值</span>
-                  <Badge variant={scoreVariant(detailItem.news_value_score)} className="h-5 rounded text-xs font-semibold">
+                  <span className="text-muted-foreground">分值：</span>
+                  <Badge variant={scoreVariant(detailItem.news_value_score)} className="ml-1">
                     {detailItem.news_value_score ?? "-"}
                   </Badge>
                 </div>
-                <div className="flex items-center gap-2 rounded border px-2 py-1 text-xs">
-                  <span className="text-muted-foreground">分类</span>
-                  <span className="font-medium">{detailItem.classification_l0 ?? "-"}</span>
-                </div>
-                <div className="flex items-center gap-2 rounded border px-2 py-1 text-xs">
-                  <span className="text-muted-foreground">情感</span>
-                  <Badge variant={sentimentVariant(detailItem.sentiment)} className="h-5 rounded text-xs">
+                <div>
+                  <span className="text-muted-foreground">情感：</span>
+                  <Badge variant={sentimentVariant(detailItem.sentiment)} className="ml-1">
                     {detailItem.sentiment ?? "-"}
                   </Badge>
                 </div>
-                <div className="flex items-center gap-2 rounded border px-2 py-1 text-xs">
-                  <span className="text-muted-foreground">来源</span>
-                  <span className="font-medium">{detailItem.source_name ?? detailItem.source_id ?? "-"}</span>
-                </div>
-                <div className="flex items-center gap-2 rounded border px-2 py-1 text-xs">
-                  <span className="text-muted-foreground">时间</span>
-                  <span>{detailItem.published_at ? new Date(detailItem.published_at).toLocaleString("zh-CN") : "-"}</span>
-                </div>
-              </div>
-              {detailItem.original_url && (
                 <div>
-                  <a
-                    href={detailItem.original_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                  >
-                    <ExternalLinkIcon className="h-3 w-3" />
-                    查看原文
-                  </a>
+                  <span className="text-muted-foreground">来源：</span>
+                  {detailItem.source_name ?? detailItem.source_id ?? "未知"}
+                </div>
+                <div>
+                  <span className="text-muted-foreground">时间：</span>
+                  {detailItem.published_at
+                    ? new Date(detailItem.published_at).toLocaleString("zh-CN")
+                    : "-"}
+                </div>
+                {detailItem.classification_l0 && (
+                  <div className="col-span-2">
+                    <span className="text-muted-foreground">分类：</span>
+                    {detailItem.classification_l0}
+                    {detailItem.classification_l1 ? ` / ${detailItem.classification_l1}` : ""}
+                  </div>
+                )}
+                {detailItem.original_url && (
+                  <div className="col-span-2">
+                    <span className="text-muted-foreground">链接：</span>
+                    <a
+                      href={detailItem.original_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-primary hover:underline"
+                    >
+                      {detailItem.original_url}
+                    </a>
+                  </div>
+                )}
+                {detailItem.tags && detailItem.tags.length > 0 && (
+                  <div className="col-span-2">
+                    <span className="text-muted-foreground">标签：</span>
+                    <span>{detailItem.tags.join(", ")}</span>
+                  </div>
+                )}
+              </div>
+              {detailItem.summary_translated && (
+                <div>
+                  <h3 className="font-medium mb-1">摘要</h3>
+                  <p className="text-muted-foreground">{detailItem.summary_translated}</p>
                 </div>
               )}
-              {detailItem.tags && detailItem.tags.length > 0 && (
+              {detailItem.content_original && (
                 <div>
-                  <h3 className="mb-1 text-xs font-medium text-muted-foreground">标签</h3>
-                  <div className="flex flex-wrap gap-1">
-                    {detailItem.tags.map((tag) => (
-                      <Badge key={tag} variant="secondary" className="text-[10px]">
-                        {tag}
-                      </Badge>
-                    ))}
-                  </div>
+                  <h3 className="font-medium mb-1">原文</h3>
+                  <p className="text-muted-foreground whitespace-pre-wrap max-h-60 overflow-y-auto">
+                    {detailItem.content_original}
+                  </p>
                 </div>
               )}
             </div>

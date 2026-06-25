@@ -15,6 +15,8 @@ import {
 
 import { archiveTarget, restoreTarget, fetchTargetInventory, patchSource, archiveSource, restoreSource, type SourceInventoryResponse, type SourceInventoryItem } from "@/lib/api"
 import { fetchTargetOverview, type TargetOverviewResponse } from "@backend/api/targets"
+import { getLifecycleStatus } from "@/lib/utils"
+import ErrorBanner from "@/components/ErrorBanner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -132,22 +134,13 @@ export default function TargetDetail({ targetId, onBack }: { targetId: string; o
   }
 
   if (error || !data) {
-    return (
-      <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center">
-        <AlertTriangleIcon className="mx-auto mb-2 h-8 w-8 text-destructive" />
-        <p className="text-sm text-destructive">{error ?? "无数据"}</p>
-        <Button variant="link" onClick={load} className="mt-3">重试</Button>
-      </div>
-    )
+    return <ErrorBanner error={error ?? "无数据"} onRetry={load} />
   }
 
   const d = data
   const t = d.target
 
-  const archivedStatus: string =
-    typeof t.lifecycle === "object" && t.lifecycle !== null
-      ? String((t.lifecycle as Record<string, unknown>).status ?? "")
-      : ""
+  const archivedStatus = getLifecycleStatus(t.lifecycle as Record<string, unknown>)
 
   const isArchived = archivedStatus === "archived"
   const monitoringTypeText: string = t.monitoring_type ?? "country"

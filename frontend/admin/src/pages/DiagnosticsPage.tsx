@@ -16,6 +16,7 @@ import {
   fetchDiagnostics,
   type DiagnosticsResponse,
 } from "@/lib/api"
+import ErrorBanner from "@/components/ErrorBanner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -57,13 +58,7 @@ export default function DiagnosticsPage() {
   }
 
   if (error || !data) {
-    return (
-      <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-6 text-center">
-        <AlertTriangleIcon className="mx-auto mb-2 h-8 w-8 text-destructive" />
-        <p className="text-sm text-destructive">{error ?? "无数据"}</p>
-        <Button variant="link" onClick={load} className="mt-3">重试</Button>
-      </div>
-    )
+    return <ErrorBanner error={error ?? "无数据"} onRetry={load} />
   }
 
   const d = data

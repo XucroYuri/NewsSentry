@@ -1,8 +1,5 @@
 import { useEffect, useState } from "react"
 import {
-  AlertTriangleIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
   Loader2Icon,
   MergeIcon,
   RefreshCwIcon,
@@ -11,6 +8,8 @@ import {
 } from "lucide-react"
 
 import { fetchEntities, fetchEntity, fetchEntityEvents, mergeEntities, searchEntities, type EntityInfo, type EntityDetailResponse, type EntityListResponse } from "@/lib/api"
+import ErrorBanner from "@/components/ErrorBanner"
+import PaginationBar from "@/components/PaginationBar"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -238,13 +237,7 @@ export default function EntitiesPage() {
       </Card>
 
       {/* 错误 */}
-      {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-center">
-          <AlertTriangleIcon className="mx-auto mb-1 h-6 w-6 text-destructive" />
-          <p className="text-sm text-destructive">{error}</p>
-          <Button variant="link" onClick={load} className="mt-2">重试</Button>
-        </div>
-      )}
+      {error && <ErrorBanner error={error} onRetry={load} variant="compact" />}
 
       {/* 加载中 */}
       {loading && !error && (
@@ -323,29 +316,14 @@ export default function EntitiesPage() {
 
           {/* 分页 */}
           {total > PAGE_SIZE && (
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-muted-foreground">
-                第 {page * PAGE_SIZE + 1}-{Math.min((page + 1) * PAGE_SIZE, total)} 条，共 {total} 条
-              </p>
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page === 0}
-                  onClick={() => setPage(page - 1)}
-                >
-                  <ChevronLeftIcon className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={(page + 1) * PAGE_SIZE >= total}
-                  onClick={() => setPage(page + 1)}
-                >
-                  <ChevronRightIcon className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </div>
+            <PaginationBar
+              page={page}
+              totalPages={Math.ceil(total / PAGE_SIZE)}
+              total={total}
+              pageSize={PAGE_SIZE}
+              mode="offset"
+              onPageChange={setPage}
+            />
           )}
         </>
       )}
