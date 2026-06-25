@@ -94,6 +94,11 @@ def register_public_routes(router: APIRouter, h: dict[str, Any]) -> None:
         response_model=h.get("PublicFacetsResponse"),
     )(h["list_public_facets"])
     router.api_route(
+        "/api/v1/subscriptions",
+        methods=["POST"],
+        include_in_schema=False,
+    )(h["subscribe"])
+    router.api_route(
         "/api/v1/public/bootstrap",
         methods=["GET"],
         response_model=h.get("PublicBootstrapResponse"),

@@ -4,20 +4,19 @@ import {
   ArrowLeftIcon,
   ArrowUpRightIcon,
   BellIcon,
-  CalendarDaysIcon,
+  CheckIcon,
+  ChevronDownIcon,
   ChevronRightIcon,
   CopyIcon,
   Globe2Icon,
+  HashIcon,
   Loader2Icon,
   MailIcon,
   NewspaperIcon,
   RadioIcon,
-  RssIcon,
-  StarIcon,
-  TrendingUpIcon,
-  UsersIcon,
+  SendIcon,
+  SkipForwardIcon,
   XIcon,
-  ZapIcon,
 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -1577,348 +1576,479 @@ export function AnalysisPage({
   )
 }
 
-// ─── SubscribePage ────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════
+// SubscribePage — 3 步漏斗订阅
+// Step 1: 选择地区 → Step 2: 选择信源 → Step 3: 选择议题
+// 每步可跳过，最后点击订阅按钮 POST 到后端
+// ═══════════════════════════════════════════════════════════════════
 
-interface RegionSnapshot {
-  target_id: string
-  display_name: string
-  event_count: number
-  source_count: number
-  preview: PublicNewsItem[]
-  facets: { issues: Array<{ id: string; label: string; count: number }>; related: Array<{ id: string; label: string; count: number }> }
-  loading: boolean
-  error: boolean
+interface FunnelOption {
+  id: string
+  label: string
+  count: number
 }
 
-function RegionSubscribeCard({
-  region,
+interface SourceOption {
+  id: string
+  name: string
+  count: number
+}
+
+function useFunnelState() {
+  const [regions, setRegions] = useState<FunnelOption[]>([])
+  const [selectedRegion, setSelectedRegion] = useState<string | null>(null)
+  const [regionsLoading, setRegionsLoading] = useState(true)
+
+  const [sources, setSources] = useState<SourceOption[]>([])
+  const [selectedSource, setSelectedSource] = useState<string | null>(null)
+  const [sourcesLoading, setSourcesLoading] = useState(false)
+  const [sourcesSkipped, setSourcesSkipped] = useState(false)
+
+  const [issues, setIssues] = useState<FunnelOption[]>([])
+  const [selectedIssue, setSelectedIssue] = useState<string | null>(null)
+  const [issuesLoading, setIssuesLoading] = useState(false)
+  const [issuesSkipped, setIssuesSkipped] = useState(false)
+
+  const [submitting, setSubmitting] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      try {
+        const { listTargets } = await import("@/lib/api")
+        const result = await listTargets()
+        if (!cancelled) {
+          setRegions(
+            result.targets
+              .filter((t) => t.event_count > 0)
+              .sort((a, b) => b.event_count - a.event_count)
+              .map((t) => ({
+                id: t.target_id,
+                label: t.display_name,
+                count: t.event_count,
+              })),
+          )
+          setRegionsLoading(false)
+        }
+      } catch {
+        if (!cancelled) {
+          setRegionsLoading(false)
+          setError("无法加载地区列表")
+        }
+      }
+    }
+    void load()
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    if (!selectedRegion) {
+      setSources([])
+      setIssues([])
+      setSelectedSource(null)
+      setSelectedIssue(null)
+      setSourcesSkipped(false)
+      setIssuesSkipped(false)
+      return
+    }
+    let cancelled = false
+    async function loadSourcesAndIssues() {
+      setSourcesLoading(true)
+      setIssuesLoading(true)
+      setSourcesSkipped(false)
+      setIssuesSkipped(false)
+      setSelectedSource(null)
+      setSelectedIssue(null)
+      try {
+        const { listPublicNews, listPublicFacets } = await import("@/lib/api")
+        const [newsResult, facetsResult] = await Promise.all([
+          listPublicNews({ targetId: selectedRegion!, pageSize: 50 }),
+          listPublicFacets({ targetId: selectedRegion! }),
+        ])
+        if (cancelled) return
+        const sourceMap = new Map<string, { name: string; count: number }>()
+        for (const item of (newsResult.data?.items ?? [])) {
+          const prev = sourceMap.get(item.source.id)
+          if (prev) {
+            prev.count += 1
+          } else {
+            sourceMap.set(item.source.id, { name: item.source.name, count: 1 })
+          }
+        }
+        setSources(
+          Array.from(sourceMap.entries())
+            .map(([id, info]) => ({ id, name: info.name, count: info.count }))
+            .sort((a, b) => b.count - a.count),
+        )
+        setIssues(
+          (facetsResult.issues ?? []).map((issue) => ({
+            id: issue.id,
+            label: issue.label,
+            count: issue.count,
+          })),
+        )
+      } catch {
+        setSources([])
+        setIssues([])
+      }
+      if (!cancelled) {
+        setSourcesLoading(false)
+        setIssuesLoading(false)
+      }
+    }
+    void loadSourcesAndIssues()
+    return () => { cancelled = true }
+  }, [selectedRegion])
+
+  async function handleSubscribe(email?: string) {
+    setSubmitting(true)
+    setError(null)
+    try {
+      const { resolveUrl } = await import("@/lib/locals-settings")
+      const params = new URLSearchParams()
+      params.set("target_id", selectedRegion!)
+      if (selectedSource && !sourcesSkipped) params.set("source_id", selectedSource)
+      if (selectedIssue && !issuesSkipped) params.set("issue", selectedIssue)
+      if (email) params.set("email", email)
+      const resp = await fetch(resolveUrl(`/api/v1/subscriptions?${params.toString()}`), {
+        method: "POST",
+      })
+      if (!resp.ok) {
+        throw new Error(`服务器返回 ${resp.status}`)
+      }
+      setSubmitted(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "订阅失败")
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  function reset() {
+    setSelectedRegion(null)
+    setSubmitted(false)
+    setError(null)
+  }
+
+  return {
+    regions,
+    selectedRegion,
+    setSelectedRegion,
+    regionsLoading,
+    sources,
+    selectedSource,
+    setSelectedSource,
+    sourcesLoading,
+    sourcesSkipped,
+    setSourcesSkipped,
+    issues,
+    selectedIssue,
+    setSelectedIssue,
+    issuesLoading,
+    issuesSkipped,
+    setIssuesSkipped,
+    submitting,
+    submitted,
+    error,
+    handleSubscribe,
+    reset,
+  }
+}
+
+function FunnelDropdown({
+  label,
+  icon: Icon,
+  options,
+  selectedId,
+  onSelect,
+  loading,
+  skipped,
+  onSkip,
+  placeholder = "请选择...",
+  showSkippedHint = true,
 }: {
-  region: RegionSnapshot
-  onExpand: (targetId: string) => void
+  label: string
+  icon: React.ElementType
+  options: { id: string; label: string; name?: string; count: number }[]
+  selectedId: string | null
+  onSelect: (id: string) => void
+  loading: boolean
+  skipped?: boolean
+  onSkip?: () => void
+  placeholder?: string
+  showSkippedHint?: boolean
 }) {
-  const label = targetShortLabel(region.display_name)
-  return (
-    <div className="grid gap-3 rounded-lg border bg-card/80 p-3">
-      {/* 头部：地区名 + 统计 */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 min-w-0">
-          <Globe2Icon className="size-4 shrink-0 text-primary" aria-hidden="true" />
-          <h3 className="text-sm font-semibold truncate">{label}</h3>
-          <Badge variant="outline" className="h-5 rounded px-1.5 text-[10px]">
-            {region.event_count} 条
-          </Badge>
-        </div>
-        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          <RadioIcon className="size-3" aria-hidden="true" />
-          <span>{region.source_count}</span>
-        </div>
-      </div>
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
 
-      {/* 议题标签 */}
-      {region.facets.issues.length > 0 ? (
-        <div className="flex flex-wrap gap-1">
-          {region.facets.issues.slice(0, 5).map((issue) => (
-            <Badge key={issue.id} variant="secondary" className="h-5 rounded px-1.5 text-[10px] font-normal">
-              {issue.label}
-              <span className="ml-0.5 opacity-60">{issue.count}</span>
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    if (open) {
+      document.addEventListener("mousedown", handleClick as unknown as EventListener)
+      return () => document.removeEventListener("mousedown", handleClick as unknown as EventListener)
+    }
+  }, [open])
+
+  const selectedOption = options.find((o) => o.id === selectedId)
+
+  return (
+    <div className="grid gap-1.5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          <Icon className="size-4" aria-hidden="true" />
+          <span>{label}</span>
+          {skipped && showSkippedHint && (
+            <Badge variant="outline" className="h-4 rounded px-1 text-[10px] text-muted-foreground">
+              已跳过
             </Badge>
-          ))}
+          )}
         </div>
-      ) : region.loading ? (
-        <Skeleton className="h-5 w-32" />
-      ) : null}
-
-      {/* 最近新闻预览 */}
-      {region.loading ? (
-        <div className="grid gap-2">
-          {[1, 2].map((i) => (
-            <Skeleton key={i} className="h-4 w-full" />
-          ))}
-        </div>
-      ) : region.error ? (
-        <p className="text-xs text-muted-foreground">暂时无法加载该地区预览</p>
-      ) : region.preview.length > 0 ? (
-        <div className="grid gap-1.5">
-          {region.preview.slice(0, 3).map((item) => (
-            <a
-              key={item.id}
-              href={buildPublicAppPath(
-                parseLocationRoute({
-                  pathname: `/public-app/events/${item.id}`,
-                  search: `?target_id=${region.target_id}`,
-                  hash: "",
-                }),
-              )}
-              onClick={(event) =>
-                handleRouteAnchorClick(
-                  event,
-                  parseLocationRoute({
-                    pathname: `/public-app/events/${item.id}`,
-                    search: `?target_id=${region.target_id}`,
-                    hash: "",
-                  }),
-                )
-              }
-              className="flex items-center gap-2 rounded-md px-1.5 py-1 text-xs leading-5 transition-colors hover:bg-accent/50"
-            >
-              <ZapIcon className="size-3 shrink-0 text-primary/60" aria-hidden="true" />
-              <span className="line-clamp-1">{primaryNewsTitle(item)}</span>
-              <span className="shrink-0 text-[10px] text-muted-foreground">{formatTime(item.publishedAt)}</span>
-            </a>
-          ))}
-        </div>
-      ) : (
-        <p className="text-xs text-muted-foreground">该地区暂无最近新闻</p>
-      )}
-
-      {/* 操作区 */}
-      <div className="flex items-center gap-2 border-t pt-2">
-        <Button
-          asChild
-          variant="outline"
-          size="sm"
-          className="h-7 rounded-md px-2 text-xs flex-1"
-        >
-          <a href={`/public-app/?channel=targets&target_id=${region.target_id}`}>浏览</a>
-        </Button>
-        <Button
-          asChild
-          variant="outline"
-          size="sm"
-          className="h-7 rounded-md px-2 text-xs"
-        >
-          <a
-            href={`/public-app/daily?date=${todayKey()}&target_id=${region.target_id}`}
+        {onSkip && !skipped && !selectedId && !loading && (
+          <button
+            type="button"
+            onClick={onSkip}
+            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
           >
-            <CalendarDaysIcon className="size-3 mr-1" aria-hidden="true" />
-            日报
-          </a>
-        </Button>
+            <SkipForwardIcon className="size-3" />
+            跳过
+          </button>
+        )}
       </div>
-    </div>
-  )
-}
-
-function SubscribeSkeleton() {
-  return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-      {[1, 2, 3, 4, 5, 6].map((i) => (
-        <div key={i} className="grid gap-3 rounded-lg border bg-card/80 p-3">
-          <Skeleton className="h-5 w-28" />
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-3/4" />
-          <Skeleton className="h-4 w-1/2" />
-        </div>
-      ))}
+      <div ref={containerRef} className="relative">
+        {loading ? (
+          <div className="flex h-9 items-center gap-2 rounded-md border bg-muted/30 px-3">
+            <Loader2Icon className="size-3.5 animate-spin text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">加载中...</span>
+          </div>
+        ) : skipped ? (
+          <div className="flex h-9 items-center gap-2 rounded-md border bg-muted/30 px-3 text-xs text-muted-foreground">
+            —
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => options.length > 0 && setOpen(!open)}
+            disabled={options.length === 0}
+            className="flex h-9 w-full items-center justify-between rounded-md border bg-background px-3 text-left text-sm transition-colors hover:bg-accent/50 disabled:opacity-50"
+          >
+            <span className={selectedOption ? "text-foreground" : "text-muted-foreground"}>
+              {selectedOption
+                ? (selectedOption.name ?? selectedOption.label)
+                : placeholder}
+            </span>
+            <ChevronDownIcon className={`size-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+          </button>
+        )}
+        {open && options.length > 0 && (
+          <div className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-md border bg-background shadow-lg">
+            {options.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => {
+                  onSelect(opt.id)
+                  setOpen(false)
+                }}
+                className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-accent ${
+                  opt.id === selectedId ? "bg-accent/50 font-medium" : ""
+                }`}
+              >
+                <span className="truncate">{opt.name ?? opt.label}</span>
+                <span className="ml-2 shrink-0 text-[10px] text-muted-foreground">
+                  {opt.count > 0 ? `${opt.count}` : ""}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
 
 export function SubscribePage() {
-  const [regions, setRegions] = useState<RegionSnapshot[]>([])
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading")
+  const funnel = useFunnelState()
+  const [email, setEmail] = useState("")
 
-  // 第一步：拉取所有地区
-  useEffect(() => {
-    let cancelled = false
-    async function loadRegions() {
-      setStatus("loading")
-      try {
-        const { listTargets } = await import("@/lib/api")
-        const result = await listTargets()
-        if (!cancelled) {
-          const active = result.targets
-            .filter((t) => t.event_count > 0)
-            .sort((a, b) => b.event_count - a.event_count)
-            .map((t) => ({
-              target_id: t.target_id,
-              display_name: t.display_name,
-              event_count: t.event_count,
-              source_count: t.source_count,
-              preview: [] as PublicNewsItem[],
-              facets: { issues: [], related: [] },
-              loading: true,
-              error: false,
-            }))
-          setRegions(active)
-          setStatus("ready")
-        }
-      } catch {
-        if (!cancelled) setStatus("error")
-      }
-    }
-    void loadRegions()
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  if (funnel.submitted) {
+    const regionLabel = funnel.regions.find((r) => r.id === funnel.selectedRegion)?.label ?? funnel.selectedRegion
+    return (
+      <section className="mx-auto max-w-lg rounded-lg border bg-background px-6 py-10 text-center" aria-label="订阅成功">
+        <CheckIcon className="mx-auto size-10 text-green-500" aria-hidden="true" />
+        <h1 className="mt-4 text-xl font-semibold">订阅成功</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          你已订阅 <strong className="text-foreground">{regionLabel}</strong> 地区的新闻更新。
+        </p>
+        {funnel.sourcesSkipped ? null : funnel.selectedSource ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            信源: {funnel.sources.find((s) => s.id === funnel.selectedSource)?.name ?? funnel.selectedSource}
+          </p>
+        ) : null}
+        {funnel.issuesSkipped ? null : funnel.selectedIssue ? (
+          <p className="mt-1 text-xs text-muted-foreground">
+            议题: {funnel.issues.find((i) => i.id === funnel.selectedIssue)?.label ?? funnel.selectedIssue}
+          </p>
+        ) : null}
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-4"
+          onClick={funnel.reset}
+        >
+          创建新订阅
+        </Button>
+      </section>
+    )
+  }
 
-  // 第二步：为有事件的地区拉取预览
-  useEffect(() => {
-    if (regions.length === 0) return
-    let cancelled = false
-
-    async function loadRegionPreview(targetId: string) {
-      try {
-        const { listPublicNews, listPublicFacets } = await import("@/lib/api")
-        const [newsResult, facetsResult] = await Promise.all([
-          listPublicNews({ targetId, pageSize: 3 }),
-          listPublicFacets({ targetId }),
-        ])
-        if (!cancelled) {
-          setRegions((prev) =>
-            prev.map((r) =>
-              r.target_id === targetId
-                ? {
-                    ...r,
-                    preview: newsResult.data?.items ?? [],
-                    facets: facetsResult,
-                    loading: false,
-                    error: false,
-                  }
-                : r,
-            ),
-          )
-        }
-      } catch {
-        if (!cancelled) {
-          setRegions((prev) =>
-            prev.map((r) =>
-              r.target_id === targetId ? { ...r, loading: false, error: true } : r,
-            ),
-          )
-        }
-      }
-    }
-
-    for (const region of regions) {
-      void loadRegionPreview(region.target_id)
-    }
-    return () => {
-      cancelled = true
-    }
-  }, [regions.length === 0 ? "initial" : regions.map((r) => r.target_id).join(",")])
-
-  const totalEvents = useMemo(
-    () => regions.reduce((sum, r) => sum + r.event_count, 0),
-    [regions],
-  )
-  const totalSources = useMemo(
-    () => regions.reduce((sum, r) => sum + r.source_count, 0),
-    [regions],
-  )
+  const canSubscribe = !funnel.regionsLoading && !!funnel.selectedRegion && !funnel.submitting
 
   return (
-    <section className="overflow-hidden rounded-lg border bg-background" aria-label="订阅管理">
-      {/* 页面头部 */}
-      <div className="border-b px-3 py-3">
+    <section className="mx-auto max-w-lg rounded-lg border bg-background" aria-label="订阅管理">
+      <div className="border-b px-4 py-4">
         <Badge variant="outline" className="mb-2">
           订阅 Subscribe
         </Badge>
-        <h1 className="text-xl font-semibold leading-tight">订阅中心</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          按地区订阅新闻哨兵更新，通过邮件或 RSS 接收每日/每周信号。选择你关注的地区开始。
+        <h1 className="text-lg font-semibold leading-tight">创建订阅</h1>
+        <p className="mt-1 text-xs text-muted-foreground">
+          三步设置你的地区订阅。信源和议题可选，点击跳过即可。
         </p>
-
-        {/* 统计卡片 */}
-        {status === "ready" ? (
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            <div className="flex items-center gap-2 rounded-md border bg-card/60 px-3 py-2">
-              <Globe2Icon className="size-4 text-primary" aria-hidden="true" />
-              <div>
-                <p className="text-lg font-bold leading-none">{regions.length}</p>
-                <p className="text-[10px] text-muted-foreground">活跃地区</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 rounded-md border bg-card/60 px-3 py-2">
-              <NewspaperIcon className="size-4 text-primary" aria-hidden="true" />
-              <div>
-                <p className="text-lg font-bold leading-none">{totalEvents}</p>
-                <p className="text-[10px] text-muted-foreground">新闻总量</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 rounded-md border bg-card/60 px-3 py-2">
-              <RadioIcon className="size-4 text-primary" aria-hidden="true" />
-              <div>
-                <p className="text-lg font-bold leading-none">{totalSources}</p>
-                <p className="text-[10px] text-muted-foreground">活跃信源</p>
-              </div>
-            </div>
-          </div>
-        ) : null}
       </div>
 
-      {/* 订阅方式介绍 */}
-      <div className="border-b px-3 py-3">
-        <h2 className="text-sm font-semibold">可用订阅方式</h2>
-        <div className="mt-2 grid gap-2 sm:grid-cols-3">
-          <a
-            href={`/api/v1/events/feed?target_id=${regions[0]?.target_id ?? "italy"}`}
-            className="flex items-start gap-2 rounded-md border bg-card/60 px-3 py-2 transition-colors hover:border-primary/50"
-          >
-            <RssIcon className="size-4 shrink-0 mt-0.5 text-primary" aria-hidden="true" />
-            <div>
-              <strong className="block text-xs text-foreground">RSS 订阅</strong>
-              <span className="text-[10px] text-muted-foreground">支持所有 RSS 阅读器</span>
-            </div>
-          </a>
-          <a
-            href="/subscribe"
-            className="flex items-start gap-2 rounded-md border bg-card/60 px-3 py-2 transition-colors hover:border-primary/50"
-          >
-            <MailIcon className="size-4 shrink-0 mt-0.5 text-primary" aria-hidden="true" />
-            <div>
-              <strong className="block text-xs text-foreground">邮件摘要</strong>
-              <span className="text-[10px] text-muted-foreground">每日信号 + 周三周报</span>
-            </div>
-          </a>
-          <a
-            href="/public-app/daily"
-            className="flex items-start gap-2 rounded-md border bg-card/60 px-3 py-2 transition-colors hover:border-primary/50"
-          >
-            <BellIcon className="size-4 shrink-0 mt-0.5 text-primary" aria-hidden="true" />
-            <div>
-              <strong className="block text-xs text-foreground">新闻日报预览</strong>
-              <span className="text-[10px] text-muted-foreground">按日期组包的内容简报</span>
-            </div>
-          </a>
+      <div className="grid gap-5 px-4 py-5">
+        {/* Step 1 */}
+        <div className="grid gap-1.5">
+          <div className="flex items-center gap-1.5 text-sm font-semibold">
+            <span className="flex size-5 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground">1</span>
+            <span>选择地区</span>
+          </div>
+          <FunnelDropdown
+            label="地区"
+            icon={Globe2Icon}
+            options={funnel.regions}
+            selectedId={funnel.selectedRegion}
+            onSelect={funnel.setSelectedRegion}
+            loading={funnel.regionsLoading}
+            placeholder={funnel.regionsLoading ? "加载中..." : "请选择关注地区"}
+          />
         </div>
-      </div>
 
-      {/* 地区订阅卡片 */}
-      <div className="px-3 py-3">
-        <h2 className="text-sm font-semibold mb-2">按地区订阅</h2>
-        {status === "loading" ? (
-          <SubscribeSkeleton />
-        ) : status === "error" ? (
-          <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-6 text-center">
-            <p className="text-sm text-destructive">无法加载地区列表，请刷新重试</p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-2"
-              onClick={() => window.location.reload()}
-            >
-              刷新
-            </Button>
+        {/* Step 2 */}
+        <div className="grid gap-1.5">
+          <div className="flex items-center gap-1.5 text-sm font-semibold">
+            <span className="flex size-5 items-center justify-center rounded-full bg-muted-foreground/30 text-[10px] text-muted-foreground">2</span>
+            <span>选择信源</span>
+            <span className="text-[10px] font-normal text-muted-foreground">（可选）</span>
           </div>
-        ) : regions.length === 0 ? (
-          <div className="rounded-md border border-dashed px-3 py-6 text-center">
-            <Globe2Icon className="mx-auto size-6 text-muted-foreground" aria-hidden="true" />
-            <p className="mt-2 text-sm text-muted-foreground">暂无活跃地区数据</p>
-            <p className="text-xs text-muted-foreground">新闻采集正在进行中，请稍后回来</p>
+          <FunnelDropdown
+            label="信源"
+            icon={RadioIcon}
+            options={funnel.sources.map((s) => ({ id: s.id, label: s.name, count: s.count }))}
+            selectedId={funnel.selectedSource}
+            onSelect={(id) => {
+              funnel.setSelectedSource(id)
+              funnel.setSourcesSkipped(false)
+            }}
+            loading={funnel.sourcesLoading}
+            skipped={funnel.sourcesSkipped}
+            onSkip={() => {
+              funnel.setSourcesSkipped(true)
+              funnel.setSelectedSource(null)
+            }}
+            placeholder={
+              !funnel.selectedRegion
+                ? "请先选择地区"
+                : funnel.sources.length === 0 && !funnel.sourcesLoading
+                  ? "该地区暂无信源数据"
+                  : "选择特定信源（可选）"
+            }
+            showSkippedHint
+          />
+        </div>
+
+        {/* Step 3 */}
+        <div className="grid gap-1.5">
+          <div className="flex items-center gap-1.5 text-sm font-semibold">
+            <span className="flex size-5 items-center justify-center rounded-full bg-muted-foreground/30 text-[10px] text-muted-foreground">3</span>
+            <span>选择议题</span>
+            <span className="text-[10px] font-normal text-muted-foreground">（可选）</span>
           </div>
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {regions.map((region) => (
-              <RegionSubscribeCard
-                key={region.target_id}
-                region={region}
-                onExpand={() => {}}
-              />
-            ))}
+          <FunnelDropdown
+            label="议题"
+            icon={HashIcon}
+            options={funnel.issues}
+            selectedId={funnel.selectedIssue}
+            onSelect={(id) => {
+              funnel.setSelectedIssue(id)
+              funnel.setIssuesSkipped(false)
+            }}
+            loading={funnel.issuesLoading}
+            skipped={funnel.issuesSkipped}
+            onSkip={() => {
+              funnel.setIssuesSkipped(true)
+              funnel.setSelectedIssue(null)
+            }}
+            placeholder={
+              !funnel.selectedRegion
+                ? "请先选择地区"
+                : funnel.issues.length === 0 && !funnel.issuesLoading
+                  ? "该地区暂无议题数据"
+                  : "选择关注议题（可选）"
+            }
+            showSkippedHint
+          />
+        </div>
+
+        {/* Email */}
+        <div className="grid gap-1.5">
+          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            <MailIcon className="size-4" aria-hidden="true" />
+            <span>通知邮箱</span>
+            <span className="text-[10px] text-muted-foreground">（可选）</span>
           </div>
-        )}
+          <Input
+            type="email"
+            placeholder="your@email.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="h-9 text-sm"
+          />
+        </div>
+
+        {/* Subscribe button */}
+        <div className="grid gap-2">
+          {funnel.error && (
+            <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+              {funnel.error}
+            </p>
+          )}
+          <Button
+            disabled={!canSubscribe}
+            onClick={() => funnel.handleSubscribe(email || undefined)}
+            className="h-10 w-full"
+          >
+            {funnel.submitting ? (
+              <>
+                <Loader2Icon className="size-4 mr-2 animate-spin" />
+                提交中...
+              </>
+            ) : (
+              <>
+                <SendIcon className="size-4 mr-2" />
+                订阅
+              </>
+            )}
+          </Button>
+          <p className="text-center text-[10px] text-muted-foreground">
+            订阅即表示同意接收所选题材的新闻更新通知
+          </p>
+        </div>
       </div>
     </section>
   )

@@ -2900,6 +2900,36 @@ def create_app(
             q=q,
         )
 
+    async def subscribe(
+        target_id: str = Query(..., description="目标地区 ID"),
+        source_id: str | None = Query(None, description="信源 ID（可选）"),
+        issue: str | None = Query(None, description="议题标签（可选）"),
+        email: str | None = Query(None, description="邮件地址（可选）"),
+        preferred_language: str | None = Query(None, description="偏好语言"),
+    ) -> JSONResponse:
+        """创建订阅记录（v1: 存本地 JSON，不发邮件）。"""
+        subscription: dict[str, Any] = {
+            "subscription_id": f"sub_{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}",
+            "target_id": target_id,
+            "source_id": source_id,
+            "issue": issue,
+            "email": email,
+            "preferred_language": preferred_language,
+            "subscribed_at": datetime.now(UTC).isoformat(),
+            "status": "active",
+        }
+        subs_dir = _data_dir / "subscriptions"
+        try:
+            subs_dir.mkdir(parents=True, exist_ok=True)
+            file_path = subs_dir / f"{subscription['subscription_id']}.json"
+            file_path.write_text(
+                json.dumps(subscription, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to save subscription: {exc}") from exc
+        return JSONResponse(content=subscription, status_code=201)
+
     async def _public_news_feed_payload_for_bootstrap(
         *,
         featured: bool,
@@ -5152,6 +5182,7 @@ def create_app(
         "list_regions": list_regions,
         "get_public_target_analysis": get_public_target_analysis,
         "list_public_facets": list_public_facets,
+        "subscribe": subscribe,
         "get_public_bootstrap": get_public_bootstrap,
         "list_public_news": list_public_news,
         "get_public_news_item": get_public_news_item,
