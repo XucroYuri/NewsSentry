@@ -4248,12 +4248,13 @@ def create_app(
         user: dict[str, Any] = Depends(require_permission("write")),
     ) -> RulesOptimizeResponse:
         """触发规则优化。"""
-        filter_yaml = (Path("config") / "filters" / req.target_id / "default.yaml").resolve()
+        filter_yaml = (_config_base_dir() / "filters" / req.target_id / "default.yaml").resolve()
         if not filter_yaml.exists():
             raise HTTPException(status_code=404, detail=f"Filter config not found: {filter_yaml}")
         from news_sentry.core.rules_optimizer import RulesOptimizer
 
-        data_dir = Path("data") / req.target_id
+        import news_sentry.core._state as _st2
+        data_dir = _st2._data_dir / req.target_id if _st2._data_dir else Path("data") / req.target_id
         optimizer = RulesOptimizer(filter_yaml, data_dir)
         result = optimizer.optimize(dry_run=req.dry_run)
         return RulesOptimizeResponse(
