@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 
 from news_sentry.api.middleware.auth import _TOKEN_STORE, _RateLimiter
 from news_sentry.core import api_server as api_server_module
+from news_sentry.core import event_io_utils
 from news_sentry.core.api_server import (
     _get_valid_api_keys,
     create_app,
@@ -2371,6 +2372,8 @@ class TestAPIServer:
         monkeypatch.chdir(tmp_path)
         load_all_events = MagicMock(side_effect=AssertionError("global public feed scanned files"))
         monkeypatch.setattr(api_server_module, "_load_all_events", load_all_events)
+        # 源模块: public_news_utils 内懒加载从 event_io_utils 导入 _load_all_events
+        monkeypatch.setattr(event_io_utils, "_load_all_events", load_all_events)
         client = self._make_client(tmp_path)
 
         resp = client.get("/api/v1/public/news?featured=true&page_size=3")
@@ -2388,6 +2391,7 @@ class TestAPIServer:
         monkeypatch.chdir(tmp_path)
         load_all_events = MagicMock(side_effect=AssertionError("global public feed scanned files"))
         monkeypatch.setattr(api_server_module, "_load_all_events", load_all_events)
+        monkeypatch.setattr(event_io_utils, "_load_all_events", load_all_events)
         store = AsyncStore(tmp_path / "state.db")
 
         async def seed() -> None:
