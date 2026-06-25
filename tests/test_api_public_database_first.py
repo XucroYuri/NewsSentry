@@ -5,9 +5,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
-from news_sentry.core import api_server
-from news_sentry.core import event_io_utils
-from news_sentry.core import target_config_utils
+from news_sentry.core import api_server, event_io_utils, target_config_utils
 from news_sentry.core.api_server import create_app
 from news_sentry.core.public_translation import public_translation_field_hash
 

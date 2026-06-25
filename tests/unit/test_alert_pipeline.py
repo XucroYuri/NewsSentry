@@ -1283,7 +1283,7 @@ class TestSmartAlertSaveFailure:
         store = AsyncStore(tmp_path / "state.db")
         await store.initialize()
 
-        async def failing_save(target_id, alerts):  # noqa: ANN
+        async def failing_save(target_id, alerts):  # noqa: ANN201
             raise RuntimeError("DB write failed")
 
         store.save_alert_history = failing_save

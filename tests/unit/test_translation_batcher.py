@@ -153,7 +153,7 @@ class TestTranslationBatcher:
 
         call_count = 0
 
-        async def mock_route_async(**kwargs):  # noqa: ANN
+        async def mock_route_async(**kwargs):  # noqa: ANN201
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -176,7 +176,7 @@ class TestTranslationBatcher:
 
         call_count = 0
 
-        async def mock_route_async(**kwargs):  # noqa: ANN
+        async def mock_route_async(**kwargs):  # noqa: ANN201
             nonlocal call_count
             call_count += 1
             if call_count == 1:

@@ -17,7 +17,6 @@ from __future__ import annotations
 # 在非测试环境中 patch aiosqlite.core.Thread 使 worker 为 daemon。
 # 测试中不 patch，因为 pytest 的 per-test event loop 依赖 worker 线程正常关闭。
 import os as _os
-import aiosqlite
 
 # aiosqlite worker 线程默认非 daemon，导致 create_app() 后进程无法退出。
 # 在非测试环境中 patch aiosqlite.core.Thread 使 worker 为 daemon。

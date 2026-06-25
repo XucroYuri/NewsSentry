@@ -587,7 +587,8 @@ _SCHEMA_MIGRATIONS: list[tuple[int, str, list[str]]] = [
     ),
     (
         16,
-        "Add gid column to event_index and known_ids — UUID4 identifier alongside content-hash event_id",
+        "Add gid column to event_index and known_ids — "
+        "UUID4 identifier alongside content-hash event_id",
         [
             "ALTER TABLE event_index ADD COLUMN gid TEXT",
             "ALTER TABLE known_ids ADD COLUMN gid TEXT",

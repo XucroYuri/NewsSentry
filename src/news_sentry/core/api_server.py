@@ -180,7 +180,6 @@ from news_sentry.core._state import (
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.auth import hash_password, verify_password
 from news_sentry.core.canonical_projection import CanonicalProjectionService, ProjectionOptions
-from news_sentry.models.newsevent import NewsEvent  # 供 import_events 生成 gid 使用
 
 # ── 从辅助模块导入（从 api_server.py 提取）──────────────────────
 from news_sentry.core.collector_config_utils import (
@@ -326,6 +325,7 @@ from news_sentry.core.target_store_utils import (
     _visible_index_event_from_row,  # noqa: F401 re-exported for test access
     _visible_index_events_page,
 )
+from news_sentry.models.newsevent import NewsEvent  # 供 import_events 生成 gid 使用
 from news_sentry.skills.filter.classification_taxonomy import (
     canonical_l0,
     l0_query_values,

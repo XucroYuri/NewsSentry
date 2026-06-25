@@ -82,7 +82,8 @@ async def migrate_yaml_to_sqlite(
                         from news_sentry.models.newsevent import NewsEvent
                         gid = NewsEvent.make_gid()
                         await db.execute(
-                            "INSERT OR IGNORE INTO known_ids (event_id, gid, seen_at) VALUES (?, ?, ?)",
+                            "INSERT OR IGNORE INTO known_ids (event_id, gid, seen_at) "
+                            "VALUES (?, ?, ?)",
                             (str(event_id), gid, str(seen_at)),
                         )
                         inserted += 1

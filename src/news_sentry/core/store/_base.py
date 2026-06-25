@@ -233,7 +233,7 @@ class AsyncStoreBase:
             )
         except sqlite3.OperationalError:
             return
-        for gid, event_id, target_id, title_original, metadata_json in rows:
+        for _gid, event_id, target_id, title_original, metadata_json in rows:
             ready = self._publication_ready_from_index_row(
                 {
                     "event_id": event_id,
