@@ -143,17 +143,19 @@ export function applySiteSeo(payload: SiteSeoPayload, doc: Document = document) 
   upsertJsonLd(doc, payload.jsonLd)
 }
 
-export function clearSiteSeo(doc: Document = document) {
-  doc.title = DEFAULT_TITLE
+export function clearSiteSeo(doc: Document = document, locale = "zh") {
+  const title = locale === "it" ? DEFAULT_TITLE_IT : DEFAULT_TITLE
+  const description = locale === "it" ? DEFAULT_DESCRIPTION_IT : DEFAULT_DESCRIPTION
+  doc.title = title
 
-  upsertMeta(doc, "description", DEFAULT_DESCRIPTION)
+  upsertMeta(doc, "description", description)
   upsertMeta(doc, "og:type", "website", "property")
   upsertMeta(doc, "og:site_name", SITE_NAME, "property")
-  upsertMeta(doc, "og:title", DEFAULT_TITLE, "property")
-  upsertMeta(doc, "og:description", DEFAULT_DESCRIPTION, "property")
+  upsertMeta(doc, "og:title", title, "property")
+  upsertMeta(doc, "og:description", description, "property")
   upsertMeta(doc, "twitter:card", "summary")
-  upsertMeta(doc, "twitter:title", DEFAULT_TITLE)
-  upsertMeta(doc, "twitter:description", DEFAULT_DESCRIPTION)
+  upsertMeta(doc, "twitter:title", title)
+  upsertMeta(doc, "twitter:description", description)
   removeManagedLink(doc, "canonical")
   removeManagedJsonLd(doc)
   removeManagedMeta(doc, "og:url", "property")

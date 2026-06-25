@@ -2,14 +2,14 @@ import { useEffect } from "react"
 
 import { applySiteSeo, clearSiteSeo, type SiteSeoPayload } from "@/lib/seo/site-seo"
 
-export function SeoHead({ payload }: { payload: SiteSeoPayload | null }) {
+export function SeoHead({ payload, locale = "zh" }: { payload: SiteSeoPayload | null; locale?: string }) {
   useEffect(() => {
     if (!payload) {
-      clearSiteSeo()
+      clearSiteSeo(document, locale)
       return
     }
     applySiteSeo(payload)
-  }, [payload])
+  }, [payload, locale])
 
   return null
 }

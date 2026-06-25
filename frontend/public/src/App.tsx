@@ -1457,7 +1457,7 @@ export default function App() {
       activeNav={activeNav}
       onNavigate={navigatePrimary}
     >
-      <SeoHead payload={appSeoPayload} />
+      <SeoHead payload={appSeoPayload} locale={route.locale} />
       <main className="grid w-full min-w-0 gap-3 px-2.5 pb-20 pt-2.5 sm:px-3 lg:px-4 lg:py-4 2xl:px-5">
         <section className="grid min-w-0 gap-3">
           {route.name === "feed" && (
