@@ -106,6 +106,8 @@ src/news_sentry/static/diagnose.html
 # Admin portal frontend (M-2)
 frontend/admin/node_modules/
 frontend/admin/dist/
+frontend/admin/test-results/
+frontend/admin/playwright-report/
 src/news_sentry/static/admin/
 
 # Public portal frontend (M-2 / Cloudflare Pages)
