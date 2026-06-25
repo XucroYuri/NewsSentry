@@ -60,7 +60,6 @@ def e2e_server(
         "NEWSSENTRY_AI_ENRICHMENT": "0",
         "NEWSSENTRY_PUBLIC_TRANSLATION": "0",
         "NEWSSENTRY_DEPLOYMENT_ENV": "local",
-        "NEWSSENTRY_ADMIN_PASSWORD": "e2e-admin-pass-123",
         "NEWSSENTRY_API_KEY": "e2e-test-api-key-00000000",
         "CORS_ALLOWED_ORIGINS": "http://localhost:18082",
     })
@@ -148,18 +147,30 @@ def e2e_client(e2e_base_url: str) -> Iterator[httpx.Client]:
 
 @pytest.fixture(scope="session")
 def admin_token(e2e_client: httpx.Client) -> str:
-    """Log in with the bootstrapped admin password and return a Bearer token.
+    """Create admin user via /api/v1/auth/setup and return a Bearer token.
 
-    Depends on ``NEWSSENTRY_ADMIN_PASSWORD=e2e-admin-pass-123`` set by the
-    ``e2e_server`` fixture.
+    When the E2E server starts from a fresh data directory there are no users,
+    so ``auth/setup`` will succeed and return a token directly.
+    If setup returns 409 (already exists), fall back to login.
     """
     resp = e2e_client.post(
-        "/api/v1/auth/login",
+        "/api/v1/auth/setup",
         json={"username": "admin", "password": "e2e-admin-pass-123"},
     )
-    assert resp.status_code == 200, f"Admin login failed: {resp.text}"
-    data = resp.json()
-    return str(data["access_token"])
+    if resp.status_code == 200:
+        data = resp.json()
+        return str(data["access_token"])
+    if resp.status_code == 409:
+        # Setup already completed (e.g. data dir reused); log in
+        login_resp = e2e_client.post(
+            "/api/v1/auth/login",
+            json={"username": "admin", "password": "e2e-admin-pass-123"},
+        )
+        assert login_resp.status_code == 200, (
+            f"Admin login fallback failed: {login_resp.text}"
+        )
+        return str(login_resp.json()["access_token"])
+    raise AssertionError(f"Admin setup failed: {resp.status_code} {resp.text}")
 
 
 @pytest.fixture(scope="session")

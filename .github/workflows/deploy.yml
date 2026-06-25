@@ -105,17 +105,13 @@ jobs:
         timeout-minutes: 10
         env:
           NEWSSENTRY_DEPLOYMENT_ENV: local
-          NEWSSENTRY_ADMIN_PASSWORD: e2e-admin-pass-123
-          NEWSSENTRY_API_KEY: e2e-test-api-key-00000000
-          NEWSSENTRY_DATA_DIR: /tmp/e2e-data
           NEWSSENTRY_AUTO_COLLECT: "0"
           NEWSSENTRY_AI_ENRICHMENT: "0"
           NEWSSENTRY_PUBLIC_TRANSLATION: "0"
         run: |
           set -euo pipefail
-          rm -rf /tmp/e2e-data
-          mkdir -p /tmp/e2e-data
-          # conftest.py manages the uvicorn subprocess; just run tests
+          # conftest.py manages the uvicorn subprocess and admin setup
+          # via POST /api/v1/auth/setup; no env password needed
           python -m pytest tests/e2e/ -m e2e -q --tb=short --timeout=60 -x
 
 
