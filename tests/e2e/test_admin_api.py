@@ -35,8 +35,8 @@ class TestAdminTargetLifecycle:
                 "mode": "template",
                 "language_scope": {"primary": "en"},
                 "timezone": "UTC",
-                "monitoring_type": "topic",
-                "region_type": "topic",
+                "monitoring_type": "country",
+                "region_type": "country",
             },
             headers=auth_header,
         )
@@ -55,8 +55,8 @@ class TestAdminTargetLifecycle:
                 "mode": "template",
                 "language_scope": {"primary": "en"},
                 "timezone": "UTC",
-                "monitoring_type": "topic",
-                "region_type": "topic",
+                "monitoring_type": "country",
+                "region_type": "country",
             },
             headers=auth_header,
         )
@@ -338,8 +338,8 @@ class TestAuthorizationBoundaries:
                 "mode": "template",
                 "language_scope": {"primary": "en"},
                 "timezone": "UTC",
-                "monitoring_type": "topic",
-                "region_type": "topic",
+                "monitoring_type": "country",
+                "region_type": "country",
             },
             headers=reader_header,
         )
