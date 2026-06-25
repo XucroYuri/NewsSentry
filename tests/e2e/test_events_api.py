@@ -165,7 +165,7 @@ class TestEventTransition:
         self, e2e_client: httpx.Client, auth_header: dict
     ) -> None:
         resp = e2e_client.post(
-            f"/api/v1/admin/events/ne-e2e-import-0001/transition",
+            "/api/v1/admin/events/ne-e2e-import-0001/transition",
             json={
                 "target_id": _TEST_TARGET,
                 "to_stage": "reviewed",
@@ -179,7 +179,7 @@ class TestEventTransition:
         self, e2e_client: httpx.Client, auth_header: dict
     ) -> None:
         resp = e2e_client.post(
-            f"/api/v1/admin/events/ne-e2e-import-0002/transition",
+            "/api/v1/admin/events/ne-e2e-import-0002/transition",
             json={
                 "target_id": _TEST_TARGET,
                 "to_stage": "published",

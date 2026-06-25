@@ -6,8 +6,8 @@ import os
 import subprocess
 import sys
 import time
-from pathlib import Path
 from collections.abc import Iterator
+from pathlib import Path
 
 import httpx
 import pytest
@@ -79,7 +79,7 @@ def e2e_server(
         "warning",
     ]
 
-    proc = subprocess.Popen(
+    proc = subprocess.Popen(  # noqa: S603
         cmd,
         env=env,
         stdout=subprocess.DEVNULL,
@@ -106,7 +106,7 @@ def e2e_server(
             try:
                 stderr_data = proc.stderr.read1(4096)
                 stderr_tail = stderr_data.decode("utf-8", errors="replace")
-            except Exception:
+            except Exception:  # noqa: S110
                 pass
         proc.kill()
         proc.wait(timeout=5)

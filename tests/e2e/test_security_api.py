@@ -6,8 +6,6 @@ authorization boundary for all admin endpoints, and CORS rejection.
 
 from __future__ import annotations
 
-import time
-
 import httpx
 import pytest
 

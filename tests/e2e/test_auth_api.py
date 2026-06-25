@@ -27,7 +27,7 @@ class TestLogin:
         assert resp.status_code == 200
         data = resp.json()
         assert "access_token" in data
-        assert data["token_type"] == "bearer"
+        assert data["token_type"] == "bearer"  # noqa: S105
         assert data["username"] == "admin"
         assert data["role"] == "admin"
         assert data["expires_in"] > 0
