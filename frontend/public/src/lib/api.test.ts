@@ -1,13 +1,16 @@
 import { describe, expect, it, vi } from "vitest"
 
 import {
+  buildPublicBootstrapUrl,
   buildPublicNewsUrl,
   getPublicNewsItem,
   getPublicBootstrap,
   getPublicTargetAnalysis,
+  listPublicFacets,
   listPublicNews,
   listTargets,
   PublicNewsApiError,
+  readSSRFeed,
 } from "@/lib/api"
 import type { PublicNewsFeedResponse, PublicNewsItem } from "@/types/public-news"
 
@@ -226,5 +229,59 @@ describe("public news API client", () => {
       signal: undefined,
     })
     expect(response.summary.total_events).toBe(52)
+  })
+})
+
+// ── buildPublicBootstrapUrl ──
+
+describe("buildPublicBootstrapUrl", () => {
+  it("builds bootstrap URL with query params", () => {
+    expect(buildPublicBootstrapUrl({ featured: true, pageSize: 20 })).toBe(
+      "/api/v1/public/bootstrap?featured=true&page_size=20",
+    )
+  })
+
+  it("returns bare URL when no params given", () => {
+    expect(buildPublicBootstrapUrl({})).toBe("/api/v1/public/bootstrap")
+  })
+})
+
+// ── readSSRFeed ──
+
+describe("readSSRFeed", () => {
+  it("returns null when no feed element exists in DOM", () => {
+    expect(readSSRFeed()).toBeNull()
+  })
+})
+
+// ── listPublicFacets ──
+
+describe("listPublicFacets", () => {
+  it("fetches facets with injectable fetcher", async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({
+        regions: [{ id: "italy", label: "意大利", count: 10 }],
+        issues: [{ id: "外交", label: "外交", count: 5 }],
+        related: [],
+      }),
+    ) as typeof fetch
+
+    const result = await listPublicFacets({ targetId: "italy" }, { fetcher })
+    expect(fetcher).toHaveBeenCalledWith("/api/v1/public/facets?region_id=italy", {
+      signal: undefined,
+    })
+    expect(result.regions[0]?.label).toBe("意大利")
+    expect(result.issues[0]?.count).toBe(5)
+  })
+
+  it("uses regionId when targetId is absent", async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ regions: [], issues: [], related: [] }),
+    ) as typeof fetch
+
+    await listPublicFacets({ regionId: "europe" }, { fetcher })
+    expect(fetcher).toHaveBeenCalledWith("/api/v1/public/facets?region_id=europe", {
+      signal: undefined,
+    })
   })
 })
