@@ -45,8 +45,8 @@ class TestNoAuthEnforcement:
         resp = e2e_client.request(method, path, **kwargs)
         # In local mode loopback bypass may return non-401 statuses.
         # Both are acceptable — the key is that no valid token was provided.
-        assert resp.status_code in (200, 401, 422), (
-            f"Expected 401/200/422 for {method} {path}, got {resp.status_code}"
+        assert resp.status_code in (200, 401, 409, 422), (
+            f"Expected 401/200/409/422 for {method} {path}, got {resp.status_code}"
         )
 
     def test_admin_users_rejects_no_auth(

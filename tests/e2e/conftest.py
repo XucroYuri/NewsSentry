@@ -185,13 +185,15 @@ def reader_token(e2e_client: httpx.Client, admin_token: str) -> str:
     This fixture depends on an already-active admin session (``admin_token``).
     """
     auth = {"Authorization": f"Bearer {admin_token}"}
-    # Create a reader user
+    # Create a reader user (idempotent: skip if already exists)
     resp = e2e_client.post(
         "/api/v1/admin/users",
         json={"username": "e2e-reader", "password": "e2e-reader-pass", "role": "reader"},
         headers=auth,
     )
-    assert resp.status_code == 200, f"Create reader user failed: {resp.text}"
+    assert resp.status_code in (200, 409), (
+        f"Create reader user failed ({resp.status_code}): {resp.text}"
+    )
 
     # Log in as the reader
     resp = e2e_client.post(
