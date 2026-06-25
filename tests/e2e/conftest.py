@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -71,6 +72,13 @@ def e2e_server(
         "NEWSSENTRY_ADMIN_USER": "admin",
         "CORS_ALLOWED_ORIGINS": "http://localhost:18082",
     })
+
+    # 将源树 config/ 复制到临时 data 目录，使 E2E 服务器能读取预置 target 配置
+    # （如 italy.yaml 等），同时写入操作也隔离在临时目录中。
+    src_config = Path("config")
+    dst_config = e2e_data_dir / "config"
+    if src_config.exists() and not dst_config.exists():
+        shutil.copytree(src_config, dst_config, symlinks=False, dirs_exist_ok=False)
 
     cmd = [
         sys.executable,
