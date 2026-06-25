@@ -1,7 +1,6 @@
 import aiosqlite
 import pytest
 
-from news_sentry.core import async_store as async_store_module
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.canonical_projection import CanonicalProjectionService, ProjectionOptions
 from news_sentry.core.store import _canonical as _canonical_module
