@@ -82,7 +82,7 @@ def e2e_server(
         cmd,
         env=env,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
     )
 
     # Wait for the server to become healthy (up to 15 seconds)
@@ -100,13 +100,6 @@ def e2e_server(
         time.sleep(0.5)
 
     if not started:
-        stderr_tail = ""
-        if proc.stderr:
-            try:
-                stderr_data = proc.stderr.read1(4096)
-                stderr_tail = stderr_data.decode("utf-8", errors="replace")
-            except Exception:  # noqa: S110
-                pass
         proc.kill()
         proc.wait(timeout=5)
         pytest.exit(
@@ -132,7 +125,7 @@ def e2e_base_url(e2e_port: int) -> str:
 
 
 @pytest.fixture(scope="session")
-def e2e_client(e2e_base_url: str) -> Iterator[httpx.Client]:
+def e2e_client(e2e_server: int, e2e_base_url: str) -> Iterator[httpx.Client]:
     """A synchronous ``httpx.Client`` pointed at the E2E server.
 
     The client uses keep-alive so that multiple test functions share
