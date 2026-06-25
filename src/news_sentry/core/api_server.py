@@ -2909,7 +2909,10 @@ def create_app(
     ) -> JSONResponse:
         """创建订阅记录（v1: 存本地 JSON，不发邮件）。"""
         subscription: dict[str, Any] = {
-            "subscription_id": f"sub_{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}",
+            "subscription_id": (
+                f"sub_{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}_"
+                f"{uuid.uuid4().hex[:8]}"
+            ),
             "target_id": target_id,
             "source_id": source_id,
             "issue": issue,
@@ -2927,7 +2930,10 @@ def create_app(
                 encoding="utf-8",
             )
         except OSError as exc:
-            raise HTTPException(status_code=500, detail=f"Failed to save subscription: {exc}") from exc
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to save subscription: {exc}",
+            ) from exc
         return JSONResponse(content=subscription, status_code=201)
 
     async def _public_news_feed_payload_for_bootstrap(
