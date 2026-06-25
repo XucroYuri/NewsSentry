@@ -15,14 +15,12 @@ import {
   GlobeIcon,
   Loader2Icon,
   SearchIcon,
-  Trash2Icon,
-  XIcon,
 } from "lucide-react"
 
 import { fetchAdminTargets, type AdminTargetInfo } from "@/lib/api"
 import { scoreVariant } from "@/lib/utils"
 import { fetchEvents, type EventsResponse } from "@backend/api/events"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import PaginationBar from "@/components/PaginationBar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"

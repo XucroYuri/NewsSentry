@@ -25,7 +25,6 @@ import logging
 import os
 import re
 import secrets
-import shutil
 import time
 import uuid
 from collections import defaultdict
@@ -178,7 +177,6 @@ from news_sentry.core._state import (
 )
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.auth import hash_password, verify_password
-from news_sentry.core.canonical_projection import CanonicalProjectionService, ProjectionOptions
 
 # ── 从辅助模块导入（从 api_server.py 提取）──────────────────────
 from news_sentry.core.collector_config_utils import (
@@ -222,9 +220,6 @@ from news_sentry.core.event_io_utils import (
     _save_webhook_event,
 )
 from news_sentry.core.file_writer import FileWriter
-from news_sentry.core.markdown_export import (
-    render_canonical_event_markdown,
-)
 from news_sentry.core.public_news_utils import (
     _classification_diagnostics_from_events,
     _classification_diagnostics_from_store,
@@ -3542,6 +3537,51 @@ def create_app(
     # ── 实体端点 ────────────────────────────────────────
 
     # Lazy-imported to avoid circular dependencies at module level
+    from news_sentry.core.canonical_handlers import (
+        canonical_backfill as _canonical_backfill_fn,
+    )
+    from news_sentry.core.canonical_handlers import (
+        canonical_diagnostics as _canonical_diagnostics_fn,
+    )
+    from news_sentry.core.canonical_handlers import (
+        create_research_artifact as _create_research_artifact_fn,
+    )
+    from news_sentry.core.canonical_handlers import (
+        export_canonical_event_markdown as _export_canonical_event_markdown_fn,
+    )
+    from news_sentry.core.canonical_handlers import (
+        get_canonical_event as _get_canonical_event_fn,
+    )
+    from news_sentry.core.canonical_handlers import (
+        list_canonical_event_mentions as _list_canonical_event_mentions_fn,
+    )
+    from news_sentry.core.canonical_handlers import (
+        list_canonical_event_relations as _list_canonical_event_relations_fn,
+    )
+    from news_sentry.core.canonical_handlers import (
+        list_canonical_events as _list_canonical_events_fn,
+    )
+    from news_sentry.core.canonical_handlers import (
+        list_research_artifacts_handler as _list_research_artifacts_handler_fn,
+    )
+    from news_sentry.core.canonical_handlers import (
+        patch_research_artifact as _patch_research_artifact_fn,
+    )
+    from news_sentry.core.canonical_handlers import (
+        research_event_detail as _research_event_detail_fn,
+    )
+    from news_sentry.core.canonical_handlers import (
+        research_graph_merge as _research_graph_merge_fn,
+    )
+    from news_sentry.core.canonical_handlers import (
+        research_graph_operations as _research_graph_operations_fn,
+    )
+    from news_sentry.core.canonical_handlers import (
+        research_graph_split as _research_graph_split_fn,
+    )
+    from news_sentry.core.canonical_handlers import (
+        research_queue as _research_queue_fn,
+    )
     from news_sentry.core.entity_handlers import (
         annotation_create_annotation,
         annotation_delete_annotation,
@@ -3555,6 +3595,24 @@ def create_app(
         entity_search_entities,
         notification_list_notification_rules,
         notification_upsert_notification_rule,
+    )
+    from news_sentry.core.maintenance_handlers import (
+        list_backups as _list_backups_fn,
+    )
+    from news_sentry.core.maintenance_handlers import (
+        maintenance_archive_duplicate_drafts as _maintenance_archive_duplicate_drafts_fn,
+    )
+    from news_sentry.core.maintenance_handlers import (
+        maintenance_backup as _maintenance_backup_fn,
+    )
+    from news_sentry.core.maintenance_handlers import (
+        maintenance_draft_diagnostics as _maintenance_draft_diagnostics_fn,
+    )
+    from news_sentry.core.maintenance_handlers import (
+        maintenance_prune as _maintenance_prune_fn,
+    )
+    from news_sentry.core.maintenance_handlers import (
+        restore_backup as _restore_backup_fn,
     )
 
     async def list_entities(
@@ -4622,33 +4680,21 @@ def create_app(
         limit: int = Query(500, ge=1, le=5000),
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
-        store = await _store_for_target(target_id)
-        if store is None:
-            raise HTTPException(status_code=503, detail="Event store unavailable")
-        service = CanonicalProjectionService(store)
-        diagnostics = await service.project(
-            ProjectionOptions(target_id=target_id, since=since, limit=limit, apply=False)
+        return await _canonical_diagnostics_fn(
+            get_target_store=_get_target_store,
+            target_id=target_id,
+            since=since,
+            limit=limit,
         )
-        return diagnostics.to_dict()
 
     async def canonical_backfill(
         payload: CanonicalBackfillRequest,
         user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
-        store = await _store_for_target(payload.target_id)
-        if store is None:
-            raise HTTPException(status_code=503, detail="Event store unavailable")
-        service = CanonicalProjectionService(store)
-        diagnostics = await service.project(
-            ProjectionOptions(
-                target_id=payload.target_id,
-                since=payload.since,
-                limit=payload.limit,
-                apply=payload.apply,
-                projection_run_id=payload.projection_run_id,
-            )
+        return await _canonical_backfill_fn(
+            get_target_store=_get_target_store,
+            payload=payload,
         )
-        return diagnostics.to_dict()
 
     async def list_canonical_events(
         target_id: str,
@@ -4657,81 +4703,60 @@ def create_app(
         status: str | None = None,
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
-        store = await _store_for_target(target_id)
-        if store is None:
-            raise HTTPException(status_code=503, detail="Event store unavailable")
-        events = await store.list_canonical_events(
+        return await _list_canonical_events_fn(
+            get_target_store=_get_target_store,
             target_id=target_id,
             limit=limit,
             offset=offset,
             status=status,
         )
-        return {"events": events, "limit": limit, "offset": offset}
-
-    async def _canonical_event_or_404(
-        store: AsyncStore,
-        canonical_event_id: str,
-        target_id: str,
-    ) -> dict[str, Any]:
-        event = await store.get_canonical_event(canonical_event_id)
-        if not event or event.get("target_id") != target_id:
-            raise HTTPException(status_code=404, detail="Canonical event not found")
-        return event
 
     async def get_canonical_event(
         canonical_event_id: str,
         target_id: str,
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
-        store = await _store_for_target(target_id)
-        if store is None:
-            raise HTTPException(status_code=404, detail="Canonical event not found")
-        return await _canonical_event_or_404(store, canonical_event_id, target_id)
+        return await _get_canonical_event_fn(
+            get_target_store=_get_target_store,
+            canonical_event_id=canonical_event_id,
+            target_id=target_id,
+        )
 
     async def list_canonical_event_mentions(
         canonical_event_id: str,
         target_id: str,
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
-        store = await _store_for_target(target_id)
-        if store is None:
-            raise HTTPException(status_code=404, detail="Canonical event not found")
-        await _canonical_event_or_404(store, canonical_event_id, target_id)
-        mentions = await store.list_event_mentions(canonical_event_id)
-        return {"canonical_event_id": canonical_event_id, "mentions": mentions}
+        return await _list_canonical_event_mentions_fn(
+            get_target_store=_get_target_store,
+            canonical_event_id=canonical_event_id,
+            target_id=target_id,
+        )
 
     async def list_canonical_event_relations(
         canonical_event_id: str,
         target_id: str,
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
-        store = await _store_for_target(target_id)
-        if store is None:
-            raise HTTPException(status_code=404, detail="Canonical event not found")
-        await _canonical_event_or_404(store, canonical_event_id, target_id)
-        relations = await store.list_canonical_relations(canonical_event_id)
-        return {"canonical_event_id": canonical_event_id, "relations": relations}
+        return await _list_canonical_event_relations_fn(
+            get_target_store=_get_target_store,
+            canonical_event_id=canonical_event_id,
+            target_id=target_id,
+        )
 
     async def export_canonical_event_markdown(
         canonical_event_id: str,
         target_id: str,
         user: dict[str, Any] = Depends(get_current_user),
     ) -> Response:
-        """导出 canonical event evidence package Markdown，不写入磁盘。"""
-        store = await _store_for_target(target_id)
-        if store is None:
-            raise HTTPException(status_code=404, detail="Canonical event not found")
-        event = await _canonical_event_or_404(store, canonical_event_id, target_id)
-        mentions = await store.list_event_mentions(canonical_event_id)
-        relations = await store.list_canonical_relations(canonical_event_id)
-        artifacts = await store.list_research_artifacts(
+        return await _export_canonical_event_markdown_fn(
+            get_target_store=_get_target_store,
+            markdown_download_response=_markdown_download_response,
+            canonical_event_id=canonical_event_id,
             target_id=target_id,
-            subject_type="canonical_event",
-            subject_id=canonical_event_id,
-            limit=200,
         )
-        content = render_canonical_event_markdown(event, mentions, relations, artifacts)
-        return _markdown_download_response(f"{canonical_event_id}.md", content)
+
+    # ── Research workflow endpoints ────────────────────
 
     # ── Research workflow endpoints ────────────────────
 
@@ -4742,10 +4767,8 @@ def create_app(
         offset: int = Query(0, ge=0),
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
-        store = await _store_for_target(target_id)
-        if store is None:
-            raise HTTPException(status_code=503, detail="Event store unavailable")
-        return await store.list_research_queue(
+        return await _research_queue_fn(
+            get_target_store=_get_target_store,
             target_id=target_id,
             status=status,
             limit=limit,
@@ -4756,67 +4779,21 @@ def create_app(
         payload: ResearchGraphMergeRequest,
         user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
-        store = await _store_for_target(payload.target_id)
-        if store is None:
-            raise HTTPException(status_code=503, detail="Event store unavailable")
-        created_by = (
-            "local-user" if user.get("local") else str(user.get("username") or "local-user")
+        return await _research_graph_merge_fn(
+            get_target_store=_get_target_store,
+            payload=payload,
+            user=user,
         )
-        try:
-            if payload.dry_run:
-                return await store.preview_canonical_merge(
-                    target_id=payload.target_id,
-                    decision_artifact_id=payload.decision_artifact_id,
-                    survivor_canonical_event_id=payload.survivor_canonical_event_id,
-                    merged_canonical_event_ids=payload.merged_canonical_event_ids,
-                    title_override=payload.title_override,
-                    summary_override=payload.summary_override,
-                    created_by=created_by,
-                )
-            return await store.apply_canonical_merge(
-                target_id=payload.target_id,
-                decision_artifact_id=payload.decision_artifact_id,
-                survivor_canonical_event_id=payload.survivor_canonical_event_id,
-                merged_canonical_event_ids=payload.merged_canonical_event_ids,
-                title_override=payload.title_override,
-                summary_override=payload.summary_override,
-                created_by=created_by,
-            )
-        except ValueError as exc:
-            raise _research_graph_error(exc) from exc
 
     async def research_graph_split(
         payload: ResearchGraphSplitRequest,
         user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
-        store = await _store_for_target(payload.target_id)
-        if store is None:
-            raise HTTPException(status_code=503, detail="Event store unavailable")
-        created_by = (
-            "local-user" if user.get("local") else str(user.get("username") or "local-user")
+        return await _research_graph_split_fn(
+            get_target_store=_get_target_store,
+            payload=payload,
+            user=user,
         )
-        try:
-            if payload.dry_run:
-                return await store.preview_canonical_split(
-                    target_id=payload.target_id,
-                    decision_artifact_id=payload.decision_artifact_id,
-                    source_canonical_event_id=payload.source_canonical_event_id,
-                    affected_mention_ids=payload.affected_mention_ids,
-                    new_title=payload.new_title,
-                    new_summary=payload.new_summary,
-                    created_by=created_by,
-                )
-            return await store.apply_canonical_split(
-                target_id=payload.target_id,
-                decision_artifact_id=payload.decision_artifact_id,
-                source_canonical_event_id=payload.source_canonical_event_id,
-                affected_mention_ids=payload.affected_mention_ids,
-                new_title=payload.new_title,
-                new_summary=payload.new_summary,
-                created_by=created_by,
-            )
-        except ValueError as exc:
-            raise _research_graph_error(exc) from exc
 
     async def research_graph_operations(
         target_id: str,
@@ -4826,44 +4803,25 @@ def create_app(
         offset: int = Query(0, ge=0),
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
-        store = await _store_for_target(target_id)
-        if store is None:
-            raise HTTPException(status_code=503, detail="Event store unavailable")
-        try:
-            operations = await store.list_canonical_graph_operations(
-                target_id=target_id,
-                operation_type=operation_type,
-                decision_artifact_id=decision_artifact_id,
-                limit=limit,
-                offset=offset,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        return {"operations": operations, "limit": limit, "offset": offset}
+        return await _research_graph_operations_fn(
+            get_target_store=_get_target_store,
+            target_id=target_id,
+            operation_type=operation_type,
+            decision_artifact_id=decision_artifact_id,
+            limit=limit,
+            offset=offset,
+        )
 
     async def research_event_detail(
         canonical_event_id: str,
         target_id: str,
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
-        store = await _store_for_target(target_id)
-        if store is None:
-            raise HTTPException(status_code=404, detail="Canonical event not found")
-        event = await _canonical_event_or_404(store, canonical_event_id, target_id)
-        mentions = await store.list_event_mentions(canonical_event_id)
-        relations = await store.list_canonical_relations(canonical_event_id)
-        artifacts = await store.list_research_artifacts(
+        return await _research_event_detail_fn(
+            get_target_store=_get_target_store,
+            canonical_event_id=canonical_event_id,
             target_id=target_id,
-            subject_type="canonical_event",
-            subject_id=canonical_event_id,
-            limit=200,
         )
-        return {
-            "event": event,
-            "mentions": mentions,
-            "relations": relations,
-            "artifacts": artifacts,
-        }
 
     async def list_research_artifacts(
         target_id: str,
@@ -4878,12 +4836,8 @@ def create_app(
         offset: int = Query(0, ge=0),
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
-        store = await _store_for_target(target_id)
-        if store is None:
-            raise HTTPException(status_code=503, detail="Event store unavailable")
-        if subject_id is not None:
-            await _canonical_event_or_404(store, subject_id, target_id)
-        artifacts = await store.list_research_artifacts(
+        return await _list_research_artifacts_handler_fn(
+            get_target_store=_get_target_store,
             target_id=target_id,
             subject_type=subject_type,
             subject_id=subject_id,
@@ -4892,51 +4846,18 @@ def create_app(
             limit=limit,
             offset=offset,
         )
-        return {"artifacts": artifacts, "limit": limit, "offset": offset}
 
     async def create_research_artifact(
         payload: ResearchArtifactCreateRequest,
         user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
-        _validate_research_metadata(payload.artifact_type, payload.metadata)
-        store = await _store_for_target(payload.target_id)
-        if store is None:
-            raise HTTPException(status_code=503, detail="Event store unavailable")
-        await _canonical_event_or_404(store, payload.subject_id, payload.target_id)
-        canonical_event_ids = [payload.subject_id]
-        candidates = payload.metadata.get("candidate_canonical_event_ids")
-        if isinstance(candidates, list):
-            canonical_event_ids.extend(str(candidate) for candidate in candidates)
-        artifact_id = _new_research_artifact_id(
-            payload.target_id,
-            payload.artifact_type,
-            payload.subject_id,
-            payload.metadata,
+        return await _create_research_artifact_fn(
+            get_target_store=_get_target_store,
+            new_artifact_id_fn=_new_research_artifact_id,
+            validate_metadata_fn=_validate_research_metadata,
+            payload=payload,
+            user=user,
         )
-        created_by = (
-            "local-user" if user.get("local") else str(user.get("username") or "local-user")
-        )
-        try:
-            await store.upsert_research_artifact(
-                {
-                    "artifact_id": artifact_id,
-                    "target_id": payload.target_id,
-                    "artifact_type": payload.artifact_type,
-                    "title": payload.title,
-                    "body": payload.body,
-                    "subject_type": payload.subject_type,
-                    "subject_id": payload.subject_id,
-                    "canonical_event_ids": canonical_event_ids,
-                    "status": payload.status,
-                    "visibility": payload.visibility,
-                    "created_by": created_by,
-                    "metadata": payload.metadata,
-                }
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        artifact = await store.get_research_artifact(artifact_id)
-        return {"artifact": artifact}
 
     async def patch_research_artifact(
         artifact_id: str,
@@ -4944,26 +4865,13 @@ def create_app(
         payload: ResearchArtifactPatchRequest,
         user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
-        store = await _store_for_target(target_id)
-        if store is None:
-            raise HTTPException(status_code=503, detail="Event store unavailable")
-        current = await store.get_research_artifact(artifact_id)
-        if current is None or current.get("target_id") != target_id:
-            raise HTTPException(status_code=404, detail="Research artifact not found")
-        patch = payload.model_dump(exclude_none=True)
-        if "metadata" in patch:
-            _validate_research_metadata(str(current.get("artifact_type")), patch["metadata"])
-        try:
-            updated = await store.update_research_artifact(
-                artifact_id,
-                target_id=target_id,
-                patch=patch,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        if updated is None:
-            raise HTTPException(status_code=404, detail="Research artifact not found")
-        return {"artifact": updated}
+        return await _patch_research_artifact_fn(
+            get_target_store=_get_target_store,
+            validate_metadata_fn=_validate_research_metadata,
+            artifact_id=artifact_id,
+            target_id=target_id,
+            payload=payload,
+        )
 
     # ── 维护端点 (Phase 40) ─────────────────────────────
 
@@ -4971,85 +4879,55 @@ def create_app(
         target_id: str = Query(..., description="目标标识"),
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
-        """只读诊断 draft 文件与运行时索引的一致性。"""
-        return await _draft_diagnostics(_data_dir, target_id)
+        return await _maintenance_draft_diagnostics_fn(
+            draft_diagnostics_fn=_draft_diagnostics,
+            data_dir=_data_dir,
+            target_id=target_id,
+        )
 
     async def maintenance_archive_duplicate_drafts(
         target_id: str = Query(..., description="目标标识"),
         dry_run: bool = Query(False, description="仅返回计划，不移动文件"),
         user: dict[str, Any] = Depends(require_permission("write")),
     ) -> dict[str, Any]:
-        """将重复 event_id 的多余 draft 文件归档，保留可公开读取的 canonical 文件。"""
-        return await _archive_duplicate_drafts(_data_dir, target_id, dry_run=dry_run)
+        return await _maintenance_archive_duplicate_drafts_fn(
+            archive_fn=_archive_duplicate_drafts,
+            data_dir=_data_dir,
+            target_id=target_id,
+            dry_run=dry_run,
+        )
 
     async def maintenance_prune(
         target_id: str = Query(..., description="目标标识"),
         max_age_days: int = Query(30, ge=7, le=365, description="保留天数"),
         user: dict[str, Any] = Depends(require_permission("write")),
     ) -> PruneResponse:
-        """手动触发数据清理。"""
-        if _store is None:
-            raise HTTPException(status_code=503, detail="Store not available")
-        result = await _store.prune_old_data(target_id, max_age_days=max_age_days)
-        return PruneResponse(target_id=target_id, **result)
+        result = await _maintenance_prune_fn(
+            store=_store,
+            target_id=target_id,
+            max_age_days=max_age_days,
+        )
+        return PruneResponse(**result)
 
     async def maintenance_backup(
         user: dict[str, Any] = Depends(require_permission("write")),
     ) -> BackupResponse:
-        """手动触发数据库备份。"""
-        if _store is None:
-            raise HTTPException(status_code=503, detail="Store not available")
-        backup_dir = _store.db_path.parent / "backups"
-        backup_path = await _store.backup_db(backup_dir)
-        size = backup_path.stat().st_size if backup_path.exists() else 0
-        return BackupResponse(backup_path=str(backup_path), size_bytes=size)
+        result = await _maintenance_backup_fn(store=_store)
+        return BackupResponse(**result)
 
     async def list_backups(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> dict[str, Any]:
-        """列出可用备份。"""
-        if _store is None:
-            return {"backups": []}
-        backup_dir = _store.db_path.parent / "backups"
-        if not backup_dir.exists():
-            return {"backups": []}
-        backups = []
-        for f in sorted(backup_dir.glob("state_*.db"), reverse=True):
-            backups.append(
-                {
-                    "filename": f.name,
-                    "size_bytes": f.stat().st_size,
-                    "created_at": f.stat().st_ctime,
-                }
-            )
-        return {"backups": backups}
+        return await _list_backups_fn(store=_store)
 
     async def restore_backup(
         filename: str = Query(..., description="备份文件名"),
         user: dict[str, Any] = Depends(require_permission("admin")),
     ) -> dict[str, Any]:
-        """从备份恢复数据库（需 admin 权限）。"""
-        if _store is None:
-            raise HTTPException(status_code=503, detail="Store not available")
-        backup_dir = _store.db_path.parent / "backups"
-        backup_path = backup_dir / filename
-        if not backup_path.exists() or not filename.startswith("state_"):
-            raise HTTPException(status_code=404, detail="Backup not found")
-        # 安全检查：防止路径遍历
-        if ".." in filename or "/" in filename:
-            raise HTTPException(status_code=400, detail="Invalid filename")
-
-        # 先备份当前数据库
-        ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-        current_backup = _store.db_path.parent / f"state_pre_restore_{ts}.db"
-        shutil.copy2(str(_store.db_path), str(current_backup))
-        # 关闭当前连接
-        await _store.close()
-        # 替换数据库文件
-        shutil.copy2(str(backup_path), str(_store.db_path))
-        # 重新初始化
-        await _store.initialize()
-        return {"status": "restored", "restored_from": filename}
+        return await _restore_backup_fn(
+            store=_store,
+            filename=filename,
+        )
 
     # ── 反馈闭环 + 告警管理 (Phase 41) ──────────────────
 

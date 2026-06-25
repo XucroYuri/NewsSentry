@@ -3,7 +3,6 @@ import {
   AlertTriangleIcon,
   CheckCircleIcon,
   RefreshCwIcon,
-  ServerIcon,
   DatabaseIcon,
   RadioIcon,
   ClockIcon,

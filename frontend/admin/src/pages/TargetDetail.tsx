@@ -6,14 +6,13 @@ import {
   GlobeIcon,
   RssIcon,
   UsersIcon,
-  Loader2Icon,
   RefreshCwIcon,
   ArchiveIcon,
   RotateCcwIcon,
   PencilIcon,
 } from "lucide-react"
 
-import { archiveTarget, restoreTarget, fetchTargetInventory, patchSource, archiveSource, restoreSource, type SourceInventoryResponse, type SourceInventoryItem } from "@/lib/api"
+import { archiveTarget, restoreTarget, fetchTargetInventory, archiveSource, restoreSource, type SourceInventoryResponse, type SourceInventoryItem } from "@/lib/api"
 import { fetchTargetOverview, type TargetOverviewResponse } from "@backend/api/targets"
 import { getLifecycleStatus } from "@/lib/utils"
 import ErrorBanner from "@/components/ErrorBanner"

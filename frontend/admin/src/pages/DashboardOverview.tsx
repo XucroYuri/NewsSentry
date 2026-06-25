@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react"
 import {
-  ActivityIcon,
   AlertTriangleIcon,
-  CheckCircleIcon,
   GlobeIcon,
   MessageSquareIcon,
   RadioIcon,
