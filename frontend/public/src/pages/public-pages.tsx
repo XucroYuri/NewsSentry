@@ -4,12 +4,20 @@ import {
   ArrowLeftIcon,
   ArrowUpRightIcon,
   BellIcon,
+  CalendarDaysIcon,
   ChevronRightIcon,
   CopyIcon,
   Globe2Icon,
   Loader2Icon,
+  MailIcon,
   NewspaperIcon,
+  RadioIcon,
+  RssIcon,
+  StarIcon,
+  TrendingUpIcon,
+  UsersIcon,
   XIcon,
+  ZapIcon,
 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -1564,6 +1572,353 @@ export function AnalysisPage({
             </CardContent>
           </Card>
         </aside>
+      </div>
+    </section>
+  )
+}
+
+// ─── SubscribePage ────────────────────────────────────────────────
+
+interface RegionSnapshot {
+  target_id: string
+  display_name: string
+  event_count: number
+  source_count: number
+  preview: PublicNewsItem[]
+  facets: { issues: Array<{ id: string; label: string; count: number }>; related: Array<{ id: string; label: string; count: number }> }
+  loading: boolean
+  error: boolean
+}
+
+function RegionSubscribeCard({
+  region,
+}: {
+  region: RegionSnapshot
+  onExpand: (targetId: string) => void
+}) {
+  const label = targetShortLabel(region.display_name)
+  return (
+    <div className="grid gap-3 rounded-lg border bg-card/80 p-3">
+      {/* 头部：地区名 + 统计 */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 min-w-0">
+          <Globe2Icon className="size-4 shrink-0 text-primary" aria-hidden="true" />
+          <h3 className="text-sm font-semibold truncate">{label}</h3>
+          <Badge variant="outline" className="h-5 rounded px-1.5 text-[10px]">
+            {region.event_count} 条
+          </Badge>
+        </div>
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          <RadioIcon className="size-3" aria-hidden="true" />
+          <span>{region.source_count}</span>
+        </div>
+      </div>
+
+      {/* 议题标签 */}
+      {region.facets.issues.length > 0 ? (
+        <div className="flex flex-wrap gap-1">
+          {region.facets.issues.slice(0, 5).map((issue) => (
+            <Badge key={issue.id} variant="secondary" className="h-5 rounded px-1.5 text-[10px] font-normal">
+              {issue.label}
+              <span className="ml-0.5 opacity-60">{issue.count}</span>
+            </Badge>
+          ))}
+        </div>
+      ) : region.loading ? (
+        <Skeleton className="h-5 w-32" />
+      ) : null}
+
+      {/* 最近新闻预览 */}
+      {region.loading ? (
+        <div className="grid gap-2">
+          {[1, 2].map((i) => (
+            <Skeleton key={i} className="h-4 w-full" />
+          ))}
+        </div>
+      ) : region.error ? (
+        <p className="text-xs text-muted-foreground">暂时无法加载该地区预览</p>
+      ) : region.preview.length > 0 ? (
+        <div className="grid gap-1.5">
+          {region.preview.slice(0, 3).map((item) => (
+            <a
+              key={item.id}
+              href={buildPublicAppPath(
+                parseLocationRoute({
+                  pathname: `/public-app/events/${item.id}`,
+                  search: `?target_id=${region.target_id}`,
+                  hash: "",
+                }),
+              )}
+              onClick={(event) =>
+                handleRouteAnchorClick(
+                  event,
+                  parseLocationRoute({
+                    pathname: `/public-app/events/${item.id}`,
+                    search: `?target_id=${region.target_id}`,
+                    hash: "",
+                  }),
+                )
+              }
+              className="flex items-center gap-2 rounded-md px-1.5 py-1 text-xs leading-5 transition-colors hover:bg-accent/50"
+            >
+              <ZapIcon className="size-3 shrink-0 text-primary/60" aria-hidden="true" />
+              <span className="line-clamp-1">{primaryNewsTitle(item)}</span>
+              <span className="shrink-0 text-[10px] text-muted-foreground">{formatTime(item.publishedAt)}</span>
+            </a>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">该地区暂无最近新闻</p>
+      )}
+
+      {/* 操作区 */}
+      <div className="flex items-center gap-2 border-t pt-2">
+        <Button
+          asChild
+          variant="outline"
+          size="sm"
+          className="h-7 rounded-md px-2 text-xs flex-1"
+        >
+          <a href={`/public-app/?channel=targets&target_id=${region.target_id}`}>浏览</a>
+        </Button>
+        <Button
+          asChild
+          variant="outline"
+          size="sm"
+          className="h-7 rounded-md px-2 text-xs"
+        >
+          <a
+            href={`/public-app/daily?date=${todayKey()}&target_id=${region.target_id}`}
+          >
+            <CalendarDaysIcon className="size-3 mr-1" aria-hidden="true" />
+            日报
+          </a>
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function SubscribeSkeleton() {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      {[1, 2, 3, 4, 5, 6].map((i) => (
+        <div key={i} className="grid gap-3 rounded-lg border bg-card/80 p-3">
+          <Skeleton className="h-5 w-28" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-3/4" />
+          <Skeleton className="h-4 w-1/2" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function SubscribePage() {
+  const [regions, setRegions] = useState<RegionSnapshot[]>([])
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading")
+
+  // 第一步：拉取所有地区
+  useEffect(() => {
+    let cancelled = false
+    async function loadRegions() {
+      setStatus("loading")
+      try {
+        const { listTargets } = await import("@/lib/api")
+        const result = await listTargets()
+        if (!cancelled) {
+          const active = result.targets
+            .filter((t) => t.event_count > 0)
+            .sort((a, b) => b.event_count - a.event_count)
+            .map((t) => ({
+              target_id: t.target_id,
+              display_name: t.display_name,
+              event_count: t.event_count,
+              source_count: t.source_count,
+              preview: [] as PublicNewsItem[],
+              facets: { issues: [], related: [] },
+              loading: true,
+              error: false,
+            }))
+          setRegions(active)
+          setStatus("ready")
+        }
+      } catch {
+        if (!cancelled) setStatus("error")
+      }
+    }
+    void loadRegions()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // 第二步：为有事件的地区拉取预览
+  useEffect(() => {
+    if (regions.length === 0) return
+    let cancelled = false
+
+    async function loadRegionPreview(targetId: string) {
+      try {
+        const { listPublicNews, listPublicFacets } = await import("@/lib/api")
+        const [newsResult, facetsResult] = await Promise.all([
+          listPublicNews({ targetId, pageSize: 3 }),
+          listPublicFacets({ targetId }),
+        ])
+        if (!cancelled) {
+          setRegions((prev) =>
+            prev.map((r) =>
+              r.target_id === targetId
+                ? {
+                    ...r,
+                    preview: newsResult.data?.items ?? [],
+                    facets: facetsResult,
+                    loading: false,
+                    error: false,
+                  }
+                : r,
+            ),
+          )
+        }
+      } catch {
+        if (!cancelled) {
+          setRegions((prev) =>
+            prev.map((r) =>
+              r.target_id === targetId ? { ...r, loading: false, error: true } : r,
+            ),
+          )
+        }
+      }
+    }
+
+    for (const region of regions) {
+      void loadRegionPreview(region.target_id)
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [regions.length === 0 ? "initial" : regions.map((r) => r.target_id).join(",")])
+
+  const totalEvents = useMemo(
+    () => regions.reduce((sum, r) => sum + r.event_count, 0),
+    [regions],
+  )
+  const totalSources = useMemo(
+    () => regions.reduce((sum, r) => sum + r.source_count, 0),
+    [regions],
+  )
+
+  return (
+    <section className="overflow-hidden rounded-lg border bg-background" aria-label="订阅管理">
+      {/* 页面头部 */}
+      <div className="border-b px-3 py-3">
+        <Badge variant="outline" className="mb-2">
+          订阅 Subscribe
+        </Badge>
+        <h1 className="text-xl font-semibold leading-tight">订阅中心</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          按地区订阅新闻哨兵更新，通过邮件或 RSS 接收每日/每周信号。选择你关注的地区开始。
+        </p>
+
+        {/* 统计卡片 */}
+        {status === "ready" ? (
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <div className="flex items-center gap-2 rounded-md border bg-card/60 px-3 py-2">
+              <Globe2Icon className="size-4 text-primary" aria-hidden="true" />
+              <div>
+                <p className="text-lg font-bold leading-none">{regions.length}</p>
+                <p className="text-[10px] text-muted-foreground">活跃地区</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 rounded-md border bg-card/60 px-3 py-2">
+              <NewspaperIcon className="size-4 text-primary" aria-hidden="true" />
+              <div>
+                <p className="text-lg font-bold leading-none">{totalEvents}</p>
+                <p className="text-[10px] text-muted-foreground">新闻总量</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 rounded-md border bg-card/60 px-3 py-2">
+              <RadioIcon className="size-4 text-primary" aria-hidden="true" />
+              <div>
+                <p className="text-lg font-bold leading-none">{totalSources}</p>
+                <p className="text-[10px] text-muted-foreground">活跃信源</p>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {/* 订阅方式介绍 */}
+      <div className="border-b px-3 py-3">
+        <h2 className="text-sm font-semibold">可用订阅方式</h2>
+        <div className="mt-2 grid gap-2 sm:grid-cols-3">
+          <a
+            href={`/api/v1/events/feed?target_id=${regions[0]?.target_id ?? "italy"}`}
+            className="flex items-start gap-2 rounded-md border bg-card/60 px-3 py-2 transition-colors hover:border-primary/50"
+          >
+            <RssIcon className="size-4 shrink-0 mt-0.5 text-primary" aria-hidden="true" />
+            <div>
+              <strong className="block text-xs text-foreground">RSS 订阅</strong>
+              <span className="text-[10px] text-muted-foreground">支持所有 RSS 阅读器</span>
+            </div>
+          </a>
+          <a
+            href="/subscribe"
+            className="flex items-start gap-2 rounded-md border bg-card/60 px-3 py-2 transition-colors hover:border-primary/50"
+          >
+            <MailIcon className="size-4 shrink-0 mt-0.5 text-primary" aria-hidden="true" />
+            <div>
+              <strong className="block text-xs text-foreground">邮件摘要</strong>
+              <span className="text-[10px] text-muted-foreground">每日信号 + 周三周报</span>
+            </div>
+          </a>
+          <a
+            href="/public-app/daily"
+            className="flex items-start gap-2 rounded-md border bg-card/60 px-3 py-2 transition-colors hover:border-primary/50"
+          >
+            <BellIcon className="size-4 shrink-0 mt-0.5 text-primary" aria-hidden="true" />
+            <div>
+              <strong className="block text-xs text-foreground">新闻日报预览</strong>
+              <span className="text-[10px] text-muted-foreground">按日期组包的内容简报</span>
+            </div>
+          </a>
+        </div>
+      </div>
+
+      {/* 地区订阅卡片 */}
+      <div className="px-3 py-3">
+        <h2 className="text-sm font-semibold mb-2">按地区订阅</h2>
+        {status === "loading" ? (
+          <SubscribeSkeleton />
+        ) : status === "error" ? (
+          <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-6 text-center">
+            <p className="text-sm text-destructive">无法加载地区列表，请刷新重试</p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2"
+              onClick={() => window.location.reload()}
+            >
+              刷新
+            </Button>
+          </div>
+        ) : regions.length === 0 ? (
+          <div className="rounded-md border border-dashed px-3 py-6 text-center">
+            <Globe2Icon className="mx-auto size-6 text-muted-foreground" aria-hidden="true" />
+            <p className="mt-2 text-sm text-muted-foreground">暂无活跃地区数据</p>
+            <p className="text-xs text-muted-foreground">新闻采集正在进行中，请稍后回来</p>
+          </div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {regions.map((region) => (
+              <RegionSubscribeCard
+                key={region.target_id}
+                region={region}
+                onExpand={() => {}}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </section>
   )

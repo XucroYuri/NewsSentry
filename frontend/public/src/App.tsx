@@ -48,6 +48,7 @@ import {
   NewsFeedPage,
   SourceDetailPage,
   SourceDirectoryPage,
+  SubscribePage,
 } from "@/pages/public-pages"
 import type { PublicBootstrapResponse, PublicFacetsResponse, PublicTargetInfo } from "@/types/public-news"
 
@@ -1206,49 +1207,6 @@ function AgentPage() {
           <strong className="block text-sm text-foreground">Subscribe</strong>
           <span className="text-xs">每日/每周摘要</span>
         </a>
-      </div>
-    </InfoPanel>
-  )
-}
-
-function SubscribePage() {
-  const links = [
-    {
-      title: "每日信号",
-      description: "每日高价值新闻摘要",
-      href: "/public-app/",
-    },
-    {
-      title: "新闻日报",
-      description: "按日期聚合的简报",
-      href: "/public-app/daily",
-    },
-    {
-      title: "地区更新",
-      description: "围绕重点地区的变化提醒",
-      href: "/public-app/",
-    },
-  ]
-
-  return (
-    <InfoPanel title="订阅 Subscribe">
-      <div className="flex flex-col gap-2 border-b pb-2 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-        <span>接收每日信号、新闻日报与地区更新。</span>
-        <a className="font-medium text-primary hover:underline" href="/public-app/">
-          进入新闻哨兵
-        </a>
-      </div>
-      <div className="grid gap-2 sm:grid-cols-3">
-        {links.map((link) => (
-          <a
-            key={link.title}
-            className="rounded-md border bg-background/60 px-3 py-2 hover:border-primary/50"
-            href={link.href}
-          >
-            <strong className="block text-sm text-foreground">{link.title}</strong>
-            <span className="text-xs">{link.description}</span>
-          </a>
-        ))}
       </div>
     </InfoPanel>
   )
