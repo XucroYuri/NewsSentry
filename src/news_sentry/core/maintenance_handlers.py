@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import shutil
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from fastapi import HTTPException
 
@@ -26,7 +26,7 @@ async def maintenance_draft_diagnostics(
     target_id: str,
 ) -> dict[str, Any]:
     """只读诊断 draft 文件与运行时索引的一致性。"""
-    return await draft_diagnostics_fn(data_dir, target_id)
+    return cast("dict[str, Any]", await draft_diagnostics_fn(data_dir, target_id))
 
 
 async def maintenance_archive_duplicate_drafts(
@@ -36,7 +36,7 @@ async def maintenance_archive_duplicate_drafts(
     dry_run: bool = False,
 ) -> dict[str, Any]:
     """将重复 event_id 的多余 draft 文件归档，保留可公开读取的 canonical 文件。"""
-    return await archive_fn(data_dir, target_id, dry_run=dry_run)
+    return cast("dict[str, Any]", await archive_fn(data_dir, target_id, dry_run=dry_run))
 
 
 async def maintenance_prune(

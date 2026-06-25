@@ -13,7 +13,7 @@ import logging
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 from fastapi import HTTPException
@@ -175,7 +175,7 @@ async def get_event_handler(
         if isinstance(event, InvisibleIndexedEvent):
             raise HTTPException(status_code=404, detail="Event not found")
         if event is not None:
-            return event
+            return cast("dict[str, Any]", event)
         if await store_has_target_event_index(target_store, target_id):
             raise HTTPException(status_code=404, detail="Event not found")
 
@@ -189,7 +189,7 @@ async def get_event_handler(
         if isinstance(event, InvisibleIndexedEvent):
             raise HTTPException(status_code=404, detail="Event not found")
         if event is not None:
-            return event
+            return cast("dict[str, Any]", event)
         if await store_has_target_event_index(store, target_id):
             raise HTTPException(status_code=404, detail="Event not found")
 
@@ -197,7 +197,7 @@ async def get_event_handler(
     event = load_single_event(data_dir, target_id, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
-    return event
+    return cast("dict[str, Any]", event)
 
 
 async def import_events_handler(

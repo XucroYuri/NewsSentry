@@ -182,7 +182,7 @@ async def cached_public_regions(
     )
     if response is not None:
         response.headers.update(headers)
-    return payload
+    return cast(RegionListResponse, payload)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -307,7 +307,7 @@ async def cached_public_facets(
     )
     if response is not None:
         response.headers.update(headers)
-    return payload
+    return cast(PublicFacetsResponse, payload)
 
 
 # ═══════════════════════════════════════════════════════════════════════

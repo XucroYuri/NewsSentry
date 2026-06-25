@@ -9,7 +9,7 @@ Originally extracted from ``api_server.py`` lines ~4619-4966.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from fastapi import HTTPException, Response
 
@@ -35,7 +35,7 @@ async def _canonical_event_or_404(
     event = await store.get_canonical_event(canonical_event_id)
     if not event or event.get("target_id") != target_id:
         raise HTTPException(status_code=404, detail="Canonical event not found")
-    return event
+    return cast("dict[str, Any]", event)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -197,12 +197,12 @@ async def research_queue(
     store = ts if ts is not None else _st._store
     if store is None:
         raise HTTPException(status_code=503, detail="Event store unavailable")
-    return await store.list_research_queue(
+    return cast("dict[str, Any]", await store.list_research_queue(
         target_id=target_id,
         status=status,
         limit=limit,
         offset=offset,
-    )
+    ))
 
 
 async def research_graph_merge(
@@ -218,7 +218,7 @@ async def research_graph_merge(
     created_by = _make_created_by(user)
     try:
         if payload.dry_run:
-            return await store.preview_canonical_merge(
+            return cast("dict[str, Any]", await store.preview_canonical_merge(
                 target_id=payload.target_id,
                 decision_artifact_id=payload.decision_artifact_id,
                 survivor_canonical_event_id=payload.survivor_canonical_event_id,
@@ -226,8 +226,8 @@ async def research_graph_merge(
                 title_override=payload.title_override,
                 summary_override=payload.summary_override,
                 created_by=created_by,
-            )
-        return await store.apply_canonical_merge(
+            ))
+        return cast("dict[str, Any]", await store.apply_canonical_merge(
             target_id=payload.target_id,
             decision_artifact_id=payload.decision_artifact_id,
             survivor_canonical_event_id=payload.survivor_canonical_event_id,
@@ -235,7 +235,7 @@ async def research_graph_merge(
             title_override=payload.title_override,
             summary_override=payload.summary_override,
             created_by=created_by,
-        )
+        ))
     except ValueError as exc:
         raise _research_graph_error(exc) from exc
 
@@ -253,7 +253,7 @@ async def research_graph_split(
     created_by = _make_created_by(user)
     try:
         if payload.dry_run:
-            return await store.preview_canonical_split(
+            return cast("dict[str, Any]", await store.preview_canonical_split(
                 target_id=payload.target_id,
                 decision_artifact_id=payload.decision_artifact_id,
                 source_canonical_event_id=payload.source_canonical_event_id,
@@ -261,8 +261,8 @@ async def research_graph_split(
                 new_title=payload.new_title,
                 new_summary=payload.new_summary,
                 created_by=created_by,
-            )
-        return await store.apply_canonical_split(
+            ))
+        return cast("dict[str, Any]", await store.apply_canonical_split(
             target_id=payload.target_id,
             decision_artifact_id=payload.decision_artifact_id,
             source_canonical_event_id=payload.source_canonical_event_id,
@@ -270,7 +270,7 @@ async def research_graph_split(
             new_title=payload.new_title,
             new_summary=payload.new_summary,
             created_by=created_by,
-        )
+        ))
     except ValueError as exc:
         raise _research_graph_error(exc) from exc
 
