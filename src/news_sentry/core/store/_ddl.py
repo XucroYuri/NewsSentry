@@ -35,6 +35,7 @@ _PRAGMA_SETUP = (
 _DDL_KNOWN_IDS = """
 CREATE TABLE IF NOT EXISTS known_ids (
     event_id  TEXT PRIMARY KEY,
+    gid       TEXT,
     seen_at   TEXT NOT NULL
 )
 """
@@ -85,7 +86,8 @@ CREATE TABLE IF NOT EXISTS event_index (
     sentiment         TEXT,
     entity_names      TEXT,
     topic_tags        TEXT,
-    created_at        TEXT NOT NULL
+    created_at        TEXT NOT NULL,
+    gid               TEXT
 )
 """
 
@@ -582,6 +584,14 @@ _SCHEMA_MIGRATIONS: list[tuple[int, str, list[str]]] = [
         15,
         "Notification rules — user alert rule storage",
         [_DDL_NOTIFICATION_RULES],
+    ),
+    (
+        16,
+        "Add gid column to event_index and known_ids — UUID4 identifier alongside content-hash event_id",
+        [
+            "ALTER TABLE event_index ADD COLUMN gid TEXT",
+            "ALTER TABLE known_ids ADD COLUMN gid TEXT",
+        ],
     ),
 ]
 

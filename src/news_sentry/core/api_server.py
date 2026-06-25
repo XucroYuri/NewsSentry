@@ -4130,7 +4130,8 @@ def create_app(
 
                 # 索引到 SQLite
                 if _store is not None and _store._db is not None:  # noqa: SLF001
-                    await _store.mark_known(event_id)
+                    gid = NewsEvent.make_gid()
+                    await _store.mark_known(event_id, gid)
                     classification_l0 = None
                     if isinstance(item.classification, dict):
                         classification_l0 = item.classification.get("l0")
@@ -4138,8 +4139,8 @@ def create_app(
                         """INSERT OR IGNORE INTO event_index
                            (event_id, target_id, stage, source_id,
                             classification_l0, title_original,
-                            published_at, file_path, created_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            published_at, file_path, created_at, gid)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
                             event_id,
                             item.target_id,
@@ -4150,6 +4151,7 @@ def create_app(
                             published_at,
                             str(filepath),
                             now.isoformat(),
+                            gid,
                         ),
                     )
                     await _store._db.commit()  # noqa: SLF001

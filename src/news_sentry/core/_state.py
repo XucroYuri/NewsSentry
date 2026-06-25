@@ -100,8 +100,8 @@ _PUBLIC_SITE_DESCRIPTION_IT: str = (
     "Traccia eventi chiave per regione, tema e soggetto, offrendo riassunti in cinese, "
     "titoli originali, fonti e l'indice Breaking News."
 )
-_PUBLIC_SHARED_JSON_CACHE_CONTROL: str = "public, max-age=60"
-_PUBLIC_BOOTSTRAP_CACHE_CONTROL: str = "public, max-age=300"
+_PUBLIC_SHARED_JSON_CACHE_CONTROL: str = "public, max-age=30, s-maxage=60, stale-while-revalidate=300"
+_PUBLIC_BOOTSTRAP_CACHE_CONTROL: str = "public, max-age=300, s-maxage=300, stale-while-revalidate=600"
 _PUBLIC_BOOTSTRAP_CACHE_TTL_SECONDS: int = 300
 _PUBLIC_REGIONS_CACHE_TTL_SECONDS: int = 300
 _PUBLIC_FACETS_CACHE_TTL_SECONDS: int = 300

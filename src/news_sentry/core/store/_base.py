@@ -216,6 +216,7 @@ class AsyncStoreBase:
         metadata: dict[str, Any],
     ) -> dict[str, Any]:
         return {
+            "gid": getattr(event, "gid", ""),
             "event_id": getattr(event, "id", ""),
             "target_id": target_id,
             "title_original": getattr(event, "title_original", None),
@@ -228,11 +229,11 @@ class AsyncStoreBase:
         assert self._db is not None
         try:
             rows = await self._db.execute_fetchall(
-                "SELECT event_id, target_id, title_original, metadata_json FROM event_index"
+                "SELECT gid, event_id, target_id, title_original, metadata_json FROM event_index"
             )
         except sqlite3.OperationalError:
             return
-        for event_id, target_id, title_original, metadata_json in rows:
+        for gid, event_id, target_id, title_original, metadata_json in rows:
             ready = self._publication_ready_from_index_row(
                 {
                     "event_id": event_id,

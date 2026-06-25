@@ -58,17 +58,24 @@ class EventStoreMixin(AsyncStoreBase):
         classification_l0 = classification.get("l0") if isinstance(classification, dict) else None
         classification_l0 = canonical_l0(classification_l0)
         now = datetime.now(UTC).isoformat()
+
+        event_id = getattr(event, "id", "")
+        gid = getattr(event, "gid", None)
+        if not gid or not isinstance(gid, str):
+            from news_sentry.models.newsevent import NewsEvent
+            gid = NewsEvent.make_gid()
+
         await self._db.execute(
             """INSERT OR REPLACE INTO event_index
                (event_id, target_id, stage, source_id, news_value_score,
                 china_relevance, classification_l0, title_original,
                 url, published_at, file_path, metadata_json, public_translation_ready,
                 sentiment, entity_names, topic_tags,
-                created_at)
+                created_at, gid)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(
-                   (SELECT created_at FROM event_index WHERE event_id = ?), ?))""",
+                   (SELECT created_at FROM event_index WHERE event_id = ?), ?), ?)""",
             (
-                getattr(event, "id", ""),
+                event_id,
                 target_id,
                 stage,
                 getattr(event, "source_id", None),
@@ -82,8 +89,9 @@ class EventStoreMixin(AsyncStoreBase):
                 self._json_dumps(metadata),
                 translation_ready,
                 *self._extract_nlp_fields(event),
-                getattr(event, "id", ""),
+                event_id,
                 now,
+                gid,
             ),
         )
         await self._db.commit()

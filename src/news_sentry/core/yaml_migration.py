@@ -79,9 +79,11 @@ async def migrate_yaml_to_sqlite(
                 for event_id, seen_at in data.items():
                     # 检查是否已存在，只计数实际新插入的
                     if not await store.is_known(str(event_id)):
+                        from news_sentry.models.newsevent import NewsEvent
+                        gid = NewsEvent.make_gid()
                         await db.execute(
-                            "INSERT OR IGNORE INTO known_ids (event_id, seen_at) VALUES (?, ?)",
-                            (str(event_id), str(seen_at)),
+                            "INSERT OR IGNORE INTO known_ids (event_id, gid, seen_at) VALUES (?, ?, ?)",
+                            (str(event_id), gid, str(seen_at)),
                         )
                         inserted += 1
                 await db.commit()

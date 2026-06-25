@@ -7,6 +7,7 @@ and docs/newsevent-schema.md. Schema: schemas/newsevent.schema.json
 from __future__ import annotations
 
 import hashlib
+import uuid
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
@@ -79,6 +80,7 @@ class NewsEvent(BaseModel):
     """Core data exchange object. Schema: schemas/newsevent.schema.json"""
 
     id: str
+    gid: str | None = None
     run_id: str
     source_id: str
     url: str
@@ -114,3 +116,13 @@ class NewsEvent(BaseModel):
         hash_input = f"{target_id}{source_id}{url}{published_at_iso}"
         hash8 = hashlib.sha256(hash_input.encode("utf-8")).hexdigest()[:8]
         return f"ne-{target_id}-{source_id}-{date_str}-{hash8}"
+
+    @staticmethod
+    def make_gid() -> str:
+        """生成全局唯一标识符 (gid)，用于数据库 PRIMARY KEY。
+
+        gid 是纯 UUID4 hex string（32 位十六进制），无业务语义，
+        不替代 NewsEvent.id 的内容 hash 去重语义。
+        格式: ``g-{uuid4_hex}``
+        """
+        return f"g-{uuid.uuid4().hex}"

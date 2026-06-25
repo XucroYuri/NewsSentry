@@ -1368,8 +1368,8 @@ class TestRunJudgeAsync:
 
         mock_store.upsert_entity.assert_called()
         call_args = mock_store.upsert_entity.call_args
-        assert call_args[0][0] == "Meloni"
-        assert call_args[0][1] == "PERSON"
+        assert call_args.kwargs["name"] == "Meloni"
+        assert call_args.kwargs["entity_type"] == "PERSON"
 
     @pytest.mark.asyncio
     async def test_judge_async_smart_alerts(self):

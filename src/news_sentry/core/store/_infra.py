@@ -27,13 +27,13 @@ class InfraStoreMixin(AsyncStoreBase):
             row = await cursor.fetchone()
         return row is not None
 
-    async def mark_known(self, event_id: str) -> None:
+    async def mark_known(self, event_id: str, gid: str) -> None:
         if self._db is None:
             return
         now = datetime.now(UTC).isoformat()
         await self._db.execute(
-            "INSERT OR IGNORE INTO known_ids (event_id, seen_at) VALUES (?, ?)",
-            (event_id, now),
+            "INSERT OR IGNORE INTO known_ids (event_id, gid, seen_at) VALUES (?, ?, ?)",
+            (event_id, gid, now),
         )
         await self._db.commit()
 

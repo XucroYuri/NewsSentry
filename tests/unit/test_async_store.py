@@ -116,13 +116,13 @@ class TestKnownIds:
 
     @pytest.mark.asyncio
     async def test_mark_known_and_is_known(self, store: AsyncStore):
-        await store.mark_known("evt-001")
+        await store.mark_known("evt-001", "g-test-0001")
         assert await store.is_known("evt-001") is True
 
     @pytest.mark.asyncio
     async def test_mark_known_is_idempotent(self, store: AsyncStore):
-        await store.mark_known("evt-002")
-        await store.mark_known("evt-002")
+        await store.mark_known("evt-002", "g-test-0002")
+        await store.mark_known("evt-002", "g-test-0003")
         assert await store.is_known("evt-002") is True
 
     @pytest.mark.asyncio
@@ -130,7 +130,7 @@ class TestKnownIds:
         db_path = tmp_path / "state.db"
         store1 = AsyncStore(db_path)
         await store1.initialize()
-        await store1.mark_known("evt-persist-001")
+        await store1.mark_known("evt-persist-001", "g-test-0004")
         await store1.close()
 
         store2 = AsyncStore(db_path)
@@ -147,13 +147,13 @@ class TestKnownIds:
         # 手动插入一条过期的 known_id
         stale_time = (datetime.now(UTC) - timedelta(days=60)).isoformat()
         await store._db.execute(
-            "INSERT INTO known_ids (event_id, seen_at) VALUES (?, ?)",
+            "INSERT INTO known_ids (event_id, gid, seen_at) VALUES (?, \'g-test-stale\', ?)",
             ("stale-evt", stale_time),
         )
         await store._db.commit()
 
         # 插入一条新鲜的
-        await store.mark_known("fresh-evt")
+        await store.mark_known("fresh-evt", "g-test-0005")
 
         pruned = await store.prune_old_ids(max_age_days=30)
         assert pruned == 1
@@ -163,14 +163,14 @@ class TestKnownIds:
 
     @pytest.mark.asyncio
     async def test_prune_old_ids_returns_zero_when_no_stale(self, store: AsyncStore):
-        await store.mark_known("evt-recent")
+        await store.mark_known("evt-recent", "g-test-0006")
         pruned = await store.prune_old_ids(max_age_days=30)
         assert pruned == 0
 
     @pytest.mark.asyncio
     async def test_concurrent_mark_known(self, store: AsyncStore):
         ids = [f"concurrent-{i}" for i in range(20)]
-        await asyncio.gather(*(store.mark_known(eid) for eid in ids))
+        await asyncio.gather(*(store.mark_known(eid, "g-test-0008") for eid in ids))
         for eid in ids:
             assert await store.is_known(eid) is True
 
@@ -2230,7 +2230,7 @@ async def test_canonical_graph_operation_integrity_error_rolls_back_before_retur
     assert operation_id == "cgo-italy-race-rollback-winner"
     assert store._db.in_transaction is False
 
-    await store.mark_known("evt-after-canonical-graph-race")
+    await store.mark_known("evt-after-canonical-graph-race", "g-test-0007")
     assert await store.is_known("evt-after-canonical-graph-race") is True
 
 
