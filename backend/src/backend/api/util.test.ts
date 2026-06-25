@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it } from "vitest"
 import { AdminApiError, apiUrl, authHeaders, resolveUrl, throwApiError } from "./util"
 
 const SETTINGS_KEY = "news-sentry:settings"
