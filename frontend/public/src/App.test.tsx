@@ -607,7 +607,7 @@ describe("Phase 84 public portal app", () => {
   it.each([
     ["event detail", "#/events/event-1?target_id=italy", LEAD_TITLE],
     ["sources directory", "#/sources", "信源管理"],
-    ["subscribe", "#/subscribe", "订阅 Subscribe"],
+    ["subscribe", "#/subscribe", "创建订阅"],
     ["daily digest", "#/daily?date=2026-06-09", "新闻日报"],
     ["analysis briefing", "#/analysis?target_id=italy", "态势简报"],
   ])("keeps the %s shell full-width instead of centering it", async (_label, hash, heading) => {
@@ -630,18 +630,13 @@ describe("Phase 84 public portal app", () => {
 
     render(<App />)
 
-    expect(await screen.findByRole("heading", { name: "订阅 Subscribe" })).toBeInTheDocument()
-    expect(screen.getByText("接收每日信号、新闻日报与地区更新。")).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: /每日信号/ })).toHaveAttribute("href", "/public-app/")
-    expect(screen.getByRole("link", { name: /新闻日报/ })).toHaveAttribute(
-      "href",
-      "/public-app/daily",
-    )
-    expect(screen.getByRole("link", { name: /地区更新/ })).toHaveAttribute("href", "/public-app/")
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
-    expect(screen.queryByText("邮件订阅入口")).not.toBeInTheDocument()
-    expect(screen.queryByText("P0 先开放订阅入口")).not.toBeInTheDocument()
-    expect(screen.queryByText("P2 会补齐")).not.toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "创建订阅" })).toBeInTheDocument()
+    expect(screen.getByText("订阅 Subscribe")).toBeInTheDocument()
+    // 3-step funnel: email input exists, subscribe button is present
+    const emailInput = screen.getByPlaceholderText("your@email.com")
+    expect(emailInput).toBeInTheDocument()
+    expect(emailInput).toHaveAttribute("type", "email")
+    expect(screen.getByRole("button", { name: "订阅" })).toBeInTheDocument()
   })
 
   it("renders the reading feed without desktop side rails", async () => {
