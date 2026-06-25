@@ -100,8 +100,7 @@ jobs:
 
       - name: Config schema validation
         run: python -m pytest tests/unit/test_config_schema_validation.py -q
-      - name: 📋 E2E tests
-        continue-on-error: true
+      - name: E2E tests
         timeout-minutes: 10
         env:
           NEWSSENTRY_DEPLOYMENT_ENV: local
