@@ -348,7 +348,7 @@ flowchart LR
 - **覆盖率:** 85%
 - **Type:** mypy strict + ruff: 零错误
 - **生产:** news-sentry.com — `{"status": "ok"}`
-- **Docker:** ghcr.io/xucroyuri/news-sentry (299MB)
+- **Docker:** ghcr.io/xucroyuri/news-sentry (279MB)
 - **品牌:** 金色瞭望塔, 已挂载管理面板 + README
 - **发布:** CHANGELOG.md + .github/release.yml 就绪
 
