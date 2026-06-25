@@ -1,10 +1,10 @@
-from __future__ import annotations
-
+import aiosqlite
 import pytest
 
 from news_sentry.core import async_store as async_store_module
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.canonical_projection import CanonicalProjectionService, ProjectionOptions
+from news_sentry.core.store import _canonical as _canonical_module
 
 
 @pytest.fixture
@@ -308,7 +308,7 @@ async def test_apply_canonical_projection_shared_commit_cannot_commit_partial_ro
     store: AsyncStore,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    original_connect = async_store_module.aiosqlite.connect
+    original_connect = aiosqlite.connect
 
     class InstrumentedConnection:
         def __init__(self, conn):
@@ -341,7 +341,7 @@ async def test_apply_canonical_projection_shared_commit_cannot_commit_partial_ro
             assert self._conn is not None
             await self._conn.close()
 
-    monkeypatch.setattr(async_store_module.aiosqlite, "connect", InstrumentedConnect)
+    monkeypatch.setattr(_canonical_module.aiosqlite, "connect", InstrumentedConnect)
 
     with pytest.raises(KeyError):
         await store.apply_canonical_projection(

@@ -5214,6 +5214,7 @@ def create_app(
     # ── 路由注册（通过 APIRouter）──────────────────
     from news_sentry.api.routes.admin import register_admin_routes
     from news_sentry.api.routes.public import register_public_routes
+    from news_sentry.api.routes.targets import register_target_routes
 
     public_router = APIRouter()
     admin_router = APIRouter()
@@ -5414,6 +5415,7 @@ def create_app(
         "RulesOptimizeResponse": RulesOptimizeResponse,
     }
     register_admin_routes(admin_router, _admin_handlers)
+    register_target_routes(admin_router, _admin_handlers)
 
     app.include_router(admin_router)
     app.include_router(public_router)
