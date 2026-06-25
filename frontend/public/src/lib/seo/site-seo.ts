@@ -127,6 +127,11 @@ export function buildRouteSeoPayload({
   }
 }
 
+const OG_IMAGE_URL = "/icons/icon-192.svg"
+const OG_IMAGE_ALT = `${SITE_NAME} logo`
+const OG_IMAGE_WIDTH = "192"
+const OG_IMAGE_HEIGHT = "192"
+
 export function applySiteSeo(payload: SiteSeoPayload, doc: Document = document) {
   doc.title = payload.title
 
@@ -136,9 +141,14 @@ export function applySiteSeo(payload: SiteSeoPayload, doc: Document = document) 
   upsertMeta(doc, "og:title", payload.title, "property")
   upsertMeta(doc, "og:description", payload.description, "property")
   upsertMeta(doc, "og:url", payload.canonicalUrl, "property")
+  upsertMeta(doc, "og:image", OG_IMAGE_URL, "property")
+  upsertMeta(doc, "og:image:alt", OG_IMAGE_ALT, "property")
+  upsertMeta(doc, "og:image:width", OG_IMAGE_WIDTH, "property")
+  upsertMeta(doc, "og:image:height", OG_IMAGE_HEIGHT, "property")
   upsertMeta(doc, "twitter:card", payload.ogType === "article" ? "summary_large_image" : "summary")
   upsertMeta(doc, "twitter:title", payload.title)
   upsertMeta(doc, "twitter:description", payload.description)
+  upsertMeta(doc, "twitter:image", OG_IMAGE_URL)
   upsertLink(doc, "canonical", payload.canonicalUrl)
   upsertJsonLd(doc, payload.jsonLd)
 }
@@ -153,9 +163,14 @@ export function clearSiteSeo(doc: Document = document, locale = "zh") {
   upsertMeta(doc, "og:site_name", SITE_NAME, "property")
   upsertMeta(doc, "og:title", title, "property")
   upsertMeta(doc, "og:description", description, "property")
+  upsertMeta(doc, "og:image", OG_IMAGE_URL, "property")
+  upsertMeta(doc, "og:image:alt", OG_IMAGE_ALT, "property")
+  upsertMeta(doc, "og:image:width", OG_IMAGE_WIDTH, "property")
+  upsertMeta(doc, "og:image:height", OG_IMAGE_HEIGHT, "property")
   upsertMeta(doc, "twitter:card", "summary")
   upsertMeta(doc, "twitter:title", title)
   upsertMeta(doc, "twitter:description", description)
+  upsertMeta(doc, "twitter:image", OG_IMAGE_URL)
   removeManagedLink(doc, "canonical")
   removeManagedJsonLd(doc)
   removeManagedMeta(doc, "og:url", "property")
