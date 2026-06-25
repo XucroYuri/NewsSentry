@@ -100,6 +100,29 @@ jobs:
 
       - name: Config schema validation
         run: python -m pytest tests/unit/test_config_schema_validation.py -q
+      - name: 📋 E2E tests
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          pip install -e ".[api,proxy]"
+          python -m uvicorn news_sentry.core.api_server:create_app --factory --host 127.0.0.1 --port 18082 --log-level warning &
+          SERVER_PID=$!
+          echo "Server PID: $SERVER_PID"
+          # Wait for health
+          for i in $(seq 1 20); do
+            if curl -sf http://127.0.0.1:18082/api/v1/health > /dev/null 2>&1; then
+              echo "✅ Server healthy (attempt $i)"
+              break
+            fi
+            sleep 1
+          done
+          # Run E2E tests
+          python -m pytest tests/e2e/ -m e2e -q --tb=short --timeout=60 -x
+          RESULT=$?
+          kill $SERVER_PID 2>/dev/null || true
+          wait $SERVER_PID 2>/dev/null || true
+          exit $RESULT
+
 
   # ── Stage 2: Deploy to VPS via SSH (venv + systemd) ───────
   deploy:
