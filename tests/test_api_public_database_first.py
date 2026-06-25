@@ -196,18 +196,19 @@ def test_public_news_list_prefers_projection_rows_over_file_scan(
             )
         ]
     )
-    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
-    client = TestClient(app)
+    # 在 create_app 之前 patch，确保 create_app 内部将 mock 赋给 public_news_utils 延迟绑定变量
     monkeypatch.setattr(
-        api_server,
-        "_visible_index_events_page",
+        api_server, "_visible_index_events_page",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not read index page")),
     )
+    # 源模块: public_news_utils 内懒加载从 event_io_utils 导入 _load_all_events
     monkeypatch.setattr(
-        api_server,
-        "_load_all_events",
+        event_io_utils, "_load_all_events",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not scan files")),
     )
+
+    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
+    client = TestClient(app)
 
     response = client.get("/api/v1/public/news", params={"target_id": "italy"})
 
@@ -239,19 +240,19 @@ def test_public_bootstrap_returns_cached_reader_payload(
             )
         ]
     )
-    monkeypatch.setattr(
-        api_server,
-        "_load_target_configs",
-        lambda: [
-            {
-                "target_id": "italy",
-                "display_name": "意大利新闻监控",
-                "region_type": "country",
-                "language_scope": {"primary": "it"},
-                "source_channel_refs": ["ansa"],
-            }
-        ],
-    )
+    test_config = [
+        {
+            "target_id": "italy",
+            "display_name": "意大利新闻监控",
+            "region_type": "country",
+            "language_scope": {"primary": "it"},
+            "source_channel_refs": ["ansa"],
+        }
+    ]
+    monkeypatch.setattr(api_server, "_load_target_configs", lambda: test_config)
+    # 源模块: public_news_utils 内懒加载从 target_config_utils 导入 _load_target_configs
+    monkeypatch.setattr(target_config_utils, "_load_target_configs", lambda: test_config)
+
     app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
     client = TestClient(app)
 
@@ -366,18 +367,19 @@ def test_public_news_list_returns_fresh_hashed_projection_rows(
     )
     row["metadata"]["publication"]["field_hash"] = public_translation_field_hash(row)
     store = ProjectionOnlyStore([row])
-    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
-    client = TestClient(app)
+    # 在 create_app 之前 patch，确保 create_app 内部将 mock 赋给 public_news_utils 延迟绑定变量
     monkeypatch.setattr(
-        api_server,
-        "_visible_index_events_page",
+        api_server, "_visible_index_events_page",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not read index page")),
     )
+    # 源模块: public_news_utils 内懒加载从 event_io_utils 导入 _load_all_events
     monkeypatch.setattr(
-        api_server,
-        "_load_all_events",
+        event_io_utils, "_load_all_events",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not scan files")),
     )
+
+    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
+    client = TestClient(app)
 
     response = client.get("/api/v1/public/news", params={"target_id": "italy"})
 
@@ -408,19 +410,19 @@ def test_public_news_all_targets_falls_back_to_target_stores_when_global_store_i
         ]
     )
 
-    monkeypatch.setattr(
-        api_server,
-        "_load_target_configs",
-        lambda: [
-            {
-                "target_id": "canada",
-                "display_name": "加拿大",
-                "language_scope": {"primary": "en"},
-                "monitoring_type": "country",
-                "source_channel_refs": ["rss:globalnews-canada"],
-            }
-        ],
-    )
+    test_config = [
+        {
+            "target_id": "canada",
+            "display_name": "加拿大",
+            "language_scope": {"primary": "en"},
+            "monitoring_type": "country",
+            "source_channel_refs": ["rss:globalnews-canada"],
+        }
+    ]
+
+    monkeypatch.setattr(api_server, "_load_target_configs", lambda: test_config)
+    # 源模块: public_news_utils 内懒加载从 target_config_utils 导入 _load_target_configs
+    monkeypatch.setattr(target_config_utils, "_load_target_configs", lambda: test_config)
 
     async def _fake_target_store(target_id: str):
         assert target_id == "canada"
@@ -510,26 +512,25 @@ def test_public_regions_and_targets_hide_topic_targets(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr(
-        api_server,
-        "_load_target_configs",
-        lambda: [
-            {
-                "target_id": "italy",
-                "display_name": "意大利新闻监控",
-                "region_type": "country",
-                "language_scope": {"primary": "it"},
-                "source_channel_refs": ["ansa"],
-            },
-            {
-                "target_id": "energy-transition",
-                "display_name": "能源转型观察",
-                "monitoring_type": "topic",
-                "language_scope": {"primary": "en"},
-                "source_channel_refs": ["api/gdelt-topic"],
-            },
-        ],
-    )
+    test_config = [
+        {
+            "target_id": "italy",
+            "display_name": "意大利新闻监控",
+            "region_type": "country",
+            "language_scope": {"primary": "it"},
+            "source_channel_refs": ["ansa"],
+        },
+        {
+            "target_id": "energy-transition",
+            "display_name": "能源转型观察",
+            "monitoring_type": "topic",
+            "language_scope": {"primary": "en"},
+            "source_channel_refs": ["api/gdelt-topic"],
+        },
+    ]
+    monkeypatch.setattr(api_server, "_load_target_configs", lambda: test_config)
+    # 源模块: public_news_utils 内懒加载从 target_config_utils 导入 _load_target_configs
+    monkeypatch.setattr(target_config_utils, "_load_target_configs", lambda: test_config)
 
     async def _fake_counts(_data_dir: Path) -> dict[str, int]:
         return {"italy": 3, "energy-transition": 7}
@@ -578,18 +579,19 @@ def test_public_news_list_normalizes_common_gdelt_title_mojibake(
             )
         ]
     )
-    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
-    client = TestClient(app)
+    # 在 create_app 之前 patch，确保 create_app 内部将 mock 赋给 public_news_utils 延迟绑定变量
     monkeypatch.setattr(
-        api_server,
-        "_visible_index_events_page",
+        api_server, "_visible_index_events_page",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not read index page")),
     )
+    # 源模块: public_news_utils 内懒加载从 event_io_utils 导入 _load_all_events
     monkeypatch.setattr(
-        api_server,
-        "_load_all_events",
+        event_io_utils, "_load_all_events",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not scan files")),
     )
+
+    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
+    client = TestClient(app)
 
     response = client.get("/api/v1/public/news", params={"target_id": "italy"})
 
@@ -629,26 +631,26 @@ def test_public_facets_and_news_filter_use_publication_tags(
             ),
         ]
     )
-    monkeypatch.setattr(
-        api_server,
-        "_load_target_configs",
-        lambda: [
-            {
-                "target_id": "italy",
-                "display_name": "意大利新闻监控",
-                "region_type": "country",
-                "language_scope": {"primary": "it"},
-                "source_channel_refs": ["ansa"],
-            },
-            {
-                "target_id": "france",
-                "display_name": "法国新闻监控",
-                "region_type": "country",
-                "language_scope": {"primary": "fr"},
-                "source_channel_refs": ["lemonde"],
-            },
-        ],
-    )
+    test_config = [
+        {
+            "target_id": "italy",
+            "display_name": "意大利新闻监控",
+            "region_type": "country",
+            "language_scope": {"primary": "it"},
+            "source_channel_refs": ["ansa"],
+        },
+        {
+            "target_id": "france",
+            "display_name": "法国新闻监控",
+            "region_type": "country",
+            "language_scope": {"primary": "fr"},
+            "source_channel_refs": ["lemonde"],
+        },
+    ]
+    monkeypatch.setattr(api_server, "_load_target_configs", lambda: test_config)
+    # 源模块: public_news_utils 内懒加载从 target_config_utils 导入 _load_target_configs
+    monkeypatch.setattr(target_config_utils, "_load_target_configs", lambda: test_config)
+
     app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
     client = TestClient(app)
 
@@ -988,13 +990,14 @@ def test_public_news_detail_prefers_direct_store_row_without_projection_scan(
             )
         ]
     )
-    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
-    client = TestClient(app)
+    # _load_single_event 已在 api_server 模块级 import，闭包直接引用
     monkeypatch.setattr(
-        api_server,
-        "_load_single_event",
+        api_server, "_load_single_event",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not read markdown")),
     )
+
+    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
+    client = TestClient(app)
 
     response = client.get(f"/api/v1/public/news/{event_id}", params={"target_id": "italy"})
 
@@ -1042,13 +1045,14 @@ def test_public_news_detail_hides_stale_publication_hash(
             )
         ]
     )
-    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
-    client = TestClient(app)
+    # _load_single_event 已在 api_server 模块级 import，闭包直接引用
     monkeypatch.setattr(
-        api_server,
-        "_load_single_event",
+        api_server, "_load_single_event",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not read markdown")),
     )
+
+    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
+    client = TestClient(app)
 
     response = client.get(f"/api/v1/public/news/{event_id}", params={"target_id": "italy"})
 
