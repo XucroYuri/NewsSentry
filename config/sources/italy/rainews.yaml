@@ -5,6 +5,7 @@ source_id: rainews
 display_name: "Rai News"
 type: rss
 url: "https://www.rainews.it/rss/cronaca" # fixed 2026-05-10: verified 41 entries, valid RSS
+language: it
 
 # 意大利公共广播公司 RAI 的新闻部门
 credibility_base: 0.88

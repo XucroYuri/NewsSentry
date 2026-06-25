@@ -2,6 +2,8 @@ source_id: emm-italy
 display_name: Europe Media Monitor — Italy
 type: rss
 url: https://emm.newsbrief.eu/rss?type=category&id=Italy
+language: it
+
 credibility_base: 0.8
 fetch_interval_minutes: 30
 max_items_per_run: 50

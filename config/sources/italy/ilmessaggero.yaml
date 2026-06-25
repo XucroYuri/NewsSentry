@@ -5,6 +5,7 @@ source_id: ilmessaggero
 display_name: "Il Messaggero"
 type: rss
 url: "https://www.ilmessaggero.it/rss/ultimenews.xml"
+language: it
 
 # 罗马主流日报，Il Messaggero S.p.A. 旗下
 credibility_base: 0.82

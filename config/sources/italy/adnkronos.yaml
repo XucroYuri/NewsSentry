@@ -3,6 +3,8 @@ source_id: adnkronos
 display_name: "Adnkronos - Agenzia di Stampa"
 type: rss
 url: "https://www.adnkronos.com/rss"
+language: it
+
 credibility_base: 0.85
 fetch_interval_minutes: 15
 max_items_per_run: 50

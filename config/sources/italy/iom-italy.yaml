@@ -3,6 +3,8 @@ source_id: iom-italy
 display_name: "IOM Italy"
 type: rss
 url: "https://italy.iom.int/rss"
+language: it
+
 credibility_base: 0.90
 fetch_interval_minutes: 15
 max_items_per_run: 50

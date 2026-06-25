@@ -3,6 +3,8 @@ source_id: difesa-it
 display_name: "Ministero della Difesa"
 type: rss
 url: "https://www.difesa.it/rss"
+language: it
+
 credibility_base: 0.90
 fetch_interval_minutes: 15
 max_items_per_run: 50

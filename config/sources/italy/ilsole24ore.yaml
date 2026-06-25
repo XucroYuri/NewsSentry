@@ -5,6 +5,7 @@ source_id: ilsole24ore
 display_name: "Il Sole 24 Ore"
 type: rss
 url: "https://www.ilsole24ore.com/rss/economia.xml" # fixed 2026-05-10: verified 12 entries, valid RSS
+language: it
 
 # 意大利经济金融主流媒体
 credibility_base: 0.85

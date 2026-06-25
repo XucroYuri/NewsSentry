@@ -3,6 +3,8 @@ source_id: anac
 display_name: "ANAC Anticorruzione"
 type: rss
 url: "https://www.anticorruzione.it/rss"
+language: it
+
 credibility_base: 0.90
 fetch_interval_minutes: 15
 max_items_per_run: 50

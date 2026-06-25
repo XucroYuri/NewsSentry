@@ -3,6 +3,8 @@ source_id: unesco-it
 display_name: "UNESCO Italia"
 type: rss
 url: "https://www.unesco.it/rss"
+language: it
+
 credibility_base: 0.90
 fetch_interval_minutes: 15
 max_items_per_run: 50

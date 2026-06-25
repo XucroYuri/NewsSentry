@@ -3,6 +3,8 @@ source_id: startupitalia
 display_name: "StartupItalia"
 type: rss
 url: "https://www.startupitalia.eu/rss"
+language: it
+
 credibility_base: 0.65
 fetch_interval_minutes: 15
 max_items_per_run: 50

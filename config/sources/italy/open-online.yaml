@@ -5,6 +5,8 @@ source_id: open-online
 display_name: "Open Online"
 type: rss
 url: "https://www.open.online/feed/"
+language: it
+
 credibility_base: 0.79
 fetch_interval_minutes: 20
 max_items_per_run: 40

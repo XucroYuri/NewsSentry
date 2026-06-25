@@ -2,6 +2,8 @@ source_id: osservatore-romano
 display_name: L'Osservatore Romano
 type: rss
 url: https://www.osservatoreromano.va/rss
+language: it
+
 credibility_base: 0.9
 fetch_interval_minutes: 120
 max_items_per_run: 15

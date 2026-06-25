@@ -5,6 +5,7 @@ source_id: repubblica
 display_name: "La Repubblica"
 type: rss
 url: "https://www.repubblica.it/rss/homepage/rss2.0.xml"
+language: it
 
 credibility_base: 0.85
 

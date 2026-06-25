@@ -5,6 +5,7 @@ source_id: ansa
 display_name: "ANSA - Agenzia Nazionale Stampa Associata"
 type: rss
 url: "https://www.ansa.it/sito/notizie/mondo/mondo_rss.xml"
+language: it
 
 # credibility_base: 0-100 量纲中的基础可信度，详见 contracts-canonical.md §4
 credibility_base: 0.9

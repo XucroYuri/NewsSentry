@@ -5,6 +5,7 @@ source_id: corriere
 display_name: "Corriere della Sera"
 type: rss
 url: "https://www.corriere.it/rss/homepage.xml"
+language: it
 
 credibility_base: 0.85
 

@@ -5,6 +5,7 @@ source_id: ilfattoquotidiano
 display_name: "Il Fatto Quotidiano"
 type: rss
 url: "https://www.ilfattoquotidiano.it/feed/"
+language: it
 
 # credibility_base: 0-100 量纲中的基础可信度，详见 contracts-canonical.md §4
 credibility_base: 0.78

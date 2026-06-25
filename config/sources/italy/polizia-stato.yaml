@@ -3,6 +3,8 @@ source_id: polizia-stato
 display_name: "Polizia di Stato"
 type: rss
 url: "https://www.poliziadistato.it/rss"
+language: it
+
 credibility_base: 0.90
 fetch_interval_minutes: 15
 max_items_per_run: 50

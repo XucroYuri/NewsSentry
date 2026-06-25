@@ -3,6 +3,8 @@ source_id: open-migration
 display_name: "Open Migration"
 type: rss
 url: "https://openmigration.org/rss"
+language: it
+
 credibility_base: 0.70
 fetch_interval_minutes: 15
 max_items_per_run: 50

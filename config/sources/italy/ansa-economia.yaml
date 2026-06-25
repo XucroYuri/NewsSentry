@@ -5,6 +5,8 @@ source_id: ansa-economia
 display_name: "ANSA Economia"
 type: rss
 url: "https://www.ansa.it/sito/notizie/economia/economia_rss.xml"
+language: it
+
 credibility_base: 0.9
 fetch_interval_minutes: 20
 max_items_per_run: 40

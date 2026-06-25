@@ -3,6 +3,8 @@ source_id: eni-group
 display_name: "ENI Group"
 type: rss
 url: "https://www.eni.com/it-IT/rss.xml"
+language: it
+
 credibility_base: 0.85
 fetch_interval_minutes: 15
 max_items_per_run: 50

@@ -3,6 +3,8 @@ source_id: camera-it
 display_name: "Camera dei Deputati"
 type: rss
 url: "https://www.camera.it/leg18/824"
+language: it
+
 credibility_base: 0.95
 fetch_interval_minutes: 15
 max_items_per_run: 50

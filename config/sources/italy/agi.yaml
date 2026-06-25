@@ -5,6 +5,7 @@ source_id: agi
 display_name: "AGI - Agenzia Giornalistica Italia"
 type: rss
 url: "https://www.agi.it/rss"  # fixed 2026-05-10: verified 20 entries, valid RSS
+language: it
 
 credibility_base: 0.88
 

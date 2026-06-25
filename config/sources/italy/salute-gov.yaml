@@ -3,6 +3,8 @@ source_id: salute-gov
 display_name: "Ministero della Salute"
 type: rss
 url: "https://www.salute.gov.it/rss"
+language: it
+
 credibility_base: 0.95
 fetch_interval_minutes: 15
 max_items_per_run: 50

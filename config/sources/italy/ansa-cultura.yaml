@@ -3,6 +3,8 @@ source_id: ansa-cultura
 display_name: "ANSA Cultura"
 type: rss
 url: "https://www.ansa.it/sito/notizie/cultura/cultura_rss.xml"
+language: it
+
 credibility_base: 0.85
 fetch_interval_minutes: 15
 max_items_per_run: 50

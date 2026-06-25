@@ -3,6 +3,8 @@ source_id: carabinieri
 display_name: "Arma dei Carabinieri"
 type: rss
 url: "https://www.carabinieri.it/rss"
+language: it
+
 credibility_base: 0.90
 fetch_interval_minutes: 15
 max_items_per_run: 50
