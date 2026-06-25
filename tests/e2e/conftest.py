@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Iterator
+from collections.abc import Iterator
 
 import httpx
 import pytest
