@@ -85,39 +85,6 @@ def register_admin_routes(router: APIRouter, h: dict[str, Any]) -> None:
     router.patch("/api/v1/config/provider/routes/{route_id}")(h["update_provider_route"])
     router.post("/api/v1/config/reload")(h["reload_config"])
 
-    # ── 实体 ──
-    router.get("/api/v1/entities", response_model=h.get("EntityListResponse"))(h["list_entities"])
-    router.get(
-        "/api/v1/entities/{entity_id}",
-        response_model=h.get("EntityDetailResponse"),
-    )(h["get_entity"])
-    router.get(
-        "/api/v1/entities/{entity_id}/events",
-    )(h["get_entity_events"])
-    router.get(
-        "/api/v1/entities/search",
-    )(h["search_entities"])
-    router.post(
-        "/api/v1/entities/merge",
-        response_model=h.get("EntityMergeResponse"),
-    )(h["merge_entities"])
-    router.post(
-        "/api/v1/annotations",
-    )(h["create_annotation"])
-    router.get(
-        "/api/v1/annotations",
-        response_model=h.get("AnnotationListResponse"),
-    )(h["list_annotations"])
-    router.patch(
-        "/api/v1/annotations/{annotation_id}",
-    )(h["update_annotation"])
-    router.delete(
-        "/api/v1/annotations/{annotation_id}",
-    )(h["delete_annotation"])
-    router.post(
-        "/api/v1/annotations/{annotation_id}/review",
-    )(h["review_annotation"])
-
     # ── 通知规则 (R1) ──
     router.get(
         "/api/v1/notification-rules",
@@ -180,45 +147,6 @@ def register_admin_routes(router: APIRouter, h: dict[str, Any]) -> None:
     router.get("/api/v1/alerts/history", response_model=h.get("AlertHistoryResponse"))(
         h["alert_history"]
     )
-
-    # ── 规范化事件 ──
-    router.get("/api/v1/canonical/diagnostics")(h["canonical_diagnostics"])
-    router.post("/api/v1/canonical/backfill")(h["canonical_backfill"])
-    router.get("/api/v1/canonical/events")(h["list_canonical_events"])
-    router.get("/api/v1/canonical/events/{canonical_event_id}")(h["get_canonical_event"])
-    router.get("/api/v1/canonical/events/{canonical_event_id}/mentions")(
-        h["list_canonical_event_mentions"]
-    )
-    router.get("/api/v1/canonical/events/{canonical_event_id}/relations")(
-        h["list_canonical_event_relations"]
-    )
-    router.get("/api/v1/canonical/events/{canonical_event_id}/export/markdown")(
-        h["export_canonical_event_markdown"]
-    )
-
-    # ── 研究 ──
-    router.get("/api/v1/research/queue")(h["research_queue"])
-    router.post("/api/v1/research/graph/merge")(h["research_graph_merge"])
-    router.post("/api/v1/research/graph/split")(h["research_graph_split"])
-    router.get("/api/v1/research/graph/operations")(h["research_graph_operations"])
-    router.get("/api/v1/research/events/{canonical_event_id}")(h["research_event_detail"])
-    router.post("/api/v1/research/artifacts")(h["create_research_artifact"])
-    router.patch("/api/v1/research/artifacts/{artifact_id}")(h["patch_research_artifact"])
-
-    # ── 维护 ──
-    router.get("/api/v1/maintenance/draft-diagnostics")(h["maintenance_draft_diagnostics"])
-    router.post("/api/v1/maintenance/archive-duplicate-drafts")(
-        h["maintenance_archive_duplicate_drafts"]
-    )
-    router.post("/api/v1/maintenance/prune", response_model=h.get("PruneResponse"))(
-        h["maintenance_prune"]
-    )
-    router.post(
-        "/api/v1/maintenance/backup",
-        response_model=h.get("BackupResponse"),
-    )(h["maintenance_backup"])
-    router.get("/api/v1/maintenance/backups")(h["list_backups"])
-    router.post("/api/v1/maintenance/restore")(h["restore_backup"])
 
     # ── 反馈 ──
     router.post("/api/v1/feedback", response_model=h.get("FeedbackSubmitResponse"))(
