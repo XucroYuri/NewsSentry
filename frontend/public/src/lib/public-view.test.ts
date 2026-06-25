@@ -5,6 +5,13 @@ import {
   buildPublicDetailUrl,
   buildRelatedBuckets,
   buildSourceSummaries,
+  dateKey,
+  formatFullTime,
+  formatTime,
+  sourceTypeLabel,
+  summaryText,
+  targetShortLabel,
+  todayKey,
 } from "@/lib/public-view"
 import type { PublicNewsItem } from "@/types/public-news"
 
@@ -87,5 +94,115 @@ describe("public reader view helpers", () => {
     expect(buckets.sameSource.map((entry) => entry.id)).toEqual(["same-source"])
     expect(buckets.sameTarget.map((entry) => entry.id)).toEqual(["same-source", "same-target"])
     expect(buckets.sameTopic.map((entry) => entry.id)).toEqual(["same-source", "same-topic"])
+  })
+})
+
+// ── formatTime / formatFullTime ──
+
+describe("formatTime", () => {
+  it("formats ISO date to HH:MM in zh-CN", () => {
+    const result = formatTime("2026-06-09T14:30:00Z")
+    // zh-CN 2-digit hour/minute
+    expect(result).toMatch(/^\d{2}:\d{2}$/)
+  })
+
+  it('returns "时间待确认" for invalid input', () => {
+    expect(formatTime("invalid")).toBe("时间待确认")
+    expect(formatTime("")).toBe("时间待确认")
+  })
+})
+
+describe("formatFullTime", () => {
+  it("formats ISO date to MM/DD HH:MM in zh-CN", () => {
+    const result = formatFullTime("2026-06-09T14:30:00Z")
+    // zh-CN 2-digit month/day + 2-digit hour/minute
+    expect(result).toMatch(/^\d{2}\/\d{2} \d{2}:\d{2}$/)
+  })
+
+  it('returns "时间待确认" for invalid input', () => {
+    expect(formatFullTime("invalid")).toBe("时间待确认")
+  })
+})
+
+// ── sourceTypeLabel ──
+
+describe("sourceTypeLabel", () => {
+  it("maps known source types to Chinese labels", () => {
+    expect(sourceTypeLabel("rss")).toBe("媒体源")
+    expect(sourceTypeLabel("api")).toBe("API")
+    expect(sourceTypeLabel("web")).toBe("网页")
+    expect(sourceTypeLabel("social")).toBe("社媒")
+    expect(sourceTypeLabel("official")).toBe("官方")
+    expect(sourceTypeLabel("unknown")).toBe("来源")
+  })
+})
+
+// ── targetShortLabel ──
+
+describe("targetShortLabel", () => {
+  it("strips known suffix patterns", () => {
+    expect(targetShortLabel("意大利新闻监控")).toBe("意大利")
+    expect(targetShortLabel("法国监控目标")).toBe("法国")
+    expect(targetShortLabel("德国国别监控")).toBe("德国")
+    expect(targetShortLabel("日本观察")).toBe("日本")
+  })
+
+  it('returns "目标" for empty/falsy input', () => {
+    expect(targetShortLabel(null)).toBe("目标")
+    expect(targetShortLabel(undefined)).toBe("目标")
+    expect(targetShortLabel("")).toBe("目标")
+    expect(targetShortLabel("   ")).toBe("目标")
+  })
+
+  it("returns trimmed value when no suffix matches", () => {
+    expect(targetShortLabel("美国")).toBe("美国")
+    expect(targetShortLabel("  英国  ")).toBe("英国")
+  })
+})
+
+// ── summaryText ──
+
+describe("summaryText", () => {
+  it("joins title, summary, recommendation, source, URL with newlines", () => {
+    const text = summaryText(item("ev1"))
+    expect(text).toContain("新闻 ev1")
+    expect(text).toContain("摘要：摘要 ev1")
+    expect(text).toContain("推荐理由：推荐理由 ev1")
+    expect(text).toContain("来源：ANSA.it")
+    expect(text).toContain("原文：https://example.com/ev1")
+  })
+
+  it("omits null/undefined optional fields", () => {
+    const text = summaryText(
+      item("ev2", { summary: null, recommendationReason: null, originalUrl: null }),
+    )
+    expect(text).not.toContain("摘要：")
+    expect(text).not.toContain("推荐理由：")
+    expect(text).not.toContain("原文：")
+    expect(text).toContain("新闻 ev2")
+    expect(text).toContain("来源：ANSA.it")
+  })
+})
+
+// ── dateKey / todayKey ──
+
+describe("dateKey", () => {
+  it("extracts YYYY-MM-DD from ISO string", () => {
+    expect(dateKey("2026-06-09T14:30:00Z")).toBe("2026-06-09")
+    expect(dateKey("2026-01-01T00:00:00Z")).toBe("2026-01-01")
+  })
+
+  it("returns empty string for invalid dates", () => {
+    expect(dateKey("invalid")).toBe("")
+    expect(dateKey("")).toBe("")
+  })
+})
+
+describe("todayKey", () => {
+  it("returns today as YYYY-MM-DD", () => {
+    const key = todayKey()
+    expect(key).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    const today = new Date().toISOString().slice(0, 10)
+    expect(key).toBe(today)
   })
 })
