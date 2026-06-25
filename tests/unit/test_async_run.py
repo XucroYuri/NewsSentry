@@ -571,9 +571,8 @@ class TestBoundedRunAsync:
     @pytest.mark.asyncio
     async def test_all_stage_does_not_reprocess_historical_events(self, tmp_path, monkeypatch):
         """异步 all-run 第二次没有新采集时，不应重复过滤、研判、输出历史事件。"""
-        from tests.unit.test_run import _setup_minimal_project
-
         from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+        from tests.unit.test_run import _setup_minimal_project
 
         _setup_minimal_project(tmp_path)
         monkeypatch.chdir(tmp_path)

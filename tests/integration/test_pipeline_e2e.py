@@ -10,10 +10,10 @@ import json
 from pathlib import Path
 
 import pytest
-from tests.unit.test_run import _make_event_markdown, _setup_minimal_project
 
 from news_sentry.core.run import bounded_run
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+from tests.unit.test_run import _make_event_markdown, _setup_minimal_project
 
 # ── 辅助：在 raw/ 目录准备采集事件 ─────────────────────────────────
 
