@@ -19,7 +19,6 @@ from fastapi.testclient import TestClient
 from news_sentry.core import api_server as api_server_module
 from news_sentry.core import event_io_utils
 from news_sentry.core.api_server import (
-    _get_valid_api_keys,
     create_app,
 )
 from news_sentry.core.async_store import AsyncStore

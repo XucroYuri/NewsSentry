@@ -6,7 +6,6 @@ import asyncio
 import json
 import os
 import re
-import sys
 from collections.abc import AsyncGenerator, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -19,7 +18,6 @@ from fastapi.testclient import TestClient
 
 from news_sentry.api.middleware.auth import _TOKEN_STORE, _RateLimiter
 from news_sentry.core import api_server as api_server_module
-from news_sentry.core import event_io_utils
 from news_sentry.core.api_server import (
     _get_valid_api_keys,
     create_app,
