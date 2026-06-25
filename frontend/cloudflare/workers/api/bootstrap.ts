@@ -21,7 +21,7 @@ export async function handleBootstrap(
 ): Promise<Response> {
   try {
     // 并行查询 news、regions、facets
-    const [newsResult, regionsResult, regionFacetsResult, issueFacetsResult] =
+    const [newsResult, regionsResult, regionFacetsResult, issueFacetsResult, relatedFacetsResult] =
       await Promise.all([
         db
           .prepare(
@@ -64,6 +64,17 @@ export async function handleBootstrap(
           .prepare(
             `SELECT json_each.value AS id, json_each.value AS label, COUNT(*) AS count
              FROM events, json_each(events.issue_tags)
+             WHERE events.pipeline_stage IN ('published', 'reviewed')
+             GROUP BY json_each.value
+             ORDER BY count DESC
+             LIMIT 30`
+          )
+          .all(),
+
+        db
+          .prepare(
+            `SELECT json_each.value AS id, json_each.value AS label, COUNT(*) AS count
+             FROM events, json_each(events.related_tags)
              WHERE events.pipeline_stage IN ('published', 'reviewed')
              GROUP BY json_each.value
              ORDER BY count DESC
@@ -138,9 +149,16 @@ export async function handleBootstrap(
       count: r.count,
     }));
 
+    const relatedFacets: PublicFacetItem[] = (relatedFacetsResult.results || []).map((r: any) => ({
+      id: r.id,
+      label: r.label,
+      count: r.count,
+    }));
+
     const facets: PublicFacetsResponse = {
       regions: regionFacets,
       issues: issueFacets,
+      related: relatedFacets,
     };
 
     const body: PublicBootstrapResponse = {
@@ -166,7 +184,7 @@ export async function handleBootstrap(
         total: 0,
       },
       regions: { regions: [] },
-      facets: { regions: [], issues: [] },
+      facets: { regions: [], issues: [], related: [] },
       generatedAt: new Date().toISOString(),
     };
     return new Response(JSON.stringify(fallback), {

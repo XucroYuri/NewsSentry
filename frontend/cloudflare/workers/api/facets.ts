@@ -26,15 +26,26 @@ export async function handleFacets(
       .all<{ id: string; label: string; count: number }>();
 
     // 按 issue_tag 分组统计
-    const issueResult = await db
-      .prepare(
-        `SELECT json_each.value AS id, json_each.value AS label, COUNT(*) AS count
-         FROM events, json_each(events.issue_tags)
-         WHERE events.pipeline_stage IN ('published', 'reviewed')
-         GROUP BY json_each.value
-         ORDER BY count DESC`
-      )
-      .all<{ id: string; label: string; count: number }>();
+    const [issueResult, relatedResult] = await Promise.all([
+      db
+        .prepare(
+          `SELECT json_each.value AS id, json_each.value AS label, COUNT(*) AS count
+           FROM events, json_each(events.issue_tags)
+           WHERE events.pipeline_stage IN ('published', 'reviewed')
+           GROUP BY json_each.value
+           ORDER BY count DESC`
+        )
+        .all<{ id: string; label: string; count: number }>(),
+      db
+        .prepare(
+          `SELECT json_each.value AS id, json_each.value AS label, COUNT(*) AS count
+           FROM events, json_each(events.related_tags)
+           WHERE events.pipeline_stage IN ('published', 'reviewed')
+           GROUP BY json_each.value
+           ORDER BY count DESC`
+        )
+        .all<{ id: string; label: string; count: number }>(),
+    ]);
 
     const regions: PublicFacetItem[] = (regionResult.results || []).map((r) => ({
       id: r.id,
@@ -48,7 +59,13 @@ export async function handleFacets(
       count: r.count,
     }));
 
-    const body: PublicFacetsResponse = { regions, issues };
+    const related: PublicFacetItem[] = (relatedResult.results || []).map((r) => ({
+      id: r.id,
+      label: r.label,
+      count: r.count,
+    }));
+
+    const body: PublicFacetsResponse = { regions, issues, related };
 
     return new Response(JSON.stringify(body), {
       status: 200,
@@ -56,7 +73,7 @@ export async function handleFacets(
     });
   } catch (err) {
     console.error("facets error:", err);
-    return new Response(JSON.stringify({ regions: [], issues: [] }), {
+    return new Response(JSON.stringify({ regions: [], issues: [], related: [] }), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });

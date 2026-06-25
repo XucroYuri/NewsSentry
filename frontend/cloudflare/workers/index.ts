@@ -22,7 +22,13 @@ import { handleFacets } from "./api/facets";
 import { handleBootstrap } from "./api/bootstrap";
 import { handleNewsFeed, handleNewsDetail } from "./api/news";
 import { handleWebhook, handleImport } from "./api/webhook";
+import { handleContainerProxy, shouldProxyToContainer } from "./api/proxy";
 import { internalError } from "./lib/errors";
+
+interface Env {
+  DB: D1Database;
+  BACKEND_ORIGIN?: string;
+}
 
 // ── Route registration ────────────────────────────────────────────────────
 registerRoute("GET", "/api/v1/health", handleHealth);
@@ -35,8 +41,12 @@ registerRoute("POST", "/api/v1/events/import", handleImport);
 
 // ── Worker entry ───────────────────────────────────────────────────────────
 export default {
-  async fetch(request: Request, env: { DB: D1Database }): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     try {
+      const url = new URL(request.url);
+      if (shouldProxyToContainer(url.pathname)) {
+        return await handleContainerProxy(request, env);
+      }
       return await dispatch(request, env.DB);
     } catch (err) {
       console.error("worker unhandled error:", err);
