@@ -6,6 +6,8 @@ from typing import Any
 from fastapi.testclient import TestClient
 
 from news_sentry.core import api_server
+from news_sentry.core import event_io_utils
+from news_sentry.core import target_config_utils
 from news_sentry.core.api_server import create_app
 from news_sentry.core.public_translation import public_translation_field_hash
 
@@ -458,18 +460,31 @@ def test_public_targets_and_regions_fall_back_to_target_stores_when_global_store
         ]
     )
 
+    test_config = [
+        {
+            "target_id": "canada",
+            "display_name": "加拿大",
+            "language_scope": {"primary": "en"},
+            "monitoring_type": "country",
+            "source_channel_refs": ["rss:globalnews-canada"],
+        }
+    ]
     monkeypatch.setattr(
         api_server,
         "_load_target_configs",
-        lambda: [
-            {
-                "target_id": "canada",
-                "display_name": "加拿大",
-                "language_scope": {"primary": "en"},
-                "monitoring_type": "country",
-                "source_channel_refs": ["rss:globalnews-canada"],
-            }
-        ],
+        lambda: test_config,
+    )
+    # 源模块: public_news_utils 内懒加载从 target_config_utils 导入 _load_target_configs
+    monkeypatch.setattr(
+        target_config_utils, "_load_target_configs", lambda: test_config,
+    )
+
+    # _public_target_event_counts 是 async 函数,必须用 async mock
+    async def _fake_public_target_event_counts(data_dir):
+        return {"canada": 1}
+
+    monkeypatch.setattr(
+        api_server, "_public_target_event_counts", _fake_public_target_event_counts,
     )
 
     async def _fake_target_store(target_id: str):
@@ -671,19 +686,26 @@ def test_public_facets_reuses_short_cache_for_same_query(
             )
         ]
     )
+    test_target_config = {
+        "target_id": "italy",
+        "display_name": "意大利新闻监控",
+        "region_type": "country",
+        "language_scope": {"primary": "it"},
+        "source_channel_refs": ["ansa"],
+    }
+    # 源模块: public_news_utils 内懒加载从 target_config_utils 导入 _load_target_configs
     monkeypatch.setattr(
-        api_server,
-        "_load_target_configs",
-        lambda: [
-            {
-                "target_id": "italy",
-                "display_name": "意大利新闻监控",
-                "region_type": "country",
-                "language_scope": {"primary": "it"},
-                "source_channel_refs": ["ansa"],
-            }
-        ],
+        target_config_utils, "_load_target_configs", lambda: [test_target_config]
     )
+    # api_server 闭包: _load_target_configs 已在模块级从 target_config_utils import
+    monkeypatch.setattr(
+        api_server, "_load_target_configs", lambda: [test_target_config]
+    )
+    monkeypatch.setattr(
+        api_server, "_public_target_event_counts",
+        lambda data_dir: {"italy": 1},
+    )
+
     app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
     client = TestClient(app)
 
@@ -710,8 +732,6 @@ def test_public_news_list_keeps_indexed_filtered_path_for_selective_reads(
             )
         ]
     )
-    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
-    client = TestClient(app)
 
     async def _fake_visible_index_events_page(*args, **kwargs):
         return {
@@ -733,12 +753,16 @@ def test_public_news_list_keeps_indexed_filtered_path_for_selective_reads(
             ]
         }
 
+    # 在 create_app 之前 patch，确保 create_app 内部将该 mock 赋给 public_news_utils
     monkeypatch.setattr(api_server, "_visible_index_events_page", _fake_visible_index_events_page)
+    # 源模块: public_news_utils 内懒加载从 event_io_utils 导入 _load_all_events
     monkeypatch.setattr(
-        api_server,
-        "_load_all_events",
+        event_io_utils, "_load_all_events",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not scan files")),
     )
+
+    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
+    client = TestClient(app)
 
     response = client.get(
         "/api/v1/public/news",
@@ -757,8 +781,6 @@ def test_featured_public_news_requires_publication_quality(
     monkeypatch,
 ) -> None:
     store = ProjectionOnlyStore([_projection_row(event_id="ne-featured-store-sentinel")])
-    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
-    client = TestClient(app)
 
     async def _fake_visible_index_events_page(*args, **kwargs):
         return {
@@ -827,12 +849,16 @@ def test_featured_public_news_requires_publication_quality(
             "total": 4,
         }
 
+    # 在 create_app 之前 patch，确保 create_app 内部将该 mock 赋给 public_news_utils
     monkeypatch.setattr(api_server, "_visible_index_events_page", _fake_visible_index_events_page)
+    # 源模块: public_news_utils 内懒加载从 event_io_utils 导入 _load_all_events
     monkeypatch.setattr(
-        api_server,
-        "_load_all_events",
+        event_io_utils, "_load_all_events",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not scan files")),
     )
+
+    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
+    client = TestClient(app)
 
     response = client.get(
         "/api/v1/public/news",
@@ -893,8 +919,6 @@ def test_public_news_list_keeps_indexed_path_for_keyword_queries(
             )
         ]
     )
-    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
-    client = TestClient(app)
 
     async def _fake_visible_index_events_page(*args, **kwargs):
         return {
@@ -916,12 +940,16 @@ def test_public_news_list_keeps_indexed_path_for_keyword_queries(
             ]
         }
 
+    # 在 create_app 之前 patch，确保 create_app 内部将该 mock 赋给 public_news_utils
     monkeypatch.setattr(api_server, "_visible_index_events_page", _fake_visible_index_events_page)
+    # 源模块: public_news_utils 内懒加载从 event_io_utils 导入 _load_all_events
     monkeypatch.setattr(
-        api_server,
-        "_load_all_events",
+        event_io_utils, "_load_all_events",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("should not scan files")),
     )
+
+    app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
+    client = TestClient(app)
 
     response = client.get(
         "/api/v1/public/news",
