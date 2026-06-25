@@ -111,10 +111,8 @@ markers = [
     "e2e: End-to-end test that requires a running API server.",
 ]
 
-addopts = "--cov=news_sentry --cov-report=term-missing"
+addopts = "--cov=news_sentry --cov-report=term-missing -m \"not e2e\""
 filterwarnings = [
-    # -m "not e2e"  so default CI avoids e2e tests
-    "-m not e2e",
     # aiosqlite/httpx 后台线程在测试结束后残留 — 无害
     "ignore:coroutine 'AsyncMockMixin._execute_mock_call' was never awaited:RuntimeWarning",
     # async 测试中 SQLite connection 未关闭 — pytest 会在测试后清理
