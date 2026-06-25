@@ -26,8 +26,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { getPublicNewsItem, listPublicNews, PublicNewsApiError } from "@/lib/api"
-import { type FeedFilters, groupItemsByDate, type PublicChannel } from "@/lib/feed-state"
-import { getReadIds, markAsRead, markManyAsRead } from "@/lib/read-state"
+import { type FeedFilters, groupItemsByDate } from "@/lib/feed-state"
+import { getReadIds, markAsRead } from "@/lib/read-state"
 import {
   buildDailyDigest,
   type DailyDigestTopicGroup,
@@ -44,19 +44,6 @@ import { buildEventSeoPayload } from "@/lib/seo/site-seo"
 import type { FeedState } from "@/hooks/use-public-feed"
 import type { PublicAnalysisResponse, PublicNewsItem, PublicNewsSourceType, PublicTargetInfo } from "@/types/public-news"
 import { buildPublicAppPath, parseLocationRoute, type PublicRoute } from "@/lib/routes"
-
-const channels: Array<{
-  id: PublicChannel
-  label: string
-  description: string
-}> = [
-  { id: "featured", label: "精选", description: "跨目标展示最高价值新闻，先读判断，再看来源。" },
-  { id: "all", label: "全部", description: "按发布时间浏览公共新闻流" },
-  { id: "targets", label: "地区", description: "按地区浏览精选新闻流" },
-  { id: "sources", label: "来源", description: "按媒体与信源观察覆盖面" },
-  { id: "analysis", label: "态势", description: "查看公开态势摘要" },
-  { id: "daily", label: "日报", description: "读者化日内摘要入口" },
-]
 
 function normalizeError(error: unknown) {
   if (error instanceof PublicNewsApiError) return error.message

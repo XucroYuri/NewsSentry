@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { ComponentType, ReactNode } from "react"
 import {
-  ArrowUpRightIcon,
   BotIcon,
   CalendarDaysIcon,
   ChevronRightIcon,
@@ -37,9 +36,9 @@ import { usePublicFeed } from "@/hooks/use-public-feed"
 import { usePublicTargets } from "@/hooks/use-public-targets"
 import { getPublicBootstrap, listPublicFacets, readSSRBootstrap, readSSRFeed } from "@/lib/api"
 import { getApiBase, setApiBase } from "@/lib/locals-settings"
-import { type FeedFilters, makeFeedQuery, type PublicChannel } from "@/lib/feed-state"
+import { type FeedFilters, makeFeedQuery } from "@/lib/feed-state"
 import { targetShortLabel, todayKey } from "@/lib/public-view"
-import { buildPublicAppPath, routeToChannel, type PublicRoute } from "@/lib/routes"
+import { routeToChannel, type PublicRoute } from "@/lib/routes"
 import { buildRouteSeoPayload } from "@/lib/seo/site-seo"
 import {
   AnalysisPage,
