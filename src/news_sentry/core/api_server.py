@@ -35,7 +35,6 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
-import yaml
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import (
     FileResponse,
@@ -82,7 +81,6 @@ from news_sentry.api.schemas import (
     ArchiveRequest,
     BackupResponse,
     CanonicalBackfillRequest,
-    ChainEventInfo,
     ChainListResponse,
     ChainSummaryInfo,
     CollectorConfigUpdate,
@@ -95,7 +93,6 @@ from news_sentry.api.schemas import (
     EntityMergeRequest,
     EntityMergeResponse,
     EventChainResponse,
-    EventLinkInfo,
     EventLinksResponse,
     EventResponse,
     FeedbackItem,
@@ -170,7 +167,6 @@ from news_sentry.api.ws_manager import ConnectionManager
 from news_sentry.core._state import (
     _HTTP_PHRASES,
     _REGION_TYPES,
-    InvisibleIndexedEvent,
     _ai_enrichment_state,
     _auto_collector_state,
     _public_translation_state,
@@ -218,7 +214,6 @@ from news_sentry.core.event_io_utils import (
     _markdown_download_response,
     _save_webhook_event,
 )
-from news_sentry.core.file_writer import FileWriter
 from news_sentry.core.public_news_utils import (
     _classification_diagnostics_from_events,
     _classification_diagnostics_from_store,
@@ -288,7 +283,6 @@ from news_sentry.core.target_store_utils import (
     _visible_index_event_from_row,  # noqa: F401 re-exported for test access
     _visible_index_events_page,
 )
-from news_sentry.models.newsevent import NewsEvent  # 供 import_events 生成 gid 使用
 from news_sentry.skills.filter.classification_taxonomy import (
     canonical_l0,
     l0_query_values,
@@ -3324,49 +3318,25 @@ def create_app(
         topic_tag: str | None = Query(None, description="按主题标签筛选"),
         user: dict[str, Any] = Depends(get_current_user),
     ) -> EventResponse:
-
-        # 优先使用 target 自己的 state.db（与 pipeline 共享同一数据库）
-        target_store = await _get_target_store(target_id)
-        store_to_query = target_store if target_store is not None else _store
-        effective_stage = stage if stage else "drafts"
-
-        if store_to_query is not None:
-            result = await _visible_index_events_page(
-                store_to_query,
-                _data_dir,
-                stage=effective_stage,
-                target_id=target_id,
-                page=page,
-                page_size=page_size,
-                source_id=source_id,
-                classification_l0=classification,
-                min_score=min_score,
-                sentiment=sentiment,
-                entity_name=entity,
-                topic_tag=topic_tag,
-                search=search,
-            )
-            # target 已进入索引模式后，SQLite 是权威来源；只有全空 legacy target 才回退。
-            if result["index_total"] > 0:
-                return EventResponse(
-                    total=result["total"],
-                    events=result["events"],
-                    page=page,
-                    page_size=page_size,
-                )
-            if await _store_has_target_event_index(store_to_query, target_id):
-                return EventResponse(total=0, events=[], page=page, page_size=page_size)
-
-        # 降级路径（无 store / store 为空 / 文件系统路径）
-        return _load_events_from_data(
+        from news_sentry.core import events_handlers
+        return await events_handlers.list_events_handler(
             _data_dir,
-            target_id,
-            page,
-            page_size,
+            _get_target_store,
+            _store,
+            _visible_index_events_page,
+            _load_events_from_data,
+            _store_has_target_event_index,
+            target_id=target_id,
+            page=page,
+            page_size=page_size,
+            stage=stage,
             classification=classification,
             source_id=source_id,
             min_score=min_score,
             search=search,
+            sentiment=sentiment,
+            entity=entity,
+            topic_tag=topic_tag,
         )
 
     # ── 新闻流 Feed API ─────────────────────────────────────
@@ -3378,49 +3348,20 @@ def create_app(
         page_size: int = Query(30, ge=1, le=100),
     ) -> dict[str, Any]:
         """新闻流接口 — 按日期分组返回事件，含 AI 推荐标签。"""
-        target_store = await _get_target_store(target_id)
-        store_to_query = target_store if target_store is not None else _store
-
-        if store_to_query is not None:
-            result = await _visible_index_events_page(
-                store_to_query,
-                _data_dir,
-                stage="drafts",
-                target_id=target_id,
-                page=page,
-                page_size=page_size,
-                date=date,
-                exact_total=page_size <= 1,
-            )
-            if result["index_total"] > 0:
-                # 按日期分组
-                grouped = _group_events_by_date(result["events"])
-                return {
-                    "total": result["total"],
-                    "page": page,
-                    "page_size": page_size,
-                    "groups": grouped,
-                }
-            if await _store_has_target_event_index(store_to_query, target_id):
-                return {
-                    "total": 0,
-                    "page": page,
-                    "page_size": page_size,
-                    "groups": [],
-                }
-
-        # 降级: 文件系统
-        all_events_resp = _load_events_from_data(_data_dir, target_id, 1, 1000)
-        events = all_events_resp.events
-        if date:
-            events = [e for e in events if (e.get("published_at") or "").startswith(date)]
-        grouped = _group_events_by_date(events)
-        return {
-            "total": len(events),
-            "page": page,
-            "page_size": page_size,
-            "groups": grouped,
-        }
+        from news_sentry.core import events_handlers
+        return await events_handlers.events_feed_handler(
+            _data_dir,
+            _get_target_store,
+            _store,
+            _visible_index_events_page,
+            _load_events_from_data,
+            _group_events_by_date,
+            _store_has_target_event_index,
+            target_id=target_id,
+            date=date,
+            page=page,
+            page_size=page_size,
+        )
 
     async def export_public_event_markdown(
         target_id: str,
@@ -3504,42 +3445,17 @@ def create_app(
         event_id: str,
         target_id: str = Query(..., description="目标标识"),
     ) -> dict[str, Any]:
-
-        # 优先使用 target 自己的 state.db
-        target_store = await _get_target_store(target_id)
-        if target_store is not None:
-            event = await _load_indexed_event_detail(
-                _data_dir,
-                target_id,
-                target_store,
-                event_id,
-            )
-            if isinstance(event, InvisibleIndexedEvent):
-                raise HTTPException(status_code=404, detail="Event not found")
-            if event is not None:
-                return event
-            if await _store_has_target_event_index(target_store, target_id):
-                raise HTTPException(status_code=404, detail="Event not found")
-
-        if _store is not None:
-            event = await _load_indexed_event_detail(
-                _data_dir,
-                target_id,
-                _store,
-                event_id,
-            )
-            if isinstance(event, InvisibleIndexedEvent):
-                raise HTTPException(status_code=404, detail="Event not found")
-            if event is not None:
-                return event
-            if await _store_has_target_event_index(_store, target_id):
-                raise HTTPException(status_code=404, detail="Event not found")
-
-        # 降级路径（无 store / store 中未找到 / 文件系统路径）
-        event = _load_single_event(_data_dir, target_id, event_id)
-        if event is None:
-            raise HTTPException(status_code=404, detail="Event not found")
-        return event
+        from news_sentry.core import events_handlers
+        return await events_handlers.get_event_handler(
+            _data_dir,
+            _get_target_store,
+            _store,
+            _load_indexed_event_detail,
+            _load_single_event,
+            _store_has_target_event_index,
+            event_id=event_id,
+            target_id=target_id,
+        )
 
     async def receive_webhook(
         payload: WebhookPayload,
@@ -3565,92 +3481,15 @@ def create_app(
         接受 JSON 数组，逐条写入 data/{target_id}/raw/ 并索引到 SQLite。
         已存在的事件（event_id 相同）会被跳过。
         """
-
-        imported = 0
-        skipped = 0
-        errors: list[str] = []
-
-        for i, item in enumerate(events):
-            try:
-                _validate_target_slug(item.target_id)
-                _validate_source_slug(item.source_id)
-                now = datetime.now(UTC)
-                # 确定性 event_id: sha256(source_id|url|collected_at)
-                event_id = (
-                    "ne-imp-"
-                    + sha256(
-                        f"{item.source_id}|{item.url}|{item.collected_at}".encode()
-                    ).hexdigest()[:12]
-                )
-
-                # 去重检查
-                if _store is not None and await _store.is_known(event_id):
-                    skipped += 1
-                    continue
-
-                published_at = item.published_at or now.isoformat()
-                event_data: dict[str, Any] = {
-                    "id": event_id,
-                    "run_id": "import",
-                    "source_id": item.source_id,
-                    "url": item.url,
-                    "title_original": item.title_original,
-                    "content_original": item.content_original,
-                    "language": item.language,
-                    "published_at": published_at,
-                    "collected_at": item.collected_at,
-                    "pipeline_stage": item.pipeline_stage,
-                }
-                if item.classification:
-                    event_data["metadata"] = {"classification": item.classification}
-
-                # 写入 raw/ 目录（YAML frontmatter）
-                raw_dir = _data_dir / item.target_id / "raw"
-                raw_dir.mkdir(parents=True, exist_ok=True)
-                filepath = raw_dir / f"collected_{item.source_id}_{event_id}.md"
-                fm = yaml.dump(
-                    event_data, allow_unicode=True, default_flow_style=False, sort_keys=False
-                )
-                body = f"# {item.title_original}\n\n{item.content_original}\n"
-                filepath.write_text(f"---\n{fm}---\n\n{body}", encoding="utf-8")
-
-                # 索引到 SQLite
-                if _store is not None and _store._db is not None:  # noqa: SLF001
-                    gid = NewsEvent.make_gid()
-                    await _store.mark_known(event_id, gid)
-                    classification_l0 = None
-                    if isinstance(item.classification, dict):
-                        classification_l0 = item.classification.get("l0")
-                    await _store._db.execute(  # noqa: SLF001
-                        """INSERT OR IGNORE INTO event_index
-                           (event_id, target_id, stage, source_id,
-                            classification_l0, title_original,
-                            published_at, file_path, created_at, gid)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (
-                            event_id,
-                            item.target_id,
-                            item.pipeline_stage,
-                            item.source_id,
-                            classification_l0,
-                            item.title_original,
-                            published_at,
-                            str(filepath),
-                            now.isoformat(),
-                            gid,
-                        ),
-                    )
-                    await _store._db.commit()  # noqa: SLF001
-
-                # SSE 通知
-                sse_payload = {"event_id": event_id, "source": "import"}
-                asyncio.ensure_future(_notify_sse_clients(item.target_id, "new_event", sse_payload))
-
-                imported += 1
-            except Exception as exc:
-                errors.append(f"events[{i}]: {exc}")
-
-        return ImportResponse(imported=imported, skipped=skipped, errors=errors)
+        from news_sentry.core import events_handlers
+        return await events_handlers.import_events_handler(
+            _store,
+            _data_dir,
+            _validate_target_slug,
+            _validate_source_slug,
+            _notify_sse_clients,
+            events,
+        )
 
     async def reload_config(
         user: dict[str, Any] = Depends(require_permission("write")),
@@ -3670,55 +3509,13 @@ def create_app(
 
         读取原事件文件，更新 review_stage，移动目录，同步更新 SQLite 索引。
         """
-        valid_stages = {"drafts", "reviewed", "published"}
-        if body.new_stage not in valid_stages:
-            raise HTTPException(
-                status_code=422,
-                detail=f"无效的审核阶段: {body.new_stage}，有效值: {sorted(valid_stages)}",
-            )
-
-        target_id = body.target_id
-        store = await _store_for_target(target_id)
-        if store is None:
-            raise HTTPException(status_code=404, detail=f"Target 不存在或无事件索引: {target_id}")
-
-        # 从索引中查找事件
-        row = await store.get_event_index_row(target_id, event_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail=f"事件不存在: {event_id}")
-
-        file_path = row.get("file_path")
-        if not file_path:
-            raise HTTPException(status_code=400, detail="事件无关联文件路径，无法转换")
-
-        source_path = Path(file_path)
-        if not source_path.is_file():
-            raise HTTPException(status_code=404, detail=f"事件文件不存在: {file_path}")
-
-        # 使用 FileWriter 移动文件
-        writer = FileWriter(_data_dir)
-        new_path = writer.move_event_review_stage(source_path, body.new_stage)
-
-        # 更新索引中的 stage 和 file_path
-        await store.update_event_stage(
-            target_id,
-            event_id,
-            body.new_stage,
-            str(new_path),
-        )
-
-        logger.info(
-            "事件审核转换完成: event_id=%s target_id=%s -> %s new_path=%s",
-            event_id,
-            target_id,
-            body.new_stage,
-            new_path,
-        )
-
-        return TransitionEventResponse(
+        from news_sentry.core import events_handlers
+        return await events_handlers.transition_event_stage_handler(
+            _store,
+            _data_dir,
+            _store_for_target,
             event_id=event_id,
-            new_stage=body.new_stage,
-            new_file_path=str(new_path),
+            body=body,
         )
 
     # ── Phase 42: 配置写入端点 ────────────────────────────
@@ -3946,35 +3743,12 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> EventLinksResponse:
         """获取某事件的关联事件列表。"""
-        if _store is None:
-            return EventLinksResponse(event_id=event_id, links=[])
-        links = await _store.get_event_links(event_id)
-        result_links: list[EventLinkInfo] = []
-        for link in links:
-            linked_id = link["linked_event_id"]
-            title = None
-            time_str = None
-            if _store._db is not None:
-                async with _store._db.execute(
-                    "SELECT title_original, published_at FROM event_index WHERE event_id = ?",
-                    [linked_id],
-                ) as cursor:
-                    row = await cursor.fetchone()
-                    if row:
-                        title = row[0]
-                        time_str = row[1]
-            result_links.append(
-                EventLinkInfo(
-                    linked_event_id=linked_id,
-                    link_type=link["link_type"],
-                    strength=link["strength"],
-                    direction=link["direction"],
-                    signals=link.get("signals", {}),
-                    linked_event_title=title,
-                    linked_event_time=time_str,
-                )
-            )
-        return EventLinksResponse(event_id=event_id, links=result_links)
+        from news_sentry.core import events_handlers
+        return await events_handlers.get_event_links_handler(
+            _store,
+            event_id=event_id,
+            target_id=target_id,
+        )
 
     async def get_event_chain(
         event_id: str,
@@ -3982,20 +3756,12 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> EventChainResponse:
         """获取某事件的完整追踪链。"""
-        if _store is None:
-            return EventChainResponse(chain_id=event_id, events=[], total=0)
-        chain = await _store.get_event_chain(event_id, depth=5)
-        events: list[ChainEventInfo] = []
-        for ce in chain:
-            events.append(
-                ChainEventInfo(
-                    event_id=ce["event_id"],
-                    title_original=ce.get("title_original"),
-                    published_at=ce.get("published_at"),
-                    link_type=ce.get("link_type"),
-                )
-            )
-        return EventChainResponse(chain_id=event_id, events=events, total=len(events))
+        from news_sentry.core import events_handlers
+        return await events_handlers.get_event_chain_handler(
+            _store,
+            event_id=event_id,
+            target_id=target_id,
+        )
 
     async def list_chains(
         target_id: str = Query(..., description="目标标识"),
