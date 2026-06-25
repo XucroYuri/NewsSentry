@@ -112,3 +112,17 @@ export function sentimentLabel(s: string): string {
   }
   return map[s] ?? s
 }
+
+/** 按 target_id 或 display_name 搜索过滤 target 列表。 */
+export function filterTargets<T extends { target_id: string; display_name?: string }>(
+  targets: T[],
+  query: string,
+): T[] {
+  if (!query.trim()) return targets
+  const q = query.toLowerCase()
+  return targets.filter(
+    (t) =>
+      t.target_id.toLowerCase().includes(q) ||
+      (t.display_name ?? "").toLowerCase().includes(q),
+  )
+}

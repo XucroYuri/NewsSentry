@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   cn,
   entityTypeBadge,
+  filterTargets,
   formatAliases,
   getLifecycleStatus,
   NEXT_STAGE,
@@ -224,5 +225,56 @@ describe("sentimentLabel", () => {
   it("returns unknown values as-is", () => {
     expect(sentimentLabel("mixed")).toBe("mixed")
     expect(sentimentLabel("")).toBe("")
+  })
+})
+
+describe("filterTargets", () => {
+  interface Dummy { target_id: string; display_name?: string }
+
+  const targets: Dummy[] = [
+    { target_id: "italy", display_name: "意大利" },
+    { target_id: "france", display_name: "法国" },
+    { target_id: "germany", display_name: undefined },
+    { target_id: "us-economy", display_name: "美国经济" },
+  ]
+
+  it("returns all targets when query is empty or whitespace", () => {
+    expect(filterTargets(targets, "")).toEqual(targets)
+    expect(filterTargets(targets, "   ")).toEqual(targets)
+  })
+
+  it("matches by target_id", () => {
+    const result = filterTargets(targets, "italy")
+    expect(result).toHaveLength(1)
+    expect(result[0].target_id).toBe("italy")
+  })
+
+  it("matches by display_name", () => {
+    const result = filterTargets(targets, "意大利")
+    expect(result).toHaveLength(1)
+    expect(result[0].target_id).toBe("italy")
+  })
+
+  it("matches case-insensitively", () => {
+    const result = filterTargets(targets, "ITALY")
+    expect(result).toHaveLength(1)
+    expect(result[0].target_id).toBe("italy")
+  })
+
+  it("handles targets with undefined display_name", () => {
+    const result = filterTargets(targets, "germany")
+    expect(result).toHaveLength(1)
+    expect(result[0].target_id).toBe("germany")
+  })
+
+  it("returns multiple matches", () => {
+    const result = filterTargets(targets, "us")
+    // "us" matches "us-economy" target_id; no display_name contains "us" in lowercase
+    expect(result).toHaveLength(1)
+    expect(result[0].target_id).toBe("us-economy")
+  })
+
+  it("returns empty array for no match", () => {
+    expect(filterTargets(targets, "spain")).toEqual([])
   })
 })

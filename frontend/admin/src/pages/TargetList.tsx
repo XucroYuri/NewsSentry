@@ -18,7 +18,7 @@ import {
   type TargetCreateRequest,
 } from "@/lib/api"
 import ErrorBanner from "@/components/ErrorBanner"
-import { getLifecycleStatus } from "@/lib/utils"
+import { getLifecycleStatus, filterTargets } from "@/lib/utils"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -114,14 +114,7 @@ export default function TargetList({
     }
   }
 
-  const filtered = targets.filter((t) => {
-    if (!search.trim()) return true
-    const q = search.toLowerCase()
-    return (
-      t.target_id.toLowerCase().includes(q) ||
-      (t.display_name ?? "").toLowerCase().includes(q)
-    )
-  })
+  const filtered = filterTargets(targets, search)
 
   if (loading) {
     return (
