@@ -1408,7 +1408,7 @@ def create_app(
                     facets=facets,
                     generatedAt=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
                 )
-                return payload.model_dump_json(by_alias=True, exclude_none=True)
+                return cast("str", payload.model_dump_json(by_alias=True, exclude_none=True))
             except Exception:
                 logger.warning(
                     "SSR bootstrap fetch failed, page will use client-side API", exc_info=True
@@ -2256,7 +2256,7 @@ def create_app(
         _atomic_write_yaml(target_path, target_data)
         _config_cache.clear()
         _clear_admin_caches()
-        return _target_info_from_config(target_data, _data_dir).model_dump()
+        return cast("dict[str, Any]", _target_info_from_config(target_data, _data_dir).model_dump())
 
     async def patch_admin_target(
         target_id: str,
@@ -2416,7 +2416,7 @@ def create_app(
         data["_source_id"] = source_ref
         data["_file_path"] = str(path)
         _clear_admin_caches()
-        return _source_info_from_config(data).model_dump()
+        return cast("dict[str, Any]", _source_info_from_config(data).model_dump())
 
     async def patch_admin_target_source(
         target_id: str,
@@ -2441,7 +2441,7 @@ def create_app(
         data["_source_id"] = normalized_ref
         data["_file_path"] = str(path)
         _clear_admin_caches()
-        return _source_info_from_config(data).model_dump()
+        return cast("dict[str, Any]", _source_info_from_config(data).model_dump())
 
     async def archive_admin_target_source(
         target_id: str,
@@ -2464,7 +2464,7 @@ def create_app(
         data["_source_id"] = normalized_ref
         data["_file_path"] = str(path)
         _clear_admin_caches()
-        return _source_info_from_config(data).model_dump()
+        return cast("dict[str, Any]", _source_info_from_config(data).model_dump())
 
     async def restore_admin_target_source(
         target_id: str,
@@ -2486,7 +2486,7 @@ def create_app(
         data["_source_id"] = normalized_ref
         data["_file_path"] = str(path)
         _clear_admin_caches()
-        return _source_info_from_config(data).model_dump()
+        return cast("dict[str, Any]", _source_info_from_config(data).model_dump())
 
     async def get_admin_target_social(
         target_id: str,
@@ -2582,7 +2582,7 @@ def create_app(
         _atomic_write_yaml(path, data)
         _config_cache.clear()
         _clear_admin_caches()
-        return account
+        return cast("dict[str, Any]", account)
 
     async def patch_admin_social_account(
         target_id: str,
@@ -3319,7 +3319,7 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> EventResponse:
         from news_sentry.core import events_handlers
-        return await events_handlers.list_events_handler(
+        return cast(EventResponse, await events_handlers.list_events_handler(
             _data_dir,
             _get_target_store,
             _store,
@@ -3337,7 +3337,7 @@ def create_app(
             sentiment=sentiment,
             entity=entity,
             topic_tag=topic_tag,
-        )
+        ))
 
     # ── 新闻流 Feed API ─────────────────────────────────────
 
@@ -3482,14 +3482,14 @@ def create_app(
         已存在的事件（event_id 相同）会被跳过。
         """
         from news_sentry.core import events_handlers
-        return await events_handlers.import_events_handler(
+        return cast(ImportResponse, await events_handlers.import_events_handler(
             _store,
             _data_dir,
             _validate_target_slug,
             _validate_source_slug,
             _notify_sse_clients,
             events,
-        )
+        ))
 
     async def reload_config(
         user: dict[str, Any] = Depends(require_permission("write")),
@@ -3510,13 +3510,13 @@ def create_app(
         读取原事件文件，更新 review_stage，移动目录，同步更新 SQLite 索引。
         """
         from news_sentry.core import events_handlers
-        return await events_handlers.transition_event_stage_handler(
+        return cast(TransitionEventResponse, await events_handlers.transition_event_stage_handler(
             _store,
             _data_dir,
             _store_for_target,
             event_id=event_id,
             body=body,
-        )
+        ))
 
     # ── Phase 42: 配置写入端点 ────────────────────────────
 
@@ -3744,11 +3744,11 @@ def create_app(
     ) -> EventLinksResponse:
         """获取某事件的关联事件列表。"""
         from news_sentry.core import events_handlers
-        return await events_handlers.get_event_links_handler(
+        return cast(EventLinksResponse, await events_handlers.get_event_links_handler(
             _store,
             event_id=event_id,
             target_id=target_id,
-        )
+        ))
 
     async def get_event_chain(
         event_id: str,
@@ -3757,11 +3757,11 @@ def create_app(
     ) -> EventChainResponse:
         """获取某事件的完整追踪链。"""
         from news_sentry.core import events_handlers
-        return await events_handlers.get_event_chain_handler(
+        return cast(EventChainResponse, await events_handlers.get_event_chain_handler(
             _store,
             event_id=event_id,
             target_id=target_id,
-        )
+        ))
 
     async def list_chains(
         target_id: str = Query(..., description="目标标识"),
