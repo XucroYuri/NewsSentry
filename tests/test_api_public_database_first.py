@@ -247,8 +247,6 @@ def test_public_bootstrap_returns_cached_reader_payload(
             "source_channel_refs": ["ansa"],
         }
     ]
-    monkeypatch.setattr(api_server, "_load_target_configs", lambda: test_config)
-    # 源模块: public_news_utils 内懒加载从 target_config_utils 导入 _load_target_configs
     monkeypatch.setattr(target_config_utils, "_load_target_configs", lambda: test_config)
 
     app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
@@ -275,9 +273,13 @@ def test_public_regions_can_include_empty_source_backed_regions(
     async def _fake_public_target_event_counts(_data_dir: Path) -> dict[str, int]:
         return {"italy": 2}
 
-    monkeypatch.setattr(api_server, "_public_target_event_counts", _fake_public_target_event_counts)
     monkeypatch.setattr(
-        api_server,
+        target_config_utils,
+        "_public_target_event_counts",
+        _fake_public_target_event_counts,
+    )
+    monkeypatch.setattr(
+        target_config_utils,
         "_load_target_configs",
         lambda: [
             {
@@ -418,8 +420,6 @@ def test_public_news_all_targets_falls_back_to_target_stores_when_global_store_i
         }
     ]
 
-    monkeypatch.setattr(api_server, "_load_target_configs", lambda: test_config)
-    # 源模块: public_news_utils 内懒加载从 target_config_utils 导入 _load_target_configs
     monkeypatch.setattr(target_config_utils, "_load_target_configs", lambda: test_config)
 
     async def _fake_target_store(target_id: str):
@@ -484,7 +484,7 @@ def test_public_targets_and_regions_fall_back_to_target_stores_when_global_store
         return {"canada": 1}
 
     monkeypatch.setattr(
-        api_server, "_public_target_event_counts", _fake_public_target_event_counts,
+        target_config_utils, "_public_target_event_counts", _fake_public_target_event_counts,
     )
 
     async def _fake_target_store(target_id: str):
@@ -526,14 +526,12 @@ def test_public_regions_and_targets_hide_topic_targets(
             "source_channel_refs": ["api/gdelt-topic"],
         },
     ]
-    monkeypatch.setattr(api_server, "_load_target_configs", lambda: test_config)
-    # 源模块: public_news_utils 内懒加载从 target_config_utils 导入 _load_target_configs
     monkeypatch.setattr(target_config_utils, "_load_target_configs", lambda: test_config)
 
     async def _fake_counts(_data_dir: Path) -> dict[str, int]:
         return {"italy": 3, "energy-transition": 7}
 
-    monkeypatch.setattr(api_server, "_public_target_event_counts", _fake_counts)
+    monkeypatch.setattr(target_config_utils, "_public_target_event_counts", _fake_counts)
     app = create_app(
         data_dir=tmp_path,
         store=EmptyGlobalPublicStore([]),
@@ -645,8 +643,6 @@ def test_public_facets_and_news_filter_use_publication_tags(
             "source_channel_refs": ["lemonde"],
         },
     ]
-    monkeypatch.setattr(api_server, "_load_target_configs", lambda: test_config)
-    # 源模块: public_news_utils 内懒加载从 target_config_utils 导入 _load_target_configs
     monkeypatch.setattr(target_config_utils, "_load_target_configs", lambda: test_config)
 
     app = create_app(data_dir=tmp_path, store=store, auto_store=False, skip_lifespan=True)
@@ -697,12 +693,8 @@ def test_public_facets_reuses_short_cache_for_same_query(
     monkeypatch.setattr(
         target_config_utils, "_load_target_configs", lambda: [test_target_config]
     )
-    # api_server 闭包: _load_target_configs 已在模块级从 target_config_utils import
     monkeypatch.setattr(
-        api_server, "_load_target_configs", lambda: [test_target_config]
-    )
-    monkeypatch.setattr(
-        api_server, "_public_target_event_counts",
+        target_config_utils, "_public_target_event_counts",
         lambda data_dir: {"italy": 1},
     )
 
