@@ -17,6 +17,7 @@ import {
 import { useNotificationWebSocket } from "@/hooks/useNotificationWebSocket"
 import NotificationToast from "@/components/NotificationToast"
 import AnnotationsPage from "@/pages/AnnotationsPage"
+import { probeTargets, probeTargetsWithAuth } from "@backend/api/targets"
 import { getApiBase, setApiBase } from "@/lib/locals-settings"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import DashboardOverview from "@/pages/DashboardOverview"
@@ -68,7 +69,7 @@ function App() {
   useEffect(() => {
     async function probeAuth() {
       try {
-        const res = await fetch("/api/v1/admin/targets")
+        const res = await probeTargets()
         if (res.ok) {
           // 服务器允许无 token 访问（本地开发模式），跳过登录页
           setToken("local-bypass")
@@ -86,9 +87,7 @@ function App() {
     if (!token || token === "local-bypass") return
     async function check() {
       try {
-        const res = await fetch("/api/v1/admin/targets", {
-          headers: { Authorization: `Bearer ${token}` },
-        })
+        const res = await probeTargetsWithAuth(token!)
         if (res.status === 401) {
           localStorage.removeItem("news_sentry_token")
           setToken(null)

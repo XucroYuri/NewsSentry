@@ -22,7 +22,8 @@ import {
   XIcon,
 } from "lucide-react"
 
-import { authHeaders, fetchAdminTargets, type AdminTargetInfo } from "@/lib/api"
+import { fetchAdminTargets, type AdminTargetInfo } from "@/lib/api"
+import { fetchEvents, type EventsResponse } from "@backend/api/events"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -34,8 +35,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-
-const API_BASE = "/api/v1"
 
 interface EventRecord {
   event_id?: string
@@ -56,12 +55,6 @@ interface EventRecord {
   [key: string]: unknown
 }
 
-interface EventListResult {
-  total: number
-  events: EventRecord[]
-  page: number
-  page_size: number
-}
 
 function scoreVariant(score: number | undefined): "success" | "destructive" | "secondary" | "outline" {
   if (score === undefined) return "outline"
@@ -80,7 +73,7 @@ function sentimentVariant(sentiment: string | undefined): "success" | "destructi
 export default function EventsPage() {
   const [targets, setTargets] = useState<AdminTargetInfo[]>([])
   const [selectedTargetId, setSelectedTargetId] = useState<string>("")
-  const [data, setData] = useState<EventListResult | null>(null)
+  const [data, setData] = useState<EventsResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [page, setPage] = useState(1)
@@ -112,20 +105,15 @@ export default function EventsPage() {
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams()
-      params.set("target_id", selectedTargetId)
-      params.set("page", String(page))
-      params.set("page_size", String(pageSize))
-      if (search.trim()) params.set("search", search.trim())
-      if (classification) params.set("classification", classification)
-      if (minScore !== undefined) params.set("min_score", String(minScore))
-      if (sentiment) params.set("sentiment", sentiment)
-      const res = await fetch(
-        `${API_BASE}/events?${params}`,
-        { headers: authHeaders() },
-      )
-      if (!res.ok) throw new Error(`Event list failed (${res.status})`)
-      const json = await res.json()
+      const json = await fetchEvents({
+        target_id: selectedTargetId,
+        page,
+        page_size: pageSize,
+        search: search.trim() || undefined,
+        classification: classification || undefined,
+        min_score: minScore,
+        sentiment: sentiment || undefined,
+      })
       setData(json)
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载失败")

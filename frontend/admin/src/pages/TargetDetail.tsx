@@ -13,7 +13,8 @@ import {
   PencilIcon,
 } from "lucide-react"
 
-import { authHeaders, archiveTarget, restoreTarget, fetchTargetInventory, patchSource, archiveSource, restoreSource, type SourceInventoryResponse, type SourceInventoryItem } from "@/lib/api"
+import { archiveTarget, restoreTarget, fetchTargetInventory, patchSource, archiveSource, restoreSource, type SourceInventoryResponse, type SourceInventoryItem } from "@/lib/api"
+import { fetchTargetOverview, type TargetOverviewResponse } from "@backend/api/targets"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -21,20 +22,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Skeleton } from "@/components/ui/skeleton"
 import EditSourceDialog from "@/components/admin/EditSourceDialog"
 
-
-const API_BASE = "/api/v1"
-
-interface TargetOverviewResponse {
-  target: AdminTargetInfo
-  profile: Record<string, unknown>
-  sources: { total: number; active: number; archived: number; missing_refs: number; unreferenced_files: number }
-  social: { dimensions: number; accounts: number; archived_accounts: number }
-  events: { total: number }
-  classification_diagnostics: Record<string, unknown>
-  recent_runs: RunLogEntry[]
-  validation: Record<string, unknown>
-  collector: Record<string, unknown>
-}
 
 interface AdminTargetInfo {
   target_id: string
@@ -66,11 +53,7 @@ export default function TargetDetail({ targetId, onBack }: { targetId: string; o
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`${API_BASE}/admin/targets/${encodeURIComponent(targetId)}/overview`, {
-        headers: authHeaders(),
-      })
-      if (!res.ok) throw new Error(`请求失败 (${res.status})`)
-      setData(await res.json())
+      setData(await fetchTargetOverview(targetId))
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载失败")
     } finally {

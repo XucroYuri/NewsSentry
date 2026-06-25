@@ -20,7 +20,8 @@ import {
   XIcon,
 } from "lucide-react"
 
-import { authHeaders, fetchAdminTargets, type AdminTargetInfo } from "@/lib/api"
+import { fetchAdminTargets, type AdminTargetInfo } from "@/lib/api"
+import { fetchEvents, transitionEvent, type EventsResponse } from "@backend/api/events"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -32,8 +33,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-
-const API_BASE = "/api/v1"
 
 interface EventRecord {
   event_id?: string
@@ -53,13 +52,6 @@ interface EventRecord {
   entities?: Array<{ name: string; type?: string }>
   review_stage?: string
   [key: string]: unknown
-}
-
-interface EventListResult {
-  total: number
-  events: EventRecord[]
-  page: number
-  page_size: number
 }
 
 type ReviewStage = "drafts" | "reviewed" | "published"
@@ -96,7 +88,7 @@ export default function DraftsPage() {
   const [targets, setTargets] = useState<AdminTargetInfo[]>([])
   const [selectedTargetId, setSelectedTargetId] = useState<string>("")
   const [stage, setStage] = useState<ReviewStage>("drafts")
-  const [data, setData] = useState<EventListResult | null>(null)
+  const [data, setData] = useState<EventsResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [page, setPage] = useState(1)
@@ -122,18 +114,13 @@ export default function DraftsPage() {
     setLoading(true)
     setError(null)
     try {
-      const params = new URLSearchParams()
-      params.set("target_id", selectedTargetId)
-      params.set("page", String(page))
-      params.set("page_size", String(pageSize))
-      params.set("stage", stage)
-      if (search.trim()) params.set("search", search.trim())
-      const res = await fetch(
-        `${API_BASE}/events?${params}`,
-        { headers: authHeaders() },
-      )
-      if (!res.ok) throw new Error(`加载失败 (${res.status})`)
-      const json = await res.json()
+      const json = await fetchEvents({
+        target_id: selectedTargetId,
+        page,
+        page_size: pageSize,
+        stage,
+        search: search.trim() || undefined,
+      })
       setData(json)
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载失败")
@@ -158,14 +145,7 @@ export default function DraftsPage() {
     if (!next) return
     setTransitioning((prev) => new Set(prev).add(eventId))
     try {
-      const res = await fetch(
-        `${API_BASE}/admin/events/${encodeURIComponent(eventId)}/transition`,
-        {
-          method: "POST",
-          headers: { ...authHeaders(), "Content-Type": "application/json" },
-          body: JSON.stringify({ target_id: targetId, new_stage: next }),
-        },
-      )
+      const res = await transitionEvent(eventId, targetId, next)
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
         throw new Error(err.detail ?? `转换失败 (${res.status})`)
