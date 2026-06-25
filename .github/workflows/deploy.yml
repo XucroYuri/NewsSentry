@@ -103,36 +103,20 @@ jobs:
       - name: 📋 E2E tests
         continue-on-error: true
         timeout-minutes: 10
+        env:
+          NEWSSENTRY_DEPLOYMENT_ENV: local
+          NEWSSENTRY_ADMIN_PASSWORD: e2e-admin-pass-123
+          NEWSSENTRY_API_KEY: e2e-test-api-key-00000000
+          NEWSSENTRY_DATA_DIR: /tmp/e2e-data
+          NEWSSENTRY_AUTO_COLLECT: "0"
+          NEWSSENTRY_AI_ENRICHMENT: "0"
+          NEWSSENTRY_PUBLIC_TRANSLATION: "0"
         run: |
           set -euo pipefail
-          # Install uvicorn if not present (may already be via .[api] in pytest step)
-          # Start the server
-          python -m uvicorn news_sentry.core.api_server:create_app \
-            --factory --host 127.0.0.1 --port 18082 --log-level warning &
-          SERVER_PID=$!
-          echo "Server PID: $SERVER_PID"
-          # Wait for health (up to 20s)
-          HEALTHY=false
-          for i in $(seq 1 20); do
-            if curl -sf http://127.0.0.1:18082/api/v1/health > /dev/null 2>&1; then
-              echo "✅ Server healthy (attempt $i)"
-              HEALTHY=true
-              break
-            fi
-            sleep 1
-          done
-          if [ "$HEALTHY" = "false" ]; then
-            echo "❌ Server failed to start"
-            kill $SERVER_PID 2>/dev/null || true
-            exit 1
-          fi
-          # Run E2E tests
+          rm -rf /tmp/e2e-data
+          mkdir -p /tmp/e2e-data
+          # conftest.py manages the uvicorn subprocess; just run tests
           python -m pytest tests/e2e/ -m e2e -q --tb=short --timeout=60 -x
-          RESULT=$?
-          echo "E2E exit code: $RESULT"
-          kill $SERVER_PID 2>/dev/null || true
-          wait $SERVER_PID 2>/dev/null || true
-          exit $RESULT
 
 
   # ── Stage 2: Deploy to VPS via SSH (venv + systemd) ───────
