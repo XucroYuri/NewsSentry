@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import json
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,8 +13,7 @@ from fastapi.testclient import TestClient
 from news_sentry.core import api_server as api_server_module
 from news_sentry.core.api_server import create_app
 from news_sentry.core.async_store import AsyncStore
-
-from tests.unit.test_canonical_api import _make_canonical_client, canonical_client  # noqa: F401
+from tests.unit.test_canonical_api import _make_canonical_client
 
 
 def _close_test_store(store: Any) -> None:
@@ -48,6 +47,16 @@ def _reset_api_server_store_state(monkeypatch: pytest.MonkeyPatch) -> Iterator[N
 def _force_deployment_env(monkeypatch: pytest.MonkeyPatch, env: str) -> None:
     monkeypatch.setenv("NEWSSENTRY_DEPLOYMENT_ENV", env)
     monkeypatch.setattr(api_server_module, "_deployment_env", "")
+
+
+@pytest.fixture
+def canonical_client(tmp_path: Path) -> Iterator[tuple[TestClient, AsyncStore]]:
+    client, store = _make_canonical_client(tmp_path)
+    try:
+        yield client, store
+    finally:
+        client.close()
+        asyncio.run(store.close())
 
 
 def test_research_queue_returns_open_canonical_items(

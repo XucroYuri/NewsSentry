@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-import json
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator
-from unittest.mock import MagicMock, patch
+from typing import Any
 
 import pytest
 import yaml
-from fastapi.testclient import TestClient
 
 from news_sentry.core import api_server as api_server_module
 from news_sentry.core.api_server import create_app
