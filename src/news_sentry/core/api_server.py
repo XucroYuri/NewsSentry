@@ -4251,10 +4251,12 @@ def create_app(
         filter_yaml = (_config_base_dir() / "filters" / req.target_id / "default.yaml").resolve()
         if not filter_yaml.exists():
             raise HTTPException(status_code=404, detail=f"Filter config not found: {filter_yaml}")
+        import news_sentry.core._state as _st2
         from news_sentry.core.rules_optimizer import RulesOptimizer
 
-        import news_sentry.core._state as _st2
-        data_dir = _st2._data_dir / req.target_id if _st2._data_dir else Path("data") / req.target_id
+        data_dir = (
+            _st2._data_dir / req.target_id if _st2._data_dir else Path("data") / req.target_id
+        )
         optimizer = RulesOptimizer(filter_yaml, data_dir)
         result = optimizer.optimize(dry_run=req.dry_run)
         return RulesOptimizeResponse(
