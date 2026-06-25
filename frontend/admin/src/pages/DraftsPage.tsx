@@ -19,7 +19,7 @@ import {
 } from "lucide-react"
 
 import { fetchAdminTargets, type AdminTargetInfo } from "@/lib/api"
-import { scoreVariant } from "@/lib/utils"
+import { scoreVariant, stageBadgeVariant, STAGE_LABELS, NEXT_STAGE } from "@/lib/utils"
 import { fetchEvents, transitionEvent, type EventsResponse } from "@backend/api/events"
 import { Card, CardContent } from "@/components/ui/card"
 import PaginationBar from "@/components/PaginationBar"
@@ -55,27 +55,6 @@ interface EventRecord {
 }
 
 type ReviewStage = "drafts" | "reviewed" | "published"
-
-const STAGE_LABELS: Record<ReviewStage, string> = {
-  drafts: "草稿",
-  reviewed: "已审核",
-  published: "已发布",
-}
-
-const NEXT_STAGE: Record<ReviewStage, ReviewStage | null> = {
-  drafts: "reviewed",
-  reviewed: "published",
-  published: null,
-}
-
-function stageBadgeVariant(stage: ReviewStage): "default" | "secondary" | "success" {
-  const map: Record<ReviewStage, "default" | "secondary" | "success"> = {
-    drafts: "default",
-    reviewed: "secondary",
-    published: "success",
-  }
-  return map[stage] ?? "default"
-}
 
 export default function DraftsPage() {
   const [targets, setTargets] = useState<AdminTargetInfo[]>([])

@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
+import { sentimentLabel } from "@/lib/utils"
 import {
   Dialog,
   DialogContent,
@@ -164,16 +165,6 @@ export default function NotificationsPage() {
       ...editingRule,
       watch: { ...watch, sentiment: next },
     })
-  }
-
-  function sentimentLabel(s: string): string {
-    const map: Record<string, string> = {
-      positive: "正面",
-      negative: "负面",
-      neutral: "中性",
-      very_negative: "极负面",
-    }
-    return map[s] ?? s
   }
 
   const watch = (editingRule?.watch ?? {}) as Record<string, unknown>

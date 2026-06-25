@@ -16,6 +16,7 @@ import {
   type AdminUser,
 } from "@/lib/api"
 import ErrorBanner from "@/components/ErrorBanner"
+import { roleBadgeVariant, roleLabel } from "@/lib/utils"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -117,18 +118,6 @@ export default function UsersPage() {
     } finally {
       setResetting(false)
     }
-  }
-
-  function roleBadgeVariant(role: string): "default" | "secondary" | "destructive" {
-    if (role === "admin") return "default"
-    if (role === "writer") return "destructive"
-    return "secondary"
-  }
-
-  function roleLabel(role: string): string {
-    if (role === "admin") return "管理员"
-    if (role === "writer") return "编辑"
-    return "只读"
   }
 
   if (loading) {

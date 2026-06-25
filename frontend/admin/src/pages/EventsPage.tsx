@@ -18,7 +18,7 @@ import {
 } from "lucide-react"
 
 import { fetchAdminTargets, type AdminTargetInfo } from "@/lib/api"
-import { scoreVariant } from "@/lib/utils"
+import { scoreVariant, sentimentVariant } from "@/lib/utils"
 import { fetchEvents, type EventsResponse } from "@backend/api/events"
 import { Card, CardContent } from "@/components/ui/card"
 import PaginationBar from "@/components/PaginationBar"
@@ -50,14 +50,6 @@ interface EventRecord {
   tags?: string[]
   entities?: Array<{ name: string; type?: string }>
   [key: string]: unknown
-}
-
-
-function sentimentVariant(sentiment: string | undefined): "success" | "destructive" | "secondary" {
-  if (!sentiment) return "secondary"
-  if (sentiment === "positive") return "success"
-  if (sentiment === "negative") return "destructive"
-  return "secondary"
 }
 
 export default function EventsPage() {

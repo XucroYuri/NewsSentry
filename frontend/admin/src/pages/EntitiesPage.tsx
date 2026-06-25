@@ -9,6 +9,7 @@ import {
 
 import { fetchEntities, fetchEntity, fetchEntityEvents, mergeEntities, searchEntities, type EntityInfo, type EntityDetailResponse, type EntityListResponse } from "@/lib/api"
 import ErrorBanner from "@/components/ErrorBanner"
+import { entityTypeBadge, formatAliases } from "@/lib/utils"
 import PaginationBar from "@/components/PaginationBar"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -152,27 +153,6 @@ export default function EntitiesPage() {
       setMergeError(err instanceof Error ? err.message : "合并失败")
     } finally {
       setMergeLoading(false)
-    }
-  }
-
-  function entityTypeBadge(type: string) {
-    const colors: Record<string, string> = {
-      person: "bg-blue-50 text-blue-700 border-blue-200",
-      organization: "bg-purple-50 text-purple-700 border-purple-200",
-      location: "bg-emerald-50 text-emerald-700 border-emerald-200",
-      event: "bg-amber-50 text-amber-700 border-amber-200",
-      topic: "bg-sky-50 text-sky-700 border-sky-200",
-    }
-    return colors[type] ?? "bg-muted text-muted-foreground"
-  }
-
-  function formatAliases(aliases: string): string[] {
-    if (!aliases) return []
-    try {
-      const parsed = JSON.parse(aliases)
-      return Array.isArray(parsed) ? parsed : [String(parsed)]
-    } catch {
-      return aliases.split(",").map((s) => s.trim()).filter(Boolean)
     }
   }
 
