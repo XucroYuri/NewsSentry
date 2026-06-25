@@ -30,11 +30,13 @@ class TranslationBatcher:
     ) -> int:
         """批量翻译事件标题和摘要。
 
+        调用方负责按 event.language 分组后传入，确保单批内源语言一致。
+
         Args:
             events: NewsEvent 列表（原地修改 metadata.translation）。
             router: ProviderRouter 实例。
             provider_factory: Provider 工厂函数。
-            language: 源语言代码。
+            language: 源语言代码（本批所有事件的共同源语言）。
 
         Returns:
             成功翻译的事件数。

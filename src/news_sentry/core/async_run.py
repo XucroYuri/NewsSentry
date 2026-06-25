@@ -415,22 +415,26 @@ async def _translate_filtered_async(
         )
         return 0
 
-    lang_primary = (
-        config.target.get("language_scope", {}).get("primary", "en")
-        if hasattr(config.target, "get")
-        else "en"
-    )
+    # 按事件自身的 language 分组翻译，而非使用 target.language_scope.primary 统一标记
+    by_language: dict[str, list[NewsEvent]] = {}
+    for event in events:
+        lang = getattr(event, "language", None)
+        lang_key = lang.value if lang else "mixed"
+        by_language.setdefault(lang_key, []).append(event)
+
     try:
         router = _try_create_provider_router()
         if router is None:
             return 0
         batcher = TranslationBatcher(batch_size=5, max_concurrent=1)
-        translated = await batcher.translate(
-            events,
-            router,
-            _build_provider_factory(),
-            language=lang_primary,
-        )
+        translated = 0
+        for lang_key, lang_events in by_language.items():
+            translated += await batcher.translate(
+                lang_events,
+                router,
+                _build_provider_factory(),
+                language=lang_key,
+            )
         run_log.log_event(
             "filter",
             "translate.fast",

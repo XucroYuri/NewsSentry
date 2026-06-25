@@ -5,6 +5,7 @@ source_id: ansa-en
 display_name: "ANSA English Edition"
 type: rss
 url: "https://www.ansa.it/english/english_rss.xml"
+language: en
 
 # credibility_base: 0-100 量纲中的基础可信度，详见 contracts-canonical.md §4
 credibility_base: 0.88
