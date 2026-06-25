@@ -26,5 +26,5 @@
     "types": ["vitest/globals", "vite/client"]
   },
   "include": ["src", "vite.config.ts", "../../backend/src"],
-  "exclude": ["**/*.test.ts", "**/*.test.tsx"]
+  "exclude": ["../../backend/src/**/*.test.ts", "../../backend/src/**/*.test.tsx"]
 }
