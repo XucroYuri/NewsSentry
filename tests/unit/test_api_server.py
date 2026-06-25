@@ -6333,13 +6333,9 @@ class TestImportEvents:
         assert "language: ja" in content
         assert "Full article text" in content
 
-    async def test_import_dedup_with_sqlite(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_import_dedup_with_sqlite(self, tmp_path: Path) -> None:
         """SQLite 去重：重复 event_id 被跳过。"""
         from httpx import ASGITransport, AsyncClient
-
-        # httpx AsyncClient + ASGITransport 使用真实 loopback (127.0.0.1)
-        # 而非 TestClient 的 "testclient"，需显式设置本地环境以通过 auth bypass
-        _force_deployment_env(monkeypatch, "local")
 
         db_path = tmp_path / "state.db"
         store = AsyncStore(db_path)

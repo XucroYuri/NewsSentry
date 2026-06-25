@@ -180,6 +180,7 @@ from news_sentry.core._state import (
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.auth import hash_password, verify_password
 from news_sentry.core.canonical_projection import CanonicalProjectionService, ProjectionOptions
+from news_sentry.models.newsevent import NewsEvent  # 供 import_events 生成 gid 使用
 
 # ── 从辅助模块导入（从 api_server.py 提取）──────────────────────
 from news_sentry.core.collector_config_utils import (
