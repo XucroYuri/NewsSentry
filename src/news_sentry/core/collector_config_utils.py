@@ -40,6 +40,7 @@ from news_sentry.core.public_translation import (
 )
 from news_sentry.core.target_config_utils import (
     _atomic_write_yaml,
+    _config_base_dir,
     _file_signature,
     _filter_source_health_records,
     _load_memory_source_health_records,
@@ -68,7 +69,7 @@ def _parse_target_ids(raw: str) -> list[str]:
 
 def _collector_config_path() -> Path:
     """返回本地持久化的采集器配置路径。"""
-    return Path("config/runtime/collector.yaml")
+    return _config_base_dir() / "runtime/collector.yaml"
 
 
 
@@ -334,7 +335,7 @@ def _cached_collector_diagnostics_payload() -> dict[str, Any]:
 
 
 def _ai_enrichment_config_path() -> Path:
-    return Path("config/runtime/ai_enrichment.yaml")
+    return _config_base_dir() / "runtime/ai_enrichment.yaml"
 
 
 
@@ -420,7 +421,7 @@ def _current_ai_enrichment_config() -> AIEnrichmentConfig:
 
 
 def _public_translation_config_path() -> Path:
-    return Path("config/runtime/public_translation.yaml")
+    return _config_base_dir() / "runtime/public_translation.yaml"
 
 
 
@@ -549,7 +550,7 @@ def _create_ai_provider_router() -> Any | None:  # noqa: ANN401
         from news_sentry.core.provider_router import ProviderRouter
         from news_sentry.models.provider_config import ProviderRoutesConfig
 
-        routes_path = Path("config/provider/routes.yaml")
+        routes_path = _config_base_dir() / "provider/routes.yaml"
         if not routes_path.is_file():
             return None
         data = _load_yaml_file(routes_path)

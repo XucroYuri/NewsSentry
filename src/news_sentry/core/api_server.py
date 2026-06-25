@@ -244,6 +244,7 @@ from news_sentry.core.target_config_utils import (
     _build_source_config,
     _cached_source_inventory,
     _cached_target_validation,
+    _config_base_dir,
     _copy_target_config_skeleton,
     _deep_merge,
     _default_classification_config,
@@ -2224,11 +2225,11 @@ def create_app(
                 _default_template_source(payload.target_id),
             )
             _atomic_write_yaml(
-                Path("config/filters") / payload.target_id / "default.yaml",
+                _config_base_dir() / "filters" / payload.target_id / "default.yaml",
                 _default_filter_config(payload.target_id),
             )
             _atomic_write_yaml(
-                Path("config/classification") / f"rules-{payload.target_id}.yaml",
+                _config_base_dir() / "classification" / f"rules-{payload.target_id}.yaml",
                 _default_classification_config(payload.target_id),
             )
         else:
@@ -2962,7 +2963,7 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> FilterRulesResponse:
         """读取指定 target 的过滤规则。"""
-        filter_path = Path(f"config/filters/{target_id}/default.yaml")
+        filter_path = _config_base_dir() / "filters" / target_id / "default.yaml"
         data = _config_cache.load_yaml(filter_path)
         if data is None:
             raise HTTPException(
@@ -2985,7 +2986,7 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> DestinationListResponse:
         """读取所有输出目的地配置。"""
-        dest_path = Path("config/output/destinations.yaml")
+        dest_path = _config_base_dir() / "output" / "destinations.yaml"
         data = _config_cache.load_yaml(dest_path)
         if data is None:
             return DestinationListResponse(destinations=[])
@@ -3016,7 +3017,7 @@ def create_app(
         user: dict[str, Any] = Depends(get_current_user),
     ) -> ProviderRoutesResponse:
         """读取 AI Provider 路由配置。"""
-        routes_path = Path("config/provider/routes.yaml")
+        routes_path = _config_base_dir() / "provider" / "routes.yaml"
         data = _config_cache.load_yaml(routes_path)
         if data is None:
             raise HTTPException(status_code=404, detail="Provider routes not found")
@@ -3578,7 +3579,7 @@ def create_app(
     ) -> dict[str, Any]:
         """更新 filter 配置。"""
 
-        filepath = Path(f"config/filters/{target_id}/default.yaml")
+        filepath = _config_base_dir() / "filters" / target_id / "default.yaml"
         if not filepath.exists():
             raise HTTPException(status_code=404, detail=f"Filter config not found for: {target_id}")
 
@@ -3601,7 +3602,7 @@ def create_app(
     ) -> dict[str, Any]:
         """更新 output destination 配置。"""
 
-        filepath = Path("config/output/destinations.yaml")
+        filepath = _config_base_dir() / "output" / "destinations.yaml"
         if not filepath.exists():
             raise HTTPException(status_code=404, detail="Destinations config not found")
 
@@ -3635,7 +3636,7 @@ def create_app(
     ) -> dict[str, Any]:
         """更新 provider route 配置。"""
 
-        filepath = Path("config/provider/routes.yaml")
+        filepath = _config_base_dir() / "provider" / "routes.yaml"
         if not filepath.exists():
             raise HTTPException(status_code=404, detail="Provider routes config not found")
 

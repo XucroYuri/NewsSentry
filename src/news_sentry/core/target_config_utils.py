@@ -46,9 +46,22 @@ logger = logging.getLogger(__name__)
 _store_for_target: Any = None
 
 
+def _config_base_dir() -> Path:
+    """返回 config 目录的基准路径。
+
+    NEWSSENTRY_DATA_DIR 存在时写入 {data_dir}/config/，
+    否则回退到项目根目录的 config/（向后兼容）。
+    """
+    data_dir = os.environ.get("NEWSSENTRY_DATA_DIR")
+    if data_dir:
+        return Path(data_dir) / "config"
+    return Path("config")
+
+
+
 def _load_target_configs() -> list[dict[str, Any]]:
     """从 config/targets/ 读取所有 target 配置。"""
-    config_dir = Path("config/targets")
+    config_dir = _config_base_dir() / "targets"
     if not config_dir.is_dir():
         return []
     targets: list[dict[str, Any]] = []
@@ -85,14 +98,14 @@ def _source_path_for_ref(target_id: str, source_ref: str) -> Path:
         raw_ref.removeprefix("pool:") if raw_ref.startswith("pool:") else raw_ref
     )
     if raw_ref.startswith("pool:"):
-        return Path("config/source-pools") / f"{ref}.yaml"
-    return Path("config/sources") / target_id / f"{ref}.yaml"
+        return _config_base_dir() / "source-pools" / f"{ref}.yaml"
+    return _config_base_dir() / "sources" / target_id / f"{ref}.yaml"
 
 
 
 def _load_source_configs(target_id: str) -> list[dict[str, Any]]:
     """Load source configs referenced by target, including shared source-pool refs."""
-    sources_dir = Path(f"config/sources/{target_id}")
+    sources_dir = _config_base_dir() / "sources" / target_id
     target_config = _load_target_config(target_id)
     refs = [
         str(ref)
@@ -128,7 +141,7 @@ def _load_source_configs(target_id: str) -> list[dict[str, Any]]:
 
 def _cached_public_source_configs(target_id: str) -> list[dict[str, Any]]:
     """Cache source YAML reads used by public feed item projection."""
-    key = f"{Path.cwd()}:{target_id}"
+    key = f"{_config_base_dir().parent.resolve()}:{target_id}"
     now = time.monotonic()
     cached = _public_source_configs_cache.get(key)
     if (
@@ -163,7 +176,7 @@ def _file_signature(paths: list[Path]) -> str:
 
 
 def _target_source_paths(target_id: str) -> list[Path]:
-    sources_dir = Path("config/sources") / target_id
+    sources_dir = _config_base_dir() / "sources" / target_id
     if not sources_dir.is_dir():
         return []
     return [path for path in sources_dir.rglob("*.yaml") if not path.name.startswith("_")]
@@ -200,7 +213,7 @@ def _target_validation_signature(target_id: str) -> str:
 
 def _cached_source_inventory(target_id: str) -> dict[str, Any]:
     signature = _target_inventory_signature(target_id)
-    key = f"{Path.cwd()}:{_st._data_dir}:{target_id}"
+    key = f"{_config_base_dir().parent.resolve()}:{_st._data_dir}:{target_id}"
     now = time.monotonic()
     cached = _source_inventory_cache.get(key)
     if (
@@ -211,7 +224,9 @@ def _cached_source_inventory(target_id: str) -> dict[str, Any]:
         value = cached.get("value")
         if isinstance(value, dict):
             return cast(dict[str, Any], value)
-    value = SourceInventoryService(Path.cwd(), _st._data_dir).build_target_inventory(target_id)
+    value = SourceInventoryService(
+        _config_base_dir().parent.resolve(), _st._data_dir
+    ).build_target_inventory(target_id)
     _source_inventory_cache[key] = {
         "signature": signature,
         "created_at": now,
@@ -223,7 +238,7 @@ def _cached_source_inventory(target_id: str) -> dict[str, Any]:
 
 def _cached_target_validation(target_id: str) -> dict[str, Any]:
     signature = _target_validation_signature(target_id)
-    key = f"{Path.cwd()}:{_st._data_dir}:{target_id}"
+    key = f"{_config_base_dir().parent.resolve()}:{_st._data_dir}:{target_id}"
     now = time.monotonic()
     cached = _target_validation_cache.get(key)
     if (
@@ -390,14 +405,14 @@ def _atomic_write_yaml(filepath: Path, data: dict[str, Any]) -> None:
 
 def _target_config_path(target_id: str) -> Path:
     _validate_target_slug(target_id)
-    return Path("config/targets") / f"{target_id}.yaml"
+    return _config_base_dir() / "targets" / f"{target_id}.yaml"
 
 
 
 def _source_config_path(target_id: str, source_ref: str) -> Path:
     _validate_target_slug(target_id)
     safe_ref = _normalize_source_ref(source_ref)
-    return Path("config/sources") / target_id / f"{safe_ref}.yaml"
+    return _config_base_dir() / "sources" / target_id / f"{safe_ref}.yaml"
 
 
 
@@ -717,15 +732,18 @@ def _default_classification_config(target_id: str) -> dict[str, Any]:
 
 
 def _ensure_global_config_defaults() -> None:
-    if not Path("config/sandbox/default.yaml").is_file():
-        _atomic_write_yaml(Path("config/sandbox/default.yaml"), {"profile": "default"})
-    if not Path("config/provider/routes.yaml").is_file():
+    if not (_config_base_dir() / "sandbox" / "default.yaml").is_file():
+        _atomic_write_yaml(_config_base_dir() / "sandbox" / "default.yaml", {"profile": "default"})
+    if not (_config_base_dir() / "provider" / "routes.yaml").is_file():
         _atomic_write_yaml(
-            Path("config/provider/routes.yaml"),
+            _config_base_dir() / "provider" / "routes.yaml",
             {"routes_version": "1", "routes": []},
         )
-    if not Path("config/output/destinations.yaml").is_file():
-        _atomic_write_yaml(Path("config/output/destinations.yaml"), {"destinations": []})
+    if not (_config_base_dir() / "output" / "destinations.yaml").is_file():
+        _atomic_write_yaml(
+            _config_base_dir() / "output" / "destinations.yaml",
+            {"destinations": []},
+        )
 
 
 
@@ -781,20 +799,20 @@ def _default_template_source(target_id: str) -> dict[str, Any]:
 
 def _copy_target_config_skeleton(source_target_id: str, target_id: str) -> list[str]:
     """复制 target 的配置骨架，不复制 data/ 历史数据。"""
-    source_sources = Path("config/sources") / source_target_id
-    target_sources = Path("config/sources") / target_id
+    source_sources = _config_base_dir() / "sources" / source_target_id
+    target_sources = _config_base_dir() / "sources" / target_id
     if source_sources.is_dir():
         shutil.copytree(source_sources, target_sources, dirs_exist_ok=True)
 
-    source_filter = Path("config/filters") / source_target_id
-    target_filter = Path("config/filters") / target_id
+    source_filter = _config_base_dir() / "filters" / source_target_id
+    target_filter = _config_base_dir() / "filters" / target_id
     if source_filter.is_dir():
         shutil.copytree(source_filter, target_filter, dirs_exist_ok=True)
     else:
         _atomic_write_yaml(target_filter / "default.yaml", _default_filter_config(target_id))
 
-    source_classification = Path("config/classification") / f"rules-{source_target_id}.yaml"
-    target_classification = Path("config/classification") / f"rules-{target_id}.yaml"
+    source_classification = _config_base_dir() / "classification" / f"rules-{source_target_id}.yaml"
+    target_classification = _config_base_dir() / "classification" / f"rules-{target_id}.yaml"
     if source_classification.is_file():
         data = _load_yaml_file(source_classification) or {}
         if "target_id" in data:
@@ -810,7 +828,7 @@ def _copy_target_config_skeleton(source_target_id: str, target_id: str) -> list[
 
 
 def _stop_target_in_collector_config(target_id: str) -> None:
-    config_path = Path("config/runtime/collector.yaml")
+    config_path = _config_base_dir() / "runtime" / "collector.yaml"
     data = _load_yaml_file(config_path)
     if not data:
         return
@@ -857,7 +875,7 @@ def _build_source_config(payload: SourceCreateRequest) -> tuple[str, dict[str, A
 
 
 def _social_dimensions(target_id: str) -> list[dict[str, Any]]:
-    root = Path("config/sources") / target_id / "social"
+    root = _config_base_dir() / "sources" / target_id / "social"
     if not root.is_dir():
         return []
     items: list[dict[str, Any]] = []
@@ -865,7 +883,7 @@ def _social_dimensions(target_id: str) -> list[dict[str, Any]]:
         data = _load_yaml_file(path)
         if not data:
             continue
-        rel = path.relative_to(Path("config/sources") / target_id).with_suffix("")
+        rel = path.relative_to(_config_base_dir() / "sources" / target_id).with_suffix("")
         accounts = data.get("accounts")
         if not isinstance(accounts, list):
             accounts = []
