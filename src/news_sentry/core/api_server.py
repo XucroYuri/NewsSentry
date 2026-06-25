@@ -1408,7 +1408,7 @@ def create_app(
                     facets=facets,
                     generatedAt=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
                 )
-                return cast("str", payload.model_dump_json(by_alias=True, exclude_none=True))
+                return payload.model_dump_json(by_alias=True, exclude_none=True)
             except Exception:
                 logger.warning(
                     "SSR bootstrap fetch failed, page will use client-side API", exc_info=True
@@ -2256,7 +2256,7 @@ def create_app(
         _atomic_write_yaml(target_path, target_data)
         _config_cache.clear()
         _clear_admin_caches()
-        return cast("dict[str, Any]", _target_info_from_config(target_data, _data_dir).model_dump())
+        return _target_info_from_config(target_data, _data_dir).model_dump()
 
     async def patch_admin_target(
         target_id: str,
@@ -2416,7 +2416,7 @@ def create_app(
         data["_source_id"] = source_ref
         data["_file_path"] = str(path)
         _clear_admin_caches()
-        return cast("dict[str, Any]", _source_info_from_config(data).model_dump())
+        return _source_info_from_config(data).model_dump()
 
     async def patch_admin_target_source(
         target_id: str,
@@ -2441,7 +2441,7 @@ def create_app(
         data["_source_id"] = normalized_ref
         data["_file_path"] = str(path)
         _clear_admin_caches()
-        return cast("dict[str, Any]", _source_info_from_config(data).model_dump())
+        return _source_info_from_config(data).model_dump()
 
     async def archive_admin_target_source(
         target_id: str,
@@ -2464,7 +2464,7 @@ def create_app(
         data["_source_id"] = normalized_ref
         data["_file_path"] = str(path)
         _clear_admin_caches()
-        return cast("dict[str, Any]", _source_info_from_config(data).model_dump())
+        return _source_info_from_config(data).model_dump()
 
     async def restore_admin_target_source(
         target_id: str,
@@ -2486,7 +2486,7 @@ def create_app(
         data["_source_id"] = normalized_ref
         data["_file_path"] = str(path)
         _clear_admin_caches()
-        return cast("dict[str, Any]", _source_info_from_config(data).model_dump())
+        return _source_info_from_config(data).model_dump()
 
     async def get_admin_target_social(
         target_id: str,
@@ -2582,7 +2582,7 @@ def create_app(
         _atomic_write_yaml(path, data)
         _config_cache.clear()
         _clear_admin_caches()
-        return cast("dict[str, Any]", account)
+        return account
 
     async def patch_admin_social_account(
         target_id: str,
@@ -2774,7 +2774,9 @@ def create_app(
         ),
     ) -> PublicBootstrapResponse | Response:
         from news_sentry.core import public_handlers
-        return await public_handlers.get_public_bootstrap_handler(
+        return cast(
+            "PublicBootstrapResponse | Response",
+            await public_handlers.get_public_bootstrap_handler(
             _data_dir,
             _store,
             _get_target_store,
@@ -2797,7 +2799,7 @@ def create_app(
             date=date,
             q=q,
             page_size=page_size,
-        )
+        ))
 
     async def list_public_news(
         request: Request,
@@ -2821,7 +2823,9 @@ def create_app(
     ) -> PublicNewsFeedResponse | Response:
         """公共新闻流 presentation API，匿名只读，支持低负担增量更新。"""
         from news_sentry.core import public_handlers
-        return await public_handlers.list_public_news_handler(
+        return cast(
+            "PublicNewsFeedResponse | Response",
+            await public_handlers.list_public_news_handler(
             _data_dir,
             _store,
             _get_target_store,
@@ -2840,7 +2844,7 @@ def create_app(
             before_cursor=before_cursor,
             since_cursor=since_cursor,
             page_size=page_size,
-        )
+        ))
 
     async def get_public_news_item(
         event_id: str,

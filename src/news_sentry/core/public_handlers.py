@@ -898,10 +898,10 @@ async def export_public_event_markdown_handler(
         if isinstance(event, InvisibleIndexedEvent):
             raise HTTPException(status_code=404, detail="Event not found")
         if event is not None:
-            return markdown_download_response(
+            return cast(Response, markdown_download_response(
                 f"{event_id}.md",
                 _render_public_event_markdown(target_id, event),
-            )
+            ))
         if await _store_has_target_event_index(target_store, target_id):
             raise HTTPException(status_code=404, detail="Event not found")
 
@@ -915,17 +915,17 @@ async def export_public_event_markdown_handler(
         if isinstance(event, InvisibleIndexedEvent):
             raise HTTPException(status_code=404, detail="Event not found")
         if event is not None:
-            return markdown_download_response(
+            return cast(Response, markdown_download_response(
                 f"{event_id}.md",
                 _render_public_event_markdown(target_id, event),
-            )
+            ))
         if await _store_has_target_event_index(store, target_id):
             raise HTTPException(status_code=404, detail="Event not found")
 
     event = _load_single_event(data_dir, target_id, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
-    return markdown_download_response(
+    return cast(Response, markdown_download_response(
         f"{event_id}.md",
         _render_public_event_markdown(target_id, event),
-    )
+    ))

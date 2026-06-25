@@ -168,7 +168,7 @@ async def export_canonical_event_markdown(
         limit=200,
     )
     content = render_canonical_event_markdown(event, mentions, relations, artifacts)
-    return markdown_download_response(f"{canonical_event_id}.md", content)
+    return cast(Response, markdown_download_response(f"{canonical_event_id}.md", content))
 
 
 # ═══════════════════════════════════════════════════════════════════════
