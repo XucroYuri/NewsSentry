@@ -3,6 +3,8 @@
  */
 
 import { apiUrl, authHeaders, AdminApiError } from "./util"
+import type { RunLogEntry } from "./diagnostics"
+import type { AdminTargetInfo } from "./targets"
 
 export interface AdminOverviewResponse {
   target_id: string
@@ -16,29 +18,9 @@ export interface AdminOverviewResponse {
   generated_at: string
 }
 
-export interface AdminTargetInfo {
-  target_id: string
-  display_name: string
-  primary_language?: string
-  region_type?: string
-  monitoring_type?: string
-  lifecycle?: Record<string, unknown>
-  source_count?: number
-  event_count?: number
-  archived?: boolean
-  [key: string]: unknown
-}
-
 export interface SourceHealthItem {
   source_ref?: string
   source_id?: string
-  status?: string
-  [key: string]: unknown
-}
-
-export interface RunLogEntry {
-  run_id?: string
-  started_at?: string
   status?: string
   [key: string]: unknown
 }

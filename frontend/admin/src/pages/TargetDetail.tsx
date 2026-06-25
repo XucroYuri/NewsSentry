@@ -25,24 +25,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import EditSourceDialog from "@/components/admin/EditSourceDialog"
 
 
-interface AdminTargetInfo {
-  target_id: string
-  display_name: string
-  primary_language?: string
-  monitoring_type?: string
-  lifecycle?: Record<string, unknown>
-  source_count?: number
-  event_count?: number
-  archived?: boolean
-}
-
-interface RunLogEntry {
-  run_id?: string
-  started_at?: string
-  status?: string
-  [key: string]: unknown
-}
-
 export default function TargetDetail({ targetId, onBack }: { targetId: string; onBack: () => void }) {
   const [data, setData] = useState<TargetOverviewResponse | null>(null)
   const [inventory, setInventory] = useState<SourceInventoryResponse | null>(null)

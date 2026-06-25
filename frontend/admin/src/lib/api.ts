@@ -15,10 +15,11 @@ export type { LoginResponse } from "@backend/api/auth"
 export { fetchOverview as fetchAdminOverview } from "@backend/api/overview"
 export type {
   AdminOverviewResponse,
-  AdminTargetInfo,
   SourceHealthItem,
-  RunLogEntry,
 } from "@backend/api/overview"
+
+export type { AdminTargetInfo } from "@backend/api/targets"
+export type { RunLogEntry } from "@backend/api/diagnostics"
 
 export {
   fetchTargets as fetchAdminTargets,
