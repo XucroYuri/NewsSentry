@@ -1276,8 +1276,8 @@ def create_app(
         )
 
     async def public_app_index(request: Request) -> HTMLResponse:  # type: ignore[no-redef]
-        async def _ssr_bootstrap_json_impl() -> str | None:
-            """尝试获取公开首页 bootstrap 数据，失败时返回 None 使前端正常回退。"""
+        async def _ssr_bootstrap_json_impl() -> tuple[str | None, str | None]:
+            """尝试获取公开首页 hydration 数据，失败时使前端正常回退。"""
             try:
                 news_task = _public_news_feed_payload_for_bootstrap(
                     featured=True,
@@ -1309,17 +1309,20 @@ def create_app(
                     facets=facets,
                     generatedAt=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
                 )
-                return payload.model_dump_json(by_alias=True, exclude_none=True)
+                bootstrap_json = payload.model_dump_json(by_alias=True, exclude_none=True)
+                feed_json = news.model_dump_json(by_alias=True, exclude_none=True)
+                return bootstrap_json, feed_json
             except Exception:
                 logger.warning(
                     "SSR bootstrap fetch failed, page will use client-side API", exc_info=True
                 )
-                return None
+                return None, None
 
-        bootstrap_json = await _ssr_bootstrap_json_impl()
+        bootstrap_json, feed_json = await _ssr_bootstrap_json_impl()
         return _public_app_index_response(
             base_url=_public_site_base_url(request),
             bootstrap_json=bootstrap_json,
+            feed_json=feed_json,
         )
 
     async def public_app_asset(asset_path: str, request: Request) -> Response:  # type: ignore[no-redef]
@@ -4284,4 +4287,3 @@ def create_app(
     _mount_spa_routes(app)
 
     return app
-

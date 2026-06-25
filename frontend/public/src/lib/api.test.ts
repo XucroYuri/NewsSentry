@@ -252,6 +252,17 @@ describe("readSSRFeed", () => {
   it("returns null when no feed element exists in DOM", () => {
     expect(readSSRFeed()).toBeNull()
   })
+
+  it("returns SSR feed data even when items are empty", () => {
+    document.body.innerHTML =
+      '<script id="news-sentry-feed" type="application/json">{"items":[],"total":0}</script>'
+
+    const result = readSSRFeed()
+
+    expect(result).not.toBeNull()
+    expect(result?.items).toEqual([])
+    document.body.innerHTML = ""
+  })
 })
 
 // ── listPublicFacets ──

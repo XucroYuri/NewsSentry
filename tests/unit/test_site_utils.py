@@ -10,6 +10,7 @@ from news_sentry.core.site_utils import (
     _inject_inline_css,
     _inject_public_homepage_seo,
     _inject_script_nonce,
+    _public_app_index_response,
     _public_app_page_copy,
 )
 
@@ -26,6 +27,28 @@ _BASE_HTML = """\
     <div id="root"></div>
   </body>
 </html>"""
+
+
+def test_public_app_index_response_injects_bootstrap_and_feed_json(tmp_path, monkeypatch):
+    """公开站 shell 同时注入 bootstrap 和 feed hydration 数据。"""
+    public_app_dir = tmp_path / "public_app"
+    public_app_dir.mkdir()
+    (public_app_dir / "index.html").write_text(
+        '<html><head></head><body><div id="root"></div></body></html>',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("news_sentry.core.site_utils._static_dir", lambda: tmp_path)
+
+    response = _public_app_index_response(
+        bootstrap_json='{"news":{"items":[]}}',
+        feed_json='{"items":[]}',
+    )
+    html = response.body.decode("utf-8")
+
+    assert 'id="news-sentry-bootstrap"' in html
+    assert 'id="news-sentry-feed"' in html
+    assert '{"items":[]}' in html
+    assert '<script nonce="' in html
 
 # ═══════════════════════════════════════════════
 # _public_app_page_copy
