@@ -58,12 +58,7 @@ def register_admin_routes(router: APIRouter, h: dict[str, Any]) -> None:
     # ── 简报 ──
     router.post("/api/v1/briefing/send")(h["send_briefing"])
 
-    # ── Admin Target 管理 ──
-    router.get("/api/v1/admin/targets")(h["list_admin_targets"])
-    router.post("/api/v1/admin/targets")(h["create_admin_target"])
-    router.patch("/api/v1/admin/targets/{target_id}")(h["patch_admin_target"])
-    router.post("/api/v1/admin/targets/{target_id}/archive")(h["archive_admin_target"])
-    router.post("/api/v1/admin/targets/{target_id}/restore")(h["restore_admin_target"])
+    # ── Admin 总览 ──
     router.get("/api/v1/admin/overview")(h["admin_overview"])
 
     # ── 统计 ──
