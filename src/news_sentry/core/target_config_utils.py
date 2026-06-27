@@ -49,12 +49,18 @@ _store_for_target: Any = None
 def _config_base_dir() -> Path:
     """返回 config 目录的基准路径。
 
-    NEWSSENTRY_DATA_DIR 存在时写入 {data_dir}/config/，
-    否则回退到项目根目录的 config/（向后兼容）。
+    优先使用 NEWSSENTRY_CONFIG_DIR；否则 NEWSSENTRY_DATA_DIR/config 存在时使用运行时
+    配置目录；再回退到项目根目录的 config/。生产部署会把数据和代码分开挂载，
+    这里需要避免 data_dir 存在但 data_dir/config 尚未初始化时读不到 repo 配置。
     """
+    config_dir = os.environ.get("NEWSSENTRY_CONFIG_DIR")
+    if config_dir:
+        return Path(config_dir)
     data_dir = os.environ.get("NEWSSENTRY_DATA_DIR")
     if data_dir:
-        return Path(data_dir) / "config"
+        runtime_config = Path(data_dir) / "config"
+        if runtime_config.is_dir():
+            return runtime_config
     return Path("config")
 
 
@@ -1014,5 +1020,4 @@ def _validate_target_config(target_id: str) -> dict[str, Any]:
         "ok": all(check["ok"] or check["severity"] == "warning" for check in checks),
         "checks": checks,
     }
-
 
