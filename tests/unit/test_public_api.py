@@ -17,7 +17,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 from news_sentry.core import api_server as api_server_module
-from news_sentry.core import event_io_utils
+from news_sentry.core import event_io_utils, target_config_utils
 from news_sentry.core.api_server import (
     create_app,
 )
@@ -354,6 +354,36 @@ class TestPublicAPI:
         target_ids = api_server_module._public_news_target_ids(tmp_path, None)  # noqa: SLF001
 
         assert target_ids == ["italy"]
+
+    def test_config_base_dir_falls_back_to_repo_config_when_data_config_missing(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """生产数据目录与代码目录分离时，公开 target 配置仍从 repo config 读取。"""
+        repo_root = tmp_path / "repo"
+        data_root = tmp_path / "data"
+        targets_dir = repo_root / "config" / "targets"
+        targets_dir.mkdir(parents=True)
+        data_root.mkdir()
+        (targets_dir / "italy.yaml").write_text(
+            "target_id: italy\n"
+            "display_name: 意大利新闻监控\n"
+            "monitoring_type: country\n"
+            "region_type: country\n"
+            "source_channel_refs:\n"
+            "  - ansa\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.chdir(repo_root)
+        monkeypatch.setenv("NEWSSENTRY_DATA_DIR", str(data_root))
+        monkeypatch.delenv("NEWSSENTRY_CONFIG_DIR", raising=False)
+
+        configs = target_config_utils._load_target_configs()
+
+        assert target_config_utils._config_base_dir() == Path("config")  # noqa: SLF001
+        assert [config["target_id"] for config in configs] == ["italy"]
 
     def test_public_news_api_returns_reader_shape_without_auth(self, tmp_path: Path) -> None:
         """公共新闻 API 返回读者侧字段，不暴露 pipeline 参数作为主响应。"""
