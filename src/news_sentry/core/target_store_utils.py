@@ -4,8 +4,11 @@ Extracted from api_server.py to break circular dependency with collector_config_
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
+import time
 from pathlib import Path
 from typing import Any, cast
 
@@ -21,6 +24,18 @@ from news_sentry.core.event_io_utils import (
 logger = logging.getLogger(__name__)
 
 VISIBLE_INDEX_QUERY_BATCH_SIZE = 1000
+TARGET_STORE_OPEN_FAILURE_TTL_SECONDS = 300.0
+_target_store_open_failures: dict[str, tuple[Path, float]] = {}
+
+
+def _target_store_open_timeout_seconds() -> float:
+    raw = os.environ.get("NEWSSENTRY_TARGET_STORE_OPEN_TIMEOUT_SECONDS")
+    if raw:
+        try:
+            return max(0.1, float(raw))
+        except ValueError:
+            logger.warning("Invalid NEWSSENTRY_TARGET_STORE_OPEN_TIMEOUT_SECONDS=%r", raw)
+    return 5.0
 
 
 def _load_run_logs(
@@ -82,6 +97,13 @@ async def _get_target_store(target_id: str) -> AsyncStore | None:
     缓存已打开的 store，避免重复初始化。
     """
     db_path = _target_db_path(target_id)
+    failure = _target_store_open_failures.get(target_id)
+    if failure is not None:
+        failed_path, retry_after = failure
+        if failed_path == db_path and time.monotonic() < retry_after:
+            return None
+        _target_store_open_failures.pop(target_id, None)
+
     if target_id in _st._target_stores:
         cached = cast(AsyncStore, _st._target_stores[target_id])
         if cached.db_path == db_path:
@@ -94,7 +116,27 @@ async def _get_target_store(target_id: str) -> AsyncStore | None:
 
     if db_path.exists():
         store = AsyncStore(db_path)
-        await store.initialize()
+        try:
+            await asyncio.wait_for(
+                store.initialize(),
+                timeout=_target_store_open_timeout_seconds(),
+            )
+        except Exception:
+            try:
+                await store.close()
+            except Exception:  # noqa: S110
+                pass
+            _target_store_open_failures[target_id] = (
+                db_path,
+                time.monotonic() + TARGET_STORE_OPEN_FAILURE_TTL_SECONDS,
+            )
+            logger.warning(
+                "Failed to open target store target=%s path=%s",
+                target_id,
+                db_path,
+                exc_info=True,
+            )
+            return None
         _st._target_stores[target_id] = store
         logger.debug("Opened target store: %s", db_path)
         return store

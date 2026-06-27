@@ -34,6 +34,7 @@ from news_sentry.core._state import (
     _target_validation_cache,
 )
 from news_sentry.core.public_news_utils import (
+    _count_public_events_from_target_db,
     _public_news_target_ids,
     _query_public_projection_events,
 )
@@ -575,6 +576,9 @@ def _region_info_from_config(data: dict[str, Any], data_dir: Path) -> RegionInfo
 
 async def _target_public_event_count(target_id: str, _data_dir: Path) -> int:
     """Return the count the public feed can actually show for a target."""
+    direct_count = _count_public_events_from_target_db(_data_dir, target_id, _PUBLIC_ANALYSIS_STAGE)
+    if direct_count is not None:
+        return direct_count
     try:
         store = await _get_target_store(target_id)
         if store is None:
@@ -1020,4 +1024,3 @@ def _validate_target_config(target_id: str) -> dict[str, Any]:
         "ok": all(check["ok"] or check["severity"] == "warning" for check in checks),
         "checks": checks,
     }
-
