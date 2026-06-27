@@ -24,6 +24,7 @@ import { handleNewsFeed, handleNewsDetail } from "./api/news";
 import { handleWebhook, handleImport } from "./api/webhook";
 import { handleContainerProxy, shouldProxyToContainer } from "./api/proxy";
 import { internalError } from "./lib/errors";
+import { handleWorkerWriteAccess } from "./lib/access";
 
 interface Env {
   DB: D1Database;
@@ -47,6 +48,8 @@ export default {
       if (shouldProxyToContainer(url.pathname)) {
         return await handleContainerProxy(request, env);
       }
+      const workerWriteAccess = handleWorkerWriteAccess(request);
+      if (workerWriteAccess) return workerWriteAccess;
       return await dispatch(request, env.DB);
     } catch (err) {
       console.error("worker unhandled error:", err);

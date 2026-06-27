@@ -19,7 +19,7 @@ export async function handleFacets(
       .prepare(
         `SELECT region_id AS id, region_id AS label, COUNT(*) AS count
          FROM events
-         WHERE pipeline_stage IN ('published', 'reviewed')
+         WHERE pipeline_stage = 'drafts'
          GROUP BY region_id
          ORDER BY count DESC`
       )
@@ -31,7 +31,7 @@ export async function handleFacets(
         .prepare(
           `SELECT json_each.value AS id, json_each.value AS label, COUNT(*) AS count
            FROM events, json_each(events.issue_tags)
-           WHERE events.pipeline_stage IN ('published', 'reviewed')
+           WHERE events.pipeline_stage = 'drafts'
            GROUP BY json_each.value
            ORDER BY count DESC`
         )
@@ -40,7 +40,7 @@ export async function handleFacets(
         .prepare(
           `SELECT json_each.value AS id, json_each.value AS label, COUNT(*) AS count
            FROM events, json_each(events.related_tags)
-           WHERE events.pipeline_stage IN ('published', 'reviewed')
+           WHERE events.pipeline_stage = 'drafts'
            GROUP BY json_each.value
            ORDER BY count DESC`
         )

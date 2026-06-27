@@ -121,7 +121,7 @@ export async function handleNewsFeed(
              region_tags, entities, related_count, discussion_count,
              value_label, value_score, china_relevance_label
       FROM events
-      WHERE pipeline_stage IN ('published', 'reviewed')
+      WHERE pipeline_stage = 'drafts'
     `;
     const bindings: unknown[] = [];
 
@@ -219,7 +219,7 @@ export async function handleNewsDetail(
                 region_tags, entities, related_count, discussion_count,
                 value_label, value_score, china_relevance_label
          FROM events
-         WHERE event_id = ? AND pipeline_stage IN ('published', 'reviewed')`
+         WHERE event_id = ? AND pipeline_stage = 'drafts'`
       )
       .bind(eventId)
       .first<NewsRow>();

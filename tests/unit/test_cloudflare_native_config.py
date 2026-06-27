@@ -57,6 +57,18 @@ def test_public_news_supports_related_filter() -> None:
     assert "related_tags LIKE ?" in news_ts
 
 
+def test_public_reader_uses_drafts_stage_like_python_reader() -> None:
+    news_ts = _read("workers/api/news.ts")
+    facets_ts = _read("workers/api/facets.ts")
+    bootstrap_ts = _read("workers/api/bootstrap.ts")
+
+    for worker_source in (news_ts, facets_ts, bootstrap_ts):
+        assert "pipeline_stage = 'drafts'" in worker_source
+        assert "pipeline_stage IN ('published', 'reviewed')" not in worker_source
+
+    assert "total: newsRows.length" in bootstrap_ts
+
+
 def test_events_import_persists_to_cloudflare_d1() -> None:
     webhook_ts = _read("workers/api/webhook.ts")
 
@@ -81,3 +93,14 @@ def test_container_proxy_requires_cloudflare_access_identity() -> None:
     assert "BACKEND_ORIGIN" in proxy_ts
     assert "fetch(new Request(upstream.toString()" in proxy_ts
     assert wrangler_toml["vars"]["BACKEND_ORIGIN"] == "https://news-sentry.com"
+
+
+def test_worker_write_endpoints_require_cloudflare_access_identity() -> None:
+    index_ts = _read("workers/index.ts")
+    access_ts = _read("workers/lib/access.ts")
+
+    assert "isWorkerWritePath" in access_ts
+    assert '"/api/v1/events/import"' in access_ts
+    assert '"/api/v1/webhook"' in access_ts
+    assert "handleWorkerWriteAccess(request)" in index_ts
+    assert "dispatch(request, env.DB)" in index_ts

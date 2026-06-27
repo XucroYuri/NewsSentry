@@ -1,11 +1,11 @@
-import { accessRequired, hasAccessIdentity, isProtectedPath } from "../lib/access";
+import { accessRequired, hasAccessIdentity, isContainerProxyPath } from "../lib/access";
 
 export interface ContainerProxyEnv {
   BACKEND_ORIGIN?: string;
 }
 
 export function shouldProxyToContainer(pathname: string): boolean {
-  return isProtectedPath(pathname);
+  return isContainerProxyPath(pathname);
 }
 
 export async function handleContainerProxy(
@@ -13,7 +13,7 @@ export async function handleContainerProxy(
   env: ContainerProxyEnv,
 ): Promise<Response> {
   const url = new URL(request.url);
-  if (!isProtectedPath(url.pathname)) {
+  if (!isContainerProxyPath(url.pathname)) {
     return new Response(JSON.stringify({ detail: "Not proxied" }), {
       status: 404,
       headers: { "Content-Type": "application/json" },

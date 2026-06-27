@@ -33,7 +33,7 @@ export async function handleBootstrap(
                     region_tags, entities, related_count, discussion_count,
                     value_label, value_score, china_relevance_label
              FROM events
-             WHERE pipeline_stage IN ('published', 'reviewed')
+             WHERE pipeline_stage = 'drafts'
              ORDER BY published_at DESC
              LIMIT 20`
           )
@@ -53,7 +53,7 @@ export async function handleBootstrap(
           .prepare(
             `SELECT region_id AS id, region_id AS label, COUNT(*) AS count
              FROM events
-             WHERE pipeline_stage IN ('published', 'reviewed')
+             WHERE pipeline_stage = 'drafts'
              GROUP BY region_id
              ORDER BY count DESC
              LIMIT 30`
@@ -64,7 +64,7 @@ export async function handleBootstrap(
           .prepare(
             `SELECT json_each.value AS id, json_each.value AS label, COUNT(*) AS count
              FROM events, json_each(events.issue_tags)
-             WHERE events.pipeline_stage IN ('published', 'reviewed')
+             WHERE events.pipeline_stage = 'drafts'
              GROUP BY json_each.value
              ORDER BY count DESC
              LIMIT 30`
@@ -75,7 +75,7 @@ export async function handleBootstrap(
           .prepare(
             `SELECT json_each.value AS id, json_each.value AS label, COUNT(*) AS count
              FROM events, json_each(events.related_tags)
-             WHERE events.pipeline_stage IN ('published', 'reviewed')
+             WHERE events.pipeline_stage = 'drafts'
              GROUP BY json_each.value
              ORDER BY count DESC
              LIMIT 30`
@@ -84,8 +84,9 @@ export async function handleBootstrap(
       ]);
 
     // 构建 news
+    const newsRows = newsResult.results || [];
     const newsFeed: PublicNewsFeedResponse = {
-      items: (newsResult.results || []).map((r: any) => ({
+      items: newsRows.map((r: any) => ({
         id: r.event_id,
         targetId: r.target_id,
         targetLabel: r.target_label,
@@ -119,7 +120,7 @@ export async function handleBootstrap(
       nextCursor: null,
       pollAfterMs: 60000,
       hasNewer: false,
-      total: 0,
+      total: newsRows.length,
     };
 
     // 构建 regions
