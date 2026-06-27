@@ -17,7 +17,7 @@ export async function handleHealth(
 
   try {
     const result = await db
-      .prepare("SELECT MAX(collected_at) as latest, COUNT(*) as total FROM event_index")
+      .prepare("SELECT MAX(collected_at) as latest, COUNT(*) as total FROM events")
       .first<{ latest: string | null; total: number }>();
     if (result) {
       latest_collected_at = result.latest ?? null;

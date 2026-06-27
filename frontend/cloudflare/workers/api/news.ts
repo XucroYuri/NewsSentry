@@ -107,6 +107,7 @@ export async function handleNewsFeed(
     const regionId = params.get("region_id") || params.get("target_id") || undefined;
     const sourceId = params.get("source_id") || undefined;
     const issue = params.get("issue") || undefined;
+    const related = params.get("related") || undefined;
     const date = params.get("date") || undefined;
     const q = params.get("q") || undefined;
     const pageSize = Math.min(parseInt(params.get("page_size") || "20", 10), 50);
@@ -120,7 +121,7 @@ export async function handleNewsFeed(
              region_tags, entities, related_count, discussion_count,
              value_label, value_score, china_relevance_label
       FROM events
-      WHERE pipeline_stage IN ('published', 'reviewed')
+      WHERE pipeline_stage = 'drafts'
     `;
     const bindings: unknown[] = [];
 
@@ -135,6 +136,10 @@ export async function handleNewsFeed(
     if (issue) {
       sql += ` AND issue_tags LIKE ?`;
       bindings.push(`%${issue}%`);
+    }
+    if (related) {
+      sql += ` AND related_tags LIKE ?`;
+      bindings.push(`%${related}%`);
     }
     if (date) {
       sql += ` AND published_at >= ? AND published_at < ?`;
@@ -214,7 +219,7 @@ export async function handleNewsDetail(
                 region_tags, entities, related_count, discussion_count,
                 value_label, value_score, china_relevance_label
          FROM events
-         WHERE event_id = ? AND pipeline_stage IN ('published', 'reviewed')`
+         WHERE event_id = ? AND pipeline_stage = 'drafts'`
       )
       .bind(eventId)
       .first<NewsRow>();

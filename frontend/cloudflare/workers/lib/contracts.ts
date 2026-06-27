@@ -81,6 +81,7 @@ export interface PublicFacetItem {
 export interface PublicFacetsResponse {
   regions: PublicFacetItem[];
   issues: PublicFacetItem[];
+  related: PublicFacetItem[];
 }
 
 // ── /api/v1/public/bootstrap ─────────────────────────────────────────────

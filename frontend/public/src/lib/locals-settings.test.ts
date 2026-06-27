@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { getApiBase, getSettings, resolveUrl, setApiBase } from "@/lib/locals-settings"
 
 const STORAGE_KEY = "news-sentry:settings"
@@ -6,6 +6,10 @@ const STORAGE_KEY = "news-sentry:settings"
 describe("locals-settings", () => {
   beforeEach(() => {
     localStorage.clear()
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
   })
 
   // ── getSettings ──
@@ -39,6 +43,19 @@ describe("locals-settings", () => {
       localStorage.setItem(STORAGE_KEY, "{ bad json")
       const settings = getSettings()
       expect(settings.apiBase).toBeNull()
+    })
+
+    it("uses VITE_API_BASE as the default when no stored value exists", async () => {
+      vi.stubEnv("VITE_API_BASE", "https://api.news-sentry.com/")
+      vi.resetModules()
+      const { getApiBase: getFreshApiBase, resolveUrl: resolveFreshUrl } = await import(
+        "@/lib/locals-settings"
+      )
+
+      expect(getFreshApiBase()).toBe("https://api.news-sentry.com")
+      expect(resolveFreshUrl("/api/v1/health")).toBe(
+        "https://api.news-sentry.com/api/v1/health",
+      )
     })
   })
 

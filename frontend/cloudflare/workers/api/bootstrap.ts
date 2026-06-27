@@ -21,7 +21,7 @@ export async function handleBootstrap(
 ): Promise<Response> {
   try {
     // 并行查询 news、regions、facets
-    const [newsResult, regionsResult, regionFacetsResult, issueFacetsResult] =
+    const [newsResult, regionsResult, regionFacetsResult, issueFacetsResult, relatedFacetsResult] =
       await Promise.all([
         db
           .prepare(
@@ -33,7 +33,7 @@ export async function handleBootstrap(
                     region_tags, entities, related_count, discussion_count,
                     value_label, value_score, china_relevance_label
              FROM events
-             WHERE pipeline_stage IN ('published', 'reviewed')
+             WHERE pipeline_stage = 'drafts'
              ORDER BY published_at DESC
              LIMIT 20`
           )
@@ -53,7 +53,7 @@ export async function handleBootstrap(
           .prepare(
             `SELECT region_id AS id, region_id AS label, COUNT(*) AS count
              FROM events
-             WHERE pipeline_stage IN ('published', 'reviewed')
+             WHERE pipeline_stage = 'drafts'
              GROUP BY region_id
              ORDER BY count DESC
              LIMIT 30`
@@ -64,7 +64,18 @@ export async function handleBootstrap(
           .prepare(
             `SELECT json_each.value AS id, json_each.value AS label, COUNT(*) AS count
              FROM events, json_each(events.issue_tags)
-             WHERE events.pipeline_stage IN ('published', 'reviewed')
+             WHERE events.pipeline_stage = 'drafts'
+             GROUP BY json_each.value
+             ORDER BY count DESC
+             LIMIT 30`
+          )
+          .all(),
+
+        db
+          .prepare(
+            `SELECT json_each.value AS id, json_each.value AS label, COUNT(*) AS count
+             FROM events, json_each(events.related_tags)
+             WHERE events.pipeline_stage = 'drafts'
              GROUP BY json_each.value
              ORDER BY count DESC
              LIMIT 30`
@@ -73,8 +84,9 @@ export async function handleBootstrap(
       ]);
 
     // 构建 news
+    const newsRows = newsResult.results || [];
     const newsFeed: PublicNewsFeedResponse = {
-      items: (newsResult.results || []).map((r: any) => ({
+      items: newsRows.map((r: any) => ({
         id: r.event_id,
         targetId: r.target_id,
         targetLabel: r.target_label,
@@ -108,7 +120,7 @@ export async function handleBootstrap(
       nextCursor: null,
       pollAfterMs: 60000,
       hasNewer: false,
-      total: 0,
+      total: newsRows.length,
     };
 
     // 构建 regions
@@ -138,9 +150,16 @@ export async function handleBootstrap(
       count: r.count,
     }));
 
+    const relatedFacets: PublicFacetItem[] = (relatedFacetsResult.results || []).map((r: any) => ({
+      id: r.id,
+      label: r.label,
+      count: r.count,
+    }));
+
     const facets: PublicFacetsResponse = {
       regions: regionFacets,
       issues: issueFacets,
+      related: relatedFacets,
     };
 
     const body: PublicBootstrapResponse = {
@@ -166,7 +185,7 @@ export async function handleBootstrap(
         total: 0,
       },
       regions: { regions: [] },
-      facets: { regions: [], issues: [] },
+      facets: { regions: [], issues: [], related: [] },
       generatedAt: new Date().toISOString(),
     };
     return new Response(JSON.stringify(fallback), {
