@@ -65,6 +65,8 @@ jobs:
 
       - name: Public frontend build
         working-directory: frontend/public
+        env:
+          FRONTEND_OUTPUT_SUBDIR: ${{ github.workspace }}/src/news_sentry/static
         run: npm run build
 
       - name: Install admin frontend dependencies
@@ -81,6 +83,8 @@ jobs:
 
       - name: Admin frontend build
         working-directory: frontend/admin
+        env:
+          FRONTEND_OUTPUT_SUBDIR: ${{ github.workspace }}/src/news_sentry/static
         run: npm run build
 
       - name: Admin E2E Test (Playwright)

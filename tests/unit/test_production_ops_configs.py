@@ -75,6 +75,7 @@ def test_health_monitor_supports_systemd_service_mode() -> None:
 def test_deploy_workflow_gates_preview_before_main_promotion() -> None:
     workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
 
+    assert "FRONTEND_OUTPUT_SUBDIR: ${{ github.workspace }}/src/news_sentry/static" in workflow
     assert "Verify preview" in workflow
     assert "Promote main" in workflow
     assert "Verify production" in workflow
