@@ -8,6 +8,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import sqlite3
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
@@ -70,6 +71,164 @@ logger = logging.getLogger(__name__)
 _get_target_store: Any = None
 _store_has_target_event_index: Any = None
 _visible_index_events_page: Any = None
+
+
+def _public_target_db_path(data_dir: Path, target_id: str) -> Path:
+    return Path(data_dir) / target_id / "state.db"
+
+
+def _public_json_loads(value: str | None) -> dict[str, Any]:
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return cast(dict[str, Any], parsed) if isinstance(parsed, dict) else {}
+
+
+def _connect_public_target_db(db_path: Path) -> sqlite3.Connection:
+    uri = f"file:{quote(str(db_path))}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True, timeout=1.0)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA query_only=ON")
+    return conn
+
+
+def _count_public_events_from_target_db(
+    data_dir: Path,
+    target_id: str,
+    stage: str = _PUBLIC_NEWS_STAGE,
+) -> int | None:
+    """Count public rows from a target state.db without running store migrations."""
+    db_path = _public_target_db_path(data_dir, target_id)
+    if not db_path.is_file():
+        return None
+    try:
+        with _connect_public_target_db(db_path) as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM event_index "
+                "WHERE target_id = ? AND stage = ? AND public_translation_ready = 1",
+                (target_id, stage),
+            ).fetchone()
+            return int(row[0] if row else 0)
+    except sqlite3.Error:
+        logger.warning(
+            "Skipping unreadable public target db while counting target=%s path=%s",
+            target_id,
+            db_path,
+            exc_info=True,
+        )
+        return 0
+
+
+def _query_public_news_rows_from_target_db(
+    data_dir: Path,
+    target_id: str,
+    *,
+    stage: str,
+    limit: int,
+    source_id: str | None = None,
+    classification_l0: str | None = None,
+    min_score: int | None = None,
+    date: str | None = None,
+    search: str | None = None,
+    before_key: tuple[datetime, str] | None = None,
+    since_key: tuple[datetime, str] | None = None,
+) -> tuple[list[dict[str, Any]], int] | None:
+    """Read public projection rows directly from one target DB.
+
+    Public reader endpoints are anonymous read-only paths. Opening every target
+    through AsyncStore can run migrations and touch broken DBs; this helper keeps
+    the hot path read-only and skips corrupt target databases.
+    """
+    db_path = _public_target_db_path(data_dir, target_id)
+    if not db_path.is_file():
+        return None
+
+    conditions = ["target_id = ?", "stage = ?", "public_translation_ready = 1"]
+    params: list[Any] = [target_id, stage]
+    sort_expr = "datetime(COALESCE(published_at, created_at))"
+    if source_id is not None:
+        conditions.append("source_id = ?")
+        params.append(source_id)
+    if classification_l0 is not None:
+        values = sorted(canonical_l0(classification_l0) for _ in [classification_l0])
+        placeholders = ", ".join("?" for _ in values)
+        conditions.append(f"classification_l0 IN ({placeholders})")
+        params.extend(values)
+    if min_score is not None:
+        conditions.append("news_value_score >= ?")
+        params.append(min_score)
+    if date is not None:
+        conditions.append("substr(COALESCE(published_at, created_at), 1, 10) = ?")
+        params.append(date)
+    if search is not None:
+        conditions.append(
+            "LOWER(COALESCE(title_original, '') || ' ' || "
+            "COALESCE(source_id, '') || ' ' || COALESCE(metadata_json, '')) LIKE ?"
+        )
+        params.append(f"%{search.lower()}%")
+    if before_key is not None:
+        before_time, before_event_id = _public_news_store_cursor_key(before_key) or ("", "")
+        conditions.append(
+            f"({sort_expr} < datetime(?) OR ({sort_expr} = datetime(?) AND event_id < ?))"
+        )
+        params.extend([before_time, before_time, before_event_id])
+    if since_key is not None:
+        since_time, since_event_id = _public_news_store_cursor_key(since_key) or ("", "")
+        conditions.append(
+            f"({sort_expr} > datetime(?) OR ({sort_expr} = datetime(?) AND event_id > ?))"
+        )
+        params.extend([since_time, since_time, since_event_id])
+
+    where = " AND ".join(conditions)
+    try:
+        with _connect_public_target_db(db_path) as conn:
+            total_row = conn.execute(
+                f"SELECT COUNT(*) FROM event_index WHERE {where}",  # noqa: S608
+                params,
+            ).fetchone()
+            data_sql = (
+                "SELECT event_id, target_id, source_id, news_value_score, china_relevance, "  # noqa: S608
+                "classification_l0, published_at, file_path, title_original, "
+                "sentiment, entity_names, topic_tags, metadata_json, created_at, "
+                "public_translation_ready "
+                f"FROM event_index WHERE {where} "
+                f"ORDER BY {sort_expr} DESC, event_id DESC LIMIT ?"
+            )
+            rows = conn.execute(data_sql, [*params, limit]).fetchall()
+    except sqlite3.Error:
+        logger.warning(
+            "Skipping unreadable public target db while querying target=%s path=%s",
+            target_id,
+            db_path,
+            exc_info=True,
+        )
+        return [], 0
+
+    result_rows: list[dict[str, Any]] = []
+    for row in rows:
+        result_rows.append(
+            {
+                "event_id": row["event_id"],
+                "target_id": row["target_id"],
+                "source_id": row["source_id"],
+                "news_value_score": row["news_value_score"],
+                "china_relevance": row["china_relevance"],
+                "classification_l0": canonical_l0(row["classification_l0"]),
+                "published_at": row["published_at"],
+                "file_path": row["file_path"],
+                "title_original": row["title_original"],
+                "sentiment": row["sentiment"],
+                "entity_names": row["entity_names"],
+                "topic_tags": row["topic_tags"],
+                "metadata": _public_json_loads(row["metadata_json"]),
+                "created_at": row["created_at"],
+                "public_translation_ready": row["public_translation_ready"],
+            }
+        )
+    return result_rows, int(total_row[0] if total_row else len(result_rows))
 
 
 def _first_sentence(text: str, max_chars: int = 60) -> str:
@@ -1184,6 +1343,33 @@ async def _public_news_candidate_events(
                 logger.exception("Failed to collect global public news candidates from store")
     for target_id in target_ids:
         try:
+            direct_rows = _query_public_news_rows_from_target_db(
+                data_dir,
+                target_id,
+                stage=_PUBLIC_NEWS_STAGE,
+                limit=limit,
+                source_id=source_id,
+                classification_l0=classification_l0,
+                min_score=min_score,
+                date=date,
+                search=q,
+                before_key=before_key,
+                since_key=since_key,
+            )
+            if direct_rows is not None:
+                rows, target_total = direct_rows
+                events = [
+                    _merge_index_metadata(_event_from_index_row(row), row)
+                    for row in rows
+                    if _row_publication_ready(row)
+                ]
+                if len(events) != len(rows):
+                    target_total = len(events)
+                total += target_total
+                for event in events:
+                    candidates.append((target_id, event))
+                continue
+
             target_store = await _get_target_store(target_id)
             store_to_query = target_store if target_store is not None else _st._store
             events, target_total = await _public_news_events_for_target(
@@ -1647,5 +1833,3 @@ async def _public_analysis_from_store(
         active_chains=active_chains,
         generated_at=datetime.now(UTC).isoformat(),
     )
-
-
