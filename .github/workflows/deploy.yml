@@ -17,6 +17,12 @@ on:
         default: "false"
         type: choice
         options: ["false", "true"]
+      ops_action:
+        description: "Restricted VPS ops action"
+        required: false
+        default: none
+        type: choice
+        options: [none, diagnose, run-realtime, mark-public-ready]
 
 permissions:
   contents: write
@@ -27,6 +33,7 @@ jobs:
     name: CI Gate
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.ops_action == 'none'
     env:
       PYTHONUNBUFFERED: "1"
     steps:
@@ -452,6 +459,163 @@ jobs:
           echo "| Commit | ${{ github.sha }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Port | ${{ steps.env.outputs.PORT }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Service | ${{ steps.env.outputs.SERVICE }} |" >> "$GITHUB_STEP_SUMMARY"
+
+  # ── Operator-only VPS diagnostics via existing SSH secrets ───────
+  vps-ops:
+    name: VPS ops ${{ github.event.inputs.ops_action }}
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.ops_action != 'none'
+    steps:
+      - name: Run restricted VPS ops action
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.BWH_HOST }}
+          username: ${{ secrets.BWH_SSH_USER }}
+          key: ${{ secrets.BWH_SSH_KEY }}
+          port: ${{ secrets.BWH_SSH_PORT || 22 }}
+          command_timeout: 15m
+          script: |
+            set -euo pipefail
+
+            ACTION="${{ github.event.inputs.ops_action }}"
+            ENV="${{ github.event.inputs.environment }}"
+            if [ "${ENV}" = "production" ]; then
+              SERVICE="news-sentry"
+              PORT="18080"
+            else
+              SERVICE="news-sentry-preview"
+              PORT="18081"
+            fi
+
+            redact_sensitive_log() {
+              sed -E \
+                -e 's/(Generated admin password \\(first launch\\): ).*/\1<redacted>/g' \
+                -e 's/((password|token|secret|api[_ -]?key|authorization|cookie)[^[:space:]]{0,40}[=:][[:space:]]*)[^[:space:]]+/\1<redacted>/Ig' \
+                -e 's/(Bearer )[A-Za-z0-9._-]+/\1<redacted>/Ig'
+            }
+
+            count_data_dir() {
+              candidate="$1"
+              echo "--- candidate=${candidate} ---"
+              if [ ! -d "${candidate}" ]; then
+                echo "missing"
+                return 0
+              fi
+              find "${candidate}" -maxdepth 2 -name state.db -print | sort | head -80
+              python3 - "${candidate}" <<'PY'
+            from __future__ import annotations
+
+            import sqlite3
+            import sys
+            from pathlib import Path
+
+            root = Path(sys.argv[1])
+            total = 0
+            drafts = 0
+            ready = 0
+            dbs = 0
+            for db_path in sorted(root.glob("*/state.db")):
+                try:
+                    with sqlite3.connect(db_path) as conn:
+                        row = conn.execute(
+                            "select count(*), "
+                            "sum(case when stage='drafts' then 1 else 0 end), "
+                            "sum(case when stage='drafts' and public_translation_ready=1 then 1 else 0 end) "
+                            "from event_index"
+                        ).fetchone()
+                except Exception as exc:
+                    print(f"{db_path.relative_to(root)} error={exc}")
+                    continue
+                count = int(row[0] or 0)
+                draft_count = int(row[1] or 0)
+                ready_count = int(row[2] or 0)
+                dbs += 1
+                total += count
+                drafts += draft_count
+                ready += ready_count
+                if count:
+                    print(f"{db_path.relative_to(root)} events={count} drafts={draft_count} ready={ready_count}")
+            print(f"summary dbs={dbs} events={total} drafts={drafts} ready={ready}")
+            PY
+              printf "draft_files="
+              find "${candidate}" -maxdepth 3 -path '*/drafts/*.md' -type f 2>/dev/null | wc -l
+              du -sh "${candidate}" 2>/dev/null || true
+            }
+
+            print_diagnostics() {
+              echo "=== VPS ops diagnostics ==="
+              echo "env=${ENV} service=${SERVICE} port=${PORT} action=${ACTION}"
+              echo "--- local health ---"
+              curl -sS "http://127.0.0.1:${PORT}/api/v1/health" || true
+              echo
+              echo "--- service status ---"
+              systemctl status "${SERVICE}" --no-pager -l | sed -n '1,80p' | redact_sensitive_log || true
+              echo "--- realtime timer ---"
+              systemctl list-timers --all news-sentry-realtime.timer || true
+              echo "--- candidate data dirs ---"
+              count_data_dir "/srv/news-sentry/${ENV}/data"
+              count_data_dir "/opt/news-sentry/${ENV}/repo/data"
+              count_data_dir "/opt/news-sentry/${ENV}/data"
+              count_data_dir "/opt/news-sentry/data"
+              count_data_dir "/srv/news-sentry/data"
+              echo "--- realtime logs ---"
+              journalctl -u news-sentry-realtime.service --no-pager -n 160 | redact_sensitive_log || true
+              echo "--- app logs ---"
+              journalctl -u "${SERVICE}" --no-pager -n 80 | redact_sensitive_log || true
+            }
+
+            mark_public_ready() {
+              target_root="/srv/news-sentry/${ENV}/data"
+              python3 - "${target_root}" <<'PY'
+            from __future__ import annotations
+
+            import sqlite3
+            import sys
+            from pathlib import Path
+
+            root = Path(sys.argv[1])
+            updated = 0
+            dbs = 0
+            skipped = 0
+            for db_path in sorted(root.glob("*/state.db")):
+                try:
+                    with sqlite3.connect(db_path) as conn:
+                        check = conn.execute("PRAGMA quick_check").fetchone()
+                        if not check or check[0] != "ok":
+                            print(f"{db_path.relative_to(root)} quick_check={check[0] if check else 'missing'}")
+                            skipped += 1
+                            continue
+                        before = conn.total_changes
+                        conn.execute(
+                            "UPDATE event_index SET public_translation_ready = 1 WHERE stage = 'drafts' AND public_translation_ready = 0"
+                        )
+                        conn.commit()
+                        changed = conn.total_changes - before
+                except sqlite3.DatabaseError as exc:
+                    print(f"{db_path.relative_to(root)} sqlite_error={exc}")
+                    skipped += 1
+                    continue
+                if changed:
+                    print(f"{db_path.relative_to(root)} public_ready_updated={changed}")
+                    updated += changed
+                dbs += 1
+            print(f"summary dbs={dbs} public_ready_updated={updated} skipped={skipped}")
+            PY
+              systemctl restart "${SERVICE}"
+              sleep 5
+            }
+
+            if [ "${ACTION}" = "run-realtime" ]; then
+              systemctl start --no-block news-sentry-realtime.service || true
+              sleep 20
+            elif [ "${ACTION}" = "mark-public-ready" ]; then
+              mark_public_ready
+            elif [ "${ACTION}" != "diagnose" ]; then
+              echo "Unsupported ops_action=${ACTION}" >&2
+              exit 2
+            fi
+
+            print_diagnostics
 
   # ── Stage 2b: Deploy Cloudflare Workers (API server) ──────────
   # 仅 main 分支 push 且 cloudflare 目录变更时触发，或手动 workflow_dispatch
