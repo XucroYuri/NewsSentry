@@ -334,13 +334,13 @@ jobs:
           curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/health" > /tmp/health.json || api_ok=0
           curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json || api_ok=0
           curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/facets" > /tmp/facets.json || api_ok=0
-          curl -fsS -o /tmp/public-app.html "${PAGES_URL:-${BASE_URL}}/"
           if [ "$api_ok" != "1" ]; then
             echo "::warning::Cloudflare Challenge blocked GitHub Actions API curl; validating D1 data via Wrangler."
             (cd frontend/cloudflare && npx wrangler d1 execute ns-db --remote \
               --command "SELECT COUNT(*) AS total_events, MAX(collected_at) AS latest_collected_at FROM events")
             exit 0
           fi
+          curl -fsS -o /tmp/public-app.html "${PAGES_URL:-${BASE_URL}}/"
 
           python - <<'PY'
           import json
@@ -409,16 +409,18 @@ jobs:
           curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/health" > /tmp/health.json || api_ok=0
           curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json || api_ok=0
           curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/facets" > /tmp/facets.json || api_ok=0
-          curl -fsS -o /tmp/public-app.html "${BASE_URL}/"
-          if ! grep -Eq "News Sentry|NewsSentry" /tmp/public-app.html; then
-            echo "::warning::Apex homepage did not expose the app shell to GitHub Actions; checking Pages deployment URL."
-            curl -fsS -o /tmp/public-app.html "${PAGES_URL:-${BASE_URL}}/"
-          fi
           if [ "$api_ok" != "1" ]; then
             echo "::warning::Cloudflare Challenge blocked GitHub Actions API curl; validating D1 data via Wrangler."
             (cd frontend/cloudflare && npx wrangler d1 execute ns-db --remote \
               --command "SELECT COUNT(*) AS total_events, MAX(collected_at) AS latest_collected_at FROM events")
             exit 0
+          fi
+          if ! curl -fsS -o /tmp/public-app.html "${BASE_URL}/"; then
+            echo "::warning::Apex homepage was blocked for GitHub Actions; checking Pages deployment URL."
+            curl -fsS -o /tmp/public-app.html "${PAGES_URL:-${BASE_URL}}/"
+          elif ! grep -Eq "News Sentry|NewsSentry" /tmp/public-app.html; then
+            echo "::warning::Apex homepage did not expose the app shell to GitHub Actions; checking Pages deployment URL."
+            curl -fsS -o /tmp/public-app.html "${PAGES_URL:-${BASE_URL}}/"
           fi
 
           python - <<'PY'
