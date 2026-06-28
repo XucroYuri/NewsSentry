@@ -263,6 +263,11 @@ describe("Phase 84 public portal app", () => {
     expect(html).toContain('name="description"')
     expect(html).toContain('property="og:title" content="News Sentry | 新闻哨兵"')
     expect(html).toContain('rel="canonical" href="https://news-sentry.com/public-app/"')
+    expect(html).toContain('rel="preconnect" href="https://api.news-sentry.com"')
+    expect(html).toContain(
+      '"https://api.news-sentry.com/api/v1/public/bootstrap?featured=true&page_size=20"',
+    )
+    expect(html).toContain("__NEWS_SENTRY_BOOTSTRAP_PRELOAD__")
     expect(html).toContain('"@context": "https://schema.org"')
     expect(html).toContain('"@type": "CollectionPage"')
     expect(html).toContain('rel="icon"')
