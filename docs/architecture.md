@@ -30,7 +30,7 @@ News Sentry 是一个**开源 AI 新闻情报与 OSINT 监控平台**，持续�
 | 类型检查 | mypy strict, 零错误 |
 | Web 框架 | FastAPI + Uvicorn |
 | 存储 | Cloudflare D1 + R2；SQLite/文件系统用于本地开发与容器过渡 |
-| AI Provider | Gemini → DeepSeek → Groq → Cloudflare (链式降级) |
+| AI Provider | Gemini → DeepSeek → Groq → Cloudflare Workers AI → OpenRouter → NVIDIA/Agnes/OpenCode/Reka (链式降级) |
 | 部署 | Cloudflare Pages + Workers + D1/R2；Cloudflare Containers 作为 Python/RSS-Bridge 过渡运行面 |
 | 前端 | Vite + React + Tailwind CSS |
 | 测试 | pytest 3,013 tests / vitest |
@@ -43,7 +43,7 @@ News Sentry 是一个**开源 AI 新闻情报与 OSINT 监控平台**，持续�
 NewsSentry/
 ├── src/news_sentry/              # 核心 Python 源码 (~24,000 lines, 102 files)
 │   ├── adapters/                 # 外部适配器
-│   │   ├── providers/            # AI Provider (12 个 Provider)
+│   │   ├── providers/            # AI Provider adapters
 │   │   │   ├── base.py           # AIProvider Protocol
 │   │   │   ├── openai_provider.py    # OpenAI-compatible 基类
 │   │   │   ├── gemini_provider.py    # Gemini (主)
@@ -52,6 +52,7 @@ NewsSentry/
 │   │   │   ├── cloudflare_workers_ai_provider.py  # CF (兜底翻译)
 │   │   │   ├── anthropic_provider.py # Anthropic (可选)
 │   │   │   ├── openrouter_provider.py # OpenRouter (可选)
+│   │   │   ├── freeapi_compat_providers.py # NVIDIA/OpenCode/Reka/Agnes 直连备用
 │   │   │   ├── rules_provider.py    # 本地规则引擎
 │   │   │   ├── libretranslate_provider.py
 │   │   │   └── mymemory_provider.py
@@ -140,6 +141,8 @@ flowchart TB
     subgraph PROVIDERS["AI Provider Chain"]
         direction LR
         G["Gemini"] --> DS["DeepSeek"] --> GR["Groq"] --> CF["Cloudflare"]
+        CF --> OR["OpenRouter"] --> NV["NVIDIA"] --> AG["Agnes"]
+        AG --> OC["OpenCode"] --> RK["Reka"]
     end
 
     subgraph STORAGE["文件存储"]
@@ -207,7 +210,7 @@ flowchart LR
 ### Provider Chain
 
 ```
-Gemini (首选) → DeepSeek (备选 1) → Groq (备选 2) → Cloudflare Workers AI (兜底翻译)
+Gemini (首选) → DeepSeek (备选 1) → Groq (备选 2) → Cloudflare Workers AI → OpenRouter → NVIDIA → Agnes → OpenCode → Reka → local
      ↓ 失败            ↓ 失败               ↓ 失败
   自动降级到下一个节点，无需人工干预
 ```
@@ -220,7 +223,12 @@ AIProvider (Protocol)
 │   ├── GeminiProvider    (api_key: GEMINI_API_KEY)
 │   ├── DeepSeekProvider  (api_key: DEEPSEEK_API_KEY)
 │   ├── GroqProvider      (api_key: GROQ_API_KEY)
-│   └── OpenRouterProvider
+│   ├── OpenRouterProvider
+│   └── FreeAPI migrated providers
+│       ├── NvidiaProvider   (api_key: NVIDIA_API_KEY[_2])
+│       ├── AgnesProvider    (api_key: AGNES_API_KEY[_2])
+│       ├── OpenCodeProvider (api_key: OPENCODE_API_KEY[_2])
+│       └── RekaProvider     (api_key: REKA_API_KEY)
 ├── AnthropicProvider — Anthropic Messages API
 ├── CloudflareWorkersAIProvider — 翻译专用
 ├── LibreTranslateProvider / MyMemoryProvider — 翻译备选
@@ -253,6 +261,11 @@ routes:
 | `DEEPSEEK_API_KEY` | DeepSeek | platform.deepseek.com |
 | `GROQ_API_KEY` | Groq | console.groq.com |
 | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_TOKEN` | Cloudflare | dash.cloudflare.com |
+| `OPENROUTER_API_KEY[_2]` | OpenRouter | openrouter.ai |
+| `NVIDIA_API_KEY[_2]` | NVIDIA NIM | build.nvidia.com |
+| `AGNES_API_KEY[_2]` | Agnes AI | platform.agnes-ai.com |
+| `OPENCODE_API_KEY[_2]` | OpenCode Zen | opencode.ai |
+| `REKA_API_KEY` | Reka | platform.reka.ai |
 
 ---
 
@@ -288,7 +301,7 @@ flowchart TB
     QUEUE --> FLOW["Workflows / Durable Objects"]
     FLOW --> WORKER
     WORKER -. "Access-gated fallback only" .-> C["Cloudflare Containers<br/>Python / FastAPI / RSS-Bridge transition"]
-    WORKER -.-> API["AI APIs<br/>(Gemini/DeepSeek/Groq/Workers AI)"]
+    WORKER -.-> API["AI APIs<br/>(Gemini/DeepSeek/Groq/Workers AI/OpenRouter/NVIDIA/Agnes/OpenCode/Reka)"]
 ```
 
 ### 运行面

@@ -17,6 +17,16 @@ routes = [
 [vars]
 NEWS_SENTRY_RUNTIME = "cloudflare-native"
 
+[secrets]
+required = [
+  "GEMINI_API_KEY",
+  "OPENROUTER_API_KEY",
+  "NVIDIA_API_KEY",
+  "OPENCODE_API_KEY",
+  "REKA_API_KEY",
+  "AGNES_API_KEY",
+]
+
 # D1 数据库绑定
 [[d1_databases]]
 binding = "DB"
@@ -30,6 +40,16 @@ routes = []
 
 [env.production.vars]
 NEWS_SENTRY_RUNTIME = "cloudflare-native"
+
+[env.production.secrets]
+required = [
+  "GEMINI_API_KEY",
+  "OPENROUTER_API_KEY",
+  "NVIDIA_API_KEY",
+  "OPENCODE_API_KEY",
+  "REKA_API_KEY",
+  "AGNES_API_KEY",
+]
 
 [[env.production.d1_databases]]
 binding = "DB"

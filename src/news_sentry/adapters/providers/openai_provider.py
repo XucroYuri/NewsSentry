@@ -38,16 +38,31 @@ class OpenAIProvider(AIProvider):
                 - max_tokens: 最大输出 token 数，默认 2048
         """
         self._api_key_env_var = config.get("api_key_env_var", self.api_key_env_var)
-        self._api_key = config.get(
-            "api_key",
-            os.environ.get(self._api_key_env_var),
-        )
+        configured_key = config.get("api_key")
+        if configured_key:
+            self._api_keys = [configured_key]
+        else:
+            self._api_keys = self._load_api_key_pool(self._api_key_env_var)
+        self._api_key = self._api_keys[0] if self._api_keys else None
         self._base_url = config.get(
             "base_url",
             os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
         )
         self._default_model = config.get("default_model", "gpt-4o-mini")
         self._max_tokens = config.get("max_tokens", 2048)
+
+    @staticmethod
+    def _load_api_key_pool(env_var: str) -> list[str]:
+        keys: list[str] = []
+        for name in [env_var, *(f"{env_var}_{index}" for index in range(2, 11))]:
+            value = os.environ.get(name)
+            if value and value not in keys:
+                keys.append(value)
+        return keys
+
+    @staticmethod
+    def _retryable_key_status(status_code: int) -> bool:
+        return status_code in {401, 402, 403, 429}
 
     def call(self, route_id: str, prompt: str, **kwargs: Any) -> dict[str, Any]:  # noqa: ANN401
         """发送 chat completion 请求到 OpenAI 兼容 API。
@@ -64,7 +79,7 @@ class OpenAIProvider(AIProvider):
         Raises:
             RuntimeError: API 调用失败或网络错误。
         """
-        if not self._api_key:
+        if not self._api_keys:
             raise RuntimeError(
                 f"{self._api_key_env_var} 未设置，无法调用 {self.provider_id} API。"
                 " 请在环境变量或 config 中提供 api_key。"
@@ -74,31 +89,46 @@ class OpenAIProvider(AIProvider):
         max_tokens = kwargs.get("max_tokens", self._max_tokens)
 
         url = f"{self._base_url.rstrip('/')}/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {self._api_key}",
-            "Content-Type": "application/json",
-        }
         payload: dict[str, Any] = {
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": max_tokens,
         }
 
-        try:
-            response = httpx.post(
-                url,
-                headers=headers,
-                json=payload,
-                timeout=30,
-            )
-            response.raise_for_status()
-            data = response.json()
-        except httpx.HTTPStatusError as e:
-            raise RuntimeError(
-                f"OpenAI API 返回 HTTP {e.response.status_code}: {e.response.text}"
-            ) from e
-        except httpx.RequestError as e:
-            raise RuntimeError(f"OpenAI API 网络请求失败: {e}") from e
+        last_status_error: httpx.HTTPStatusError | None = None
+        for index, api_key in enumerate(self._api_keys):
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+            try:
+                response = httpx.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    timeout=30,
+                )
+                response.raise_for_status()
+                data = response.json()
+                break
+            except httpx.HTTPStatusError as e:
+                last_status_error = e
+                if (
+                    index + 1 < len(self._api_keys)
+                    and self._retryable_key_status(e.response.status_code)
+                ):
+                    continue
+                raise RuntimeError(
+                    f"OpenAI API 返回 HTTP {e.response.status_code}: {e.response.text}"
+                ) from e
+            except httpx.RequestError as e:
+                raise RuntimeError(f"OpenAI API 网络请求失败: {e}") from e
+        else:
+            if last_status_error is not None:
+                raise RuntimeError(
+                    "OpenAI API 调用失败: 所有 API key 都不可用"
+                ) from last_status_error
+            raise RuntimeError("OpenAI API 调用失败: 没有可用 API key")
 
         choice = data["choices"][0]
         return {
@@ -132,7 +162,7 @@ class OpenAIProvider(AIProvider):
         Returns:
             dict with keys: content, model, usage, route_id, provider。
         """
-        if not self._api_key:
+        if not self._api_keys:
             raise RuntimeError(
                 f"{self._api_key_env_var} 未设置，无法调用 {self.provider_id} API。"
                 " 请在环境变量或 config 中提供 api_key。"
@@ -147,19 +177,38 @@ class OpenAIProvider(AIProvider):
         if "response_format" in kwargs:
             payload["response_format"] = kwargs["response_format"]
 
-        headers = {
-            "Authorization": f"Bearer {self._api_key}",
-            "Content-Type": "application/json",
-        }
-
         client = http_client or httpx.AsyncClient(timeout=30.0)
         try:
-            response = await client.post(
-                f"{self._base_url}/chat/completions",
-                json=payload,
-                headers=headers,
-            )
-            response.raise_for_status()
+            last_status_error: httpx.HTTPStatusError | None = None
+            for index, api_key in enumerate(self._api_keys):
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                }
+                try:
+                    response = await client.post(
+                        f"{self._base_url}/chat/completions",
+                        json=payload,
+                        headers=headers,
+                    )
+                    response.raise_for_status()
+                    break
+                except httpx.HTTPStatusError as e:
+                    last_status_error = e
+                    if (
+                        index + 1 < len(self._api_keys)
+                        and self._retryable_key_status(e.response.status_code)
+                    ):
+                        continue
+                    raise RuntimeError(
+                        f"OpenAI API 返回 HTTP {e.response.status_code}: {e.response.text}"
+                    ) from e
+            else:
+                if last_status_error is not None:
+                    raise RuntimeError(
+                        "OpenAI API 调用失败: 所有 API key 都不可用"
+                    ) from last_status_error
+                raise RuntimeError("OpenAI API 调用失败: 没有可用 API key")
         finally:
             if http_client is None:
                 await client.aclose()
@@ -182,4 +231,4 @@ class OpenAIProvider(AIProvider):
         Returns:
             True 如果 API key 已配置，否则 False。永不抛出异常。
         """
-        return bool(self._api_key)
+        return bool(self._api_keys)
