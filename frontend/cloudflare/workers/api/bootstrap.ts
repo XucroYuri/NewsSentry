@@ -19,15 +19,28 @@ import {
   publicNewsOrderBy,
   rowToPublicNewsItem,
 } from "../lib/public-news-query";
+import {
+  hasOnlyParams,
+  maybeServeCachedPublicRead,
+  maybeStoreCachedPublicRead,
+} from "../lib/public-read-cache";
 
 export async function handleBootstrap(
   request: Request,
   db: D1Database,
   params: URLSearchParams,
   _segments: string[],
+  ctx?: ExecutionContext,
 ): Promise<Response> {
   try {
     const featured = params.get("featured") !== "false";
+    const cacheKey =
+      featured && hasOnlyParams(params, ["featured", "page_size"])
+        ? "public-read:bootstrap:featured"
+        : null;
+    const cached = await maybeServeCachedPublicRead(request, cacheKey);
+    if (cached) return cached;
+
     const newsFilters = buildPublicNewsWhere({ featured });
     // 并行查询 news、regions、facets
     const [
@@ -156,10 +169,11 @@ export async function handleBootstrap(
       generatedAt: new Date().toISOString(),
     };
 
-    return new Response(JSON.stringify(body), {
+    const response = new Response(JSON.stringify(body), {
       status: 200,
       headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=30" },
     });
+    return maybeStoreCachedPublicRead(request, cacheKey, response, ctx, 60);
   } catch (err) {
     console.error("bootstrap error:", err);
     const fallback: PublicBootstrapResponse = {

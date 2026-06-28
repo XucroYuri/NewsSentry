@@ -278,12 +278,27 @@ function pageCopy(
     }
   }
 
-  const channelTitle = feedChannelTitle(route.name === "feed" ? route.channel : "featured", it)
+  const channel = route.name === "feed" ? route.channel : "featured"
+  if (route.name === "feed" && channel === "featured" && isDefaultFeedRoute(route)) {
+    return {
+      title: it ? "Sentinella · Monitoraggio Globale" : "新闻哨兵 · 全球新闻监控",
+      description: it ? DEFAULT_DESCRIPTION_IT : DEFAULT_DESCRIPTION,
+    }
+  }
+
+  const channelTitle = feedChannelTitle(channel, it)
   const targetName = selectedTargetLabel ? ` · ${selectedTargetLabel}` : ""
   return {
     title: `${channelTitle}${targetName}`,
     description: it ? DEFAULT_DESCRIPTION_IT : DEFAULT_DESCRIPTION,
   }
+}
+
+function isDefaultFeedRoute(route: Extract<PublicRoute, { name: "feed" }>) {
+  for (const key of route.search.keys()) {
+    if (route.search.get(key)?.trim()) return false
+  }
+  return true
 }
 
 function feedChannelTitle(channel: PublicChannel, it = false) {

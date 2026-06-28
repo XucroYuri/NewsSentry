@@ -17,6 +17,14 @@ import {
   publicNewsOrderBy,
   rowToPublicNewsItem,
 } from "../lib/public-news-query";
+import {
+  hasOnlyParams,
+  maybeServeCachedPublicRead,
+  maybeStoreCachedPublicRead,
+} from "../lib/public-read-cache";
+
+const FEATURED_NEWS_CACHE_KEY = "public-read:news:featured";
+const ALL_NEWS_CACHE_KEY = "public-read:news:all";
 
 interface CursorRow {
   event_id: string;
@@ -67,6 +75,7 @@ export async function handleNewsFeed(
   db: D1Database,
   params: URLSearchParams,
   _segments: string[],
+  ctx?: ExecutionContext,
 ): Promise<Response> {
   try {
     const regionId = params.get("region_id") || params.get("target_id") || undefined;
@@ -83,6 +92,24 @@ export async function handleNewsFeed(
       Number.isFinite(requestedPageSize) && requestedPageSize > 0
         ? Math.min(requestedPageSize, 50)
         : 20;
+    const cacheKey =
+      pageSize === 20 &&
+      !beforeCursor &&
+      !sinceCursor &&
+      !regionId &&
+      !sourceId &&
+      !issue &&
+      !related &&
+      !date &&
+      !q &&
+      hasOnlyParams(params, ["featured", "page_size"])
+        ? featured
+          ? FEATURED_NEWS_CACHE_KEY
+          : ALL_NEWS_CACHE_KEY
+        : null;
+    const cached = await maybeServeCachedPublicRead(request, cacheKey);
+    if (cached) return cached;
+
     const filters = buildPublicNewsWhere({
       featured,
       regionId,
@@ -132,10 +159,11 @@ export async function handleNewsFeed(
       total: totalResult?.total ?? rows.length,
     };
 
-    return new Response(JSON.stringify(body), {
+    const response = new Response(JSON.stringify(body), {
       status: 200,
       headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=15" },
     });
+    return maybeStoreCachedPublicRead(request, cacheKey, response, ctx, 30);
   } catch (err) {
     console.error("newsFeed error:", err);
     const fallback: PublicNewsFeedResponse = {

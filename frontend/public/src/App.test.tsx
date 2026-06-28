@@ -280,7 +280,7 @@ describe("Phase 84 public portal app", () => {
     expect(headers).toContain("Content-Security-Policy")
     expect(headers).toContain("X-Frame-Options: DENY")
     expect(headers).toContain("/public-app*")
-    expect(headers).toContain("max-age=0, must-revalidate, no-transform")
+    expect(headers).toContain("max-age=60, stale-while-revalidate=300, no-transform")
     expect(headers).toContain("max-age=31536000, immutable")
   })
 

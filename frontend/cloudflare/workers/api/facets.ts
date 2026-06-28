@@ -6,14 +6,23 @@
  */
 
 import type { PublicFacetsResponse, PublicFacetItem } from "../lib/contracts";
+import {
+  maybeServeCachedPublicRead,
+  maybeStoreCachedPublicRead,
+} from "../lib/public-read-cache";
 
 export async function handleFacets(
-  _request: Request,
+  request: Request,
   db: D1Database,
   _params: URLSearchParams,
   _segments: string[],
+  ctx?: ExecutionContext,
 ): Promise<Response> {
   try {
+    const cacheKey = "public-read:facets";
+    const cached = await maybeServeCachedPublicRead(request, cacheKey);
+    if (cached) return cached;
+
     // 按 region 分组统计
     const regionResult = await db
       .prepare(
@@ -67,10 +76,11 @@ export async function handleFacets(
 
     const body: PublicFacetsResponse = { regions, issues, related };
 
-    return new Response(JSON.stringify(body), {
+    const response = new Response(JSON.stringify(body), {
       status: 200,
       headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=60" },
     });
+    return maybeStoreCachedPublicRead(request, cacheKey, response, ctx, 300);
   } catch (err) {
     console.error("facets error:", err);
     return new Response(JSON.stringify({ regions: [], issues: [], related: [] }), {
