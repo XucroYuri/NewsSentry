@@ -276,6 +276,9 @@ describe("Phase 84 public portal app", () => {
     expect(headers).toContain("/assets/*")
     expect(headers).toContain("/icons/*")
     expect(headers).toContain("/sitemap.xml")
+    expect(headers).toContain("Strict-Transport-Security")
+    expect(headers).toContain("Content-Security-Policy")
+    expect(headers).toContain("X-Frame-Options: DENY")
     expect(headers).toContain("max-age=31536000, immutable")
   })
 

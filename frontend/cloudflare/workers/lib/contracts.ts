@@ -102,6 +102,21 @@ export interface RegionListResponse {
   regions: RegionInfo[];
 }
 
+export interface TargetInfo {
+  target_id: string;
+  display_name: string;
+  primary_language: string;
+  region_type: "country" | "region" | "continent" | "global";
+  source_count: number;
+  event_count: number;
+  lifecycle: Record<string, unknown>;
+  archived: boolean;
+}
+
+export interface TargetListResponse {
+  targets: TargetInfo[];
+}
+
 export interface PublicBootstrapResponse {
   news: PublicNewsFeedResponse;
   regions: RegionListResponse;

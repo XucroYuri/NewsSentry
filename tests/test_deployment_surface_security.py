@@ -12,6 +12,7 @@ POLICY_PATH = PROJECT_ROOT / "config/security/deployment-surface-policy.yaml"
 sys.path.insert(0, str(TOOLS_DIR))
 
 from build_cloudflare_state_json import build_state_from_payloads  # noqa: E402
+from deployed_surface_audit import base_url_for_surface  # noqa: E402
 from deployment_surface_security import (  # noqa: E402
     build_cloudflare_state_findings,
     build_surface_findings,
@@ -125,6 +126,25 @@ def test_cloudflare_access_login_redirect_counts_as_protected_surface() -> None:
     )
 
     assert findings == []
+
+
+def test_deployed_surface_audit_routes_api_surfaces_to_split_api_origin() -> None:
+    assert (
+        base_url_for_surface(
+            "/api/v1/public/news?page_size=1",
+            "https://news-sentry.com",
+            "https://api.news-sentry.com",
+        )
+        == "https://api.news-sentry.com"
+    )
+    assert (
+        base_url_for_surface(
+            "/public-app/",
+            "https://news-sentry.com",
+            "https://api.news-sentry.com",
+        )
+        == "https://news-sentry.com"
+    )
 
 
 def test_cloudflare_state_builder_derives_audit_json_from_access_and_rulesets() -> None:

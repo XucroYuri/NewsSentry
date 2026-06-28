@@ -29,7 +29,17 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     )
 
 
-def _probe_surface(base_url: str, surface: str, timeout_seconds: float) -> dict[str, Any]:
+def base_url_for_surface(surface: str, public_base_url: str, api_base_url: str | None) -> str:
+    if surface.startswith("/api/") and api_base_url:
+        return api_base_url
+    return public_base_url
+
+
+def _probe_surface(
+    base_url: str,
+    surface: str,
+    timeout_seconds: float,
+) -> dict[str, Any]:
     url = f"{base_url.rstrip('/')}{surface}"
     with httpx.Client(follow_redirects=False, timeout=timeout_seconds) as client:
         response = client.get(url)
@@ -43,12 +53,14 @@ def _probe_surface(base_url: str, surface: str, timeout_seconds: float) -> dict[
 def _collect_live_probes(
     policy: dict[str, Any],
     base_url: str,
+    api_base_url: str | None,
     timeout_seconds: float,
 ) -> list[dict[str, Any]]:
     rules = policy["surface_rules"]["default_probe_surfaces"]
     probes: list[dict[str, Any]] = []
     for surface in [*rules["public"], *rules["protected"], *rules["architecture"]]:
-        probes.append(_probe_surface(base_url, surface, timeout_seconds))
+        surface_base_url = base_url_for_surface(surface, base_url, api_base_url)
+        probes.append(_probe_surface(surface_base_url, surface, timeout_seconds))
     return probes
 
 
@@ -59,6 +71,10 @@ def main() -> int:
     parser.add_argument("--probes-json", help="Existing probe JSON array to audit.")
     parser.add_argument("--cloudflare-state-json", help="Optional Cloudflare state JSON.")
     parser.add_argument("--base-url", help="Live base URL to probe when probes-json is absent.")
+    parser.add_argument(
+        "--api-base-url",
+        help="Optional API origin for split Cloudflare Pages + Worker deployments.",
+    )
     parser.add_argument(
         "--environment",
         default="production",
@@ -71,7 +87,12 @@ def main() -> int:
     if args.probes_json:
         probes = _load_json(Path(args.probes_json))
     elif args.base_url:
-        probes = _collect_live_probes(policy, args.base_url, args.timeout_seconds)
+        probes = _collect_live_probes(
+            policy,
+            args.base_url,
+            args.api_base_url,
+            args.timeout_seconds,
+        )
     else:
         raise SystemExit("either --probes-json or --base-url is required")
 

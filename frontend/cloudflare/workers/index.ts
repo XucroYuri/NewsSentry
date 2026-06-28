@@ -22,6 +22,7 @@ import { handleHealth } from "./api/health";
 import { handleFacets } from "./api/facets";
 import { handleBootstrap } from "./api/bootstrap";
 import { handleNewsFeed, handleNewsDetail } from "./api/news";
+import { handleTargets, handleRegions } from "./api/targets";
 import { handleWebhook, handleImport } from "./api/webhook";
 import { handleContainerProxy, shouldProxyToContainer } from "./api/proxy";
 import { internalError } from "./lib/errors";
@@ -47,12 +48,36 @@ export class NewsSentryContainer extends Container {
   };
 }
 
+const SECURITY_HEADERS: Record<string, string> = {
+  "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
+  "Content-Security-Policy":
+    "default-src 'self'; connect-src 'self' https://api.news-sentry.com; img-src 'self' data: https:; script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; base-uri 'self'; frame-ancestors 'none'",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "geolocation=(), microphone=(), camera=(), payment=(), usb=()",
+  "X-Frame-Options": "DENY",
+  "X-Content-Type-Options": "nosniff",
+};
+
+function withSecurityHeaders(response: Response): Response {
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+    headers.set(name, value);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 // ── Route registration ────────────────────────────────────────────────────
 registerRoute("GET", "/api/v1/health", handleHealth);
 registerRoute("GET", "/api/v1/public/facets", handleFacets);
 registerRoute("GET", "/api/v1/public/bootstrap", handleBootstrap);
 registerRoute("GET", "/api/v1/public/news", handleNewsFeed);
 registerRoute("GET", "/api/v1/public/news/{event_id}", handleNewsDetail);
+registerRoute("GET", "/api/v1/targets", handleTargets);
+registerRoute("GET", "/api/v1/regions", handleRegions);
 registerRoute("POST", "/api/v1/webhook", handleWebhook);
 registerRoute("POST", "/api/v1/events/import", handleImport);
 
@@ -61,15 +86,17 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     try {
       const url = new URL(request.url);
+      let response: Response;
       if (shouldProxyToContainer(url.pathname)) {
-        return await handleContainerProxy(request, env);
+        response = await handleContainerProxy(request, env);
+      } else {
+        const workerWriteAccess = handleWorkerWriteAccess(request);
+        response = workerWriteAccess ?? (await dispatch(request, env.DB));
       }
-      const workerWriteAccess = handleWorkerWriteAccess(request);
-      if (workerWriteAccess) return workerWriteAccess;
-      return await dispatch(request, env.DB);
+      return withSecurityHeaders(response);
     } catch (err) {
       console.error("worker unhandled error:", err);
-      return internalError();
+      return withSecurityHeaders(internalError());
     }
   },
 };

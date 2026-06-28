@@ -70,6 +70,19 @@ def test_public_reader_uses_drafts_stage_like_python_reader() -> None:
     assert "total: newsRows.length" in bootstrap_ts
 
 
+def test_cloudflare_worker_exposes_public_targets_and_regions_contracts() -> None:
+    index_ts = _read("workers/index.ts")
+    targets_ts = _read("workers/api/targets.ts")
+    contracts_ts = _read("workers/lib/contracts.ts")
+
+    assert '"/api/v1/targets"' in index_ts
+    assert '"/api/v1/regions"' in index_ts
+    assert "FROM targets" in targets_ts
+    assert "TargetListResponse" in contracts_ts
+    assert "RegionListResponse" in contracts_ts
+    assert "include_empty" in targets_ts
+
+
 def test_events_import_persists_to_cloudflare_d1() -> None:
     webhook_ts = _read("workers/api/webhook.ts")
 

@@ -478,5 +478,6 @@ jobs:
               --policy config/security/deployment-surface-policy.yaml \
               --cloudflare-state-json /tmp/news-sentry-cloudflare-state.json \
               --base-url "${BASE_URL}" \
+              --api-base-url "${API_URL}" \
               --output /tmp/news-sentry-deployed-surface-audit.json \
               --timeout-seconds 90
