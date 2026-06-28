@@ -86,6 +86,8 @@ def test_cloudflare_public_featured_query_matches_python_quality_gate() -> None:
     assert "json_valid(classification) = 1" in query_ts
     assert "json_extract(classification, '$.l0')" in query_ts
     assert "NOT IN ('uncategorized', 'other', 'breaking_news')" in query_ts
+    assert "NOT LIKE '%/opinion/todayinhistory/%'" in query_ts
+    assert "UPPER(TRIM(title)) LIKE 'MONDAY, %'" in query_ts
     assert "ORDER BY value_score DESC, published_at DESC, event_id DESC" in query_ts
     assert "publicNewsOrderBy(featured)" in news_ts
     assert "publicNewsOrderBy(featured)" in bootstrap_ts

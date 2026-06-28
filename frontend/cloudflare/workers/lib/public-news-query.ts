@@ -73,6 +73,16 @@ export function buildPublicNewsWhere(input: PublicNewsFilterInput): {
       AND json_valid(classification) = 1
       AND COALESCE(NULLIF(LOWER(TRIM(json_extract(classification, '$.l0'))), ''), 'uncategorized')
           NOT IN ('uncategorized', 'other', 'breaking_news')
+      AND COALESCE(original_url, '') NOT LIKE '%/opinion/todayinhistory/%'
+      AND NOT (
+        UPPER(TRIM(title)) LIKE 'MONDAY, %'
+        OR UPPER(TRIM(title)) LIKE 'TUESDAY, %'
+        OR UPPER(TRIM(title)) LIKE 'WEDNESDAY, %'
+        OR UPPER(TRIM(title)) LIKE 'THURSDAY, %'
+        OR UPPER(TRIM(title)) LIKE 'FRIDAY, %'
+        OR UPPER(TRIM(title)) LIKE 'SATURDAY, %'
+        OR UPPER(TRIM(title)) LIKE 'SUNDAY, %'
+      )
     `;
     bindings.push(PUBLIC_FEATURED_MIN_SCORE);
   }
