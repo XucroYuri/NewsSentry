@@ -2,6 +2,7 @@
 
 > 日期: 2026-06-07
 > 状态: 逐项排查中
+> Legacy notice: this checklist targets the former VPS/systemd launch path. Use `docs/deployment/cloudflare-native-vps-removal.md` for current Cloudflare-native cutover gates.
 
 ---
 

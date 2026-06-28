@@ -11,18 +11,11 @@ on:
         default: preview
         type: choice
         options: [preview, production]
-      allow_temporary_cloudflare_state_bypass:
-        description: "TEMPORARY: allow one-off production deploy without CLOUDFLARE_STATE_JSON while Cloudflare evidence is being backfilled"
-        required: false
-        default: "false"
-        type: choice
-        options: ["false", "true"]
 
 permissions:
   contents: write
 
 jobs:
-  # ── Stage 1: CI gate (lint + test + scan) ──────────────────
   ci:
     name: CI Gate
     runs-on: ubuntu-latest
@@ -45,8 +38,9 @@ jobs:
           cache-dependency-path: |
             frontend/public/package-lock.json
             frontend/admin/package-lock.json
+            frontend/cloudflare/package-lock.json
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev,api,proxy]"
@@ -66,7 +60,7 @@ jobs:
       - name: Public frontend build
         working-directory: frontend/public
         env:
-          FRONTEND_OUTPUT_SUBDIR: ${{ github.workspace }}/src/news_sentry/static
+          VITE_API_BASE: https://api.news-sentry.com
         run: npm run build
 
       - name: Install admin frontend dependencies
@@ -83,8 +77,6 @@ jobs:
 
       - name: Admin frontend build
         working-directory: frontend/admin
-        env:
-          FRONTEND_OUTPUT_SUBDIR: ${{ github.workspace }}/src/news_sentry/static
         run: npm run build
 
       - name: Admin E2E Test (Playwright)
@@ -92,6 +84,17 @@ jobs:
         run: |
           npx playwright install --with-deps chromium
           npm run test:e2e
+
+      - name: Install Cloudflare Worker dependencies
+        working-directory: frontend/cloudflare
+        run: npm ci
+
+      - name: Cloudflare Worker dry run
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy --env="" --dry-run --outdir /tmp/ns-worker-dry-run --containers-rollout none
 
       - name: Lint (ruff)
         run: python -m ruff check
@@ -114,6 +117,7 @@ jobs:
 
       - name: Config schema validation
         run: python -m pytest tests/unit/test_config_schema_validation.py -q
+
       - name: E2E tests
         timeout-minutes: 10
         env:
@@ -123,349 +127,57 @@ jobs:
           NEWSSENTRY_PUBLIC_TRANSLATION: "0"
         run: |
           set -euo pipefail
-          # conftest.py manages the uvicorn subprocess and admin setup
-          # via POST /api/v1/auth/setup; no env password needed
           python -m pytest tests/e2e/ -m e2e -q --tb=short --timeout=60 -x
 
-
-  # ── Stage 2: Deploy to VPS via SSH (venv + systemd) ───────
-  deploy:
-    name: Deploy ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
+  cloudflare-data:
+    name: Cloudflare D1 schema migration
     runs-on: ubuntu-latest
     needs: ci
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/preview'
-    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/preview' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
 
-      - name: Determine environment
-        id: env
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "ENV=production" >> "$GITHUB_OUTPUT"
-            echo "SERVICE=news-sentry" >> "$GITHUB_OUTPUT"
-            echo "PORT=18080" >> "$GITHUB_OUTPUT"
-          else
-            echo "ENV=preview" >> "$GITHUB_OUTPUT"
-            echo "SERVICE=news-sentry-preview" >> "$GITHUB_OUTPUT"
-            echo "PORT=18081" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          host: ${{ secrets.BWH_HOST }}
-          username: ${{ secrets.BWH_SSH_USER }}
-          key: ${{ secrets.BWH_SSH_KEY }}
-          port: ${{ secrets.BWH_SSH_PORT || 22 }}
-          command_timeout: 15m
-          script: |
-            set -euo pipefail
+          python-version: "3.12"
 
-            ENV="${{ steps.env.outputs.ENV }}"
-            SERVICE="${{ steps.env.outputs.SERVICE }}"
-            PORT="${{ steps.env.outputs.PORT }}"
-            BRANCH="${{ github.ref_name }}"
-            SHA="${{ github.sha }}"
-            SHORT_SHA="$(echo ${SHA} | cut -c1-7)"
-            DEPLOY_BASE="/opt/news-sentry"
-            REPO_DIR="${DEPLOY_BASE}/${ENV}/repo"
-            REPO_URL="https://github.com/XucroYuri/NewsSentry.git"
-            DEPLOY_GITHUB_TOKEN="${{ secrets.GHCR_PAT || github.token }}"
-            if [ -z "${DEPLOY_GITHUB_TOKEN}" ]; then
-              echo "❌ Missing GitHub token for remote checkout"
-              exit 1
-            fi
-            AUTH_HEADER="AUTHORIZATION: Basic $(printf 'x-access-token:%s' "${DEPLOY_GITHUB_TOKEN}" | base64 | tr -d '\n')"
-            unset DEPLOY_GITHUB_TOKEN
+      - name: Install D1 backfill dependencies
+        run: python -m pip install --upgrade pip pyyaml
 
-            redact_sensitive_log() {
-              sed -E \
-                -e 's/((password|token|secret|api[_ -]?key|authorization|cookie)[^[:space:]]{0,40}[=:][[:space:]]*)[^[:space:]]+/\1<redacted>/Ig' \
-                -e 's/(Bearer )[A-Za-z0-9._-]+/\1<redacted>/Ig'
-            }
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/cloudflare/package-lock.json
 
-            echo "=== Deploying NewsSentry ${ENV} (${SHORT_SHA}) on port ${PORT} ==="
+      - name: Install Cloudflare Worker dependencies
+        working-directory: frontend/cloudflare
+        run: npm ci
 
-            # ── 1. 创建目录（首次） ──
-            mkdir -p "${DEPLOY_BASE}/${ENV}"
-            mkdir -p "/srv/news-sentry/${ENV}/data"
-
-            backup_dirty_worktree() {
-              if [ -z "$(git status --porcelain)" ]; then
-                return 0
-              fi
-
-              BACKUP_DIR="${DEPLOY_BASE}/${ENV}/deploy-backups/$(date -u +%Y%m%dT%H%M%SZ)-dirty-worktree"
-              mkdir -p "${BACKUP_DIR}"
-              git status --short > "${BACKUP_DIR}/status.txt"
-              git diff > "${BACKUP_DIR}/worktree.diff" || true
-              git diff --cached > "${BACKUP_DIR}/index.diff" || true
-              git ls-files --others --exclude-standard > "${BACKUP_DIR}/untracked.txt" || true
-              echo "⚠️  Backed up dirty deploy worktree to ${BACKUP_DIR}"
-            }
-
-            # ── 2. 克隆或更新代码 ──
-            if [ -d "${REPO_DIR}/.git" ]; then
-              git config --global --add safe.directory "${REPO_DIR}"
-              cd "${REPO_DIR}"
-              git remote set-url origin "${REPO_URL}"
-              git -c http.https://github.com/.extraheader="${AUTH_HEADER}" fetch origin "${BRANCH}"
-              backup_dirty_worktree
-              git reset --hard
-              git clean -fd
-              git checkout -B "${BRANCH}" "origin/${BRANCH}"
-              git reset --hard "origin/${BRANCH}"
-              git clean -fd
-            else
-              git -c http.https://github.com/.extraheader="${AUTH_HEADER}" clone -b "${BRANCH}" "${REPO_URL}" "${REPO_DIR}"
-              cd "${REPO_DIR}"
-              git remote set-url origin "${REPO_URL}"
-            fi
-            unset AUTH_HEADER
-
-            echo "Checked out: $(git log --oneline -1)"
-
-            # ── 3. 公共门户前端构建 ──
-            ensure_node_22() {
-              if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
-                NODE_MAJOR="$(node -p "Number(process.versions.node.split('.')[0])")"
-                if [ "${NODE_MAJOR}" -ge 22 ]; then
-                  return 0
-                fi
-                echo "⚠️  Node $(node -v) found; upgrading to Node 22 for public frontend build"
-              else
-                echo "⚠️  Node.js/npm missing; installing Node 22 for public frontend build"
-              fi
-
-              if command -v apt-get >/dev/null 2>&1; then
-                apt-get update -qq
-                apt-get install -y -qq ca-certificates curl gnupg
-                curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-                apt-get install -y -qq nodejs
-              else
-                echo "❌ Missing Node.js/npm and unsupported package manager; install Node 22 on VPS"
-                exit 1
-              fi
-
-              node -v
-              npm -v
-            }
-            ensure_node_22
-
-            upsert_env_kv() {
-              FILE="$1"
-              KEY="$2"
-              VALUE="$3"
-              mkdir -p "$(dirname "${FILE}")"
-              touch "${FILE}"
-              if grep -qE "^${KEY}=" "${FILE}"; then
-                sed -i "s|^${KEY}=.*|${KEY}=${VALUE}|" "${FILE}"
-              else
-                printf "%s=%s\n" "${KEY}" "${VALUE}" >> "${FILE}"
-              fi
-            }
-
-            ensure_env_kv_missing() {
-              FILE="$1"
-              KEY="$2"
-              VALUE="$3"
-              mkdir -p "$(dirname "${FILE}")"
-              touch "${FILE}"
-              if ! grep -qE "^${KEY}=" "${FILE}"; then
-                printf "%s=%s\n" "${KEY}" "${VALUE}" >> "${FILE}"
-              fi
-            }
-
-            # ── 3a. 公共门户前端构建 ──
-            # 仅在 package.json 或源码变更时重新构建
-            # FRONTEND_OUTPUT_SUBDIR 确保构建产物写回 FastAPI 能发现的位置
-            NPM_HASH_FILE="${DEPLOY_BASE}/${ENV}/.npm-build-hash"
-            NPM_HASH_SRC="$(sha256sum "${REPO_DIR}/frontend/public/package.json" | cut -d' ' -f1)"
-            NPM_HASH_SRC="${NPM_HASH_SRC}-$(find "${REPO_DIR}/frontend/public/src" -type f -exec sha256sum {} \; | sha256sum | cut -d' ' -f1)"
-            if [ ! -f "${NPM_HASH_FILE}" ] || [ "$(cat "${NPM_HASH_FILE}")" != "${NPM_HASH_SRC}" ]; then
-              cd "${REPO_DIR}/frontend/public"
-              npm ci
-              FRONTEND_OUTPUT_SUBDIR="${REPO_DIR}/src/news_sentry/static" npm run build
-              cd "${REPO_DIR}"
-              echo "${NPM_HASH_SRC}" > "${NPM_HASH_FILE}"
-            fi
-
-            # ── 3b. 管理后台前端构建 ──
-            ADMIN_HASH_FILE="${DEPLOY_BASE}/${ENV}/.admin-build-hash"
-            ADMIN_HASH_SRC="$(sha256sum "${REPO_DIR}/frontend/admin/package.json" | cut -d' ' -f1)"
-            ADMIN_HASH_SRC="${ADMIN_HASH_SRC}-$(find "${REPO_DIR}/frontend/admin/src" -type f -exec sha256sum {} \; | sha256sum | cut -d' ' -f1)"
-            if [ ! -f "${ADMIN_HASH_FILE}" ] || [ "$(cat "${ADMIN_HASH_FILE}")" != "${ADMIN_HASH_SRC}" ]; then
-              cd "${REPO_DIR}/frontend/admin"
-              npm ci
-              FRONTEND_OUTPUT_SUBDIR="${REPO_DIR}/src/news_sentry/static" npm run build
-              cd "${REPO_DIR}"
-              echo "${ADMIN_HASH_SRC}" > "${ADMIN_HASH_FILE}"
-            fi
-
-            # ── 4. venv + 依赖 ──
-            VENV="${DEPLOY_BASE}/${ENV}/venv"
-            if [ ! -d "${VENV}" ]; then
-              python3 -m venv "${VENV}"
-            fi
-            source "${VENV}/bin/activate"
-            pip install --upgrade pip -q
-
-            # 仅在 pyproject.toml 变更或首次安装时重新安装依赖
-            PIP_HASH_FILE="${DEPLOY_BASE}/${ENV}/.pip-install-hash"
-            PYPROJECT_HASH="$(sha256sum "${REPO_DIR}/pyproject.toml" | cut -d' ' -f1)"
-            if [ ! -f "${PIP_HASH_FILE}" ] || [ "$(cat "${PIP_HASH_FILE}")" != "${PYPROJECT_HASH}" ]; then
-              pip install -e ".[api,proxy]" -q
-              echo "${PYPROJECT_HASH}" > "${PIP_HASH_FILE}"
-            fi
-
-            # ── 5. 环境变量 ──
-            if [ ! -f "${DEPLOY_BASE}/${ENV}/.env" ]; then
-              cat > "${DEPLOY_BASE}/${ENV}/.env" <<'ENVEOF'
-            NEWSSENTRY_DEPLOYMENT_ENV=vps
-            NEWSSENTRY_PROFILE=cloud-vps
-            NEWSSENTRY_DATA_DIR=__DATA_DIR__
-            NEWSSENTRY_ALLOW_EXTERNAL_DATA_DIR=1
-            NEWSSENTRY_AI_BUDGET_USD=1.0
-            NEWSSENTRY_LOG_LEVEL=INFO
-            # AI Provider keys — fill at least one after deploy:
-            # GEMINI_API_KEY=xxxxxxxx
-            # DEEPSEEK_API_KEY=sk-xxxxxxxx
-            # GROQ_API_KEY=gsk_xxxxxxxx
-            ENVEOF
-              sed -i "s|__DATA_DIR__|/srv/news-sentry/${ENV}/data|" "${DEPLOY_BASE}/${ENV}/.env"
-            fi
-            upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_AUTO_COLLECT" "0"
-            upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_PUBLIC_TRANSLATION" "1"
-            upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_PUBLIC_TRANSLATION_INTERVAL" "5"
-            upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_PUBLIC_TRANSLATION_PER_CYCLE" "50"
-            upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_PUBLIC_TRANSLATION_CANDIDATES" "500"
-            upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_PUBLIC_PUBLICATION_INTERVAL" "5"
-            upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_PUBLIC_PUBLICATION_PER_CYCLE" "50"
-            # Admin 密码：从 GitHub Secrets 注入（必设）
-            ADMIN_PW="${{ secrets.NEWSSENTRY_ADMIN_PASSWORD }}"
-            if [ -n "${ADMIN_PW}" ]; then
-              upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_ADMIN_PASSWORD" "${ADMIN_PW}"
-            else
-              echo "⚠️  NEWSSENTRY_ADMIN_PASSWORD secret is empty — a random password will be generated on first launch"
-            fi
-            if [ "${ENV}" = "production" ]; then
-              upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_REALTIME_BATCH_SIZE" "12"
-              upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_REALTIME_STRICT" "0"
-            fi
-
-            # ── 6. systemd 服务文件（首次或更新） ──
-            cat > "/etc/systemd/system/${SERVICE}.service" <<SVCEOF
-            [Unit]
-            Description=News Sentry ${ENV} (${SHORT_SHA})
-            After=network.target
-
-            [Service]
-            Type=simple
-            User=newssentry
-            Group=newssentry
-            WorkingDirectory=${REPO_DIR}
-            EnvironmentFile=${DEPLOY_BASE}/${ENV}/.env
-            Environment=NEWSSENTRY_ALLOW_EXTERNAL_DATA_DIR=1
-            ExecStart=${VENV}/bin/python -m uvicorn news_sentry.core.api_server:create_app --factory --host 127.0.0.1 --port ${PORT}
-            Restart=on-failure
-            RestartSec=10
-            LimitNOFILE=65536
-            MemoryMax=768M
-            CPUQuota=100%
-            NoNewPrivileges=true
-            ProtectSystem=strict
-            ReadWritePaths=/srv/news-sentry/${ENV} ${DEPLOY_BASE}/${ENV}
-            PrivateTmp=true
-            StandardOutput=journal
-            StandardError=journal
-            SyslogIdentifier=${SERVICE}
-
-            [Install]
-            WantedBy=multi-user.target
-            SVCEOF
-
-            # 确保文件权限
-            chown -R newssentry:newssentry "${DEPLOY_BASE}/${ENV}"
-            chown -R newssentry:newssentry "/srv/news-sentry/${ENV}"
-
-            # ── 7. 重启服务 ──
-            systemctl daemon-reload
-            systemctl enable "${SERVICE}"
-            systemctl restart "${SERVICE}"
-
-            # ── 8. 健康检查 ──
-            echo "Waiting for service..."
-            for i in $(seq 1 24); do
-              if curl -sf "http://127.0.0.1:${PORT}/api/v1/health" > /dev/null 2>&1; then
-                echo "✅ Health check passed (attempt ${i})"
-                curl -s "http://127.0.0.1:${PORT}/api/v1/health"
-                echo ""
-                break
-              fi
-              if [ "$i" -eq 24 ]; then
-                echo "❌ Health check failed after 120s"
-                journalctl -u "${SERVICE}" --no-pager -n 30 | redact_sensitive_log
-                exit 1
-              fi
-              sleep 5
-            done
-
-            # ── 8a. 生产实时采集 timer：配置驱动、分批轮转扩展地区网络 ──
-            if [ "${ENV}" = "production" ]; then
-              install -m 0644 "${REPO_DIR}/config/news-sentry-realtime.service" /etc/systemd/system/news-sentry-realtime.service
-              install -m 0644 "${REPO_DIR}/config/news-sentry-realtime.timer" /etc/systemd/system/news-sentry-realtime.timer
-              systemctl daemon-reload
-              systemctl enable --now news-sentry-realtime.timer
-              systemctl start --no-block news-sentry-realtime.service || true
-              systemctl list-timers --all news-sentry-realtime.timer || true
-              echo "✅ Production realtime collection timer enabled"
-            else
-              echo "ℹ️  Skipping realtime collection timer for ${ENV}"
-            fi
-
-            # ── 9. 共存安全确认 ──
-            systemctl is-active x-ui > /dev/null 2>&1 && echo "✅ Xray proxy: running" || echo "⚠️  Xray proxy: not running"
-            ss -lntup | grep -E ':443|:8443' | head -2
-
-            # ── 10. 记录部署版本 ──
-            echo "${SHA}" > "${DEPLOY_BASE}/${ENV}/.deploy-sha"
-            echo "${BRANCH}" > "${DEPLOY_BASE}/${ENV}/.deploy-branch"
-            date -u +%Y-%m-%dT%H:%M:%SZ > "${DEPLOY_BASE}/${ENV}/.deploy-time"
-
-            echo ""
-            echo "=== Deploy complete ==="
-            echo "  Environment: ${ENV}"
-            echo "  Branch:      ${BRANCH}"
-            echo "  Commit:      ${SHORT_SHA}"
-            echo "  Port:        ${PORT}"
-            echo "  Service:     ${SERVICE}"
-
-      - name: Post-deploy summary
+      - name: Cloudflare D1 backfill dry run
         run: |
-          echo "## Deploy Summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Item | Value |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|------|-------|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Environment | ${{ steps.env.outputs.ENV }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Branch | ${{ github.ref_name }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Commit | ${{ github.sha }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Port | ${{ steps.env.outputs.PORT }} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Service | ${{ steps.env.outputs.SERVICE }} |" >> "$GITHUB_STEP_SUMMARY"
+          python tools/cloudflare_d1_backfill.py \
+            --data-dir data \
+            --targets-dir config/targets \
+            --dry-run \
+            --limit 100 \
+            --output-sql /tmp/news-sentry-d1-backfill.sql
 
-  # ── Stage 2b: Deploy Cloudflare Workers (API server) ──────────
-  # 仅 main 分支 push 且 cloudflare 目录变更时触发，或手动 workflow_dispatch
+      - name: Apply Cloudflare D1 schema
+        if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler d1 execute ns-db --remote --file=db/schema.sql
+
   deploy-cloudflare-worker:
-    name: Deploy Cloudflare Worker ${{ github.ref == 'refs/heads/main' && '(production)' || '' }}
+    name: Deploy Cloudflare Worker
     runs-on: ubuntu-latest
-    needs: ci
-    if: |
-      github.ref == 'refs/heads/main' &&
-      (
-        github.event_name == 'workflow_dispatch' ||
-        contains(toJSON(github.event.head_commit.modified), 'frontend/cloudflare/') ||
-        contains(toJSON(github.event.head_commit.added), 'frontend/cloudflare/')
-      )
+    needs: [ci, cloudflare-data]
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
     environment: production
     steps:
       - uses: actions/checkout@v4
@@ -477,46 +189,40 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/cloudflare/package-lock.json
 
-      - name: Install wrangler
+      - name: Install Cloudflare Worker dependencies
         working-directory: frontend/cloudflare
         run: npm ci
 
-      - name: Deploy Worker
+      - name: Deploy Cloudflare Worker
         working-directory: frontend/cloudflare
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler deploy
+        run: npx wrangler deploy --env="" --containers-rollout gradual
 
-      - name: Verify Worker health
+      - name: Verify Cloudflare Worker health
         run: |
-          for i in $(seq 1 10); do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://api.news-sentry.com/api/v1/health" || echo "000")
+          set -euo pipefail
+          for i in $(seq 1 12); do
+            STATUS=$(curl -s -o /tmp/worker-health.json -w "%{http_code}" "https://api.news-sentry.com/api/v1/health" || echo "000")
             if [ "$STATUS" = "200" ]; then
-              echo "✅ Cloudflare Worker health check passed"
-              curl -s "https://api.news-sentry.com/api/v1/health"
+              cat /tmp/worker-health.json
               exit 0
             fi
             echo "Waiting for Worker deployment... (attempt $i, HTTP $STATUS)"
             sleep 5
           done
-          echo "❌ Cloudflare Worker health check failed after 10 attempts"
+          echo "Cloudflare Worker health check failed"
           exit 1
 
-  # ── Stage 2c: Deploy Cloudflare Pages (public frontend) ────────
-  # 仅 main 分支 push 且 frontend/public 目录变更时触发，或手动 workflow_dispatch
   deploy-cloudflare-pages:
-    name: Deploy Cloudflare Pages ${{ github.ref == 'refs/heads/main' && '(production)' || '' }}
+    name: Deploy Cloudflare Pages
     runs-on: ubuntu-latest
     needs: ci
-    if: |
-      github.ref == 'refs/heads/main' &&
-      (
-        github.event_name == 'workflow_dispatch' ||
-        contains(toJSON(github.event.head_commit.modified), 'frontend/public/') ||
-        contains(toJSON(github.event.head_commit.added), 'frontend/public/')
-      )
-    environment: production
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/preview' || github.event_name == 'workflow_dispatch'
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
+    outputs:
+      pages_url: ${{ steps.deploy.outputs.pages_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -527,90 +233,80 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/public/package-lock.json
 
-      - name: Install dependencies
+      - name: Install public frontend dependencies
         working-directory: frontend/public
         run: npm ci
 
-      - name: Build
+      - name: Build public frontend
         working-directory: frontend/public
         env:
           VITE_API_BASE: https://api.news-sentry.com
         run: npm run build
 
-      - name: Deploy to Cloudflare Pages
+      - name: Deploy Cloudflare Pages
+        id: deploy
         working-directory: frontend/public
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
+          set -euo pipefail
+          branch="${GITHUB_REF_NAME:-preview}"
           npx wrangler pages deploy dist/ \
             --project-name=news-sentry \
-            --commit-dirty=true
+            --branch "${branch}" \
+            --commit-dirty=true | tee /tmp/news-sentry-pages-deploy.log
+          pages_url="$(grep -Eo 'https://[^[:space:]]+\\.pages\\.dev' /tmp/news-sentry-pages-deploy.log | tail -1 || true)"
+          if [ -z "${pages_url}" ]; then
+            pages_url="https://news-sentry.pages.dev"
+          fi
+          echo "pages_url=${pages_url}" >> "$GITHUB_OUTPUT"
 
-      - name: Verify Pages deployment
+      - name: Verify Cloudflare Pages deployment
         run: |
-          PAGES_URL="${PAGES_CUSTOM_DOMAIN:-https://news-sentry.pages.dev}"
-          for i in $(seq 1 10); do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PAGES_URL" || echo "000")
+          set -euo pipefail
+          PAGES_URL="${{ steps.deploy.outputs.pages_url }}"
+          for i in $(seq 1 12); do
+            STATUS=$(curl -s -o /tmp/pages.html -w "%{http_code}" "$PAGES_URL" || echo "000")
             if [ "$STATUS" = "200" ]; then
-              echo "✅ Cloudflare Pages deployment verified at $PAGES_URL"
+              grep -q "NewsSentry" /tmp/pages.html
               exit 0
             fi
             echo "Waiting for Pages deployment... (attempt $i, HTTP $STATUS)"
             sleep 5
           done
-          echo "❌ Cloudflare Pages verification timed out after 10 attempts"
+          echo "Cloudflare Pages verification timed out"
           exit 1
 
   verify-preview:
     name: Verify preview
     runs-on: ubuntu-latest
-    needs: deploy
+    needs: [deploy-cloudflare-pages, cloudflare-data]
     if: github.ref == 'refs/heads/preview'
     env:
       BASE_URL: https://preview.news-sentry.com
-      EXPECTED_SHA: ${{ github.sha }}
-      COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+      PAGES_URL: ${{ needs.deploy-cloudflare-pages.outputs.pages_url }}
+      API_URL: https://api.news-sentry.com
     steps:
-      - name: Verify preview public endpoints
+      - name: Verify preview Cloudflare-native public endpoints
         run: |
           set -euo pipefail
-          short_sha="${EXPECTED_SHA:0:12}"
-          tmp_headers="$(mktemp)"
-
-          health_status="$(curl -sS -D "${tmp_headers}" -o /tmp/health.json -w "%{http_code}" "${BASE_URL}/api/v1/health" || true)"
-          if [[ "${health_status}" == "403" ]] && printf '%s' "${COMMIT_MESSAGE}" | grep -q "\[temporary-cloudflare-state-bypass\]"; then
-            echo "::warning title=TEMPORARY_CLOUDFLARE_PREVIEW_ACCESS_BYPASS::Preview public verification is blocked by Cloudflare 403 for this one-off release. Production verification will still run after promotion."
-            cat "${tmp_headers}"
-            exit 0
-          fi
-          if [[ "${health_status}" -lt 200 || "${health_status}" -ge 300 ]]; then
-            echo "Preview health check failed with HTTP ${health_status}"
-            cat "${tmp_headers}"
-            exit 1
-          fi
-          deploy_header="$(awk 'tolower($1)=="x-news-sentry-deploy-commit:" {print $2}' "${tmp_headers}" | tr -d '\r' | head -1)"
-          if [[ "${deploy_header}" != "${short_sha}"* ]]; then
-            echo "Preview deploy header mismatch: expected ${short_sha}, got ${deploy_header:-<missing>}"
-            cat "${tmp_headers}"
-            exit 1
-          fi
-
-          curl -fsS "${BASE_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json
-          curl -fsS "${BASE_URL}/api/v1/regions?include_empty=true" > /tmp/regions.json
-          curl -fsS "${BASE_URL}/api/v1/public/facets" > /tmp/facets.json
-          curl -fsS -o /tmp/public-app.html "${BASE_URL}/public-app/"
+          curl -fsS "${API_URL}/api/v1/health" > /tmp/health.json
+          curl -fsS "${API_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json
+          curl -fsS "${API_URL}/api/v1/public/facets" > /tmp/facets.json
+          curl -fsS -o /tmp/public-app.html "${PAGES_URL:-${BASE_URL}}/"
 
           python - <<'PY'
           import json
           from pathlib import Path
 
+          health = json.loads(Path("/tmp/health.json").read_text())
           news = json.loads(Path("/tmp/public-news.json").read_text())
-          regions = json.loads(Path("/tmp/regions.json").read_text())
           facets = json.loads(Path("/tmp/facets.json").read_text())
 
+          assert health.get("status") == "ok", "Worker health is not ok"
+          assert isinstance(health.get("total_events"), int), "health total_events missing"
           assert isinstance(news.get("items"), list), "public news response missing items"
-          assert isinstance(regions, list) or isinstance(regions.get("regions"), list), "regions response is not a regions list payload"
           assert {"regions", "issues", "related"} <= set(facets), "facets payload missing expected keys"
           assert "NewsSentry" in Path("/tmp/public-app.html").read_text(errors="ignore")
           PY
@@ -637,64 +333,40 @@ jobs:
   verify-production:
     name: Verify production
     runs-on: ubuntu-latest
-    needs: deploy
-    if: github.ref == 'refs/heads/main'
+    needs: [deploy-cloudflare-worker, deploy-cloudflare-pages, cloudflare-data]
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
     env:
       BASE_URL: https://news-sentry.com
-      EXPECTED_SHA: ${{ github.sha }}
-      ALLOW_TEMPORARY_CLOUDFLARE_STATE_BYPASS: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production' && github.event.inputs.allow_temporary_cloudflare_state_bypass == 'true' && 'true' || 'false' }}
+      API_URL: https://api.news-sentry.com
     steps:
       - uses: actions/checkout@v4
+
       - name: Verify production public endpoints
         run: |
           set -euo pipefail
-          short_sha="${EXPECTED_SHA:0:12}"
-          tmp_headers="$(mktemp)"
-
-          health_status="$(curl -sS -D "${tmp_headers}" -o /tmp/health.json -w "%{http_code}" "${BASE_URL}/api/v1/health" || true)"
-          if [[ "${health_status}" == "403" ]] && { [ "${ALLOW_TEMPORARY_CLOUDFLARE_STATE_BYPASS}" = "true" ] || git log -1 --pretty=%B | grep -q "\[temporary-cloudflare-state-bypass\]"; }; then
-            echo "::warning title=TEMPORARY_CLOUDFLARE_PRODUCTION_ENDPOINT_BYPASS::Production public verification is blocked by Cloudflare 403 from the GitHub runner for this one-off release. Operator-side external verification is required."
-            cat "${tmp_headers}"
-            echo "SKIP_PRODUCTION_CF_PUBLIC_VERIFY=true" >> "$GITHUB_ENV"
-            exit 0
-          fi
-          if [[ "${health_status}" -lt 200 || "${health_status}" -ge 300 ]]; then
-            echo "Production health check failed with HTTP ${health_status}"
-            cat "${tmp_headers}"
-            exit 1
-          fi
-          deploy_header="$(awk 'tolower($1)=="x-news-sentry-deploy-commit:" {print $2}' "${tmp_headers}" | tr -d '\r' | head -1)"
-          if [[ "${deploy_header}" != "${short_sha}"* ]]; then
-            echo "Production deploy header mismatch: expected ${short_sha}, got ${deploy_header:-<missing>}"
-            cat "${tmp_headers}"
-            exit 1
-          fi
-
-          curl -fsS "${BASE_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json
-          curl -fsS "${BASE_URL}/api/v1/regions?include_empty=true" > /tmp/regions.json
-          curl -fsS "${BASE_URL}/api/v1/public/facets" > /tmp/facets.json
-          curl -fsS -o /tmp/public-app.html "${BASE_URL}/public-app/"
+          curl -fsS "${API_URL}/api/v1/health" > /tmp/health.json
+          curl -fsS "${API_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json
+          curl -fsS "${API_URL}/api/v1/public/facets" > /tmp/facets.json
+          curl -fsS -o /tmp/public-app.html "${BASE_URL}/"
 
           python - <<'PY'
           import json
           from pathlib import Path
 
+          health = json.loads(Path("/tmp/health.json").read_text())
           news = json.loads(Path("/tmp/public-news.json").read_text())
-          regions = json.loads(Path("/tmp/regions.json").read_text())
           facets = json.loads(Path("/tmp/facets.json").read_text())
 
-          assert isinstance(news.get("items"), list), "public news response missing items"
-          assert isinstance(regions, list) or isinstance(regions.get("regions"), list), "regions response is not a regions list payload"
+          assert health.get("status") == "ok", "Worker health is not ok"
+          assert isinstance(health.get("total_events"), int), "health total_events missing"
+          assert health.get("total_events", 0) > 0, "Cloudflare D1 has no events"
+          assert isinstance(news.get("items"), list) and news["items"], "public news is empty"
           assert {"regions", "issues", "related"} <= set(facets), "facets payload missing expected keys"
           assert "NewsSentry" in Path("/tmp/public-app.html").read_text(errors="ignore")
           PY
 
       - name: Verify SEO/GEO public site
         run: |
-          if [ "${SKIP_PRODUCTION_CF_PUBLIC_VERIFY:-}" = "true" ]; then
-            echo "::warning title=TEMPORARY_CLOUDFLARE_PRODUCTION_ENDPOINT_BYPASS::Skipping SEO/GEO public verification because Cloudflare returned 403 to the GitHub runner during this one-off release."
-            exit 0
-          fi
           python -m pip install --upgrade pip -q
           python -m pip install uv -q
           uv run --no-project --with 'httpx[socks]' --with pyyaml \
@@ -706,26 +378,15 @@ jobs:
       - name: Audit deployed surface
         env:
           CLOUDFLARE_STATE_JSON: ${{ secrets.CLOUDFLARE_STATE_JSON }}
-          ALLOW_TEMPORARY_CLOUDFLARE_STATE_BYPASS: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production' && github.event.inputs.allow_temporary_cloudflare_state_bypass == 'true' && 'true' || 'false' }}
         run: |
-          if [ "${SKIP_PRODUCTION_CF_PUBLIC_VERIFY:-}" = "true" ]; then
-            echo "::warning title=TEMPORARY_CLOUDFLARE_STATE_BYPASS::Skipping deployed-surface audit because Cloudflare returned 403 to the GitHub runner during this one-off release. Replace this with CLOUDFLARE_STATE_JSON evidence immediately."
-            exit 0
-          fi
+          set -euo pipefail
           python -m pip install --upgrade pip -q
           python -m pip install uv -q
           if [ -z "${CLOUDFLARE_STATE_JSON}" ]; then
-            # One-off emergency release marker: [temporary-cloudflare-state-bypass]
-            if [ "${ALLOW_TEMPORARY_CLOUDFLARE_STATE_BYPASS}" = "true" ] || git log -1 --pretty=%B | grep -q "\[temporary-cloudflare-state-bypass\]"; then
-              echo "::warning title=TEMPORARY_CLOUDFLARE_STATE_BYPASS::Using example Cloudflare state JSON for this one-off production deploy. Replace it with a real CLOUDFLARE_STATE_JSON secret immediately."
-              cp docs/deployment/cloudflare-state-json.example.json /tmp/news-sentry-cloudflare-state.json
-            else
-              echo "Missing CLOUDFLARE_STATE_JSON secret; production deployed-surface audit requires Cloudflare state evidence."
-              exit 1
-            fi
-          else
-            printf '%s' "${CLOUDFLARE_STATE_JSON}" > /tmp/news-sentry-cloudflare-state.json
+            echo "Missing CLOUDFLARE_STATE_JSON secret; production deployed-surface audit requires Cloudflare state evidence."
+            exit 1
           fi
+          printf '%s' "${CLOUDFLARE_STATE_JSON}" > /tmp/news-sentry-cloudflare-state.json
           uv run --no-project --with 'httpx[socks]' --with pyyaml \
             python tools/deployed_surface_audit.py \
               --policy config/security/deployment-surface-policy.yaml \

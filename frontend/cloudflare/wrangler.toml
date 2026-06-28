@@ -15,8 +15,7 @@ routes = [
 ]
 
 [vars]
-# Container/FastAPI fallback for authenticated admin/runtime surfaces.
-BACKEND_ORIGIN = "https://news-sentry.com"
+NEWS_SENTRY_RUNTIME = "cloudflare-native"
 
 # D1 数据库绑定
 [[d1_databases]]
@@ -30,17 +29,35 @@ database_id = "35a52961-e7e1-41ef-934e-7a63882ba465"
 routes = []
 
 [env.production.vars]
-BACKEND_ORIGIN = "https://news-sentry.com"
+NEWS_SENTRY_RUNTIME = "cloudflare-native"
 
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "ns-db"
 database_id = "35a52961-e7e1-41ef-934e-7a63882ba465"
 
+[[env.production.containers]]
+name = "news-sentry-container"
+class_name = "NewsSentryContainer"
+image = "../../Dockerfile"
+max_instances = 2
+instance_type = "basic"
+
+[env.production.containers.ssh]
+enabled = false
+
+[[env.production.durable_objects.bindings]]
+name = "NEWS_SENTRY_CONTAINER"
+class_name = "NewsSentryContainer"
+
+[[env.production.migrations]]
+tag = "v1"
+new_sqlite_classes = ["NewsSentryContainer"]
+
 # 开发环境
 [env.dev]
 [env.dev.vars]
-BACKEND_ORIGIN = "http://127.0.0.1:8010"
+NEWS_SENTRY_RUNTIME = "cloudflare-native-dev"
 
 [[env.dev.d1_databases]]
 binding = "DB"
@@ -49,3 +66,21 @@ database_id = "ns-db-dev"
 
 # 本地开发（wrangler dev）
 # D1 本地数据自动持久化到 .wrangler/state/
+
+[[containers]]
+name = "news-sentry-container"
+class_name = "NewsSentryContainer"
+image = "../../Dockerfile"
+max_instances = 2
+instance_type = "basic"
+
+[containers.ssh]
+enabled = false
+
+[[durable_objects.bindings]]
+name = "NEWS_SENTRY_CONTAINER"
+class_name = "NewsSentryContainer"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["NewsSentryContainer"]

@@ -149,7 +149,7 @@ flowchart TD
     subgraph 框架["框架选择"]
         NEUTRAL["框架中立<br/>核心不绑定任何 Agent 框架"]
         FASTAPI["FastAPI = API 服务器<br/>(Web UI + 管理面板)"]
-        DOCKER["Docker Compose = 部署<br/>(+ RSS-Bridge sidecar)"]
+        DOCKER["Cloudflare = 生产部署<br/>Pages + Workers + D1/R2 + Containers"]
     end
 
     subgraph 数据["数据模型"]
@@ -372,5 +372,5 @@ flowchart LR
 - **监控目标**：81 targets (italy, china-watch-en, japan, germany, france + 76 更多)
 - **信源规模**：244 源 (147 RSS + 97 API)，覆盖 81 个 target
 - **AI Provider**：内置 chain: Gemini → DeepSeek → Groq → Cloudflare Workers AI
-- **部署方式**：Docker Compose / systemd (VPS) / Cloudflare CDN + Tunnel
+- **部署方式**：Cloudflare Pages + Workers + D1/R2；Cloudflare Containers 承接过渡期 Python/RSS-Bridge 后台面；VPS/Tunnel 仅作 legacy rollback，不是运行依赖
 - **可选组件**：`[api]` FastAPI + Web UI（管理后台 + 公开新闻阅读器）

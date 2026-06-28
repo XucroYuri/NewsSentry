@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "wrangler dev --local",
     "deploy": "wrangler deploy",
-    "deploy:prod": "wrangler deploy --env production",
+    "deploy:prod": "wrangler deploy --env=\"\"",
     "tail": "wrangler tail",
     "db:init": "wrangler d1 execute ns-db --file=db/schema.sql",
     "db:init:dev": "wrangler d1 execute ns-db-dev --file=db/schema.sql",
@@ -15,5 +15,8 @@
   },
   "devDependencies": {
     "wrangler": "^4.0.0"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "^0.3.7"
   }
 }

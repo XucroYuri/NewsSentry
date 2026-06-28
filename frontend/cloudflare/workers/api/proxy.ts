@@ -1,7 +1,8 @@
+import { getContainer } from "@cloudflare/containers";
 import { accessRequired, hasAccessIdentity, isContainerProxyPath } from "../lib/access";
 
 export interface ContainerProxyEnv {
-  BACKEND_ORIGIN?: string;
+  NEWS_SENTRY_CONTAINER?: DurableObjectNamespace;
 }
 
 export function shouldProxyToContainer(pathname: string): boolean {
@@ -24,28 +25,18 @@ export async function handleContainerProxy(
     return accessRequired();
   }
 
-  if (!env.BACKEND_ORIGIN) {
-    return new Response(JSON.stringify({ detail: "Container backend is not configured" }), {
+  if (!env.NEWS_SENTRY_CONTAINER) {
+    return new Response(JSON.stringify({ detail: "Cloudflare container backend is not configured" }), {
       status: 502,
       headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
     });
   }
-
-  const upstream = new URL(request.url);
-  const backend = new URL(env.BACKEND_ORIGIN);
-  upstream.protocol = backend.protocol;
-  upstream.hostname = backend.hostname;
-  upstream.port = backend.port;
 
   const headers = new Headers(request.headers);
   headers.set("X-News-Sentry-Proxy", "cloudflare-worker");
   headers.set("X-Forwarded-Host", url.host);
   headers.set("X-Forwarded-Proto", url.protocol.replace(":", ""));
 
-  return fetch(new Request(upstream.toString(), {
-    method: request.method,
-    headers,
-    body: request.body,
-    redirect: "manual",
-  }));
+  const container = getContainer(env.NEWS_SENTRY_CONTAINER, "admin-runtime");
+  return container.fetch(new Request(request, { headers, redirect: "manual" }));
 }

@@ -75,54 +75,65 @@ def test_health_monitor_supports_systemd_service_mode() -> None:
 def test_deploy_workflow_gates_preview_before_main_promotion() -> None:
     workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
 
-    assert "FRONTEND_OUTPUT_SUBDIR: ${{ github.workspace }}/src/news_sentry/static" in workflow
+    assert "VITE_API_BASE: https://api.news-sentry.com" in workflow
     assert "Verify preview" in workflow
     assert "Promote main" in workflow
     assert "Verify production" in workflow
     assert "git merge-base --is-ancestor origin/main" in workflow
     assert "git push origin" in workflow
-    assert "/api/v1/regions" in workflow
-    assert "/api/v1/regions?include_empty=true" in workflow
     assert "/api/v1/public/news" in workflow
-    assert "/public-app/" in workflow
-    assert "x-news-sentry-deploy-commit" in workflow
+    assert "/api/v1/public/facets" in workflow
     assert "--policy config/security/deployment-surface-policy.yaml" in workflow
     assert "CLOUDFLARE_STATE_JSON" in workflow
     assert "--cloudflare-state-json /tmp/news-sentry-cloudflare-state.json" in workflow
+    assert "Deploy Cloudflare Worker" in workflow
+    assert "Deploy Cloudflare Pages" in workflow
+    assert "wrangler d1 execute ns-db --remote" in workflow
 
 
-def test_deploy_workflow_keeps_web_service_out_of_auto_collection_path() -> None:
+def test_deploy_workflow_has_no_vps_or_systemd_runtime_dependency() -> None:
     workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
 
-    assert 'upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_AUTO_COLLECT" "0"' in workflow
-    assert "for i in $(seq 1 24)" in workflow
-    assert "Health check failed after 120s" in workflow
+    forbidden = [
+        "appleboy/ssh-action",
+        "BWH_HOST",
+        "BWH_SSH_USER",
+        "BWH_SSH_KEY",
+        "BWH_SSH_PORT",
+        "Deploy via SSH",
+        "systemctl",
+        "/etc/systemd/system",
+        "NEWSSENTRY_DEPLOYMENT_ENV=vps",
+        "/opt/news-sentry",
+        "/srv/news-sentry/production",
+        "news-sentry-realtime.timer",
+    ]
+    for token in forbidden:
+        assert token not in workflow
 
 
-def test_deploy_workflow_enables_production_realtime_timer() -> None:
+def test_deploy_workflow_runs_cloudflare_native_runtime_checks() -> None:
     workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
 
-    assert (
-        'upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_REALTIME_BATCH_SIZE" "12"'
-    ) in workflow
-    assert 'upsert_env_kv "${DEPLOY_BASE}/${ENV}/.env" "NEWSSENTRY_REALTIME_STRICT" "0"' in workflow
-    assert 'if [ "${ENV}" = "production" ]; then' in workflow
-    assert "config/news-sentry-realtime.service" in workflow
-    assert "config/news-sentry-realtime.timer" in workflow
-    assert "systemctl enable --now news-sentry-realtime.timer" in workflow
-    assert "systemctl start --no-block news-sentry-realtime.service" in workflow
-    assert "Skipping realtime collection timer for ${ENV}" in workflow
+    assert "Deploy Cloudflare Worker" in workflow
+    assert "Deploy Cloudflare Pages" in workflow
+    assert "Cloudflare D1 schema migration" in workflow
+    assert "Cloudflare D1 backfill dry run" in workflow
+    assert "tools/cloudflare_d1_backfill.py" in workflow
+    assert "--dry-run" in workflow
+    assert 'wrangler deploy --env=""' in workflow
+    assert "wrangler pages deploy dist/" in workflow
 
 
-def test_deploy_workflow_has_one_off_cloudflare_state_bypass_guard() -> None:
+def test_deploy_workflow_requires_real_cloudflare_state_evidence() -> None:
     workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
 
-    assert "allow_temporary_cloudflare_state_bypass" in workflow
-    assert "TEMPORARY_CLOUDFLARE_STATE_BYPASS" in workflow
-    assert "TEMPORARY_CLOUDFLARE_PREVIEW_ACCESS_BYPASS" in workflow
-    assert "TEMPORARY_CLOUDFLARE_PRODUCTION_ENDPOINT_BYPASS" in workflow
-    assert "SKIP_PRODUCTION_CF_PUBLIC_VERIFY" in workflow
-    assert "[temporary-cloudflare-state-bypass]" in workflow
-    assert "docs/deployment/cloudflare-state-json.example.json" in workflow
+    assert "allow_temporary_cloudflare_state_bypass" not in workflow
+    assert "TEMPORARY_CLOUDFLARE_STATE_BYPASS" not in workflow
+    assert "TEMPORARY_CLOUDFLARE_PREVIEW_ACCESS_BYPASS" not in workflow
+    assert "TEMPORARY_CLOUDFLARE_PRODUCTION_ENDPOINT_BYPASS" not in workflow
+    assert "SKIP_PRODUCTION_CF_PUBLIC_VERIFY" not in workflow
+    assert "[temporary-cloudflare-state-bypass]" not in workflow
+    assert "docs/deployment/cloudflare-state-json.example.json" not in workflow
     assert "Missing CLOUDFLARE_STATE_JSON secret" in workflow
     assert "production deployed-surface audit requires Cloudflare state evidence" in workflow

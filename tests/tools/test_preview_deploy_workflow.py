@@ -10,29 +10,26 @@ def _workflow_text() -> str:
     return WORKFLOW_PATH.read_text(encoding="utf-8")
 
 
-def _extract_block(text: str, start_marker: str, end_marker: str) -> str:
-    start = text.index(start_marker) + len(start_marker)
-    end = text.index(end_marker, start)
-    return text[start:end]
-
-
-def test_deploy_workflow_env_template_allows_external_data_dir() -> None:
+def test_preview_deploy_workflow_uses_cloudflare_native_surfaces() -> None:
     workflow = _workflow_text()
-    env_template = _extract_block(
-        workflow,
-        "cat > \"${DEPLOY_BASE}/${ENV}/.env\" <<'ENVEOF'\n",
-        "\n            ENVEOF",
-    )
 
-    assert "NEWSSENTRY_ALLOW_EXTERNAL_DATA_DIR=1" in env_template
+    assert "Deploy Cloudflare Worker" in workflow
+    assert "Deploy Cloudflare Pages" in workflow
+    assert "preview.news-sentry.com" in workflow
+    assert "api.news-sentry.com" in workflow
+    assert "VITE_API_BASE: https://api.news-sentry.com" in workflow
 
 
-def test_deploy_workflow_systemd_service_allows_external_data_dir() -> None:
+def test_preview_deploy_workflow_has_no_vps_or_systemd_blocks() -> None:
     workflow = _workflow_text()
-    systemd_unit = _extract_block(
-        workflow,
-        "cat > \"/etc/systemd/system/${SERVICE}.service\" <<SVCEOF\n",
-        "\n            SVCEOF",
-    )
 
-    assert "Environment=NEWSSENTRY_ALLOW_EXTERNAL_DATA_DIR=1" in systemd_unit
+    forbidden = [
+        "cat > \"${DEPLOY_BASE}/${ENV}/.env\"",
+        "cat > \"/etc/systemd/system/${SERVICE}.service\"",
+        "appleboy/ssh-action",
+        "BWH_SSH",
+        "systemctl",
+        "NEWSSENTRY_DEPLOYMENT_ENV=vps",
+    ]
+    for token in forbidden:
+        assert token not in workflow

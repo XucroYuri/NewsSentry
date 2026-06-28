@@ -1,6 +1,7 @@
 # News Sentry 上线操作手册
 
 > 版本: v1.2 | 日期: 2026-06-19
+> Legacy notice: this runbook is retained for rollback/history only. Current production target is Cloudflare-native; see `docs/deployment/cloudflare-native-vps-removal.md`.
 > 架构: 搬瓦工 VPS (当前 IP: 174.137.51.201) + Cloudflare Tunnel + news-sentry.com
 > 前置文档: docs/deployment/2026-05-31-vps-cloudflare-tunnel-hypothesis.md
 >
