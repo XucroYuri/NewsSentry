@@ -259,6 +259,12 @@ describe("Phase 84 public portal app", () => {
     const icon = readFileSync("public/icons/icon-192.svg", "utf8")
 
     expect(html).toContain('<html lang="zh-CN">')
+    expect(html).toContain("<title>News Sentry | 新闻哨兵</title>")
+    expect(html).toContain('name="description"')
+    expect(html).toContain('property="og:title" content="News Sentry | 新闻哨兵"')
+    expect(html).toContain('rel="canonical" href="https://news-sentry.com/public-app/"')
+    expect(html).toContain('"@context": "https://schema.org"')
+    expect(html).toContain('"@type": "CollectionPage"')
     expect(html).toContain('rel="icon"')
     expect(html).toContain('href="/icons/icon-192.svg"')
     expect(icon).toContain("<svg")
@@ -269,7 +275,18 @@ describe("Phase 84 public portal app", () => {
 
     expect(headers).toContain("/assets/*")
     expect(headers).toContain("/icons/*")
+    expect(headers).toContain("/sitemap.xml")
     expect(headers).toContain("max-age=31536000, immutable")
+  })
+
+  it("ships a static sitemap for Cloudflare Pages discoverability checks", () => {
+    const sitemap = readFileSync("public/sitemap.xml", "utf8")
+    const robots = readFileSync("public/robots.txt", "utf8")
+
+    expect(robots).toContain("Sitemap: https://news-sentry.com/sitemap.xml")
+    expect(sitemap).toContain("<urlset")
+    expect(sitemap).toContain("<loc>https://news-sentry.com/public-app/</loc>")
+    expect(sitemap).toContain("<loc>https://news-sentry.com/public-app/sources</loc>")
   })
 
   afterEach(() => {

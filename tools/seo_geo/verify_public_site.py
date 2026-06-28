@@ -187,7 +187,11 @@ def parse_sitemap(snapshot: ResourceSnapshot) -> tuple[bool, list[str], str]:
     return is_urlset, [url.strip() for url in urls], "urlset" if is_urlset else "missing <urlset>"
 
 
-def build_sitemap_checks(snapshot: ResourceSnapshot, *, base_url: str) -> list[dict[str, Any]]:
+def build_sitemap_checks(
+    snapshot: ResourceSnapshot,
+    *,
+    expected_origin_url: str,
+) -> list[dict[str, Any]]:
     checks = build_text_resource_checks(
         snapshot,
         prefix="sitemap",
@@ -206,16 +210,22 @@ def build_sitemap_checks(snapshot: ResourceSnapshot, *, base_url: str) -> list[d
         build_check(
             "sitemap_urls_match_site_origin",
             bool(is_urlset and urls)
-            and all(url.startswith(normalize_base_url(base_url)) for url in urls),
+            and all(url.startswith(normalize_base_url(expected_origin_url)) for url in urls),
             detail=f"url_count={len(urls)}; parsed={is_urlset}",
         )
     )
     return checks
 
 
-def build_homepage_checks(snapshot: ResourceSnapshot, *, base_url: str) -> list[dict[str, Any]]:
+def build_homepage_checks(
+    snapshot: ResourceSnapshot,
+    *,
+    expected_origin_url: str,
+) -> list[dict[str, Any]]:
     head = extract_head_snapshot(snapshot.text)
-    expected_canonical = f"{normalize_base_url(base_url)}{EXPECTED_HOMEPAGE_CANONICAL_PATH}"
+    expected_canonical = (
+        f"{normalize_base_url(expected_origin_url)}{EXPECTED_HOMEPAGE_CANONICAL_PATH}"
+    )
     canonical_url = head["links"].get("canonical", "")
     json_ld_blocks = head["json_ld"]
     has_schema_context = any(
@@ -302,8 +312,10 @@ def verify_public_site(
     base_url: str,
     *,
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    expected_origin_url: str | None = None,
 ) -> dict[str, Any]:
     normalized_base_url = normalize_base_url(base_url)
+    normalized_expected_origin_url = normalize_base_url(expected_origin_url or base_url)
     with httpx.Client(follow_redirects=True, timeout=timeout_seconds) as client:
         robots = fetch_resource(client, base_url=normalized_base_url, path="/robots.txt")
         llms = fetch_resource(client, base_url=normalized_base_url, path="/llms.txt")
@@ -317,7 +329,7 @@ def verify_public_site(
             expected_content_type="text/plain",
             required_fragments=[
                 "User-agent:",
-                f"Sitemap: {normalized_base_url}/sitemap.xml",
+                f"Sitemap: {normalized_expected_origin_url}/sitemap.xml",
             ],
         ),
         *build_text_resource_checks(
@@ -330,10 +342,11 @@ def verify_public_site(
                 "/sitemap.xml",
             ],
         ),
-        *build_sitemap_checks(sitemap, base_url=normalized_base_url),
-        *build_homepage_checks(homepage, base_url=normalized_base_url),
+        *build_sitemap_checks(sitemap, expected_origin_url=normalized_expected_origin_url),
+        *build_homepage_checks(homepage, expected_origin_url=normalized_expected_origin_url),
     ]
     report = summarize_checks(normalized_base_url, checks)
+    report["expected_origin_url"] = normalized_expected_origin_url
     report["resources"] = {
         "robots": {"path": robots.path, "url": robots.url, "status_code": robots.status_code},
         "llms": {"path": llms.path, "url": llms.url, "status_code": llms.status_code},
@@ -350,11 +363,19 @@ def verify_public_site(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verify public-site SEO/GEO surfaces.")
     parser.add_argument("--base-url", required=True, help="Base URL such as https://news-sentry.com")
+    parser.add_argument(
+        "--expected-origin",
+        help="Expected canonical origin when fetching through an alternate deployment URL.",
+    )
     parser.add_argument("--timeout-seconds", type=float, default=DEFAULT_TIMEOUT_SECONDS)
     parser.add_argument("--output", help="Optional JSON output path.")
     args = parser.parse_args()
 
-    report = verify_public_site(args.base_url, timeout_seconds=args.timeout_seconds)
+    report = verify_public_site(
+        args.base_url,
+        timeout_seconds=args.timeout_seconds,
+        expected_origin_url=args.expected_origin,
+    )
     payload = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True)
     if args.output:
         output_path = Path(args.output)

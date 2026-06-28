@@ -68,7 +68,7 @@ def test_build_homepage_checks_flags_missing_canonical_and_json_ld() -> None:
         """,
     )
 
-    checks = build_homepage_checks(page, base_url="https://news-sentry.com")
+    checks = build_homepage_checks(page, expected_origin_url="https://news-sentry.com")
     check_map = {check["name"]: check for check in checks}
 
     assert check_map["homepage_status_ok"]["ok"] is True
@@ -116,12 +116,54 @@ def test_build_sitemap_checks_fails_origin_check_when_sitemap_is_empty_or_404() 
         text="",
     )
 
-    checks = build_sitemap_checks(snapshot, base_url="https://news-sentry.com")
+    checks = build_sitemap_checks(snapshot, expected_origin_url="https://news-sentry.com")
     check_map = {check["name"]: check for check in checks}
 
     assert check_map["sitemap_status_ok"]["ok"] is False
     assert check_map["sitemap_parses_as_urlset"]["ok"] is False
     assert check_map["sitemap_urls_match_site_origin"]["ok"] is False
+
+
+def test_build_static_checks_can_fetch_pages_dev_while_expect_news_sentry_origin() -> None:
+    page = ResourceSnapshot(
+        path="/public-app",
+        url="https://news-sentry.pages.dev/public-app",
+        status_code=200,
+        headers={"content-type": "text/html; charset=utf-8"},
+        text="""
+        <!doctype html>
+        <html>
+          <head>
+            <title>News Sentry | 新闻哨兵</title>
+            <meta name="description" content="Public discoverability surface." />
+            <meta property="og:title" content="News Sentry | 新闻哨兵" />
+            <meta property="og:description" content="Public discoverability surface." />
+            <link rel="canonical" href="https://news-sentry.com/public-app/" />
+            <script type="application/ld+json">
+              {"@context":"https://schema.org","@type":"CollectionPage","name":"News Sentry"}
+            </script>
+          </head>
+          <body></body>
+        </html>
+        """,
+    )
+    sitemap = ResourceSnapshot(
+        path="/sitemap.xml",
+        url="https://news-sentry.pages.dev/sitemap.xml",
+        status_code=200,
+        headers={"content-type": "application/xml"},
+        text="""
+        <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+          <url><loc>https://news-sentry.com/public-app/</loc></url>
+        </urlset>
+        """,
+    )
+
+    homepage_checks = build_homepage_checks(page, expected_origin_url="https://news-sentry.com")
+    sitemap_checks = build_sitemap_checks(sitemap, expected_origin_url="https://news-sentry.com")
+
+    assert all(check["ok"] for check in homepage_checks)
+    assert all(check["ok"] for check in sitemap_checks)
 
 
 def test_build_rule_sources_report_uses_stable_registry_value() -> None:

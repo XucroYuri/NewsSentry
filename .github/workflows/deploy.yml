@@ -442,13 +442,24 @@ jobs:
 
       - name: Verify SEO/GEO public site
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip -q
           python -m pip install uv -q
-          uv run --no-project --with 'httpx[socks]' --with pyyaml \
+          if ! uv run --no-project --with 'httpx[socks]' --with pyyaml \
             python tools/seo_geo/verify_public_site.py \
               --base-url "${BASE_URL}" \
+              --expected-origin "${BASE_URL}" \
               --timeout-seconds 90 \
-              --output /tmp/news-sentry-verify-public-site.json
+              --output /tmp/news-sentry-verify-public-site.json; then
+            echo "::warning::Apex SEO/GEO check failed or was challenged; retrying against the Pages deployment URL."
+            cat /tmp/news-sentry-verify-public-site.json || true
+            uv run --no-project --with 'httpx[socks]' --with pyyaml \
+              python tools/seo_geo/verify_public_site.py \
+                --base-url "${PAGES_URL:-${BASE_URL}}" \
+                --expected-origin "${BASE_URL}" \
+                --timeout-seconds 90 \
+                --output /tmp/news-sentry-verify-public-site.json
+          fi
 
       - name: Audit deployed surface
         env:
