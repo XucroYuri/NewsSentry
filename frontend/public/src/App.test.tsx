@@ -256,9 +256,20 @@ async function findLeadStory() {
 describe("Phase 84 public portal app", () => {
   it("declares the shared site icon to avoid browser favicon 404s", () => {
     const html = readFileSync("index.html", "utf8")
+    const icon = readFileSync("public/icons/icon-192.svg", "utf8")
 
+    expect(html).toContain('<html lang="zh-CN">')
     expect(html).toContain('rel="icon"')
     expect(html).toContain('href="/icons/icon-192.svg"')
+    expect(icon).toContain("<svg")
+  })
+
+  it("ships Cloudflare Pages cache headers for immutable static assets", () => {
+    const headers = readFileSync("public/_headers", "utf8")
+
+    expect(headers).toContain("/assets/*")
+    expect(headers).toContain("/icons/*")
+    expect(headers).toContain("max-age=31536000, immutable")
   })
 
   afterEach(() => {
