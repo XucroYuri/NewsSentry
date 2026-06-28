@@ -273,6 +273,22 @@ def test_worker_write_endpoints_require_cloudflare_access_identity() -> None:
     assert '"CF-Access-Client-Id"' not in access_ts
 
 
+def test_cloudflare_worker_cors_allows_pages_origins_without_fallback_origin() -> None:
+    cors_ts = _read("workers/lib/cors.ts")
+
+    for origin in (
+        "https://news-sentry.com",
+        "https://www.news-sentry.com",
+        "https://preview.news-sentry.com",
+        "https://news-sentry.pages.dev",
+        "http://localhost:5173",
+    ):
+        assert f'"{origin}"' in cors_ts
+
+    assert 'headers.set("Access-Control-Allow-Origin", origin)' in cors_ts
+    assert 'headers.set("Access-Control-Allow-Origin", allowedOrigins[0])' not in cors_ts
+
+
 def test_pages_headers_cache_public_shell_for_short_ttl() -> None:
     headers = (ROOT / "frontend/public/public/_headers").read_text(encoding="utf-8")
     public_shell_cache = (
