@@ -25,6 +25,11 @@ _PUBLIC_TEXT_BLOCKLIST_RE = re.compile(
 _CODELIKE_TOKENS = ("{", "}", "[", "]", "<", ">", "`", "==", "=>", "</", "\\")
 _MARKDOWN_ARTIFACT_TOKENS = ("**", "__", "```")
 _LATIN_INLINE_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]{3,}")
+_PROVIDER_QUOTA_ERROR_RE = re.compile(
+    r"(?:\b402\b|\b429\b|quota|rate limit|rate-limit|remaining\s*=\s*0|"
+    r"insufficient (?:credits|quota)|credits? exhausted|quota exhausted)",
+    re.IGNORECASE,
+)
 _ALLOWED_INLINE_LATIN_TERMS = {
     "ai",
     "api",
@@ -651,15 +656,24 @@ class PublicTranslationEngine:
                 )
             except Exception as exc:  # noqa: BLE001
                 failures += 1
+                error = str(exc)
                 await self._record_retry(
                     store,
                     target_id,
                     event_id,
                     field_hash=field_hash,
-                    error=str(exc),
+                    error=error,
                     route_id=getattr(exc, "route_id", None),
                     model=getattr(exc, "model", None),
                 )
+                if provider_quota_error(error):
+                    return {
+                        "status": "provider_quota_exhausted",
+                        "updated": len(updates),
+                        "failed": failures,
+                        "updates": updates,
+                        "error": error,
+                    }
                 continue
 
             title = title_result["content"]
@@ -960,3 +974,8 @@ def _safe_int(value: Any) -> int | None:  # noqa: ANN401
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def provider_quota_error(error: str) -> bool:
+    """Return true when an upstream provider error should stop the batch."""
+    return bool(_PROVIDER_QUOTA_ERROR_RE.search(str(error or "")))

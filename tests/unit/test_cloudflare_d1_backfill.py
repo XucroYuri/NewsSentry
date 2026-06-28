@@ -4,15 +4,43 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import closing
+from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from tools.cloudflare_d1_backfill import collect_backfill_plan, generate_backfill_sql
 from tools.cloudflare_d1_public_translation_backfill import (
+    DEFAULT_BACKFILL_TARGETS,
     collect_translation_patches,
+    generate_missing_public_translations,
     generate_translation_backfill_sql,
+    limit_patches_by_targets,
+    parse_target_list,
 )
 
+from news_sentry.core.async_store import AsyncStore
+from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
+
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _event(event_id: str) -> NewsEvent:
+    now = datetime.now(UTC).isoformat()
+    return NewsEvent(
+        id=event_id,
+        run_id="run-cloudflare-d1-backfill",
+        source_id="lemonde",
+        url=f"https://example.com/{event_id}",
+        title_original="La France annonce un nouveau prêt européen",
+        content_original="La mesure pourrait affecter les achats publics et les fournisseurs.",
+        language=Language.FR,
+        published_at=now,
+        collected_at=now,
+        pipeline_stage=PipelineStage.OUTPUTTED,
+        news_value_score=88,
+        china_relevance=60,
+        metadata={"classification": {"l0": "politics"}},
+    )
 
 
 def _make_state_db(path: Path) -> None:
@@ -148,6 +176,70 @@ def test_generated_backfill_sql_executes_against_d1_schema(tmp_path: Path) -> No
     assert row == ("draft-1", "drafts", '{"l0":"politics"}')
 
 
+def test_backfill_preserves_existing_public_translation_fields(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    targets_dir = tmp_path / "config" / "targets"
+    targets_dir.mkdir(parents=True)
+    (targets_dir / "italy.yaml").write_text("target_id: italy\n", encoding="utf-8")
+    _make_state_db(data_dir / "italy" / "state.db")
+
+    sql = generate_backfill_sql(collect_backfill_plan(data_dir=data_dir, targets_dir=targets_dir))
+
+    with closing(sqlite3.connect(tmp_path / "d1.sqlite")) as db:
+        db.executescript((ROOT / "frontend/cloudflare/db/schema.sql").read_text(encoding="utf-8"))
+        db.execute(
+            """
+            INSERT INTO events (
+              event_id, target_id, target_label, region_id, source_id, source_name,
+              published_at, collected_at, title, original_title, summary,
+              recommendation_reason, tags, issue_tags, related_tags, region_tags,
+              language, pipeline_stage, value_score
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "draft-1",
+                "italy",
+                "意大利新闻监控",
+                "italy",
+                "ansa",
+                "ansa",
+                "2026-05-29T23:45:00Z",
+                "2026-06-25T01:01:00+00:00",
+                "意大利政府推进能源补贴调整",
+                "Draft story",
+                "意大利政府计划调整能源补贴，以应对财政压力和家庭用能成本。",
+                "这项政策会影响家庭能源账单和财政支出，值得持续跟踪。",
+                '["能源","涉欧","意大利"]',
+                '["能源"]',
+                '["涉欧"]',
+                '["意大利"]',
+                "zh",
+                "drafts",
+                75,
+            ),
+        )
+        db.executescript(sql)
+        row = db.execute(
+            """
+            SELECT title, summary, recommendation_reason, tags, issue_tags,
+                   related_tags, region_tags, language, value_score
+            FROM events WHERE event_id = 'draft-1'
+            """
+        ).fetchone()
+
+    assert row == (
+        "意大利政府推进能源补贴调整",
+        "意大利政府计划调整能源补贴，以应对财政压力和家庭用能成本。",
+        "这项政策会影响家庭能源账单和财政支出，值得持续跟踪。",
+        '["能源","涉欧","意大利"]',
+        '["能源"]',
+        '["涉欧"]',
+        '["意大利"]',
+        "zh",
+        80,
+    )
+
+
 def test_public_translation_backfill_updates_only_ready_public_fields(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     _make_state_db(data_dir / "italy" / "state.db")
@@ -239,6 +331,74 @@ def test_public_translation_backfill_updates_only_ready_public_fields(tmp_path: 
     assert "draft-2" not in sql
     assert "draft-short" not in sql
     assert "INSERT INTO targets" not in sql
+
+
+def test_public_translation_backfill_target_and_daily_limits(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    _make_state_db(data_dir / "italy" / "state.db")
+    _make_state_db(data_dir / "france" / "state.db")
+    ready_metadata = {
+        "translation": {
+            "title_pre": "法国政府推进能源补贴调整",
+            "summary_pre": "法国政府计划调整能源补贴，以应对财政压力和家庭用能成本。",
+        },
+        "publication": {
+            "one_line_summary": "法国调整能源补贴安排。",
+            "recommendation_reason": "这项政策会影响家庭能源账单和财政支出，值得持续跟踪。",
+            "issue_tags": ["能源"],
+            "related_tags": ["涉欧"],
+            "region_tags": ["法国"],
+        },
+    }
+    for target in ("italy", "france"):
+        with closing(sqlite3.connect(data_dir / target / "state.db")) as db:
+            db.execute(
+                "UPDATE event_index "
+                "SET target_id = ?, metadata_json = ?, public_translation_ready = 1 "
+                "WHERE event_id = 'draft-1'",
+                (target, json_dump(ready_metadata)),
+            )
+            db.commit()
+
+    patches = collect_translation_patches(data_dir=data_dir)
+    selected = limit_patches_by_targets(
+        patches,
+        targets=parse_target_list("france,italy"),
+        daily_limit=1,
+        per_target_limit=1,
+    )
+
+    assert DEFAULT_BACKFILL_TARGETS[:2] == ("france", "south-korea")
+    assert [patch.target_id for patch in selected] == ["france"]
+    assert parse_target_list(" france, italy ,, ") == ("france", "italy")
+
+
+@pytest.mark.asyncio
+async def test_public_translation_generation_dry_run_counts_target_candidates(
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / "data"
+    store = AsyncStore(data_dir / "france" / "state.db")
+    await store.initialize()
+    try:
+        await store.index_event(_event("france-candidate"), "france", "drafts")
+    finally:
+        await store.close()
+
+    result = await generate_missing_public_translations(
+        data_dir=data_dir,
+        targets=("france", "south-korea"),
+        limit=200,
+        per_target_limit=100,
+        dry_run=True,
+    )
+
+    assert result.status == "dry_run"
+    assert result.total_candidates == 1
+    assert result.target_results == [
+        {"target_id": "france", "candidates": 1},
+        {"target_id": "south-korea", "candidates": 0},
+    ]
 
 
 def json_dump(value: object) -> str:

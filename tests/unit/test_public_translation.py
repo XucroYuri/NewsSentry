@@ -605,7 +605,7 @@ async def test_public_translation_engine_recovers_plaintext_publication(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_public_translation_engine_records_retrying_attempt_without_hiding_forever(
+async def test_public_translation_engine_stops_on_provider_quota_without_hiding_forever(
     tmp_path,
 ) -> None:
     store = AsyncStore(tmp_path / "state.db")
@@ -633,8 +633,9 @@ async def test_public_translation_engine_records_retrying_attempt_without_hiding
             provider_factory=lambda name: MagicMock(),
         )
 
-        assert result["status"] == "retrying"
+        assert result["status"] == "provider_quota_exhausted"
         assert result["updated"] == 0
+        assert result["error"] == "429 quota"
         row = await store.get_event_index_row("france", "ne-retry")
         assert row is not None and row["public_translation_ready"] == 0
         async with store._connect() as conn:

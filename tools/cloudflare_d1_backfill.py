@@ -285,16 +285,34 @@ def _event_insert(event: D1Event) -> str:
         event.china_relevance_label,
         _json(event.classification),
     ]
+    preserve_zh_text = (
+        "events.language = 'zh' "
+        "AND COALESCE(TRIM(events.title), '') <> ''"
+    )
+    preserve_zh_json = (
+        "events.language = 'zh' "
+        "AND COALESCE(TRIM(events.{column}), '') NOT IN ('', '[]')"
+    )
     assignments = (
         "target_id=excluded.target_id, target_label=excluded.target_label, "
         "region_id=excluded.region_id, source_id=excluded.source_id, "
         "source_name=excluded.source_name, "
         "source_type=excluded.source_type, published_at=excluded.published_at, "
-        "collected_at=excluded.collected_at, title=excluded.title, "
+        "collected_at=excluded.collected_at, "
+        f"title=CASE WHEN {preserve_zh_text} THEN events.title ELSE excluded.title END, "
         "original_title=excluded.original_title, "
-        "original_url=excluded.original_url, detail_url=excluded.detail_url, tags=excluded.tags, "
-        "issue_tags=excluded.issue_tags, related_tags=excluded.related_tags, "
-        "region_tags=excluded.region_tags, entities=excluded.entities, "
+        "original_url=excluded.original_url, detail_url=excluded.detail_url, "
+        f"tags=CASE WHEN {preserve_zh_json.format(column='tags')} "
+        "THEN events.tags ELSE excluded.tags END, "
+        f"issue_tags=CASE WHEN {preserve_zh_json.format(column='issue_tags')} "
+        "THEN events.issue_tags ELSE excluded.issue_tags END, "
+        f"related_tags=CASE WHEN {preserve_zh_json.format(column='related_tags')} "
+        "THEN events.related_tags ELSE excluded.related_tags END, "
+        f"region_tags=CASE WHEN {preserve_zh_json.format(column='region_tags')} "
+        "THEN events.region_tags ELSE excluded.region_tags END, "
+        "entities=excluded.entities, "
+        "language=CASE WHEN events.language = 'zh' "
+        "THEN events.language ELSE excluded.language END, "
         "pipeline_stage=excluded.pipeline_stage, value_label=excluded.value_label, "
         "value_score=excluded.value_score, china_relevance_label=excluded.china_relevance_label, "
         "classification=excluded.classification, "
