@@ -25,6 +25,11 @@ _PUBLIC_TEXT_BLOCKLIST_RE = re.compile(
 _CODELIKE_TOKENS = ("{", "}", "[", "]", "<", ">", "`", "==", "=>", "</", "\\")
 _MARKDOWN_ARTIFACT_TOKENS = ("**", "__", "```")
 _LATIN_INLINE_RE = re.compile(r"[A-Za-z][A-Za-z0-9+.-]{3,}")
+_PROVIDER_QUOTA_ERROR_RE = re.compile(
+    r"(?:\b402\b|\b429\b|quota|rate limit|rate-limit|remaining\s*=\s*0|"
+    r"insufficient (?:credits|quota)|credits? exhausted|quota exhausted)",
+    re.IGNORECASE,
+)
 _ALLOWED_INLINE_LATIN_TERMS = {
     "ai",
     "api",
@@ -132,6 +137,52 @@ _ISSUE_TAG_ALIASES: dict[str, str | tuple[str, ...]] = {
     "市政": "地方治理",
     "物流": "交通物流",
     "交通": "交通物流",
+}
+
+_FALLBACK_ISSUE_TAGS: dict[str, str] = {
+    "business": "经济",
+    "culture": "文化",
+    "economy": "经济",
+    "education": "教育",
+    "energy": "能源",
+    "environment": "气候环境",
+    "finance": "金融市场",
+    "health": "公共卫生",
+    "military": "军事防务",
+    "politics": "政治",
+    "security": "公共安全",
+    "society": "社会",
+    "sports": "体育",
+    "tech": "科技",
+    "technology": "科技",
+    "trade": "国际贸易",
+}
+_FALLBACK_REGION_TAGS: dict[str, str] = {
+    "canada": "加拿大",
+    "china-watch-en": "中国",
+    "france": "法国",
+    "germany": "德国",
+    "india": "印度",
+    "ireland": "爱尔兰",
+    "italy": "意大利",
+    "japan": "日本",
+    "new-zealand": "新西兰",
+    "south-korea": "韩国",
+    "united-kingdom": "英国",
+    "vietnam": "越南",
+}
+_FALLBACK_RELATED_TAGS: dict[str, str] = {
+    "canada": "北美",
+    "france": "涉欧",
+    "germany": "涉欧",
+    "india": "南亚",
+    "ireland": "涉欧",
+    "italy": "涉欧",
+    "japan": "东亚",
+    "new-zealand": "亚太",
+    "south-korea": "东亚",
+    "united-kingdom": "涉欧",
+    "vietnam": "东南亚",
 }
 _RELATED_TAG_ALIASES: dict[str, str | tuple[str, ...]] = {
     "欧美": ("涉美", "涉欧"),
@@ -407,6 +458,54 @@ def _looks_like_template_reason(reason: str) -> bool:
     return any(marker in text for marker in template_markers)
 
 
+def _clip_public_sentence(text: str, *, limit: int) -> str:
+    normalized = " ".join(str(text or "").split())
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[:limit].rstrip("，。；、 ") + "。"
+
+
+def _fallback_issue_tags_for_row(row: dict[str, Any]) -> list[str]:
+    metadata = _metadata_dict(row)
+    raw = str(metadata.get("classification") or row.get("classification_l0") or "").lower()
+    for key, label in _FALLBACK_ISSUE_TAGS.items():
+        if key in raw:
+            return [label]
+    text = " ".join(
+        str(value or "").lower()
+        for value in (
+            row.get("title_original"),
+            metadata.get("summary"),
+            row.get("summary"),
+            row.get("description"),
+        )
+    )
+    keyword_tags = (
+        (("defense", "military", "army", "navy", "air force", "missile"), "军事防务"),
+        (("tariff", "trade", "export", "import"), "国际贸易"),
+        (("bank", "market", "stock", "bond", "finance"), "金融市场"),
+        (("ai", "chip", "semiconductor", "technology", "tech"), "科技"),
+        (("election", "parliament", "president", "minister"), "政治"),
+        (("heat", "flood", "quake", "fire", "wildfire"), "灾害事故"),
+    )
+    for keywords, label in keyword_tags:
+        if any(keyword in text for keyword in keywords):
+            return [label]
+    return ["国际关系"]
+
+
+def _fallback_related_tags_for_row(row: dict[str, Any]) -> list[str]:
+    target_id = str(row.get("target_id") or "")
+    tag = _FALLBACK_RELATED_TAGS.get(target_id)
+    return [tag] if tag else []
+
+
+def _fallback_region_tags_for_row(row: dict[str, Any]) -> list[str]:
+    target_id = str(row.get("target_id") or "")
+    tag = _FALLBACK_REGION_TAGS.get(target_id)
+    return [tag] if tag else []
+
+
 def _parse_iso_datetime(value: Any) -> datetime | None:  # noqa: ANN401
     text = str(value or "").strip()
     if not text:
@@ -557,15 +656,24 @@ class PublicTranslationEngine:
                 )
             except Exception as exc:  # noqa: BLE001
                 failures += 1
+                error = str(exc)
                 await self._record_retry(
                     store,
                     target_id,
                     event_id,
                     field_hash=field_hash,
-                    error=str(exc),
+                    error=error,
                     route_id=getattr(exc, "route_id", None),
                     model=getattr(exc, "model", None),
                 )
+                if provider_quota_error(error):
+                    return {
+                        "status": "provider_quota_exhausted",
+                        "updated": len(updates),
+                        "failed": failures,
+                        "updates": updates,
+                        "error": error,
+                    }
                 continue
 
             title = title_result["content"]
@@ -723,9 +831,24 @@ class PublicTranslationEngine:
             exc.model = result.get("model")  # type: ignore[attr-defined]
             raise exc
         raw_content = str(result.get("content") or "").strip()
-        parsed = self._parse_publication_json(raw_content)
+        try:
+            parsed = self._parse_publication_json(raw_content)
+        except RuntimeError as exc:
+            if "not JSON" not in str(exc):
+                raise
+            parsed = self._publication_fallback_from_text(
+                row,
+                raw_content,
+                title_zh=title_zh,
+                summary_zh=summary_zh,
+            )
         if not isinstance(parsed, dict):
-            raise RuntimeError("publication response is not an object")
+            parsed = self._publication_fallback_from_text(
+                row,
+                raw_content,
+                title_zh=title_zh,
+                summary_zh=summary_zh,
+            )
         one_line = " ".join(str(parsed.get("one_line_summary") or "").split())
         reason = " ".join(str(parsed.get("recommendation_reason") or "").split())
         issue_tags = _publication_tags(parsed.get("issue_tags"), aliases=_ISSUE_TAG_ALIASES)
@@ -751,6 +874,35 @@ class PublicTranslationEngine:
             "region_tags": region_tags,
             "route_id": str(result.get("route_id") or "public.summary_reason"),
             "model": str(result.get("model") or ""),
+        }
+
+    def _publication_fallback_from_text(
+        self,
+        row: dict[str, Any],
+        content: str,
+        *,
+        title_zh: str,
+        summary_zh: str,
+    ) -> dict[str, Any]:
+        """Recover publication fields when a provider ignores the JSON contract."""
+        issue_tags = _fallback_issue_tags_for_row(row)
+        related_tags = _fallback_related_tags_for_row(row)
+        region_tags = _fallback_region_tags_for_row(row)
+        one_line = _clip_public_sentence(summary_zh or title_zh, limit=48)
+        reason = _clip_public_sentence(content, limit=90)
+        if not _public_text_quality_ok(reason) or _looks_like_template_reason(reason):
+            region = region_tags[0] if region_tags else "相关地区"
+            issue = issue_tags[0] if issue_tags else "公共议题"
+            reason = (
+                f"{region}{issue}动态出现新变化，可能影响政策、产业或区域风险判断，"
+                "适合纳入后续跟踪。"
+            )
+        return {
+            "one_line_summary": one_line,
+            "recommendation_reason": reason,
+            "issue_tags": issue_tags,
+            "related_tags": related_tags,
+            "region_tags": region_tags,
         }
 
     @staticmethod
@@ -822,3 +974,8 @@ def _safe_int(value: Any) -> int | None:  # noqa: ANN401
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def provider_quota_error(error: str) -> bool:
+    """Return true when an upstream provider error should stop the batch."""
+    return bool(_PROVIDER_QUOTA_ERROR_RE.search(str(error or "")))

@@ -3,7 +3,7 @@
 # ADR: ADR-0005
 #
 # AI Provider 路由配置 — 内置多 Provider 链式兜底版
-# 所有 AI 能力由内置 Provider 直接调用：gemini → deepseek → groq → cloudflare_workers_ai → local。
+# 所有 AI 能力由内置 Provider 直接调用：gemini → deepseek → groq → cloudflare_workers_ai → openrouter → local。
 # 各 Provider 通过自身的 API key 环境变量鉴权，不再经过中间层 sidecar。
 #
 routes_version: "2.0.0"
@@ -107,8 +107,20 @@ routes:
     output_schema_ref: null
     audit: true
     fallback_route_ids:
-      - fallback.local
+      - translate.openrouter
     notes: "翻译兜底链：Groq 失败后由 Cloudflare Workers AI 接管"
+
+  - route_id: translate.openrouter
+    task_type: translate
+    provider: openrouter
+    model: google/gemma-4-26b-a4b-it:free
+    timeout_seconds: 90
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    fallback_route_ids:
+      - translate.nvidia
+    notes: "翻译兜底链：Cloudflare Workers AI 失败后由 OpenRouter 免费模型接管"
 
   - route_id: translate.batch
     task_type: translate
@@ -124,15 +136,51 @@ routes:
 
   - route_id: translate.nvidia
     task_type: translate
-    provider: gemini
-    model: gemini-2.5-flash
+    provider: nvidia
+    model: deepseek-ai/deepseek-v4-flash
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
     fallback_route_ids:
-      - translate.deepseek
-    notes: "历史 route_id 兼容：当前指向 Gemini"
+      - translate.agnes
+    notes: "FreeLLMAPI 迁移后直连 NVIDIA NIM，不再经过本地 sidecar"
+
+  - route_id: translate.agnes
+    task_type: translate
+    provider: agnes
+    model: agnes-2.0-flash
+    timeout_seconds: 90
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    fallback_route_ids:
+      - translate.opencode
+    notes: "FreeLLMAPI 迁移后直连 Agnes AI"
+
+  - route_id: translate.opencode
+    task_type: translate
+    provider: opencode
+    model: deepseek-v4-flash-free
+    timeout_seconds: 90
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    fallback_route_ids:
+      - translate.reka
+    notes: "FreeLLMAPI 迁移后直连 OpenCode Zen"
+
+  - route_id: translate.reka
+    task_type: translate
+    provider: reka
+    model: reka-flash-3
+    timeout_seconds: 90
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    fallback_route_ids:
+      - fallback.local
+    notes: "FreeLLMAPI 迁移后直连 Reka"
 
   # ── 聚类 / 复核 / 增强 ────────────────────────────────
 
@@ -193,20 +241,68 @@ routes:
     output_schema_ref: null
     audit: true
     fallback_route_ids:
-      - translate.deepseek
+      - ai.enrichment.openrouter
     notes: "低频 AI 增强合并任务：翻译、摘要、聚类、复核 — Gemini 主路由"
+
+  - route_id: ai.enrichment.openrouter
+    task_type: ai_enrichment
+    provider: openrouter
+    model: google/gemma-4-26b-a4b-it:free
+    timeout_seconds: 120
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    fallback_route_ids:
+      - ai.enrichment.nvidia
+    notes: "低频 AI 增强兜底：Gemini 不可用时由 OpenRouter 免费模型接管"
 
   - route_id: ai.enrichment.nvidia
     task_type: ai_enrichment
-    provider: deepseek
-    model: deepseek-chat
+    provider: nvidia
+    model: deepseek-ai/deepseek-v4-flash
+    timeout_seconds: 120
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    fallback_route_ids:
+      - ai.enrichment.agnes
+    notes: "低频 AI 增强兜底：NVIDIA NIM 直连"
+
+  - route_id: ai.enrichment.agnes
+    task_type: ai_enrichment
+    provider: agnes
+    model: agnes-2.0-flash
+    timeout_seconds: 120
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    fallback_route_ids:
+      - ai.enrichment.opencode
+    notes: "低频 AI 增强兜底：Agnes AI 直连"
+
+  - route_id: ai.enrichment.opencode
+    task_type: ai_enrichment
+    provider: opencode
+    model: deepseek-v4-flash-free
+    timeout_seconds: 120
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    fallback_route_ids:
+      - ai.enrichment.reka
+    notes: "低频 AI 增强兜底：OpenCode Zen 直连"
+
+  - route_id: ai.enrichment.reka
+    task_type: ai_enrichment
+    provider: reka
+    model: reka-flash-3
     timeout_seconds: 120
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
     fallback_route_ids:
       - fallback.local
-    notes: "AI 增强兜底：DeepSeek 接管，失败回退本地规则"
+    notes: "低频 AI 增强兜底：Reka 直连"
 
   # ── 判断任务 ──────────────────────────────────────────
 

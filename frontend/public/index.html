@@ -10,6 +10,20 @@
     />
     <link rel="icon" href="/icons/icon-192.svg" type="image/svg+xml" />
     <link rel="canonical" href="https://news-sentry.com/public-app/" />
+    <link rel="dns-prefetch" href="https://api.news-sentry.com" />
+    <link rel="preconnect" href="https://api.news-sentry.com" crossorigin />
+    <script>
+      window.__NEWS_SENTRY_BOOTSTRAP_PRELOAD__ = fetch(
+        "https://api.news-sentry.com/api/v1/public/bootstrap?featured=true&page_size=20",
+        { headers: { Accept: "application/json" } },
+      )
+        .then(function (response) {
+          return response.ok ? response.json() : null;
+        })
+        .catch(function () {
+          return null;
+        });
+    </script>
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="News Sentry" />
     <meta property="og:title" content="News Sentry | 新闻哨兵" />

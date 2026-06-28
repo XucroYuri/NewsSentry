@@ -8,92 +8,72 @@
 
 import type {
   PublicNewsFeedResponse,
-  PublicNewsItem,
-  PublicNewsSource,
 } from "../lib/contracts";
-import type { PaginationParams } from "../lib/d1";
-import { paginateRows } from "../lib/d1";
 import { notFound } from "../lib/errors";
+import {
+  buildPublicNewsWhere,
+  type NewsRow,
+  PUBLIC_NEWS_SELECT_COLUMNS,
+  publicNewsOrderBy,
+  rowToPublicNewsItem,
+} from "../lib/public-news-query";
+import {
+  hasOnlyParams,
+  maybeServeCachedPublicRead,
+  maybeStoreCachedPublicRead,
+} from "../lib/public-read-cache";
+import {
+  markSnapshotBypass,
+  markSnapshotMiss,
+  NEWS_ALL_SNAPSHOT_KEY,
+  NEWS_FEATURED_SNAPSHOT_KEY,
+  readPublicSnapshot,
+} from "../lib/public-read-snapshots";
 
-interface NewsRow {
+const FEATURED_NEWS_CACHE_KEY = "public-read:news:featured";
+const ALL_NEWS_CACHE_KEY = "public-read:news:all";
+
+interface CursorRow {
   event_id: string;
-  target_id: string;
-  target_label: string;
-  source_id: string;
-  source_name: string;
-  source_type: string;
   published_at: string;
-  title: string;
-  original_title: string | null;
-  summary: string | null;
-  recommendation_reason: string | null;
-  full_content: string | null;
-  original_url: string | null;
-  detail_url: string;
-  image_urls: string;
-  tags: string;
-  issue_tags: string;
-  related_tags: string;
-  region_tags: string;
-  entities: string;
-  related_count: number;
-  discussion_count: number | null;
-  value_label: string;
   value_score: number | null;
-  china_relevance_label: string;
-  credibility_label: string | null;
 }
 
-function parseJsonArray(raw: string): string[] {
-  if (!raw) return [];
-  try {
-    return JSON.parse(raw) as string[];
-  } catch {
-    return [];
+async function buildCursorFilter(
+  db: D1Database,
+  eventId: string | null,
+  mode: "before" | "since",
+  featured: boolean,
+): Promise<{ sql: string; bindings: unknown[] }> {
+  if (!eventId) return { sql: "", bindings: [] };
+
+  const cursor = await db
+    .prepare("SELECT event_id, published_at, value_score FROM events WHERE event_id = ?")
+    .bind(eventId)
+    .first<CursorRow>();
+  if (!cursor) return { sql: "", bindings: [] };
+
+  if (featured) {
+    const score = cursor.value_score ?? -1;
+    const scoreOp = mode === "before" ? "<" : ">";
+    const timeOp = mode === "before" ? "<" : ">";
+    const idOp = mode === "before" ? "<" : ">";
+    return {
+      sql: `
+        AND (
+          COALESCE(value_score, -1) ${scoreOp} ?
+          OR (COALESCE(value_score, -1) = ? AND published_at ${timeOp} ?)
+          OR (COALESCE(value_score, -1) = ? AND published_at = ? AND event_id ${idOp} ?)
+        )
+      `,
+      bindings: [score, score, cursor.published_at, score, cursor.published_at, cursor.event_id],
+    };
   }
-}
 
-function parseEntities(raw: string): { name: string; type?: string | null }[] {
-  if (!raw) return [];
-  try {
-    return JSON.parse(raw) as { name: string; type?: string | null }[];
-  } catch {
-    return [];
-  }
-}
-
-function rowToPublicNewsItem(row: NewsRow, targetId: string): PublicNewsItem {
-  const source: PublicNewsSource = {
-    id: row.source_id,
-    name: row.source_name,
-    type: row.source_type as PublicNewsSource["type"] || "unknown",
-    credibilityLabel: row.credibility_label,
-  };
-
+  const op = mode === "before" ? "<" : ">";
   return {
-    id: row.event_id,
-    targetId: row.target_id,
-    targetLabel: row.target_label,
-    source,
-    publishedAt: row.published_at,
-    title: row.title,
-    originalTitle: row.original_title,
-    summary: row.summary,
-    recommendationReason: row.recommendation_reason,
-    fullContent: row.full_content,
-    imageUrls: parseJsonArray(row.image_urls),
-    originalUrl: row.original_url,
-    detailUrl: row.detail_url,
-    tags: parseJsonArray(row.tags),
-    issueTags: parseJsonArray(row.issue_tags),
-    relatedTags: parseJsonArray(row.related_tags),
-    regionTags: parseJsonArray(row.region_tags),
-    entities: parseEntities(row.entities),
-    relatedCount: row.related_count,
-    discussionCount: row.discussion_count,
-    valueLabel: row.value_label as PublicNewsItem["valueLabel"],
-    valueScore: row.value_score,
-    chinaRelevanceLabel: row.china_relevance_label as PublicNewsItem["chinaRelevanceLabel"],
+    sql: `AND (published_at ${op} ? OR (published_at = ? AND event_id ${op} ?))`,
+    bindings: [cursor.published_at, cursor.published_at, cursor.event_id],
   };
 }
 
@@ -102,6 +82,7 @@ export async function handleNewsFeed(
   db: D1Database,
   params: URLSearchParams,
   _segments: string[],
+  ctx?: ExecutionContext,
 ): Promise<Response> {
   try {
     const regionId = params.get("region_id") || params.get("target_id") || undefined;
@@ -110,78 +91,94 @@ export async function handleNewsFeed(
     const related = params.get("related") || undefined;
     const date = params.get("date") || undefined;
     const q = params.get("q") || undefined;
-    const pageSize = Math.min(parseInt(params.get("page_size") || "20", 10), 50);
+    const featured = params.get("featured") === "true";
+    const beforeCursor = params.get("before_cursor");
+    const sinceCursor = params.get("since_cursor");
+    const requestedPageSize = Number.parseInt(params.get("page_size") || "20", 10);
+    const pageSize =
+      Number.isFinite(requestedPageSize) && requestedPageSize > 0
+        ? Math.min(requestedPageSize, 50)
+        : 20;
+    const cacheKey =
+      pageSize === 20 &&
+      !beforeCursor &&
+      !sinceCursor &&
+      !regionId &&
+      !sourceId &&
+      !issue &&
+      !related &&
+      !date &&
+      !q &&
+      hasOnlyParams(params, ["featured", "page_size"])
+        ? featured
+          ? FEATURED_NEWS_CACHE_KEY
+          : ALL_NEWS_CACHE_KEY
+        : null;
+    const cached = await maybeServeCachedPublicRead(request, cacheKey);
+    if (cached) return cached;
+    const snapshotKey = cacheKey
+      ? featured
+        ? NEWS_FEATURED_SNAPSHOT_KEY
+        : NEWS_ALL_SNAPSHOT_KEY
+      : null;
+    const snapshot = await readPublicSnapshot(request, db, snapshotKey, 30);
+    if (snapshot) return maybeStoreCachedPublicRead(request, cacheKey, snapshot, ctx, 30);
+
+    const filters = buildPublicNewsWhere({
+      featured,
+      regionId,
+      sourceId,
+      issue,
+      related,
+      date,
+      q,
+    });
+    const cursorFilter = await buildCursorFilter(
+      db,
+      beforeCursor || sinceCursor,
+      beforeCursor ? "before" : "since",
+      featured,
+    );
 
     let sql = `
-      SELECT event_id, target_id, target_label,
-             source_id, source_name, source_type, credibility_label,
-             published_at, title, original_title, summary,
-             recommendation_reason, full_content, original_url,
-             detail_url, image_urls, tags, issue_tags, related_tags,
-             region_tags, entities, related_count, discussion_count,
-             value_label, value_score, china_relevance_label
+      SELECT ${PUBLIC_NEWS_SELECT_COLUMNS}
       FROM events
-      WHERE pipeline_stage = 'drafts'
+      ${filters.sql}
+      ${cursorFilter.sql}
     `;
-    const bindings: unknown[] = [];
 
-    if (regionId) {
-      sql += ` AND region_id = ?`;
-      bindings.push(regionId);
-    }
-    if (sourceId) {
-      sql += ` AND source_id = ?`;
-      bindings.push(sourceId);
-    }
-    if (issue) {
-      sql += ` AND issue_tags LIKE ?`;
-      bindings.push(`%${issue}%`);
-    }
-    if (related) {
-      sql += ` AND related_tags LIKE ?`;
-      bindings.push(`%${related}%`);
-    }
-    if (date) {
-      sql += ` AND published_at >= ? AND published_at < ?`;
-      bindings.push(`${date}T00:00:00`, `${date}T23:59:59`);
-    }
-    if (q) {
-      sql += ` AND (title LIKE ? OR summary LIKE ?)`;
-      const term = `%${q}%`;
-      bindings.push(term, term);
-    }
+    sql += ` ${publicNewsOrderBy(featured)} LIMIT ?`;
+    const bindings = [...filters.bindings, ...cursorFilter.bindings, pageSize + 1];
 
-    sql += ` ORDER BY published_at DESC LIMIT ?`;
-    bindings.push(pageSize + 1);
-
-    const stmt = db.prepare(sql).bind(...bindings);
-
-    const result = await stmt.all<NewsRow>();
+    const [result, totalResult] = await Promise.all([
+      db.prepare(sql).bind(...bindings).all<NewsRow>(),
+      db
+        .prepare(`SELECT COUNT(*) AS total FROM events ${filters.sql}`)
+        .bind(...filters.bindings)
+        .first<{ total: number }>(),
+    ]);
     const rows = result.results || [];
-
-    const pagination: PaginationParams = {
-      cursor: params.get("cursor"),
-      before_cursor: params.get("before_cursor"),
-      since_cursor: params.get("since_cursor"),
-      page_size: pageSize,
-    };
-
-    const { items: _paginatedItems, latest_cursor, next_cursor } = paginateRows(rows, pagination);
-    const items = rows.map((r) => rowToPublicNewsItem(r, r.target_id));
+    const pageRows = rows.slice(0, pageSize);
+    const items = pageRows.map((r) => rowToPublicNewsItem(r));
+    const latestCursor = pageRows[0]?.event_id ?? sinceCursor ?? beforeCursor ?? null;
+    const nextCursor =
+      rows.length > pageSize ? (pageRows[pageRows.length - 1]?.event_id ?? null) : null;
 
     const body: PublicNewsFeedResponse = {
-      items: items.slice(0, pageSize),
-      latestCursor: latest_cursor,
-      nextCursor: next_cursor,
+      items,
+      latestCursor,
+      nextCursor,
       pollAfterMs: 60000,
-      hasNewer: items.length > pageSize,
-      total: rows.length,
+      hasNewer: Boolean(sinceCursor && items.length > 0),
+      total: totalResult?.total ?? rows.length,
     };
 
-    return new Response(JSON.stringify(body), {
+    const response = new Response(JSON.stringify(body), {
       status: 200,
       headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=15" },
     });
+    const markedResponse = cacheKey ? markSnapshotMiss(response) : markSnapshotBypass(response);
+    return maybeStoreCachedPublicRead(request, cacheKey, markedResponse, ctx, 30);
   } catch (err) {
     console.error("newsFeed error:", err);
     const fallback: PublicNewsFeedResponse = {
@@ -211,13 +208,7 @@ export async function handleNewsDetail(
   try {
     const result = await db
       .prepare(
-        `SELECT event_id, target_id, target_label,
-                source_id, source_name, source_type, credibility_label,
-                published_at, title, original_title, summary,
-                recommendation_reason, full_content, original_url,
-                detail_url, image_urls, tags, issue_tags, related_tags,
-                region_tags, entities, related_count, discussion_count,
-                value_label, value_score, china_relevance_label
+        `SELECT ${PUBLIC_NEWS_SELECT_COLUMNS}
          FROM events
          WHERE event_id = ? AND pipeline_stage = 'drafts'`
       )
@@ -228,7 +219,7 @@ export async function handleNewsDetail(
       return notFound("Event not found");
     }
 
-    const item = rowToPublicNewsItem(result, result.target_id);
+    const item = rowToPublicNewsItem(result);
     return new Response(JSON.stringify(item), {
       status: 200,
       headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=60" },

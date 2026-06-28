@@ -48,6 +48,13 @@ class TestInit:
         provider = OpenAIProvider({})
         assert provider._api_key == "sk-env-456"
 
+    def test_init_loads_env_key_pool(self, monkeypatch):
+        """同一 provider 的 _2/_3 备用 key 应进入 key pool。"""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-env-primary")
+        monkeypatch.setenv("OPENAI_API_KEY_2", "sk-env-secondary")
+        provider = OpenAIProvider({})
+        assert provider._api_keys == ["sk-env-primary", "sk-env-secondary"]
+
     def test_init_base_url_default(self):
         """未设置 base_url 时使用默认 OpenAI 端点。"""
         provider = OpenAIProvider({"api_key": "sk-test"})
@@ -182,6 +189,33 @@ class TestCall:
             provider.call("translate.fast", "test", max_tokens=512)
 
         assert mock_post.call_args.kwargs["json"]["max_tokens"] == 512
+
+    def test_call_retries_next_key_on_quota_error(self, monkeypatch):
+        """账号/额度类错误应尝试同 provider 的下一把 key。"""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-primary")
+        monkeypatch.setenv("OPENAI_API_KEY_2", "sk-secondary")
+        rate_limited = _make_mock_response(status_code=429, json_data={"error": "quota"})
+        rate_limited.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Rate limited", request=mock.MagicMock(), response=rate_limited
+        )
+        ok = _make_mock_response(
+            json_data={
+                "choices": [{"message": {"content": "ok"}}],
+                "model": "gpt-4o-mini",
+                "usage": {},
+            }
+        )
+
+        with mock.patch("httpx.post", side_effect=[rate_limited, ok]) as mock_post:
+            provider = OpenAIProvider({})
+            result = provider.call("translate.fast", "test")
+
+        assert result["content"] == "ok"
+        assert mock_post.call_count == 2
+        first_headers = mock_post.call_args_list[0].kwargs["headers"]
+        second_headers = mock_post.call_args_list[1].kwargs["headers"]
+        assert first_headers["Authorization"] == "Bearer sk-primary"
+        assert second_headers["Authorization"] == "Bearer sk-secondary"
 
 
 # ── provider_id ────────────────────────────────────────────────────────

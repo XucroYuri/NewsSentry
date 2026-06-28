@@ -14,6 +14,12 @@ export interface HealthResponse {
   status: string;
   total_events: number;
   latest_collected_at: string | null;
+  public_quality?: {
+    summary_ready: number;
+    recommendation_ready: number;
+    featured_total: number;
+    latest_public_at: string | null;
+  };
 }
 
 // ── /api/v1/public/news ──────────────────────────────────────────────────

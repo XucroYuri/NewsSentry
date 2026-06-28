@@ -171,10 +171,26 @@ def test_public_translation_route_uses_builtin_chain() -> None:
     # 应有 fallback 链
     assert len(public_translation.fallback_route_ids) >= 1
     assert public_translation.provider == "gemini"
+    assert routes["translate.cloudflare"].fallback_route_ids == ["translate.openrouter"]
+    assert routes["translate.openrouter"].provider == "openrouter"
+    assert routes["translate.openrouter"].fallback_route_ids == ["translate.nvidia"]
+    assert routes["translate.nvidia"].provider == "nvidia"
+    assert routes["translate.nvidia"].fallback_route_ids == ["translate.agnes"]
+    assert routes["translate.agnes"].provider == "agnes"
+    assert routes["translate.agnes"].fallback_route_ids == ["translate.opencode"]
+    assert routes["translate.opencode"].provider == "opencode"
+    assert routes["translate.opencode"].fallback_route_ids == ["translate.reka"]
+    assert routes["translate.reka"].provider == "reka"
+    assert routes["translate.reka"].fallback_route_ids == ["fallback.local"]
 
     # 公共发布的路由链不应有空
     assert routes["public.summary_reason"].provider != "freellmapi"
     assert routes["public.enrichment"].provider != "freellmapi"
+    assert routes["ai.enrichment.batch"].fallback_route_ids == ["ai.enrichment.openrouter"]
+    assert routes["ai.enrichment.openrouter"].provider == "openrouter"
+    assert routes["ai.enrichment.openrouter"].fallback_route_ids == ["ai.enrichment.nvidia"]
+    assert routes["ai.enrichment.nvidia"].provider == "nvidia"
+    assert routes["ai.enrichment.nvidia"].fallback_route_ids == ["ai.enrichment.agnes"]
 
 
 def test_provider_route_defaults() -> None:

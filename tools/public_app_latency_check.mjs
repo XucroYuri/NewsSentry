@@ -55,6 +55,15 @@ function compactUrl(value) {
   return value.replace(baseUrl, "")
 }
 
+function requestPath(value) {
+  try {
+    const url = new URL(value)
+    return `${url.pathname}${url.search}`
+  } catch {
+    return compactUrl(value)
+  }
+}
+
 function summarizeRequests(records) {
   return records.map((record) => ({
     atMs: record.atMs,
@@ -77,24 +86,31 @@ async function collectRun(browser, viewport, label, expectedFirstArticleMs) {
   page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`))
   page.on("response", async (response) => {
     const url = response.url()
-    if (!url.includes("/api/v1/") && !url.includes("/public-app/assets/")) return
+    if (!url.includes("/api/v1/") && !url.includes("/assets/")) return
     network.push({
       atMs: Date.now() - started,
       url,
       status: response.status(),
-      cache: response.headers()["x-news-sentry-feed-cache"] || "",
+      cache:
+        response.headers()["x-news-sentry-worker-cache"] ||
+        response.headers()["x-news-sentry-feed-cache"] ||
+        "",
       elapsed: response.headers()["x-news-sentry-feed-elapsed-ms"] || "",
     })
   })
 
   await page.goto(`${baseUrl}/public-app/`, { waitUntil: "domcontentloaded", timeout: 30_000 })
   const domContentLoadedMs = Date.now() - started
-  await page.locator("article").first().waitFor({ state: "visible", timeout: 15_000 })
+  const firstStory = page
+    .locator('main article, main a[href*="/events/"], main a[href*="#/events/"]')
+    .first()
+  await firstStory.waitFor({ state: "visible", timeout: 15_000 })
   const firstArticleMs = Date.now() - started
-  const initialFeedRequests = network.filter((record) =>
-    compactUrl(record.url).startsWith("/api/v1/public/news?featured=true&page_size=20"),
+  const initialReadRequests = network.filter((record) =>
+    requestPath(record.url).startsWith("/api/v1/public/news?featured=true&page_size=20") ||
+    requestPath(record.url).startsWith("/api/v1/public/bootstrap?featured=true&page_size=20"),
   )
-  const firstArticleText = await page.locator("article").first().innerText()
+  const firstArticleText = await firstStory.innerText()
 
   const bottomNav = await page.evaluate(() => {
     const nav = document.querySelector('nav[aria-label="移动端公共频道"]')
@@ -108,14 +124,17 @@ async function collectRun(browser, viewport, label, expectedFirstArticleMs) {
     }
   })
 
-  const detailLink = page.locator('article a[href*="#/events/"]').first()
+  const detailLink = page.locator('main a[href*="/events/"], main a[href*="#/events/"]').first()
   const hasDetailLink = (await detailLink.count()) > 0
   let detailMs = null
   if (hasDetailLink) {
     const detailStarted = Date.now()
     await detailLink.click()
     await page.waitForFunction(
-      () => window.location.hash.includes("/events/") && Boolean(document.querySelector("article h1")),
+      () =>
+        (window.location.pathname.includes("/events/") ||
+          window.location.hash.includes("/events/")) &&
+        Boolean(document.querySelector("main h1")),
       null,
       { timeout: 15_000 },
     )
@@ -132,8 +151,8 @@ async function collectRun(browser, viewport, label, expectedFirstArticleMs) {
     firstArticleMs,
     detailMs,
     firstArticleText: firstArticleText.slice(0, 180),
-    initialFeedRequestCount: initialFeedRequests.length,
-    initialFeedRequests: summarizeRequests(initialFeedRequests),
+    initialReadRequestCount: initialReadRequests.length,
+    initialReadRequests: summarizeRequests(initialReadRequests),
     requestCount: network.length,
     requests: summarizeRequests(network),
     bottomNav,
@@ -142,7 +161,7 @@ async function collectRun(browser, viewport, label, expectedFirstArticleMs) {
 
   assertCheck(errors.length === 0, `${label}: browser errors detected`, result)
   assertCheck(firstArticleMs <= expectedFirstArticleMs, `${label}: first article too slow`, result)
-  assertCheck(initialFeedRequests.length === 1, `${label}: initial feed should be requested once`, result)
+  assertCheck(initialReadRequests.length === 1, `${label}: initial public read should be requested once`, result)
   if (detailMs !== null) {
     assertCheck(detailMs <= detailThresholdMs, `${label}: detail main content too slow`, result)
   }

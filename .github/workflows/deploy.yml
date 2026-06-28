@@ -440,6 +440,16 @@ jobs:
           assert "News Sentry" in public_app_html or "NewsSentry" in public_app_html
           PY
 
+      - name: Live quality gate with HEAD probe
+        run: |
+          set -euo pipefail
+          python tools/cloudflare_live_quality_check.py \
+            --base-url "${BASE_URL}" \
+            --api-url "${API_URL}" \
+            --min-featured 100 \
+            --max-latest-age-hours 24 \
+            --min-summary-ready 500
+
       - name: Verify SEO/GEO public site
         run: |
           set -euo pipefail

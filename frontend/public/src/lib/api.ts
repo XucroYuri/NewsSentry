@@ -16,6 +16,12 @@ import type {
 
 import { resolveUrl } from "./locals-settings"
 
+declare global {
+  interface Window {
+    __NEWS_SENTRY_BOOTSTRAP_PRELOAD__?: Promise<unknown | null>
+  }
+}
+
 /** 模块加载时即从 DOM 读取服务端注入的 bootstrap JSON（仅一次）。 */
 const _SSR_BOOTSTRAP_DATA: PublicBootstrapResponse | null = (() => {
   try {
@@ -97,6 +103,21 @@ export function buildPublicBootstrapUrl(query: PublicNewsQuery = {}) {
   appendParam(params, "page_size", query.pageSize)
   const suffix = params.toString()
   return `/api/v1/public/bootstrap${suffix ? `?${suffix}` : ""}`
+}
+
+function isDefaultFeaturedBootstrapQuery(query: PublicNewsQuery) {
+  return (
+    query.featured === true &&
+    query.pageSize === 20 &&
+    !query.targetId &&
+    !query.regionId &&
+    !query.sourceId &&
+    !query.category &&
+    !query.issue &&
+    !query.related &&
+    !query.date &&
+    !query.q
+  )
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -251,6 +272,17 @@ export async function getPublicBootstrap(
   query: PublicNewsQuery = {},
   options: PublicNewsRequestOptions = {},
 ): Promise<PublicBootstrapResult> {
+  if (!options.fetcher && isDefaultFeaturedBootstrapQuery(query)) {
+    const preloaded = window.__NEWS_SENTRY_BOOTSTRAP_PRELOAD__
+    if (preloaded) {
+      const payload = await preloaded
+      if (payload) {
+        assertPublicBootstrap(payload)
+        return { data: payload, etag: null }
+      }
+    }
+  }
+
   const fetcher = options.fetcher ?? fetch
   const response = await fetcher(resolveUrl(buildPublicBootstrapUrl(query)), {
     signal: options.signal,

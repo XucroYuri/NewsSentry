@@ -30,11 +30,10 @@ export function isWorkerWritePath(pathname: string): boolean {
 }
 
 export function hasAccessIdentity(request: Request): boolean {
-  return Boolean(
-    request.headers.get("Cf-Access-Authenticated-User-Email") ||
-      request.headers.get("Cf-Access-Jwt-Assertion") ||
-      request.headers.get("CF-Access-Client-Id"),
-  );
+  // Only trust headers Cloudflare Access injects after a successful user policy.
+  // Client-supplied service-token/JWT-looking headers are not proof unless the
+  // Worker validates the signed assertion against the Access certs.
+  return Boolean(request.headers.get("Cf-Access-Authenticated-User-Email"));
 }
 
 export function accessRequired(): Response {

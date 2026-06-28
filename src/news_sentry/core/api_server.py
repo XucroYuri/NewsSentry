@@ -190,6 +190,8 @@ from news_sentry.core.collector_config_utils import (
     _public_translation_loop,
     _public_translation_status_payload,
     _run_ai_enrichment_once,
+    _run_auto_collect_once,
+    _run_public_translation_cycle_once,
     _run_public_translation_once,
     _save_ai_enrichment_config,
     _save_collector_config,
@@ -646,6 +648,56 @@ def _detect_deployment_env() -> str:
 
     logger.info("Deployment env (detected): %s", _deployment_env)
     return _deployment_env
+
+
+def _cloudflare_internal_enabled() -> bool:
+    """Return whether this process is the Cloudflare Container runtime."""
+    deployment_env = _detect_deployment_env()
+    profile = os.environ.get("NEWSSENTRY_PROFILE", "").strip().lower()
+    return deployment_env == "cloudflare-container" or profile == "cloudflare"
+
+
+def _compact_cloudflare_task_summary(task: str, result: dict[str, Any]) -> dict[str, Any]:
+    """Collapse internal task output before it is stored in Worker D1 ops logs."""
+    if task == "collect-cycle":
+        summary = {
+            "target_count": int(result.get("target_count") or len(result.get("targets") or [])),
+            "events_collected": int(result.get("events_collected") or 0),
+            "stage": result.get("stage"),
+            "targets": list(result.get("targets") or []),
+        }
+        if result.get("target_results") is not None:
+            summary["target_results"] = result["target_results"]
+        return summary
+
+    updates = result.get("updates") or []
+    updates_count = len(updates) if isinstance(updates, list) else int(result.get("updates") or 0)
+    summary = {
+        "targets": list(result.get("targets") or []),
+        "updates": updates_count,
+        "failed": int(result.get("failed") or 0),
+    }
+    if result.get("target_results") is not None:
+        summary["target_results"] = result["target_results"]
+    if result.get("dry_run") is not None:
+        summary["dry_run"] = result["dry_run"]
+    return summary
+
+
+async def _cloudflare_internal_task_body(request: Request, expected_task: str) -> dict[str, Any]:
+    header_task = request.headers.get("X-News-Sentry-Internal-Task")
+    if header_task != expected_task or not _cloudflare_internal_enabled():
+        raise HTTPException(status_code=403, detail="Cloudflare internal task access required")
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    body_task = body.get("task")
+    if body_task is not None and body_task != expected_task:
+        raise HTTPException(status_code=403, detail="Cloudflare internal task mismatch")
+    return body
 
 
 async def _close_target_stores() -> None:
@@ -1475,6 +1527,78 @@ def create_app(
         _public_translation_state["last_updates"] = len(result.get("updates") or [])
         _public_translation_state["total_runs"] += 0 if dry_run else 1
         return result
+
+    async def cloudflare_collect_cycle(request: Request) -> JSONResponse:
+        """Run one Cloudflare Container collection cycle from Worker cron."""
+        task = "collect-cycle"
+        started_at = datetime.now(UTC).isoformat()
+        body = await _cloudflare_internal_task_body(request, task)
+        run_id = str(body.get("runId") or body.get("run_id") or f"{task}:{uuid.uuid4().hex}")
+        try:
+            result = await _run_auto_collect_once(run_id=run_id)
+            finished_at = datetime.now(UTC).isoformat()
+            status = str(result.get("status") or "ok")
+            return JSONResponse(
+                {
+                    "status": status,
+                    "task": task,
+                    "run_id": str(result.get("run_id") or run_id),
+                    "started_at": started_at,
+                    "finished_at": finished_at,
+                    "summary": _compact_cloudflare_task_summary(task, result),
+                    "error": result.get("error"),
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Cloudflare collect cycle failed")
+            return JSONResponse(
+                {
+                    "status": "error",
+                    "task": task,
+                    "run_id": run_id,
+                    "started_at": started_at,
+                    "finished_at": datetime.now(UTC).isoformat(),
+                    "summary": {},
+                    "error": str(exc),
+                },
+                status_code=500,
+            )
+
+    async def cloudflare_public_translation_cycle(request: Request) -> JSONResponse:
+        """Run one Cloudflare Container public translation cycle from Worker cron."""
+        task = "public-translation-cycle"
+        started_at = datetime.now(UTC).isoformat()
+        body = await _cloudflare_internal_task_body(request, task)
+        run_id = str(body.get("runId") or body.get("run_id") or f"{task}:{uuid.uuid4().hex}")
+        try:
+            result = await _run_public_translation_cycle_once(run_id=run_id)
+            finished_at = datetime.now(UTC).isoformat()
+            status = str(result.get("status") or "ok")
+            return JSONResponse(
+                {
+                    "status": status,
+                    "task": task,
+                    "run_id": str(result.get("run_id") or run_id),
+                    "started_at": started_at,
+                    "finished_at": finished_at,
+                    "summary": _compact_cloudflare_task_summary(task, result),
+                    "error": result.get("error"),
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Cloudflare public translation cycle failed")
+            return JSONResponse(
+                {
+                    "status": "error",
+                    "task": task,
+                    "run_id": run_id,
+                    "started_at": started_at,
+                    "finished_at": datetime.now(UTC).isoformat(),
+                    "summary": {},
+                    "error": str(exc),
+                },
+                status_code=500,
+            )
 
     async def data_status(
         _user: dict[str, Any] = Depends(get_current_user),
@@ -4070,12 +4194,14 @@ def create_app(
     from news_sentry.api.routes.admin import register_admin_routes
     from news_sentry.api.routes.canonical import register_canonical_routes
     from news_sentry.api.routes.entities import register_entity_routes
+    from news_sentry.api.routes.internal import register_internal_routes
     from news_sentry.api.routes.maintenance import register_maintenance_routes
     from news_sentry.api.routes.public import register_public_routes
     from news_sentry.api.routes.targets import register_target_routes
 
     public_router = APIRouter()
     admin_router = APIRouter()
+    internal_router = APIRouter()
 
     # 构建 handler + response_model 字典
     _public_handlers = {
@@ -4120,6 +4246,12 @@ def create_app(
         "EventResponse": EventResponse,
     }
     register_public_routes(public_router, _public_handlers)
+
+    _internal_handlers = {
+        "cloudflare_collect_cycle": cloudflare_collect_cycle,
+        "cloudflare_public_translation_cycle": cloudflare_public_translation_cycle,
+    }
+    register_internal_routes(internal_router, _internal_handlers)
 
     _admin_handlers = {
         "prometheus_metrics": prometheus_metrics,
@@ -4279,6 +4411,7 @@ def create_app(
     register_maintenance_routes(admin_router, _admin_handlers)
     register_target_routes(admin_router, _admin_handlers)
 
+    app.include_router(internal_router)
     app.include_router(admin_router)
     app.include_router(public_router)
     app.include_router(ws_router)

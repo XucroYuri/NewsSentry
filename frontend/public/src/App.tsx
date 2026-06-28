@@ -42,6 +42,7 @@ import { routeToChannel, type PublicRoute } from "@/lib/routes"
 import { buildRouteSeoPayload } from "@/lib/seo/site-seo"
 import {
   AnalysisPage,
+  BreakingHomePage,
   DailyPage,
   EventDetailPage,
   NewsFeedPage,
@@ -1291,9 +1292,14 @@ export default function App() {
   const bootstrap = usePublicBootstrap(filters)
   const bootstrapTargets = useMemo(() => regionsToTargets(bootstrap.data), [bootstrap.data])
   const ssrFeed = useMemo(() => readSSRFeed(), [])
-  const ssrFeedApplicable = ssrFeed !== null && isDefaultFeaturedFilters(filters)
-  const initialFeed = ssrFeedApplicable ? ssrFeed : (bootstrap.data?.news ?? null)
-  const waitForBootstrap = bootstrap.status === "loading" && !ssrFeedApplicable
+  const defaultFeaturedHome = isDefaultFeaturedFilters(filters)
+  const ssrFeedApplicable = ssrFeed !== null && defaultFeaturedHome
+  const initialFeed = ssrFeedApplicable
+    ? ssrFeed
+    : defaultFeaturedHome
+      ? (bootstrap.data?.news ?? null)
+      : null
+  const waitForBootstrap = bootstrap.status === "loading" && defaultFeaturedHome && !ssrFeedApplicable
   const feed = usePublicFeed(filters, {
     poll: route.name === "feed",
     initialFeed,
@@ -1395,6 +1401,19 @@ export default function App() {
         preferredSection={route.section}
       />
     )
+  } else if (route.name === "feed" && defaultFeaturedHome) {
+    mainContent = (
+      <BreakingHomePage
+        state={feed.feedState}
+        targets={targets}
+        facets={facets}
+        onRefresh={() => void feed.loadFeed("refresh")}
+        onOpenAll={() => navigatePrimary("all")}
+        onSelectTarget={(targetId) => updateFilters({ channel: "all", targetId })}
+        onSelectIssue={(issue) => updateFilters({ channel: "all", issue })}
+        onApplyPending={feed.applyPending}
+      />
+    )
   } else {
     const selectedFeedTargetLabel = filters.targetId
       ? targets.find((target) => target.target_id === filters.targetId)?.display_name ??
@@ -1432,7 +1451,7 @@ export default function App() {
       <SeoHead payload={appSeoPayload} locale={route.locale} />
       <main className="grid w-full min-w-0 gap-3 px-2.5 pb-20 pt-2.5 sm:px-3 lg:px-4 lg:py-4 2xl:px-5">
         <section className="grid min-w-0 gap-3">
-          {route.name === "feed" && (
+          {route.name === "feed" && !defaultFeaturedHome && (
             <CategorySidebar
               facets={facets}
               filters={filters}
