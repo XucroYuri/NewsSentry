@@ -81,8 +81,8 @@ def test_cloudflare_public_featured_query_matches_python_quality_gate() -> None:
     assert 'params.get("featured") !== "false"' in bootstrap_ts
     assert "PUBLIC_FEATURED_MIN_SCORE = 60" in query_ts
     assert "value_score >= ?" in query_ts
-    assert "summary IS NOT NULL AND TRIM(summary) <> ''" in query_ts
-    assert "recommendation_reason IS NOT NULL AND TRIM(recommendation_reason) <> ''" in query_ts
+    assert "summary IS NOT NULL AND TRIM(summary) <> ''" not in query_ts
+    assert "recommendation_reason IS NOT NULL AND TRIM(recommendation_reason) <> ''" not in query_ts
     assert "json_valid(classification) = 1" in query_ts
     assert "json_extract(classification, '$.l0')" in query_ts
     assert "NOT IN ('uncategorized', 'other', 'breaking_news')" in query_ts

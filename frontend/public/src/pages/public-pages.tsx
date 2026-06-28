@@ -657,7 +657,7 @@ export function BreakingHomePage({
       <section className="overflow-hidden rounded-lg border bg-card/95 dark:bg-card/80" aria-label="极速突发">
         <EmptyExplanation
           title="暂无突发精选"
-          description="高价值新闻完成翻译和推荐理由后，会自动进入极速突发首页。"
+          description="高价值、分类明确的新闻会自动进入极速突发首页。"
         />
       </section>
     )
@@ -678,7 +678,7 @@ export function BreakingHomePage({
             </div>
             <h1 className="text-xl font-semibold leading-tight">极速突发</h1>
             <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-              只展示高价值、已完成摘要和推荐理由的突发新闻；完整时间线继续放在新闻纵览。
+              优先展示高价值、分类明确的突发新闻；完整时间线继续放在新闻纵览。
             </p>
           </div>
           <Button type="button" variant="outline" size="sm" className="w-fit rounded-md" onClick={onOpenAll}>

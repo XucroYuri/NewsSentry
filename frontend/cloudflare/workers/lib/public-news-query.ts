@@ -1,9 +1,10 @@
 /**
  * Shared public-news SQL helpers for Worker endpoints.
  *
- * Keep this aligned with the Python public reader's featured quality gate:
- * drafts stage, score floor, translated summary, recommendation reason, and
- * non-uncategorized classification.
+ * Keep this aligned with the public reader's featured quality gate:
+ * drafts stage, score floor, and non-uncategorized classification. Summary and
+ * recommendation fields are displayed when available, but are not hard gates
+ * because translation/publication backfill can lag behind collection.
  */
 
 import type { PublicNewsItem, PublicNewsSource } from "./contracts";
@@ -69,8 +70,6 @@ export function buildPublicNewsWhere(input: PublicNewsFilterInput): {
   if (input.featured) {
     sql += `
       AND value_score >= ?
-      AND summary IS NOT NULL AND TRIM(summary) <> ''
-      AND recommendation_reason IS NOT NULL AND TRIM(recommendation_reason) <> ''
       AND json_valid(classification) = 1
       AND COALESCE(NULLIF(LOWER(TRIM(json_extract(classification, '$.l0'))), ''), 'uncategorized')
           NOT IN ('uncategorized', 'other', 'breaking_news')
