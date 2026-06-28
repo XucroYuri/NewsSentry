@@ -125,7 +125,7 @@ export default function EventsPage() {
       {/* 标题栏 + 目标选择 */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">新闻事件管理</h2>
+          <h2 className="text-2xl font-semibold">新闻事件管理</h2>
           <p className="text-sm text-muted-foreground">
             {data ? `共 ${data.total} 条事件` : "加载中..."}
           </p>

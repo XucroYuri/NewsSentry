@@ -70,7 +70,7 @@ export default function DiagnosticsPage() {
       {/* 标题栏 */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">可观测性诊断</h2>
+          <h2 className="text-2xl font-semibold">可观测性诊断</h2>
           <p className="text-sm text-muted-foreground">
             部署: {d.deploy.commit} · 构建: {d.deploy.build}
           </p>
@@ -86,10 +86,10 @@ export default function DiagnosticsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">采集器</CardTitle>
-            <RadioIcon className={`h-4 w-4 ${collectorOk ? "text-emerald-500" : "text-amber-500"}`} />
+            <RadioIcon className={`h-4 w-4 ${collectorOk ? "text-success" : "text-warning"}`} />
           </CardHeader>
           <CardContent>
-            <div className={`text-2xl font-semibold ${collectorOk ? "text-emerald-500" : "text-amber-500"}`}>
+            <div className={`text-2xl font-semibold ${collectorOk ? "text-success" : "text-warning"}`}>
               {collectorOk ? "运行中" : d.collector.enabled ? "已启用" : "未启用"}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -100,10 +100,10 @@ export default function DiagnosticsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">AI Key</CardTitle>
-            <KeyIcon className={`h-4 w-4 ${d.ai_key_configured ? "text-emerald-500" : "text-destructive"}`} />
+            <KeyIcon className={`h-4 w-4 ${d.ai_key_configured ? "text-success" : "text-destructive"}`} />
           </CardHeader>
           <CardContent>
-            <div className={`text-2xl font-semibold ${d.ai_key_configured ? "text-emerald-500" : "text-destructive"}`}>
+            <div className={`text-2xl font-semibold ${d.ai_key_configured ? "text-success" : "text-destructive"}`}>
               {d.ai_key_configured ? "已配置" : "未配置"}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -115,7 +115,7 @@ export default function DiagnosticsPage() {
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">信源健康</CardTitle>
             {healthOk ? (
-              <CheckCircleIcon className="h-4 w-4 text-emerald-500" />
+              <CheckCircleIcon className="h-4 w-4 text-success" />
             ) : (
               <XCircleIcon className="h-4 w-4 text-destructive" />
             )}
@@ -132,7 +132,7 @@ export default function DiagnosticsPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">事件总数</CardTitle>
-            <DatabaseIcon className={`h-4 w-4 ${hasEvents ? "text-emerald-500" : "text-muted-foreground"}`} />
+            <DatabaseIcon className={`h-4 w-4 ${hasEvents ? "text-success" : "text-muted-foreground"}`} />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-semibold">{d.events.total.toLocaleString()}</div>
@@ -216,9 +216,9 @@ export default function DiagnosticsPage() {
         </CardHeader>
         <CardContent>
           <div className="grid gap-6 sm:grid-cols-3">
-            <div className="flex flex-col items-center gap-2 rounded-lg bg-emerald-500/10 py-6">
-              <CheckCircleIcon className="h-6 w-6 text-emerald-500" />
-              <div className="text-2xl font-bold text-emerald-500">{d.source_health.healthy}</div>
+            <div className="flex flex-col items-center gap-2 rounded-lg bg-success/10 py-6">
+              <CheckCircleIcon className="h-6 w-6 text-success" />
+              <div className="text-2xl font-bold text-success">{d.source_health.healthy}</div>
               <span className="text-xs text-muted-foreground">健康信源</span>
             </div>
             <div className="flex flex-col items-center gap-2 rounded-lg bg-destructive/10 py-6">
@@ -233,7 +233,7 @@ export default function DiagnosticsPage() {
             </div>
           </div>
           {d.source_health.total === 0 && (
-            <div className="mt-4 flex items-center gap-2 rounded-md bg-amber-500/10 px-3 py-2 text-sm text-amber-600">
+            <div className="mt-4 flex items-center gap-2 rounded-md bg-warning/10 px-3 py-2 text-sm text-warning">
               <AlertTriangleIcon className="h-4 w-4 shrink-0" />
               暂无信源健康数据。运行一次采集后生成。
             </div>

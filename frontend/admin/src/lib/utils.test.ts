@@ -172,12 +172,13 @@ describe("roleLabel", () => {
 })
 
 describe("entityTypeBadge", () => {
-  it("returns correct Tailwind classes for known types", () => {
-    expect(entityTypeBadge("person")).toContain("bg-blue-50")
-    expect(entityTypeBadge("organization")).toContain("bg-purple-50")
-    expect(entityTypeBadge("location")).toContain("bg-emerald-50")
-    expect(entityTypeBadge("event")).toContain("bg-amber-50")
-    expect(entityTypeBadge("topic")).toContain("bg-sky-50")
+  it("returns semantic Geist status classes for known types", () => {
+    for (const type of ["person", "organization", "location", "event", "topic"]) {
+      const className = entityTypeBadge(type)
+      expect(className).toContain("border")
+      expect(className).not.toMatch(/bg-(blue|purple|emerald|amber|sky)-50/)
+      expect(className).not.toMatch(/text-(blue|purple|emerald|amber|sky)-700/)
+    }
   })
 
   it("returns muted fallback for unknown types", () => {

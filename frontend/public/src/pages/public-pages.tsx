@@ -517,7 +517,7 @@ export function NewsFeedPage({
                       {formatTime(item.publishedAt)}
                     </time>
                     <div className="hidden md:grid md:justify-center">
-                      <span className="mt-4 size-2 rounded-full bg-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.18)]" />
+                      <span className="mt-4 size-2 rounded-full bg-primary shadow-[var(--shadow-primary-soft)]" />
                     </div>
                     <NewsCard item={item} returnTo={feedRoute} isNew={recentlyInsertedIds.has(item.id)} isRead={readIds.has(item.id)} />
                   </div>
@@ -2140,7 +2140,7 @@ export function SubscribePage() {
     const regionLabel = funnel.regions.find((r) => r.id === funnel.selectedRegion)?.label ?? funnel.selectedRegion
     return (
       <section className="mx-auto max-w-lg rounded-lg border bg-background px-6 py-10 text-center" aria-label="订阅成功">
-        <CheckIcon className="mx-auto size-10 text-green-500" aria-hidden="true" />
+        <CheckIcon className="mx-auto size-10 text-success" aria-hidden="true" />
         <h1 className="mt-4 text-xl font-semibold">订阅成功</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           你已订阅 <strong className="text-foreground">{regionLabel}</strong> 地区的新闻更新。

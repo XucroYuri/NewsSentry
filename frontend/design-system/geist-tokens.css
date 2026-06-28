@@ -1,0 +1,185 @@
+@font-face {
+  font-family: "Geist";
+  src: url("./fonts/Geist-Variable.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 100 900;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("./fonts/GeistMono-Variable.woff2") format("woff2");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 100 900;
+}
+
+:root {
+  color-scheme: light;
+
+  --font-geist-sans: "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-geist-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  --geist-background-100: 255 255 255;
+  --geist-background-200: 250 250 250;
+  --geist-gray-100: 242 242 242;
+  --geist-gray-200: 235 235 235;
+  --geist-gray-300: 230 230 230;
+  --geist-gray-400: 234 234 234;
+  --geist-gray-500: 201 201 201;
+  --geist-gray-600: 168 168 168;
+  --geist-gray-700: 143 143 143;
+  --geist-gray-800: 125 125 125;
+  --geist-gray-900: 77 77 77;
+  --geist-gray-1000: 23 23 23;
+  --geist-blue-700: 0 107 255;
+  --geist-red-800: 234 0 29;
+  --geist-amber-800: 255 147 0;
+  --geist-green-700: 40 169 72;
+  --geist-purple-700: 160 0 248;
+  --geist-teal-700: 0 172 150;
+
+  --background: var(--geist-background-100);
+  --foreground: var(--geist-gray-1000);
+  --card: var(--geist-background-100);
+  --card-foreground: var(--geist-gray-1000);
+  --primary: var(--geist-gray-1000);
+  --primary-foreground: var(--geist-background-100);
+  --secondary: var(--geist-background-200);
+  --secondary-foreground: var(--geist-gray-1000);
+  --muted: var(--geist-gray-100);
+  --muted-foreground: var(--geist-gray-900);
+  --accent: var(--geist-gray-100);
+  --accent-foreground: var(--geist-gray-1000);
+  --destructive: var(--geist-red-800);
+  --destructive-foreground: 255 255 255;
+  --border: var(--geist-gray-300);
+  --input: var(--geist-gray-300);
+  --ring: var(--geist-blue-700);
+  --success: var(--geist-green-700);
+  --success-foreground: 255 255 255;
+  --warning: var(--geist-amber-800);
+  --warning-foreground: 23 23 23;
+  --info: var(--geist-blue-700);
+  --info-foreground: 255 255 255;
+  --feature: var(--geist-purple-700);
+  --feature-foreground: 255 255 255;
+
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+  --radius: var(--radius-md);
+
+  --shadow-raised: 0 2px 2px rgb(0 0 0 / 0.04);
+  --shadow-popover: 0 1px 1px rgb(0 0 0 / 0.02), 0 4px 8px -4px rgb(0 0 0 / 0.04), 0 16px 24px -8px rgb(0 0 0 / 0.06);
+  --shadow-modal: 0 1px 1px rgb(0 0 0 / 0.02), 0 8px 16px -4px rgb(0 0 0 / 0.04), 0 24px 32px -8px rgb(0 0 0 / 0.06);
+  --shadow-primary-soft: 0 0 0 3px rgb(var(--primary) / 0.14);
+  --ease-geist: cubic-bezier(0.175, 0.885, 0.32, 1.1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    color-scheme: dark;
+
+    --geist-background-100: 0 0 0;
+    --geist-background-200: 0 0 0;
+    --geist-gray-100: 26 26 26;
+    --geist-gray-200: 31 31 31;
+    --geist-gray-300: 41 41 41;
+    --geist-gray-400: 46 46 46;
+    --geist-gray-500: 69 69 69;
+    --geist-gray-600: 135 135 135;
+    --geist-gray-700: 143 143 143;
+    --geist-gray-800: 125 125 125;
+    --geist-gray-900: 160 160 160;
+    --geist-gray-1000: 237 237 237;
+    --geist-blue-700: 0 110 254;
+    --geist-red-800: 226 22 42;
+    --geist-amber-800: 255 147 0;
+    --geist-green-700: 0 172 58;
+    --geist-purple-700: 148 64 213;
+    --geist-teal-700: 0 170 149;
+
+    --background: var(--geist-background-100);
+    --foreground: var(--geist-gray-1000);
+    --card: var(--geist-background-100);
+    --card-foreground: var(--geist-gray-1000);
+    --primary: var(--geist-gray-1000);
+    --primary-foreground: var(--geist-background-100);
+    --secondary: var(--geist-gray-100);
+    --secondary-foreground: var(--geist-gray-1000);
+    --muted: var(--geist-gray-100);
+    --muted-foreground: var(--geist-gray-900);
+    --accent: var(--geist-gray-200);
+    --accent-foreground: var(--geist-gray-1000);
+    --destructive: var(--geist-red-800);
+    --destructive-foreground: 255 255 255;
+    --border: var(--geist-gray-300);
+    --input: var(--geist-gray-400);
+    --ring: var(--geist-blue-700);
+    --success: var(--geist-green-700);
+    --success-foreground: 255 255 255;
+    --warning: var(--geist-amber-800);
+    --warning-foreground: 0 0 0;
+    --info: var(--geist-blue-700);
+    --info-foreground: 255 255 255;
+    --feature: var(--geist-purple-700);
+    --feature-foreground: 255 255 255;
+    --shadow-primary-soft: 0 0 0 3px rgb(var(--primary) / 0.16);
+  }
+}
+
+:root.dark {
+  color-scheme: dark;
+
+  --geist-background-100: 0 0 0;
+  --geist-background-200: 0 0 0;
+  --geist-gray-100: 26 26 26;
+  --geist-gray-200: 31 31 31;
+  --geist-gray-300: 41 41 41;
+  --geist-gray-400: 46 46 46;
+  --geist-gray-500: 69 69 69;
+  --geist-gray-600: 135 135 135;
+  --geist-gray-700: 143 143 143;
+  --geist-gray-800: 125 125 125;
+  --geist-gray-900: 160 160 160;
+  --geist-gray-1000: 237 237 237;
+  --geist-blue-700: 0 110 254;
+  --geist-red-800: 226 22 42;
+  --geist-amber-800: 255 147 0;
+  --geist-green-700: 0 172 58;
+  --geist-purple-700: 148 64 213;
+  --geist-teal-700: 0 170 149;
+
+  --background: var(--geist-background-100);
+  --foreground: var(--geist-gray-1000);
+  --card: var(--geist-background-100);
+  --card-foreground: var(--geist-gray-1000);
+  --primary: var(--geist-gray-1000);
+  --primary-foreground: var(--geist-background-100);
+  --secondary: var(--geist-gray-100);
+  --secondary-foreground: var(--geist-gray-1000);
+  --muted: var(--geist-gray-100);
+  --muted-foreground: var(--geist-gray-900);
+  --accent: var(--geist-gray-200);
+  --accent-foreground: var(--geist-gray-1000);
+  --destructive: var(--geist-red-800);
+  --destructive-foreground: 255 255 255;
+  --border: var(--geist-gray-300);
+  --input: var(--geist-gray-400);
+  --ring: var(--geist-blue-700);
+  --success: var(--geist-green-700);
+  --success-foreground: 255 255 255;
+  --warning: var(--geist-amber-800);
+  --warning-foreground: 0 0 0;
+  --info: var(--geist-blue-700);
+  --info-foreground: 255 255 255;
+  --feature: var(--geist-purple-700);
+  --feature-foreground: 255 255 255;
+  --shadow-primary-soft: 0 0 0 3px rgb(var(--primary) / 0.16);
+}
+
+:root.light {
+  color-scheme: light;
+}

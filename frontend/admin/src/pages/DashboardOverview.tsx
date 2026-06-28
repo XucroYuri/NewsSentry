@@ -63,7 +63,7 @@ export default function DashboardOverview() {
       {/* 标题栏 */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">管理总览</h2>
+          <h2 className="text-2xl font-semibold">管理总览</h2>
           <p className="text-sm text-muted-foreground">
             当前目标: {d.target_id || "未选择"} | 生成时间:{" "}
             {new Date(d.generated_at).toLocaleString("zh-CN")}
@@ -80,10 +80,10 @@ export default function DashboardOverview() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">采集器</CardTitle>
-            <RadioIcon className={`h-4 w-4 ${collector.enabled ? "text-primary" : "text-amber-500"}`} />
+            <RadioIcon className={`h-4 w-4 ${collector.enabled ? "text-success" : "text-warning"}`} />
           </CardHeader>
           <CardContent>
-            <div className={`text-2xl font-semibold ${collector.enabled ? "text-primary" : "text-amber-500"}`}>
+            <div className={`text-2xl font-semibold ${collector.enabled ? "text-success" : "text-warning"}`}>
               {collector.enabled ? "已启用" : "未启用"}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -193,7 +193,7 @@ export default function DashboardOverview() {
                     <span
                       className={`inline-block h-2 w-2 rounded-full ${
                         !item.status || item.status === "ok" || item.status === "healthy"
-                          ? "bg-emerald-500"
+                          ? "bg-success"
                           : "bg-destructive"
                       }`}
                     />
@@ -225,7 +225,7 @@ export default function DashboardOverview() {
                     <span
                       className={`inline-block h-2 w-2 rounded-full ${
                         run.status === "ok" || run.status === "success"
-                          ? "bg-emerald-500"
+                          ? "bg-success"
                           : "bg-destructive"
                       }`}
                     />

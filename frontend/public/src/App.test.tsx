@@ -586,7 +586,7 @@ describe("Phase 84 public portal app", () => {
     )
   })
 
-  it("uses the compact burgundy theme without cyan or blue public-reader accents", async () => {
+  it("uses the Geist neutral theme without legacy red or one-off blue reader accents", async () => {
     installFetchMock()
 
     const { container } = render(<App />)
@@ -596,9 +596,12 @@ describe("Phase 84 public portal app", () => {
     expect(renderedMarkup).not.toMatch(/cyan|text-blue|bg-blue|border-blue/i)
 
     const css = readFileSync("src/index.css", "utf8")
-    expect(css).toContain("--primary: 356 64% 37%")
-    expect(css).toContain("--primary: 356 58% 58%")
-    expect(css).not.toMatch(/188 86% 53%|188 80% 12%|#22d3ee|#0891b2|cyan|--blue|--teal/i)
+    expect(css).toContain("../../design-system/geist-tokens.css")
+    const tokenCss = readFileSync("../design-system/geist-tokens.css", "utf8")
+    expect(tokenCss).toContain("--geist-gray-1000: 23 23 23")
+    expect(tokenCss).toContain("--geist-gray-1000: 237 237 237")
+    expect(tokenCss).toContain("--primary: var(--geist-gray-1000)")
+    expect(tokenCss).not.toMatch(/356 64% 37%|356 58% 58%|188 86% 53%|188 80% 12%|#22d3ee|#0891b2|cyan/i)
   })
 
   it("uses compact non-explanatory loading states on public reader pages", async () => {

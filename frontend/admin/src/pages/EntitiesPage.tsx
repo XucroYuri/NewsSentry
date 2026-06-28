@@ -258,7 +258,7 @@ export default function EntitiesPage() {
                   </TableHeader>
                   <TableBody>
                     {entities.map((e) => (
-                      <TableRow key={e.id} className={e.needs_review ? "bg-amber-50/50" : ""}>
+                      <TableRow key={e.id} className={e.needs_review ? "bg-warning/10" : ""}>
                         <TableCell className="font-medium">
                           <span>{e.canonical_name}</span>
                           {e.needs_review && (

@@ -16,15 +16,15 @@ interface NotificationToastProps {
 }
 
 const SENTIMENT_ICONS: Record<string, { icon: typeof AlertCircleIcon; color: string }> = {
-  positive: { icon: CheckCircle2Icon, color: "text-green-500" },
-  negative: { icon: AlertCircleIcon, color: "text-red-500" },
-  very_negative: { icon: AlertCircleIcon, color: "text-red-600" },
+  positive: { icon: CheckCircle2Icon, color: "text-success" },
+  negative: { icon: AlertCircleIcon, color: "text-destructive" },
+  very_negative: { icon: AlertCircleIcon, color: "text-destructive" },
 }
 
 function getSentimentConfig(sentiment: string) {
   return SENTIMENT_ICONS[sentiment.toLowerCase()] ?? {
     icon: AlertCircleIcon,
-    color: "text-blue-500",
+    color: "text-info",
   }
 }
 

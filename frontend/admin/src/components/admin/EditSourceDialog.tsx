@@ -140,7 +140,7 @@ export default function EditSourceDialog({
           <div className="grid grid-cols-[100px_1fr] items-center gap-4">
             <label className="text-sm font-medium">可信度</label>
             <select
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
               value={credibilityBase}
               onChange={(e) => setCredibilityBase(Number(e.target.value))}
               disabled={saving}
