@@ -77,6 +77,48 @@ async function recordRun(
     .run();
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function compactTaskDetails(details: Record<string, unknown>): Record<string, unknown> {
+  const compact: Record<string, unknown> = { ...details };
+  const body = compact.body;
+  if (isRecord(body)) {
+    const bodySummary = isRecord(body.summary) ? body.summary : {};
+    const rawUpdates = body.updates;
+    const updates_count =
+      Array.isArray(rawUpdates)
+        ? rawUpdates.length
+        : typeof bodySummary.updates === "number"
+          ? bodySummary.updates
+          : undefined;
+    compact.body = {
+      status: body.status,
+      task: body.task,
+      run_id: body.run_id,
+      started_at: body.started_at,
+      finished_at: body.finished_at,
+      error: body.error ?? null,
+      summary: {
+        ...bodySummary,
+        ...(updates_count === undefined ? {} : { updates_count }),
+        target_results: Array.isArray(bodySummary.target_results)
+          ? bodySummary.target_results.slice(0, 20)
+          : bodySummary.target_results,
+      },
+    };
+  }
+  const serialized = JSON.stringify(compact);
+  if (serialized.length <= 32_000) return compact;
+  return {
+    status: compact.status,
+    http_status: compact.http_status,
+    truncated: true,
+    original_bytes: serialized.length,
+  };
+}
+
 async function callContainerInternalTask(
   env: ScheduledEnv,
   task: Exclude<ScheduledTask, "refresh-public-quality">,
@@ -102,7 +144,12 @@ async function callContainerInternalTask(
   } catch {
     body = responseText;
   }
-  return { status: response.ok ? "ok" : "error", http_status: response.status, body };
+  const bodyStatus = isRecord(body) && typeof body.status === "string" ? body.status : null;
+  return {
+    status: response.ok ? (bodyStatus ?? "ok") : "error",
+    http_status: response.status,
+    body,
+  };
 }
 
 async function refreshPublicQuality(db: D1Database): Promise<Record<string, unknown>> {
@@ -155,9 +202,10 @@ export async function runScheduledCloudflareTask(
       task === "refresh-public-quality"
         ? await refreshPublicQuality(env.DB)
         : await callContainerInternalTask(env, task);
+    const compactDetails = compactTaskDetails(details);
     const status =
-      typeof details.status === "string" && details.status ? details.status : "ok";
-    await recordRun(env.DB, runId, task, status, startedAt, details);
+      typeof compactDetails.status === "string" && compactDetails.status ? compactDetails.status : "ok";
+    await recordRun(env.DB, runId, task, status, startedAt, compactDetails);
   } catch (error) {
     await recordRun(env.DB, runId, task, "error", startedAt, {
       message: error instanceof Error ? error.message : String(error),

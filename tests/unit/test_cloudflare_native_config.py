@@ -167,8 +167,13 @@ def test_cloudflare_scheduled_ops_are_configured() -> None:
     assert "ops_runs" in schema_sql
     assert "lock_until" in schema_sql
     assert wrangler_toml["triggers"]["crons"] == ["*/15 * * * *", "7,37 * * * *", "11 * * * *"]
-    assert 'details.status === "string"' in scheduled_ts
+    assert 'compactDetails.status === "string"' in scheduled_ts
     assert "await recordRun(env.DB, runId, task, status" in scheduled_ts
+    assert "compactTaskDetails(details)" in scheduled_ts
+    assert "updates_count" in scheduled_ts
+    assert "target_results" in scheduled_ts
+    assert "/api/v1/internal/cloudflare/${task}" in scheduled_ts
+    assert '"X-News-Sentry-Internal-Task": task' in scheduled_ts
 
 
 def test_cloudflare_worker_exposes_public_targets_and_regions_contracts() -> None:
@@ -203,6 +208,7 @@ def test_container_proxy_requires_cloudflare_access_identity() -> None:
     assert "NewsSentryContainer" in index_ts
     assert '"/api/v1/admin/"' in access_ts
     assert '"/api/v1/auth/"' in access_ts
+    assert "/api/v1/internal/cloudflare" not in access_ts
     assert '"Cf-Access-Authenticated-User-Email"' in access_ts
     assert '"Cf-Access-Jwt-Assertion"' not in access_ts
     assert '"CF-Access-Client-Id"' not in access_ts
