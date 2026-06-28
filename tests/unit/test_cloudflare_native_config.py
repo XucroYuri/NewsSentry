@@ -167,6 +167,8 @@ def test_cloudflare_scheduled_ops_are_configured() -> None:
     assert "ops_runs" in schema_sql
     assert "lock_until" in schema_sql
     assert wrangler_toml["triggers"]["crons"] == ["*/15 * * * *", "7,37 * * * *", "11 * * * *"]
+    assert 'details.status === "string"' in scheduled_ts
+    assert "await recordRun(env.DB, runId, task, status" in scheduled_ts
 
 
 def test_cloudflare_worker_exposes_public_targets_and_regions_contracts() -> None:

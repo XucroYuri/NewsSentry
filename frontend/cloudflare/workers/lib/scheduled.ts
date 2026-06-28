@@ -155,7 +155,9 @@ export async function runScheduledCloudflareTask(
       task === "refresh-public-quality"
         ? await refreshPublicQuality(env.DB)
         : await callContainerInternalTask(env, task);
-    await recordRun(env.DB, runId, task, "ok", startedAt, details);
+    const status =
+      typeof details.status === "string" && details.status ? details.status : "ok";
+    await recordRun(env.DB, runId, task, status, startedAt, details);
   } catch (error) {
     await recordRun(env.DB, runId, task, "error", startedAt, {
       message: error instanceof Error ? error.message : String(error),
