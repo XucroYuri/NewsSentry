@@ -31,6 +31,11 @@ def test_worker_health_reads_cloudflare_d1_events_table() -> None:
 
     assert "FROM events" in health_ts
     assert "event_index" not in health_ts
+    assert "public_quality" in health_ts
+    assert "summary_ready" in health_ts
+    assert "recommendation_ready" in health_ts
+    assert "featured_total" in health_ts
+    assert "latest_public_at" in health_ts
 
 
 def test_public_facets_contract_includes_related_tags() -> None:
@@ -122,6 +127,46 @@ def test_cloudflare_bootstrap_reports_matching_featured_total() -> None:
 
     assert "SELECT COUNT(*) AS total FROM events ${newsFilters.sql}" in bootstrap_ts
     assert "total: newsCountResult?.total ?? newsRows.length" in bootstrap_ts
+
+
+def test_cloudflare_public_read_endpoints_use_worker_cache_and_head() -> None:
+    index_ts = _read("workers/index.ts")
+    router_ts = _read("workers/lib/router.ts")
+    news_ts = _read("workers/api/news.ts")
+    bootstrap_ts = _read("workers/api/bootstrap.ts")
+    facets_ts = _read("workers/api/facets.ts")
+    targets_ts = _read("workers/api/targets.ts")
+    cache_ts = _read("workers/lib/public-read-cache.ts")
+
+    assert "ctx: ExecutionContext" in index_ts
+    assert "dispatch(request, env.DB, ctx)" in index_ts
+    assert "rawMethod === \"HEAD\"" in router_ts
+    assert "new Response(null" in router_ts
+    assert "maybeServeCachedPublicRead" in news_ts
+    assert "maybeStoreCachedPublicRead" in news_ts
+    assert "X-News-Sentry-Worker-Cache" in cache_ts
+    assert "public-read:news:featured" in news_ts
+    assert "public-read:news:all" in news_ts
+    assert "public-read:bootstrap:featured" in bootstrap_ts
+    assert "public-read:facets" in facets_ts
+    assert "public-read:regions" in targets_ts
+
+
+def test_cloudflare_scheduled_ops_are_configured() -> None:
+    index_ts = _read("workers/index.ts")
+    scheduled_ts = _read("workers/lib/scheduled.ts")
+    schema_sql = _read("db/schema.sql")
+    wrangler_toml = tomllib.loads(_read("wrangler.toml"))
+
+    assert "async scheduled(" in index_ts
+    assert "runScheduledCloudflareTask" in index_ts
+    assert "collect-cycle" in scheduled_ts
+    assert "public-translation-cycle" in scheduled_ts
+    assert "refresh-public-quality" in scheduled_ts
+    assert "ops_state" in schema_sql
+    assert "ops_runs" in schema_sql
+    assert "lock_until" in schema_sql
+    assert wrangler_toml["triggers"]["crons"] == ["*/15 * * * *", "7,37 * * * *", "11 * * * *"]
 
 
 def test_cloudflare_worker_exposes_public_targets_and_regions_contracts() -> None:
@@ -220,4 +265,29 @@ def test_worker_write_endpoints_require_cloudflare_access_identity() -> None:
     assert '"/api/v1/events/import"' in access_ts
     assert '"/api/v1/webhook"' in access_ts
     assert "handleWorkerWriteAccess(request)" in index_ts
-    assert "dispatch(request, env.DB)" in index_ts
+    assert "dispatch(request, env.DB, ctx)" in index_ts
+
+
+def test_pages_headers_cache_public_shell_for_short_ttl() -> None:
+    headers = (ROOT / "frontend/public/public/_headers").read_text(encoding="utf-8")
+    public_shell_cache = (
+        "Cache-Control: public, max-age=60, stale-while-revalidate=300, no-transform"
+    )
+
+    assert f"/\n  {public_shell_cache}" in headers
+    assert f"/public-app*\n  {public_shell_cache}" in headers
+    assert "/assets/*\n  Cache-Control: public, max-age=31536000, immutable" in headers
+
+
+def test_deploy_workflow_runs_live_quality_gate_and_translation_backfill_exists() -> None:
+    deploy_yml = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+    workflow = ROOT / ".github/workflows/public-translation-backfill.yml"
+
+    assert "tools/cloudflare_live_quality_check.py" in deploy_yml
+    assert "--min-summary-ready" in deploy_yml
+    assert "HEAD probe" in deploy_yml or "head_probe" in deploy_yml
+    assert workflow.exists()
+    content = workflow.read_text(encoding="utf-8")
+    assert "workflow_dispatch" in content
+    assert "execute" in content
+    assert "tools/cloudflare_d1_public_translation_backfill.py" in content

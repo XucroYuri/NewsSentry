@@ -27,6 +27,7 @@ import { handleWebhook, handleImport } from "./api/webhook";
 import { handleContainerProxy, shouldProxyToContainer } from "./api/proxy";
 import { internalError } from "./lib/errors";
 import { handleWorkerWriteAccess } from "./lib/access";
+import { runScheduledCloudflareTask } from "./lib/scheduled";
 
 interface Env {
   DB: D1Database;
@@ -121,7 +122,7 @@ registerRoute("POST", "/api/v1/events/import", handleImport);
 
 // ── Worker entry ───────────────────────────────────────────────────────────
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
       const url = new URL(request.url);
       let response: Response;
@@ -129,12 +130,15 @@ export default {
         response = await handleContainerProxy(request, env);
       } else {
         const workerWriteAccess = handleWorkerWriteAccess(request);
-        response = workerWriteAccess ?? (await dispatch(request, env.DB));
+        response = workerWriteAccess ?? (await dispatch(request, env.DB, ctx));
       }
       return withSecurityHeaders(response);
     } catch (err) {
       console.error("worker unhandled error:", err);
       return withSecurityHeaders(internalError());
     }
+  },
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(runScheduledCloudflareTask(controller, env));
   },
 };

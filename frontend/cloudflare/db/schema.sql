@@ -93,5 +93,22 @@ CREATE TABLE IF NOT EXISTS source_health (
     updated_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Cloudflare-native ops state for scheduled collection/translation runs.
+CREATE TABLE IF NOT EXISTS ops_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')),
+    lock_until TEXT
+);
+
+CREATE TABLE IF NOT EXISTS ops_runs (
+    run_id TEXT PRIMARY KEY,
+    task TEXT NOT NULL,
+    status TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    details_json TEXT DEFAULT '{}'
+);
+
 -- 用户/Token 表（简化为 Workers 静态配置，暂不需要）
 -- 认证将在后续阶段通过 Cloudflare Access 实现

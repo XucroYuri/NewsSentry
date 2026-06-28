@@ -17,6 +17,9 @@ routes = [
 [vars]
 NEWS_SENTRY_RUNTIME = "cloudflare-native"
 
+[triggers]
+crons = ["*/15 * * * *", "7,37 * * * *", "11 * * * *"]
+
 [secrets]
 required = [
   "GEMINI_API_KEY",
