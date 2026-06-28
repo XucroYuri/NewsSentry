@@ -78,6 +78,8 @@ jobs:
 
       - name: Admin frontend build
         working-directory: frontend/admin
+        env:
+          FRONTEND_OUTPUT_SUBDIR: ${{ github.workspace }}/src/news_sentry/static
         run: npm run build
 
       - name: Admin E2E Test (Playwright)
@@ -129,6 +131,7 @@ jobs:
         run: |
           set -euo pipefail
           test -f src/news_sentry/static/public_app/index.html
+          test -f src/news_sentry/static/admin/index.html
           python -m pytest tests/e2e/ -m e2e -q --tb=short --timeout=60 -x
 
   cloudflare-data:

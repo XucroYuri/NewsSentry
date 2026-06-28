@@ -130,6 +130,7 @@ def test_deploy_workflow_builds_fastapi_static_assets_before_e2e() -> None:
 
     assert "FRONTEND_OUTPUT_SUBDIR: ${{ github.workspace }}/src/news_sentry/static" in workflow
     assert "src/news_sentry/static/public_app" in workflow
+    assert "src/news_sentry/static/admin" in workflow
 
 
 def test_deploy_workflow_requires_real_cloudflare_state_evidence() -> None:
