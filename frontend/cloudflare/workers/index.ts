@@ -16,6 +16,7 @@
  * Pydantic response_model 完全一致（参见 lib/contracts.ts 中的类型定义）。
  */
 
+import { Container } from "@cloudflare/containers";
 import { registerRoute, dispatch } from "./lib/router";
 import { handleHealth } from "./api/health";
 import { handleFacets } from "./api/facets";
@@ -28,7 +29,22 @@ import { handleWorkerWriteAccess } from "./lib/access";
 
 interface Env {
   DB: D1Database;
-  BACKEND_ORIGIN?: string;
+  NEWS_SENTRY_CONTAINER?: DurableObjectNamespace;
+}
+
+export { ContainerProxy } from "@cloudflare/containers";
+
+export class NewsSentryContainer extends Container {
+  defaultPort = 8000;
+  sleepAfter = "30m";
+  enableInternet = true;
+  envVars = {
+    NEWSSENTRY_DEPLOYMENT_ENV: "cloudflare-container",
+    NEWSSENTRY_PROFILE: "cloudflare",
+    NEWSSENTRY_AUTO_COLLECT: "0",
+    NEWSSENTRY_PUBLIC_TRANSLATION: "0",
+    NEWSSENTRY_LOG_LEVEL: "INFO",
+  };
 }
 
 // ── Route registration ────────────────────────────────────────────────────

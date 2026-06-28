@@ -29,14 +29,15 @@
 > 其 Twitter/Reddit/HN 采集功能已由轻量替代方案覆盖。
 > OpenCLI 历史设计见 [ADR-0011](./adr/0011-opencli-baseline-toolmanifest.md)（已弃用）。
 
-### 2.1 RSS-Bridge Docker Sidecar（社媒采集）
+### 2.1 RSS-Bridge Container Bridge（社媒采集）
 
 [RSS-Bridge](https://github.com/RSS-Bridge/rss-bridge)（PHP Docker 镜像）将 Twitter/X、Reddit、YouTube 等社媒平台的内容转换为 RSS feed，由 News Sentry 的 RSSCollector 统一消费。
 
-- **部署方式：** Docker Compose sidecar（`docker-compose.yml`）
+- **部署方式：** 生产迁移期使用 Cloudflare Containers；本地开发仍可用 Docker Compose sidecar（`docker-compose.yml`）
 - **采集路径：** RSS-Bridge → RSS feed URL → News Sentry `RSSCollector` → NewsEvent
 - **零 Token 消耗：** 社媒采集完全通过 RSS 管道，不消耗 AI provider token
 - **会话隔离：** 需要登录的平台通过 RSS-Bridge 的 bridge 配置管理，不进 News Sentry 配置
+- **VPS 边界：** RSS-Bridge 不得再作为 VPS/Tunnel 运行依赖；若某个社媒桥无法在 Cloudflare Containers 稳定运行，应降级为外部 SaaS/公开 RSS 源或 Worker-native 采集器候选，而不是恢复 VPS
 
 ### 2.2 原生 Reddit Collector
 
@@ -132,7 +133,7 @@ News Sentry v2 使用内置 AI provider chain，无需外部 Agent 框架：
 
 | 外部项目 | 最低版本 | 安装命令 | 用途 | 升级审查要求 |
 |---|---|---|---|---|
-| RSS-Bridge | `latest` Docker image | `docker pull rssbridge/rss-bridge` | 社媒 RSS 桥接 | Docker Compose 管理，不锁定版本 |
+| RSS-Bridge | `latest` Docker image | Cloudflare Containers 或本地 `docker pull rssbridge/rss-bridge` | 社媒 RSS 桥接 | 生产走 Cloudflare Containers，本地开发可用 Docker Compose，不锁定版本 |
 | Python | 3.11+ | 系统包管理器或 pyenv | 运行时 | 语言特性兼容性测试 |
 | Docker | 24.0+ | 系统包管理器 | 容器化部署 | CI 测试 |
 | Node.js | 18+ (仅前端构建) | 系统包管理器或 nvm | 前端 TypeScript + Vite 构建 | 前端 build 通过即可 |

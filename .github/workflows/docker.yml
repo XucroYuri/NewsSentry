@@ -5,8 +5,8 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
-# 日常部署走 deploy.yml（venv + systemd，不用 Docker）
-# 本 workflow 仅用于构建正式 tag 的 Docker 镜像，推送到 GHCR
+# 日常部署走 deploy.yml（Cloudflare Pages + Workers + D1/R2）
+# 本 workflow 仅用于构建正式 tag 的 Docker 镜像，推送到 GHCR；Cloudflare Containers 可复用该镜像/ Dockerfile
 
 env:
   REGISTRY: ghcr.io

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import tomllib
 from pathlib import Path
@@ -85,14 +86,63 @@ def test_container_proxy_requires_cloudflare_access_identity() -> None:
 
     assert "shouldProxyToContainer" in index_ts
     assert "handleContainerProxy(request, env)" in index_ts
+    assert "NewsSentryContainer" in index_ts
     assert '"/api/v1/admin/"' in access_ts
     assert '"/api/v1/auth/"' in access_ts
     assert '"Cf-Access-Authenticated-User-Email"' in access_ts
     assert '"Cf-Access-Jwt-Assertion"' in access_ts
     assert "Cloudflare Access authentication required" in access_ts
-    assert "BACKEND_ORIGIN" in proxy_ts
-    assert "fetch(new Request(upstream.toString()" in proxy_ts
-    assert wrangler_toml["vars"]["BACKEND_ORIGIN"] == "https://news-sentry.com"
+    assert "NEWS_SENTRY_CONTAINER" in proxy_ts
+    assert "getContainer(env.NEWS_SENTRY_CONTAINER" in proxy_ts
+    assert "BACKEND_ORIGIN" not in proxy_ts
+    assert "https://news-sentry.com" not in _read("wrangler.toml")
+    assert "BACKEND_ORIGIN" not in wrangler_toml.get("vars", {})
+    assert "BACKEND_ORIGIN" not in wrangler_toml["env"]["production"].get("vars", {})
+    assert wrangler_toml["containers"][0]["class_name"] == "NewsSentryContainer"
+    assert wrangler_toml["containers"][0]["image"] == "../../Dockerfile"
+    assert wrangler_toml["env"]["production"]["containers"][0]["image"] == "../../Dockerfile"
+    assert wrangler_toml["durable_objects"]["bindings"][0] == {
+        "name": "NEWS_SENTRY_CONTAINER",
+        "class_name": "NewsSentryContainer",
+    }
+
+
+def test_production_cloudflare_config_has_no_vps_origin_fallback() -> None:
+    wrangler_text = _read("wrangler.toml")
+    index_ts = _read("workers/index.ts")
+    proxy_ts = _read("workers/api/proxy.ts")
+
+    forbidden = [
+        "BACKEND_ORIGIN",
+        "BWH",
+        "BWH_HOST",
+        "BWH_SSH",
+        "174.137.51.201",
+        "systemd",
+        "ssh-action",
+        "https://news-sentry.com",
+    ]
+    combined = "\n".join([wrangler_text, index_ts, proxy_ts])
+    for token in forbidden:
+        assert token not in combined
+
+
+def test_cloudflare_package_deploy_prod_targets_custom_domain_worker() -> None:
+    package_json = json.loads((CLOUDFLARE_DIR / "package.json").read_text(encoding="utf-8"))
+
+    assert package_json["scripts"]["deploy:prod"] == 'wrangler deploy --env=""'
+
+
+def test_cloudflare_native_runbook_records_performance_first_cutover_strategy() -> None:
+    runbook = (ROOT / "docs/deployment/cloudflare-native-vps-removal.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Worker + D1" in runbook
+    assert "Cloudflare Containers" in runbook
+    assert "VPS is not a runtime dependency" in runbook
+    assert "performance-first" in runbook
+    assert "cutover gates" in runbook
 
 
 def test_worker_write_endpoints_require_cloudflare_access_identity() -> None:

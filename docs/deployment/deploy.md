@@ -1,6 +1,7 @@
 # News Sentry 部署文档
 
 > 版本: v2.0.0 | 更新: 2026-06-25 | 适用于 main 分支
+> Legacy notice: this document describes the former VPS/systemd deployment path. Current production migration authority is `docs/deployment/cloudflare-native-vps-removal.md`; VPS is no longer a runtime dependency.
 
 ---
 
