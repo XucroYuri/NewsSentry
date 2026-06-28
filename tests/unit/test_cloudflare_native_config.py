@@ -122,6 +122,21 @@ def test_cloudflare_d1_has_public_featured_index() -> None:
     assert "events(pipeline_stage, value_score DESC, published_at DESC)" in schema_sql
 
 
+def test_cloudflare_d1_has_public_read_snapshot_table() -> None:
+    schema_sql = _read("db/schema.sql")
+
+    assert "CREATE TABLE IF NOT EXISTS public_read_snapshots" in schema_sql
+    for column in (
+        "key TEXT PRIMARY KEY",
+        "payload_json TEXT NOT NULL",
+        "generated_at TEXT NOT NULL",
+        "source_latest_public_at TEXT",
+        "item_count INTEGER DEFAULT 0",
+        "payload_bytes INTEGER DEFAULT 0",
+    ):
+        assert column in schema_sql
+
+
 def test_cloudflare_bootstrap_reports_matching_featured_total() -> None:
     bootstrap_ts = _read("workers/api/bootstrap.ts")
 
@@ -152,6 +167,48 @@ def test_cloudflare_public_read_endpoints_use_worker_cache_and_head() -> None:
     assert "public-read:regions" in targets_ts
 
 
+def test_cloudflare_public_read_endpoints_use_snapshots_before_queries() -> None:
+    news_ts = _read("workers/api/news.ts")
+    bootstrap_ts = _read("workers/api/bootstrap.ts")
+    facets_ts = _read("workers/api/facets.ts")
+    targets_ts = _read("workers/api/targets.ts")
+    snapshots_ts = _read("workers/lib/public-read-snapshots.ts")
+    session_ts = _read("workers/lib/public-read-session.ts")
+
+    assert "readPublicSnapshot" in news_ts
+    assert "NEWS_FEATURED_SNAPSHOT_KEY" in news_ts
+    assert "NEWS_ALL_SNAPSHOT_KEY" in news_ts
+    assert "readPublicSnapshot" in bootstrap_ts
+    assert "BOOTSTRAP_FEATURED_SNAPSHOT_KEY" in bootstrap_ts
+    assert "readPublicSnapshot" in facets_ts
+    assert "FACETS_SNAPSHOT_KEY" in facets_ts
+    assert "readPublicSnapshot" in targets_ts
+    assert "REGIONS_ACTIVE_SNAPSHOT_KEY" in targets_ts
+
+    for key in (
+        "news:featured:v1:page_size=20",
+        "news:all:v1:page_size=20",
+        "bootstrap:featured:v1:page_size=20",
+        "facets:v1",
+        "regions:active:v1",
+    ):
+        assert key in snapshots_ts
+
+    assert "X-News-Sentry-Snapshot" in snapshots_ts
+    assert 'withSession("first-unconstrained")' in session_ts
+    assert "createPublicReadSession" in session_ts
+    assert "LIMIT 21" in snapshots_ts
+    assert "const pageRows = rows.slice(0, 20)" in snapshots_ts
+    assert "rows.length > 20" in snapshots_ts
+
+
+def test_cloudflare_scheduled_refreshes_public_read_snapshots() -> None:
+    scheduled_ts = _read("workers/lib/scheduled.ts")
+
+    assert "refreshPublicReadSnapshots" in scheduled_ts
+    assert "await refreshPublicReadSnapshots(env.DB)" in scheduled_ts
+
+
 def test_cloudflare_scheduled_ops_are_configured() -> None:
     index_ts = _read("workers/index.ts")
     scheduled_ts = _read("workers/lib/scheduled.ts")
@@ -169,11 +226,24 @@ def test_cloudflare_scheduled_ops_are_configured() -> None:
     assert wrangler_toml["triggers"]["crons"] == ["*/15 * * * *", "7,37 * * * *", "11 * * * *"]
     assert 'compactDetails.status === "string"' in scheduled_ts
     assert "await recordRun(env.DB, runId, task, status" in scheduled_ts
-    assert "compactTaskDetails(details)" in scheduled_ts
+    assert "compactTaskDetails({ ...details, snapshots: snapshotRefresh })" in scheduled_ts
     assert "updates_count" in scheduled_ts
     assert "target_results" in scheduled_ts
     assert "/api/v1/internal/cloudflare/${task}" in scheduled_ts
     assert '"X-News-Sentry-Internal-Task": task' in scheduled_ts
+
+
+def test_cloudflare_worker_observability_is_enabled() -> None:
+    wrangler_toml = tomllib.loads(_read("wrangler.toml"))
+
+    observability = wrangler_toml["observability"]
+    assert observability["enabled"] is True
+    assert observability["head_sampling_rate"] == 0.1
+    assert observability["logs"]["enabled"] is True
+    assert observability["logs"]["invocation_logs"] is True
+    assert observability["logs"]["persist"] is True
+    assert observability["traces"]["enabled"] is True
+    assert observability["traces"]["persist"] is True
 
 
 def test_cloudflare_worker_exposes_public_targets_and_regions_contracts() -> None:

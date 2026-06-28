@@ -20,6 +20,21 @@ NEWS_SENTRY_RUNTIME = "cloudflare-native"
 [triggers]
 crons = ["*/15 * * * *", "7,37 * * * *", "11 * * * *"]
 
+[observability]
+enabled = true
+head_sampling_rate = 0.1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1.0
+invocation_logs = true
+persist = true
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 0.1
+persist = true
+
 [secrets]
 required = [
   "GEMINI_API_KEY",

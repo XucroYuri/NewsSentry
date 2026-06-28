@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -12,12 +13,17 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+_NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
 
 @dataclass(frozen=True)
 class QualityThresholds:
     min_featured: int = 100
     min_summary_ready: int = 500
     max_latest_age_hours: int = 24
+    max_featured_ttfb_ms: int = 700
+    max_bootstrap_ttfb_ms: int = 700
+    max_facets_ttfb_ms: int = 700
 
 
 @dataclass(frozen=True)
@@ -74,6 +80,17 @@ def evaluate_receipt(receipt: dict[str, Any], thresholds: QualityThresholds) -> 
         if int(_nested(receipt, key, "items", default=0)) <= 0:
             failures.append(f"{key}_items_empty")
 
+    for key, threshold in (
+        ("featured", thresholds.max_featured_ttfb_ms),
+        ("bootstrap", thresholds.max_bootstrap_ttfb_ms),
+        ("facets", thresholds.max_facets_ttfb_ms),
+    ):
+        if str(_nested(receipt, key, "snapshot", default="")).lower() != "hit":
+            failures.append(f"{key}_snapshot_not_hit")
+        ttfb_ms = int(_nested(receipt, key, "ttfb_ms", default=0))
+        if ttfb_ms <= 0 or ttfb_ms > threshold:
+            failures.append(f"{key}_ttfb_above_threshold")
+
     if int(_nested(receipt, "facets", "http_status", default=0)) != 200:
         failures.append("facets_http_failed")
     if int(_nested(receipt, "facets", "regions", default=0)) <= 0:
@@ -98,12 +115,16 @@ def _checked_http_url(url: str) -> str:
     return url
 
 
+def _headers_dict(headers: Any) -> dict[str, str]:  # noqa: ANN401
+    return {str(key).lower(): str(value) for key, value in dict(headers).items()}
+
+
 def _request_json(
     url: str,
     *,
     method: str = "GET",
     body: bytes | None = None,
-) -> tuple[int, dict[str, Any]]:
+) -> tuple[int, dict[str, Any], dict[str, str], int]:
     request = urllib.request.Request(  # noqa: S310
         _checked_http_url(url),
         data=body,
@@ -114,17 +135,30 @@ def _request_json(
             "User-Agent": "NewsSentryLiveQuality/1.0 (+https://news-sentry.com)",
         },
     )
+    started = time.perf_counter()
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:  # noqa: S310
+        with _NO_PROXY_OPENER.open(request, timeout=20) as response:  # noqa: S310
             raw = response.read().decode("utf-8")
-            return response.status, json.loads(raw or "{}")
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            return (
+                response.status,
+                json.loads(raw or "{}"),
+                _headers_dict(response.headers),
+                elapsed_ms,
+            )
     except urllib.error.HTTPError as exc:
         raw = exc.read().decode("utf-8", errors="replace")
         try:
             payload = json.loads(raw or "{}")
         except json.JSONDecodeError:
             payload = {"body": raw[:500]}
-        return exc.code, payload
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        return exc.code, payload, _headers_dict(exc.headers), elapsed_ms
+
+
+def _request_warm_json(url: str) -> tuple[int, dict[str, Any], dict[str, str], int]:
+    _request_json(url)
+    return _request_json(url)
 
 
 def _request_text(url: str, *, method: str = "GET") -> tuple[int, str]:
@@ -134,7 +168,7 @@ def _request_text(url: str, *, method: str = "GET") -> tuple[int, str]:
         headers={"User-Agent": "NewsSentryLiveQuality/1.0 (+https://news-sentry.com)"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:  # noqa: S310
+        with _NO_PROXY_OPENER.open(request, timeout=20) as response:  # noqa: S310
             return response.status, response.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as exc:
         return exc.code, exc.read().decode("utf-8", errors="replace")
@@ -145,20 +179,22 @@ def collect_receipt(base_url: str, api_url: str) -> dict[str, Any]:
     api = api_url.rstrip("/")
     generated_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
-    health_status, health = _request_json(f"{api}/api/v1/health")
-    featured_status, featured = _request_json(
-        f"{api}/api/v1/public/news?featured=true&page_size=3"
+    health_status, health, _, _ = _request_json(f"{api}/api/v1/health")
+    featured_status, featured, featured_headers, featured_ms = _request_warm_json(
+        f"{api}/api/v1/public/news?featured=true&page_size=20"
     )
-    all_status, all_news = _request_json(f"{api}/api/v1/public/news?page_size=3")
-    bootstrap_status, bootstrap = _request_json(
+    all_status, all_news, _, _ = _request_json(f"{api}/api/v1/public/news?page_size=3")
+    bootstrap_status, bootstrap, bootstrap_headers, bootstrap_ms = _request_warm_json(
         f"{api}/api/v1/public/bootstrap?featured=true&page_size=20"
     )
-    facets_status, facets = _request_json(f"{api}/api/v1/public/facets")
+    facets_status, facets, facets_headers, facets_ms = _request_warm_json(
+        f"{api}/api/v1/public/facets"
+    )
     head_status, _ = _request_text(
         f"{api}/api/v1/public/news?featured=true&page_size=1",
         method="HEAD",
     )
-    write_status, _ = _request_json(f"{api}/api/v1/events/import", method="POST", body=b"{}")
+    write_status, _, _, _ = _request_json(f"{api}/api/v1/events/import", method="POST", body=b"{}")
     pages_status, html = _request_text(f"{base}/")
 
     js_contains_api_base = False
@@ -175,6 +211,9 @@ def collect_receipt(base_url: str, api_url: str) -> dict[str, Any]:
             "http_status": featured_status,
             "total": featured.get("total", 0),
             "items": len(featured.get("items") or []),
+            "snapshot": featured_headers.get("x-news-sentry-snapshot"),
+            "worker_cache": featured_headers.get("x-news-sentry-worker-cache"),
+            "ttfb_ms": featured_ms,
         },
         "all": {
             "http_status": all_status,
@@ -185,12 +224,18 @@ def collect_receipt(base_url: str, api_url: str) -> dict[str, Any]:
             "http_status": bootstrap_status,
             "total": (bootstrap.get("news") or {}).get("total", 0),
             "items": len((bootstrap.get("news") or {}).get("items") or []),
+            "snapshot": bootstrap_headers.get("x-news-sentry-snapshot"),
+            "worker_cache": bootstrap_headers.get("x-news-sentry-worker-cache"),
+            "ttfb_ms": bootstrap_ms,
         },
         "facets": {
             "http_status": facets_status,
             "regions": len(facets.get("regions") or []),
             "issues": len(facets.get("issues") or []),
             "related": len(facets.get("related") or []),
+            "snapshot": facets_headers.get("x-news-sentry-snapshot"),
+            "worker_cache": facets_headers.get("x-news-sentry-worker-cache"),
+            "ttfb_ms": facets_ms,
         },
         "head": {"http_status": head_status},
         "write_guard": {"http_status": write_status},
@@ -205,6 +250,9 @@ def main() -> int:
     parser.add_argument("--min-featured", type=int, default=100)
     parser.add_argument("--min-summary-ready", type=int, default=500)
     parser.add_argument("--max-latest-age-hours", type=int, default=24)
+    parser.add_argument("--max-featured-ttfb-ms", type=int, default=700)
+    parser.add_argument("--max-bootstrap-ttfb-ms", type=int, default=700)
+    parser.add_argument("--max-facets-ttfb-ms", type=int, default=700)
     args = parser.parse_args()
 
     receipt = collect_receipt(args.base_url, args.api_url)
@@ -214,6 +262,9 @@ def main() -> int:
             min_featured=args.min_featured,
             min_summary_ready=args.min_summary_ready,
             max_latest_age_hours=args.max_latest_age_hours,
+            max_featured_ttfb_ms=args.max_featured_ttfb_ms,
+            max_bootstrap_ttfb_ms=args.max_bootstrap_ttfb_ms,
+            max_facets_ttfb_ms=args.max_facets_ttfb_ms,
         ),
     )
     receipt["ok"] = result.ok

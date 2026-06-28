@@ -110,5 +110,16 @@ CREATE TABLE IF NOT EXISTS ops_runs (
     details_json TEXT DEFAULT '{}'
 );
 
+-- Public read snapshots keep the hot public reader paths off aggregate queries.
+CREATE TABLE IF NOT EXISTS public_read_snapshots (
+    key TEXT PRIMARY KEY,
+    payload_json TEXT NOT NULL,
+    generated_at TEXT NOT NULL,
+    source_latest_public_at TEXT,
+    item_count INTEGER DEFAULT 0,
+    payload_bytes INTEGER DEFAULT 0,
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
 -- 用户/Token 表（简化为 Workers 静态配置，暂不需要）
 -- 认证将在后续阶段通过 Cloudflare Access 实现

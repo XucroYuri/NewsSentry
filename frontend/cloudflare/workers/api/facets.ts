@@ -10,6 +10,11 @@ import {
   maybeServeCachedPublicRead,
   maybeStoreCachedPublicRead,
 } from "../lib/public-read-cache";
+import {
+  FACETS_SNAPSHOT_KEY,
+  markSnapshotMiss,
+  readPublicSnapshot,
+} from "../lib/public-read-snapshots";
 
 export async function handleFacets(
   request: Request,
@@ -22,6 +27,8 @@ export async function handleFacets(
     const cacheKey = "public-read:facets";
     const cached = await maybeServeCachedPublicRead(request, cacheKey);
     if (cached) return cached;
+    const snapshot = await readPublicSnapshot(request, db, FACETS_SNAPSHOT_KEY, 300);
+    if (snapshot) return maybeStoreCachedPublicRead(request, cacheKey, snapshot, ctx, 300);
 
     // 按 region 分组统计
     const regionResult = await db
@@ -80,7 +87,7 @@ export async function handleFacets(
       status: 200,
       headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=60" },
     });
-    return maybeStoreCachedPublicRead(request, cacheKey, response, ctx, 300);
+    return maybeStoreCachedPublicRead(request, cacheKey, markSnapshotMiss(response), ctx, 300);
   } catch (err) {
     console.error("facets error:", err);
     return new Response(JSON.stringify({ regions: [], issues: [], related: [] }), {

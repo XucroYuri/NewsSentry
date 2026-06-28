@@ -1,4 +1,5 @@
 import { getContainer } from "@cloudflare/containers";
+import { refreshPublicReadSnapshots } from "./public-read-snapshots";
 
 interface ScheduledEnv {
   DB: D1Database;
@@ -202,7 +203,16 @@ export async function runScheduledCloudflareTask(
       task === "refresh-public-quality"
         ? await refreshPublicQuality(env.DB)
         : await callContainerInternalTask(env, task);
-    const compactDetails = compactTaskDetails(details);
+    let snapshotRefresh: Record<string, unknown>;
+    try {
+      snapshotRefresh = await refreshPublicReadSnapshots(env.DB);
+    } catch (error) {
+      snapshotRefresh = {
+        status: "error",
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+    const compactDetails = compactTaskDetails({ ...details, snapshots: snapshotRefresh });
     const status =
       typeof compactDetails.status === "string" && compactDetails.status ? compactDetails.status : "ok";
     await recordRun(env.DB, runId, task, status, startedAt, compactDetails);

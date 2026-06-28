@@ -18,10 +18,29 @@ def _healthy_receipt() -> dict[str, object]:
                 "latest_public_at": "2026-06-28T07:09:40Z",
             },
         },
-        "featured": {"http_status": 200, "total": 6426, "items": 3},
+        "featured": {
+            "http_status": 200,
+            "total": 6426,
+            "items": 3,
+            "snapshot": "hit",
+            "ttfb_ms": 250,
+        },
         "all": {"http_status": 200, "total": 10845, "items": 3},
-        "bootstrap": {"http_status": 200, "total": 6426, "items": 20},
-        "facets": {"http_status": 200, "regions": 12, "issues": 30, "related": 30},
+        "bootstrap": {
+            "http_status": 200,
+            "total": 6426,
+            "items": 20,
+            "snapshot": "hit",
+            "ttfb_ms": 300,
+        },
+        "facets": {
+            "http_status": 200,
+            "regions": 12,
+            "issues": 30,
+            "related": 30,
+            "snapshot": "hit",
+            "ttfb_ms": 200,
+        },
         "head": {"http_status": 200},
         "write_guard": {"http_status": 403},
         "pages": {"http_status": 200, "js_contains_api_base": True},
@@ -52,3 +71,20 @@ def test_evaluate_receipt_fails_for_translation_and_head_regressions() -> None:
     assert result.ok is False
     assert "summary_ready_below_threshold" in result.failures
     assert "head_probe_failed" in result.failures
+
+
+def test_evaluate_receipt_fails_when_snapshot_or_warm_ttfb_regresses() -> None:
+    receipt = _healthy_receipt()
+    receipt["featured"]["snapshot"] = "miss"  # type: ignore[index]
+    receipt["bootstrap"]["ttfb_ms"] = 901  # type: ignore[index]
+    receipt["facets"]["snapshot"] = "bypass"  # type: ignore[index]
+
+    result = evaluate_receipt(
+        receipt,
+        QualityThresholds(min_featured=100, min_summary_ready=500, max_latest_age_hours=24),
+    )
+
+    assert result.ok is False
+    assert "featured_snapshot_not_hit" in result.failures
+    assert "bootstrap_ttfb_above_threshold" in result.failures
+    assert "facets_snapshot_not_hit" in result.failures

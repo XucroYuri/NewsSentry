@@ -9,6 +9,12 @@ import {
   maybeServeCachedPublicRead,
   maybeStoreCachedPublicRead,
 } from "../lib/public-read-cache";
+import {
+  markSnapshotBypass,
+  markSnapshotMiss,
+  readPublicSnapshot,
+  REGIONS_ACTIVE_SNAPSHOT_KEY,
+} from "../lib/public-read-snapshots";
 
 function parseLifecycle(raw: unknown): Record<string, unknown> {
   if (typeof raw !== "string" || !raw.trim()) return {};
@@ -73,6 +79,13 @@ export async function handleRegions(
   const cacheKey = `public-read:regions:${includeEmpty ? "include-empty" : "active"}`;
   const cached = await maybeServeCachedPublicRead(request, cacheKey);
   if (cached) return cached;
+  const snapshot = await readPublicSnapshot(
+    request,
+    db,
+    includeEmpty ? null : REGIONS_ACTIVE_SNAPSHOT_KEY,
+    300,
+  );
+  if (snapshot) return maybeStoreCachedPublicRead(request, cacheKey, snapshot, ctx, 300);
 
   const rows = await loadTargets(db, includeEmpty);
   const regions: RegionInfo[] = rows.map((row: any) => ({
@@ -89,5 +102,6 @@ export async function handleRegions(
   const response = new Response(JSON.stringify(body), {
     headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=60" },
   });
-  return maybeStoreCachedPublicRead(request, cacheKey, response, ctx, 300);
+  const markedResponse = includeEmpty ? markSnapshotBypass(response) : markSnapshotMiss(response);
+  return maybeStoreCachedPublicRead(request, cacheKey, markedResponse, ctx, 300);
 }

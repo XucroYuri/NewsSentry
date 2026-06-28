@@ -24,6 +24,12 @@ import {
   maybeServeCachedPublicRead,
   maybeStoreCachedPublicRead,
 } from "../lib/public-read-cache";
+import {
+  BOOTSTRAP_FEATURED_SNAPSHOT_KEY,
+  markSnapshotBypass,
+  markSnapshotMiss,
+  readPublicSnapshot,
+} from "../lib/public-read-snapshots";
 
 export async function handleBootstrap(
   request: Request,
@@ -40,6 +46,13 @@ export async function handleBootstrap(
         : null;
     const cached = await maybeServeCachedPublicRead(request, cacheKey);
     if (cached) return cached;
+    const snapshot = await readPublicSnapshot(
+      request,
+      db,
+      cacheKey ? BOOTSTRAP_FEATURED_SNAPSHOT_KEY : null,
+      60,
+    );
+    if (snapshot) return maybeStoreCachedPublicRead(request, cacheKey, snapshot, ctx, 60);
 
     const newsFilters = buildPublicNewsWhere({ featured });
     // 并行查询 news、regions、facets
@@ -173,7 +186,8 @@ export async function handleBootstrap(
       status: 200,
       headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=30" },
     });
-    return maybeStoreCachedPublicRead(request, cacheKey, response, ctx, 60);
+    const markedResponse = cacheKey ? markSnapshotMiss(response) : markSnapshotBypass(response);
+    return maybeStoreCachedPublicRead(request, cacheKey, markedResponse, ctx, 60);
   } catch (err) {
     console.error("bootstrap error:", err);
     const fallback: PublicBootstrapResponse = {

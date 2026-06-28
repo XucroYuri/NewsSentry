@@ -22,6 +22,13 @@ import {
   maybeServeCachedPublicRead,
   maybeStoreCachedPublicRead,
 } from "../lib/public-read-cache";
+import {
+  markSnapshotBypass,
+  markSnapshotMiss,
+  NEWS_ALL_SNAPSHOT_KEY,
+  NEWS_FEATURED_SNAPSHOT_KEY,
+  readPublicSnapshot,
+} from "../lib/public-read-snapshots";
 
 const FEATURED_NEWS_CACHE_KEY = "public-read:news:featured";
 const ALL_NEWS_CACHE_KEY = "public-read:news:all";
@@ -109,6 +116,13 @@ export async function handleNewsFeed(
         : null;
     const cached = await maybeServeCachedPublicRead(request, cacheKey);
     if (cached) return cached;
+    const snapshotKey = cacheKey
+      ? featured
+        ? NEWS_FEATURED_SNAPSHOT_KEY
+        : NEWS_ALL_SNAPSHOT_KEY
+      : null;
+    const snapshot = await readPublicSnapshot(request, db, snapshotKey, 30);
+    if (snapshot) return maybeStoreCachedPublicRead(request, cacheKey, snapshot, ctx, 30);
 
     const filters = buildPublicNewsWhere({
       featured,
@@ -163,7 +177,8 @@ export async function handleNewsFeed(
       status: 200,
       headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=15" },
     });
-    return maybeStoreCachedPublicRead(request, cacheKey, response, ctx, 30);
+    const markedResponse = cacheKey ? markSnapshotMiss(response) : markSnapshotBypass(response);
+    return maybeStoreCachedPublicRead(request, cacheKey, markedResponse, ctx, 30);
   } catch (err) {
     console.error("newsFeed error:", err);
     const fallback: PublicNewsFeedResponse = {
