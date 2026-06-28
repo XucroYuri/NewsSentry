@@ -21,8 +21,9 @@ class TestDockerfile:
     def test_dockerfile_has_required_stages(self):
         """Dockerfile 应包含 builder + runtime 两个阶段。"""
         content = _read_text("Dockerfile")
-        assert "FROM python:3.12-slim AS builder" in content
-        assert "FROM python:3.12-slim AS runtime" in content
+        assert "ARG PYTHON_BASE_IMAGE=mirror.gcr.io/library/python:3.12-slim" in content
+        assert "FROM ${PYTHON_BASE_IMAGE} AS builder" in content
+        assert "FROM ${PYTHON_BASE_IMAGE} AS runtime" in content
 
     def test_dockerfile_copies_source(self):
         """Dockerfile 应将 src/ 复制到镜像。"""

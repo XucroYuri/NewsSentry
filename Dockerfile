@@ -1,5 +1,6 @@
 # ── Stage 1: Builder ──────────────────────────────────
-FROM python:3.12-slim AS builder
+ARG PYTHON_BASE_IMAGE=mirror.gcr.io/library/python:3.12-slim
+FROM ${PYTHON_BASE_IMAGE} AS builder
 WORKDIR /app
 COPY pyproject.toml ./
 COPY src/ src/
@@ -9,7 +10,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     find /install -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 
 # ── Stage 2: Runtime ─────────────────────────────────
-FROM python:3.12-slim AS runtime
+FROM ${PYTHON_BASE_IMAGE} AS runtime
 
 # Minimal runtime deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
