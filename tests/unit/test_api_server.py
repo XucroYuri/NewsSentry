@@ -487,6 +487,51 @@ class TestCloudflareInternalAPI:
             {"target_id": "france", "status": "ok", "updated": 2, "failed": 1}
         ]
 
+    def test_auto_collect_once_uses_initialized_logger(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from news_sentry.core import collector_config_utils
+
+        async def fake_bounded_run_multi_async(**kwargs: object) -> list[MagicMock]:
+            assert kwargs["run_id"] == "cf-run-real-helper"
+            ctx = MagicMock()
+            ctx.target_id = "italy"
+            ctx.events_collected = 2
+            ctx.status = "ok"
+            return [ctx]
+
+        monkeypatch.setattr(
+            "news_sentry.core.async_run.bounded_run_multi_async",
+            fake_bounded_run_multi_async,
+        )
+        old = dict(collector_config_utils._auto_collector_state)
+        try:
+            collector_config_utils._auto_collector_state.update(
+                {
+                    "target_ids": ["italy"],
+                    "stage": "collect",
+                    "last_events_collected": 0,
+                    "last_run_at": None,
+                    "last_run_status": None,
+                    "last_error": None,
+                    "total_runs": 0,
+                }
+            )
+
+            result = asyncio.run(
+                collector_config_utils._run_auto_collect_once("cf-run-real-helper")
+            )
+
+            assert result["status"] == "ok"
+            assert result["events_collected"] == 2
+            assert result["target_results"] == [
+                {"target_id": "italy", "events_collected": 2, "status": "ok"}
+            ]
+        finally:
+            collector_config_utils._auto_collector_state.clear()
+            collector_config_utils._auto_collector_state.update(old)
+
 
 class TestVerifyApiKey:
     """API Key 认证测试。"""

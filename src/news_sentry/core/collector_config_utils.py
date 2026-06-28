@@ -18,12 +18,9 @@ import news_sentry.core._state as _st
 from news_sentry.core._state import (
     _COLLECTOR_STAGES,
     _OVERVIEW_CACHE_TTL_SECONDS,
-    _ai_enrichment_log,
     _ai_enrichment_state,
     _auto_collector_state,
     _collector_diagnostics_cache,
-    _log,
-    _public_translation_log,
     _public_translation_state,
 )
 from news_sentry.core.ai_enrichment import (
@@ -54,6 +51,10 @@ from news_sentry.core.target_store_utils import (
     _latest_run_log_summary,
     _visible_index_events_page,
 )
+
+_log = logging.getLogger("news_sentry.auto_collector")
+_ai_enrichment_log = logging.getLogger("news_sentry.ai_enrichment")
+_public_translation_log = logging.getLogger("news_sentry.public_translation")
 
 logger = logging.getLogger(__name__)
 
