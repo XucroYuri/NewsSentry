@@ -60,6 +60,7 @@ jobs:
       - name: Public frontend build
         working-directory: frontend/public
         env:
+          FRONTEND_OUTPUT_SUBDIR: ${{ github.workspace }}/src/news_sentry/static
           VITE_API_BASE: https://api.news-sentry.com
         run: npm run build
 
@@ -127,6 +128,7 @@ jobs:
           NEWSSENTRY_PUBLIC_TRANSLATION: "0"
         run: |
           set -euo pipefail
+          test -f src/news_sentry/static/public_app/index.html
           python -m pytest tests/e2e/ -m e2e -q --tb=short --timeout=60 -x
 
   cloudflare-data:

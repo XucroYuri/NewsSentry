@@ -125,6 +125,13 @@ def test_deploy_workflow_runs_cloudflare_native_runtime_checks() -> None:
     assert "wrangler pages deploy dist/" in workflow
 
 
+def test_deploy_workflow_builds_fastapi_static_assets_before_e2e() -> None:
+    workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+
+    assert "FRONTEND_OUTPUT_SUBDIR: ${{ github.workspace }}/src/news_sentry/static" in workflow
+    assert "src/news_sentry/static/public_app" in workflow
+
+
 def test_deploy_workflow_requires_real_cloudflare_state_evidence() -> None:
     workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
 
