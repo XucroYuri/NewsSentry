@@ -3,7 +3,7 @@
 # ADR: ADR-0005
 #
 # AI Provider 路由配置 — 内置多 Provider 链式兜底版
-# 所有 AI 能力由内置 Provider 直接调用：gemini → deepseek → groq → cloudflare_workers_ai → local。
+# 所有 AI 能力由内置 Provider 直接调用：gemini → deepseek → groq → cloudflare_workers_ai → openrouter → local。
 # 各 Provider 通过自身的 API key 环境变量鉴权，不再经过中间层 sidecar。
 #
 routes_version: "2.0.0"
@@ -107,8 +107,20 @@ routes:
     output_schema_ref: null
     audit: true
     fallback_route_ids:
-      - fallback.local
+      - translate.openrouter
     notes: "翻译兜底链：Groq 失败后由 Cloudflare Workers AI 接管"
+
+  - route_id: translate.openrouter
+    task_type: translate
+    provider: openrouter
+    model: google/gemma-4-26b-a4b-it:free
+    timeout_seconds: 90
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    fallback_route_ids:
+      - fallback.local
+    notes: "翻译兜底链：Cloudflare Workers AI 失败后由 OpenRouter 免费模型接管"
 
   - route_id: translate.batch
     task_type: translate
@@ -193,8 +205,20 @@ routes:
     output_schema_ref: null
     audit: true
     fallback_route_ids:
-      - translate.deepseek
+      - ai.enrichment.openrouter
     notes: "低频 AI 增强合并任务：翻译、摘要、聚类、复核 — Gemini 主路由"
+
+  - route_id: ai.enrichment.openrouter
+    task_type: ai_enrichment
+    provider: openrouter
+    model: google/gemma-4-26b-a4b-it:free
+    timeout_seconds: 120
+    max_cost_usd_per_call: 0.0
+    output_schema_ref: null
+    audit: true
+    fallback_route_ids:
+      - fallback.local
+    notes: "低频 AI 增强兜底：Gemini 不可用时由 OpenRouter 免费模型接管"
 
   - route_id: ai.enrichment.nvidia
     task_type: ai_enrichment

@@ -171,10 +171,14 @@ def test_public_translation_route_uses_builtin_chain() -> None:
     # 应有 fallback 链
     assert len(public_translation.fallback_route_ids) >= 1
     assert public_translation.provider == "gemini"
+    assert routes["translate.cloudflare"].fallback_route_ids == ["translate.openrouter"]
+    assert routes["translate.openrouter"].provider == "openrouter"
 
     # 公共发布的路由链不应有空
     assert routes["public.summary_reason"].provider != "freellmapi"
     assert routes["public.enrichment"].provider != "freellmapi"
+    assert routes["ai.enrichment.batch"].fallback_route_ids == ["ai.enrichment.openrouter"]
+    assert routes["ai.enrichment.openrouter"].provider == "openrouter"
 
 
 def test_provider_route_defaults() -> None:
