@@ -208,13 +208,22 @@ jobs:
       - name: Verify Cloudflare Worker health
         run: |
           set -euo pipefail
-          for i in $(seq 1 12); do
-            STATUS=$(curl -s -o /tmp/worker-health.json -w "%{http_code}" "https://api.news-sentry.com/api/v1/health" || echo "000")
+          for i in $(seq 1 36); do
+            STATUS=$(curl -sS \
+              -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" \
+              -H "Accept: application/json" \
+              -o /tmp/worker-health.json \
+              -w "%{http_code}" \
+              "https://api.news-sentry.com/api/v1/health" || echo "000")
             if [ "$STATUS" = "200" ]; then
               cat /tmp/worker-health.json
               exit 0
             fi
             echo "Waiting for Worker deployment... (attempt $i, HTTP $STATUS)"
+            if [ -s /tmp/worker-health.json ]; then
+              head -c 500 /tmp/worker-health.json || true
+              echo
+            fi
             sleep 5
           done
           echo "Cloudflare Worker health check failed"
@@ -274,7 +283,7 @@ jobs:
           for i in $(seq 1 12); do
             STATUS=$(curl -s -o /tmp/pages.html -w "%{http_code}" "$PAGES_URL" || echo "000")
             if [ "$STATUS" = "200" ]; then
-              grep -q "NewsSentry" /tmp/pages.html
+              grep -Eq "News Sentry|NewsSentry" /tmp/pages.html
               exit 0
             fi
             echo "Waiting for Pages deployment... (attempt $i, HTTP $STATUS)"
@@ -296,9 +305,9 @@ jobs:
       - name: Verify preview Cloudflare-native public endpoints
         run: |
           set -euo pipefail
-          curl -fsS "${API_URL}/api/v1/health" > /tmp/health.json
-          curl -fsS "${API_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json
-          curl -fsS "${API_URL}/api/v1/public/facets" > /tmp/facets.json
+          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/health" > /tmp/health.json
+          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json
+          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/facets" > /tmp/facets.json
           curl -fsS -o /tmp/public-app.html "${PAGES_URL:-${BASE_URL}}/"
 
           python - <<'PY'
@@ -313,7 +322,8 @@ jobs:
           assert isinstance(health.get("total_events"), int), "health total_events missing"
           assert isinstance(news.get("items"), list), "public news response missing items"
           assert {"regions", "issues", "related"} <= set(facets), "facets payload missing expected keys"
-          assert "NewsSentry" in Path("/tmp/public-app.html").read_text(errors="ignore")
+          public_app_html = Path("/tmp/public-app.html").read_text(errors="ignore")
+          assert "News Sentry" in public_app_html or "NewsSentry" in public_app_html
           PY
 
   promote-main:
@@ -349,9 +359,9 @@ jobs:
       - name: Verify production public endpoints
         run: |
           set -euo pipefail
-          curl -fsS "${API_URL}/api/v1/health" > /tmp/health.json
-          curl -fsS "${API_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json
-          curl -fsS "${API_URL}/api/v1/public/facets" > /tmp/facets.json
+          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/health" > /tmp/health.json
+          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json
+          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/facets" > /tmp/facets.json
           curl -fsS -o /tmp/public-app.html "${BASE_URL}/"
 
           python - <<'PY'
@@ -367,7 +377,8 @@ jobs:
           assert health.get("total_events", 0) > 0, "Cloudflare D1 has no events"
           assert isinstance(news.get("items"), list) and news["items"], "public news is empty"
           assert {"regions", "issues", "related"} <= set(facets), "facets payload missing expected keys"
-          assert "NewsSentry" in Path("/tmp/public-app.html").read_text(errors="ignore")
+          public_app_html = Path("/tmp/public-app.html").read_text(errors="ignore")
+          assert "News Sentry" in public_app_html or "NewsSentry" in public_app_html
           PY
 
       - name: Verify SEO/GEO public site
