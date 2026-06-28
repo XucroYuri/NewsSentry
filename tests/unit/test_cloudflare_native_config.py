@@ -202,7 +202,8 @@ def test_container_proxy_requires_cloudflare_access_identity() -> None:
     assert '"/api/v1/admin/"' in access_ts
     assert '"/api/v1/auth/"' in access_ts
     assert '"Cf-Access-Authenticated-User-Email"' in access_ts
-    assert '"Cf-Access-Jwt-Assertion"' in access_ts
+    assert '"Cf-Access-Jwt-Assertion"' not in access_ts
+    assert '"CF-Access-Client-Id"' not in access_ts
     assert "Cloudflare Access authentication required" in access_ts
     assert "NEWS_SENTRY_CONTAINER" in proxy_ts
     assert "getContainer(env.NEWS_SENTRY_CONTAINER" in proxy_ts
@@ -266,6 +267,8 @@ def test_worker_write_endpoints_require_cloudflare_access_identity() -> None:
     assert '"/api/v1/webhook"' in access_ts
     assert "handleWorkerWriteAccess(request)" in index_ts
     assert "dispatch(request, env.DB, ctx)" in index_ts
+    assert '"Cf-Access-Jwt-Assertion"' not in access_ts
+    assert '"CF-Access-Client-Id"' not in access_ts
 
 
 def test_pages_headers_cache_public_shell_for_short_ttl() -> None:
