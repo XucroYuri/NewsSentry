@@ -30,6 +30,7 @@ class D1Event:
     related_tags: list[str]
     region_tags: list[str]
     entities: list[dict[str, str]]
+    classification: dict[str, str]
     value_label: str
     value_score: int | None
     china_relevance_label: str
@@ -173,6 +174,7 @@ def collect_backfill_plan(
             source_id = str(row["source_id"] or "unknown")
             topic_tags = _split_csv(row["topic_tags"])
             issue_tags = [str(row["classification_l0"])] if row["classification_l0"] else []
+            classification = {"l0": str(row["classification_l0"] or "uncategorized")}
             entities = [{"name": name} for name in _split_csv(row["entity_names"])]
             published_at = _normalize_timestamp(row["published_at"] or row["created_at"])
             collected_at = _normalize_timestamp(row["created_at"] or row["published_at"])
@@ -193,6 +195,7 @@ def collect_backfill_plan(
                     related_tags=topic_tags,
                     region_tags=[target_id],
                     entities=entities,
+                    classification=classification,
                     value_label=_value_label(row["news_value_score"]),
                     value_score=row["news_value_score"],
                     china_relevance_label=_china_relevance_label(row["china_relevance"]),
@@ -253,7 +256,7 @@ def _event_insert(event: D1Event) -> str:
         "event_id, target_id, target_label, region_id, source_id, source_name, source_type, "
         "published_at, collected_at, title, original_title, original_url, detail_url, "
         "image_urls, tags, issue_tags, related_tags, region_tags, entities, language, "
-        "pipeline_stage, value_label, value_score, china_relevance_label"
+        "pipeline_stage, value_label, value_score, china_relevance_label, classification"
     )
     values = [
         event.event_id,
@@ -280,6 +283,7 @@ def _event_insert(event: D1Event) -> str:
         event.value_label,
         event.value_score,
         event.china_relevance_label,
+        _json(event.classification),
     ]
     assignments = (
         "target_id=excluded.target_id, target_label=excluded.target_label, "
@@ -293,6 +297,7 @@ def _event_insert(event: D1Event) -> str:
         "region_tags=excluded.region_tags, entities=excluded.entities, "
         "pipeline_stage=excluded.pipeline_stage, value_label=excluded.value_label, "
         "value_score=excluded.value_score, china_relevance_label=excluded.china_relevance_label, "
+        "classification=excluded.classification, "
         "updated_at=datetime('now')"
     )
     return (

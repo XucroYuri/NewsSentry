@@ -47,6 +47,7 @@ CREATE INDEX IF NOT EXISTS idx_events_published_at ON events(published_at);
 CREATE INDEX IF NOT EXISTS idx_events_pipeline_stage ON events(pipeline_stage);
 CREATE INDEX IF NOT EXISTS idx_events_source_id ON events(source_id);
 CREATE INDEX IF NOT EXISTS idx_events_value_label ON events(value_label);
+CREATE INDEX IF NOT EXISTS idx_events_public_featured ON events(pipeline_stage, value_score DESC, published_at DESC);
 
 -- 来源表
 CREATE TABLE IF NOT EXISTS sources (

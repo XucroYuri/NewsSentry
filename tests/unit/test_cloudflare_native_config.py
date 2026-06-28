@@ -53,21 +53,73 @@ def test_public_facets_contract_includes_related_tags() -> None:
 
 def test_public_news_supports_related_filter() -> None:
     news_ts = _read("workers/api/news.ts")
+    query_ts = _read("workers/lib/public-news-query.ts")
 
     assert 'params.get("related")' in news_ts
-    assert "related_tags LIKE ?" in news_ts
+    assert "related_tags LIKE ?" in query_ts
 
 
 def test_public_reader_uses_drafts_stage_like_python_reader() -> None:
     news_ts = _read("workers/api/news.ts")
     facets_ts = _read("workers/api/facets.ts")
     bootstrap_ts = _read("workers/api/bootstrap.ts")
+    query_ts = _read("workers/lib/public-news-query.ts")
 
-    for worker_source in (news_ts, facets_ts, bootstrap_ts):
+    for worker_source in (news_ts, facets_ts, bootstrap_ts, query_ts):
         assert "pipeline_stage = 'drafts'" in worker_source
         assert "pipeline_stage IN ('published', 'reviewed')" not in worker_source
 
-    assert "total: newsRows.length" in bootstrap_ts
+    assert "total: newsCountResult?.total ?? newsRows.length" in bootstrap_ts
+
+
+def test_cloudflare_public_featured_query_matches_python_quality_gate() -> None:
+    news_ts = _read("workers/api/news.ts")
+    bootstrap_ts = _read("workers/api/bootstrap.ts")
+    query_ts = _read("workers/lib/public-news-query.ts")
+
+    assert 'params.get("featured") === "true"' in news_ts
+    assert 'params.get("featured") !== "false"' in bootstrap_ts
+    assert "PUBLIC_FEATURED_MIN_SCORE = 60" in query_ts
+    assert "value_score >= ?" in query_ts
+    assert "summary IS NOT NULL AND TRIM(summary) <> ''" in query_ts
+    assert "recommendation_reason IS NOT NULL AND TRIM(recommendation_reason) <> ''" in query_ts
+    assert "json_valid(classification) = 1" in query_ts
+    assert "json_extract(classification, '$.l0')" in query_ts
+    assert "NOT IN ('uncategorized', 'other', 'breaking_news')" in query_ts
+    assert "ORDER BY value_score DESC, published_at DESC, event_id DESC" in query_ts
+    assert "publicNewsOrderBy(featured)" in news_ts
+    assert "publicNewsOrderBy(featured)" in bootstrap_ts
+
+
+def test_cloudflare_public_news_uses_sql_cursor_pagination() -> None:
+    news_ts = _read("workers/api/news.ts")
+    query_ts = _read("workers/lib/public-news-query.ts")
+
+    assert "buildCursorFilter" in news_ts
+    assert 'params.get("before_cursor")' in news_ts
+    assert 'params.get("since_cursor")' in news_ts
+    assert "SELECT event_id, published_at, value_score FROM events WHERE event_id = ?" in news_ts
+    assert "${cursorFilter.sql}" in news_ts
+    assert "SELECT COUNT(*) AS total FROM events ${filters.sql}" in news_ts
+    assert "Number.isFinite(requestedPageSize)" in news_ts
+    assert "const pageRows = rows.slice(0, pageSize)" in news_ts
+    assert "const items = pageRows.map" in news_ts
+    assert "hasNewer: Boolean(sinceCursor && items.length > 0)" in news_ts
+    assert "ORDER BY published_at DESC, event_id DESC" in query_ts
+
+
+def test_cloudflare_d1_has_public_featured_index() -> None:
+    schema_sql = _read("db/schema.sql")
+
+    assert "idx_events_public_featured" in schema_sql
+    assert "events(pipeline_stage, value_score DESC, published_at DESC)" in schema_sql
+
+
+def test_cloudflare_bootstrap_reports_matching_featured_total() -> None:
+    bootstrap_ts = _read("workers/api/bootstrap.ts")
+
+    assert "SELECT COUNT(*) AS total FROM events ${newsFilters.sql}" in bootstrap_ts
+    assert "total: newsCountResult?.total ?? newsRows.length" in bootstrap_ts
 
 
 def test_cloudflare_worker_exposes_public_targets_and_regions_contracts() -> None:

@@ -303,14 +303,17 @@ describe("Phase 84 public portal app", () => {
     vi.unstubAllGlobals()
   })
 
-  it("renders an AIHOT-style sidebar reader feed instead of the simplified top nav shell", async () => {
+  it("renders a breaking-news home instead of the all-news timeline", async () => {
     installFetchMock()
 
     render(<App />)
 
-    expect(await screen.findByRole("heading", { name: "新闻哨兵" })).toBeInTheDocument()
-    expect(screen.getAllByRole("heading", { name: "新闻哨兵" })).toHaveLength(1)
-    expect(await screen.findByRole("region", { name: "当前热点" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "极速突发" })).toBeInTheDocument()
+    expect(screen.getAllByRole("heading", { name: "极速突发" })).toHaveLength(1)
+    expect(await screen.findByRole("region", { name: "极速突发" })).toBeInTheDocument()
+    expect(screen.getByRole("region", { name: "高价值动态" })).toBeInTheDocument()
+    expect(screen.getByRole("region", { name: "最近推进" })).toBeInTheDocument()
+    expect(screen.getByRole("region", { name: "突发快捷入口" })).toBeInTheDocument()
     expect(screen.queryByText("新闻时间线")).not.toBeInTheDocument()
     const nav = screen.getByRole("navigation", { name: "公共站侧边栏" })
     expect(within(nav).getByRole("button", { name: /新闻哨兵 Breaking News/ })).toBeInTheDocument()
@@ -323,11 +326,17 @@ describe("Phase 84 public portal app", () => {
       "true",
     )
     expect(screen.getAllByRole("heading", { name: LEAD_TITLE }).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(LEAD_ORIGINAL_TITLE).length).toBeGreaterThan(0)
     expect(screen.getAllByText("ANSA.it").length).toBeGreaterThan(0)
     expect(screen.getAllByText("会谈聚焦贸易政策与市场准入，双方同意继续保持沟通。").length).toBeGreaterThan(0)
-    expect(screen.queryByText(/推荐理由：/)).not.toBeInTheDocument()
+    expect(screen.getByText(/为什么重要：/)).toBeInTheDocument()
     expect(screen.getAllByText("92").length).toBeGreaterThan(0)
+    expect(
+      within(screen.getByRole("region", { name: "极速突发" })).getByRole("button", {
+        name: "新闻纵览",
+      }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "筛选" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("region", { name: "地区议题相关筛选" })).not.toBeInTheDocument()
     expect(screen.queryByRole("link", { name: /详情/ })).not.toBeInTheDocument()
     expect(screen.getAllByText(/\d{2}:\d{2}/).length).toBeGreaterThan(0)
     expect(screen.getAllByText("意大利").length).toBeGreaterThan(0)
@@ -370,6 +379,7 @@ describe("Phase 84 public portal app", () => {
       return jsonResponse({})
     })
     vi.stubGlobal("fetch", fetchMock)
+    window.location.hash = "#/feed?channel=all"
 
     render(<App />)
 
@@ -440,6 +450,7 @@ describe("Phase 84 public portal app", () => {
       return jsonResponse({})
     })
     vi.stubGlobal("fetch", fetchMock)
+    window.location.hash = "#/feed?channel=all"
 
     render(<App />)
 
@@ -450,6 +461,7 @@ describe("Phase 84 public portal app", () => {
 
   it("keeps the hot-topic strip visually compact", async () => {
     installFetchMock()
+    window.location.hash = "#/feed?channel=all"
 
     render(<App />)
 
@@ -466,6 +478,7 @@ describe("Phase 84 public portal app", () => {
 
   it("collapses a date group when the date header is clicked", async () => {
     installFetchMock()
+    window.location.hash = "#/feed?channel=all"
 
     render(<App />)
 
@@ -485,6 +498,7 @@ describe("Phase 84 public portal app", () => {
   it("automatically inserts polled news at the top with an entering marker", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     installFetchMock()
+    window.location.hash = "#/feed?channel=all"
 
     render(<App />)
 
@@ -508,7 +522,7 @@ describe("Phase 84 public portal app", () => {
 
     const { container } = render(<App />)
 
-    await screen.findByRole("heading", { name: "新闻哨兵" })
+    await screen.findByRole("heading", { name: "极速突发" })
     const logo = screen.getByRole("link", { name: "NewsSentry" })
     expect(logo.className).not.toMatch(/\bborder\b/)
     expect(logo.className).not.toContain("bg-white/[0.03]")
@@ -572,7 +586,7 @@ describe("Phase 84 public portal app", () => {
 
     const { container } = render(<App />)
 
-    await screen.findByRole("heading", { name: "新闻哨兵" })
+    await screen.findByRole("heading", { name: "极速突发" })
     const renderedMarkup = container.innerHTML
     expect(renderedMarkup).not.toMatch(/cyan|text-blue|bg-blue|border-blue/i)
 
@@ -593,7 +607,6 @@ describe("Phase 84 public portal app", () => {
 
     render(<App />)
 
-    await screen.findByRole("heading", { name: "新闻哨兵" })
     const loadingState = screen.getByLabelText("紧凑加载状态")
     expect(loadingState.className).toContain("py-2")
     expect(screen.getByText("更新中")).toBeInTheDocument()
@@ -630,7 +643,7 @@ describe("Phase 84 public portal app", () => {
 
     const { container } = render(<App />)
 
-    await screen.findByRole("heading", { name: "新闻哨兵" })
+    await screen.findByRole("heading", { name: "极速突发" })
     const main = container.querySelector("main")
     expect(main).not.toBeNull()
     expect(main?.className).toContain("w-full")
@@ -675,10 +688,11 @@ describe("Phase 84 public portal app", () => {
 
   it("renders the reading feed without desktop side rails", async () => {
     installFetchMock()
+    window.location.hash = "#/feed?channel=all"
 
     const { container } = render(<App />)
 
-    await screen.findByRole("heading", { name: "新闻哨兵" })
+    await screen.findByRole("heading", { name: "新闻纵览" })
     expect(container.querySelector("main > aside")).toBeNull()
     expect(screen.getByRole("button", { name: "筛选" })).toBeInTheDocument()
     expect(screen.getByRole("region", { name: "地区议题相关筛选" })).toBeInTheDocument()
@@ -862,6 +876,7 @@ describe("Phase 84 public portal app", () => {
 
   it("opens the filter drawer only when the reader asks for more filters", async () => {
     installFetchMock()
+    window.location.hash = "#/feed?channel=all"
 
     render(<App />)
 
@@ -882,10 +897,10 @@ describe("Phase 84 public portal app", () => {
     render(<App />)
 
     await findLeadStory()
-    fireEvent.click(screen.getByRole("button", { name: "意大利" }))
+    fireEvent.click(screen.getByRole("button", { name: /意大利/ }))
 
     expect(window.location.pathname).toBe("/public-app/")
-    expect(window.location.search).toContain("channel=targets")
+    expect(window.location.search).toContain("channel=all")
     expect(window.location.search).toContain("target_id=italy")
     expect(await screen.findByRole("heading", { name: "意大利" })).toBeInTheDocument()
     expect(screen.getByRole("heading", { name: "当前热点" })).toBeInTheDocument()
@@ -1014,6 +1029,7 @@ describe("Phase 84 public portal app", () => {
       return jsonResponse({})
     })
     vi.stubGlobal("fetch", fetchMock)
+    window.location.hash = "#/feed?channel=all"
 
     render(<App />)
 
@@ -1043,6 +1059,7 @@ describe("Phase 84 public portal app", () => {
   it("auto-inserts new items without interrupting the reader with a banner", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     installFetchMock()
+    window.location.hash = "#/feed?channel=all"
     render(<App />)
 
     await findLeadStory()
@@ -1057,6 +1074,7 @@ describe("Phase 84 public portal app", () => {
 
   it("loads older news and keeps the mobile bottom navigation active", async () => {
     installFetchMock()
+    window.location.hash = "#/feed?channel=all"
     render(<App />)
 
     await findLeadStory()
@@ -1306,12 +1324,12 @@ describe("Phase 84 public portal app", () => {
 
   it("writes feed filter changes back into the public app url", async () => {
     installFetchMock()
-    window.location.hash = "#/feed?channel=featured"
+    window.location.hash = "#/feed?channel=all"
 
     render(<App />)
 
     await findLeadStory()
-    fireEvent.click(screen.getByRole("button", { name: "外交" }))
+    fireEvent.click(screen.getByRole("button", { name: /外交/ }))
 
     expect(window.location.pathname).toBe("/public-app/")
     expect(window.location.search).toContain("issue=%E5%9B%BD%E9%99%85%E5%85%B3%E7%B3%BB")

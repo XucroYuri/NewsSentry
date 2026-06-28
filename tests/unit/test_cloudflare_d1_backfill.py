@@ -12,6 +12,8 @@ from tools.cloudflare_d1_public_translation_backfill import (
     generate_translation_backfill_sql,
 )
 
+ROOT = Path(__file__).resolve().parents[2]
+
 
 def _make_state_db(path: Path) -> None:
     path.parent.mkdir(parents=True)
@@ -102,6 +104,7 @@ def test_collect_backfill_plan_uses_only_drafts_and_counts_targets(tmp_path: Pat
 
     assert [event.event_id for event in plan.events] == ["draft-1"]
     assert plan.events[0].published_at == "2026-05-29T23:45:00Z"
+    assert plan.events[0].classification == {"l0": "politics"}
     assert plan.targets[0].target_id == "italy"
     assert plan.targets[0].event_count == 1
     assert plan.sources[0].source_id == "ansa"
@@ -119,9 +122,30 @@ def test_generate_backfill_sql_is_idempotent_and_preserves_drafts_stage(tmp_path
     assert "INSERT INTO events" in sql
     assert "ON CONFLICT(event_id) DO UPDATE" in sql
     assert "'drafts'" in sql
+    assert "'{\"l0\":\"politics\"}'" in sql
+    assert "classification=excluded.classification" in sql
     assert "reviewed-1" not in sql
     assert "INSERT INTO targets" in sql
     assert "INSERT INTO sources" in sql
+
+
+def test_generated_backfill_sql_executes_against_d1_schema(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    targets_dir = tmp_path / "config" / "targets"
+    targets_dir.mkdir(parents=True)
+    (targets_dir / "italy.yaml").write_text("target_id: italy\n", encoding="utf-8")
+    _make_state_db(data_dir / "italy" / "state.db")
+
+    sql = generate_backfill_sql(collect_backfill_plan(data_dir=data_dir, targets_dir=targets_dir))
+
+    with closing(sqlite3.connect(tmp_path / "d1.sqlite")) as db:
+        db.executescript((ROOT / "frontend/cloudflare/db/schema.sql").read_text(encoding="utf-8"))
+        db.executescript(sql)
+        row = db.execute(
+            "SELECT event_id, pipeline_stage, classification FROM events"
+        ).fetchone()
+
+    assert row == ("draft-1", "drafts", '{"l0":"politics"}')
 
 
 def test_public_translation_backfill_updates_only_ready_public_fields(tmp_path: Path) -> None:
