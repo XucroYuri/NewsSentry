@@ -55,7 +55,7 @@ def _make_state_db(path: Path) -> None:
                     "politics",
                     "Draft story",
                     "https://example.com/draft",
-                    "2026-06-25T01:00:00+00:00",
+                    "20260529T234500Z",
                     "2026-06-25T01:01:00+00:00",
                     "politics,italy",
                     "Rome,EU",
@@ -97,6 +97,7 @@ def test_collect_backfill_plan_uses_only_drafts_and_counts_targets(tmp_path: Pat
     plan = collect_backfill_plan(data_dir=data_dir, targets_dir=targets_dir)
 
     assert [event.event_id for event in plan.events] == ["draft-1"]
+    assert plan.events[0].published_at == "2026-05-29T23:45:00Z"
     assert plan.targets[0].target_id == "italy"
     assert plan.targets[0].event_count == 1
     assert plan.sources[0].source_id == "ansa"

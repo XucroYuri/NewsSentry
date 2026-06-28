@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
@@ -71,6 +72,24 @@ def _sql(value: Any) -> str:
 
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+_COMPACT_UTC_RE = re.compile(
+    r"^(?P<date>\d{4})(?P<month>\d{2})(?P<day>\d{2})T"
+    r"(?P<hour>\d{2})(?P<minute>\d{2})(?P<second>\d{2})Z$"
+)
+
+
+def _normalize_timestamp(value: Any) -> str:
+    text = str(value or "").strip()
+    match = _COMPACT_UTC_RE.match(text)
+    if match:
+        parts = match.groupdict()
+        return (
+            f"{parts['date']}-{parts['month']}-{parts['day']}T"
+            f"{parts['hour']}:{parts['minute']}:{parts['second']}Z"
+        )
+    return text
 
 
 def _split_csv(value: str | None) -> list[str]:
@@ -155,8 +174,8 @@ def collect_backfill_plan(
             topic_tags = _split_csv(row["topic_tags"])
             issue_tags = [str(row["classification_l0"])] if row["classification_l0"] else []
             entities = [{"name": name} for name in _split_csv(row["entity_names"])]
-            published_at = str(row["published_at"] or row["created_at"])
-            collected_at = str(row["created_at"] or row["published_at"])
+            published_at = _normalize_timestamp(row["published_at"] or row["created_at"])
+            collected_at = _normalize_timestamp(row["created_at"] or row["published_at"])
 
             events.append(
                 D1Event(
