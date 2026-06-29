@@ -230,10 +230,12 @@ def test_cloudflare_scheduled_ops_are_configured() -> None:
     assert "extractContainerImportEvents" in scheduled_ts
     assert "importContainerEventsToD1" in scheduled_ts
     assert "import_result" in scheduled_ts
-    assert "COLLECT_TARGET_BATCH_SIZE = 12" in scheduled_ts
+    assert "COLLECT_TARGET_BATCH_SIZE = 4" in scheduled_ts
     assert "cursor:collect-cycle-target-index" in scheduled_ts
+    assert "CONTAINER_TASK_TIMEOUT_MS = 8 * 60_000" in scheduled_ts
     assert "loadCollectTargetBatch" in scheduled_ts
     assert "persistCollectTargetCursor" in scheduled_ts
+    assert "recordRunStarted" in scheduled_ts
     assert "targetIds" in scheduled_ts
     assert "compactTaskDetails({" in scheduled_ts
     assert "updates_count" in scheduled_ts
@@ -244,6 +246,8 @@ def test_cloudflare_scheduled_ops_are_configured() -> None:
     assert "waitForContainerRetryDelay" in scheduled_ts
     assert "auto_fetch" in scheduled_ts
     assert "auto_fetch_retry_${attempt}" in scheduled_ts
+    assert "container_timeout_ms" in scheduled_ts
+    assert "collectBatchDetails" in scheduled_ts
 
 
 def test_cloudflare_worker_observability_is_enabled() -> None:

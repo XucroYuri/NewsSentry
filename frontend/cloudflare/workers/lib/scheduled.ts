@@ -10,8 +10,9 @@ interface ScheduledEnv {
 
 type ScheduledTask = "collect-cycle" | "public-translation-cycle" | "refresh-public-quality";
 
-const COLLECT_TARGET_BATCH_SIZE = 12;
+const COLLECT_TARGET_BATCH_SIZE = 4;
 const COLLECT_TARGET_CURSOR_KEY = "cursor:collect-cycle-target-index";
+const CONTAINER_TASK_TIMEOUT_MS = 8 * 60_000;
 
 interface CollectTargetBatch {
   targetIds: string[];
@@ -87,6 +88,32 @@ async function recordRun(
        ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`
     )
     .bind(`last:${task}`, JSON.stringify({ status, runId, details }), isoNow())
+    .run();
+}
+
+async function recordRunStarted(
+  db: D1Database,
+  runId: string,
+  task: ScheduledTask,
+  startedAt: string,
+  details: Record<string, unknown>,
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO ops_runs (run_id, task, status, started_at, finished_at, details_json)
+       VALUES (?, ?, 'running', ?, NULL, ?)
+       ON CONFLICT(run_id) DO UPDATE SET status='running',
+       finished_at=NULL, details_json=excluded.details_json`
+    )
+    .bind(runId, task, startedAt, JSON.stringify(details))
+    .run();
+  await db
+    .prepare(
+      `INSERT INTO ops_state (key, value, updated_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`
+    )
+    .bind(`last:${task}`, JSON.stringify({ status: "running", runId, details }), isoNow())
     .run();
 }
 
@@ -212,6 +239,7 @@ async function persistCollectTargetCursor(
 function containerTaskRequest(
   task: Exclude<ScheduledTask, "refresh-public-quality">,
   targetIds?: string[],
+  signal?: AbortSignal,
 ): Request {
   return new Request(`https://container.news-sentry.internal/api/v1/internal/cloudflare/${task}`, {
     method: "POST",
@@ -219,6 +247,7 @@ function containerTaskRequest(
       "Content-Type": "application/json",
       "X-News-Sentry-Internal-Task": task,
     },
+    signal,
     body: JSON.stringify({
       runId: crypto.randomUUID(),
       task,
@@ -262,22 +291,34 @@ async function callContainerInternalTask(
     return { status: "skipped", reason: "container_not_configured" };
   }
   const container = getContainer(env.NEWS_SENTRY_CONTAINER, "admin-runtime");
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort("container_task_timeout"),
+    CONTAINER_TASK_TIMEOUT_MS,
+  );
   let lastError: unknown = null;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (attempt > 0) {
-      await waitForContainerRetryDelay(attempt);
+  try {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (attempt > 0) {
+        await waitForContainerRetryDelay(attempt);
+      }
+      try {
+        return {
+          ...(await parseContainerTaskResponse(
+            await container.fetch(containerTaskRequest(task, targetIds, controller.signal)),
+          )),
+          container_start: attempt === 0 ? "auto_fetch" : `auto_fetch_retry_${attempt}`,
+          container_timeout_ms: CONTAINER_TASK_TIMEOUT_MS,
+        };
+      } catch (error) {
+        lastError = error;
+        if (!isContainerNotRunningError(error) || attempt === 2) throw error;
+      }
     }
-    try {
-      return {
-        ...(await parseContainerTaskResponse(await container.fetch(containerTaskRequest(task, targetIds)))),
-        container_start: attempt === 0 ? "auto_fetch" : `auto_fetch_retry_${attempt}`,
-      };
-    } catch (error) {
-      lastError = error;
-      if (!isContainerNotRunningError(error) || attempt === 2) throw error;
-    }
+    throw lastError;
+  } finally {
+    clearTimeout(timeout);
   }
-  throw lastError;
 }
 
 async function refreshPublicQuality(db: D1Database): Promise<Record<string, unknown>> {
@@ -314,6 +355,16 @@ async function refreshPublicQuality(db: D1Database): Promise<Record<string, unkn
   return details;
 }
 
+function collectBatchDetails(batch: CollectTargetBatch): Record<string, unknown> {
+  return {
+    target_ids: batch.targetIds,
+    cursor: batch.cursor,
+    next_cursor: batch.nextCursor,
+    total_targets: batch.totalTargets,
+    batch_size: COLLECT_TARGET_BATCH_SIZE,
+  };
+}
+
 export async function runScheduledCloudflareTask(
   controller: ScheduledController,
   env: ScheduledEnv,
@@ -321,12 +372,16 @@ export async function runScheduledCloudflareTask(
   const task = taskForCron(controller.cron);
   const runId = `${task}:${controller.scheduledTime}:${crypto.randomUUID()}`;
   const startedAt = isoNow();
+  let collectBatch: CollectTargetBatch | null = null;
   if (!(await acquireLock(env.DB, task))) {
     await recordRun(env.DB, runId, task, "skipped_locked", startedAt, {});
     return;
   }
   try {
-    const collectBatch = task === "collect-cycle" ? await loadCollectTargetBatch(env.DB) : null;
+    collectBatch = task === "collect-cycle" ? await loadCollectTargetBatch(env.DB) : null;
+    await recordRunStarted(env.DB, runId, task, startedAt, {
+      ...(collectBatch === null ? {} : { collect_batch: collectBatchDetails(collectBatch) }),
+    });
     const details =
       task === "refresh-public-quality"
         ? await refreshPublicQuality(env.DB)
@@ -351,14 +406,7 @@ export async function runScheduledCloudflareTask(
       ...(importResult === null ? {} : { import_result: importResult }),
       ...(collectBatch === null
         ? {}
-        : {
-            collect_batch: {
-              target_ids: collectBatch.targetIds,
-              cursor: collectBatch.cursor,
-              next_cursor: collectBatch.nextCursor,
-              total_targets: collectBatch.totalTargets,
-            },
-          }),
+        : { collect_batch: collectBatchDetails(collectBatch) }),
       snapshots: snapshotRefresh,
     });
     const status =
@@ -370,6 +418,7 @@ export async function runScheduledCloudflareTask(
   } catch (error) {
     await recordRun(env.DB, runId, task, "error", startedAt, {
       message: error instanceof Error ? error.message : String(error),
+      ...(collectBatch === null ? {} : { collect_batch: collectBatchDetails(collectBatch) }),
     });
   } finally {
     await releaseLock(env.DB, task);
