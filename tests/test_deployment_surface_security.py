@@ -12,7 +12,7 @@ POLICY_PATH = PROJECT_ROOT / "config/security/deployment-surface-policy.yaml"
 sys.path.insert(0, str(TOOLS_DIR))
 
 from build_cloudflare_state_json import build_state_from_payloads  # noqa: E402
-from deployed_surface_audit import base_url_for_surface  # noqa: E402
+from deployed_surface_audit import _collect_live_probes, base_url_for_surface  # noqa: E402
 from deployment_surface_security import (  # noqa: E402
     build_cloudflare_state_findings,
     build_surface_findings,
@@ -147,6 +147,54 @@ def test_deployed_surface_audit_routes_api_surfaces_to_split_api_origin() -> Non
     )
 
 
+def test_deployed_surface_audit_retries_challenged_public_pages_on_fallback(
+    monkeypatch,
+) -> None:
+    policy = load_policy(POLICY_PATH)
+
+    def fake_probe_surface(
+        base_url: str,
+        surface: str,
+        timeout_seconds: float,
+    ) -> dict[str, object]:
+        del timeout_seconds
+        if base_url == "https://news-sentry.com" and surface == "/public-app/":
+            return {
+                "surface": surface,
+                "base_url": base_url,
+                "status_code": 403,
+                "headers": {"content-type": "text/html"},
+            }
+        return {
+            "surface": surface,
+            "base_url": base_url,
+            "status_code": 200 if surface.startswith("/api/") else 401,
+            "headers": {},
+        }
+
+    monkeypatch.setattr("deployed_surface_audit._probe_surface", fake_probe_surface)
+
+    probes = _collect_live_probes(
+        policy,
+        "https://news-sentry.com",
+        "https://api.news-sentry.com",
+        timeout_seconds=8,
+        public_base_url_fallback="https://news-sentry.pages.dev",
+    )
+    public_app_probe = next(item for item in probes if item["surface"] == "/public-app/")
+    api_probe = next(
+        item for item in probes if item["surface"] == "/api/v1/public/news?page_size=1"
+    )
+
+    assert public_app_probe["base_url"] == "https://news-sentry.pages.dev"
+    assert public_app_probe["fallback_from"] == {
+        "base_url": "https://news-sentry.com",
+        "status_code": 403,
+    }
+    assert api_probe["base_url"] == "https://api.news-sentry.com"
+    assert "fallback_from" not in api_probe
+
+
 def test_cloudflare_state_builder_derives_audit_json_from_access_and_rulesets() -> None:
     policy = load_policy(POLICY_PATH)
     state = build_state_from_payloads(
@@ -269,6 +317,11 @@ def test_deployed_surface_audit_script_marks_public_runtime_info_and_missing_clo
     )
 
     assert result.returncode == 1
+    stdout_summary = json.loads(result.stdout)
+    assert stdout_summary["finding_count"] == 2
+    assert {
+        item["finding_class"] for item in stdout_summary["findings"]
+    } == {"protected-surface-public", "cloudflare-state-unavailable"}
     report = json.loads(output_file.read_text(encoding="utf-8"))
     surfaces = {item["surface"]: item for item in report["findings"]}
 

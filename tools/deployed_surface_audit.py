@@ -13,6 +13,7 @@ import httpx
 from deployment_surface_security import (
     build_cloudflare_state_findings,
     build_surface_findings,
+    classify_surface,
     load_policy,
 )
 
@@ -45,9 +46,22 @@ def _probe_surface(
         response = client.get(url)
     return {
         "surface": surface,
+        "base_url": base_url,
         "status_code": response.status_code,
         "headers": dict(response.headers),
     }
+
+
+def _should_retry_public_surface_on_fallback(
+    surface: str,
+    probe: dict[str, Any],
+    policy: dict[str, Any],
+    fallback_base_url: str | None,
+) -> bool:
+    if not fallback_base_url or surface.startswith("/api/"):
+        return False
+    classified = classify_surface(surface, policy)
+    return bool(classified["public_allowed"]) and int(probe.get("status_code", 0)) >= 400
 
 
 def _collect_live_probes(
@@ -55,13 +69,48 @@ def _collect_live_probes(
     base_url: str,
     api_base_url: str | None,
     timeout_seconds: float,
+    public_base_url_fallback: str | None = None,
 ) -> list[dict[str, Any]]:
     rules = policy["surface_rules"]["default_probe_surfaces"]
     probes: list[dict[str, Any]] = []
     for surface in [*rules["public"], *rules["protected"], *rules["architecture"]]:
         surface_base_url = base_url_for_surface(surface, base_url, api_base_url)
-        probes.append(_probe_surface(surface_base_url, surface, timeout_seconds))
+        probe = _probe_surface(surface_base_url, surface, timeout_seconds)
+        if _should_retry_public_surface_on_fallback(
+            surface,
+            probe,
+            policy,
+            public_base_url_fallback,
+        ):
+            fallback_probe = _probe_surface(
+                public_base_url_fallback or surface_base_url,
+                surface,
+                timeout_seconds,
+            )
+            fallback_probe["fallback_from"] = {
+                "base_url": surface_base_url,
+                "status_code": probe.get("status_code"),
+            }
+            probe = fallback_probe
+        probes.append(probe)
     return probes
+
+
+def _summary_for_stdout(report: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "policy_id": report["policy_id"],
+        "environment": report["environment"],
+        "finding_count": report["finding_count"],
+        "findings": [
+            {
+                "surface": item.get("surface"),
+                "finding_class": item.get("finding_class"),
+                "severity": item.get("severity"),
+                "evidence": item.get("evidence", []),
+            }
+            for item in report["findings"][:20]
+        ],
+    }
 
 
 def main() -> int:
@@ -74,6 +123,13 @@ def main() -> int:
     parser.add_argument(
         "--api-base-url",
         help="Optional API origin for split Cloudflare Pages + Worker deployments.",
+    )
+    parser.add_argument(
+        "--public-base-url-fallback",
+        help=(
+            "Optional public site fallback used only for public non-API surfaces "
+            "that are blocked by the primary base URL."
+        ),
     )
     parser.add_argument(
         "--environment",
@@ -92,6 +148,7 @@ def main() -> int:
             args.base_url,
             args.api_base_url,
             args.timeout_seconds,
+            args.public_base_url_fallback,
         )
     else:
         raise SystemExit("either --probes-json or --base-url is required")
@@ -112,16 +169,7 @@ def main() -> int:
         "findings": findings,
     }
     _write_json(Path(args.output), report)
-    print(
-        json.dumps(
-            {
-                "policy_id": report["policy_id"],
-                "environment": report["environment"],
-                "finding_count": report["finding_count"],
-            },
-            ensure_ascii=False,
-        )
-    )
+    print(json.dumps(_summary_for_stdout(report), ensure_ascii=False))
     return 1 if findings else 0
 
 

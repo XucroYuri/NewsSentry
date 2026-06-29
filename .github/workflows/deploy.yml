@@ -496,5 +496,6 @@ jobs:
               --cloudflare-state-json /tmp/news-sentry-cloudflare-state.json \
               --base-url "${BASE_URL}" \
               --api-base-url "${API_URL}" \
+              --public-base-url-fallback "${PAGES_URL:-${BASE_URL}}" \
               --output /tmp/news-sentry-deployed-surface-audit.json \
               --timeout-seconds 90
