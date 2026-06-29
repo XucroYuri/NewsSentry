@@ -241,9 +241,9 @@ def test_cloudflare_scheduled_ops_are_configured() -> None:
     assert "/api/v1/internal/cloudflare/${task}" in scheduled_ts
     assert '"X-News-Sentry-Internal-Task": task' in scheduled_ts
     assert "isContainerNotRunningError" in scheduled_ts
-    assert "startAndWaitForPorts(8000" in scheduled_ts
-    assert "ensured_before_fetch" in scheduled_ts
-    assert "started_after_not_running" in scheduled_ts
+    assert "waitForContainerRetryDelay" in scheduled_ts
+    assert "auto_fetch" in scheduled_ts
+    assert "auto_fetch_retry_${attempt}" in scheduled_ts
 
 
 def test_cloudflare_worker_observability_is_enabled() -> None:
@@ -292,6 +292,8 @@ def test_container_proxy_requires_cloudflare_access_identity() -> None:
     assert "shouldProxyToContainer" in index_ts
     assert "handleContainerProxy(request, env)" in index_ts
     assert "NewsSentryContainer" in index_ts
+    assert "defaultPort = 8000" in index_ts
+    assert "requiredPorts = [8000]" in index_ts
     assert '"/api/v1/admin/"' in access_ts
     assert '"/api/v1/auth/"' in access_ts
     assert "/api/v1/internal/cloudflare" not in access_ts

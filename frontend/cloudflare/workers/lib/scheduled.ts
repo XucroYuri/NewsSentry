@@ -248,14 +248,9 @@ function isContainerNotRunningError(error: unknown): boolean {
   return message.toLowerCase().includes("container is not running");
 }
 
-async function ensureContainerReady(
-  container: ReturnType<typeof getContainer>,
-): Promise<void> {
-  await container.startAndWaitForPorts(8000, {
-    instanceGetTimeoutMS: 30_000,
-    portReadyTimeoutMS: 90_000,
-    waitInterval: 1_000,
-  });
+async function waitForContainerRetryDelay(attempt: number): Promise<void> {
+  const delayMs = attempt <= 1 ? 5_000 : 15_000;
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
 async function callContainerInternalTask(
@@ -267,20 +262,22 @@ async function callContainerInternalTask(
     return { status: "skipped", reason: "container_not_configured" };
   }
   const container = getContainer(env.NEWS_SENTRY_CONTAINER, "admin-runtime");
-  await ensureContainerReady(container);
-  try {
-    return {
-      ...(await parseContainerTaskResponse(await container.fetch(containerTaskRequest(task, targetIds)))),
-      container_start: "ensured_before_fetch",
-    };
-  } catch (error) {
-    if (!isContainerNotRunningError(error)) throw error;
-    await ensureContainerReady(container);
-    return {
-      ...(await parseContainerTaskResponse(await container.fetch(containerTaskRequest(task, targetIds)))),
-      container_start: "started_after_not_running",
-    };
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt > 0) {
+      await waitForContainerRetryDelay(attempt);
+    }
+    try {
+      return {
+        ...(await parseContainerTaskResponse(await container.fetch(containerTaskRequest(task, targetIds)))),
+        container_start: attempt === 0 ? "auto_fetch" : `auto_fetch_retry_${attempt}`,
+      };
+    } catch (error) {
+      lastError = error;
+      if (!isContainerNotRunningError(error) || attempt === 2) throw error;
+    }
   }
+  throw lastError;
 }
 
 async function refreshPublicQuality(db: D1Database): Promise<Record<string, unknown>> {

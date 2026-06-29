@@ -58,6 +58,7 @@ function definedEnv(vars: Record<string, string | undefined>): Record<string, st
 
 export class NewsSentryContainer extends Container<Env> {
   defaultPort = 8000;
+  requiredPorts = [8000];
   sleepAfter = "30m";
   enableInternet = true;
 
