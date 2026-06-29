@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
@@ -29,6 +30,7 @@ class D1Event:
     related_tags: list[str]
     region_tags: list[str]
     entities: list[dict[str, str]]
+    classification: dict[str, str]
     value_label: str
     value_score: int | None
     china_relevance_label: str
@@ -71,6 +73,24 @@ def _sql(value: Any) -> str:
 
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+_COMPACT_UTC_RE = re.compile(
+    r"^(?P<date>\d{4})(?P<month>\d{2})(?P<day>\d{2})T"
+    r"(?P<hour>\d{2})(?P<minute>\d{2})(?P<second>\d{2})Z$"
+)
+
+
+def _normalize_timestamp(value: Any) -> str:
+    text = str(value or "").strip()
+    match = _COMPACT_UTC_RE.match(text)
+    if match:
+        parts = match.groupdict()
+        return (
+            f"{parts['date']}-{parts['month']}-{parts['day']}T"
+            f"{parts['hour']}:{parts['minute']}:{parts['second']}Z"
+        )
+    return text
 
 
 def _split_csv(value: str | None) -> list[str]:
@@ -154,9 +174,10 @@ def collect_backfill_plan(
             source_id = str(row["source_id"] or "unknown")
             topic_tags = _split_csv(row["topic_tags"])
             issue_tags = [str(row["classification_l0"])] if row["classification_l0"] else []
+            classification = {"l0": str(row["classification_l0"] or "uncategorized")}
             entities = [{"name": name} for name in _split_csv(row["entity_names"])]
-            published_at = str(row["published_at"] or row["created_at"])
-            collected_at = str(row["created_at"] or row["published_at"])
+            published_at = _normalize_timestamp(row["published_at"] or row["created_at"])
+            collected_at = _normalize_timestamp(row["created_at"] or row["published_at"])
 
             events.append(
                 D1Event(
@@ -174,6 +195,7 @@ def collect_backfill_plan(
                     related_tags=topic_tags,
                     region_tags=[target_id],
                     entities=entities,
+                    classification=classification,
                     value_label=_value_label(row["news_value_score"]),
                     value_score=row["news_value_score"],
                     china_relevance_label=_china_relevance_label(row["china_relevance"]),
@@ -234,7 +256,7 @@ def _event_insert(event: D1Event) -> str:
         "event_id, target_id, target_label, region_id, source_id, source_name, source_type, "
         "published_at, collected_at, title, original_title, original_url, detail_url, "
         "image_urls, tags, issue_tags, related_tags, region_tags, entities, language, "
-        "pipeline_stage, value_label, value_score, china_relevance_label"
+        "pipeline_stage, value_label, value_score, china_relevance_label, classification"
     )
     values = [
         event.event_id,
@@ -261,19 +283,39 @@ def _event_insert(event: D1Event) -> str:
         event.value_label,
         event.value_score,
         event.china_relevance_label,
+        _json(event.classification),
     ]
+    preserve_zh_text = (
+        "events.language = 'zh' "
+        "AND COALESCE(TRIM(events.title), '') <> ''"
+    )
+    preserve_zh_json = (
+        "events.language = 'zh' "
+        "AND COALESCE(TRIM(events.{column}), '') NOT IN ('', '[]')"
+    )
     assignments = (
         "target_id=excluded.target_id, target_label=excluded.target_label, "
         "region_id=excluded.region_id, source_id=excluded.source_id, "
         "source_name=excluded.source_name, "
         "source_type=excluded.source_type, published_at=excluded.published_at, "
-        "collected_at=excluded.collected_at, title=excluded.title, "
+        "collected_at=excluded.collected_at, "
+        f"title=CASE WHEN {preserve_zh_text} THEN events.title ELSE excluded.title END, "
         "original_title=excluded.original_title, "
-        "original_url=excluded.original_url, detail_url=excluded.detail_url, tags=excluded.tags, "
-        "issue_tags=excluded.issue_tags, related_tags=excluded.related_tags, "
-        "region_tags=excluded.region_tags, entities=excluded.entities, "
+        "original_url=excluded.original_url, detail_url=excluded.detail_url, "
+        f"tags=CASE WHEN {preserve_zh_json.format(column='tags')} "
+        "THEN events.tags ELSE excluded.tags END, "
+        f"issue_tags=CASE WHEN {preserve_zh_json.format(column='issue_tags')} "
+        "THEN events.issue_tags ELSE excluded.issue_tags END, "
+        f"related_tags=CASE WHEN {preserve_zh_json.format(column='related_tags')} "
+        "THEN events.related_tags ELSE excluded.related_tags END, "
+        f"region_tags=CASE WHEN {preserve_zh_json.format(column='region_tags')} "
+        "THEN events.region_tags ELSE excluded.region_tags END, "
+        "entities=excluded.entities, "
+        "language=CASE WHEN events.language = 'zh' "
+        "THEN events.language ELSE excluded.language END, "
         "pipeline_stage=excluded.pipeline_stage, value_label=excluded.value_label, "
         "value_score=excluded.value_score, china_relevance_label=excluded.china_relevance_label, "
+        "classification=excluded.classification, "
         "updated_at=datetime('now')"
     )
     return (

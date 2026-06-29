@@ -135,6 +135,35 @@ describe("public site seo runtime", () => {
     expect(payload.description).toContain("管理")
   })
 
+  it("uses a stable global title for the default featured home", () => {
+    const payload = buildRouteSeoPayload({
+      origin: "https://news-sentry.com",
+      route: {
+        name: "feed",
+        channel: "featured",
+        search: new URLSearchParams(),
+      },
+      selectedTargetLabel: "韩国新闻监控",
+    })
+
+    expect(payload.title).toBe("新闻哨兵 · 全球新闻监控 | News Sentry")
+    expect(payload.title).not.toContain("韩国")
+  })
+
+  it("keeps target-specific titles for filtered feed pages", () => {
+    const payload = buildRouteSeoPayload({
+      origin: "https://news-sentry.com",
+      route: {
+        name: "feed",
+        channel: "featured",
+        search: new URLSearchParams("target_id=south-korea"),
+      },
+      selectedTargetLabel: "韩国新闻监控",
+    })
+
+    expect(payload.title).toBe("新闻哨兵 · 韩国新闻监控 | News Sentry")
+  })
+
   it("builds a detail seo payload with news article json ld", () => {
     const payload = buildEventSeoPayload({
       origin: "https://news-sentry.com",

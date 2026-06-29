@@ -358,6 +358,181 @@ class TestPublicTranslationAPI:
         assert data["total"] == 0
 
 
+class TestCloudflareInternalAPI:
+    def _make_cloudflare_client(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        deployment_env: str = "cloudflare-container",
+        profile: str = "cloudflare",
+    ) -> TestClient:
+        monkeypatch.chdir(tmp_path)
+        _force_deployment_env(monkeypatch, deployment_env)
+        monkeypatch.setenv("NEWSSENTRY_PROFILE", profile)
+        app = create_app(data_dir=tmp_path, auto_store=False, skip_lifespan=True)
+        return TestClient(app)
+
+    def test_collect_cycle_requires_cloudflare_internal_guard(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        client = self._make_cloudflare_client(
+            tmp_path,
+            monkeypatch,
+            deployment_env="local",
+            profile="local",
+        )
+
+        missing_header = client.post(
+            "/api/v1/internal/cloudflare/collect-cycle",
+            json={"runId": "cf-run-guard", "task": "collect-cycle"},
+        )
+        wrong_env = client.post(
+            "/api/v1/internal/cloudflare/collect-cycle",
+            headers={"X-News-Sentry-Internal-Task": "collect-cycle"},
+            json={"runId": "cf-run-guard", "task": "collect-cycle"},
+        )
+
+        assert missing_header.status_code == 403
+        assert wrong_env.status_code == 403
+
+    def test_collect_cycle_endpoint_returns_compact_receipt(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def fake_collect_once(run_id: str | None = None) -> dict[str, Any]:
+            return {
+                "status": "ok",
+                "run_id": run_id,
+                "targets": ["italy", "france"],
+                "stage": "all",
+                "events_collected": 3,
+                "target_count": 2,
+            }
+
+        monkeypatch.setattr(
+            api_server_module,
+            "_run_auto_collect_once",
+            fake_collect_once,
+            raising=False,
+        )
+        client = self._make_cloudflare_client(tmp_path, monkeypatch)
+
+        resp = client.post(
+            "/api/v1/internal/cloudflare/collect-cycle",
+            headers={"X-News-Sentry-Internal-Task": "collect-cycle"},
+            json={"runId": "cf-run-collect", "task": "collect-cycle"},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["task"] == "collect-cycle"
+        assert data["run_id"] == "cf-run-collect"
+        assert data["summary"] == {
+            "target_count": 2,
+            "events_collected": 3,
+            "stage": "all",
+            "targets": ["italy", "france"],
+        }
+        assert "started_at" in data
+        assert "finished_at" in data
+
+    def test_public_translation_cycle_endpoint_compacts_updates(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        async def fake_translation_once(run_id: str | None = None) -> dict[str, Any]:
+            return {
+                "status": "ok",
+                "run_id": run_id,
+                "targets": ["france"],
+                "updates": [
+                    {"event_id": "evt-1", "title": "long payload should not be returned"},
+                    {"event_id": "evt-2", "title": "long payload should not be returned"},
+                ],
+                "failed": 1,
+                "target_results": [
+                    {"target_id": "france", "status": "ok", "updated": 2, "failed": 1}
+                ],
+            }
+
+        monkeypatch.setattr(
+            api_server_module,
+            "_run_public_translation_cycle_once",
+            fake_translation_once,
+            raising=False,
+        )
+        client = self._make_cloudflare_client(tmp_path, monkeypatch)
+
+        resp = client.post(
+            "/api/v1/internal/cloudflare/public-translation-cycle",
+            headers={"X-News-Sentry-Internal-Task": "public-translation-cycle"},
+            json={"runId": "cf-run-translation", "task": "public-translation-cycle"},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["task"] == "public-translation-cycle"
+        assert data["run_id"] == "cf-run-translation"
+        assert "updates" not in data
+        assert data["summary"]["updates"] == 2
+        assert data["summary"]["failed"] == 1
+        assert data["summary"]["target_results"] == [
+            {"target_id": "france", "status": "ok", "updated": 2, "failed": 1}
+        ]
+
+    def test_auto_collect_once_uses_initialized_logger(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from news_sentry.core import collector_config_utils
+
+        async def fake_bounded_run_multi_async(**kwargs: object) -> list[MagicMock]:
+            assert kwargs["run_id"] == "cf-run-real-helper"
+            ctx = MagicMock()
+            ctx.target_id = "italy"
+            ctx.events_collected = 2
+            ctx.status = "ok"
+            return [ctx]
+
+        monkeypatch.setattr(
+            "news_sentry.core.async_run.bounded_run_multi_async",
+            fake_bounded_run_multi_async,
+        )
+        old = dict(collector_config_utils._auto_collector_state)
+        try:
+            collector_config_utils._auto_collector_state.update(
+                {
+                    "target_ids": ["italy"],
+                    "stage": "collect",
+                    "last_events_collected": 0,
+                    "last_run_at": None,
+                    "last_run_status": None,
+                    "last_error": None,
+                    "total_runs": 0,
+                }
+            )
+
+            result = asyncio.run(
+                collector_config_utils._run_auto_collect_once("cf-run-real-helper")
+            )
+
+            assert result["status"] == "ok"
+            assert result["events_collected"] == 2
+            assert result["target_results"] == [
+                {"target_id": "italy", "events_collected": 2, "status": "ok"}
+            ]
+        finally:
+            collector_config_utils._auto_collector_state.clear()
+            collector_config_utils._auto_collector_state.update(old)
+
+
 class TestVerifyApiKey:
     """API Key 认证测试。"""
 
@@ -7653,4 +7828,3 @@ def test_research_graph_split_missing_mention_returns_404(
 
     assert response.status_code == 404
     assert "mention not found" in response.json()["detail"]
-

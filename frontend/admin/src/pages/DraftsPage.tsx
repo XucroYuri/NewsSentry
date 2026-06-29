@@ -145,7 +145,7 @@ export default function DraftsPage() {
       {/* 标题栏 */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">草稿审核</h2>
+          <h2 className="text-2xl font-semibold">草稿审核</h2>
           <p className="text-sm text-muted-foreground">
             {data ? `共 ${data.total} 条` : "加载中..."}
           </p>
@@ -327,7 +327,7 @@ export default function DraftsPage() {
                               </Button>
                             )}
                             {!next && stage === "published" && (
-                              <CheckCircle2Icon className="h-4 w-4 text-green-500" />
+                              <CheckCircle2Icon className="h-4 w-4 text-success" />
                             )}
                           </div>
                         </td>

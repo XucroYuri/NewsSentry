@@ -47,6 +47,7 @@ CREATE INDEX IF NOT EXISTS idx_events_published_at ON events(published_at);
 CREATE INDEX IF NOT EXISTS idx_events_pipeline_stage ON events(pipeline_stage);
 CREATE INDEX IF NOT EXISTS idx_events_source_id ON events(source_id);
 CREATE INDEX IF NOT EXISTS idx_events_value_label ON events(value_label);
+CREATE INDEX IF NOT EXISTS idx_events_public_featured ON events(pipeline_stage, value_score DESC, published_at DESC);
 
 -- 来源表
 CREATE TABLE IF NOT EXISTS sources (
@@ -89,6 +90,34 @@ CREATE TABLE IF NOT EXISTS source_health (
     last_run_at TEXT,
     last_failure_at TEXT,
     last_error TEXT,
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Cloudflare-native ops state for scheduled collection/translation runs.
+CREATE TABLE IF NOT EXISTS ops_state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')),
+    lock_until TEXT
+);
+
+CREATE TABLE IF NOT EXISTS ops_runs (
+    run_id TEXT PRIMARY KEY,
+    task TEXT NOT NULL,
+    status TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    details_json TEXT DEFAULT '{}'
+);
+
+-- Public read snapshots keep the hot public reader paths off aggregate queries.
+CREATE TABLE IF NOT EXISTS public_read_snapshots (
+    key TEXT PRIMARY KEY,
+    payload_json TEXT NOT NULL,
+    generated_at TEXT NOT NULL,
+    source_latest_public_at TEXT,
+    item_count INTEGER DEFAULT 0,
+    payload_bytes INTEGER DEFAULT 0,
     updated_at TEXT DEFAULT (datetime('now'))
 );
 

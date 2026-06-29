@@ -550,7 +550,62 @@ async def test_public_translation_engine_repairs_fenced_publication_json(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_public_translation_engine_records_retrying_attempt_without_hiding_forever(
+async def test_public_translation_engine_recovers_plaintext_publication(tmp_path) -> None:
+    store = AsyncStore(tmp_path / "state.db")
+    await store.initialize()
+    try:
+        await store.index_event(_event("ne-plain-publication", score=88), "france", "drafts")
+        router = MagicMock()
+        router.route_async = AsyncMock(
+            side_effect=[
+                {
+                    "content": "法国获得欧盟贷款用于军备采购",
+                    "route_id": "translate.public",
+                    "model": "auto",
+                    "provider": "gemini",
+                },
+                {
+                    "content": "这条新闻涉及欧盟资金流向和法国防务采购，对供应链观察有价值。",
+                    "route_id": "translate.public",
+                    "model": "auto",
+                    "provider": "gemini",
+                },
+                {
+                    "content": "这条新闻揭示法国防务采购链条变化，值得跟踪后续预算和供应商影响。",
+                    "route_id": "public.summary_reason",
+                    "model": "auto",
+                    "provider": "agnes",
+                },
+            ]
+        )
+        engine = PublicTranslationEngine(PublicTranslationConfig(per_cycle_limit=5))
+        rows = await store.list_public_translation_candidates("france", limit=10)
+
+        result = await engine.run_rows(
+            target_id="france",
+            rows=rows,
+            store=store,
+            router=router,
+            provider_factory=lambda name: MagicMock(),
+        )
+
+        assert result["status"] == "ok"
+        row = await store.get_event_index_row("france", "ne-plain-publication")
+        assert row is not None and row["public_translation_ready"] == 1
+        publication = row["metadata"]["publication"]
+        assert publication["one_line_summary"] == (
+            "这条新闻涉及欧盟资金流向和法国防务采购，对供应链观察有价值。"
+        )
+        assert "法国防务采购链条" in publication["recommendation_reason"]
+        assert publication["issue_tags"] == ["国际关系"]
+        assert publication["related_tags"] == ["涉欧"]
+        assert publication["region_tags"] == ["法国"]
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
+async def test_public_translation_engine_stops_on_provider_quota_without_hiding_forever(
     tmp_path,
 ) -> None:
     store = AsyncStore(tmp_path / "state.db")
@@ -578,8 +633,9 @@ async def test_public_translation_engine_records_retrying_attempt_without_hiding
             provider_factory=lambda name: MagicMock(),
         )
 
-        assert result["status"] == "retrying"
+        assert result["status"] == "provider_quota_exhausted"
         assert result["updated"] == 0
+        assert result["error"] == "429 quota"
         row = await store.get_event_index_row("france", "ne-retry")
         assert row is not None and row["public_translation_ready"] == 0
         async with store._connect() as conn:

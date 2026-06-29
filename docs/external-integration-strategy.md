@@ -75,10 +75,12 @@ News Sentry v2 使用内置 AI provider chain，无需外部 Agent 框架：
 | Gemini | `google-genai` | 翻译、研判 | 1 (primary) |
 | DeepSeek | OpenAI-compatible SDK | 翻译 fallback | 2 |
 | Groq | `groq` | 研判 fallback | 3 |
-| Cloudflare Workers AI | REST API | 最后兜底 | 4 |
+| Cloudflare Workers AI | REST API | Cloudflare-native 兜底 | 4 |
+| OpenRouter | OpenAI-compatible SDK | 免费模型兜底 | 5 |
+| NVIDIA NIM / Agnes AI / OpenCode Zen / Reka | OpenAI-compatible SDK | FreeLLMAPI 密钥迁移后的直连备用，不再经过本地 sidecar | 6 |
 
 - **零外部框架依赖：** 不依赖 LangChain、OpenCLI、Hermes、OpenClaw 等 Agent 框架
-- **Provider 路由：** `config/provider/routes.yaml` 控制每个 target 的 provider 链路
+- **Provider 路由：** `config/provider/routes.yaml` 控制每个 target 的 provider 链路；同一 provider 的备用 key 使用环境变量后缀 `_2`、`_3` 进入 key pool
 - **CLI 入口不变：** `python -m news_sentry.cli run --target {id} --stage all`
 
 ---

@@ -136,7 +136,7 @@ export default function TargetDetail({ targetId, onBack }: { targetId: string; o
             返回
           </Button>
           <div>
-            <h2 className="text-2xl font-semibold tracking-tight">{t.display_name}</h2>
+            <h2 className="text-2xl font-semibold">{t.display_name}</h2>
             <p className="text-sm text-muted-foreground">
               <code className="font-mono text-xs">{t.target_id}</code>
               {" · " + monitoringTypeText + " · " + languageText}
@@ -200,13 +200,13 @@ export default function TargetDetail({ targetId, onBack }: { targetId: string; o
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">数据完整性</CardTitle>
             {d.sources.missing_refs > 0 ? (
-              <AlertTriangleIcon className="h-4 w-4 text-amber-500" />
+              <AlertTriangleIcon className="h-4 w-4 text-warning" />
             ) : (
               <CheckCircleIcon className="h-4 w-4 text-muted-foreground" />
             )}
           </CardHeader>
           <CardContent>
-            <div className={`text-2xl font-semibold ${d.sources.missing_refs > 0 ? "text-amber-500" : ""}`}>
+            <div className={`text-2xl font-semibold ${d.sources.missing_refs > 0 ? "text-warning" : ""}`}>
               {d.sources.missing_refs > 0 ? d.sources.missing_refs : "pass"}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -224,12 +224,12 @@ export default function TargetDetail({ targetId, onBack }: { targetId: string; o
         <CardContent>
           <div className="flex items-center gap-6 text-sm">
             <span className="flex items-center gap-2">
-              <span className={`inline-block h-2 w-2 rounded-full ${d.collector.enabled ? "bg-emerald-500" : "bg-destructive"}`} />
+              <span className={`inline-block h-2 w-2 rounded-full ${d.collector.enabled ? "bg-success" : "bg-destructive"}`} />
               <span className="text-muted-foreground">状态</span>
               <span className="font-medium">{!!d.collector.enabled ? "已启用" : "未启用"}</span>
             </span>
             <span className="flex items-center gap-2">
-              <span className={`inline-block h-2 w-2 rounded-full ${d.collector.running ? "bg-emerald-500" : "bg-destructive"}`} />
+              <span className={`inline-block h-2 w-2 rounded-full ${d.collector.running ? "bg-success" : "bg-destructive"}`} />
               <span className="text-muted-foreground">运行</span>
               <span className="font-medium">{!!d.collector.running ? "运行中" : "空闲"}</span>
             </span>
@@ -342,7 +342,7 @@ export default function TargetDetail({ targetId, onBack }: { targetId: string; o
               {d.recent_runs.map((run, i) => (
                 <div key={run.run_id ?? i} className="flex items-center gap-3 py-1.5">
                   <span className={`inline-block h-2 w-2 rounded-full ${
-                    run.status === "ok" || run.status === "success" ? "bg-emerald-500" : "bg-destructive"
+                    run.status === "ok" || run.status === "success" ? "bg-success" : "bg-destructive"
                   }`} />
                   <span className="flex-1 font-mono text-xs">{run.run_id ?? `#${i + 1}`}</span>
                   <span className="text-xs text-muted-foreground">

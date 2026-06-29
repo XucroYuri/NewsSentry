@@ -517,7 +517,7 @@ export function NewsFeedPage({
                       {formatTime(item.publishedAt)}
                     </time>
                     <div className="hidden md:grid md:justify-center">
-                      <span className="mt-4 size-2 rounded-full bg-primary shadow-[0_0_0_3px_hsl(var(--primary)/0.18)]" />
+                      <span className="mt-4 size-2 rounded-full bg-primary shadow-[var(--shadow-primary-soft)]" />
                     </div>
                     <NewsCard item={item} returnTo={feedRoute} isNew={recentlyInsertedIds.has(item.id)} isRead={readIds.has(item.id)} />
                   </div>
@@ -551,6 +551,279 @@ export function NewsFeedPage({
           </div>
         </div>
       ) : null}
+    </section>
+  )
+}
+
+function eventTimeValue(item: PublicNewsItem) {
+  const time = new Date(item.publishedAt).getTime()
+  return Number.isNaN(time) ? 0 : time
+}
+
+function sortBreakingItems(items: PublicNewsItem[]) {
+  return [...items].sort(
+    (left, right) =>
+      (right.valueScore ?? 0) - (left.valueScore ?? 0) ||
+      eventTimeValue(right) - eventTimeValue(left),
+  )
+}
+
+function sortRecentItems(items: PublicNewsItem[]) {
+  return [...items].sort((left, right) => eventTimeValue(right) - eventTimeValue(left))
+}
+
+function QuickEntryButton({
+  label,
+  count,
+  onClick,
+}: {
+  label: string
+  count: number
+  onClick: () => void
+}) {
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="h-8 min-w-0 justify-between gap-2 rounded-md px-2 text-xs"
+      onClick={onClick}
+    >
+      <span className="truncate">{label}</span>
+      <span className="shrink-0 text-[10px] text-muted-foreground">{count}</span>
+    </Button>
+  )
+}
+
+export function BreakingHomePage({
+  state,
+  targets,
+  facets,
+  onRefresh,
+  onOpenAll,
+  onSelectTarget,
+  onSelectIssue,
+  onApplyPending,
+}: {
+  state: FeedState
+  targets: PublicTargetInfo[]
+  facets: {
+    issues: Array<{ id: string; label: string; count: number }>
+    related: Array<{ id: string; label: string; count: number }>
+  }
+  onRefresh: () => void
+  onOpenAll: () => void
+  onSelectTarget: (targetId: string) => void
+  onSelectIssue: (issue: string) => void
+  onApplyPending: () => void
+}) {
+  const ranked = useMemo(() => sortBreakingItems(state.items), [state.items])
+  const recent = useMemo(() => sortRecentItems(state.items).slice(0, 6), [state.items])
+  const lead = ranked[0]
+  const topItems = ranked.slice(0, 3)
+  const regionEntries = useMemo(
+    () =>
+      targets
+        .filter((target) => target.event_count > 0)
+        .sort((left, right) => right.event_count - left.event_count)
+        .slice(0, 8),
+    [targets],
+  )
+  const issueEntries = useMemo(
+    () => [...facets.issues].sort((left, right) => right.count - left.count).slice(0, 8),
+    [facets.issues],
+  )
+  const homeRoute: Extract<PublicRoute, { name: "feed" }> = {
+    name: "feed",
+    channel: "featured",
+    search: new URLSearchParams(),
+  }
+  const leadRoute = lead ? buildDetailRoute(lead, homeRoute) : null
+
+  if (state.status === "loading") {
+    return (
+      <section className="overflow-hidden rounded-lg border bg-card/95 dark:bg-card/80" aria-label="极速突发">
+        <LoadingFeed />
+      </section>
+    )
+  }
+
+  if (state.status === "error") {
+    return <ErrorState message={state.error ?? "加载失败"} onRetry={onRefresh} />
+  }
+
+  if (!lead) {
+    return (
+      <section className="overflow-hidden rounded-lg border bg-card/95 dark:bg-card/80" aria-label="极速突发">
+        <EmptyExplanation
+          title="暂无突发精选"
+          description="高价值、分类明确的新闻会自动进入极速突发首页。"
+        />
+      </section>
+    )
+  }
+
+  return (
+    <section className="grid min-w-0 gap-3" aria-label="极速突发首页">
+      <LiveUpdateBanner count={state.pendingNewItems.length} onApply={onApplyPending} />
+
+      <section className="overflow-hidden rounded-lg border bg-card/95 dark:bg-card/80" aria-label="极速突发">
+        <div className="grid gap-3 border-b px-3 py-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+          <div className="min-w-0">
+            <div className="mb-1 flex flex-wrap items-center gap-2">
+              <Badge className="rounded-full px-2 text-[10px] uppercase tracking-normal">Breaking</Badge>
+              <span className="text-[11px] text-muted-foreground">
+                {state.total} 条精选信号 · {formatTime(lead.publishedAt)} 更新
+              </span>
+            </div>
+            <h1 className="text-xl font-semibold leading-tight">极速突发</h1>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+              优先展示高价值、分类明确的突发新闻；完整时间线继续放在新闻纵览。
+            </p>
+          </div>
+          <Button type="button" variant="outline" size="sm" className="w-fit rounded-md" onClick={onOpenAll}>
+            <NewspaperIcon className="size-4" aria-hidden="true" />
+            新闻纵览
+          </Button>
+        </div>
+
+        {leadRoute ? (
+          <a
+            href={buildPublicAppPath(leadRoute)}
+            onClick={(event) => handleRouteAnchorClick(event, leadRoute)}
+            className="grid gap-3 px-3 py-4 hover:bg-accent/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:grid-cols-[minmax(0,1fr)_14rem]"
+            aria-label={`主突发新闻 ${primaryNewsTitle(lead)}`}
+          >
+            <div className="min-w-0">
+              <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <Badge variant="secondary" className="rounded-md">
+                  主突发
+                </Badge>
+                <span>{lead.source.name}</span>
+                <span>{targetShortLabel(lead.targetLabel)}</span>
+                <span>{formatFullTime(lead.publishedAt)}</span>
+              </div>
+              <h2 className="text-lg font-semibold leading-7 text-foreground sm:text-xl">
+                {primaryNewsTitle(lead)}
+              </h2>
+              {lead.summary ? (
+                <p className="mt-2 line-clamp-3 text-sm leading-6 text-muted-foreground">
+                  {lead.summary}
+                </p>
+              ) : null}
+              {lead.recommendationReason ? (
+                <p className="mt-3 rounded-md border bg-background/70 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                  <span className="font-medium text-foreground">为什么重要：</span>
+                  {lead.recommendationReason}
+                </p>
+              ) : null}
+            </div>
+            <div className="grid content-between gap-3 rounded-md border bg-background/70 p-3">
+              <div>
+                <p className="text-xs text-muted-foreground">Breaking News 分值</p>
+                <p className="mt-1 text-3xl font-semibold">{Math.round(lead.valueScore ?? 0)}</p>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {uniqueNewsTags(lead).slice(0, 5).map((tag) => (
+                  <Badge key={tag} variant="outline" className="rounded px-1.5 text-[10px] font-normal">
+                    {tag}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          </a>
+        ) : null}
+      </section>
+
+      <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
+        <section className="overflow-hidden rounded-lg border bg-card/95 dark:bg-card/80" aria-label="高价值动态">
+          <div className="border-b px-3 py-2">
+            <h2 className="text-sm font-semibold">Top 3 高价值动态</h2>
+          </div>
+          <div className="divide-y">
+            {topItems.map((item, index) => {
+              const detailRoute = buildDetailRoute(item, homeRoute)
+              return (
+                <a
+                  key={item.id}
+                  href={buildPublicAppPath(detailRoute)}
+                  onClick={(event) => handleRouteAnchorClick(event, detailRoute)}
+                  className="grid gap-1 px-3 py-2.5 hover:bg-accent/15 sm:grid-cols-[2rem_minmax(0,1fr)_auto] sm:items-start"
+                >
+                  <span className="text-lg font-semibold text-primary">{index + 1}</span>
+                  <span className="min-w-0">
+                    <span className="line-clamp-1 text-sm font-semibold">{primaryNewsTitle(item)}</span>
+                    <span className="mt-1 line-clamp-1 text-xs text-muted-foreground">
+                      {item.source.name} · {formatTime(item.publishedAt)}
+                    </span>
+                  </span>
+                  <Badge className="w-fit rounded-full px-2">{Math.round(item.valueScore ?? 0)}</Badge>
+                </a>
+              )
+            })}
+          </div>
+        </section>
+
+        <section className="overflow-hidden rounded-lg border bg-card/95 dark:bg-card/80" aria-label="最近推进">
+          <div className="border-b px-3 py-2">
+            <h2 className="text-sm font-semibold">最近推进</h2>
+          </div>
+          <div className="divide-y">
+            {recent.map((item) => {
+              const detailRoute = buildDetailRoute(item, homeRoute)
+              return (
+                <a
+                  key={item.id}
+                  href={buildPublicAppPath(detailRoute)}
+                  onClick={(event) => handleRouteAnchorClick(event, detailRoute)}
+                  className="grid grid-cols-[3.25rem_minmax(0,1fr)] gap-2 px-3 py-2 text-sm hover:bg-accent/15"
+                >
+                  <time className="text-xs font-medium text-muted-foreground">{formatTime(item.publishedAt)}</time>
+                  <span className="line-clamp-1 font-medium">{primaryNewsTitle(item)}</span>
+                </a>
+              )
+            })}
+          </div>
+        </section>
+      </div>
+
+      <section className="grid gap-3 rounded-lg border bg-card/95 p-3 dark:bg-card/80" aria-label="突发快捷入口">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold">快速进入完整时间线</h2>
+          <Button type="button" variant="ghost" size="sm" className="h-7 rounded-md px-2 text-xs" onClick={onOpenAll}>
+            全部新闻
+            <ChevronRightIcon className="size-3.5" aria-hidden="true" />
+          </Button>
+        </div>
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div className="grid min-w-0 gap-2">
+            <p className="text-xs font-medium text-muted-foreground">地区</p>
+            <div className="flex flex-wrap gap-1.5">
+              {regionEntries.map((target) => (
+                <QuickEntryButton
+                  key={target.target_id}
+                  label={targetShortLabel(target.display_name)}
+                  count={target.event_count}
+                  onClick={() => onSelectTarget(target.target_id)}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="grid min-w-0 gap-2">
+            <p className="text-xs font-medium text-muted-foreground">议题</p>
+            <div className="flex flex-wrap gap-1.5">
+              {issueEntries.map((issue) => (
+                <QuickEntryButton
+                  key={issue.id}
+                  label={issue.label}
+                  count={issue.count}
+                  onClick={() => onSelectIssue(issue.label)}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
     </section>
   )
 }
@@ -1867,7 +2140,7 @@ export function SubscribePage() {
     const regionLabel = funnel.regions.find((r) => r.id === funnel.selectedRegion)?.label ?? funnel.selectedRegion
     return (
       <section className="mx-auto max-w-lg rounded-lg border bg-background px-6 py-10 text-center" aria-label="订阅成功">
-        <CheckIcon className="mx-auto size-10 text-green-500" aria-hidden="true" />
+        <CheckIcon className="mx-auto size-10 text-success" aria-hidden="true" />
         <h1 className="mt-4 text-xl font-semibold">订阅成功</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           你已订阅 <strong className="text-foreground">{regionLabel}</strong> 地区的新闻更新。

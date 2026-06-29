@@ -12,32 +12,74 @@ import type {
   PublicFacetsResponse,
 } from "../lib/contracts";
 import type { PublicFacetItem } from "../lib/contracts";
+import {
+  buildPublicNewsWhere,
+  type NewsRow,
+  PUBLIC_NEWS_SELECT_COLUMNS,
+  publicNewsOrderBy,
+  rowToPublicNewsItem,
+} from "../lib/public-news-query";
+import {
+  hasOnlyParams,
+  maybeServeCachedPublicRead,
+  maybeStoreCachedPublicRead,
+} from "../lib/public-read-cache";
+import {
+  BOOTSTRAP_FEATURED_SNAPSHOT_KEY,
+  markSnapshotBypass,
+  markSnapshotMiss,
+  readPublicSnapshot,
+} from "../lib/public-read-snapshots";
 
 export async function handleBootstrap(
   request: Request,
   db: D1Database,
   params: URLSearchParams,
   _segments: string[],
+  ctx?: ExecutionContext,
 ): Promise<Response> {
   try {
+    const featured = params.get("featured") !== "false";
+    const cacheKey =
+      featured && hasOnlyParams(params, ["featured", "page_size"])
+        ? "public-read:bootstrap:featured"
+        : null;
+    const cached = await maybeServeCachedPublicRead(request, cacheKey);
+    if (cached) return cached;
+    const snapshot = await readPublicSnapshot(
+      request,
+      db,
+      cacheKey ? BOOTSTRAP_FEATURED_SNAPSHOT_KEY : null,
+      60,
+    );
+    if (snapshot) return maybeStoreCachedPublicRead(request, cacheKey, snapshot, ctx, 60);
+
+    const newsFilters = buildPublicNewsWhere({ featured });
     // 并行查询 news、regions、facets
-    const [newsResult, regionsResult, regionFacetsResult, issueFacetsResult, relatedFacetsResult] =
+    const [
+      newsResult,
+      newsCountResult,
+      regionsResult,
+      regionFacetsResult,
+      issueFacetsResult,
+      relatedFacetsResult,
+    ] =
       await Promise.all([
         db
           .prepare(
-            `SELECT event_id, target_id, target_label,
-                    source_id, source_name, source_type, credibility_label,
-                    published_at, title, original_title, summary,
-                    recommendation_reason, full_content, original_url,
-                    detail_url, image_urls, tags, issue_tags, related_tags,
-                    region_tags, entities, related_count, discussion_count,
-                    value_label, value_score, china_relevance_label
+            `SELECT ${PUBLIC_NEWS_SELECT_COLUMNS}
              FROM events
-             WHERE pipeline_stage = 'drafts'
-             ORDER BY published_at DESC
+             ${newsFilters.sql}
+             ${publicNewsOrderBy(featured)}
              LIMIT 20`
           )
+          .bind(...newsFilters.bindings)
           .all(),
+
+        db
+          .prepare(`SELECT COUNT(*) AS total FROM events ${newsFilters.sql}`)
+          .bind(...newsFilters.bindings)
+          .first<{ total: number }>(),
 
         db
           .prepare(
@@ -84,43 +126,14 @@ export async function handleBootstrap(
       ]);
 
     // 构建 news
-    const newsRows = newsResult.results || [];
+    const newsRows = (newsResult.results || []) as NewsRow[];
     const newsFeed: PublicNewsFeedResponse = {
-      items: newsRows.map((r: any) => ({
-        id: r.event_id,
-        targetId: r.target_id,
-        targetLabel: r.target_label,
-        source: {
-          id: r.source_id,
-          name: r.source_name,
-          type: r.source_type || "unknown",
-          credibilityLabel: r.credibility_label,
-        },
-        publishedAt: r.published_at,
-        title: r.title,
-        originalTitle: r.original_title,
-        summary: r.summary,
-        recommendationReason: r.recommendation_reason,
-        fullContent: r.full_content,
-        imageUrls: typeof r.image_urls === "string" ? JSON.parse(r.image_urls || "[]") : [],
-        originalUrl: r.original_url,
-        detailUrl: r.detail_url,
-        tags: typeof r.tags === "string" ? JSON.parse(r.tags || "[]") : [],
-        issueTags: typeof r.issue_tags === "string" ? JSON.parse(r.issue_tags || "[]") : [],
-        relatedTags: typeof r.related_tags === "string" ? JSON.parse(r.related_tags || "[]") : [],
-        regionTags: typeof r.region_tags === "string" ? JSON.parse(r.region_tags || "[]") : [],
-        entities: [],
-        relatedCount: r.related_count || 0,
-        discussionCount: r.discussion_count,
-        valueLabel: r.value_label || "普通",
-        valueScore: r.value_score,
-        chinaRelevanceLabel: r.china_relevance_label || "未知",
-      })),
+      items: newsRows.map((r) => rowToPublicNewsItem(r)),
       latestCursor: null,
       nextCursor: null,
       pollAfterMs: 60000,
       hasNewer: false,
-      total: newsRows.length,
+      total: newsCountResult?.total ?? newsRows.length,
     };
 
     // 构建 regions
@@ -169,10 +182,12 @@ export async function handleBootstrap(
       generatedAt: new Date().toISOString(),
     };
 
-    return new Response(JSON.stringify(body), {
+    const response = new Response(JSON.stringify(body), {
       status: 200,
       headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=30" },
     });
+    const markedResponse = cacheKey ? markSnapshotMiss(response) : markSnapshotBypass(response);
+    return maybeStoreCachedPublicRead(request, cacheKey, markedResponse, ctx, 60);
   } catch (err) {
     console.error("bootstrap error:", err);
     const fallback: PublicBootstrapResponse = {

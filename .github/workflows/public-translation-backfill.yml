@@ -1,0 +1,106 @@
+name: Public Translation Backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: "Execute generated SQL against remote D1"
+        required: true
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+      targets:
+        description: "Comma-separated target priority list"
+        required: false
+        default: "france,south-korea,india,japan,germany,italy,canada,united-kingdom,vietnam,new-zealand,ireland,china-watch-en"
+      limit:
+        description: "Maximum patches in this run"
+        required: false
+        default: "200"
+      daily_limit:
+        description: "Maximum patches allowed for the day"
+        required: false
+        default: "1000"
+
+permissions:
+  contents: read
+
+jobs:
+  public-translation-backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      OPENROUTER_API_KEY_2: ${{ secrets.OPENROUTER_API_KEY_2 }}
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      NVIDIA_API_KEY_2: ${{ secrets.NVIDIA_API_KEY_2 }}
+      OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+      OPENCODE_API_KEY_2: ${{ secrets.OPENCODE_API_KEY_2 }}
+      REKA_API_KEY: ${{ secrets.REKA_API_KEY }}
+      AGNES_API_KEY: ${{ secrets.AGNES_API_KEY }}
+      AGNES_API_KEY_2: ${{ secrets.AGNES_API_KEY_2 }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/cloudflare/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[api]"
+          cd frontend/cloudflare
+          npm ci
+
+      - name: Plan public translation backfill
+        run: |
+          set -euo pipefail
+          python tools/cloudflare_d1_public_translation_backfill.py \
+            --targets "${{ github.event.inputs.targets }}" \
+            --limit "${{ github.event.inputs.limit }}" \
+            --daily-limit "${{ github.event.inputs.daily_limit }}" \
+            --output-sql /tmp/news-sentry-public-translation-backfill.sql \
+            --generate-missing \
+            --dry-run
+
+      - name: Generate public translation D1 SQL
+        if: github.event.inputs.execute == 'true'
+        run: |
+          set -euo pipefail
+          python tools/cloudflare_d1_public_translation_backfill.py \
+            --targets "${{ github.event.inputs.targets }}" \
+            --limit "${{ github.event.inputs.limit }}" \
+            --daily-limit "${{ github.event.inputs.daily_limit }}" \
+            --output-sql /tmp/news-sentry-public-translation-backfill.sql \
+            --generate-missing \
+            --transaction
+          if grep -q '^-- no public translation patches ready' /tmp/news-sentry-public-translation-backfill.sql; then
+            echo "provider_quota_exhausted_or_no_ready_patches=true"
+            exit 1
+          fi
+
+      - name: Execute public translation D1 SQL
+        if: github.event.inputs.execute == 'true'
+        working-directory: frontend/cloudflare
+        run: npx wrangler d1 execute ns-db --remote --file /tmp/news-sentry-public-translation-backfill.sql
+
+      - name: Dry-run receipt
+        if: github.event.inputs.execute != 'true'
+        run: |
+          echo "execute=false; generated SQL only"
+          head -20 /tmp/news-sentry-public-translation-backfill.sql

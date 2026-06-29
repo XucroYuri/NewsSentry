@@ -36,7 +36,7 @@ flowchart TB
     end
 
     subgraph ADAPTERS["外部适配"]
-        AP["AI Providers<br/>Gemini → DeepSeek → Groq → Cloudflare"]
+        AP["AI Providers<br/>Gemini → DeepSeek → Groq → Cloudflare → OpenRouter → NVIDIA/Agnes/OpenCode/Reka"]
         RT["Runtime Adapters<br/>RSS-Bridge / API"]
     end
 
@@ -173,7 +173,7 @@ flowchart TD
 | 规则 | 内容 | 参考 |
 |------|------|------|
 | **前端策略** | CLI-first，FastAPI + Vanilla JS 可选，无重型框架 | ADR-0025（替代 ADR-0010） |
-| **AI Provider** | 内置 chain: Gemini → DeepSeek → Groq → Cloudflare Workers AI | ADR-0005 |
+| **AI Provider** | 内置 chain: Gemini → DeepSeek → Groq → Cloudflare Workers AI → OpenRouter → NVIDIA/Agnes/OpenCode/Reka | ADR-0005 |
 | **分类存储** | L0-L3 走 `metadata.classification`，不做顶层字段 | ADR-0009 |
 | **实现语言** | Python 3.11+ / Pydantic v2 | ADR-0012 |
 | **配置管理** | 所有国家参数入 config/，禁止硬编码到 src/ | ADR-0015 |
@@ -371,6 +371,6 @@ flowchart LR
 - **测试规模**：2,738 tests, 85% 覆盖率, ruff=0, mypy=0, frontend=0
 - **监控目标**：81 targets (italy, china-watch-en, japan, germany, france + 76 更多)
 - **信源规模**：244 源 (147 RSS + 97 API)，覆盖 81 个 target
-- **AI Provider**：内置 chain: Gemini → DeepSeek → Groq → Cloudflare Workers AI
+- **AI Provider**：内置 chain: Gemini → DeepSeek → Groq → Cloudflare Workers AI → OpenRouter → NVIDIA/Agnes/OpenCode/Reka
 - **部署方式**：Cloudflare Pages + Workers + D1/R2；Cloudflare Containers 承接过渡期 Python/RSS-Bridge 后台面；VPS/Tunnel 仅作 legacy rollback，不是运行依赖
 - **可选组件**：`[api]` FastAPI + Web UI（管理后台 + 公开新闻阅读器）

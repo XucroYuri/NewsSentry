@@ -18,12 +18,9 @@ import news_sentry.core._state as _st
 from news_sentry.core._state import (
     _COLLECTOR_STAGES,
     _OVERVIEW_CACHE_TTL_SECONDS,
-    _ai_enrichment_log,
     _ai_enrichment_state,
     _auto_collector_state,
     _collector_diagnostics_cache,
-    _log,
-    _public_translation_log,
     _public_translation_state,
 )
 from news_sentry.core.ai_enrichment import (
@@ -54,6 +51,10 @@ from news_sentry.core.target_store_utils import (
     _latest_run_log_summary,
     _visible_index_events_page,
 )
+
+_log = logging.getLogger("news_sentry.auto_collector")
+_ai_enrichment_log = logging.getLogger("news_sentry.ai_enrichment")
+_public_translation_log = logging.getLogger("news_sentry.public_translation")
 
 logger = logging.getLogger(__name__)
 
@@ -955,6 +956,17 @@ async def _run_public_translation_once(
     }
 
 
+async def _run_public_translation_cycle_once(run_id: str | None = None) -> dict[str, Any]:
+    """Run one public translation cycle and update the runtime status fields."""
+    result = await _run_public_translation_once()
+    _public_translation_state["last_run_at"] = datetime.now(UTC).isoformat()
+    _public_translation_state["last_run_status"] = result.get("status")
+    _public_translation_state["last_error"] = result.get("error")
+    _public_translation_state["last_updates"] = len(result.get("updates") or [])
+    _public_translation_state["total_runs"] += 1
+    return {**result, "run_id": run_id}
+
+
 
 def _update_collector_run_metrics(contexts: Any) -> None:
     """把多 target pipeline 上下文汇总到采集器状态。"""
@@ -968,6 +980,57 @@ def _update_collector_run_metrics(contexts: Any) -> None:
     _auto_collector_state["last_events_collected"] = sum(
         int(getattr(ctx, "events_collected", 0) or 0) for ctx in context_items
     )
+
+
+def _collector_context_items(contexts: Any) -> list[Any]:
+    if contexts is None:
+        return []
+    if isinstance(contexts, (list, tuple, set)):
+        return list(contexts)
+    return [contexts]
+
+
+async def _run_auto_collect_once(run_id: str | None = None) -> dict[str, Any]:
+    """Run one configured auto-collection cycle and update collector state."""
+    from news_sentry.core.async_run import bounded_run_multi_async
+
+    target_ids = list(_auto_collector_state["target_ids"])
+    stage = str(_auto_collector_state["stage"])
+    run_id = run_id or f"auto_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
+    _log.info("自动采集开始: run_id=%s, targets=%s", run_id, target_ids)
+
+    contexts = await bounded_run_multi_async(
+        targets=target_ids,
+        stage=stage,
+        run_id=run_id,
+    )
+    _update_collector_run_metrics(contexts)
+
+    now = datetime.now(UTC).isoformat()
+    _auto_collector_state["last_run_at"] = now
+    _auto_collector_state["last_run_status"] = "ok"
+    _auto_collector_state["last_error"] = None
+    _auto_collector_state["total_runs"] += 1
+    events_collected = int(_auto_collector_state.get("last_events_collected") or 0)
+    target_results = [
+        {
+            "target_id": getattr(ctx, "target_id", None),
+            "events_collected": int(getattr(ctx, "events_collected", 0) or 0),
+            "status": getattr(ctx, "status", None),
+        }
+        for ctx in _collector_context_items(contexts)
+    ]
+    _log.info("自动采集完成: run_id=%s", run_id)
+    return {
+        "status": "ok",
+        "run_id": run_id,
+        "targets": target_ids,
+        "target_count": len(target_ids),
+        "stage": stage,
+        "events_collected": events_collected,
+        "target_results": target_results,
+        "last_run_at": now,
+    }
 
 
 
@@ -987,25 +1050,7 @@ async def _auto_collect_loop() -> None:
 
     while _auto_collector_state["enabled"]:
         try:
-            from news_sentry.core.async_run import bounded_run_multi_async
-
-            target_ids = _auto_collector_state["target_ids"]
-            stage = _auto_collector_state["stage"]
-            run_id = f"auto_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
-            _log.info("自动采集开始: run_id=%s, targets=%s", run_id, target_ids)
-
-            contexts = await bounded_run_multi_async(
-                targets=target_ids,
-                stage=stage,
-                run_id=run_id,
-            )
-            _update_collector_run_metrics(contexts)
-
-            _auto_collector_state["last_run_at"] = datetime.now(UTC).isoformat()
-            _auto_collector_state["last_run_status"] = "ok"
-            _auto_collector_state["last_error"] = None
-            _auto_collector_state["total_runs"] += 1
-            _log.info("自动采集完成: run_id=%s", run_id)
+            await _run_auto_collect_once()
         except Exception as exc:
             _auto_collector_state["last_run_at"] = datetime.now(UTC).isoformat()
             _auto_collector_state["last_run_status"] = "error"
@@ -1076,12 +1121,7 @@ async def _public_translation_loop() -> None:
 
     while _public_translation_state["enabled"]:
         try:
-            result = await _run_public_translation_once()
-            _public_translation_state["last_run_at"] = datetime.now(UTC).isoformat()
-            _public_translation_state["last_run_status"] = result.get("status")
-            _public_translation_state["last_error"] = result.get("error")
-            _public_translation_state["last_updates"] = len(result.get("updates") or [])
-            _public_translation_state["total_runs"] += 1
+            await _run_public_translation_cycle_once()
         except Exception as exc:  # noqa: BLE001
             _public_translation_state["last_run_at"] = datetime.now(UTC).isoformat()
             _public_translation_state["last_run_status"] = "error"
@@ -1099,5 +1139,3 @@ async def _public_translation_loop() -> None:
     _public_translation_state["running"] = False
     _public_translation_state["next_run_at"] = None
     _public_translation_log.info("公共翻译循环停止")
-
-

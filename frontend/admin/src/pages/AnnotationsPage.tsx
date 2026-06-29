@@ -333,7 +333,7 @@ export default function AnnotationsPage() {
                           <div className="flex items-center gap-1 text-xs">
                             {a.old_value && <span className="text-destructive line-through decoration-destructive/40">{a.old_value}</span>}
                             {a.old_value && a.new_value && <span className="text-muted-foreground">→</span>}
-                            {a.new_value && <span className="text-emerald-600">{a.new_value}</span>}
+                            {a.new_value && <span className="text-success">{a.new_value}</span>}
                             {!a.old_value && !a.new_value && <span className="text-muted-foreground">-</span>}
                           </div>
                         </TableCell>
@@ -358,7 +358,7 @@ export default function AnnotationsPage() {
                                 {reviewLoading.has(a.id) ? (
                                   <Loader2Icon className="h-3.5 w-3.5 animate-spin" />
                                 ) : (
-                                  <CheckCircleIcon className="h-3.5 w-3.5 text-emerald-600" />
+                                  <CheckCircleIcon className="h-3.5 w-3.5 text-success" />
                                 )}
                               </Button>
                             )}
@@ -439,7 +439,7 @@ export default function AnnotationsPage() {
                         )}
                         <span className="text-muted-foreground">→</span>
                         {selectedAnnotation.new_value ? (
-                          <span className="text-emerald-600 text-xs px-2 py-0.5 bg-emerald-50 rounded">
+                          <span className="text-success text-xs px-2 py-0.5 bg-success/10 rounded">
                             {selectedAnnotation.new_value}
                           </span>
                         ) : (

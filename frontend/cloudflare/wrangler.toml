@@ -17,6 +17,34 @@ routes = [
 [vars]
 NEWS_SENTRY_RUNTIME = "cloudflare-native"
 
+[triggers]
+crons = ["*/15 * * * *", "7,37 * * * *", "11 * * * *"]
+
+[observability]
+enabled = true
+head_sampling_rate = 0.1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1.0
+invocation_logs = true
+persist = true
+
+[observability.traces]
+enabled = true
+head_sampling_rate = 0.1
+persist = true
+
+[secrets]
+required = [
+  "GEMINI_API_KEY",
+  "OPENROUTER_API_KEY",
+  "NVIDIA_API_KEY",
+  "OPENCODE_API_KEY",
+  "REKA_API_KEY",
+  "AGNES_API_KEY",
+]
+
 # D1 数据库绑定
 [[d1_databases]]
 binding = "DB"
@@ -30,6 +58,16 @@ routes = []
 
 [env.production.vars]
 NEWS_SENTRY_RUNTIME = "cloudflare-native"
+
+[env.production.secrets]
+required = [
+  "GEMINI_API_KEY",
+  "OPENROUTER_API_KEY",
+  "NVIDIA_API_KEY",
+  "OPENCODE_API_KEY",
+  "REKA_API_KEY",
+  "AGNES_API_KEY",
+]
 
 [[env.production.d1_databases]]
 binding = "DB"

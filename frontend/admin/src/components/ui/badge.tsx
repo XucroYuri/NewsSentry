@@ -13,7 +13,7 @@ const Badge = React.forwardRef<
     secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
     destructive: "bg-destructive/10 text-destructive border border-destructive/20",
     outline: "text-foreground border border-border",
-    success: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
+    success: "bg-success/10 text-success border border-success/20",
   }
 
   return (

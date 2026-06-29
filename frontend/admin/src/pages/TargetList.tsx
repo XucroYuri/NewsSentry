@@ -134,7 +134,7 @@ export default function TargetList({
       {/* 标题栏 */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">目标工作台</h2>
+          <h2 className="text-2xl font-semibold">目标工作台</h2>
           <p className="text-sm text-muted-foreground">{targets.length} 个监控目标</p>
         </div>
         <div className="flex items-center gap-2">

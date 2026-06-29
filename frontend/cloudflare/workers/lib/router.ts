@@ -20,9 +20,20 @@ type Handler = (
   db: D1Database,
   params: URLSearchParams,
   pathSegments: string[],
+  ctx?: ExecutionContext,
 ) => Promise<Response>;
 
 const routeMap = new Map<string, Handler>();
+
+function headResponse(response: Response): Response {
+  const headers = new Headers(response.headers);
+  headers.delete("Content-Length");
+  return new Response(null, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
 
 export function registerRoute(method: string, pathPattern: string, handler: Handler): void {
   const key = `${method}:${pathPattern}`;
@@ -35,10 +46,12 @@ export function registerRoute(method: string, pathPattern: string, handler: Hand
 export async function dispatch(
   request: Request,
   db: D1Database,
+  ctx?: ExecutionContext,
 ): Promise<Response> {
   const url = new URL(request.url);
   const pathname = url.pathname.replace(/\/+$/, "") || "/";
-  const method = request.method.toUpperCase();
+  const rawMethod = request.method.toUpperCase();
+  const method = rawMethod === "HEAD" ? "GET" : rawMethod;
 
   // CORS preflight
   if (method === "OPTIONS") {
@@ -51,9 +64,11 @@ export async function dispatch(
   const exactKey = `${method}:${pathname}`;
   if (routeMap.has(exactKey)) {
     const handler = routeMap.get(exactKey)!;
-    const resp = await handler(request, db, url.searchParams, segments);
+    const getRequest = rawMethod === "HEAD" ? new Request(request, { method: "GET" }) : request;
+    const resp = await handler(getRequest, db, url.searchParams, segments, ctx);
     const origin = request.headers.get("Origin");
-    return addCorsHeaders(resp, origin);
+    const corsResp = addCorsHeaders(resp, origin);
+    return rawMethod === "HEAD" ? headResponse(corsResp) : corsResp;
   }
 
   // 参数化匹配 — /api/v1/public/news/{event_id}
@@ -71,9 +86,11 @@ export async function dispatch(
     });
 
     if (match) {
-      const resp = await handler(request, db, url.searchParams, reqSegments);
+      const getRequest = rawMethod === "HEAD" ? new Request(request, { method: "GET" }) : request;
+      const resp = await handler(getRequest, db, url.searchParams, reqSegments, ctx);
       const origin = request.headers.get("Origin");
-      return addCorsHeaders(resp, origin);
+      const corsResp = addCorsHeaders(resp, origin);
+      return rawMethod === "HEAD" ? headResponse(corsResp) : corsResp;
     }
   }
 

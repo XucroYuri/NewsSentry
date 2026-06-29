@@ -8,6 +8,7 @@
 
 import type { WebhookResponse, ImportResponse, ImportEventItem } from "../lib/contracts";
 import { internalError } from "../lib/errors";
+import { refreshPublicReadSnapshots } from "../lib/public-read-snapshots";
 
 type ImportEventWithId = ImportEventItem & {
   event_id?: string;
@@ -156,6 +157,13 @@ export async function handleImport(
       skipped,
       errors,
     };
+    if (imported > 0) {
+      try {
+        await refreshPublicReadSnapshots(db);
+      } catch (error) {
+        console.warn("public snapshot refresh after import failed:", error);
+      }
+    }
     return new Response(JSON.stringify(body), {
       status: errors.length ? 207 : 200,
       headers: { "Content-Type": "application/json" },

@@ -42,6 +42,7 @@ import { routeToChannel, type PublicRoute } from "@/lib/routes"
 import { buildRouteSeoPayload } from "@/lib/seo/site-seo"
 import {
   AnalysisPage,
+  BreakingHomePage,
   DailyPage,
   EventDetailPage,
   NewsFeedPage,
@@ -417,7 +418,7 @@ function UtilityMenu({
   return (
     <nav
       aria-label="侧边栏辅助菜单"
-      className="grid w-full min-w-0 max-w-full grid-cols-3 gap-0.5 self-start overflow-hidden rounded-full border border-border bg-background/70 p-0.5 dark:border-white/10 dark:bg-white/[0.03]"
+      className="grid w-full min-w-0 max-w-full grid-cols-3 gap-0.5 self-start overflow-hidden rounded-full border border-border bg-background/80 p-0.5"
     >
       {utilityLinks.map((link) => {
         const Icon = link.icon
@@ -450,7 +451,7 @@ function SidebarNav({
   onSelect: (id: NavId) => void
 }) {
   return (
-    <aside className="sticky top-0 hidden h-screen w-40 min-w-0 overflow-hidden border-r border-border bg-card px-2 py-3 text-foreground dark:border-white/10 dark:bg-[#070b14] lg:grid lg:grid-rows-[auto_1fr_auto]">
+    <aside className="sticky top-0 hidden h-screen w-40 min-w-0 overflow-hidden border-r border-border bg-card px-2 py-3 text-foreground lg:grid lg:grid-rows-[auto_1fr_auto]">
       <a href="/public-app/" className="mb-3 flex h-10 min-w-0 max-w-full items-center overflow-hidden px-2">
         <span className="text-base font-black tracking-wide">
           News<span className="text-primary">Sentry</span>
@@ -476,7 +477,7 @@ function MobileNavigation({
   return (
     <nav
       aria-label="移动端公共菜单"
-      className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t bg-background/95 px-2 pb-[calc(env(safe-area-inset-bottom)+0.2rem)] pt-1 shadow-[0_-2px_12px_rgba(15,23,42,0.1)] backdrop-blur lg:hidden"
+      className="z-40 grid grid-cols-5 border-t bg-background/95 px-2 pb-[calc(env(safe-area-inset-bottom)+0.2rem)] pt-1 shadow-geist-popover backdrop-blur lg:hidden"
     >
       {navItems.map((item) => {
         const Icon = item.icon
@@ -567,9 +568,9 @@ function AppShell({
 }) {
   const { theme, setTheme } = useThemePreference()
   return (
-    <div className="min-h-screen bg-background text-foreground lg:grid lg:grid-cols-[160px_minmax(0,1fr)]">
+    <div className="h-screen min-h-screen overflow-hidden bg-background text-foreground lg:grid lg:h-auto lg:min-h-screen lg:grid-cols-[160px_minmax(0,1fr)] lg:overflow-visible">
       <SidebarNav active={activeNav} theme={theme} onThemeChange={setTheme} onSelect={onNavigate} />
-      <div className="min-w-0">
+      <div className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)_auto] lg:block lg:h-auto lg:min-h-0">
         <MobileHeader
           onRefresh={onRefresh}
           refreshing={refreshing}
@@ -577,9 +578,9 @@ function AppShell({
           onThemeChange={setTheme}
           onNavigate={onNavigate}
         />
-        {children}
+        <div className="min-h-0 min-w-0 overflow-y-auto lg:overflow-visible">{children}</div>
+        <MobileNavigation active={activeNav} onSelect={onNavigate} />
       </div>
-      <MobileNavigation active={activeNav} onSelect={onNavigate} />
     </div>
   )
 }
@@ -1065,7 +1066,7 @@ function ReaderControls({
     <section className="grid gap-2 rounded-lg border bg-card/95 p-3 dark:bg-card/80">
       <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
         <div className="min-w-0">
-          <h1 className="text-lg font-semibold tracking-tight">{heading}</h1>
+          <h1 className="text-lg font-semibold">{heading}</h1>
           <p className="hidden text-xs text-muted-foreground sm:block">{description}</p>
         </div>
         <div className="flex items-center gap-1.5 xl:w-[500px]">
@@ -1291,9 +1292,14 @@ export default function App() {
   const bootstrap = usePublicBootstrap(filters)
   const bootstrapTargets = useMemo(() => regionsToTargets(bootstrap.data), [bootstrap.data])
   const ssrFeed = useMemo(() => readSSRFeed(), [])
-  const ssrFeedApplicable = ssrFeed !== null && isDefaultFeaturedFilters(filters)
-  const initialFeed = ssrFeedApplicable ? ssrFeed : (bootstrap.data?.news ?? null)
-  const waitForBootstrap = bootstrap.status === "loading" && !ssrFeedApplicable
+  const defaultFeaturedHome = isDefaultFeaturedFilters(filters)
+  const ssrFeedApplicable = ssrFeed !== null && defaultFeaturedHome
+  const initialFeed = ssrFeedApplicable
+    ? ssrFeed
+    : defaultFeaturedHome
+      ? (bootstrap.data?.news ?? null)
+      : null
+  const waitForBootstrap = bootstrap.status === "loading" && defaultFeaturedHome && !ssrFeedApplicable
   const feed = usePublicFeed(filters, {
     poll: route.name === "feed",
     initialFeed,
@@ -1395,6 +1401,19 @@ export default function App() {
         preferredSection={route.section}
       />
     )
+  } else if (route.name === "feed" && defaultFeaturedHome) {
+    mainContent = (
+      <BreakingHomePage
+        state={feed.feedState}
+        targets={targets}
+        facets={facets}
+        onRefresh={() => void feed.loadFeed("refresh")}
+        onOpenAll={() => navigatePrimary("all")}
+        onSelectTarget={(targetId) => updateFilters({ channel: "all", targetId })}
+        onSelectIssue={(issue) => updateFilters({ channel: "all", issue })}
+        onApplyPending={feed.applyPending}
+      />
+    )
   } else {
     const selectedFeedTargetLabel = filters.targetId
       ? targets.find((target) => target.target_id === filters.targetId)?.display_name ??
@@ -1430,9 +1449,9 @@ export default function App() {
       onNavigate={navigatePrimary}
     >
       <SeoHead payload={appSeoPayload} locale={route.locale} />
-      <main className="grid w-full min-w-0 gap-3 px-2.5 pb-20 pt-2.5 sm:px-3 lg:px-4 lg:py-4 2xl:px-5">
+      <main className="grid w-full min-w-0 gap-3 px-2.5 pb-4 pt-2.5 sm:px-3 lg:px-4 lg:py-4 2xl:px-5">
         <section className="grid min-w-0 gap-3">
-          {route.name === "feed" && (
+          {route.name === "feed" && !defaultFeaturedHome && (
             <CategorySidebar
               facets={facets}
               filters={filters}

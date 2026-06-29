@@ -52,6 +52,32 @@ const feed: PublicNewsFeedResponse = {
   total: 1,
 }
 
+function bootstrapPayload() {
+  return {
+    news: feed,
+    regions: {
+      regions: [
+        {
+          region_id: "italy",
+          display_name: "意大利新闻监控",
+          primary_language: "it",
+          region_type: "country",
+          source_count: 163,
+          event_count: 52,
+          lifecycle: {},
+          archived: false,
+        },
+      ],
+    },
+    facets: {
+      regions: [{ id: "italy", label: "意大利", count: 52 }],
+      issues: [{ id: "外交", label: "外交", count: 3 }],
+      related: [{ id: "涉欧", label: "涉欧", count: 2 }],
+    },
+    generatedAt: "2026-06-21T00:00:00Z",
+  }
+}
+
 function jsonResponse(payload: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(payload), {
     status: 200,
@@ -164,29 +190,7 @@ describe("public news API client", () => {
   it("loads the public bootstrap payload for first paint", async () => {
     const fetcher = vi.fn(async () =>
       jsonResponse(
-        {
-          news: feed,
-          regions: {
-            regions: [
-              {
-                region_id: "italy",
-                display_name: "意大利新闻监控",
-                primary_language: "it",
-                region_type: "country",
-                source_count: 163,
-                event_count: 52,
-                lifecycle: {},
-                archived: false,
-              },
-            ],
-          },
-          facets: {
-            regions: [{ id: "italy", label: "意大利", count: 52 }],
-            issues: [{ id: "外交", label: "外交", count: 3 }],
-            related: [{ id: "涉欧", label: "涉欧", count: 2 }],
-          },
-          generatedAt: "2026-06-21T00:00:00Z",
-        },
+        bootstrapPayload(),
         { headers: { ETag: '"bootstrap-tag"' } },
       ),
     ) as typeof fetch
@@ -199,6 +203,26 @@ describe("public news API client", () => {
     expect(result.data.news.items[0]?.title).toContain("意大利总理")
     expect(result.data.facets.issues[0]?.label).toBe("外交")
     expect(result.etag).toBe('"bootstrap-tag"')
+  })
+
+  it("reuses the default featured bootstrap preload without a second fetch", async () => {
+    const fetcher = vi.fn(async () => jsonResponse(bootstrapPayload())) as typeof fetch
+    window.__NEWS_SENTRY_BOOTSTRAP_PRELOAD__ = Promise.resolve(bootstrapPayload())
+    vi.stubGlobal("fetch", fetcher)
+
+    try {
+      const result = await getPublicBootstrap(
+        { featured: true, pageSize: 20 },
+        { signal: new AbortController().signal },
+      )
+
+      expect(fetcher).not.toHaveBeenCalled()
+      expect(result.data.news.items[0]?.title).toContain("意大利总理")
+      expect(result.etag).toBeNull()
+    } finally {
+      delete window.__NEWS_SENTRY_BOOTSTRAP_PRELOAD__
+      vi.unstubAllGlobals()
+    }
   })
 
   it("loads public target analysis for the right rail", async () => {

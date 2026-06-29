@@ -137,7 +137,7 @@ export default function UsersPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-semibold tracking-tight">用户管理</h2>
+          <h2 className="text-2xl font-semibold">用户管理</h2>
           <p className="text-sm text-muted-foreground">{users.length} 个用户</p>
         </div>
         <div className="flex items-center gap-2">
@@ -170,7 +170,7 @@ export default function UsersPage() {
                       value={newRole}
                       onChange={(e) => setNewRole(e.target.value)}
                       disabled={creating}
-                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                      className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <option value="admin">管理员 (admin)</option>
                       <option value="writer">编辑 (writer)</option>

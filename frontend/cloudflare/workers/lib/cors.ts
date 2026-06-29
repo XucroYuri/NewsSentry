@@ -1,7 +1,7 @@
 /**
  * CORS 头部中间件 — 从 Python api_server.py CORS 配置移植。
  *
- * 默认允许 localhost 来源；生产部署时通过环境变量覆盖。
+ * 默认允许本地开发和 Cloudflare Pages 自定义域。
  */
 
 const DEFAULT_ALLOW_ORIGINS = [
@@ -12,9 +12,9 @@ const DEFAULT_ALLOW_ORIGINS = [
   "http://127.0.0.1:5173",
   // Cloudflare Pages 部署（默认 + 自定义域）
   "https://news-sentry.pages.dev",
-  "https://app.news-sentry.com",
-  // VPS 主站
   "https://news-sentry.com",
+  "https://www.news-sentry.com",
+  "https://preview.news-sentry.com",
 ];
 
 function getAllowedOrigins(): string[] {
@@ -30,8 +30,6 @@ export function addCorsHeaders(response: Response, requestOrigin?: string | null
   const origin = requestOrigin || "*";
   if (allowedOrigins.includes("*") || allowedOrigins.includes(origin)) {
     headers.set("Access-Control-Allow-Origin", origin);
-  } else if (allowedOrigins.length > 0) {
-    headers.set("Access-Control-Allow-Origin", allowedOrigins[0]);
   }
 
   headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");

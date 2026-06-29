@@ -174,7 +174,7 @@ export default function NotificationsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">通知规则</h1>
+          <h1 className="text-2xl font-bold">通知规则</h1>
           <p className="text-sm text-muted-foreground mt-1">
             配置实时告警规则：匹配新闻事件后通过浏览器推送通知
           </p>
@@ -246,7 +246,7 @@ export default function NotificationsPage() {
                             <Badge key={t} variant="outline" className="text-[10px]">{t}</Badge>
                           ))}
                           {entities.map((e) => (
-                            <Badge key={e} variant="outline" className="text-[10px] border-blue-300">@{e}</Badge>
+                            <Badge key={e} variant="outline" className="text-[10px] border-info/30">@{e}</Badge>
                           ))}
                           {minScore > 0 && (
                             <Badge variant="outline" className="text-[10px]">分值 &ge;{minScore}</Badge>
@@ -318,7 +318,7 @@ export default function NotificationsPage() {
                   type="checkbox"
                   checked={editingRule.enabled ?? true}
                   onChange={(e) => setEditingRule({ ...editingRule, enabled: e.target.checked })}
-                  className="h-4 w-4 rounded border-gray-300"
+                  className="h-4 w-4 rounded border-border"
                 />
               </div>
 
