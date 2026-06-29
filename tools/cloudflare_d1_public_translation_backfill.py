@@ -1,4 +1,5 @@
-"""Generate D1 SQL to sync ready public translation fields from local state DBs."""
+# ruff: noqa: S608
+"""Generate D1 SQL to sync or create ready public translation fields."""
 
 from __future__ import annotations
 
@@ -17,6 +18,7 @@ from typing import Any
 from news_sentry.core.public_translation import (
     PublicTranslationConfig,
     PublicTranslationEngine,
+    contains_chinese,
     provider_quota_error,
     public_publication_ready,
 )
@@ -63,6 +65,7 @@ class PublicTranslationGenerationResult:
     failed: int
     provider_quota_exhausted: bool
     target_results: list[dict[str, Any]]
+    patches: list[PublicTranslationPatch] | None = None
 
 
 def _sql(value: Any) -> str:
@@ -89,6 +92,20 @@ def _json_loads(value: Any) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return loaded if isinstance(loaded, dict) else {}
+
+
+def _json_array_loads(value: Any) -> list[str]:
+    if isinstance(value, list):
+        raw_items = value
+    elif not value:
+        raw_items = []
+    else:
+        try:
+            loaded = json.loads(str(value))
+        except json.JSONDecodeError:
+            loaded = []
+        raw_items = loaded if isinstance(loaded, list) else []
+    return _clean_list(raw_items)
 
 
 def _clean_text(value: Any) -> str:
@@ -187,6 +204,324 @@ def collect_translation_patches(
             if limit is not None and len(patches) >= limit:
                 return patches
     return patches
+
+
+def d1_candidate_query(*, targets: tuple[str, ...], limit: int) -> str:
+    safe_targets = targets or DEFAULT_BACKFILL_TARGETS
+    target_filter = ", ".join(_sql(target) for target in safe_targets)
+    target_order = " ".join(
+        f"WHEN {_sql(target)} THEN {idx}" for idx, target in enumerate(safe_targets)
+    )
+    safe_limit = max(1, int(limit))
+    query = f"""
+        SELECT event_id, target_id, source_id, source_name,
+               published_at, collected_at, title, original_title, summary,
+               recommendation_reason, full_content, original_url, value_score,
+               classification, tags, issue_tags, related_tags, region_tags, language
+        FROM events
+        WHERE pipeline_stage = 'drafts'
+          AND target_id IN ({target_filter})
+          AND (
+            language IS NULL
+            OR LOWER(TRIM(language)) != 'zh'
+            OR summary IS NULL
+            OR TRIM(summary) = ''
+            OR recommendation_reason IS NULL
+            OR TRIM(recommendation_reason) = ''
+          )
+        ORDER BY CASE target_id {target_order} ELSE 999 END,
+                 COALESCE(value_score, 0) DESC,
+                 datetime(published_at) DESC,
+                 event_id DESC
+        LIMIT {safe_limit}
+    """
+    return query
+
+
+def parse_wrangler_d1_json_output(output: str) -> list[dict[str, Any]]:
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("wrangler d1 output is not JSON") from exc
+    result_sets = payload if isinstance(payload, list) else [payload]
+    rows: list[dict[str, Any]] = []
+    for result_set in result_sets:
+        if not isinstance(result_set, dict):
+            continue
+        if result_set.get("success") is False:
+            raise RuntimeError(f"wrangler d1 query failed: {result_set}")
+        results = result_set.get("results")
+        if isinstance(results, list):
+            rows.extend(row for row in results if isinstance(row, dict))
+    return rows
+
+
+def fetch_d1_candidate_rows(
+    *,
+    targets: tuple[str, ...],
+    limit: int,
+    database: str = "ns-db",
+    cwd: Path = Path("frontend/cloudflare"),
+) -> list[dict[str, Any]]:
+    query = d1_candidate_query(targets=targets, limit=limit)
+    result = subprocess.run(
+        [
+            "npx",
+            "wrangler",
+            "d1",
+            "execute",
+            database,
+            "--remote",
+            "--command",
+            query,
+            "--json",
+        ],
+        cwd=cwd,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        stderr = "\n".join(result.stderr.splitlines()[-20:])
+        raise RuntimeError(f"wrangler d1 candidate query failed: {stderr}")
+    return parse_wrangler_d1_json_output(result.stdout)
+
+
+def _d1_row_to_translation_row(row: dict[str, Any]) -> dict[str, Any]:
+    classification = _json_loads(row.get("classification"))
+    title = _clean_text(row.get("title"))
+    original_title = _clean_text(row.get("original_title")) or title
+    summary = _clean_text(row.get("summary"))
+    reason = _clean_text(row.get("recommendation_reason"))
+    metadata: dict[str, Any] = {"classification": classification}
+    translation: dict[str, Any] = {}
+    if title and contains_chinese(title):
+        translation["title_pre"] = title
+    if summary and contains_chinese(summary):
+        translation["summary_pre"] = summary
+    if translation:
+        metadata["translation"] = translation
+    publication: dict[str, Any] = {}
+    if reason and contains_chinese(reason):
+        publication["recommendation_reason"] = reason
+    for key in ("issue_tags", "related_tags", "region_tags"):
+        tags = _json_array_loads(row.get(key))
+        if tags:
+            publication[key] = tags
+    if publication:
+        metadata["publication"] = publication
+    return {
+        "event_id": row.get("event_id"),
+        "target_id": row.get("target_id"),
+        "stage": "drafts",
+        "source_id": row.get("source_id"),
+        "source_display_name": row.get("source_name"),
+        "news_value_score": row.get("value_score"),
+        "classification_l0": classification.get("l0"),
+        "title_original": original_title,
+        "summary": summary,
+        "description": summary,
+        "content_original": row.get("full_content"),
+        "url": row.get("original_url"),
+        "published_at": row.get("published_at"),
+        "created_at": row.get("collected_at") or row.get("published_at"),
+        "metadata": metadata,
+        "public_translation_ready": 0,
+        "translation_attempts": 0,
+    }
+
+
+async def _d1_row_to_patch(
+    row: dict[str, Any],
+    *,
+    engine: PublicTranslationEngine,
+    router: Any,
+    provider_factory: Any,
+) -> PublicTranslationPatch:
+    title_result = await engine._ensure_translated_field(  # noqa: SLF001
+        row,
+        field="title",
+        router=router,
+        provider_factory=provider_factory,
+    )
+    summary_result = await engine._ensure_translated_field(  # noqa: SLF001
+        row,
+        field="summary",
+        router=router,
+        provider_factory=provider_factory,
+    )
+    publication_result = await engine._generate_publication_fields(  # noqa: SLF001
+        row,
+        title_zh=title_result["content"],
+        summary_zh=summary_result["content"],
+        router=router,
+        provider_factory=provider_factory,
+    )
+    metadata = {
+        "translation": {
+            "title_pre": title_result["content"],
+            "summary_pre": summary_result["content"],
+        },
+        "publication": {
+            "one_line_summary": publication_result["one_line_summary"],
+            "recommendation_reason": publication_result["recommendation_reason"],
+            "issue_tags": publication_result["issue_tags"],
+            "related_tags": publication_result["related_tags"],
+            "region_tags": publication_result["region_tags"],
+        },
+    }
+    if not public_publication_ready(metadata):
+        raise RuntimeError("public publication fields are not ready")
+    return PublicTranslationPatch(
+        event_id=str(row["event_id"]),
+        target_id=str(row["target_id"]),
+        title=title_result["content"],
+        summary=summary_result["content"],
+        recommendation_reason=publication_result["recommendation_reason"],
+        issue_tags=list(publication_result["issue_tags"]),
+        related_tags=list(publication_result["related_tags"]),
+        region_tags=list(publication_result["region_tags"]),
+        published_at=str(row.get("published_at") or row.get("created_at") or ""),
+    )
+
+
+async def generate_missing_public_translations_from_d1_rows(
+    *,
+    rows: list[dict[str, Any]],
+    targets: tuple[str, ...],
+    limit: int,
+    per_target_limit: int,
+    dry_run: bool = False,
+) -> PublicTranslationGenerationResult:
+    from news_sentry.core.collector_config_utils import (
+        _build_ai_provider_factory,
+        _create_ai_provider_router,
+    )
+
+    safe_limit = max(0, int(limit))
+    safe_per_target = max(1, int(per_target_limit))
+    config = PublicTranslationConfig(
+        per_cycle_limit=max(1, safe_limit or 1),
+        candidate_limit=max(safe_per_target, safe_limit or safe_per_target),
+    )
+    engine = PublicTranslationEngine(config)
+    by_target: dict[str, list[dict[str, Any]]] = {target: [] for target in targets}
+    for raw_row in rows:
+        mapped = _d1_row_to_translation_row(raw_row)
+        target = str(mapped.get("target_id") or "")
+        if target not in by_target:
+            continue
+        if not engine.row_is_due(mapped):
+            continue
+        if len(by_target[target]) >= safe_per_target:
+            continue
+        by_target[target].append(mapped)
+    total_candidates = sum(len(items) for items in by_target.values())
+    if dry_run or safe_limit <= 0:
+        return PublicTranslationGenerationResult(
+            status="dry_run" if dry_run else "daily_limit",
+            targets=targets,
+            total_candidates=total_candidates,
+            updated=0,
+            failed=0,
+            provider_quota_exhausted=False,
+            target_results=[
+                {"target_id": target, "candidates": len(by_target.get(target, []))}
+                for target in targets
+            ],
+            patches=[],
+        )
+
+    router = _create_ai_provider_router()
+    if router is None:
+        return PublicTranslationGenerationResult(
+            status="no_router",
+            targets=targets,
+            total_candidates=total_candidates,
+            updated=0,
+            failed=0,
+            provider_quota_exhausted=False,
+            target_results=[],
+            patches=[],
+        )
+    provider_factory = _build_ai_provider_factory()
+    patches: list[PublicTranslationPatch] = []
+    failed = 0
+    target_results: list[dict[str, Any]] = []
+    quota_exhausted = False
+    for target in targets:
+        if len(patches) + failed >= safe_limit:
+            break
+        rows_for_target = by_target.get(target, [])
+        if not rows_for_target:
+            target_results.append(
+                {"target_id": target, "status": "empty", "updated": 0, "failed": 0}
+            )
+            continue
+        target_updated = 0
+        target_failed = 0
+        target_error = ""
+        for row in rows_for_target:
+            if len(patches) + failed >= safe_limit:
+                break
+            try:
+                patch = await _d1_row_to_patch(
+                    row,
+                    engine=engine,
+                    router=router,
+                    provider_factory=provider_factory,
+                )
+            except Exception as exc:  # noqa: BLE001
+                failed += 1
+                target_failed += 1
+                target_error = str(exc)
+                if provider_quota_error(target_error):
+                    quota_exhausted = True
+                    break
+                continue
+            patches.append(patch)
+            target_updated += 1
+        if quota_exhausted:
+            status = "provider_quota_exhausted"
+        elif target_updated and target_failed:
+            status = "partial"
+        elif target_updated:
+            status = "ok"
+        elif target_failed:
+            status = "retrying"
+        else:
+            status = "empty"
+        target_results.append(
+            {
+                "target_id": target,
+                "status": status,
+                "updated": target_updated,
+                "failed": target_failed,
+                "error": target_error or None,
+            }
+        )
+        if quota_exhausted:
+            break
+    if quota_exhausted:
+        status = "provider_quota_exhausted"
+    elif patches and failed:
+        status = "partial"
+    elif patches:
+        status = "ok"
+    elif failed:
+        status = "retrying"
+    else:
+        status = "empty"
+    return PublicTranslationGenerationResult(
+        status=status,
+        targets=targets,
+        total_candidates=total_candidates,
+        updated=len(patches),
+        failed=failed,
+        provider_quota_exhausted=quota_exhausted,
+        target_results=target_results,
+        patches=patches,
+    )
 
 
 async def generate_missing_public_translations(
@@ -416,6 +751,9 @@ def execute_d1_sql(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
+    parser.add_argument("--source", choices=("local", "d1"), default="local")
+    parser.add_argument("--d1-candidates-json", type=Path)
+    parser.add_argument("--d1-candidate-limit", type=int)
     parser.add_argument("--target-id", help="Deprecated alias for a single --targets value.")
     parser.add_argument("--targets", help="Comma-separated target priority list.")
     parser.add_argument("--limit", type=int, default=DEFAULT_BATCH_LIMIT)
@@ -435,34 +773,64 @@ def main() -> int:
 
     targets = (args.target_id,) if args.target_id else parse_target_list(args.targets)
     generation_result: PublicTranslationGenerationResult | None = None
-    if args.generate_missing:
-        generation_result = asyncio.run(
-            generate_missing_public_translations(
-                data_dir=args.data_dir,
-                targets=targets,
-                limit=max(0, min(args.daily_limit, args.limit)),
-                per_target_limit=max(1, args.per_target_limit),
-                dry_run=args.dry_run,
-            )
+    if args.source == "d1":
+        d1_candidate_limit = args.d1_candidate_limit or max(
+            args.limit,
+            args.per_target_limit * len(targets),
+            1,
         )
+        if args.d1_candidates_json:
+            d1_rows = json.loads(args.d1_candidates_json.read_text(encoding="utf-8"))
+            if not isinstance(d1_rows, list):
+                raise RuntimeError("--d1-candidates-json must contain a JSON array")
+        else:
+            d1_rows = fetch_d1_candidate_rows(
+                targets=targets,
+                limit=d1_candidate_limit,
+                database=args.database,
+            )
+        print(f"d1_candidates={len(d1_rows)} source=d1")
+        if args.generate_missing:
+            generation_result = asyncio.run(
+                generate_missing_public_translations_from_d1_rows(
+                    rows=d1_rows,
+                    targets=targets,
+                    limit=max(0, min(args.daily_limit, args.limit)),
+                    per_target_limit=max(1, args.per_target_limit),
+                    dry_run=args.dry_run,
+                )
+            )
+        patches = generation_result.patches if generation_result else []
+    else:
+        if args.generate_missing:
+            generation_result = asyncio.run(
+                generate_missing_public_translations(
+                    data_dir=args.data_dir,
+                    targets=targets,
+                    limit=max(0, min(args.daily_limit, args.limit)),
+                    per_target_limit=max(1, args.per_target_limit),
+                    dry_run=args.dry_run,
+                )
+            )
+
+        patches = collect_translation_patches(
+            data_dir=args.data_dir,
+            target_id=args.target_id,
+            limit=None,
+        )
+        patches = limit_patches_by_targets(
+            patches,
+            targets=targets,
+            daily_limit=max(0, min(args.daily_limit, args.limit)),
+            per_target_limit=max(1, args.per_target_limit),
+        )
+    if generation_result is not None:
         print(
             "generation="
             f"{generation_result.status} candidates={generation_result.total_candidates} "
             f"updated={generation_result.updated} failed={generation_result.failed} "
             f"provider_quota_exhausted={str(generation_result.provider_quota_exhausted).lower()}"
         )
-
-    patches = collect_translation_patches(
-        data_dir=args.data_dir,
-        target_id=args.target_id,
-        limit=None,
-    )
-    patches = limit_patches_by_targets(
-        patches,
-        targets=targets,
-        daily_limit=max(0, min(args.daily_limit, args.limit)),
-        per_target_limit=max(1, args.per_target_limit),
-    )
     selected_targets = sorted({patch.target_id for patch in patches})
     print(
         "patches="

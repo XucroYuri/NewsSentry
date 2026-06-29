@@ -12,10 +12,13 @@ from tools.cloudflare_d1_backfill import collect_backfill_plan, generate_backfil
 from tools.cloudflare_d1_public_translation_backfill import (
     DEFAULT_BACKFILL_TARGETS,
     collect_translation_patches,
+    d1_candidate_query,
     generate_missing_public_translations,
+    generate_missing_public_translations_from_d1_rows,
     generate_translation_backfill_sql,
     limit_patches_by_targets,
     parse_target_list,
+    parse_wrangler_d1_json_output,
 )
 
 from news_sentry.core.async_store import AsyncStore
@@ -387,6 +390,85 @@ async def test_public_translation_generation_dry_run_counts_target_candidates(
 
     result = await generate_missing_public_translations(
         data_dir=data_dir,
+        targets=("france", "south-korea"),
+        limit=200,
+        per_target_limit=100,
+        dry_run=True,
+    )
+
+    assert result.status == "dry_run"
+    assert result.total_candidates == 1
+    assert result.target_results == [
+        {"target_id": "france", "candidates": 1},
+        {"target_id": "south-korea", "candidates": 0},
+    ]
+
+
+def test_d1_candidate_query_targets_missing_public_fields() -> None:
+    sql = d1_candidate_query(targets=("france", "south-korea"), limit=25)
+
+    assert "FROM events" in sql
+    assert "pipeline_stage = 'drafts'" in sql
+    assert "target_id IN ('france', 'south-korea')" in sql
+    assert "summary IS NULL" in sql
+    assert "recommendation_reason IS NULL" in sql
+    assert "CASE target_id WHEN 'france' THEN 0 WHEN 'south-korea' THEN 1" in sql
+    assert "LIMIT 25" in sql
+
+
+def test_parse_wrangler_d1_json_output_extracts_result_rows() -> None:
+    output = json_dump(
+        [
+            {"success": True, "results": [{"event_id": "fr-1"}, {"event_id": "kr-1"}]},
+            {"success": True, "results": []},
+        ]
+    )
+
+    rows = parse_wrangler_d1_json_output(output)
+
+    assert [row["event_id"] for row in rows] == ["fr-1", "kr-1"]
+
+
+@pytest.mark.asyncio
+async def test_d1_public_translation_generation_dry_run_counts_remote_candidates() -> None:
+    rows = [
+        {
+            "event_id": "fr-d1-candidate",
+            "target_id": "france",
+            "source_id": "lemonde",
+            "source_name": "Le Monde",
+            "published_at": "2026-06-28T07:07:58+00:00",
+            "collected_at": "2026-06-28T07:08:00+00:00",
+            "title": "France announces a new industrial policy",
+            "original_title": "France announces a new industrial policy",
+            "summary": None,
+            "recommendation_reason": None,
+            "full_content": "The measure could affect public procurement and suppliers.",
+            "original_url": "https://example.com/fr",
+            "value_score": 88,
+            "classification": "{\"l0\":\"politics\"}",
+            "issue_tags": "[]",
+            "related_tags": "[]",
+            "region_tags": "[]",
+            "language": "en",
+        },
+        {
+            "event_id": "de-ignored",
+            "target_id": "germany",
+            "source_id": "dw",
+            "source_name": "DW",
+            "published_at": "2026-06-28T07:07:58+00:00",
+            "title": "Germany item",
+            "original_title": "Germany item",
+            "summary": None,
+            "recommendation_reason": None,
+            "classification": "{\"l0\":\"politics\"}",
+            "language": "en",
+        },
+    ]
+
+    result = await generate_missing_public_translations_from_d1_rows(
+        rows=rows,
         targets=("france", "south-korea"),
         limit=200,
         per_target_limit=100,

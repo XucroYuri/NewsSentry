@@ -72,6 +72,7 @@ jobs:
         run: |
           set -euo pipefail
           python tools/cloudflare_d1_public_translation_backfill.py \
+            --source d1 \
             --targets "${{ github.event.inputs.targets }}" \
             --limit "${{ github.event.inputs.limit }}" \
             --daily-limit "${{ github.event.inputs.daily_limit }}" \
@@ -84,6 +85,7 @@ jobs:
         run: |
           set -euo pipefail
           python tools/cloudflare_d1_public_translation_backfill.py \
+            --source d1 \
             --targets "${{ github.event.inputs.targets }}" \
             --limit "${{ github.event.inputs.limit }}" \
             --daily-limit "${{ github.event.inputs.daily_limit }}" \
