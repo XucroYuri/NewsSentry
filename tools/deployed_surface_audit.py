@@ -17,6 +17,8 @@ from deployment_surface_security import (
     load_policy,
 )
 
+AUDIT_USER_AGENT = "NewsSentrySurfaceAudit/1.0 (+https://news-sentry.com)"
+
 
 def _load_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
@@ -42,7 +44,11 @@ def _probe_surface(
     timeout_seconds: float,
 ) -> dict[str, Any]:
     url = f"{base_url.rstrip('/')}{surface}"
-    with httpx.Client(follow_redirects=False, timeout=timeout_seconds) as client:
+    with httpx.Client(
+        follow_redirects=False,
+        timeout=timeout_seconds,
+        headers={"User-Agent": AUDIT_USER_AGENT},
+    ) as client:
         response = client.get(url)
     return {
         "surface": surface,

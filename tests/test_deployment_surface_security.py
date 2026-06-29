@@ -12,7 +12,12 @@ POLICY_PATH = PROJECT_ROOT / "config/security/deployment-surface-policy.yaml"
 sys.path.insert(0, str(TOOLS_DIR))
 
 from build_cloudflare_state_json import build_state_from_payloads  # noqa: E402
-from deployed_surface_audit import _collect_live_probes, base_url_for_surface  # noqa: E402
+from deployed_surface_audit import (  # noqa: E402
+    AUDIT_USER_AGENT,
+    _collect_live_probes,
+    _probe_surface,
+    base_url_for_surface,
+)
 from deployment_surface_security import (  # noqa: E402
     build_cloudflare_state_findings,
     build_surface_findings,
@@ -193,6 +198,37 @@ def test_deployed_surface_audit_retries_challenged_public_pages_on_fallback(
     }
     assert api_probe["base_url"] == "https://api.news-sentry.com"
     assert "fallback_from" not in api_probe
+
+
+def test_deployed_surface_audit_uses_news_sentry_user_agent(
+    monkeypatch,
+) -> None:
+    seen: dict[str, object] = {}
+
+    class FakeResponse:
+        status_code = 200
+        headers = {"content-type": "application/json"}
+
+    class FakeClient:
+        def __init__(self, **kwargs: object) -> None:
+            seen.update(kwargs)
+
+        def __enter__(self) -> FakeClient:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def get(self, url: str) -> FakeResponse:
+            seen["url"] = url
+            return FakeResponse()
+
+    monkeypatch.setattr("deployed_surface_audit.httpx.Client", FakeClient)
+
+    probe = _probe_surface("https://api.news-sentry.com", "/api/v1/health", 8)
+
+    assert probe["status_code"] == 200
+    assert seen["headers"] == {"User-Agent": AUDIT_USER_AGENT}
 
 
 def test_cloudflare_state_builder_derives_audit_json_from_access_and_rulesets() -> None:
