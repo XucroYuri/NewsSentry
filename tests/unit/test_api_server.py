@@ -23,7 +23,10 @@ from news_sentry.core.api_server import (
     create_app,
 )
 from news_sentry.core.async_store import AsyncStore
-from news_sentry.core.collector_config_utils import _parse_target_ids
+from news_sentry.core.collector_config_utils import (
+    _collect_cloudflare_d1_import_events,
+    _parse_target_ids,
+)
 from news_sentry.core.event_io_utils import _parse_frontmatter
 from news_sentry.core.public_news_utils import _tag_text
 from news_sentry.core.public_translation import public_translation_ready
@@ -403,6 +406,16 @@ class TestCloudflareInternalAPI:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        import_event = {
+            "event_id": "ne-france-fresh",
+            "target_id": "france",
+            "source_id": "afp",
+            "title_original": "Fresh France news",
+            "url": "https://example.com/france",
+            "collected_at": "2026-06-29T07:00:00Z",
+            "pipeline_stage": "drafts",
+        }
+
         async def fake_collect_once(run_id: str | None = None) -> dict[str, Any]:
             return {
                 "status": "ok",
@@ -411,6 +424,8 @@ class TestCloudflareInternalAPI:
                 "stage": "all",
                 "events_collected": 3,
                 "target_count": 2,
+                "import_events": [import_event],
+                "import_events_count": 1,
             }
 
         monkeypatch.setattr(
@@ -435,11 +450,69 @@ class TestCloudflareInternalAPI:
         assert data["summary"] == {
             "target_count": 2,
             "events_collected": 3,
+            "import_events_count": 1,
             "stage": "all",
             "targets": ["italy", "france"],
         }
+        assert data["import_events"] == [import_event]
         assert "started_at" in data
         assert "finished_at" in data
+
+    def test_collect_d1_import_payload_preserves_public_projection(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        target_dir = tmp_path / "france"
+        target_dir.mkdir()
+        store = AsyncStore(target_dir / "state.db")
+        try:
+            asyncio.run(store.initialize())
+            asyncio.run(
+                _insert_index_event(
+                    store,
+                    event_id="ne-france-import",
+                    target_id="france",
+                    source_id="afp",
+                    news_value_score=88,
+                    china_relevance=75,
+                    classification_l0="politics",
+                    title_original="France government update",
+                    published_at="2026-06-29T07:00:00Z",
+                    entity_names="France,Macron",
+                    topic_tags="policy,economy",
+                    metadata=_ready_public_metadata("France government update"),
+                )
+            )
+            assert store._db is not None  # noqa: SLF001
+            asyncio.run(
+                store._db.execute(  # noqa: SLF001
+                    "UPDATE event_index SET url=? WHERE event_id=?",
+                    ("https://example.com/france-update", "ne-france-import"),
+                )
+            )
+            asyncio.run(store._db.commit())  # noqa: SLF001
+
+            events = _collect_cloudflare_d1_import_events(
+                data_dir=tmp_path,
+                target_ids=["france"],
+                limit=10,
+            )
+        finally:
+            _close_test_store(store)
+
+        assert len(events) == 1
+        event = events[0]
+        assert event["event_id"] == "ne-france-import"
+        assert event["pipeline_stage"] == "drafts"
+        assert event["title"] == _ready_public_title("France government update")
+        assert event["summary"] == "这是一条已经完成中文摘要的公开新闻。"
+        assert event["recommendation_reason"] == "AI 推荐理由指出这条新闻对跨境观察具有具体影响。"
+        assert event["value_score"] == 88
+        assert event["value_label"] == "精选"
+        assert event["china_relevance_label"] == "高"
+        assert event["issue_tags"] == ["政治"]
+        assert event["related_tags"] == ["涉欧"]
+        assert event["region_tags"] == ["意大利"]
 
     def test_public_translation_cycle_endpoint_compacts_updates(
         self,
@@ -504,6 +577,11 @@ class TestCloudflareInternalAPI:
         monkeypatch.setattr(
             "news_sentry.core.async_run.bounded_run_multi_async",
             fake_bounded_run_multi_async,
+        )
+        monkeypatch.setattr(
+            collector_config_utils,
+            "_collect_cloudflare_d1_import_events",
+            lambda **kwargs: [],
         )
         old = dict(collector_config_utils._auto_collector_state)
         try:

@@ -226,7 +226,11 @@ def test_cloudflare_scheduled_ops_are_configured() -> None:
     assert wrangler_toml["triggers"]["crons"] == ["*/15 * * * *", "7,37 * * * *", "11 * * * *"]
     assert 'compactDetails.status === "string"' in scheduled_ts
     assert "await recordRun(env.DB, runId, task, status" in scheduled_ts
-    assert "compactTaskDetails({ ...details, snapshots: snapshotRefresh })" in scheduled_ts
+    assert "importEventsToD1" in scheduled_ts
+    assert "extractContainerImportEvents" in scheduled_ts
+    assert "importContainerEventsToD1" in scheduled_ts
+    assert "import_result" in scheduled_ts
+    assert "compactTaskDetails({" in scheduled_ts
     assert "updates_count" in scheduled_ts
     assert "target_results" in scheduled_ts
     assert "/api/v1/internal/cloudflare/${task}" in scheduled_ts
@@ -263,7 +267,10 @@ def test_events_import_persists_to_cloudflare_d1() -> None:
     webhook_ts = _read("workers/api/webhook.ts")
 
     assert "db: D1Database" in webhook_ts
+    assert "importEventsToD1" in webhook_ts
     assert "INSERT INTO events" in webhook_ts
+    assert "recommendation_reason" in webhook_ts
+    assert "value_score" in webhook_ts
     assert "ON CONFLICT(event_id)" in webhook_ts
 
 

@@ -663,6 +663,9 @@ def _compact_cloudflare_task_summary(task: str, result: dict[str, Any]) -> dict[
         summary = {
             "target_count": int(result.get("target_count") or len(result.get("targets") or [])),
             "events_collected": int(result.get("events_collected") or 0),
+            "import_events_count": int(
+                result.get("import_events_count") or len(result.get("import_events") or [])
+            ),
             "stage": result.get("stage"),
             "targets": list(result.get("targets") or []),
         }
@@ -1546,6 +1549,7 @@ def create_app(
                     "started_at": started_at,
                     "finished_at": finished_at,
                     "summary": _compact_cloudflare_task_summary(task, result),
+                    "import_events": result.get("import_events") or [],
                     "error": result.get("error"),
                 }
             )

@@ -9,10 +9,14 @@ import asyncio
 import json
 import logging
 import os
+import re
+import sqlite3
 import time
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
+from urllib.parse import quote
 
 import news_sentry.core._state as _st
 from news_sentry.core._state import (
@@ -57,6 +61,11 @@ _ai_enrichment_log = logging.getLogger("news_sentry.ai_enrichment")
 _public_translation_log = logging.getLogger("news_sentry.public_translation")
 
 logger = logging.getLogger(__name__)
+
+_COMPACT_UTC_RE = re.compile(
+    r"^(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})T"
+    r"(?P<hour>\d{2})(?P<minute>\d{2})(?P<second>\d{2})Z$"
+)
 
 
 def _parse_target_ids(raw: str) -> list[str]:
@@ -990,6 +999,207 @@ def _collector_context_items(contexts: Any) -> list[Any]:
     return [contexts]
 
 
+def _cloudflare_collect_import_limit() -> int:
+    try:
+        return max(1, min(int(os.environ.get("NEWSSENTRY_CLOUDFLARE_IMPORT_LIMIT", "500")), 2000))
+    except ValueError:
+        return 500
+
+
+def _cloudflare_import_json_loads(value: Any) -> dict[str, Any]:
+    if not value:
+        return {}
+    try:
+        loaded = json.loads(str(value))
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return cast(dict[str, Any], loaded) if isinstance(loaded, dict) else {}
+
+
+def _cloudflare_import_tags(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        parts = value
+    else:
+        text = str(value).strip()
+        if not text:
+            return []
+        if text.startswith("["):
+            try:
+                loaded = json.loads(text)
+            except json.JSONDecodeError:
+                loaded = None
+            parts = loaded if isinstance(loaded, list) else text.split(",")
+        else:
+            parts = text.split(",")
+    tags: list[str] = []
+    for part in parts:
+        tag = str(part).strip()
+        if tag and tag not in tags:
+            tags.append(tag)
+    return tags
+
+
+def _cloudflare_import_timestamp(value: Any, fallback: Any = None) -> str:
+    text = str(value or fallback or datetime.now(UTC).isoformat()).strip()
+    match = _COMPACT_UTC_RE.match(text)
+    if match:
+        groups = match.groupdict()
+        return (
+            f"{groups['year']}-{groups['month']}-{groups['day']}T"
+            f"{groups['hour']}:{groups['minute']}:{groups['second']}Z"
+        )
+    return text
+
+
+def _cloudflare_import_value_label(score: Any) -> str:
+    if score is None:
+        return "待评估"
+    try:
+        value = int(score)
+    except (TypeError, ValueError):
+        return "待评估"
+    if value >= 80:
+        return "精选"
+    if value >= 60:
+        return "关注"
+    return "普通"
+
+
+def _cloudflare_import_china_relevance_label(score: Any) -> str:
+    if score is None:
+        return "未知"
+    try:
+        value = int(score)
+    except (TypeError, ValueError):
+        return "未知"
+    if value >= 70:
+        return "高"
+    if value >= 40:
+        return "中"
+    return "低"
+
+
+def _cloudflare_import_payload_from_row(row: sqlite3.Row) -> dict[str, Any] | None:
+    url = str(row["url"] or "").strip()
+    if not url:
+        return None
+    target_id = str(row["target_id"] or "").strip()
+    source_id = str(row["source_id"] or "unknown").strip() or "unknown"
+    event_id = str(row["event_id"] or "").strip()
+    title_original = str(row["title_original"] or event_id).strip()
+    if not target_id or not event_id or not title_original:
+        return None
+
+    metadata = _cloudflare_import_json_loads(row["metadata_json"])
+    raw_translation = metadata.get("translation")
+    raw_publication = metadata.get("publication")
+    translation = raw_translation if isinstance(raw_translation, dict) else {}
+    publication = raw_publication if isinstance(raw_publication, dict) else {}
+    ready = public_publication_ready(metadata)
+
+    published_at = _cloudflare_import_timestamp(row["published_at"], row["created_at"])
+    collected_at = _cloudflare_import_timestamp(row["created_at"], row["published_at"])
+    classification_l0 = str(row["classification_l0"] or "uncategorized").strip() or "uncategorized"
+    topic_tags = _cloudflare_import_tags(row["topic_tags"])
+    entity_names = _cloudflare_import_tags(row["entity_names"])
+    issue_tags = _cloudflare_import_tags(publication.get("issue_tags")) if ready else []
+    if not issue_tags and classification_l0 != "uncategorized":
+        issue_tags = [classification_l0]
+    related_tags = _cloudflare_import_tags(publication.get("related_tags")) if ready else topic_tags
+    region_tags = _cloudflare_import_tags(publication.get("region_tags")) if ready else [target_id]
+
+    title = str(translation.get("title_pre") or title_original).strip()
+    summary = str(
+        translation.get("summary_pre") or publication.get("one_line_summary") or ""
+    ).strip()
+    recommendation_reason = str(publication.get("recommendation_reason") or "").strip()
+
+    payload: dict[str, Any] = {
+        "event_id": event_id,
+        "target_id": target_id,
+        "source_id": source_id,
+        "source_name": source_id,
+        "source_type": "rss",
+        "title_original": title_original,
+        "title": title or title_original,
+        "url": url,
+        "published_at": published_at,
+        "collected_at": collected_at,
+        "language": "zh" if ready else "mixed",
+        "pipeline_stage": "drafts",
+        "classification": {"l0": classification_l0},
+        "tags": topic_tags,
+        "issue_tags": issue_tags,
+        "related_tags": related_tags,
+        "region_tags": region_tags or [target_id],
+        "entities": [{"name": name} for name in entity_names],
+        "value_label": _cloudflare_import_value_label(row["news_value_score"]),
+        "value_score": row["news_value_score"],
+        "china_relevance_label": _cloudflare_import_china_relevance_label(
+            row["china_relevance"]
+        ),
+        "_sort_key": published_at or collected_at,
+    }
+    if summary:
+        payload["summary"] = summary
+    if recommendation_reason:
+        payload["recommendation_reason"] = recommendation_reason
+    return payload
+
+
+def _collect_cloudflare_d1_import_events(
+    *,
+    data_dir: Path,
+    target_ids: list[str],
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """Return recent local draft rows in the Worker /events/import wire shape."""
+    limit = limit or _cloudflare_collect_import_limit()
+    events: list[dict[str, Any]] = []
+    seen_targets = sorted({target_id for target_id in target_ids if target_id})
+    for target_id in seen_targets:
+        db_path = Path(data_dir) / target_id / "state.db"
+        if not db_path.is_file():
+            continue
+        try:
+            uri = f"file:{quote(str(db_path))}?mode=ro"
+            with closing(sqlite3.connect(uri, uri=True, timeout=1.0)) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    """
+                    SELECT event_id, target_id, stage, source_id, news_value_score,
+                           china_relevance, classification_l0, title_original, url,
+                           published_at, created_at, topic_tags, entity_names,
+                           metadata_json, public_translation_ready
+                    FROM event_index
+                    WHERE target_id = ? AND stage = 'drafts'
+                    ORDER BY datetime(COALESCE(published_at, created_at)) DESC, event_id DESC
+                    LIMIT ?
+                    """,
+                    (target_id, limit),
+                ).fetchall()
+        except sqlite3.Error:
+            _log.warning(
+                "Cloudflare D1 import payload skipped unreadable target db: target=%s path=%s",
+                target_id,
+                db_path,
+                exc_info=True,
+            )
+            continue
+        for row in rows:
+            payload = _cloudflare_import_payload_from_row(row)
+            if payload is not None:
+                events.append(payload)
+
+    events.sort(key=lambda item: str(item.get("_sort_key") or ""), reverse=True)
+    result = events[:limit]
+    for item in result:
+        item.pop("_sort_key", None)
+    return result
+
+
 async def _run_auto_collect_once(run_id: str | None = None) -> dict[str, Any]:
     """Run one configured auto-collection cycle and update collector state."""
     from news_sentry.core.async_run import bounded_run_multi_async
@@ -1024,6 +1234,15 @@ async def _run_auto_collect_once(run_id: str | None = None) -> dict[str, Any]:
         }
         for ctx in context_items
     ]
+    import_target_ids = [
+        str(item["target_id"])
+        for item in target_results
+        if item.get("target_id") and int(item.get("events_collected") or 0) > 0
+    ] or target_ids
+    import_events = [] if no_target_contexts else _collect_cloudflare_d1_import_events(
+        data_dir=_st._data_dir,
+        target_ids=import_target_ids,
+    )
     _log.info("自动采集完成: run_id=%s", run_id)
     return {
         "status": "error" if no_target_contexts else "ok",
@@ -1033,6 +1252,8 @@ async def _run_auto_collect_once(run_id: str | None = None) -> dict[str, Any]:
         "stage": stage,
         "events_collected": events_collected,
         "target_results": target_results,
+        "import_events": import_events,
+        "import_events_count": len(import_events),
         "error": "no target contexts returned" if no_target_contexts else None,
         "last_run_at": now,
     }

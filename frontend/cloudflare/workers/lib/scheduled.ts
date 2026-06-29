@@ -1,4 +1,6 @@
 import { getContainer } from "@cloudflare/containers";
+import { importEventsToD1 } from "../api/webhook";
+import type { ImportEventItem } from "./contracts";
 import { refreshPublicReadSnapshots } from "./public-read-snapshots";
 
 interface ScheduledEnv {
@@ -120,6 +122,29 @@ function compactTaskDetails(details: Record<string, unknown>): Record<string, un
   };
 }
 
+function extractContainerImportEvents(details: Record<string, unknown>): ImportEventItem[] {
+  const body = details.body;
+  if (!isRecord(body) || !Array.isArray(body.import_events)) return [];
+  return body.import_events.filter(isRecord) as ImportEventItem[];
+}
+
+async function importContainerEventsToD1(
+  db: D1Database,
+  details: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const events = extractContainerImportEvents(details);
+  if (events.length === 0) {
+    return { received: 0, imported: 0, skipped: 0, errors: [] };
+  }
+  const result = await importEventsToD1(db, events);
+  return {
+    received: events.length,
+    imported: result.imported,
+    skipped: result.skipped,
+    errors: result.errors.slice(0, 10),
+  };
+}
+
 async function callContainerInternalTask(
   env: ScheduledEnv,
   task: Exclude<ScheduledTask, "refresh-public-quality">,
@@ -203,6 +228,10 @@ export async function runScheduledCloudflareTask(
       task === "refresh-public-quality"
         ? await refreshPublicQuality(env.DB)
         : await callContainerInternalTask(env, task);
+    let importResult: Record<string, unknown> | null = null;
+    if (task === "collect-cycle") {
+      importResult = await importContainerEventsToD1(env.DB, details);
+    }
     let snapshotRefresh: Record<string, unknown>;
     try {
       snapshotRefresh = await refreshPublicReadSnapshots(env.DB);
@@ -212,7 +241,11 @@ export async function runScheduledCloudflareTask(
         message: error instanceof Error ? error.message : String(error),
       };
     }
-    const compactDetails = compactTaskDetails({ ...details, snapshots: snapshotRefresh });
+    const compactDetails = compactTaskDetails({
+      ...details,
+      ...(importResult === null ? {} : { import_result: importResult }),
+      snapshots: snapshotRefresh,
+    });
     const status =
       typeof compactDetails.status === "string" && compactDetails.status ? compactDetails.status : "ok";
     await recordRun(env.DB, runId, task, status, startedAt, compactDetails);

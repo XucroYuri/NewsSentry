@@ -14,6 +14,7 @@ type ImportEventWithId = ImportEventItem & {
   event_id?: string;
   title?: string;
   summary?: string;
+  recommendation_reason?: string;
   source_name?: string;
   source_type?: string;
   region_id?: string;
@@ -22,6 +23,10 @@ type ImportEventWithId = ImportEventItem & {
   related_tags?: string[];
   region_tags?: string[];
   image_urls?: string[];
+  entities?: Array<Record<string, unknown>>;
+  value_label?: string;
+  value_score?: number;
+  china_relevance_label?: string;
 };
 
 function jsonText(value: unknown, fallback: unknown): string {
@@ -47,6 +52,87 @@ async function eventIdFor(item: ImportEventWithId): Promise<string> {
     item.collected_at,
   ].join("\0"));
   return `cf-${item.target_id}-${digest.slice(0, 16)}`;
+}
+
+export async function importEventsToD1(
+  db: D1Database,
+  events: ImportEventWithId[],
+): Promise<ImportResponse> {
+  let imported = 0;
+  let skipped = 0;
+  const errors: string[] = [];
+
+  for (const [idx, item] of events.entries()) {
+    if (!item.target_id || !item.source_id || !item.title_original || !item.url || !item.collected_at) {
+      errors.push(`item ${idx}: missing required import fields`);
+      continue;
+    }
+
+    const eventId = await eventIdFor(item);
+    const existing = await db
+      .prepare("SELECT event_id FROM events WHERE event_id = ?")
+      .bind(eventId)
+      .first<{ event_id: string }>();
+    if (existing) {
+      skipped += 1;
+      continue;
+    }
+
+    const publishedAt = item.published_at || item.collected_at;
+    const title = item.title || item.title_original;
+    await db
+      .prepare(
+        `INSERT INTO events (
+           event_id, target_id, target_label, region_id,
+           source_id, source_name, source_type,
+           published_at, collected_at,
+           title, original_title, summary, recommendation_reason, full_content,
+           original_url, detail_url,
+           image_urls, tags, issue_tags, related_tags, region_tags, entities,
+           language, pipeline_stage,
+           value_label, value_score, china_relevance_label, classification
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(event_id) DO NOTHING`
+      )
+      .bind(
+        eventId,
+        item.target_id,
+        item.target_id,
+        item.region_id || item.target_id,
+        item.source_id,
+        item.source_name || item.source_id,
+        item.source_type || "unknown",
+        publishedAt,
+        item.collected_at,
+        title,
+        item.title_original,
+        item.summary || null,
+        item.recommendation_reason || null,
+        item.content_original || null,
+        item.url,
+        `/public-app/news/${eventId}`,
+        jsonText(item.image_urls, []),
+        jsonText(item.tags, []),
+        jsonText(item.issue_tags, []),
+        jsonText(item.related_tags, []),
+        jsonText(item.region_tags, [item.region_id || item.target_id]),
+        jsonText(item.entities, []),
+        item.language || "mixed",
+        item.pipeline_stage || "published",
+        item.value_label || "普通",
+        item.value_score ?? null,
+        item.china_relevance_label || "未知",
+        jsonText(item.classification, {}),
+      )
+      .run();
+    imported += 1;
+  }
+
+  return {
+    imported,
+    skipped,
+    errors,
+  };
 }
 
 export async function handleWebhook(
@@ -89,75 +175,8 @@ export async function handleImport(
       events = [];
     }
 
-    let imported = 0;
-    let skipped = 0;
-    const errors: string[] = [];
-
-    for (const [idx, item] of events.entries()) {
-      if (!item.target_id || !item.source_id || !item.title_original || !item.url || !item.collected_at) {
-        errors.push(`item ${idx}: missing required import fields`);
-        continue;
-      }
-
-      const eventId = await eventIdFor(item);
-      const existing = await db
-        .prepare("SELECT event_id FROM events WHERE event_id = ?")
-        .bind(eventId)
-        .first<{ event_id: string }>();
-      if (existing) {
-        skipped += 1;
-        continue;
-      }
-
-      const publishedAt = item.published_at || item.collected_at;
-      const title = item.title || item.title_original;
-      await db
-        .prepare(
-          `INSERT INTO events (
-             event_id, target_id, target_label, region_id,
-             source_id, source_name, source_type,
-             published_at, collected_at,
-             title, original_title, summary, full_content, original_url, detail_url,
-             image_urls, tags, issue_tags, related_tags, region_tags,
-             language, pipeline_stage, classification
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(event_id) DO NOTHING`
-        )
-        .bind(
-          eventId,
-          item.target_id,
-          item.target_id,
-          item.region_id || item.target_id,
-          item.source_id,
-          item.source_name || item.source_id,
-          item.source_type || "unknown",
-          publishedAt,
-          item.collected_at,
-          title,
-          item.title_original,
-          item.summary || null,
-          item.content_original || null,
-          item.url,
-          `/public-app/news/${eventId}`,
-          jsonText(item.image_urls, []),
-          jsonText(item.tags, []),
-          jsonText(item.issue_tags, []),
-          jsonText(item.related_tags, []),
-          jsonText(item.region_tags, [item.region_id || item.target_id]),
-          item.language || "mixed",
-          item.pipeline_stage || "published",
-          jsonText(item.classification, {}),
-        )
-        .run();
-      imported += 1;
-    }
-
-    const body: ImportResponse = {
-      imported,
-      skipped,
-      errors,
-    };
-    if (imported > 0) {
+    const body = await importEventsToD1(db, events);
+    if (body.imported > 0) {
       try {
         await refreshPublicReadSnapshots(db);
       } catch (error) {
@@ -165,7 +184,7 @@ export async function handleImport(
       }
     }
     return new Response(JSON.stringify(body), {
-      status: errors.length ? 207 : 200,
+      status: body.errors.length ? 207 : 200,
       headers: { "Content-Type": "application/json" },
     });
   } catch (err) {
