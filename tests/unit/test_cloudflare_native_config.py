@@ -235,6 +235,9 @@ def test_cloudflare_scheduled_ops_are_configured() -> None:
     assert "target_results" in scheduled_ts
     assert "/api/v1/internal/cloudflare/${task}" in scheduled_ts
     assert '"X-News-Sentry-Internal-Task": task' in scheduled_ts
+    assert "isContainerNotRunningError" in scheduled_ts
+    assert "startAndWaitForPorts(8000" in scheduled_ts
+    assert "started_after_not_running" in scheduled_ts
 
 
 def test_cloudflare_worker_observability_is_enabled() -> None:

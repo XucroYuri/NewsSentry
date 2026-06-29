@@ -145,24 +145,20 @@ async function importContainerEventsToD1(
   };
 }
 
-async function callContainerInternalTask(
-  env: ScheduledEnv,
+function containerTaskRequest(
   task: Exclude<ScheduledTask, "refresh-public-quality">,
-): Promise<Record<string, unknown>> {
-  if (!env.NEWS_SENTRY_CONTAINER) {
-    return { status: "skipped", reason: "container_not_configured" };
-  }
-  const container = getContainer(env.NEWS_SENTRY_CONTAINER, "admin-runtime");
-  const response = await container.fetch(
-    new Request(`https://container.news-sentry.internal/api/v1/internal/cloudflare/${task}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-News-Sentry-Internal-Task": task,
-      },
-      body: JSON.stringify({ runId: crypto.randomUUID(), task }),
-    })
-  );
+): Request {
+  return new Request(`https://container.news-sentry.internal/api/v1/internal/cloudflare/${task}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-News-Sentry-Internal-Task": task,
+    },
+    body: JSON.stringify({ runId: crypto.randomUUID(), task }),
+  });
+}
+
+async function parseContainerTaskResponse(response: Response): Promise<Record<string, unknown>> {
   let body: unknown = null;
   const responseText = await response.text();
   try {
@@ -176,6 +172,35 @@ async function callContainerInternalTask(
     http_status: response.status,
     body,
   };
+}
+
+function isContainerNotRunningError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.toLowerCase().includes("container is not running");
+}
+
+async function callContainerInternalTask(
+  env: ScheduledEnv,
+  task: Exclude<ScheduledTask, "refresh-public-quality">,
+): Promise<Record<string, unknown>> {
+  if (!env.NEWS_SENTRY_CONTAINER) {
+    return { status: "skipped", reason: "container_not_configured" };
+  }
+  const container = getContainer(env.NEWS_SENTRY_CONTAINER, "admin-runtime");
+  try {
+    return await parseContainerTaskResponse(await container.fetch(containerTaskRequest(task)));
+  } catch (error) {
+    if (!isContainerNotRunningError(error)) throw error;
+    await container.startAndWaitForPorts(8000, {
+      instanceGetTimeoutMS: 30_000,
+      portReadyTimeoutMS: 90_000,
+      waitInterval: 1_000,
+    });
+    return {
+      ...(await parseContainerTaskResponse(await container.fetch(containerTaskRequest(task)))),
+      container_start: "started_after_not_running",
+    };
+  }
 }
 
 async function refreshPublicQuality(db: D1Database): Promise<Record<string, unknown>> {
