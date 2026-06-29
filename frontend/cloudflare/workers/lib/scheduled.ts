@@ -179,6 +179,16 @@ function isContainerNotRunningError(error: unknown): boolean {
   return message.toLowerCase().includes("container is not running");
 }
 
+async function ensureContainerReady(
+  container: ReturnType<typeof getContainer>,
+): Promise<void> {
+  await container.startAndWaitForPorts(8000, {
+    instanceGetTimeoutMS: 30_000,
+    portReadyTimeoutMS: 90_000,
+    waitInterval: 1_000,
+  });
+}
+
 async function callContainerInternalTask(
   env: ScheduledEnv,
   task: Exclude<ScheduledTask, "refresh-public-quality">,
@@ -187,15 +197,15 @@ async function callContainerInternalTask(
     return { status: "skipped", reason: "container_not_configured" };
   }
   const container = getContainer(env.NEWS_SENTRY_CONTAINER, "admin-runtime");
+  await ensureContainerReady(container);
   try {
-    return await parseContainerTaskResponse(await container.fetch(containerTaskRequest(task)));
+    return {
+      ...(await parseContainerTaskResponse(await container.fetch(containerTaskRequest(task)))),
+      container_start: "ensured_before_fetch",
+    };
   } catch (error) {
     if (!isContainerNotRunningError(error)) throw error;
-    await container.startAndWaitForPorts(8000, {
-      instanceGetTimeoutMS: 30_000,
-      portReadyTimeoutMS: 90_000,
-      waitInterval: 1_000,
-    });
+    await ensureContainerReady(container);
     return {
       ...(await parseContainerTaskResponse(await container.fetch(containerTaskRequest(task)))),
       container_start: "started_after_not_running",

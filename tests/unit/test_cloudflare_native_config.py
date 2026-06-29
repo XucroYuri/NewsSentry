@@ -237,6 +237,7 @@ def test_cloudflare_scheduled_ops_are_configured() -> None:
     assert '"X-News-Sentry-Internal-Task": task' in scheduled_ts
     assert "isContainerNotRunningError" in scheduled_ts
     assert "startAndWaitForPorts(8000" in scheduled_ts
+    assert "ensured_before_fetch" in scheduled_ts
     assert "started_after_not_running" in scheduled_ts
 
 
