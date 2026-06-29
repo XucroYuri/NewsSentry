@@ -387,4 +387,6 @@ def test_deploy_workflow_runs_live_quality_gate_and_translation_backfill_exists(
     content = workflow.read_text(encoding="utf-8")
     assert "workflow_dispatch" in content
     assert "execute" in content
+    assert "CLOUDFLARE_API_TOKEN" in content
     assert "tools/cloudflare_d1_public_translation_backfill.py" in content
+    assert "--transaction" not in content

@@ -98,8 +98,7 @@ jobs:
             --daily-limit "${{ github.event.inputs.daily_limit }}" \
             --event-timeout-seconds "${{ github.event.inputs.event_timeout_seconds }}" \
             --output-sql /tmp/news-sentry-public-translation-backfill.sql \
-            --generate-missing \
-            --transaction
+            --generate-missing
           if grep -q '^-- no public translation patches ready' /tmp/news-sentry-public-translation-backfill.sql; then
             echo "provider_quota_exhausted_or_no_ready_patches=true"
             exit 1
