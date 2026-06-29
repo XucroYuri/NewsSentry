@@ -532,6 +532,50 @@ class TestCloudflareInternalAPI:
             collector_config_utils._auto_collector_state.clear()
             collector_config_utils._auto_collector_state.update(old)
 
+    def test_auto_collect_once_marks_empty_contexts_as_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from news_sentry.core import collector_config_utils
+
+        async def fake_bounded_run_multi_async(**kwargs: object) -> list[MagicMock]:
+            assert kwargs["run_id"] == "cf-run-empty-contexts"
+            return []
+
+        monkeypatch.setattr(
+            "news_sentry.core.async_run.bounded_run_multi_async",
+            fake_bounded_run_multi_async,
+        )
+        old = dict(collector_config_utils._auto_collector_state)
+        try:
+            collector_config_utils._auto_collector_state.update(
+                {
+                    "target_ids": ["italy"],
+                    "stage": "collect",
+                    "last_events_collected": 0,
+                    "last_run_at": None,
+                    "last_run_status": None,
+                    "last_error": None,
+                    "total_runs": 0,
+                }
+            )
+
+            result = asyncio.run(
+                collector_config_utils._run_auto_collect_once("cf-run-empty-contexts")
+            )
+
+            assert result["status"] == "error"
+            assert result["error"] == "no target contexts returned"
+            assert result["target_results"] == []
+            assert collector_config_utils._auto_collector_state["last_run_status"] == "error"
+            assert (
+                collector_config_utils._auto_collector_state["last_error"]
+                == "no target contexts returned"
+            )
+        finally:
+            collector_config_utils._auto_collector_state.clear()
+            collector_config_utils._auto_collector_state.update(old)
+
 
 class TestVerifyApiKey:
     """API Key 认证测试。"""

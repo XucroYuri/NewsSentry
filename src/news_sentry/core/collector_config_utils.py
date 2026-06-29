@@ -1005,11 +1005,15 @@ async def _run_auto_collect_once(run_id: str | None = None) -> dict[str, Any]:
         run_id=run_id,
     )
     _update_collector_run_metrics(contexts)
+    context_items = _collector_context_items(contexts)
+    no_target_contexts = bool(target_ids) and not context_items
 
     now = datetime.now(UTC).isoformat()
     _auto_collector_state["last_run_at"] = now
-    _auto_collector_state["last_run_status"] = "ok"
-    _auto_collector_state["last_error"] = None
+    _auto_collector_state["last_run_status"] = "error" if no_target_contexts else "ok"
+    _auto_collector_state["last_error"] = (
+        "no target contexts returned" if no_target_contexts else None
+    )
     _auto_collector_state["total_runs"] += 1
     events_collected = int(_auto_collector_state.get("last_events_collected") or 0)
     target_results = [
@@ -1018,17 +1022,18 @@ async def _run_auto_collect_once(run_id: str | None = None) -> dict[str, Any]:
             "events_collected": int(getattr(ctx, "events_collected", 0) or 0),
             "status": getattr(ctx, "status", None),
         }
-        for ctx in _collector_context_items(contexts)
+        for ctx in context_items
     ]
     _log.info("自动采集完成: run_id=%s", run_id)
     return {
-        "status": "ok",
+        "status": "error" if no_target_contexts else "ok",
         "run_id": run_id,
         "targets": target_ids,
         "target_count": len(target_ids),
         "stage": stage,
         "events_collected": events_collected,
         "target_results": target_results,
+        "error": "no target contexts returned" if no_target_contexts else None,
         "last_run_at": now,
     }
 

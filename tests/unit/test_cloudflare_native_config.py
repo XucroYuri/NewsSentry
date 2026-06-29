@@ -318,6 +318,16 @@ def test_production_cloudflare_config_has_no_vps_origin_fallback() -> None:
         assert token not in combined
 
 
+def test_cloudflare_container_profile_exists_for_worker_env() -> None:
+    profile = (
+        ROOT / "config/profiles/cloudflare.yaml"
+    ).read_text(encoding="utf-8")
+
+    assert "profile_id: cloudflare" in profile
+    assert "trigger: scheduled" in profile
+    assert "profile: cloud-vps" in profile
+
+
 def test_cloudflare_package_deploy_prod_targets_custom_domain_worker() -> None:
     package_json = json.loads((CLOUDFLARE_DIR / "package.json").read_text(encoding="utf-8"))
 
