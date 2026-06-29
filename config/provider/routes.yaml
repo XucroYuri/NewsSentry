@@ -101,7 +101,7 @@ routes:
   - route_id: translate.cloudflare
     task_type: translate
     provider: cloudflare_workers_ai
-    model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+    model: "@cf/meta/m2m100-1.2b"
     timeout_seconds: 90
     max_cost_usd_per_call: 0.0
     output_schema_ref: null

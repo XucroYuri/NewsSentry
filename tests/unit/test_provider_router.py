@@ -171,6 +171,7 @@ def test_public_translation_route_uses_builtin_chain() -> None:
     # 应有 fallback 链
     assert len(public_translation.fallback_route_ids) >= 1
     assert public_translation.provider == "gemini"
+    assert routes["translate.cloudflare"].model == "@cf/meta/m2m100-1.2b"
     assert routes["translate.cloudflare"].fallback_route_ids == ["translate.openrouter"]
     assert routes["translate.openrouter"].provider == "openrouter"
     assert routes["translate.openrouter"].fallback_route_ids == ["translate.nvidia"]

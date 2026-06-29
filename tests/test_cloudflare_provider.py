@@ -73,6 +73,8 @@ class TestInit:
     def test_defaults_when_no_env(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
         monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+        monkeypatch.delenv("CLOUDFLARE_API_KEY", raising=False)
+        monkeypatch.delenv("CLOUDFLARE_EMAIL", raising=False)
 
         p = CloudflareWorkersAIProvider({})
         assert p._account_id == ""
@@ -87,6 +89,19 @@ class TestInit:
         assert p._account_id == "abc123"
         # ruff: noqa: S105 — test token, not a real secret
         assert p._api_token == "tok-xyz"
+
+    def test_from_global_api_key_env_vars(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "abc123")
+        monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+        monkeypatch.setenv("CLOUDFLARE_API_KEY", "key-xyz")
+        monkeypatch.setenv("CLOUDFLARE_EMAIL", "ops@example.com")
+
+        p = CloudflareWorkersAIProvider({})
+        assert p._headers() == {
+            "X-Auth-Email": "ops@example.com",
+            "X-Auth-Key": "key-xyz",
+        }
+        assert p.health_check() is True
 
     def test_config_overrides_env(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "env-account")
@@ -166,12 +181,16 @@ class TestHealthCheck:
     def test_fail_missing_api_token(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "abc")
         monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+        monkeypatch.delenv("CLOUDFLARE_API_KEY", raising=False)
+        monkeypatch.delenv("CLOUDFLARE_EMAIL", raising=False)
         p = CloudflareWorkersAIProvider({})
         assert p.health_check() is False
 
     def test_fail_both_missing(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
         monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+        monkeypatch.delenv("CLOUDFLARE_API_KEY", raising=False)
+        monkeypatch.delenv("CLOUDFLARE_EMAIL", raising=False)
         p = CloudflareWorkersAIProvider({})
         assert p.health_check() is False
 
@@ -185,6 +204,8 @@ class TestCallSync:
     def test_raises_missing_credentials(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
         monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+        monkeypatch.delenv("CLOUDFLARE_API_KEY", raising=False)
+        monkeypatch.delenv("CLOUDFLARE_EMAIL", raising=False)
         p = CloudflareWorkersAIProvider({})
         with pytest.raises(RuntimeError, match="ACCOUNT_ID"):
             p.call("translate", "hello")
@@ -242,6 +263,8 @@ class TestCallAsync:
     async def test_raises_missing_credentials(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv("CLOUDFLARE_ACCOUNT_ID", raising=False)
         monkeypatch.delenv("CLOUDFLARE_API_TOKEN", raising=False)
+        monkeypatch.delenv("CLOUDFLARE_API_KEY", raising=False)
+        monkeypatch.delenv("CLOUDFLARE_EMAIL", raising=False)
         p = CloudflareWorkersAIProvider({})
         with pytest.raises(RuntimeError, match="ACCOUNT_ID"):
             await p.call_async("translate", "hello")

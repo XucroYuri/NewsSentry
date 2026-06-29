@@ -23,20 +23,40 @@ class CloudflareWorkersAIProvider(AIProvider):
         self._api_token = str(
             config.get("api_token") or os.environ.get("CLOUDFLARE_API_TOKEN") or ""
         ).strip()
+        self._api_key = str(
+            config.get("api_key") or os.environ.get("CLOUDFLARE_API_KEY") or ""
+        ).strip()
+        self._email = str(
+            config.get("email") or os.environ.get("CLOUDFLARE_EMAIL") or ""
+        ).strip()
         self._base_url = str(
             config.get("base_url") or "https://api.cloudflare.com/client/v4"
         ).rstrip("/")
 
+    def _headers(self) -> dict[str, str]:
+        if self._api_token:
+            return {"Authorization": f"Bearer {self._api_token}"}
+        if self._api_key and self._email:
+            return {
+                "X-Auth-Email": self._email,
+                "X-Auth-Key": self._api_key,
+            }
+        return {}
+
     def call(self, route_id: str, prompt: str, **kwargs: Any) -> dict[str, Any]:  # noqa: ANN401
-        if not self._account_id or not self._api_token:
-            raise RuntimeError("CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_API_TOKEN 未设置")
+        headers = self._headers()
+        if not self._account_id or not headers:
+            raise RuntimeError(
+                "CLOUDFLARE_ACCOUNT_ID 和 CLOUDFLARE_API_TOKEN "
+                "或 CLOUDFLARE_EMAIL/CLOUDFLARE_API_KEY 未设置"
+            )
         source_text = str(kwargs.get("text") or prompt or "").strip()
         if not source_text:
             raise ValueError("Cloudflare Workers AI requires non-empty text")
         model = str(kwargs.get("model") or self.default_model)
         response = httpx.post(
             f"{self._base_url}/accounts/{self._account_id}/ai/run/{model}",
-            headers={"Authorization": f"Bearer {self._api_token}"},
+            headers=headers,
             json={
                 "text": source_text,
                 "source_lang": self._normalize_lang(kwargs.get("source_lang", "english")),
@@ -59,8 +79,12 @@ class CloudflareWorkersAIProvider(AIProvider):
         model: str | None = None,
         **_: Any,  # noqa: ANN401
     ) -> dict[str, Any]:
-        if not self._account_id or not self._api_token:
-            raise RuntimeError("CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_API_TOKEN 未设置")
+        headers = self._headers()
+        if not self._account_id or not headers:
+            raise RuntimeError(
+                "CLOUDFLARE_ACCOUNT_ID 和 CLOUDFLARE_API_TOKEN "
+                "或 CLOUDFLARE_EMAIL/CLOUDFLARE_API_KEY 未设置"
+            )
         source_text = str(text or prompt or "").strip()
         if not source_text:
             raise ValueError("Cloudflare Workers AI requires non-empty text")
@@ -69,7 +93,7 @@ class CloudflareWorkersAIProvider(AIProvider):
         try:
             response = await client.post(
                 f"{self._base_url}/accounts/{self._account_id}/ai/run/{use_model}",
-                headers={"Authorization": f"Bearer {self._api_token}"},
+                headers=headers,
                 json={
                     "text": source_text,
                     "source_lang": self._normalize_lang(source_lang),
@@ -125,4 +149,4 @@ class CloudflareWorkersAIProvider(AIProvider):
         return text or "english"
 
     def health_check(self) -> bool:
-        return bool(self._account_id and self._api_token)
+        return bool(self._account_id and self._headers())
