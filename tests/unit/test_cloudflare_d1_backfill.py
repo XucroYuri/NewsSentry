@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+import tools.cloudflare_d1_public_translation_backfill as public_translation_backfill
 from tools.cloudflare_d1_backfill import collect_backfill_plan, generate_backfill_sql
 from tools.cloudflare_d1_public_translation_backfill import (
     DEFAULT_BACKFILL_TARGETS,
@@ -21,6 +23,7 @@ from tools.cloudflare_d1_public_translation_backfill import (
     parse_wrangler_d1_json_output,
 )
 
+from news_sentry.core import collector_config_utils
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
 
@@ -480,6 +483,70 @@ async def test_d1_public_translation_generation_dry_run_counts_remote_candidates
     assert result.target_results == [
         {"target_id": "france", "candidates": 1},
         {"target_id": "south-korea", "candidates": 0},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_d1_public_translation_generation_times_out_single_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rows = [
+        {
+            "event_id": "fr-d1-candidate",
+            "target_id": "france",
+            "source_id": "lemonde",
+            "source_name": "Le Monde",
+            "published_at": "2026-06-28T07:07:58+00:00",
+            "collected_at": "2026-06-28T07:08:00+00:00",
+            "title": "France announces a new industrial policy",
+            "original_title": "France announces a new industrial policy",
+            "summary": None,
+            "recommendation_reason": None,
+            "full_content": "The measure could affect public procurement and suppliers.",
+            "original_url": "https://example.com/fr",
+            "value_score": 88,
+            "classification": "{\"l0\":\"politics\"}",
+            "issue_tags": "[]",
+            "related_tags": "[]",
+            "region_tags": "[]",
+            "language": "en",
+        }
+    ]
+
+    async def slow_patch(
+        *_: object,
+        **__: object,
+    ) -> public_translation_backfill.PublicTranslationPatch:
+        await asyncio.sleep(0.05)
+        raise AssertionError("timeout should interrupt this candidate")
+
+    monkeypatch.setattr(collector_config_utils, "_create_ai_provider_router", lambda: object())
+    monkeypatch.setattr(
+        collector_config_utils,
+        "_build_ai_provider_factory",
+        lambda: lambda _: object(),
+    )
+    monkeypatch.setattr(public_translation_backfill, "_d1_row_to_patch", slow_patch)
+
+    result = await generate_missing_public_translations_from_d1_rows(
+        rows=rows,
+        targets=("france",),
+        limit=1,
+        per_target_limit=1,
+        event_timeout_seconds=0.01,
+    )
+
+    assert result.status == "retrying"
+    assert result.failed == 1
+    assert result.updated == 0
+    assert result.target_results == [
+        {
+            "target_id": "france",
+            "status": "retrying",
+            "updated": 0,
+            "failed": 1,
+            "error": "event translation timed out after 0.01s",
+        }
     ]
 
 

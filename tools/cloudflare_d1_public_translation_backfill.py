@@ -41,6 +41,7 @@ DEFAULT_BACKFILL_TARGETS = (
 DEFAULT_BATCH_LIMIT = 200
 DEFAULT_DAILY_LIMIT = 1000
 DEFAULT_PER_TARGET_LIMIT = 100
+DEFAULT_EVENT_TIMEOUT_SECONDS = 120.0
 
 
 @dataclass(frozen=True)
@@ -391,6 +392,7 @@ async def generate_missing_public_translations_from_d1_rows(
     targets: tuple[str, ...],
     limit: int,
     per_target_limit: int,
+    event_timeout_seconds: float = DEFAULT_EVENT_TIMEOUT_SECONDS,
     dry_run: bool = False,
 ) -> PublicTranslationGenerationResult:
     from news_sentry.core.collector_config_utils import (
@@ -449,6 +451,7 @@ async def generate_missing_public_translations_from_d1_rows(
     failed = 0
     target_results: list[dict[str, Any]] = []
     quota_exhausted = False
+    candidate_timeout = max(0.001, float(event_timeout_seconds))
     for target in targets:
         if len(patches) + failed >= safe_limit:
             break
@@ -471,12 +474,29 @@ async def generate_missing_public_translations_from_d1_rows(
             if len(patches) + failed >= safe_limit:
                 break
             try:
-                patch = await _d1_row_to_patch(
-                    row,
-                    engine=engine,
-                    router=router,
-                    provider_factory=provider_factory,
+                patch = await asyncio.wait_for(
+                    _d1_row_to_patch(
+                        row,
+                        engine=engine,
+                        router=router,
+                        provider_factory=provider_factory,
+                    ),
+                    timeout=candidate_timeout,
                 )
+            except TimeoutError:
+                failed += 1
+                target_failed += 1
+                target_error = (
+                    "event translation timed out after "
+                    f"{candidate_timeout:g}s"
+                )
+                print(
+                    "d1_generation_failure="
+                    f"{target}/{row.get('event_id')} "
+                    f"failed_so_far={failed} error={target_error}",
+                    flush=True,
+                )
+                continue
             except Exception as exc:  # noqa: BLE001
                 failed += 1
                 target_failed += 1
@@ -777,6 +797,12 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=DEFAULT_BATCH_LIMIT)
     parser.add_argument("--daily-limit", type=int, default=DEFAULT_DAILY_LIMIT)
     parser.add_argument("--per-target-limit", type=int, default=DEFAULT_PER_TARGET_LIMIT)
+    parser.add_argument(
+        "--event-timeout-seconds",
+        type=float,
+        default=DEFAULT_EVENT_TIMEOUT_SECONDS,
+        help="Maximum seconds to spend generating one D1 candidate event.",
+    )
     parser.add_argument("--output-sql", type=Path)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
@@ -815,6 +841,7 @@ def main() -> int:
                     targets=targets,
                     limit=max(0, min(args.daily_limit, args.limit)),
                     per_target_limit=max(1, args.per_target_limit),
+                    event_timeout_seconds=args.event_timeout_seconds,
                     dry_run=args.dry_run,
                 )
             )
