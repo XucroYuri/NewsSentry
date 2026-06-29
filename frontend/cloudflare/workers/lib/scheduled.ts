@@ -10,6 +10,16 @@ interface ScheduledEnv {
 
 type ScheduledTask = "collect-cycle" | "public-translation-cycle" | "refresh-public-quality";
 
+const COLLECT_TARGET_BATCH_SIZE = 12;
+const COLLECT_TARGET_CURSOR_KEY = "cursor:collect-cycle-target-index";
+
+interface CollectTargetBatch {
+  targetIds: string[];
+  cursor: number;
+  nextCursor: number;
+  totalTargets: number;
+}
+
 function taskForCron(cron: string): ScheduledTask {
   if (cron === "*/15 * * * *") return "collect-cycle";
   if (cron === "7,37 * * * *") return "public-translation-cycle";
@@ -145,8 +155,63 @@ async function importContainerEventsToD1(
   };
 }
 
+function parseCursor(value: unknown, totalTargets: number): number {
+  const parsed = Number.parseInt(String(value ?? "0"), 10);
+  if (!Number.isFinite(parsed) || parsed < 0 || totalTargets <= 0) return 0;
+  return parsed % totalTargets;
+}
+
+async function loadCollectTargetBatch(db: D1Database): Promise<CollectTargetBatch> {
+  const result = await db
+    .prepare(
+      `SELECT target_id
+       FROM targets
+       WHERE archived = 0
+       ORDER BY target_id ASC
+       LIMIT 500`,
+    )
+    .all<{ target_id: string }>();
+  const allTargetIds = (result.results || [])
+    .map((row) => String(row.target_id || "").trim())
+    .filter(Boolean);
+  if (allTargetIds.length === 0) {
+    return { targetIds: [], cursor: 0, nextCursor: 0, totalTargets: 0 };
+  }
+  const cursorRow = await db
+    .prepare("SELECT value FROM ops_state WHERE key = ?")
+    .bind(COLLECT_TARGET_CURSOR_KEY)
+    .first<{ value: string | null }>();
+  const cursor = parseCursor(cursorRow?.value, allTargetIds.length);
+  const batchSize = Math.min(COLLECT_TARGET_BATCH_SIZE, allTargetIds.length);
+  const targetIds = Array.from(
+    { length: batchSize },
+    (_value, offset) => allTargetIds[(cursor + offset) % allTargetIds.length],
+  );
+  return {
+    targetIds,
+    cursor,
+    nextCursor: (cursor + targetIds.length) % allTargetIds.length,
+    totalTargets: allTargetIds.length,
+  };
+}
+
+async function persistCollectTargetCursor(
+  db: D1Database,
+  batch: CollectTargetBatch,
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO ops_state (key, value, updated_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
+    )
+    .bind(COLLECT_TARGET_CURSOR_KEY, String(batch.nextCursor), isoNow())
+    .run();
+}
+
 function containerTaskRequest(
   task: Exclude<ScheduledTask, "refresh-public-quality">,
+  targetIds?: string[],
 ): Request {
   return new Request(`https://container.news-sentry.internal/api/v1/internal/cloudflare/${task}`, {
     method: "POST",
@@ -154,7 +219,11 @@ function containerTaskRequest(
       "Content-Type": "application/json",
       "X-News-Sentry-Internal-Task": task,
     },
-    body: JSON.stringify({ runId: crypto.randomUUID(), task }),
+    body: JSON.stringify({
+      runId: crypto.randomUUID(),
+      task,
+      ...(targetIds && targetIds.length > 0 ? { targetIds } : {}),
+    }),
   });
 }
 
@@ -192,6 +261,7 @@ async function ensureContainerReady(
 async function callContainerInternalTask(
   env: ScheduledEnv,
   task: Exclude<ScheduledTask, "refresh-public-quality">,
+  targetIds?: string[],
 ): Promise<Record<string, unknown>> {
   if (!env.NEWS_SENTRY_CONTAINER) {
     return { status: "skipped", reason: "container_not_configured" };
@@ -200,14 +270,14 @@ async function callContainerInternalTask(
   await ensureContainerReady(container);
   try {
     return {
-      ...(await parseContainerTaskResponse(await container.fetch(containerTaskRequest(task)))),
+      ...(await parseContainerTaskResponse(await container.fetch(containerTaskRequest(task, targetIds)))),
       container_start: "ensured_before_fetch",
     };
   } catch (error) {
     if (!isContainerNotRunningError(error)) throw error;
     await ensureContainerReady(container);
     return {
-      ...(await parseContainerTaskResponse(await container.fetch(containerTaskRequest(task)))),
+      ...(await parseContainerTaskResponse(await container.fetch(containerTaskRequest(task, targetIds)))),
       container_start: "started_after_not_running",
     };
   }
@@ -259,10 +329,13 @@ export async function runScheduledCloudflareTask(
     return;
   }
   try {
+    const collectBatch = task === "collect-cycle" ? await loadCollectTargetBatch(env.DB) : null;
     const details =
       task === "refresh-public-quality"
         ? await refreshPublicQuality(env.DB)
-        : await callContainerInternalTask(env, task);
+        : task === "collect-cycle" && collectBatch?.targetIds.length === 0
+          ? { status: "empty_no_targets", reason: "no_active_targets" }
+          : await callContainerInternalTask(env, task, collectBatch?.targetIds);
     let importResult: Record<string, unknown> | null = null;
     if (task === "collect-cycle") {
       importResult = await importContainerEventsToD1(env.DB, details);
@@ -279,10 +352,23 @@ export async function runScheduledCloudflareTask(
     const compactDetails = compactTaskDetails({
       ...details,
       ...(importResult === null ? {} : { import_result: importResult }),
+      ...(collectBatch === null
+        ? {}
+        : {
+            collect_batch: {
+              target_ids: collectBatch.targetIds,
+              cursor: collectBatch.cursor,
+              next_cursor: collectBatch.nextCursor,
+              total_targets: collectBatch.totalTargets,
+            },
+          }),
       snapshots: snapshotRefresh,
     });
     const status =
       typeof compactDetails.status === "string" && compactDetails.status ? compactDetails.status : "ok";
+    if (task === "collect-cycle" && collectBatch !== null && status !== "error") {
+      await persistCollectTargetCursor(env.DB, collectBatch);
+    }
     await recordRun(env.DB, runId, task, status, startedAt, compactDetails);
   } catch (error) {
     await recordRun(env.DB, runId, task, "error", startedAt, {

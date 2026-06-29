@@ -1200,11 +1200,14 @@ def _collect_cloudflare_d1_import_events(
     return result
 
 
-async def _run_auto_collect_once(run_id: str | None = None) -> dict[str, Any]:
+async def _run_auto_collect_once(
+    run_id: str | None = None,
+    target_ids_override: list[str] | None = None,
+) -> dict[str, Any]:
     """Run one configured auto-collection cycle and update collector state."""
     from news_sentry.core.async_run import bounded_run_multi_async
 
-    target_ids = list(_auto_collector_state["target_ids"])
+    target_ids = list(target_ids_override or _auto_collector_state["target_ids"])
     stage = str(_auto_collector_state["stage"])
     run_id = run_id or f"auto_{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}"
     _log.info("自动采集开始: run_id=%s, targets=%s", run_id, target_ids)

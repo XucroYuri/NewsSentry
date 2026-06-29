@@ -416,14 +416,18 @@ class TestCloudflareInternalAPI:
             "pipeline_stage": "drafts",
         }
 
-        async def fake_collect_once(run_id: str | None = None) -> dict[str, Any]:
+        async def fake_collect_once(
+            run_id: str | None = None,
+            target_ids_override: list[str] | None = None,
+        ) -> dict[str, Any]:
+            assert target_ids_override == ["france"]
             return {
                 "status": "ok",
                 "run_id": run_id,
-                "targets": ["italy", "france"],
+                "targets": target_ids_override,
                 "stage": "all",
                 "events_collected": 3,
-                "target_count": 2,
+                "target_count": 1,
                 "import_events": [import_event],
                 "import_events_count": 1,
             }
@@ -439,7 +443,11 @@ class TestCloudflareInternalAPI:
         resp = client.post(
             "/api/v1/internal/cloudflare/collect-cycle",
             headers={"X-News-Sentry-Internal-Task": "collect-cycle"},
-            json={"runId": "cf-run-collect", "task": "collect-cycle"},
+            json={
+                "runId": "cf-run-collect",
+                "task": "collect-cycle",
+                "targetIds": ["france", "", "france"],
+            },
         )
 
         assert resp.status_code == 200
@@ -448,11 +456,11 @@ class TestCloudflareInternalAPI:
         assert data["task"] == "collect-cycle"
         assert data["run_id"] == "cf-run-collect"
         assert data["summary"] == {
-            "target_count": 2,
+            "target_count": 1,
             "events_collected": 3,
             "import_events_count": 1,
             "stage": "all",
-            "targets": ["italy", "france"],
+            "targets": ["france"],
         }
         assert data["import_events"] == [import_event]
         assert "started_at" in data

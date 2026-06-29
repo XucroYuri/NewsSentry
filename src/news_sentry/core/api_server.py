@@ -703,6 +703,17 @@ async def _cloudflare_internal_task_body(request: Request, expected_task: str) -
     return body
 
 
+def _cloudflare_internal_target_ids(value: Any) -> list[str] | None:
+    if not isinstance(value, list):
+        return None
+    target_ids: list[str] = []
+    for item in value:
+        target_id = str(item or "").strip()
+        if target_id and target_id not in target_ids:
+            target_ids.append(target_id)
+    return target_ids or None
+
+
 async def _close_target_stores() -> None:
     """关闭按 target 缓存的 AsyncStore，避免 lifespan 结束后残留连接。"""
     stores = list(_target_stores.values())
@@ -1537,8 +1548,12 @@ def create_app(
         started_at = datetime.now(UTC).isoformat()
         body = await _cloudflare_internal_task_body(request, task)
         run_id = str(body.get("runId") or body.get("run_id") or f"{task}:{uuid.uuid4().hex}")
+        target_ids = _cloudflare_internal_target_ids(body.get("targetIds"))
         try:
-            result = await _run_auto_collect_once(run_id=run_id)
+            result = await _run_auto_collect_once(
+                run_id=run_id,
+                target_ids_override=target_ids,
+            )
             finished_at = datetime.now(UTC).isoformat()
             status = str(result.get("status") or "ok")
             return JSONResponse(

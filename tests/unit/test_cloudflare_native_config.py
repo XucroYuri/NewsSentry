@@ -230,6 +230,11 @@ def test_cloudflare_scheduled_ops_are_configured() -> None:
     assert "extractContainerImportEvents" in scheduled_ts
     assert "importContainerEventsToD1" in scheduled_ts
     assert "import_result" in scheduled_ts
+    assert "COLLECT_TARGET_BATCH_SIZE = 12" in scheduled_ts
+    assert "cursor:collect-cycle-target-index" in scheduled_ts
+    assert "loadCollectTargetBatch" in scheduled_ts
+    assert "persistCollectTargetCursor" in scheduled_ts
+    assert "targetIds" in scheduled_ts
     assert "compactTaskDetails({" in scheduled_ts
     assert "updates_count" in scheduled_ts
     assert "target_results" in scheduled_ts
