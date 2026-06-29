@@ -453,6 +453,12 @@ async def generate_missing_public_translations_from_d1_rows(
         if len(patches) + failed >= safe_limit:
             break
         rows_for_target = by_target.get(target, [])
+        print(
+            "d1_generation_target="
+            f"{target} candidates={len(rows_for_target)} "
+            f"updated_so_far={len(patches)} failed_so_far={failed}",
+            flush=True,
+        )
         if not rows_for_target:
             target_results.append(
                 {"target_id": target, "status": "empty", "updated": 0, "failed": 0}
@@ -475,12 +481,24 @@ async def generate_missing_public_translations_from_d1_rows(
                 failed += 1
                 target_failed += 1
                 target_error = str(exc)
+                print(
+                    "d1_generation_failure="
+                    f"{target}/{row.get('event_id')} "
+                    f"failed_so_far={failed} error={target_error[:180]}",
+                    flush=True,
+                )
                 if provider_quota_error(target_error):
                     quota_exhausted = True
                     break
                 continue
             patches.append(patch)
             target_updated += 1
+            print(
+                "d1_generation_patch="
+                f"{target}/{patch.event_id} "
+                f"updated_so_far={len(patches)} failed_so_far={failed}",
+                flush=True,
+            )
         if quota_exhausted:
             status = "provider_quota_exhausted"
         elif target_updated and target_failed:

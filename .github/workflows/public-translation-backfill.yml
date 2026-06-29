@@ -45,6 +45,7 @@ jobs:
       AGNES_API_KEY_2: ${{ secrets.AGNES_API_KEY_2 }}
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      PYTHONUNBUFFERED: "1"
 
     steps:
       - uses: actions/checkout@v4
