@@ -368,6 +368,62 @@ async def test_public_translation_engine_writes_publication_fields_and_marks_rea
 
 
 @pytest.mark.asyncio
+async def test_public_translation_engine_falls_back_publication_when_provider_unavailable(
+    tmp_path,
+) -> None:
+    store = AsyncStore(tmp_path / "state.db")
+    await store.initialize()
+    try:
+        await store.index_event(_event("ne-fallback", score=86), "france", "drafts")
+        router = MagicMock()
+        router.route_async = AsyncMock(
+            side_effect=[
+                {
+                    "content": "法国宣布新的欧洲贷款",
+                    "route_id": "translate.public",
+                    "model": "@cf/meta/m2m100-1.2b",
+                    "provider": "cloudflare_workers_ai",
+                },
+                {
+                    "content": "该措施可能影响公共采购与供应商。",
+                    "route_id": "translate.public",
+                    "model": "@cf/meta/m2m100-1.2b",
+                    "provider": "cloudflare_workers_ai",
+                },
+                {
+                    "error": "Cloudflare Workers AI HTTP 500",
+                    "route_id": "public.summary_reason",
+                    "model": "@cf/meta/llama-3.2-3b-instruct",
+                    "provider": "cloudflare_workers_ai",
+                },
+            ]
+        )
+        engine = PublicTranslationEngine(PublicTranslationConfig(per_cycle_limit=5))
+        rows = await store.list_public_translation_candidates("france", limit=10)
+
+        result = await engine.run_rows(
+            target_id="france",
+            rows=rows,
+            store=store,
+            router=router,
+            provider_factory=lambda name: MagicMock(),
+        )
+
+        assert result["status"] == "ok"
+        row = await store.get_event_index_row("france", "ne-fallback")
+        assert row is not None
+        publication = row["metadata"]["publication"]
+        assert publication["one_line_summary"] == "该措施可能影响公共采购与供应商。"
+        assert "法国" in publication["recommendation_reason"]
+        assert publication["issue_tags"]
+        assert publication["related_tags"] == ["涉欧"]
+        assert publication["region_tags"] == ["法国"]
+        assert row["public_translation_ready"] == 1
+    finally:
+        await store.close()
+
+
+@pytest.mark.asyncio
 async def test_public_translation_engine_rejects_template_publication_reason(tmp_path) -> None:
     store = AsyncStore(tmp_path / "state.db")
     await store.initialize()
@@ -743,7 +799,9 @@ async def test_publication_generation_normalizes_common_tag_aliases() -> None:
 
 
 @pytest.mark.asyncio
-async def test_public_translation_engine_rejects_publication_without_tags(tmp_path) -> None:
+async def test_public_translation_engine_falls_back_publication_without_tags(
+    tmp_path,
+) -> None:
     store = AsyncStore(tmp_path / "state.db")
     await store.initialize()
     try:
@@ -790,10 +848,13 @@ async def test_public_translation_engine_rejects_publication_without_tags(tmp_pa
             provider_factory=lambda name: MagicMock(),
         )
 
-        assert result["status"] == "retrying"
+        assert result["status"] == "ok"
         row = await store.get_event_index_row("france", "ne-missing-tags")
-        assert row is not None and row["public_translation_ready"] == 0
-        assert "publication" not in row["metadata"]
+        assert row is not None and row["public_translation_ready"] == 1
+        publication = row["metadata"]["publication"]
+        assert publication["issue_tags"]
+        assert publication["related_tags"] == ["涉欧"]
+        assert publication["region_tags"] == ["法国"]
     finally:
         await store.close()
 

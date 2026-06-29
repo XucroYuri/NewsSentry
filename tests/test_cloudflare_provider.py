@@ -313,6 +313,37 @@ class TestCallAsync:
         assert "@cf/meta/llama-2" in called_url
 
     @pytest.mark.asyncio
+    async def test_text_generation_model_uses_messages_payload(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "abc")
+        monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "tok")
+        p = CloudflareWorkersAIProvider({})
+        client = mock.AsyncMock(spec=httpx.AsyncClient)
+        client.post.return_value = _mock_async_response(
+            json_data={
+                "success": True,
+                "result": {"response": '{"ok": true}'},
+            }
+        )
+
+        result = await p.call_async(
+            "public.summary_reason",
+            "Return JSON",
+            http_client=client,
+            model="@cf/meta/llama-3.2-3b-instruct",
+            max_tokens=64,
+            response_format={"type": "json_object"},
+        )
+
+        call_json = client.post.call_args[1]["json"]
+        assert "messages" in call_json
+        assert "source_lang" not in call_json
+        assert call_json["max_tokens"] == 64
+        assert call_json["response_format"] == {"type": "json_object"}
+        assert result["content"] == '{"ok": true}'
+
+    @pytest.mark.asyncio
     async def test_uses_text_param_over_prompt(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "abc")
         monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "tok")
@@ -410,13 +441,40 @@ class TestResultFromResponse:
                 {"success": False, "errors": [{"code": 10000, "message": "Invalid token"}]},
             )
 
-    def test_raises_on_empty_translation(self):
-        with pytest.raises(RuntimeError, match="empty translation"):
+    def test_raises_on_empty_content(self):
+        with pytest.raises(RuntimeError, match="empty content"):
             self.p._result_from_response(
                 "translate",
                 "@cf/meta/m2m100-1.2b",
                 {"success": True, "result": {}},
             )
+
+    def test_success_with_response_key(self):
+        result = self.p._result_from_response(
+            "public.summary_reason",
+            "@cf/meta/llama-3.2-3b-instruct",
+            {"success": True, "result": {"response": '{"ok": true}'}},
+        )
+        assert result["content"] == '{"ok": true}'
+
+    def test_success_with_response_object(self):
+        result = self.p._result_from_response(
+            "public.summary_reason",
+            "@cf/meta/llama-3.2-3b-instruct",
+            {"success": True, "result": {"response": {"ok": True}}},
+        )
+        assert result["content"] == '{"ok": true}'
+
+    def test_success_with_choices_message(self):
+        result = self.p._result_from_response(
+            "public.summary_reason",
+            "@cf/meta/llama-3.2-3b-instruct",
+            {
+                "success": True,
+                "result": {"choices": [{"message": {"content": "hello"}}]},
+            },
+        )
+        assert result["content"] == "hello"
 
     def test_includes_usage(self):
         result = self.p._result_from_response(

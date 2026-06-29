@@ -170,7 +170,9 @@ def test_public_translation_route_uses_builtin_chain() -> None:
     assert "freellmapi" not in public_translation.fallback_route_ids
     # 应有 fallback 链
     assert len(public_translation.fallback_route_ids) >= 1
-    assert public_translation.provider == "gemini"
+    assert public_translation.provider == "cloudflare_workers_ai"
+    assert public_translation.model == "@cf/meta/m2m100-1.2b"
+    assert public_translation.fallback_route_ids == ["translate.high"]
     assert routes["translate.cloudflare"].model == "@cf/meta/m2m100-1.2b"
     assert routes["translate.cloudflare"].fallback_route_ids == ["translate.openrouter"]
     assert routes["translate.openrouter"].provider == "openrouter"
@@ -185,7 +187,9 @@ def test_public_translation_route_uses_builtin_chain() -> None:
     assert routes["translate.reka"].fallback_route_ids == ["fallback.local"]
 
     # 公共发布的路由链不应有空
-    assert routes["public.summary_reason"].provider != "freellmapi"
+    assert routes["public.summary_reason"].provider == "cloudflare_workers_ai"
+    assert routes["public.summary_reason"].model == "@cf/meta/llama-3.2-3b-instruct"
+    assert routes["public.summary_reason"].fallback_route_ids == []
     assert routes["public.enrichment"].provider != "freellmapi"
     assert routes["ai.enrichment.batch"].fallback_route_ids == ["ai.enrichment.openrouter"]
     assert routes["ai.enrichment.openrouter"].provider == "openrouter"

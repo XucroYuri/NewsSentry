@@ -3,7 +3,8 @@
 # ADR: ADR-0005
 #
 # AI Provider 路由配置 — 内置多 Provider 链式兜底版
-# 所有 AI 能力由内置 Provider 直接调用：gemini → deepseek → groq → cloudflare_workers_ai → openrouter → local。
+# 所有 AI 能力由内置 Provider 直接调用：公共发布优先走 Cloudflare Workers AI，
+# 其他任务继续按 gemini → deepseek → groq → cloudflare_workers_ai → openrouter → local 兜底。
 # 各 Provider 通过自身的 API key 环境变量鉴权，不再经过中间层 sidecar。
 #
 routes_version: "2.0.0"
@@ -14,27 +15,26 @@ routes:
 
   - route_id: translate.public
     task_type: translate
-    provider: gemini
-    model: gemini-2.5-flash
-    timeout_seconds: 60
+    provider: cloudflare_workers_ai
+    model: "@cf/meta/m2m100-1.2b"
+    timeout_seconds: 30
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
     fallback_route_ids:
-      - translate.deepseek
-    notes: "公共站发布前置翻译：由 Gemini 生成中文标题与摘要"
+      - translate.high
+    notes: "公共站发布前置翻译：Cloudflare Workers AI 优先，避免批量回填先耗尽 Gemini/OpenRouter 免费额度"
 
   - route_id: public.summary_reason
     task_type: public_enrichment
-    provider: gemini
-    model: gemini-2.5-flash
-    timeout_seconds: 60
+    provider: cloudflare_workers_ai
+    model: "@cf/meta/llama-3.2-3b-instruct"
+    timeout_seconds: 45
     max_cost_usd_per_call: 0.0
     output_schema_ref: null
     audit: true
-    fallback_route_ids:
-      - ai.enrichment.batch
-    notes: "公共站出版加工：一句话概括、摘要、推荐理由与标签"
+    fallback_route_ids: []
+    notes: "公共站出版加工：Cloudflare Workers AI 生成一句话概括、推荐理由与标签；失败时由公共翻译模块本地降级"
 
   - route_id: public.enrichment
     task_type: translate

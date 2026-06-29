@@ -826,34 +826,52 @@ class PublicTranslationEngine:
             response_format={"type": "json_object"},
         )
         if result.get("error"):
-            exc = RuntimeError(str(result["error"]))
-            exc.route_id = result.get("route_id")  # type: ignore[attr-defined]
-            exc.model = result.get("model")  # type: ignore[attr-defined]
-            raise exc
-        raw_content = str(result.get("content") or "").strip()
-        try:
-            parsed = self._parse_publication_json(raw_content)
-        except RuntimeError as exc:
-            if "not JSON" not in str(exc):
-                raise
+            raw_content = ""
             parsed = self._publication_fallback_from_text(
                 row,
                 raw_content,
                 title_zh=title_zh,
                 summary_zh=summary_zh,
             )
-        if not isinstance(parsed, dict):
-            parsed = self._publication_fallback_from_text(
-                row,
-                raw_content,
-                title_zh=title_zh,
-                summary_zh=summary_zh,
-            )
+        else:
+            raw_content = str(result.get("content") or "").strip()
+            try:
+                parsed = self._parse_publication_json(raw_content)
+            except RuntimeError as exc:
+                if "not JSON" not in str(exc):
+                    raise
+                parsed = self._publication_fallback_from_text(
+                    row,
+                    raw_content,
+                    title_zh=title_zh,
+                    summary_zh=summary_zh,
+                )
+            if not isinstance(parsed, dict):
+                parsed = self._publication_fallback_from_text(
+                    row,
+                    raw_content,
+                    title_zh=title_zh,
+                    summary_zh=summary_zh,
+                )
         one_line = " ".join(str(parsed.get("one_line_summary") or "").split())
         reason = " ".join(str(parsed.get("recommendation_reason") or "").split())
         issue_tags = _publication_tags(parsed.get("issue_tags"), aliases=_ISSUE_TAG_ALIASES)
         related_tags = _publication_tags(parsed.get("related_tags"), aliases=_RELATED_TAG_ALIASES)
         region_tags = _publication_tags(parsed.get("region_tags"))
+        if not one_line or not reason or not (issue_tags or related_tags or region_tags):
+            parsed = self._publication_fallback_from_text(
+                row,
+                raw_content,
+                title_zh=title_zh,
+                summary_zh=summary_zh,
+            )
+            one_line = " ".join(str(parsed.get("one_line_summary") or "").split())
+            reason = " ".join(str(parsed.get("recommendation_reason") or "").split())
+            issue_tags = _publication_tags(parsed.get("issue_tags"), aliases=_ISSUE_TAG_ALIASES)
+            related_tags = _publication_tags(
+                parsed.get("related_tags"), aliases=_RELATED_TAG_ALIASES
+            )
+            region_tags = _publication_tags(parsed.get("region_tags"))
         if not one_line or not reason:
             raise RuntimeError("publication response missing required fields")
         if not (issue_tags or related_tags or region_tags):

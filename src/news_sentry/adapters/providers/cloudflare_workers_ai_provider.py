@@ -1,7 +1,8 @@
-"""Cloudflare Workers AI translation provider."""
+"""Cloudflare Workers AI provider for translation and compact text generation."""
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
@@ -11,7 +12,11 @@ from news_sentry.adapters.providers.base import AIProvider
 
 
 class CloudflareWorkersAIProvider(AIProvider):
-    """Cloudflare Workers AI REST adapter for M2M100 translation."""
+    """Cloudflare Workers AI REST adapter.
+
+    M2M100 uses the translation payload, while text-generation models use the
+    Workers AI chat/messages payload.
+    """
 
     provider_id = "cloudflare_workers_ai"
     default_model = "@cf/meta/m2m100-1.2b"
@@ -57,11 +62,15 @@ class CloudflareWorkersAIProvider(AIProvider):
         response = httpx.post(
             f"{self._base_url}/accounts/{self._account_id}/ai/run/{model}",
             headers=headers,
-            json={
-                "text": source_text,
-                "source_lang": self._normalize_lang(kwargs.get("source_lang", "english")),
-                "target_lang": self._normalize_lang(kwargs.get("target_lang", "chinese")),
-            },
+            json=self._payload_for_model(
+                model,
+                prompt=prompt,
+                source_text=source_text,
+                source_lang=kwargs.get("source_lang", "english"),
+                target_lang=kwargs.get("target_lang", "chinese"),
+                max_tokens=kwargs.get("max_tokens"),
+                response_format=kwargs.get("response_format"),
+            ),
             timeout=30.0,
         )
         response.raise_for_status()
@@ -94,11 +103,15 @@ class CloudflareWorkersAIProvider(AIProvider):
             response = await client.post(
                 f"{self._base_url}/accounts/{self._account_id}/ai/run/{use_model}",
                 headers=headers,
-                json={
-                    "text": source_text,
-                    "source_lang": self._normalize_lang(source_lang),
-                    "target_lang": self._normalize_lang(target_lang),
-                },
+                json=self._payload_for_model(
+                    use_model,
+                    prompt=prompt,
+                    source_text=source_text,
+                    source_lang=source_lang,
+                    target_lang=target_lang,
+                    max_tokens=_.get("max_tokens"),
+                    response_format=_.get("response_format"),
+                ),
             )
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
@@ -123,14 +136,31 @@ class CloudflareWorkersAIProvider(AIProvider):
             raise RuntimeError(f"Cloudflare Workers AI error: {data.get('errors') or data}")
         content = ""
         if isinstance(result, dict):
-            for key in ("translated_text", "translatedText", "translation", "text"):
-                if result.get(key):
-                    content = str(result[key]).strip()
+            for key in (
+                "translated_text",
+                "translatedText",
+                "translation",
+                "response",
+                "text",
+                "content",
+            ):
+                value = result.get(key)
+                if value:
+                    if isinstance(value, dict | list):
+                        content = json.dumps(value, ensure_ascii=False)
+                    else:
+                        content = str(value).strip()
                     break
+            if not content and isinstance(result.get("choices"), list):
+                content = self._content_from_choices(result["choices"])
         elif isinstance(result, str):
             content = result.strip()
+        elif isinstance(data.get("choices"), list):
+            content = self._content_from_choices(data["choices"])
+        if not content and data.get("response"):
+            content = str(data["response"]).strip()
         if not content:
-            raise RuntimeError("Cloudflare Workers AI returned empty translation")
+            raise RuntimeError("Cloudflare Workers AI returned empty content")
         return {
             "content": content,
             "model": model,
@@ -138,6 +168,60 @@ class CloudflareWorkersAIProvider(AIProvider):
             "route_id": route_id,
             "provider": self.provider_id,
         }
+
+    @classmethod
+    def _payload_for_model(
+        cls,
+        model: str,
+        *,
+        prompt: str,
+        source_text: str,
+        source_lang: Any,  # noqa: ANN401
+        target_lang: Any,  # noqa: ANN401
+        max_tokens: Any = None,  # noqa: ANN401
+        response_format: Any = None,  # noqa: ANN401
+    ) -> dict[str, Any]:
+        if cls._is_translation_model(model):
+            return {
+                "text": source_text,
+                "source_lang": cls._normalize_lang(source_lang),
+                "target_lang": cls._normalize_lang(target_lang),
+            }
+        payload: dict[str, Any] = {
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a precise multilingual news editor. "
+                        "Follow the user output contract exactly."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ]
+        }
+        if max_tokens:
+            payload["max_tokens"] = int(max_tokens)
+        if response_format:
+            payload["response_format"] = response_format
+        return payload
+
+    @staticmethod
+    def _is_translation_model(model: str) -> bool:
+        return "m2m100" in str(model or "")
+
+    @staticmethod
+    def _content_from_choices(choices: list[Any]) -> str:
+        if not choices:
+            return ""
+        first = choices[0]
+        if not isinstance(first, dict):
+            return ""
+        message = first.get("message")
+        if isinstance(message, dict) and message.get("content"):
+            return str(message["content"]).strip()
+        if first.get("text"):
+            return str(first["text"]).strip()
+        return ""
 
     @staticmethod
     def _normalize_lang(value: Any) -> str:  # noqa: ANN401
