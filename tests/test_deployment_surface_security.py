@@ -207,28 +207,28 @@ def test_deployed_surface_audit_uses_news_sentry_user_agent(
 
     class FakeResponse:
         status_code = 200
+        status = 200
         headers = {"content-type": "application/json"}
 
-    class FakeClient:
-        def __init__(self, **kwargs: object) -> None:
-            seen.update(kwargs)
-
-        def __enter__(self) -> FakeClient:
+        def __enter__(self) -> FakeResponse:
             return self
 
         def __exit__(self, *args: object) -> None:
             return None
 
-        def get(self, url: str) -> FakeResponse:
-            seen["url"] = url
+    class FakeOpener:
+        def open(self, request: object, timeout: float) -> FakeResponse:
+            seen["url"] = request.full_url
+            seen["headers"] = dict(request.header_items())
+            seen["timeout"] = timeout
             return FakeResponse()
 
-    monkeypatch.setattr("deployed_surface_audit.httpx.Client", FakeClient)
+    monkeypatch.setattr("deployed_surface_audit._URL_OPENER", FakeOpener())
 
     probe = _probe_surface("https://api.news-sentry.com", "/api/v1/health", 8)
 
     assert probe["status_code"] == 200
-    assert seen["headers"] == {"User-Agent": AUDIT_USER_AGENT}
+    assert seen["headers"]["User-agent"] == AUDIT_USER_AGENT
 
 
 def test_cloudflare_state_builder_derives_audit_json_from_access_and_rulesets() -> None:

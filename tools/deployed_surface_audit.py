@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import urllib.error
+import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import httpx
 from deployment_surface_security import (
     build_cloudflare_state_findings,
     build_surface_findings,
@@ -18,6 +19,17 @@ from deployment_surface_security import (
 )
 
 AUDIT_USER_AGENT = "NewsSentrySurfaceAudit/1.0 (+https://news-sentry.com)"
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
+_URL_OPENER = urllib.request.build_opener(
+    urllib.request.ProxyHandler({}),
+    _NoRedirectHandler,
+)
 
 
 def _load_json(path: Path) -> Any:
@@ -44,17 +56,26 @@ def _probe_surface(
     timeout_seconds: float,
 ) -> dict[str, Any]:
     url = f"{base_url.rstrip('/')}{surface}"
-    with httpx.Client(
-        follow_redirects=False,
-        timeout=timeout_seconds,
-        headers={"User-Agent": AUDIT_USER_AGENT},
-    ) as client:
-        response = client.get(url)
+    request = urllib.request.Request(  # noqa: S310
+        url,
+        method="GET",
+        headers={
+            "Accept": "application/json,text/html;q=0.9,*/*;q=0.8",
+            "User-Agent": AUDIT_USER_AGENT,
+        },
+    )
+    try:
+        with _URL_OPENER.open(request, timeout=timeout_seconds) as response:  # noqa: S310
+            status_code = response.status
+            headers = dict(response.headers)
+    except urllib.error.HTTPError as exc:
+        status_code = exc.code
+        headers = dict(exc.headers)
     return {
         "surface": surface,
         "base_url": base_url,
-        "status_code": response.status_code,
-        "headers": dict(response.headers),
+        "status_code": status_code,
+        "headers": headers,
     }
 
 
