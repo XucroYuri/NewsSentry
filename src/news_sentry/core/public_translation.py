@@ -768,7 +768,7 @@ class PublicTranslationEngine:
             prompt=self.prompt_for_field(row, field=field),
             provider_factory=provider_factory,
             preferred_route_id="translate.public",
-            source_lang=self.config.source_lang,
+            source_lang=self._source_lang_for_row(row),
             target_lang=self.config.target_lang,
             text=source_text,
             max_tokens=240 if field == "summary" else 120,
@@ -789,6 +789,15 @@ class PublicTranslationEngine:
             "route_id": str(result.get("route_id") or "translate.public"),
             "model": str(result.get("model") or ""),
         }
+
+    def _source_lang_for_row(self, row: dict[str, Any]) -> str:
+        configured = str(self.config.source_lang or "auto").strip()
+        if configured.lower() != "auto":
+            return configured
+        row_lang = str(row.get("language") or "").strip()
+        if row_lang.lower() in {"", "auto", "mixed", "unknown", "und"}:
+            return configured
+        return row_lang
 
     async def _ensure_translated_field(
         self,

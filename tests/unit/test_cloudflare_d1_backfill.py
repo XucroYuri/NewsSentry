@@ -419,6 +419,34 @@ def test_d1_candidate_query_targets_missing_public_fields() -> None:
     assert "LIMIT 25" in sql
 
 
+def test_d1_candidate_row_keeps_language_for_provider_source_lang() -> None:
+    row = {
+        "event_id": "fr-row-1",
+        "target_id": "france",
+        "source_id": "lemonde",
+        "source_name": "Le Monde",
+        "title": "La France annonce un nouveau prêt européen",
+        "original_title": None,
+        "summary": "La mesure pourrait affecter les achats publics.",
+        "recommendation_reason": None,
+        "full_content": "La mesure pourrait affecter les achats publics.",
+        "original_url": "https://example.com/fr-row-1",
+        "published_at": "2026-06-29T00:00:00+00:00",
+        "collected_at": "2026-06-29T00:01:00+00:00",
+        "value_score": 88,
+        "classification": "{\"l0\":\"politics\"}",
+        "issue_tags": "[]",
+        "related_tags": "[]",
+        "region_tags": "[]",
+        "language": "fr",
+    }
+
+    mapped = public_translation_backfill._d1_row_to_translation_row(row)
+
+    assert mapped["language"] == "fr"
+    assert mapped["title_original"] == "La France annonce un nouveau prêt européen"
+
+
 def test_parse_wrangler_d1_json_output_extracts_result_rows() -> None:
     output = json_dump(
         [

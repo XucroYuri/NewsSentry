@@ -756,6 +756,35 @@ def test_publication_prompt_prefers_preset_issue_and_related_tags() -> None:
 
 
 @pytest.mark.asyncio
+async def test_public_translation_uses_row_language_when_source_is_auto() -> None:
+    router = MagicMock()
+    router.route_async = AsyncMock(
+        return_value={
+            "content": "法国宣布新的欧洲贷款",
+            "route_id": "translate.public",
+            "model": "auto",
+            "provider": "cloudflare_workers_ai",
+        }
+    )
+    engine = PublicTranslationEngine(PublicTranslationConfig(source_lang="auto"))
+
+    result = await engine._translate_field(
+        {
+            "event_id": "ne-row-language",
+            "target_id": "france",
+            "title_original": "La France annonce un nouveau prêt européen",
+            "language": "fr",
+        },
+        field="title",
+        router=router,
+        provider_factory=lambda name: MagicMock(),
+    )
+
+    assert result["content"] == "法国宣布新的欧洲贷款"
+    assert router.route_async.call_args.kwargs["source_lang"] == "fr"
+
+
+@pytest.mark.asyncio
 async def test_publication_generation_normalizes_common_tag_aliases() -> None:
     router = MagicMock()
     router.route_async = AsyncMock(

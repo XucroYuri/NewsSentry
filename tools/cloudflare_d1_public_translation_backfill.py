@@ -323,6 +323,7 @@ def _d1_row_to_translation_row(row: dict[str, Any]) -> dict[str, Any]:
         "summary": summary,
         "description": summary,
         "content_original": row.get("full_content"),
+        "language": row.get("language"),
         "url": row.get("original_url"),
         "published_at": row.get("published_at"),
         "created_at": row.get("collected_at") or row.get("published_at"),
