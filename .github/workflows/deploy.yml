@@ -198,6 +198,37 @@ jobs:
               --file=db/migrations/20260630_add_target_collect_enabled.sql
           fi
 
+      - name: Apply Cloudflare D1 target and source sync
+        if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          python tools/cloudflare_d1_backfill.py \
+            --data-dir data \
+            --targets-dir config/targets \
+            --limit 0 \
+            --output-sql /tmp/news-sentry-d1-target-sync.sql
+          (cd frontend/cloudflare && npx wrangler d1 execute ns-db --remote \
+            --file /tmp/news-sentry-d1-target-sync.sql)
+
+      - name: Refresh Cloudflare public read snapshots
+        if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          python tools/cloudflare_refresh_public_snapshots.py \
+            --wrangler-dir frontend/cloudflare \
+            --database ns-db \
+            --output-sql /tmp/news-sentry-public-read-snapshots.sql
+          (cd frontend/cloudflare && npx wrangler d1 execute ns-db --remote \
+            --file /tmp/news-sentry-public-read-snapshots.sql)
+
   deploy-cloudflare-worker:
     name: Deploy Cloudflare Worker
     runs-on: ubuntu-latest

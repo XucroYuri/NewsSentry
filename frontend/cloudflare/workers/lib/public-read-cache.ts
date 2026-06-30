@@ -1,7 +1,8 @@
 const CACHE_ORIGIN = "https://news-sentry.internal";
+const PUBLIC_READ_CACHE_VERSION = "v20260630-data-receipts";
 
 function cacheRequest(key: string): Request {
-  return new Request(`${CACHE_ORIGIN}/public-read-cache/${encodeURIComponent(key)}`, {
+  return new Request(`${CACHE_ORIGIN}/public-read-cache/${PUBLIC_READ_CACHE_VERSION}/${encodeURIComponent(key)}`, {
     method: "GET",
   });
 }

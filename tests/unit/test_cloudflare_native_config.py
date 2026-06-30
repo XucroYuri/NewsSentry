@@ -162,6 +162,7 @@ def test_cloudflare_public_read_endpoints_use_worker_cache_and_head() -> None:
     assert "maybeServeCachedPublicRead" in news_ts
     assert "maybeStoreCachedPublicRead" in news_ts
     assert "X-News-Sentry-Worker-Cache" in cache_ts
+    assert "PUBLIC_READ_CACHE_VERSION" in cache_ts
     assert "public-read:news:featured" in news_ts
     assert "public-read:news:all" in news_ts
     assert "public-read:bootstrap:featured" in bootstrap_ts

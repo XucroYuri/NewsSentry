@@ -195,6 +195,48 @@ def test_generated_backfill_sql_executes_against_d1_schema(tmp_path: Path) -> No
     assert row == ("draft-1", "drafts", '{"l0":"politics"}')
 
 
+def test_target_sync_preserves_remote_event_count_when_no_local_events(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    targets_dir = tmp_path / "config" / "targets"
+    targets_dir.mkdir(parents=True)
+    (targets_dir / "italy.yaml").write_text(
+        "target_id: italy\n"
+        "display_name: 意大利新闻监控\n"
+        "source_channel_refs:\n"
+        "  - ansa\n",
+        encoding="utf-8",
+    )
+    (targets_dir / "japan.yaml").write_text(
+        "target_id: japan\n"
+        "display_name: 日本新闻监控\n"
+        "source_channel_refs:\n"
+        "  - nhk\n",
+        encoding="utf-8",
+    )
+
+    sql = generate_backfill_sql(
+        collect_backfill_plan(data_dir=data_dir, targets_dir=targets_dir, limit=0)
+    )
+
+    with closing(sqlite3.connect(tmp_path / "d1.sqlite")) as db:
+        db.executescript((ROOT / "frontend/cloudflare/db/schema.sql").read_text(encoding="utf-8"))
+        db.execute(
+            """
+            INSERT INTO targets (
+              target_id, display_name, region_id, source_count, event_count,
+              lifecycle, archived, cloudflare_collect_enabled
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            ("italy", "旧意大利", "italy", 0, 42, "{}", 0, 1),
+        )
+        db.executescript(sql)
+        rows = dict(
+            db.execute("SELECT target_id, event_count FROM targets ORDER BY target_id").fetchall()
+        )
+
+    assert rows == {"italy": 42, "japan": 0}
+
+
 def test_backfill_preserves_existing_public_translation_fields(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     targets_dir = tmp_path / "config" / "targets"
