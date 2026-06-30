@@ -27,11 +27,16 @@ import {
   markSnapshotMiss,
   NEWS_ALL_SNAPSHOT_KEY,
   NEWS_FEATURED_SNAPSHOT_KEY,
+  PUBLIC_SNAPSHOT_PAGE_SIZE,
   readPublicSnapshot,
+  readPublicSnapshotPayload,
+  slicePublicNewsSnapshot,
+  snapshotPayloadResponse,
 } from "../lib/public-read-snapshots";
 
-const FEATURED_NEWS_CACHE_KEY = "public-read:news:featured";
-const ALL_NEWS_CACHE_KEY = "public-read:news:all";
+function newsCacheKey(featured: boolean, pageSize: number): string {
+  return `public-read:news:${featured ? "featured" : "all"}:page_size=${pageSize}`;
+}
 
 interface CursorRow {
   event_id: string;
@@ -100,7 +105,7 @@ export async function handleNewsFeed(
         ? Math.min(requestedPageSize, 50)
         : 20;
     const cacheKey =
-      pageSize === 20 &&
+      pageSize <= PUBLIC_SNAPSHOT_PAGE_SIZE &&
       !beforeCursor &&
       !sinceCursor &&
       !regionId &&
@@ -110,9 +115,7 @@ export async function handleNewsFeed(
       !date &&
       !q &&
       hasOnlyParams(params, ["featured", "page_size"])
-        ? featured
-          ? FEATURED_NEWS_CACHE_KEY
-          : ALL_NEWS_CACHE_KEY
+        ? newsCacheKey(featured, pageSize)
         : null;
     const cached = await maybeServeCachedPublicRead(request, cacheKey);
     if (cached) return cached;
@@ -121,7 +124,20 @@ export async function handleNewsFeed(
         ? NEWS_FEATURED_SNAPSHOT_KEY
         : NEWS_ALL_SNAPSHOT_KEY
       : null;
-    const snapshot = await readPublicSnapshot(request, db, snapshotKey, 30);
+    const snapshot =
+      pageSize === PUBLIC_SNAPSHOT_PAGE_SIZE
+        ? await readPublicSnapshot(request, db, snapshotKey, 30)
+        : snapshotKey
+          ? await (async () => {
+              const payload = await readPublicSnapshotPayload<PublicNewsFeedResponse>(
+                db,
+                snapshotKey,
+              );
+              return payload
+                ? snapshotPayloadResponse(slicePublicNewsSnapshot(payload, pageSize), 30)
+                : null;
+            })()
+          : null;
     if (snapshot) return maybeStoreCachedPublicRead(request, cacheKey, snapshot, ctx, 30);
 
     const filters = buildPublicNewsWhere({

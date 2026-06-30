@@ -28,7 +28,15 @@ def _healthy_receipt() -> dict[str, object]:
             "warm_ttfb_median_ms": 230,
             "warm_ttfb_p95_ms": 400,
         },
-        "all": {"http_status": 200, "total": 10845, "items": 3},
+        "all": {
+            "http_status": 200,
+            "total": 10845,
+            "items": 3,
+            "snapshot": "hit",
+            "ttfb_ms": 220,
+            "warm_ttfb_median_ms": 210,
+            "warm_ttfb_p95_ms": 360,
+        },
         "bootstrap": {
             "http_status": 200,
             "total": 6426,
@@ -84,6 +92,7 @@ def test_evaluate_receipt_fails_for_translation_and_head_regressions() -> None:
 def test_evaluate_receipt_fails_when_snapshot_or_warm_ttfb_regresses() -> None:
     receipt = _healthy_receipt()
     receipt["featured"]["snapshot"] = "miss"  # type: ignore[index]
+    receipt["all"]["snapshot"] = "miss"  # type: ignore[index]
     receipt["bootstrap"]["ttfb_ms"] = 901  # type: ignore[index]
     receipt["facets"]["snapshot"] = "bypass"  # type: ignore[index]
 
@@ -94,6 +103,7 @@ def test_evaluate_receipt_fails_when_snapshot_or_warm_ttfb_regresses() -> None:
 
     assert result.ok is False
     assert "featured_snapshot_not_hit" in result.failures
+    assert "all_snapshot_not_hit" in result.failures
     assert "bootstrap_ttfb_above_threshold" in result.failures
     assert "facets_snapshot_not_hit" in result.failures
 
