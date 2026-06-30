@@ -1976,7 +1976,7 @@ class CanonicalStoreMixin(AsyncStoreBase):
         if self._db is None:
             await self.initialize()
         async with self._lock:
-            async with aiosqlite.connect(str(self._db_path)) as conn:
+            async with aiosqlite.connect(str(self._db_path), timeout=30.0) as conn:
                 for pragma_sql in _PRAGMA_SETUP:
                     await conn.execute(pragma_sql)
                 try:

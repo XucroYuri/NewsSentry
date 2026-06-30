@@ -22,8 +22,11 @@ def _healthy_receipt() -> dict[str, object]:
             "http_status": 200,
             "total": 6426,
             "items": 3,
+            "copy_ready": 3,
             "snapshot": "hit",
             "ttfb_ms": 250,
+            "warm_ttfb_median_ms": 230,
+            "warm_ttfb_p95_ms": 400,
         },
         "all": {"http_status": 200, "total": 10845, "items": 3},
         "bootstrap": {
@@ -32,6 +35,8 @@ def _healthy_receipt() -> dict[str, object]:
             "items": 20,
             "snapshot": "hit",
             "ttfb_ms": 300,
+            "warm_ttfb_median_ms": 280,
+            "warm_ttfb_p95_ms": 500,
         },
         "facets": {
             "http_status": 200,
@@ -40,7 +45,10 @@ def _healthy_receipt() -> dict[str, object]:
             "related": 30,
             "snapshot": "hit",
             "ttfb_ms": 200,
+            "warm_ttfb_median_ms": 190,
+            "warm_ttfb_p95_ms": 350,
         },
+        "d1_targets": {"http_status": 200, "count": 82},
         "head": {"http_status": 200},
         "write_guard": {"http_status": 403},
         "pages": {"http_status": 200, "js_contains_api_base": True},
@@ -88,3 +96,18 @@ def test_evaluate_receipt_fails_when_snapshot_or_warm_ttfb_regresses() -> None:
     assert "featured_snapshot_not_hit" in result.failures
     assert "bootstrap_ttfb_above_threshold" in result.failures
     assert "facets_snapshot_not_hit" in result.failures
+
+
+def test_evaluate_receipt_fails_when_featured_copy_or_targets_regress() -> None:
+    receipt = _healthy_receipt()
+    receipt["featured"]["copy_ready"] = 2  # type: ignore[index]
+    receipt["d1_targets"]["count"] = 12  # type: ignore[index]
+
+    result = evaluate_receipt(
+        receipt,
+        QualityThresholds(min_featured=100, min_summary_ready=500, min_d1_targets=80),
+    )
+
+    assert result.ok is False
+    assert "featured_public_copy_missing" in result.failures
+    assert "d1_targets_below_threshold" in result.failures

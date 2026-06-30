@@ -86,8 +86,10 @@ def test_cloudflare_public_featured_query_matches_python_quality_gate() -> None:
     assert 'params.get("featured") !== "false"' in bootstrap_ts
     assert "PUBLIC_FEATURED_MIN_SCORE = 60" in query_ts
     assert "value_score >= ?" in query_ts
-    assert "summary IS NOT NULL AND TRIM(summary) <> ''" not in query_ts
-    assert "recommendation_reason IS NOT NULL AND TRIM(recommendation_reason) <> ''" not in query_ts
+    assert "summary IS NOT NULL" in query_ts
+    assert "TRIM(summary) != ''" in query_ts
+    assert "recommendation_reason IS NOT NULL" in query_ts
+    assert "TRIM(recommendation_reason) != ''" in query_ts
     assert "json_valid(classification) = 1" in query_ts
     assert "json_extract(classification, '$.l0')" in query_ts
     assert "NOT IN ('uncategorized', 'other', 'breaking_news')" in query_ts
@@ -213,16 +215,20 @@ def test_cloudflare_scheduled_ops_are_configured() -> None:
     index_ts = _read("workers/index.ts")
     scheduled_ts = _read("workers/lib/scheduled.ts")
     schema_sql = _read("db/schema.sql")
+    migration_sql = _read("db/migrations/20260630_add_target_collect_enabled.sql")
     wrangler_toml = tomllib.loads(_read("wrangler.toml"))
 
     assert "async scheduled(" in index_ts
     assert "runScheduledCloudflareTask" in index_ts
+    assert 'NEWSSENTRY_COLLECT_STAGE: "all"' in index_ts
     assert "collect-cycle" in scheduled_ts
     assert "public-translation-cycle" in scheduled_ts
     assert "refresh-public-quality" in scheduled_ts
     assert "ops_state" in schema_sql
     assert "ops_runs" in schema_sql
     assert "lock_until" in schema_sql
+    assert "cloudflare_collect_enabled INTEGER NOT NULL DEFAULT 1" in schema_sql
+    assert "ALTER TABLE targets ADD COLUMN cloudflare_collect_enabled" in migration_sql
     assert wrangler_toml["triggers"]["crons"] == ["*/15 * * * *", "7,37 * * * *", "11 * * * *"]
     assert 'compactDetails.status === "string"' in scheduled_ts
     assert "await recordRun(env.DB, runId, task, status" in scheduled_ts
@@ -230,9 +236,12 @@ def test_cloudflare_scheduled_ops_are_configured() -> None:
     assert "extractContainerImportEvents" in scheduled_ts
     assert "importContainerEventsToD1" in scheduled_ts
     assert "import_result" in scheduled_ts
+    assert "result.updated" in scheduled_ts
     assert "COLLECT_TARGET_BATCH_SIZE = 4" in scheduled_ts
     assert "cursor:collect-cycle-target-index" in scheduled_ts
+    assert "cloudflare_collect_enabled = 1" in scheduled_ts
     assert "CONTAINER_TASK_TIMEOUT_MS = 8 * 60_000" in scheduled_ts
+    assert 'CONTAINER_WRITER_LOCK_NAME = "container-sqlite-writer"' in scheduled_ts
     assert "loadCollectTargetBatch" in scheduled_ts
     assert "persistCollectTargetCursor" in scheduled_ts
     assert "recordRunStarted" in scheduled_ts
@@ -247,6 +256,10 @@ def test_cloudflare_scheduled_ops_are_configured() -> None:
     assert "auto_fetch" in scheduled_ts
     assert "auto_fetch_retry_${attempt}" in scheduled_ts
     assert "container_timeout_ms" in scheduled_ts
+    assert "failed_retryable" in scheduled_ts
+    assert "database_locked" in scheduled_ts
+    assert "task_mode: \"public_refresh\"" in scheduled_ts
+    assert "pipeline_stage: \"all\"" in scheduled_ts
     assert "collectBatchDetails" in scheduled_ts
 
 
@@ -285,6 +298,10 @@ def test_events_import_persists_to_cloudflare_d1() -> None:
     assert "recommendation_reason" in webhook_ts
     assert "value_score" in webhook_ts
     assert "ON CONFLICT(event_id)" in webhook_ts
+    assert "DO NOTHING" not in webhook_ts
+    assert "DO UPDATE SET" in webhook_ts
+    assert "updated" in webhook_ts
+    assert "COALESCE(NULLIF" in webhook_ts
 
 
 def test_container_proxy_requires_cloudflare_access_identity() -> None:
@@ -414,6 +431,7 @@ def test_deploy_workflow_runs_live_quality_gate_and_translation_backfill_exists(
 
     assert "tools/cloudflare_live_quality_check.py" in deploy_yml
     assert "--min-summary-ready" in deploy_yml
+    assert "--min-d1-targets 80" in deploy_yml
     assert "HEAD probe" in deploy_yml or "head_probe" in deploy_yml
     assert workflow.exists()
     content = workflow.read_text(encoding="utf-8")

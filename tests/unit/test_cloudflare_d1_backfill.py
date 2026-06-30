@@ -128,8 +128,17 @@ def test_collect_backfill_plan_uses_only_drafts_and_counts_targets(tmp_path: Pat
         "target_id: italy\n"
         "display_name: 意大利新闻监控\n"
         "region_type: country\n"
+        "source_channel_refs:\n"
+        "  - ansa\n"
         "language_scope:\n"
         "  primary: it\n",
+        encoding="utf-8",
+    )
+    (targets_dir / "japan.yaml").write_text(
+        "target_id: japan\n"
+        "display_name: 日本新闻监控\n"
+        "source_channel_refs:\n"
+        "  - nhk\n",
         encoding="utf-8",
     )
     _make_state_db(data_dir / "italy" / "state.db")
@@ -139,9 +148,12 @@ def test_collect_backfill_plan_uses_only_drafts_and_counts_targets(tmp_path: Pat
     assert [event.event_id for event in plan.events] == ["draft-1"]
     assert plan.events[0].published_at == "2026-05-29T23:45:00Z"
     assert plan.events[0].classification == {"l0": "politics"}
-    assert plan.targets[0].target_id == "italy"
-    assert plan.targets[0].event_count == 1
-    assert plan.sources[0].source_id == "ansa"
+    targets = {target.target_id: target for target in plan.targets}
+    assert targets["italy"].event_count == 1
+    assert targets["italy"].cloudflare_collect_enabled == 1
+    assert targets["japan"].event_count == 0
+    assert targets["japan"].cloudflare_collect_enabled == 1
+    assert {source.source_id for source in plan.sources} == {"ansa", "nhk"}
 
 
 def test_generate_backfill_sql_is_idempotent_and_preserves_drafts_stage(tmp_path: Path) -> None:
@@ -160,6 +172,7 @@ def test_generate_backfill_sql_is_idempotent_and_preserves_drafts_stage(tmp_path
     assert "classification=excluded.classification" in sql
     assert "reviewed-1" not in sql
     assert "INSERT INTO targets" in sql
+    assert "cloudflare_collect_enabled" in sql
     assert "INSERT INTO sources" in sql
 
 

@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 _ANALYSIS_STAGES = ("judged", "drafts", "outputted")
 
 _PRAGMA_SETUP = (
+    "PRAGMA busy_timeout=15000",
     "PRAGMA journal_mode=WAL",
     "PRAGMA synchronous=NORMAL",
     "PRAGMA cache_size=-64000",

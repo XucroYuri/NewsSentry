@@ -13,6 +13,7 @@ type ScheduledTask = "collect-cycle" | "public-translation-cycle" | "refresh-pub
 const COLLECT_TARGET_BATCH_SIZE = 4;
 const COLLECT_TARGET_CURSOR_KEY = "cursor:collect-cycle-target-index";
 const CONTAINER_TASK_TIMEOUT_MS = 8 * 60_000;
+const CONTAINER_WRITER_LOCK_NAME = "container-sqlite-writer";
 
 interface CollectTargetBatch {
   targetIds: string[];
@@ -35,8 +36,12 @@ function lockUntil(minutes: number): string {
   return new Date(Date.now() + minutes * 60_000).toISOString();
 }
 
-async function acquireLock(db: D1Database, task: ScheduledTask): Promise<boolean> {
-  const key = `lock:${task}`;
+function lockKey(name: string): string {
+  return `lock:${name}`;
+}
+
+async function acquireLock(db: D1Database, name: string, minutes = 20): Promise<boolean> {
+  const key = lockKey(name);
   const now = isoNow();
   const row = await db
     .prepare("SELECT lock_until FROM ops_state WHERE key = ?")
@@ -50,17 +55,17 @@ async function acquireLock(db: D1Database, task: ScheduledTask): Promise<boolean
        ON CONFLICT(key) DO UPDATE SET value='locked', updated_at=excluded.updated_at,
        lock_until=excluded.lock_until`
     )
-    .bind(key, now, lockUntil(20))
+    .bind(key, now, lockUntil(minutes))
     .run();
   return true;
 }
 
-async function releaseLock(db: D1Database, task: ScheduledTask): Promise<void> {
+async function releaseLock(db: D1Database, name: string): Promise<void> {
   await db
     .prepare(
       `UPDATE ops_state SET value='released', updated_at=?, lock_until=NULL WHERE key=?`
     )
-    .bind(isoNow(), `lock:${task}`)
+    .bind(isoNow(), lockKey(name))
     .run();
 }
 
@@ -159,6 +164,16 @@ function compactTaskDetails(details: Record<string, unknown>): Record<string, un
   };
 }
 
+function taskRuntimeDetails(task: ScheduledTask): Record<string, unknown> {
+  if (task === "collect-cycle") {
+    return { task_mode: "public_refresh", pipeline_stage: "all" };
+  }
+  if (task === "public-translation-cycle") {
+    return { task_mode: "public_translation", pipeline_stage: "drafts" };
+  }
+  return { task_mode: "public_quality", pipeline_stage: "drafts" };
+}
+
 function extractContainerImportEvents(details: Record<string, unknown>): ImportEventItem[] {
   const body = details.body;
   if (!isRecord(body) || !Array.isArray(body.import_events)) return [];
@@ -171,12 +186,13 @@ async function importContainerEventsToD1(
 ): Promise<Record<string, unknown>> {
   const events = extractContainerImportEvents(details);
   if (events.length === 0) {
-    return { received: 0, imported: 0, skipped: 0, errors: [] };
+    return { received: 0, imported: 0, updated: 0, skipped: 0, errors: [] };
   }
   const result = await importEventsToD1(db, events);
   return {
     received: events.length,
     imported: result.imported,
+    updated: result.updated,
     skipped: result.skipped,
     errors: result.errors.slice(0, 10),
   };
@@ -193,7 +209,7 @@ async function loadCollectTargetBatch(db: D1Database): Promise<CollectTargetBatc
     .prepare(
       `SELECT target_id
        FROM targets
-       WHERE archived = 0
+       WHERE archived = 0 AND cloudflare_collect_enabled = 1
        ORDER BY target_id ASC
        LIMIT 500`,
     )
@@ -277,6 +293,40 @@ function isContainerNotRunningError(error: unknown): boolean {
   return message.toLowerCase().includes("container is not running");
 }
 
+function detailsText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value instanceof Error) return value.message;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function isContainerStartupDetails(details: Record<string, unknown>): boolean {
+  const text = detailsText(details).toLowerCase();
+  return (
+    text.includes("container is not running") ||
+    text.includes("container startup") ||
+    text.includes("container is starting") ||
+    text.includes("temporarily unavailable")
+  );
+}
+
+function isDatabaseLockedDetails(details: unknown): boolean {
+  return detailsText(details).toLowerCase().includes("database is locked");
+}
+
+function markRetryableContainerDetails(details: Record<string, unknown>): Record<string, unknown> {
+  if (isDatabaseLockedDetails(details)) {
+    return { ...details, status: "failed_retryable", retryable_error: "database_locked" };
+  }
+  if (isContainerStartupDetails(details)) {
+    return { ...details, retryable_error: "container_startup" };
+  }
+  return details;
+}
+
 async function waitForContainerRetryDelay(attempt: number): Promise<void> {
   const delayMs = attempt <= 1 ? 5_000 : 15_000;
   await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -303,13 +353,23 @@ async function callContainerInternalTask(
         await waitForContainerRetryDelay(attempt);
       }
       try {
-        return {
-          ...(await parseContainerTaskResponse(
-            await container.fetch(containerTaskRequest(task, targetIds, controller.signal)),
-          )),
+        const parsed = await parseContainerTaskResponse(
+          await container.fetch(containerTaskRequest(task, targetIds, controller.signal)),
+        );
+        const details = {
+          ...parsed,
           container_start: attempt === 0 ? "auto_fetch" : `auto_fetch_retry_${attempt}`,
           container_timeout_ms: CONTAINER_TASK_TIMEOUT_MS,
         };
+        if (
+          Number(details.http_status || 0) >= 400 &&
+          isContainerStartupDetails(details) &&
+          attempt < 2
+        ) {
+          lastError = details;
+          continue;
+        }
+        return markRetryableContainerDetails(details);
       } catch (error) {
         lastError = error;
         if (!isContainerNotRunningError(error) || attempt === 2) throw error;
@@ -373,13 +433,25 @@ export async function runScheduledCloudflareTask(
   const runId = `${task}:${controller.scheduledTime}:${crypto.randomUUID()}`;
   const startedAt = isoNow();
   let collectBatch: CollectTargetBatch | null = null;
+  let containerWriterLockAcquired = false;
   if (!(await acquireLock(env.DB, task))) {
-    await recordRun(env.DB, runId, task, "skipped_locked", startedAt, {});
+    await recordRun(env.DB, runId, task, "skipped_locked", startedAt, taskRuntimeDetails(task));
     return;
   }
   try {
+    if (task !== "refresh-public-quality") {
+      containerWriterLockAcquired = await acquireLock(env.DB, CONTAINER_WRITER_LOCK_NAME, 20);
+      if (!containerWriterLockAcquired) {
+        await recordRun(env.DB, runId, task, "skipped_container_locked", startedAt, {
+          ...taskRuntimeDetails(task),
+          retryable_error: "container_sqlite_writer_locked",
+        });
+        return;
+      }
+    }
     collectBatch = task === "collect-cycle" ? await loadCollectTargetBatch(env.DB) : null;
     await recordRunStarted(env.DB, runId, task, startedAt, {
+      ...taskRuntimeDetails(task),
       ...(collectBatch === null ? {} : { collect_batch: collectBatchDetails(collectBatch) }),
     });
     const details =
@@ -389,7 +461,7 @@ export async function runScheduledCloudflareTask(
           ? { status: "empty_no_targets", reason: "no_active_targets" }
           : await callContainerInternalTask(env, task, collectBatch?.targetIds);
     let importResult: Record<string, unknown> | null = null;
-    if (task === "collect-cycle") {
+    if (task === "collect-cycle" || task === "public-translation-cycle") {
       importResult = await importContainerEventsToD1(env.DB, details);
     }
     let snapshotRefresh: Record<string, unknown>;
@@ -402,6 +474,7 @@ export async function runScheduledCloudflareTask(
       };
     }
     const compactDetails = compactTaskDetails({
+      ...taskRuntimeDetails(task),
       ...details,
       ...(importResult === null ? {} : { import_result: importResult }),
       ...(collectBatch === null
@@ -411,16 +484,22 @@ export async function runScheduledCloudflareTask(
     });
     const status =
       typeof compactDetails.status === "string" && compactDetails.status ? compactDetails.status : "ok";
-    if (task === "collect-cycle" && collectBatch !== null && status !== "error") {
+    if (task === "collect-cycle" && collectBatch !== null && ["ok", "partial"].includes(status)) {
       await persistCollectTargetCursor(env.DB, collectBatch);
     }
     await recordRun(env.DB, runId, task, status, startedAt, compactDetails);
   } catch (error) {
-    await recordRun(env.DB, runId, task, "error", startedAt, {
+    const retryableDatabaseLock = isDatabaseLockedDetails(error);
+    await recordRun(env.DB, runId, task, retryableDatabaseLock ? "failed_retryable" : "error", startedAt, {
+      ...taskRuntimeDetails(task),
       message: error instanceof Error ? error.message : String(error),
+      ...(retryableDatabaseLock ? { retryable_error: "database_locked" } : {}),
       ...(collectBatch === null ? {} : { collect_batch: collectBatchDetails(collectBatch) }),
     });
   } finally {
+    if (containerWriterLockAcquired) {
+      await releaseLock(env.DB, CONTAINER_WRITER_LOCK_NAME);
+    }
     await releaseLock(env.DB, task);
   }
 }

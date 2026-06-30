@@ -157,6 +157,7 @@ export interface ImportEventItem {
 
 export interface ImportResponse {
   imported: number;
+  updated: number;
   skipped: number;
   errors: string[];
 }
