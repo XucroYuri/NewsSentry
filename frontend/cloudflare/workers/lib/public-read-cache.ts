@@ -1,5 +1,7 @@
 const CACHE_ORIGIN = "https://news-sentry.internal";
 const PUBLIC_READ_CACHE_VERSION = "v20260630-data-receipts";
+const DEFAULT_STALE_WHILE_REVALIDATE_SECONDS = 300;
+const DEFAULT_STALE_IF_ERROR_SECONDS = 86400;
 
 function cacheRequest(key: string): Request {
   return new Request(`${CACHE_ORIGIN}/public-read-cache/${PUBLIC_READ_CACHE_VERSION}/${encodeURIComponent(key)}`, {
@@ -15,6 +17,20 @@ export function withWorkerCacheHeader(response: Response, state: "hit" | "miss" 
     statusText: response.statusText,
     headers,
   });
+}
+
+export function publicReadCacheControl(
+  ttlSeconds: number,
+  staleWhileRevalidateSeconds = DEFAULT_STALE_WHILE_REVALIDATE_SECONDS,
+  staleIfErrorSeconds = DEFAULT_STALE_IF_ERROR_SECONDS,
+): string {
+  return [
+    "public",
+    `max-age=${ttlSeconds}`,
+    `s-maxage=${ttlSeconds}`,
+    `stale-while-revalidate=${staleWhileRevalidateSeconds}`,
+    `stale-if-error=${staleIfErrorSeconds}`,
+  ].join(", ");
 }
 
 export async function maybeServeCachedPublicRead(
@@ -37,7 +53,7 @@ export function maybeStoreCachedPublicRead(
     return withWorkerCacheHeader(response, key ? "miss" : "bypass");
   }
   const headers = new Headers(response.headers);
-  headers.set("Cache-Control", `public, max-age=${ttlSeconds}`);
+  headers.set("Cache-Control", publicReadCacheControl(ttlSeconds));
   const cacheable = new Response(response.clone().body, {
     status: response.status,
     statusText: response.statusText,

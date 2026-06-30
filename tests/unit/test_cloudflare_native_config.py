@@ -163,11 +163,14 @@ def test_cloudflare_public_read_endpoints_use_worker_cache_and_head() -> None:
     assert "maybeStoreCachedPublicRead" in news_ts
     assert "X-News-Sentry-Worker-Cache" in cache_ts
     assert "PUBLIC_READ_CACHE_VERSION" in cache_ts
-    assert "public-read:news:featured" in news_ts
-    assert "public-read:news:all" in news_ts
+    assert "public-read:news:${featured ? \"featured\" : \"all\"}:page_size=${pageSize}" in news_ts
     assert "public-read:bootstrap:featured" in bootstrap_ts
     assert "public-read:facets" in facets_ts
     assert "public-read:regions" in targets_ts
+    assert "publicReadCacheControl" in cache_ts
+    assert "s-maxage" in cache_ts
+    assert "stale-while-revalidate" in cache_ts
+    assert "stale-if-error" in cache_ts
 
 
 def test_cloudflare_public_read_endpoints_use_snapshots_before_queries() -> None:
@@ -200,9 +203,30 @@ def test_cloudflare_public_read_endpoints_use_snapshots_before_queries() -> None
     assert "X-News-Sentry-Snapshot" in snapshots_ts
     assert 'withSession("first-unconstrained")' in session_ts
     assert "createPublicReadSession" in session_ts
+    assert "PUBLIC_SNAPSHOT_PAGE_SIZE = 20" in snapshots_ts
+    assert "slicePublicNewsSnapshot" in snapshots_ts
+    assert "sliceBootstrapSnapshot" in snapshots_ts
+    assert "readPublicSnapshotPayload" in snapshots_ts
     assert "LIMIT 21" in snapshots_ts
-    assert "const pageRows = rows.slice(0, 20)" in snapshots_ts
-    assert "rows.length > 20" in snapshots_ts
+    assert "const pageRows = rows.slice(0, PUBLIC_SNAPSHOT_PAGE_SIZE)" in snapshots_ts
+    assert "rows.length > PUBLIC_SNAPSHOT_PAGE_SIZE" in snapshots_ts
+
+
+def test_cloudflare_small_default_news_requests_reuse_twenty_item_snapshots() -> None:
+    news_ts = _read("workers/api/news.ts")
+    bootstrap_ts = _read("workers/api/bootstrap.ts")
+
+    assert "pageSize <= PUBLIC_SNAPSHOT_PAGE_SIZE" in news_ts
+    assert "pageSize <= PUBLIC_SNAPSHOT_PAGE_SIZE" in bootstrap_ts
+    assert "slicePublicNewsSnapshot" in news_ts
+    assert "sliceBootstrapSnapshot" in bootstrap_ts
+    assert "readPublicSnapshotPayload<PublicNewsFeedResponse>" in news_ts
+    assert "readPublicSnapshotPayload<PublicBootstrapResponse>" in bootstrap_ts
+    assert (
+        "`public-read:news:${featured ? \"featured\" : \"all\"}:page_size=${pageSize}`"
+        in news_ts
+    )
+    assert "`public-read:bootstrap:featured:page_size=${pageSize}`" in bootstrap_ts
 
 
 def test_cloudflare_scheduled_refreshes_public_read_snapshots() -> None:

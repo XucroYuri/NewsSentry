@@ -28,7 +28,11 @@ import {
   BOOTSTRAP_FEATURED_SNAPSHOT_KEY,
   markSnapshotBypass,
   markSnapshotMiss,
+  PUBLIC_SNAPSHOT_PAGE_SIZE,
   readPublicSnapshot,
+  readPublicSnapshotPayload,
+  sliceBootstrapSnapshot,
+  snapshotPayloadResponse,
 } from "../lib/public-read-snapshots";
 
 export async function handleBootstrap(
@@ -40,18 +44,38 @@ export async function handleBootstrap(
 ): Promise<Response> {
   try {
     const featured = params.get("featured") !== "false";
+    const requestedPageSize = Number.parseInt(params.get("page_size") || "20", 10);
+    const pageSize =
+      Number.isFinite(requestedPageSize) && requestedPageSize > 0
+        ? Math.min(requestedPageSize, PUBLIC_SNAPSHOT_PAGE_SIZE)
+        : PUBLIC_SNAPSHOT_PAGE_SIZE;
     const cacheKey =
-      featured && hasOnlyParams(params, ["featured", "page_size"])
-        ? "public-read:bootstrap:featured"
+      featured &&
+      pageSize <= PUBLIC_SNAPSHOT_PAGE_SIZE &&
+      hasOnlyParams(params, ["featured", "page_size"])
+        ? `public-read:bootstrap:featured:page_size=${pageSize}`
         : null;
     const cached = await maybeServeCachedPublicRead(request, cacheKey);
     if (cached) return cached;
-    const snapshot = await readPublicSnapshot(
-      request,
-      db,
-      cacheKey ? BOOTSTRAP_FEATURED_SNAPSHOT_KEY : null,
-      60,
-    );
+    const snapshot =
+      pageSize === PUBLIC_SNAPSHOT_PAGE_SIZE
+        ? await readPublicSnapshot(
+            request,
+            db,
+            cacheKey ? BOOTSTRAP_FEATURED_SNAPSHOT_KEY : null,
+            60,
+          )
+        : cacheKey
+          ? await (async () => {
+              const payload = await readPublicSnapshotPayload<PublicBootstrapResponse>(
+                db,
+                BOOTSTRAP_FEATURED_SNAPSHOT_KEY,
+              );
+              return payload
+                ? snapshotPayloadResponse(sliceBootstrapSnapshot(payload, pageSize), 60)
+                : null;
+            })()
+          : null;
     if (snapshot) return maybeStoreCachedPublicRead(request, cacheKey, snapshot, ctx, 60);
 
     const newsFilters = buildPublicNewsWhere({ featured });
@@ -71,9 +95,9 @@ export async function handleBootstrap(
              FROM events
              ${newsFilters.sql}
              ${publicNewsOrderBy(featured)}
-             LIMIT 20`
+             LIMIT ?`
           )
-          .bind(...newsFilters.bindings)
+          .bind(...newsFilters.bindings, pageSize)
           .all(),
 
         db

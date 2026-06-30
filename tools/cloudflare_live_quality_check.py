@@ -24,6 +24,7 @@ class QualityThresholds:
     min_d1_targets: int = 80
     max_latest_age_hours: int = 24
     max_featured_ttfb_ms: int = 700
+    max_all_ttfb_ms: int = 700
     max_bootstrap_ttfb_ms: int = 700
     max_facets_ttfb_ms: int = 700
     max_warm_median_ttfb_ms: int = 900
@@ -86,6 +87,7 @@ def evaluate_receipt(receipt: dict[str, Any], thresholds: QualityThresholds) -> 
 
     for key, threshold in (
         ("featured", thresholds.max_featured_ttfb_ms),
+        ("all", thresholds.max_all_ttfb_ms),
         ("bootstrap", thresholds.max_bootstrap_ttfb_ms),
         ("facets", thresholds.max_facets_ttfb_ms),
     ):
@@ -222,7 +224,14 @@ def collect_receipt(base_url: str, api_url: str) -> dict[str, Any]:
     ) = _request_warm_json_samples(
         f"{api}/api/v1/public/news?featured=true&page_size=20",
     )
-    all_status, all_news, _, _ = _request_json(f"{api}/api/v1/public/news?page_size=3")
+    (
+        all_status,
+        all_news,
+        all_headers,
+        all_ms,
+        all_median_ms,
+        all_p95_ms,
+    ) = _request_warm_json_samples(f"{api}/api/v1/public/news?page_size=3")
     (
         bootstrap_status,
         bootstrap,
@@ -284,6 +293,11 @@ def collect_receipt(base_url: str, api_url: str) -> dict[str, Any]:
             "http_status": all_status,
             "total": all_news.get("total", 0),
             "items": len(all_news.get("items") or []),
+            "snapshot": all_headers.get("x-news-sentry-snapshot"),
+            "worker_cache": all_headers.get("x-news-sentry-worker-cache"),
+            "ttfb_ms": all_ms,
+            "warm_ttfb_median_ms": all_median_ms,
+            "warm_ttfb_p95_ms": all_p95_ms,
         },
         "bootstrap": {
             "http_status": bootstrap_status,
@@ -325,6 +339,7 @@ def main() -> int:
     parser.add_argument("--min-d1-targets", type=int, default=80)
     parser.add_argument("--max-latest-age-hours", type=int, default=24)
     parser.add_argument("--max-featured-ttfb-ms", type=int, default=700)
+    parser.add_argument("--max-all-ttfb-ms", type=int, default=700)
     parser.add_argument("--max-bootstrap-ttfb-ms", type=int, default=700)
     parser.add_argument("--max-facets-ttfb-ms", type=int, default=700)
     args = parser.parse_args()
@@ -338,6 +353,7 @@ def main() -> int:
             min_d1_targets=args.min_d1_targets,
             max_latest_age_hours=args.max_latest_age_hours,
             max_featured_ttfb_ms=args.max_featured_ttfb_ms,
+            max_all_ttfb_ms=args.max_all_ttfb_ms,
             max_bootstrap_ttfb_ms=args.max_bootstrap_ttfb_ms,
             max_facets_ttfb_ms=args.max_facets_ttfb_ms,
         ),

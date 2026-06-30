@@ -14,7 +14,9 @@ import {
   rowToPublicNewsItem,
 } from "./public-news-query";
 import { createPublicReadSession } from "./public-read-session";
+import { publicReadCacheControl } from "./public-read-cache";
 
+export const PUBLIC_SNAPSHOT_PAGE_SIZE = 20;
 export const NEWS_FEATURED_SNAPSHOT_KEY = "news:featured:v1:page_size=20";
 export const NEWS_ALL_SNAPSHOT_KEY = "news:all:v1:page_size=20";
 export const BOOTSTRAP_FEATURED_SNAPSHOT_KEY = "bootstrap:featured:v1:page_size=20";
@@ -42,9 +44,47 @@ function jsonResponse(payloadJson: string, cacheSeconds: number): Response {
     status: 200,
     headers: {
       "Content-Type": "application/json",
-      "Cache-Control": `public, max-age=${cacheSeconds}`,
+      "Cache-Control": publicReadCacheControl(cacheSeconds),
     },
   });
+}
+
+function boundedSnapshotPageSize(pageSize: number): number {
+  return Number.isFinite(pageSize) && pageSize > 0
+    ? Math.min(Math.trunc(pageSize), PUBLIC_SNAPSHOT_PAGE_SIZE)
+    : PUBLIC_SNAPSHOT_PAGE_SIZE;
+}
+
+export function slicePublicNewsSnapshot(
+  feed: PublicNewsFeedResponse,
+  pageSize: number,
+): PublicNewsFeedResponse {
+  const boundedPageSize = boundedSnapshotPageSize(pageSize);
+  if (boundedPageSize >= PUBLIC_SNAPSHOT_PAGE_SIZE) return feed;
+
+  const items = feed.items.slice(0, boundedPageSize);
+  const hasMore =
+    feed.items.length > items.length ||
+    feed.total > items.length ||
+    Boolean(feed.nextCursor);
+
+  return {
+    ...feed,
+    items,
+    latestCursor: items[0]?.id ?? feed.latestCursor ?? null,
+    nextCursor: hasMore ? (items[items.length - 1]?.id ?? null) : null,
+    hasNewer: false,
+  };
+}
+
+export function sliceBootstrapSnapshot(
+  bootstrap: PublicBootstrapResponse,
+  pageSize: number,
+): PublicBootstrapResponse {
+  return {
+    ...bootstrap,
+    news: slicePublicNewsSnapshot(bootstrap.news, pageSize),
+  };
 }
 
 export function markSnapshotMiss(response: Response): Response {
@@ -74,6 +114,32 @@ export async function readPublicSnapshot(
     console.warn("public snapshot read failed:", error);
     return null;
   }
+}
+
+export async function readPublicSnapshotPayload<T>(
+  db: D1Database,
+  key: string | null,
+): Promise<T | null> {
+  if (!key) return null;
+  try {
+    const readDb = createPublicReadSession(db);
+    const row = await readDb
+      .prepare("SELECT payload_json FROM public_read_snapshots WHERE key = ?")
+      .bind(key)
+      .first<SnapshotRow>();
+    if (!row?.payload_json) return null;
+    return JSON.parse(row.payload_json) as T;
+  } catch (error) {
+    console.warn("public snapshot payload read failed:", error);
+    return null;
+  }
+}
+
+export function snapshotPayloadResponse(
+  payload: unknown,
+  cacheSeconds: number,
+): Response {
+  return withSnapshotHeader(jsonResponse(JSON.stringify(payload), cacheSeconds), "hit");
 }
 
 function parseLifecycle(raw: unknown): Record<string, unknown> {
@@ -112,11 +178,14 @@ async function buildNewsFeedSnapshot(
       .first<{ total: number }>(),
   ]);
   const rows = result.results || [];
-  const pageRows = rows.slice(0, 20);
+  const pageRows = rows.slice(0, PUBLIC_SNAPSHOT_PAGE_SIZE);
   return {
     items: pageRows.map((row) => rowToPublicNewsItem(row)),
     latestCursor: pageRows[0]?.event_id ?? null,
-    nextCursor: rows.length > 20 ? (pageRows[pageRows.length - 1]?.event_id ?? null) : null,
+    nextCursor:
+      rows.length > PUBLIC_SNAPSHOT_PAGE_SIZE
+        ? (pageRows[pageRows.length - 1]?.event_id ?? null)
+        : null,
     pollAfterMs: 60000,
     hasNewer: false,
     total: totalResult?.total ?? pageRows.length,
