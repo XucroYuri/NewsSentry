@@ -43,6 +43,9 @@ def test_snapshot_upsert_sql_writes_fixed_keys_to_d1_schema(tmp_path: Path) -> N
         source_latest_public_at="2026-06-30T00:48:15Z",
     )
 
+    assert "BEGIN TRANSACTION" not in sql
+    assert "COMMIT;" not in sql
+
     with closing(sqlite3.connect(tmp_path / "d1.sqlite")) as db:
         db.executescript((ROOT / "frontend/cloudflare/db/schema.sql").read_text(encoding="utf-8"))
         db.executescript(sql)

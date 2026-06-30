@@ -371,7 +371,7 @@ def build_snapshot_upsert_sql(
     generated_at: str,
     source_latest_public_at: str | None,
 ) -> str:
-    statements = ["BEGIN TRANSACTION;"]
+    statements: list[str] = []
     for key in (
         NEWS_FEATURED_SNAPSHOT_KEY,
         NEWS_ALL_SNAPSHOT_KEY,
@@ -396,7 +396,6 @@ def build_snapshot_upsert_sql(
             "payload_bytes=excluded.payload_bytes, "
             "updated_at=excluded.updated_at;"
         )  # noqa: S608
-    statements.append("COMMIT;")
     return "\n".join(statements) + "\n"
 
 
