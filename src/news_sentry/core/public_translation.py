@@ -739,7 +739,14 @@ class PublicTranslationEngine:
                 model=model,
                 route_id=route_id,
             )
-            updates.append({"event_id": event_id, "route_id": route_id, "model": model})
+            updates.append(
+                {
+                    "target_id": target_id,
+                    "event_id": event_id,
+                    "route_id": route_id,
+                    "model": model,
+                }
+            )
 
         if updates:
             status = "ok" if failures == 0 else "partial"

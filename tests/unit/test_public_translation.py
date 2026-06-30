@@ -345,6 +345,8 @@ async def test_public_translation_engine_writes_publication_fields_and_marks_rea
 
         assert result["status"] == "ok"
         assert result["updated"] == 1
+        assert result["updates"][0]["target_id"] == "france"
+        assert result["updates"][0]["event_id"] == "ne-worker"
         row = await store.get_event_index_row("france", "ne-worker")
         assert row is not None
         translation = row["metadata"]["translation"]

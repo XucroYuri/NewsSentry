@@ -179,6 +179,7 @@ from news_sentry.core.collector_config_utils import (
     _apply_public_translation_config,
     _auto_collect_loop,
     _cached_collector_diagnostics_payload,
+    _collect_cloudflare_d1_import_events_for_updates,
     _collector_payload,
     _current_ai_enrichment_config,
     _current_public_translation_config,
@@ -680,6 +681,8 @@ def _compact_cloudflare_task_summary(task: str, result: dict[str, Any]) -> dict[
         "updates": updates_count,
         "failed": int(result.get("failed") or 0),
     }
+    if result.get("import_events_count") is not None:
+        summary["import_events_count"] = int(result.get("import_events_count") or 0)
     if result.get("target_results") is not None:
         summary["target_results"] = result["target_results"]
     if result.get("dry_run") is not None:
@@ -1582,6 +1585,8 @@ def create_app(
                 },
                 status_code=500,
             )
+        finally:
+            await _close_target_stores()
 
     async def cloudflare_public_translation_cycle(request: Request) -> JSONResponse:
         """Run one Cloudflare Container public translation cycle from Worker cron."""
@@ -1591,6 +1596,11 @@ def create_app(
         run_id = str(body.get("runId") or body.get("run_id") or f"{task}:{uuid.uuid4().hex}")
         try:
             result = await _run_public_translation_cycle_once(run_id=run_id)
+            import_events = _collect_cloudflare_d1_import_events_for_updates(
+                data_dir=_data_dir,
+                updates=list(result.get("updates") or []),
+            )
+            summary_result = {**result, "import_events_count": len(import_events)}
             finished_at = datetime.now(UTC).isoformat()
             status = str(result.get("status") or "ok")
             return JSONResponse(
@@ -1600,7 +1610,8 @@ def create_app(
                     "run_id": str(result.get("run_id") or run_id),
                     "started_at": started_at,
                     "finished_at": finished_at,
-                    "summary": _compact_cloudflare_task_summary(task, result),
+                    "summary": _compact_cloudflare_task_summary(task, summary_result),
+                    "import_events": import_events,
                     "error": result.get("error"),
                 }
             )
@@ -1618,6 +1629,8 @@ def create_app(
                 },
                 status_code=500,
             )
+        finally:
+            await _close_target_stores()
 
     async def data_status(
         _user: dict[str, Any] = Depends(get_current_user),

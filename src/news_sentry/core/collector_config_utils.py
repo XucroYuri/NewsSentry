@@ -1154,32 +1154,55 @@ def _collect_cloudflare_d1_import_events(
     data_dir: Path,
     target_ids: list[str],
     limit: int | None = None,
+    event_ids_by_target: dict[str, set[str]] | None = None,
 ) -> list[dict[str, Any]]:
     """Return recent local draft rows in the Worker /events/import wire shape."""
     limit = limit or _cloudflare_collect_import_limit()
     events: list[dict[str, Any]] = []
     seen_targets = sorted({target_id for target_id in target_ids if target_id})
     for target_id in seen_targets:
+        event_ids = (
+            sorted(event_ids_by_target.get(target_id, set()))
+            if event_ids_by_target is not None
+            else []
+        )
+        if event_ids_by_target is not None and not event_ids:
+            continue
         db_path = Path(data_dir) / target_id / "state.db"
         if not db_path.is_file():
             continue
         try:
             uri = f"file:{quote(str(db_path))}?mode=ro"
-            with closing(sqlite3.connect(uri, uri=True, timeout=1.0)) as conn:
+            with closing(sqlite3.connect(uri, uri=True, timeout=10.0)) as conn:
                 conn.row_factory = sqlite3.Row
-                rows = conn.execute(
-                    """
+                conn.execute("PRAGMA busy_timeout=15000")
+                select_sql = """
                     SELECT event_id, target_id, stage, source_id, news_value_score,
                            china_relevance, classification_l0, title_original, url,
                            published_at, created_at, topic_tags, entity_names,
                            metadata_json, public_translation_ready
                     FROM event_index
                     WHERE target_id = ? AND stage = 'drafts'
-                    ORDER BY datetime(COALESCE(published_at, created_at)) DESC, event_id DESC
-                    LIMIT ?
-                    """,
-                    (target_id, limit),
-                ).fetchall()
+                """
+                if event_ids:
+                    placeholders = ",".join("?" for _ in event_ids)
+                    rows = conn.execute(
+                        f"""
+                        {select_sql}
+                          AND event_id IN ({placeholders})
+                        ORDER BY datetime(COALESCE(published_at, created_at)) DESC, event_id DESC
+                        """,  # noqa: S608
+                        (target_id, *event_ids),
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        f"""
+                        {select_sql}
+                        ORDER BY datetime(COALESCE(published_at, created_at)) DESC, event_id DESC
+                        LIMIT ?
+                        """,  # noqa: S608
+                        (target_id, limit),
+                    ).fetchall()
         except sqlite3.Error:
             _log.warning(
                 "Cloudflare D1 import payload skipped unreadable target db: target=%s path=%s",
@@ -1198,6 +1221,30 @@ def _collect_cloudflare_d1_import_events(
     for item in result:
         item.pop("_sort_key", None)
     return result
+
+
+def _collect_cloudflare_d1_import_events_for_updates(
+    *,
+    data_dir: Path,
+    updates: list[dict[str, Any]],
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """Return exact D1 import projections for successfully translated rows."""
+    event_ids_by_target: dict[str, set[str]] = {}
+    for update in updates:
+        target_id = str(update.get("target_id") or "").strip()
+        event_id = str(update.get("event_id") or "").strip()
+        if not target_id or not event_id:
+            continue
+        event_ids_by_target.setdefault(target_id, set()).add(event_id)
+    if not event_ids_by_target:
+        return []
+    return _collect_cloudflare_d1_import_events(
+        data_dir=data_dir,
+        target_ids=sorted(event_ids_by_target),
+        limit=limit or sum(len(items) for items in event_ids_by_target.values()),
+        event_ids_by_target=event_ids_by_target,
+    )
 
 
 async def _run_auto_collect_once(

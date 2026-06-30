@@ -25,6 +25,7 @@ from news_sentry.core.api_server import (
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.collector_config_utils import (
     _collect_cloudflare_d1_import_events,
+    _collect_cloudflare_d1_import_events_for_updates,
     _parse_target_ids,
 )
 from news_sentry.core.event_io_utils import _parse_frontmatter
@@ -522,6 +523,49 @@ class TestCloudflareInternalAPI:
         assert event["related_tags"] == ["涉欧"]
         assert event["region_tags"] == ["意大利"]
 
+    def test_translation_import_payload_uses_exact_updated_events(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        target_dir = tmp_path / "france"
+        target_dir.mkdir()
+        store = AsyncStore(target_dir / "state.db")
+        try:
+            asyncio.run(store.initialize())
+            for event_id in ("translated-this-run", "not-this-run"):
+                asyncio.run(
+                    _insert_index_event(
+                        store,
+                        event_id=event_id,
+                        target_id="france",
+                        source_id="afp",
+                        title_original=f"France update {event_id}",
+                        metadata=_ready_public_metadata(f"France update {event_id}"),
+                    )
+                )
+                assert store._db is not None  # noqa: SLF001
+                asyncio.run(
+                    store._db.execute(  # noqa: SLF001
+                        "UPDATE event_index SET url=? WHERE event_id=?",
+                        (f"https://example.com/{event_id}", event_id),
+                    )
+                )
+            asyncio.run(store._db.commit())  # noqa: SLF001
+
+            events = _collect_cloudflare_d1_import_events_for_updates(
+                data_dir=tmp_path,
+                updates=[
+                    {"target_id": "france", "event_id": "translated-this-run"},
+                    {"target_id": "france", "event_id": ""},
+                    {"target_id": "", "event_id": "ignored"},
+                ],
+            )
+        finally:
+            _close_test_store(store)
+
+        assert [event["event_id"] for event in events] == ["translated-this-run"]
+        assert events[0]["summary"] == "这是一条已经完成中文摘要的公开新闻。"
+
     def test_public_translation_cycle_endpoint_compacts_updates(
         self,
         tmp_path: Path,
@@ -533,8 +577,16 @@ class TestCloudflareInternalAPI:
                 "run_id": run_id,
                 "targets": ["france"],
                 "updates": [
-                    {"event_id": "evt-1", "title": "long payload should not be returned"},
-                    {"event_id": "evt-2", "title": "long payload should not be returned"},
+                    {
+                        "target_id": "france",
+                        "event_id": "evt-1",
+                        "title": "long payload should not be returned",
+                    },
+                    {
+                        "target_id": "france",
+                        "event_id": "evt-2",
+                        "title": "long payload should not be returned",
+                    },
                 ],
                 "failed": 1,
                 "target_results": [
@@ -564,6 +616,8 @@ class TestCloudflareInternalAPI:
         assert "updates" not in data
         assert data["summary"]["updates"] == 2
         assert data["summary"]["failed"] == 1
+        assert data["summary"]["import_events_count"] == 0
+        assert data["import_events"] == []
         assert data["summary"]["target_results"] == [
             {"target_id": "france", "status": "ok", "updated": 2, "failed": 1}
         ]

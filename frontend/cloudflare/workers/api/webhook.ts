@@ -33,6 +33,42 @@ function jsonText(value: unknown, fallback: unknown): string {
   return JSON.stringify(value ?? fallback);
 }
 
+function nonEmptyText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function jsonArrayText(value: unknown): string | null {
+  if (!Array.isArray(value) || value.length === 0) return null;
+  return JSON.stringify(value);
+}
+
+function jsonObjectText(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return Object.keys(value as Record<string, unknown>).length > 0 ? JSON.stringify(value) : null;
+}
+
+function hasProjectionUpdate(item: ImportEventWithId): boolean {
+  return Boolean(
+    nonEmptyText(item.title) ||
+      nonEmptyText(item.summary) ||
+      nonEmptyText(item.recommendation_reason) ||
+      nonEmptyText(item.language) ||
+      nonEmptyText(item.pipeline_stage) ||
+      nonEmptyText(item.value_label) ||
+      nonEmptyText(item.china_relevance_label) ||
+      typeof item.value_score === "number" ||
+      jsonArrayText(item.tags) ||
+      jsonArrayText(item.issue_tags) ||
+      jsonArrayText(item.related_tags) ||
+      jsonArrayText(item.region_tags) ||
+      jsonArrayText(item.image_urls) ||
+      jsonArrayText(item.entities) ||
+      jsonObjectText(item.classification),
+  );
+}
+
 async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return [...new Uint8Array(digest)]
@@ -59,6 +95,7 @@ export async function importEventsToD1(
   events: ImportEventWithId[],
 ): Promise<ImportResponse> {
   let imported = 0;
+  let updated = 0;
   let skipped = 0;
   const errors: string[] = [];
 
@@ -74,7 +111,51 @@ export async function importEventsToD1(
       .bind(eventId)
       .first<{ event_id: string }>();
     if (existing) {
-      skipped += 1;
+      if (!hasProjectionUpdate(item)) {
+        skipped += 1;
+        continue;
+      }
+      await db
+        .prepare(
+          `UPDATE events SET
+             title = COALESCE(NULLIF(?, ''), title),
+             summary = COALESCE(NULLIF(?, ''), summary),
+             recommendation_reason = COALESCE(NULLIF(?, ''), recommendation_reason),
+             image_urls = COALESCE(?, image_urls),
+             tags = COALESCE(?, tags),
+             issue_tags = COALESCE(?, issue_tags),
+             related_tags = COALESCE(?, related_tags),
+             region_tags = COALESCE(?, region_tags),
+             entities = COALESCE(?, entities),
+             language = COALESCE(NULLIF(?, ''), language),
+             pipeline_stage = COALESCE(NULLIF(?, ''), pipeline_stage),
+             value_label = COALESCE(NULLIF(?, ''), value_label),
+             value_score = COALESCE(?, value_score),
+             china_relevance_label = COALESCE(NULLIF(?, ''), china_relevance_label),
+             classification = COALESCE(?, classification),
+             updated_at = datetime('now')
+           WHERE event_id = ?`
+        )
+        .bind(
+          nonEmptyText(item.title),
+          nonEmptyText(item.summary),
+          nonEmptyText(item.recommendation_reason),
+          jsonArrayText(item.image_urls),
+          jsonArrayText(item.tags),
+          jsonArrayText(item.issue_tags),
+          jsonArrayText(item.related_tags),
+          jsonArrayText(item.region_tags),
+          jsonArrayText(item.entities),
+          nonEmptyText(item.language),
+          nonEmptyText(item.pipeline_stage),
+          nonEmptyText(item.value_label),
+          typeof item.value_score === "number" ? item.value_score : null,
+          nonEmptyText(item.china_relevance_label),
+          jsonObjectText(item.classification),
+          eventId,
+        )
+        .run();
+      updated += 1;
       continue;
     }
 
@@ -92,7 +173,41 @@ export async function importEventsToD1(
            language, pipeline_stage,
            value_label, value_score, china_relevance_label, classification
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(event_id) DO NOTHING`
+         ON CONFLICT(event_id) DO UPDATE SET
+           target_id=excluded.target_id,
+           target_label=excluded.target_label,
+           region_id=excluded.region_id,
+           source_id=excluded.source_id,
+           source_name=excluded.source_name,
+           source_type=excluded.source_type,
+           published_at=COALESCE(NULLIF(excluded.published_at, ''), events.published_at),
+           collected_at=COALESCE(NULLIF(excluded.collected_at, ''), events.collected_at),
+           title=COALESCE(NULLIF(excluded.title, ''), events.title),
+           original_title=COALESCE(NULLIF(excluded.original_title, ''), events.original_title),
+           summary=COALESCE(NULLIF(excluded.summary, ''), events.summary),
+           recommendation_reason=COALESCE(
+             NULLIF(excluded.recommendation_reason, ''),
+             events.recommendation_reason
+           ),
+           full_content=COALESCE(NULLIF(excluded.full_content, ''), events.full_content),
+           original_url=COALESCE(NULLIF(excluded.original_url, ''), events.original_url),
+           detail_url=COALESCE(NULLIF(excluded.detail_url, ''), events.detail_url),
+           image_urls=COALESCE(NULLIF(excluded.image_urls, '[]'), events.image_urls),
+           tags=COALESCE(NULLIF(excluded.tags, '[]'), events.tags),
+           issue_tags=COALESCE(NULLIF(excluded.issue_tags, '[]'), events.issue_tags),
+           related_tags=COALESCE(NULLIF(excluded.related_tags, '[]'), events.related_tags),
+           region_tags=COALESCE(NULLIF(excluded.region_tags, '[]'), events.region_tags),
+           entities=COALESCE(NULLIF(excluded.entities, '[]'), events.entities),
+           language=COALESCE(NULLIF(excluded.language, ''), events.language),
+           pipeline_stage=COALESCE(NULLIF(excluded.pipeline_stage, ''), events.pipeline_stage),
+           value_label=COALESCE(NULLIF(excluded.value_label, ''), events.value_label),
+           value_score=COALESCE(excluded.value_score, events.value_score),
+           china_relevance_label=COALESCE(
+             NULLIF(excluded.china_relevance_label, ''),
+             events.china_relevance_label
+           ),
+           classification=COALESCE(NULLIF(excluded.classification, '{}'), events.classification),
+           updated_at=datetime('now')`
       )
       .bind(
         eventId,
@@ -130,6 +245,7 @@ export async function importEventsToD1(
 
   return {
     imported,
+    updated,
     skipped,
     errors,
   };
@@ -176,7 +292,7 @@ export async function handleImport(
     }
 
     const body = await importEventsToD1(db, events);
-    if (body.imported > 0) {
+    if (body.imported > 0 || body.updated > 0) {
       try {
         await refreshPublicReadSnapshots(db);
       } catch (error) {
