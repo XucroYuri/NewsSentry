@@ -180,6 +180,24 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler d1 execute ns-db --remote --file=db/schema.sql
 
+      - name: Apply Cloudflare D1 target collect flag migration
+        if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if npx wrangler d1 execute ns-db --remote --command \
+            "SELECT cloudflare_collect_enabled FROM targets LIMIT 1" >/tmp/ns-d1-column-check.json 2>/tmp/ns-d1-column-check.err; then
+            echo "targets.cloudflare_collect_enabled already exists"
+          else
+            cat /tmp/ns-d1-column-check.err
+            npx wrangler d1 execute ns-db --remote \
+              --file=db/migrations/20260630_add_target_collect_enabled.sql
+          fi
+
   deploy-cloudflare-worker:
     name: Deploy Cloudflare Worker
     runs-on: ubuntu-latest
@@ -455,7 +473,8 @@ jobs:
             --api-url "${API_URL}" \
             --min-featured 100 \
             --max-latest-age-hours 24 \
-            --min-summary-ready 500
+            --min-summary-ready 500 \
+            --min-d1-targets 80
 
       - name: Verify SEO/GEO public site
         run: |

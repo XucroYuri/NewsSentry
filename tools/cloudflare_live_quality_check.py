@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import statistics
 import time
 import urllib.error
 import urllib.parse
@@ -20,10 +21,13 @@ _NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 class QualityThresholds:
     min_featured: int = 100
     min_summary_ready: int = 500
+    min_d1_targets: int = 80
     max_latest_age_hours: int = 24
     max_featured_ttfb_ms: int = 700
     max_bootstrap_ttfb_ms: int = 700
     max_facets_ttfb_ms: int = 700
+    max_warm_median_ttfb_ms: int = 900
+    max_warm_p95_ttfb_ms: int = 1200
 
 
 @dataclass(frozen=True)
@@ -90,11 +94,24 @@ def evaluate_receipt(receipt: dict[str, Any], thresholds: QualityThresholds) -> 
         ttfb_ms = int(_nested(receipt, key, "ttfb_ms", default=0))
         if ttfb_ms <= 0 or ttfb_ms > threshold:
             failures.append(f"{key}_ttfb_above_threshold")
+        median_ms = int(_nested(receipt, key, "warm_ttfb_median_ms", default=ttfb_ms))
+        p95_ms = int(_nested(receipt, key, "warm_ttfb_p95_ms", default=ttfb_ms))
+        if median_ms <= 0 or median_ms > thresholds.max_warm_median_ttfb_ms:
+            failures.append(f"{key}_warm_median_ttfb_above_threshold")
+        if p95_ms <= 0 or p95_ms > thresholds.max_warm_p95_ttfb_ms:
+            failures.append(f"{key}_warm_p95_ttfb_above_threshold")
+
+    if int(_nested(receipt, "featured", "copy_ready", default=0)) != int(
+        _nested(receipt, "featured", "items", default=0)
+    ):
+        failures.append("featured_public_copy_missing")
 
     if int(_nested(receipt, "facets", "http_status", default=0)) != 200:
         failures.append("facets_http_failed")
     if int(_nested(receipt, "facets", "regions", default=0)) <= 0:
         failures.append("facets_regions_empty")
+    if int(_nested(receipt, "d1_targets", "count", default=0)) < thresholds.min_d1_targets:
+        failures.append("d1_targets_below_threshold")
 
     if int(_nested(receipt, "head", "http_status", default=0)) != 200:
         failures.append("head_probe_failed")
@@ -161,6 +178,21 @@ def _request_warm_json(url: str) -> tuple[int, dict[str, Any], dict[str, str], i
     return _request_json(url)
 
 
+def _request_warm_json_samples(
+    url: str,
+    *,
+    samples: int = 5,
+) -> tuple[int, dict[str, Any], dict[str, str], int, int, int]:
+    _request_json(url)
+    responses = [_request_json(url) for _ in range(samples)]
+    status, payload, headers, elapsed_ms = responses[-1]
+    timings = sorted(max(0, item[3]) for item in responses)
+    median_ms = int(statistics.median(timings)) if timings else elapsed_ms
+    p95_index = min(len(timings) - 1, int(len(timings) * 0.95))
+    p95_ms = timings[p95_index] if timings else elapsed_ms
+    return status, payload, headers, elapsed_ms, median_ms, p95_ms
+
+
 def _request_text(url: str, *, method: str = "GET") -> tuple[int, str]:
     request = urllib.request.Request(  # noqa: S310
         _checked_http_url(url),
@@ -180,16 +212,38 @@ def collect_receipt(base_url: str, api_url: str) -> dict[str, Any]:
     generated_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
     health_status, health, _, _ = _request_json(f"{api}/api/v1/health")
-    featured_status, featured, featured_headers, featured_ms = _request_warm_json(
-        f"{api}/api/v1/public/news?featured=true&page_size=20"
+    (
+        featured_status,
+        featured,
+        featured_headers,
+        featured_ms,
+        featured_median_ms,
+        featured_p95_ms,
+    ) = _request_warm_json_samples(
+        f"{api}/api/v1/public/news?featured=true&page_size=20",
     )
     all_status, all_news, _, _ = _request_json(f"{api}/api/v1/public/news?page_size=3")
-    bootstrap_status, bootstrap, bootstrap_headers, bootstrap_ms = _request_warm_json(
-        f"{api}/api/v1/public/bootstrap?featured=true&page_size=20"
+    (
+        bootstrap_status,
+        bootstrap,
+        bootstrap_headers,
+        bootstrap_ms,
+        bootstrap_median_ms,
+        bootstrap_p95_ms,
+    ) = _request_warm_json_samples(
+        f"{api}/api/v1/public/bootstrap?featured=true&page_size=20",
     )
-    facets_status, facets, facets_headers, facets_ms = _request_warm_json(
-        f"{api}/api/v1/public/facets"
+    (
+        facets_status,
+        facets,
+        facets_headers,
+        facets_ms,
+        facets_median_ms,
+        facets_p95_ms,
+    ) = _request_warm_json_samples(
+        f"{api}/api/v1/public/facets",
     )
+    regions_status, regions, _, _ = _request_json(f"{api}/api/v1/regions?include_empty=true")
     head_status, _ = _request_text(
         f"{api}/api/v1/public/news?featured=true&page_size=1",
         method="HEAD",
@@ -204,6 +258,14 @@ def collect_receipt(base_url: str, api_url: str) -> dict[str, Any]:
             js_contains_api_base = True
             break
 
+    featured_items = featured.get("items") or []
+    featured_copy_ready = sum(
+        1
+        for item in featured_items
+        if str(item.get("summary") or "").strip()
+        and str(item.get("recommendationReason") or "").strip()
+    )
+
     return {
         "generated_at": generated_at,
         "health": {"http_status": health_status, **health},
@@ -211,9 +273,12 @@ def collect_receipt(base_url: str, api_url: str) -> dict[str, Any]:
             "http_status": featured_status,
             "total": featured.get("total", 0),
             "items": len(featured.get("items") or []),
+            "copy_ready": featured_copy_ready,
             "snapshot": featured_headers.get("x-news-sentry-snapshot"),
             "worker_cache": featured_headers.get("x-news-sentry-worker-cache"),
             "ttfb_ms": featured_ms,
+            "warm_ttfb_median_ms": featured_median_ms,
+            "warm_ttfb_p95_ms": featured_p95_ms,
         },
         "all": {
             "http_status": all_status,
@@ -227,6 +292,8 @@ def collect_receipt(base_url: str, api_url: str) -> dict[str, Any]:
             "snapshot": bootstrap_headers.get("x-news-sentry-snapshot"),
             "worker_cache": bootstrap_headers.get("x-news-sentry-worker-cache"),
             "ttfb_ms": bootstrap_ms,
+            "warm_ttfb_median_ms": bootstrap_median_ms,
+            "warm_ttfb_p95_ms": bootstrap_p95_ms,
         },
         "facets": {
             "http_status": facets_status,
@@ -236,6 +303,12 @@ def collect_receipt(base_url: str, api_url: str) -> dict[str, Any]:
             "snapshot": facets_headers.get("x-news-sentry-snapshot"),
             "worker_cache": facets_headers.get("x-news-sentry-worker-cache"),
             "ttfb_ms": facets_ms,
+            "warm_ttfb_median_ms": facets_median_ms,
+            "warm_ttfb_p95_ms": facets_p95_ms,
+        },
+        "d1_targets": {
+            "http_status": regions_status,
+            "count": len(regions.get("regions") or []),
         },
         "head": {"http_status": head_status},
         "write_guard": {"http_status": write_status},
@@ -249,6 +322,7 @@ def main() -> int:
     parser.add_argument("--api-url", default="https://api.news-sentry.com")
     parser.add_argument("--min-featured", type=int, default=100)
     parser.add_argument("--min-summary-ready", type=int, default=500)
+    parser.add_argument("--min-d1-targets", type=int, default=80)
     parser.add_argument("--max-latest-age-hours", type=int, default=24)
     parser.add_argument("--max-featured-ttfb-ms", type=int, default=700)
     parser.add_argument("--max-bootstrap-ttfb-ms", type=int, default=700)
@@ -261,6 +335,7 @@ def main() -> int:
         QualityThresholds(
             min_featured=args.min_featured,
             min_summary_ready=args.min_summary_ready,
+            min_d1_targets=args.min_d1_targets,
             max_latest_age_hours=args.max_latest_age_hours,
             max_featured_ttfb_ms=args.max_featured_ttfb_ms,
             max_bootstrap_ttfb_ms=args.max_bootstrap_ttfb_ms,
