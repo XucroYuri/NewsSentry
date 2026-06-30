@@ -68,6 +68,7 @@ export class NewsSentryContainer extends Container<Env> {
       NEWSSENTRY_DEPLOYMENT_ENV: "cloudflare-container",
       NEWSSENTRY_PROFILE: "cloudflare",
       NEWSSENTRY_AUTO_COLLECT: "0",
+      NEWSSENTRY_COLLECT_STAGE: "all",
       NEWSSENTRY_PUBLIC_TRANSLATION: "1",
       NEWSSENTRY_LOG_LEVEL: "INFO",
       GEMINI_API_KEY: env.GEMINI_API_KEY,

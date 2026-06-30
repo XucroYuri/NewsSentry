@@ -45,6 +45,7 @@ class D1Target:
     region_type: str
     source_count: int
     event_count: int
+    cloudflare_collect_enabled: int = 1
 
 
 @dataclass(frozen=True)
@@ -135,6 +136,45 @@ def _target_primary_language(config: dict[str, Any]) -> str:
     return "en"
 
 
+def _target_lifecycle_status(config: dict[str, Any]) -> str:
+    lifecycle = config.get("lifecycle")
+    if isinstance(lifecycle, dict) and isinstance(lifecycle.get("status"), str):
+        return lifecycle["status"].strip().lower()
+    status = config.get("status")
+    return str(status or "active").strip().lower()
+
+
+def _source_ref_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        for key in ("source_id", "id", "ref"):
+            if isinstance(value.get(key), str):
+                return value[key].strip()
+    return ""
+
+
+def _target_source_refs(config: dict[str, Any]) -> list[str]:
+    refs = config.get("source_channel_refs")
+    if not isinstance(refs, list):
+        return []
+    result: list[str] = []
+    for item in refs:
+        source_id = _source_ref_text(item)
+        if source_id and source_id not in result:
+            result.append(source_id)
+    return result
+
+
+def _target_has_source_config(targets_dir: Path, target_id: str, config: dict[str, Any]) -> bool:
+    if _target_source_refs(config):
+        return True
+    sources_dir = targets_dir.parent / "sources" / target_id
+    return sources_dir.is_dir() and any(
+        path.suffix in {".yaml", ".yml"} for path in sources_dir.iterdir()
+    )
+
+
 def _iter_event_rows(db_path: Path) -> list[sqlite3.Row]:
     with closing(sqlite3.connect(db_path)) as conn:
         conn.row_factory = sqlite3.Row
@@ -207,17 +247,40 @@ def collect_backfill_plan(
         if limit is not None and len(events) >= limit:
             break
 
+    configured_targets: dict[str, dict[str, Any]] = {}
+    for path in sorted(targets_dir.glob("*.yaml")):
+        if path.name.startswith("_"):
+            continue
+        target_config = _read_target_config(path, path.stem)
+        target_id = str(target_config.get("target_id") or path.stem).strip()
+        if not target_id or target_id.startswith("_"):
+            continue
+        configured_targets[target_id] = target_config
+        for source_id in _target_source_refs(target_config):
+            target_source_ids.setdefault(target_id, set()).add(source_id)
+            source_names.setdefault((target_id, source_id), source_id)
+
     targets: list[D1Target] = []
-    for target_id in sorted(target_event_counts):
-        target_config = _read_target_config(targets_dir / f"{target_id}.yaml", target_id)
+    for target_id in sorted(set(target_event_counts) | set(configured_targets)):
+        target_config = configured_targets.get(target_id) or _read_target_config(
+            targets_dir / f"{target_id}.yaml",
+            target_id,
+        )
+        source_count = len(target_source_ids.get(target_id, set()))
+        inactive_statuses = {"retired", "archive", "archived", "dead"}
+        collect_enabled = (
+            _target_lifecycle_status(target_config) not in inactive_statuses
+            and _target_has_source_config(targets_dir, target_id, target_config)
+        )
         targets.append(
             D1Target(
                 target_id=target_id,
                 display_name=str(target_config.get("display_name") or target_id),
                 primary_language=_target_primary_language(target_config),
                 region_type=str(target_config.get("region_type") or "country"),
-                source_count=len(target_source_ids.get(target_id, set())),
-                event_count=target_event_counts[target_id],
+                source_count=source_count,
+                event_count=target_event_counts.get(target_id, 0),
+                cloudflare_collect_enabled=1 if collect_enabled else 0,
             )
         )
 
@@ -231,14 +294,16 @@ def collect_backfill_plan(
 def _target_insert(target: D1Target) -> str:
     return (
         "INSERT INTO targets (target_id, display_name, region_id, primary_language, "  # noqa: S608
-        "region_type, source_count, event_count, lifecycle, archived) VALUES "
+        "region_type, source_count, event_count, lifecycle, archived, "
+        "cloudflare_collect_enabled) VALUES "
         f"({_sql(target.target_id)}, {_sql(target.display_name)}, {_sql(target.target_id)}, "
         f"{_sql(target.primary_language)}, {_sql(target.region_type)}, {target.source_count}, "
-        f"{target.event_count}, '{{}}', 0) "
+        f"{target.event_count}, '{{}}', 0, {target.cloudflare_collect_enabled}) "
         "ON CONFLICT(target_id) DO UPDATE SET "
         "display_name=excluded.display_name, primary_language=excluded.primary_language, "
         "region_type=excluded.region_type, source_count=excluded.source_count, "
-        "event_count=excluded.event_count;"
+        "event_count=excluded.event_count, "
+        "cloudflare_collect_enabled=excluded.cloudflare_collect_enabled;"
     )
 
 

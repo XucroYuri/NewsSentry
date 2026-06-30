@@ -77,7 +77,8 @@ CREATE TABLE IF NOT EXISTS targets (
     source_count INTEGER DEFAULT 0,
     event_count INTEGER DEFAULT 0,
     lifecycle TEXT DEFAULT '{}',
-    archived INTEGER DEFAULT 0
+    archived INTEGER DEFAULT 0,
+    cloudflare_collect_enabled INTEGER NOT NULL DEFAULT 1
 );
 
 -- 来源健康表

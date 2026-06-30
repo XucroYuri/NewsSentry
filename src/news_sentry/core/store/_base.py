@@ -71,7 +71,7 @@ class AsyncStoreBase:
         if self._db is not None:
             return
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._db = await aiosqlite.connect(str(self._db_path))
+        self._db = await aiosqlite.connect(str(self._db_path), timeout=30.0)
         for pragma_sql in _PRAGMA_SETUP:
             await self._db.execute(pragma_sql)
         await self._db.execute(_DDL_KNOWN_IDS)
