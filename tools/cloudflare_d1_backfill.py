@@ -302,7 +302,7 @@ def _target_insert(target: D1Target) -> str:
         "ON CONFLICT(target_id) DO UPDATE SET "
         "display_name=excluded.display_name, primary_language=excluded.primary_language, "
         "region_type=excluded.region_type, source_count=excluded.source_count, "
-        "event_count=excluded.event_count, "
+        "event_count=MAX(COALESCE(targets.event_count, 0), COALESCE(excluded.event_count, 0)), "
         "cloudflare_collect_enabled=excluded.cloudflare_collect_enabled;"
     )
 

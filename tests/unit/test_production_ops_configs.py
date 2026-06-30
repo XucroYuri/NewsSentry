@@ -119,6 +119,11 @@ def test_deploy_workflow_runs_cloudflare_native_runtime_checks() -> None:
     assert "Deploy Cloudflare Pages" in workflow
     assert "Cloudflare D1 schema migration" in workflow
     assert "Cloudflare D1 backfill dry run" in workflow
+    assert "Apply Cloudflare D1 target and source sync" in workflow
+    assert "--limit 0" in workflow
+    assert "news-sentry-d1-target-sync.sql" in workflow
+    assert "Refresh Cloudflare public read snapshots" in workflow
+    assert "tools/cloudflare_refresh_public_snapshots.py" in workflow
     assert "tools/cloudflare_d1_backfill.py" in workflow
     assert "--dry-run" in workflow
     assert 'wrangler deploy --env=""' in workflow
