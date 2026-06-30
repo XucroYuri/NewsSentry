@@ -15,8 +15,11 @@ import type { PublicFacetItem } from "../lib/contracts";
 import {
   buildPublicNewsWhere,
   type NewsRow,
-  PUBLIC_NEWS_SELECT_COLUMNS,
+  BREAKING_SCORE_VERSION,
+  localeFromRequest,
   publicNewsOrderBy,
+  publicNewsLocaleJoin,
+  publicNewsSelectColumnsForLocale,
   rowToPublicNewsItem,
 } from "../lib/public-news-query";
 import {
@@ -25,7 +28,7 @@ import {
   maybeStoreCachedPublicRead,
 } from "../lib/public-read-cache";
 import {
-  BOOTSTRAP_FEATURED_SNAPSHOT_KEY,
+  bootstrapFeaturedSnapshotKey,
   markSnapshotBypass,
   markSnapshotMiss,
   PUBLIC_SNAPSHOT_PAGE_SIZE,
@@ -34,6 +37,18 @@ import {
   sliceBootstrapSnapshot,
   snapshotPayloadResponse,
 } from "../lib/public-read-snapshots";
+
+function withLocaleHeaders(response: Response, locale: string): Response {
+  const headers = new Headers(response.headers);
+  headers.set("Content-Language", locale);
+  headers.set("X-News-Sentry-Locale", locale);
+  headers.set("X-News-Sentry-Breaking-Version", BREAKING_SCORE_VERSION);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
 
 export async function handleBootstrap(
   request: Request,
@@ -44,6 +59,7 @@ export async function handleBootstrap(
 ): Promise<Response> {
   try {
     const featured = params.get("featured") !== "false";
+    const locale = localeFromRequest(request, params.get("locale"));
     const requestedPageSize = Number.parseInt(params.get("page_size") || "20", 10);
     const pageSize =
       Number.isFinite(requestedPageSize) && requestedPageSize > 0
@@ -52,33 +68,42 @@ export async function handleBootstrap(
     const cacheKey =
       featured &&
       pageSize <= PUBLIC_SNAPSHOT_PAGE_SIZE &&
-      hasOnlyParams(params, ["featured", "page_size"])
-        ? `public-read:bootstrap:featured:page_size=${pageSize}`
+      hasOnlyParams(params, ["featured", "page_size", "locale"])
+        ? `public-read:bootstrap:featured:page_size=${pageSize}:locale=${locale}`
         : null;
     const cached = await maybeServeCachedPublicRead(request, cacheKey);
-    if (cached) return cached;
+    if (cached) return withLocaleHeaders(cached, locale);
     const snapshot =
       pageSize === PUBLIC_SNAPSHOT_PAGE_SIZE
         ? await readPublicSnapshot(
             request,
             db,
-            cacheKey ? BOOTSTRAP_FEATURED_SNAPSHOT_KEY : null,
+            cacheKey ? bootstrapFeaturedSnapshotKey(locale) : null,
             60,
           )
         : cacheKey
           ? await (async () => {
               const payload = await readPublicSnapshotPayload<PublicBootstrapResponse>(
                 db,
-                BOOTSTRAP_FEATURED_SNAPSHOT_KEY,
+                bootstrapFeaturedSnapshotKey(locale),
               );
               return payload
                 ? snapshotPayloadResponse(sliceBootstrapSnapshot(payload, pageSize), 60)
                 : null;
             })()
           : null;
-    if (snapshot) return maybeStoreCachedPublicRead(request, cacheKey, snapshot, ctx, 60);
+    if (snapshot) {
+      return maybeStoreCachedPublicRead(
+        request,
+        cacheKey,
+        withLocaleHeaders(snapshot, locale),
+        ctx,
+        60,
+      );
+    }
 
     const newsFilters = buildPublicNewsWhere({ featured });
+    const localeJoin = publicNewsLocaleJoin(locale);
     // 并行查询 news、regions、facets
     const [
       newsResult,
@@ -91,13 +116,14 @@ export async function handleBootstrap(
       await Promise.all([
         db
           .prepare(
-            `SELECT ${PUBLIC_NEWS_SELECT_COLUMNS}
+            `SELECT ${publicNewsSelectColumnsForLocale(locale)}
              FROM events
+             ${localeJoin.sql}
              ${newsFilters.sql}
              ${publicNewsOrderBy(featured)}
              LIMIT ?`
           )
-          .bind(...newsFilters.bindings, pageSize)
+          .bind(...localeJoin.bindings, ...newsFilters.bindings, pageSize)
           .all(),
 
         db
@@ -155,7 +181,7 @@ export async function handleBootstrap(
       items: newsRows.map((r) => rowToPublicNewsItem(r)),
       latestCursor: null,
       nextCursor: null,
-      pollAfterMs: 60000,
+      pollAfterMs: featured ? 30000 : 60000,
       hasNewer: false,
       total: newsCountResult?.total ?? newsRows.length,
     };
@@ -206,10 +232,10 @@ export async function handleBootstrap(
       generatedAt: new Date().toISOString(),
     };
 
-    const response = new Response(JSON.stringify(body), {
+    const response = withLocaleHeaders(new Response(JSON.stringify(body), {
       status: 200,
       headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=30" },
-    });
+    }), locale);
     const markedResponse = cacheKey ? markSnapshotMiss(response) : markSnapshotBypass(response);
     return maybeStoreCachedPublicRead(request, cacheKey, markedResponse, ctx, 60);
   } catch (err) {

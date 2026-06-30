@@ -9,6 +9,10 @@
 import type { PublicNewsItem, PublicNewsSource } from "./contracts";
 
 export const PUBLIC_FEATURED_MIN_SCORE = 60;
+export const PUBLIC_BREAKING_MIN_SCORE = 60;
+export const BREAKING_SCORE_VERSION = "breaking-v1.0";
+export const SUPPORTED_PUBLIC_LOCALES = ["zh", "en", "es", "ar", "fr"] as const;
+export type PublicLocale = (typeof SUPPORTED_PUBLIC_LOCALES)[number];
 
 export interface NewsRow {
   event_id: string;
@@ -35,6 +39,14 @@ export interface NewsRow {
   discussion_count: number | null;
   value_label: string;
   value_score: number | null;
+  breaking_score: number | null;
+  breaking_label: string | null;
+  breaking_reason: string | null;
+  breaking_confidence: number | null;
+  breaking_dimensions: string | null;
+  target_timezone: string | null;
+  published_at_local: string | null;
+  available_locales: string | null;
   china_relevance_label: string;
   credibility_label: string | null;
 }
@@ -46,7 +58,42 @@ export const PUBLIC_NEWS_SELECT_COLUMNS = `
   recommendation_reason, full_content, original_url,
   detail_url, image_urls, tags, issue_tags, related_tags,
   region_tags, entities, related_count, discussion_count,
-  value_label, value_score, china_relevance_label
+  value_label, value_score, breaking_score, breaking_label,
+  breaking_reason, breaking_confidence, breaking_dimensions,
+  target_timezone, published_at_local,
+  (
+    SELECT json_group_array(locale)
+    FROM event_localizations
+    WHERE event_localizations.event_id = events.event_id
+  ) AS available_locales,
+  china_relevance_label
+`;
+
+export const PUBLIC_NEWS_LOCALE_SELECT_COLUMNS = `
+  events.event_id, events.target_id, events.target_label,
+  events.source_id, events.source_name, events.source_type, events.credibility_label,
+  events.published_at,
+  COALESCE(localized.localized_title, events.title) AS title,
+  events.original_title,
+  COALESCE(localized.localized_summary, events.summary) AS summary,
+  COALESCE(localized.localized_recommendation_reason, events.recommendation_reason) AS recommendation_reason,
+  events.full_content, events.original_url,
+  events.detail_url, events.image_urls,
+  COALESCE(localized.localized_tags, events.tags) AS tags,
+  COALESCE(localized.localized_issue_tags, events.issue_tags) AS issue_tags,
+  COALESCE(localized.localized_related_tags, events.related_tags) AS related_tags,
+  COALESCE(localized.localized_region_tags, events.region_tags) AS region_tags,
+  events.entities, events.related_count, events.discussion_count,
+  events.value_label, events.value_score,
+  events.breaking_score, events.breaking_label, events.breaking_reason,
+  events.breaking_confidence, events.breaking_dimensions,
+  events.target_timezone, events.published_at_local,
+  (
+    SELECT json_group_array(locale)
+    FROM event_localizations
+    WHERE event_localizations.event_id = events.event_id
+  ) AS available_locales,
+  events.china_relevance_label
 `;
 
 export interface PublicNewsFilterInput {
@@ -68,7 +115,10 @@ export function buildPublicNewsWhere(input: PublicNewsFilterInput): {
 
   if (input.featured) {
     sql += `
-      AND value_score >= ?
+      AND (
+        breaking_score >= ?
+        OR (breaking_score IS NULL AND value_score >= ?)
+      )
       AND summary IS NOT NULL
       AND TRIM(summary) != ''
       AND recommendation_reason IS NOT NULL
@@ -87,7 +137,7 @@ export function buildPublicNewsWhere(input: PublicNewsFilterInput): {
         OR UPPER(TRIM(title)) LIKE 'SUNDAY, %'
       )
     `;
-    bindings.push(PUBLIC_FEATURED_MIN_SCORE);
+    bindings.push(PUBLIC_BREAKING_MIN_SCORE, PUBLIC_FEATURED_MIN_SCORE);
   }
 
   if (input.regionId) {
@@ -121,8 +171,35 @@ export function buildPublicNewsWhere(input: PublicNewsFilterInput): {
 
 export function publicNewsOrderBy(featured: boolean): string {
   return featured
-    ? "ORDER BY value_score DESC, published_at DESC, event_id DESC"
-    : "ORDER BY published_at DESC, event_id DESC";
+    ? "ORDER BY events.breaking_score DESC, events.published_at DESC, events.event_id DESC"
+    : "ORDER BY events.published_at DESC, events.event_id DESC";
+}
+
+export function localeFromRequest(request: Request, explicitLocale?: string | null): PublicLocale {
+  const requested = String(explicitLocale || "").trim().toLowerCase().split("-")[0];
+  if ((SUPPORTED_PUBLIC_LOCALES as readonly string[]).includes(requested)) {
+    return requested as PublicLocale;
+  }
+  const header = request.headers.get("Accept-Language") || "";
+  for (const part of header.split(",")) {
+    const locale = part.trim().split(";")[0]?.toLowerCase().split("-")[0];
+    if ((SUPPORTED_PUBLIC_LOCALES as readonly string[]).includes(locale)) {
+      return locale as PublicLocale;
+    }
+  }
+  return "zh";
+}
+
+export function publicNewsLocaleJoin(locale: PublicLocale): { sql: string; bindings: unknown[] } {
+  return {
+    sql: `LEFT JOIN event_localizations localized
+      ON localized.event_id = events.event_id AND localized.locale = ?`,
+    bindings: [locale],
+  };
+}
+
+export function publicNewsSelectColumnsForLocale(_locale: PublicLocale): string {
+  return PUBLIC_NEWS_LOCALE_SELECT_COLUMNS;
 }
 
 function parseJsonArray(raw: string): string[] {
@@ -140,6 +217,21 @@ function parseEntities(raw: string): { name: string; type?: string | null }[] {
     return JSON.parse(raw) as { name: string; type?: string | null }[];
   } catch {
     return [];
+  }
+}
+
+function parseJsonObject(raw: string | null): Record<string, number> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const out: Record<string, number> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === "number") out[key] = value;
+    }
+    return out;
+  } catch {
+    return {};
   }
 }
 
@@ -174,6 +266,14 @@ export function rowToPublicNewsItem(row: NewsRow): PublicNewsItem {
     discussionCount: row.discussion_count,
     valueLabel: row.value_label as PublicNewsItem["valueLabel"],
     valueScore: row.value_score,
+    breakingScore: row.breaking_score ?? row.value_score,
+    breakingLabel: (row.breaking_label as PublicNewsItem["breakingLabel"]) ?? null,
+    breakingReason: row.breaking_reason,
+    breakingConfidence: row.breaking_confidence,
+    breakingDimensions: parseJsonObject(row.breaking_dimensions),
+    targetTimezone: row.target_timezone,
+    publishedAtLocal: row.published_at_local,
+    availableLocales: parseJsonArray(row.available_locales || "[]"),
     chinaRelevanceLabel: row.china_relevance_label as PublicNewsItem["chinaRelevanceLabel"],
   };
 }

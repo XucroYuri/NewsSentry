@@ -8,7 +8,13 @@ interface ScheduledEnv {
   NEWS_SENTRY_CONTAINER?: DurableObjectNamespace;
 }
 
-type ScheduledTask = "collect-cycle" | "public-translation-cycle" | "refresh-public-quality";
+type ScheduledTask =
+  | "collect-cycle"
+  | "public-translation-cycle"
+  | "refresh-public-quality"
+  | "retention-cycle"
+  | "cost-audit-cycle";
+type ContainerTask = "collect-cycle" | "public-translation-cycle";
 
 const COLLECT_TARGET_BATCH_SIZE = 4;
 const COLLECT_TARGET_CURSOR_KEY = "cursor:collect-cycle-target-index";
@@ -25,6 +31,8 @@ interface CollectTargetBatch {
 function taskForCron(cron: string): ScheduledTask {
   if (cron === "*/15 * * * *") return "collect-cycle";
   if (cron === "7,37 * * * *") return "public-translation-cycle";
+  if (cron === "23 * * * *") return "retention-cycle";
+  if (cron === "53 */6 * * *") return "cost-audit-cycle";
   return "refresh-public-quality";
 }
 
@@ -171,6 +179,12 @@ function taskRuntimeDetails(task: ScheduledTask): Record<string, unknown> {
   if (task === "public-translation-cycle") {
     return { task_mode: "public_translation", pipeline_stage: "drafts" };
   }
+  if (task === "retention-cycle") {
+    return { task_mode: "retention", retention_days: 90 };
+  }
+  if (task === "cost-audit-cycle") {
+    return { task_mode: "cloudflare_budget" };
+  }
   return { task_mode: "public_quality", pipeline_stage: "drafts" };
 }
 
@@ -253,7 +267,7 @@ async function persistCollectTargetCursor(
 }
 
 function containerTaskRequest(
-  task: Exclude<ScheduledTask, "refresh-public-quality">,
+  task: ContainerTask,
   targetIds?: string[],
   signal?: AbortSignal,
 ): Request {
@@ -334,7 +348,7 @@ async function waitForContainerRetryDelay(attempt: number): Promise<void> {
 
 async function callContainerInternalTask(
   env: ScheduledEnv,
-  task: Exclude<ScheduledTask, "refresh-public-quality">,
+  task: ContainerTask,
   targetIds?: string[],
 ): Promise<Record<string, unknown>> {
   if (!env.NEWS_SENTRY_CONTAINER) {
@@ -415,6 +429,75 @@ async function refreshPublicQuality(db: D1Database): Promise<Record<string, unkn
   return details;
 }
 
+export async function deleteExpiredPublicData(
+  db: D1Database,
+  retentionDays = 90,
+): Promise<Record<string, unknown>> {
+  const cutoffExpr = `-${Math.max(1, Math.trunc(retentionDays))} days`;
+  const expired = await db
+    .prepare(
+      `SELECT event_id FROM events
+       WHERE datetime(COALESCE(published_at, collected_at, created_at)) < datetime('now', ?)
+       LIMIT 500`,
+    )
+    .bind(cutoffExpr)
+    .all<{ event_id: string }>();
+  const ids = (expired.results || []).map((row) => row.event_id).filter(Boolean);
+  if (ids.length === 0) {
+    return { status: "ok", retention_days: retentionDays, deleted_events: 0, deleted_localizations: 0 };
+  }
+  let deletedLocalizations = 0;
+  let deletedEvents = 0;
+  for (const eventId of ids) {
+    const loc = await db
+      .prepare("DELETE FROM event_localizations WHERE event_id = ?")
+      .bind(eventId)
+      .run();
+    deletedLocalizations += Number(loc.meta?.changes || 0);
+    const ev = await db.prepare("DELETE FROM events WHERE event_id = ?").bind(eventId).run();
+    deletedEvents += Number(ev.meta?.changes || 0);
+  }
+  await db
+    .prepare("DELETE FROM public_read_snapshots WHERE updated_at < datetime('now', '-7 days')")
+    .run();
+  return {
+    status: "ok",
+    retention_days: retentionDays,
+    deleted_events: deletedEvents,
+    deleted_localizations: deletedLocalizations,
+  };
+}
+
+async function auditCloudflareBudget(db: D1Database): Promise<Record<string, unknown>> {
+  const [events, localizations, snapshots] = await Promise.all([
+    db.prepare("SELECT COUNT(*) AS count FROM events").first<{ count: number }>(),
+    db.prepare("SELECT COUNT(*) AS count FROM event_localizations").first<{ count: number }>(),
+    db
+      .prepare("SELECT COUNT(*) AS count, COALESCE(SUM(payload_bytes), 0) AS bytes FROM public_read_snapshots")
+      .first<{ count: number; bytes: number }>(),
+  ]);
+  const details = {
+    status: "ok",
+    cloudflare_budget: {
+      posture: "free_first",
+      events: events?.count ?? 0,
+      localizations: localizations?.count ?? 0,
+      snapshots: snapshots?.count ?? 0,
+      snapshot_bytes: snapshots?.bytes ?? 0,
+      paid_runtime_note: "Cloudflare Containers are paid Workers resources; keep cron batches bounded.",
+    },
+  };
+  await db
+    .prepare(
+      `INSERT INTO ops_state (key, value, updated_at)
+       VALUES ('cloudflare_budget', ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
+    )
+    .bind(JSON.stringify(details.cloudflare_budget), isoNow())
+    .run();
+  return details;
+}
+
 function collectBatchDetails(batch: CollectTargetBatch): Record<string, unknown> {
   return {
     target_ids: batch.targetIds,
@@ -439,7 +522,7 @@ export async function runScheduledCloudflareTask(
     return;
   }
   try {
-    if (task !== "refresh-public-quality") {
+    if (task === "collect-cycle" || task === "public-translation-cycle") {
       containerWriterLockAcquired = await acquireLock(env.DB, CONTAINER_WRITER_LOCK_NAME, 20);
       if (!containerWriterLockAcquired) {
         await recordRun(env.DB, runId, task, "skipped_container_locked", startedAt, {
@@ -454,12 +537,18 @@ export async function runScheduledCloudflareTask(
       ...taskRuntimeDetails(task),
       ...(collectBatch === null ? {} : { collect_batch: collectBatchDetails(collectBatch) }),
     });
-    const details =
-      task === "refresh-public-quality"
-        ? await refreshPublicQuality(env.DB)
-        : task === "collect-cycle" && collectBatch?.targetIds.length === 0
-          ? { status: "empty_no_targets", reason: "no_active_targets" }
-          : await callContainerInternalTask(env, task, collectBatch?.targetIds);
+    let details: Record<string, unknown>;
+    if (task === "refresh-public-quality") {
+      details = await refreshPublicQuality(env.DB);
+    } else if (task === "retention-cycle") {
+      details = await deleteExpiredPublicData(env.DB, 90);
+    } else if (task === "cost-audit-cycle") {
+      details = await auditCloudflareBudget(env.DB);
+    } else if (task === "collect-cycle" && collectBatch?.targetIds.length === 0) {
+      details = { status: "empty_no_targets", reason: "no_active_targets" };
+    } else {
+      details = await callContainerInternalTask(env, task, collectBatch?.targetIds);
+    }
     let importResult: Record<string, unknown> | null = null;
     if (task === "collect-cycle" || task === "public-translation-cycle") {
       importResult = await importContainerEventsToD1(env.DB, details);

@@ -9,9 +9,12 @@ import type {
 import {
   buildPublicNewsWhere,
   type NewsRow,
-  PUBLIC_NEWS_SELECT_COLUMNS,
+  type PublicLocale,
   publicNewsOrderBy,
+  publicNewsLocaleJoin,
+  publicNewsSelectColumnsForLocale,
   rowToPublicNewsItem,
+  SUPPORTED_PUBLIC_LOCALES,
 } from "./public-news-query";
 import { createPublicReadSession } from "./public-read-session";
 import { publicReadCacheControl } from "./public-read-cache";
@@ -22,6 +25,26 @@ export const NEWS_ALL_SNAPSHOT_KEY = "news:all:v1:page_size=20";
 export const BOOTSTRAP_FEATURED_SNAPSHOT_KEY = "bootstrap:featured:v1:page_size=20";
 export const FACETS_SNAPSHOT_KEY = "facets:v1";
 export const REGIONS_ACTIVE_SNAPSHOT_KEY = "regions:active:v1";
+export const PUBLIC_LOCALE_SNAPSHOT_KEY_MARKERS =
+  "locale=zh locale=en locale=es locale=ar locale=fr";
+
+export function newsFeaturedSnapshotKey(locale: PublicLocale = "zh"): string {
+  return locale === "zh"
+    ? NEWS_FEATURED_SNAPSHOT_KEY
+    : `news:featured:v1:locale=${locale}:page_size=20`;
+}
+
+export function newsAllSnapshotKey(locale: PublicLocale = "zh"): string {
+  return locale === "zh"
+    ? NEWS_ALL_SNAPSHOT_KEY
+    : `news:all:v1:locale=${locale}:page_size=20`;
+}
+
+export function bootstrapFeaturedSnapshotKey(locale: PublicLocale = "zh"): string {
+  return locale === "zh"
+    ? BOOTSTRAP_FEATURED_SNAPSHOT_KEY
+    : `bootstrap:featured:v1:locale=${locale}:page_size=20`;
+}
 
 type SnapshotState = "hit" | "miss" | "bypass";
 
@@ -47,6 +70,10 @@ function jsonResponse(payloadJson: string, cacheSeconds: number): Response {
       "Cache-Control": publicReadCacheControl(cacheSeconds),
     },
   });
+}
+
+function snapshotEtag(key: string, payloadJson: string): string {
+  return `"${key.length.toString(16)}-${payloadJson.length.toString(16)}"`;
 }
 
 function boundedSnapshotPageSize(pageSize: number): number {
@@ -109,7 +136,23 @@ export async function readPublicSnapshot(
       .bind(key)
       .first<SnapshotRow>();
     if (!row?.payload_json) return null;
-    return withSnapshotHeader(jsonResponse(row.payload_json, cacheSeconds), "hit");
+    const etag = snapshotEtag(key, row.payload_json);
+    if (request.headers.get("If-None-Match") === etag) {
+      return withSnapshotHeader(
+        new Response(null, {
+          status: 304,
+          headers: {
+            ETag: etag,
+            "X-Poll-After-Ms": String(cacheSeconds * 1000),
+          },
+        }),
+        "hit",
+      );
+    }
+    const response = jsonResponse(row.payload_json, cacheSeconds);
+    response.headers.set("ETag", etag);
+    response.headers.set("X-Poll-After-Ms", String(cacheSeconds * 1000));
+    return withSnapshotHeader(response, "hit");
   } catch (error) {
     console.warn("public snapshot read failed:", error);
     return null;
@@ -159,18 +202,21 @@ function isIncluded(row: { event_count?: number; source_count?: number }, includ
 async function buildNewsFeedSnapshot(
   db: D1Database,
   featured: boolean,
+  locale: PublicLocale,
 ): Promise<PublicNewsFeedResponse> {
   const filters = buildPublicNewsWhere({ featured });
+  const localeJoin = publicNewsLocaleJoin(locale);
   const [result, totalResult] = await Promise.all([
     db
       .prepare(
-        `SELECT ${PUBLIC_NEWS_SELECT_COLUMNS}
+        `SELECT ${publicNewsSelectColumnsForLocale(locale)}
          FROM events
+         ${localeJoin.sql}
          ${filters.sql}
          ${publicNewsOrderBy(featured)}
          LIMIT 21`,
       )
-      .bind(...filters.bindings)
+      .bind(...localeJoin.bindings, ...filters.bindings)
       .all<NewsRow>(),
     db
       .prepare(`SELECT COUNT(*) AS total FROM events ${filters.sql}`)
@@ -186,7 +232,7 @@ async function buildNewsFeedSnapshot(
       rows.length > PUBLIC_SNAPSHOT_PAGE_SIZE
         ? (pageRows[pageRows.length - 1]?.event_id ?? null)
         : null,
-    pollAfterMs: 60000,
+    pollAfterMs: featured ? 30000 : 60000,
     hasNewer: false,
     total: totalResult?.total ?? pageRows.length,
   };
@@ -309,44 +355,53 @@ async function writeSnapshot(
 export async function refreshPublicReadSnapshots(db: D1Database): Promise<Record<string, unknown>> {
   const generatedAt = new Date().toISOString();
   const sourceLatestPublicAt = await latestPublicAt(db);
-  const [featuredNews, allNews, facets, regions] = await Promise.all([
-    buildNewsFeedSnapshot(db, true),
-    buildNewsFeedSnapshot(db, false),
+  const [facets, regions] = await Promise.all([
     buildFacetsSnapshot(db),
     buildRegionsSnapshot(db, false),
   ]);
-  const bootstrap: PublicBootstrapResponse = {
-    news: featuredNews,
-    regions,
-    facets,
-    generatedAt,
-  };
+  const localeResults = await Promise.all(
+    SUPPORTED_PUBLIC_LOCALES.map(async (locale) => {
+      const [featuredNews, allNews] = await Promise.all([
+        buildNewsFeedSnapshot(db, true, locale),
+        buildNewsFeedSnapshot(db, false, locale),
+      ]);
+      const bootstrap: PublicBootstrapResponse = {
+        news: featuredNews,
+        regions,
+        facets,
+        generatedAt,
+      };
+      await Promise.all([
+        writeSnapshot(
+          db,
+          newsFeaturedSnapshotKey(locale),
+          featuredNews,
+          featuredNews.items.length,
+          sourceLatestPublicAt,
+          generatedAt,
+        ),
+        writeSnapshot(
+          db,
+          newsAllSnapshotKey(locale),
+          allNews,
+          allNews.items.length,
+          sourceLatestPublicAt,
+          generatedAt,
+        ),
+        writeSnapshot(
+          db,
+          bootstrapFeaturedSnapshotKey(locale),
+          bootstrap,
+          featuredNews.items.length,
+          sourceLatestPublicAt,
+          generatedAt,
+        ),
+      ]);
+      return { locale, featured_items: featuredNews.items.length, all_items: allNews.items.length };
+    }),
+  );
 
   await Promise.all([
-    writeSnapshot(
-      db,
-      NEWS_FEATURED_SNAPSHOT_KEY,
-      featuredNews,
-      featuredNews.items.length,
-      sourceLatestPublicAt,
-      generatedAt,
-    ),
-    writeSnapshot(
-      db,
-      NEWS_ALL_SNAPSHOT_KEY,
-      allNews,
-      allNews.items.length,
-      sourceLatestPublicAt,
-      generatedAt,
-    ),
-    writeSnapshot(
-      db,
-      BOOTSTRAP_FEATURED_SNAPSHOT_KEY,
-      bootstrap,
-      featuredNews.items.length,
-      sourceLatestPublicAt,
-      generatedAt,
-    ),
     writeSnapshot(
       db,
       FACETS_SNAPSHOT_KEY,
@@ -369,9 +424,10 @@ export async function refreshPublicReadSnapshots(db: D1Database): Promise<Record
     status: "ok",
     generated_at: generatedAt,
     source_latest_public_at: sourceLatestPublicAt,
-    snapshots: 5,
-    featured_items: featuredNews.items.length,
-    all_items: allNews.items.length,
+    snapshots: localeResults.length * 3 + 2,
+    locale_results: localeResults,
+    featured_items: localeResults[0]?.featured_items ?? 0,
+    all_items: localeResults[0]?.all_items ?? 0,
     facets: facets.regions.length + facets.issues.length + facets.related.length,
     regions: regions.regions.length,
   };

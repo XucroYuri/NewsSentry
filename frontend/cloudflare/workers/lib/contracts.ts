@@ -60,6 +60,14 @@ export interface PublicNewsItem {
   discussionCount?: number | null;
   valueLabel: "精选" | "关注" | "普通" | "待评估";
   valueScore?: number | null;
+  breakingScore?: number | null;
+  breakingLabel?: "flash" | "breaking" | "watch" | "timeline" | null;
+  breakingReason?: string | null;
+  breakingConfidence?: number | null;
+  breakingDimensions?: Record<string, number>;
+  targetTimezone?: string | null;
+  publishedAtLocal?: string | null;
+  availableLocales?: string[];
   chinaRelevanceLabel: "高" | "中" | "低" | "未知";
 }
 
@@ -150,6 +158,31 @@ export interface ImportEventItem {
   collected_at: string;
   content_original?: string;
   language?: string;
+  title?: string;
+  summary?: string;
+  recommendation_reason?: string;
+  breaking_score?: number;
+  breaking_label?: string;
+  breaking_reason?: string;
+  breaking_confidence?: number;
+  breaking_dimensions?: Record<string, number>;
+  breaking_score_version?: string;
+  target_timezone?: string;
+  published_at_local?: string;
+  localizations?: Array<{
+    locale: string;
+    title: string;
+    summary?: string;
+    recommendation_reason?: string;
+    tags?: string[];
+    issue_tags?: string[];
+    related_tags?: string[];
+    region_tags?: string[];
+    language?: string;
+    quality_score?: number;
+    model?: string;
+    route_id?: string;
+  }>;
   classification?: Record<string, unknown> | null;
   pipeline_stage?: string;
   published_at?: string;

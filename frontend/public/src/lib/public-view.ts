@@ -60,6 +60,35 @@ export function formatFullTime(value: string) {
   }).format(date)
 }
 
+export function formatTimeInZone(value: string, timeZone?: string | null) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return "时间待确认"
+  try {
+    return new Intl.DateTimeFormat("zh-CN", {
+      timeZone: timeZone || undefined,
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZoneName: "short",
+    }).format(date)
+  } catch {
+    return formatFullTime(value)
+  }
+}
+
+export function breakingScoreValue(item: PublicNewsItem) {
+  return item.breakingScore ?? item.valueScore ?? 0
+}
+
+export function breakingLabelText(item: PublicNewsItem) {
+  const label = item.breakingLabel ?? "watch"
+  if (label === "flash") return "Flash"
+  if (label === "breaking") return "Breaking"
+  if (label === "watch") return "Watch"
+  return "Timeline"
+}
+
 export function sourceTypeLabel(type: PublicNewsSourceType) {
   const labels: Record<PublicNewsSourceType, string> = {
     rss: "媒体源",

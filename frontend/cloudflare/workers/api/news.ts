@@ -13,8 +13,11 @@ import { notFound } from "../lib/errors";
 import {
   buildPublicNewsWhere,
   type NewsRow,
-  PUBLIC_NEWS_SELECT_COLUMNS,
+  BREAKING_SCORE_VERSION,
+  localeFromRequest,
   publicNewsOrderBy,
+  publicNewsLocaleJoin,
+  publicNewsSelectColumnsForLocale,
   rowToPublicNewsItem,
 } from "../lib/public-news-query";
 import {
@@ -25,8 +28,8 @@ import {
 import {
   markSnapshotBypass,
   markSnapshotMiss,
-  NEWS_ALL_SNAPSHOT_KEY,
-  NEWS_FEATURED_SNAPSHOT_KEY,
+  newsAllSnapshotKey,
+  newsFeaturedSnapshotKey,
   PUBLIC_SNAPSHOT_PAGE_SIZE,
   readPublicSnapshot,
   readPublicSnapshotPayload,
@@ -42,6 +45,19 @@ interface CursorRow {
   event_id: string;
   published_at: string;
   value_score: number | null;
+  breaking_score: number | null;
+}
+
+function withLocaleHeaders(response: Response, locale: string): Response {
+  const headers = new Headers(response.headers);
+  headers.set("Content-Language", locale);
+  headers.set("X-News-Sentry-Locale", locale);
+  headers.set("X-News-Sentry-Breaking-Version", BREAKING_SCORE_VERSION);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 async function buildCursorFilter(
@@ -53,22 +69,22 @@ async function buildCursorFilter(
   if (!eventId) return { sql: "", bindings: [] };
 
   const cursor = await db
-    .prepare("SELECT event_id, published_at, value_score FROM events WHERE event_id = ?")
+    .prepare("SELECT event_id, published_at, value_score, breaking_score FROM events WHERE event_id = ?")
     .bind(eventId)
     .first<CursorRow>();
   if (!cursor) return { sql: "", bindings: [] };
 
   if (featured) {
-    const score = cursor.value_score ?? -1;
+    const score = cursor.breaking_score ?? cursor.value_score ?? -1;
     const scoreOp = mode === "before" ? "<" : ">";
     const timeOp = mode === "before" ? "<" : ">";
     const idOp = mode === "before" ? "<" : ">";
     return {
       sql: `
         AND (
-          COALESCE(value_score, -1) ${scoreOp} ?
-          OR (COALESCE(value_score, -1) = ? AND published_at ${timeOp} ?)
-          OR (COALESCE(value_score, -1) = ? AND published_at = ? AND event_id ${idOp} ?)
+          COALESCE(breaking_score, value_score, -1) ${scoreOp} ?
+          OR (COALESCE(breaking_score, value_score, -1) = ? AND events.published_at ${timeOp} ?)
+          OR (COALESCE(breaking_score, value_score, -1) = ? AND events.published_at = ? AND events.event_id ${idOp} ?)
         )
       `,
       bindings: [score, score, cursor.published_at, score, cursor.published_at, cursor.event_id],
@@ -77,7 +93,7 @@ async function buildCursorFilter(
 
   const op = mode === "before" ? "<" : ">";
   return {
-    sql: `AND (published_at ${op} ? OR (published_at = ? AND event_id ${op} ?))`,
+    sql: `AND (events.published_at ${op} ? OR (events.published_at = ? AND events.event_id ${op} ?))`,
     bindings: [cursor.published_at, cursor.published_at, cursor.event_id],
   };
 }
@@ -97,6 +113,7 @@ export async function handleNewsFeed(
     const date = params.get("date") || undefined;
     const q = params.get("q") || undefined;
     const featured = params.get("featured") === "true";
+    const locale = localeFromRequest(request, params.get("locale"));
     const beforeCursor = params.get("before_cursor");
     const sinceCursor = params.get("since_cursor");
     const requestedPageSize = Number.parseInt(params.get("page_size") || "20", 10);
@@ -114,15 +131,15 @@ export async function handleNewsFeed(
       !related &&
       !date &&
       !q &&
-      hasOnlyParams(params, ["featured", "page_size"])
-        ? newsCacheKey(featured, pageSize)
+      hasOnlyParams(params, ["featured", "page_size", "locale"])
+        ? `${newsCacheKey(featured, pageSize)}:locale=${locale}`
         : null;
     const cached = await maybeServeCachedPublicRead(request, cacheKey);
-    if (cached) return cached;
+    if (cached) return withLocaleHeaders(cached, locale);
     const snapshotKey = cacheKey
       ? featured
-        ? NEWS_FEATURED_SNAPSHOT_KEY
-        : NEWS_ALL_SNAPSHOT_KEY
+        ? newsFeaturedSnapshotKey(locale)
+        : newsAllSnapshotKey(locale)
       : null;
     const snapshot =
       pageSize === PUBLIC_SNAPSHOT_PAGE_SIZE
@@ -138,7 +155,15 @@ export async function handleNewsFeed(
                 : null;
             })()
           : null;
-    if (snapshot) return maybeStoreCachedPublicRead(request, cacheKey, snapshot, ctx, 30);
+    if (snapshot) {
+      return maybeStoreCachedPublicRead(
+        request,
+        cacheKey,
+        withLocaleHeaders(snapshot, locale),
+        ctx,
+        30,
+      );
+    }
 
     const filters = buildPublicNewsWhere({
       featured,
@@ -155,16 +180,23 @@ export async function handleNewsFeed(
       beforeCursor ? "before" : "since",
       featured,
     );
+    const localeJoin = publicNewsLocaleJoin(locale);
 
     let sql = `
-      SELECT ${PUBLIC_NEWS_SELECT_COLUMNS}
+      SELECT ${publicNewsSelectColumnsForLocale(locale)}
       FROM events
+      ${localeJoin.sql}
       ${filters.sql}
       ${cursorFilter.sql}
     `;
 
     sql += ` ${publicNewsOrderBy(featured)} LIMIT ?`;
-    const bindings = [...filters.bindings, ...cursorFilter.bindings, pageSize + 1];
+    const bindings = [
+      ...localeJoin.bindings,
+      ...filters.bindings,
+      ...cursorFilter.bindings,
+      pageSize + 1,
+    ];
 
     const [result, totalResult] = await Promise.all([
       db.prepare(sql).bind(...bindings).all<NewsRow>(),
@@ -184,15 +216,15 @@ export async function handleNewsFeed(
       items,
       latestCursor,
       nextCursor,
-      pollAfterMs: 60000,
+      pollAfterMs: featured ? 30000 : 60000,
       hasNewer: Boolean(sinceCursor && items.length > 0),
       total: totalResult?.total ?? rows.length,
     };
 
-    const response = new Response(JSON.stringify(body), {
+    const response = withLocaleHeaders(new Response(JSON.stringify(body), {
       status: 200,
       headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=15" },
-    });
+    }), locale);
     const markedResponse = cacheKey ? markSnapshotMiss(response) : markSnapshotBypass(response);
     return maybeStoreCachedPublicRead(request, cacheKey, markedResponse, ctx, 30);
   } catch (err) {
@@ -201,7 +233,7 @@ export async function handleNewsFeed(
       items: [],
       latestCursor: null,
       nextCursor: null,
-      pollAfterMs: 60000,
+      pollAfterMs: 30000,
       hasNewer: false,
       total: 0,
     };
@@ -213,22 +245,25 @@ export async function handleNewsFeed(
 }
 
 export async function handleNewsDetail(
-  _request: Request,
+  request: Request,
   db: D1Database,
-  _params: URLSearchParams,
+  params: URLSearchParams,
   segments: string[],
 ): Promise<Response> {
   // segments: ["api", "v1", "public", "news", "{event_id}"]
   const eventId = segments[segments.length - 1];
 
+  const locale = localeFromRequest(request, params.get("locale"));
+  const localeJoin = publicNewsLocaleJoin(locale);
   try {
     const result = await db
       .prepare(
-        `SELECT ${PUBLIC_NEWS_SELECT_COLUMNS}
+        `SELECT ${publicNewsSelectColumnsForLocale(locale)}
          FROM events
-         WHERE event_id = ? AND pipeline_stage = 'drafts'`
+         ${localeJoin.sql}
+         WHERE events.event_id = ? AND events.pipeline_stage = 'drafts'`
       )
-      .bind(eventId)
+      .bind(...localeJoin.bindings, eventId)
       .first<NewsRow>();
 
     if (!result) {
@@ -236,10 +271,10 @@ export async function handleNewsDetail(
     }
 
     const item = rowToPublicNewsItem(result);
-    return new Response(JSON.stringify(item), {
+    return withLocaleHeaders(new Response(JSON.stringify(item), {
       status: 200,
       headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=60" },
-    });
+    }), locale);
   } catch (err) {
     console.error("newsDetail error:", err);
     return new Response(JSON.stringify({ detail: "Event not found" }), {

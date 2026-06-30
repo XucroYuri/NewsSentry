@@ -20,6 +20,13 @@ const feedChannels = new Set<PublicChannel>([
   "daily",
 ])
 
+const publicLocales = new Set(["zh", "en", "es", "ar", "fr", "it"])
+
+function normalizeLocale(locale = "zh") {
+  const normalized = locale.toLowerCase().split("-")[0]
+  return publicLocales.has(normalized) ? normalized : "zh"
+}
+
 function normalizeHash(hash: string) {
   const value = hash.startsWith("#") ? hash.slice(1) : hash
   return value.startsWith("/") ? value : `/${value}`
@@ -37,6 +44,7 @@ function buildSearchParams(search: string) {
 }
 
 function parseRouteParts(pathPart: string, search: URLSearchParams, locale = "zh"): PublicRoute {
+  locale = normalizeLocale(locale)
   const segments = pathPart.split("/").filter(Boolean).map(decodeURIComponent)
   const [root, second] = segments
 
@@ -87,11 +95,11 @@ export function parseHashRoute(hash: string, locale = "zh"): PublicRoute {
 
 function parsePublicAppPath(pathname: string, search: string): PublicRoute | null {
   const normalized = pathname.replace(/\/+$/, "") || "/"
-  const isItalian = normalized.startsWith("/public-app/it")
-  const locale = isItalian ? "it" : "zh"
+  const appSegments = normalized.split("/").filter(Boolean)
+  const maybeLocale = appSegments[1]
+  const locale = maybeLocale && publicLocales.has(maybeLocale) ? maybeLocale : "zh"
 
-  // 意大利语首页: /public-app/it 或 /public-app/it/
-  if (normalized === "/public-app/it" || normalized === "/public-app/it/") {
+  if (appSegments[0] === "public-app" && appSegments.length === 2 && locale !== "zh") {
     return {
       name: "feed",
       channel: channelFromSearch(buildSearchParams(search)),
@@ -111,11 +119,11 @@ function parsePublicAppPath(pathname: string, search: string): PublicRoute | nul
   if (!normalized.startsWith("/public-app/")) return null
 
   let pathPart = normalized.slice("/public-app".length)
-  // 剥离 /it/ 前缀以获取实际路由
-  if (pathPart.startsWith("/it/")) {
-    pathPart = pathPart.slice(3) // "/it" → 移除
+  // 剥离 /{locale}/ 前缀以获取实际路由
+  if (locale !== "zh" && pathPart.startsWith(`/${locale}/`)) {
+    pathPart = pathPart.slice(locale.length + 1)
     if (!pathPart) pathPart = "/"
-  } else if (pathPart === "/it") {
+  } else if (locale !== "zh" && pathPart === `/${locale}`) {
     pathPart = "/"
   }
 
@@ -130,9 +138,7 @@ export function parseLocationRoute(
   if (hash.startsWith("#/")) return parseHashRoute(hash)
   const params = buildSearchParams(locationLike.search)
   const pathname = locationLike.pathname
-  // 检测意大利语路径前缀
-  const isItalian = pathname.startsWith("/public-app/it")
-  const locale = isItalian ? "it" : "zh"
+  const locale = parsePublicAppPath(pathname, locationLike.search)?.locale ?? "zh"
   if (pathname.replace(/\/+$/, "") === "/sources") {
     return { name: "sources", search: params, locale }
   }
@@ -152,7 +158,8 @@ export function routeToChannel(route: PublicRoute): PublicChannel {
 }
 
 function localePrefix(locale: string) {
-  return locale === "it" ? "/public-app/it" : "/public-app"
+  const normalized = normalizeLocale(locale)
+  return normalized === "zh" ? "/public-app" : `/public-app/${normalized}`
 }
 
 export function buildPublicAppPath(route: PublicRoute) {
@@ -165,7 +172,7 @@ export function buildPublicAppPath(route: PublicRoute) {
     return `${prefix}/events/${encodeURIComponent(route.eventId)}${query ? `?${query}` : ""}`
   }
   if (route.name === "sourceDetail") return `${prefix}/sources/${encodeURIComponent(route.sourceId)}`
-  if (route.name === "sources") return route.locale === "it" ? `${prefix}/sources` : "/sources"
+  if (route.name === "sources") return route.locale && route.locale !== "zh" ? `${prefix}/sources` : "/sources"
   if (route.name === "daily") {
     const params = new URLSearchParams()
     if (route.date) params.set("date", route.date)
@@ -174,7 +181,7 @@ export function buildPublicAppPath(route: PublicRoute) {
   }
   if (route.name === "agent") return `${prefix}/agent`
   if (route.name === "update") return `${prefix}/update`
-  if (route.name === "subscribe") return route.locale === "it" ? `${prefix}/subscribe` : "/subscribe"
+  if (route.name === "subscribe") return route.locale && route.locale !== "zh" ? `${prefix}/subscribe` : "/subscribe"
   if (route.name === "analysis") {
     const params = new URLSearchParams()
     if (route.targetId) params.set("target_id", route.targetId)

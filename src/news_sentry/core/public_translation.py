@@ -14,6 +14,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from news_sentry.core.breaking_scoring import (
+    BreakingAssessment,
+    BreakingScoreInput,
+    score_breaking_event,
+    validate_llm_breaking_assessment,
+)
+
 _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 _FENCED_JSON_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.IGNORECASE | re.DOTALL)
 _LATIN_WORD_RE = re.compile(r"[A-Za-z]{3,}")
@@ -56,6 +63,14 @@ _ALLOWED_INLINE_LATIN_TERMS = {
     "twitter",
     "who",
     "youtube",
+}
+_PUBLIC_LOCALIZATION_LOCALES = ("zh", "en", "es", "ar", "fr")
+_PUBLIC_LOCALIZATION_LABELS = {
+    "zh": "简体中文",
+    "en": "English",
+    "es": "Español",
+    "ar": "العربية",
+    "fr": "Français",
 }
 _PRESET_PUBLIC_ISSUE_TAGS = (
     "政治",
@@ -220,6 +235,7 @@ class PublicTranslationConfig:
     candidate_limit: int = 500
     source_lang: str = "auto"
     target_lang: str = "zh"
+    max_event_age_hours: int = 24
 
 
 def normalize_public_translation_config(raw: dict[str, Any] | None) -> PublicTranslationConfig:
@@ -239,6 +255,7 @@ def normalize_public_translation_config(raw: dict[str, Any] | None) -> PublicTra
         candidate_limit=int_between("candidate_limit", 500, 1, 5000),
         source_lang=str(data.get("source_lang") or "auto").strip() or "auto",
         target_lang=str(data.get("target_lang") or "zh").strip() or "zh",
+        max_event_age_hours=int_between("max_event_age_hours", 24, 1, 24 * 30),
     )
 
 
@@ -269,6 +286,18 @@ def _public_text_quality_ok(text: Any) -> bool:  # noqa: ANN401
     if _contains_untranslated_latin_fragment(value):
         return False
     return True
+
+
+def _localized_text_quality_ok(text: Any) -> bool:  # noqa: ANN401
+    value = " ".join(str(text or "").split())
+    if len(value) < 3 or len(value) > 500:
+        return False
+    if _PUBLIC_TEXT_BLOCKLIST_RE.search(value):
+        return False
+    if any(token in value for token in _MARKDOWN_ARTIFACT_TOKENS):
+        return False
+    codelike_count = sum(value.count(token) for token in _CODELIKE_TOKENS)
+    return codelike_count < 4
 
 
 def _contains_untranslated_latin_fragment(value: str) -> bool:
@@ -357,6 +386,50 @@ def _publication_tags(
                 continue
             tags.append(tag)
     return tags[:8]
+
+
+def _clean_localized_text(value: Any) -> str:  # noqa: ANN401
+    text = " ".join(str(value or "").split())
+    return text if _localized_text_quality_ok(text) else ""
+
+
+def _publication_localizations(
+    parsed: dict[str, Any],
+    *,
+    title_zh: str,
+    summary_zh: str,
+    one_line_zh: str,
+    reason_zh: str,
+) -> dict[str, dict[str, str]]:
+    localizations: dict[str, dict[str, str]] = {
+        "zh": {
+            "title": title_zh,
+            "summary": one_line_zh or summary_zh,
+            "recommendation_reason": reason_zh,
+            "language": "zh",
+        }
+    }
+    raw = parsed.get("localizations")
+    if not isinstance(raw, dict):
+        return localizations
+    for locale in _PUBLIC_LOCALIZATION_LOCALES:
+        value = raw.get(locale)
+        if not isinstance(value, dict):
+            continue
+        title = _clean_localized_text(value.get("title"))
+        summary = _clean_localized_text(value.get("summary") or value.get("one_line_summary"))
+        reason = _clean_localized_text(
+            value.get("recommendation_reason") or value.get("reason")
+        )
+        if not (title and summary and reason):
+            continue
+        localizations[locale] = {
+            "title": title,
+            "summary": summary,
+            "recommendation_reason": reason,
+            "language": locale,
+        }
+    return localizations
 
 
 def public_publication_ready_for_row(row: dict[str, Any]) -> bool:
@@ -572,6 +645,50 @@ class PublicTranslationEngine:
                     "中文数组，优先从 preset_related_tags 选择，必要时补充简短自定义相关对象"
                 ),
                 "region_tags": "中文数组，新闻提及地区、国家、大洲或全球范畴，按事实生成",
+                "localizations": {
+                    locale: {
+                        "title": f"{label} headline",
+                        "summary": f"{label} one-sentence summary",
+                        "recommendation_reason": f"{label} short explanation of why it matters",
+                    }
+                    for locale, label in _PUBLIC_LOCALIZATION_LABELS.items()
+                },
+                "breaking": {
+                    "breaking_score": "0-100 的突发新闻分值，必须有区分度，不能全部给高分",
+                    "breaking_label": "flash/breaking/watch/timeline",
+                    "breaking_confidence": "0-100 的证据置信度",
+                    "breaking_reason": "一句中文解释，说明为什么是或不是突发新闻",
+                    "dimensions": {
+                        "impact_scope": "0-100",
+                        "urgency": "0-100",
+                        "novelty": "0-100",
+                        "source_reliability": "0-100",
+                        "actionability": "0-100",
+                        "systemic_or_cross_border": "0-100",
+                        "human_attention": "0-100",
+                        "evidence_confidence": "0-100",
+                    },
+                    "penalties": {
+                        "duplicate": "0-100",
+                        "routine": "0-100",
+                        "sensationalism": "0-100",
+                        "thin_evidence": "0-100",
+                    },
+                    "adversarial_checks": {
+                        "not_routine": "boolean",
+                        "not_opinion": "boolean",
+                        "not_duplicate": "boolean",
+                        "not_single_source_social": "boolean",
+                        "has_trustworthy_timestamp": "boolean",
+                    },
+                },
+            },
+            "localization_policy": {
+                "supported_locales": list(_PUBLIC_LOCALIZATION_LOCALES),
+                "source_text_policy": (
+                    "保留原文事实，不增补不存在的信息；无法可靠翻译某语言时省略该 locale。"
+                ),
+                "fallback_policy": "zh 必填；en/es/ar/fr 尽量生成，缺失时前端会回退到 zh/原文。",
             },
             "tag_policy": {
                 "mode": "preset_first",
@@ -604,6 +721,8 @@ class PublicTranslationEngine:
 
     def row_is_due(self, row: dict[str, Any], *, now: datetime | None = None) -> bool:
         if public_publication_ready_for_row(row):
+            return False
+        if _row_age_hours(row, now=now) > self.config.max_event_age_hours:
             return False
         attempts = _safe_int(row.get("translation_attempts")) or 0
         updated_at = _parse_iso_datetime(row.get("translation_updated_at"))
@@ -683,6 +802,8 @@ class PublicTranslationEngine:
             issue_tags = publication_result["issue_tags"]
             related_tags = publication_result["related_tags"]
             region_tags = publication_result["region_tags"]
+            localizations = publication_result.get("localizations")
+            breaking = publication_result.get("breaking")
             if not (
                 _public_text_quality_ok(title)
                 and _public_text_quality_ok(summary)
@@ -723,6 +844,8 @@ class PublicTranslationEngine:
                     "issue_tags": issue_tags,
                     "related_tags": related_tags,
                     "region_tags": region_tags,
+                    "localizations": localizations if isinstance(localizations, dict) else {},
+                    "breaking": breaking,
                     "status": "completed",
                     "model": model,
                     "route_id": route_id,
@@ -745,6 +868,7 @@ class PublicTranslationEngine:
                     "event_id": event_id,
                     "route_id": route_id,
                     "model": model,
+                    "breaking_score": breaking.get("score") if isinstance(breaking, dict) else None,
                 }
             )
 
@@ -900,12 +1024,30 @@ class PublicTranslationEngine:
             raise RuntimeError("publication one_line_summary echoed source text")
         if reason in {_source_title_text(row), _source_summary_text(row), summary_zh}:
             raise RuntimeError("publication recommendation_reason echoed source text")
+        breaking = _breaking_assessment_for_publication(row, parsed.get("breaking"))
+        localizations = _publication_localizations(
+            parsed,
+            title_zh=title_zh,
+            summary_zh=summary_zh,
+            one_line_zh=one_line,
+            reason_zh=reason,
+        )
         return {
             "one_line_summary": one_line,
             "recommendation_reason": reason,
             "issue_tags": issue_tags,
             "related_tags": related_tags,
             "region_tags": region_tags,
+            "localizations": localizations,
+            "breaking": {
+                "score": breaking.score,
+                "label": breaking.label,
+                "confidence": breaking.confidence,
+                "reason": breaking.reason,
+                "dimensions": breaking.dimensions,
+                "penalties": breaking.penalties,
+                "version": breaking.version,
+            },
             "route_id": str(result.get("route_id") or "public.summary_reason"),
             "model": str(result.get("model") or ""),
         }
@@ -1008,6 +1150,53 @@ def _safe_int(value: Any) -> int | None:  # noqa: ANN401
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _row_age_hours(row: dict[str, Any], *, now: datetime | None = None) -> float:
+    current = now or datetime.now(UTC)
+    published = _parse_iso_datetime(row.get("published_at")) or _parse_iso_datetime(
+        row.get("created_at")
+    )
+    if published is None:
+        return 0.0
+    if published.tzinfo is None:
+        published = published.replace(tzinfo=UTC)
+    return max(0.0, (current - published.astimezone(UTC)).total_seconds() / 3600)
+
+
+def _breaking_score_input_for_row(row: dict[str, Any]) -> BreakingScoreInput:
+    age_hours = _row_age_hours(row)
+    metadata = _metadata_dict(row)
+    publication = metadata.get("publication")
+    publication = publication if isinstance(publication, dict) else {}
+    classification = metadata.get("classification")
+    classification = classification if isinstance(classification, dict) else {}
+    return BreakingScoreInput(
+        target_id=str(row.get("target_id") or ""),
+        source_type=str(row.get("source_type") or "unknown"),
+        credibility_label=str(row.get("credibility_label") or ""),
+        value_score=row.get("news_value_score") or row.get("value_score"),
+        published_age_minutes=int(age_hours * 60),
+        classification_l0=str(row.get("classification_l0") or classification.get("l0") or ""),
+        issue_tags=list(publication.get("issue_tags") or []),
+        related_tags=list(publication.get("related_tags") or []),
+        summary=str(
+            publication.get("one_line_summary") or _source_summary_text(row, metadata) or ""
+        ),
+        recommendation_reason=str(publication.get("recommendation_reason") or ""),
+        duplicate_count=int(row.get("duplicate_count") or 0),
+    )
+
+
+def _breaking_assessment_for_publication(
+    row: dict[str, Any], payload: Any  # noqa: ANN401
+) -> BreakingAssessment:
+    if isinstance(payload, dict):
+        try:
+            return validate_llm_breaking_assessment(payload)
+        except Exception:
+            return score_breaking_event(_breaking_score_input_for_row(row))
+    return score_breaking_event(_breaking_score_input_for_row(row))
 
 
 def provider_quota_error(error: str) -> bool:

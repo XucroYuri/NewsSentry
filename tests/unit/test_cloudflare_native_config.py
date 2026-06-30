@@ -85,6 +85,8 @@ def test_cloudflare_public_featured_query_matches_python_quality_gate() -> None:
     assert 'params.get("featured") === "true"' in news_ts
     assert 'params.get("featured") !== "false"' in bootstrap_ts
     assert "PUBLIC_FEATURED_MIN_SCORE = 60" in query_ts
+    assert "PUBLIC_BREAKING_MIN_SCORE = 60" in query_ts
+    assert "breaking_score >= ?" in query_ts
     assert "value_score >= ?" in query_ts
     assert "summary IS NOT NULL" in query_ts
     assert "TRIM(summary) != ''" in query_ts
@@ -95,9 +97,82 @@ def test_cloudflare_public_featured_query_matches_python_quality_gate() -> None:
     assert "NOT IN ('uncategorized', 'other', 'breaking_news')" in query_ts
     assert "NOT LIKE '%/opinion/todayinhistory/%'" in query_ts
     assert "UPPER(TRIM(title)) LIKE 'MONDAY, %'" in query_ts
-    assert "ORDER BY value_score DESC, published_at DESC, event_id DESC" in query_ts
+    assert (
+        "ORDER BY events.breaking_score DESC, events.published_at DESC, events.event_id DESC"
+        in query_ts
+    )
     assert "publicNewsOrderBy(featured)" in news_ts
     assert "publicNewsOrderBy(featured)" in bootstrap_ts
+
+
+def test_cloudflare_breaking_intelligence_contract_is_schema_backed() -> None:
+    schema_sql = _read("db/schema.sql")
+    query_ts = _read("workers/lib/public-news-query.ts")
+    contracts_ts = _read("workers/lib/contracts.ts")
+
+    for column in (
+        "breaking_score REAL",
+        "breaking_label TEXT",
+        "breaking_reason TEXT",
+        "breaking_confidence INTEGER",
+        "breaking_dimensions TEXT DEFAULT '{}'",
+        "breaking_score_version TEXT",
+        "target_timezone TEXT DEFAULT 'UTC'",
+        "published_at_local TEXT",
+    ):
+        assert column in schema_sql
+
+    assert "CREATE TABLE IF NOT EXISTS event_localizations" in schema_sql
+    assert "CREATE TABLE IF NOT EXISTS breaking_score_stats" in schema_sql
+    assert "idx_events_public_breaking" in schema_sql
+    assert "idx_event_localizations_locale" in schema_sql
+    assert "breaking_score >= ?" in query_ts
+    assert (
+        "ORDER BY events.breaking_score DESC, events.published_at DESC, events.event_id DESC"
+        in query_ts
+    )
+
+    for field in (
+        "breakingScore?: number | null",
+        "breakingLabel?:",
+        "breakingReason?: string | null",
+        "breakingConfidence?: number | null",
+        "breakingDimensions?: Record<string, number>",
+        "targetTimezone?: string | null",
+        "publishedAtLocal?: string | null",
+        "availableLocales?: string[]",
+    ):
+        assert field in contracts_ts
+
+
+def test_cloudflare_public_reads_are_locale_aware_without_breaking_shape() -> None:
+    news_ts = _read("workers/api/news.ts")
+    query_ts = _read("workers/lib/public-news-query.ts")
+    snapshots_ts = _read("workers/lib/public-read-snapshots.ts")
+
+    assert 'params.get("locale")' in news_ts
+    assert "localeFromRequest" in news_ts
+    assert "Content-Language" in news_ts
+    assert "X-News-Sentry-Locale" in news_ts
+    assert "X-News-Sentry-Breaking-Version" in news_ts
+    assert "event_localizations" in query_ts
+    assert "locale=zh" in snapshots_ts
+    assert "locale=en" in snapshots_ts
+    assert "locale=es" in snapshots_ts
+    assert "locale=ar" in snapshots_ts
+    assert "locale=fr" in snapshots_ts
+
+
+def test_cloudflare_has_ninety_day_retention_and_cost_guards() -> None:
+    scheduled_ts = _read("workers/lib/scheduled.ts")
+    wrangler_toml = _read("wrangler.toml")
+
+    assert "retention-cycle" in scheduled_ts
+    assert "deleteExpiredPublicData" in scheduled_ts
+    assert "90" in scheduled_ts
+    assert "cost-audit-cycle" in scheduled_ts
+    assert "cloudflare_budget" in scheduled_ts
+    assert "23 * * * *" in wrangler_toml
 
 
 def test_cloudflare_public_news_uses_sql_cursor_pagination() -> None:
@@ -107,14 +182,17 @@ def test_cloudflare_public_news_uses_sql_cursor_pagination() -> None:
     assert "buildCursorFilter" in news_ts
     assert 'params.get("before_cursor")' in news_ts
     assert 'params.get("since_cursor")' in news_ts
-    assert "SELECT event_id, published_at, value_score FROM events WHERE event_id = ?" in news_ts
+    assert (
+        "SELECT event_id, published_at, value_score, breaking_score FROM events WHERE event_id = ?"
+        in news_ts
+    )
     assert "${cursorFilter.sql}" in news_ts
     assert "SELECT COUNT(*) AS total FROM events ${filters.sql}" in news_ts
     assert "Number.isFinite(requestedPageSize)" in news_ts
     assert "const pageRows = rows.slice(0, pageSize)" in news_ts
     assert "const items = pageRows.map" in news_ts
     assert "hasNewer: Boolean(sinceCursor && items.length > 0)" in news_ts
-    assert "ORDER BY published_at DESC, event_id DESC" in query_ts
+    assert "ORDER BY events.published_at DESC, events.event_id DESC" in query_ts
 
 
 def test_cloudflare_d1_has_public_featured_index() -> None:
@@ -182,10 +260,10 @@ def test_cloudflare_public_read_endpoints_use_snapshots_before_queries() -> None
     session_ts = _read("workers/lib/public-read-session.ts")
 
     assert "readPublicSnapshot" in news_ts
-    assert "NEWS_FEATURED_SNAPSHOT_KEY" in news_ts
-    assert "NEWS_ALL_SNAPSHOT_KEY" in news_ts
+    assert "newsFeaturedSnapshotKey" in news_ts
+    assert "newsAllSnapshotKey" in news_ts
     assert "readPublicSnapshot" in bootstrap_ts
-    assert "BOOTSTRAP_FEATURED_SNAPSHOT_KEY" in bootstrap_ts
+    assert "bootstrapFeaturedSnapshotKey" in bootstrap_ts
     assert "readPublicSnapshot" in facets_ts
     assert "FACETS_SNAPSHOT_KEY" in facets_ts
     assert "readPublicSnapshot" in targets_ts
@@ -226,7 +304,8 @@ def test_cloudflare_small_default_news_requests_reuse_twenty_item_snapshots() ->
         "`public-read:news:${featured ? \"featured\" : \"all\"}:page_size=${pageSize}`"
         in news_ts
     )
-    assert "`public-read:bootstrap:featured:page_size=${pageSize}`" in bootstrap_ts
+    assert "public-read:bootstrap:featured:page_size=${pageSize}" in bootstrap_ts
+    assert "locale=${locale}" in bootstrap_ts
 
 
 def test_cloudflare_scheduled_refreshes_public_read_snapshots() -> None:
@@ -254,7 +333,13 @@ def test_cloudflare_scheduled_ops_are_configured() -> None:
     assert "lock_until" in schema_sql
     assert "cloudflare_collect_enabled INTEGER NOT NULL DEFAULT 1" in schema_sql
     assert "ALTER TABLE targets ADD COLUMN cloudflare_collect_enabled" in migration_sql
-    assert wrangler_toml["triggers"]["crons"] == ["*/15 * * * *", "7,37 * * * *", "11 * * * *"]
+    assert wrangler_toml["triggers"]["crons"] == [
+        "*/15 * * * *",
+        "7,37 * * * *",
+        "11 * * * *",
+        "23 * * * *",
+        "53 */6 * * *",
+    ]
     assert 'compactDetails.status === "string"' in scheduled_ts
     assert "await recordRun(env.DB, runId, task, status" in scheduled_ts
     assert "importEventsToD1" in scheduled_ts
