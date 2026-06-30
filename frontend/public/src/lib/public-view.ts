@@ -85,6 +85,55 @@ export function targetShortLabel(label?: string | null) {
   )
 }
 
+const lowSignalTopicIds = new Set([
+  "uncategorized",
+  "other",
+  "breaking_news",
+  "breaking-news",
+  "general",
+])
+
+const topicLabelAliases: Record<string, string> = {
+  "public-safety": "公共安全",
+  politics: "政治",
+  "international-relations": "国际关系",
+  culture: "文化",
+  society: "社会",
+  economy: "经济",
+  tech: "科技",
+  technology: "科技",
+}
+
+const facetLabelAliases: Record<string, string> = {
+  "LGBTQ+权益": "LGBTQ",
+  "中东局势": "中东",
+  "产业改革": "产业",
+  "人道主义援助": "人道援助",
+  "体育产业": "体育",
+  "公共安全": "安全",
+  "北美政治": "北美政局",
+  "国际关系": "外交",
+  "国际援助": "援助",
+  "国际贸易": "外贸",
+  "地方文化": "地方",
+  "职业高尔夫": "高尔夫",
+  "赛事管理": "赛事",
+}
+
+export function readableTopicLabel(value: string) {
+  const normalized = value.trim()
+  if (!normalized) return null
+  const lower = normalized.toLowerCase()
+  if (lowSignalTopicIds.has(lower)) return null
+  return topicLabelAliases[lower] ?? topicLabelAliases[normalized] ?? normalized
+}
+
+export function displayFacetLabel(value: string) {
+  const readable = readableTopicLabel(value)
+  if (!readable) return null
+  return facetLabelAliases[readable] ?? readable
+}
+
 export function buildPublicDetailUrl(
   item: PublicNewsItem,
   options: { returnTo?: PublicRoute | null } = {},
@@ -176,15 +225,17 @@ export function buildDailyDigest(items: PublicNewsItem[], date: string): DailyDi
   const topItems = [...dailyItems]
     .sort((a, b) => (b.valueScore ?? 0) - (a.valueScore ?? 0))
     .slice(0, 6)
-  const topicLabels = unique(dailyItems.flatMap((item) => item.tags.map(readableTopicLabel))).slice(
-    0,
-    8,
-  )
+  const topicLabels = unique(
+    dailyItems
+      .flatMap((item) => item.tags.map(readableTopicLabel))
+      .filter((label): label is string => Boolean(label)),
+  ).slice(0, 8)
   const sourceLabels = unique(dailyItems.map((item) => item.source.name)).slice(0, 8)
   const riskLabels = unique(
     dailyItems
       .filter((item) => item.valueLabel === "精选" || (item.valueScore ?? 0) >= 85)
-      .flatMap((item) => item.tags.map(readableTopicLabel)),
+      .flatMap((item) => item.tags.map(readableTopicLabel))
+      .filter((label): label is string => Boolean(label)),
   ).slice(0, 5)
   const topicGroups = buildDailyTopicGroups(dailyItems)
   return {
@@ -230,22 +281,6 @@ function buildDailyTopicGroups(items: PublicNewsItem[]): DailyDigestTopicGroup[]
 function primaryTopicLabel(item: PublicNewsItem) {
   const tag = item.tags.map(readableTopicLabel).find(Boolean)
   return tag || targetShortLabel(item.targetLabel)
-}
-
-function readableTopicLabel(value: string) {
-  const normalized = value.trim()
-  const labels: Record<string, string> = {
-    uncategorized: "",
-    "public-safety": "公共安全",
-    politics: "政治",
-    "international-relations": "国际关系",
-    culture: "文化",
-    society: "社会",
-    economy: "经济",
-    tech: "科技",
-    technology: "科技",
-  }
-  return labels[normalized] ?? normalized
 }
 
 export function buildRelatedBuckets(

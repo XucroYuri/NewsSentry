@@ -37,7 +37,7 @@ import { usePublicTargets } from "@/hooks/use-public-targets"
 import { getPublicBootstrap, listPublicFacets, readSSRBootstrap, readSSRFeed } from "@/lib/api"
 import { getApiBase, setApiBase } from "@/lib/locals-settings"
 import { type FeedFilters, makeFeedQuery } from "@/lib/feed-state"
-import { targetShortLabel, todayKey } from "@/lib/public-view"
+import { displayFacetLabel, targetShortLabel, todayKey } from "@/lib/public-view"
 import { routeToChannel, type PublicRoute } from "@/lib/routes"
 import { buildRouteSeoPayload } from "@/lib/seo/site-seo"
 import {
@@ -74,27 +74,6 @@ const navItems: Array<{
 function queryValue(search: URLSearchParams, key: string) {
   const value = search.get(key)?.trim()
   return value || undefined
-}
-
-const facetLabelAliases: Record<string, string> = {
-  "LGBTQ+权益": "LGBTQ",
-  "中东局势": "中东",
-  "产业改革": "产业",
-  "人道主义援助": "人道援助",
-  "体育产业": "体育",
-  "公共安全": "安全",
-  "北美政治": "北美政局",
-  "国际关系": "外交",
-  "国际援助": "援助",
-  "国际贸易": "外贸",
-  "地方文化": "地方",
-  "职业高尔夫": "高尔夫",
-  "赛事管理": "赛事",
-}
-
-function displayFacetLabel(label: string) {
-  const normalized = label.trim()
-  return facetLabelAliases[normalized] ?? normalized
 }
 
 function searchFromFilters(filters: FeedFilters) {
@@ -640,22 +619,31 @@ function FilterPanel({
           ) : null}
         </div>
         <div className="flex w-full min-w-0 gap-2 overflow-x-auto lg:grid lg:grid-cols-2">
-          {facets.issues.map((issue) => (
-            <Button
-              key={issue.id}
-              type="button"
-              variant={filters.issue === issue.label ? "default" : "outline"}
-              size="sm"
-              aria-pressed={filters.issue === issue.label}
-              onClick={() =>
-                onChange({ issue: filters.issue === issue.label ? undefined : issue.label })
-              }
-              className="min-w-0 shrink-0 justify-start lg:w-full lg:shrink"
-            >
-              <span className="truncate">{issue.label}</span>
-              <span className="ml-auto text-[10px] opacity-70">{issue.count}</span>
-            </Button>
-          ))}
+          {facets.issues
+            .map((issue) => ({
+              ...issue,
+              displayLabel: displayFacetLabel(issue.label) ?? displayFacetLabel(issue.id),
+            }))
+            .filter((issue): issue is typeof issue & { displayLabel: string } =>
+              Boolean(issue.displayLabel),
+            )
+            .map((issue) => (
+              <Button
+                key={issue.id}
+                type="button"
+                variant={filters.issue === issue.label ? "default" : "outline"}
+                size="sm"
+                aria-pressed={filters.issue === issue.label}
+                title={issue.label}
+                onClick={() =>
+                  onChange({ issue: filters.issue === issue.label ? undefined : issue.label })
+                }
+                className="min-w-0 shrink-0 justify-start lg:w-full lg:shrink"
+              >
+                <span className="truncate">{issue.displayLabel}</span>
+                <span className="ml-auto text-[10px] opacity-70">{issue.count}</span>
+              </Button>
+            ))}
         </div>
       </section>
 
@@ -669,24 +657,33 @@ function FilterPanel({
           ) : null}
         </div>
         <div className="flex w-full min-w-0 gap-2 overflow-x-auto lg:grid lg:grid-cols-2">
-          {facets.related.map((related) => (
-            <Button
-              key={related.id}
-              type="button"
-              variant={filters.related === related.label ? "default" : "outline"}
-              size="sm"
-              aria-pressed={filters.related === related.label}
-              onClick={() =>
-                onChange({
-                  related: filters.related === related.label ? undefined : related.label,
-                })
-              }
-              className="min-w-0 shrink-0 justify-start lg:w-full lg:shrink"
-            >
-              <span className="truncate">{related.label}</span>
-              <span className="ml-auto text-[10px] opacity-70">{related.count}</span>
-            </Button>
-          ))}
+          {facets.related
+            .map((related) => ({
+              ...related,
+              displayLabel: displayFacetLabel(related.label) ?? displayFacetLabel(related.id),
+            }))
+            .filter((related): related is typeof related & { displayLabel: string } =>
+              Boolean(related.displayLabel),
+            )
+            .map((related) => (
+              <Button
+                key={related.id}
+                type="button"
+                variant={filters.related === related.label ? "default" : "outline"}
+                size="sm"
+                aria-pressed={filters.related === related.label}
+                title={related.label}
+                onClick={() =>
+                  onChange({
+                    related: filters.related === related.label ? undefined : related.label,
+                  })
+                }
+                className="min-w-0 shrink-0 justify-start lg:w-full lg:shrink"
+              >
+                <span className="truncate">{related.displayLabel}</span>
+                <span className="ml-auto text-[10px] opacity-70">{related.count}</span>
+              </Button>
+            ))}
         </div>
       </section>
 
@@ -834,7 +831,7 @@ function FacetFilterRow({
             className="h-7 max-w-[9rem] rounded-md px-2 text-xs"
             onClick={() => onSelect(item.id)}
           >
-            <span className="truncate">{displayFacetLabel(item.label)}</span>
+            <span className="truncate">{item.label}</span>
             {typeof item.count === "number" ? (
               <span aria-hidden="true" className="ml-1 text-[10px] opacity-70">
                 {item.count}
@@ -861,11 +858,31 @@ function CategorySidebar({
   const [collapsed, setCollapsed] = useState(true)
 
   const issueList = useMemo(
-    () => facets.issues.sort((a, b) => b.count - a.count).slice(0, 12),
+    () =>
+      [...facets.issues]
+        .map((item) => ({
+          ...item,
+          displayLabel: displayFacetLabel(item.label) ?? displayFacetLabel(item.id),
+        }))
+        .filter((item): item is typeof item & { displayLabel: string } =>
+          Boolean(item.displayLabel),
+        )
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 12),
     [facets.issues],
   )
   const relatedList = useMemo(
-    () => facets.related.sort((a, b) => b.count - a.count).slice(0, 12),
+    () =>
+      [...facets.related]
+        .map((item) => ({
+          ...item,
+          displayLabel: displayFacetLabel(item.label) ?? displayFacetLabel(item.id),
+        }))
+        .filter((item): item is typeof item & { displayLabel: string } =>
+          Boolean(item.displayLabel),
+        )
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 12),
     [facets.related],
   )
 
@@ -906,7 +923,7 @@ function CategorySidebar({
                         : "text-muted-foreground"
                     }`}
                   >
-                    {displayFacetLabel(item.label)}
+                    {item.displayLabel}
                     <span className="text-[9px] opacity-60">{item.count}</span>
                   </button>
                 ))}
@@ -932,7 +949,7 @@ function CategorySidebar({
                         : "text-muted-foreground"
                     }`}
                   >
-                    {displayFacetLabel(item.label)}
+                    {item.displayLabel}
                     <span className="text-[9px] opacity-60">{item.count}</span>
                   </button>
                 ))}
@@ -979,11 +996,29 @@ function ReaderControls({
     [targets],
   )
   const issueItems = useMemo(
-    () => facets.issues.map((item) => ({ id: item.label, label: item.label, count: item.count })),
+    () =>
+      facets.issues
+        .map((item) => ({
+          id: item.label,
+          label: displayFacetLabel(item.label) ?? displayFacetLabel(item.id),
+          count: item.count,
+        }))
+        .filter((item): item is { id: string; label: string; count: number } =>
+          Boolean(item.label),
+        ),
     [facets.issues],
   )
   const relatedItems = useMemo(
-    () => facets.related.map((item) => ({ id: item.label, label: item.label, count: item.count })),
+    () =>
+      facets.related
+        .map((item) => ({
+          id: item.label,
+          label: displayFacetLabel(item.label) ?? displayFacetLabel(item.id),
+          count: item.count,
+        }))
+        .filter((item): item is { id: string; label: string; count: number } =>
+          Boolean(item.label),
+        ),
     [facets.related],
   )
 
@@ -998,9 +1033,10 @@ function ReaderControls({
     }
     // 如果输入匹配当前 facets 中的标签，直接本地过滤
     const localMatches = [
-      ...facets.issues.map((item) => item.label),
-      ...facets.related.map((item) => item.label),
-    ].filter((label) => label.toLowerCase().includes(q.toLowerCase()))
+      ...facets.issues.map((item) => displayFacetLabel(item.label) ?? displayFacetLabel(item.id)),
+      ...facets.related.map((item) => displayFacetLabel(item.label) ?? displayFacetLabel(item.id)),
+    ].filter((label): label is string => Boolean(label))
+      .filter((label) => label.toLowerCase().includes(q.toLowerCase()))
     // 去重
     const localUnique = [...new Set(localMatches)].slice(0, 5)
     if (localUnique.length >= 3) {
@@ -1016,9 +1052,9 @@ function ReaderControls({
         setSuggestionsLoading(true)
         const result = await listPublicFacets({ q }, {})
         const apiLabels = [
-          ...result.issues.map((item) => item.label),
-          ...result.related.map((item) => item.label),
-        ]
+          ...result.issues.map((item) => displayFacetLabel(item.label) ?? displayFacetLabel(item.id)),
+          ...result.related.map((item) => displayFacetLabel(item.label) ?? displayFacetLabel(item.id)),
+        ].filter((label): label is string => Boolean(label))
         const apiUnique = [...new Set(apiLabels)].slice(0, 8)
         if (apiUnique.length > 0) {
           setSuggestions(apiUnique)

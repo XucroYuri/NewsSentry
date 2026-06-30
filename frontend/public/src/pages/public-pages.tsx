@@ -33,8 +33,10 @@ import {
   type DailyDigestTopicGroup,
   buildRelatedBuckets,
   buildSourceSummaries,
+  displayFacetLabel,
   formatFullTime,
   formatTime,
+  readableTopicLabel,
   sourceTypeLabel,
   summaryText,
   targetShortLabel,
@@ -101,7 +103,7 @@ function uniqueNewsTags(item: PublicNewsItem) {
     ...item.tags,
   ]
   return labels
-    .map((label) => label.trim())
+    .map((label) => readableTopicLabel(label) ?? "")
     .filter((label) => {
       if (!label || seen.has(label)) return false
       seen.add(label)
@@ -620,6 +622,7 @@ export function BreakingHomePage({
   const ranked = useMemo(() => sortBreakingItems(state.items), [state.items])
   const recent = useMemo(() => sortRecentItems(state.items).slice(0, 6), [state.items])
   const lead = ranked[0]
+  const leadSupplement = lead ? hotTopicSupplement(lead) : null
   const topItems = ranked.slice(0, 3)
   const regionEntries = useMemo(
     () =>
@@ -630,7 +633,18 @@ export function BreakingHomePage({
     [targets],
   )
   const issueEntries = useMemo(
-    () => [...facets.issues].sort((left, right) => right.count - left.count).slice(0, 8),
+    () =>
+      facets.issues
+        .map((issue) => ({
+          ...issue,
+          displayLabel: displayFacetLabel(issue.label) ?? displayFacetLabel(issue.id),
+        }))
+        .filter(
+          (issue): issue is typeof issue & { displayLabel: string } =>
+            Boolean(issue.displayLabel),
+        )
+        .sort((left, right) => right.count - left.count)
+        .slice(0, 8),
     [facets.issues],
   )
   const homeRoute: Extract<PublicRoute, { name: "feed" }> = {
@@ -688,50 +702,52 @@ export function BreakingHomePage({
         </div>
 
         {leadRoute ? (
-          <a
-            href={buildPublicAppPath(leadRoute)}
-            onClick={(event) => handleRouteAnchorClick(event, leadRoute)}
-            className="grid gap-3 px-3 py-4 hover:bg-accent/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:grid-cols-[minmax(0,1fr)_14rem]"
-            aria-label={`主突发新闻 ${primaryNewsTitle(lead)}`}
-          >
-            <div className="min-w-0">
-              <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <Badge variant="secondary" className="rounded-md">
-                  主突发
-                </Badge>
-                <span>{lead.source.name}</span>
-                <span>{targetShortLabel(lead.targetLabel)}</span>
-                <span>{formatFullTime(lead.publishedAt)}</span>
-              </div>
-              <h2 className="text-lg font-semibold leading-7 text-foreground sm:text-xl">
-                {primaryNewsTitle(lead)}
-              </h2>
-              {lead.summary ? (
-                <p className="mt-2 line-clamp-3 text-sm leading-6 text-muted-foreground">
-                  {lead.summary}
-                </p>
-              ) : null}
-              {lead.recommendationReason ? (
-                <p className="mt-3 rounded-md border bg-background/70 px-3 py-2 text-xs leading-5 text-muted-foreground">
-                  <span className="font-medium text-foreground">为什么重要：</span>
-                  {lead.recommendationReason}
-                </p>
-              ) : null}
-            </div>
-            <div className="grid content-between gap-3 rounded-md border bg-background/70 p-3">
-              <div>
-                <p className="text-xs text-muted-foreground">Breaking News 分值</p>
-                <p className="mt-1 text-3xl font-semibold">{Math.round(lead.valueScore ?? 0)}</p>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {uniqueNewsTags(lead).slice(0, 5).map((tag) => (
-                  <Badge key={tag} variant="outline" className="rounded px-1.5 text-[10px] font-normal">
-                    {tag}
+          <article>
+            <a
+              href={buildPublicAppPath(leadRoute)}
+              onClick={(event) => handleRouteAnchorClick(event, leadRoute)}
+              className="grid gap-3 px-3 py-4 hover:bg-accent/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:grid-cols-[minmax(0,1fr)_14rem]"
+              aria-label={`主突发新闻 ${primaryNewsTitle(lead)}`}
+            >
+              <div className="min-w-0">
+                <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <Badge variant="secondary" className="rounded-md">
+                    主突发
                   </Badge>
-                ))}
+                  <span>{lead.source.name}</span>
+                  <span>{targetShortLabel(lead.targetLabel)}</span>
+                  <span>{formatFullTime(lead.publishedAt)}</span>
+                </div>
+                <h2 className="text-lg font-semibold leading-7 text-foreground sm:text-xl">
+                  {primaryNewsTitle(lead)}
+                </h2>
+                {leadSupplement ? (
+                  <p className="mt-2 line-clamp-3 text-sm leading-6 text-muted-foreground">
+                    {leadSupplement}
+                  </p>
+                ) : null}
+                {lead.recommendationReason ? (
+                  <p className="mt-3 rounded-md border bg-background/70 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                    <span className="font-medium text-foreground">为什么重要：</span>
+                    {lead.recommendationReason}
+                  </p>
+                ) : null}
               </div>
-            </div>
-          </a>
+              <div className="grid content-between gap-3 rounded-md border bg-background/70 p-3">
+                <div>
+                  <p className="text-xs text-muted-foreground">Breaking News 分值</p>
+                  <p className="mt-1 text-3xl font-semibold">{Math.round(lead.valueScore ?? 0)}</p>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {uniqueNewsTags(lead).slice(0, 5).map((tag) => (
+                    <Badge key={tag} variant="outline" className="rounded px-1.5 text-[10px] font-normal">
+                      {tag}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            </a>
+          </article>
         ) : null}
       </section>
 
@@ -744,21 +760,22 @@ export function BreakingHomePage({
             {topItems.map((item, index) => {
               const detailRoute = buildDetailRoute(item, homeRoute)
               return (
-                <a
-                  key={item.id}
-                  href={buildPublicAppPath(detailRoute)}
-                  onClick={(event) => handleRouteAnchorClick(event, detailRoute)}
-                  className="grid gap-1 px-3 py-2.5 hover:bg-accent/15 sm:grid-cols-[2rem_minmax(0,1fr)_auto] sm:items-start"
-                >
-                  <span className="text-lg font-semibold text-primary">{index + 1}</span>
-                  <span className="min-w-0">
-                    <span className="line-clamp-1 text-sm font-semibold">{primaryNewsTitle(item)}</span>
-                    <span className="mt-1 line-clamp-1 text-xs text-muted-foreground">
-                      {item.source.name} · {formatTime(item.publishedAt)}
+                <article key={item.id}>
+                  <a
+                    href={buildPublicAppPath(detailRoute)}
+                    onClick={(event) => handleRouteAnchorClick(event, detailRoute)}
+                    className="grid gap-1 px-3 py-2.5 hover:bg-accent/15 sm:grid-cols-[2rem_minmax(0,1fr)_auto] sm:items-start"
+                  >
+                    <span className="text-lg font-semibold text-primary">{index + 1}</span>
+                    <span className="min-w-0">
+                      <span className="line-clamp-1 text-sm font-semibold">{primaryNewsTitle(item)}</span>
+                      <span className="mt-1 line-clamp-1 text-xs text-muted-foreground">
+                        {item.source.name} · {formatTime(item.publishedAt)}
+                      </span>
                     </span>
-                  </span>
-                  <Badge className="w-fit rounded-full px-2">{Math.round(item.valueScore ?? 0)}</Badge>
-                </a>
+                    <Badge className="w-fit rounded-full px-2">{Math.round(item.valueScore ?? 0)}</Badge>
+                  </a>
+                </article>
               )
             })}
           </div>
@@ -772,15 +789,16 @@ export function BreakingHomePage({
             {recent.map((item) => {
               const detailRoute = buildDetailRoute(item, homeRoute)
               return (
-                <a
-                  key={item.id}
-                  href={buildPublicAppPath(detailRoute)}
-                  onClick={(event) => handleRouteAnchorClick(event, detailRoute)}
-                  className="grid grid-cols-[3.25rem_minmax(0,1fr)] gap-2 px-3 py-2 text-sm hover:bg-accent/15"
-                >
-                  <time className="text-xs font-medium text-muted-foreground">{formatTime(item.publishedAt)}</time>
-                  <span className="line-clamp-1 font-medium">{primaryNewsTitle(item)}</span>
-                </a>
+                <article key={item.id}>
+                  <a
+                    href={buildPublicAppPath(detailRoute)}
+                    onClick={(event) => handleRouteAnchorClick(event, detailRoute)}
+                    className="grid grid-cols-[3.25rem_minmax(0,1fr)] gap-2 px-3 py-2 text-sm hover:bg-accent/15"
+                  >
+                    <time className="text-xs font-medium text-muted-foreground">{formatTime(item.publishedAt)}</time>
+                    <span className="line-clamp-1 font-medium">{primaryNewsTitle(item)}</span>
+                  </a>
+                </article>
               )
             })}
           </div>
@@ -815,9 +833,9 @@ export function BreakingHomePage({
               {issueEntries.map((issue) => (
                 <QuickEntryButton
                   key={issue.id}
-                  label={issue.label}
+                  label={issue.displayLabel}
                   count={issue.count}
-                  onClick={() => onSelectIssue(issue.label)}
+                  onClick={() => onSelectIssue(issue.id)}
                 />
               ))}
             </div>
