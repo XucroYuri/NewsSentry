@@ -174,6 +174,8 @@ def test_generate_backfill_sql_is_idempotent_and_preserves_drafts_stage(tmp_path
     assert "INSERT INTO targets" in sql
     assert "cloudflare_collect_enabled" in sql
     assert "INSERT INTO sources" in sql
+    assert "BEGIN TRANSACTION" not in sql
+    assert "COMMIT;" not in sql
 
 
 def test_generated_backfill_sql_executes_against_d1_schema(tmp_path: Path) -> None:

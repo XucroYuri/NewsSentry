@@ -390,11 +390,10 @@ def _event_insert(event: D1Event) -> str:
 
 
 def generate_backfill_sql(plan: D1BackfillPlan) -> str:
-    statements = ["BEGIN TRANSACTION;"]
+    statements: list[str] = []
     statements.extend(_target_insert(target) for target in plan.targets)
     statements.extend(_source_insert(source) for source in plan.sources)
     statements.extend(_event_insert(event) for event in plan.events)
-    statements.append("COMMIT;")
     return "\n".join(statements) + "\n"
 
 
