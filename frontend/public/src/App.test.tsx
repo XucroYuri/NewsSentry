@@ -100,6 +100,7 @@ function installFetchMock() {
         facets: {
           regions: [{ id: "italy", label: "意大利", count: 52 }],
           issues: [
+            { id: "uncategorized", label: "uncategorized", count: 99 },
             { id: "国际关系", label: "国际关系", count: 20 },
             { id: "能源", label: "能源", count: 8 },
           ],
@@ -141,6 +142,7 @@ function installFetchMock() {
       return jsonResponse({
         regions: [{ id: "italy", label: "意大利", count: 52 }],
         issues: [
+          { id: "uncategorized", label: "uncategorized", count: 99 },
           { id: "国际关系", label: "国际关系", count: 20 },
           { id: "能源", label: "能源", count: 8 },
         ],
@@ -335,6 +337,7 @@ describe("Phase 84 public portal app", () => {
     expect(screen.getAllByText("会谈聚焦贸易政策与市场准入，双方同意继续保持沟通。").length).toBeGreaterThan(0)
     expect(screen.getByText(/为什么重要：/)).toBeInTheDocument()
     expect(screen.getAllByText("92").length).toBeGreaterThan(0)
+    expect(screen.getAllByRole("article").length).toBeGreaterThanOrEqual(4)
     expect(
       within(screen.getByRole("region", { name: "极速突发" })).getByRole("button", {
         name: "新闻纵览",
@@ -351,6 +354,112 @@ describe("Phase 84 public portal app", () => {
     expect(screen.queryByText("更新节奏")).not.toBeInTheDocument()
     expect(screen.queryByText("公共新闻 API smoke")).not.toBeInTheDocument()
     expect(screen.queryByText("跨目标展示最高价值新闻，先读判断，再看来源。")).not.toBeInTheDocument()
+    expect(screen.queryByText("uncategorized")).not.toBeInTheDocument()
+  })
+
+  it("renders reader-friendly topic labels on the breaking home while keeping stable query values", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      const facets = {
+        regions: [{ id: "italy", label: "意大利", count: 52 }],
+        issues: [
+          { id: "uncategorized", label: "uncategorized", count: 99 },
+          { id: "international-relations", label: "international-relations", count: 20 },
+        ],
+        related: [],
+      }
+      if (url.startsWith("/api/v1/public/bootstrap")) {
+        return jsonResponse({
+          news: feed([makeItem("event-1")]),
+          regions: {
+            regions: [
+              {
+                region_id: "italy",
+                display_name: "意大利新闻监控",
+                primary_language: "it",
+                region_type: "country",
+                source_count: 163,
+                event_count: 52,
+                lifecycle: {},
+                archived: false,
+              },
+            ],
+          },
+          facets,
+          generatedAt: "2026-06-21T00:00:00Z",
+        })
+      }
+      if (url.startsWith("/api/v1/regions")) {
+        return jsonResponse({
+          regions: [
+            {
+              region_id: "italy",
+              display_name: "意大利新闻监控",
+              primary_language: "it",
+              region_type: "country",
+              source_count: 163,
+              event_count: 52,
+              lifecycle: {},
+              archived: false,
+            },
+          ],
+        })
+      }
+      if (url.startsWith("/api/v1/public/facets")) return jsonResponse(facets)
+      if (url.startsWith("/api/v1/public/news")) return jsonResponse(feed([makeItem("event-1")]))
+      return jsonResponse({})
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<App />)
+
+    expect(await screen.findByRole("heading", { name: "极速突发" })).toBeInTheDocument()
+    expect(screen.queryByText("uncategorized")).not.toBeInTheDocument()
+    expect(screen.queryByText("international-relations")).not.toBeInTheDocument()
+
+    const quickEntries = screen.getByRole("region", { name: "突发快捷入口" })
+    fireEvent.click(within(quickEntries).getByRole("button", { name: /外交/ }))
+
+    expect(window.location.pathname).toBe("/public-app/")
+    expect(window.location.search).toContain("channel=all")
+    expect(window.location.search).toContain("issue=international-relations")
+    expect(await screen.findByRole("heading", { name: "新闻纵览" })).toBeInTheDocument()
+    const facetBar = screen.getByRole("region", { name: "地区议题相关筛选" })
+    expect(within(facetBar).getByRole("button", { name: /外交/ })).toBeInTheDocument()
+    expect(within(facetBar).queryByText("international-relations")).not.toBeInTheDocument()
+  })
+
+  it("does not repeat the lead title as a breaking-home summary", async () => {
+    const duplicateTitle = "新西兰股市触及四个月新高——收盘"
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      const news = feed([
+        makeItem("event-duplicate-lead", {
+          title: duplicateTitle,
+          originalTitle: duplicateTitle,
+          summary: duplicateTitle,
+          recommendationReason: "该动态反映区域市场风险偏好变化，值得继续跟踪。",
+        }),
+      ])
+      if (url.startsWith("/api/v1/public/bootstrap")) {
+        return jsonResponse({
+          news,
+          regions: { regions: [] },
+          facets: { regions: [], issues: [], related: [] },
+          generatedAt: "2026-06-21T00:00:00Z",
+        })
+      }
+      if (url.startsWith("/api/v1/public/news")) return jsonResponse(news)
+      return jsonResponse({ regions: [], issues: [], related: [] })
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<App />)
+
+    const leadLink = await screen.findByRole("link", { name: /主突发新闻 新西兰股市触及四个月新高/ })
+    expect(within(leadLink).getByRole("heading", { name: duplicateTitle })).toBeInTheDocument()
+    expect(within(leadLink).queryByText(duplicateTitle, { selector: "p" })).not.toBeInTheDocument()
+    expect(within(leadLink).getByText(/为什么重要：/)).toBeInTheDocument()
   })
 
   it("renders timeline news cards with translated title, source context, image preview, tags, and index branches", async () => {
