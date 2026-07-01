@@ -1048,6 +1048,22 @@ describe("Phase 84 public portal app", () => {
     expect(screen.queryByText("事件样本")).not.toBeInTheDocument()
   })
 
+  it("does not show the redundant category navigation on filtered target feeds", async () => {
+    installFetchMock()
+    window.history.replaceState(
+      {},
+      "",
+      "/public-app/?channel=targets&target_id=italy&issue=国际关系",
+    )
+
+    render(<App />)
+
+    expect(await screen.findByRole("heading", { name: "意大利" })).toBeInTheDocument()
+    expect(screen.getByRole("region", { name: "地区议题相关筛选" })).toBeInTheDocument()
+    expect(screen.queryByRole("region", { name: "分类导航" })).not.toBeInTheDocument()
+    expect(screen.queryByText("分类浏览")).not.toBeInTheDocument()
+  })
+
   it("wraps dense facet chips and shortens long facet labels without changing filter values", async () => {
     const fetchMock = installFetchMock()
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
