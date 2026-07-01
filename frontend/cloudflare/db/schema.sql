@@ -36,11 +36,15 @@ CREATE TABLE IF NOT EXISTS events (
     discussion_count INTEGER,
     classification TEXT DEFAULT '{}',
     extra TEXT DEFAULT '{}',
+    breaking_raw_score REAL,
+    breaking_percentile REAL,
+    breaking_calibrated_score REAL,
     breaking_score REAL,
     breaking_label TEXT,
     breaking_reason TEXT,
     breaking_confidence INTEGER,
     breaking_dimensions TEXT DEFAULT '{}',
+    breaking_adversarial_flags TEXT DEFAULT '{}',
     breaking_score_version TEXT,
     target_timezone TEXT DEFAULT 'UTC',
     published_at_local TEXT,
@@ -56,7 +60,12 @@ CREATE INDEX IF NOT EXISTS idx_events_pipeline_stage ON events(pipeline_stage);
 CREATE INDEX IF NOT EXISTS idx_events_source_id ON events(source_id);
 CREATE INDEX IF NOT EXISTS idx_events_value_label ON events(value_label);
 CREATE INDEX IF NOT EXISTS idx_events_public_featured ON events(pipeline_stage, value_score DESC, published_at DESC);
-CREATE INDEX IF NOT EXISTS idx_events_public_breaking ON events(pipeline_stage, breaking_score DESC, published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_events_public_breaking ON events(
+    pipeline_stage,
+    breaking_calibrated_score DESC,
+    breaking_score DESC,
+    published_at DESC
+);
 
 CREATE TABLE IF NOT EXISTS event_localizations (
     event_id TEXT NOT NULL,

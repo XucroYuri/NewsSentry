@@ -86,7 +86,10 @@ def test_cloudflare_public_featured_query_matches_python_quality_gate() -> None:
     assert 'params.get("featured") !== "false"' in bootstrap_ts
     assert "PUBLIC_FEATURED_MIN_SCORE = 60" in query_ts
     assert "PUBLIC_BREAKING_MIN_SCORE = 60" in query_ts
+    assert "PUBLIC_BREAKING_LEAD_MIN_PERCENTILE = 95" in query_ts
     assert "breaking_score >= ?" in query_ts
+    assert "breaking_percentile >= ?" in query_ts
+    assert "breaking_confidence >= ?" in query_ts
     assert "value_score >= ?" in query_ts
     assert "summary IS NOT NULL" in query_ts
     assert "TRIM(summary) != ''" in query_ts
@@ -97,10 +100,11 @@ def test_cloudflare_public_featured_query_matches_python_quality_gate() -> None:
     assert "NOT IN ('uncategorized', 'other', 'breaking_news')" in query_ts
     assert "NOT LIKE '%/opinion/todayinhistory/%'" in query_ts
     assert "UPPER(TRIM(title)) LIKE 'MONDAY, %'" in query_ts
-    assert (
-        "ORDER BY events.breaking_score DESC, events.published_at DESC, events.event_id DESC"
-        in query_ts
+    breaking_order = (
+        "ORDER BY COALESCE(events.breaking_calibrated_score, events.breaking_score, "
+        "events.value_score, -1) DESC"
     )
+    assert breaking_order in query_ts
     assert "publicNewsOrderBy(featured)" in news_ts
     assert "publicNewsOrderBy(featured)" in bootstrap_ts
 
@@ -109,13 +113,21 @@ def test_cloudflare_breaking_intelligence_contract_is_schema_backed() -> None:
     schema_sql = _read("db/schema.sql")
     query_ts = _read("workers/lib/public-news-query.ts")
     contracts_ts = _read("workers/lib/contracts.ts")
+    breaking_order = (
+        "ORDER BY COALESCE(events.breaking_calibrated_score, events.breaking_score, "
+        "events.value_score, -1) DESC"
+    )
 
     for column in (
+        "breaking_raw_score REAL",
+        "breaking_percentile REAL",
+        "breaking_calibrated_score REAL",
         "breaking_score REAL",
         "breaking_label TEXT",
         "breaking_reason TEXT",
         "breaking_confidence INTEGER",
         "breaking_dimensions TEXT DEFAULT '{}'",
+        "breaking_adversarial_flags TEXT DEFAULT '{}'",
         "breaking_score_version TEXT",
         "target_timezone TEXT DEFAULT 'UTC'",
         "published_at_local TEXT",
@@ -126,14 +138,16 @@ def test_cloudflare_breaking_intelligence_contract_is_schema_backed() -> None:
     assert "CREATE TABLE IF NOT EXISTS breaking_score_stats" in schema_sql
     assert "idx_events_public_breaking" in schema_sql
     assert "idx_event_localizations_locale" in schema_sql
+    assert "refreshBreakingScoreStats" in _read("workers/lib/scheduled.ts")
     assert "breaking_score >= ?" in query_ts
-    assert (
-        "ORDER BY events.breaking_score DESC, events.published_at DESC, events.event_id DESC"
-        in query_ts
-    )
+    assert breaking_order in query_ts
 
     for field in (
         "breakingScore?: number | null",
+        "breakingRawScore?: number | null",
+        "breakingPercentile?: number | null",
+        "breakingCalibratedScore?: number | null",
+        "breakingVersion?: string | null",
         "breakingLabel?:",
         "breakingReason?: string | null",
         "breakingConfidence?: number | null",
@@ -143,6 +157,34 @@ def test_cloudflare_breaking_intelligence_contract_is_schema_backed() -> None:
         "availableLocales?: string[]",
     ):
         assert field in contracts_ts
+
+
+def test_cloudflare_public_news_uses_sql_cursor_pagination() -> None:
+    news_ts = _read("workers/api/news.ts")
+    query_ts = _read("workers/lib/public-news-query.ts")
+
+    assert "buildCursorFilter" in news_ts
+    assert 'params.get("before_cursor")' in news_ts
+    assert 'params.get("since_cursor")' in news_ts
+    cursor_select = (
+        "SELECT event_id, published_at, value_score, breaking_score, "
+        "breaking_calibrated_score FROM events WHERE event_id = ?"
+    )
+    assert cursor_select in news_ts
+    assert "COALESCE(breaking_calibrated_score, breaking_score, value_score, -1)" in news_ts
+    assert "${cursorFilter.sql}" in news_ts
+    assert "SELECT COUNT(*) AS total FROM events ${filters.sql}" in news_ts
+    assert "Number.isFinite(requestedPageSize)" in news_ts
+    assert "Math.min(requestedPageSize, 50)" in news_ts
+    assert "const pageRows = rows.slice(0, pageSize)" in news_ts
+    assert "const items = pageRows.map" in news_ts
+    assert "hasNewer: Boolean(sinceCursor && items.length > 0)" in news_ts
+    assert (
+        "COALESCE(events.breaking_calibrated_score, events.breaking_score, "
+        "events.value_score, -1)"
+    ) in query_ts
+    assert "export function publicNewsOrderBy(featured: boolean)" in query_ts
+    assert "publicNewsOrderBy(featured)" in news_ts
 
 
 def test_cloudflare_public_reads_are_locale_aware_without_breaking_shape() -> None:
@@ -175,24 +217,24 @@ def test_cloudflare_has_ninety_day_retention_and_cost_guards() -> None:
     assert "23 * * * *" in wrangler_toml
 
 
-def test_cloudflare_public_news_uses_sql_cursor_pagination() -> None:
-    news_ts = _read("workers/api/news.ts")
-    query_ts = _read("workers/lib/public-news-query.ts")
+def test_cloudflare_import_accepts_breaking_v2_projection_fields() -> None:
+    contracts_ts = _read("workers/lib/contracts.ts")
+    webhook_ts = _read("workers/api/webhook.ts")
 
-    assert "buildCursorFilter" in news_ts
-    assert 'params.get("before_cursor")' in news_ts
-    assert 'params.get("since_cursor")' in news_ts
-    assert (
-        "SELECT event_id, published_at, value_score, breaking_score FROM events WHERE event_id = ?"
-        in news_ts
-    )
-    assert "${cursorFilter.sql}" in news_ts
-    assert "SELECT COUNT(*) AS total FROM events ${filters.sql}" in news_ts
-    assert "Number.isFinite(requestedPageSize)" in news_ts
-    assert "const pageRows = rows.slice(0, pageSize)" in news_ts
-    assert "const items = pageRows.map" in news_ts
-    assert "hasNewer: Boolean(sinceCursor && items.length > 0)" in news_ts
-    assert "ORDER BY events.published_at DESC, events.event_id DESC" in query_ts
+    for field in (
+        "breaking_raw_score?: number",
+        "breaking_percentile?: number",
+        "breaking_calibrated_score?: number",
+        "breaking_adversarial_flags?: Record<string, unknown>",
+    ):
+        assert field in contracts_ts
+    for column in (
+        "breaking_raw_score",
+        "breaking_percentile",
+        "breaking_calibrated_score",
+        "breaking_adversarial_flags",
+    ):
+        assert column in webhook_ts
 
 
 def test_cloudflare_d1_has_public_featured_index() -> None:

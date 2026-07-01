@@ -10,7 +10,9 @@ import type { PublicNewsItem, PublicNewsSource } from "./contracts";
 
 export const PUBLIC_FEATURED_MIN_SCORE = 60;
 export const PUBLIC_BREAKING_MIN_SCORE = 60;
-export const BREAKING_SCORE_VERSION = "breaking-v1.0";
+export const PUBLIC_BREAKING_LEAD_MIN_PERCENTILE = 95;
+export const PUBLIC_BREAKING_LEAD_MIN_CONFIDENCE = 70;
+export const BREAKING_SCORE_VERSION = "breaking-v2.0";
 export const SUPPORTED_PUBLIC_LOCALES = ["zh", "en", "es", "ar", "fr"] as const;
 export type PublicLocale = (typeof SUPPORTED_PUBLIC_LOCALES)[number];
 
@@ -39,11 +41,16 @@ export interface NewsRow {
   discussion_count: number | null;
   value_label: string;
   value_score: number | null;
+  breaking_raw_score: number | null;
+  breaking_percentile: number | null;
+  breaking_calibrated_score: number | null;
   breaking_score: number | null;
   breaking_label: string | null;
   breaking_reason: string | null;
   breaking_confidence: number | null;
   breaking_dimensions: string | null;
+  breaking_adversarial_flags: string | null;
+  breaking_score_version: string | null;
   target_timezone: string | null;
   published_at_local: string | null;
   available_locales: string | null;
@@ -58,8 +65,11 @@ export const PUBLIC_NEWS_SELECT_COLUMNS = `
   recommendation_reason, full_content, original_url,
   detail_url, image_urls, tags, issue_tags, related_tags,
   region_tags, entities, related_count, discussion_count,
-  value_label, value_score, breaking_score, breaking_label,
+  value_label, value_score,
+  breaking_raw_score, breaking_percentile, breaking_calibrated_score,
+  breaking_score, breaking_label,
   breaking_reason, breaking_confidence, breaking_dimensions,
+  breaking_adversarial_flags, breaking_score_version,
   target_timezone, published_at_local,
   (
     SELECT json_group_array(locale)
@@ -85,8 +95,10 @@ export const PUBLIC_NEWS_LOCALE_SELECT_COLUMNS = `
   COALESCE(localized.localized_region_tags, events.region_tags) AS region_tags,
   events.entities, events.related_count, events.discussion_count,
   events.value_label, events.value_score,
+  events.breaking_raw_score, events.breaking_percentile, events.breaking_calibrated_score,
   events.breaking_score, events.breaking_label, events.breaking_reason,
   events.breaking_confidence, events.breaking_dimensions,
+  events.breaking_adversarial_flags, events.breaking_score_version,
   events.target_timezone, events.published_at_local,
   (
     SELECT json_group_array(locale)
@@ -116,7 +128,11 @@ export function buildPublicNewsWhere(input: PublicNewsFilterInput): {
   if (input.featured) {
     sql += `
       AND (
-        breaking_score >= ?
+        (
+          breaking_score >= ?
+          AND breaking_percentile >= ?
+          AND breaking_confidence >= ?
+        )
         OR (breaking_score IS NULL AND value_score >= ?)
       )
       AND summary IS NOT NULL
@@ -137,7 +153,12 @@ export function buildPublicNewsWhere(input: PublicNewsFilterInput): {
         OR UPPER(TRIM(title)) LIKE 'SUNDAY, %'
       )
     `;
-    bindings.push(PUBLIC_BREAKING_MIN_SCORE, PUBLIC_FEATURED_MIN_SCORE);
+    bindings.push(
+      PUBLIC_BREAKING_MIN_SCORE,
+      PUBLIC_BREAKING_LEAD_MIN_PERCENTILE,
+      PUBLIC_BREAKING_LEAD_MIN_CONFIDENCE,
+      PUBLIC_FEATURED_MIN_SCORE,
+    );
   }
 
   if (input.regionId) {
@@ -171,7 +192,7 @@ export function buildPublicNewsWhere(input: PublicNewsFilterInput): {
 
 export function publicNewsOrderBy(featured: boolean): string {
   return featured
-    ? "ORDER BY events.breaking_score DESC, events.published_at DESC, events.event_id DESC"
+    ? "ORDER BY COALESCE(events.breaking_calibrated_score, events.breaking_score, events.value_score, -1) DESC, events.breaking_percentile DESC, events.published_at DESC, events.event_id DESC"
     : "ORDER BY events.published_at DESC, events.event_id DESC";
 }
 
@@ -267,6 +288,10 @@ export function rowToPublicNewsItem(row: NewsRow): PublicNewsItem {
     valueLabel: row.value_label as PublicNewsItem["valueLabel"],
     valueScore: row.value_score,
     breakingScore: row.breaking_score ?? row.value_score,
+    breakingRawScore: row.breaking_raw_score,
+    breakingPercentile: row.breaking_percentile,
+    breakingCalibratedScore: row.breaking_calibrated_score,
+    breakingVersion: row.breaking_score_version,
     breakingLabel: (row.breaking_label as PublicNewsItem["breakingLabel"]) ?? null,
     breakingReason: row.breaking_reason,
     breakingConfidence: row.breaking_confidence,
@@ -276,4 +301,11 @@ export function rowToPublicNewsItem(row: NewsRow): PublicNewsItem {
     availableLocales: parseJsonArray(row.available_locales || "[]"),
     chinaRelevanceLabel: row.china_relevance_label as PublicNewsItem["chinaRelevanceLabel"],
   };
+}
+
+export function pollAfterMsForPublicNews(featured: boolean, items: PublicNewsItem[]): number {
+  if (!featured) return 60000;
+  if (items.some((item) => item.breakingLabel === "flash")) return 15000;
+  if (items.some((item) => item.breakingLabel === "breaking")) return 20000;
+  return 30000;
 }

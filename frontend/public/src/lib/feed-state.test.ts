@@ -80,8 +80,13 @@ describe("feed state helpers", () => {
   })
 
   it("clamps normal polling and backs off failures", () => {
-    expect(nextPollDelayMs({ serverMs: 2_000, failureCount: 0 })).toBe(30_000)
+    expect(nextPollDelayMs({ serverMs: 2_000, failureCount: 0 })).toBe(15_000)
     expect(nextPollDelayMs({ serverMs: 60_000, failureCount: 2 })).toBeGreaterThan(60_000)
+  })
+
+  it("allows urgent breaking feeds to poll as fast as fifteen seconds", () => {
+    expect(nextPollDelayMs({ serverMs: 15_000, failureCount: 0 })).toBe(15_000)
+    expect(nextPollDelayMs({ serverMs: 15_000, failureCount: 1 })).toBe(30_000)
   })
 
   it("pauses polling when the page is hidden or offline", () => {

@@ -40,6 +40,11 @@ const item: PublicNewsItem = {
   discussionCount: 0,
   valueLabel: "精选",
   valueScore: 92,
+  breakingScore: 82,
+  breakingRawScore: 88,
+  breakingPercentile: 86.4,
+  breakingCalibratedScore: 82,
+  breakingVersion: "breaking-v2.0",
   chinaRelevanceLabel: "中",
 }
 
@@ -121,6 +126,9 @@ describe("public news API client", () => {
     expect(result.notModified).toBe(false)
     expect(result.etag).toBe('"feed-tag"')
     expect(result.data?.items[0]?.source.name).toBe("ANSA.it")
+    expect(result.data?.items[0]?.breakingRawScore).toBe(88)
+    expect(result.data?.items[0]?.breakingPercentile).toBe(86.4)
+    expect(result.data?.items[0]?.breakingVersion).toBe("breaking-v2.0")
   })
 
   it("handles 304 without parsing a body", async () => {

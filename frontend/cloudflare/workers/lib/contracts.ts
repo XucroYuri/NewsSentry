@@ -61,6 +61,10 @@ export interface PublicNewsItem {
   valueLabel: "精选" | "关注" | "普通" | "待评估";
   valueScore?: number | null;
   breakingScore?: number | null;
+  breakingRawScore?: number | null;
+  breakingPercentile?: number | null;
+  breakingCalibratedScore?: number | null;
+  breakingVersion?: string | null;
   breakingLabel?: "flash" | "breaking" | "watch" | "timeline" | null;
   breakingReason?: string | null;
   breakingConfidence?: number | null;
@@ -161,11 +165,15 @@ export interface ImportEventItem {
   title?: string;
   summary?: string;
   recommendation_reason?: string;
+  breaking_raw_score?: number;
+  breaking_percentile?: number;
+  breaking_calibrated_score?: number;
   breaking_score?: number;
   breaking_label?: string;
   breaking_reason?: string;
   breaking_confidence?: number;
   breaking_dimensions?: Record<string, number>;
+  breaking_adversarial_flags?: Record<string, unknown>;
   breaking_score_version?: string;
   target_timezone?: string;
   published_at_local?: string;

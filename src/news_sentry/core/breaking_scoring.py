@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-BREAKING_SCORE_VERSION = "breaking-v1.0"
+BREAKING_SCORE_VERSION = "breaking-v2.0"
 
 BREAKING_DIMENSION_WEIGHTS: dict[str, int] = {
     "impact_scope": 22,
@@ -59,6 +59,22 @@ class BreakingAssessment:
     dimensions: dict[str, int]
     penalties: dict[str, int]
     version: str = BREAKING_SCORE_VERSION
+    raw_score: int | None = None
+    percentile: float | None = None
+    calibrated_score: int | None = None
+
+
+@dataclass(frozen=True)
+class BreakingScoreStats:
+    scope_key: str
+    window_days: int
+    mean_score: float = 0.0
+    stddev_score: float = 0.0
+    p50: float = 0.0
+    p75: float = 0.0
+    p90: float = 0.0
+    p95: float = 0.0
+    sample_count: int = 0
 
 
 def _clamp_score(value: Any, *, default: int = 0) -> int:  # noqa: ANN401
@@ -77,6 +93,73 @@ def _label_for_score(score: int, confidence: int = 80) -> BreakingLabel:
     if score >= 52:
         return "watch"
     return "timeline"
+
+
+def _interpolated_percentile(score: int, stats: BreakingScoreStats) -> float:
+    if stats.sample_count < 30:
+        return float(score)
+    checkpoints = [
+        (0.0, 0.0),
+        (float(stats.p50 or stats.mean_score or 50), 50.0),
+        (float(stats.p75 or stats.p50 or stats.mean_score or 60), 75.0),
+        (float(stats.p90 or stats.p75 or stats.mean_score or 72), 90.0),
+        (float(stats.p95 or stats.p90 or stats.mean_score or 85), 95.0),
+        (100.0, 100.0),
+    ]
+    checkpoints.sort(key=lambda item: item[0])
+    previous_score, previous_pct = checkpoints[0]
+    for next_score, next_pct in checkpoints[1:]:
+        if score <= next_score:
+            span = max(1.0, next_score - previous_score)
+            ratio = (score - previous_score) / span
+            return max(0.0, min(100.0, previous_pct + (next_pct - previous_pct) * ratio))
+        previous_score, previous_pct = next_score, next_pct
+    return 100.0
+
+
+def _label_for_calibrated_score(
+    score: int,
+    *,
+    percentile: float,
+    confidence: int,
+) -> BreakingLabel:
+    if score >= 85 and percentile >= 95 and confidence >= 70:
+        return "flash"
+    if score >= 72 and percentile >= 90 and confidence >= 60:
+        return "breaking"
+    if score >= 52 or percentile >= 75:
+        return "watch"
+    return "timeline"
+
+
+def calibrate_breaking_assessment(
+    assessment: BreakingAssessment,
+    stats: BreakingScoreStats | None,
+) -> BreakingAssessment:
+    """Blend raw score with rolling distribution percentile for public ordering."""
+    raw_score = _clamp_score(assessment.raw_score or assessment.score)
+    if stats is None or stats.sample_count < 30:
+        percentile = float(raw_score)
+    else:
+        percentile = _interpolated_percentile(raw_score, stats)
+    calibrated_score = _clamp_score((raw_score * 0.7) + (percentile * 0.3))
+    label = _label_for_calibrated_score(
+        calibrated_score,
+        percentile=percentile,
+        confidence=assessment.confidence,
+    )
+    return BreakingAssessment(
+        score=calibrated_score,
+        label=label,
+        confidence=assessment.confidence,
+        reason=assessment.reason,
+        dimensions=assessment.dimensions,
+        penalties=assessment.penalties,
+        version=BREAKING_SCORE_VERSION,
+        raw_score=raw_score,
+        percentile=round(percentile, 2),
+        calibrated_score=calibrated_score,
+    )
 
 
 def _source_reliability(source_type: str, credibility_label: str | None) -> int:
