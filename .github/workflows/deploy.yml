@@ -171,6 +171,27 @@ jobs:
             --limit 100 \
             --output-sql /tmp/news-sentry-d1-backfill.sql
 
+      - name: Apply Cloudflare D1 breaking intelligence migration
+        if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if npx wrangler d1 execute ns-db --remote --command \
+            "SELECT breaking_score FROM events LIMIT 1" >/tmp/ns-d1-breaking-check.json 2>/tmp/ns-d1-breaking-check.err; then
+            echo "events.breaking_score already exists"
+          elif grep -q "no such table: events" /tmp/ns-d1-breaking-check.err; then
+            cat /tmp/ns-d1-breaking-check.err
+            echo "events table is absent; db/schema.sql will initialize breaking columns"
+          else
+            cat /tmp/ns-d1-breaking-check.err
+            npx wrangler d1 execute ns-db --remote \
+              --file=db/migrations/20260701_breaking_intelligence_i18n.sql
+          fi
+
       - name: Apply Cloudflare D1 schema
         if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
         working-directory: frontend/cloudflare

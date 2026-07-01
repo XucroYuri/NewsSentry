@@ -373,6 +373,18 @@ def test_cloudflare_scheduled_ops_are_configured() -> None:
     assert "collectBatchDetails" in scheduled_ts
 
 
+def test_deploy_workflow_migrates_breaking_columns_before_schema_indexes() -> None:
+    deploy_yml = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+
+    migration_step = deploy_yml.index("Apply Cloudflare D1 breaking intelligence migration")
+    schema_step = deploy_yml.index("Apply Cloudflare D1 schema")
+
+    assert migration_step < schema_step
+    assert "SELECT breaking_score FROM events LIMIT 1" in deploy_yml
+    assert "no such table: events" in deploy_yml
+    assert "20260701_breaking_intelligence_i18n.sql" in deploy_yml
+
+
 def test_cloudflare_worker_observability_is_enabled() -> None:
     wrangler_toml = tomllib.loads(_read("wrangler.toml"))
 
