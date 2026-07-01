@@ -105,7 +105,10 @@ def test_source_coverage_report_extracts_validation_evidence_from_notes(
                 "max_items_per_run: 20",
                 "timeout_seconds: 30",
                 "enabled: true",
-                "notes: '2026-07-01 source audit: HTTP 200, 12 entries, latest 2026-07-01T00:00:00Z; validated.'",
+                (
+                    "notes: '2026-07-01 source audit: HTTP 200, 12 entries, "
+                    "latest 2026-07-01T00:00:00Z; validated.'"
+                ),
                 "",
             ]
         ),
