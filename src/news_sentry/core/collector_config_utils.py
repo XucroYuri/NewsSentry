@@ -1184,7 +1184,8 @@ def _cloudflare_import_payload_from_row(row: sqlite3.Row) -> dict[str, Any] | No
     raw_publication = metadata.get("publication")
     translation = raw_translation if isinstance(raw_translation, dict) else {}
     publication = raw_publication if isinstance(raw_publication, dict) else {}
-    breaking = publication.get("breaking") if isinstance(publication.get("breaking"), dict) else {}
+    raw_breaking = publication.get("breaking")
+    breaking: dict[str, Any] = raw_breaking if isinstance(raw_breaking, dict) else {}
     ready = public_publication_ready(metadata)
 
     published_at = _cloudflare_import_timestamp(row["published_at"], row["created_at"])
