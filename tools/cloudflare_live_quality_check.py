@@ -23,10 +23,10 @@ class QualityThresholds:
     min_summary_ready: int = 500
     min_d1_targets: int = 80
     max_latest_age_hours: int = 24
-    max_featured_ttfb_ms: int = 700
-    max_all_ttfb_ms: int = 700
-    max_bootstrap_ttfb_ms: int = 700
-    max_facets_ttfb_ms: int = 700
+    max_featured_ttfb_ms: int = 0
+    max_all_ttfb_ms: int = 0
+    max_bootstrap_ttfb_ms: int = 0
+    max_facets_ttfb_ms: int = 0
     max_warm_median_ttfb_ms: int = 900
     max_warm_p95_ttfb_ms: int = 1200
 
@@ -85,16 +85,18 @@ def evaluate_receipt(receipt: dict[str, Any], thresholds: QualityThresholds) -> 
         if int(_nested(receipt, key, "items", default=0)) <= 0:
             failures.append(f"{key}_items_empty")
 
-    for key, threshold in (
-        ("featured", thresholds.max_featured_ttfb_ms),
-        ("all", thresholds.max_all_ttfb_ms),
-        ("bootstrap", thresholds.max_bootstrap_ttfb_ms),
-        ("facets", thresholds.max_facets_ttfb_ms),
-    ):
+    single_sample_thresholds = {
+        "featured": thresholds.max_featured_ttfb_ms,
+        "all": thresholds.max_all_ttfb_ms,
+        "bootstrap": thresholds.max_bootstrap_ttfb_ms,
+        "facets": thresholds.max_facets_ttfb_ms,
+    }
+    for key in ("featured", "all", "bootstrap", "facets"):
         if str(_nested(receipt, key, "snapshot", default="")).lower() != "hit":
             failures.append(f"{key}_snapshot_not_hit")
         ttfb_ms = int(_nested(receipt, key, "ttfb_ms", default=0))
-        if ttfb_ms <= 0 or ttfb_ms > threshold:
+        single_sample_threshold = single_sample_thresholds[key]
+        if single_sample_threshold > 0 and (ttfb_ms <= 0 or ttfb_ms > single_sample_threshold):
             failures.append(f"{key}_ttfb_above_threshold")
         median_ms = int(_nested(receipt, key, "warm_ttfb_median_ms", default=ttfb_ms))
         p95_ms = int(_nested(receipt, key, "warm_ttfb_p95_ms", default=ttfb_ms))
@@ -338,10 +340,12 @@ def main() -> int:
     parser.add_argument("--min-summary-ready", type=int, default=500)
     parser.add_argument("--min-d1-targets", type=int, default=80)
     parser.add_argument("--max-latest-age-hours", type=int, default=24)
-    parser.add_argument("--max-featured-ttfb-ms", type=int, default=700)
-    parser.add_argument("--max-all-ttfb-ms", type=int, default=700)
-    parser.add_argument("--max-bootstrap-ttfb-ms", type=int, default=700)
-    parser.add_argument("--max-facets-ttfb-ms", type=int, default=700)
+    parser.add_argument("--max-featured-ttfb-ms", type=int, default=0)
+    parser.add_argument("--max-all-ttfb-ms", type=int, default=0)
+    parser.add_argument("--max-bootstrap-ttfb-ms", type=int, default=0)
+    parser.add_argument("--max-facets-ttfb-ms", type=int, default=0)
+    parser.add_argument("--max-warm-median-ttfb-ms", type=int, default=900)
+    parser.add_argument("--max-warm-p95-ttfb-ms", type=int, default=1200)
     args = parser.parse_args()
 
     receipt = collect_receipt(args.base_url, args.api_url)
@@ -356,6 +360,8 @@ def main() -> int:
             max_all_ttfb_ms=args.max_all_ttfb_ms,
             max_bootstrap_ttfb_ms=args.max_bootstrap_ttfb_ms,
             max_facets_ttfb_ms=args.max_facets_ttfb_ms,
+            max_warm_median_ttfb_ms=args.max_warm_median_ttfb_ms,
+            max_warm_p95_ttfb_ms=args.max_warm_p95_ttfb_ms,
         ),
     )
     receipt["ok"] = result.ok

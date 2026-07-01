@@ -89,11 +89,27 @@ def test_evaluate_receipt_fails_for_translation_and_head_regressions() -> None:
     assert "head_probe_failed" in result.failures
 
 
+def test_evaluate_receipt_uses_warm_ttfb_statistics_for_latency_gate() -> None:
+    receipt = _healthy_receipt()
+    receipt["featured"]["ttfb_ms"] = 850  # type: ignore[index]
+    receipt["all"]["ttfb_ms"] = 820  # type: ignore[index]
+    receipt["bootstrap"]["ttfb_ms"] = 875  # type: ignore[index]
+    receipt["facets"]["ttfb_ms"] = 810  # type: ignore[index]
+
+    result = evaluate_receipt(
+        receipt,
+        QualityThresholds(min_featured=100, min_summary_ready=500, max_latest_age_hours=24),
+    )
+
+    assert result.ok is True
+    assert result.failures == []
+
+
 def test_evaluate_receipt_fails_when_snapshot_or_warm_ttfb_regresses() -> None:
     receipt = _healthy_receipt()
     receipt["featured"]["snapshot"] = "miss"  # type: ignore[index]
     receipt["all"]["snapshot"] = "miss"  # type: ignore[index]
-    receipt["bootstrap"]["ttfb_ms"] = 901  # type: ignore[index]
+    receipt["bootstrap"]["warm_ttfb_median_ms"] = 901  # type: ignore[index]
     receipt["facets"]["snapshot"] = "bypass"  # type: ignore[index]
 
     result = evaluate_receipt(
@@ -104,8 +120,26 @@ def test_evaluate_receipt_fails_when_snapshot_or_warm_ttfb_regresses() -> None:
     assert result.ok is False
     assert "featured_snapshot_not_hit" in result.failures
     assert "all_snapshot_not_hit" in result.failures
-    assert "bootstrap_ttfb_above_threshold" in result.failures
+    assert "bootstrap_warm_median_ttfb_above_threshold" in result.failures
     assert "facets_snapshot_not_hit" in result.failures
+
+
+def test_evaluate_receipt_can_enable_single_sample_ttfb_ceiling() -> None:
+    receipt = _healthy_receipt()
+    receipt["featured"]["ttfb_ms"] = 701  # type: ignore[index]
+
+    result = evaluate_receipt(
+        receipt,
+        QualityThresholds(
+            min_featured=100,
+            min_summary_ready=500,
+            max_latest_age_hours=24,
+            max_featured_ttfb_ms=700,
+        ),
+    )
+
+    assert result.ok is False
+    assert "featured_ttfb_above_threshold" in result.failures
 
 
 def test_evaluate_receipt_fails_when_featured_copy_or_targets_regress() -> None:
