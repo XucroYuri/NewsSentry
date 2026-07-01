@@ -39,6 +39,10 @@ export interface PublicNewsItem {
   valueLabel: PublicNewsValueLabel
   valueScore?: number | null
   breakingScore?: number | null
+  breakingRawScore?: number | null
+  breakingPercentile?: number | null
+  breakingCalibratedScore?: number | null
+  breakingVersion?: string | null
   breakingLabel?: "flash" | "breaking" | "watch" | "timeline" | null
   breakingReason?: string | null
   breakingConfidence?: number | null

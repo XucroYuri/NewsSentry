@@ -8,6 +8,7 @@
 
 import type { WebhookResponse, ImportResponse, ImportEventItem } from "../lib/contracts";
 import { internalError } from "../lib/errors";
+import { refreshBreakingScoreStats } from "../lib/breaking-calibration";
 import { refreshPublicReadSnapshots } from "../lib/public-read-snapshots";
 
 type ImportEventWithId = ImportEventItem & {
@@ -66,11 +67,15 @@ function hasProjectionUpdate(item: ImportEventWithId): boolean {
       jsonArrayText(item.image_urls) ||
       jsonArrayText(item.entities) ||
       jsonObjectText(item.classification) ||
+      typeof item.breaking_raw_score === "number" ||
+      typeof item.breaking_percentile === "number" ||
+      typeof item.breaking_calibrated_score === "number" ||
       typeof item.breaking_score === "number" ||
       nonEmptyText(item.breaking_label) ||
       nonEmptyText(item.breaking_reason) ||
       typeof item.breaking_confidence === "number" ||
       jsonObjectText(item.breaking_dimensions) ||
+      jsonObjectText(item.breaking_adversarial_flags) ||
       nonEmptyText(item.target_timezone) ||
       nonEmptyText(item.published_at_local) ||
       (Array.isArray(item.localizations) && item.localizations.length > 0),
@@ -204,11 +209,15 @@ export async function importEventsToD1(
              value_score = COALESCE(?, value_score),
              china_relevance_label = COALESCE(NULLIF(?, ''), china_relevance_label),
              classification = COALESCE(?, classification),
+             breaking_raw_score = COALESCE(?, breaking_raw_score),
+             breaking_percentile = COALESCE(?, breaking_percentile),
+             breaking_calibrated_score = COALESCE(?, breaking_calibrated_score),
              breaking_score = COALESCE(?, breaking_score),
              breaking_label = COALESCE(NULLIF(?, ''), breaking_label),
              breaking_reason = COALESCE(NULLIF(?, ''), breaking_reason),
              breaking_confidence = COALESCE(?, breaking_confidence),
              breaking_dimensions = COALESCE(?, breaking_dimensions),
+             breaking_adversarial_flags = COALESCE(?, breaking_adversarial_flags),
              breaking_score_version = COALESCE(NULLIF(?, ''), breaking_score_version),
              target_timezone = COALESCE(NULLIF(?, ''), target_timezone),
              published_at_local = COALESCE(NULLIF(?, ''), published_at_local),
@@ -231,11 +240,15 @@ export async function importEventsToD1(
           typeof item.value_score === "number" ? item.value_score : null,
           nonEmptyText(item.china_relevance_label),
           jsonObjectText(item.classification),
+          typeof item.breaking_raw_score === "number" ? item.breaking_raw_score : null,
+          typeof item.breaking_percentile === "number" ? item.breaking_percentile : null,
+          typeof item.breaking_calibrated_score === "number" ? item.breaking_calibrated_score : null,
           typeof item.breaking_score === "number" ? item.breaking_score : null,
           nonEmptyText(item.breaking_label),
           nonEmptyText(item.breaking_reason),
           typeof item.breaking_confidence === "number" ? item.breaking_confidence : null,
           jsonObjectText(item.breaking_dimensions),
+          jsonObjectText(item.breaking_adversarial_flags),
           nonEmptyText(item.breaking_score_version),
           nonEmptyText(item.target_timezone),
           nonEmptyText(item.published_at_local),
@@ -260,9 +273,11 @@ export async function importEventsToD1(
            image_urls, tags, issue_tags, related_tags, region_tags, entities,
            language, pipeline_stage,
            value_label, value_score, china_relevance_label, classification
-           , breaking_score, breaking_label, breaking_reason, breaking_confidence,
-           breaking_dimensions, breaking_score_version, target_timezone, published_at_local
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           , breaking_raw_score, breaking_percentile, breaking_calibrated_score,
+           breaking_score, breaking_label, breaking_reason, breaking_confidence,
+           breaking_dimensions, breaking_adversarial_flags, breaking_score_version,
+           target_timezone, published_at_local
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(event_id) DO UPDATE SET
            target_id=excluded.target_id,
            target_label=excluded.target_label,
@@ -297,11 +312,21 @@ export async function importEventsToD1(
              events.china_relevance_label
            ),
            classification=COALESCE(NULLIF(excluded.classification, '{}'), events.classification),
+           breaking_raw_score=COALESCE(excluded.breaking_raw_score, events.breaking_raw_score),
+           breaking_percentile=COALESCE(excluded.breaking_percentile, events.breaking_percentile),
+           breaking_calibrated_score=COALESCE(
+             excluded.breaking_calibrated_score,
+             events.breaking_calibrated_score
+           ),
            breaking_score=COALESCE(excluded.breaking_score, events.breaking_score),
            breaking_label=COALESCE(NULLIF(excluded.breaking_label, ''), events.breaking_label),
            breaking_reason=COALESCE(NULLIF(excluded.breaking_reason, ''), events.breaking_reason),
            breaking_confidence=COALESCE(excluded.breaking_confidence, events.breaking_confidence),
            breaking_dimensions=COALESCE(NULLIF(excluded.breaking_dimensions, '{}'), events.breaking_dimensions),
+           breaking_adversarial_flags=COALESCE(
+             NULLIF(excluded.breaking_adversarial_flags, '{}'),
+             events.breaking_adversarial_flags
+           ),
            breaking_score_version=COALESCE(
              NULLIF(excluded.breaking_score_version, ''),
              events.breaking_score_version
@@ -342,11 +367,15 @@ export async function importEventsToD1(
         item.value_score ?? null,
         item.china_relevance_label || "未知",
         jsonText(item.classification, {}),
+        item.breaking_raw_score ?? item.breaking_score ?? item.value_score ?? null,
+        item.breaking_percentile ?? item.breaking_score ?? item.value_score ?? null,
+        item.breaking_calibrated_score ?? item.breaking_score ?? item.value_score ?? null,
         item.breaking_score ?? item.value_score ?? null,
         item.breaking_label || null,
         item.breaking_reason || null,
         item.breaking_confidence ?? null,
         jsonText(item.breaking_dimensions, {}),
+        jsonText(item.breaking_adversarial_flags, {}),
         item.breaking_score_version || null,
         item.target_timezone || "UTC",
         item.published_at_local || null,
@@ -407,6 +436,7 @@ export async function handleImport(
     const body = await importEventsToD1(db, events);
     if (body.imported > 0 || body.updated > 0) {
       try {
+        await refreshBreakingScoreStats(db);
         await refreshPublicReadSnapshots(db);
       } catch (error) {
         console.warn("public snapshot refresh after import failed:", error);

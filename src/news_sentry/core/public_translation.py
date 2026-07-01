@@ -1041,6 +1041,9 @@ class PublicTranslationEngine:
             "localizations": localizations,
             "breaking": {
                 "score": breaking.score,
+                "raw_score": breaking.raw_score or breaking.score,
+                "percentile": breaking.percentile,
+                "calibrated_score": breaking.calibrated_score or breaking.score,
                 "label": breaking.label,
                 "confidence": breaking.confidence,
                 "reason": breaking.reason,

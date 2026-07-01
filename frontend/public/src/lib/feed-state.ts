@@ -25,7 +25,7 @@ export interface PollPauseInput {
   online: boolean
 }
 
-const MIN_POLL_MS = 30_000
+const MIN_POLL_MS = 15_000
 const MAX_POLL_MS = 5 * 60_000
 
 function clean(value: string | undefined) {

@@ -25,10 +25,18 @@ PUBLIC_NEWS_SELECT_COLUMNS = """
   recommendation_reason, full_content, original_url,
   detail_url, image_urls, tags, issue_tags, related_tags,
   region_tags, entities, related_count, discussion_count,
-  value_label, value_score, china_relevance_label
+  value_label, value_score,
+  breaking_raw_score, breaking_percentile, breaking_calibrated_score,
+  breaking_score, breaking_label, breaking_reason, breaking_confidence,
+  breaking_dimensions, breaking_score_version,
+  target_timezone, published_at_local,
+  china_relevance_label
 """
 
 PUBLIC_FEATURED_MIN_SCORE = 60
+PUBLIC_BREAKING_MIN_SCORE = 60
+PUBLIC_BREAKING_LEAD_MIN_PERCENTILE = 95
+PUBLIC_BREAKING_LEAD_MIN_CONFIDENCE = 70
 
 
 def _sql(value: Any) -> str:
@@ -125,7 +133,14 @@ def _public_news_where(featured: bool) -> str:
     return (
         where
         + f"""
-      AND value_score >= {PUBLIC_FEATURED_MIN_SCORE}
+      AND (
+        (
+          breaking_score >= {PUBLIC_BREAKING_MIN_SCORE}
+          AND breaking_percentile >= {PUBLIC_BREAKING_LEAD_MIN_PERCENTILE}
+          AND breaking_confidence >= {PUBLIC_BREAKING_LEAD_MIN_CONFIDENCE}
+        )
+        OR (breaking_score IS NULL AND value_score >= {PUBLIC_FEATURED_MIN_SCORE})
+      )
       AND summary IS NOT NULL
       AND TRIM(summary) != ''
       AND recommendation_reason IS NOT NULL
@@ -149,10 +164,21 @@ def _public_news_where(featured: bool) -> str:
 
 def _public_news_order_by(featured: bool) -> str:
     return (
-        "ORDER BY value_score DESC, published_at DESC, event_id DESC"
+        "ORDER BY COALESCE(breaking_calibrated_score, breaking_score, value_score, -1) "
+        "DESC, breaking_percentile DESC, published_at DESC, event_id DESC"
         if featured
         else "ORDER BY published_at DESC, event_id DESC"
     )
+
+
+def _poll_after_ms(featured: bool, items: list[dict[str, Any]]) -> int:
+    if not featured:
+        return 60000
+    if any(item.get("breakingLabel") == "flash" for item in items):
+        return 15000
+    if any(item.get("breakingLabel") == "breaking" for item in items):
+        return 20000
+    return 30000
 
 
 def _news_item(row: Mapping[str, Any]) -> dict[str, Any]:
@@ -184,17 +210,33 @@ def _news_item(row: Mapping[str, Any]) -> dict[str, Any]:
         "discussionCount": row.get("discussion_count"),
         "valueLabel": row.get("value_label") or "普通",
         "valueScore": row.get("value_score"),
+        "breakingScore": (
+            row.get("breaking_score")
+            if row.get("breaking_score") is not None
+            else row.get("value_score")
+        ),
+        "breakingRawScore": row.get("breaking_raw_score"),
+        "breakingPercentile": row.get("breaking_percentile"),
+        "breakingCalibratedScore": row.get("breaking_calibrated_score"),
+        "breakingLabel": row.get("breaking_label"),
+        "breakingReason": row.get("breaking_reason"),
+        "breakingConfidence": row.get("breaking_confidence"),
+        "breakingDimensions": _json_object(row.get("breaking_dimensions")),
+        "breakingVersion": row.get("breaking_score_version"),
+        "targetTimezone": row.get("target_timezone"),
+        "publishedAtLocal": row.get("published_at_local"),
         "chinaRelevanceLabel": row.get("china_relevance_label") or "未知",
     }
 
 
-def _feed_payload(rows: list[dict[str, Any]], total: int) -> dict[str, Any]:
+def _feed_payload(rows: list[dict[str, Any]], total: int, *, featured: bool) -> dict[str, Any]:
     page_rows = rows[:20]
+    items = [_news_item(row) for row in page_rows]
     return {
-        "items": [_news_item(row) for row in page_rows],
+        "items": items,
         "latestCursor": page_rows[0].get("event_id") if page_rows else None,
         "nextCursor": page_rows[-1].get("event_id") if len(rows) > 20 and page_rows else None,
-        "pollAfterMs": 60000,
+        "pollAfterMs": _poll_after_ms(featured=featured, items=items),
         "hasNewer": False,
         "total": total,
     }
@@ -224,7 +266,7 @@ def _query_news_feed(
         sql=f"SELECT COUNT(*) AS total FROM events {where}",  # noqa: S608
     )
     total = int((count_rows[0] if count_rows else {}).get("total") or len(rows))
-    return _feed_payload(rows, total)
+    return _feed_payload(rows, total, featured=featured)
 
 
 def _query_facets(*, wrangler_dir: Path, database: str, remote: bool) -> dict[str, Any]:

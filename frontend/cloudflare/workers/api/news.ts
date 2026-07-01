@@ -18,6 +18,7 @@ import {
   publicNewsOrderBy,
   publicNewsLocaleJoin,
   publicNewsSelectColumnsForLocale,
+  pollAfterMsForPublicNews,
   rowToPublicNewsItem,
 } from "../lib/public-news-query";
 import {
@@ -46,6 +47,7 @@ interface CursorRow {
   published_at: string;
   value_score: number | null;
   breaking_score: number | null;
+  breaking_calibrated_score: number | null;
 }
 
 function withLocaleHeaders(response: Response, locale: string): Response {
@@ -69,22 +71,22 @@ async function buildCursorFilter(
   if (!eventId) return { sql: "", bindings: [] };
 
   const cursor = await db
-    .prepare("SELECT event_id, published_at, value_score, breaking_score FROM events WHERE event_id = ?")
+    .prepare("SELECT event_id, published_at, value_score, breaking_score, breaking_calibrated_score FROM events WHERE event_id = ?")
     .bind(eventId)
     .first<CursorRow>();
   if (!cursor) return { sql: "", bindings: [] };
 
   if (featured) {
-    const score = cursor.breaking_score ?? cursor.value_score ?? -1;
+    const score = cursor.breaking_calibrated_score ?? cursor.breaking_score ?? cursor.value_score ?? -1;
     const scoreOp = mode === "before" ? "<" : ">";
     const timeOp = mode === "before" ? "<" : ">";
     const idOp = mode === "before" ? "<" : ">";
     return {
       sql: `
         AND (
-          COALESCE(breaking_score, value_score, -1) ${scoreOp} ?
-          OR (COALESCE(breaking_score, value_score, -1) = ? AND events.published_at ${timeOp} ?)
-          OR (COALESCE(breaking_score, value_score, -1) = ? AND events.published_at = ? AND events.event_id ${idOp} ?)
+          COALESCE(breaking_calibrated_score, breaking_score, value_score, -1) ${scoreOp} ?
+          OR (COALESCE(breaking_calibrated_score, breaking_score, value_score, -1) = ? AND events.published_at ${timeOp} ?)
+          OR (COALESCE(breaking_calibrated_score, breaking_score, value_score, -1) = ? AND events.published_at = ? AND events.event_id ${idOp} ?)
         )
       `,
       bindings: [score, score, cursor.published_at, score, cursor.published_at, cursor.event_id],
@@ -216,7 +218,7 @@ export async function handleNewsFeed(
       items,
       latestCursor,
       nextCursor,
-      pollAfterMs: featured ? 30000 : 60000,
+      pollAfterMs: pollAfterMsForPublicNews(featured, items),
       hasNewer: Boolean(sinceCursor && items.length > 0),
       total: totalResult?.total ?? rows.length,
     };

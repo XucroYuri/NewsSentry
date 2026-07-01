@@ -1,5 +1,6 @@
 import { getContainer } from "@cloudflare/containers";
 import { importEventsToD1 } from "../api/webhook";
+import { refreshBreakingScoreStats } from "./breaking-calibration";
 import type { ImportEventItem } from "./contracts";
 import { refreshPublicReadSnapshots } from "./public-read-snapshots";
 
@@ -553,6 +554,15 @@ export async function runScheduledCloudflareTask(
     if (task === "collect-cycle" || task === "public-translation-cycle") {
       importResult = await importContainerEventsToD1(env.DB, details);
     }
+    let breakingRefresh: Record<string, unknown>;
+    try {
+      breakingRefresh = await refreshBreakingScoreStats(env.DB);
+    } catch (error) {
+      breakingRefresh = {
+        status: "error",
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
     let snapshotRefresh: Record<string, unknown>;
     try {
       snapshotRefresh = await refreshPublicReadSnapshots(env.DB);
@@ -569,6 +579,7 @@ export async function runScheduledCloudflareTask(
       ...(collectBatch === null
         ? {}
         : { collect_batch: collectBatchDetails(collectBatch) }),
+      breaking_stats: breakingRefresh,
       snapshots: snapshotRefresh,
     });
     const status =
