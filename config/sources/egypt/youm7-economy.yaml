@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: youm7-economy
+display_name: "Youm7 Economy"
+type: rss
+url: "https://www.youm7.com/rss/SectionRss?SectionID=297"
+language: ar
+credibility_base: 0.72
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 20 entries, latest 2026-07-01T03:00:00+03:00; active major Egyptian outlet economy feed."
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: derstandard-inland
+display_name: Der Standard Inland
+type: rss
+url: https://www.derstandard.at/rss/inland
+language: de
+credibility_base: 0.87
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 32 entries; Austrian domestic section.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

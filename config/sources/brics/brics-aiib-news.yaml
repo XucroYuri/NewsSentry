@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: brics-aiib-news
+display_name: BRICS adjacent multilateral source - AIIB News
+type: rss
+url: https://www.aiib.org/en/rss/aiib-news-rss.xml
+language: en
+credibility_base: 0.86
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: BRICS-adjacent multilateral development bank source; international organizations
+  batch validated with entries.
+health:
+  last_success_at: null
+  consecutive_failures: 0

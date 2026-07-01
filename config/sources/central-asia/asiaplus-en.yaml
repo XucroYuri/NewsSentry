@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: asiaplus-en
+display_name: Asia Plus English
+type: rss
+url: https://asiaplus.news/en/feed/
+language: en
+credibility_base: 0.74
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 10 entries; Tajikistan English feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

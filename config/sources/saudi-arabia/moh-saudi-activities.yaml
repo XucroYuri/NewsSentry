@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: moh-saudi-activities
+display_name: "Saudi Ministry of Health Activities"
+type: rss
+url: "https://www.moh.gov.sa/_Layouts/moh/RssGenerator.aspx?WebSiteUrl=/en/Ministry/MediaCenter/MinistryActivities/&ListUrl=/en/Ministry/MediaCenter/MinistryActivities/Pages/&ViewName=RSSView&RssTitle=&RssDescription=BriefDesc&Lang=en-US"
+language: en
+credibility_base: 0.75
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 20 entries, latest 2025-03-09T14:48:00Z; official low-frequency."
+health:
+  last_success_at: null
+  consecutive_failures: 0

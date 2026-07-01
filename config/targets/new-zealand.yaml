@@ -15,11 +15,25 @@ timezone: Pacific/Auckland
 
 source_channel_refs:
   - beehive-all-updates
-  - beehive-releases
+  - stuff-news
   - beehive-speeches
   - nzherald-nz
   - nzherald-business
   - nzherald-world
+  - rnz-news
+  - rnz-politics
+  - rnz-business
+  - rnz-world
+  - newsroom-nz
+  - guardian-nz
+  - spinoff-nz
+  - mpi-nz-media
+  - nzdf-news
+  - odt-news
+  - reseller-nz
+  - securitybrief-nz
+  - pool:global/un-news-all
+  - pool:global/bbc-world
 
 filter_rules_ref: config/filters/new-zealand/default.yaml
 classification_rules_ref: config/classification/rules-new-zealand.yaml

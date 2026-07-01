@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: irna-en
+display_name: "IRNA English"
+type: rss
+url: "https://en.irna.ir/rss"
+language: en
+credibility_base: 0.84
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 30 entries, latest Tue, 30 Jun 2026 22:03:16 GMT; official wire English feed."
+health:
+  last_success_at: null
+  consecutive_failures: 0

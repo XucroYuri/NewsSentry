@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: globes-en
+display_name: "Globes English"
+type: rss
+url: "https://en.globes.co.il/webservice/rss/rssfeeder.asmx/FeederNode?iID=1725"
+language: en
+credibility_base: 0.78
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 93 entries, latest Tue, 30 Jun 2026 15:15:00 GMT; active Israeli business feed."
+health:
+  last_success_at: null
+  consecutive_failures: 0

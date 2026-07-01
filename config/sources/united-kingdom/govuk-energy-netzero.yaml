@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: govuk-energy-netzero
+display_name: "GOV.UK — Energy Security and Net Zero"
+type: rss
+url: "https://www.gov.uk/government/organisations/department-for-energy-security-and-net-zero.atom"
+language: en
+credibility_base: 0.92
+fetch_interval_minutes: 60
+max_items_per_run: 20
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 20 entries, latest 2026-06-30T15:18:04Z."
+health:
+  last_success_at: null
+  consecutive_failures: 0

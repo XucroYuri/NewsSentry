@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: adb-whatsnew
+display_name: ADB - Whats New
+type: rss
+url: http://feeds.feedburner.com/adb_whatsnew
+language: en
+credibility_base: 0.88
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 30 entries; official ADB update feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

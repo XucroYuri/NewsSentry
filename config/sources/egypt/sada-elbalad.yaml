@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: sada-elbalad
+display_name: "Sada Elbalad"
+type: rss
+url: "https://www.elbalad.news/rss.aspx"
+language: ar
+credibility_base: 0.66
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 20 entries, latest Wed, 01 Jul 2026 00:05:04 GMT; active Egyptian news feed."
+health:
+  last_success_at: null
+  consecutive_failures: 0

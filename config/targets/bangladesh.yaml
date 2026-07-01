@@ -7,13 +7,31 @@ monitoring_type: country
 region_type: country
 language_scope:
   primary: en
-  secondary: [bn]
+  secondary:
+  - bn
   output: zh
 timezone: Asia/Dhaka
 source_channel_refs:
-  - api/gdelt-topic
-  - pool:global/gdelt-geopolitics
-  - pool:global/gdelt-supply-chain
+- api/gdelt-topic
+- pool:global/gdelt-geopolitics
+- pool:global/gdelt-supply-chain
+- daily-star-country
+- daily-star-business
+- daily-star-economy
+- daily-star-politics
+- prothomalo-en
+- tbs-bangladesh
+- tbs-economy
+- financial-express-today
+- newsnextbd
+- pool:global/bbc-world
+- pool:global/aljazeera
+- pool:global/dw-world
+- pool:un-system/un-news-all
+- pool:international-organizations/aiib-news
+- pool:international-organizations/aiib-projects-approved
+- pool:un-system/who
+- pool:global/reliefweb-updates
 filter_rules_ref: config/filters/bangladesh/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
@@ -28,16 +46,26 @@ classification:
     energy: true
     china_relations: true
   home_relevance_keywords:
-      - "Bangladesh"
-      - "Dhaka"
-      - "garment"
-      - "election"
-      - "China"
-      - "trade"
+  - Bangladesh
+  - Dhaka
+  - garment
+  - election
+  - China
+  - trade
 focus_areas:
-  - id: country-geopolitics-and-policy
-    weight: 2.0
-    keywords: ["Bangladesh", "Dhaka", "government", "election", "diplomacy"]
-  - id: trade-markets-and-china-impact
-    weight: 1.8
-    keywords: ["Bangladesh", "China", "trade", "investment", "supply chain"]
+- id: country-geopolitics-and-policy
+  weight: 2.0
+  keywords:
+  - Bangladesh
+  - Dhaka
+  - government
+  - election
+  - diplomacy
+- id: trade-markets-and-china-impact
+  weight: 1.8
+  keywords:
+  - Bangladesh
+  - China
+  - trade
+  - investment
+  - supply chain

@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: sggp-business
+display_name: "Sai Gon Giai Phong English Business"
+type: rss
+url: "https://en.sggp.org.vn/rss/business-2.rss"
+language: en
+credibility_base: 0.76
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 50 entries; Vietnam business and economy source."
+health:
+  last_success_at: null
+  consecutive_failures: 0

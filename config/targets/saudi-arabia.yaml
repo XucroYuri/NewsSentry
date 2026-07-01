@@ -14,6 +14,33 @@ source_channel_refs:
   - api/gdelt-saudi-arabia
   - api/gdelt-china-saudi-arabia
   - pool:global/gdelt-geopolitics
+  - mof-saudi-news
+  - moh-saudi-news
+  - moh-saudi-ads
+  - moh-saudi-activities
+  - sfda-news
+  - sfda-food
+  - sfda-drugs
+  - sfda-medical-devices
+  - mewa-news
+  - meed-saudi
+  - saudi-meed-oil-gas
+  - pool:middle-east/bbc-middle-east
+  - pool:middle-east/middle-east-monitor
+  - pool:middle-east/al-monitor
+  - pool:middle-east/reliefweb-mena
+  - pool:middle-east/atlanticcouncil-mena
+  - pool:middle-east/ecfr-mena
+  - pool:energy-opec-iea/eia-today-energy
+  - pool:energy-opec-iea/eia-press-rss
+  - pool:energy-opec-iea/eia-week-petroleum
+  - pool:energy-opec-iea/eia-gasdiesel
+  - pool:energy-opec-iea/oilprice-main
+  - pool:energy-opec-iea/rigzone-latest
+  - pool:energy-opec-iea/offshore-energy
+  - pool:energy-opec-iea/lng-prime
+  - pool:global/aljazeera
+  - pool:global/bbc-world
 filter_rules_ref: config/filters/saudi-arabia/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml

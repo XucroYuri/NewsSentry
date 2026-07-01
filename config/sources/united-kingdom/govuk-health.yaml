@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: govuk-health
+display_name: "GOV.UK — Health and Social Care"
+type: rss
+url: "https://www.gov.uk/government/organisations/department-of-health-and-social-care.atom"
+language: en
+credibility_base: 0.92
+fetch_interval_minutes: 60
+max_items_per_run: 20
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 20 entries, latest 2026-06-29T23:05:00Z."
+health:
+  last_success_at: null
+  consecutive_failures: 0

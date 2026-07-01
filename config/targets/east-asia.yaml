@@ -15,6 +15,22 @@ source_channel_refs:
   - pool:global/gdelt-geopolitics
   - pool:global/gdelt-supply-chain
   - pool:global/gdelt-official-orgs
+  - asia-times
+  - nikkei-asia
+  - scmp-asia
+  - asean-news
+  - amti
+  - chinapower
+  - thirtyeightnorth
+  - lowy-interpreter
+  - rfa-east-asia
+  - guardian-asia
+  - korea-pro
+  - nknews
+  - crisisgroup-global
+  - thediplomat-main
+  - thediplomat-asia-defense
+  - bbc-asia
 filter_rules_ref: config/filters/east-asia/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml

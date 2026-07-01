@@ -1,0 +1,26 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: worldbank-feature-api
+display_name: "World Bank Feature Stories API"
+type: api
+endpoint:
+  url: "https://search.worldbank.org/api/v2/news?format=json&rows=20&fct=displayconttype_exact,topic_exact,lang_exact,count_exact,countcode_exact,admreg_exact&src=cq55&apilang=en&lang_exact=English&displayconttype_exact=Feature%20Story&os=0"
+  method: GET
+  params: {}
+api_mapping:
+  items_key: documents
+  title: display_title
+  url: url
+  content: body
+  published_at: date
+  language: language
+language: en
+credibility_base: 0.90
+fetch_interval_minutes: 60
+max_items_per_run: 20
+timeout_seconds: 30
+fetch_full_article: true
+enabled: true
+notes: "2026-07-01 live API check: HTTP 200, JSON response with news records; official World Bank public JSON news API."
+health:
+  last_success_at: null
+  consecutive_failures: 0

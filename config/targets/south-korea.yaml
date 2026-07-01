@@ -16,9 +16,25 @@ timezone: Asia/Seoul
 source_channel_refs:
   - yonhap-en-all
   - yonhap-national
+  - yonhap-north-korea
+  - yonhap-culture
   - korea-times-all
   - korea-herald-all
   - hankyoreh-english
+  - kbs-world-news
+  - kbs-world-politics
+  - kbs-world-economy
+  - kbs-world-inter-korea
+  - kbs-world-international
+  - kbs-world-domestic
+  - kedglobal
+  - businesskorea-all
+  - korea-policy-news
+  - korea-policy-dept-mofe
+  - korea-policy-dept-mofa
+  - korea-policy-dept-mnd
+  - bok-news
+  - kostat-press
 
 filter_rules_ref: config/filters/south-korea/default.yaml
 classification_rules_ref: config/classification/rules-south-korea.yaml

@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: elplural
+display_name: "El Plural"
+type: rss
+url: "https://www.elplural.com/rss.xml"
+language: es
+credibility_base: 0.74
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 15 entries, latest 2026-06-30T22:43:29+02:00; 200 OK + parser_entry_count > 0."
+health:
+  last_success_at: null
+  consecutive_failures: 0

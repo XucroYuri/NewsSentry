@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: nltimes
+display_name: NL Times
+type: rss
+url: https://nltimes.nl/rss
+language: en
+credibility_base: 0.82
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 10 entries; feed entries parsed but dates
+  absent.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: justsecurity-feed
+display_name: "Just Security"
+type: rss
+url: "https://www.justsecurity.org/feed/"
+language: en
+credibility_base: 0.78
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest Tue, 30 Jun 2026 16:00:07 +0000; national security and law analysis."
+health:
+  last_success_at: null
+  consecutive_failures: 0

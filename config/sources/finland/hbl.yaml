@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: hbl
+display_name: Hufvudstadsbladet
+type: rss
+url: https://www.hbl.fi/feed/
+language: sv
+credibility_base: 0.82
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 301 final with 50 entries; Finnish Swedish-language
+  national media.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

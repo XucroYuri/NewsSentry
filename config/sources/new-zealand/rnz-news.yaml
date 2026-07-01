@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: rnz-news
+display_name: "RNZ News"
+type: rss
+url: "https://www.rnz.co.nz/rss/news.xml"
+language: en
+credibility_base: 0.86
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 46 entries, latest Wed, 01 Jul 2026 11:35:08 +1200; public broadcaster national news."
+health:
+  last_success_at: null
+  consecutive_failures: 0

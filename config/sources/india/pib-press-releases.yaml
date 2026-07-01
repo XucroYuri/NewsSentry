@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: pib-press-releases
+display_name: "Press Information Bureau India"
+type: rss
+url: "https://pib.gov.in/RssMain.aspx?ModId=6&Lang=1&Regid=3"
+language: en
+credibility_base: 0.92
+fetch_interval_minutes: 30
+max_items_per_run: 30
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 20 entries from official press source; dates were not parsed."
+health:
+  last_success_at: null
+  consecutive_failures: 0

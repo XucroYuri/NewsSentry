@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: brics-arab-news
+display_name: BRICS partner-region source - Arab News
+type: rss
+url: https://www.arabnews.com/rss.xml
+language: en
+credibility_base: 0.75
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: BRICS expanded Gulf context source; Gulf batch validated HTTP 200 with entries,
+  low recentness noted.
+health:
+  last_success_at: null
+  consecutive_failures: 0

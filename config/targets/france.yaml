@@ -15,54 +15,30 @@ timezone: Europe/Paris
 
 # 引用的源渠道 ID，对应 config/sources/france/{id}.yaml
 source_channel_refs:
-  # ── A. 政治与治理 ─────────────────────────────────
   - lemonde-politics
-  - lefigaro-politics
   - libe-politics
   - leparisien-politique
-
-  # ── B. 经济与商业 ─────────────────────────────────
-  - lesechos
-  - lefigaro-business
   - leparisien-economie
-
-  # ── C. 外交与国际关系 ─────────────────────────────
-  - diplomatie-gouv
   - lemonde-international
   - rfi-france
-
-  # ── D. 安全与防务 ─────────────────────────────────
   - defense-gouv
-
-  # ── E. 司法与法治 ─────────────────────────────────
   - lemonde-justice
-
-  # ── F. 社会与民生 ─────────────────────────────────
   - libe-social
-  - lefigaro-social
-
-  # ── G. 科技与数字 ─────────────────────────────────
   - lemonde-tech
   - usine-digitale
-
-  # ── H. 环境与能源 ─────────────────────────────────
-  - ecologie-gouv
-
-  # ── I. 移民与人口 ─────────────────────────────────
-  - ofii
-
-  # ── J. 文化与遗产 ─────────────────────────────────
   - lemonde-culture
-
-  # ── K. 涉华议题 ──────────────────────────────────
-  - api/gdelt-china-france
-
-  # ── L. 其他开放式兜底 ────────────────────────────
-  - api/gnews-france
-  - api/gdelt-france
-  - reuters-fr
-  - bbc-fr
   - france24-france
+  - franceinfo-titres
+  - franceinfo-france
+  - franceinfo-politique
+  - franceinfo-economie
+  - franceinfo-monde
+  - public-senat
+  - bfmtv-politique
+  - bfmtv-economie
+  - bfmtv-societe
+  - api/gdelt-france
+  - api/gdelt-china-france
 
 filter_rules_ref: config/filters/france/default.yaml
 classification_rules_ref: config/classification/rules-france.yaml

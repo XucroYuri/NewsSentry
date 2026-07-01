@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: yt-uae-government
+display_name: "UAE Government YouTube"
+type: rss
+url: "https://www.youtube.com/feeds/videos.xml?channel_id=UC_5xwyTiWrLUf0cAO_MDmxA"
+language: en
+credibility_base: 0.85
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 15 entries, latest 2026-06-30T20:32:51Z; official social RSS."
+health:
+  last_success_at: null
+  consecutive_failures: 0

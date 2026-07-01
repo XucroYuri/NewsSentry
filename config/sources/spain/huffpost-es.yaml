@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: huffpost-es
+display_name: "HuffPost Spain"
+type: rss
+url: "https://www.huffingtonpost.es/feeds/index.xml"
+language: es
+credibility_base: 0.74
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 78 entries, latest 2026-06-30T23:45:07+02:00; 200 OK + parser_entry_count > 0."
+health:
+  last_success_at: null
+  consecutive_failures: 0

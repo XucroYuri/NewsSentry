@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: clarin-politica
+display_name: "Clarín Política"
+type: rss
+url: "https://www.clarin.com/rss/politica/"
+language: es
+credibility_base: 0.78
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest 2026-06-30T22:57:02Z; distinct politics section."
+health:
+  last_success_at: null
+  consecutive_failures: 0

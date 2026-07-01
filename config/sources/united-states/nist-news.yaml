@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: nist-news
+display_name: "NIST News"
+type: rss
+url: "https://www.nist.gov/news-events/news/rss.xml"
+language: en
+credibility_base: 0.88
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 40 entries, latest Mon, 29 Jun 2026 12:00:00 +0000; official standards/AI/technology."
+health:
+  last_success_at: null
+  consecutive_failures: 0

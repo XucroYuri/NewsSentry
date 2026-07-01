@@ -14,6 +14,23 @@ source_channel_refs:
   - api/gdelt-russia
   - api/gdelt-china-russia
   - pool:global/gdelt-geopolitics
+  - government-en
+  - interfax
+  - kommersant
+  - meduza
+  - mid-en
+  - rbc
+  - ria
+  - tass-en
+  - tass-politics
+  - vedomosti
+  - cbr-events
+  - current-time
+  - moscow-times
+  - lenta
+  - pool:europe/bbc-europe
+  - pool:europe/euronews-europe
+  - pool:europe/politico-eu
 filter_rules_ref: config/filters/russia/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml

@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: yt-qna-english
+display_name: "Qatar News Agency English YouTube"
+type: rss
+url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCZZoI516ECAAw9_yGeQkKRQ"
+language: en
+credibility_base: 0.90
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 3 entries, latest 2026-05-24T19:43:27Z; official social RSS."
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: jerusalem-post
+display_name: "The Jerusalem Post"
+type: rss
+url: "https://www.jpost.com/rss/rssfeedsheadlines.aspx"
+language: en
+credibility_base: 0.80
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 30 entries, latest Mon, 16 Jun 2025 16:39:27 GMT; established national outlet feed; stale-ish."
+health:
+  last_success_at: null
+  consecutive_failures: 0

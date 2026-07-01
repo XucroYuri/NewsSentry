@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: mindanews
+display_name: MindaNews
+type: rss
+url: https://mindanews.com/feed/
+language: en
+credibility_base: 0.74
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 50 entries; Mindanao/security/politics
+  signal.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

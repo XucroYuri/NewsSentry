@@ -14,6 +14,25 @@ source_channel_refs:
   - api/gdelt-united-states
   - api/gdelt-china-united-states
   - pool:global/gdelt-geopolitics
+  - federalreserve-press-all
+  - census-press-releases
+  - sec-press-releases
+  - nist-news
+  - bea-news
+  - energy-news
+  - gao-reports
+  - npr-news
+  - pbs-newshour-headlines
+  - thehill-feed
+  - cyberscoop-feed
+  - krebsonsecurity-feed
+  - defenseone-all
+  - fedscoop-feed
+  - propublica-main
+  - scotusblog-feed
+  - justsecurity-feed
+  - defensenews-all
+  - rollcall-feed
 filter_rules_ref: config/filters/united-states/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml

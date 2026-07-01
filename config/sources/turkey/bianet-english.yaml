@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: bianet-english
+display_name: "Bianet English"
+type: rss
+url: "https://bianet.org/rss/english"
+language: en
+credibility_base: 0.74
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 50 entries, latest Tue, 30 Jun 2026 15:40:00 +0300; active independent Turkish news feed."
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: wyborcza
+display_name: "Gazeta Wyborcza"
+type: rss
+url: "https://wyborcza.pl/pub/rss/najnowsze_wyborcza.xml"
+language: pl
+credibility_base: 0.80
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 50 entries, latest 2026-06-30T18:17:00+00:00; 200 OK + parser_entry_count > 0."
+health:
+  last_success_at: null
+  consecutive_failures: 0

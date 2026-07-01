@@ -14,6 +14,23 @@ source_channel_refs:
   - api/gdelt-turkey
   - api/gdelt-china-turkey
   - pool:global/gdelt-geopolitics
+  - trt-world
+  - bianet-english
+  - turkish-minute
+  - daily-sabah-politics
+  - daily-sabah-business
+  - daily-sabah-mid-east
+  - hurriyet-news
+  - duvar-export
+  - pool:middle-east/bbc-middle-east
+  - pool:middle-east/middle-east-monitor
+  - pool:middle-east/al-monitor
+  - pool:middle-east/reliefweb-mena
+  - pool:middle-east/atlanticcouncil-mena
+  - pool:middle-east/ecfr-mena
+  - pool:global/bbc-world
+  - pool:global/aljazeera
+  - pool:global/reliefweb-updates
 filter_rules_ref: config/filters/turkey/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml

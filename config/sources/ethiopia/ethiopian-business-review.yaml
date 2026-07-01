@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: ethiopian-business-review
+display_name: "Ethiopian Business Review"
+type: rss
+url: "https://ethiopianbusinessreview.net/feed/"
+language: en
+credibility_base: 0.72
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest 2026-06-30T09:55:09+00:00; business media."
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: independent-ie
+display_name: Irish Independent
+type: rss
+url: https://www.independent.ie/rss/
+language: en
+credibility_base: 0.84
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 50 entries; Irish national media.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

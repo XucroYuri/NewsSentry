@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: bbc-africa
+display_name: "BBC News Africa"
+type: rss
+url: "https://feeds.bbci.co.uk/news/world/africa/rss.xml"
+language: en
+credibility_base: 0.85
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 27 entries, latest 2026-06-30T19:39:29+00:00; public broadcaster."
+health:
+  last_success_at: null
+  consecutive_failures: 0

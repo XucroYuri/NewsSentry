@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: pbl-publications
+display_name: PBL Publications
+type: rss
+url: https://www.pbl.nl/en/feed/publication/rss.xml
+language: en
+credibility_base: 0.92
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 25 entries; official environmental assessment
+  agency publications feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

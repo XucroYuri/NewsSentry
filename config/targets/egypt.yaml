@@ -7,13 +7,31 @@ monitoring_type: country
 region_type: country
 language_scope:
   primary: en
-  secondary: [ar]
+  secondary:
+  - ar
   output: zh
 timezone: Africa/Cairo
 source_channel_refs:
 - api/gdelt-topic
 - pool:global/gdelt-china-impact
 - pool:global/gdelt-geopolitics
+- daily-news-egypt
+- egypt-independent
+- madamasr
+- youm7-world
+- youm7-economy
+- almasryalyoum
+- sada-elbalad
+- pool:middle-east/bbc-middle-east
+- pool:middle-east/middle-east-monitor
+- pool:middle-east/al-monitor
+- pool:middle-east/reliefweb-mena
+- pool:middle-east/atlanticcouncil-mena
+- pool:middle-east/ecfr-mena
+- pool:global/bbc-world
+- pool:global/aljazeera
+- pool:global/reliefweb-updates
+- pool:un-system/un-news-all
 filter_rules_ref: config/filters/egypt/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
@@ -37,7 +55,17 @@ classification:
 focus_areas:
 - id: suez-and-logistics
   weight: 2.1
-  keywords: [Egypt, Suez Canal, logistics, shipping, trade]
+  keywords:
+  - Egypt
+  - Suez Canal
+  - logistics
+  - shipping
+  - trade
 - id: middle-east-policy
   weight: 1.7
-  keywords: [Egypt, Middle East, energy, security, China]
+  keywords:
+  - Egypt
+  - Middle East
+  - energy
+  - security
+  - China

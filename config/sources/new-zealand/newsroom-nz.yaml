@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: newsroom-nz
+display_name: "Newsroom NZ"
+type: rss
+url: "https://newsroom.co.nz/feed/"
+language: en
+credibility_base: 0.80
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest Tue, 30 Jun 2026 22:25:11 +0000; New Zealand politics/business investigative coverage."
+health:
+  last_success_at: null
+  consecutive_failures: 0

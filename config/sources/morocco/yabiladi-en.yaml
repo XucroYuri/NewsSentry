@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: yabiladi-en
+display_name: "Yabiladi English"
+type: rss
+url: "https://en.yabiladi.com/rss/news.xml"
+language: en
+credibility_base: 0.70
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 7 entries, latest 2026-06-30T23:30:00+02:00; active Morocco/diaspora news feed."
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: economictimes-news
+display_name: The Economic Times - News
+type: rss
+url: https://economictimes.indiatimes.com/news/rssfeeds/1715249553.cms
+language: en
+credibility_base: 0.8
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 50 entries; India business/policy feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

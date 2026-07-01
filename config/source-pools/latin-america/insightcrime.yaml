@@ -1,0 +1,15 @@
+# Schema: ../../../schemas/sourcechannel.schema.json
+source_id: insightcrime
+display_name: "InSight Crime"
+type: rss
+url: "https://insightcrime.org/feed/"
+language: en
+credibility_base: 0.84
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 11 entries, latest 2026-06-30T15:40:09Z; regional security RSS."
+health:
+  last_success_at: null
+  consecutive_failures: 0

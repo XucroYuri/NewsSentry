@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: bok-news
+display_name: "Bank of Korea News"
+type: rss
+url: "https://www.bok.or.kr/eng/bbs/B0000217/news.rss?menuNo=400144"
+language: en
+credibility_base: 0.97
+fetch_interval_minutes: 60
+max_items_per_run: 40
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 100 entries, latest 2026-06-19T08:10:10Z. Verify board relevance during source health review."
+health:
+  last_success_at: null
+  consecutive_failures: 0

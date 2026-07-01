@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: altinget
+display_name: Altinget
+type: rss
+url: https://www.altinget.dk/rss
+language: da
+credibility_base: 0.85
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 16 entries; Danish politics media.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

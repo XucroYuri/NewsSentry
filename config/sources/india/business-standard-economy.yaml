@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: business-standard-economy
+display_name: "Business Standard Economy & Policy"
+type: rss
+url: "https://www.business-standard.com/rss/economy-policy-102.rss"
+language: en
+credibility_base: 0.76
+fetch_interval_minutes: 30
+max_items_per_run: 40
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 35 entries, latest 2026-06-30T18:05:44Z."
+health:
+  last_success_at: null
+  consecutive_failures: 0

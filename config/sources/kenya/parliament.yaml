@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: parliament
+display_name: "Parliament Kenya"
+type: rss
+url: "http://www.parliament.go.ke/rss.xml"
+language: en
+credibility_base: 0.88
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest 2019-02-11T18:00:00+00:00; official but stale; low-frequency exception only."
+health:
+  last_success_at: null
+  consecutive_failures: 0

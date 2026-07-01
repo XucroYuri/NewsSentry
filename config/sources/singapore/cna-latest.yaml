@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: cna-latest
+display_name: "CNA Latest"
+type: rss
+url: "https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml"
+language: en
+credibility_base: 0.84
+fetch_interval_minutes: 15
+max_items_per_run: 30
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 20 entries, latest 2026-06-30T23:08:35+08:00."
+health:
+  last_success_at: null
+  consecutive_failures: 0

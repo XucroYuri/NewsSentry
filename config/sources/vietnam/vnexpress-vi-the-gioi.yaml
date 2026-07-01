@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: vnexpress-vi-the-gioi
+display_name: VnExpress Vietnamese World
+type: rss
+url: https://vnexpress.net/rss/the-gioi.rss
+language: vi
+credibility_base: 0.78
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 60 entries; major Vietnamese world/regional
+  feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

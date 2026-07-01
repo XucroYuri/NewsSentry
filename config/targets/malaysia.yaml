@@ -7,13 +7,32 @@ monitoring_type: country
 region_type: country
 language_scope:
   primary: en
-  secondary: [ms]
+  secondary:
+  - ms
   output: zh
 timezone: Asia/Kuala_Lumpur
 source_channel_refs:
 - api/gdelt-topic
 - pool:global/gdelt-china-impact
 - pool:global/gdelt-supply-chain
+- fmt-nation
+- fmt-business
+- mida-media-release
+- malaysiakini-news
+- sun-daily
+- focus-malaysia
+- codeblue
+- soyacincau
+- lowyat
+- malaysianow
+- business-today-my
+- malaymail-malaysia
+- malaymail-money
+- nst-feed
+- vulcanpost
+- ringgitplus
+- fintechnews-my
+- digitalnewsasia
 filter_rules_ref: config/filters/malaysia/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
@@ -36,7 +55,17 @@ classification:
 focus_areas:
 - id: semiconductors-and-data-centers
   weight: 2.0
-  keywords: [Malaysia, semiconductor, data center, electronics, investment]
+  keywords:
+  - Malaysia
+  - semiconductor
+  - data center
+  - electronics
+  - investment
 - id: asean-and-china-trade
   weight: 1.8
-  keywords: [Malaysia, ASEAN, China, trade, port]
+  keywords:
+  - Malaysia
+  - ASEAN
+  - China
+  - trade
+  - port

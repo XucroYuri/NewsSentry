@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: adb-blogs
+display_name: ADB - Blogs
+type: rss
+url: http://feeds.feedburner.com/adb_blogs
+language: en
+credibility_base: 0.78
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 20 entries; ADB blog feed, lower credibility
+  than formal ADB news.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

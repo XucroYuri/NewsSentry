@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: app-national
+display_name: Associated Press of Pakistan - National
+type: rss
+url: https://www.app.com.pk/national/feed/
+language: en
+credibility_base: 0.86
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 10 entries; official Pakistan news agency
+  national feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

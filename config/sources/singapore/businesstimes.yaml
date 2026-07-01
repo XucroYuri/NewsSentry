@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: businesstimes
+display_name: "The Business Times Singapore"
+type: rss
+url: "https://www.businesstimes.com.sg/rss.xml"
+language: en
+credibility_base: 0.77
+fetch_interval_minutes: 20
+max_items_per_run: 60
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 100 entries, latest 2026-06-30T23:15:00+08:00."
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -1,0 +1,15 @@
+# Schema: ../../../schemas/sourcechannel.schema.json
+source_id: middle-east-monitor
+display_name: "Middle East Monitor"
+type: rss
+url: "https://www.middleeastmonitor.com/feed/"
+language: en
+credibility_base: 0.72
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 50 entries, latest Tue, 30 Jun 2026 18:38:30 +0000; active regional news feed."
+health:
+  last_success_at: null
+  consecutive_failures: 0

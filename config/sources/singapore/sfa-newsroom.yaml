@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: sfa-newsroom
+display_name: "Singapore Food Agency Newsroom"
+type: rss
+url: "https://www.sfa.gov.sg/rss/newsroom"
+language: en
+credibility_base: 0.86
+fetch_interval_minutes: 60
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 152 entries, latest 2026-06-19T03:27:00Z. Official agency feed."
+health:
+  last_success_at: null
+  consecutive_failures: 0

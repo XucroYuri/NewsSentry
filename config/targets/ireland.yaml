@@ -2,31 +2,40 @@
 # 契约: docs/contracts-canonical.md §2
 # ADR: ADR-0015, ADR-0016
 target_id: ireland
-display_name: "爱尔兰新闻监控"
+display_name: 爱尔兰新闻监控
 monitoring_type: country
 region_type: country
-
 language_scope:
   primary: en
   secondary: []
   output: zh
-
 timezone: Europe/Dublin
-
 source_channel_refs:
-  - rte-headlines
-  - rte-politics
-  - rte-business
-  - rte-ireland
-  - rte-courts
-  - thejournal-general
-
+- rte-headlines
+- rte-politics
+- rte-business
+- rte-ireland
+- rte-courts
+- thejournal-general
+- centralbank-ie-markets
+- centralbank-ie-news
+- independent-ie
+- silicon-republic
+- techcentral-ie
+- businessplus
+- irishtechnews
+- thecurrency
+- pool:europe/bbc-europe
+- pool:europe/euronews-europe
+- pool:europe/politico-eu
+- pool:european-union/council-press
+- pool:european-union/ecb-press
+- pool:european-union/ep-news-all
 filter_rules_ref: config/filters/ireland/default.yaml
 classification_rules_ref: config/classification/rules-ireland.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
 provider_routes_ref: config/provider/routes.yaml
 output_destinations_ref: config/output/destinations.yaml
-
 classification:
   country_axes:
     politics: true
@@ -40,47 +49,46 @@ classification:
     judicial: true
     china_ireland_relations: true
   home_relevance_keywords:
-    - "Ireland"
-    - "Irish"
-    - "Dublin"
-    - "Micheál Martin"
-    - "Taoiseach"
-    - "Oireachtas"
-    - "Dáil"
-    - "EU presidency"
-    - "migration pact"
-    - "housing"
-    - "energy"
-    - "FDI"
-    - "China"
-    - "Beijing"
-    - "Common Travel Area"
-
+  - Ireland
+  - Irish
+  - Dublin
+  - Micheál Martin
+  - Taoiseach
+  - Oireachtas
+  - Dáil
+  - EU presidency
+  - migration pact
+  - housing
+  - energy
+  - FDI
+  - China
+  - Beijing
+  - Common Travel Area
 focus_areas:
-  - id: eu-presidency-and-foreign-policy
-    weight: 2.2
-    keywords:
-      - "EU presidency"
-      - "European Union"
-      - "foreign affairs"
-      - "Occupied Territories Bill"
-      - "Common Travel Area"
-      - "security"
-  - id: migration-housing-and-public-services
-    weight: 2.0
-    keywords:
-      - "migration pact"
-      - "asylum"
-      - "housing"
-      - "cost of living"
-      - "health"
-      - "public services"
-  - id: tech-fdi-energy-and-growth
-    weight: 1.8
-    keywords:
-      - "FDI"
-      - "technology"
-      - "AI"
-      - "data centre"
-      - "energy"
-      - "growth"
+- id: eu-presidency-and-foreign-policy
+  weight: 2.2
+  keywords:
+  - EU presidency
+  - European Union
+  - foreign affairs
+  - Occupied Territories Bill
+  - Common Travel Area
+  - security
+- id: migration-housing-and-public-services
+  weight: 2.0
+  keywords:
+  - migration pact
+  - asylum
+  - housing
+  - cost of living
+  - health
+  - public services
+- id: tech-fdi-energy-and-growth
+  weight: 1.8
+  keywords:
+  - FDI
+  - technology
+  - AI
+  - data centre
+  - energy
+  - growth

@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: cbc-health
+display_name: "CBC Health"
+type: rss
+url: "https://www.cbc.ca/cmlink/rss-health"
+language: en
+credibility_base: 0.80
+fetch_interval_minutes: 60
+max_items_per_run: 25
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 20 entries, latest 2026-06-30T04:00:00 EDT."
+health:
+  last_success_at: null
+  consecutive_failures: 0

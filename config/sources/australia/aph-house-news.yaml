@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: aph-house-news
+display_name: "Australian Parliament House News"
+type: rss
+url: "https://www.aph.gov.au/house/rss/house_news"
+language: en
+credibility_base: 0.88
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 1 entries, latest Wed, 24 Jun 2026 06:20:00 +1000; official House news."
+health:
+  last_success_at: null
+  consecutive_failures: 0

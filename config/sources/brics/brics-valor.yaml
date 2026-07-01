@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: brics-valor
+display_name: BRICS member source - Valor Economico
+type: rss
+url: https://valor.globo.com/rss/
+language: pt-BR
+credibility_base: 0.78
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: BRICS member Brazil business/economy source; used for trade and macro signals.
+health:
+  last_success_at: null
+  consecutive_failures: 0

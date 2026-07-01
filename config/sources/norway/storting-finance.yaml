@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: storting-finance
+display_name: Stortinget Finans
+type: rss
+url: https://www.stortinget.no/no/Stottemeny/RSS/Rss-lister-for-hovedtema/Finans/
+language: 'no'
+credibility_base: 0.93
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 112 entries; official parliament finance
+  topic feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

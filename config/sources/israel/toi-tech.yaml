@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: toi-tech
+display_name: "Times of Israel Tech"
+type: rss
+url: "https://www.timesofisrael.com/topic/technology/feed/"
+language: en
+credibility_base: 0.80
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 15 entries, latest Thu, 05 Mar 2026 14:42:17 +0000; low-frequency topic feed; tech coverage."
+health:
+  last_success_at: null
+  consecutive_failures: 0

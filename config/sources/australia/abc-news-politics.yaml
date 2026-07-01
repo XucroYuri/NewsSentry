@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: abc-news-politics
+display_name: "ABC News Politics"
+type: rss
+url: "https://www.abc.net.au/news/feed/45910/rss.xml"
+language: en
+credibility_base: 0.85
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 25 entries, latest Tue, 30 Jun 2026 14:55:30 +0000; public broadcaster politics."
+health:
+  last_success_at: null
+  consecutive_failures: 0

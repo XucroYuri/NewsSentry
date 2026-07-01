@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: tribune-latest
+display_name: "Express Tribune Latest"
+type: rss
+url: "https://tribune.com.pk/feed/latest"
+language: en
+credibility_base: 0.76
+fetch_interval_minutes: 20
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 50 entries, latest 2026-06-30T22:38:14+05:00."
+health:
+  last_success_at: null
+  consecutive_failures: 0

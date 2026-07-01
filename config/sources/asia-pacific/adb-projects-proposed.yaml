@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: adb-projects-proposed
+display_name: ADB - Projects Proposed
+type: rss
+url: http://feeds.feedburner.com/proposed-projects
+language: en
+credibility_base: 0.88
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 30 entries; official ADB proposed project
+  feed; contains future-dated project records.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

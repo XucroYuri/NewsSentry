@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: bfmtv-politique
+display_name: "BFMTV Politique"
+type: rss
+url: "https://www.bfmtv.com/rss/politique/"
+language: fr
+credibility_base: 0.70
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 30 entries, latest 2026-07-01T12:41:42Z."
+health:
+  last_success_at: null
+  consecutive_failures: 0

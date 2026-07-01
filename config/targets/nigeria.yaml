@@ -14,6 +14,42 @@ source_channel_refs:
 - api/gdelt-topic
 - pool:global/gdelt-china-impact
 - pool:global/gdelt-supply-chain
+- channels
+- premium-times
+- punch
+- daily-trust
+- thisday
+- businessday
+- vanguard
+- nairametrics
+- presidency
+- techcabal
+- reliefweb-nigeria
+- tribune-ng
+- sahara-reporters
+- blueprint
+- icir
+- pool:africa/bbc-africa
+- pool:africa/rfi-africa
+- pool:africa/africanews
+- pool:africa/uneca-news
+- pool:africa/who-afro
+- pool:africa/comesa-news
+- pool:africa/voa-africa
+- pool:africa/reliefweb-africa
+- pool:africa/african-business
+- pool:africa/theafricareport
+- pool:africa/defenceweb-africa
+- pool:african-union/au-ibar
+- pool:african-union/afcfta
+- pool:african-union/au-pida
+- pool:african-union/pan-african-parliament
+- pool:african-union/african-commission-human-rights
+- pool:african-union/africa-cdc-news
+- pool:un-system/un-news-all
+- pool:un-system/un-press
+- pool:un-system/who
+- pool:un-system/ohchr
 filter_rules_ref: config/filters/nigeria/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
@@ -36,7 +72,17 @@ classification:
 focus_areas:
 - id: energy-and-infrastructure
   weight: 2.0
-  keywords: [Nigeria, oil, gas, infrastructure, power]
+  keywords:
+  - Nigeria
+  - oil
+  - gas
+  - infrastructure
+  - power
 - id: africa-china-business
   weight: 1.9
-  keywords: [Nigeria, China, investment, port, rail]
+  keywords:
+  - Nigeria
+  - China
+  - investment
+  - port
+  - rail

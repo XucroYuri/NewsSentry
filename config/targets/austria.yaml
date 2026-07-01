@@ -7,13 +7,31 @@ monitoring_type: country
 region_type: country
 language_scope:
   primary: de
-  secondary: [en]
+  secondary:
+  - en
   output: zh
 timezone: Europe/Vienna
 source_channel_refs:
-  - api/gdelt-topic
-  - pool:global/gdelt-geopolitics
-  - pool:global/gdelt-supply-chain
+- api/gdelt-topic
+- pool:global/gdelt-geopolitics
+- pool:global/gdelt-supply-chain
+- apa-ots-chronik
+- apa-ots-politik
+- apa-ots-wirtschaft
+- derstandard-all
+- derstandard-inland
+- derstandard-international
+- derstandard-web
+- derstandard-wirtschaft
+- diepresse-politik
+- diepresse-wirtschaft
+- fma-at-feed
+- kurier-news
+- orf-news
+- orf-science
+- pool:europe/bbc-europe
+- pool:europe/euronews-europe
+- pool:europe/politico-eu
 filter_rules_ref: config/filters/austria/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
@@ -28,16 +46,26 @@ classification:
     energy: true
     china_relations: true
   home_relevance_keywords:
-      - "Austria"
-      - "Vienna"
-      - "EU"
-      - "energy"
-      - "industry"
-      - "China"
+  - Austria
+  - Vienna
+  - EU
+  - energy
+  - industry
+  - China
 focus_areas:
-  - id: country-geopolitics-and-policy
-    weight: 2.0
-    keywords: ["Austria", "Vienna", "government", "election", "diplomacy"]
-  - id: trade-markets-and-china-impact
-    weight: 1.8
-    keywords: ["Austria", "China", "trade", "investment", "supply chain"]
+- id: country-geopolitics-and-policy
+  weight: 2.0
+  keywords:
+  - Austria
+  - Vienna
+  - government
+  - election
+  - diplomacy
+- id: trade-markets-and-china-impact
+  weight: 1.8
+  keywords:
+  - Austria
+  - China
+  - trade
+  - investment
+  - supply chain

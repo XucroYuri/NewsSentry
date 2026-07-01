@@ -15,6 +15,28 @@ source_channel_refs:
   - pool:global/gdelt-geopolitics
   - pool:global/gdelt-supply-chain
   - pool:global/gdelt-official-orgs
+  - pool:africa/bbc-africa
+  - pool:africa/rfi-africa
+  - pool:africa/africanews
+  - pool:africa/uneca-news
+  - pool:africa/who-afro
+  - pool:africa/comesa-news
+  - pool:africa/voa-africa
+  - pool:africa/reliefweb-africa
+  - pool:africa/african-business
+  - pool:africa/theafricareport
+  - pool:africa/defenceweb-africa
+  - pool:african-union/au-ibar
+  - pool:african-union/afcfta
+  - pool:african-union/au-pida
+  - pool:african-union/pan-african-parliament
+  - pool:african-union/african-commission-human-rights
+  - pool:african-union/africa-cdc-news
+  - pool:un-system/un-news-all
+  - pool:un-system/un-press
+  - pool:un-system/who
+  - pool:un-system/ohchr
+  - pool:un-system/unhabitat
 filter_rules_ref: config/filters/africa/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml

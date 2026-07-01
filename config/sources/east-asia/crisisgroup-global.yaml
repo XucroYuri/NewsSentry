@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: crisisgroup-global
+display_name: "International Crisis Group"
+type: rss
+url: "https://www.crisisgroup.org/rss.xml"
+language: en
+credibility_base: 0.82
+fetch_interval_minutes: 120
+max_items_per_run: 20
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest 2026-06-05T15:53:07Z. Global conflict feed used as East Asia security supplement."
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: uneca-news
+display_name: "UN ECA"
+type: rss
+url: "https://www.uneca.org/rss.xml"
+language: en
+credibility_base: 0.90
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest 2026-06-29T13:26:14+00:00; UN regional body."
+health:
+  last_success_at: null
+  consecutive_failures: 0

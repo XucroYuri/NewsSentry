@@ -15,53 +15,35 @@ timezone: Europe/Berlin
 
 # 引用的源渠道 ID，对应 config/sources/germany/{id}.yaml
 source_channel_refs:
-  # ── A. 政治与治理 ─────────────────────────────────
   - tagesschau-politics
   - spiegel-politics
-  - zeit-politics
   - faz-politics
-  - tagesspiegel-news
-
-  # ── B. 经济与商业 ─────────────────────────────────
   - handelsblatt
   - faz-business
-  - destatis-aktuell
-
-  # ── C. 外交与国际关系 ─────────────────────────────
-  - auswaertiges-amt
   - spiegel-international
-
-  # ── D. 安全与防务 ─────────────────────────────────
-  - bmvg
-
-  # ── E. 司法与法治 ─────────────────────────────────
-  - spiegel-justice
-
-  # ── F. 社会与民生 ─────────────────────────────────
-  - zeit-social
-  - tagesschau-social
-
-  # ── G. 科技与数字 ─────────────────────────────────
   - heise
-  - zeit-digital
-
-  # ── H. 环境与能源 ─────────────────────────────────
-  - bmu
-
-  # ── I. 移民与人口 ─────────────────────────────────
-  - bamf
-
-  # ── J. 文化与遗产 ─────────────────────────────────
-  - zeit-culture
-
-  # ── K. 涉华议题 ──────────────────────────────────
+  - deutschlandfunk-nachrichten
+  - deutschlandfunk-wirtschaft
+  - dw-de
+  - dw-top
+  - ntv-politik
+  - ntv-wirtschaft
+  - ntv-panorama
+  - spiegel-wirtschaft
+  - spiegel-netzwelt
+  - spiegel-wissenschaft
+  - spiegel-panorama
+  - spiegel-kultur
+  - zeit-politics-feed
+  - zeit-wirtschaft-feed
+  - zeit-social-feed
+  - zeit-digital-feed
+  - zdf-heute
+  - zdf-politik
+  - zdf-wirtschaft
+  - faz-aktuell
   - api/gdelt-china-germany
-
-  # ── L. 其他开放式兜底 ────────────────────────────
-  - api/gnews-germany
   - api/gdelt-germany
-  - reuters-de
-  - bbc-de
 
 filter_rules_ref: config/filters/germany/default.yaml
 classification_rules_ref: config/classification/rules-germany.yaml

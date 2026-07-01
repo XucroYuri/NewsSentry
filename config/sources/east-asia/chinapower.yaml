@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: chinapower
+display_name: "CSIS ChinaPower"
+type: rss
+url: "https://chinapower.csis.org/feed/"
+language: en
+credibility_base: 0.84
+fetch_interval_minutes: 120
+max_items_per_run: 15
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest 2026-04-30T21:07:38Z. Analysis source, slower cadence."
+health:
+  last_success_at: null
+  consecutive_failures: 0

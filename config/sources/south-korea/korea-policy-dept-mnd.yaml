@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: korea-policy-dept-mnd
+display_name: "Korea Policy Briefing — Ministry of National Defense"
+type: rss
+url: "https://www.korea.kr/rss/dept_mnd.xml"
+language: ko
+credibility_base: 0.92
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 50 entries, latest 2026-06-29T00:39:15Z."
+health:
+  last_success_at: null
+  consecutive_failures: 0

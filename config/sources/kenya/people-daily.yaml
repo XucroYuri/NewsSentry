@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: people-daily
+display_name: "People Daily Kenya"
+type: rss
+url: "https://peopledaily.digital/feed"
+language: en
+credibility_base: 0.72
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 20 entries, latest 2026-06-30T21:34:46+00:00; local media."
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: mpi-nz-media
+display_name: "MPI NZ Media Releases"
+type: rss
+url: "https://www.mpi.govt.nz/news-and-resources/media-releases/rss.xml"
+language: en
+credibility_base: 0.88
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 20 entries, latest Fri, 26 Jun 2026 09:00:00 +1200; official primary industries/trade releases."
+health:
+  last_success_at: null
+  consecutive_failures: 0

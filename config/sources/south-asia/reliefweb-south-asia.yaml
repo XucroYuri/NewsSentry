@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: reliefweb-south-asia
+display_name: ReliefWeb - South Asia Search
+type: rss
+url: https://reliefweb.int/updates/rss.xml?search=%22South%20Asia%22
+language: en
+credibility_base: 0.84
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 20 entries; UN OCHA ReliefWeb regional
+  search feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

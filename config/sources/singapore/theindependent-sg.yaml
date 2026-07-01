@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: theindependent-sg
+display_name: "The Independent Singapore"
+type: rss
+url: "https://theindependent.sg/feed/"
+language: en
+credibility_base: 0.68
+fetch_interval_minutes: 30
+max_items_per_run: 20
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest 2026-06-30T22:35:17Z. Lower credibility local source."
+health:
+  last_success_at: null
+  consecutive_failures: 0

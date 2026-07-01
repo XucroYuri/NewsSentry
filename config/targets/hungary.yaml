@@ -14,6 +14,23 @@ source_channel_refs:
   - api/gdelt-topic
   - pool:global/gdelt-geopolitics
   - pool:global/gdelt-supply-chain
+  - telex
+  - hvg
+  - index
+  - portfolio
+  - nepszava
+  - daily-news-hungary
+  - hungary-today
+  - atlatszo
+  - magyarnemzet
+  - twentyfour
+  - valaszonline
+  - fourfortyfour-feed
+  - direkt36
+  - forbes-hu
+  - pool:europe/bbc-europe
+  - pool:europe/euronews-europe
+  - pool:europe/politico-eu
 filter_rules_ref: config/filters/hungary/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml

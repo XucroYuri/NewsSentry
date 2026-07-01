@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: nhk-international
+display_name: "NHK ニュース 国際"
+type: rss
+url: "https://news.web.nhk/n-data/conf/na/rss/cat6.xml"
+language: ja
+credibility_base: 0.92
+fetch_interval_minutes: 20
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 112 entries, latest 2026-07-01T08:19:15+09:00."
+health:
+  last_success_at: null
+  consecutive_failures: 0

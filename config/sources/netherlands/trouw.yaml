@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: trouw
+display_name: Trouw
+type: rss
+url: https://www.trouw.nl/rss.xml
+language: nl
+credibility_base: 0.84
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 96 entries; Dutch national media feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

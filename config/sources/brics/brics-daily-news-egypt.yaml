@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: brics-daily-news-egypt
+display_name: BRICS member source - Daily News Egypt
+type: rss
+url: https://www.dailynewsegypt.com/feed/
+language: en
+credibility_base: 0.76
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: BRICS expanded member Egypt English business/politics source; MENA batch validated
+  HTTP 200 with entries.
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: abc-news-business
+display_name: "ABC News Business"
+type: rss
+url: "https://www.abc.net.au/news/feed/51892/rss.xml"
+language: en
+credibility_base: 0.84
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 25 entries, latest Tue, 30 Jun 2026 23:13:50 +0000; public broadcaster business/economy."
+health:
+  last_success_at: null
+  consecutive_failures: 0

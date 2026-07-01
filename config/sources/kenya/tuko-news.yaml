@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: tuko-news
+display_name: "Tuko Kenya"
+type: rss
+url: "https://www.tuko.co.ke/rss/all.rss"
+language: en
+credibility_base: 0.70
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 30 entries, latest 2026-06-30T19:21:23+00:00; local media; lower credibility."
+health:
+  last_success_at: null
+  consecutive_failures: 0

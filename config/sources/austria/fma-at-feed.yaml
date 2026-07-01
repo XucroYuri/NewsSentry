@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: fma-at-feed
+display_name: Austrian FMA Feed
+type: rss
+url: https://www.fma.gv.at/en/feed/
+language: en
+credibility_base: 0.94
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 9 entries; official Austrian financial
+  regulator, low-frequency official exception.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

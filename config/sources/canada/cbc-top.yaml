@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: cbc-top
+display_name: "CBC Top Stories"
+type: rss
+url: "https://www.cbc.ca/cmlink/rss-topstories"
+language: en
+credibility_base: 0.86
+fetch_interval_minutes: 20
+max_items_per_run: 30
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 20 entries, latest 2026-06-30T18:13:54 EDT."
+health:
+  last_success_at: null
+  consecutive_failures: 0

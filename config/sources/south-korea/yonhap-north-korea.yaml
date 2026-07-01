@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: yonhap-north-korea
+display_name: "Yonhap News Agency — North Korea"
+type: rss
+url: "https://en.yna.co.kr/RSS/nk.xml"
+language: en
+credibility_base: 0.90
+fetch_interval_minutes: 20
+max_items_per_run: 40
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 39 entries, latest 2026-06-30T14:58:59+09:00."
+health:
+  last_success_at: null
+  consecutive_failures: 0

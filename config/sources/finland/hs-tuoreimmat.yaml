@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: hs-tuoreimmat
+display_name: Helsingin Sanomat
+type: rss
+url: https://www.hs.fi/rss/tuoreimmat.xml
+language: fi
+credibility_base: 0.86
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 99 entries; reputable Finnish media.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

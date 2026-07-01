@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: nordregio-feed
+display_name: Nordregio
+type: rss
+url: https://nordregio.org/feed/
+language: en
+credibility_base: 0.9
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 8 entries; Nordic regional research institution
+  low-frequency feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

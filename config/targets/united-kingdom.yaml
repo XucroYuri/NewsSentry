@@ -21,6 +21,19 @@ source_channel_refs:
   - govuk-hmtreasury
   - govuk-fcdo
   - govuk-mod
+  - govuk-homeoffice
+  - govuk-cabinetoffice
+  - govuk-business-trade
+  - govuk-energy-netzero
+  - govuk-science-tech
+  - govuk-transport
+  - govuk-defra
+  - govuk-justice
+  - govuk-ons
+  - govuk-hmrc
+  - govuk-dwp
+  - govuk-health
+  - govuk-education
 
 filter_rules_ref: config/filters/united-kingdom/default.yaml
 classification_rules_ref: config/classification/rules-united-kingdom.yaml

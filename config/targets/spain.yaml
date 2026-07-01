@@ -7,13 +7,31 @@ monitoring_type: country
 region_type: country
 language_scope:
   primary: en
-  secondary: [es]
+  secondary:
+  - es
   output: zh
 timezone: Europe/Madrid
 source_channel_refs:
 - api/gdelt-topic
 - pool:global/gdelt-china-impact
 - pool:global/gdelt-geopolitics
+- elmundo
+- expansion
+- lavanguardia
+- twentyminutos
+- boe
+- elespanol
+- europapress
+- europapress-nacional
+- abc-espana
+- twentyminutos-nacional
+- elespanol-espana
+- elplural
+- infolibre
+- huffpost-es
+- pool:europe/bbc-europe
+- pool:europe/euronews-europe
+- pool:europe/politico-eu
 filter_rules_ref: config/filters/spain/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
@@ -39,7 +57,17 @@ classification:
 focus_areas:
 - id: eu-policy-and-china
   weight: 2.0
-  keywords: [Spain, EU, China, trade, regulation]
+  keywords:
+  - Spain
+  - EU
+  - China
+  - trade
+  - regulation
 - id: markets-energy-and-tourism
   weight: 1.6
-  keywords: [Spain, energy, tourism, infrastructure, ports]
+  keywords:
+  - Spain
+  - energy
+  - tourism
+  - infrastructure
+  - ports

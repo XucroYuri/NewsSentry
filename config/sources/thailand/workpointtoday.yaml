@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: workpointtoday
+display_name: Workpoint Today
+type: rss
+url: https://workpointtoday.com/feed/
+language: th
+credibility_base: 0.72
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 301 final with 20 entries; Thai public news
+  feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

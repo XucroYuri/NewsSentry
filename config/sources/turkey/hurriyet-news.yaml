@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: hurriyet-news
+display_name: "Hurriyet Daily News News"
+type: rss
+url: "https://www.hurriyetdailynews.com/rss/news"
+language: en
+credibility_base: 0.74
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 65 entries, latest Tue, 30 Jun 2026 16:17:31 Z; active established Turkish English news feed."
+health:
+  last_success_at: null
+  consecutive_failures: 0

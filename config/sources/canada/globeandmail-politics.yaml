@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: globeandmail-politics
+display_name: "The Globe and Mail Politics"
+type: rss
+url: "https://www.theglobeandmail.com/arc/outboundfeeds/rss/category/politics/"
+language: en
+credibility_base: 0.82
+fetch_interval_minutes: 30
+max_items_per_run: 60
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 63 entries, latest 2026-06-29T23:39:18Z."
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: pan-african-parliament
+display_name: "Pan-African Parliament"
+type: rss
+url: "https://pap.au.int/en/rss.xml"
+language: en
+credibility_base: 0.88
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest 2026-06-23T18:30:45+00:00; AU parliament."
+health:
+  last_success_at: null
+  consecutive_failures: 0

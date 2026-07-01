@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: yt-kuwait-ministry-information
+display_name: "Kuwait Ministry of Information YouTube"
+type: rss
+url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCsvXQvVpaAywFd6mlty1YAw"
+language: ar
+credibility_base: 0.85
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 15 entries, latest 2026-05-30T00:37:10Z; official social RSS."
+health:
+  last_success_at: null
+  consecutive_failures: 0
