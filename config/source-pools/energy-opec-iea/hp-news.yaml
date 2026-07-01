@@ -1,0 +1,15 @@
+# Schema: ../../../schemas/sourcechannel.schema.json
+source_id: hp-news
+display_name: "Hydrocarbon Processing News"
+type: rss
+url: "https://www.hydrocarbonprocessing.com/rss?feed=news"
+language: en
+credibility_base: 0.65
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest unavailable; energy media; no item dates."
+health:
+  last_success_at: null
+  consecutive_failures: 0

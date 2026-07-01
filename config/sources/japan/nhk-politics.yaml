@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: nhk-politics
+display_name: "NHK ニュース 政治"
+type: rss
+url: "https://news.web.nhk/n-data/conf/na/rss/cat4.xml"
+language: ja
+credibility_base: 0.92
+fetch_interval_minutes: 20
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 117 entries, latest 2026-07-01T05:43:43+09:00."
+health:
+  last_success_at: null
+  consecutive_failures: 0

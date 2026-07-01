@@ -11,10 +11,34 @@ language_scope:
   output: zh
 timezone: UTC
 source_channel_refs:
-  - api/gdelt-topic
-  - pool:global/gdelt-geopolitics
-  - pool:global/gdelt-supply-chain
-  - pool:global/gdelt-official-orgs
+- api/gdelt-topic
+- pool:global/gdelt-geopolitics
+- pool:global/gdelt-supply-chain
+- pool:global/gdelt-official-orgs
+- pool:un-system/un-news-all
+- pool:un-system/un-press
+- pool:un-system/who
+- pool:un-system/ohchr
+- pool:un-system/unhabitat
+- pool:un-system/unaids
+- pool:un-system/unfpa
+- pool:un-system/unep-news
+- pool:global/un-news-all
+- pool:global/un-press-releases
+- pool:global/who-news
+- pool:global/unep-news
+- pool:global/reliefweb-updates
+- pool:international-organizations/fsb
+- pool:international-organizations/bruegel
+- pool:international-organizations/aiib-news
+- pool:international-organizations/aiib-events
+- pool:international-organizations/aiib-projects-approved
+- pool:africa/bbc-africa
+- pool:africa/rfi-africa
+- pool:international-organizations/aiib-projects-proposed
+- pool:africa/uneca-news
+- pool:european-union/council-press
+- pool:european-union/ecb-press
 filter_rules_ref: config/filters/un-system/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
@@ -29,16 +53,26 @@ classification:
     energy: true
     china_relations: true
   home_relevance_keywords:
-      - "United Nations"
-      - "UN Security Council"
-      - "UNGA"
-      - "UNDP"
-      - "UNICEF"
-      - "WHO"
+  - United Nations
+  - UN Security Council
+  - UNGA
+  - UNDP
+  - UNICEF
+  - WHO
 focus_areas:
-  - id: regional-geopolitics-and-institutions
-    weight: 2.0
-    keywords: ["United Nations", "diplomacy", "security", "summit", "regulation"]
-  - id: trade-markets-and-china-impact
-    weight: 1.8
-    keywords: ["United Nations", "China", "trade", "supply chain", "investment"]
+- id: regional-geopolitics-and-institutions
+  weight: 2.0
+  keywords:
+  - United Nations
+  - diplomacy
+  - security
+  - summit
+  - regulation
+- id: trade-markets-and-china-impact
+  weight: 1.8
+  keywords:
+  - United Nations
+  - China
+  - trade
+  - supply chain
+  - investment

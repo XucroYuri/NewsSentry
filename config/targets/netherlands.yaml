@@ -7,13 +7,31 @@ monitoring_type: country
 region_type: country
 language_scope:
   primary: en
-  secondary: [nl]
+  secondary:
+  - nl
   output: zh
 timezone: Europe/Amsterdam
 source_channel_refs:
 - api/gdelt-topic
 - pool:global/gdelt-china-impact
 - pool:global/gdelt-supply-chain
+- cbs-all-news
+- cbs-economy
+- cbs-government-politics
+- dutchnews
+- fd
+- nltimes
+- nos-algemeen
+- nos-politiek
+- nrc
+- pbl-articles
+- pbl-publications
+- volkskrant
+- rtl-news
+- trouw
+- telegraaf
+- pool:europe/bbc-europe
+- pool:europe/euronews-europe
 filter_rules_ref: config/filters/netherlands/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
@@ -38,7 +56,17 @@ classification:
 focus_areas:
 - id: semiconductors-and-export-controls
   weight: 2.3
-  keywords: [Netherlands, ASML, semiconductor, export controls, China]
+  keywords:
+  - Netherlands
+  - ASML
+  - semiconductor
+  - export controls
+  - China
 - id: logistics-and-eu-market
   weight: 1.8
-  keywords: [Rotterdam, logistics, port, EU, trade]
+  keywords:
+  - Rotterdam
+  - logistics
+  - port
+  - EU
+  - trade

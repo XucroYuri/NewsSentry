@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: kommunen
+display_name: Kommunen
+type: rss
+url: https://www.kommunen.dk/feed
+language: da
+credibility_base: 0.78
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 301 final with 20 entries; Danish local-government
+  policy feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

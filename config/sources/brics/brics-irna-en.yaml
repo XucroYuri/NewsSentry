@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: brics-irna-en
+display_name: BRICS member source - IRNA English
+type: rss
+url: https://en.irna.ir/rss
+language: en
+credibility_base: 0.84
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: BRICS expanded member Iran official wire; MENA batch validated HTTP 200 with
+  entries.
+health:
+  last_success_at: null
+  consecutive_failures: 0

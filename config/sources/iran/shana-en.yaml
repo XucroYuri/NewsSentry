@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: shana-en
+display_name: "SHANA English"
+type: rss
+url: "https://en.shana.ir/rss"
+language: en
+credibility_base: 0.84
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 30 entries, latest Tue, 30 Jun 2026 20:02:32 GMT; official oil ministry news agency feed."
+health:
+  last_success_at: null
+  consecutive_failures: 0

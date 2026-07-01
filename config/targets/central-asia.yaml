@@ -11,10 +11,29 @@ language_scope:
   output: zh
 timezone: Asia/Almaty
 source_channel_refs:
-  - api/gdelt-topic
-  - pool:global/gdelt-geopolitics
-  - pool:global/gdelt-supply-chain
-  - pool:global/gdelt-official-orgs
+- api/gdelt-topic
+- pool:global/gdelt-geopolitics
+- pool:global/gdelt-supply-chain
+- pool:global/gdelt-official-orgs
+- times-ca
+- astana-times
+- gazeta-uz-en
+- uzdaily
+- trend-all
+- akipress
+- akipress-centralasia
+- twentyfour-kg
+- caspian-policy
+- cacianalyst
+- reliefweb-central-asia
+- un-news-asia-pacific
+- adb-news
+- the-diplomat-crossroads
+- jamestown-central-asia
+- asiaplus-en
+- ozodi
+- azattyk
+- azattyq
 filter_rules_ref: config/filters/central-asia/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
@@ -29,15 +48,25 @@ classification:
     energy: true
     china_relations: true
   home_relevance_keywords:
-      - "Central Asia"
-      - "Kazakhstan"
-      - "Uzbekistan"
-      - "energy"
-      - "China"
+  - Central Asia
+  - Kazakhstan
+  - Uzbekistan
+  - energy
+  - China
 focus_areas:
-  - id: regional-geopolitics-and-institutions
-    weight: 2.0
-    keywords: ["Central Asia", "diplomacy", "security", "summit", "regulation"]
-  - id: trade-markets-and-china-impact
-    weight: 1.8
-    keywords: ["Central Asia", "China", "trade", "supply chain", "investment"]
+- id: regional-geopolitics-and-institutions
+  weight: 2.0
+  keywords:
+  - Central Asia
+  - diplomacy
+  - security
+  - summit
+  - regulation
+- id: trade-markets-and-china-impact
+  weight: 1.8
+  keywords:
+  - Central Asia
+  - China
+  - trade
+  - supply chain
+  - investment

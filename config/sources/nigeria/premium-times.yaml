@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: premium-times
+display_name: "Premium Times"
+type: rss
+url: "https://www.premiumtimesng.com/feed"
+language: en
+credibility_base: 0.80
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 15 entries, latest 2026-06-30T22:26:23+00:00; reputable local media."
+health:
+  last_success_at: null
+  consecutive_failures: 0

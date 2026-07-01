@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: gao-reports
+display_name: "GAO Reports"
+type: rss
+url: "https://www.gao.gov/rss/reports.xml"
+language: en
+credibility_base: 0.88
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 25 entries, latest Tue, 30 Jun 2026 07:23:08 -0400; official congressional watchdog."
+health:
+  last_success_at: null
+  consecutive_failures: 0

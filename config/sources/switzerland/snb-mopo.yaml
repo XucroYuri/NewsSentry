@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: snb-mopo
+display_name: Swiss National Bank Monetary Policy
+type: rss
+url: https://www.snb.ch/public/rss/en/mopo
+language: en
+credibility_base: 0.95
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 19 entries; official central bank monetary-policy
+  feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: exante
+display_name: "Ex-Ante"
+type: rss
+url: "https://www.ex-ante.cl/feed/"
+language: es
+credibility_base: 0.76
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest 2026-06-30T23:30:35Z; politics/news RSS."
+health:
+  last_success_at: null
+  consecutive_failures: 0

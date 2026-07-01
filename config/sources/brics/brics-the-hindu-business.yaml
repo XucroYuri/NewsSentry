@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: brics-the-hindu-business
+display_name: BRICS member source - The Hindu Business
+type: rss
+url: https://www.thehindu.com/business/feeder/default.rss
+language: en
+credibility_base: 0.84
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: BRICS member India business source; South Asia batch validated HTTP 200 with
+  entries.
+health:
+  last_success_at: null
+  consecutive_failures: 0

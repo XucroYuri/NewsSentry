@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: antara-en-business-investment
+display_name: ANTARA News English Business and Investment
+type: rss
+url: https://en.antaranews.com/rss/business-investment.xml
+language: en
+credibility_base: 0.86
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 50 entries; national wire business/investment
+  feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

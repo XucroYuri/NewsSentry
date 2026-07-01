@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: sfda-medical-devices
+display_name: "Saudi Food and Drug Authority Medical Devices Sector"
+type: rss
+url: "https://www.sfda.gov.sa/en/news.xml?tags=3"
+language: en
+credibility_base: 0.80
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest Fri, 08 May 2026 13:12:55 +0000; official lower-frequency RSS."
+health:
+  last_success_at: null
+  consecutive_failures: 0

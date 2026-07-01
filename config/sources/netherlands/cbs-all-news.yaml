@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: cbs-all-news
+display_name: CBS Netherlands All News
+type: rss
+url: https://www.cbs.nl/en-gb/rss-feeds/all-news-items
+language: en
+credibility_base: 0.94
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 50 entries; official statistics office
+  feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -7,13 +7,33 @@ monitoring_type: country
 region_type: country
 language_scope:
   primary: en
-  secondary: [tl]
+  secondary:
+  - tl
   output: zh
 timezone: Asia/Manila
 source_channel_refs:
 - api/gdelt-topic
 - pool:global/gdelt-china-impact
 - pool:global/gdelt-geopolitics
+- gma-news-nation
+- gma-news-money
+- gma-news-scitech
+- inquirer-newsinfo
+- businessworld
+- rappler
+- mindanews
+- pcij
+- interaksyon
+- yugatech
+- bsp-media-releases
+- bsp-issuances
+- bsp-public-advisories
+- mb-articles
+- manilatimes-news
+- manilatimes-national
+- manilatimes-business
+- manilatimes-top-business
+- manilatimes-regions
 filter_rules_ref: config/filters/philippines/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
@@ -36,7 +56,17 @@ classification:
 focus_areas:
 - id: south-china-sea
   weight: 2.4
-  keywords: [Philippines, South China Sea, China, security, coast guard]
+  keywords:
+  - Philippines
+  - South China Sea
+  - China
+  - security
+  - coast guard
 - id: labor-and-consumption
   weight: 1.4
-  keywords: [Philippines, labor, remittances, consumer, services]
+  keywords:
+  - Philippines
+  - labor
+  - remittances
+  - consumer
+  - services

@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: cbss-news
+display_name: Council of Baltic Sea States News
+type: rss
+url: https://cbss.org/feed/
+language: en
+credibility_base: 0.89
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 10 entries; official regional organization
+  feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

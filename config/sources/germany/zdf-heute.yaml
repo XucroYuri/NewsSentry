@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: zdf-heute
+display_name: "ZDF Heute"
+type: rss
+url: "https://www.zdfheute.de/rss/zdf/nachrichten"
+language: de
+credibility_base: 0.84
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 198 entries, latest 2026-07-01T12:11:00+02:00."
+health:
+  last_success_at: null
+  consecutive_failures: 0

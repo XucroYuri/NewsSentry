@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: nzz
+display_name: Neue Zurcher Zeitung
+type: rss
+url: https://www.nzz.ch/recent.rss
+language: de
+credibility_base: 0.88
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 16 entries; reputable Swiss media.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

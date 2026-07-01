@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: odt-news
+display_name: "Otago Daily Times News"
+type: rss
+url: "https://www.odt.co.nz/news/feed"
+language: en
+credibility_base: 0.78
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 20 entries, latest Wed, 01 Jul 2026 11:41:48 +1200; regional New Zealand news signal."
+health:
+  last_success_at: null
+  consecutive_failures: 0

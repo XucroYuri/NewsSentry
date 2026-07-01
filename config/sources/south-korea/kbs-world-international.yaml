@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: kbs-world-international
+display_name: "KBS World News — International"
+type: rss
+url: "http://world.kbs.co.kr/rss/rss_news.htm?lang=e&id=In"
+language: en
+credibility_base: 0.86
+fetch_interval_minutes: 20
+max_items_per_run: 30
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 30 entries, latest 2026-06-30T11:06:49+09:00."
+health:
+  last_success_at: null
+  consecutive_failures: 0

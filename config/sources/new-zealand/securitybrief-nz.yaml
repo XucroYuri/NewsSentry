@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: securitybrief-nz
+display_name: "SecurityBrief New Zealand"
+type: rss
+url: "https://securitybrief.co.nz/feed"
+language: en
+credibility_base: 0.76
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest Wed, 01 Jul 2026 09:30:00 +1200; New Zealand cyber/security signal."
+health:
+  last_success_at: null
+  consecutive_failures: 0

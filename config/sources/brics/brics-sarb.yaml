@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: brics-sarb
+display_name: BRICS member source - SARB
+type: rss
+url: https://www.resbank.co.za/bin/sarb/solr/publications/rss
+language: en
+credibility_base: 0.9
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: BRICS member South Africa central bank feed; Africa batch validated HTTP 200
+  with entries.
+health:
+  last_success_at: null
+  consecutive_failures: 0

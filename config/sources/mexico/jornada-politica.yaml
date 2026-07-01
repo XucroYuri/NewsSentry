@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: jornada-politica
+display_name: "La Jornada Política"
+type: rss
+url: "https://www.jornada.com.mx/rss/politica.xml"
+language: es
+credibility_base: 0.75
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 36 entries, latest 2026-06-30T08:21:44Z; target-local politics RSS."
+health:
+  last_success_at: null
+  consecutive_failures: 0

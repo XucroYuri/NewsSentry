@@ -15,6 +15,33 @@ source_channel_refs:
   - pool:global/gdelt-geopolitics
   - pool:global/gdelt-supply-chain
   - pool:global/gdelt-official-orgs
+  - pool:global/un-news-all
+  - pool:global/un-press-releases
+  - pool:global/who-news
+  - pool:global/unep-news
+  - pool:global/reliefweb-updates
+  - pool:global/bbc-world
+  - pool:global/dw-world
+  - pool:global/aljazeera
+  - pool:un-system/un-news-all
+  - pool:un-system/un-press
+  - pool:un-system/who
+  - pool:un-system/ohchr
+  - pool:un-system/unhabitat
+  - pool:un-system/unaids
+  - pool:un-system/unfpa
+  - pool:un-system/unep-news
+  - pool:international-organizations/fsb
+  - pool:international-organizations/bruegel
+  - pool:international-organizations/aiib-news
+  - pool:international-organizations/aiib-events
+  - pool:international-organizations/aiib-projects-approved
+  - pool:international-organizations/aiib-projects-proposed
+  - pool:energy-opec-iea/eia-today-energy
+  - pool:energy-opec-iea/eia-press-rss
+  - pool:energy-opec-iea/eia-week-petroleum
+  - pool:africa/bbc-africa
+  - pool:africa/rfi-africa
 filter_rules_ref: config/filters/global/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml

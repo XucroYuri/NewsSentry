@@ -20,6 +20,20 @@ source_channel_refs:
   - indianexpress-india
   - indianexpress-business
   - toi-india
+  - pib-press-releases
+  - hindustantimes-india
+  - hindustantimes-world
+  - hindustantimes-business
+  - ndtv-india
+  - ndtv-business
+  - ndtv-world
+  - business-standard-top
+  - business-standard-economy
+  - livemint-news
+  - livemint-economy
+  - livemint-companies
+  - indiatoday-india
+  - economic-times-economy
 
 filter_rules_ref: config/filters/india/default.yaml
 classification_rules_ref: config/classification/rules-india.yaml
@@ -86,4 +100,3 @@ focus_areas:
       - "oil"
       - "LNG"
       - "renewable"
-

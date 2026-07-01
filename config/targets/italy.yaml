@@ -15,7 +15,6 @@ timezone: Europe/Rome
 
 # 引用的源渠道 ID，对应 config/sources/italy/{id}.yaml
 source_channel_refs:
-  # ── 已有 RSS（11 个；失效源保留在 sources/ 中归档，不进入 active refs）────────────
   - ansa
   - repubblica
   - corriere
@@ -24,69 +23,22 @@ source_channel_refs:
   - lastampa
   - ilfattoquotidiano
   - ansa-en
-  - ilmessaggero
   - rainews
   - ilsole24ore
-
-  # ── 新增 RSS — A.政治与治理 ──────────────────────
-  - adnkronos
-  - senato-it
   - ansa-politica
-  - interno-gov
-
-  # ── 新增 RSS — B.经济与商业 ──────────────────────
-  - bancaditalia
-  - eni-group
   - ansa-economia
-
-  # ── 新增 RSS — C.外交与国际关系 ──────────────────
-  - farnesina
-
-  # ── 新增 RSS — D.安全与防务 ──────────────────────
-  - difesa-it
-  - polizia-stato
-  - carabinieri
-
-  # ── 新增 RSS — E.司法与法治 ──────────────────────
-  - anac
-
-  # ── 新增 RSS — F.社会与民生 ──────────────────────
   - ilsecoloxix
-  - ilmattino
-  - salute-gov
-  - miur
-
-  # ── 新增 RSS — G.科技与数字 ──────────────────────
-  - agid
-  - garante-privacy
-  - wired-it
-  - startupitalia
-
-  # ── 新增 RSS — H.环境与能源 ──────────────────────
-  - enea
-  - ispra
-  - legambiente
-
-  # ── 新增 RSS — I.移民与人口 ──────────────────────
-  - iom-italy
   - open-migration
   - open-online
-
-  # ── 新增 RSS — J.文化与遗产 ──────────────────────
-  - mic
   - unesco-it
   - ansa-cultura
-
-  # ── 新增 RSS — K.宗教与梵蒂冈 ────────────────────
-  - vatican-news
   - cei
   - aci-stampa
-
-  # ── API 信源 ─────────────────────────────────────
-  - api/gnews-italy
-  - api/newsapi-it
+  - formiche
+  - sky-tg24
+  - open-politica
+  - governo-it
   - api/gdelt-italy
-  - api/istat
 
 # 各子系统规则/路由配置的相对路径（相对于项目根目录）
 filter_rules_ref: config/filters/italy/default.yaml

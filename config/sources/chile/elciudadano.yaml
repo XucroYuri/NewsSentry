@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: elciudadano
+display_name: "El Ciudadano"
+type: rss
+url: "https://www.elciudadano.com/feed/"
+language: es
+credibility_base: 0.70
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest 2026-06-30T23:17:02Z; target-local RSS."
+health:
+  last_success_at: null
+  consecutive_failures: 0

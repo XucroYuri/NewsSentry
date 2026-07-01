@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: qna-misc-local
+display_name: "Qatar News Agency Miscellaneous Local"
+type: rss
+url: "https://qna.org.qa/en/Pages/RSS-Feeds/Miscellaneous-Local"
+language: en
+credibility_base: 0.90
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 50 entries, latest Tue, 30 Jun 2026 20:03:01 Z; official QNA RSS."
+health:
+  last_success_at: null
+  consecutive_failures: 0

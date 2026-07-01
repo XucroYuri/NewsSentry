@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: au-ibar
+display_name: "AU-IBAR"
+type: rss
+url: "https://www.au-ibar.org/rss.xml"
+language: en
+credibility_base: 0.84
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 3 entries, latest 2026-06-18T08:21:31+00:00; AU organ."
+health:
+  last_success_at: null
+  consecutive_failures: 0

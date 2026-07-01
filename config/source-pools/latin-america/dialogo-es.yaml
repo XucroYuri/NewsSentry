@@ -1,0 +1,15 @@
+# Schema: ../../../schemas/sourcechannel.schema.json
+source_id: dialogo-es
+display_name: "Diálogo Américas ES"
+type: rss
+url: "https://dialogo-americas.com/es/feed/"
+language: es
+credibility_base: 0.80
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest 2026-06-30T10:30:41Z; regional security/defense RSS."
+health:
+  last_success_at: null
+  consecutive_failures: 0

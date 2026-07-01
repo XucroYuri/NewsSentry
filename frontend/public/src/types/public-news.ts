@@ -38,6 +38,14 @@ export interface PublicNewsItem {
   discussionCount?: number | null
   valueLabel: PublicNewsValueLabel
   valueScore?: number | null
+  breakingScore?: number | null
+  breakingLabel?: "flash" | "breaking" | "watch" | "timeline" | null
+  breakingReason?: string | null
+  breakingConfidence?: number | null
+  breakingDimensions?: Record<string, number>
+  targetTimezone?: string | null
+  publishedAtLocal?: string | null
+  availableLocales?: string[]
   chinaRelevanceLabel: PublicChinaRelevanceLabel
 }
 
@@ -52,6 +60,7 @@ export interface PublicNewsFeedResponse {
 
 export interface PublicNewsQuery {
   featured?: boolean
+  locale?: string
   targetId?: string
   regionId?: string
   sourceId?: string

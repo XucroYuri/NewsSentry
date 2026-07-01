@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: nordic-energy
+display_name: Nordic Energy Research
+type: rss
+url: https://www.nordicenergy.org/feed/
+language: en
+credibility_base: 0.89
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 1 entry; Nordic energy institution low-frequency
+  official exception.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

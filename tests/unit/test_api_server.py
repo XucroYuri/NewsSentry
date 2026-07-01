@@ -51,6 +51,13 @@ def _ready_public_metadata(title: str = "公开新闻") -> dict[str, Any]:
             "issue_tags": ["政治"],
             "related_tags": ["涉欧"],
             "region_tags": ["意大利"],
+            "localizations": {
+                "en": {
+                    "title": "Public news in English",
+                    "summary": "This is an English public summary.",
+                    "recommendation_reason": "It matters for cross-border monitoring.",
+                }
+            },
         },
     }
 
@@ -522,6 +529,8 @@ class TestCloudflareInternalAPI:
         assert event["issue_tags"] == ["政治"]
         assert event["related_tags"] == ["涉欧"]
         assert event["region_tags"] == ["意大利"]
+        assert {item["locale"] for item in event["localizations"]} == {"en", "zh"}
+        assert event["localizations"][0]["locale"] == "en"
 
     def test_translation_import_payload_uses_exact_updated_events(
         self,

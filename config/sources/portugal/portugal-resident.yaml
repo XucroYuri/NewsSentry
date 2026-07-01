@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: portugal-resident
+display_name: "Portugal Resident"
+type: rss
+url: "https://www.portugalresident.com/feed/"
+language: en
+credibility_base: 0.72
+fetch_interval_minutes: 60
+max_items_per_run: 30
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries; English Portugal national news and public affairs source."
+health:
+  last_success_at: null
+  consecutive_failures: 0

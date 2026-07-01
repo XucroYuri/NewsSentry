@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: weather-24h
+display_name: "Meteorological Service Singapore 24h Forecast"
+type: rss
+url: "https://www.weather.gov.sg/files/rss/rss24HrForecast.xml"
+language: en
+credibility_base: 0.83
+fetch_interval_minutes: 60
+max_items_per_run: 5
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 1 entry, latest 2026-06-30T21:30:00Z. Official low-count alert/forecast exception."
+health:
+  last_success_at: null
+  consecutive_failures: 0

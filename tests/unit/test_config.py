@@ -704,7 +704,7 @@ class TestLoadTarget:
         loader = ConfigLoader(Path("."))
         config = loader.load_target("italy")
         assert config.target_id == "italy"
-        assert len(config.sources) >= 47  # v2: opencli/social sources removed
+        assert len(config.sources) >= 20  # Cloudflare source expansion baseline
         source_ids = {s["source_id"] for s in config.sources}
         # 验证核心 RSS 源仍然存在
         core_ids = {
@@ -716,12 +716,11 @@ class TestLoadTarget:
             "lastampa",
             "ilfattoquotidiano",
             "ansa-en",
-            "ilmessaggero",
             "rainews",
             "ilsole24ore",
         }
         assert core_ids.issubset(source_ids)
-        assert {"fao-rss", "thelocal-it", "sky-tg24"}.isdisjoint(source_ids)
+        assert {"fao-rss", "thelocal-it"}.isdisjoint(source_ids)
         assert "score_threshold" in config.filter_rules
         assert "l0_domains" in config.classification_rules
         assert "command_policy" in config.sandbox_policy
@@ -730,8 +729,8 @@ class TestLoadTarget:
         by_type = {}
         for s in config.sources:
             by_type.setdefault(s["type"], []).append(s)
-        assert len(by_type.get("rss", [])) >= 30
-        assert len(by_type.get("api", [])) >= 4
+        assert len(by_type.get("rss", [])) >= 20
+        assert len(by_type.get("api", [])) >= 1
 
         # 验证 API 源有 endpoint 配置
         for api_src in by_type["api"]:

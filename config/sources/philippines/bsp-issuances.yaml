@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: bsp-issuances
+display_name: Bangko Sentral ng Pilipinas Issuances
+type: rss
+url: https://www.bsp.gov.ph/_layouts/15/listfeed.aspx?List=68408d09-548e-40f5-b2fd-62d36e30fd3f&View=5580f386-ff60-40ff-8531-2b5259079a97
+language: en
+credibility_base: 0.92
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 30 entries; official central bank issuances.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: afcfta
+display_name: "AfCFTA"
+type: rss
+url: "https://au-afcfta.org/feed/"
+language: en
+credibility_base: 0.86
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest 2026-06-22T11:53:41+00:00; AU trade institution."
+health:
+  last_success_at: null
+  consecutive_failures: 0

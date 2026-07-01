@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: bsp-media-releases
+display_name: Bangko Sentral ng Pilipinas Media Releases
+type: rss
+url: https://www.bsp.gov.ph/_layouts/15/listfeed.aspx?List=9b0a2117-49d8-4e96-80ba-8651a0e3e17a&View=8c968884-887d-4d63-8c00-ba05ea3c2d93
+language: en
+credibility_base: 0.92
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 30 entries; official central bank media
+  releases.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

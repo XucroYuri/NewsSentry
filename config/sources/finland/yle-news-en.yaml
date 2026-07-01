@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: yle-news-en
+display_name: Yle News English
+type: rss
+url: https://feeds.yle.fi/uutiset/v1/recent.rss?publisherIds=YLE_NEWS
+language: en
+credibility_base: 0.9
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 30 entries; Finnish public broadcaster
+  English feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

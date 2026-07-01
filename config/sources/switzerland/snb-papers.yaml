@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: snb-papers
+display_name: Swiss National Bank Papers
+type: rss
+url: https://www.snb.ch/public/rss/en/papers
+language: en
+credibility_base: 0.95
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 20 entries; official central bank research
+  feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: rtl-news
+display_name: RTL Nieuws
+type: rss
+url: https://www.rtlnieuws.nl/rss.xml
+language: nl
+credibility_base: 0.82
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 301 final with 10 entries; Dutch national news
+  feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

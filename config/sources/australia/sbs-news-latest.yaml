@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: sbs-news-latest
+display_name: "SBS News Latest"
+type: rss
+url: "https://www.sbs.com.au/news/feed"
+language: en
+credibility_base: 0.83
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 25 entries, latest Tue, 30 Jun 2026 07:59:48 +0000; public broadcaster multicultural/national news."
+health:
+  last_success_at: null
+  consecutive_failures: 0

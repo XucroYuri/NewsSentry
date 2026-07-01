@@ -13,6 +13,13 @@ from news_sentry.skills.filter.rules_filter import RulesFilter
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
+def _source_path_for_ref(target_id: str, ref: str) -> Path:
+    if ref.startswith("pool:"):
+        pool_id, source_id = ref.removeprefix("pool:").split("/", 1)
+        return PROJECT_ROOT / "config" / "source-pools" / pool_id / f"{source_id}.yaml"
+    return PROJECT_ROOT / "config" / "sources" / target_id / f"{ref}.yaml"
+
+
 def _event(title: str) -> NewsEvent:
     return NewsEvent(
         id="ne-test-ireland-target-20260613-00000000",
@@ -72,4 +79,4 @@ def test_ireland_target_has_minimum_public_source_coverage() -> None:
 
     assert len(refs) >= 6
     for ref in refs:
-        assert (PROJECT_ROOT / "config" / "sources" / "ireland" / f"{ref}.yaml").is_file()
+        assert _source_path_for_ref("ireland", ref).is_file()

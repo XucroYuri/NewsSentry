@@ -7,13 +7,31 @@ monitoring_type: country
 region_type: country
 language_scope:
   primary: en
-  secondary: [pl]
+  secondary:
+  - pl
   output: zh
 timezone: Europe/Warsaw
 source_channel_refs:
 - api/gdelt-topic
 - pool:global/gdelt-geopolitics
 - pool:global/gdelt-supply-chain
+- bankier
+- money-pl
+- notes-from-poland
+- rp-news
+- threehundredgospodarka
+- gazeta-prawna
+- onet-wiadomosci
+- pap-mediaroom
+- rmf24
+- tvn24
+- wprost-news
+- wyborcza
+- businessinsider-pl
+- forsal
+- pool:europe/bbc-europe
+- pool:europe/euronews-europe
+- pool:europe/politico-eu
 filter_rules_ref: config/filters/poland/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
@@ -38,7 +56,17 @@ classification:
 focus_areas:
 - id: nato-eu-and-ukraine
   weight: 2.0
-  keywords: [Poland, NATO, EU, Ukraine, security]
+  keywords:
+  - Poland
+  - NATO
+  - EU
+  - Ukraine
+  - security
 - id: logistics-and-manufacturing
   weight: 1.7
-  keywords: [Poland, logistics, manufacturing, rail, supply chain]
+  keywords:
+  - Poland
+  - logistics
+  - manufacturing
+  - rail
+  - supply chain

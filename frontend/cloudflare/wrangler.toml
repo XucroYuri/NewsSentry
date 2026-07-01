@@ -18,7 +18,7 @@ routes = [
 NEWS_SENTRY_RUNTIME = "cloudflare-native"
 
 [triggers]
-crons = ["*/15 * * * *", "7,37 * * * *", "11 * * * *"]
+crons = ["*/15 * * * *", "7,37 * * * *", "11 * * * *", "23 * * * *", "53 */6 * * *"]
 
 [observability]
 enabled = true

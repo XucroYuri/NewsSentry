@@ -43,6 +43,7 @@ class D1Target:
     display_name: str
     primary_language: str
     region_type: str
+    timezone: str
     source_count: int
     event_count: int
     cloudflare_collect_enabled: int = 1
@@ -278,6 +279,7 @@ def collect_backfill_plan(
                 display_name=str(target_config.get("display_name") or target_id),
                 primary_language=_target_primary_language(target_config),
                 region_type=str(target_config.get("region_type") or "country"),
+                timezone=str(target_config.get("timezone") or "UTC"),
                 source_count=source_count,
                 event_count=target_event_counts.get(target_id, 0),
                 cloudflare_collect_enabled=1 if collect_enabled else 0,
@@ -295,15 +297,17 @@ def _target_insert(target: D1Target) -> str:
     return (
         "INSERT INTO targets (target_id, display_name, region_id, primary_language, "  # noqa: S608
         "region_type, source_count, event_count, lifecycle, archived, "
-        "cloudflare_collect_enabled) VALUES "
+        "cloudflare_collect_enabled, timezone) VALUES "
         f"({_sql(target.target_id)}, {_sql(target.display_name)}, {_sql(target.target_id)}, "
         f"{_sql(target.primary_language)}, {_sql(target.region_type)}, {target.source_count}, "
-        f"{target.event_count}, '{{}}', 0, {target.cloudflare_collect_enabled}) "
+        f"{target.event_count}, '{{}}', 0, {target.cloudflare_collect_enabled}, "
+        f"{_sql(target.timezone)}) "
         "ON CONFLICT(target_id) DO UPDATE SET "
         "display_name=excluded.display_name, primary_language=excluded.primary_language, "
         "region_type=excluded.region_type, source_count=excluded.source_count, "
         "event_count=MAX(COALESCE(targets.event_count, 0), COALESCE(excluded.event_count, 0)), "
-        "cloudflare_collect_enabled=excluded.cloudflare_collect_enabled;"
+        "cloudflare_collect_enabled=excluded.cloudflare_collect_enabled, "
+        "timezone=excluded.timezone;"
     )
 
 

@@ -17,21 +17,30 @@ timezone: Asia/Tokyo
 source_channel_refs:
   # ── A. 政治与治理 ─────────────────────────────────
   - nhk-news
+  - nhk-politics
   - asahi-politics
   - asahi-headlines
+  - mainichi-flash
+  - jiji-ranking
 
   # ── B. 经济与商业 ─────────────────────────────────
+  - nhk-economy
   - asahi-business
+  - boj-whatsnew
 
   # ── C. 外交与国际关系 ─────────────────────────────
+  - nhk-international
   - asahi-international
 
   # ── D. 安全与防务 ─────────────────────────────────
 
   # ── F. 社会与民生 ─────────────────────────────────
+  - nhk-society
 
   # ── G. 科技与数字 ─────────────────────────────────
-  - asahi-digital
+  - japantimes-news
+  - nhk-science-medical
+  - japantimes-business
 
   # ── J. 文化与遗产 ─────────────────────────────────
   - asahi-culture
@@ -40,7 +49,6 @@ source_channel_refs:
   - api/gdelt-china-japan
 
   # ── L. Other 开放式兜底 ──────────────────────────
-  - api/gnews-japan
   - api/gdelt-japan
 
   # ── 辅助源（非日本专门） ────────────────────────

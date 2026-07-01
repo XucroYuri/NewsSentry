@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: open-politica
+display_name: "Open Politica"
+type: rss
+url: "https://www.open.online/c/politica/feed/"
+language: it
+credibility_base: 0.68
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 12 entries, latest 2026-07-01T11:44:30Z."
+health:
+  last_success_at: null
+  consecutive_failures: 0

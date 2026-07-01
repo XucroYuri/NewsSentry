@@ -92,11 +92,13 @@ function filtersFromRoute(route: PublicRoute): FeedFilters {
   if (route.name !== "feed") {
     return {
       channel: routeToChannel(route),
+      locale: route.locale,
       pageSize: PAGE_SIZE,
     }
   }
   return {
     channel: route.channel,
+    locale: route.locale,
     targetId: queryValue(route.search, "target_id"),
     sourceId: queryValue(route.search, "source_id"),
     category: queryValue(route.search, "category"),
@@ -112,6 +114,7 @@ function feedRouteFromFilters(filters: FeedFilters): PublicRoute {
   return {
     name: "feed",
     channel: filters.channel,
+    locale: filters.locale,
     search: searchFromFilters(filters),
   }
 }
@@ -144,6 +147,7 @@ function activeNavFromRoute(route: PublicRoute, filters: FeedFilters): NavId {
 function filtersEqual(left: FeedFilters, right: FeedFilters) {
   return (
     left.channel === right.channel &&
+    left.locale === right.locale &&
     left.targetId === right.targetId &&
     left.sourceId === right.sourceId &&
     left.category === right.category &&
@@ -158,6 +162,7 @@ function filtersEqual(left: FeedFilters, right: FeedFilters) {
 function isDefaultFeaturedFilters(filters: FeedFilters) {
   return (
     filters.channel === "featured" &&
+    (filters.locale === undefined || filters.locale === "zh") &&
     !filters.targetId &&
     !filters.sourceId &&
     !filters.category &&

@@ -11,10 +11,26 @@ language_scope:
   output: zh
 timezone: Asia/Singapore
 source_channel_refs:
-  - api/gdelt-topic
-  - pool:global/gdelt-geopolitics
-  - pool:global/gdelt-supply-chain
-  - pool:global/gdelt-official-orgs
+- api/gdelt-topic
+- pool:global/gdelt-geopolitics
+- pool:global/gdelt-supply-chain
+- pool:global/gdelt-official-orgs
+- un-news-asia-pacific
+- reliefweb-asia-pacific
+- adb-news
+- adb-whatsnew
+- adb-projects-approved
+- adb-projects-proposed
+- adb-publications
+- adb-blogs
+- lowy-interpreter
+- abc-asia
+- devpolicy
+- pool:global/bbc-world
+- pool:global/aljazeera
+- pool:global/dw-world
+- pool:international-organizations/aiib-news
+- pool:international-organizations/aiib-projects-approved
 filter_rules_ref: config/filters/asia-pacific/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
@@ -29,15 +45,25 @@ classification:
     energy: true
     china_relations: true
   home_relevance_keywords:
-      - "Asia Pacific"
-      - "APAC"
-      - "trade"
-      - "security"
-      - "China"
+  - Asia Pacific
+  - APAC
+  - trade
+  - security
+  - China
 focus_areas:
-  - id: regional-geopolitics-and-institutions
-    weight: 2.0
-    keywords: ["Asia Pacific", "diplomacy", "security", "summit", "regulation"]
-  - id: trade-markets-and-china-impact
-    weight: 1.8
-    keywords: ["Asia Pacific", "China", "trade", "supply chain", "investment"]
+- id: regional-geopolitics-and-institutions
+  weight: 2.0
+  keywords:
+  - Asia Pacific
+  - diplomacy
+  - security
+  - summit
+  - regulation
+- id: trade-markets-and-china-impact
+  weight: 1.8
+  keywords:
+  - Asia Pacific
+  - China
+  - trade
+  - supply chain
+  - investment

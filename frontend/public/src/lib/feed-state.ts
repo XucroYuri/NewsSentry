@@ -4,6 +4,7 @@ export type PublicChannel = "featured" | "all" | "targets" | "sources" | "analys
 
 export interface FeedFilters {
   channel: PublicChannel
+  locale?: string
   targetId?: string
   sourceId?: string
   category?: string
@@ -35,6 +36,7 @@ function clean(value: string | undefined) {
 export function makeFeedQuery(filters: FeedFilters): PublicNewsQuery {
   const query: PublicNewsQuery = {}
   if (filters.channel === "featured") query.featured = true
+  query.locale = clean(filters.locale)
   query.targetId = clean(filters.targetId)
   query.sourceId = clean(filters.sourceId)
   query.category = clean(filters.category)

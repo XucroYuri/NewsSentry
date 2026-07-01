@@ -14,9 +14,11 @@ import sqlite3
 import time
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, cast
 from urllib.parse import quote
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import news_sentry.core._state as _st
 from news_sentry.core._state import (
@@ -66,6 +68,7 @@ _COMPACT_UTC_RE = re.compile(
     r"^(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})T"
     r"(?P<hour>\d{2})(?P<minute>\d{2})(?P<second>\d{2})Z$"
 )
+_CLOUDFLARE_PUBLIC_LOCALES = {"zh", "en", "es", "ar", "fr"}
 
 
 def _parse_target_ids(raw: str) -> list[str]:
@@ -1081,6 +1084,90 @@ def _cloudflare_import_china_relevance_label(score: Any) -> str:
     return "低"
 
 
+@lru_cache(maxsize=1)
+def _target_timezone_map() -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for item in _load_target_configs():
+        target_id = str(item.get("target_id") or "").strip()
+        timezone = str(item.get("timezone") or "UTC").strip() or "UTC"
+        if target_id:
+            mapping[target_id] = timezone
+    return mapping
+
+
+def _cloudflare_import_local_time(instant: str, timezone: str) -> str | None:
+    try:
+        parsed = datetime.fromisoformat(instant.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    try:
+        zone = ZoneInfo(timezone)
+    except ZoneInfoNotFoundError:
+        zone = ZoneInfo("UTC")
+    return parsed.astimezone(zone).isoformat()
+
+
+def _cloudflare_import_public_localizations(
+    *,
+    publication: dict[str, Any],
+    title: str,
+    summary: str,
+    recommendation_reason: str,
+    topic_tags: list[str],
+    issue_tags: list[str],
+    related_tags: list[str],
+    region_tags: list[str],
+) -> list[dict[str, Any]]:
+    localizations: list[dict[str, Any]] = []
+    raw = publication.get("localizations")
+    localization_map = raw if isinstance(raw, dict) else {}
+    for locale in sorted(_CLOUDFLARE_PUBLIC_LOCALES):
+        value = localization_map.get(locale)
+        if not isinstance(value, dict):
+            continue
+        localized_title = str(value.get("title") or "").strip()
+        localized_summary = str(value.get("summary") or "").strip()
+        localized_reason = str(value.get("recommendation_reason") or "").strip()
+        if not (localized_title and localized_summary and localized_reason):
+            continue
+        localizations.append(
+            {
+                "locale": locale,
+                "title": localized_title,
+                "summary": localized_summary,
+                "recommendation_reason": localized_reason,
+                "tags": topic_tags,
+                "issue_tags": issue_tags,
+                "related_tags": related_tags,
+                "region_tags": region_tags,
+                "language": str(value.get("language") or locale),
+                "quality_score": 80,
+                "model": publication.get("model") or "",
+                "route_id": publication.get("route_id") or "",
+            }
+        )
+    if not any(item.get("locale") == "zh" for item in localizations):
+        localizations.append(
+            {
+                "locale": "zh",
+                "title": title,
+                "summary": summary,
+                "recommendation_reason": recommendation_reason,
+                "tags": topic_tags,
+                "issue_tags": issue_tags,
+                "related_tags": related_tags,
+                "region_tags": region_tags,
+                "language": "zh",
+                "quality_score": 80,
+                "model": publication.get("model") or "",
+                "route_id": publication.get("route_id") or "",
+            }
+        )
+    return localizations
+
+
 def _cloudflare_import_payload_from_row(row: sqlite3.Row) -> dict[str, Any] | None:
     url = str(row["url"] or "").strip()
     if not url:
@@ -1097,10 +1184,14 @@ def _cloudflare_import_payload_from_row(row: sqlite3.Row) -> dict[str, Any] | No
     raw_publication = metadata.get("publication")
     translation = raw_translation if isinstance(raw_translation, dict) else {}
     publication = raw_publication if isinstance(raw_publication, dict) else {}
+    raw_breaking = publication.get("breaking")
+    breaking: dict[str, Any] = raw_breaking if isinstance(raw_breaking, dict) else {}
     ready = public_publication_ready(metadata)
 
     published_at = _cloudflare_import_timestamp(row["published_at"], row["created_at"])
     collected_at = _cloudflare_import_timestamp(row["created_at"], row["published_at"])
+    target_timezone = _target_timezone_map().get(target_id, "UTC")
+    published_at_local = _cloudflare_import_local_time(published_at, target_timezone)
     classification_l0 = str(row["classification_l0"] or "uncategorized").strip() or "uncategorized"
     topic_tags = _cloudflare_import_tags(row["topic_tags"])
     entity_names = _cloudflare_import_tags(row["entity_names"])
@@ -1140,12 +1231,31 @@ def _cloudflare_import_payload_from_row(row: sqlite3.Row) -> dict[str, Any] | No
         "china_relevance_label": _cloudflare_import_china_relevance_label(
             row["china_relevance"]
         ),
+        "breaking_score": breaking.get("score") or row["news_value_score"],
+        "breaking_label": breaking.get("label"),
+        "breaking_reason": breaking.get("reason") or recommendation_reason,
+        "breaking_confidence": breaking.get("confidence"),
+        "breaking_dimensions": breaking.get("dimensions") if isinstance(breaking, dict) else {},
+        "breaking_score_version": breaking.get("version") if isinstance(breaking, dict) else None,
+        "target_timezone": target_timezone,
+        "published_at_local": published_at_local,
         "_sort_key": published_at or collected_at,
     }
     if summary:
         payload["summary"] = summary
     if recommendation_reason:
         payload["recommendation_reason"] = recommendation_reason
+    if ready:
+        payload["localizations"] = _cloudflare_import_public_localizations(
+            publication=publication,
+            title=title or title_original,
+            summary=summary,
+            recommendation_reason=recommendation_reason,
+            topic_tags=topic_tags,
+            issue_tags=issue_tags,
+            related_tags=related_tags,
+            region_tags=region_tags or [target_id],
+        )
     return payload
 
 

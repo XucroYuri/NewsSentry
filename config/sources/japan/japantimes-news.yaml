@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: japantimes-news
+display_name: "The Japan Times News"
+type: rss
+url: "https://www.japantimes.co.jp/news/feed/"
+language: en
+credibility_base: 0.86
+fetch_interval_minutes: 25
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 60 entries; English Japan politics, society, diplomacy, and business news."
+health:
+  last_success_at: null
+  consecutive_failures: 0

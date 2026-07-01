@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: expansion
+display_name: "Expansion"
+type: rss
+url: "https://e00-expansion.uecdn.es/rss/portada.xml"
+language: es
+credibility_base: 0.82
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 73 entries, latest 2026-07-01T00:49:01+02:00; 200 OK + parser_entry_count > 0."
+health:
+  last_success_at: null
+  consecutive_failures: 0

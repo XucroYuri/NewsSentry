@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: thediplomat-main
+display_name: "The Diplomat"
+type: rss
+url: "https://thediplomat.com/feed/"
+language: en
+credibility_base: 0.78
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 96 entries, latest 2026-06-30T12:26:00+09:00."
+health:
+  last_success_at: null
+  consecutive_failures: 0

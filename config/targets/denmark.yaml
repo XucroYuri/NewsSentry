@@ -7,13 +7,31 @@ monitoring_type: country
 region_type: country
 language_scope:
   primary: da
-  secondary: [en]
+  secondary:
+  - en
   output: zh
 timezone: Europe/Copenhagen
 source_channel_refs:
-  - api/gdelt-topic
-  - pool:global/gdelt-geopolitics
-  - pool:global/gdelt-supply-chain
+- api/gdelt-topic
+- pool:global/gdelt-geopolitics
+- pool:global/gdelt-supply-chain
+- altinget
+- borsen
+- dr-alle
+- dr-indland
+- dr-penge
+- dr-udland
+- version2
+- politiken
+- dr-kultur
+- dr-viden
+- dr-regionale
+- kommunen
+- ing-dk
+- videnskab
+- pool:europe/bbc-europe
+- pool:europe/euronews-europe
+- pool:europe/politico-eu
 filter_rules_ref: config/filters/denmark/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
@@ -28,16 +46,26 @@ classification:
     energy: true
     china_relations: true
   home_relevance_keywords:
-      - "Denmark"
-      - "Copenhagen"
-      - "shipping"
-      - "green energy"
-      - "Arctic"
-      - "China"
+  - Denmark
+  - Copenhagen
+  - shipping
+  - green energy
+  - Arctic
+  - China
 focus_areas:
-  - id: country-geopolitics-and-policy
-    weight: 2.0
-    keywords: ["Denmark", "Copenhagen", "government", "election", "diplomacy"]
-  - id: trade-markets-and-china-impact
-    weight: 1.8
-    keywords: ["Denmark", "China", "trade", "investment", "supply chain"]
+- id: country-geopolitics-and-policy
+  weight: 2.0
+  keywords:
+  - Denmark
+  - Copenhagen
+  - government
+  - election
+  - diplomacy
+- id: trade-markets-and-china-impact
+  weight: 1.8
+  keywords:
+  - Denmark
+  - China
+  - trade
+  - investment
+  - supply chain

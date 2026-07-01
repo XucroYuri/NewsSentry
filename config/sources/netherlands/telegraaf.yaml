@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: telegraaf
+display_name: De Telegraaf
+type: rss
+url: https://www.telegraaf.nl/rss
+language: nl
+credibility_base: 0.8
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 50 entries; Dutch national news feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

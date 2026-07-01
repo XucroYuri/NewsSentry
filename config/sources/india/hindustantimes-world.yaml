@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: hindustantimes-world
+display_name: "Hindustan Times World News"
+type: rss
+url: "https://www.hindustantimes.com/feeds/rss/world-news/rssfeed.xml"
+language: en
+credibility_base: 0.74
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 100 entries, latest 2026-07-01T04:32:13+05:30."
+health:
+  last_success_at: null
+  consecutive_failures: 0

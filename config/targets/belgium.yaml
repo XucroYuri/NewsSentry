@@ -7,13 +7,33 @@ monitoring_type: country
 region_type: country
 language_scope:
   primary: nl
-  secondary: [fr, de, en]
+  secondary:
+  - fr
+  - de
+  - en
   output: zh
 timezone: Europe/Brussels
 source_channel_refs:
-  - api/gdelt-topic
-  - pool:global/gdelt-geopolitics
-  - pool:global/gdelt-supply-chain
+- api/gdelt-topic
+- pool:global/gdelt-geopolitics
+- pool:global/gdelt-supply-chain
+- demorgen
+- hln-news
+- knack
+- rtbf-home
+- rtbf-highlight
+- statbel-rss
+- vrt-nws-en
+- vrt-nws-nl
+- rtbf-economie
+- brusselsreport
+- pool:europe/bbc-europe
+- pool:europe/euronews-europe
+- pool:europe/politico-eu
+- pool:european-union/council-press
+- pool:european-union/ep-news-all
+- pool:european-union/eba-news
+- pool:european-union/ecb-press
 filter_rules_ref: config/filters/belgium/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
@@ -28,16 +48,26 @@ classification:
     energy: true
     china_relations: true
   home_relevance_keywords:
-      - "Belgium"
-      - "Brussels"
-      - "EU"
-      - "NATO"
-      - "ports"
-      - "China"
+  - Belgium
+  - Brussels
+  - EU
+  - NATO
+  - ports
+  - China
 focus_areas:
-  - id: country-geopolitics-and-policy
-    weight: 2.0
-    keywords: ["Belgium", "Brussels", "government", "election", "diplomacy"]
-  - id: trade-markets-and-china-impact
-    weight: 1.8
-    keywords: ["Belgium", "China", "trade", "investment", "supply chain"]
+- id: country-geopolitics-and-policy
+  weight: 2.0
+  keywords:
+  - Belgium
+  - Brussels
+  - government
+  - election
+  - diplomacy
+- id: trade-markets-and-china-impact
+  weight: 1.8
+  keywords:
+  - Belgium
+  - China
+  - trade
+  - investment
+  - supply chain

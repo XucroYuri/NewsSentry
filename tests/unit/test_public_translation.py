@@ -157,6 +157,33 @@ async def test_public_news_rows_only_return_translation_ready_events(tmp_path) -
         await store.close()
 
 
+def test_public_translation_skips_rows_older_than_configured_freshness_window() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from news_sentry.core.public_translation import (
+        PublicTranslationConfig,
+        PublicTranslationEngine,
+    )
+
+    now = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
+    engine = PublicTranslationEngine(PublicTranslationConfig(max_event_age_hours=24))
+    fresh_row = {
+        "event_id": "fresh",
+        "published_at": (now - timedelta(hours=3)).isoformat(),
+        "created_at": (now - timedelta(hours=3)).isoformat(),
+        "metadata": {},
+    }
+    stale_row = {
+        "event_id": "stale",
+        "published_at": (now - timedelta(hours=30)).isoformat(),
+        "created_at": (now - timedelta(hours=30)).isoformat(),
+        "metadata": {},
+    }
+
+    assert engine.row_is_due(fresh_row, now=now) is True
+    assert engine.row_is_due(stale_row, now=now) is False
+
+
 @pytest.mark.asyncio
 async def test_public_news_rows_can_query_ready_events_across_targets(tmp_path) -> None:
     store = AsyncStore(tmp_path / "state.db")
@@ -323,6 +350,35 @@ async def test_public_translation_engine_writes_publication_fields_and_marks_rea
                             "issue_tags": ["国际关系", "公共安全"],
                             "related_tags": ["涉欧"],
                             "region_tags": ["法国"],
+                            "localizations": {
+                                "en": {
+                                    "title": (
+                                        "France receives EU loan support for defense procurement"
+                                    ),
+                                    "summary": (
+                                        "The measure channels EU funding into "
+                                        "French defense buying."
+                                    ),
+                                    "recommendation_reason": (
+                                        "It matters because the funding can affect suppliers and "
+                                        "public budgets."
+                                    ),
+                                },
+                                "fr": {
+                                    "title": (
+                                        "La France reçoit un prêt européen "
+                                        "pour ses achats de défense"
+                                    ),
+                                    "summary": (
+                                        "La mesure oriente des fonds européens vers les achats de "
+                                        "défense."
+                                    ),
+                                    "recommendation_reason": (
+                                        "Elle peut peser sur les fournisseurs "
+                                        "et les budgets publics."
+                                    ),
+                                },
+                            },
                         },
                         ensure_ascii=False,
                     ),
@@ -362,6 +418,12 @@ async def test_public_translation_engine_writes_publication_fields_and_marks_rea
         assert publication["issue_tags"] == ["国际关系", "公共安全"]
         assert publication["related_tags"] == ["涉欧"]
         assert publication["region_tags"] == ["法国"]
+        assert publication["localizations"]["zh"]["title"] == "法国获得欧盟贷款用于军备采购"
+        assert (
+            publication["localizations"]["en"]["title"]
+            == "France receives EU loan support for defense procurement"
+        )
+        assert publication["localizations"]["fr"]["language"] == "fr"
         assert publication["route_id"] == "public.summary_reason"
         assert publication["field_hash"]
         assert row["public_translation_ready"] == 1
@@ -755,6 +817,8 @@ def test_publication_prompt_prefers_preset_issue_and_related_tags() -> None:
     assert payload["tag_policy"]["custom_tag_policy"] == (
         "只有预设标签无法概括新闻事实时，才生成简短中文自定义标签。"
     )
+    assert payload["localization_policy"]["supported_locales"] == ["zh", "en", "es", "ar", "fr"]
+    assert set(payload["output_contract"]["localizations"]) == {"zh", "en", "es", "ar", "fr"}
 
 
 @pytest.mark.asyncio

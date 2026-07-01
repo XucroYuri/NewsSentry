@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: rba-media-releases
+display_name: "Reserve Bank of Australia Media Releases"
+type: rss
+url: "https://www.rba.gov.au/rss/rss-cb-media-releases.xml"
+language: en
+credibility_base: 0.94
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 1 entries, latest 2026-06-25T09:30:00+10:00; official central bank policy releases."
+health:
+  last_success_at: null
+  consecutive_failures: 0

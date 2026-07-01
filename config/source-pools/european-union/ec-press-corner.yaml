@@ -1,0 +1,15 @@
+# Schema: ../../../schemas/sourcechannel.schema.json
+source_id: ec-press-corner
+display_name: "European Commission - Press corner"
+type: rss
+url: "https://ec.europa.eu/commission/presscorner/api/rss"
+language: en
+credibility_base: 0.97
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest 2026-06-30T16:08:39+00:00; 200 OK + parser_entry_count > 0."
+health:
+  last_success_at: null
+  consecutive_failures: 0

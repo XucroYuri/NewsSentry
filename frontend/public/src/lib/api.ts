@@ -71,9 +71,15 @@ function appendParam(params: URLSearchParams, key: string, value: string | numbe
   params.set(key, String(value))
 }
 
+function appendLocaleParam(params: URLSearchParams, locale: string | undefined) {
+  if (!locale || locale === "zh") return
+  params.set("locale", locale)
+}
+
 export function buildPublicNewsUrl(query: PublicNewsQuery = {}) {
   const params = new URLSearchParams()
   appendParam(params, "featured", query.featured)
+  appendLocaleParam(params, query.locale)
   appendParam(params, "target_id", query.targetId)
   appendParam(params, "region_id", query.regionId)
   appendParam(params, "source_id", query.sourceId)
@@ -92,6 +98,7 @@ export function buildPublicNewsUrl(query: PublicNewsQuery = {}) {
 export function buildPublicBootstrapUrl(query: PublicNewsQuery = {}) {
   const params = new URLSearchParams()
   appendParam(params, "featured", query.featured)
+  appendLocaleParam(params, query.locale)
   appendParam(params, "target_id", query.targetId)
   appendParam(params, "region_id", query.regionId)
   appendParam(params, "source_id", query.sourceId)

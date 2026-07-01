@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: turkish-minute
+display_name: "Turkish Minute"
+type: rss
+url: "https://www.turkishminute.com/feed/"
+language: en
+credibility_base: 0.70
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest Tue, 30 Jun 2026 15:39:57 +0000; active Turkey politics feed."
+health:
+  last_success_at: null
+  consecutive_failures: 0

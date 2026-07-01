@@ -11,10 +11,26 @@ language_scope:
   output: zh
 timezone: Europe/Stockholm
 source_channel_refs:
-  - api/gdelt-topic
-  - pool:global/gdelt-geopolitics
-  - pool:global/gdelt-supply-chain
-  - pool:global/gdelt-official-orgs
+- api/gdelt-topic
+- pool:global/gdelt-geopolitics
+- pool:global/gdelt-supply-chain
+- pool:global/gdelt-official-orgs
+- cbss-news
+- helsinki-commission
+- nasdaq-nordic-main
+- nasdaq-nordic-news
+- norden-rss
+- nordic-energy
+- nordic-innovation
+- nordregio-feed
+- pool:europe/bbc-europe
+- pool:europe/euronews-europe
+- pool:security-nato-osce/icds
+- pool:security-nato-osce/euiss
+- pool:global/dw-world
+- pool:global/bbc-world
+- pool:global/reliefweb-updates
+- pool:energy-opec-iea/yt-iea
 filter_rules_ref: config/filters/nordics/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
@@ -29,16 +45,26 @@ classification:
     energy: true
     china_relations: true
   home_relevance_keywords:
-      - "Nordics"
-      - "Scandinavia"
-      - "Arctic"
-      - "energy"
-      - "NATO"
-      - "China"
+  - Nordics
+  - Scandinavia
+  - Arctic
+  - energy
+  - NATO
+  - China
 focus_areas:
-  - id: regional-geopolitics-and-institutions
-    weight: 2.0
-    keywords: ["Nordics", "diplomacy", "security", "summit", "regulation"]
-  - id: trade-markets-and-china-impact
-    weight: 1.8
-    keywords: ["Nordics", "China", "trade", "supply chain", "investment"]
+- id: regional-geopolitics-and-institutions
+  weight: 2.0
+  keywords:
+  - Nordics
+  - diplomacy
+  - security
+  - summit
+  - regulation
+- id: trade-markets-and-china-impact
+  weight: 1.8
+  keywords:
+  - Nordics
+  - China
+  - trade
+  - supply chain
+  - investment

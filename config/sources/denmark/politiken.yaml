@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: politiken
+display_name: Politiken
+type: rss
+url: https://politiken.dk/rss/senestenyt.rss
+language: da
+credibility_base: 0.84
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 20 entries; Danish national media latest
+  feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

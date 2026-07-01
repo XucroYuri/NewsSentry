@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: ing-dk
+display_name: Ingenioren
+type: rss
+url: https://ing.dk/rss
+language: da
+credibility_base: 0.78
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 50 entries; Danish engineering/technology
+  feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

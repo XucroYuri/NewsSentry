@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: cisa-news
+display_name: "CISA News"
+type: rss
+url: "https://www.cisa.gov/news.xml"
+language: en
+credibility_base: 0.90
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest Wed, 24 Jun 26 12:00:00 +0000; official cyber/security."
+health:
+  last_success_at: null
+  consecutive_failures: 0

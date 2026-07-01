@@ -1,0 +1,15 @@
+# Schema: ../../../schemas/sourcechannel.schema.json
+source_id: al-monitor
+display_name: "Al-Monitor"
+type: rss
+url: "https://www.al-monitor.com/rss"
+language: en
+credibility_base: 0.78
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 20 entries, latest 2026-06-30T16:36:41-0400; active regional analysis/news feed."
+health:
+  last_success_at: null
+  consecutive_failures: 0

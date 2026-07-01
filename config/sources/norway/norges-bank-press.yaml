@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: norges-bank-press
+display_name: Norges Bank Press Releases
+type: rss
+url: https://www.norges-bank.no/en/rss-feeds/Press-releases---Norges-Bank/
+language: en
+credibility_base: 0.95
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 5 entries; official central bank press
+  feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

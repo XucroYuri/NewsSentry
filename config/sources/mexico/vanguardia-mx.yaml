@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: vanguardia-mx
+display_name: "Vanguardia MX"
+type: rss
+url: "https://vanguardia.com.mx/rss.xml"
+language: es
+credibility_base: 0.70
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 85 entries, latest 2026-06-30T23:15:43Z; target-local RSS."
+health:
+  last_success_at: null
+  consecutive_failures: 0

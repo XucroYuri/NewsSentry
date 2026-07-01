@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: ntv-wirtschaft
+display_name: "n-tv Wirtschaft"
+type: rss
+url: "https://www.n-tv.de/wirtschaft/rss"
+language: de
+credibility_base: 0.72
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 30 entries, latest 2026-07-01T14:56:13+02:00."
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -14,6 +14,23 @@ source_channel_refs:
   - api/gdelt-topic
   - pool:global/gdelt-geopolitics
   - pool:global/gdelt-supply-chain
+  - lanacion
+  - clarin
+  - perfil
+  - ambito
+  - cronista
+  - chequeado
+  - tn
+  - infobae
+  - lanacion-politica
+  - clarin-politica
+  - ambito-economia
+  - pool:latin-america/paho
+  - pool:latin-america/connectas
+  - pool:latin-america/latinoamerica21
+  - pool:latin-america/as-coa
+  - pool:latin-america/un-news-americas
+  - pool:latin-america/latinamericareports
 filter_rules_ref: config/filters/argentina/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml

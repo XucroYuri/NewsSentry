@@ -15,6 +15,29 @@ source_channel_refs:
   - pool:global/gdelt-geopolitics
   - pool:global/gdelt-supply-chain
   - pool:global/gdelt-official-orgs
+  - pool:energy-opec-iea/eia-today-energy
+  - pool:energy-opec-iea/eia-press-rss
+  - pool:energy-opec-iea/eia-week-petroleum
+  - pool:energy-opec-iea/eia-gasdiesel
+  - pool:energy-opec-iea/oilprice-main
+  - pool:energy-opec-iea/rigzone-latest
+  - pool:energy-opec-iea/offshore-energy
+  - pool:energy-opec-iea/lng-prime
+  - pool:energy-opec-iea/yt-iea
+  - pool:energy-opec-iea/yt-irena
+  - pool:energy-opec-iea/world-oil-news
+  - pool:energy-opec-iea/world-oil-middle-east
+  - pool:energy-opec-iea/world-oil-offshore
+  - pool:energy-opec-iea/hp-news
+  - pool:energy-opec-iea/hp-middle-east
+  - pool:energy-opec-iea/hp-crude-oil
+  - pool:energy-opec-iea/hp-natural-gas
+  - pool:energy-opec-iea/hp-refining
+  - pool:energy-opec-iea/hp-gas-lng
+  - pool:energy-opec-iea/hp-renewables
+  - pool:global/bbc-world
+  - pool:global/dw-world
+  - pool:global/aljazeera
 filter_rules_ref: config/filters/energy-opec-iea/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml

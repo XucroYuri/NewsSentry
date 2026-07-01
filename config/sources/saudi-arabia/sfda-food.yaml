@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: sfda-food
+display_name: "Saudi Food and Drug Authority Food Sector"
+type: rss
+url: "https://www.sfda.gov.sa/en/news.xml?tags=1"
+language: en
+credibility_base: 0.80
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest Thu, 25 Jun 2026 10:36:38 +0000; official RSS."
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -7,13 +7,32 @@ monitoring_type: country
 region_type: country
 language_scope:
   primary: fr
-  secondary: [ar, en]
+  secondary:
+  - ar
+  - en
   output: zh
 timezone: Africa/Algiers
 source_channel_refs:
-  - api/gdelt-topic
-  - pool:global/gdelt-geopolitics
-  - pool:global/gdelt-supply-chain
+- api/gdelt-topic
+- pool:global/gdelt-geopolitics
+- pool:global/gdelt-supply-chain
+- tsa-algerie
+- algerie-eco
+- echorouk
+- algerie360
+- algerie-patriotique
+- la-patrie-news
+- jeune-independant
+- pool:middle-east/bbc-middle-east
+- pool:middle-east/middle-east-monitor
+- pool:middle-east/al-monitor
+- pool:middle-east/reliefweb-mena
+- pool:middle-east/atlanticcouncil-mena
+- pool:middle-east/ecfr-mena
+- pool:global/bbc-world
+- pool:global/aljazeera
+- pool:global/reliefweb-updates
+- pool:un-system/un-news-all
 filter_rules_ref: config/filters/algeria/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
@@ -28,16 +47,26 @@ classification:
     energy: true
     china_relations: true
   home_relevance_keywords:
-      - "Algeria"
-      - "Algiers"
-      - "gas"
-      - "OPEC"
-      - "Mediterranean"
-      - "China"
+  - Algeria
+  - Algiers
+  - gas
+  - OPEC
+  - Mediterranean
+  - China
 focus_areas:
-  - id: country-geopolitics-and-policy
-    weight: 2.0
-    keywords: ["Algeria", "Algiers", "government", "election", "diplomacy"]
-  - id: trade-markets-and-china-impact
-    weight: 1.8
-    keywords: ["Algeria", "China", "trade", "investment", "supply chain"]
+- id: country-geopolitics-and-policy
+  weight: 2.0
+  keywords:
+  - Algeria
+  - Algiers
+  - government
+  - election
+  - diplomacy
+- id: trade-markets-and-china-impact
+  weight: 1.8
+  keywords:
+  - Algeria
+  - China
+  - trade
+  - investment
+  - supply chain

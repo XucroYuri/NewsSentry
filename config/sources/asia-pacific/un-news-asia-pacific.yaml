@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: un-news-asia-pacific
+display_name: UN News - Asia Pacific
+type: rss
+url: https://news.un.org/en/news/region/asia-pacific/feed/rss.xml
+language: en
+credibility_base: 0.9
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 30 entries; official UN Asia-Pacific feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -1,0 +1,15 @@
+# Schema: ../../../schemas/sourcechannel.schema.json
+source_id: eia-today-energy
+display_name: "EIA Today in Energy"
+type: rss
+url: "https://www.eia.gov/rss/todayinenergy.xml"
+language: en
+credibility_base: 0.90
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 25 entries, latest 2026-06-30T14:00:00Z; official."
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: mewa-news
+display_name: "Saudi Ministry of Environment Water and Agriculture News"
+type: rss
+url: "https://www.mewa.gov.sa/_layouts/15/feed.aspx?page=fb0b02de-f9ca-4e9f-a761-c156847d8334&pageurl=%2Fen%2FMediaCenter%2FNews%2FPages%2Fhome.aspx&web=%2Fen%2FMediaCenter%2FNews&wp=48c0eb5e-ca3c-435a-bf6b-6ad52fcb1217&xsl=1"
+language: en
+credibility_base: 0.85
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 385 entries, latest 2026-06-30 00:00:00; official ministry RSS."
+health:
+  last_success_at: null
+  consecutive_failures: 0

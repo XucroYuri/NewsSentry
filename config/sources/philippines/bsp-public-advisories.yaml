@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: bsp-public-advisories
+display_name: Bangko Sentral ng Pilipinas Public Advisories
+type: rss
+url: https://www.bsp.gov.ph/_layouts/15/listfeed.aspx?List=9b0a2117-49d8-4e96-80ba-8651a0e3e17a&View=be72ff0e-7b72-4309-8c5f-e502d9d324a9
+language: en
+credibility_base: 0.92
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 30 entries; official central bank advisories.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

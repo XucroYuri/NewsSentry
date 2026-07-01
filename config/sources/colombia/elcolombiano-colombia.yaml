@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: elcolombiano-colombia
+display_name: "El Colombiano Colombia"
+type: rss
+url: "https://www.elcolombiano.com/rss/colombia.xml"
+language: es
+credibility_base: 0.76
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 29 entries, latest 2026-06-30T23:16:47Z; Colombia section RSS."
+health:
+  last_success_at: null
+  consecutive_failures: 0

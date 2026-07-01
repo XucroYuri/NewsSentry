@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: svt-ekonomi
+display_name: SVT Ekonomi
+type: rss
+url: https://www.svt.se/nyheter/ekonomi/rss.xml
+language: sv
+credibility_base: 0.89
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 100 entries; Swedish public broadcaster
+  economy feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

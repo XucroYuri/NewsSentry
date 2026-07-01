@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: kommersant
+display_name: "Kommersant"
+type: rss
+url: "https://www.kommersant.ru/RSS/news.xml"
+language: ru
+credibility_base: 0.80
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 372 entries, latest 2026-07-01T02:18:15+03:00; 200 OK + parser_entry_count > 0."
+health:
+  last_success_at: null
+  consecutive_failures: 0

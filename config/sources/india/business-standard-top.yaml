@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: business-standard-top
+display_name: "Business Standard Top Stories"
+type: rss
+url: "https://www.business-standard.com/rss/home_page_top_stories.rss"
+language: en
+credibility_base: 0.76
+fetch_interval_minutes: 30
+max_items_per_run: 25
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 9 entries, latest 2026-06-30T18:59:11Z."
+health:
+  last_success_at: null
+  consecutive_failures: 0

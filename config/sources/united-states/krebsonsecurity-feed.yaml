@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: krebsonsecurity-feed
+display_name: "Krebs on Security"
+type: rss
+url: "https://krebsonsecurity.com/feed/"
+language: en
+credibility_base: 0.78
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest Tue, 23 Jun 2026 16:12:49 +0000; trusted security reporting."
+health:
+  last_success_at: null
+  consecutive_failures: 0

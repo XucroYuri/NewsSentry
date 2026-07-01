@@ -15,6 +15,22 @@ source_channel_refs:
   - pool:global/gdelt-geopolitics
   - pool:global/gdelt-supply-chain
   - pool:global/gdelt-official-orgs
+  - pool:europe/balkan-insight
+  - pool:europe/euronews-europe
+  - pool:europe/politico-eu
+  - pool:europe/bbc-europe
+  - pool:europe/guardian-europe
+  - pool:europe/ft-europe
+  - pool:european-union/council-press
+  - pool:european-union/ecb-press
+  - pool:european-union/ep-news-all
+  - pool:european-union/ep-press-all
+  - pool:european-union/eba-news
+  - pool:european-union/esma-news
+  - pool:security-nato-osce/bellingcat
+  - pool:security-nato-osce/cepa
+  - pool:security-nato-osce/war-on-the-rocks
+  - pool:security-nato-osce/breaking-defense
 filter_rules_ref: config/filters/europe/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml

@@ -1,0 +1,88 @@
+name: Source Health Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Optional target id to audit; leave blank for all active targets"
+        required: false
+        default: ""
+      limit:
+        description: "Optional source row limit for smoke runs"
+        required: false
+        default: ""
+      max_failed:
+        description: "Fail when failed live checks exceed this count"
+        required: false
+        default: "0"
+  schedule:
+    # Weekly source health sweep. Network conditions vary, so the JSONL receipt
+    # is the durable review surface when sources fail.
+    - cron: "23 2 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  source-health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[api]"
+
+      - name: Static source coverage gate
+        run: |
+          python tools/source_coverage_report.py \
+            --minimum-refs 20 \
+            --receipt-output /tmp/news-sentry-source-coverage-receipts.jsonl \
+            --pretty > /tmp/news-sentry-source-coverage.json
+
+      - name: Live source health audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(
+            --minimum-refs 20
+            --concurrency 24
+            --per-host-concurrency 4
+            --per-host-delay-seconds 0.2
+            --timeout-seconds 15
+            --min-entries 1
+            --output-json /tmp/news-sentry-source-health.json
+            --output-jsonl /tmp/news-sentry-source-health.jsonl
+            --pretty
+          )
+          if [[ -n "${{ github.event.inputs.target || '' }}" ]]; then
+            args+=(--target "${{ github.event.inputs.target }}")
+          fi
+          if [[ -n "${{ github.event.inputs.limit || '' }}" ]]; then
+            args+=(--limit "${{ github.event.inputs.limit }}")
+          fi
+          if [[ -n "${{ github.event.inputs.max_failed || '0' }}" ]]; then
+            args+=(--max-failed "${{ github.event.inputs.max_failed || '0' }}")
+          fi
+          python tools/source_health_audit.py "${args[@]}"
+
+      - name: Upload source health receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-health-receipts
+          path: |
+            /tmp/news-sentry-source-coverage.json
+            /tmp/news-sentry-source-coverage-receipts.jsonl
+            /tmp/news-sentry-source-health.json
+            /tmp/news-sentry-source-health.jsonl

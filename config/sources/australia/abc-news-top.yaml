@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: abc-news-top
+display_name: "ABC News Top Stories"
+type: rss
+url: "https://www.abc.net.au/news/feed/51120/rss.xml"
+language: en
+credibility_base: 0.85
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 25 entries, latest Tue, 30 Jun 2026 23:37:08 +0000; public broadcaster national news."
+health:
+  last_success_at: null
+  consecutive_failures: 0

@@ -20,6 +20,20 @@ source_channel_refs:
   - globalnews-politics
   - globalnews-money
   - globeandmail-all
+  - bankofcanada-press
+  - cbc-top
+  - cbc-canada
+  - cbc-politics
+  - cbc-business
+  - cbc-world
+  - cbc-technology
+  - cbc-health
+  - globeandmail-canada
+  - globeandmail-business
+  - globeandmail-politics
+  - globeandmail-world
+  - nationalpost-news
+  - nationalpost-canada
 
 filter_rules_ref: config/filters/canada/default.yaml
 classification_rules_ref: config/classification/rules-canada.yaml

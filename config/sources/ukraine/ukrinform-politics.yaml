@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: ukrinform-politics
+display_name: "Ukrinform Politics"
+type: rss
+url: "https://www.ukrinform.net/rss/rubric-polytics"
+language: en
+credibility_base: 0.86
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 30 entries, latest 2026-06-30T23:37:00+03:00; 200 OK + parser_entry_count > 0."
+health:
+  last_success_at: null
+  consecutive_failures: 0

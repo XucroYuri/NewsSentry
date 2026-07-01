@@ -74,6 +74,7 @@ function shouldFallbackFeatured(filters: FeedFilters) {
 function filtersEqual(left: FeedFilters, right: FeedFilters) {
   return (
     left.channel === right.channel &&
+    left.locale === right.locale &&
     left.targetId === right.targetId &&
     left.sourceId === right.sourceId &&
     left.category === right.category &&
@@ -86,7 +87,11 @@ function filtersEqual(left: FeedFilters, right: FeedFilters) {
 }
 
 function sortByValue(items: PublicNewsItem[]) {
-  return [...items].sort((left, right) => (right.valueScore ?? 0) - (left.valueScore ?? 0))
+  return [...items].sort(
+    (left, right) =>
+      (right.breakingScore ?? right.valueScore ?? 0) -
+      (left.breakingScore ?? left.valueScore ?? 0),
+  )
 }
 
 export function usePublicFeed(
@@ -122,7 +127,10 @@ export function usePublicFeed(
         let result = await listPublicNews(makeFeedQuery(filters))
         let items = result.data?.items ?? []
         if (items.length === 0 && shouldFallbackFeatured(filters)) {
-          const fallback = await listPublicNews({ pageSize: filters.pageSize })
+          const fallback = await listPublicNews({
+            pageSize: filters.pageSize,
+            locale: filters.locale,
+          })
           const fallbackItems = fallback.data?.items ?? []
           if (fallbackItems.length > 0) {
             result = fallback

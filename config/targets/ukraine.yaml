@@ -7,13 +7,31 @@ monitoring_type: country
 region_type: country
 language_scope:
   primary: en
-  secondary: [uk]
+  secondary:
+  - uk
   output: zh
 timezone: Europe/Kyiv
 source_channel_refs:
 - api/gdelt-topic
 - pool:global/gdelt-geopolitics
 - pool:global/gdelt-supply-chain
+- economic-pravda
+- kyiv-independent
+- rada-news
+- ukrinform-en
+- ukrpravda
+- armyinform
+- nv
+- radiosvoboda
+- unian-ua
+- dev-ua
+- pravda-en
+- ukrinform-economy
+- ukrinform-politics
+- espreso
+- pool:europe/bbc-europe
+- pool:europe/euronews-europe
+- pool:europe/politico-eu
 filter_rules_ref: config/filters/ukraine/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
@@ -37,7 +55,17 @@ classification:
 focus_areas:
 - id: war-and-reconstruction
   weight: 2.4
-  keywords: [Ukraine, Russia, war, reconstruction, sanctions]
+  keywords:
+  - Ukraine
+  - Russia
+  - war
+  - reconstruction
+  - sanctions
 - id: grain-energy-and-logistics
   weight: 1.8
-  keywords: [Ukraine, grain, energy, logistics, Black Sea]
+  keywords:
+  - Ukraine
+  - grain
+  - energy
+  - logistics
+  - Black Sea

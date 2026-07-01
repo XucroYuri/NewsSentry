@@ -2,31 +2,41 @@
 # 契约: docs/contracts-canonical.md §2
 # ADR: ADR-0015, ADR-0016
 target_id: vietnam
-display_name: "越南新闻监控"
+display_name: 越南新闻监控
 monitoring_type: country
 region_type: country
-
 language_scope:
   primary: en
   secondary: []
   output: zh
-
 timezone: Asia/Ho_Chi_Minh
-
 source_channel_refs:
-  - vietnamnews-politics-laws
-  - vietnamnews-economy
-  - vietnamnews-society
-  - vietnamplus-politics
-  - vietnamplus-business
-  - vnexpress-business
-
+- vietnamnews-politics-laws
+- vietnamnews-economy
+- vietnamnews-society
+- sggp-news
+- sggp-business
+- vnexpress-business
+- nhandan-en-home
+- vnexpress-news
+- vnexpress-world
+- vietnamplus-home
+- vir-rss-feed
+- vneconomy-vietnam-today
+- vneconomy-banking-finance
+- vneconomy-digital-biz
+- vneconomy-green-economy
+- vneconomy-society
+- vietnamnews-world
+- vietnamnews-life
+- vnexpress-vi-thoi-su
+- vnexpress-vi-kinh-doanh
+- vnexpress-vi-the-gioi
 filter_rules_ref: config/filters/vietnam/default.yaml
 classification_rules_ref: config/classification/rules-vietnam.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
 provider_routes_ref: config/provider/routes.yaml
 output_destinations_ref: config/output/destinations.yaml
-
 classification:
   country_axes:
     politics: true
@@ -41,46 +51,45 @@ classification:
     judicial: true
     china_vietnam_relations: true
   home_relevance_keywords:
-    - "Vietnam"
-    - "Vietnamese"
-    - "Hanoi"
-    - "Ho Chi Minh City"
-    - "Pham Minh Chinh"
-    - "Communist Party"
-    - "National Assembly"
-    - "Mekong"
-    - "South China Sea"
-    - "China"
-    - "Beijing"
-    - "ASEAN"
-    - "semiconductor"
-    - "supply chain"
-
+  - Vietnam
+  - Vietnamese
+  - Hanoi
+  - Ho Chi Minh City
+  - Pham Minh Chinh
+  - Communist Party
+  - National Assembly
+  - Mekong
+  - South China Sea
+  - China
+  - Beijing
+  - ASEAN
+  - semiconductor
+  - supply chain
 focus_areas:
-  - id: china-vietnam-relations
-    weight: 2.2
-    keywords:
-      - "China"
-      - "Beijing"
-      - "South China Sea"
-      - "trade deal"
-      - "supply chain"
-      - "tariff"
-  - id: export-manufacturing-and-fdi
-    weight: 2.0
-    keywords:
-      - "manufacturing"
-      - "electronics"
-      - "FDI"
-      - "industrial park"
-      - "factory"
-      - "exports"
-  - id: energy-and-digital-transition
-    weight: 1.8
-    keywords:
-      - "offshore wind"
-      - "LNG"
-      - "power plan"
-      - "AI"
-      - "data center"
-      - "semiconductor"
+- id: china-vietnam-relations
+  weight: 2.2
+  keywords:
+  - China
+  - Beijing
+  - South China Sea
+  - trade deal
+  - supply chain
+  - tariff
+- id: export-manufacturing-and-fdi
+  weight: 2.0
+  keywords:
+  - manufacturing
+  - electronics
+  - FDI
+  - industrial park
+  - factory
+  - exports
+- id: energy-and-digital-transition
+  weight: 1.8
+  keywords:
+  - offshore wind
+  - LNG
+  - power plan
+  - AI
+  - data center
+  - semiconductor

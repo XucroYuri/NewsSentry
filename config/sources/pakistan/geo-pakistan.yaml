@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: geo-pakistan
+display_name: "Geo News Pakistan"
+type: rss
+url: "https://www.geo.tv/rss/1/1"
+language: en
+credibility_base: 0.72
+fetch_interval_minutes: 20
+max_items_per_run: 25
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 20 entries, latest 2026-06-30T21:21:10+05:00."
+health:
+  last_success_at: null
+  consecutive_failures: 0

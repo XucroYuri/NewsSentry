@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: version2
+display_name: Version2
+type: rss
+url: https://www.version2.dk/rss
+language: da
+credibility_base: 0.82
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 50 entries; Danish technology media.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

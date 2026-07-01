@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: la-patrie-news
+display_name: "La Patrie News"
+type: rss
+url: "https://www.lapatrienews.dz/feed/"
+language: fr
+credibility_base: 0.66
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest Tue, 30 Jun 2026 20:34:49 +0000; active local news feed."
+health:
+  last_success_at: null
+  consecutive_failures: 0

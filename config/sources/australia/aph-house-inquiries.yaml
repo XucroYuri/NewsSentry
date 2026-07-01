@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: aph-house-inquiries
+display_name: "Australian Parliament House Inquiries"
+type: rss
+url: "https://www.aph.gov.au/house/rss/house_inquiries"
+language: en
+credibility_base: 0.87
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 1 entries, latest Wed, 24 Jun 2026 18:00:00 +1000; official parliamentary committee inquiries."
+health:
+  last_success_at: null
+  consecutive_failures: 0

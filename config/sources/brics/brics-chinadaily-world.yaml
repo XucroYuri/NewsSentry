@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: brics-chinadaily-world
+display_name: "BRICS member source - China Daily World"
+type: rss
+url: "http://www.chinadaily.com.cn/rss/world_rss.xml"
+language: en
+credibility_base: 0.78
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 100 entries; BRICS member China global diplomacy/economy signal."
+health:
+  last_success_at: null
+  consecutive_failures: 0

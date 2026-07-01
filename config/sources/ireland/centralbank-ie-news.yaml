@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: centralbank-ie-news
+display_name: Central Bank of Ireland News
+type: rss
+url: https://www.centralbank.ie/feeds/news-media-feed
+language: en
+credibility_base: 0.95
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 25 entries; official central bank news
+  feed.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

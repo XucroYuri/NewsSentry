@@ -65,8 +65,79 @@ function hasProjectionUpdate(item: ImportEventWithId): boolean {
       jsonArrayText(item.region_tags) ||
       jsonArrayText(item.image_urls) ||
       jsonArrayText(item.entities) ||
-      jsonObjectText(item.classification),
+      jsonObjectText(item.classification) ||
+      typeof item.breaking_score === "number" ||
+      nonEmptyText(item.breaking_label) ||
+      nonEmptyText(item.breaking_reason) ||
+      typeof item.breaking_confidence === "number" ||
+      jsonObjectText(item.breaking_dimensions) ||
+      nonEmptyText(item.target_timezone) ||
+      nonEmptyText(item.published_at_local) ||
+      (Array.isArray(item.localizations) && item.localizations.length > 0),
   );
+}
+
+async function upsertLocalizations(db: D1Database, eventId: string, item: ImportEventWithId): Promise<void> {
+  if (!Array.isArray(item.localizations) || item.localizations.length === 0) return;
+  for (const loc of item.localizations) {
+    if (!loc || typeof loc !== "object") continue;
+    const locale = nonEmptyText(loc.locale);
+    const title = nonEmptyText(loc.title);
+    if (!locale || !title) continue;
+    await db
+      .prepare(
+        `INSERT INTO event_localizations (
+           event_id, locale, localized_title, localized_summary,
+           localized_recommendation_reason, localized_tags,
+           localized_issue_tags, localized_related_tags, localized_region_tags,
+           localized_language, quality_score, model, route_id, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+         ON CONFLICT(event_id, locale) DO UPDATE SET
+           localized_title=COALESCE(NULLIF(excluded.localized_title, ''), event_localizations.localized_title),
+           localized_summary=COALESCE(NULLIF(excluded.localized_summary, ''), event_localizations.localized_summary),
+           localized_recommendation_reason=COALESCE(
+             NULLIF(excluded.localized_recommendation_reason, ''),
+             event_localizations.localized_recommendation_reason
+           ),
+           localized_tags=COALESCE(NULLIF(excluded.localized_tags, '[]'), event_localizations.localized_tags),
+           localized_issue_tags=COALESCE(
+             NULLIF(excluded.localized_issue_tags, '[]'),
+             event_localizations.localized_issue_tags
+           ),
+           localized_related_tags=COALESCE(
+             NULLIF(excluded.localized_related_tags, '[]'),
+             event_localizations.localized_related_tags
+           ),
+           localized_region_tags=COALESCE(
+             NULLIF(excluded.localized_region_tags, '[]'),
+             event_localizations.localized_region_tags
+           ),
+           localized_language=COALESCE(
+             NULLIF(excluded.localized_language, ''),
+             event_localizations.localized_language
+           ),
+           quality_score=MAX(event_localizations.quality_score, excluded.quality_score),
+           model=COALESCE(NULLIF(excluded.model, ''), event_localizations.model),
+           route_id=COALESCE(NULLIF(excluded.route_id, ''), event_localizations.route_id),
+           updated_at=datetime('now')`
+      )
+      .bind(
+        eventId,
+        locale,
+        title,
+        nonEmptyText(loc.summary),
+        nonEmptyText(loc.recommendation_reason),
+        jsonText(loc.tags, []),
+        jsonText(loc.issue_tags, []),
+        jsonText(loc.related_tags, []),
+        jsonText(loc.region_tags, []),
+        nonEmptyText(loc.language) || locale,
+        typeof loc.quality_score === "number" ? loc.quality_score : 0,
+        nonEmptyText(loc.model) || "",
+        nonEmptyText(loc.route_id) || "",
+      )
+      .run();
+  }
 }
 
 async function sha256Hex(value: string): Promise<string> {
@@ -133,6 +204,14 @@ export async function importEventsToD1(
              value_score = COALESCE(?, value_score),
              china_relevance_label = COALESCE(NULLIF(?, ''), china_relevance_label),
              classification = COALESCE(?, classification),
+             breaking_score = COALESCE(?, breaking_score),
+             breaking_label = COALESCE(NULLIF(?, ''), breaking_label),
+             breaking_reason = COALESCE(NULLIF(?, ''), breaking_reason),
+             breaking_confidence = COALESCE(?, breaking_confidence),
+             breaking_dimensions = COALESCE(?, breaking_dimensions),
+             breaking_score_version = COALESCE(NULLIF(?, ''), breaking_score_version),
+             target_timezone = COALESCE(NULLIF(?, ''), target_timezone),
+             published_at_local = COALESCE(NULLIF(?, ''), published_at_local),
              updated_at = datetime('now')
            WHERE event_id = ?`
         )
@@ -152,9 +231,18 @@ export async function importEventsToD1(
           typeof item.value_score === "number" ? item.value_score : null,
           nonEmptyText(item.china_relevance_label),
           jsonObjectText(item.classification),
+          typeof item.breaking_score === "number" ? item.breaking_score : null,
+          nonEmptyText(item.breaking_label),
+          nonEmptyText(item.breaking_reason),
+          typeof item.breaking_confidence === "number" ? item.breaking_confidence : null,
+          jsonObjectText(item.breaking_dimensions),
+          nonEmptyText(item.breaking_score_version),
+          nonEmptyText(item.target_timezone),
+          nonEmptyText(item.published_at_local),
           eventId,
         )
         .run();
+      await upsertLocalizations(db, eventId, item);
       updated += 1;
       continue;
     }
@@ -172,7 +260,9 @@ export async function importEventsToD1(
            image_urls, tags, issue_tags, related_tags, region_tags, entities,
            language, pipeline_stage,
            value_label, value_score, china_relevance_label, classification
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           , breaking_score, breaking_label, breaking_reason, breaking_confidence,
+           breaking_dimensions, breaking_score_version, target_timezone, published_at_local
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(event_id) DO UPDATE SET
            target_id=excluded.target_id,
            target_label=excluded.target_label,
@@ -207,6 +297,20 @@ export async function importEventsToD1(
              events.china_relevance_label
            ),
            classification=COALESCE(NULLIF(excluded.classification, '{}'), events.classification),
+           breaking_score=COALESCE(excluded.breaking_score, events.breaking_score),
+           breaking_label=COALESCE(NULLIF(excluded.breaking_label, ''), events.breaking_label),
+           breaking_reason=COALESCE(NULLIF(excluded.breaking_reason, ''), events.breaking_reason),
+           breaking_confidence=COALESCE(excluded.breaking_confidence, events.breaking_confidence),
+           breaking_dimensions=COALESCE(NULLIF(excluded.breaking_dimensions, '{}'), events.breaking_dimensions),
+           breaking_score_version=COALESCE(
+             NULLIF(excluded.breaking_score_version, ''),
+             events.breaking_score_version
+           ),
+           target_timezone=COALESCE(NULLIF(excluded.target_timezone, ''), events.target_timezone),
+           published_at_local=COALESCE(
+             NULLIF(excluded.published_at_local, ''),
+             events.published_at_local
+           ),
            updated_at=datetime('now')`
       )
       .bind(
@@ -238,8 +342,17 @@ export async function importEventsToD1(
         item.value_score ?? null,
         item.china_relevance_label || "未知",
         jsonText(item.classification, {}),
+        item.breaking_score ?? item.value_score ?? null,
+        item.breaking_label || null,
+        item.breaking_reason || null,
+        item.breaking_confidence ?? null,
+        jsonText(item.breaking_dimensions, {}),
+        item.breaking_score_version || null,
+        item.target_timezone || "UTC",
+        item.published_at_local || null,
       )
       .run();
+    await upsertLocalizations(db, eventId, item);
     imported += 1;
   }
 

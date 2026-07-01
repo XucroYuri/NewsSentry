@@ -11,10 +11,31 @@ language_scope:
   output: zh
 timezone: Asia/Kolkata
 source_channel_refs:
-  - api/gdelt-topic
-  - pool:global/gdelt-geopolitics
-  - pool:global/gdelt-supply-chain
-  - pool:global/gdelt-official-orgs
+- api/gdelt-topic
+- pool:global/gdelt-geopolitics
+- pool:global/gdelt-supply-chain
+- pool:global/gdelt-official-orgs
+- himal-southasian
+- south-asian-voices
+- crisisgroup-global
+- adb-news
+- adb-whatsnew
+- reliefweb-south-asia
+- dawn-home
+- dawn-pakistan
+- dawn-business
+- daily-star-country
+- daily-star-business
+- tbs-bangladesh
+- tbs-economy
+- the-hindu-national
+- the-hindu-business
+- indian-express-india
+- indian-express-business
+- economictimes-news
+- pib-releases
+- app-national
+- app-business
 filter_rules_ref: config/filters/south-asia/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
@@ -29,16 +50,26 @@ classification:
     energy: true
     china_relations: true
   home_relevance_keywords:
-      - "South Asia"
-      - "India"
-      - "Pakistan"
-      - "Bangladesh"
-      - "trade"
-      - "China"
+  - South Asia
+  - India
+  - Pakistan
+  - Bangladesh
+  - trade
+  - China
 focus_areas:
-  - id: regional-geopolitics-and-institutions
-    weight: 2.0
-    keywords: ["South Asia", "diplomacy", "security", "summit", "regulation"]
-  - id: trade-markets-and-china-impact
-    weight: 1.8
-    keywords: ["South Asia", "China", "trade", "supply chain", "investment"]
+- id: regional-geopolitics-and-institutions
+  weight: 2.0
+  keywords:
+  - South Asia
+  - diplomacy
+  - security
+  - summit
+  - regulation
+- id: trade-markets-and-china-impact
+  weight: 1.8
+  keywords:
+  - South Asia
+  - China
+  - trade
+  - supply chain
+  - investment

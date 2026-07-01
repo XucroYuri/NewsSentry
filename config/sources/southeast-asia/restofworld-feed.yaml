@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: restofworld-feed
+display_name: Rest of World Latest
+type: rss
+url: https://restofworld.org/feed/latest/
+language: en
+credibility_base: 0.76
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 12 entries; emerging-market technology
+  feed, supplemental not SEA-specific.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

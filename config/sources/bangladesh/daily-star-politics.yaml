@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: daily-star-politics
+display_name: The Daily Star - Politics
+type: rss
+url: https://www.thedailystar.net/news/bangladesh/politics/rss.xml
+language: en
+credibility_base: 0.8
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 10 entries; politics section.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

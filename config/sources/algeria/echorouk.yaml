@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: echorouk
+display_name: "Echorouk Online"
+type: rss
+url: "https://www.echoroukonline.com/feed"
+language: ar
+credibility_base: 0.74
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 10 entries, latest Tue, 30 Jun 2026 19:38:01 +0000; active national media feed."
+health:
+  last_success_at: null
+  consecutive_failures: 0

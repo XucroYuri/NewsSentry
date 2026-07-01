@@ -31,10 +31,13 @@ import { getReadIds, markAsRead } from "@/lib/read-state"
 import {
   buildDailyDigest,
   type DailyDigestTopicGroup,
+  breakingLabelText,
+  breakingScoreValue,
   buildRelatedBuckets,
   buildSourceSummaries,
   displayFacetLabel,
   formatFullTime,
+  formatTimeInZone,
   formatTime,
   readableTopicLabel,
   sourceTypeLabel,
@@ -202,7 +205,7 @@ function NewsCard({
   const targetLabel = targetShortLabel(item.targetLabel)
   const imageUrl = item.imageUrls?.find((url) => url.trim())
   const tags = uniqueNewsTags(item)
-  const breakingScore = Math.round(item.valueScore ?? 0)
+  const breakingScore = Math.round(breakingScoreValue(item))
   const detailPath = buildPublicAppPath(detailRoute)
 
   return (
@@ -565,7 +568,7 @@ function eventTimeValue(item: PublicNewsItem) {
 function sortBreakingItems(items: PublicNewsItem[]) {
   return [...items].sort(
     (left, right) =>
-      (right.valueScore ?? 0) - (left.valueScore ?? 0) ||
+      breakingScoreValue(right) - breakingScoreValue(left) ||
       eventTimeValue(right) - eventTimeValue(left),
   )
 }
@@ -685,7 +688,9 @@ export function BreakingHomePage({
         <div className="grid gap-3 border-b px-3 py-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
           <div className="min-w-0">
             <div className="mb-1 flex flex-wrap items-center gap-2">
-              <Badge className="rounded-full px-2 text-[10px] uppercase tracking-normal">Breaking</Badge>
+              <Badge className="rounded-full px-2 text-[10px] uppercase tracking-normal">
+                {breakingLabelText(lead)}
+              </Badge>
               <span className="text-[11px] text-muted-foreground">
                 {state.total} 条精选信号 · {formatTime(lead.publishedAt)} 更新
               </span>
@@ -716,7 +721,8 @@ export function BreakingHomePage({
                   </Badge>
                   <span>{lead.source.name}</span>
                   <span>{targetShortLabel(lead.targetLabel)}</span>
-                  <span>{formatFullTime(lead.publishedAt)}</span>
+                  <span>当地 {formatTimeInZone(lead.publishedAt, lead.targetTimezone)}</span>
+                  <span>你的时间 {formatTimeInZone(lead.publishedAt)}</span>
                 </div>
                 <h2 className="text-lg font-semibold leading-7 text-foreground sm:text-xl">
                   {primaryNewsTitle(lead)}
@@ -729,14 +735,17 @@ export function BreakingHomePage({
                 {lead.recommendationReason ? (
                   <p className="mt-3 rounded-md border bg-background/70 px-3 py-2 text-xs leading-5 text-muted-foreground">
                     <span className="font-medium text-foreground">为什么重要：</span>
-                    {lead.recommendationReason}
+                    {lead.breakingReason || lead.recommendationReason}
                   </p>
                 ) : null}
               </div>
               <div className="grid content-between gap-3 rounded-md border bg-background/70 p-3">
                 <div>
                   <p className="text-xs text-muted-foreground">Breaking News 分值</p>
-                  <p className="mt-1 text-3xl font-semibold">{Math.round(lead.valueScore ?? 0)}</p>
+                  <p className="mt-1 text-3xl font-semibold">{Math.round(breakingScoreValue(lead))}</p>
+                  {lead.breakingConfidence != null ? (
+                    <p className="mt-1 text-xs text-muted-foreground">置信度 {lead.breakingConfidence}</p>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap gap-1">
                   {uniqueNewsTags(lead).slice(0, 5).map((tag) => (

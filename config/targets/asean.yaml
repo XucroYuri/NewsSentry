@@ -11,10 +11,28 @@ language_scope:
   output: zh
 timezone: Asia/Jakarta
 source_channel_refs:
-  - api/gdelt-topic
-  - pool:global/gdelt-geopolitics
-  - pool:global/gdelt-supply-chain
-  - pool:global/gdelt-official-orgs
+- api/gdelt-topic
+- pool:global/gdelt-geopolitics
+- pool:global/gdelt-supply-chain
+- pool:global/gdelt-official-orgs
+- fulcrum
+- thediplomat-asean-beat
+- asia-times-sea
+- pool:global/bbc-world
+- pool:global/aljazeera
+- pool:global/dw-world
+- pool:global/un-news-all
+- pool:global/reliefweb-updates
+- pool:international-organizations/aiib-news
+- pool:international-organizations/aiib-projects-approved
+- pool:un-system/who
+- pool:global/gdelt-markets-trade
+- pool:security-nato-osce/war-on-the-rocks
+- pool:energy-opec-iea/yt-iea
+- cna-asia
+- straitstimes-asia
+- nikkei-asia
+- lowy-interpreter
 filter_rules_ref: config/filters/asean/default.yaml
 classification_rules_ref: config/classification/rules-v1.yaml
 sandbox_profile_ref: config/sandbox/default.yaml
@@ -29,15 +47,25 @@ classification:
     energy: true
     china_relations: true
   home_relevance_keywords:
-      - "ASEAN"
-      - "Southeast Asia"
-      - "Asean summit"
-      - "South China Sea"
-      - "trade"
+  - ASEAN
+  - Southeast Asia
+  - Asean summit
+  - South China Sea
+  - trade
 focus_areas:
-  - id: regional-geopolitics-and-institutions
-    weight: 2.0
-    keywords: ["ASEAN", "diplomacy", "security", "summit", "regulation"]
-  - id: trade-markets-and-china-impact
-    weight: 1.8
-    keywords: ["ASEAN", "China", "trade", "supply chain", "investment"]
+- id: regional-geopolitics-and-institutions
+  weight: 2.0
+  keywords:
+  - ASEAN
+  - diplomacy
+  - security
+  - summit
+  - regulation
+- id: trade-markets-and-china-impact
+  weight: 1.8
+  keywords:
+  - ASEAN
+  - China
+  - trade
+  - supply chain
+  - investment

@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: challenge-ma
+display_name: "Challenge Morocco"
+type: rss
+url: "https://www.challenge.ma/feed/"
+language: fr
+credibility_base: 0.70
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 20 entries, latest Tue, 30 Jun 2026 20:37:32 +0000; active Moroccan business feed."
+health:
+  last_success_at: null
+  consecutive_failures: 0

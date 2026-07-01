@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: zeit-digital-feed
+display_name: "ZEIT Digital Feed"
+type: rss
+url: "https://newsfeed.zeit.de/digital/index"
+language: de
+credibility_base: 0.82
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: "2026-07-01 live feedparser check: HTTP 200, 15 entries, latest 2026-07-01T01:56:56Z."
+health:
+  last_success_at: null
+  consecutive_failures: 0

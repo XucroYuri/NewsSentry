@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 from contextlib import closing
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -519,14 +519,15 @@ def test_parse_wrangler_d1_json_output_extracts_result_rows() -> None:
 
 @pytest.mark.asyncio
 async def test_d1_public_translation_generation_dry_run_counts_remote_candidates() -> None:
+    recent = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
     rows = [
         {
             "event_id": "fr-d1-candidate",
             "target_id": "france",
             "source_id": "lemonde",
             "source_name": "Le Monde",
-            "published_at": "2026-06-28T07:07:58+00:00",
-            "collected_at": "2026-06-28T07:08:00+00:00",
+            "published_at": recent,
+            "collected_at": recent,
             "title": "France announces a new industrial policy",
             "original_title": "France announces a new industrial policy",
             "summary": None,
@@ -575,14 +576,15 @@ async def test_d1_public_translation_generation_dry_run_counts_remote_candidates
 async def test_d1_public_translation_generation_times_out_single_candidate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    recent = (datetime.now(UTC) - timedelta(minutes=5)).isoformat()
     rows = [
         {
             "event_id": "fr-d1-candidate",
             "target_id": "france",
             "source_id": "lemonde",
             "source_name": "Le Monde",
-            "published_at": "2026-06-28T07:07:58+00:00",
-            "collected_at": "2026-06-28T07:08:00+00:00",
+            "published_at": recent,
+            "collected_at": recent,
             "title": "France announces a new industrial policy",
             "original_title": "France announces a new industrial policy",
             "summary": None,

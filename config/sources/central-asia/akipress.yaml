@@ -1,0 +1,15 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: akipress
+display_name: AKIpress News Agency
+type: rss
+url: https://akipress.com/rss/
+language: en
+credibility_base: 0.78
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 20 entries; Kyrgyzstan/Central Asia agency.'
+health:
+  last_success_at: null
+  consecutive_failures: 0

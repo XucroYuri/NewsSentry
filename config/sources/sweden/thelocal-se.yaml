@@ -1,0 +1,16 @@
+# Schema: ../../schemas/sourcechannel.schema.json
+source_id: thelocal-se
+display_name: The Local Sweden
+type: rss
+url: https://www.thelocal.se/feeds/rss.php
+language: en
+credibility_base: 0.82
+fetch_interval_minutes: 30
+max_items_per_run: 50
+timeout_seconds: 30
+enabled: true
+notes: '2026-07-01 source audit: HTTP 200, 20 entries; Sweden English-language news
+  source.'
+health:
+  last_success_at: null
+  consecutive_failures: 0
