@@ -9,9 +9,11 @@ name = "news-sentry-api"
 main = "workers/index.ts"
 compatibility_date = "2026-06-24"
 
-# 自定义域名路由（Worker → api.news-sentry.com）
+# 自定义域名路由（Worker → api.news-sentry.com）和 apex API 路径路由。
+# Pages 继续服务 news-sentry.com 的页面；只有 /api/* 进入同一 Worker。
 routes = [
-  { pattern = "api.news-sentry.com", custom_domain = true }
+  { pattern = "api.news-sentry.com", custom_domain = true },
+  { pattern = "news-sentry.com/api/*", zone_name = "news-sentry.com" },
 ]
 
 [vars]
