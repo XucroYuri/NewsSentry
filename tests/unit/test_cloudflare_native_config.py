@@ -19,11 +19,21 @@ def test_wrangler_routes_are_top_level_not_nested_under_d1() -> None:
     config = tomllib.loads(_read("wrangler.toml"))
 
     assert config["routes"] == [
-        {"pattern": "api.news-sentry.com", "custom_domain": True}
+        {"pattern": "api.news-sentry.com", "custom_domain": True},
+        {"pattern": "news-sentry.com/api/*", "zone_name": "news-sentry.com"},
     ]
     assert config["env"]["production"]["routes"] == []
     for binding in config["d1_databases"]:
         assert "routes" not in binding
+
+
+def test_deploy_workflow_verifies_apex_api_worker_route() -> None:
+    deploy_yml = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+
+    assert "APEX_API_URL: https://news-sentry.com" in deploy_yml
+    assert '"${APEX_API_URL}/api/v1/health" > /tmp/apex-health.json' in deploy_yml
+    assert "apex_health = json.loads" in deploy_yml
+    assert 'apex_health.get("status") == "ok"' in deploy_yml
 
 
 def test_worker_health_reads_cloudflare_d1_events_table() -> None:

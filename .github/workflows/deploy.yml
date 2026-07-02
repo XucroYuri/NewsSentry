@@ -462,6 +462,7 @@ jobs:
       BASE_URL: https://news-sentry.com
       PAGES_URL: ${{ needs.deploy-cloudflare-pages.outputs.pages_url }}
       API_URL: https://api.news-sentry.com
+      APEX_API_URL: https://news-sentry.com
       CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
       CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -484,6 +485,7 @@ jobs:
           set -euo pipefail
           api_ok=1
           curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/health" > /tmp/health.json || api_ok=0
+          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${APEX_API_URL}/api/v1/health" > /tmp/apex-health.json || api_ok=0
           curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json || api_ok=0
           curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/facets" > /tmp/facets.json || api_ok=0
           if [ "$api_ok" != "1" ]; then
@@ -505,11 +507,14 @@ jobs:
           from pathlib import Path
 
           health = json.loads(Path("/tmp/health.json").read_text())
+          apex_health = json.loads(Path("/tmp/apex-health.json").read_text())
           news = json.loads(Path("/tmp/public-news.json").read_text())
           facets = json.loads(Path("/tmp/facets.json").read_text())
 
           assert health.get("status") == "ok", "Worker health is not ok"
+          assert apex_health.get("status") == "ok", "Apex API Worker health is not ok"
           assert isinstance(health.get("total_events"), int), "health total_events missing"
+          assert apex_health.get("total_events") == health.get("total_events"), "Apex API health does not match API subdomain"
           assert health.get("total_events", 0) > 0, "Cloudflare D1 has no events"
           assert isinstance(news.get("items"), list) and news["items"], "public news is empty"
           assert {"regions", "issues", "related"} <= set(facets), "facets payload missing expected keys"
