@@ -14,10 +14,12 @@ import {
   buildPublicNewsWhere,
   type NewsRow,
   BREAKING_SCORE_VERSION,
+  hnFieldsForRow,
   localeFromRequest,
   publicNewsOrderBy,
   publicNewsLocaleJoin,
   publicNewsSelectColumnsForLocale,
+  publicNewsSortMode,
   rowToPublicNewsItem,
 } from "../lib/public-news-query";
 import {
@@ -113,15 +115,18 @@ export async function handleNewsFeed(
     const date = params.get("date") || undefined;
     const q = params.get("q") || undefined;
     const featured = params.get("featured") === "true";
+    const sortMode = publicNewsSortMode(params.get("sort"));
+    const scoreDriven = sortMode === "top" || sortMode === "breaking";
     const locale = localeFromRequest(request, params.get("locale"));
-    const beforeCursor = params.get("before_cursor");
-    const sinceCursor = params.get("since_cursor");
+    const beforeCursor = scoreDriven ? null : params.get("before_cursor");
+    const sinceCursor = scoreDriven ? null : params.get("since_cursor");
     const requestedPageSize = Number.parseInt(params.get("page_size") || "20", 10);
     const pageSize =
       Number.isFinite(requestedPageSize) && requestedPageSize > 0
         ? Math.min(requestedPageSize, 50)
         : 20;
     const cacheKey =
+      sortMode === "recent" &&
       pageSize <= PUBLIC_SNAPSHOT_PAGE_SIZE &&
       !beforeCursor &&
       !sinceCursor &&
@@ -131,7 +136,7 @@ export async function handleNewsFeed(
       !related &&
       !date &&
       !q &&
-      hasOnlyParams(params, ["featured", "page_size", "locale"])
+      hasOnlyParams(params, ["featured", "page_size", "locale", "sort"])
         ? `${newsCacheKey(featured, pageSize)}:locale=${locale}`
         : null;
     const cached = await maybeServeCachedPublicRead(request, cacheKey);
@@ -174,13 +179,16 @@ export async function handleNewsFeed(
       date,
       q,
     });
-    const cursorFilter = await buildCursorFilter(
-      db,
-      beforeCursor || sinceCursor,
-      beforeCursor ? "before" : "since",
-      featured,
-    );
+    const cursorFilter = scoreDriven
+      ? { sql: "", bindings: [] }
+      : await buildCursorFilter(
+          db,
+          beforeCursor || sinceCursor,
+          beforeCursor ? "before" : "since",
+          false,
+        );
     const localeJoin = publicNewsLocaleJoin(locale);
+    const queryLimit = scoreDriven ? Math.min(300, Math.max(pageSize * 4, 80)) : pageSize + 1;
 
     let sql = `
       SELECT ${publicNewsSelectColumnsForLocale(locale)}
@@ -190,12 +198,12 @@ export async function handleNewsFeed(
       ${cursorFilter.sql}
     `;
 
-    sql += ` ${publicNewsOrderBy(featured)} LIMIT ?`;
+    sql += ` ${publicNewsOrderBy(featured, sortMode)} LIMIT ?`;
     const bindings = [
       ...localeJoin.bindings,
       ...filters.bindings,
       ...cursorFilter.bindings,
-      pageSize + 1,
+      queryLimit,
     ];
 
     const [result, totalResult] = await Promise.all([
@@ -206,11 +214,22 @@ export async function handleNewsFeed(
         .first<{ total: number }>(),
     ]);
     const rows = result.results || [];
+    if (sortMode === "top") {
+      rows.sort((left, right) => {
+        const leftScore = hnFieldsForRow(left).hnScore;
+        const rightScore = hnFieldsForRow(right).hnScore;
+        if (leftScore !== rightScore) return rightScore - leftScore;
+        return right.published_at.localeCompare(left.published_at) || right.event_id.localeCompare(left.event_id);
+      });
+    }
     const pageRows = rows.slice(0, pageSize);
     const items = pageRows.map((r) => rowToPublicNewsItem(r));
-    const latestCursor = pageRows[0]?.event_id ?? sinceCursor ?? beforeCursor ?? null;
-    const nextCursor =
-      rows.length > pageSize ? (pageRows[pageRows.length - 1]?.event_id ?? null) : null;
+    const latestCursor = scoreDriven ? null : (pageRows[0]?.event_id ?? sinceCursor ?? beforeCursor ?? null);
+    const nextCursor = scoreDriven
+      ? null
+      : rows.length > pageSize
+        ? (pageRows[pageRows.length - 1]?.event_id ?? null)
+        : null;
 
     const body: PublicNewsFeedResponse = {
       items,

@@ -11,6 +11,8 @@ import {
   listTargets,
   PublicNewsApiError,
   readSSRFeed,
+  unvotePublicNewsItem,
+  votePublicNewsItem,
 } from "@/lib/api"
 import type { PublicNewsFeedResponse, PublicNewsItem } from "@/types/public-news"
 
@@ -41,6 +43,10 @@ const item: PublicNewsItem = {
   valueLabel: "精选",
   valueScore: 92,
   chinaRelevanceLabel: "中",
+  hnScore: 5.47,
+  points: 9.2,
+  gravityAgeHours: 2.0,
+  voteCount: 0,
 }
 
 const feed: PublicNewsFeedResponse = {
@@ -102,6 +108,17 @@ describe("public news API client", () => {
     )
   })
 
+  it("drops cursors for score-driven sort modes", () => {
+    expect(
+      buildPublicNewsUrl({
+        sort: "top",
+        beforeCursor: "old",
+        sinceCursor: "new",
+        pageSize: 20,
+      }),
+    ).toBe("/api/v1/public/news?sort=top&page_size=20")
+  })
+
   it("returns typed feed data and cache headers", async () => {
     const fetcher = vi.fn(async () =>
       jsonResponse(feed, {
@@ -159,6 +176,34 @@ describe("public news API client", () => {
       signal: undefined,
     })
     expect(detail.title).toContain("意大利总理")
+  })
+
+  it("sends target hint when voting on a public news item", async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ vote_count: 4, voted: true, rate_limited: false }),
+    ) as typeof fetch
+
+    const result = await votePublicNewsItem("event-1", { targetId: "italy", fetcher })
+
+    expect(fetcher).toHaveBeenCalledWith("/api/v1/public/news/event-1/vote?target_id=italy", {
+      method: "POST",
+      signal: undefined,
+    })
+    expect(result).toEqual({ voteCount: 4, voted: true, rateLimited: false })
+  })
+
+  it("sends target hint when removing a public news vote", async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ vote_count: 3, removed: true }),
+    ) as typeof fetch
+
+    const result = await unvotePublicNewsItem("event-1", { targetId: "italy", fetcher })
+
+    expect(fetcher).toHaveBeenCalledWith("/api/v1/public/news/event-1/vote?target_id=italy", {
+      method: "DELETE",
+      signal: undefined,
+    })
+    expect(result).toEqual({ voteCount: 3, removed: true })
   })
 
   it("loads public targets for reader filters", async () => {

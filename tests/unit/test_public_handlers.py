@@ -23,8 +23,45 @@ from news_sentry.api.schemas import (
     TargetInfo,
     TargetListResponse,
 )
-from news_sentry.core import public_handlers
+from news_sentry.core import public_handlers, voting
 from news_sentry.core._state import InvisibleIndexedEvent
+from news_sentry.core.public_news_utils import _public_news_feed_cache_key
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Public feed cache keys
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestPublicNewsFeedCacheKey:
+    def test_includes_data_dir_to_keep_test_and_runtime_feeds_isolated(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        common = {
+            "featured": True,
+            "target_id": "italy",
+            "issue": None,
+            "related": None,
+            "source_id": None,
+            "category": None,
+            "date": None,
+            "q": None,
+            "before_cursor": None,
+            "since_cursor": None,
+            "page_size": 20,
+        }
+        left = _public_news_feed_cache_key(
+            data_dir=tmp_path / "left",
+            **common,
+        )
+        right = _public_news_feed_cache_key(
+            data_dir=tmp_path / "right",
+            **common,
+        )
+
+        assert left != right
+        assert str((tmp_path / "left").resolve()) in left
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # _store_has_target_event_index
@@ -912,6 +949,117 @@ class TestGetPublicNewsItemHandler:
 
         assert result.id == "ev1"
         assert result.title == "索引事件"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# vote_public_news_item_handler / unvote_public_news_item_handler
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class _FakeVoteRequest:
+    headers = {"x-forwarded-for": "1.2.3.4", "user-agent": "Mozilla/5.0"}
+    client = None
+
+
+class TestPublicNewsVotingHandlers:
+    """测试公开投票接口只写入已公开可见的新闻。"""
+
+    @pytest.mark.anyio
+    async def test_vote_visibility_rejects_invalid_event_id_before_lookup(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        get_target_store = AsyncMock()
+
+        with pytest.raises(HTTPException) as exc_info:
+            await public_handlers._ensure_public_vote_target_visible(
+                tmp_path,
+                None,
+                get_target_store,
+                "../not-an-event" * 40,
+                target_id="italy",
+            )
+
+        assert exc_info.value.status_code == 404
+        get_target_store.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_vote_requires_public_visible_event(self, tmp_path: Path) -> None:
+        with patch.object(
+            public_handlers,
+            "_ensure_public_vote_target_visible",
+            new=AsyncMock(side_effect=HTTPException(status_code=404, detail="Event not found")),
+        ):
+            with pytest.raises(HTTPException) as exc_info:
+                await public_handlers.vote_public_news_item_handler(
+                    data_dir=tmp_path,
+                    store=None,
+                    get_target_store=AsyncMock(),
+                    request=_FakeVoteRequest(),
+                    event_id="missing-event",
+                    voting=voting,
+                    target_id="italy",
+                )
+
+        assert exc_info.value.status_code == 404
+        assert not (tmp_path / "votes.db").exists()
+
+    @pytest.mark.anyio
+    async def test_vote_records_after_visibility_check(self, tmp_path: Path) -> None:
+        ensure_visible = AsyncMock(return_value=None)
+        get_target_store = AsyncMock()
+        with patch.object(
+            public_handlers,
+            "_ensure_public_vote_target_visible",
+            new=ensure_visible,
+        ):
+            response = await public_handlers.vote_public_news_item_handler(
+                data_dir=tmp_path,
+                store=None,
+                get_target_store=get_target_store,
+                request=_FakeVoteRequest(),
+                event_id="ev1",
+                voting=voting,
+                target_id="italy",
+            )
+
+        assert response.status_code == 201
+        assert json.loads(response.body) == {
+            "event_id": "ev1",
+            "vote_count": 1,
+            "voted": True,
+            "rate_limited": False,
+        }
+        ensure_visible.assert_awaited_once_with(
+            tmp_path,
+            None,
+            get_target_store,
+            "ev1",
+            target_id="italy",
+        )
+
+    @pytest.mark.anyio
+    async def test_unvote_requires_public_visible_event(self, tmp_path: Path) -> None:
+        voter_hash = voting.compute_voter_hash("1.2.3.4", "Mozilla/5.0")
+        assert voting.record_vote(tmp_path, "ev1", voter_hash) is True
+
+        with patch.object(
+            public_handlers,
+            "_ensure_public_vote_target_visible",
+            new=AsyncMock(side_effect=HTTPException(status_code=404, detail="Event not found")),
+        ):
+            with pytest.raises(HTTPException):
+                await public_handlers.unvote_public_news_item_handler(
+                    data_dir=tmp_path,
+                    store=None,
+                    get_target_store=AsyncMock(),
+                    request=_FakeVoteRequest(),
+                    event_id="ev1",
+                    voting=voting,
+                    target_id="italy",
+                )
+
+        assert voting.get_vote_count(tmp_path, "ev1") == 1
 
 
 # ═══════════════════════════════════════════════════════════════════════════

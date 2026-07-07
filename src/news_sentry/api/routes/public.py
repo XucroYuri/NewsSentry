@@ -114,6 +114,18 @@ def register_public_routes(router: APIRouter, h: dict[str, Any]) -> None:
         response_model=h.get("PublicNewsItem"),
     )(h["get_public_news_item"])
 
+    # ── Phase 2: Anonymous voting (HN-style upvote) ──
+    router.api_route(
+        "/api/v1/public/news/{event_id}/vote",
+        methods=["POST"],
+        include_in_schema=False,
+    )(h["vote_public_news_item"])
+    router.api_route(
+        "/api/v1/public/news/{event_id}/vote",
+        methods=["DELETE"],
+        include_in_schema=False,
+    )(h["unvote_public_news_item"])
+
     # ── 事件（公开）──
     router.api_route(
         "/api/v1/events",

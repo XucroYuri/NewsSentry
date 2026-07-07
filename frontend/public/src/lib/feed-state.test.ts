@@ -39,6 +39,10 @@ function item(id: string, title?: string, publishedAt?: string): PublicNewsItem 
     valueLabel: "精选",
     valueScore: 80,
     chinaRelevanceLabel: "中",
+    hnScore: 4.2,
+    points: 8.0,
+    gravityAgeHours: 1.5,
+    voteCount: 0,
   }
 }
 
@@ -62,6 +66,16 @@ describe("feed state helpers", () => {
       related: "涉欧",
       q: "欧盟",
       pageSize: 20,
+    })
+  })
+
+  it("maps score sort modes to the public news API query", () => {
+    expect(makeFeedQuery({ channel: "featured", sortMode: "top" })).toEqual({
+      featured: true,
+      sort: "top",
+    })
+    expect(makeFeedQuery({ channel: "featured", sortMode: "recent" })).toEqual({
+      featured: true,
     })
   })
 

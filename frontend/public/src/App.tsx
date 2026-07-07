@@ -53,6 +53,7 @@ import type { PublicBootstrapResponse, PublicFacetsResponse, PublicTargetInfo } 
 
 const PAGE_SIZE = 20
 const PUBLIC_APP_VERSION = "v2.0.0"
+const DEFAULT_FEED_SORT_MODE: NonNullable<FeedFilters["sortMode"]> = "top"
 
 type NavId = "breaking" | "all" | "daily" | "agent" | "update"
 type ThemePreference = "system" | "light" | "dark"
@@ -84,7 +85,16 @@ function searchFromFilters(filters: FeedFilters) {
   if (filters.related) search.set("related", filters.related)
   if (filters.search) search.set("q", filters.search)
   if (filters.date) search.set("date", filters.date)
+  if (filters.sortMode && filters.sortMode !== DEFAULT_FEED_SORT_MODE) {
+    search.set("sort", filters.sortMode)
+  }
   return search
+}
+
+function sortModeFromSearch(search: URLSearchParams): FeedFilters["sortMode"] {
+  const value = queryValue(search, "sort")
+  if (value === "recent" || value === "breaking" || value === "top") return value
+  return DEFAULT_FEED_SORT_MODE
 }
 
 function filtersFromRoute(route: PublicRoute): FeedFilters {
@@ -105,6 +115,7 @@ function filtersFromRoute(route: PublicRoute): FeedFilters {
     related: queryValue(route.search, "related"),
     search: queryValue(route.search, "q"),
     date: queryValue(route.search, "date"),
+    sortMode: sortModeFromSearch(route.search),
     pageSize: PAGE_SIZE,
   }
 }
@@ -154,6 +165,7 @@ function filtersEqual(left: FeedFilters, right: FeedFilters) {
     left.related === right.related &&
     left.search === right.search &&
     left.date === right.date &&
+    left.sortMode === right.sortMode &&
     left.pageSize === right.pageSize
   )
 }
@@ -168,7 +180,10 @@ function isDefaultFeaturedFilters(filters: FeedFilters) {
     !filters.issue &&
     !filters.related &&
     !filters.search &&
-    !filters.date
+    !filters.date &&
+    (filters.sortMode === undefined ||
+      filters.sortMode === DEFAULT_FEED_SORT_MODE ||
+      filters.sortMode === "recent")
   )
 }
 
@@ -258,7 +273,10 @@ function usePublicBootstrap(filters: FeedFilters): BootstrapState {
     !filters.issue &&
     !filters.related &&
     !filters.search &&
-    !filters.date
+    !filters.date &&
+    (filters.sortMode === undefined ||
+      filters.sortMode === DEFAULT_FEED_SORT_MODE ||
+      filters.sortMode === "recent")
 
   const [state, setState] = useState<BootstrapState>(() =>
     ssrApplicable ? { status: "ready", data: ssrData } : { status: "loading", data: null },
@@ -1215,11 +1233,14 @@ export default function App() {
   const bootstrapTargets = useMemo(() => regionsToTargets(bootstrap.data), [bootstrap.data])
   const ssrFeed = useMemo(() => readSSRFeed(), [])
   const defaultFeaturedHome = isDefaultFeaturedFilters(filters)
-  const ssrFeedApplicable = ssrFeed !== null && defaultFeaturedHome
+  const ssrFeedApplicable = ssrFeed !== null && ssrFeed.items.length > 0 && defaultFeaturedHome
+  const bootstrapFeed = bootstrap.data?.news ?? null
+  const bootstrapFeedApplicable =
+    bootstrapFeed !== null && bootstrapFeed.items.length > 0 && defaultFeaturedHome
   const initialFeed = ssrFeedApplicable
     ? ssrFeed
-    : defaultFeaturedHome
-      ? (bootstrap.data?.news ?? null)
+    : bootstrapFeedApplicable
+      ? bootstrapFeed
       : null
   const waitForBootstrap = bootstrap.status === "loading" && defaultFeaturedHome && !ssrFeedApplicable
   const feed = usePublicFeed(filters, {
@@ -1358,6 +1379,7 @@ export default function App() {
           onRefresh={() => void feed.loadFeed("refresh")}
           onLoadMore={() => void feed.loadMore()}
           onApplyPending={feed.applyPending}
+          onSortModeChange={(mode) => updateFilters({ sortMode: mode })}
         />
       </>
     )

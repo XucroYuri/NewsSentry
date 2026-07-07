@@ -82,6 +82,7 @@ function filtersEqual(left: FeedFilters, right: FeedFilters) {
     left.related === right.related &&
     left.search === right.search &&
     left.date === right.date &&
+    left.sortMode === right.sortMode &&
     left.pageSize === right.pageSize
   )
 }
@@ -130,11 +131,12 @@ export function usePublicFeed(
           const fallback = await listPublicNews({
             pageSize: filters.pageSize,
             locale: filters.locale,
+            sort: filters.sortMode,
           })
           const fallbackItems = fallback.data?.items ?? []
           if (fallbackItems.length > 0) {
             result = fallback
-            items = sortByValue(fallbackItems)
+            items = filters.sortMode && filters.sortMode !== "recent" ? fallbackItems : sortByValue(fallbackItems)
           }
         }
         setFeedState({
