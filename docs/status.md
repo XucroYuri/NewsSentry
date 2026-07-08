@@ -8,7 +8,7 @@
 | Field | Current local evidence | Notes |
 | --- | --- | --- |
 | Working branch | `codex/news-value-latent-model` | Draft PR: <https://github.com/XucroYuri/NewsSentry/pull/49>. |
-| Published commits | `4b869ac`, `5bda92b` | Ranked public workbench voting plus documentation/status simplification. |
+| Published branch scope | Ranked public workbench voting, documentation/status simplification, and local tool-state ignore cleanup | Use `git log origin/main..HEAD --oneline` for the exact current commit list. |
 | `origin/main` | `83efaaa` | Production authority branch according to local remote refs. Refresh before any release decision. |
 | local `preview` | `7f0155e` | Local branch is behind remote preview history. |
 | `origin/preview` | `d65445b` | Preview gate authority according to local remote refs. Refresh before CI/preview work. |
