@@ -1,20 +1,20 @@
 # News Sentry Current Status
 
-> Last local audit: 2026-07-08 04:00 Asia/Shanghai
+> Last local audit: 2026-07-08 04:20 Asia/Shanghai
 > Purpose: single source for dynamic project state. If a status value can change between runs, keep it here instead of copying it into `AGENTS.md`, `README.md`, or architecture docs.
 
 ## Branch And Release State
 
 | Field | Current local evidence | Notes |
 | --- | --- | --- |
-| Working branch | `codex/news-value-latent-model` | Local development branch for ranked public workbench and follow-up audit. |
-| Local HEAD | `4b869ac` | `feat(public): Add ranked workbench voting`; push is blocked by GitHub HTTPS network errors. |
+| Working branch | `codex/news-value-latent-model` | Draft PR: <https://github.com/XucroYuri/NewsSentry/pull/49>. |
+| Published commits | `4b869ac`, `5bda92b` | Ranked public workbench voting plus documentation/status simplification. |
 | `origin/main` | `83efaaa` | Production authority branch according to local remote refs. Refresh before any release decision. |
 | local `preview` | `7f0155e` | Local branch is behind remote preview history. |
 | `origin/preview` | `d65445b` | Preview gate authority according to local remote refs. Refresh before CI/preview work. |
 | Recorded RC label | `v2.0.0-rc3` | Treat as a project label, not proof of a currently checked-out tag. Verify tags before release. |
 
-Current blocker: `git push -u origin codex/news-value-latent-model` failed twice with GitHub HTTPS connection errors, including `Empty reply from server`. The local commit remains intact.
+Previous blocker resolved: `git push -u origin codex/news-value-latent-model` initially failed with GitHub HTTPS connection errors, then succeeded after retry. PR #49 is open as a draft.
 
 ## Runtime Authority
 
@@ -36,7 +36,7 @@ flowchart LR
 
 | Area | Current state | Next minimal step |
 | --- | --- | --- |
-| Public workbench | Ranked list, `推荐/最新/突发` sorting, anonymous vote path, Worker read contract, and admin merge fix are implemented locally in `4b869ac`. | Push branch when GitHub network recovers; then open/refresh PR. |
+| Public workbench | Ranked list, `推荐/最新/突发` sorting, anonymous vote path, Worker read contract, and admin merge fix are published in draft PR #49. | Continue with small reviewable follow-up phases. |
 | Minimal operations audit | `docs/design/minimal-operations-workbench-audit-2026-07-08.md` records issues P0-P5. | Continue with small, verifiable phases. |
 | Agent docs | This status file is now the dynamic state authority. | Keep `AGENTS.md` short and update this file when evidence changes. |
 | AI provider capacity | Strategy spec exists at `docs/specs/2026-07-03-ai-provider-free-capacity-and-paid-fallback.md`. | Implement only after route schema and ledger tests are planned. |
@@ -65,7 +65,7 @@ Result summary:
 - Worker dry-run passed.
 - Sensitive-data scan passed.
 - Latent value model targeted test passed.
-- Remote push did not complete because GitHub HTTPS returned no usable response.
+- Remote push eventually succeeded after an initial GitHub HTTPS failure; draft PR #49 was created.
 
 ## Status Maintenance Rules
 
