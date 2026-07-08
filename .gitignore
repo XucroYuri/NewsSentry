@@ -43,6 +43,7 @@ uv.lock
 
 # OMX / terminal session state (session-local, not project code)
 .omx/
+.omo/
 screenlog.*
 
 # Git worktrees (isolated workspaces)
