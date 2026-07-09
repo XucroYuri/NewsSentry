@@ -88,8 +88,13 @@ export function buildPublicNewsUrl(query: PublicNewsQuery = {}) {
   appendParam(params, "related", query.related)
   appendParam(params, "date", query.date)
   appendParam(params, "q", query.q)
-  appendParam(params, "before_cursor", query.beforeCursor)
-  appendParam(params, "since_cursor", query.sinceCursor)
+  // Score-driven sorts bypass cursor pagination semantics — drop cursors
+  // to keep the request URL clean and the cache key stable.
+  if (query.sort !== "top" && query.sort !== "breaking") {
+    appendParam(params, "before_cursor", query.beforeCursor)
+    appendParam(params, "since_cursor", query.sinceCursor)
+  }
+  appendParam(params, "sort", query.sort)
   appendParam(params, "page_size", query.pageSize)
   const suffix = params.toString()
   return `/api/v1/public/news${suffix ? `?${suffix}` : ""}`
@@ -357,6 +362,79 @@ export async function getPublicNewsItem(
     throw new PublicNewsApiError(`Public news detail request failed with ${response.status}`, response.status)
   }
   return parseJsonResponse(response, assertPublicNewsItem)
+}
+
+/**
+ * Phase 2: Anonymous upvote — POST /api/v1/public/news/{eventId}/vote.
+ *
+ * Returns the updated vote count and whether this voter has voted.
+ * The backend uses voter_hash (IP + UA + daily salt) for 24h dedup.
+ */
+export async function votePublicNewsItem(
+  eventId: string,
+  options: PublicNewsRequestOptions = {},
+): Promise<{ voteCount: number; voted: boolean; rateLimited: boolean }> {
+  if (!eventId.trim()) {
+    throw new PublicNewsApiError("Public news event id is required")
+  }
+  const fetcher = options.fetcher ?? fetch
+  const params = new URLSearchParams()
+  appendParam(params, "target_id", options.targetId)
+  const suffix = params.toString()
+  const response = await fetcher(
+    resolveUrl(`/api/v1/public/news/${encodeURIComponent(eventId)}/vote${suffix ? `?${suffix}` : ""}`),
+    {
+      method: "POST",
+      signal: options.signal,
+    },
+  )
+  if (!response.ok) {
+    throw new PublicNewsApiError(`Vote request failed with ${response.status}`, response.status)
+  }
+  const body = (await response.json()) as {
+    vote_count?: number
+    voted?: boolean
+    rate_limited?: boolean
+  }
+  return {
+    voteCount: body.vote_count ?? 0,
+    voted: body.voted ?? false,
+    rateLimited: body.rate_limited ?? false,
+  }
+}
+
+/**
+ * Phase 2: Remove anonymous upvote — DELETE /api/v1/public/news/{eventId}/vote.
+ */
+export async function unvotePublicNewsItem(
+  eventId: string,
+  options: PublicNewsRequestOptions = {},
+): Promise<{ voteCount: number; removed: boolean }> {
+  if (!eventId.trim()) {
+    throw new PublicNewsApiError("Public news event id is required")
+  }
+  const fetcher = options.fetcher ?? fetch
+  const params = new URLSearchParams()
+  appendParam(params, "target_id", options.targetId)
+  const suffix = params.toString()
+  const response = await fetcher(
+    resolveUrl(`/api/v1/public/news/${encodeURIComponent(eventId)}/vote${suffix ? `?${suffix}` : ""}`),
+    {
+      method: "DELETE",
+      signal: options.signal,
+    },
+  )
+  if (!response.ok) {
+    throw new PublicNewsApiError(`Unvote request failed with ${response.status}`, response.status)
+  }
+  const body = (await response.json()) as {
+    vote_count?: number
+    removed?: boolean
+  }
+  return {
+    voteCount: body.vote_count ?? 0,
+    removed: body.removed ?? false,
+  }
 }
 
 export async function listTargets(

@@ -111,7 +111,8 @@ def test_cloudflare_public_featured_query_matches_python_quality_gate() -> None:
         "ORDER BY events.breaking_score DESC, events.published_at DESC, events.event_id DESC"
         in query_ts
     )
-    assert "publicNewsOrderBy(featured)" in news_ts
+    assert 'const sortMode = publicNewsSortMode(params.get("sort"))' in news_ts
+    assert "publicNewsOrderBy(featured, sortMode)" in news_ts
     assert "publicNewsOrderBy(featured)" in bootstrap_ts
 
 

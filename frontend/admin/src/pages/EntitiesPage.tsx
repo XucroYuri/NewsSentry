@@ -50,6 +50,7 @@ export default function EntitiesPage() {
   // 合并 UI
   const [mergeSourceQuery, setMergeSourceQuery] = useState("")
   const [mergeSourceResults, setMergeSourceResults] = useState<EntityInfo[]>([])
+  const [selectedMergeSource, setSelectedMergeSource] = useState<EntityInfo | null>(null)
   const [mergeSearchLoading, setMergeSearchLoading] = useState(false)
   const [mergeDialog, setMergeDialog] = useState(false)
   const [mergeLoading, setMergeLoading] = useState(false)
@@ -104,6 +105,7 @@ export default function EntitiesPage() {
     setDetailLoading(true)
     setMergeSourceQuery("")
     setMergeSourceResults([])
+    setSelectedMergeSource(null)
     try {
       const d = await fetchEntity(entityId)
       setDetail(d)
@@ -122,11 +124,13 @@ export default function EntitiesPage() {
     setEntityEvents([])
     setMergeSourceQuery("")
     setMergeSourceResults([])
+    setSelectedMergeSource(null)
   }
 
   async function searchMergeSource() {
     if (!mergeSourceQuery.trim()) return
     setMergeSearchLoading(true)
+    setSelectedMergeSource(null)
     try {
       const data: EntityListResponse = await searchEntities(mergeSourceQuery.trim(), 10)
       // 排除当前详情实体
@@ -147,6 +151,7 @@ export default function EntitiesPage() {
       setMergeDialog(false)
       setMergeSourceQuery("")
       setMergeSourceResults([])
+      setSelectedMergeSource(null)
       closeDetail()
       void load()
     } catch (err) {
@@ -426,7 +431,10 @@ export default function EntitiesPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => setMergeDialog(true)}
+                            onClick={() => {
+                              setSelectedMergeSource(src)
+                              setMergeDialog(true)
+                            }}
                             className="text-destructive hover:text-destructive"
                           >
                             <MergeIcon className="h-3.5 w-3.5" />
@@ -452,12 +460,18 @@ export default function EntitiesPage() {
       </Dialog>
 
       {/* ── 合并确认 Dialog ────────────────────────────── */}
-      <Dialog open={mergeDialog} onOpenChange={setMergeDialog}>
+      <Dialog
+        open={mergeDialog}
+        onOpenChange={(open) => {
+          setMergeDialog(open)
+          if (!open && !mergeLoading) setSelectedMergeSource(null)
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>确认合并实体</DialogTitle>
             <DialogDescription>
-              将实体 <code className="text-xs">{mergeSourceResults.length > 0 ? mergeSourceResults[0].canonical_name : "?"}</code> 合并到{" "}
+              将实体 <code className="text-xs">{selectedMergeSource?.canonical_name ?? "?"}</code> 合并到{" "}
               <code className="text-xs">{detail?.entity.canonical_name ?? ""}</code>。此操作不可撤销。
             </DialogDescription>
           </DialogHeader>
@@ -471,9 +485,9 @@ export default function EntitiesPage() {
             <Button
               size="sm"
               onClick={() => {
-                if (mergeSourceResults.length > 0) handleMerge(mergeSourceResults[0].id)
+                if (selectedMergeSource) handleMerge(selectedMergeSource.id)
               }}
-              disabled={mergeLoading}
+              disabled={mergeLoading || selectedMergeSource == null}
             >
               {mergeLoading && <Loader2Icon className="h-3.5 w-3.5 mr-1 animate-spin" />}
               确认合并

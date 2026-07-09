@@ -34,10 +34,9 @@ import { usePublicAnalysis } from "@/hooks/use-public-analysis"
 import { usePublicFeed } from "@/hooks/use-public-feed"
 import { usePublicTargets } from "@/hooks/use-public-targets"
 import { getPublicBootstrap, listPublicFacets, readSSRBootstrap, readSSRFeed } from "@/lib/api"
-import { getApiBase, setApiBase } from "@/lib/locals-settings"
 import { type FeedFilters, makeFeedQuery } from "@/lib/feed-state"
 import { displayFacetLabel, targetShortLabel, todayKey } from "@/lib/public-view"
-import { routeToChannel, type PublicRoute } from "@/lib/routes"
+import { buildPublicAppPath, routeToChannel, type PublicRoute } from "@/lib/routes"
 import { buildRouteSeoPayload } from "@/lib/seo/site-seo"
 import {
   AnalysisPage,
@@ -53,12 +52,14 @@ import type { PublicBootstrapResponse, PublicFacetsResponse, PublicTargetInfo } 
 
 const PAGE_SIZE = 20
 const PUBLIC_APP_VERSION = "v2.0.0"
+const DEFAULT_FEED_SORT_MODE: NonNullable<FeedFilters["sortMode"]> = "top"
 
-type NavId = "breaking" | "all" | "daily" | "agent" | "update"
+type PrimaryNavId = "breaking" | "all" | "daily"
+type NavId = PrimaryNavId | "agent" | "update"
 type ThemePreference = "system" | "light" | "dark"
 
-const navItems: Array<{
-  id: NavId
+const primaryNavItems: Array<{
+  id: PrimaryNavId
   label: string
   sublabel?: string
   icon: ComponentType<{ className?: string }>
@@ -66,8 +67,6 @@ const navItems: Array<{
   { id: "breaking", label: "新闻哨兵", sublabel: "Breaking News", icon: ZapIcon },
   { id: "all", label: "新闻纵览", sublabel: "All News", icon: ListIcon },
   { id: "daily", label: "新闻日报", sublabel: "Daily News", icon: CalendarDaysIcon },
-  { id: "agent", label: "Agent", icon: BotIcon },
-  { id: "update", label: "Update", icon: HistoryIcon },
 ]
 
 function queryValue(search: URLSearchParams, key: string) {
@@ -84,7 +83,16 @@ function searchFromFilters(filters: FeedFilters) {
   if (filters.related) search.set("related", filters.related)
   if (filters.search) search.set("q", filters.search)
   if (filters.date) search.set("date", filters.date)
+  if (filters.sortMode && filters.sortMode !== DEFAULT_FEED_SORT_MODE) {
+    search.set("sort", filters.sortMode)
+  }
   return search
+}
+
+function sortModeFromSearch(search: URLSearchParams): FeedFilters["sortMode"] {
+  const value = queryValue(search, "sort")
+  if (value === "recent" || value === "breaking" || value === "top") return value
+  return DEFAULT_FEED_SORT_MODE
 }
 
 function filtersFromRoute(route: PublicRoute): FeedFilters {
@@ -105,6 +113,7 @@ function filtersFromRoute(route: PublicRoute): FeedFilters {
     related: queryValue(route.search, "related"),
     search: queryValue(route.search, "q"),
     date: queryValue(route.search, "date"),
+    sortMode: sortModeFromSearch(route.search),
     pageSize: PAGE_SIZE,
   }
 }
@@ -154,6 +163,7 @@ function filtersEqual(left: FeedFilters, right: FeedFilters) {
     left.related === right.related &&
     left.search === right.search &&
     left.date === right.date &&
+    left.sortMode === right.sortMode &&
     left.pageSize === right.pageSize
   )
 }
@@ -168,7 +178,10 @@ function isDefaultFeaturedFilters(filters: FeedFilters) {
     !filters.issue &&
     !filters.related &&
     !filters.search &&
-    !filters.date
+    !filters.date &&
+    (filters.sortMode === undefined ||
+      filters.sortMode === DEFAULT_FEED_SORT_MODE ||
+      filters.sortMode === "recent")
   )
 }
 
@@ -258,7 +271,10 @@ function usePublicBootstrap(filters: FeedFilters): BootstrapState {
     !filters.issue &&
     !filters.related &&
     !filters.search &&
-    !filters.date
+    !filters.date &&
+    (filters.sortMode === undefined ||
+      filters.sortMode === DEFAULT_FEED_SORT_MODE ||
+      filters.sortMode === "recent")
 
   const [state, setState] = useState<BootstrapState>(() =>
     ssrApplicable ? { status: "ready", data: ssrData } : { status: "loading", data: null },
@@ -362,9 +378,9 @@ function NavButton({
   active,
   onSelect,
 }: {
-  item: (typeof navItems)[number]
+  item: (typeof primaryNavItems)[number]
   active: boolean
-  onSelect: (id: NavId) => void
+  onSelect: (id: PrimaryNavId) => void
 }) {
   const Icon = item.icon
   return (
@@ -387,13 +403,24 @@ function NavButton({
 }
 
 function UtilityMenu({
+  active,
   theme,
   onThemeChange,
+  onNavigate,
 }: {
+  active: NavId
   theme: ThemePreference
   onThemeChange: (theme: ThemePreference) => void
+  onNavigate: (id: NavId) => void
 }) {
-  const utilityLinks = [
+  const utilityLinks: Array<{
+    id?: Extract<NavId, "agent" | "update">
+    label: string
+    href: string
+    icon: ComponentType<{ className?: string }>
+  }> = [
+    { id: "agent", label: "Agent", href: buildPublicAppPath(routeForNav("agent")), icon: BotIcon },
+    { id: "update", label: "Update", href: buildPublicAppPath(routeForNav("update")), icon: HistoryIcon },
     { label: "Sources", href: "/sources", icon: RadioIcon },
     { label: "Subscribe", href: "/subscribe", icon: MailIcon },
   ]
@@ -401,16 +428,28 @@ function UtilityMenu({
   return (
     <nav
       aria-label="侧边栏辅助菜单"
-      className="grid w-full min-w-0 max-w-full grid-cols-3 gap-0.5 self-start overflow-hidden rounded-full border border-border bg-background/80 p-0.5"
+      className="grid w-full min-w-0 max-w-full grid-cols-5 gap-0.5 self-start overflow-hidden rounded-full border border-border bg-background/80 p-0.5"
     >
       {utilityLinks.map((link) => {
         const Icon = link.icon
+        const selected = link.id ? active === link.id : false
         return (
           <a
             key={link.href}
             href={link.href}
             aria-label={link.label}
-            className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-primary/10 hover:text-primary"
+            aria-current={selected ? "page" : undefined}
+            onClick={(event) => {
+              if (!link.id) return
+              event.preventDefault()
+              onNavigate(link.id)
+            }}
+            className={[
+              "flex size-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-primary/10 hover:text-primary",
+              selected ? "bg-primary/15 text-primary" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
             title={link.label}
           >
             <Icon className="size-3" aria-hidden="true" />
@@ -441,11 +480,11 @@ function SidebarNav({
         </span>
       </a>
       <nav aria-label="公共站侧边栏" className="grid min-w-0 content-start gap-1 overflow-hidden">
-        {navItems.map((item) => (
+        {primaryNavItems.map((item) => (
           <NavButton key={item.id} item={item} active={active === item.id} onSelect={onSelect} />
         ))}
       </nav>
-      <UtilityMenu theme={theme} onThemeChange={onThemeChange} />
+      <UtilityMenu active={active} theme={theme} onThemeChange={onThemeChange} onNavigate={onSelect} />
     </aside>
   )
 }
@@ -460,9 +499,9 @@ function MobileNavigation({
   return (
     <nav
       aria-label="移动端公共菜单"
-      className="z-40 grid grid-cols-5 border-t bg-background/95 px-2 pb-[calc(env(safe-area-inset-bottom)+0.2rem)] pt-1 shadow-geist-popover backdrop-blur lg:hidden"
+      className="z-40 grid grid-cols-3 border-t bg-background/95 px-2 pb-[calc(env(safe-area-inset-bottom)+0.2rem)] pt-1 shadow-geist-popover backdrop-blur lg:hidden"
     >
-      {navItems.map((item) => {
+      {primaryNavItems.map((item) => {
         const Icon = item.icon
         return (
           <button
@@ -484,12 +523,14 @@ function MobileNavigation({
 function MobileHeader({
   onRefresh,
   refreshing,
+  active,
   theme,
   onThemeChange,
   onNavigate,
 }: {
   onRefresh: () => void
   refreshing: boolean
+  active: NavId
   theme: ThemePreference
   onThemeChange: (theme: ThemePreference) => void
   onNavigate: (id: NavId) => void
@@ -516,11 +557,11 @@ function MobileHeader({
             </SheetHeader>
             <div className="grid gap-4 pr-4">
               <div className="grid gap-2">
-                {navItems.map((item) => (
+                {primaryNavItems.map((item) => (
                   <NavButton key={item.id} item={item} active={false} onSelect={onNavigate} />
                 ))}
               </div>
-              <UtilityMenu theme={theme} onThemeChange={onThemeChange} />
+              <UtilityMenu active={active} theme={theme} onThemeChange={onThemeChange} onNavigate={onNavigate} />
             </div>
           </SheetContent>
         </Sheet>
@@ -557,6 +598,7 @@ function AppShell({
         <MobileHeader
           onRefresh={onRefresh}
           refreshing={refreshing}
+          active={activeNav}
           theme={theme}
           onThemeChange={setTheme}
           onNavigate={onNavigate}
@@ -1148,18 +1190,6 @@ function AgentPage() {
 }
 
 function UpdatePage({ updatedAt }: { updatedAt?: string | null }) {
-  const [apiBase, setApiBaseState] = useState<string>(() => getApiBase() ?? "")
-
-  const handleSave = useCallback(() => {
-    const trimmed = apiBase.trim()
-    setApiBase(trimmed || null)
-  }, [apiBase])
-
-  const handleReset = useCallback(() => {
-    setApiBase(null)
-    setApiBaseState("")
-  }, [])
-
   return (
     <InfoPanel title="Update">
       <div className="grid gap-3">
@@ -1168,32 +1198,6 @@ function UpdatePage({ updatedAt }: { updatedAt?: string | null }) {
           <span>{updatedAt ? new Date(updatedAt).toLocaleString("zh-CN") : "等待新闻流"}</span>
           <span className="font-medium text-foreground">当前版本</span>
           <span>{PUBLIC_APP_VERSION}</span>
-        </div>
-
-        <div className="grid gap-2 rounded-md border bg-background/60 px-3 py-2">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-medium text-foreground">API 数据源</span>
-            <span className="text-[10px] text-muted-foreground">
-              {getApiBase() ? "Cloudflare Worker" : "同源（本地）"}
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Input
-              value={apiBase}
-              placeholder="留空 = 同源；或输入 https://news-sentry-api.xuyu.workers.dev"
-              onChange={(e) => setApiBaseState(e.currentTarget.value)}
-              className="h-7 min-w-0 flex-1 rounded-md text-xs"
-            />
-            <Button size="sm" className="h-7 shrink-0 rounded-md px-3 text-xs" onClick={handleSave}>
-              保存
-            </Button>
-            <Button variant="outline" size="sm" className="h-7 shrink-0 rounded-md px-2 text-xs" onClick={handleReset}>
-              重置
-            </Button>
-          </div>
-          <p className="text-[10px] leading-relaxed text-muted-foreground">
-            修改后刷新页面生效。同源模式下请求发到当前域名；Cloudflare Worker 模式请求发到指定 Worker URL。
-          </p>
         </div>
       </div>
     </InfoPanel>
@@ -1215,11 +1219,14 @@ export default function App() {
   const bootstrapTargets = useMemo(() => regionsToTargets(bootstrap.data), [bootstrap.data])
   const ssrFeed = useMemo(() => readSSRFeed(), [])
   const defaultFeaturedHome = isDefaultFeaturedFilters(filters)
-  const ssrFeedApplicable = ssrFeed !== null && defaultFeaturedHome
+  const ssrFeedApplicable = ssrFeed !== null && ssrFeed.items.length > 0 && defaultFeaturedHome
+  const bootstrapFeed = bootstrap.data?.news ?? null
+  const bootstrapFeedApplicable =
+    bootstrapFeed !== null && bootstrapFeed.items.length > 0 && defaultFeaturedHome
   const initialFeed = ssrFeedApplicable
     ? ssrFeed
-    : defaultFeaturedHome
-      ? (bootstrap.data?.news ?? null)
+    : bootstrapFeedApplicable
+      ? bootstrapFeed
       : null
   const waitForBootstrap = bootstrap.status === "loading" && defaultFeaturedHome && !ssrFeedApplicable
   const feed = usePublicFeed(filters, {
@@ -1358,6 +1365,7 @@ export default function App() {
           onRefresh={() => void feed.loadFeed("refresh")}
           onLoadMore={() => void feed.loadMore()}
           onApplyPending={feed.applyPending}
+          onSortModeChange={(mode) => updateFilters({ sortMode: mode })}
         />
       </>
     )

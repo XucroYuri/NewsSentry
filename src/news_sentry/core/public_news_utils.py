@@ -56,6 +56,7 @@ from news_sentry.core._state import (
     _admin_targets_cache,
 )
 from news_sentry.core.async_store import AsyncStore
+from news_sentry.core.hn_ranking import hn_score_for_event
 from news_sentry.core.public_translation import (
     public_publication_ready,
     public_publication_ready_for_row,
@@ -550,6 +551,7 @@ def _normalize_public_text(value: Any) -> str | None:
 
 def _public_news_feed_cache_key(
     *,
+    data_dir: Any,
     featured: bool,
     target_id: str | None,
     issue: str | None = None,
@@ -562,9 +564,11 @@ def _public_news_feed_cache_key(
     since_cursor: str | None,
     page_size: int,
 ) -> str:
+    data_dir_key = str(Path(data_dir).resolve()) if data_dir is not None else ""
     material = {
         "before_cursor": before_cursor or "",
         "category": category or "",
+        "data_dir": data_dir_key,
         "date": date or "",
         "featured": bool(featured),
         "issue": issue or "",
@@ -932,6 +936,7 @@ def _public_news_item(
     ev: dict[str, Any],
     *,
     include_content: bool = False,
+    vote_count: int = 0,
 ) -> PublicNewsItem:
     payload = _feed_event_payload(ev)
     event_id = str(payload.get("event_id") or payload.get("id") or "")
@@ -939,6 +944,7 @@ def _public_news_item(
     original_url = str(payload.get("url") or "").strip() or None
     recommendation_reason = str(payload.get("ai_reason") or "").strip()
     public_title = _event_public_title(payload) or str(payload.get("display_title") or event_id)
+    hn_score, hn_points, hn_age_hours = hn_score_for_event(payload, vote_count=vote_count)
     return PublicNewsItem(
         id=event_id,
         targetId=target_id,
@@ -967,6 +973,13 @@ def _public_news_item(
         valueLabel=_public_value_label(score),
         valueScore=score,
         chinaRelevanceLabel=_public_china_relevance_label(payload.get("china_relevance")),
+        # Hacker News-style ranking fields (Phase 1, see
+        # docs/upgrades/hacker-news-style-upgrade-plan.md).
+        hnScore=hn_score,
+        points=hn_points,
+        gravityAgeHours=hn_age_hours,
+        # Phase 2: anonymous vote count from voting module.
+        voteCount=max(0, int(vote_count)),
     )
 
 

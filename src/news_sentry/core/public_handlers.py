@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 import uuid
 from collections import defaultdict
@@ -37,6 +38,7 @@ from news_sentry.core.event_io_utils import (
     _load_single_event,
     _render_public_event_markdown,
 )
+from news_sentry.core.hn_ranking import hn_score_for_event
 from news_sentry.core.public_news_utils import (
     _event_issue_tags,
     _event_public_translation_ready,
@@ -84,6 +86,7 @@ _PUBLIC_NEWS_MAX_PAGE_SIZE = 100
 _PUBLIC_NEWS_MIN_POLL_AFTER_MS = 30_000
 _PUBLIC_NEWS_DEFAULT_POLL_AFTER_MS = 60_000
 _PUBLIC_NEWS_IDLE_POLL_AFTER_MS = 180_000
+_PUBLIC_VOTE_EVENT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
 
 _PUBLIC_REGIONS_CACHE_TTL_SECONDS = 60.0
 _PUBLIC_FACETS_CACHE_TTL_SECONDS = 60.0
@@ -447,6 +450,7 @@ async def public_news_feed_payload_for_bootstrap(
 ) -> tuple[PublicNewsFeedResponse, str, int]:
     started = time.perf_counter()
     cache_key = _public_news_feed_cache_key(
+        data_dir=data_dir,
         featured=featured,
         target_id=region_id,
         issue=issue,
@@ -666,6 +670,7 @@ async def list_public_news_handler(
     q: str | None = None,
     before_cursor: str | None = None,
     since_cursor: str | None = None,
+    sort: str | None = None,
     page_size: int = _PUBLIC_NEWS_DEFAULT_PAGE_SIZE,
 ) -> Any:
     """公共新闻流 presentation API，匿名只读，支持低负担增量更新。"""
@@ -678,7 +683,14 @@ async def list_public_news_handler(
     since_key = _public_news_decode_cursor(since_cursor)
     effective_region_id = region_id or target_id
     started = time.perf_counter()
+    # Normalize sort mode: None/"recent" → datetime, "top" → hn_score, "breaking" → breaking_score
+    sort_mode = (sort or "recent").strip().lower()
+    if sort_mode not in {"recent", "top", "breaking"}:
+        sort_mode = "recent"
+    # score-driven modes bypass cursor pagination (no stable second-page semantics yet)
+    score_driven = sort_mode in {"top", "breaking"}
     cache_key = _public_news_feed_cache_key(
+        data_dir=data_dir,
         featured=featured,
         target_id=effective_region_id,
         issue=issue,
@@ -687,10 +699,10 @@ async def list_public_news_handler(
         category=category,
         date=date,
         q=q,
-        before_cursor=before_cursor,
-        since_cursor=since_cursor,
+        before_cursor=before_cursor if not score_driven else None,
+        since_cursor=since_cursor if not score_driven else None,
         page_size=page_size,
-    )
+    ) + f"|sort={sort_mode}"
     now = time.monotonic()
     cache_entry = feed_cache.get(cache_key)
     if _public_news_cache_entry_valid(cache_entry, now):
@@ -757,27 +769,105 @@ async def list_public_news_handler(
             q=q,
         ):
             continue
-        key = _public_news_sort_key(event)
-        if since_key is not None and key <= since_key:
-            continue
-        if before_key is not None and key >= before_key:
-            continue
+        # Cursor-based pagination only applies in datetime ("recent") mode.
+        # Score-driven modes (top/breaking) re-rank the candidate window
+        # globally, so cursors are bypassed to avoid nonsensical offsets.
+        if not score_driven:
+            key = _public_news_sort_key(event)
+            if since_key is not None and key <= since_key:
+                continue
+            if before_key is not None and key >= before_key:
+                continue
         filtered.append((tid, event))
 
+    # Phase 2: batch-query anonymous vote counts. Top sorting needs counts
+    # before ranking; recent/breaking only need counts for rendered page rows.
+    vote_counts: dict[str, int] = {}
+    if sort_mode == "top" and filtered:
+        try:
+            from news_sentry.core import voting as _voting_mod
+
+            data_dir_path = Path(data_dir) if not isinstance(data_dir, Path) else data_dir
+            candidate_event_ids = [
+                str(event.get("event_id") or event.get("id") or "")
+                for _tid, event in filtered
+                if event.get("event_id") or event.get("id")
+            ]
+            if candidate_event_ids:
+                vote_counts = _voting_mod.get_vote_counts_batch(
+                    data_dir_path,
+                    candidate_event_ids,
+                )
+        except Exception:  # noqa: BLE001
+            logger.debug("Vote count ranking query failed; defaulting to 0", exc_info=True)
+
+    if score_driven:
+        # Stable-sort candidates by the requested score key. Stable sort
+        # preserves server-side datetime order as a tiebreaker.
+        if sort_mode == "top":
+            filtered.sort(
+                key=lambda pair: hn_score_for_event(
+                    pair[1],
+                    vote_count=vote_counts.get(
+                        str(pair[1].get("event_id") or pair[1].get("id") or ""),
+                        0,
+                    ),
+                )[0],
+                reverse=True,
+            )
+        elif sort_mode == "breaking":
+            def _breaking_key(pair: tuple[str, dict[str, Any]]) -> float:
+                event = pair[1]
+                score = event.get("breaking_score")
+                if not isinstance(score, (int, float)):
+                    score = event.get("news_value_score") or 0
+                try:
+                    return float(score)
+                except (TypeError, ValueError):
+                    return 0.0
+
+            filtered.sort(key=_breaking_key, reverse=True)
+
     page_pairs = filtered[:page_size]
+
+    # Phase 2: batch-query anonymous vote counts for this page.
+    # Failures default to 0 votes — the feed must never break on vote errors.
+    if not vote_counts:
+        try:
+            from news_sentry.core import voting as _voting_mod
+
+            data_dir_path = Path(data_dir) if not isinstance(data_dir, Path) else data_dir
+            page_event_ids = [
+                str(event.get("event_id") or event.get("id") or "")
+                for _tid, event in page_pairs
+                if event.get("event_id") or event.get("id")
+            ]
+            if page_event_ids:
+                vote_counts = _voting_mod.get_vote_counts_batch(data_dir_path, page_event_ids)
+        except Exception:  # noqa: BLE001
+            logger.debug("Vote count batch-query failed; defaulting to 0", exc_info=True)
+
     items: list[PublicNewsItem] = []
     for tid, event in page_pairs:
         try:
-            items.append(_public_news_item(tid, event))
+            event_id_str = str(event.get("event_id") or event.get("id") or "")
+            vc = vote_counts.get(event_id_str, 0)
+            items.append(_public_news_item(tid, event, vote_count=vc))
         except Exception:  # noqa: BLE001
             logger.exception(
                 "Failed to render public news item target=%s event_id=%s",
                 tid,
                 event.get("event_id") or event.get("id"),
             )
-    latest_cursor = _public_news_encode_cursor(page_pairs[0][1]) if page_pairs else since_cursor
+    latest_cursor = (
+        None
+        if score_driven
+        else _public_news_encode_cursor(page_pairs[0][1])
+        if page_pairs
+        else since_cursor
+    )
     next_cursor = None
-    if page_pairs and len(filtered) > len(page_pairs):
+    if not score_driven and page_pairs and len(filtered) > len(page_pairs):
         next_cursor = _public_news_encode_cursor(page_pairs[-1][1])
     if since_cursor:
         poll_after_ms = (
@@ -929,3 +1019,112 @@ async def export_public_event_markdown_handler(
         f"{event_id}.md",
         _render_public_event_markdown(target_id, event),
     ))
+
+
+# ── Phase 2: Anonymous voting ────────────────────────────────────────────────
+
+
+async def _ensure_public_vote_target_visible(
+    data_dir: Any,
+    store: Any,
+    get_target_store: Any,
+    event_id: str,
+    target_id: str | None = None,
+) -> None:
+    """Allow votes only for events already visible in the public news API."""
+    if not _PUBLIC_VOTE_EVENT_ID_RE.fullmatch(event_id.strip()):
+        raise HTTPException(status_code=404, detail="Event not found")
+    await get_public_news_item_handler(
+        data_dir,
+        store,
+        get_target_store,
+        event_id,
+        target_id=target_id,
+    )
+
+
+async def vote_public_news_item_handler(
+    data_dir: Path,
+    store: Any,
+    get_target_store: Any,
+    request: Any,
+    event_id: str,
+    voting: Any,
+    *,
+    target_id: str | None = None,
+) -> JSONResponse:
+    """Record an anonymous upvote. Returns the new total vote count.
+
+    Uses voter_hash for 24h dedup; rate-limited to 50 votes/voter/day.
+    """
+    await _ensure_public_vote_target_visible(
+        data_dir,
+        store,
+        get_target_store,
+        event_id,
+        target_id=target_id,
+    )
+    client_ip = voting.extract_client_ip(request)
+    user_agent = voting.extract_user_agent(request)
+    voter_hash = voting.compute_voter_hash(client_ip, user_agent)
+
+    recorded = voting.record_vote(data_dir, event_id, voter_hash)
+    vote_count = voting.get_vote_count(data_dir, event_id)
+
+    if not recorded:
+        # Either already voted or rate-limited. Either way return current count.
+        return JSONResponse(
+            status_code=200,
+            content={
+                "event_id": event_id,
+                "vote_count": vote_count,
+                "voted": voting.has_voted(data_dir, event_id, voter_hash),
+                "rate_limited": not voting.check_rate_limit(data_dir, voter_hash),
+            },
+        )
+
+    return JSONResponse(
+        status_code=201,
+        content={
+            "event_id": event_id,
+            "vote_count": vote_count,
+            "voted": True,
+            "rate_limited": False,
+        },
+    )
+
+
+async def unvote_public_news_item_handler(
+    data_dir: Path,
+    store: Any,
+    get_target_store: Any,
+    request: Any,
+    event_id: str,
+    voting: Any,
+    *,
+    target_id: str | None = None,
+) -> JSONResponse:
+    """Remove a previously recorded anonymous upvote."""
+    await _ensure_public_vote_target_visible(
+        data_dir,
+        store,
+        get_target_store,
+        event_id,
+        target_id=target_id,
+    )
+    client_ip = voting.extract_client_ip(request)
+    user_agent = voting.extract_user_agent(request)
+    voter_hash = voting.compute_voter_hash(client_ip, user_agent)
+
+    removed = voting.remove_vote(data_dir, event_id, voter_hash)
+    vote_count = voting.get_vote_count(data_dir, event_id)
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "event_id": event_id,
+            "vote_count": vote_count,
+            "voted": False,
+            "removed": removed,
+        },
+    )

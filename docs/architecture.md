@@ -33,7 +33,7 @@ News Sentry 是一个**开源 AI 新闻情报与 OSINT 监控平台**，持续�
 | AI Provider | Gemini → DeepSeek → Groq → Cloudflare Workers AI → OpenRouter → NVIDIA/Agnes/OpenCode/Reka (链式降级) |
 | 部署 | Cloudflare Pages + Workers + D1/R2；Cloudflare Containers 作为 Python/RSS-Bridge 过渡运行面 |
 | 前端 | Vite + React + Tailwind CSS |
-| 测试 | pytest 3,013 tests / vitest |
+| 测试 | pytest / vitest；当前数量和覆盖率见 `docs/status.md` |
 
 ---
 
@@ -370,7 +370,7 @@ Deployment Profile → Target Config
 
 ## 10. 测试策略
 
-**3,013 tests, 86% 覆盖率, 0 失败, 0 警告**
+当前测试数量、覆盖率和最近验证结果见 `docs/status.md`。本节只保留验证方式，避免架构文档维护过期数字。
 
 | 保障项 | 命令 | 阈值 |
 |--------|------|------|

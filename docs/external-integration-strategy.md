@@ -1,8 +1,9 @@
 # News Sentry — 外部项目接入策略
 
-> 版本: v2.0 | 日期: 2026-06-24
+> 版本: v2.2 | 日期: 2026-07-08
 > 状态: **规范文档** — 本文档是所有外部项目接入方式的唯一权威来源
 > 相关 ADR: [ADR-0008](./adr/0008-external-deps-install-not-vendor.md)（系统级依赖原则）、[ADR-0025](./adr/adr-0025.md)（CLI-first + FastAPI/Vanilla JS 嵌入式 SPA）
+> AI 容量策略: [AI Provider 免费容量与预算兜底策略](./specs/2026-07-03-ai-provider-free-capacity-and-paid-fallback.md)
 
 ---
 
@@ -10,11 +11,11 @@
 
 **原则 P1：install-not-vendor（安装，不内嵌）**
 
-外部项目通过系统包管理器（`npm install -g`、`pip install`、`brew install`）安装；News Sentry 不 fork、不 Git submodule、不 vendor 源代码到本仓库。版本约束写入本文档和对应 ADR，而非锁文件或 package.json，因为 News Sentry v1 不是一个可发布的 npm/pip 包。
+外部项目通过系统包管理器、官方容器、公开 API 或托管服务接入；News Sentry 不 fork、不 Git submodule、不 vendor 源代码到本仓库。版本约束写入本文档和对应 ADR，不把临时锁文件当成系统级依赖权威。
 
-**原则 P2：wrap-not-rewrite（包装，不重写）**
+**原则 P2：connect-not-embed（接入，不内嵌）**
 
-已有外部工具的功能，News Sentry 通过 `ToolManifest.executable + argv_template` 包装调用，**不** 在内核中复制其逻辑。若外部工具的输出格式需要适配，写一个轻量 `OutputAdapter`（< 50 行），而非重实现采集逻辑。
+已有外部工具的功能，News Sentry 优先通过 API、RSS、容器 sidecar 或小型 adapter 接入，**不** 在内核中复制其逻辑。若外部工具的输出格式需要适配，写清输入、输出、失败边界和测试；不要恢复已经移除的浏览器驱动或大型 Agent 框架。
 
 **原则 P3：document-the-version（锁版本，写文档）**
 
@@ -22,12 +23,11 @@
 
 ---
 
-## §2. 外部采集接入（v2 当前方案）
+## §2. 外部采集接入（当前方案）
 
-> **历史节点：** v2 Phase 1 重构移除了 OpenCLI（TypeScript CLI Hub + 浏览器驱动采集），
-> 原因：OpenCLI 依赖 Node.js 21+ 和 Chrome 浏览器，与 Docker slim-down 目标冲突，
-> 其 Twitter/Reddit/HN 采集功能已由轻量替代方案覆盖。
-> OpenCLI 历史设计见 [ADR-0011](./adr/0011-opencli-baseline-toolmanifest.md)（已弃用）。
+当前采集策略是：能用 RSS/API 的信源走原生 collector；必须桥接的社媒源走 RSS-Bridge；需要浏览器会话、共享账号或逆向接口的方案默认不进入生产路径。
+
+已移除的 OpenCLI 浏览器采集路线只保留在 ADR-0011 的历史记录中，不再作为新接入候选。
 
 ### 2.1 RSS-Bridge Container Bridge（社媒采集）
 
@@ -62,7 +62,7 @@
 Twitter/X 采集的预留选项（v2 未实现，`SourcePlatform` 类型已预留）：
 - **RSS-Bridge Twitter bridge**（需要 RSS-Bridge 配置 Twitter API token）
 - **Nitter RSS**（通过 Nitter 实例的 RSS 输出，无需 API key）
-- 具体实现路径将在后续 Phase 决定
+- 具体实现路径需要重新写小型设计稿和验证清单；不要引用旧 Phase 作为授权。
 
 ---
 
@@ -82,6 +82,18 @@ News Sentry v2 使用内置 AI provider chain，无需外部 Agent 框架：
 - **零外部框架依赖：** 不依赖 LangChain、OpenCLI、Hermes、OpenClaw 等 Agent 框架
 - **Provider 路由：** `config/provider/routes.yaml` 控制每个 target 的 provider 链路；同一 provider 的备用 key 使用环境变量后缀 `_2`、`_3` 进入 key pool
 - **CLI 入口不变：** `python -m news_sentry.cli run --target {id} --stage all`
+- **严格零成本策略：** 免费容量、试用额度、包月额度和付费兜底必须按 `cost_tier` 分层治理；默认 strict-zero profile 只使用官方免费或 ledger 已确认的免费/试用资源，详见 [AI Provider 免费容量与预算兜底策略](./specs/2026-07-03-ai-provider-free-capacity-and-paid-fallback.md)
+- **付费兜底策略：** 当所有免费资源冻结且 backlog 达到触发条件时，才允许进入 budgeted fallback；Coding Plan 只能服务代码维护类任务，不能默认用于公共翻译、摘要或 enrichment
+
+### 3.1 免费容量候选池
+
+后续 strict-zero 路由应优先扩展以下官方或相对可信的免费/试用资源：
+
+- 默认免费/试用主力：Gemini API、Groq、Cloudflare Workers AI、Cerebras、GitHub Models、SiliconFlow、OpenRouter free models、Mistral、SambaNova、Fireworks、Nscale。
+- 中国官方/准官方候选：Alibaba Model Studio / Bailian、ModelScope API-Inference、Tencent Hunyuan、Volcengine Ark、Z.ai / 智谱、Baidu AI Studio / Qianfan、DeepSeek、Moonshot / Kimi、MiniMax。
+- 可信第三方中转/网关候选：Cloudflare AI Gateway、Vercel AI Gateway、Hugging Face Inference Providers、Requesty、Novita、AIMLAPI、Portkey、302.AI、API易、AiHubMix、DMXAPI。
+
+所有候选必须先通过文档复核、账单页确认和 smoke test，才能从 `paid_disabled` 提升到 `free`、`trial_credit` 或 `subscription_included`。
 
 ---
 
@@ -91,10 +103,10 @@ News Sentry v2 使用内置 AI provider chain，无需外部 Agent 框架：
 
 | 借鉴点 | Intel_Briefing 原型 | News Sentry 对应设计 |
 |---|---|---|
-| Tier 1 / Tier 2 采集分层 | Tier 1（聚合器）走 `fetch_news.py`，Tier 2（独立传感器）走 `sensors/` | `SourceChannel.tier` 字段：`tier1`=RSS/API 聚合，`tier2`=独立采集 Skill（Phase 4+） |
+| Tier 1 / Tier 2 采集分层 | Tier 1（聚合器）走 `fetch_news.py`，Tier 2（独立传感器）走 `sensors/` | 可借鉴为 `SourceChannel.tier`，但落地前必须写 schema 与迁移测试 |
 | 防幻觉机制 | Grok fallback 产品标记 `⚠️ 链接未验证 (AI 推断)` | `metadata.translation.status="unverified"` 或 `acquisition.source_type="ai_inferred"` |
 | graceful degradation | 缺 API key 时跳过对应源，不崩溃 | SandboxPolicy `hard_stop.missing_api_key=false`；source health 记录 `status=degraded` |
-| 数据源清单参考 | HN、GitHub Trending、ArXiv、HF Papers、Product Hunt、TechCrunch、MIT TR | 作为 Phase 4 OpenCLI wrapper 或 RSS 直连的候选源 |
+| 数据源清单参考 | HN、GitHub Trending、ArXiv、HF Papers、Product Hunt、TechCrunch、MIT TR | 优先 RSS/API 直连；没有公开接口时先记录候选，不默认引入浏览器驱动 |
 | 优雅退出而非异常抛出 | 每个传感器独立 try/except，失败写 `status=skipped` | 与 `ToolRunResult.error.type` 规范对齐（ADR-0003） |
 
 **GitHub Actions 自动化参考：** Intel_Briefing 的 `.github/workflows/daily-report.yml` 是 Hermes cron 触发模式的可参考参照物。
@@ -108,25 +120,25 @@ News Sentry v2 使用内置 AI provider chain，无需外部 Agent 框架：
 | 借鉴点 | TrendRadar 原型 | News Sentry 对应设计 |
 |---|---|---|
 | 关键词×频率矩阵 | 关键词精准筛选 + 推送阈值配置 | `FilterRules.keyword_matrix`：关键词列表 + 权重 + 频率窗口，驱动 `news_value_score` |
-| 多渠道推送 fanout | 飞书/钉钉/企业微信/Telegram/Email/ntfy/Bark/Slack/Webhook | Phase 3 仅飞书 Webhook；Phase 5 扩展为多路 fanout，每路对应 `output_result.destinations[]` 的不同 channel |
-| MCP server 暴露形态 | `mcp_server/` 作为 MCP 工具集供 Claude 等客户端调用 | Phase 4+ 可考虑把 News Sentry `collect/judge` Skill 包装为 MCP server（`SkillManifest.mcp_compatible=true`） |
-| newsnow API 数据源 | 从 newsnow 项目获取多平台热榜数据 | 作为 Phase 4 RSS/API 候选源之一，通过 `SourceChannel.type=api` 接入 |
+| 多渠道推送 fanout | 飞书/钉钉/企业微信/Telegram/Email/ntfy/Bark/Slack/Webhook | 保持为后续候选；新增 channel 前必须有 `output_result.destinations[]` 契约和测试 |
+| MCP server 暴露形态 | `mcp_server/` 作为 MCP 工具集供 Claude 等客户端调用 | 仅作为后续候选；不能替代核心 CLI/API 契约 |
+| newsnow API 数据源 | 从 newsnow 项目获取多平台热榜数据 | 作为 RSS/API 候选源；通过 `SourceChannel.type=api` 接入前先做合规与限流检查 |
 
 ---
 
 ## §6. 明确舍弃清单
 
-下表记录经过反思后明确不引入 News Sentry v1 的外部项目能力，避免后续 PR 试图重做。
+下表记录经过反思后明确不引入当前主线的外部项目能力，避免后续 PR 试图重做。
 
 | 能力 | 来源 | 舍弃理由 |
 |---|---|---|
-| opencli-admin React/FastAPI 栈 | opencli-admin | ADR-0025：保留自有 FastAPI + Vanilla JS，避免引入 React/Vite/Tailwind |
-| opencli-admin Docker 多节点 | opencli-admin | v1 单机足够；分布式采集是 Phase 6+ |
-| MiroShark 群体智能模拟引擎 | MiroShark | 目标不同：模拟舆论反应 vs 监控真实新闻，v1 超范围 |
-| BettaFish MindSpider 爬虫栈 | BettaFish | 已加超 v1 banner；社媒爬虫在 Phase 6 走 OpenCLI 适配 |
-| worldmonitor 地图引擎（globe.gl/deck.gl） | worldmonitor | v1/v1.5 超范围；前端保持轻量信息工作台 |
-| worldmonitor Country Intelligence Index | worldmonitor | Phase 7+ 考虑；v1 用 `china_relevance` + L0/L1 classification |
-| BettaFish ForumEngine 多 Agent 论辩 | BettaFish | v2+ 候选；v1 单 judge Skill 已够 |
+| opencli-admin React/FastAPI 栈 | opencli-admin | 不引入第二套后台产品；当前 admin 前端已独立维护 |
+| opencli-admin Docker 多节点 | opencli-admin | 暂不引入分布式采集控制面；先保持现有 Cloudflare/容器边界 |
+| MiroShark 群体智能模拟引擎 | MiroShark | 目标不同：模拟舆论反应 vs 监控真实新闻 |
+| BettaFish MindSpider 爬虫栈 | BettaFish | 不恢复浏览器爬虫栈；社媒采集优先 RSS/API/Bridge |
+| worldmonitor 地图引擎（globe.gl/deck.gl） | worldmonitor | 超出当前轻量信息工作台目标 |
+| worldmonitor Country Intelligence Index | worldmonitor | 先使用 `china_relevance` + L0/L1 classification，避免新增并行指数 |
+| BettaFish ForumEngine 多 Agent 论辩 | BettaFish | 当前单 judge Skill 和人工复核已够，暂不引入多 Agent 论辩面 |
 | Tauri 桌面应用 | worldmonitor | ADR-0026 另行评估；当前桌面路径先打磨 pywebview |
 
 ---
@@ -140,6 +152,6 @@ News Sentry v2 使用内置 AI provider chain，无需外部 Agent 框架：
 | Docker | 24.0+ | 系统包管理器 | 容器化部署 | CI 测试 |
 | Node.js | 18+ (仅前端构建) | 系统包管理器或 nvm | 前端 TypeScript + Vite 构建 | 前端 build 通过即可 |
 
-**已移除的依赖（v2 Phase 1 重构）：**
+**已移除的依赖（v2 重构早期）：**
 - ~~OpenCLI >=1.7.14~~ → 由原生 Reddit/HN Collector + RSS-Bridge 替代
 - ~~Chrome/Chromium（OpenCLI browser 命令）~~ → 不再需要浏览器驱动采集

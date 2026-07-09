@@ -38,6 +38,10 @@ function item(id: string, overrides: Partial<PublicNewsItem> = {}): PublicNewsIt
     valueLabel: "精选",
     valueScore: 90,
     chinaRelevanceLabel: "中",
+    hnScore: 5.0,
+    points: 9.0,
+    gravityAgeHours: 1.0,
+    voteCount: 0,
     ...overrides,
   }
 }

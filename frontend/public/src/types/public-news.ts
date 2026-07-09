@@ -47,6 +47,22 @@ export interface PublicNewsItem {
   publishedAtLocal?: string | null
   availableLocales?: string[]
   chinaRelevanceLabel: PublicChinaRelevanceLabel
+  /**
+   * Hacker News-style ranking score (Phase 1; see
+   * docs/upgrades/hacker-news-style-upgrade-plan.md).
+   * Computed server-side via canonical HN formula
+   * `(points - 1) ^ 0.8 / (age_hours + 2) ^ gravity`.
+   */
+  hnScore: number
+  /**
+   * Vote-like weight derived from ``news_value_score / 10``.
+   * Phase 2 will add anonymous vote_count on top.
+   */
+  points: number
+  /** Age in hours between publication and ``hnScore`` computation. */
+  gravityAgeHours: number
+  /** Phase 2: anonymous vote count (0 when no votes recorded). */
+  voteCount: number
 }
 
 export interface PublicNewsFeedResponse {
@@ -71,6 +87,13 @@ export interface PublicNewsQuery {
   q?: string
   beforeCursor?: string
   sinceCursor?: string
+  /**
+   * Sort mode: ``top`` (HN score), ``breaking`` (breaking_score),
+   * ``recent`` (published_at desc, default).
+   *
+   * When ``top`` or ``breaking``, cursor pagination is bypassed.
+   */
+  sort?: "top" | "breaking" | "recent"
   pageSize?: number
 }
 

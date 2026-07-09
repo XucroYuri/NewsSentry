@@ -69,6 +69,10 @@ export interface PublicNewsItem {
   publishedAtLocal?: string | null;
   availableLocales?: string[];
   chinaRelevanceLabel: "高" | "中" | "低" | "未知";
+  hnScore: number;
+  points: number;
+  gravityAgeHours: number;
+  voteCount: number;
 }
 
 export interface PublicNewsFeedResponse {

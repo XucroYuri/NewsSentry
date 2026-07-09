@@ -7,16 +7,14 @@
 <p align="center">
   <strong>AI 驱动的多语种新闻情报平台</strong><br>
   实时追踪全球信源 · 智能研判关键事件 · 主动推送决策简报<br>
-  3020 tests · 87% coverage · mypy strict · ruff zero
+  当前质量、分支和部署状态见 <a href="docs/status.md">docs/status.md</a>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.0--rc2-blue.svg" alt="version" />
+  <img src="https://img.shields.io/badge/status-see%20docs%2Fstatus.md-blue.svg" alt="status" />
   <img src="https://img.shields.io/badge/python-3.11+-3776AB.svg?logo=python&logoColor=white" alt="python" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-orange.svg" alt="license" />
   <img src="https://img.shields.io/badge/ruff-0%20errors-success.svg" alt="ruff" />
-  <img src="https://img.shields.io/badge/tests-3001%20passed-brightgreen.svg" alt="tests" />
-  <img src="https://img.shields.io/badge/coverage-87%25-9cf.svg" alt="coverage" />
 </p>
 
 <p align="center">
@@ -24,6 +22,7 @@
   <a href="#为什么需要-news-sentry">为什么需要</a> ·
   <a href="#核心能力">核心能力</a> ·
   <a href="#系统架构">系统架构</a> ·
+  <a href="docs/status.md">当前状态</a> ·
   <a href="#典型使用场景">典型使用场景</a> ·
   <a href="#路线图">路线图</a> ·
   <a href="#参与贡献">参与贡献</a>
@@ -83,6 +82,7 @@ pip install -e ".[api,proxy]"
 # 3. 配置 AI Provider Key（至少一个）
 cp .env.example .env
 # 编辑 .env 填入 GEMINI_API_KEY / DEEPSEEK_API_KEY / GROQ_API_KEY
+# 免费额度池、备用 Key 和付费兜底策略见 docs/specs/2026-07-03-ai-provider-free-capacity-and-paid-fallback.md
 
 # 4. 健康检查
 ./run.sh doctor --target italy
@@ -284,6 +284,8 @@ python -m news_sentry.cli doctor --target italy
 | `NEWSSENTRY_PROFILE` | 否 | `local-workstation` | 部署 profile |
 | `HTTPS_PROXY` | 否 | — | 代理（如 `socks5://127.0.0.1:1080`）|
 
+AI Provider 支持按 `_2` 到 `_10` 后缀配置同 provider 的备用 Key。免费额度池、可信第三方中转候选、包月套餐和付费兜底策略见 [AI Provider 免费容量与预算兜底策略](./docs/specs/2026-07-03-ai-provider-free-capacity-and-paid-fallback.md)。
+
 ---
 
 ## 部署
@@ -314,9 +316,11 @@ curl http://localhost:8000/api/v1/health
 
 > 详细部署指南：[docs/architecture.md](docs/architecture.md) §7 部署拓扑
 
-### systemd（VPS 生产）
+### Cloudflare 生产与 legacy 回滚
 
-通过 GitHub Actions 自动部署（push to main），见 `.github/workflows/deploy.yml`。
+当前生产路径以 Cloudflare Pages + Workers + D1/R2 为准；Cloudflare Containers 只承接过渡期 Python/RSS-Bridge 后台面。VPS/systemd 只保留为 legacy rollback，不是默认生产依赖。
+
+详细边界见 [docs/status.md](docs/status.md) 和 [docs/deployment-guide.md](docs/deployment-guide.md)。
 
 ### Cron（开发/测试）
 
@@ -356,7 +360,7 @@ python tools/scan_sensitive_data.py  # 扫描敏感数据
 **质量门禁：**
 - `ruff check` — 0 errors
 - `mypy --strict` — 0 issues
-- `pytest` — 3,020 tests pass
+- `pytest` — 以本次运行输出为准，动态数字记录在 [docs/status.md](docs/status.md)
 - `tsc --noEmit` (frontend) — 0 errors
 
 ---
@@ -404,6 +408,7 @@ News Sentry 正在从本地新闻监控引擎演进为全球新闻情报平台�
 
 | 文档 | 说明 |
 |------|------|
+| [当前状态](docs/status.md) | 动态分支、部署、验证和阻塞状态 |
 | [架构总览](docs/architecture.md) | 系统架构、数据流、目录结构、部署拓扑 |
 | [开发者引导](MAKE_GUIDE.md) | 快速开始、配置、排障 |
 | [契约规范](docs/contracts-canonical.md) | 字段命名、评分量纲、目录映射 |

@@ -21,6 +21,7 @@ import {
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { NewsList, SortTabs, type SortMode } from "@/components/news-list-row"
 import { SeoHead } from "@/components/seo/seo-head"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -386,6 +387,7 @@ export function NewsFeedPage({
   onRefresh,
   onLoadMore,
   onApplyPending,
+  onSortModeChange,
 }: {
   filters: FeedFilters
   state: FeedState
@@ -393,7 +395,12 @@ export function NewsFeedPage({
   onRefresh: () => void
   onLoadMore: () => void
   onApplyPending: () => void
+  onSortModeChange: (mode: SortMode) => void
 }) {
+  // sortMode is owned by the parent (App.tsx) so it propagates into filters
+  // and reaches the backend as the `sort` query parameter. Default to "top"
+  // (HN-style ranking) unless the parent explicitly sets "recent"/"breaking".
+  const sortMode: SortMode = filters.sortMode ?? "top"
   const [collapsedGroupKeys, setCollapsedGroupKeys] = useState<Set<string>>(() => new Set())
   const grouped = useMemo(() => groupItemsByDate(state.items), [state.items])
   const recentlyInsertedIds = useMemo(
@@ -402,8 +409,12 @@ export function NewsFeedPage({
   )
   const topItems = useMemo(
     () =>
+      // 推荐列表：优先使用服务端推荐分，旧缓存缺字段时回退到价值分。
       [...state.items]
-        .sort((left, right) => (right.valueScore ?? 0) - (left.valueScore ?? 0))
+        .sort(
+          (left, right) =>
+            (right.hnScore ?? right.valueScore ?? 0) - (left.hnScore ?? left.valueScore ?? 0),
+        )
         .slice(0, 3),
     [state.items],
   )
@@ -414,12 +425,21 @@ export function NewsFeedPage({
     if (filters.category) search.set("category", filters.category)
     if (filters.search) search.set("q", filters.search)
     if (filters.date) search.set("date", filters.date)
+    if (filters.sortMode && filters.sortMode !== "top") search.set("sort", filters.sortMode)
     return {
       name: "feed",
       channel: filters.channel,
       search,
     } satisfies Extract<PublicRoute, { name: "feed" }>
-  }, [filters.category, filters.channel, filters.date, filters.search, filters.sourceId, filters.targetId])
+  }, [
+    filters.category,
+    filters.channel,
+    filters.date,
+    filters.search,
+    filters.sortMode,
+    filters.sourceId,
+    filters.targetId,
+  ])
   const hasItems = state.items.length > 0
 
   // 无限滚动：观察 sentinel div 进入视口时自动加载更多
@@ -442,6 +462,11 @@ export function NewsFeedPage({
   }, [loadingMore, state.nextCursor])
 
   const readIds = useMemo(() => getReadIds(), [state.items.length])
+  // 当前热点始终在列表上方，完整列表由 NewsList / NewsListRow 负责。
+  const breakingCount = useMemo(
+    () => state.items.filter((item) => (item.breakingScore ?? 0) > 0).length,
+    [state.items],
+  )
 
   return (
     <section className="min-w-0 overflow-hidden rounded-lg border bg-card/95 dark:bg-card/80">
@@ -486,52 +511,71 @@ export function NewsFeedPage({
               })}
             </div>
           </section>
-          {grouped.map((group) => {
-            const collapsed = collapsedGroupKeys.has(group.key)
-            return (
-            <section key={group.key} aria-label={group.label} className="grid gap-2 px-3 py-3">
-              <button
-                type="button"
-                aria-expanded={!collapsed}
-                className="flex items-center gap-2 text-left text-sm font-semibold text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() =>
-                  setCollapsedGroupKeys((current) => {
-                    const next = new Set(current)
-                    if (next.has(group.key)) {
-                      next.delete(group.key)
-                    } else {
-                      next.add(group.key)
+          <SortTabs
+            value={sortMode}
+            onChange={onSortModeChange}
+            counts={{
+              top: state.items.length,
+              recent: state.items.length,
+              breaking: breakingCount,
+            }}
+          />
+          {sortMode === "recent" ? (
+            grouped.map((group) => {
+              const collapsed = collapsedGroupKeys.has(group.key)
+              return (
+                <section key={group.key} aria-label={group.label} className="grid gap-2 px-3 py-3">
+                  <button
+                    type="button"
+                    aria-expanded={!collapsed}
+                    className="flex items-center gap-2 text-left text-sm font-semibold text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() =>
+                      setCollapsedGroupKeys((current) => {
+                        const next = new Set(current)
+                        if (next.has(group.key)) {
+                          next.delete(group.key)
+                        } else {
+                          next.add(group.key)
+                        }
+                        return next
+                      })
                     }
-                    return next
-                  })
-                }
-              >
-                <span>{group.label}</span>
-                <span className="h-px flex-1 bg-border" />
-                <span className="text-xs font-normal text-muted-foreground">{group.items.length} 条</span>
-                <ChevronRightIcon
-                  className={`size-3.5 transition-transform ${collapsed ? "" : "rotate-90"}`}
-                  aria-hidden="true"
-                />
-              </button>
-              {collapsed ? null : (
-                <div className="grid gap-2">
-                  {group.items.map((item) => (
-                  <div key={item.id} className="grid gap-2 md:grid-cols-[3.5rem_0.75rem_minmax(0,1fr)]">
-                    <time className="pt-3 text-xs font-semibold text-muted-foreground">
-                      {formatTime(item.publishedAt)}
-                    </time>
-                    <div className="hidden md:grid md:justify-center">
-                      <span className="mt-4 size-2 rounded-full bg-primary shadow-[var(--shadow-primary-soft)]" />
+                  >
+                    <span>{group.label}</span>
+                    <span className="h-px flex-1 bg-border" />
+                    <span className="text-xs font-normal text-muted-foreground">{group.items.length} 条</span>
+                    <ChevronRightIcon
+                      className={`size-3.5 transition-transform ${collapsed ? "" : "rotate-90"}`}
+                      aria-hidden="true"
+                    />
+                  </button>
+                  {collapsed ? null : (
+                    <div className="grid gap-2">
+                      {group.items.map((item) => (
+                      <div key={item.id} className="grid gap-2 md:grid-cols-[3.5rem_0.75rem_minmax(0,1fr)]">
+                        <time className="pt-3 text-xs font-semibold text-muted-foreground">
+                          {formatTime(item.publishedAt)}
+                        </time>
+                        <div className="hidden md:grid md:justify-center">
+                          <span className="mt-4 size-2 rounded-full bg-primary shadow-[var(--shadow-primary-soft)]" />
+                        </div>
+                        <NewsCard item={item} returnTo={feedRoute} isNew={recentlyInsertedIds.has(item.id)} isRead={readIds.has(item.id)} />
+                      </div>
+                      ))}
                     </div>
-                    <NewsCard item={item} returnTo={feedRoute} isNew={recentlyInsertedIds.has(item.id)} isRead={readIds.has(item.id)} />
-                  </div>
-                  ))}
-                </div>
-              )}
-            </section>
-            )
-          })}
+                  )}
+                </section>
+              )
+            })
+          ) : (
+            <NewsList
+              items={state.items}
+              returnTo={feedRoute}
+              readIds={readIds}
+              recentlyInsertedIds={recentlyInsertedIds}
+              sortMode={sortMode}
+            />
+          )}
           <div
             ref={sentinelRef}
             className="flex items-center justify-center border-t px-4 py-4"
@@ -626,7 +670,6 @@ export function BreakingHomePage({
   const recent = useMemo(() => sortRecentItems(state.items).slice(0, 6), [state.items])
   const lead = ranked[0]
   const leadSupplement = lead ? hotTopicSupplement(lead) : null
-  const topItems = ranked.slice(0, 3)
   const regionEntries = useMemo(
     () =>
       targets
@@ -762,32 +805,21 @@ export function BreakingHomePage({
 
       <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
         <section className="overflow-hidden rounded-lg border bg-card/95 dark:bg-card/80" aria-label="高价值动态">
-          <div className="border-b px-3 py-2">
-            <h2 className="text-sm font-semibold">Top 3 高价值动态</h2>
+          <div className="flex items-center justify-between border-b px-3 py-2">
+            <h2 className="text-sm font-semibold">推荐新闻</h2>
+            <span className="text-[10px] uppercase text-muted-foreground">
+              推荐排序 · {(state.items?.length ?? 0)} 条
+            </span>
           </div>
-          <div className="divide-y">
-            {topItems.map((item, index) => {
-              const detailRoute = buildDetailRoute(item, homeRoute)
-              return (
-                <article key={item.id}>
-                  <a
-                    href={buildPublicAppPath(detailRoute)}
-                    onClick={(event) => handleRouteAnchorClick(event, detailRoute)}
-                    className="grid gap-1 px-3 py-2.5 hover:bg-accent/15 sm:grid-cols-[2rem_minmax(0,1fr)_auto] sm:items-start"
-                  >
-                    <span className="text-lg font-semibold text-primary">{index + 1}</span>
-                    <span className="min-w-0">
-                      <span className="line-clamp-1 text-sm font-semibold">{primaryNewsTitle(item)}</span>
-                      <span className="mt-1 line-clamp-1 text-xs text-muted-foreground">
-                        {item.source.name} · {formatTime(item.publishedAt)}
-                      </span>
-                    </span>
-                    <Badge className="w-fit rounded-full px-2">{Math.round(item.valueScore ?? 0)}</Badge>
-                  </a>
-                </article>
-              )
-            })}
-          </div>
+          {ranked.length > 0 ? (
+            <NewsList
+              items={ranked}
+              returnTo={homeRoute}
+              sortMode="top"
+            />
+          ) : (
+            <p className="px-3 py-3 text-sm text-muted-foreground">暂无高价值动态。</p>
+          )}
         </section>
 
         <section className="overflow-hidden rounded-lg border bg-card/95 dark:bg-card/80" aria-label="最近推进">

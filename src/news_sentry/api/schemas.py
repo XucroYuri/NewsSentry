@@ -934,6 +934,18 @@ class PublicNewsItem(BaseModel):
         alias="chinaRelevanceLabel",
     )
 
+    # ── Hacker News-style ranking fields (Phase 1, see
+    # ── docs/upgrades/hacker-news-style-upgrade-plan.md).
+    # hn_score: canonical HN ranking score (higher = closer to top).
+    # points: derived vote-like weight (news_value_score / 10 in Phase 1; +
+    # vote_count once Phase 2 ships anonymous voting).
+    # gravity_age_hours: age in hours at the time of computation.
+    hn_score: float = Field(default=0.0, alias="hnScore")
+    points: float = Field(default=0.0, alias="points")
+    gravity_age_hours: float = Field(default=0.0, alias="gravityAgeHours")
+    # Phase 2: anonymous vote count (0 when voting module has no record).
+    vote_count: int = Field(default=0, alias="voteCount")
+
     model_config = {"populate_by_name": True}
 
 

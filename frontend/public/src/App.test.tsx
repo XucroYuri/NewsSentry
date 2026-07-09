@@ -39,6 +39,10 @@ function makeItem(id: string, overrides: Partial<PublicNewsItem> = {}): PublicNe
     valueLabel: "精选",
     valueScore: 92,
     chinaRelevanceLabel: "中",
+    hnScore: 5.47,
+    points: 9.2,
+    gravityAgeHours: 2.0,
+    voteCount: 0,
     ...overrides,
   }
 }
@@ -326,11 +330,20 @@ describe("Phase 84 public portal app", () => {
     expect(within(nav).getByRole("button", { name: /新闻哨兵 Breaking News/ })).toBeInTheDocument()
     expect(within(nav).getByRole("button", { name: /新闻纵览 All News/ })).toBeInTheDocument()
     expect(within(nav).getByRole("button", { name: /新闻日报 Daily News/ })).toBeInTheDocument()
-    expect(within(nav).getByRole("button", { name: "Agent" })).toBeInTheDocument()
-    expect(within(nav).getByRole("button", { name: "Update" })).toBeInTheDocument()
+    expect(within(nav).queryByRole("button", { name: "Agent" })).not.toBeInTheDocument()
+    expect(within(nav).queryByRole("button", { name: "Update" })).not.toBeInTheDocument()
     expect(within(nav).getByRole("button", { name: /新闻哨兵 Breaking News/ })).toHaveAttribute(
       "aria-pressed",
       "true",
+    )
+    const utilityNav = screen.getByRole("navigation", { name: "侧边栏辅助菜单" })
+    expect(within(utilityNav).getByRole("link", { name: "Agent" })).toHaveAttribute(
+      "href",
+      "/public-app/agent",
+    )
+    expect(within(utilityNav).getByRole("link", { name: "Update" })).toHaveAttribute(
+      "href",
+      "/public-app/update",
     )
     expect(screen.getAllByRole("heading", { name: LEAD_TITLE }).length).toBeGreaterThan(0)
     expect(screen.getAllByText("ANSA.it").length).toBeGreaterThan(0)
@@ -497,6 +510,10 @@ describe("Phase 84 public portal app", () => {
 
     render(<App />)
 
+    // 推荐视图是默认列表；切到“最新”以断言按日期分组的卡片时间线。
+    const recentTab = await screen.findByRole("button", { name: /^最新/ })
+    fireEvent.click(recentTab)
+
     const matchingLinks = await screen.findAllByRole("link", {
       name: /微软双向转售 GPT 与 DeepSeek 成全球最大 AI 中间商/,
     })
@@ -568,6 +585,10 @@ describe("Phase 84 public portal app", () => {
 
     render(<App />)
 
+    // 推荐视图是默认列表；切到“最新”以渲染本断言关注的卡片时间线。
+    const recentTab1 = await screen.findByRole("button", { name: /^最新/ })
+    fireEvent.click(recentTab1)
+
     const hotTopics = await screen.findByRole("region", { name: "当前热点" })
     expect(within(hotTopics).queryByText(redundantSummary)).not.toBeInTheDocument()
     expect(screen.getByText(redundantSummary)).toBeInTheDocument()
@@ -597,6 +618,8 @@ describe("Phase 84 public portal app", () => {
     render(<App />)
 
     await findLeadStory()
+    // 推荐视图是默认列表；切到“最新”后日期分组可见。
+    fireEvent.click(await screen.findByRole("button", { name: /^最新/ }))
     const todayGroup = screen.getByRole("region", { name: "6月9日周二" })
     expect(within(todayGroup).getByText(LEAD_ORIGINAL_TITLE)).toBeInTheDocument()
 
@@ -612,7 +635,7 @@ describe("Phase 84 public portal app", () => {
   it("automatically inserts polled news at the top with an entering marker", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     installFetchMock()
-    window.location.hash = "#/feed?channel=all"
+    window.location.hash = "#/feed?channel=all&sort=recent"
 
     render(<App />)
 
@@ -650,6 +673,14 @@ describe("Phase 84 public portal app", () => {
     expect(utilityNav.className).not.toContain("w-max")
     expect(within(utilityNav).queryByRole("link", { name: "About" })).not.toBeInTheDocument()
     expect(within(utilityNav).queryByRole("link", { name: "Method" })).not.toBeInTheDocument()
+    expect(within(utilityNav).getByRole("link", { name: "Agent" })).toHaveAttribute(
+      "href",
+      "/public-app/agent",
+    )
+    expect(within(utilityNav).getByRole("link", { name: "Update" })).toHaveAttribute(
+      "href",
+      "/public-app/update",
+    )
     expect(within(utilityNav).getByRole("link", { name: "Sources" })).toHaveAttribute(
       "href",
       "/sources",
@@ -689,6 +720,7 @@ describe("Phase 84 public portal app", () => {
     expect(utilityNav.className).not.toContain("w-max")
     expect(within(utilityNav).queryByRole("link", { name: "About" })).not.toBeInTheDocument()
     expect(within(utilityNav).queryByRole("link", { name: "Method" })).not.toBeInTheDocument()
+    expect(within(utilityNav).getByRole("link", { name: "Update" }).className).toContain("size-6")
     expect(within(utilityNav).getByRole("link", { name: "Sources" }).className).toContain("size-6")
     expect(within(utilityNav).getAllByRole("button", { name: /切换主题/ })[0].className).toContain(
       "size-6",
@@ -751,6 +783,9 @@ describe("Phase 84 public portal app", () => {
     expect(updatePanel.className).toContain("py-2")
     expect(within(updatePanel).getByText("v2.0.0")).toBeInTheDocument()
     expect(within(updatePanel).queryByText("AIHOT 化公共阅读体验")).not.toBeInTheDocument()
+    expect(screen.queryByText("API 数据源")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "重置" })).not.toBeInTheDocument()
     expect(screen.queryByText("UPDATE LOG")).not.toBeInTheDocument()
     expect(screen.queryByText(/不替代内部部署日志/)).not.toBeInTheDocument()
   })
@@ -823,7 +858,7 @@ describe("Phase 84 public portal app", () => {
 
     await findLeadStory()
     const initialFeedCalls = fetchMock.mock.calls.filter(
-      ([input]) => String(input) === "/api/v1/public/news?featured=true&page_size=20",
+      ([input]) => String(input) === "/api/v1/public/news?featured=true&sort=top&page_size=20",
     )
     expect(initialFeedCalls).toHaveLength(0)
   })
@@ -840,7 +875,7 @@ describe("Phase 84 public portal app", () => {
 
     expect((await screen.findAllByText(ssrTitle)).length).toBeGreaterThan(0)
     const initialNewsCalls = fetchMock.mock.calls.filter(
-      ([input]) => String(input) === "/api/v1/public/news?featured=true&page_size=20",
+      ([input]) => String(input) === "/api/v1/public/news?featured=true&sort=top&page_size=20",
     )
     expect(initialNewsCalls).toHaveLength(0)
   })
@@ -890,14 +925,25 @@ describe("Phase 84 public portal app", () => {
   it("falls back to the all-news stream when the featured feed is empty", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input)
+      if (url.startsWith("/api/v1/public/bootstrap")) {
+        return jsonResponse({
+          news: feed([]),
+          regions: { regions: [] },
+          facets: { regions: [], issues: [], related: [] },
+          generatedAt: "2026-06-21T00:00:00Z",
+        })
+      }
       if (url.startsWith("/api/v1/regions")) {
         return jsonResponse({ regions: [] })
       }
-      if (url === "/api/v1/public/news?featured=true&page_size=20") {
-        return jsonResponse(feed([]))
-      }
-      if (url === "/api/v1/public/news?page_size=20") {
-        return jsonResponse(feed([makeItem("event-fallback", { valueScore: 96 })]))
+      if (url.startsWith("/api/v1/public/news")) {
+        const params = new URL(url, "https://news-sentry.test").searchParams
+        if (params.get("featured") === "true" && params.get("sort") === "top") {
+          return jsonResponse(feed([]))
+        }
+        if (params.get("sort") === "top") {
+          return jsonResponse(feed([makeItem("event-fallback", { valueScore: 96 })]))
+        }
       }
       return jsonResponse({})
     })
@@ -907,7 +953,7 @@ describe("Phase 84 public portal app", () => {
 
     await findLeadStory()
     expect(
-      fetchMock.mock.calls.some(([input]) => String(input) === "/api/v1/public/news?page_size=20"),
+      fetchMock.mock.calls.some(([input]) => String(input) === "/api/v1/public/news?sort=top&page_size=20"),
     ).toBe(true)
   })
 
@@ -1192,17 +1238,18 @@ describe("Phase 84 public portal app", () => {
   it("auto-inserts new items without interrupting the reader with a banner", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     installFetchMock()
-    window.location.hash = "#/feed?channel=all"
+    window.location.hash = "#/feed?channel=all&sort=recent"
     render(<App />)
 
     await findLeadStory()
+    // Cursor polling belongs to the Recent timeline; score-driven lists do not
+    // expose stable pagination or "newer than" cursors.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(30_000)
     })
 
     expect(screen.queryByRole("button", { name: /有 \d+ 条新动态/ })).not.toBeInTheDocument()
     expect(await screen.findAllByText("欧盟宣布新的贸易磋商议程")).not.toHaveLength(0)
-    expect(screen.getAllByText("EU announces new trade talks agenda").length).toBeGreaterThan(0)
   })
 
   it("loads older news and keeps the mobile bottom navigation active", async () => {
@@ -1443,7 +1490,7 @@ describe("Phase 84 public portal app", () => {
     expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/api/v1/public/agent"))).toBe(false)
 
     fireEvent.click(
-      within(screen.getByRole("navigation", { name: "公共站侧边栏" })).getByRole("button", {
+      within(screen.getByRole("navigation", { name: "侧边栏辅助菜单" })).getByRole("link", {
         name: "Update",
       }),
     )

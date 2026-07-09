@@ -1,6 +1,7 @@
 import type { PublicNewsItem, PublicNewsQuery } from "@/types/public-news"
 
 export type PublicChannel = "featured" | "all" | "targets" | "sources" | "analysis" | "daily"
+export type FeedSortMode = "top" | "recent" | "breaking"
 
 export interface FeedFilters {
   channel: PublicChannel
@@ -13,6 +14,12 @@ export interface FeedFilters {
   search?: string
   date?: string
   pageSize?: number
+  /**
+   * Sort mode sent to the backend as the ``sort`` query parameter. The backend
+   * re-ranks the candidate window globally when this is ``top`` or
+   * ``breaking``; ``recent`` (default) preserves cursor pagination semantics.
+   */
+  sortMode?: FeedSortMode
 }
 
 export interface PollDelayInput {
@@ -44,6 +51,9 @@ export function makeFeedQuery(filters: FeedFilters): PublicNewsQuery {
   query.related = clean(filters.related)
   query.date = clean(filters.date)
   query.q = clean(filters.search)
+  if (filters.sortMode && filters.sortMode !== "recent") {
+    query.sort = filters.sortMode
+  }
   if (filters.pageSize !== undefined) query.pageSize = filters.pageSize
   return query
 }

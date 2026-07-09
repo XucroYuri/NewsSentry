@@ -11,8 +11,11 @@ import type { PublicNewsItem, PublicNewsSource } from "./contracts";
 export const PUBLIC_FEATURED_MIN_SCORE = 60;
 export const PUBLIC_BREAKING_MIN_SCORE = 60;
 export const BREAKING_SCORE_VERSION = "breaking-v1.0";
+export const DEFAULT_HN_GRAVITY = 1.8;
+export const DEFAULT_HN_POINTS_DIVISOR = 10;
 export const SUPPORTED_PUBLIC_LOCALES = ["zh", "en", "es", "ar", "fr"] as const;
 export type PublicLocale = (typeof SUPPORTED_PUBLIC_LOCALES)[number];
+export type PublicNewsSortMode = "recent" | "top" | "breaking";
 
 export interface NewsRow {
   event_id: string;
@@ -169,8 +172,17 @@ export function buildPublicNewsWhere(input: PublicNewsFilterInput): {
   return { sql, bindings };
 }
 
-export function publicNewsOrderBy(featured: boolean): string {
-  return featured
+export function publicNewsSortMode(raw: string | null): PublicNewsSortMode {
+  const value = (raw || "recent").trim().toLowerCase();
+  if (value === "top" || value === "breaking" || value === "recent") return value;
+  return "recent";
+}
+
+export function publicNewsOrderBy(featured: boolean, sortMode: PublicNewsSortMode = "recent"): string {
+  if (sortMode === "top") {
+    return "ORDER BY events.published_at DESC, events.event_id DESC";
+  }
+  return featured || sortMode === "breaking"
     ? "ORDER BY events.breaking_score DESC, events.published_at DESC, events.event_id DESC"
     : "ORDER BY events.published_at DESC, events.event_id DESC";
 }
@@ -235,6 +247,46 @@ function parseJsonObject(raw: string | null): Record<string, number> {
   }
 }
 
+function pointsFromValueScore(valueScore: number | null, voteCount = 0): number {
+  const score = typeof valueScore === "number" && Number.isFinite(valueScore) && valueScore > 0
+    ? valueScore
+    : 0;
+  return score / DEFAULT_HN_POINTS_DIVISOR + Math.max(0, voteCount);
+}
+
+function ageHoursFromPublished(publishedAt: string): number {
+  const publishedMs = Date.parse(publishedAt);
+  const nowMs = Date.now();
+  if (!Number.isFinite(publishedMs) || !Number.isFinite(nowMs)) return 0;
+  return Math.max(0, (nowMs - publishedMs) / 3_600_000);
+}
+
+function computeHnScore(points: number, ageHours: number, gravity = DEFAULT_HN_GRAVITY): number {
+  if (!Number.isFinite(points) || !Number.isFinite(ageHours) || !Number.isFinite(gravity) || gravity <= 0) {
+    return 0;
+  }
+  const base = Math.max(points - 1, 0);
+  if (base === 0) return 0;
+  const numerator = Math.pow(base, 0.8);
+  const denominator = Math.pow(ageHours + 2, gravity);
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) return 0;
+  return numerator / denominator;
+}
+
+export function hnFieldsForRow(row: Pick<NewsRow, "value_score" | "published_at">, voteCount = 0): {
+  hnScore: number;
+  points: number;
+  gravityAgeHours: number;
+} {
+  const points = pointsFromValueScore(row.value_score, voteCount);
+  const gravityAgeHours = ageHoursFromPublished(row.published_at);
+  return {
+    hnScore: computeHnScore(points, gravityAgeHours),
+    points,
+    gravityAgeHours,
+  };
+}
+
 export function rowToPublicNewsItem(row: NewsRow): PublicNewsItem {
   const source: PublicNewsSource = {
     id: row.source_id,
@@ -242,6 +294,7 @@ export function rowToPublicNewsItem(row: NewsRow): PublicNewsItem {
     type: (row.source_type as PublicNewsSource["type"]) || "unknown",
     credibilityLabel: row.credibility_label,
   };
+  const hnFields = hnFieldsForRow(row);
 
   return {
     id: row.event_id,
@@ -275,5 +328,9 @@ export function rowToPublicNewsItem(row: NewsRow): PublicNewsItem {
     publishedAtLocal: row.published_at_local,
     availableLocales: parseJsonArray(row.available_locales || "[]"),
     chinaRelevanceLabel: row.china_relevance_label as PublicNewsItem["chinaRelevanceLabel"],
+    hnScore: hnFields.hnScore,
+    points: hnFields.points,
+    gravityAgeHours: hnFields.gravityAgeHours,
+    voteCount: 0,
   };
 }

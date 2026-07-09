@@ -43,6 +43,10 @@ function makeItem(id: string, overrides: Partial<PublicNewsItem> = {}): PublicNe
     valueLabel: "精选",
     valueScore: 92,
     chinaRelevanceLabel: "中",
+    hnScore: 5.47,
+    points: 9.2,
+    gravityAgeHours: 2.0,
+    voteCount: 0,
     ...overrides,
   }
 }

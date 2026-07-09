@@ -1,161 +1,149 @@
 # News Sentry — 部署指南
 
-> 版本: v1.0.0 | 日期: 2026-05-12
+> 版本: v2.1 | 日期: 2026-07-08
+> 当前部署权威、分支 SHA 和验证状态见 `docs/status.md`。
 
-## 快速开始
+## 当前原则
 
-### 1. 安装
+News Sentry 的生产路径按优先级分三层：
+
+```mermaid
+flowchart LR
+    P["Cloudflare Pages<br/>public frontend"] --> W["Cloudflare Worker<br/>public/API edge"]
+    W --> D1["Cloudflare D1<br/>public read/index state"]
+    W --> R2["Cloudflare R2<br/>assets/snapshots"]
+    W -. "transitional background/admin only" .-> C["Cloudflare Containers<br/>Python/FastAPI/RSS-Bridge"]
+    V["VPS / Tunnel / systemd"] -. "legacy rollback archive" .-> C
+```
+
+- 公开读路径：Cloudflare Pages + Worker + D1/R2。
+- 过渡后台：Cloudflare Containers 承接尚未 Worker-native 化的 Python、FastAPI、RSS-Bridge 或管理任务。
+- 本地开发：CLI、FastAPI、Docker Compose 都可以使用，但不代表生产权威。
+- legacy 回滚：VPS、Tunnel、systemd 只用于紧急回退和历史诊断。
+
+## 本地快速运行
 
 ```bash
-git clone https://github.com/XucroYuri/NewsSentry.git
-cd NewsSentry
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -e ".[dev,api,proxy]"
-pre-commit install
+
+./run.sh doctor --target italy
+./run.sh run --target italy --stage all
+./run.sh serve --target italy
 ```
 
-### 2. 配置
+打开：
 
-```bash
-# AI 增强：默认使用 OpenRouter
-export OPENROUTER_API_KEY=sk-or-...
-export OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-
-# 可选：API 网关认证
-export NEWSSENTRY_API_KEY=key1,key2
-
-# 可选：代理
-export HTTPS_PROXY=socks5://127.0.0.1:10808
+```text
+http://localhost:8000/admin/
+http://localhost:8000/public-app/
 ```
 
-### 3. 运行
+## 环境变量
+
+最小本地配置：
 
 ```bash
-# 单次采集
-python -m news_sentry.cli run --target italy --stage all
-
-# 仅采集
-python -m news_sentry.cli run --target italy --stage collect
-
-# 仅过滤+研判
-python -m news_sentry.cli run --target italy --stage filter
-python -m news_sentry.cli run --target italy --stage judge
-
-# 输出 + 告警
-python -m news_sentry.cli run --target italy --stage output
+export GEMINI_API_KEY=...
+export DEEPSEEK_API_KEY=...    # optional
+export GROQ_API_KEY=...        # optional
+export NEWSSENTRY_API_KEY=...  # optional API auth
+export HTTPS_PROXY=socks5://127.0.0.1:10808  # optional
 ```
 
----
+Provider 免费额度池、备用 Key、预算兜底和禁用边界见：
 
-## VPS 部署
+- `docs/external-integration-strategy.md`
+- `docs/specs/2026-07-03-ai-provider-free-capacity-and-paid-fallback.md`
 
-### 推荐：Hetzner CX32
+## Cloudflare 验证
 
-| 规格 | 值 |
-|------|-----|
-| CPU | 2 vCPU |
-| RAM | 8 GB |
-| 存储 | 80 GB |
-| 月费 | €7.9 |
-| 带宽 | 20 TB |
-
-### Docker 部署
+Worker 改动至少做 dry-run：
 
 ```bash
-# 构建
+cd frontend/cloudflare
+npx wrangler deploy --env="" --dry-run --outdir /tmp/ns-worker-dry-run --containers-rollout none
+```
+
+公开站部署或发布判断需要同时验证：
+
+- live deployment commit header。
+- public news API。
+- runtime info 或 health endpoint。
+- GitHub preview/main gate 状态。
+- `docs/status.md` 中的分支和验证快照。
+
+不要用本地 curl 成功替代公开站证明。
+
+## Docker Compose 本地开发
+
+```bash
+export GEMINI_API_KEY=...
+docker compose up -d
+curl http://localhost:8000/api/v1/health
+```
+
+Docker Compose 用于本地和过渡诊断。它不是当前公开读面的默认生产路径。
+
+## API 服务本地运行
+
+```bash
+pip install -e ".[api,proxy]"
+./run.sh serve --target italy
+
+curl http://localhost:8000/api/v1/health
+curl -H "X-API-Key: $NEWSSENTRY_API_KEY" \
+  "http://localhost:8000/api/v1/events?target_id=italy&page=1&page_size=20"
+```
+
+## Legacy Rollback Archive
+
+以下方式只保留为历史回滚或故障诊断，不应作为新功能默认部署路径。
+
+### systemd
+
+```bash
+sudo cp config/news-sentry.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now news-sentry
+sudo systemctl status news-sentry
+```
+
+### VPS Docker
+
+```bash
 docker build -t news-sentry .
-
-# 运行
 docker run -d \
   --name news-sentry \
-  -e OPENROUTER_API_KEY=$OPENROUTER_API_KEY \
-  -e NEWSSENTRY_API_KEY=$NEWSSENTRY_API_KEY \
+  -e GEMINI_API_KEY="$GEMINI_API_KEY" \
+  -e NEWSSENTRY_API_KEY="$NEWSSENTRY_API_KEY" \
   -v /data/news-sentry:/app/data \
   -p 8000:8000 \
   news-sentry
 ```
 
-### systemd 部署
+### Cron
 
 ```bash
-# 复制服务文件
-sudo cp config/news-sentry.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now news-sentry
-
-# 查看状态
-sudo systemctl status news-sentry
+*/15 * * * * cd /path/to/NewsSentry && .venv/bin/python -m news_sentry.cli run --target italy --stage all --profile cloud-vps
 ```
 
-### 备份
+使用 legacy 路径前必须在任务记录里说明：
+
+- 为什么 Cloudflare 当前路径不可用。
+- 回滚持续多久。
+- 如何验证回到 Cloudflare 当前路径。
+
+## 备份和诊断
 
 ```bash
-# 手动运行
 bash tools/backup.sh /data/news-sentry
-
-# Cron 每日自动备份
-0 3 * * * /opt/news-sentry/tools/backup.sh /data/news-sentry
+python tools/scan_sensitive_data.py
+python tools/security_audit.py
 ```
 
----
+健康端点：
 
-## API 服务
-
-```bash
-# 启动 API 服务
-NEWSSENTRY_API_KEY=your-key \
-uvicorn news_sentry.core.api_server:create_app \
-  --factory --host 0.0.0.0 --port 8000
-
-# 健康检查
-curl http://localhost:8000/api/v1/health
-
-# 查询事件
-curl -H "X-API-Key: your-key" \
-  "http://localhost:8000/api/v1/events?target_id=italy&page=1&page_size=20"
-
-# Webhook 入站
-curl -X POST -H "X-API-Key: your-key" \
-  -H "Content-Type: application/json" \
-  "http://localhost:8000/api/v1/webhook?target_id=italy" \
-  -d '{"source_id":"ext","url":"https://example.com/a","title_original":"News"}'
-```
-
----
-
-## 信源矩阵自进化
-
-```python
-from news_sentry.skills.collect.rss_discovery import RSSDiscovery
-from news_sentry.core.source_health_checker import SourceHealthChecker
-from news_sentry.core.matrix_evolution import MatrixEvolution
-
-# 发现新源
-discovery = RSSDiscovery(Path("config/sources/italy"), "italy")
-result = discovery.discover()
-print(f"发现 {result.total_discovered} 个新源")
-
-# 健康巡检
-checker = SourceHealthChecker(Path("config/sources/italy"), "italy")
-report = checker.check_all()
-print(f"健康: {len(report.healthy)} 降级: {len(report.degraded)} 不可达: {len(report.unreachable)}")
-
-# 审批新源
-evo = MatrixEvolution(
-    Path("config/sources/italy"),
-    Path("config/targets/italy.yaml"),
-    Path("data/italy/memory/matrix-evolution.yaml"),
-)
-evo.ingest_discovery(result)
-for candidate in evo.get_pending():
-    evo.approve(candidate.url, "new-source-id", credibility_base=0.7)
-```
-
----
-
-## 监控
-
-- 健康端点: `GET /api/v1/health` (API 模式) 或 `GET /health` (HealthServer 模式)
-- 日志轮转: `config/logrotate.conf` (30 天保留)
-- 安全扫描: `make scan-sensitive` / `python tools/security_audit.py`
+- API 模式：`GET /api/v1/health`
+- HealthServer 模式：`GET /health`

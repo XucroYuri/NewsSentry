@@ -2875,6 +2875,14 @@ def create_app(
         q: str | None = Query(None, description="全文关键词搜索"),
         before_cursor: str | None = Query(None, description="加载更早新闻的 cursor"),
         since_cursor: str | None = Query(None, description="检查更新新闻的 cursor"),
+        sort: str | None = Query(
+            None,
+            description=(
+                "排序模式：top（按 HN 公式 hn_score 降序）、"
+                "breaking（按 breaking_score 降序）、"
+                "recent（按 published_at 降序，默认）"
+            ),
+        ),
         page_size: int = Query(
             _PUBLIC_NEWS_DEFAULT_PAGE_SIZE,
             ge=1,
@@ -2903,6 +2911,7 @@ def create_app(
             q=q,
             before_cursor=before_cursor,
             since_cursor=since_cursor,
+            sort=sort,
             page_size=page_size,
         ))
 
@@ -2914,6 +2923,44 @@ def create_app(
         from news_sentry.core import public_handlers
         return await public_handlers.get_public_news_item_handler(
             _data_dir, _store, _get_target_store, event_id, target_id=target_id
+        )
+
+    async def vote_public_news_item(
+        request: Request,
+        event_id: str,
+        target_id: str | None = Query(None, description="可选 target 提示"),
+    ) -> JSONResponse:
+        """Anonymous upvote — Phase 2 HN-style interaction.
+
+        Uses voter_hash (sha256 of IP + UA + daily salt) for 24h dedup.
+        Rate-limited to 50 votes per voter per rolling 24h window.
+        """
+        from news_sentry.core import public_handlers, voting
+        return await public_handlers.vote_public_news_item_handler(
+            _data_dir,
+            _store,
+            _get_target_store,
+            request,
+            event_id,
+            voting,
+            target_id=target_id,
+        )
+
+    async def unvote_public_news_item(
+        request: Request,
+        event_id: str,
+        target_id: str | None = Query(None, description="可选 target 提示"),
+    ) -> JSONResponse:
+        """Remove a previously recorded anonymous upvote."""
+        from news_sentry.core import public_handlers, voting
+        return await public_handlers.unvote_public_news_item_handler(
+            _data_dir,
+            _store,
+            _get_target_store,
+            request,
+            event_id,
+            voting,
+            target_id=target_id,
         )
 
     async def get_stats(
@@ -4261,6 +4308,8 @@ def create_app(
         "get_public_bootstrap": get_public_bootstrap,
         "list_public_news": list_public_news,
         "get_public_news_item": get_public_news_item,
+        "vote_public_news_item": vote_public_news_item,
+        "unvote_public_news_item": unvote_public_news_item,
         "list_events": list_events,
         "events_feed": events_feed,
         "event_stream": event_stream,
