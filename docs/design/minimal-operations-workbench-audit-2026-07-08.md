@@ -45,6 +45,12 @@ flowchart LR
 - `Agent`、`Update`、`Sources`、`Subscribe` 降为底部工具或二级菜单。
 - `Update` 公共页改为只读“更新日志/同步状态”，写操作移回 admin。
 
+本轮已修复：
+
+- 公共侧边栏和移动底部导航只保留“新闻哨兵 / 新闻纵览 / 新闻日报”。
+- `Agent`、`Update`、`Sources`、`Subscribe` 已收进辅助工具栏。
+- 公共 `Update` 页移除了 API 数据源输入、保存和重置控件，只保留刷新时间与版本状态。
+
 ### 2. 筛选与排序重复
 
 现状问题：
@@ -146,6 +152,8 @@ flowchart LR
 | 投票边界 | vote/unvote 只允许公开可见事件 | 减少匿名写入滥用面 |
 | Worker 契约 | Worker 支持 sort 和推荐字段 | Cloudflare 读面与 Python 读面收敛 |
 | 前端文案 | `Top/Recent/Breaking` 改为“推荐/最新/突发” | 降低读者理解成本 |
+| 公共导航 | 主导航收敛为三类阅读入口，低频说明入口移到辅助工具栏 | 首屏只服务“读新闻”任务 |
+| Update 页面 | 移除公共页 API 数据源写控件 | 公共站只读，配置修改不混入阅读工作台 |
 | Admin 合并 | Entity merge 使用用户实际选择项 | 修复高风险误操作 |
 | 空 bootstrap | 空首屏数据不吞掉 all-news fallback | 保持首页兜底可用 |
 | 缓存隔离 | public feed cache key 纳入 `data_dir` | 防止测试/多运行目录串数据 |
@@ -169,6 +177,8 @@ flowchart LR
 - `wrangler deploy --dry-run` 通过。
 
 ### P1：公共站第一层减法
+
+状态：本轮已完成。
 
 目标：让第一次打开的人只看到阅读任务，不被维护入口打断。
 

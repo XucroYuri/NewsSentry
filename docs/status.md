@@ -1,6 +1,6 @@
 # News Sentry Current Status
 
-> Last local audit: 2026-07-08 04:20 Asia/Shanghai
+> Last local audit: 2026-07-09 20:27 Asia/Shanghai
 > Purpose: single source for dynamic project state. If a status value can change between runs, keep it here instead of copying it into `AGENTS.md`, `README.md`, or architecture docs.
 
 ## Branch And Release State
@@ -8,7 +8,7 @@
 | Field | Current local evidence | Notes |
 | --- | --- | --- |
 | Working branch | `codex/news-value-latent-model` | Draft PR: <https://github.com/XucroYuri/NewsSentry/pull/49>. |
-| Published branch scope | Ranked public workbench voting, documentation/status simplification, and local tool-state ignore cleanup | Use `git log origin/main..HEAD --oneline` for the exact current commit list. |
+| Published branch scope | Ranked public workbench voting, public navigation simplification, read-only public Update page, documentation/status simplification, and local tool-state ignore cleanup | Use `git log origin/main..HEAD --oneline` for the exact current commit list. |
 | `origin/main` | `83efaaa` | Production authority branch according to local remote refs. Refresh before any release decision. |
 | local `preview` | `7f0155e` | Local branch is behind remote preview history. |
 | `origin/preview` | `d65445b` | Preview gate authority according to local remote refs. Refresh before CI/preview work. |
@@ -36,8 +36,8 @@ flowchart LR
 
 | Area | Current state | Next minimal step |
 | --- | --- | --- |
-| Public workbench | Ranked list, `推荐/最新/突发` sorting, anonymous vote path, Worker read contract, and admin merge fix are published in draft PR #49. | Continue with small reviewable follow-up phases. |
-| Minimal operations audit | `docs/design/minimal-operations-workbench-audit-2026-07-08.md` records issues P0-P5. | Continue with small, verifiable phases. |
+| Public workbench | Ranked list, `推荐/最新/突发` sorting, anonymous vote path, Worker read contract, three-entry reader navigation, utility links, read-only public Update page, and admin merge fix are published in draft PR #49. | Continue with P2 filter/sort consolidation. |
+| Minimal operations audit | `docs/design/minimal-operations-workbench-audit-2026-07-08.md` records issues P0-P5; P0 and P1 are implemented in draft PR #49. | Continue with P2 filter/sort consolidation. |
 | Agent docs | This status file is now the dynamic state authority. | Keep `AGENTS.md` short and update this file when evidence changes. |
 | AI provider capacity | Strategy spec exists at `docs/specs/2026-07-03-ai-provider-free-capacity-and-paid-fallback.md`. | Implement only after route schema and ledger tests are planned. |
 | Latent news value model | Local untracked implementation and tests exist; targeted test passes. | Decide whether to integrate as a separate feature commit. |
@@ -61,7 +61,9 @@ cd frontend/cloudflare && npx wrangler deploy --env="" --dry-run --outdir /tmp/n
 Result summary:
 
 - Public workbench and voting checks passed.
+- Public navigation simplification and read-only Update page checks passed.
 - Frontend public/admin checks passed.
+- Browser QA on `http://127.0.0.1:5173/public-app/` confirmed desktop three-entry navigation, auxiliary Agent/Update links, mobile three-entry bottom nav, and no public Update write controls.
 - Worker dry-run passed.
 - Sensitive-data scan passed.
 - Latent value model targeted test passed.

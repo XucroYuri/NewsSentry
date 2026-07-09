@@ -330,11 +330,20 @@ describe("Phase 84 public portal app", () => {
     expect(within(nav).getByRole("button", { name: /新闻哨兵 Breaking News/ })).toBeInTheDocument()
     expect(within(nav).getByRole("button", { name: /新闻纵览 All News/ })).toBeInTheDocument()
     expect(within(nav).getByRole("button", { name: /新闻日报 Daily News/ })).toBeInTheDocument()
-    expect(within(nav).getByRole("button", { name: "Agent" })).toBeInTheDocument()
-    expect(within(nav).getByRole("button", { name: "Update" })).toBeInTheDocument()
+    expect(within(nav).queryByRole("button", { name: "Agent" })).not.toBeInTheDocument()
+    expect(within(nav).queryByRole("button", { name: "Update" })).not.toBeInTheDocument()
     expect(within(nav).getByRole("button", { name: /新闻哨兵 Breaking News/ })).toHaveAttribute(
       "aria-pressed",
       "true",
+    )
+    const utilityNav = screen.getByRole("navigation", { name: "侧边栏辅助菜单" })
+    expect(within(utilityNav).getByRole("link", { name: "Agent" })).toHaveAttribute(
+      "href",
+      "/public-app/agent",
+    )
+    expect(within(utilityNav).getByRole("link", { name: "Update" })).toHaveAttribute(
+      "href",
+      "/public-app/update",
     )
     expect(screen.getAllByRole("heading", { name: LEAD_TITLE }).length).toBeGreaterThan(0)
     expect(screen.getAllByText("ANSA.it").length).toBeGreaterThan(0)
@@ -664,6 +673,14 @@ describe("Phase 84 public portal app", () => {
     expect(utilityNav.className).not.toContain("w-max")
     expect(within(utilityNav).queryByRole("link", { name: "About" })).not.toBeInTheDocument()
     expect(within(utilityNav).queryByRole("link", { name: "Method" })).not.toBeInTheDocument()
+    expect(within(utilityNav).getByRole("link", { name: "Agent" })).toHaveAttribute(
+      "href",
+      "/public-app/agent",
+    )
+    expect(within(utilityNav).getByRole("link", { name: "Update" })).toHaveAttribute(
+      "href",
+      "/public-app/update",
+    )
     expect(within(utilityNav).getByRole("link", { name: "Sources" })).toHaveAttribute(
       "href",
       "/sources",
@@ -703,6 +720,7 @@ describe("Phase 84 public portal app", () => {
     expect(utilityNav.className).not.toContain("w-max")
     expect(within(utilityNav).queryByRole("link", { name: "About" })).not.toBeInTheDocument()
     expect(within(utilityNav).queryByRole("link", { name: "Method" })).not.toBeInTheDocument()
+    expect(within(utilityNav).getByRole("link", { name: "Update" }).className).toContain("size-6")
     expect(within(utilityNav).getByRole("link", { name: "Sources" }).className).toContain("size-6")
     expect(within(utilityNav).getAllByRole("button", { name: /切换主题/ })[0].className).toContain(
       "size-6",
@@ -765,6 +783,9 @@ describe("Phase 84 public portal app", () => {
     expect(updatePanel.className).toContain("py-2")
     expect(within(updatePanel).getByText("v2.0.0")).toBeInTheDocument()
     expect(within(updatePanel).queryByText("AIHOT 化公共阅读体验")).not.toBeInTheDocument()
+    expect(screen.queryByText("API 数据源")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "保存" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "重置" })).not.toBeInTheDocument()
     expect(screen.queryByText("UPDATE LOG")).not.toBeInTheDocument()
     expect(screen.queryByText(/不替代内部部署日志/)).not.toBeInTheDocument()
   })
@@ -1469,7 +1490,7 @@ describe("Phase 84 public portal app", () => {
     expect(fetchMock.mock.calls.some(([input]) => String(input).includes("/api/v1/public/agent"))).toBe(false)
 
     fireEvent.click(
-      within(screen.getByRole("navigation", { name: "公共站侧边栏" })).getByRole("button", {
+      within(screen.getByRole("navigation", { name: "侧边栏辅助菜单" })).getByRole("link", {
         name: "Update",
       }),
     )
