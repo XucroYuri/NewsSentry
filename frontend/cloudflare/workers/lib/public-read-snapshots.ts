@@ -13,6 +13,7 @@ import {
   publicNewsOrderBy,
   publicNewsLocaleJoin,
   publicNewsSelectColumnsForLocale,
+  pollAfterMsForPublicNews,
   rowToPublicNewsItem,
   SUPPORTED_PUBLIC_LOCALES,
 } from "./public-news-query";
@@ -225,14 +226,15 @@ async function buildNewsFeedSnapshot(
   ]);
   const rows = result.results || [];
   const pageRows = rows.slice(0, PUBLIC_SNAPSHOT_PAGE_SIZE);
+  const items = pageRows.map((row) => rowToPublicNewsItem(row));
   return {
-    items: pageRows.map((row) => rowToPublicNewsItem(row)),
+    items,
     latestCursor: pageRows[0]?.event_id ?? null,
     nextCursor:
       rows.length > PUBLIC_SNAPSHOT_PAGE_SIZE
         ? (pageRows[pageRows.length - 1]?.event_id ?? null)
         : null,
-    pollAfterMs: featured ? 30000 : 60000,
+    pollAfterMs: pollAfterMsForPublicNews(featured, items),
     hasNewer: false,
     total: totalResult?.total ?? pageRows.length,
   };

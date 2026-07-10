@@ -3,10 +3,16 @@ from __future__ import annotations
 from news_sentry.core.breaking_scoring import (
     BREAKING_SCORE_VERSION,
     BreakingScoreInput,
+    BreakingScoreStats,
     BreakingScoreValidationError,
+    calibrate_breaking_assessment,
     score_breaking_event,
     validate_llm_breaking_assessment,
 )
+
+
+def test_breaking_score_contract_is_v2() -> None:
+    assert BREAKING_SCORE_VERSION == "breaking-v2.0"
 
 
 def test_deterministic_breaking_score_separates_flash_from_routine_update() -> None:
@@ -48,6 +54,59 @@ def test_deterministic_breaking_score_separates_flash_from_routine_update() -> N
     assert flash.dimensions["urgency"] > routine.dimensions["urgency"]
     assert flash.score - routine.score >= 35
     assert routine.label == "timeline"
+
+
+def test_breaking_calibration_uses_percentile_to_avoid_false_flash() -> None:
+    raw = validate_llm_breaking_assessment(
+        {
+            "breaking_score": 88,
+            "breaking_label": "flash",
+            "breaking_confidence": 82,
+            "breaking_reason": "事件有明显跨境影响，但同类高分事件近期较多，需要按分布校准。",
+            "dimensions": {
+                "impact_scope": 88,
+                "urgency": 82,
+                "novelty": 78,
+                "source_reliability": 86,
+                "actionability": 72,
+                "systemic_or_cross_border": 84,
+                "human_attention": 70,
+                "evidence_confidence": 86,
+            },
+            "penalties": {
+                "duplicate": 0,
+                "routine": 0,
+                "sensationalism": 0,
+                "thin_evidence": 0,
+            },
+            "adversarial_checks": {
+                "not_routine": True,
+                "not_opinion": True,
+                "not_duplicate": True,
+                "not_single_source_social": True,
+                "has_trustworthy_timestamp": True,
+            },
+        }
+    )
+
+    calibrated = calibrate_breaking_assessment(
+        raw,
+        BreakingScoreStats(
+            scope_key="global",
+            window_days=30,
+            mean_score=82,
+            stddev_score=8,
+            p75=84,
+            p90=91,
+            p95=96,
+            sample_count=250,
+        ),
+    )
+
+    assert calibrated.raw_score == 88
+    assert calibrated.percentile < 90
+    assert calibrated.score < raw.score
+    assert calibrated.label == "watch"
 
 
 def test_llm_breaking_assessment_requires_adversarial_checks_and_distribution() -> None:

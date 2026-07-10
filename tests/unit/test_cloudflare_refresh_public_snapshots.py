@@ -60,3 +60,47 @@ def test_snapshot_upsert_sql_writes_fixed_keys_to_d1_schema(tmp_path: Path) -> N
         ("news:featured:v1:page_size=20", 1),
         ("regions:active:v1", 1),
     ]
+
+
+def test_snapshot_tool_includes_breaking_v2_public_fields() -> None:
+    from tools.cloudflare_refresh_public_snapshots import _news_item
+
+    item = _news_item(
+        {
+            "event_id": "e1",
+            "target_id": "france",
+            "target_label": "法国",
+            "source_id": "lemonde",
+            "source_name": "Le Monde",
+            "source_type": "rss",
+            "published_at": "2026-07-02T01:00:00Z",
+            "title": "France announces emergency measure",
+            "detail_url": "/public-app/news/e1",
+            "tags": "[]",
+            "issue_tags": "[]",
+            "related_tags": "[]",
+            "region_tags": "[]",
+            "entities": "[]",
+            "related_count": 0,
+            "value_label": "精选",
+            "value_score": 91,
+            "breaking_score": 82,
+            "breaking_raw_score": 88,
+            "breaking_percentile": 86.4,
+            "breaking_calibrated_score": 82,
+            "breaking_label": "watch",
+            "breaking_reason": "分布校准后仍值得关注，但未达到 flash 阈值。",
+            "breaking_confidence": 78,
+            "breaking_dimensions": '{"impact_scope":88}',
+            "breaking_score_version": "breaking-v2.0",
+            "target_timezone": "Europe/Paris",
+            "published_at_local": "2026-07-02T03:00:00+02:00",
+            "china_relevance_label": "中",
+        }
+    )
+
+    assert item["breakingScore"] == 82
+    assert item["breakingRawScore"] == 88
+    assert item["breakingPercentile"] == 86.4
+    assert item["breakingCalibratedScore"] == 82
+    assert item["breakingVersion"] == "breaking-v2.0"

@@ -20,6 +20,7 @@ import {
   publicNewsOrderBy,
   publicNewsLocaleJoin,
   publicNewsSelectColumnsForLocale,
+  pollAfterMsForPublicNews,
   rowToPublicNewsItem,
 } from "../lib/public-news-query";
 import {
@@ -177,11 +178,12 @@ export async function handleBootstrap(
 
     // 构建 news
     const newsRows = (newsResult.results || []) as NewsRow[];
+    const newsItems = newsRows.map((r) => rowToPublicNewsItem(r));
     const newsFeed: PublicNewsFeedResponse = {
-      items: newsRows.map((r) => rowToPublicNewsItem(r)),
+      items: newsItems,
       latestCursor: null,
       nextCursor: null,
-      pollAfterMs: featured ? 30000 : 60000,
+      pollAfterMs: pollAfterMsForPublicNews(featured, newsItems),
       hasNewer: false,
       total: newsCountResult?.total ?? newsRows.length,
     };

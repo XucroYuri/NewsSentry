@@ -929,6 +929,27 @@ class PublicNewsItem(BaseModel):
     discussion_count: int | None = Field(default=None, alias="discussionCount")
     value_label: Literal["精选", "关注", "普通", "待评估"] = Field(alias="valueLabel")
     value_score: int | float | None = Field(default=None, alias="valueScore")
+    breaking_score: int | float | None = Field(default=None, alias="breakingScore")
+    breaking_raw_score: int | float | None = Field(default=None, alias="breakingRawScore")
+    breaking_percentile: int | float | None = Field(default=None, alias="breakingPercentile")
+    breaking_calibrated_score: int | float | None = Field(
+        default=None,
+        alias="breakingCalibratedScore",
+    )
+    breaking_version: str | None = Field(default=None, alias="breakingVersion")
+    breaking_label: Literal["flash", "breaking", "watch", "timeline"] | None = Field(
+        default=None,
+        alias="breakingLabel",
+    )
+    breaking_reason: str | None = Field(default=None, alias="breakingReason")
+    breaking_confidence: int | float | None = Field(default=None, alias="breakingConfidence")
+    breaking_dimensions: dict[str, int | float] = Field(
+        default_factory=dict,
+        alias="breakingDimensions",
+    )
+    target_timezone: str | None = Field(default=None, alias="targetTimezone")
+    published_at_local: str | None = Field(default=None, alias="publishedAtLocal")
+    available_locales: list[str] = Field(default_factory=list, alias="availableLocales")
     china_relevance_label: Literal["高", "中", "低", "未知"] = Field(
         default="未知",
         alias="chinaRelevanceLabel",

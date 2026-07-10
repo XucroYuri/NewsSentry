@@ -1200,6 +1200,21 @@ def _cloudflare_import_payload_from_row(row: sqlite3.Row) -> dict[str, Any] | No
         issue_tags = [classification_l0]
     related_tags = _cloudflare_import_tags(publication.get("related_tags")) if ready else topic_tags
     region_tags = _cloudflare_import_tags(publication.get("region_tags")) if ready else [target_id]
+    breaking_raw_score = (
+        breaking.get("raw_score")
+        if breaking.get("raw_score") is not None
+        else breaking.get("score")
+    )
+    breaking_percentile = (
+        breaking.get("percentile")
+        if breaking.get("percentile") is not None
+        else breaking.get("score")
+    )
+    breaking_calibrated_score = (
+        breaking.get("calibrated_score")
+        if breaking.get("calibrated_score") is not None
+        else breaking.get("score")
+    )
 
     title = str(translation.get("title_pre") or title_original).strip()
     summary = str(
@@ -1231,11 +1246,29 @@ def _cloudflare_import_payload_from_row(row: sqlite3.Row) -> dict[str, Any] | No
         "china_relevance_label": _cloudflare_import_china_relevance_label(
             row["china_relevance"]
         ),
-        "breaking_score": breaking.get("score") or row["news_value_score"],
+        "breaking_raw_score": (
+            breaking_raw_score if breaking_raw_score is not None else row["news_value_score"]
+        ),
+        "breaking_percentile": (
+            breaking_percentile if breaking_percentile is not None else row["news_value_score"]
+        ),
+        "breaking_calibrated_score": (
+            breaking_calibrated_score
+            if breaking_calibrated_score is not None
+            else row["news_value_score"]
+        ),
+        "breaking_score": (
+            breaking_calibrated_score
+            if breaking_calibrated_score is not None
+            else row["news_value_score"]
+        ),
         "breaking_label": breaking.get("label"),
         "breaking_reason": breaking.get("reason") or recommendation_reason,
         "breaking_confidence": breaking.get("confidence"),
         "breaking_dimensions": breaking.get("dimensions") if isinstance(breaking, dict) else {},
+        "breaking_adversarial_flags": {
+            "penalties": breaking.get("penalties", {}),
+        },
         "breaking_score_version": breaking.get("version") if isinstance(breaking, dict) else None,
         "target_timezone": target_timezone,
         "published_at_local": published_at_local,
