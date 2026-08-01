@@ -72,15 +72,17 @@ def test_health_monitor_supports_systemd_service_mode() -> None:
     assert "service_status" in monitor
 
 
-def test_deploy_workflow_gates_preview_before_main_promotion() -> None:
+def test_deploy_workflow_requires_preview_proof_and_pr_promotion() -> None:
     workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
 
-    assert "VITE_API_BASE: https://api.news-sentry.com" in workflow
+    assert "needs.ci.outputs.deployment_environment == 'preview'" in workflow
+    assert "needs.ci.outputs.deployment_environment == 'production'" in workflow
+    assert "production dispatch is only allowed from refs/heads/main" in workflow
     assert "Verify preview" in workflow
-    assert "Promote main" in workflow
     assert "Verify production" in workflow
-    assert "git merge-base --is-ancestor origin/main" in workflow
-    assert "git push origin" in workflow
+    assert "Promote main" not in workflow
+    assert "git merge-base --is-ancestor origin/main" not in workflow
+    assert "git push origin" not in workflow
     assert "/api/v1/public/news" in workflow
     assert "/api/v1/public/facets" in workflow
     assert "--policy config/security/deployment-surface-policy.yaml" in workflow
