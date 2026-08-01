@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -134,11 +135,33 @@ def test_pages_preview_build_uses_preview_worker_output_but_main_can_skip_it() -
         in pages_job
     )
     assert "Verify preview frontend API binding" in pages_job
-    assert 'grep -R -F -- "${PREVIEW_API_URL}" dist/' in pages_job
+    assert 'grep -F -- "${PREVIEW_API_URL}" dist/index.html' in pages_job
+    assert 'grep -F -- "connect-src \'self\' ${PREVIEW_API_URL}" dist/_headers' in pages_job
+    assert "Preview frontend leaked the production API origin" in pages_job
     assert 'branch="manual-preview-${GITHUB_RUN_ID}"' in pages_job
     assert "DEPLOYMENT_ENVIRONMENT: ${{ needs.ci.outputs.deployment_environment }}" in pages_job
     assert "Failed to extract the immutable Pages deployment URL" in pages_job
     assert 'pages_url="https://news-sentry.pages.dev"' not in pages_job
+    assert "Install pinned Cloudflare deployment dependencies" in pages_job
+    assert "../cloudflare/node_modules/.bin/wrangler pages deploy" in pages_job
+    assert "npx wrangler pages deploy" not in pages_job
+    assert "grep -F 'Deployment complete!'" in pages_job
+
+    grep_match = re.search(r"grep -Eo '([^']+)'", pages_job)
+    assert grep_match is not None
+    assert grep_match.group(1) == r"https://[^[:space:]]+\.pages\.dev"
+    sample_log = (
+        "Deployment complete! Take a peek over at "
+        "https://6180ce7e.news-sentry.pages.dev\n"
+        "Deployment alias URL: "
+        "https://manual-preview-123.news-sentry.pages.dev\n"
+    )
+    deployment_lines = "\n".join(
+        line for line in sample_log.splitlines() if "Deployment complete!" in line
+    )
+    assert re.findall(r"https://\S+\.pages\.dev", deployment_lines) == [
+        "https://6180ce7e.news-sentry.pages.dev"
+    ]
 
 
 def test_manual_preview_is_serialized_and_never_directly_promotes_main() -> None:

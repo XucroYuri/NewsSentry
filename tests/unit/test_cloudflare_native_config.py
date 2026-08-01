@@ -887,10 +887,13 @@ def test_cloudflare_worker_cors_allows_pages_origins_without_fallback_origin() -
 
     assert 'headers.set("Access-Control-Allow-Origin", origin)' in cors_ts
     assert 'headers.set("Access-Control-Allow-Origin", allowedOrigins[0])' not in cors_ts
+    assert '.endsWith(".news-sentry.pages.dev")' in cors_ts
 
 
 def test_pages_headers_cache_public_shell_for_short_ttl() -> None:
-    headers = (ROOT / "frontend/public/public/_headers").read_text(encoding="utf-8")
+    headers = (ROOT / "frontend/public/cloudflare-pages.headers").read_text(
+        encoding="utf-8"
+    )
     public_shell_cache = (
         "Cache-Control: public, max-age=60, stale-while-revalidate=300, no-transform"
     )
@@ -898,6 +901,14 @@ def test_pages_headers_cache_public_shell_for_short_ttl() -> None:
     assert f"/\n  {public_shell_cache}" in headers
     assert f"/public-app*\n  {public_shell_cache}" in headers
     assert "/assets/*\n  Cache-Control: public, max-age=31536000, immutable" in headers
+    assert "connect-src 'self' __NEWS_SENTRY_API_ORIGIN__" in headers
+
+
+def test_worker_health_qualifies_joined_job_timestamps() -> None:
+    health_ts = _read("workers/api/health.ts")
+
+    assert "THEN jobs.updated_at END" in health_ts
+    assert "THEN updated_at END" not in health_ts
 
 
 def test_deploy_workflow_runs_live_quality_gate_and_translation_backfill_exists() -> None:

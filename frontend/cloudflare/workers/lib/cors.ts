@@ -23,12 +23,29 @@ function getAllowedOrigins(): string[] {
   return raw.split(",").map((s) => s.trim()).filter(Boolean);
 }
 
+function isNewsSentryPagesOrigin(origin: string): boolean {
+  try {
+    const parsed = new URL(origin);
+    return (
+      parsed.origin === origin
+      && parsed.protocol === "https:"
+      && parsed.hostname.endsWith(".news-sentry.pages.dev")
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function addCorsHeaders(response: Response, requestOrigin?: string | null): Response {
   const headers = new Headers(response.headers);
   const allowedOrigins = getAllowedOrigins();
 
   const origin = requestOrigin || "*";
-  if (allowedOrigins.includes("*") || allowedOrigins.includes(origin)) {
+  if (
+    allowedOrigins.includes("*")
+    || allowedOrigins.includes(origin)
+    || isNewsSentryPagesOrigin(origin)
+  ) {
     headers.set("Access-Control-Allow-Origin", origin);
   }
 

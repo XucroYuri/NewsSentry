@@ -168,9 +168,12 @@ export async function handleHealth(
              (SELECT COUNT(*) FROM job_outbox WHERE status != 'confirmed') AS pending_outbox,
              (SELECT MIN(created_at) FROM job_outbox WHERE status != 'confirmed')
                AS oldest_pending_outbox_at,
-             SUM(CASE WHEN status = 'retry_scheduled' THEN 1 ELSE 0 END) AS retry_scheduled,
-             SUM(CASE WHEN status = 'dead_lettered' THEN 1 ELSE 0 END) AS dead_lettered,
-             MIN(CASE WHEN status = 'dead_lettered' THEN updated_at END) AS oldest_dead_lettered_at,
+             SUM(CASE WHEN jobs.status = 'retry_scheduled' THEN 1 ELSE 0 END)
+               AS retry_scheduled,
+             SUM(CASE WHEN jobs.status = 'dead_lettered' THEN 1 ELSE 0 END)
+               AS dead_lettered,
+             MIN(CASE WHEN jobs.status = 'dead_lettered' THEN jobs.updated_at END)
+               AS oldest_dead_lettered_at,
              SUM(CASE
                WHEN jobs.status = 'dead_lettered'
                 AND COALESCE(runtime.tier, 'P2') = 'P0'

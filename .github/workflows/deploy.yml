@@ -652,10 +652,16 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: frontend/public/package-lock.json
+          cache-dependency-path: |
+            frontend/public/package-lock.json
+            frontend/cloudflare/package-lock.json
 
       - name: Install public frontend dependencies
         working-directory: frontend/public
+        run: npm ci
+
+      - name: Install pinned Cloudflare deployment dependencies
+        working-directory: frontend/cloudflare
         run: npm ci
 
       - name: Build public frontend
@@ -672,7 +678,12 @@ jobs:
         run: |
           set -euo pipefail
           : "${PREVIEW_API_URL:?Preview Worker URL is required in the frontend build}"
-          grep -R -F -- "${PREVIEW_API_URL}" dist/ > /tmp/news-sentry-preview-api-binding.txt
+          grep -F -- "${PREVIEW_API_URL}" dist/index.html
+          grep -F -- "connect-src 'self' ${PREVIEW_API_URL}" dist/_headers
+          if grep -F -- "https://api.news-sentry.com" dist/index.html dist/_headers; then
+            echo "Preview frontend leaked the production API origin."
+            exit 1
+          fi
 
       - name: Deploy Cloudflare Pages
         id: deploy
@@ -693,11 +704,13 @@ jobs:
           else
             branch="main"
           fi
-          npx wrangler pages deploy dist/ \
+          ../cloudflare/node_modules/.bin/wrangler pages deploy dist/ \
             --project-name=news-sentry \
             --branch "${branch}" \
             --commit-dirty=true | tee /tmp/news-sentry-pages-deploy.log
-          pages_url="$(grep -Eo 'https://[^[:space:]]+\\.pages\\.dev' /tmp/news-sentry-pages-deploy.log | tail -1 || true)"
+          pages_url="$(grep -F 'Deployment complete!' /tmp/news-sentry-pages-deploy.log \
+            | grep -Eo 'https://[^[:space:]]+\.pages\.dev' \
+            | tail -1 || true)"
           if [ -z "${pages_url}" ]; then
             echo "Failed to extract the immutable Pages deployment URL."
             exit 1
@@ -775,9 +788,14 @@ jobs:
           fetch_preview_worker_receipt live /api/v1/live
           fetch_preview_worker_receipt ready /api/v1/ready
           fetch_preview_worker_receipt health /api/v1/health
-          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json
+          curl -fsS \
+            -D /tmp/public-news.headers \
+            -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" \
+            -H "Accept: application/json" \
+            -H "Origin: ${PAGES_URL}" \
+            "${API_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json
           curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/facets" > /tmp/facets.json
-          curl -fsS -o /tmp/public-app.html "${PAGES_URL:-${BASE_URL}}/"
+          curl -fsS -D /tmp/public-app.headers -o /tmp/public-app.html "${PAGES_URL:-${BASE_URL}}/"
 
           python - <<'PY'
           import json
@@ -802,6 +820,8 @@ jobs:
           ready, ready_headers = load_receipt("ready")
           health, health_headers = load_receipt("health")
           news = json.loads(Path("/tmp/public-news.json").read_text())
+          news_headers = load_headers("/tmp/public-news.headers")
+          public_app_headers = load_headers("/tmp/public-app.headers")
           facets = json.loads(Path("/tmp/facets.json").read_text())
 
           for mode, payload, headers in (
@@ -820,9 +840,13 @@ jobs:
           assert health.get("status") == "ok", "Worker health is not ok"
           assert isinstance(health.get("total_events"), int), "health total_events missing"
           assert isinstance(news.get("items"), list), "public news response missing items"
+          assert news_headers.get("access-control-allow-origin") == os.environ["PAGES_URL"]
           assert {"regions", "issues", "related"} <= set(facets), "facets payload missing expected keys"
           public_app_html = Path("/tmp/public-app.html").read_text(errors="ignore")
           assert "News Sentry" in public_app_html or "NewsSentry" in public_app_html
+          assert os.environ["API_URL"] in public_app_html
+          assert "https://api.news-sentry.com" not in public_app_html
+          assert os.environ["API_URL"] in public_app_headers.get("content-security-policy", "")
           PY
 
   verify-production:
