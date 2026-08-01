@@ -60,6 +60,12 @@ def test_preview_verification_requires_preview_worker_runtime_proof() -> None:
         "needs: [ci, deploy-cloudflare-pages, deploy-cloudflare-preview-worker, cloudflare-data]"
         in preview_job
     )
+    assert "always()" in preview_job
+    assert "needs.ci.result == 'success'" in preview_job
+    assert "needs.deploy-cloudflare-pages.result == 'success'" in preview_job
+    assert "needs.deploy-cloudflare-preview-worker.result == 'success'" in preview_job
+    assert "needs.cloudflare-data.result == 'success'" in preview_job
+    assert "needs.ci.outputs.deployment_environment == 'preview'" in preview_job
     assert (
         "API_URL: ${{ needs.deploy-cloudflare-preview-worker.outputs.preview_api_url }}"
         in preview_job

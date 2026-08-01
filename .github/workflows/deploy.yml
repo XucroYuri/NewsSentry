@@ -737,7 +737,13 @@ jobs:
     name: Verify preview
     runs-on: ubuntu-latest
     needs: [ci, deploy-cloudflare-pages, deploy-cloudflare-preview-worker, cloudflare-data]
-    if: needs.ci.outputs.deployment_environment == 'preview'
+    if: >-
+      always() &&
+      needs.ci.result == 'success' &&
+      needs.deploy-cloudflare-pages.result == 'success' &&
+      needs.deploy-cloudflare-preview-worker.result == 'success' &&
+      needs.cloudflare-data.result == 'success' &&
+      needs.ci.outputs.deployment_environment == 'preview'
     env:
       BASE_URL: https://preview.news-sentry.com
       PAGES_URL: ${{ needs.deploy-cloudflare-pages.outputs.pages_url }}
