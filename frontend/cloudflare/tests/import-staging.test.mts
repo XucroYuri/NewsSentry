@@ -56,6 +56,7 @@ class FakeD1Database {
   stagedEvents: Array<Record<string, unknown>> = [];
   quarantinedEvents: Array<Record<string, unknown>> = [];
   quarantineContexts: Array<Record<string, unknown>> = [];
+  finalizeReceipts: Array<Record<string, unknown>> = [];
   jobs = new Map<
     string,
     {
@@ -94,6 +95,10 @@ class FakeD1Database {
     if (sql.includes("FROM import_batches")) {
       const [batchId] = values as [string];
       return (this.batches.get(batchId) ?? null) as T | null;
+    }
+    if (sql.includes("FROM import_batch_finalize_receipts")) {
+      const [batchId] = values as [string];
+      return (this.finalizeReceipts.find((row) => row.batch_id === batchId) ?? null) as T | null;
     }
     throw new Error(`Unexpected first SQL: ${sql}`);
   }
@@ -171,6 +176,43 @@ class FakeD1Database {
       });
       return changed(1);
     }
+    if (sql.includes("INSERT INTO import_batch_finalize_receipts")) {
+      const [
+        batchId,
+        jobId,
+        targetId,
+        sourceId,
+        batchChecksum,
+        leaseToken,
+        fencingVersion,
+        outputWatermark,
+        finalizedAt,
+      ] = values as [string, string, string, string, string, string, number, string | null, string];
+      const batch = this.batches.get(batchId);
+      const job = this.jobs.get(jobId);
+      const source = this.runtimeState.get(`${targetId}:${sourceId}`);
+      if (!batch || batch.checksum !== batchChecksum || batch.committed_chunks !== batch.expected_chunks) {
+        throw new Error("import finalize batch guard failed");
+      }
+      if (!job || job.status !== "running" || job.lease_token !== leaseToken || job.fencing_version !== fencingVersion) {
+        throw new Error("import finalize job guard failed");
+      }
+      if (!source) throw new Error("import finalize source guard failed");
+      if (!this.finalizeReceipts.some((row) => row.batch_id === batchId)) {
+        this.finalizeReceipts.push({
+          batch_id: batchId,
+          job_id: jobId,
+          target_id: targetId,
+          source_id: sourceId,
+          batch_checksum: batchChecksum,
+          lease_token: leaseToken,
+          fencing_version: fencingVersion,
+          output_watermark: outputWatermark,
+          finalized_at: finalizedAt,
+        });
+      }
+      return changed(1);
+    }
     if (sql.includes("UPDATE import_batches") && sql.includes("SELECT COUNT(*)")) {
       const [batchId] = values as [string];
       const batch = this.batches.get(batchId);
@@ -212,6 +254,7 @@ class FakeD1Database {
       }
       job.status = "committed";
       job.output_watermark = outputWatermark;
+      job.lease_token = undefined;
       return changed(1);
     }
     if (sql.includes("UPDATE source_runtime_state")) {
@@ -235,6 +278,7 @@ class FakeD1Database {
       stagedEvents: this.stagedEvents,
       quarantinedEvents: this.quarantinedEvents,
       quarantineContexts: this.quarantineContexts,
+      finalizeReceipts: this.finalizeReceipts,
       jobs: [...this.jobs],
       runtimeState: [...this.runtimeState],
     });
@@ -247,6 +291,7 @@ class FakeD1Database {
       stagedEvents: Array<Record<string, unknown>>;
       quarantinedEvents: Array<Record<string, unknown>>;
       quarantineContexts: Array<Record<string, unknown>>;
+      finalizeReceipts: Array<Record<string, unknown>>;
       jobs: Array<
         [
           string,
@@ -265,6 +310,7 @@ class FakeD1Database {
     this.stagedEvents = snapshot.stagedEvents;
     this.quarantinedEvents = snapshot.quarantinedEvents;
     this.quarantineContexts = snapshot.quarantineContexts;
+    this.finalizeReceipts = snapshot.finalizeReceipts;
     this.jobs = new Map(snapshot.jobs);
     this.runtimeState = new Map(snapshot.runtimeState);
   }
@@ -296,7 +342,7 @@ test("chunk builder cuts deterministically at 25 events with stable checksums", 
     replay.map((chunk) => chunk.checksum),
     chunks.map((chunk) => chunk.checksum),
   );
-  assert.equal(chunks[0].statementCount, 25);
+  assert.equal(chunks[0].statementCount, 26);
 });
 
 test("chunk builder cuts before exceeding 100 statements or 512 KiB", async () => {
@@ -308,8 +354,10 @@ test("chunk builder cuts before exceeding 100 statements or 512 KiB", async () =
     event(2),
   ]);
 
-  assert.deepEqual(manyStatementChunks.map((chunk) => chunk.events.length), [20, 10]);
-  assert.deepEqual(largePayloadChunks.map((chunk) => chunk.events.length), [1, 1]);
+  assert.deepEqual(manyStatementChunks.map((chunk) => chunk.events.length), [25, 5]);
+  assert.deepEqual(largePayloadChunks.map((chunk) => chunk.events.length), [2]);
+  assert.ok(largePayloadChunks.every((chunk) => chunk.payloadBytes <= 512 * 1024));
+  assert.ok(largePayloadChunks.every((chunk) => chunk.statementCount <= 100));
 });
 
 test("committed chunk replay with same checksum is a no-op", async () => {
@@ -320,6 +368,7 @@ test("committed chunk replay with same checksum is a no-op", async () => {
     lease_token: "lease-1",
     fencing_version: 1,
   });
+  db.runtimeState.set("italy:ansa", { cursor: "old" });
 
   const first = await stageImportBatch(db as unknown as D1Database, {
     batchId: "batch-1",
@@ -358,6 +407,7 @@ test("missing chunk recovery commits only uncommitted chunks", async () => {
     lease_token: "lease-1",
     fencing_version: 1,
   });
+  db.runtimeState.set("italy:ansa", { cursor: "old" });
   const events = Array.from({ length: 26 }, (_, index) => event(index));
   const chunks = await buildImportChunks(events);
   db.chunks.set("batch-1:0", {
@@ -399,6 +449,7 @@ test("partial invalid import writes quarantine context and keeps valid events st
     lease_token: "lease-1",
     fencing_version: 1,
   });
+  db.runtimeState.set("italy:ansa", { cursor: "old" });
 
   const result = await stageImportBatch(db as unknown as D1Database, {
     batchId: "batch-1",
@@ -419,6 +470,34 @@ test("partial invalid import writes quarantine context and keeps valid events st
   assert.equal(db.quarantineContexts[0].job_id, "job-1");
 });
 
+test("oversized single event is quarantined instead of exceeding chunk payload margin", async () => {
+  const db = new FakeD1Database();
+  db.jobs.set("job-1", {
+    status: "running",
+    output_watermark: null,
+    lease_token: "lease-1",
+    fencing_version: 1,
+  });
+  db.runtimeState.set("italy:ansa", { cursor: "old" });
+
+  const result = await stageImportBatch(db as unknown as D1Database, {
+    batchId: "batch-1",
+    jobId: "job-1",
+    targetId: "italy",
+    sourceId: "ansa",
+    outputWatermark: "cursor-oversized",
+    events: [event(1, { summary: "a".repeat(520 * 1024) }), event(2)],
+    generatedAt: "2026-08-01T01:00:00Z",
+    leaseToken: "lease-1",
+    fencingVersion: 1,
+  });
+
+  assert.equal(result.validEvents, 1);
+  assert.equal(result.quarantinedEvents, 1);
+  assert.equal(db.stagedEvents.length, 1);
+  assert.equal(db.quarantinedEvents[0].reason_code, "oversized_event_payload");
+});
+
 test("chunk failure leaves batch, job, watermark, and snapshots unfinished", async () => {
   const db = new FakeD1Database();
   db.jobs.set("job-1", {
@@ -427,6 +506,7 @@ test("chunk failure leaves batch, job, watermark, and snapshots unfinished", asy
     lease_token: "lease-1",
     fencing_version: 1,
   });
+  db.runtimeState.set("italy:ansa", { cursor: "old" });
   db.failOnChunk.add(1);
 
   await assert.rejects(
@@ -448,5 +528,5 @@ test("chunk failure leaves batch, job, watermark, and snapshots unfinished", asy
   assert.equal(db.batches.get("batch-1")?.status, "importing");
   assert.equal(db.jobs.get("job-1")?.status, "running");
   assert.equal(db.jobs.get("job-1")?.output_watermark, null);
-  assert.equal(db.runtimeState.size, 0);
+  assert.equal(db.runtimeState.get("italy:ansa")?.cursor, "old");
 });

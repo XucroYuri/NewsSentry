@@ -99,6 +99,7 @@ def test_phase2_import_staging_migration_upgrades_phase1_runtime() -> None:
         )
     }
     assert "import_staged_events" in tables
+    assert "import_batch_finalize_receipts" in tables
     batch_columns = {
         row["name"]
         for row in connection.execute("PRAGMA table_info(import_batches)").fetchall()

@@ -35,6 +35,21 @@ CREATE TABLE IF NOT EXISTS import_staged_events (
 CREATE INDEX IF NOT EXISTS idx_import_staged_events_batch_chunk
     ON import_staged_events(batch_id, chunk_no);
 
+CREATE TABLE IF NOT EXISTS import_batch_finalize_receipts (
+    batch_id TEXT PRIMARY KEY REFERENCES import_batches(batch_id),
+    job_id TEXT NOT NULL REFERENCES jobs(job_id),
+    target_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    batch_checksum TEXT NOT NULL,
+    lease_token TEXT NOT NULL,
+    fencing_version INTEGER NOT NULL,
+    output_watermark TEXT,
+    finalized_at TEXT NOT NULL,
+    batch_guard TEXT NOT NULL,
+    job_guard TEXT NOT NULL,
+    source_guard TEXT NOT NULL
+);
+
 INSERT OR IGNORE INTO runtime_migration_receipts (
     migration_id,
     details_json

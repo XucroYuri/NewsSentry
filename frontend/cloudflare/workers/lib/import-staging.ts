@@ -4,6 +4,7 @@ import { assessEventTimestamps } from "./timestamp-policy.ts";
 const MAX_CHUNK_EVENTS = 25;
 const MAX_CHUNK_STATEMENTS = 100;
 const MAX_CHUNK_PAYLOAD_BYTES = 512 * 1024;
+const MAX_SINGLE_EVENT_PAYLOAD_BYTES = MAX_CHUNK_PAYLOAD_BYTES;
 
 // Project safety margins for shadow/canary imports. These are intentionally
 // stricter than D1's per-statement limits so a replay can safely retry a whole
@@ -71,6 +72,17 @@ interface QuarantinedEvent {
   fingerprint: string;
 }
 
+interface ExistingBatch {
+  status: string;
+  checksum: string;
+  committed_chunks: number;
+  expected_chunks: number;
+}
+
+type FinalizeReceipt = {
+  batch_id: string;
+} | null;
+
 type ExistingChunk = {
   checksum: string;
   status: string;
@@ -102,18 +114,29 @@ function utf8Bytes(value: string): number {
 }
 
 function statementCountFor(event: ImportStagingEvent): number {
-  const localizations = Array.isArray(event.localizations) ? event.localizations.length : 0;
-  return 1 + localizations;
+  const urlResult = validateExternalUrl(event.url);
+  const invalid =
+    !event.target_id ||
+    !event.source_id ||
+    !event.title_original ||
+    !event.collected_at ||
+    !urlResult.ok ||
+    utf8Bytes(canonicalJson(event)) > MAX_SINGLE_EVENT_PAYLOAD_BYTES;
+  return invalid ? 2 : 1;
 }
 
 export async function buildImportChunks(events: ImportStagingEvent[]): Promise<ImportChunk[]> {
   const chunks: Array<Omit<ImportChunk, "checksum">> = [];
   let current: ImportStagingEvent[] = [];
-  let statementCount = 0;
+  let statementCount = 1;
   let payloadBytes = 0;
 
   for (const event of events) {
-    const eventPayloadBytes = utf8Bytes(canonicalJson(event));
+    const rawEventPayloadBytes = utf8Bytes(canonicalJson(event));
+    const eventPayloadBytes =
+      rawEventPayloadBytes > MAX_SINGLE_EVENT_PAYLOAD_BYTES
+        ? utf8Bytes(boundedPayload(event))
+        : rawEventPayloadBytes;
     const eventStatementCount = statementCountFor(event);
     const wouldExceed =
       current.length > 0 &&
@@ -128,7 +151,7 @@ export async function buildImportChunks(events: ImportStagingEvent[]): Promise<I
         payloadBytes,
       });
       current = [];
-      statementCount = 0;
+      statementCount = 1;
       payloadBytes = 0;
     }
     current.push(event);
@@ -186,7 +209,11 @@ async function normalizeEvent(
   nowMs: number,
 ): Promise<NormalizedEvent | QuarantinedEvent> {
   let reasonCode: string | null = null;
-  if (!event.target_id || !event.source_id || !event.title_original || !event.collected_at) {
+  const rawEventPayloadBytes = utf8Bytes(canonicalJson(event));
+  if (rawEventPayloadBytes > MAX_SINGLE_EVENT_PAYLOAD_BYTES) {
+    reasonCode = "oversized_event_payload";
+  }
+  if (!reasonCode && (!event.target_id || !event.source_id || !event.title_original || !event.collected_at)) {
     reasonCode = "missing_required_import_fields";
   }
   const urlResult = validateExternalUrl(event.url);
@@ -236,6 +263,34 @@ async function loadExistingChunk(
     )
     .bind(batchId, chunkNo)
     .first<ExistingChunk>();
+}
+
+async function loadExistingBatch(
+  db: D1Database,
+  batchId: string,
+): Promise<ExistingBatch | null> {
+  return db
+    .prepare(
+      `SELECT status, checksum, committed_chunks, expected_chunks
+       FROM import_batches
+       WHERE batch_id=?`,
+    )
+    .bind(batchId)
+    .first<ExistingBatch>();
+}
+
+async function loadFinalizeReceipt(
+  db: D1Database,
+  batchId: string,
+): Promise<FinalizeReceipt> {
+  return db
+    .prepare(
+      `SELECT batch_id
+       FROM import_batch_finalize_receipts
+       WHERE batch_id=?`,
+    )
+    .bind(batchId)
+    .first<FinalizeReceipt>();
 }
 
 function chunkStatements(
@@ -335,6 +390,116 @@ function chunkStatements(
   return statements;
 }
 
+async function finalizeImportBatch(
+  db: D1Database,
+  input: ImportStagingInput & { generatedAt: string },
+  checksum: string,
+): Promise<void> {
+  if (!input.leaseToken || typeof input.fencingVersion !== "number") return;
+  const results = await db.batch([
+    db
+      .prepare(
+        `INSERT INTO import_batch_finalize_receipts (
+           batch_id, job_id, target_id, source_id, batch_checksum,
+           lease_token, fencing_version, output_watermark, finalized_at,
+           batch_guard, job_guard, source_guard
+         ) VALUES (
+           ?, ?, ?, ?, ?, ?, ?, ?, ?,
+           (
+             SELECT batch_id FROM import_batches
+             WHERE batch_id=? AND checksum=? AND committed_chunks=expected_chunks
+               AND status IN ('importing', 'committed')
+           ),
+           (
+             SELECT job_id FROM jobs
+             WHERE job_id=? AND status='running'
+               AND lease_token=? AND fencing_version=?
+           ),
+           (
+             SELECT target_id || ':' || source_id FROM source_runtime_state
+             WHERE target_id=? AND source_id=?
+           )
+         )
+         ON CONFLICT(batch_id) DO NOTHING`,
+      )
+      .bind(
+        input.batchId,
+        input.jobId,
+        input.targetId,
+        input.sourceId,
+        checksum,
+        input.leaseToken,
+        input.fencingVersion,
+        input.outputWatermark,
+        input.generatedAt,
+        input.batchId,
+        checksum,
+        input.jobId,
+        input.leaseToken,
+        input.fencingVersion,
+        input.targetId,
+        input.sourceId,
+      ),
+    db
+      .prepare(
+        `UPDATE source_runtime_state
+         SET cursor=?, last_success_at=?, consecutive_failures=0, updated_at=?
+         WHERE target_id=? AND source_id=?
+           AND EXISTS (
+             SELECT 1 FROM import_batch_finalize_receipts
+             WHERE batch_id=? AND batch_checksum=?
+           )`,
+      )
+      .bind(
+        input.outputWatermark,
+        input.generatedAt,
+        input.generatedAt,
+        input.targetId,
+        input.sourceId,
+        input.batchId,
+        checksum,
+      ),
+    db
+      .prepare(
+        `UPDATE jobs
+         SET status='committed', output_watermark=?, updated_at=?,
+             lease_token=NULL, lease_owner=NULL, lease_until=NULL
+         WHERE job_id=? AND status='running'
+           AND lease_token=? AND fencing_version=?
+           AND EXISTS (
+             SELECT 1 FROM import_batch_finalize_receipts
+             WHERE batch_id=? AND batch_checksum=?
+           )`,
+      )
+      .bind(
+        input.outputWatermark,
+        input.generatedAt,
+        input.jobId,
+        input.leaseToken,
+        input.fencingVersion,
+        input.batchId,
+        checksum,
+      ),
+    db
+      .prepare(
+        `UPDATE import_batches
+         SET status='committed', committed_at=?
+         WHERE batch_id=? AND checksum=? AND committed_chunks=expected_chunks
+           AND EXISTS (
+             SELECT 1 FROM import_batch_finalize_receipts
+             WHERE batch_id=? AND batch_checksum=?
+           )`,
+      )
+      .bind(input.generatedAt, input.batchId, checksum, input.batchId, checksum),
+  ]);
+  const changes = results.map((result) => Number(result.meta?.changes || 0));
+  if (changes[0] !== 1 || changes[1] !== 1 || changes[2] !== 1 || changes[3] !== 1) {
+    throw new Error(
+      `import finalize did not atomically advance batch/job/watermark: ${changes.join(",")}`,
+    );
+  }
+}
+
 export async function stageImportBatch(
   db: D1Database,
   rawInput: ImportStagingInput,
@@ -353,41 +518,56 @@ export async function stageImportBatch(
   const validEvents = normalizedByChunk.flat().filter((item) => !isQuarantined(item)).length;
   const quarantinedEvents = normalizedByChunk.flat().filter(isQuarantined).length;
   const payloadBytes = chunks.reduce((sum, chunk) => sum + chunk.payloadBytes, 0);
-
-  await db
-    .prepare(
-      `INSERT INTO import_batches (
-         batch_id, job_id, status, received_count, valid_count,
-         quarantined_count, checksum, expected_chunks, committed_chunks,
-         payload_bytes, output_watermark, started_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
-       ON CONFLICT(batch_id) DO UPDATE SET
-         status=CASE
-           WHEN import_batches.status='committed' THEN import_batches.status
-           ELSE 'importing'
-         END,
-         received_count=excluded.received_count,
-         valid_count=excluded.valid_count,
-         quarantined_count=excluded.quarantined_count,
-         checksum=excluded.checksum,
-         expected_chunks=excluded.expected_chunks,
-         payload_bytes=excluded.payload_bytes,
-         output_watermark=excluded.output_watermark`,
-    )
-    .bind(
-      input.batchId,
-      input.jobId,
-      "importing",
-      input.events.length,
+  const existingBatch = await loadExistingBatch(db, input.batchId);
+  if (existingBatch && existingBatch.checksum !== checksum) {
+    throw new Error(`batch ${input.batchId} checksum mismatch`);
+  }
+  if (existingBatch?.status === "committed" && (await loadFinalizeReceipt(db, input.batchId))) {
+    return {
+      status: "committed",
+      batchId: input.batchId,
+      checksum,
+      totalChunks: chunks.length,
+      committedChunks: existingBatch.committed_chunks,
+      replayedChunks: chunks.length,
       validEvents,
       quarantinedEvents,
-      checksum,
-      chunks.length,
-      payloadBytes,
-      input.outputWatermark,
-      generatedAt,
-    )
-    .run();
+    };
+  }
+
+  if (existingBatch?.status !== "committed") {
+    await db
+      .prepare(
+        `INSERT INTO import_batches (
+           batch_id, job_id, status, received_count, valid_count,
+           quarantined_count, checksum, expected_chunks, committed_chunks,
+           payload_bytes, output_watermark, started_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+         ON CONFLICT(batch_id) DO UPDATE SET
+           status='importing',
+           received_count=excluded.received_count,
+           valid_count=excluded.valid_count,
+           quarantined_count=excluded.quarantined_count,
+           checksum=excluded.checksum,
+           expected_chunks=excluded.expected_chunks,
+           payload_bytes=excluded.payload_bytes,
+           output_watermark=excluded.output_watermark`,
+      )
+      .bind(
+        input.batchId,
+        input.jobId,
+        "importing",
+        input.events.length,
+        validEvents,
+        quarantinedEvents,
+        checksum,
+        chunks.length,
+        payloadBytes,
+        input.outputWatermark,
+        generatedAt,
+      )
+      .run();
+  }
 
   let replayedChunks = 0;
   for (const [index, chunk] of chunks.entries()) {
@@ -413,14 +593,7 @@ export async function stageImportBatch(
       .run();
   }
 
-  await db
-    .prepare(
-      `UPDATE import_batches
-       SET status='committed', committed_at=?
-       WHERE batch_id=? AND committed_chunks=expected_chunks`,
-    )
-    .bind(generatedAt, input.batchId)
-    .run();
+  await finalizeImportBatch(db, input, checksum);
   const batch = await db
     .prepare(
       `SELECT status, committed_chunks, expected_chunks
@@ -431,53 +604,6 @@ export async function stageImportBatch(
     .first<{ status: string; committed_chunks: number; expected_chunks: number }>();
   if (!batch || batch.status !== "committed") {
     throw new Error(`batch ${input.batchId} did not commit all chunks`);
-  }
-  if (replayedChunks === chunks.length) {
-    return {
-      status: "committed",
-      batchId: input.batchId,
-      checksum,
-      totalChunks: chunks.length,
-      committedChunks: batch.committed_chunks,
-      replayedChunks,
-      validEvents,
-      quarantinedEvents,
-    };
-  }
-
-  if (input.leaseToken && typeof input.fencingVersion === "number") {
-    const jobResult = await db
-      .prepare(
-        `UPDATE jobs
-         SET status='committed', output_watermark=?, updated_at=?
-         WHERE job_id=? AND status='running'
-           AND lease_token=? AND fencing_version=?`,
-      )
-      .bind(
-        input.outputWatermark,
-        generatedAt,
-        input.jobId,
-        input.leaseToken,
-        input.fencingVersion,
-      )
-      .run();
-    if (Number(jobResult.meta?.changes || 0) !== 1) {
-      throw new Error(`job ${input.jobId} was not fenced for import commit`);
-    }
-    await db
-      .prepare(
-        `UPDATE source_runtime_state
-         SET cursor=?, last_success_at=?, consecutive_failures=0, updated_at=?
-         WHERE target_id=? AND source_id=?`,
-      )
-      .bind(
-        input.outputWatermark,
-        generatedAt,
-        generatedAt,
-        input.targetId,
-        input.sourceId,
-      )
-      .run();
   }
 
   return {
