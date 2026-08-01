@@ -96,6 +96,10 @@ jobs:
         working-directory: frontend/cloudflare
         run: npm test
 
+      - name: Cloudflare Worker type generation
+        working-directory: frontend/cloudflare
+        run: npm run types
+
       - name: Cloudflare Worker dry run
         working-directory: frontend/cloudflare
         env:
@@ -285,6 +289,16 @@ jobs:
         working-directory: frontend/cloudflare
         run: npm ci
 
+      - name: Cloudflare runtime preflight receipt
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          python tools/cloudflare_deploy_guard.py preflight \
+            --output /tmp/news-sentry-cloudflare-preflight.json
+
       - name: Deploy Cloudflare Worker
         working-directory: frontend/cloudflare
         env:
@@ -299,6 +313,8 @@ jobs:
           : "${CF_ACCESS_AUD:?GitHub environment variable CF_ACCESS_AUD is required}"
           npx wrangler deploy --env="" --containers-rollout gradual \
             --var "NEWS_SENTRY_DEPLOY_COMMIT:${GITHUB_SHA}" \
+            --var "SCHEDULER_MODE:shadow" \
+            --var "WORKER_NATIVE_COLLECT_ENABLED:false" \
             --var "CF_ACCESS_TEAM_DOMAIN:${CF_ACCESS_TEAM_DOMAIN}" \
             --var "CF_ACCESS_AUD:${CF_ACCESS_AUD}"
 
@@ -328,6 +344,9 @@ jobs:
           if mode == "ready":
               assert body.get("readiness", {}).get("ok") is True, "Worker readiness is false"
               assert body.get("deployment", {}).get("commit") == os.environ["GITHUB_SHA"]
+              assert body.get("deployment", {}).get("scheduler_mode") == "shadow"
+              assert body.get("deployment", {}).get("worker_native_collect_enabled") is False
+              assert body.get("deployment", {}).get("collection_authoritative") is False
           PY
           }
 
@@ -379,6 +398,54 @@ jobs:
             fi
             sleep 5
           done
+
+      - name: Collect Cloudflare Worker deployment receipt
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          npx wrangler versions list --json > /tmp/ns-worker-versions.json
+          npx wrangler deployments list --json > /tmp/ns-worker-deployments.json
+          npx wrangler d1 execute ns-db --remote \
+            --command "SELECT name FROM d1_migrations ORDER BY name" \
+            --json > /tmp/ns-d1-applied-migrations.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          def rows(value):
+              if isinstance(value, list) and value and isinstance(value[0], dict) and isinstance(value[0].get("results"), list):
+                  return value[0]["results"]
+              if isinstance(value, list):
+                  return value
+              if isinstance(value, dict):
+                  for key in ("results", "result", "items"):
+                      if isinstance(value.get(key), list):
+                          return value[key]
+              return []
+
+          versions = rows(json.loads(Path("/tmp/ns-worker-versions.json").read_text()))
+          deployments = rows(json.loads(Path("/tmp/ns-worker-deployments.json").read_text()))
+          migrations = rows(json.loads(Path("/tmp/ns-d1-applied-migrations.json").read_text()))
+          Path("/tmp/ns-worker-version.json").write_text(json.dumps(versions[0] if versions else {}))
+          Path("/tmp/ns-worker-deployment.json").write_text(json.dumps(deployments[0] if deployments else {}))
+          Path("/tmp/ns-applied-migrations.json").write_text(json.dumps([
+              row.get("name") for row in migrations if isinstance(row, dict) and row.get("name")
+          ]))
+          PY
+          cd ../..
+          python tools/cloudflare_deploy_guard.py receipt \
+            --expected-commit "${GITHUB_SHA}" \
+            --expected-scheduler-mode shadow \
+            --version-json /tmp/ns-worker-version.json \
+            --deployment-json /tmp/ns-worker-deployment.json \
+            --health-json /tmp/worker-ready.json \
+            --applied-migrations-json /tmp/ns-applied-migrations.json \
+            --queue-receipt-json /tmp/news-sentry-cloudflare-preflight.json \
+            --output /tmp/news-sentry-cloudflare-deploy-receipt.json
 
   deploy-cloudflare-pages:
     name: Deploy Cloudflare Pages

@@ -309,6 +309,12 @@ export async function handleHealth(
     }),
     deployment: runtimeMetadata,
   };
+  if (runtimeMetadata?.config_valid === false) {
+    body.status = "unhealthy";
+    body.reason_codes = [...(body.reason_codes ?? []), "runtime_config_invalid"];
+    body.readiness = { status: "unhealthy", ok: false };
+    body.business_health = { status: "unhealthy", ok: false };
+  }
   return new Response(JSON.stringify(body), {
     status: httpStatusForHealth(body.status),
     headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },

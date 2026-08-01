@@ -18,6 +18,8 @@ routes = [
 
 [vars]
 NEWS_SENTRY_RUNTIME = "cloudflare-native"
+SCHEDULER_MODE = "shadow"
+WORKER_NATIVE_COLLECT_ENABLED = "false"
 
 [version_metadata]
 binding = "CF_VERSION_METADATA"
@@ -86,6 +88,8 @@ routes = []
 
 [env.production.vars]
 NEWS_SENTRY_RUNTIME = "cloudflare-native"
+SCHEDULER_MODE = "shadow"
+WORKER_NATIVE_COLLECT_ENABLED = "false"
 
 [env.production.secrets]
 required = [
@@ -126,6 +130,8 @@ routes = []
 
 [env.dev.vars]
 NEWS_SENTRY_RUNTIME = "cloudflare-native-dev"
+SCHEDULER_MODE = "shadow"
+WORKER_NATIVE_COLLECT_ENABLED = "false"
 
 [env.dev.version_metadata]
 binding = "CF_VERSION_METADATA"

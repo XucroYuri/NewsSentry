@@ -33,3 +33,15 @@ def test_preview_deploy_workflow_has_no_vps_or_systemd_blocks() -> None:
     ]
     for token in forbidden:
         assert token not in workflow
+
+
+def test_deploy_workflow_uses_fail_closed_cloudflare_preflight_and_receipts() -> None:
+    workflow = _workflow_text()
+
+    assert "tools/cloudflare_deploy_guard.py preflight" in workflow
+    assert "tools/cloudflare_deploy_guard.py receipt" in workflow
+    assert "npx wrangler versions list --json" in workflow
+    assert "npx wrangler deployments list --json" in workflow
+    assert "SELECT name FROM d1_migrations ORDER BY name" in workflow
+    assert "--var \"SCHEDULER_MODE:shadow\"" in workflow
+    assert "--var \"WORKER_NATIVE_COLLECT_ENABLED:false\"" in workflow

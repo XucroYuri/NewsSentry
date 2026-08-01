@@ -6,8 +6,9 @@ import { assessEventTimestamps } from "./timestamp-policy";
 import { generateShadowJobs } from "./job-store";
 import { buildAndActivateShadowSnapshotGeneration } from "./snapshot-generation";
 import { dispatchDueShadowJobs, type ShadowQueueEnv } from "./queue-shadow";
+import { parseRuntimeConfig, type RuntimeConfigEnv } from "./runtime-config";
 
-interface ScheduledEnv extends ShadowQueueEnv {
+interface ScheduledEnv extends ShadowQueueEnv, RuntimeConfigEnv {
   DB: D1Database;
   NEWS_SENTRY_CONTAINER?: DurableObjectNamespace;
 }
@@ -262,6 +263,15 @@ function taskRuntimeDetails(task: ScheduledTask): Record<string, unknown> {
     return { task_mode: "cloudflare_budget" };
   }
   return { task_mode: "public_quality", pipeline_stage: "drafts" };
+}
+
+function runtimeTaskDetails(env: ScheduledEnv): Record<string, unknown> {
+  const config = parseRuntimeConfig(env);
+  return {
+    scheduler_mode: config.schedulerMode,
+    worker_native_collect_enabled: config.workerNativeCollectEnabled,
+    collection_authoritative: config.collectionAuthoritative,
+  };
 }
 
 function extractContainerImportEvents(details: Record<string, unknown>): ImportEventItem[] {
@@ -588,13 +598,20 @@ export async function runScheduledCloudflareTask(
   controller: ScheduledController,
   env: ScheduledEnv,
 ): Promise<void> {
+  const runtimeConfig = parseRuntimeConfig(env);
+  if (!runtimeConfig.ok) {
+    throw new Error(`Invalid Cloudflare runtime config: ${runtimeConfig.errors.join(",")}`);
+  }
   const task = taskForCron(controller.cron);
   const runId = `${task}:${controller.scheduledTime}:${crypto.randomUUID()}`;
   const startedAt = isoNow();
   let collectBatch: CollectTargetBatch | null = null;
   let containerWriterLockAcquired = false;
   if (!(await acquireLock(env.DB, task))) {
-    await recordRun(env.DB, runId, task, "skipped_locked", startedAt, taskRuntimeDetails(task));
+    await recordRun(env.DB, runId, task, "skipped_locked", startedAt, {
+      ...taskRuntimeDetails(task),
+      ...runtimeTaskDetails(env),
+    });
     return;
   }
   try {
@@ -603,6 +620,7 @@ export async function runScheduledCloudflareTask(
       if (!containerWriterLockAcquired) {
         await recordRun(env.DB, runId, task, "skipped_container_locked", startedAt, {
           ...taskRuntimeDetails(task),
+          ...runtimeTaskDetails(env),
           retryable_error: "container_sqlite_writer_locked",
         });
         return;
@@ -611,11 +629,18 @@ export async function runScheduledCloudflareTask(
     collectBatch = task === "collect-cycle" ? await loadCollectTargetBatch(env.DB) : null;
     await recordRunStarted(env.DB, runId, task, startedAt, {
       ...taskRuntimeDetails(task),
+      ...runtimeTaskDetails(env),
       ...(collectBatch === null ? {} : { collect_batch: collectBatchDetails(collectBatch) }),
     });
     const quarantineCleanup = await quarantineExistingUnsafeEvents(env.DB, startedAt);
-    const shadowJobs = await generateShadowJobs(env.DB, startedAt);
-    const shadowDispatch = await dispatchDueShadowJobs(env, startedAt);
+    const shadowJobs =
+      runtimeConfig.schedulerMode === "legacy"
+        ? { mode: "legacy", status: "skipped", reason: "scheduler_mode_legacy" }
+        : await generateShadowJobs(env.DB, startedAt);
+    const shadowDispatch =
+      runtimeConfig.schedulerMode === "legacy"
+        ? { mode: "legacy", status: "skipped", reason: "scheduler_mode_legacy" }
+        : await dispatchDueShadowJobs(env, startedAt);
     let details: Record<string, unknown>;
     if (task === "refresh-public-quality") {
       details = await refreshPublicQuality(env.DB);
@@ -623,6 +648,8 @@ export async function runScheduledCloudflareTask(
       details = await deleteExpiredPublicData(env.DB, 90);
     } else if (task === "cost-audit-cycle") {
       details = await auditCloudflareBudget(env.DB);
+    } else if (task === "collect-cycle" && runtimeConfig.schedulerMode === "queue") {
+      details = { status: "ok", reason: "queue_authoritative_scheduler_dispatched_only" };
     } else if (task === "collect-cycle" && collectBatch?.targetIds.length === 0) {
       details = { status: "empty_no_targets", reason: "no_active_targets" };
     } else {
@@ -650,6 +677,7 @@ export async function runScheduledCloudflareTask(
     }
     const compactDetails = compactTaskDetails({
       ...taskRuntimeDetails(task),
+      ...runtimeTaskDetails(env),
       ...details,
       quarantine_cleanup: quarantineCleanup,
       shadow_jobs: shadowJobs,
@@ -671,6 +699,7 @@ export async function runScheduledCloudflareTask(
     const retryableDatabaseLock = isDatabaseLockedDetails(error);
     await recordRun(env.DB, runId, task, retryableDatabaseLock ? "failed_retryable" : "error", startedAt, {
       ...taskRuntimeDetails(task),
+      ...runtimeTaskDetails(env),
       message: error instanceof Error ? error.message : String(error),
       ...(retryableDatabaseLock ? { retryable_error: "database_locked" } : {}),
       ...(collectBatch === null ? {} : { collect_batch: collectBatchDetails(collectBatch) }),

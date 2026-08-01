@@ -498,6 +498,35 @@ test("oversized single event is quarantined instead of exceeding chunk payload m
   assert.equal(db.quarantinedEvents[0].reason_code, "oversized_event_payload");
 });
 
+test("oversized non-ASCII quarantine payload is bounded by UTF-8 bytes", async () => {
+  const db = new FakeD1Database();
+  db.jobs.set("job-1", {
+    status: "running",
+    output_watermark: null,
+    lease_token: "lease-1",
+    fencing_version: 1,
+  });
+  db.runtimeState.set("italy:ansa", { cursor: "old" });
+
+  await stageImportBatch(db as unknown as D1Database, {
+    batchId: "batch-1",
+    jobId: "job-1",
+    targetId: "italy",
+    sourceId: "ansa",
+    outputWatermark: "cursor-oversized-unicode",
+    events: [event(1, { summary: "界".repeat(180_000) }), event(2)],
+    generatedAt: "2026-08-01T01:00:00Z",
+    leaseToken: "lease-1",
+    fencingVersion: 1,
+  });
+
+  const payload = db.quarantinedEvents[0].payload_json as string;
+  const parsed = JSON.parse(payload) as { truncated?: boolean; original_bytes?: number };
+  assert.equal(parsed.truncated, true);
+  assert.ok((parsed.original_bytes ?? 0) > 512 * 1024);
+  assert.ok(new TextEncoder().encode(payload).length <= 131_072);
+});
+
 test("chunk failure leaves batch, job, watermark, and snapshots unfinished", async () => {
   const db = new FakeD1Database();
   db.jobs.set("job-1", {

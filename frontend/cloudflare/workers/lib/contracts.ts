@@ -31,6 +31,11 @@ export interface HealthResponse {
     commit: string | null;
     runtime: string;
     worker_version: string | null;
+    scheduler_mode?: "legacy" | "shadow" | "queue" | null;
+    worker_native_collect_enabled?: boolean;
+    collection_authoritative?: boolean;
+    config_valid?: boolean;
+    config_errors?: string[];
   };
   error?: string;
   scheduler?: {

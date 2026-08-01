@@ -1,6 +1,9 @@
 -- Phase 2 transactional chunked import staging.
 -- The chunk limits enforced in workers/lib/import-staging.ts are project
 -- safety margins for shadow/canary replay, not Cloudflare D1 hard limits.
+-- Recovery note: do not blindly rerun this file after a partial ALTER failure.
+-- Use docs/deployment/cloudflare-phase2-migration-runbook.md to inspect
+-- d1_migrations plus PRAGMA table_info and apply only missing additive pieces.
 
 ALTER TABLE import_batches
     ADD COLUMN expected_chunks INTEGER NOT NULL DEFAULT 0 CHECK (expected_chunks >= 0);

@@ -31,13 +31,15 @@ import { authorizeWorkerWriteAccess } from "./lib/access";
 import { runScheduledCloudflareTask } from "./lib/scheduled";
 import { handleShadowQueueBatch } from "./lib/queue-shadow";
 import type { CloudflareAccessJwtEnv } from "./lib/access-jwt";
+import { parseRuntimeConfig, type RuntimeConfigEnv } from "./lib/runtime-config";
 
-interface Env extends CloudflareAccessJwtEnv {
+interface Env extends CloudflareAccessJwtEnv, RuntimeConfigEnv {
   DB: D1Database;
   NEWS_SENTRY_CONTAINER?: DurableObjectNamespace;
   NEWS_SENTRY_JOBS_QUEUE?: Queue;
   NEWS_SENTRY_JOBS_DLQ?: Queue;
   NEWS_SENTRY_DEPLOY_COMMIT?: string;
+  NEWS_SENTRY_QUEUE_CUTOVER_RECEIPT?: string;
   CF_VERSION_METADATA?: {
     id: string;
     tag?: string;
@@ -133,11 +135,17 @@ function runtimeMetadata(
   env: Env,
   accessIdentity: { email: string } | null = null,
 ): RuntimeMetadata {
+  const config = parseRuntimeConfig(env);
   return {
     access: accessIdentity ?? undefined,
     commit: env.NEWS_SENTRY_DEPLOY_COMMIT ?? null,
     runtime: "cloudflare-worker",
     worker_version: env.CF_VERSION_METADATA?.id ?? null,
+    scheduler_mode: config.schedulerMode,
+    worker_native_collect_enabled: config.workerNativeCollectEnabled,
+    collection_authoritative: config.collectionAuthoritative,
+    config_valid: config.ok,
+    config_errors: config.errors,
     queue: {
       jobs_configured: Boolean(env.NEWS_SENTRY_JOBS_QUEUE),
       dlq_configured: Boolean(env.NEWS_SENTRY_JOBS_DLQ),

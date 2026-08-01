@@ -177,11 +177,15 @@ export async function buildImportChunks(events: ImportStagingEvent[]): Promise<I
 
 function boundedPayload(value: unknown): string {
   const serialized = canonicalJson(value);
-  if (serialized.length <= 131_072) return serialized;
+  if (utf8Bytes(serialized) <= 131_072) return serialized;
+  let prefix = serialized.slice(0, 65_536);
+  while (utf8Bytes(prefix) > 96 * 1024) {
+    prefix = prefix.slice(0, Math.floor(prefix.length * 0.8));
+  }
   return JSON.stringify({
     truncated: true,
     original_bytes: utf8Bytes(serialized),
-    prefix: serialized.slice(0, 65_536),
+    prefix,
   });
 }
 
