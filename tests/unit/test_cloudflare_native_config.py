@@ -31,6 +31,31 @@ def test_wrangler_routes_are_top_level_not_nested_under_d1() -> None:
         assert "routes" not in binding
 
 
+def test_preview_worker_uses_isolated_state_and_no_active_runtime_bindings() -> None:
+    config = tomllib.loads(_read("wrangler.toml"))
+    preview = config["env"]["preview"]
+
+    assert preview["routes"] == []
+    assert preview["workers_dev"] is True
+    assert preview["vars"] == {
+        "NEWS_SENTRY_RUNTIME": "cloudflare-native-preview",
+        "NEWS_SENTRY_ENVIRONMENT": "preview",
+        "SCHEDULER_MODE": "shadow",
+        "WORKER_NATIVE_COLLECT_ENABLED": "false",
+    }
+    assert preview["d1_databases"] == [
+        {
+            "binding": "DB",
+            "database_name": "ns-db-preview",
+            "database_id": "00000000-0000-4000-8000-000000000000",
+        }
+    ]
+    assert preview["queues"] == {"producers": [], "consumers": []}
+    assert preview["durable_objects"] == {"bindings": []}
+    assert preview["containers"] == []
+    assert preview["secrets"] == {"required": []}
+
+
 def test_deploy_workflow_verifies_apex_api_worker_route() -> None:
     deploy_yml = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
 
@@ -83,6 +108,33 @@ def test_worker_health_verification_shell_is_syntactically_valid() -> None:
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_preview_worker_and_verify_shell_are_syntactically_valid() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+    )
+    scripts = []
+    for job_name, step_name in (
+        ("deploy-cloudflare-preview-worker", "Resolve Cloudflare preview D1"),
+        ("deploy-cloudflare-preview-worker", "Prepare Cloudflare preview config and seed"),
+        ("deploy-cloudflare-preview-worker", "Deploy Cloudflare preview Worker"),
+        ("deploy-cloudflare-pages", "Verify preview frontend API binding"),
+        ("deploy-cloudflare-pages", "Deploy Cloudflare Pages"),
+        ("verify-preview", "Verify preview Cloudflare-native public endpoints"),
+    ):
+        steps = workflow["jobs"][job_name]["steps"]
+        scripts.append(next(step["run"] for step in steps if step.get("name") == step_name))
+
+    for script in scripts:
+        result = subprocess.run(
+            ["/bin/bash", "-n"],
+            input=script,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        assert result.returncode == 0, result.stderr
 
 
 def test_worker_health_reads_cloudflare_d1_events_table() -> None:
@@ -583,6 +635,18 @@ def test_cloudflare_package_deploy_prod_targets_custom_domain_worker() -> None:
     package_json = json.loads((CLOUDFLARE_DIR / "package.json").read_text(encoding="utf-8"))
 
     assert package_json["scripts"]["deploy:prod"] == 'wrangler deploy --env=""'
+
+
+def test_cloudflare_wrangler_is_pinned_to_a_non_vulnerable_release() -> None:
+    package_json = json.loads((CLOUDFLARE_DIR / "package.json").read_text(encoding="utf-8"))
+    package_lock = json.loads(
+        (CLOUDFLARE_DIR / "package-lock.json").read_text(encoding="utf-8")
+    )
+
+    expected_version = "4.114.0"
+    assert package_json["devDependencies"]["wrangler"] == expected_version
+    assert package_lock["packages"][""]["devDependencies"]["wrangler"] == expected_version
+    assert package_lock["packages"]["node_modules/wrangler"]["version"] == expected_version
 
 
 def test_cloudflare_worker_deploy_paths_use_top_level_env_for_queue_bindings() -> None:

@@ -56,3 +56,20 @@
 - `runtime_migration_receipts` 已包含 Phase 0/1/2 必需 project receipt，并用 PRAGMA/table probes 证明 Phase 2 schema 等价。
 - `wrangler.toml` 显式声明 `SCHEDULER_MODE=shadow` 与
   `WORKER_NATIVE_COLLECT_ENABLED=false`。
+
+## 隔离 Preview 验证面
+
+Preview 不复用生产 Worker 或 D1。`deploy-cloudflare-preview-worker` 只允许：
+
+- Worker：`news-sentry-api-preview`，入口为该 Worker 的 canonical HTTPS `workers.dev` origin；
+- D1：`ns-db-preview`，workflow 先 list，缺失时 create，再 re-list 并要求唯一 UUID；
+- bindings：`DB`、`CF_VERSION_METADATA` 和 Preview vars；
+- 数据：完整 schema 加一条新鲜 synthetic event、ops heartbeat 和 public read snapshots。
+
+Preview 明确不包含生产 routes、Queue、Cron、Container、Durable Object 或生产 D1 ID。它证明的
+范围只有当前 commit 的公开 API、D1、`live/ready/health` 与 Pages 到 Preview API 的构建绑定。
+Queue/Cron/Container/DO 必须在独立 canary 和生产 receipt 中验证，不能用 Preview 绿色替代。
+
+任何 D1 名称歧义、非法 UUID、Wrangler NDJSON 回执缺失、Worker/environment 不匹配、非
+`workers.dev` origin、Pages deploy URL 无法解析，或 frontend bundle 未嵌入 Preview API URL，
+都必须 fail closed。

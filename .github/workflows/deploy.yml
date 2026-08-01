@@ -465,11 +465,148 @@ jobs:
             --queue-receipt-json /tmp/news-sentry-cloudflare-preflight.json \
             --output /tmp/news-sentry-cloudflare-deploy-receipt.json
 
+  deploy-cloudflare-preview-worker:
+    name: Deploy Cloudflare preview Worker
+    runs-on: ubuntu-latest
+    needs: ci
+    if: github.ref == 'refs/heads/preview'
+    environment: preview
+    outputs:
+      preview_api_url: ${{ steps.receipt.outputs.api_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/cloudflare/package-lock.json
+
+      - name: Install Cloudflare Worker dependencies
+        working-directory: frontend/cloudflare
+        run: npm ci
+
+      - name: Resolve Cloudflare preview D1
+        id: d1
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          node_modules/.bin/wrangler d1 list --json > /tmp/ns-preview-d1-list.json
+          set +e
+          python ../../tools/cloudflare_preview_guard.py select-d1 \
+            --input /tmp/ns-preview-d1-list.json \
+            --output /tmp/ns-preview-d1.json
+          status="$?"
+          set -e
+          if [ "${status}" != "0" ]; then
+            if [ "${status}" != "42" ]; then
+              exit "${status}"
+            fi
+            node_modules/.bin/wrangler d1 create ns-db-preview
+            node_modules/.bin/wrangler d1 list --json > /tmp/ns-preview-d1-list.json
+            python ../../tools/cloudflare_preview_guard.py select-d1 \
+              --input /tmp/ns-preview-d1-list.json \
+              --output /tmp/ns-preview-d1.json
+          fi
+          database_id="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          print(json.loads(Path("/tmp/ns-preview-d1.json").read_text())["database_id"])
+          PY
+          )"
+          echo "database_id=${database_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare Cloudflare preview config and seed
+        env:
+          PREVIEW_D1_DATABASE_ID: ${{ steps.d1.outputs.database_id }}
+        run: |
+          set -euo pipefail
+          python tools/cloudflare_preview_guard.py render-config \
+            --source frontend/cloudflare/wrangler.toml \
+            --output frontend/cloudflare/wrangler.preview.generated.toml \
+            --database-id "${PREVIEW_D1_DATABASE_ID}"
+          python tools/cloudflare_preview_guard.py seed-sql \
+            --output /tmp/news-sentry-preview-seed.sql \
+            --deploy-commit "${GITHUB_SHA}" \
+            --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+      - name: Apply Cloudflare preview D1 schema and seed
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          node_modules/.bin/wrangler d1 execute DB \
+            --config wrangler.preview.generated.toml \
+            --env preview \
+            --remote \
+            --file=db/schema.sql
+          node_modules/.bin/wrangler d1 execute DB \
+            --config wrangler.preview.generated.toml \
+            --env preview \
+            --remote \
+            --file=/tmp/news-sentry-preview-seed.sql
+
+      - name: Deploy Cloudflare preview Worker
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_OUTPUT_FILE_PATH: /tmp/news-sentry-preview-wrangler-output.ndjson
+        run: |
+          set -euo pipefail
+          node_modules/.bin/wrangler deploy --config wrangler.preview.generated.toml --env preview \
+            --containers-rollout none \
+            --var "NEWS_SENTRY_DEPLOY_COMMIT:${GITHUB_SHA}" \
+            --var "NEWS_SENTRY_ENVIRONMENT:preview" \
+            --var "SCHEDULER_MODE:shadow" \
+            --var "WORKER_NATIVE_COLLECT_ENABLED:false"
+
+      - name: Collect Cloudflare preview Worker receipt
+        id: receipt
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: /tmp/news-sentry-preview-wrangler-output.ndjson
+        run: |
+          set -euo pipefail
+          python tools/cloudflare_preview_guard.py deploy-receipt \
+            --input "${WRANGLER_OUTPUT_FILE_PATH}" \
+            --output /tmp/news-sentry-preview-deploy-receipt.json \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Upload Cloudflare preview Worker receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: news-sentry-preview-worker-receipt
+          path: |
+            /tmp/news-sentry-preview-deploy-receipt.json
+            /tmp/news-sentry-preview-seed.sql
+
   deploy-cloudflare-pages:
     name: Deploy Cloudflare Pages
     runs-on: ubuntu-latest
-    needs: ci
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/preview' || github.event_name == 'workflow_dispatch'
+    needs: [ci, deploy-cloudflare-preview-worker]
+    if: >-
+      always() &&
+      needs.ci.result == 'success' &&
+      (
+        github.ref == 'refs/heads/main' ||
+        (
+          github.ref == 'refs/heads/preview' &&
+          needs.deploy-cloudflare-preview-worker.result == 'success'
+        ) ||
+        (
+          github.event_name == 'workflow_dispatch' &&
+          github.event.inputs.environment == 'production'
+        )
+      )
     environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
     outputs:
       pages_url: ${{ steps.deploy.outputs.pages_url }}
@@ -490,8 +627,18 @@ jobs:
       - name: Build public frontend
         working-directory: frontend/public
         env:
-          VITE_API_BASE: https://api.news-sentry.com
+          VITE_API_BASE: ${{ github.ref == 'refs/heads/preview' && needs.deploy-cloudflare-preview-worker.outputs.preview_api_url || 'https://api.news-sentry.com' }}
         run: npm run build
+
+      - name: Verify preview frontend API binding
+        if: github.ref == 'refs/heads/preview'
+        working-directory: frontend/public
+        env:
+          PREVIEW_API_URL: ${{ needs.deploy-cloudflare-preview-worker.outputs.preview_api_url }}
+        run: |
+          set -euo pipefail
+          : "${PREVIEW_API_URL:?Preview Worker URL is required in the frontend build}"
+          grep -R -F -- "${PREVIEW_API_URL}" dist/ > /tmp/news-sentry-preview-api-binding.txt
 
       - name: Deploy Cloudflare Pages
         id: deploy
@@ -509,6 +656,10 @@ jobs:
             --commit-dirty=true | tee /tmp/news-sentry-pages-deploy.log
           pages_url="$(grep -Eo 'https://[^[:space:]]+\\.pages\\.dev' /tmp/news-sentry-pages-deploy.log | tail -1 || true)"
           if [ -z "${pages_url}" ]; then
+            if [ "${GITHUB_REF}" = "refs/heads/preview" ]; then
+              echo "Failed to extract the immutable Pages preview deployment URL."
+              exit 1
+            fi
             pages_url="https://news-sentry.pages.dev"
           fi
           echo "pages_url=${pages_url}" >> "$GITHUB_OUTPUT"
@@ -532,12 +683,12 @@ jobs:
   verify-preview:
     name: Verify preview
     runs-on: ubuntu-latest
-    needs: [deploy-cloudflare-pages, cloudflare-data]
+    needs: [deploy-cloudflare-pages, deploy-cloudflare-preview-worker, cloudflare-data]
     if: github.ref == 'refs/heads/preview'
     env:
       BASE_URL: https://preview.news-sentry.com
       PAGES_URL: ${{ needs.deploy-cloudflare-pages.outputs.pages_url }}
-      API_URL: https://api.news-sentry.com
+      API_URL: ${{ needs.deploy-cloudflare-preview-worker.outputs.preview_api_url }}
       CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
       CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -558,19 +709,74 @@ jobs:
       - name: Verify preview Cloudflare-native public endpoints
         run: |
           set -euo pipefail
-          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/health" > /tmp/health.json
+          : "${API_URL:?Preview API_URL must point to a preview Worker runtime}"
+          if [ "${API_URL}" = "https://api.news-sentry.com" ]; then
+            echo "Preview API_URL must point to a preview Worker runtime, not production."
+            exit 1
+          fi
+          case "${API_URL}" in
+            https://*) ;;
+            *)
+              echo "Preview API_URL must be an HTTPS URL."
+              exit 1
+              ;;
+          esac
+
+          fetch_preview_worker_receipt() {
+            local mode="$1"
+            local path="$2"
+            curl -fsS \
+              -D "/tmp/preview-${mode}.headers" \
+              -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" \
+              -H "Accept: application/json" \
+              "${API_URL}${path}" > "/tmp/preview-${mode}.json"
+          }
+
+          fetch_preview_worker_receipt live /api/v1/live
+          fetch_preview_worker_receipt ready /api/v1/ready
+          fetch_preview_worker_receipt health /api/v1/health
           curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json
           curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/facets" > /tmp/facets.json
           curl -fsS -o /tmp/public-app.html "${PAGES_URL:-${BASE_URL}}/"
 
           python - <<'PY'
           import json
+          import os
           from pathlib import Path
 
-          health = json.loads(Path("/tmp/health.json").read_text())
+          def load_headers(path: str) -> dict[str, str]:
+              parsed = {}
+              for line in Path(path).read_text(errors="replace").splitlines():
+                  if ":" in line:
+                      key, value = line.split(":", 1)
+                      parsed[key.strip().lower()] = value.strip()
+              return parsed
+
+          def load_receipt(mode: str) -> tuple[dict, dict[str, str]]:
+              return (
+                  json.loads(Path(f"/tmp/preview-{mode}.json").read_text()),
+                  load_headers(f"/tmp/preview-{mode}.headers"),
+              )
+
+          live, live_headers = load_receipt("live")
+          ready, ready_headers = load_receipt("ready")
+          health, health_headers = load_receipt("health")
           news = json.loads(Path("/tmp/public-news.json").read_text())
           facets = json.loads(Path("/tmp/facets.json").read_text())
 
+          for mode, payload, headers in (
+              ("live", live, live_headers),
+              ("ready", ready, ready_headers),
+              ("health", health, health_headers),
+          ):
+              assert payload.get("status") == "ok", f"Preview Worker {mode} is not ok"
+              assert headers.get("x-news-sentry-runtime") == "cloudflare-worker"
+              assert headers.get("x-news-sentry-deploy-commit") == os.environ["GITHUB_SHA"]
+              assert headers.get("x-news-sentry-worker-version"), f"Preview Worker {mode} version receipt missing"
+
+          assert ready.get("readiness", {}).get("ok") is True, "Preview Worker readiness is false"
+          assert ready.get("deployment", {}).get("commit") == os.environ["GITHUB_SHA"]
+          assert health.get("deployment", {}).get("commit") == os.environ["GITHUB_SHA"]
           assert health.get("status") == "ok", "Worker health is not ok"
           assert isinstance(health.get("total_events"), int), "health total_events missing"
           assert isinstance(news.get("items"), list), "public news response missing items"

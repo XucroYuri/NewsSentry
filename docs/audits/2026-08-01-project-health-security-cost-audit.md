@@ -7,7 +7,9 @@
 
 > 2026-08-02 更新：本地 `dev-xu/fix/cloudflare-persistent-runtime` 已补 Phase 2 Task 4 的
 > preview-safe preflight/receipt、显式 scheduler mode、worker-native collect 禁用、
-> UTF-8 quarantine payload 边界和 partial migration runbook。该更新未部署生产；
+> UTF-8 quarantine payload 边界和 partial migration runbook，并新增隔离 Preview Worker/D1、
+> Preview Pages/API 绑定证明、陈旧/未来时间戳 fail-closed 门禁、Access JWT 验证和
+> Wrangler 供应链修复。该更新未部署生产；
 > 72h canary、7d SLO、Cloudflare 费用和真实 Queue/D1 receipt 仍未开始。
 
 ## 1. 范围、方法与限制
@@ -80,6 +82,17 @@ Codex Security 深扫在移除旧 `agents.max_threads` 配置后通过 preflight
 - 新增 `docs/deployment/cloudflare-phase2-migration-runbook.md`，明确 partial `ALTER TABLE ADD COLUMN`
   的预检和恢复方式。
 - `import-staging.ts` 的 quarantine payload 截断改为真实 UTF-8 byte 口径，覆盖非 ASCII 大 payload。
+- Preview workflow 只允许 `news-sentry-api-preview`、独立 `ns-db-preview`、`workers.dev` 和
+  公开读/健康路径；不绑定生产 routes、Queue、Cron、Container 或 Durable Object。
+- Preview D1 通过唯一名称 list/create/re-list、UUID 校验、完整 schema 与新鲜 synthetic seed
+  建立可重复验证面；Wrangler NDJSON receipt 必须证明 Worker 名、environment 和 canonical
+  `workers.dev` origin。
+- Pages Preview 构建必须嵌入该次 Worker output URL；无法解析不可变 Pages deploy URL时 Preview
+  fail closed，不回退到通用 `news-sentry.pages.dev`。
+- live quality gate 现在拒绝缺失、畸形、陈旧或未来的 `latest_collected_at`，并拒绝未来
+  `latest_public_at`，避免旧生产中的 2028 时间戳继续制造 false-green。
+- Cloudflare Worker 工具链固定为 Wrangler `4.114.0`，传递依赖 Sharp `0.35.2`；官方 registry
+  `npm audit` 为 0 vulnerabilities。
 
 这些是本地代码和 CI 治理改造，不等同于生产修复。生产仍需通过受控 workflow 重新部署并持续观测。
 
@@ -198,7 +211,9 @@ Featured 流 50 条：
 
 Cloudflare 官方要求即使 Access 位于 Worker 前方，Worker 仍应验证 JWT。参考：[Validate JWTs](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/) 和 [Application token](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/application-token/)。
 
-修复：Worker 侧 JWT 验签；固定 AUD；缓存 JWKS；拒绝只有 email header 的请求；保留生产非写入 canary。
+本地修复状态：Worker 侧已实现 JWT 验签、固定 AUD、JWKS 缓存与 team domain 校验，并拒绝只有
+email header 的写请求；68 项 Worker 测试通过。生产仍是旧 commit，因此该项在取得 Preview 和
+生产回执前保持开放。
 
 #### SEC-02：Rules optimize target_id 可发生条件性路径逃逸
 

@@ -23,6 +23,7 @@ class QualityThresholds:
     min_summary_ready: int = 500
     min_d1_targets: int = 80
     max_latest_age_hours: int = 24
+    max_latest_collected_age_hours: int = 24
     max_featured_ttfb_ms: int = 0
     max_all_ttfb_ms: int = 0
     max_bootstrap_ttfb_ms: int = 0
@@ -54,6 +55,8 @@ def _parse_dt(value: Any) -> datetime | None:  # noqa: ANN401
         parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
         return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
     return parsed.astimezone(UTC)
 
 
@@ -73,10 +76,24 @@ def evaluate_receipt(receipt: dict[str, Any], thresholds: QualityThresholds) -> 
     if summary_ready < thresholds.min_summary_ready:
         failures.append("summary_ready_below_threshold")
 
-    latest_public = _parse_dt(_nested(receipt, "health", "public_quality", "latest_public_at"))
     generated_at = _parse_dt(receipt.get("generated_at")) or datetime.now(UTC)
+
+    latest_collected = _parse_dt(_nested(receipt, "health", "latest_collected_at"))
+    collected_cutoff = generated_at - timedelta(hours=thresholds.max_latest_collected_age_hours)
+    if latest_collected is None:
+        failures.append("latest_collected_missing_or_invalid")
+    elif latest_collected > generated_at:
+        failures.append("latest_collected_in_future")
+    elif latest_collected < collected_cutoff:
+        failures.append("latest_collected_too_old")
+
+    latest_public = _parse_dt(_nested(receipt, "health", "public_quality", "latest_public_at"))
     latest_cutoff = generated_at - timedelta(hours=thresholds.max_latest_age_hours)
-    if latest_public is None or latest_public < latest_cutoff:
+    if latest_public is None:
+        failures.append("latest_public_missing_or_invalid")
+    elif latest_public > generated_at:
+        failures.append("latest_public_in_future")
+    elif latest_public < latest_cutoff:
         failures.append("latest_public_too_old")
 
     for key in ("featured", "all", "bootstrap"):
@@ -340,6 +357,7 @@ def main() -> int:
     parser.add_argument("--min-summary-ready", type=int, default=500)
     parser.add_argument("--min-d1-targets", type=int, default=80)
     parser.add_argument("--max-latest-age-hours", type=int, default=24)
+    parser.add_argument("--max-latest-collected-age-hours", type=int, default=24)
     parser.add_argument("--max-featured-ttfb-ms", type=int, default=0)
     parser.add_argument("--max-all-ttfb-ms", type=int, default=0)
     parser.add_argument("--max-bootstrap-ttfb-ms", type=int, default=0)
@@ -356,6 +374,7 @@ def main() -> int:
             min_summary_ready=args.min_summary_ready,
             min_d1_targets=args.min_d1_targets,
             max_latest_age_hours=args.max_latest_age_hours,
+            max_latest_collected_age_hours=args.max_latest_collected_age_hours,
             max_featured_ttfb_ms=args.max_featured_ttfb_ms,
             max_all_ttfb_ms=args.max_all_ttfb_ms,
             max_bootstrap_ttfb_ms=args.max_bootstrap_ttfb_ms,

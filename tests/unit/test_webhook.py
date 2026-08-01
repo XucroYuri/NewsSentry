@@ -137,7 +137,7 @@ def test_payload_missing_required() -> None:
 
 
 @pytest.fixture
-def client(tmp_path: Path):
+def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """创建测试用 FastAPI app + webhook router。"""
     from fastapi import FastAPI
 
@@ -146,6 +146,8 @@ def client(tmp_path: Path):
 
     bus = EventBus()
     wh.init_webhook(tmp_path, bus)
+    monkeypatch.setenv("WEBHOOK_SECRET", "dev-secret")
+    monkeypatch.delenv("NEWSSENTRY_DEPLOYMENT_ENV", raising=False)
 
     app = FastAPI()
     app.include_router(wh.router)
@@ -155,16 +157,43 @@ def client(tmp_path: Path):
 
 
 def test_webhook_missing_signature_returns_401(client) -> None:
-    """缺少签名应返回 401（dev-secret 下本地默认 bypass，无签名 header 时通过但
-    生产环境 WEBHOOK_SECRET 被 set 后会拒绝）。
-    """
-    # 在 dev-secret 模式下无签名 header 也会被接受
+    """配置 shared secret 后缺少签名必须返回 401。"""
     resp = client.post(
         "/api/v1/webhook?target_id=italy",
         json=_make_payload(),
     )
-    # dev-secret 模式: 无签名也可以
-    assert resp.status_code in (202, 401)
+    assert resp.status_code == 401
+
+
+def test_webhook_missing_secret_fails_closed_outside_local(
+    client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """非本地环境缺少 shared secret 时不得接受 webhook。"""
+    monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
+    monkeypatch.setenv("NEWSSENTRY_DEPLOYMENT_ENV", "cloudflare-container")
+
+    resp = client.post(
+        "/api/v1/webhook?target_id=italy",
+        json=_make_payload(),
+    )
+
+    assert resp.status_code == 503
+    assert resp.json()["error"] == "webhook_secret_not_configured"
+
+
+def test_webhook_unsigned_request_is_allowed_only_in_explicit_local_mode(
+    client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """显式 local 模式可在未配置 secret 时保留无签名开发体验。"""
+    monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
+    monkeypatch.setenv("NEWSSENTRY_DEPLOYMENT_ENV", "local")
+
+    resp = client.post(
+        "/api/v1/webhook?target_id=italy",
+        json=_make_payload(),
+    )
+
+    assert resp.status_code == 202
 
 
 def test_webhook_202_accepted(client) -> None:

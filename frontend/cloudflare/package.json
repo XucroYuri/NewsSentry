@@ -16,7 +16,7 @@
     "pages:deploy": "wrangler pages deploy ../../dist/cloudflare"
   },
   "devDependencies": {
-    "wrangler": "^4.0.0"
+    "wrangler": "4.114.0"
   },
   "dependencies": {
     "@cloudflare/containers": "^0.3.7"
