@@ -21,7 +21,7 @@ const ALLOWED_TRANSITIONS: Record<JobStatus, ReadonlySet<JobStatus>> = {
   pending: new Set(["enqueued", "cancelled"]),
   enqueued: new Set(["leased", "retry_scheduled", "cancelled", "dead_lettered"]),
   leased: new Set(["running", "retry_scheduled", "cancelled", "dead_lettered"]),
-  running: new Set(["importing", "retry_scheduled", "cancelled", "dead_lettered"]),
+  running: new Set(["importing", "retry_scheduled", "succeeded", "cancelled", "dead_lettered"]),
   importing: new Set(["committed", "retry_scheduled", "cancelled", "dead_lettered"]),
   committed: new Set(["snapshot_pending"]),
   snapshot_pending: new Set(["succeeded"]),

@@ -2,7 +2,7 @@ import {
   canTransitionJobStatus,
   type JobStatus,
   stableJobId,
-} from "./job-state";
+} from "./job-state.ts";
 
 const SHADOW_CONFIG_VERSION = "cloudflare-shadow-v1";
 const SHADOW_DUE_BATCH_SIZE = 25;
@@ -28,6 +28,10 @@ export interface ClaimedJob {
   attempt_count: number;
 }
 
+export interface DispatchableOutboxJob {
+  job_id: string;
+}
+
 export async function markOutboxDispatched(
   db: D1Database,
   jobId: string,
@@ -50,6 +54,24 @@ export async function markOutboxDispatched(
       .bind(generatedAt, jobId),
   ]);
   return results.every((result) => result.success);
+}
+
+export async function loadDispatchableOutboxJobs(
+  db: D1Database,
+  generatedAt = new Date().toISOString(),
+  limit = 25,
+): Promise<DispatchableOutboxJob[]> {
+  const result = await db
+    .prepare(
+      `SELECT job_id
+       FROM job_outbox
+       WHERE status IN ('pending', 'dispatched') AND next_dispatch_at <= ?
+       ORDER BY next_dispatch_at ASC, job_id ASC
+       LIMIT ?`,
+    )
+    .bind(generatedAt, Math.max(1, Math.trunc(limit)))
+    .all<DispatchableOutboxJob>();
+  return result.results || [];
 }
 
 export async function claimJob(
@@ -90,6 +112,7 @@ export async function transitionClaimedJob(
 ): Promise<boolean> {
   if (!canTransitionJobStatus(expectedStatus, nextStatus).ok) return false;
   const terminal = ["succeeded", "dead_lettered", "cancelled"].includes(nextStatus);
+  const releaseLease = terminal || nextStatus === "retry_scheduled";
   const result = await db
     .prepare(
       `UPDATE jobs
@@ -105,9 +128,9 @@ export async function transitionClaimedJob(
       generatedAt,
       terminal ? 1 : 0,
       generatedAt,
-      terminal ? 1 : 0,
-      terminal ? 1 : 0,
-      terminal ? 1 : 0,
+      releaseLease ? 1 : 0,
+      releaseLease ? 1 : 0,
+      releaseLease ? 1 : 0,
       jobId,
       expectedStatus,
       leaseToken,
@@ -115,6 +138,78 @@ export async function transitionClaimedJob(
     )
     .run();
   return result.success && Number(result.meta?.changes || 0) === 1;
+}
+
+export async function recordJobAttempt(
+  db: D1Database,
+  input: {
+    jobId: string;
+    attemptNo: number;
+    workerVersion: string | null;
+    startedAt: string;
+    finishedAt: string;
+    outcome: string;
+    retryable: boolean;
+    latencyMs: number;
+    details: Record<string, unknown>;
+  },
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `INSERT INTO job_attempts (
+         attempt_id, job_id, attempt_no, worker_version, started_at, finished_at,
+         outcome, retryable, latency_ms, container_used, details_json
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+       ON CONFLICT(job_id, attempt_no) DO UPDATE SET
+         worker_version=excluded.worker_version,
+         finished_at=excluded.finished_at,
+         outcome=excluded.outcome,
+         retryable=excluded.retryable,
+         latency_ms=excluded.latency_ms,
+         container_used=excluded.container_used,
+         details_json=excluded.details_json`,
+    )
+    .bind(
+      `attempt-${input.jobId}-${input.attemptNo}`,
+      input.jobId,
+      input.attemptNo,
+      input.workerVersion,
+      input.startedAt,
+      input.finishedAt,
+      input.outcome,
+      input.retryable ? 1 : 0,
+      input.latencyMs,
+      JSON.stringify(input.details),
+    )
+    .run();
+  return result.success;
+}
+
+export async function updateJobLastError(
+  db: D1Database,
+  jobId: string,
+  errorCode: string,
+  errorMessage: string,
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `UPDATE jobs
+       SET last_error_code=?, last_error_message=?, updated_at=datetime('now')
+       WHERE job_id=?`,
+    )
+    .bind(errorCode, errorMessage.slice(0, 500), jobId)
+    .run();
+  return result.success;
+}
+
+export async function loadJobAttemptLimits(
+  db: D1Database,
+  jobId: string,
+): Promise<{ attempt_count: number; max_attempts: number } | null> {
+  return db
+    .prepare("SELECT attempt_count, max_attempts FROM jobs WHERE job_id=?")
+    .bind(jobId)
+    .first<{ attempt_count: number; max_attempts: number }>();
 }
 
 export async function confirmOutboxClaim(

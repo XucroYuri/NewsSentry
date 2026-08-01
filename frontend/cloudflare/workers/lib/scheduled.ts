@@ -5,8 +5,9 @@ import { refreshPublicReadSnapshots } from "./public-read-snapshots";
 import { assessEventTimestamps } from "./timestamp-policy";
 import { generateShadowJobs } from "./job-store";
 import { buildAndActivateShadowSnapshotGeneration } from "./snapshot-generation";
+import { dispatchDueShadowJobs, type ShadowQueueEnv } from "./queue-shadow";
 
-interface ScheduledEnv {
+interface ScheduledEnv extends ShadowQueueEnv {
   DB: D1Database;
   NEWS_SENTRY_CONTAINER?: DurableObjectNamespace;
 }
@@ -614,6 +615,7 @@ export async function runScheduledCloudflareTask(
     });
     const quarantineCleanup = await quarantineExistingUnsafeEvents(env.DB, startedAt);
     const shadowJobs = await generateShadowJobs(env.DB, startedAt);
+    const shadowDispatch = await dispatchDueShadowJobs(env, startedAt);
     let details: Record<string, unknown>;
     if (task === "refresh-public-quality") {
       details = await refreshPublicQuality(env.DB);
@@ -651,6 +653,7 @@ export async function runScheduledCloudflareTask(
       ...details,
       quarantine_cleanup: quarantineCleanup,
       shadow_jobs: shadowJobs,
+      shadow_dispatch: shadowDispatch,
       ...(importResult === null ? {} : { import_result: importResult }),
       ...(collectBatch === null
         ? {}

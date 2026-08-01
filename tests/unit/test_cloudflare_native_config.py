@@ -660,6 +660,49 @@ def test_cloudflare_scheduler_creates_shadow_jobs_without_replacing_legacy_execu
     assert "canTransitionJobStatus" in job_store_ts
 
 
+def test_cloudflare_shadow_queue_has_producer_consumer_and_dlq() -> None:
+    wrangler = tomllib.loads(_read("wrangler.toml"))
+    index_ts = _read("workers/index.ts")
+    queue_ts = _read("workers/lib/queue-shadow.ts")
+
+    queues = wrangler["queues"]
+    producers = queues["producers"]
+    consumers = queues["consumers"]
+
+    assert {
+        "binding": "NEWS_SENTRY_JOBS_QUEUE",
+        "queue": "news-sentry-jobs",
+    } in producers
+    assert {
+        "binding": "NEWS_SENTRY_JOBS_DLQ",
+        "queue": "news-sentry-jobs-dlq",
+    } in producers
+    assert {
+        "queue": "news-sentry-jobs",
+        "max_batch_size": 5,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "dead_letter_queue": "news-sentry-jobs-dlq",
+        "max_concurrency": 1,
+    } in consumers
+    assert {
+        "queue": "news-sentry-jobs-dlq",
+        "max_batch_size": 5,
+        "max_batch_timeout": 5,
+        "max_retries": 0,
+        "max_concurrency": 1,
+    } in consumers
+    assert "NEWS_SENTRY_JOBS_QUEUE" in index_ts
+    assert "async queue(" in index_ts
+    assert "handleShadowQueueBatch" in index_ts
+    assert "dispatchDueShadowJobs" in queue_ts
+    assert "message.ack()" in queue_ts
+    assert "message.retry()" in queue_ts
+    assert "importEventsToD1" not in queue_ts
+    assert "refreshPublicReadSnapshots" not in queue_ts
+    assert "buildAndActivateShadowSnapshotGeneration" not in queue_ts
+
+
 def test_cloudflare_shadow_snapshot_generation_flips_only_after_complete_build() -> None:
     scheduled_ts = _read("workers/lib/scheduled.ts")
     generation_ts = _read("workers/lib/snapshot-generation.ts")

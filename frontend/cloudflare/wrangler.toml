@@ -56,6 +56,29 @@ binding = "DB"
 database_name = "ns-db"
 database_id = "35a52961-e7e1-41ef-934e-7a63882ba465"
 
+[[queues.producers]]
+binding = "NEWS_SENTRY_JOBS_QUEUE"
+queue = "news-sentry-jobs"
+
+[[queues.producers]]
+binding = "NEWS_SENTRY_JOBS_DLQ"
+queue = "news-sentry-jobs-dlq"
+
+[[queues.consumers]]
+queue = "news-sentry-jobs"
+max_batch_size = 5
+max_batch_timeout = 5
+max_retries = 3
+dead_letter_queue = "news-sentry-jobs-dlq"
+max_concurrency = 1
+
+[[queues.consumers]]
+queue = "news-sentry-jobs-dlq"
+max_batch_size = 5
+max_batch_timeout = 5
+max_retries = 0
+max_concurrency = 1
+
 # 生产环境（可选，覆盖默认值）
 [env.production]
 # Keep the custom domain bound to the top-level Worker deployment.

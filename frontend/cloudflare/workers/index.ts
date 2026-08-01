@@ -28,11 +28,14 @@ import { handleContainerProxy, shouldProxyToContainer } from "./api/proxy";
 import { internalError } from "./lib/errors";
 import { handleWorkerWriteAccess } from "./lib/access";
 import { runScheduledCloudflareTask } from "./lib/scheduled";
+import { handleShadowQueueBatch } from "./lib/queue-shadow";
 import type { CloudflareAccessJwtEnv } from "./lib/access-jwt";
 
 interface Env extends CloudflareAccessJwtEnv {
   DB: D1Database;
   NEWS_SENTRY_CONTAINER?: DurableObjectNamespace;
+  NEWS_SENTRY_JOBS_QUEUE?: Queue;
+  NEWS_SENTRY_JOBS_DLQ?: Queue;
   NEWS_SENTRY_DEPLOY_COMMIT?: string;
   CF_VERSION_METADATA?: {
     id: string;
@@ -168,5 +171,8 @@ export default {
   },
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(runScheduledCloudflareTask(controller, env));
+  },
+  async queue(batch: MessageBatch, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(handleShadowQueueBatch(batch, env));
   },
 };
