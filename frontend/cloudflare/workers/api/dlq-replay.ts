@@ -32,7 +32,7 @@ function isSafeToken(value: string, maxLength: number): boolean {
 function validateReplayPayload(payload: ReplayPayload): {
   ok: true;
   jobId: string;
-  operatorId: string;
+  operatorId: string | null;
   reason: string;
   requestedVersion: string;
 } | {
@@ -47,7 +47,10 @@ function validateReplayPayload(payload: ReplayPayload): {
   if (!isSafeToken(jobId, 128)) {
     return { ok: false, detail: "valid job_id is required" };
   }
-  if (operatorId.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(operatorId)) {
+  if (
+    operatorId &&
+    (operatorId.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(operatorId))
+  ) {
     return { ok: false, detail: "valid operator is required" };
   }
   if (!ALLOWED_REPLAY_REASONS.has(reason)) {
@@ -88,6 +91,13 @@ export async function handleDlqReplay(
   if (!validation.ok) {
     return jsonResponse({ detail: validation.detail }, 400);
   }
+  const accessEmail = runtimeMetadata?.access?.email ?? null;
+  if (!accessEmail) {
+    return jsonResponse({ detail: "verified Access identity is required" }, 403);
+  }
+  if (validation.operatorId && validation.operatorId !== accessEmail) {
+    return jsonResponse({ detail: "operator must match verified Access identity" }, 403);
+  }
 
   const originalJob = await loadJobForDlqReplay(db, validation.jobId);
   if (!originalJob) {
@@ -100,7 +110,7 @@ export async function handleDlqReplay(
   const generatedAt = new Date().toISOString();
   const replay = await createDlqReplayJob(db, originalJob, {
     originalJobId: originalJob.job_id,
-    operatorId: validation.operatorId,
+    operatorId: accessEmail,
     reason: validation.reason,
     requestedVersion: validation.requestedVersion,
     workerVersion: runtimeMetadata?.worker_version ?? null,

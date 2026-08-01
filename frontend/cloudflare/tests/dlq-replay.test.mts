@@ -95,7 +95,11 @@ function seedJob(db: SqliteD1Database, status = "dead_lettered"): void {
     .run(status);
 }
 
-async function replay(db: SqliteD1Database, payload: Record<string, unknown>) {
+async function replay(
+  db: SqliteD1Database,
+  payload: Record<string, unknown>,
+  accessEmail: string | null = "ops@example.com",
+) {
   return handleDlqReplay(
     new Request("https://api.news-sentry.com/api/v1/jobs/dlq/replay", {
       method: "POST",
@@ -106,7 +110,12 @@ async function replay(db: SqliteD1Database, payload: Record<string, unknown>) {
     new URLSearchParams(),
     [],
     undefined,
-    { commit: "commit-1", runtime: "cloudflare-worker", worker_version: "worker-v1" },
+    {
+      access: accessEmail ? { email: accessEmail } : undefined,
+      commit: "commit-1",
+      runtime: "cloudflare-worker",
+      worker_version: "worker-v1",
+    },
   );
 }
 
@@ -194,5 +203,47 @@ test("DLQ replay fails closed for missing job, non-dead-letter job and invalid o
     version: "latest",
   })).status, 400);
 
+  assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM dlq_replay_receipts", [])?.count, 0);
+});
+
+test("DLQ replay binds operator receipt to verified Access identity", async () => {
+  const db = new SqliteD1Database();
+  seedJob(db);
+
+  const response = await replay(db, {
+    job_id: "job-dead-1",
+    reason: "upstream_fixed",
+    version: "2026-08-02.dlq-replay.v1",
+  }, "verified@example.com");
+  const body = await response.json() as { new_job_id: string };
+
+  assert.equal(response.status, 201);
+  const receipt = db.first<{ operator_id: string }>(
+    "SELECT operator_id FROM dlq_replay_receipts WHERE new_job_id=?",
+    [body.new_job_id],
+  );
+
+  assert.equal(receipt?.operator_id, "verified@example.com");
+});
+
+test("DLQ replay fails closed when payload operator conflicts with Access identity", async () => {
+  const db = new SqliteD1Database();
+  seedJob(db);
+
+  const mismatch = await replay(db, {
+    job_id: "job-dead-1",
+    operator: "impersonated@example.com",
+    reason: "upstream_fixed",
+    version: "2026-08-02.dlq-replay.v1",
+  }, "verified@example.com");
+  const missingIdentity = await replay(db, {
+    job_id: "job-dead-1",
+    operator: "verified@example.com",
+    reason: "upstream_fixed",
+    version: "2026-08-02.dlq-replay.v1",
+  }, null);
+
+  assert.equal(mismatch.status, 403);
+  assert.equal(missingIdentity.status, 403);
   assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM dlq_replay_receipts", [])?.count, 0);
 });

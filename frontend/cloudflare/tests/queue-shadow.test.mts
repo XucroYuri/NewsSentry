@@ -127,6 +127,15 @@ class FakeD1Database {
       const job = this.jobs.get(jobId);
       return (job ? { max_attempts: job.max_attempts, attempt_count: job.attempt_count } : null) as T | null;
     }
+    if (sql.includes("FROM dlq_consumption_receipts") && sql.includes("SELECT 1")) {
+      const [jobId, queueName] = values as string[];
+      const job = this.jobs.get(jobId);
+      return (this.dlqConsumptionReceipts.some(
+        (receipt) => receipt.job_id === jobId && receipt.queue_name === queueName,
+      ) && (!sql.includes("JOIN jobs") || job?.status === "dead_lettered")
+        ? { exists: 1 }
+        : null) as T | null;
+    }
     throw new Error(`Unexpected first SQL: ${sql}`);
   }
 
@@ -263,11 +272,25 @@ class FakeD1Database {
       job.last_error_message = errorMessage;
       return changed(1);
     }
-    if (sql.includes("INSERT INTO dlq_consumption_receipts")) {
+    if (sql.includes("INTO dlq_consumption_receipts")) {
       const [receiptId, jobId, queueName, messageBodyJson, workerVersion, consumedAt] = values as string[];
       if (this.throwOnDlqConsumptionReceiptForJob.has(jobId)) {
         this.throwOnDlqConsumptionReceiptForJob.delete(jobId);
         throw new Error("dlq receipt insert failed");
+      }
+      const job = this.jobs.get(jobId);
+      if (sql.includes("FROM jobs") && job?.status !== "dead_lettered") {
+        return changed(0);
+      }
+      const existing = this.dlqConsumptionReceipts.find(
+        (receipt) => receipt.job_id === jobId && receipt.queue_name === queueName,
+      );
+      if (existing) {
+        if (sql.includes("DO NOTHING") || sql.includes("OR IGNORE")) return changed(0);
+        existing.message_body_json = messageBodyJson;
+        existing.worker_version = workerVersion;
+        existing.consumed_at = consumedAt;
+        return changed(1);
       }
       this.dlqConsumptionReceipts.push({
         receipt_id: receiptId,
@@ -644,6 +667,50 @@ test("DLQ consumer retries instead of acking when durable receipt write fails", 
   assert.equal(message.acked, false);
   assert.equal(message.retried, true);
   assert.equal(db.dlqConsumptionReceipts.length, 0);
+});
+
+test("DLQ consumer does not ack forged or non-dead-letter job receipts", async () => {
+  const db = new FakeD1Database();
+  seedJob(db, { status: "retry_scheduled" });
+  const nonDead = new FakeQueueMessage({ job_id: "job-shadow-1" });
+  const missing = new FakeQueueMessage({ job_id: "missing-job" });
+
+  await handleShadowQueueBatch(
+    { queue: "news-sentry-jobs-dlq", messages: [nonDead, missing] } as never,
+    { DB: db as unknown as D1Database, CF_VERSION_METADATA: { id: "v-test" } },
+    "2026-08-01T00:01:00.000Z",
+  );
+
+  assert.equal(nonDead.acked, false);
+  assert.equal(nonDead.retried, true);
+  assert.equal(missing.acked, false);
+  assert.equal(missing.retried, true);
+  assert.equal(db.dlqConsumptionReceipts.length, 0);
+});
+
+test("DLQ consumer duplicate receipts ack idempotently without overwriting first audit", async () => {
+  const db = new FakeD1Database();
+  seedJob(db, { status: "dead_lettered" });
+  const first = new FakeQueueMessage({ job_id: "job-shadow-1", body: "first" });
+  const duplicate = new FakeQueueMessage({ job_id: "job-shadow-1", body: "changed" });
+
+  await handleShadowQueueBatch(
+    { queue: "news-sentry-jobs-dlq", messages: [first] } as never,
+    { DB: db as unknown as D1Database, CF_VERSION_METADATA: { id: "v-test" } },
+    "2026-08-01T00:01:00.000Z",
+  );
+  await handleShadowQueueBatch(
+    { queue: "news-sentry-jobs-dlq", messages: [duplicate] } as never,
+    { DB: db as unknown as D1Database, CF_VERSION_METADATA: { id: "v-test-2" } },
+    "2026-08-01T00:02:00.000Z",
+  );
+
+  assert.equal(first.acked, true);
+  assert.equal(duplicate.acked, true);
+  assert.equal(db.dlqConsumptionReceipts.length, 1);
+  assert.equal(db.dlqConsumptionReceipts[0].message_body_json, JSON.stringify({ job_id: "job-shadow-1", body: "first" }));
+  assert.equal(db.dlqConsumptionReceipts[0].worker_version, "v-test");
+  assert.equal(db.dlqConsumptionReceipts[0].consumed_at, "2026-08-01T00:01:00.000Z");
 });
 
 test("stale owners cannot confirm outbox through queue processing", async () => {

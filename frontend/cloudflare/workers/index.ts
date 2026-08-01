@@ -27,7 +27,7 @@ import { handleWebhook, handleImport } from "./api/webhook";
 import { handleDlqReplay } from "./api/dlq-replay";
 import { handleContainerProxy, shouldProxyToContainer } from "./api/proxy";
 import { internalError } from "./lib/errors";
-import { handleWorkerWriteAccess } from "./lib/access";
+import { authorizeWorkerWriteAccess } from "./lib/access";
 import { runScheduledCloudflareTask } from "./lib/scheduled";
 import { handleShadowQueueBatch } from "./lib/queue-shadow";
 import type { CloudflareAccessJwtEnv } from "./lib/access-jwt";
@@ -129,8 +129,12 @@ function withSecurityHeaders(response: Response, env: Env): Response {
   });
 }
 
-function runtimeMetadata(env: Env): RuntimeMetadata {
+function runtimeMetadata(
+  env: Env,
+  accessIdentity: { email: string } | null = null,
+): RuntimeMetadata {
   return {
+    access: accessIdentity ?? undefined,
     commit: env.NEWS_SENTRY_DEPLOY_COMMIT ?? null,
     runtime: "cloudflare-worker",
     worker_version: env.CF_VERSION_METADATA?.id ?? null,
@@ -164,10 +168,11 @@ export default {
       if (shouldProxyToContainer(url.pathname)) {
         response = await handleContainerProxy(request, env);
       } else {
-        const workerWriteAccess = await handleWorkerWriteAccess(request, env);
+        const workerWriteAccess = await authorizeWorkerWriteAccess(request, env);
         response =
-          workerWriteAccess ??
-          (await dispatch(request, env.DB, ctx, runtimeMetadata(env)));
+          workerWriteAccess.ok
+            ? await dispatch(request, env.DB, ctx, runtimeMetadata(env, workerWriteAccess.identity))
+            : workerWriteAccess.response;
       }
       return withSecurityHeaders(response, env);
     } catch (err) {

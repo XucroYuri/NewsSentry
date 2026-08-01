@@ -317,13 +317,12 @@ export async function recordDlqConsumptionReceipt(
 ): Promise<boolean> {
   const result = await db
     .prepare(
-      `INSERT INTO dlq_consumption_receipts (
+      `INSERT OR IGNORE INTO dlq_consumption_receipts (
          receipt_id, job_id, queue_name, message_body_json, worker_version, consumed_at
-       ) VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(job_id, queue_name) DO UPDATE SET
-         message_body_json=excluded.message_body_json,
-         worker_version=excluded.worker_version,
-         consumed_at=excluded.consumed_at`,
+       )
+       SELECT ?, ?, ?, ?, ?, ?
+       FROM jobs
+       WHERE job_id=? AND status='dead_lettered'`,
     )
     .bind(
       `dlq-consumed-${input.queueName}-${input.jobId}`,
@@ -332,9 +331,25 @@ export async function recordDlqConsumptionReceipt(
       JSON.stringify(input.messageBody),
       input.workerVersion,
       input.consumedAt,
+      input.jobId,
     )
     .run();
-  return result.success && Number(result.meta?.changes || 0) >= 1;
+  if (!result.success) return false;
+  if (Number(result.meta?.changes || 0) === 1) return true;
+
+  const existing = await db
+    .prepare(
+      `SELECT 1 AS exists
+       FROM dlq_consumption_receipts
+       JOIN jobs ON jobs.job_id=dlq_consumption_receipts.job_id
+       WHERE dlq_consumption_receipts.job_id=?
+         AND dlq_consumption_receipts.queue_name=?
+         AND jobs.status='dead_lettered'
+       LIMIT 1`,
+    )
+    .bind(input.jobId, input.queueName)
+    .first<{ exists: number }>();
+  return Boolean(existing);
 }
 
 export async function loadJobForDlqReplay(

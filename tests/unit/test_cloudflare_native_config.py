@@ -315,7 +315,10 @@ def test_cloudflare_public_read_endpoints_use_worker_cache_and_head() -> None:
     cache_ts = _read("workers/lib/public-read-cache.ts")
 
     assert "ctx: ExecutionContext" in index_ts
-    assert "dispatch(request, env.DB, ctx, runtimeMetadata(env))" in index_ts
+    assert (
+        "dispatch(request, env.DB, ctx, runtimeMetadata(env, workerWriteAccess.identity))"
+        in index_ts
+    )
     assert "rawMethod === \"HEAD\"" in router_ts
     assert "new Response(null" in router_ts
     assert "maybeServeCachedPublicRead" in news_ts
@@ -616,9 +619,13 @@ def test_worker_write_endpoints_require_cloudflare_access_identity() -> None:
     assert "isWorkerWritePath" in access_ts
     assert '"/api/v1/events/import"' in access_ts
     assert '"/api/v1/webhook"' in access_ts
-    assert "await handleWorkerWriteAccess(request, env)" in index_ts
-    assert "dispatch(request, env.DB, ctx, runtimeMetadata(env))" in index_ts
+    assert "await authorizeWorkerWriteAccess(request, env)" in index_ts
+    assert (
+        "dispatch(request, env.DB, ctx, runtimeMetadata(env, workerWriteAccess.identity))"
+        in index_ts
+    )
     assert "verifyCloudflareAccessRequest(request, env, options)" in access_ts
+    assert "identity: { email: verification.email }" in access_ts
     assert '"Cf-Access-Jwt-Assertion"' in access_jwt_ts
     assert 'if (!config) return { ok: false, reason: "missing_config" }' in access_jwt_ts
     assert '"CF-Access-Client-Id"' not in access_ts

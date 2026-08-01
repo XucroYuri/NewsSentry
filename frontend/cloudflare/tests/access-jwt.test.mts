@@ -162,20 +162,24 @@ test("verifies JWT from request header and rejects unsafe team-domain config", a
   );
 });
 
-test("DLQ replay path is fail-closed behind the Worker write Access gate", async () => {
-  const blocked = await handleWorkerWriteAccess(
-    new Request("https://api.news-sentry.com/api/v1/jobs/dlq/replay", {
-      method: "POST",
-    }),
-    env,
-    { jwks: { keys: [] }, now },
-  );
+test("Worker write Access gate canonicalizes trailing slash write paths", async () => {
+  for (const pathname of [
+    "/api/v1/jobs/dlq/replay/",
+    "/api/v1/events/import/",
+    "/api/v1/webhook/",
+  ]) {
+    const blocked = await handleWorkerWriteAccess(
+      new Request(`https://api.news-sentry.com${pathname}`, { method: "POST" }),
+      env,
+      { jwks: { keys: [] }, now },
+    );
+    assert.equal(blocked?.status, 403, pathname);
+  }
   const publicRead = await handleWorkerWriteAccess(
     new Request("https://api.news-sentry.com/api/v1/health"),
     env,
     { jwks: { keys: [] }, now },
   );
 
-  assert.equal(blocked?.status, 403);
   assert.equal(publicRead, null);
 });

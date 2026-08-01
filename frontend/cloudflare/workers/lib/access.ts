@@ -3,6 +3,7 @@ import {
   type CloudflareAccessJwtEnv,
   verifyCloudflareAccessRequest,
 } from "./access-jwt.ts";
+import { canonicalPathname } from "./path.ts";
 
 const CONTAINER_PROXY_PREFIXES = [
   "/admin/",
@@ -19,12 +20,13 @@ const WORKER_WRITE_PATHS = [
 ];
 
 function matchesPrefix(pathname: string, prefixes: string[]): boolean {
-  const normalized = pathname.endsWith("/") ? pathname : `${pathname}/`;
+  const canonical = canonicalPathname(pathname);
+  const normalized = canonical.endsWith("/") ? canonical : `${canonical}/`;
   return prefixes.some((prefix) => {
     if (prefix.endsWith("/")) {
       return normalized.startsWith(prefix);
     }
-    return pathname === prefix;
+    return canonical === canonicalPathname(prefix);
   });
 }
 
@@ -52,12 +54,37 @@ export function accessRequired(): Response {
   });
 }
 
+export type WorkerWriteAccessDecision =
+  | {
+      ok: true;
+      identity: {
+        email: string;
+      } | null;
+    }
+  | {
+      ok: false;
+      response: Response;
+    };
+
+export async function authorizeWorkerWriteAccess(
+  request: Request,
+  env: CloudflareAccessJwtEnv,
+  options: AccessJwtVerificationOptions = {},
+): Promise<WorkerWriteAccessDecision> {
+  const url = new URL(request.url);
+  if (!isWorkerWritePath(url.pathname)) return { ok: true, identity: null };
+  const verification = await verifyCloudflareAccessRequest(request, env, options);
+  if (!verification.ok || !verification.email) {
+    return { ok: false, response: accessRequired() };
+  }
+  return { ok: true, identity: { email: verification.email } };
+}
+
 export async function handleWorkerWriteAccess(
   request: Request,
   env: CloudflareAccessJwtEnv,
   options: AccessJwtVerificationOptions = {},
 ): Promise<Response | null> {
-  const url = new URL(request.url);
-  if (!isWorkerWritePath(url.pathname)) return null;
-  return requireAccessIdentity(request, env, options);
+  const decision = await authorizeWorkerWriteAccess(request, env, options);
+  return decision.ok ? null : decision.response;
 }

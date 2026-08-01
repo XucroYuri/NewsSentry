@@ -14,11 +14,15 @@
 
 import { addCorsHeaders, corsPreflight } from "./cors";
 import { notFound } from "./errors";
+import { canonicalPathname } from "./path";
 
 export interface RuntimeMetadata {
   commit: string | null;
   runtime: string;
   worker_version: string | null;
+  access?: {
+    email: string;
+  };
   queue?: {
     jobs_configured: boolean;
     dlq_configured: boolean;
@@ -61,7 +65,7 @@ export async function dispatch(
   runtimeMetadata?: RuntimeMetadata,
 ): Promise<Response> {
   const url = new URL(request.url);
-  const pathname = url.pathname.replace(/\/+$/, "") || "/";
+  const pathname = canonicalPathname(url.pathname);
   const rawMethod = request.method.toUpperCase();
   const method = rawMethod === "HEAD" ? "GET" : rawMethod;
 
