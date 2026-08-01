@@ -19,6 +19,9 @@ routes = [
 [vars]
 NEWS_SENTRY_RUNTIME = "cloudflare-native"
 
+[version_metadata]
+binding = "CF_VERSION_METADATA"
+
 [triggers]
 crons = ["*/15 * * * *", "7,37 * * * *", "11 * * * *", "23 * * * *", "53 */6 * * *"]
 
@@ -96,8 +99,13 @@ new_sqlite_classes = ["NewsSentryContainer"]
 
 # 开发环境
 [env.dev]
+routes = []
+
 [env.dev.vars]
 NEWS_SENTRY_RUNTIME = "cloudflare-native-dev"
+
+[env.dev.version_metadata]
+binding = "CF_VERSION_METADATA"
 
 [[env.dev.d1_databases]]
 binding = "DB"

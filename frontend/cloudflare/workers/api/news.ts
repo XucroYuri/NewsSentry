@@ -18,6 +18,7 @@ import {
   publicNewsOrderBy,
   publicNewsLocaleJoin,
   publicNewsSelectColumnsForLocale,
+  PUBLIC_PUBLISHED_AT_SANITY_SQL,
   rowToPublicNewsItem,
 } from "../lib/public-news-query";
 import {
@@ -261,7 +262,9 @@ export async function handleNewsDetail(
         `SELECT ${publicNewsSelectColumnsForLocale(locale)}
          FROM events
          ${localeJoin.sql}
-         WHERE events.event_id = ? AND events.pipeline_stage = 'drafts'`
+         WHERE events.event_id = ?
+           AND events.pipeline_stage = 'drafts'
+           AND ${PUBLIC_PUBLISHED_AT_SANITY_SQL}`
       )
       .bind(...localeJoin.bindings, eventId)
       .first<NewsRow>();

@@ -13,11 +13,13 @@ import {
   publicNewsOrderBy,
   publicNewsLocaleJoin,
   publicNewsSelectColumnsForLocale,
+  PUBLIC_PUBLISHED_AT_SANITY_SQL,
   rowToPublicNewsItem,
   SUPPORTED_PUBLIC_LOCALES,
 } from "./public-news-query";
 import { createPublicReadSession } from "./public-read-session";
 import { publicReadCacheControl } from "./public-read-cache";
+import { sanitizePublicSnapshotPayload } from "./snapshot-policy";
 
 export const PUBLIC_SNAPSHOT_PAGE_SIZE = 20;
 export const NEWS_FEATURED_SNAPSHOT_KEY = "news:featured:v1:page_size=20";
@@ -50,6 +52,15 @@ type SnapshotState = "hit" | "miss" | "bypass";
 
 interface SnapshotRow {
   payload_json: string;
+}
+
+function parseSanitizedSnapshot(payloadJson: string): { payload: unknown; payloadJson: string } | null {
+  try {
+    const payload = sanitizePublicSnapshotPayload(JSON.parse(payloadJson));
+    return { payload, payloadJson: JSON.stringify(payload) };
+  } catch {
+    return null;
+  }
 }
 
 function withSnapshotHeader(response: Response, state: SnapshotState): Response {
@@ -136,7 +147,9 @@ export async function readPublicSnapshot(
       .bind(key)
       .first<SnapshotRow>();
     if (!row?.payload_json) return null;
-    const etag = snapshotEtag(key, row.payload_json);
+    const sanitized = parseSanitizedSnapshot(row.payload_json);
+    if (!sanitized) return null;
+    const etag = snapshotEtag(key, sanitized.payloadJson);
     if (request.headers.get("If-None-Match") === etag) {
       return withSnapshotHeader(
         new Response(null, {
@@ -149,7 +162,7 @@ export async function readPublicSnapshot(
         "hit",
       );
     }
-    const response = jsonResponse(row.payload_json, cacheSeconds);
+    const response = jsonResponse(sanitized.payloadJson, cacheSeconds);
     response.headers.set("ETag", etag);
     response.headers.set("X-Poll-After-Ms", String(cacheSeconds * 1000));
     return withSnapshotHeader(response, "hit");
@@ -171,7 +184,8 @@ export async function readPublicSnapshotPayload<T>(
       .bind(key)
       .first<SnapshotRow>();
     if (!row?.payload_json) return null;
-    return JSON.parse(row.payload_json) as T;
+    const sanitized = parseSanitizedSnapshot(row.payload_json);
+    return sanitized?.payload as T | null;
   } catch (error) {
     console.warn("public snapshot payload read failed:", error);
     return null;
@@ -269,7 +283,7 @@ async function buildFacetsSnapshot(db: D1Database): Promise<PublicFacetsResponse
       .prepare(
         `SELECT region_id AS id, region_id AS label, COUNT(*) AS count
          FROM events
-         WHERE pipeline_stage = 'drafts'
+         WHERE pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_SANITY_SQL}
          GROUP BY region_id
          ORDER BY count DESC`,
       )
@@ -278,7 +292,7 @@ async function buildFacetsSnapshot(db: D1Database): Promise<PublicFacetsResponse
       .prepare(
         `SELECT json_each.value AS id, json_each.value AS label, COUNT(*) AS count
          FROM events, json_each(events.issue_tags)
-         WHERE events.pipeline_stage = 'drafts'
+         WHERE events.pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_SANITY_SQL}
          GROUP BY json_each.value
          ORDER BY count DESC`,
       )
@@ -287,7 +301,7 @@ async function buildFacetsSnapshot(db: D1Database): Promise<PublicFacetsResponse
       .prepare(
         `SELECT json_each.value AS id, json_each.value AS label, COUNT(*) AS count
          FROM events, json_each(events.related_tags)
-         WHERE events.pipeline_stage = 'drafts'
+         WHERE events.pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_SANITY_SQL}
          GROUP BY json_each.value
          ORDER BY count DESC`,
       )
@@ -314,7 +328,11 @@ async function buildFacetsSnapshot(db: D1Database): Promise<PublicFacetsResponse
 
 async function latestPublicAt(db: D1Database): Promise<string | null> {
   const row = await db
-    .prepare("SELECT MAX(published_at) AS latest_public_at FROM events WHERE pipeline_stage = 'drafts'")
+    .prepare(
+      `SELECT MAX(published_at) AS latest_public_at
+       FROM events
+       WHERE pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_SANITY_SQL}`,
+    )
     .first<{ latest_public_at: string | null }>();
   return row?.latest_public_at ?? null;
 }

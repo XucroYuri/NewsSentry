@@ -1,3 +1,9 @@
+import {
+  type AccessJwtVerificationOptions,
+  type CloudflareAccessJwtEnv,
+  verifyCloudflareAccessRequest,
+} from "./access-jwt";
+
 const CONTAINER_PROXY_PREFIXES = [
   "/admin/",
   "/api/v1/admin/",
@@ -29,11 +35,13 @@ export function isWorkerWritePath(pathname: string): boolean {
   return matchesPrefix(pathname, WORKER_WRITE_PATHS);
 }
 
-export function hasAccessIdentity(request: Request): boolean {
-  // Only trust headers Cloudflare Access injects after a successful user policy.
-  // Client-supplied service-token/JWT-looking headers are not proof unless the
-  // Worker validates the signed assertion against the Access certs.
-  return Boolean(request.headers.get("Cf-Access-Authenticated-User-Email"));
+export async function requireAccessIdentity(
+  request: Request,
+  env: CloudflareAccessJwtEnv,
+  options: AccessJwtVerificationOptions = {},
+): Promise<Response | null> {
+  const verification = await verifyCloudflareAccessRequest(request, env, options);
+  return verification.ok ? null : accessRequired();
 }
 
 export function accessRequired(): Response {
@@ -43,8 +51,12 @@ export function accessRequired(): Response {
   });
 }
 
-export function handleWorkerWriteAccess(request: Request): Response | null {
+export async function handleWorkerWriteAccess(
+  request: Request,
+  env: CloudflareAccessJwtEnv,
+  options: AccessJwtVerificationOptions = {},
+): Promise<Response | null> {
   const url = new URL(request.url);
   if (!isWorkerWritePath(url.pathname)) return null;
-  return hasAccessIdentity(request) ? null : accessRequired();
+  return requireAccessIdentity(request, env, options);
 }

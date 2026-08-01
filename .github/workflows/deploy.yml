@@ -92,6 +92,10 @@ jobs:
         working-directory: frontend/cloudflare
         run: npm ci
 
+      - name: Cloudflare Worker behavior tests
+        working-directory: frontend/cloudflare
+        run: npm test
+
       - name: Cloudflare Worker dry run
         working-directory: frontend/cloudflare
         env:
@@ -201,6 +205,17 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx wrangler d1 execute ns-db --remote --file=db/schema.sql
 
+      - name: Apply Cloudflare D1 shadow job runtime migration
+        if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: >-
+          npx wrangler d1 execute ns-db --remote
+          --file=db/migrations/20260801_phase1_job_runtime.sql
+
       - name: Apply Cloudflare D1 target collect flag migration
         if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
         working-directory: frontend/cloudflare
@@ -276,42 +291,94 @@ jobs:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler deploy --env="" --containers-rollout gradual
-
-      - name: Verify Cloudflare Worker health
-        working-directory: frontend/cloudflare
-        env:
-          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
-          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCESS_TEAM_DOMAIN: ${{ vars.CF_ACCESS_TEAM_DOMAIN }}
+          CF_ACCESS_AUD: ${{ vars.CF_ACCESS_AUD }}
         run: |
           set -euo pipefail
-          for i in $(seq 1 36); do
+          : "${CF_ACCESS_TEAM_DOMAIN:?GitHub environment variable CF_ACCESS_TEAM_DOMAIN is required}"
+          : "${CF_ACCESS_AUD:?GitHub environment variable CF_ACCESS_AUD is required}"
+          npx wrangler deploy --env="" --containers-rollout gradual \
+            --var "NEWS_SENTRY_DEPLOY_COMMIT:${GITHUB_SHA}" \
+            --var "CF_ACCESS_TEAM_DOMAIN:${CF_ACCESS_TEAM_DOMAIN}" \
+            --var "CF_ACCESS_AUD:${CF_ACCESS_AUD}"
+
+      - name: Verify Cloudflare Worker health
+        timeout-minutes: 25
+        run: |
+          set -euo pipefail
+          verify_worker_receipt() {
+            python - "$1" "$2" "$3" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          mode, body_path, headers_path = sys.argv[1:]
+          headers = {}
+          for line in Path(headers_path).read_text(errors="replace").splitlines():
+              if ":" in line:
+                  key, value = line.split(":", 1)
+                  headers[key.strip().lower()] = value.strip()
+
+          body = json.loads(Path(body_path).read_text())
+          assert body.get("status") == "ok", f"Worker {mode} status is not ok"
+          assert headers.get("x-news-sentry-runtime") == "cloudflare-worker"
+          assert headers.get("x-news-sentry-deploy-commit") == os.environ["GITHUB_SHA"]
+          assert headers.get("x-news-sentry-worker-version"), "Worker version receipt missing"
+          if mode == "ready":
+              assert body.get("readiness", {}).get("ok") is True, "Worker readiness is false"
+              assert body.get("deployment", {}).get("commit") == os.environ["GITHUB_SHA"]
+          PY
+          }
+
+          for i in $(seq 1 60); do
             STATUS=$(curl -sS \
               -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" \
               -H "Accept: application/json" \
-              -o /tmp/worker-health.json \
+              -D /tmp/worker-live.headers \
+              -o /tmp/worker-live.json \
               -w "%{http_code}" \
-              "https://api.news-sentry.com/api/v1/health" || echo "000")
-            if [ "$STATUS" = "200" ]; then
-              cat /tmp/worker-health.json
-              exit 0
+              "https://api.news-sentry.com/api/v1/live" || true)
+            if [ "$STATUS" = "200" ] && verify_worker_receipt \
+              live /tmp/worker-live.json /tmp/worker-live.headers; then
+              break
             fi
-            if grep -qi "Just a moment" /tmp/worker-health.json 2>/dev/null; then
-              echo "::warning::Cloudflare Challenge blocked GitHub Actions runner; falling back to D1 smoke check."
-              npx wrangler d1 execute ns-db --remote \
-                --command "SELECT COUNT(*) AS total_events, MAX(collected_at) AS latest_collected_at FROM events"
-              exit 0
-            fi
-            echo "Waiting for Worker deployment... (attempt $i, HTTP $STATUS)"
-            if [ -s /tmp/worker-health.json ]; then
-              head -c 500 /tmp/worker-health.json || true
+            echo "Waiting for Worker deployment receipt... (attempt $i, HTTP ${STATUS:-000})"
+            if [ -s /tmp/worker-live.json ]; then
+              head -c 500 /tmp/worker-live.json || true
               echo
+            fi
+            if [ "$i" = "60" ]; then
+              echo "Cloudflare Worker liveness/deployment receipt check failed"
+              exit 1
             fi
             sleep 5
           done
-          echo "Cloudflare Worker health check failed"
-          exit 1
+
+          for i in $(seq 1 240); do
+            STATUS=$(curl -sS \
+              -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" \
+              -H "Accept: application/json" \
+              -D /tmp/worker-ready.headers \
+              -o /tmp/worker-ready.json \
+              -w "%{http_code}" \
+              "https://api.news-sentry.com/api/v1/ready" || true)
+            if [ "$STATUS" = "200" ] && verify_worker_receipt \
+              ready /tmp/worker-ready.json /tmp/worker-ready.headers; then
+              cat /tmp/worker-ready.json
+              exit 0
+            fi
+            echo "Waiting for truthful Worker readiness... (attempt $i, HTTP ${STATUS:-000})"
+            if [ -s /tmp/worker-ready.json ]; then
+              head -c 1000 /tmp/worker-ready.json || true
+              echo
+            fi
+            if [ "$i" = "240" ]; then
+              echo "Cloudflare Worker readiness check failed"
+              exit 1
+            fi
+            sleep 5
+          done
 
   deploy-cloudflare-pages:
     name: Deploy Cloudflare Pages
@@ -406,16 +473,9 @@ jobs:
       - name: Verify preview Cloudflare-native public endpoints
         run: |
           set -euo pipefail
-          api_ok=1
-          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/health" > /tmp/health.json || api_ok=0
-          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json || api_ok=0
-          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/facets" > /tmp/facets.json || api_ok=0
-          if [ "$api_ok" != "1" ]; then
-            echo "::warning::Cloudflare Challenge blocked GitHub Actions API curl; validating D1 data via Wrangler."
-            (cd frontend/cloudflare && npx wrangler d1 execute ns-db --remote \
-              --command "SELECT COUNT(*) AS total_events, MAX(collected_at) AS latest_collected_at FROM events")
-            exit 0
-          fi
+          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/health" > /tmp/health.json
+          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json
+          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/facets" > /tmp/facets.json
           curl -fsS -o /tmp/public-app.html "${PAGES_URL:-${BASE_URL}}/"
 
           python - <<'PY'
@@ -483,17 +543,10 @@ jobs:
       - name: Verify production public endpoints
         run: |
           set -euo pipefail
-          api_ok=1
-          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/health" > /tmp/health.json || api_ok=0
-          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${APEX_API_URL}/api/v1/health" > /tmp/apex-health.json || api_ok=0
-          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json || api_ok=0
-          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/facets" > /tmp/facets.json || api_ok=0
-          if [ "$api_ok" != "1" ]; then
-            echo "::warning::Cloudflare Challenge blocked GitHub Actions API curl; validating D1 data via Wrangler."
-            (cd frontend/cloudflare && npx wrangler d1 execute ns-db --remote \
-              --command "SELECT COUNT(*) AS total_events, MAX(collected_at) AS latest_collected_at FROM events")
-            exit 0
-          fi
+          curl -fsS -D /tmp/health.headers -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/health" > /tmp/health.json
+          curl -fsS -D /tmp/apex-health.headers -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${APEX_API_URL}/api/v1/health" > /tmp/apex-health.json
+          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json
+          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/facets" > /tmp/facets.json
           if ! curl -fsS -o /tmp/public-app.html "${BASE_URL}/"; then
             echo "::warning::Apex homepage was blocked for GitHub Actions; checking Pages deployment URL."
             curl -fsS -o /tmp/public-app.html "${PAGES_URL:-${BASE_URL}}/"
@@ -504,15 +557,32 @@ jobs:
 
           python - <<'PY'
           import json
+          import os
           from pathlib import Path
+
+          def load_headers(path: str) -> dict[str, str]:
+              parsed = {}
+              for line in Path(path).read_text(errors="replace").splitlines():
+                  if ":" in line:
+                      key, value = line.split(":", 1)
+                      parsed[key.strip().lower()] = value.strip()
+              return parsed
 
           health = json.loads(Path("/tmp/health.json").read_text())
           apex_health = json.loads(Path("/tmp/apex-health.json").read_text())
+          health_headers = load_headers("/tmp/health.headers")
+          apex_health_headers = load_headers("/tmp/apex-health.headers")
           news = json.loads(Path("/tmp/public-news.json").read_text())
           facets = json.loads(Path("/tmp/facets.json").read_text())
 
           assert health.get("status") == "ok", "Worker health is not ok"
           assert apex_health.get("status") == "ok", "Apex API Worker health is not ok"
+          assert health.get("deployment", {}).get("commit") == os.environ["GITHUB_SHA"]
+          assert apex_health.get("deployment", {}).get("commit") == os.environ["GITHUB_SHA"]
+          assert health_headers.get("x-news-sentry-deploy-commit") == os.environ["GITHUB_SHA"]
+          assert apex_health_headers.get("x-news-sentry-deploy-commit") == os.environ["GITHUB_SHA"]
+          assert health_headers.get("x-news-sentry-worker-version")
+          assert apex_health_headers.get("x-news-sentry-worker-version")
           assert isinstance(health.get("total_events"), int), "health total_events missing"
           assert apex_health.get("total_events") == health.get("total_events"), "Apex API health does not match API subdomain"
           assert health.get("total_events", 0) > 0, "Cloudflare D1 has no events"

@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import tomllib
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 CLOUDFLARE_DIR = ROOT / "frontend" / "cloudflare"
@@ -23,6 +26,7 @@ def test_wrangler_routes_are_top_level_not_nested_under_d1() -> None:
         {"pattern": "news-sentry.com/api/*", "zone_name": "news-sentry.com"},
     ]
     assert config["env"]["production"]["routes"] == []
+    assert config["env"]["dev"]["routes"] == []
     for binding in config["d1_databases"]:
         assert "routes" not in binding
 
@@ -34,6 +38,51 @@ def test_deploy_workflow_verifies_apex_api_worker_route() -> None:
     assert '"${APEX_API_URL}/api/v1/health" > /tmp/apex-health.json' in deploy_yml
     assert "apex_health = json.loads" in deploy_yml
     assert 'apex_health.get("status") == "ok"' in deploy_yml
+    assert (
+        'apex_health.get("deployment", {}).get("commit") == os.environ["GITHUB_SHA"]'
+        in deploy_yml
+    )
+
+
+def test_deploy_workflow_requires_access_config_and_deployment_receipts() -> None:
+    deploy_yml = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+
+    assert "Cloudflare Worker behavior tests" in deploy_yml
+    assert "run: npm test" in deploy_yml
+    assert "CF_ACCESS_TEAM_DOMAIN: ${{ vars.CF_ACCESS_TEAM_DOMAIN }}" in deploy_yml
+    assert "CF_ACCESS_AUD: ${{ vars.CF_ACCESS_AUD }}" in deploy_yml
+    assert '--var "NEWS_SENTRY_DEPLOY_COMMIT:${GITHUB_SHA}"' in deploy_yml
+    assert '--var "CF_ACCESS_TEAM_DOMAIN:${CF_ACCESS_TEAM_DOMAIN}"' in deploy_yml
+    assert '--var "CF_ACCESS_AUD:${CF_ACCESS_AUD}"' in deploy_yml
+    assert '"https://api.news-sentry.com/api/v1/live"' in deploy_yml
+    assert '"https://api.news-sentry.com/api/v1/ready"' in deploy_yml
+    assert 'headers.get("x-news-sentry-deploy-commit") == os.environ["GITHUB_SHA"]' in deploy_yml
+    assert 'headers.get("x-news-sentry-worker-version")' in deploy_yml
+    assert "falling back to D1 smoke check" not in deploy_yml
+    assert "validating D1 data via Wrangler" not in deploy_yml
+    assert "Apply Cloudflare D1 shadow job runtime migration" in deploy_yml
+    assert "20260801_phase1_job_runtime.sql" in deploy_yml
+
+
+def test_worker_health_verification_shell_is_syntactically_valid() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+    )
+    steps = workflow["jobs"]["deploy-cloudflare-worker"]["steps"]
+    script = next(
+        step["run"]
+        for step in steps
+        if step.get("name") == "Verify Cloudflare Worker health"
+    )
+
+    result = subprocess.run(
+        ["/bin/bash", "-n"],
+        input=script,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_worker_health_reads_cloudflare_d1_events_table() -> None:
@@ -46,6 +95,9 @@ def test_worker_health_reads_cloudflare_d1_events_table() -> None:
     assert "recommendation_ready" in health_ts
     assert "featured_total" in health_ts
     assert "latest_public_at" in health_ts
+    assert "source_runtime_state" in health_ts
+    assert "job_outbox" in health_ts
+    assert 'mode: "shadow"' in health_ts
 
 
 def test_public_facets_contract_includes_related_tags() -> None:
@@ -244,7 +296,7 @@ def test_cloudflare_public_read_endpoints_use_worker_cache_and_head() -> None:
     cache_ts = _read("workers/lib/public-read-cache.ts")
 
     assert "ctx: ExecutionContext" in index_ts
-    assert "dispatch(request, env.DB, ctx)" in index_ts
+    assert "dispatch(request, env.DB, ctx, runtimeMetadata(env))" in index_ts
     assert "rawMethod === \"HEAD\"" in router_ts
     assert "new Response(null" in router_ts
     assert "maybeServeCachedPublicRead" in news_ts
@@ -439,6 +491,7 @@ def test_events_import_persists_to_cloudflare_d1() -> None:
 def test_container_proxy_requires_cloudflare_access_identity() -> None:
     index_ts = _read("workers/index.ts")
     access_ts = _read("workers/lib/access.ts")
+    access_jwt_ts = _read("workers/lib/access-jwt.ts")
     proxy_ts = _read("workers/api/proxy.ts")
     wrangler_toml = tomllib.loads(_read("wrangler.toml"))
 
@@ -450,8 +503,13 @@ def test_container_proxy_requires_cloudflare_access_identity() -> None:
     assert '"/api/v1/admin/"' in access_ts
     assert '"/api/v1/auth/"' in access_ts
     assert "/api/v1/internal/cloudflare" not in access_ts
-    assert '"Cf-Access-Authenticated-User-Email"' in access_ts
-    assert '"Cf-Access-Jwt-Assertion"' not in access_ts
+    assert "verifyCloudflareAccessRequest" in proxy_ts
+    assert '"Cf-Access-Jwt-Assertion"' in access_jwt_ts
+    assert 'header.alg !== "RS256"' in access_jwt_ts
+    assert "issuer_mismatch" in access_jwt_ts
+    assert "audience_mismatch" in access_jwt_ts
+    assert 'claims.email !== "string"' in access_jwt_ts
+    assert 'headers.set("Cf-Access-Authenticated-User-Email", access.email' in proxy_ts
     assert '"CF-Access-Client-Id"' not in access_ts
     assert "Cloudflare Access authentication required" in access_ts
     assert "NEWS_SENTRY_CONTAINER" in proxy_ts
@@ -520,14 +578,100 @@ def test_cloudflare_native_runbook_records_performance_first_cutover_strategy() 
 def test_worker_write_endpoints_require_cloudflare_access_identity() -> None:
     index_ts = _read("workers/index.ts")
     access_ts = _read("workers/lib/access.ts")
+    access_jwt_ts = _read("workers/lib/access-jwt.ts")
 
     assert "isWorkerWritePath" in access_ts
     assert '"/api/v1/events/import"' in access_ts
     assert '"/api/v1/webhook"' in access_ts
-    assert "handleWorkerWriteAccess(request)" in index_ts
-    assert "dispatch(request, env.DB, ctx)" in index_ts
-    assert '"Cf-Access-Jwt-Assertion"' not in access_ts
+    assert "await handleWorkerWriteAccess(request, env)" in index_ts
+    assert "dispatch(request, env.DB, ctx, runtimeMetadata(env))" in index_ts
+    assert "verifyCloudflareAccessRequest(request, env, options)" in access_ts
+    assert '"Cf-Access-Jwt-Assertion"' in access_jwt_ts
+    assert 'if (!config) return { ok: false, reason: "missing_config" }' in access_jwt_ts
     assert '"CF-Access-Client-Id"' not in access_ts
+
+
+def test_cloudflare_worker_exposes_truthful_health_and_deploy_receipts() -> None:
+    index_ts = _read("workers/index.ts")
+    health_ts = _read("workers/api/health.ts")
+    health_status_ts = _read("workers/lib/health-status.ts")
+    wrangler = tomllib.loads(_read("wrangler.toml"))
+
+    assert 'registerRoute("GET", "/api/v1/live", handleLiveness)' in index_ts
+    assert 'registerRoute("GET", "/api/v1/ready", handleHealth)' in index_ts
+    assert 'headers.set("X-News-Sentry-Runtime", "cloudflare-worker")' in index_ts
+    assert 'headers.set("X-News-Sentry-Deploy-Commit"' in index_ts
+    assert 'headers.set("X-News-Sentry-Worker-Version"' in index_ts
+    assert 'sleepAfter = "5m"' in index_ts
+    assert "buildD1FailureHealthResponse" in health_ts
+    assert "status: 503" in health_ts
+    assert 'reasonCodes.push("events_stale")' in health_status_ts
+    assert wrangler["version_metadata"]["binding"] == "CF_VERSION_METADATA"
+
+
+def test_cloudflare_import_quarantines_unsafe_urls_and_future_timestamps() -> None:
+    schema_sql = _read("db/schema.sql")
+    webhook_ts = _read("workers/api/webhook.ts")
+    query_ts = _read("workers/lib/public-news-query.ts")
+    snapshots_ts = _read("workers/lib/public-read-snapshots.ts")
+    snapshot_policy_ts = _read("workers/lib/snapshot-policy.ts")
+    scheduled_ts = _read("workers/lib/scheduled.ts")
+
+    assert "CREATE TABLE IF NOT EXISTS quarantined_events" in schema_sql
+    assert "validateExternalUrl" in webhook_ts
+    assert "assessEventTimestamps" in webhook_ts
+    assert "INSERT INTO quarantined_events" in webhook_ts
+    assert "quarantined" in webhook_ts
+    assert "PUBLIC_PUBLISHED_AT_SANITY_SQL" in query_ts
+    assert "datetime(events.published_at) <= datetime('now', '+24 hours')" in query_ts
+    assert "sanitizePublicSnapshotPayload" in snapshots_ts
+    assert "isPublishedTimestampSafe" in snapshot_policy_ts
+    assert "validateExternalUrl" in snapshot_policy_ts
+    assert "quarantineExistingUnsafeEvents" in scheduled_ts
+    assert "DELETE FROM events WHERE event_id = ?" in scheduled_ts
+    assert "db.batch(statements)" in scheduled_ts
+
+
+def test_cloudflare_scheduler_creates_shadow_jobs_without_replacing_legacy_execution() -> None:
+    scheduled_ts = _read("workers/lib/scheduled.ts")
+    job_store_ts = _read("workers/lib/job-store.ts")
+    schema_sql = _read("db/schema.sql")
+
+    for table in (
+        "jobs",
+        "job_attempts",
+        "job_outbox",
+        "source_runtime_state",
+        "import_batches",
+        "import_batch_chunks",
+        "snapshot_generations",
+        "snapshot_generation_items",
+    ):
+        assert f"CREATE TABLE IF NOT EXISTS {table}" in schema_sql
+    assert "generateShadowJobs(env.DB, startedAt)" in scheduled_ts
+    assert "callContainerInternalTask" in scheduled_ts
+    assert 'mode: "shadow"' in job_store_ts
+    assert "ON CONFLICT(idempotency_key) DO NOTHING" in job_store_ts
+    assert "INSERT INTO job_outbox" in job_store_ts
+    assert "await db.batch(statements)" in job_store_ts
+    assert "fencing_version=fencing_version + 1" in job_store_ts
+    assert "AND status IN ('enqueued', 'retry_scheduled', 'leased')" in job_store_ts
+    assert "AND lease_token=? AND fencing_version=?" in job_store_ts
+    assert "canTransitionJobStatus" in job_store_ts
+
+
+def test_cloudflare_shadow_snapshot_generation_flips_only_after_complete_build() -> None:
+    scheduled_ts = _read("workers/lib/scheduled.ts")
+    generation_ts = _read("workers/lib/snapshot-generation.ts")
+
+    assert "buildAndActivateShadowSnapshotGeneration" in scheduled_ts
+    assert "INSERT INTO snapshot_generation_items" in generation_ts
+    assert "SET status='ready'" in generation_ts
+    assert "AND status='building'" in generation_ts
+    assert "AND EXISTS (" in generation_ts
+    assert "WHERE generation_id=? AND status='ready'" in generation_ts
+    assert "active:snapshot-generation" in generation_ts
+    assert "markGenerationFailed" in generation_ts
 
 
 def test_cloudflare_worker_cors_allows_pages_origins_without_fallback_origin() -> None:

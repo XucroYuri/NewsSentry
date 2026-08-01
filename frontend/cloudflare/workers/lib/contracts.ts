@@ -12,8 +12,84 @@
 // Python: 内联 dict[str, Any]
 export interface HealthResponse {
   status: string;
+  schema_version?: string;
+  generated_at?: string;
+  reason_codes?: string[];
+  liveness?: {
+    status: string;
+    ok: boolean;
+  };
+  readiness?: {
+    status: string;
+    ok: boolean;
+  };
+  business_health?: {
+    status: string;
+    ok: boolean;
+  };
+  deployment?: {
+    commit: string | null;
+    runtime: string;
+    worker_version: string | null;
+  };
+  error?: string;
+  scheduler?: {
+    collect_cycle: {
+      status: string | null;
+      updated_at: string | null;
+      fresh: boolean;
+      stale_after_seconds: number;
+    };
+    public_translation_cycle: {
+      status: string | null;
+      updated_at: string | null;
+      fresh: boolean;
+      stale_after_seconds: number;
+    };
+    refresh_public_quality: {
+      status: string | null;
+      updated_at: string | null;
+      fresh: boolean;
+      stale_after_seconds: number;
+    };
+  };
+  active_snapshot?: {
+    latest_generated_at: string | null;
+    latest_source_public_at: string | null;
+    total: number;
+    fresh: boolean;
+    stale_after_seconds: number;
+  };
+  queue?: {
+    configured: boolean;
+    backlog: number | null;
+    oldest_message_at: string | null;
+    dlq: {
+      configured: boolean;
+      messages: number | null;
+      oldest_message_at: string | null;
+    };
+  };
+  collection?: {
+    authoritative: boolean;
+    due_backlog: number;
+    oldest_due_at: string | null;
+    last_attempt_at: string | null;
+    last_success_at: string | null;
+    active_sources: number;
+  };
+  job_runtime?: {
+    mode: "shadow" | "authoritative";
+    pending_outbox: number;
+    oldest_pending_outbox_at: string | null;
+    retry_scheduled: number;
+    dead_lettered: number;
+  };
   total_events: number;
   latest_collected_at: string | null;
+  latest_valid_collected_at?: string | null;
+  future_timestamp_count?: number;
+  quarantined_future_count?: number;
   public_quality?: {
     summary_ready: number;
     recommendation_ready: number;
@@ -192,5 +268,6 @@ export interface ImportResponse {
   imported: number;
   updated: number;
   skipped: number;
+  quarantined?: number;
   errors: string[];
 }

@@ -5,29 +5,123 @@
  */
 
 import type { HealthResponse } from "../lib/contracts";
-import { buildPublicNewsWhere } from "../lib/public-news-query";
+import {
+  buildD1FailureHealthResponse,
+  buildHealthResponse,
+  httpStatusForHealth,
+} from "../lib/health-status";
+import {
+  buildPublicNewsWhere,
+  PUBLIC_PUBLISHED_AT_SANITY_SQL,
+} from "../lib/public-news-query";
+import type { RuntimeMetadata } from "../lib/router";
+
+interface OpsStateRow {
+  key: string;
+  value: string | null;
+  updated_at: string | null;
+}
+
+function parseOpsStatus(value: string | null): string | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as { status?: unknown };
+    return typeof parsed.status === "string" ? parsed.status : null;
+  } catch {
+    return null;
+  }
+}
+
+function opsTask(rows: OpsStateRow[], key: string): { status: string | null; updated_at: string | null } {
+  const row = rows.find((candidate) => candidate.key === key);
+  return {
+    status: parseOpsStatus(row?.value ?? null),
+    updated_at: row?.updated_at ?? null,
+  };
+}
 
 export async function handleHealth(
   _request: Request,
   db: D1Database,
   _params: URLSearchParams,
   _segments: string[],
+  _ctx?: ExecutionContext,
+  runtimeMetadata?: RuntimeMetadata,
 ): Promise<Response> {
+  const generatedAt = new Date().toISOString();
   let total_events = 0;
   let latest_collected_at: string | null = null;
+  let latest_valid_collected_at: string | null = null;
+  let future_timestamp_count = 0;
+  let quarantined_future_count = 0;
   const public_quality = {
     summary_ready: 0,
     recommendation_ready: 0,
     featured_total: 0,
     latest_public_at: null as string | null,
   };
+  let opsRows: OpsStateRow[] = [];
+  let activeSnapshot = {
+    latest_generated_at: null as string | null,
+    latest_source_public_at: null as string | null,
+    total: 0,
+  };
+  let collection = {
+    authoritative: false,
+    due_backlog: 0,
+    oldest_due_at: null as string | null,
+    last_attempt_at: null as string | null,
+    last_success_at: null as string | null,
+    active_sources: 0,
+  };
+  let jobRuntime = {
+    mode: "shadow" as const,
+    pending_outbox: 0,
+    oldest_pending_outbox_at: null as string | null,
+    retry_scheduled: 0,
+    dead_lettered: 0,
+  };
 
   try {
     const featuredFilters = buildPublicNewsWhere({ featured: true });
-    const [result, qualityResult, featuredResult] = await Promise.all([
+    const [
+      result,
+      qualityResult,
+      featuredResult,
+      sourceRuntimeResult,
+      jobRuntimeResult,
+      opsResult,
+      snapshotResult,
+      quarantineResult,
+    ] = await Promise.all([
       db
-        .prepare("SELECT MAX(collected_at) as latest, COUNT(*) as total FROM events")
-        .first<{ latest: string | null; total: number }>(),
+        .prepare(
+          `SELECT
+             MAX(collected_at) AS latest,
+             MAX(CASE
+               WHEN collected_at IS NOT NULL AND datetime(collected_at) <= datetime(?, '+5 minutes')
+               THEN collected_at
+             END) AS latest_valid,
+             SUM(CASE
+               WHEN (
+                 collected_at IS NOT NULL
+                 AND datetime(collected_at) > datetime(?, '+5 minutes')
+               ) OR (
+                 published_at IS NOT NULL
+                 AND datetime(published_at) > datetime(?, '+24 hours')
+               )
+               THEN 1 ELSE 0
+             END) AS future_count,
+             COUNT(*) AS total
+           FROM events`,
+        )
+        .bind(generatedAt, generatedAt, generatedAt)
+        .first<{
+          latest: string | null;
+          latest_valid: string | null;
+          future_count: number | null;
+          total: number;
+        }>(),
       db
         .prepare(
           `SELECT
@@ -35,7 +129,7 @@ export async function handleHealth(
              SUM(CASE WHEN recommendation_reason IS NOT NULL AND TRIM(recommendation_reason) != '' THEN 1 ELSE 0 END) AS recommendation_ready,
              MAX(published_at) AS latest_public_at
            FROM events
-           WHERE pipeline_stage = 'drafts'`
+           WHERE pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_SANITY_SQL}`
         )
         .first<{
           summary_ready: number | null;
@@ -46,9 +140,78 @@ export async function handleHealth(
         .prepare(`SELECT COUNT(*) AS total FROM events ${featuredFilters.sql}`)
         .bind(...featuredFilters.bindings)
         .first<{ total: number }>(),
+      db
+        .prepare(
+          `SELECT
+             SUM(CASE WHEN next_due_at <= ? THEN 1 ELSE 0 END) AS due_backlog,
+             MIN(CASE WHEN next_due_at <= ? THEN next_due_at END) AS oldest_due_at,
+             MAX(last_attempt_at) AS last_attempt_at,
+             MAX(last_success_at) AS last_success_at,
+             SUM(CASE WHEN state IN ('active', 'degraded', 'cooling_down') THEN 1 ELSE 0 END)
+               AS active_sources
+           FROM source_runtime_state`,
+        )
+        .bind(generatedAt, generatedAt)
+        .first<{
+          due_backlog: number | null;
+          oldest_due_at: string | null;
+          last_attempt_at: string | null;
+          last_success_at: string | null;
+          active_sources: number | null;
+        }>(),
+      db
+        .prepare(
+          `SELECT
+             (SELECT COUNT(*) FROM job_outbox WHERE status != 'confirmed') AS pending_outbox,
+             (SELECT MIN(created_at) FROM job_outbox WHERE status != 'confirmed')
+               AS oldest_pending_outbox_at,
+             SUM(CASE WHEN status = 'retry_scheduled' THEN 1 ELSE 0 END) AS retry_scheduled,
+             SUM(CASE WHEN status = 'dead_lettered' THEN 1 ELSE 0 END) AS dead_lettered
+           FROM jobs`,
+        )
+        .first<{
+          pending_outbox: number | null;
+          oldest_pending_outbox_at: string | null;
+          retry_scheduled: number | null;
+          dead_lettered: number | null;
+        }>(),
+      db
+        .prepare(
+          `SELECT key, value, updated_at
+           FROM ops_state
+           WHERE key IN (
+             'last:collect-cycle',
+             'last:public-translation-cycle',
+             'last:refresh-public-quality'
+           )`,
+        )
+        .all<OpsStateRow>(),
+      db
+        .prepare(
+          `SELECT
+             COUNT(*) AS total,
+             MAX(generated_at) AS latest_generated_at,
+             MAX(source_latest_public_at) AS latest_source_public_at
+           FROM public_read_snapshots`,
+        )
+        .first<{
+          total: number;
+          latest_generated_at: string | null;
+          latest_source_public_at: string | null;
+        }>(),
+      db
+        .prepare(
+          `SELECT COUNT(*) AS total
+           FROM quarantined_events
+           WHERE reason_code IN ('future_collected_at', 'future_published_at')`,
+        )
+        .first<{ total: number }>(),
     ]);
     if (result) {
       latest_collected_at = result.latest ?? null;
+      latest_valid_collected_at = result.latest_valid ?? null;
+      future_timestamp_count = result.future_count ?? 0;
+      quarantined_future_count = quarantineResult?.total ?? 0;
       total_events = result.total ?? 0;
     }
     if (qualityResult) {
@@ -57,18 +220,96 @@ export async function handleHealth(
       public_quality.latest_public_at = qualityResult.latest_public_at ?? null;
     }
     public_quality.featured_total = featuredResult?.total ?? 0;
-  } catch {
-    // D1 查询失败时静默回退，返回 0 数据
+    opsRows = opsResult.results ?? [];
+    activeSnapshot = {
+      latest_generated_at: snapshotResult?.latest_generated_at ?? null,
+      latest_source_public_at: snapshotResult?.latest_source_public_at ?? null,
+      total: snapshotResult?.total ?? 0,
+    };
+    collection = {
+      authoritative: false,
+      due_backlog: sourceRuntimeResult?.due_backlog ?? 0,
+      oldest_due_at: sourceRuntimeResult?.oldest_due_at ?? null,
+      last_attempt_at: sourceRuntimeResult?.last_attempt_at ?? null,
+      last_success_at: sourceRuntimeResult?.last_success_at ?? null,
+      active_sources: sourceRuntimeResult?.active_sources ?? 0,
+    };
+    jobRuntime = {
+      mode: "shadow",
+      pending_outbox: jobRuntimeResult?.pending_outbox ?? 0,
+      oldest_pending_outbox_at: jobRuntimeResult?.oldest_pending_outbox_at ?? null,
+      retry_scheduled: jobRuntimeResult?.retry_scheduled ?? 0,
+      dead_lettered: jobRuntimeResult?.dead_lettered ?? 0,
+    };
+  } catch (error) {
+    const body: HealthResponse = {
+      ...buildD1FailureHealthResponse(
+        generatedAt,
+        error instanceof Error ? error.message : String(error),
+      ),
+      deployment: runtimeMetadata,
+    };
+    return new Response(JSON.stringify(body), {
+      status: 503,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    });
   }
 
   const body: HealthResponse = {
-    status: "ok",
-    total_events,
-    latest_collected_at,
-    public_quality,
+    ...buildHealthResponse({
+      generated_at: generatedAt,
+      total_events,
+      latest_collected_at,
+      latest_valid_collected_at,
+      future_timestamp_count,
+      quarantined_future_count,
+      public_quality,
+      scheduler: {
+        collect_cycle: opsTask(opsRows, "last:collect-cycle"),
+        public_translation_cycle: opsTask(opsRows, "last:public-translation-cycle"),
+        refresh_public_quality: opsTask(opsRows, "last:refresh-public-quality"),
+      },
+      active_snapshot: activeSnapshot,
+      collection,
+      job_runtime: jobRuntime,
+      queue: {
+        configured: false,
+        backlog: jobRuntime.pending_outbox,
+        oldest_message_at: jobRuntime.oldest_pending_outbox_at,
+        dlq: {
+          configured: false,
+          messages: jobRuntime.dead_lettered,
+          oldest_message_at: null,
+        },
+      },
+    }),
+    deployment: runtimeMetadata,
   };
   return new Response(JSON.stringify(body), {
-    status: 200,
+    status: httpStatusForHealth(body.status),
     headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
   });
+}
+
+export async function handleLiveness(
+  _request: Request,
+  _db: D1Database,
+  _params: URLSearchParams,
+  _segments: string[],
+  _ctx?: ExecutionContext,
+  runtimeMetadata?: RuntimeMetadata,
+): Promise<Response> {
+  return new Response(
+    JSON.stringify(
+      {
+        status: "ok",
+        generated_at: new Date().toISOString(),
+        deployment: runtimeMetadata,
+      },
+    ),
+    {
+      status: 200,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    },
+  );
 }

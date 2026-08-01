@@ -15,12 +15,19 @@
 import { addCorsHeaders, corsPreflight } from "./cors";
 import { notFound } from "./errors";
 
+export interface RuntimeMetadata {
+  commit: string | null;
+  runtime: string;
+  worker_version: string | null;
+}
+
 type Handler = (
   request: Request,
   db: D1Database,
   params: URLSearchParams,
   pathSegments: string[],
   ctx?: ExecutionContext,
+  runtimeMetadata?: RuntimeMetadata,
 ) => Promise<Response>;
 
 const routeMap = new Map<string, Handler>();
@@ -47,6 +54,7 @@ export async function dispatch(
   request: Request,
   db: D1Database,
   ctx?: ExecutionContext,
+  runtimeMetadata?: RuntimeMetadata,
 ): Promise<Response> {
   const url = new URL(request.url);
   const pathname = url.pathname.replace(/\/+$/, "") || "/";
@@ -65,7 +73,14 @@ export async function dispatch(
   if (routeMap.has(exactKey)) {
     const handler = routeMap.get(exactKey)!;
     const getRequest = rawMethod === "HEAD" ? new Request(request, { method: "GET" }) : request;
-    const resp = await handler(getRequest, db, url.searchParams, segments, ctx);
+    const resp = await handler(
+      getRequest,
+      db,
+      url.searchParams,
+      segments,
+      ctx,
+      runtimeMetadata,
+    );
     const origin = request.headers.get("Origin");
     const corsResp = addCorsHeaders(resp, origin);
     return rawMethod === "HEAD" ? headResponse(corsResp) : corsResp;
@@ -87,7 +102,14 @@ export async function dispatch(
 
     if (match) {
       const getRequest = rawMethod === "HEAD" ? new Request(request, { method: "GET" }) : request;
-      const resp = await handler(getRequest, db, url.searchParams, reqSegments, ctx);
+      const resp = await handler(
+        getRequest,
+        db,
+        url.searchParams,
+        reqSegments,
+        ctx,
+        runtimeMetadata,
+      );
       const origin = request.headers.get("Origin");
       const corsResp = addCorsHeaders(resp, origin);
       return rawMethod === "HEAD" ? headResponse(corsResp) : corsResp;

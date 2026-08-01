@@ -2,6 +2,9 @@ import { getContainer } from "@cloudflare/containers";
 import { importEventsToD1 } from "../api/webhook";
 import type { ImportEventItem } from "./contracts";
 import { refreshPublicReadSnapshots } from "./public-read-snapshots";
+import { assessEventTimestamps } from "./timestamp-policy";
+import { generateShadowJobs } from "./job-store";
+import { buildAndActivateShadowSnapshotGeneration } from "./snapshot-generation";
 
 interface ScheduledEnv {
   DB: D1Database;
@@ -26,6 +29,78 @@ interface CollectTargetBatch {
   cursor: number;
   nextCursor: number;
   totalTargets: number;
+}
+
+interface UnsafeStoredEvent extends Record<string, unknown> {
+  event_id: string;
+  target_id: string;
+  source_id: string;
+  collected_at: string;
+  published_at: string;
+}
+
+function boundedStoredEventPayload(row: UnsafeStoredEvent): string {
+  const payload = JSON.stringify(row);
+  if (payload.length <= 48_000) return payload;
+  return JSON.stringify({
+    event_id: row.event_id,
+    target_id: row.target_id,
+    source_id: row.source_id,
+    collected_at: row.collected_at,
+    published_at: row.published_at,
+    original_url: row.original_url ?? null,
+    title: row.title ?? null,
+    payload_truncated: true,
+    original_bytes: payload.length,
+  });
+}
+
+export async function quarantineExistingUnsafeEvents(
+  db: D1Database,
+  generatedAt = isoNow(),
+): Promise<Record<string, unknown>> {
+  const result = await db
+    .prepare(
+      `SELECT * FROM events
+       WHERE datetime(collected_at) IS NULL
+          OR datetime(published_at) IS NULL
+          OR datetime(collected_at) > datetime(?, '+5 minutes')
+          OR datetime(published_at) > datetime(?, '+24 hours')
+       LIMIT 25`,
+    )
+    .bind(generatedAt, generatedAt)
+    .all<UnsafeStoredEvent>();
+  const events = result.results || [];
+  if (events.length === 0) return { status: "ok", quarantined_events: 0 };
+
+  const statements: D1PreparedStatement[] = [];
+  for (const event of events) {
+    const assessment = assessEventTimestamps(event.collected_at, event.published_at, Date.parse(generatedAt));
+    const reasonCode = assessment.ok ? "timestamp_policy_mismatch" : assessment.reason;
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO quarantined_events (
+             quarantine_id, target_id, source_id, reason_code, payload_json, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(quarantine_id) DO UPDATE SET
+             reason_code=excluded.reason_code,
+             payload_json=excluded.payload_json`,
+        )
+        .bind(
+          `q-existing-${event.event_id}`,
+          event.target_id || "unknown",
+          event.source_id || "unknown",
+          reasonCode,
+          boundedStoredEventPayload(event),
+          generatedAt,
+        ),
+      db.prepare("DELETE FROM event_localizations WHERE event_id = ?").bind(event.event_id),
+      db.prepare("DELETE FROM events WHERE event_id = ?").bind(event.event_id),
+    );
+  }
+  await db.batch(statements);
+  return { status: "ok", quarantined_events: events.length };
 }
 
 function taskForCron(cron: string): ScheduledTask {
@@ -537,6 +612,8 @@ export async function runScheduledCloudflareTask(
       ...taskRuntimeDetails(task),
       ...(collectBatch === null ? {} : { collect_batch: collectBatchDetails(collectBatch) }),
     });
+    const quarantineCleanup = await quarantineExistingUnsafeEvents(env.DB, startedAt);
+    const shadowJobs = await generateShadowJobs(env.DB, startedAt);
     let details: Record<string, unknown>;
     if (task === "refresh-public-quality") {
       details = await refreshPublicQuality(env.DB);
@@ -554,22 +631,32 @@ export async function runScheduledCloudflareTask(
       importResult = await importContainerEventsToD1(env.DB, details);
     }
     let snapshotRefresh: Record<string, unknown>;
+    let snapshotGeneration: Record<string, unknown>;
     try {
       snapshotRefresh = await refreshPublicReadSnapshots(env.DB);
+      snapshotGeneration = await buildAndActivateShadowSnapshotGeneration(env.DB);
     } catch (error) {
       snapshotRefresh = {
         status: "error",
         message: error instanceof Error ? error.message : String(error),
       };
+      snapshotGeneration = {
+        mode: "shadow",
+        status: "skipped",
+        reason: "legacy_snapshot_refresh_failed",
+      };
     }
     const compactDetails = compactTaskDetails({
       ...taskRuntimeDetails(task),
       ...details,
+      quarantine_cleanup: quarantineCleanup,
+      shadow_jobs: shadowJobs,
       ...(importResult === null ? {} : { import_result: importResult }),
       ...(collectBatch === null
         ? {}
         : { collect_batch: collectBatchDetails(collectBatch) }),
       snapshots: snapshotRefresh,
+      snapshot_generation: snapshotGeneration,
     });
     const status =
       typeof compactDetails.status === "string" && compactDetails.status ? compactDetails.status : "ok";

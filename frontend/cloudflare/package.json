@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --local",
+    "test": "node --experimental-strip-types --test tests/*.test.mts",
     "deploy": "wrangler deploy",
     "deploy:prod": "wrangler deploy --env=\"\"",
     "tail": "wrangler tail",

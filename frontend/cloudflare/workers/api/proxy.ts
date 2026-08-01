@@ -1,7 +1,11 @@
 import { getContainer } from "@cloudflare/containers";
-import { accessRequired, hasAccessIdentity, isContainerProxyPath } from "../lib/access";
+import { accessRequired, isContainerProxyPath } from "../lib/access";
+import {
+  type CloudflareAccessJwtEnv,
+  verifyCloudflareAccessRequest,
+} from "../lib/access-jwt";
 
-export interface ContainerProxyEnv {
+export interface ContainerProxyEnv extends CloudflareAccessJwtEnv {
   NEWS_SENTRY_CONTAINER?: DurableObjectNamespace;
 }
 
@@ -21,7 +25,8 @@ export async function handleContainerProxy(
     });
   }
 
-  if (!hasAccessIdentity(request)) {
+  const access = await verifyCloudflareAccessRequest(request, env);
+  if (!access.ok) {
     return accessRequired();
   }
 
@@ -33,6 +38,7 @@ export async function handleContainerProxy(
   }
 
   const headers = new Headers(request.headers);
+  headers.set("Cf-Access-Authenticated-User-Email", access.email ?? "verified-access-user");
   headers.set("X-News-Sentry-Proxy", "cloudflare-worker");
   headers.set("X-Forwarded-Host", url.host);
   headers.set("X-Forwarded-Proto", url.protocol.replace(":", ""));
