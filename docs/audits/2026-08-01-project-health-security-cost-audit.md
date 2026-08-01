@@ -93,6 +93,9 @@ Codex Security 深扫在移除旧 `agents.max_threads` 配置后通过 preflight
   `latest_public_at`，避免旧生产中的 2028 时间戳继续制造 false-green。
 - Cloudflare Worker 工具链固定为 Wrangler `4.114.0`，传递依赖 Sharp `0.35.2`；官方 registry
   `npm audit` 为 0 vulnerabilities。
+- 部署 workflow 以 CI 输出的单一 `deployment_environment` 驱动所有 job：任意候选分支可手动
+  部署隔离 Preview，但 production 只允许 `main`；所有部署 workflow 全局串行化，并删除了直接
+  fast-forward/push `main` 的自动 promotion。当前远端分支保护仍未启用，强制 PR 治理尚未闭环。
 
 这些是本地代码和 CI 治理改造，不等同于生产修复。生产仍需通过受控 workflow 重新部署并持续观测。
 

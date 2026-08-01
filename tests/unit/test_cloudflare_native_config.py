@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import tomllib
@@ -135,6 +136,53 @@ def test_preview_worker_and_verify_shell_are_syntactically_valid() -> None:
             check=False,
         )
         assert result.returncode == 0, result.stderr
+
+
+def test_deployment_mode_gate_routes_preview_and_rejects_non_main_production(
+    tmp_path: Path,
+) -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+    )
+    steps = workflow["jobs"]["ci"]["steps"]
+    script = next(
+        step["run"]
+        for step in steps
+        if step.get("name") == "Resolve and validate deployment mode"
+    )
+
+    cases = (
+        ("push", "refs/heads/main", "", 0, "environment=production"),
+        ("push", "refs/heads/preview", "", 0, "environment=preview"),
+        ("workflow_dispatch", "refs/heads/feature", "preview", 0, "environment=preview"),
+        (
+            "workflow_dispatch",
+            "refs/heads/main",
+            "production",
+            0,
+            "environment=production",
+        ),
+        ("workflow_dispatch", "refs/heads/feature", "production", 1, ""),
+    )
+    for index, (event, ref, requested, expected_code, expected_output) in enumerate(cases):
+        output = tmp_path / f"github-output-{index}.txt"
+        result = subprocess.run(
+            ["/bin/bash"],
+            input=script,
+            text=True,
+            capture_output=True,
+            check=False,
+            env={
+                **os.environ,
+                "GITHUB_EVENT_NAME": event,
+                "GITHUB_REF": ref,
+                "REQUESTED_ENVIRONMENT": requested,
+                "GITHUB_OUTPUT": str(output),
+            },
+        )
+        assert result.returncode == expected_code, result.stderr
+        actual_output = output.read_text(encoding="utf-8") if output.exists() else ""
+        assert expected_output in actual_output
 
 
 def test_worker_health_reads_cloudflare_d1_events_table() -> None:

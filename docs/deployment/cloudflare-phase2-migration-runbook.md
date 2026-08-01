@@ -73,3 +73,26 @@ Queue/Cron/Container/DO 必须在独立 canary 和生产 receipt 中验证，不
 任何 D1 名称歧义、非法 UUID、Wrangler NDJSON 回执缺失、Worker/environment 不匹配、非
 `workers.dev` origin、Pages deploy URL 无法解析，或 frontend bundle 未嵌入 Preview API URL，
 都必须 fail closed。
+
+候选分支推送后，从该分支执行隔离 Preview：
+
+```bash
+gh workflow run deploy.yml \
+  --ref dev-xu/fix/cloudflare-persistent-runtime \
+  -f environment=preview
+```
+
+workflow 会把所有部署运行全局串行化，避免不同触发方式并发写入同一 Cloudflare surface。手动 Preview 的 Pages branch 使用
+`manual-preview-${GITHUB_RUN_ID}`，不会写入 Pages production branch；Worker 固定为
+`news-sentry-api-preview`。`environment=production` 只允许在 `refs/heads/main` 调用，其他分支
+会在 CI 第一阶段 fail closed。
+
+Preview 绿色后只产出验证证据，不再由 workflow 直接 fast-forward/push `main`。生产提升必须：
+
+1. 以候选分支创建到 `main` 的 PR；
+2. 要求 CI、Preview receipt 与安全审计通过；
+3. 经人工合并后由 `main` push 触发 production；
+4. 收集 production Worker/D1/Queue/Pages/health 同 commit receipt。
+
+当前远端 `main`/`preview` 尚未启用 branch protection；在保护规则建立前，不得把“PR 流程”写成
+强制治理事实。

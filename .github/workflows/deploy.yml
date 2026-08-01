@@ -13,17 +13,48 @@ on:
         options: [preview, production]
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: news-sentry-deploy
+  cancel-in-progress: false
 
 jobs:
   ci:
     name: CI Gate
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    outputs:
+      deployment_environment: ${{ steps.deployment-mode.outputs.environment }}
     env:
       PYTHONUNBUFFERED: "1"
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve and validate deployment mode
+        id: deployment-mode
+        env:
+          REQUESTED_ENVIRONMENT: ${{ github.event.inputs.environment || '' }}
+        run: |
+          set -euo pipefail
+          environment=""
+          if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            environment="production"
+          elif [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF}" = "refs/heads/preview" ]; then
+            environment="preview"
+          elif [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${REQUESTED_ENVIRONMENT}" = "preview" ]; then
+            environment="preview"
+          elif [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${REQUESTED_ENVIRONMENT}" = "production" ]; then
+            if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+              echo "Reject production dispatch from non-main: production dispatch is only allowed from refs/heads/main."
+              exit 1
+            fi
+            environment="production"
+          else
+            echo "Unsupported deployment event/ref/environment combination."
+            exit 1
+          fi
+          echo "environment=${environment}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -147,7 +178,9 @@ jobs:
     name: Cloudflare D1 schema migration
     runs-on: ubuntu-latest
     needs: ci
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/preview' || github.event_name == 'workflow_dispatch'
+    if: >-
+      needs.ci.outputs.deployment_environment == 'preview' ||
+      needs.ci.outputs.deployment_environment == 'production'
     steps:
       - uses: actions/checkout@v4
 
@@ -180,7 +213,7 @@ jobs:
             --output-sql /tmp/news-sentry-d1-backfill.sql
 
       - name: Apply Cloudflare D1 breaking intelligence migration
-        if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+        if: needs.ci.outputs.deployment_environment == 'production'
         working-directory: frontend/cloudflare
         env:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
@@ -201,7 +234,7 @@ jobs:
           fi
 
       - name: Apply Cloudflare D1 schema
-        if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+        if: needs.ci.outputs.deployment_environment == 'production'
         working-directory: frontend/cloudflare
         env:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
@@ -210,7 +243,7 @@ jobs:
         run: node_modules/.bin/wrangler d1 execute ns-db --remote --file=db/schema.sql
 
       - name: Apply Cloudflare D1 shadow job runtime migration
-        if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+        if: needs.ci.outputs.deployment_environment == 'production'
         working-directory: frontend/cloudflare
         env:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
@@ -221,7 +254,7 @@ jobs:
           --file=db/migrations/20260801_phase1_job_runtime.sql
 
       - name: Record Cloudflare D1 runtime migration receipts
-        if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+        if: needs.ci.outputs.deployment_environment == 'production'
         working-directory: frontend/cloudflare
         env:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
@@ -235,7 +268,7 @@ jobs:
             --output /tmp/news-sentry-runtime-migration-receipts.json
 
       - name: Apply Cloudflare D1 target collect flag migration
-        if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+        if: needs.ci.outputs.deployment_environment == 'production'
         working-directory: frontend/cloudflare
         env:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
@@ -253,7 +286,7 @@ jobs:
           fi
 
       - name: Apply Cloudflare D1 target and source sync
-        if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+        if: needs.ci.outputs.deployment_environment == 'production'
         env:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
@@ -269,7 +302,7 @@ jobs:
             --file /tmp/news-sentry-d1-target-sync.sql)
 
       - name: Refresh Cloudflare public read snapshots
-        if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+        if: needs.ci.outputs.deployment_environment == 'production'
         env:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
@@ -287,7 +320,7 @@ jobs:
     name: Deploy Cloudflare Worker
     runs-on: ubuntu-latest
     needs: [ci, cloudflare-data]
-    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    if: needs.ci.outputs.deployment_environment == 'production'
     environment: production
     steps:
       - uses: actions/checkout@v4
@@ -469,7 +502,7 @@ jobs:
     name: Deploy Cloudflare preview Worker
     runs-on: ubuntu-latest
     needs: ci
-    if: github.ref == 'refs/heads/preview'
+    if: needs.ci.outputs.deployment_environment == 'preview'
     environment: preview
     outputs:
       preview_api_url: ${{ steps.receipt.outputs.api_url }}
@@ -592,22 +625,23 @@ jobs:
   deploy-cloudflare-pages:
     name: Deploy Cloudflare Pages
     runs-on: ubuntu-latest
-    needs: [ci, deploy-cloudflare-preview-worker]
+    needs: [ci, cloudflare-data, deploy-cloudflare-worker, deploy-cloudflare-preview-worker]
     if: >-
       always() &&
       needs.ci.result == 'success' &&
       (
-        github.ref == 'refs/heads/main' ||
         (
-          github.ref == 'refs/heads/preview' &&
-          needs.deploy-cloudflare-preview-worker.result == 'success'
+          needs.ci.outputs.deployment_environment == 'production' &&
+          needs.cloudflare-data.result == 'success' &&
+          needs.deploy-cloudflare-worker.result == 'success'
         ) ||
         (
-          github.event_name == 'workflow_dispatch' &&
-          github.event.inputs.environment == 'production'
+          needs.ci.outputs.deployment_environment == 'preview' &&
+          needs.cloudflare-data.result == 'success' &&
+          needs.deploy-cloudflare-preview-worker.result == 'success'
         )
       )
-    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
+    environment: ${{ needs.ci.outputs.deployment_environment }}
     outputs:
       pages_url: ${{ steps.deploy.outputs.pages_url }}
     steps:
@@ -627,11 +661,11 @@ jobs:
       - name: Build public frontend
         working-directory: frontend/public
         env:
-          VITE_API_BASE: ${{ github.ref == 'refs/heads/preview' && needs.deploy-cloudflare-preview-worker.outputs.preview_api_url || 'https://api.news-sentry.com' }}
+          VITE_API_BASE: ${{ needs.ci.outputs.deployment_environment == 'preview' && needs.deploy-cloudflare-preview-worker.outputs.preview_api_url || 'https://api.news-sentry.com' }}
         run: npm run build
 
       - name: Verify preview frontend API binding
-        if: github.ref == 'refs/heads/preview'
+        if: needs.ci.outputs.deployment_environment == 'preview'
         working-directory: frontend/public
         env:
           PREVIEW_API_URL: ${{ needs.deploy-cloudflare-preview-worker.outputs.preview_api_url }}
@@ -647,20 +681,26 @@ jobs:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DEPLOYMENT_ENVIRONMENT: ${{ needs.ci.outputs.deployment_environment }}
         run: |
           set -euo pipefail
-          branch="${GITHUB_REF_NAME:-preview}"
+          if [ "${DEPLOYMENT_ENVIRONMENT}" = "preview" ]; then
+            if [ "${GITHUB_REF}" = "refs/heads/preview" ]; then
+              branch="preview"
+            else
+              branch="manual-preview-${GITHUB_RUN_ID}"
+            fi
+          else
+            branch="main"
+          fi
           npx wrangler pages deploy dist/ \
             --project-name=news-sentry \
             --branch "${branch}" \
             --commit-dirty=true | tee /tmp/news-sentry-pages-deploy.log
           pages_url="$(grep -Eo 'https://[^[:space:]]+\\.pages\\.dev' /tmp/news-sentry-pages-deploy.log | tail -1 || true)"
           if [ -z "${pages_url}" ]; then
-            if [ "${GITHUB_REF}" = "refs/heads/preview" ]; then
-              echo "Failed to extract the immutable Pages preview deployment URL."
-              exit 1
-            fi
-            pages_url="https://news-sentry.pages.dev"
+            echo "Failed to extract the immutable Pages deployment URL."
+            exit 1
           fi
           echo "pages_url=${pages_url}" >> "$GITHUB_OUTPUT"
 
@@ -683,8 +723,8 @@ jobs:
   verify-preview:
     name: Verify preview
     runs-on: ubuntu-latest
-    needs: [deploy-cloudflare-pages, deploy-cloudflare-preview-worker, cloudflare-data]
-    if: github.ref == 'refs/heads/preview'
+    needs: [ci, deploy-cloudflare-pages, deploy-cloudflare-preview-worker, cloudflare-data]
+    if: needs.ci.outputs.deployment_environment == 'preview'
     env:
       BASE_URL: https://preview.news-sentry.com
       PAGES_URL: ${{ needs.deploy-cloudflare-pages.outputs.pages_url }}
@@ -785,30 +825,11 @@ jobs:
           assert "News Sentry" in public_app_html or "NewsSentry" in public_app_html
           PY
 
-  promote-main:
-    name: Promote main
-    runs-on: ubuntu-latest
-    needs: verify-preview
-    if: github.ref == 'refs/heads/preview'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Fast-forward main to verified preview
-        run: |
-          set -euo pipefail
-          git fetch origin main preview
-          if ! git merge-base --is-ancestor origin/main "${GITHUB_SHA}"; then
-            echo "origin/main is not an ancestor of verified preview ${GITHUB_SHA}; stop promotion."
-            exit 1
-          fi
-          git push origin "${GITHUB_SHA}:refs/heads/main"
-
   verify-production:
     name: Verify production
     runs-on: ubuntu-latest
-    needs: [deploy-cloudflare-worker, deploy-cloudflare-pages, cloudflare-data]
-    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    needs: [ci, deploy-cloudflare-worker, deploy-cloudflare-pages, cloudflare-data]
+    if: needs.ci.outputs.deployment_environment == 'production'
     env:
       BASE_URL: https://news-sentry.com
       PAGES_URL: ${{ needs.deploy-cloudflare-pages.outputs.pages_url }}

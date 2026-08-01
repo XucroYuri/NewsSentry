@@ -1,6 +1,6 @@
 # News Sentry 当前状态
 
-> 更新时间：2026-08-02T04:27:30+08:00
+> 更新时间：2026-08-02T04:41:43+08:00
 > 状态口径：本文件只记录会变化的运行态事实；架构和字段契约仍以 `docs/architecture.md` 与 `docs/contracts-canonical.md` 为准。
 > 完整证据：[2026-08-01 项目健康、安全与低成本全球化审计](./audits/2026-08-01-project-health-security-cost-audit.md)
 
@@ -45,6 +45,7 @@
 | Phase 2 Queue shadow 与 DLQ replay | 已提交，含 scoped review/fix 记录 | 未证明生产部署 |
 | Phase 2 Task 4 preview-safe preflight/receipt | 本地实现完成；验证见 Task4 report | 未执行远端 create/apply/upload/deploy |
 | 隔离 Preview Worker/D1 | 本地 config、guard、seed、receipt、Pages/API 绑定和 dry-run 已通过 | `news-sentry-api-preview` / `ns-db-preview` 尚未由 workflow 创建或验证 |
+| 发布治理 | 手动 `workflow_dispatch preview` 可从候选分支创建隔离 Preview；production 只接受 `main`；workflow 不再直接 push/fast-forward `main` | GitHub `main` 与 `preview` 当前均未启用 branch protection，候选分支尚未推送 |
 | 供应链 | Wrangler `4.114.0`、Miniflare `4.20260722.0`、Sharp `0.35.2`；官方 npm audit 0 | 尚未经过远端 CI |
 | 健康质量门禁 | 缺失、畸形、陈旧或未来 `latest_collected_at` 以及未来 `latest_public_at` 均拒绝 | 生产仍由旧门禁和旧 Worker 提供 false-green 200 |
 | 安全深扫 | workspace 已建但 scan setup 仍未提交 | 未启动，无 scanId |
@@ -81,6 +82,7 @@
 - `wrangler types`、`wrangler deploy --dry-run`、本地测试和 workflow 文本检查只算本地门禁，不算生产恢复。
 - Preview 只证明公开 API、D1、健康端点和 Pages/API 构建绑定；不证明 Queue、Cron、Container、Durable Object 或生产数据面。
 - Python app 当前同时注册 Bearer 管理 webhook 与 HMAC webhook 的同路径路由；实际路由顺序优先 Bearer 版本。HMAC fail-closed 修复只算防御性修补，必须在契约统一后才能声称外部 webhook 已切换。
+- `origin/preview` 与 `main` 已长期分叉，不作为本轮候选的合并基线。本轮先推送候选分支，通过手动隔离 Preview 取得回执，再以 PR 合入 `main`；禁止 workflow 自动改写 `main`。
 - 下一次真实部署必须先产出 `/tmp/news-sentry-cloudflare-preflight.json` 与 `/tmp/news-sentry-cloudflare-deploy-receipt.json`，并把 version/deployment/D1/Queue/health receipt 对齐到同一 commit。
 
 ## 状态更新规则

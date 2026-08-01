@@ -51,10 +51,12 @@ def test_deploy_workflow_uses_fail_closed_cloudflare_preflight_and_receipts() ->
 
 def test_preview_verification_requires_preview_worker_runtime_proof() -> None:
     workflow = _workflow_text()
-    preview_job = workflow.split("  verify-preview:", 1)[1].split("  promote-main:", 1)[0]
+    preview_job = workflow.split("  verify-preview:", 1)[1].split(
+        "  verify-production:", 1
+    )[0]
 
     assert (
-        "needs: [deploy-cloudflare-pages, deploy-cloudflare-preview-worker, cloudflare-data]"
+        "needs: [ci, deploy-cloudflare-pages, deploy-cloudflare-preview-worker, cloudflare-data]"
         in preview_job
     )
     assert (
@@ -83,7 +85,7 @@ def test_preview_worker_deploy_job_is_isolated_and_exports_api_url() -> None:
         "  deploy-cloudflare-pages:", 1
     )[0]
 
-    assert "if: github.ref == 'refs/heads/preview'" in preview_worker_job
+    assert "needs.ci.outputs.deployment_environment == 'preview'" in preview_worker_job
     assert "preview_api_url: ${{ steps.receipt.outputs.api_url }}" in preview_worker_job
     assert "node_modules/.bin/wrangler d1 list --json" in preview_worker_job
     assert "tools/cloudflare_preview_guard.py select-d1" in preview_worker_job
@@ -112,20 +114,61 @@ def test_pages_preview_build_uses_preview_worker_output_but_main_can_skip_it() -
         "  verify-preview:", 1
     )[0]
 
-    assert "needs: [ci, deploy-cloudflare-preview-worker]" in pages_job
+    assert (
+        "needs: [ci, cloudflare-data, deploy-cloudflare-worker, "
+        "deploy-cloudflare-preview-worker]" in pages_job
+    )
     assert "always()" in pages_job
     assert "needs.ci.result == 'success'" in pages_job
     assert "needs.deploy-cloudflare-preview-worker.result == 'success'" in pages_job
+    assert "needs.deploy-cloudflare-worker.result == 'success'" in pages_job
+    assert "needs.cloudflare-data.result == 'success'" in pages_job
+    assert "needs.ci.outputs.deployment_environment == 'preview'" in pages_job
     assert (
-        "VITE_API_BASE: ${{ github.ref == 'refs/heads/preview' && "
         "needs.deploy-cloudflare-preview-worker.outputs.preview_api_url || "
         "'https://api.news-sentry.com' }}"
         in pages_job
     )
+    assert (
+        "VITE_API_BASE: ${{ needs.ci.outputs.deployment_environment == 'preview' &&"
+        in pages_job
+    )
     assert "Verify preview frontend API binding" in pages_job
     assert 'grep -R -F -- "${PREVIEW_API_URL}" dist/' in pages_job
-    assert 'if [ "${GITHUB_REF}" = "refs/heads/preview" ]; then' in pages_job
-    assert "Failed to extract the immutable Pages preview deployment URL" in pages_job
+    assert 'branch="manual-preview-${GITHUB_RUN_ID}"' in pages_job
+    assert "DEPLOYMENT_ENVIRONMENT: ${{ needs.ci.outputs.deployment_environment }}" in pages_job
+    assert "Failed to extract the immutable Pages deployment URL" in pages_job
+    assert 'pages_url="https://news-sentry.pages.dev"' not in pages_job
+
+
+def test_manual_preview_is_serialized_and_never_directly_promotes_main() -> None:
+    workflow = _workflow_text()
+
+    assert "concurrency:" in workflow
+    assert "permissions:\n  contents: read" in workflow
+    assert "group: news-sentry-deploy\n" in workflow
+    assert "cancel-in-progress: false" in workflow
+    assert "Reject production dispatch from non-main" in workflow
+    assert "production dispatch is only allowed from refs/heads/main" in workflow
+    assert "  promote-main:" not in workflow
+    assert 'git push origin "${GITHUB_SHA}:refs/heads/main"' not in workflow
+
+
+def test_production_jobs_require_main_and_preview_dispatch_stays_nonproduction() -> None:
+    workflow = _workflow_text()
+    production_worker_job = workflow.split("  deploy-cloudflare-worker:", 1)[1].split(
+        "  deploy-cloudflare-preview-worker:", 1
+    )[0]
+    verify_production_job = workflow.split("  verify-production:", 1)[1]
+
+    for job in (production_worker_job, verify_production_job):
+        assert "needs.ci.outputs.deployment_environment == 'production'" in job
+
+    cloudflare_data_job = workflow.split("  cloudflare-data:", 1)[1].split(
+        "  deploy-cloudflare-worker:", 1
+    )[0]
+    assert "needs.ci.outputs.deployment_environment == 'preview'" in cloudflare_data_job
+    assert "needs.ci.outputs.deployment_environment == 'production'" in cloudflare_data_job
 
 
 def test_cloudflare_data_dry_run_has_one_output_sql_argument() -> None:
