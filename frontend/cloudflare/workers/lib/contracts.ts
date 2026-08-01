@@ -64,9 +64,12 @@ export interface HealthResponse {
     configured: boolean;
     backlog: number | null;
     oldest_message_at: string | null;
+    retry_count?: number | null;
     dlq: {
       configured: boolean;
       messages: number | null;
+      p0_messages?: number | null;
+      non_p0_messages?: number | null;
       oldest_message_at: string | null;
     };
   };

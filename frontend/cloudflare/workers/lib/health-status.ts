@@ -28,9 +28,12 @@ export interface QueueHealthInput {
   configured?: boolean;
   backlog?: number | null;
   oldest_message_at?: string | null;
+  retry_count?: number | null;
   dlq?: {
     configured?: boolean;
     messages?: number | null;
+    p0_messages?: number | null;
+    non_p0_messages?: number | null;
     oldest_message_at?: string | null;
   };
 }
@@ -97,9 +100,12 @@ function normalizeQueue(queue: QueueHealthInput | undefined): NonNullable<Health
     configured: queue?.configured ?? false,
     backlog: queue?.backlog ?? null,
     oldest_message_at: queue?.oldest_message_at ?? null,
+    retry_count: queue?.retry_count ?? null,
     dlq: {
       configured: queue?.dlq?.configured ?? false,
       messages: queue?.dlq?.messages ?? null,
+      p0_messages: queue?.dlq?.p0_messages ?? null,
+      non_p0_messages: queue?.dlq?.non_p0_messages ?? null,
       oldest_message_at: queue?.dlq?.oldest_message_at ?? null,
     },
   };
@@ -115,7 +121,8 @@ function worstStatus(reasonCodes: string[]): HealthLevel {
     reasonCodes.includes("d1_query_failed") ||
     reasonCodes.includes("collect_cycle_failed") ||
     reasonCodes.includes("collect_cycle_stale") ||
-    reasonCodes.includes("events_stale")
+    reasonCodes.includes("events_stale") ||
+    reasonCodes.includes("p0_dlq_nonempty")
   ) {
     return "unhealthy";
   }
@@ -180,6 +187,18 @@ export function buildHealthResponse(input: HealthSignalsInput): HealthResponse {
   if (hasFailedStatus(refreshPublicQuality.status)) {
     reasonCodes.push("refresh_public_quality_failed");
   }
+  const queue = normalizeQueue(input.queue);
+  const p0DlqMessages = queue.dlq.p0_messages ?? 0;
+  const nonP0DlqMessages = queue.dlq.non_p0_messages ?? 0;
+  const totalDlqMessages = queue.dlq.messages ?? p0DlqMessages + nonP0DlqMessages;
+  if (p0DlqMessages > 0) {
+    reasonCodes.push("p0_dlq_nonempty");
+  } else if (totalDlqMessages > 0) {
+    reasonCodes.push("dlq_nonempty");
+  }
+  if ((queue.retry_count ?? 0) > 0) {
+    reasonCodes.push("queue_retries_pending");
+  }
 
   const status = worstStatus(reasonCodes);
   return {
@@ -205,7 +224,7 @@ export function buildHealthResponse(input: HealthSignalsInput): HealthResponse {
       refresh_public_quality: refreshPublicQuality,
     },
     active_snapshot: activeSnapshot,
-    queue: normalizeQueue(input.queue),
+    queue,
     collection: input.collection,
     job_runtime: input.job_runtime,
     total_events: input.total_events,

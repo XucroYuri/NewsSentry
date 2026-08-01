@@ -4,6 +4,7 @@ import {
   loadDispatchableOutboxJobs,
   loadJobAttemptLimits,
   markOutboxDispatched,
+  recordDlqConsumptionReceipt,
   recordJobAttempt,
   releaseClaimedJobOutcome,
   transitionClaimedJob,
@@ -31,6 +32,7 @@ interface QueueBatchLike {
 export interface ShadowQueueEnv {
   DB: D1Database;
   NEWS_SENTRY_JOBS_QUEUE?: QueueLike;
+  NEWS_SENTRY_JOBS_DLQ?: QueueLike;
   CF_VERSION_METADATA?: {
     id: string;
     tag?: string;
@@ -386,6 +388,31 @@ async function handleMessage(
   }
 }
 
+async function handleDlqMessage(
+  message: QueueMessageLike,
+  env: ShadowQueueEnv,
+  queueName: string,
+  generatedAt: string,
+): Promise<void> {
+  const jobId = jobIdFromMessage(message.body);
+  if (!jobId) {
+    message.retry();
+    return;
+  }
+  const recorded = await recordDlqConsumptionReceipt(env.DB, {
+    jobId,
+    queueName,
+    messageBody: message.body,
+    workerVersion: env.CF_VERSION_METADATA?.id ?? null,
+    consumedAt: generatedAt,
+  });
+  if (recorded) {
+    message.ack();
+  } else {
+    message.retry();
+  }
+}
+
 export async function handleShadowQueueBatch(
   batch: QueueBatchLike,
   env: ShadowQueueEnv,
@@ -394,7 +421,12 @@ export async function handleShadowQueueBatch(
 ): Promise<void> {
   if (batch.queue === "news-sentry-jobs-dlq") {
     for (const message of batch.messages) {
-      message.ack();
+      try {
+        await handleDlqMessage(message, env, batch.queue, generatedAt);
+      } catch (error) {
+        console.error("DLQ queue receipt failed before ack:", error);
+        message.retry();
+      }
     }
     return;
   }

@@ -353,6 +353,35 @@ CREATE TABLE IF NOT EXISTS import_batch_finalize_receipts (
     source_guard TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS dlq_replay_receipts (
+    receipt_id TEXT PRIMARY KEY,
+    original_job_id TEXT NOT NULL REFERENCES jobs(job_id),
+    new_job_id TEXT NOT NULL UNIQUE REFERENCES jobs(job_id),
+    operator_id TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    requested_version TEXT NOT NULL,
+    worker_version TEXT,
+    deploy_commit TEXT,
+    created_at TEXT NOT NULL,
+    details_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_dlq_replay_receipts_original
+    ON dlq_replay_receipts(original_job_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS dlq_consumption_receipts (
+    receipt_id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL REFERENCES jobs(job_id),
+    queue_name TEXT NOT NULL,
+    message_body_json TEXT NOT NULL,
+    worker_version TEXT,
+    consumed_at TEXT NOT NULL,
+    UNIQUE(job_id, queue_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_dlq_consumption_receipts_consumed
+    ON dlq_consumption_receipts(consumed_at DESC);
+
 CREATE TABLE IF NOT EXISTS quarantine_context (
     quarantine_id TEXT PRIMARY KEY REFERENCES quarantined_events(quarantine_id),
     batch_id TEXT REFERENCES import_batches(batch_id),

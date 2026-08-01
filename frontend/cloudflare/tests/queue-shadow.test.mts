@@ -37,7 +37,15 @@ class FakePreparedStatement {
 
 interface FakeJob {
   job_id: string;
+  idempotency_key: string;
   status: string;
+  replay_of_job_id: string | null;
+  job_type: string;
+  target_id: string;
+  source_id: string;
+  capability: string;
+  scheduled_for: string;
+  scheduled_window: string;
   lease_token: string | null;
   lease_owner: string | null;
   lease_until: string | null;
@@ -60,10 +68,12 @@ class FakeD1Database {
   jobs = new Map<string, FakeJob>();
   outbox = new Map<string, FakeOutbox>();
   attempts: Array<Record<string, unknown>> = [];
+  dlqConsumptionReceipts: Array<Record<string, unknown>> = [];
   confirmChangesZeroForJob = new Set<string>();
   markRunningChangesZeroForJob = new Set<string>();
   throwOnAttemptForJob = new Set<string>();
   throwOnTransitionToRetryForJob = new Set<string>();
+  throwOnDlqConsumptionReceiptForJob = new Set<string>();
   eventImports = 0;
   cursorUpdates = 0;
   snapshotSwitches = 0;
@@ -253,6 +263,22 @@ class FakeD1Database {
       job.last_error_message = errorMessage;
       return changed(1);
     }
+    if (sql.includes("INSERT INTO dlq_consumption_receipts")) {
+      const [receiptId, jobId, queueName, messageBodyJson, workerVersion, consumedAt] = values as string[];
+      if (this.throwOnDlqConsumptionReceiptForJob.has(jobId)) {
+        this.throwOnDlqConsumptionReceiptForJob.delete(jobId);
+        throw new Error("dlq receipt insert failed");
+      }
+      this.dlqConsumptionReceipts.push({
+        receipt_id: receiptId,
+        job_id: jobId,
+        queue_name: queueName,
+        message_body_json: messageBodyJson,
+        worker_version: workerVersion,
+        consumed_at: consumedAt,
+      });
+      return changed(1);
+    }
     throw new Error(`Unexpected run SQL: ${sql}`);
   }
 }
@@ -290,7 +316,15 @@ class FakeQueueMessage {
 function seedJob(db: FakeD1Database, job: Partial<FakeJob> = {}): FakeJob {
   const fullJob = {
     job_id: "job-shadow-1",
+    idempotency_key: "idem-job-shadow-1",
     status: "pending",
+    replay_of_job_id: null,
+    job_type: "collect_source",
+    target_id: "italy",
+    source_id: "ansa",
+    capability: "worker-rss",
+    scheduled_for: "2026-08-01T00:00:00.000Z",
+    scheduled_window: "20260801T0000Z",
     lease_token: null,
     lease_owner: null,
     lease_until: null,
@@ -572,6 +606,44 @@ test("queue handler dead-letters permanent failures and exhausted retries", asyn
   assert.equal(exhausted.retried, false);
   assert.equal(db.jobs.get("job-permanent")?.status, "dead_lettered");
   assert.equal(db.jobs.get("job-exhausted")?.status, "dead_lettered");
+});
+
+test("DLQ consumer writes a durable receipt before acking the DLQ message", async () => {
+  const db = new FakeD1Database();
+  seedJob(db, { status: "dead_lettered" });
+  const message = new FakeQueueMessage({ job_id: "job-shadow-1" });
+
+  await handleShadowQueueBatch(
+    { queue: "news-sentry-jobs-dlq", messages: [message] } as never,
+    { DB: db as unknown as D1Database, CF_VERSION_METADATA: { id: "v-test" } },
+    "2026-08-01T00:01:00.000Z",
+  );
+
+  assert.equal(message.acked, true);
+  assert.equal(message.retried, false);
+  assert.equal(db.dlqConsumptionReceipts.length, 1);
+  assert.equal(db.dlqConsumptionReceipts[0].job_id, "job-shadow-1");
+  assert.equal(db.dlqConsumptionReceipts[0].queue_name, "news-sentry-jobs-dlq");
+  assert.equal(db.dlqConsumptionReceipts[0].worker_version, "v-test");
+});
+
+test("DLQ consumer retries instead of acking when durable receipt write fails", async () => {
+  const db = new FakeD1Database();
+  seedJob(db, { status: "dead_lettered" });
+  db.throwOnDlqConsumptionReceiptForJob.add("job-shadow-1");
+  const message = new FakeQueueMessage({ job_id: "job-shadow-1" });
+
+  await withMutedConsoleError(async () => {
+    await handleShadowQueueBatch(
+      { queue: "news-sentry-jobs-dlq", messages: [message] } as never,
+      { DB: db as unknown as D1Database, CF_VERSION_METADATA: { id: "v-test" } },
+      "2026-08-01T00:01:00.000Z",
+    );
+  });
+
+  assert.equal(message.acked, false);
+  assert.equal(message.retried, true);
+  assert.equal(db.dlqConsumptionReceipts.length, 0);
 });
 
 test("stale owners cannot confirm outbox through queue processing", async () => {

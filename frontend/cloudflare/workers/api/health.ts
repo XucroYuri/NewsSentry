@@ -80,6 +80,9 @@ export async function handleHealth(
     oldest_pending_outbox_at: null as string | null,
     retry_scheduled: 0,
     dead_lettered: 0,
+    oldest_dead_lettered_at: null as string | null,
+    p0_dead_lettered: 0,
+    non_p0_dead_lettered: 0,
   };
 
   try {
@@ -166,14 +169,29 @@ export async function handleHealth(
              (SELECT MIN(created_at) FROM job_outbox WHERE status != 'confirmed')
                AS oldest_pending_outbox_at,
              SUM(CASE WHEN status = 'retry_scheduled' THEN 1 ELSE 0 END) AS retry_scheduled,
-             SUM(CASE WHEN status = 'dead_lettered' THEN 1 ELSE 0 END) AS dead_lettered
-           FROM jobs`,
+             SUM(CASE WHEN status = 'dead_lettered' THEN 1 ELSE 0 END) AS dead_lettered,
+             MIN(CASE WHEN status = 'dead_lettered' THEN updated_at END) AS oldest_dead_lettered_at,
+             SUM(CASE
+               WHEN jobs.status = 'dead_lettered'
+                AND COALESCE(runtime.tier, 'P2') = 'P0'
+               THEN 1 ELSE 0 END) AS p0_dead_lettered,
+             SUM(CASE
+               WHEN jobs.status = 'dead_lettered'
+                AND COALESCE(runtime.tier, 'P2') != 'P0'
+               THEN 1 ELSE 0 END) AS non_p0_dead_lettered
+           FROM jobs
+           LEFT JOIN source_runtime_state AS runtime
+             ON runtime.target_id = jobs.target_id
+            AND runtime.source_id = jobs.source_id`,
         )
         .first<{
           pending_outbox: number | null;
           oldest_pending_outbox_at: string | null;
           retry_scheduled: number | null;
           dead_lettered: number | null;
+          oldest_dead_lettered_at: string | null;
+          p0_dead_lettered: number | null;
+          non_p0_dead_lettered: number | null;
         }>(),
       db
         .prepare(
@@ -240,6 +258,9 @@ export async function handleHealth(
       oldest_pending_outbox_at: jobRuntimeResult?.oldest_pending_outbox_at ?? null,
       retry_scheduled: jobRuntimeResult?.retry_scheduled ?? 0,
       dead_lettered: jobRuntimeResult?.dead_lettered ?? 0,
+      oldest_dead_lettered_at: jobRuntimeResult?.oldest_dead_lettered_at ?? null,
+      p0_dead_lettered: jobRuntimeResult?.p0_dead_lettered ?? 0,
+      non_p0_dead_lettered: jobRuntimeResult?.non_p0_dead_lettered ?? 0,
     };
   } catch (error) {
     const body: HealthResponse = {
@@ -273,13 +294,16 @@ export async function handleHealth(
       collection,
       job_runtime: jobRuntime,
       queue: {
-        configured: false,
+        configured: runtimeMetadata?.queue?.jobs_configured ?? false,
         backlog: jobRuntime.pending_outbox,
         oldest_message_at: jobRuntime.oldest_pending_outbox_at,
+        retry_count: jobRuntime.retry_scheduled,
         dlq: {
-          configured: false,
+          configured: runtimeMetadata?.queue?.dlq_configured ?? false,
           messages: jobRuntime.dead_lettered,
-          oldest_message_at: null,
+          p0_messages: jobRuntime.p0_dead_lettered,
+          non_p0_messages: jobRuntime.non_p0_dead_lettered,
+          oldest_message_at: jobRuntime.oldest_dead_lettered_at,
         },
       },
     }),

@@ -18,6 +18,10 @@ PHASE2_MIGRATION = (
     ROOT
     / "frontend/cloudflare/db/migrations/20260802_phase2_import_staging.sql"
 )
+PHASE2_DLQ_MIGRATION = (
+    ROOT
+    / "frontend/cloudflare/db/migrations/20260802_phase2_dlq_replay_receipts.sql"
+)
 
 
 def _database() -> sqlite3.Connection:
@@ -125,6 +129,62 @@ def test_phase2_import_staging_migration_upgrades_phase1_runtime() -> None:
     ).fetchone()
     assert receipt is not None
     connection.close()
+
+
+def test_phase2_dlq_replay_migration_adds_operator_and_consumption_receipts() -> None:
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.executescript(MIGRATION.read_text(encoding="utf-8"))
+        connection.executescript(PHASE2_MIGRATION.read_text(encoding="utf-8"))
+        connection.executescript(PHASE2_DLQ_MIGRATION.read_text(encoding="utf-8"))
+
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        assert "dlq_replay_receipts" in tables
+        assert "dlq_consumption_receipts" in tables
+        replay_columns = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA table_info(dlq_replay_receipts)"
+            ).fetchall()
+        }
+        consumption_columns = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA table_info(dlq_consumption_receipts)"
+            ).fetchall()
+        }
+        assert {
+            "receipt_id",
+            "original_job_id",
+            "new_job_id",
+            "operator_id",
+            "reason",
+            "requested_version",
+            "worker_version",
+        } <= replay_columns
+        assert {
+            "receipt_id",
+            "job_id",
+            "queue_name",
+            "message_body_json",
+            "worker_version",
+            "consumed_at",
+        } <= consumption_columns
+        receipt = connection.execute(
+            """
+            SELECT migration_id FROM runtime_migration_receipts
+            WHERE migration_id='20260802_phase2_dlq_replay_receipts'
+            """
+        ).fetchone()
+        assert receipt is not None
+    finally:
+        connection.close()
 
 
 def test_job_and_outbox_transaction_has_unique_idempotency(

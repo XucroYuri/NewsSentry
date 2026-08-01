@@ -7,6 +7,7 @@ import {
   type AccessJwtClaims,
   type JsonWebKeySet,
 } from "../workers/lib/access-jwt.ts";
+import { handleWorkerWriteAccess } from "../workers/lib/access.ts";
 
 const now = new Date("2026-08-01T00:00:00Z");
 const nowSeconds = Math.floor(now.getTime() / 1000);
@@ -159,4 +160,22 @@ test("verifies JWT from request header and rejects unsafe team-domain config", a
     ).reason,
     "missing_config",
   );
+});
+
+test("DLQ replay path is fail-closed behind the Worker write Access gate", async () => {
+  const blocked = await handleWorkerWriteAccess(
+    new Request("https://api.news-sentry.com/api/v1/jobs/dlq/replay", {
+      method: "POST",
+    }),
+    env,
+    { jwks: { keys: [] }, now },
+  );
+  const publicRead = await handleWorkerWriteAccess(
+    new Request("https://api.news-sentry.com/api/v1/health"),
+    env,
+    { jwks: { keys: [] }, now },
+  );
+
+  assert.equal(blocked?.status, 403);
+  assert.equal(publicRead, null);
 });

@@ -98,6 +98,8 @@ def test_worker_health_reads_cloudflare_d1_events_table() -> None:
     assert "source_runtime_state" in health_ts
     assert "job_outbox" in health_ts
     assert 'mode: "shadow"' in health_ts
+    assert "p0_dead_lettered" in health_ts
+    assert "non_p0_dead_lettered" in health_ts
 
 
 def test_public_facets_contract_includes_related_tags() -> None:
@@ -137,6 +139,23 @@ def test_public_reader_uses_drafts_stage_like_python_reader() -> None:
         assert "pipeline_stage IN ('published', 'reviewed')" not in worker_source
 
     assert "total: newsCountResult?.total ?? newsRows.length" in bootstrap_ts
+
+
+def test_dlq_replay_endpoint_is_worker_local_and_access_protected() -> None:
+    index_ts = _read("workers/index.ts")
+    access_ts = _read("workers/lib/access.ts")
+    replay_ts = _read("workers/api/dlq-replay.ts")
+    job_store_ts = _read("workers/lib/job-store.ts")
+    queue_ts = _read("workers/lib/queue-shadow.ts")
+
+    assert 'registerRoute("POST", "/api/v1/jobs/dlq/replay", handleDlqReplay)' in index_ts
+    assert '"/api/v1/jobs/dlq/replay"' in access_ts
+    assert "verifyCloudflareAccessRequest" not in replay_ts
+    assert "dlq_replay_receipts" in job_store_ts
+    assert "replay_of_job_id" in job_store_ts
+    assert "crypto.randomUUID" in job_store_ts
+    assert "dlq_consumption_receipts" in job_store_ts
+    assert "recordDlqConsumptionReceipt" in queue_ts
 
 
 def test_cloudflare_public_featured_query_matches_python_quality_gate() -> None:

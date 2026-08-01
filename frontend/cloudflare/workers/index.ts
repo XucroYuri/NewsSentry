@@ -24,6 +24,7 @@ import { handleBootstrap } from "./api/bootstrap";
 import { handleNewsFeed, handleNewsDetail } from "./api/news";
 import { handleTargets, handleRegions } from "./api/targets";
 import { handleWebhook, handleImport } from "./api/webhook";
+import { handleDlqReplay } from "./api/dlq-replay";
 import { handleContainerProxy, shouldProxyToContainer } from "./api/proxy";
 import { internalError } from "./lib/errors";
 import { handleWorkerWriteAccess } from "./lib/access";
@@ -133,6 +134,10 @@ function runtimeMetadata(env: Env): RuntimeMetadata {
     commit: env.NEWS_SENTRY_DEPLOY_COMMIT ?? null,
     runtime: "cloudflare-worker",
     worker_version: env.CF_VERSION_METADATA?.id ?? null,
+    queue: {
+      jobs_configured: Boolean(env.NEWS_SENTRY_JOBS_QUEUE),
+      dlq_configured: Boolean(env.NEWS_SENTRY_JOBS_DLQ),
+    },
   };
 }
 
@@ -148,6 +153,7 @@ registerRoute("GET", "/api/v1/targets", handleTargets);
 registerRoute("GET", "/api/v1/regions", handleRegions);
 registerRoute("POST", "/api/v1/webhook", handleWebhook);
 registerRoute("POST", "/api/v1/events/import", handleImport);
+registerRoute("POST", "/api/v1/jobs/dlq/replay", handleDlqReplay);
 
 // ── Worker entry ───────────────────────────────────────────────────────────
 export default {

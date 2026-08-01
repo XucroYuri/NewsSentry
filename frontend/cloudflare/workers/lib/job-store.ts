@@ -32,6 +32,36 @@ export interface DispatchableOutboxJob {
   job_id: string;
 }
 
+export interface ReplayableDeadLetterJob {
+  job_id: string;
+  idempotency_key: string;
+  job_type: string;
+  target_id: string;
+  source_id: string;
+  capability: string;
+  scheduled_for: string;
+  scheduled_window: string;
+  input_cursor: string | null;
+  max_attempts: number;
+  status: string;
+}
+
+export interface DlqReplayInput {
+  originalJobId: string;
+  operatorId: string;
+  reason: string;
+  requestedVersion: string;
+  workerVersion: string | null;
+  deployCommit: string | null;
+  generatedAt: string;
+}
+
+export interface DlqReplayResult {
+  original_job_id: string;
+  new_job_id: string;
+  receipt_id: string;
+}
+
 export async function markOutboxDispatched(
   db: D1Database,
   jobId: string,
@@ -273,6 +303,146 @@ export async function confirmOutboxClaim(
     .bind(generatedAt, jobId, leaseToken, fencingVersion)
     .run();
   return result.success && Number(result.meta?.changes || 0) === 1;
+}
+
+export async function recordDlqConsumptionReceipt(
+  db: D1Database,
+  input: {
+    jobId: string;
+    queueName: string;
+    messageBody: unknown;
+    workerVersion: string | null;
+    consumedAt: string;
+  },
+): Promise<boolean> {
+  const result = await db
+    .prepare(
+      `INSERT INTO dlq_consumption_receipts (
+         receipt_id, job_id, queue_name, message_body_json, worker_version, consumed_at
+       ) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(job_id, queue_name) DO UPDATE SET
+         message_body_json=excluded.message_body_json,
+         worker_version=excluded.worker_version,
+         consumed_at=excluded.consumed_at`,
+    )
+    .bind(
+      `dlq-consumed-${input.queueName}-${input.jobId}`,
+      input.jobId,
+      input.queueName,
+      JSON.stringify(input.messageBody),
+      input.workerVersion,
+      input.consumedAt,
+    )
+    .run();
+  return result.success && Number(result.meta?.changes || 0) >= 1;
+}
+
+export async function loadJobForDlqReplay(
+  db: D1Database,
+  jobId: string,
+): Promise<ReplayableDeadLetterJob | null> {
+  return db
+    .prepare(
+      `SELECT
+         job_id, idempotency_key, job_type, target_id, source_id,
+         capability, scheduled_for, scheduled_window, input_cursor,
+         max_attempts, status
+       FROM jobs
+       WHERE job_id=?`,
+    )
+    .bind(jobId)
+    .first<ReplayableDeadLetterJob>();
+}
+
+export async function createDlqReplayJob(
+  db: D1Database,
+  job: ReplayableDeadLetterJob,
+  input: DlqReplayInput,
+): Promise<DlqReplayResult> {
+  const replayUuid = crypto.randomUUID();
+  const replayToken = replayUuid.replace(/-/g, "");
+  const newJobId = `replay-${replayToken.slice(0, 32)}`;
+  const receiptId = `dlq-replay-${replayToken}`;
+  const idempotencyKey = `replay-v1:${job.job_id}:${replayUuid}`;
+  const scheduledWindow = `${job.scheduled_window}:replay:${input.generatedAt}`;
+
+  const results = await db.batch([
+    db
+      .prepare(
+        `INSERT INTO jobs (
+           job_id, idempotency_key, replay_of_job_id, job_type, target_id, source_id,
+           capability, scheduled_for, scheduled_window, status, max_attempts,
+           input_cursor, created_at, updated_at
+         )
+         SELECT
+           ?, ?, ?, job_type, target_id, source_id, capability, ?, ?, 'pending',
+           max_attempts, input_cursor, ?, ?
+         FROM jobs
+         WHERE job_id=? AND status='dead_lettered'`,
+      )
+      .bind(
+        newJobId,
+        idempotencyKey,
+        job.job_id,
+        input.generatedAt,
+        scheduledWindow,
+        input.generatedAt,
+        input.generatedAt,
+        job.job_id,
+      ),
+    db
+      .prepare(
+        `INSERT INTO job_outbox (
+           outbox_id, job_id, status, next_dispatch_at, created_at, updated_at
+         )
+         SELECT ?, ?, 'pending', ?, ?, ?
+         WHERE EXISTS (SELECT 1 FROM jobs WHERE job_id=?)`,
+      )
+      .bind(
+        `outbox-${newJobId}`,
+        newJobId,
+        input.generatedAt,
+        input.generatedAt,
+        input.generatedAt,
+        newJobId,
+      ),
+    db
+      .prepare(
+        `INSERT INTO dlq_replay_receipts (
+           receipt_id, original_job_id, new_job_id, operator_id, reason,
+           requested_version, worker_version, deploy_commit, created_at, details_json
+         )
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+         WHERE EXISTS (SELECT 1 FROM jobs WHERE job_id=?)`,
+      )
+      .bind(
+        receiptId,
+        job.job_id,
+        newJobId,
+        input.operatorId,
+        input.reason,
+        input.requestedVersion,
+        input.workerVersion,
+        input.deployCommit,
+        input.generatedAt,
+        JSON.stringify({
+          original_idempotency_key: job.idempotency_key,
+          replay_idempotency_key: idempotencyKey,
+        }),
+        newJobId,
+      ),
+  ]);
+  if (!results.every((result) => result.success)) {
+    throw new Error("DLQ replay transaction failed");
+  }
+  if (results.some((result) => Number(result.meta?.changes || 0) !== 1)) {
+    throw new Error("DLQ replay transaction changed zero rows");
+  }
+  return {
+    original_job_id: job.job_id,
+    new_job_id: newJobId,
+    receipt_id: receiptId,
+  };
 }
 
 function nextDueAt(row: DueSourceRow, nowMs: number): string {

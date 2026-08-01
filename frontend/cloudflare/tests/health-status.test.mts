@@ -126,9 +126,12 @@ test("queue and dlq fields have backward-compatible defaults", () => {
     configured: false,
     backlog: null,
     oldest_message_at: null,
+    retry_count: null,
     dlq: {
       configured: false,
       messages: null,
+      p0_messages: null,
+      non_p0_messages: null,
       oldest_message_at: null,
     },
   });
@@ -142,6 +145,50 @@ test("shadow job backlog is observable without becoming authoritative health", (
   assert.equal(health.collection?.due_backlog, 8);
   assert.equal(health.job_runtime?.mode, "shadow");
   assert.equal(health.job_runtime?.pending_outbox, 8);
+});
+
+test("P0 DLQ messages make health unhealthy while non-P0 DLQ only degrades", () => {
+  const p0Input = {
+    ...baseInput(),
+    queue: {
+      configured: true,
+      backlog: 0,
+      oldest_message_at: null,
+      retry_count: 0,
+      dlq: {
+        configured: true,
+        messages: 1,
+        p0_messages: 1,
+        non_p0_messages: 0,
+        oldest_message_at: "2026-07-31T23:59:00.000Z",
+      },
+    },
+  };
+
+  const p0Health = buildHealthResponse(p0Input);
+
+  assert.equal(p0Health.status, "unhealthy");
+  assert.equal(httpStatusForHealth(p0Health.status), 503);
+  assert.match(p0Health.reason_codes?.join(","), /p0_dlq_nonempty/);
+  assert.equal(p0Health.queue?.dlq.p0_messages, 1);
+
+  const nonP0Health = buildHealthResponse({
+    ...p0Input,
+    queue: {
+      ...p0Input.queue,
+      dlq: {
+        ...p0Input.queue.dlq,
+        p0_messages: 0,
+        non_p0_messages: 2,
+        messages: 2,
+      },
+    },
+  });
+
+  assert.equal(nonP0Health.status, "degraded");
+  assert.equal(httpStatusForHealth(nonP0Health.status), 200);
+  assert.match(nonP0Health.reason_codes?.join(","), /dlq_nonempty/);
+  assert.equal(nonP0Health.queue?.dlq.non_p0_messages, 2);
 });
 
 test("D1 query failure is unhealthy and maps to HTTP 503", () => {

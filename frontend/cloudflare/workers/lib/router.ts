@@ -19,6 +19,10 @@ export interface RuntimeMetadata {
   commit: string | null;
   runtime: string;
   worker_version: string | null;
+  queue?: {
+    jobs_configured: boolean;
+    dlq_configured: boolean;
+  };
 }
 
 type Handler = (

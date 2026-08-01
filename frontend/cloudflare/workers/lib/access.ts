@@ -2,7 +2,7 @@ import {
   type AccessJwtVerificationOptions,
   type CloudflareAccessJwtEnv,
   verifyCloudflareAccessRequest,
-} from "./access-jwt";
+} from "./access-jwt.ts";
 
 const CONTAINER_PROXY_PREFIXES = [
   "/admin/",
@@ -15,6 +15,7 @@ const CONTAINER_PROXY_PREFIXES = [
 const WORKER_WRITE_PATHS = [
   "/api/v1/events/import",
   "/api/v1/webhook",
+  "/api/v1/jobs/dlq/replay",
 ];
 
 function matchesPrefix(pathname: string, prefixes: string[]): boolean {
