@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 from urllib import request
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
 
 try:
     import tomllib
@@ -53,6 +54,12 @@ RUNTIME_SCHEMA_TABLE_QUERY = (
     "('import_staged_events','import_batch_finalize_receipts',"
     "'dlq_replay_receipts','dlq_consumption_receipts')"
 )
+REQUIRED_RUNTIME_INDEX_QUERY = (
+    "SELECT name FROM sqlite_master WHERE type='index' AND name IN "
+    "('idx_jobs_status_scheduled','idx_job_outbox_dispatch',"
+    "'idx_source_runtime_due','idx_import_staged_events_batch_chunk',"
+    "'idx_dlq_replay_receipts_original','idx_dlq_consumption_receipts_consumed')"
+)
 RUNTIME_RECEIPT_INSERT_SQL = (
     "INSERT OR IGNORE INTO runtime_migration_receipts (migration_id, details_json) "
     "VALUES ('20260801_phase0_data_quarantine', "
@@ -85,6 +92,301 @@ class GuardConfig:
     api_key: str | None = None
     api_email: str | None = None
     api_base: str = "https://api.cloudflare.com/client/v4"
+
+
+@dataclass(frozen=True)
+class UniqueRequirement:
+    table: str
+    columns: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class TableRequirement:
+    table: str
+    columns: tuple[str, ...]
+    primary_key: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ReceiptSchemaRequirement:
+    receipt_id: str
+    tables: tuple[TableRequirement, ...]
+    unique: tuple[UniqueRequirement, ...] = ()
+    indexes: tuple[str, ...] = ()
+
+
+SCHEMA_REQUIREMENTS: tuple[ReceiptSchemaRequirement, ...] = (
+    ReceiptSchemaRequirement(
+        receipt_id="20260801_phase0_data_quarantine",
+        tables=(
+            TableRequirement(
+                table="quarantined_events",
+                columns=(
+                    "quarantine_id",
+                    "target_id",
+                    "source_id",
+                    "reason_code",
+                    "payload_json",
+                    "created_at",
+                    "reviewed_at",
+                ),
+                primary_key=("quarantine_id",),
+            ),
+            TableRequirement(
+                table="runtime_migration_receipts",
+                columns=("migration_id", "applied_at", "deploy_commit", "details_json"),
+                primary_key=("migration_id",),
+            ),
+        ),
+    ),
+    ReceiptSchemaRequirement(
+        receipt_id="20260801_phase1_job_runtime",
+        tables=(
+            TableRequirement(
+                table="jobs",
+                columns=(
+                    "job_id",
+                    "idempotency_key",
+                    "replay_of_job_id",
+                    "job_type",
+                    "target_id",
+                    "source_id",
+                    "capability",
+                    "scheduled_for",
+                    "scheduled_window",
+                    "status",
+                    "attempt_count",
+                    "max_attempts",
+                    "lease_token",
+                    "lease_owner",
+                    "lease_until",
+                    "fencing_version",
+                    "input_cursor",
+                    "output_watermark",
+                    "last_error_code",
+                    "last_error_message",
+                    "created_at",
+                    "updated_at",
+                    "finished_at",
+                ),
+                primary_key=("job_id",),
+            ),
+            TableRequirement(
+                table="job_outbox",
+                columns=(
+                    "outbox_id",
+                    "job_id",
+                    "status",
+                    "dispatch_attempts",
+                    "next_dispatch_at",
+                    "dispatched_at",
+                    "created_at",
+                    "updated_at",
+                ),
+                primary_key=("outbox_id",),
+            ),
+            TableRequirement(
+                table="source_runtime_state",
+                columns=(
+                    "target_id",
+                    "source_id",
+                    "tier",
+                    "capability",
+                    "state",
+                    "next_due_at",
+                    "last_attempt_at",
+                    "last_success_at",
+                    "consecutive_failures",
+                    "rolling_success_rate",
+                    "backoff_until",
+                    "cursor",
+                    "etag",
+                    "last_modified",
+                    "quarantine_count",
+                    "config_version",
+                    "updated_at",
+                ),
+                primary_key=("target_id", "source_id"),
+            ),
+            TableRequirement(
+                table="import_batches",
+                columns=(
+                    "batch_id",
+                    "job_id",
+                    "status",
+                    "received_count",
+                    "valid_count",
+                    "quarantined_count",
+                    "imported_count",
+                    "updated_count",
+                    "checksum",
+                    "started_at",
+                    "committed_at",
+                    "error_code",
+                ),
+                primary_key=("batch_id",),
+            ),
+            TableRequirement(
+                table="import_batch_chunks",
+                columns=(
+                    "batch_id",
+                    "chunk_no",
+                    "checksum",
+                    "status",
+                    "statement_count",
+                    "payload_bytes",
+                    "committed_at",
+                ),
+                primary_key=("batch_id", "chunk_no"),
+            ),
+            TableRequirement(
+                table="runtime_migration_receipts",
+                columns=("migration_id", "applied_at", "deploy_commit", "details_json"),
+                primary_key=("migration_id",),
+            ),
+        ),
+        unique=(
+            UniqueRequirement(table="jobs", columns=("idempotency_key",)),
+            UniqueRequirement(table="job_outbox", columns=("job_id",)),
+            UniqueRequirement(table="import_batches", columns=("job_id",)),
+        ),
+        indexes=(
+            "idx_jobs_status_scheduled",
+            "idx_job_outbox_dispatch",
+            "idx_source_runtime_due",
+        ),
+    ),
+    ReceiptSchemaRequirement(
+        receipt_id="20260802_phase2_import_staging",
+        tables=(
+            TableRequirement(
+                table="import_batches",
+                columns=(
+                    "batch_id",
+                    "job_id",
+                    "status",
+                    "received_count",
+                    "valid_count",
+                    "quarantined_count",
+                    "imported_count",
+                    "updated_count",
+                    "checksum",
+                    "started_at",
+                    "committed_at",
+                    "error_code",
+                    "expected_chunks",
+                    "committed_chunks",
+                    "payload_bytes",
+                    "output_watermark",
+                    "error_message",
+                ),
+                primary_key=("batch_id",),
+            ),
+            TableRequirement(
+                table="import_batch_chunks",
+                columns=(
+                    "batch_id",
+                    "chunk_no",
+                    "checksum",
+                    "status",
+                    "statement_count",
+                    "payload_bytes",
+                    "committed_at",
+                    "error_message",
+                ),
+                primary_key=("batch_id", "chunk_no"),
+            ),
+            TableRequirement(
+                table="import_staged_events",
+                columns=(
+                    "batch_id",
+                    "chunk_no",
+                    "event_id",
+                    "target_id",
+                    "source_id",
+                    "event_fingerprint",
+                    "payload_json",
+                    "staged_at",
+                ),
+                primary_key=("batch_id", "event_id"),
+            ),
+            TableRequirement(
+                table="import_batch_finalize_receipts",
+                columns=(
+                    "batch_id",
+                    "job_id",
+                    "target_id",
+                    "source_id",
+                    "batch_checksum",
+                    "lease_token",
+                    "fencing_version",
+                    "output_watermark",
+                    "finalized_at",
+                    "batch_guard",
+                    "job_guard",
+                    "source_guard",
+                ),
+                primary_key=("batch_id",),
+            ),
+            TableRequirement(
+                table="runtime_migration_receipts",
+                columns=("migration_id", "applied_at", "deploy_commit", "details_json"),
+                primary_key=("migration_id",),
+            ),
+        ),
+        unique=(UniqueRequirement(table="import_batches", columns=("job_id",)),),
+        indexes=("idx_import_staged_events_batch_chunk",),
+    ),
+    ReceiptSchemaRequirement(
+        receipt_id="20260802_phase2_dlq_replay_receipts",
+        tables=(
+            TableRequirement(
+                table="dlq_replay_receipts",
+                columns=(
+                    "receipt_id",
+                    "original_job_id",
+                    "new_job_id",
+                    "operator_id",
+                    "reason",
+                    "requested_version",
+                    "worker_version",
+                    "deploy_commit",
+                    "created_at",
+                    "details_json",
+                ),
+                primary_key=("receipt_id",),
+            ),
+            TableRequirement(
+                table="dlq_consumption_receipts",
+                columns=(
+                    "receipt_id",
+                    "job_id",
+                    "queue_name",
+                    "message_body_json",
+                    "worker_version",
+                    "consumed_at",
+                ),
+                primary_key=("receipt_id",),
+            ),
+            TableRequirement(
+                table="runtime_migration_receipts",
+                columns=("migration_id", "applied_at", "deploy_commit", "details_json"),
+                primary_key=("migration_id",),
+            ),
+        ),
+        unique=(
+            UniqueRequirement(table="dlq_replay_receipts", columns=("new_job_id",)),
+            UniqueRequirement(
+                table="dlq_consumption_receipts",
+                columns=("job_id", "queue_name"),
+            ),
+        ),
+        indexes=(
+            "idx_dlq_replay_receipts_original",
+            "idx_dlq_consumption_receipts_consumed",
+        ),
+    ),
+)
 
 
 def _run(args: list[str]) -> str:
@@ -247,8 +549,92 @@ def _account_id(config: GuardConfig, blockers: list[str]) -> str | None:
     return None
 
 
-def _queue_api_url(config: GuardConfig, account_id: str) -> str:
-    return f"{config.api_base.rstrip('/')}/accounts/{account_id}/queues"
+def _queue_api_url(config: GuardConfig, account_id: str, page: int | None = None) -> str:
+    url = f"{config.api_base.rstrip('/')}/accounts/{account_id}/queues"
+    if page is not None:
+        return f"{url}?{urlencode({'page': page})}"
+    return url
+
+
+def _result_info_page(payload: Any) -> tuple[int, int]:
+    if not isinstance(payload, dict):
+        return (1, 1)
+    result_info = payload.get("result_info")
+    if not isinstance(result_info, dict):
+        return (1, 1)
+    page = result_info.get("page", 1)
+    total_pages = result_info.get("total_pages", 1)
+    try:
+        parsed_page = max(int(page), 1)
+        parsed_total_pages = max(int(total_pages), parsed_page)
+    except (TypeError, ValueError):
+        return (1, 1)
+    return parsed_page, parsed_total_pages
+
+
+def _list_queue_names(
+    *,
+    config: GuardConfig,
+    account_id: str,
+    headers: dict[str, str],
+    transport: HttpTransport,
+    blockers: list[str],
+) -> set[str]:
+    queues: set[str] = set()
+    page = 1
+    while True:
+        payload = _cloudflare_api_json(
+            "GET",
+            _queue_api_url(config, account_id, page),
+            headers,
+            None,
+            transport,
+            blockers,
+        )
+        queues.update(_queue_names(payload))
+        if blockers:
+            return queues
+        current_page, total_pages = _result_info_page(payload)
+        if current_page >= total_pages:
+            return queues
+        page = current_page + 1
+
+
+def _create_queue(
+    *,
+    config: GuardConfig,
+    account_id: str,
+    headers: dict[str, str],
+    queue: str,
+    transport: HttpTransport,
+    blockers: list[str],
+) -> bool:
+    payload = _cloudflare_api_json(
+        "POST",
+        _queue_api_url(config, account_id),
+        headers,
+        {"queue_name": queue},
+        transport,
+        blockers,
+    )
+    if not isinstance(payload, dict) or payload.get("success") is not True:
+        blockers.append(f"queue_create_failed:{queue}")
+        return False
+    result = payload.get("result")
+    if not isinstance(result, dict) or result.get("queue_name") != queue:
+        blockers.append(f"queue_create_response_mismatch:{queue}")
+        return False
+    revalidated = _list_queue_names(
+        config=config,
+        account_id=account_id,
+        headers=headers,
+        transport=transport,
+        blockers=blockers,
+    )
+    if queue not in revalidated:
+        blockers.append(f"queue_revalidation_missing:{queue}")
+        return False
+    return True
 
 
 def _cloudflare_api_json(
@@ -284,6 +670,96 @@ def _schema_column_names(schema_json: Any) -> set[str]:
     }
 
 
+def _table_info_rows(schema_json: Any) -> list[dict[str, Any]]:
+    return _rows_from_wrapped_json(schema_json)
+
+
+def _primary_key_columns(schema_json: Any) -> tuple[str, ...]:
+    rows: list[tuple[int, str]] = []
+    for row in _table_info_rows(schema_json):
+        name = row.get("name")
+        if not isinstance(name, str):
+            continue
+        rows.append((int(row.get("pk", 0)), name))
+    return tuple(name for _pk, name in sorted((pk, name) for pk, name in rows if pk > 0))
+
+
+def _query_json(
+    *,
+    config: GuardConfig,
+    runner: Runner,
+    blockers: list[str],
+    commands: list[list[str]],
+    sql: str,
+) -> Any:
+    cmd = [
+        config.wrangler,
+        "d1",
+        "execute",
+        config.database,
+        "--remote",
+        "--command",
+        sql,
+        "--json",
+    ]
+    commands.append(cmd)
+    return _safe_command_json(cmd, runner, blockers)
+
+
+def _unique_index_columns(
+    *,
+    config: GuardConfig,
+    runner: Runner,
+    blockers: list[str],
+    commands: list[list[str]],
+    table: str,
+    cache: dict[str, set[tuple[str, ...]]],
+) -> set[tuple[str, ...]]:
+    if table in cache:
+        return cache[table]
+    index_list = _query_json(
+        config=config,
+        runner=runner,
+        blockers=blockers,
+        commands=commands,
+        sql=f"PRAGMA index_list({table})",
+    )
+    columns_by_index: set[tuple[str, ...]] = set()
+    for row in _rows_from_wrapped_json(index_list):
+        if row.get("unique") not in {1, "1"}:
+            continue
+        index_name = row.get("name")
+        if not isinstance(index_name, str):
+            continue
+        index_info = _query_json(
+            config=config,
+            runner=runner,
+            blockers=blockers,
+            commands=commands,
+            sql=f"PRAGMA index_info({index_name})",
+        )
+        columns = tuple(
+            row["name"]
+            for row in _rows_from_wrapped_json(index_info)
+            if isinstance(row.get("name"), str)
+        )
+        if columns:
+            columns_by_index.add(columns)
+    cache[table] = columns_by_index
+    return columns_by_index
+
+
+def _add_schema_blocker(
+    blockers: list[str],
+    *,
+    code: str,
+    receipt_id: str,
+    detail: str,
+) -> None:
+    blockers.append(f"{code}:{receipt_id}:{detail}")
+    blockers.append(f"{code}:{detail}")
+
+
 def _verify_runtime_schema(
     *,
     config: GuardConfig,
@@ -291,51 +767,97 @@ def _verify_runtime_schema(
     blockers: list[str],
     commands: list[list[str]],
 ) -> None:
-    pragma_targets = {
-        "quarantined_events": {"quarantine_id"},
-        "import_batches": {
-            "expected_chunks",
-            "committed_chunks",
-            "payload_bytes",
-            "output_watermark",
-        },
+    requirements = {
+        requirement.receipt_id: requirement
+        for requirement in SCHEMA_REQUIREMENTS
+        if requirement.receipt_id in config.expected_migration_receipts
     }
-    for table, expected_columns in pragma_targets.items():
-        cmd = [
-            config.wrangler,
-            "d1",
-            "execute",
-            config.database,
-            "--remote",
-            "--command",
-            f"PRAGMA table_info({table})",
-            "--json",
-        ]
-        commands.append(cmd)
-        columns = _schema_column_names(_safe_command_json(cmd, runner, blockers))
-        for column in sorted(expected_columns - columns):
-            blockers.append(f"schema_column_missing:{table}.{column}")
+    table_cache: dict[str, Any] = {}
+    unique_cache: dict[str, set[tuple[str, ...]]] = {}
+    for requirement in requirements.values():
+        for table_requirement in requirement.tables:
+            table_json = table_cache.get(table_requirement.table)
+            if table_json is None:
+                table_json = _query_json(
+                    config=config,
+                    runner=runner,
+                    blockers=blockers,
+                    commands=commands,
+                    sql=f"PRAGMA table_info({table_requirement.table})",
+                )
+                table_cache[table_requirement.table] = table_json
+            columns = _schema_column_names(table_json)
+            if not columns:
+                _add_schema_blocker(
+                    blockers,
+                    code="schema_table_missing",
+                    receipt_id=requirement.receipt_id,
+                    detail=table_requirement.table,
+                )
+            for column in sorted(set(table_requirement.columns) - columns):
+                _add_schema_blocker(
+                    blockers,
+                    code="schema_column_missing",
+                    receipt_id=requirement.receipt_id,
+                    detail=f"{table_requirement.table}.{column}",
+                )
+            if not columns:
+                continue
+            if table_requirement.primary_key:
+                actual_pk = _primary_key_columns(table_json)
+                if actual_pk != table_requirement.primary_key:
+                    _add_schema_blocker(
+                        blockers,
+                        code="schema_primary_key_missing",
+                        receipt_id=requirement.receipt_id,
+                        detail=(
+                            f"{table_requirement.table}"
+                            f"({','.join(table_requirement.primary_key)})"
+                        ),
+                    )
 
-    required_tables = {
-        "import_staged_events",
-        "import_batch_finalize_receipts",
-        "dlq_replay_receipts",
-        "dlq_consumption_receipts",
+        for unique_requirement in requirement.unique:
+            unique_columns = _unique_index_columns(
+                config=config,
+                runner=runner,
+                blockers=blockers,
+                commands=commands,
+                table=unique_requirement.table,
+                cache=unique_cache,
+            )
+            if unique_requirement.columns not in unique_columns:
+                _add_schema_blocker(
+                    blockers,
+                    code="schema_unique_missing",
+                    receipt_id=requirement.receipt_id,
+                    detail=(
+                        f"{unique_requirement.table}"
+                        f"({','.join(unique_requirement.columns)})"
+                    ),
+                )
+
+    expected_indexes = {
+        index
+        for requirement in requirements.values()
+        for index in requirement.indexes
     }
-    table_cmd = [
-        config.wrangler,
-        "d1",
-        "execute",
-        config.database,
-        "--remote",
-        "--command",
-        RUNTIME_SCHEMA_TABLE_QUERY,
-        "--json",
-    ]
-    commands.append(table_cmd)
-    tables = _schema_column_names(_safe_command_json(table_cmd, runner, blockers))
-    for table in sorted(required_tables - tables):
-        blockers.append(f"schema_table_missing:{table}")
+    if expected_indexes:
+        index_json = _query_json(
+            config=config,
+            runner=runner,
+            blockers=blockers,
+            commands=commands,
+            sql=REQUIRED_RUNTIME_INDEX_QUERY,
+        )
+        actual_indexes = _schema_column_names(index_json)
+        for requirement in requirements.values():
+            for index in sorted(set(requirement.indexes) - actual_indexes):
+                _add_schema_blocker(
+                    blockers,
+                    code="schema_index_missing",
+                    receipt_id=requirement.receipt_id,
+                    detail=index,
+                )
 
 
 def run_preflight(
@@ -350,24 +872,26 @@ def run_preflight(
     headers = _auth_headers(config, blockers)
     queues: set[str] = set()
     if account_id and headers:
-        queue_url = _queue_api_url(config, account_id)
-        queue_payload = _cloudflare_api_json("GET", queue_url, headers, None, transport, blockers)
-        queues = _queue_names(queue_payload)
-    else:
-        queue_url = ""
+        queues = _list_queue_names(
+            config=config,
+            account_id=account_id,
+            headers=headers,
+            transport=transport,
+            blockers=blockers,
+        )
     for queue in (config.queue_name, config.dlq_name):
         if queue in queues:
             continue
-        if config.apply:
-            _cloudflare_api_json(
-                "POST",
-                queue_url,
-                headers,
-                {"queue_name": queue},
-                transport,
-                blockers,
-            )
-            queues.add(queue)
+        if config.apply and account_id and headers:
+            if _create_queue(
+                config=config,
+                account_id=account_id,
+                headers=headers,
+                queue=queue,
+                transport=transport,
+                blockers=blockers,
+            ):
+                queues.add(queue)
         else:
             blockers.append(f"missing_queue:{queue}")
 

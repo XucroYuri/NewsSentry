@@ -591,8 +591,11 @@ def test_cloudflare_worker_deploy_paths_use_top_level_env_for_queue_bindings() -
     combined = "\n".join([json.dumps(package_json["scripts"], sort_keys=True), deploy_yml])
 
     assert package_json["scripts"]["deploy:prod"] == 'wrangler deploy --env=""'
-    assert 'npx wrangler deploy --env="" --containers-rollout gradual' in deploy_yml
-    assert 'npx wrangler deploy --env="" --dry-run' in deploy_yml
+    assert (
+        'node_modules/.bin/wrangler deploy --env="" --containers-rollout gradual'
+        in deploy_yml
+    )
+    assert 'node_modules/.bin/wrangler deploy --env="" --dry-run' in deploy_yml
     assert "wrangler deploy --env production" not in combined
     assert "wrangler deploy --env=production" not in combined
     assert "wrangler deploy --env dev" not in combined
