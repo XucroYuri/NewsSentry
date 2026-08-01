@@ -808,6 +808,156 @@ def test_preflight_uses_paginated_queue_rest_truth() -> None:
     assert ("GET", _queue_page_url(page=2), None) in transport.calls
 
 
+def _queue_ok_runner() -> FakeRunner:
+    return FakeRunner(
+        {
+            (
+                "wrangler",
+                "queues",
+                "consumer",
+                "worker",
+                "list",
+                "news-sentry-jobs",
+                "--json",
+            ): _json(
+                [
+                    {
+                        "service": "news-sentry-api",
+                        "settings": {
+                            "max_batch_size": 5,
+                            "max_batch_timeout": 5,
+                            "max_retries": 3,
+                            "max_concurrency": 1,
+                        },
+                    }
+                ]
+            ),
+            (
+                "wrangler",
+                "d1",
+                "execute",
+                "ns-db",
+                "--remote",
+                "--command",
+                "SELECT migration_id FROM runtime_migration_receipts ORDER BY migration_id",
+                "--json",
+            ): _runtime_receipts(
+                [{"migration_id": receipt} for receipt in EXPECTED_RUNTIME_RECEIPTS]
+            ),
+            **_schema_ok_responses(),
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_blocker"),
+    [
+        (
+            {
+                "success": True,
+                "result": [
+                    {"queue_name": "news-sentry-jobs"},
+                    {"queue_name": "news-sentry-jobs-dlq"},
+                ],
+            },
+            "queue_list_pagination_missing",
+        ),
+        (
+            {
+                "success": True,
+                "result": [
+                    {"queue_name": "news-sentry-jobs"},
+                    {"queue_name": "news-sentry-jobs-dlq"},
+                ],
+                "result_info": "page-one",
+            },
+            "queue_list_pagination_invalid",
+        ),
+        (
+            {
+                "success": True,
+                "result": [
+                    {"queue_name": "news-sentry-jobs"},
+                    {"queue_name": "news-sentry-jobs-dlq"},
+                ],
+                "result_info": {"page": "x", "total_pages": 1},
+            },
+            "queue_list_pagination_invalid",
+        ),
+        (
+            {
+                "success": True,
+                "result": [
+                    {"queue_name": "news-sentry-jobs"},
+                    {"queue_name": "news-sentry-jobs-dlq"},
+                ],
+                "result_info": {"page": 0, "total_pages": 1},
+            },
+            "queue_list_pagination_invalid",
+        ),
+        (
+            {
+                "success": True,
+                "result": [
+                    {"queue_name": "news-sentry-jobs"},
+                    {"queue_name": "news-sentry-jobs-dlq"},
+                ],
+                "result_info": {"page": 2, "total_pages": 2},
+            },
+            "queue_list_pagination_page_mismatch:expected=1:actual=2",
+        ),
+    ],
+)
+def test_preflight_blocks_malformed_queue_list_pagination(
+    payload: object,
+    expected_blocker: str,
+) -> None:
+    transport = FakeTransport({("GET", _queue_page_url(page=1)): (200, payload)})
+
+    receipt = run_preflight(
+        GuardConfig(account_id="acct-1", api_token="token-1"),  # noqa: S106
+        runner=_queue_ok_runner(),
+        transport=transport,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert expected_blocker in receipt["blockers"]
+    assert receipt["queues"] == []
+
+
+def test_preflight_blocks_queue_list_total_pages_drift() -> None:
+    transport = FakeTransport(
+        {
+            ("GET", _queue_page_url(page=1)): (
+                200,
+                {
+                    "success": True,
+                    "result": [{"queue_name": "news-sentry-jobs"}],
+                    "result_info": {"page": 1, "total_pages": 2},
+                },
+            ),
+            ("GET", _queue_page_url(page=2)): (
+                200,
+                {
+                    "success": True,
+                    "result": [{"queue_name": "news-sentry-jobs-dlq"}],
+                    "result_info": {"page": 2, "total_pages": 3},
+                },
+            ),
+        }
+    )
+
+    receipt = run_preflight(
+        GuardConfig(account_id="acct-1", api_token="token-1"),  # noqa: S106
+        runner=_queue_ok_runner(),
+        transport=transport,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert "queue_list_pagination_total_pages_drift:expected=2:actual=3" in receipt["blockers"]
+    assert receipt["queues"] == []
+
+
 def test_preflight_apply_blocks_wrong_create_response_without_local_queue_truth() -> None:
     runner = FakeRunner({**_schema_ok_responses()})
     transport = FakeTransport(

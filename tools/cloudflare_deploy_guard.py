@@ -556,19 +556,43 @@ def _queue_api_url(config: GuardConfig, account_id: str, page: int | None = None
     return url
 
 
-def _result_info_page(payload: Any) -> tuple[int, int]:
+def _parse_positive_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 1 else None
+    if isinstance(value, str) and value.isdecimal():
+        parsed = int(value)
+        return parsed if parsed >= 1 else None
+    return None
+
+
+def _result_info_page(
+    payload: Any,
+    *,
+    requested_page: int,
+    blockers: list[str],
+) -> tuple[int, int] | None:
     if not isinstance(payload, dict):
-        return (1, 1)
+        blockers.append("queue_list_pagination_invalid")
+        return None
     result_info = payload.get("result_info")
+    if result_info is None:
+        blockers.append("queue_list_pagination_missing")
+        return None
     if not isinstance(result_info, dict):
-        return (1, 1)
-    page = result_info.get("page", 1)
-    total_pages = result_info.get("total_pages", 1)
-    try:
-        parsed_page = max(int(page), 1)
-        parsed_total_pages = max(int(total_pages), parsed_page)
-    except (TypeError, ValueError):
-        return (1, 1)
+        blockers.append("queue_list_pagination_invalid")
+        return None
+    parsed_page = _parse_positive_int(result_info.get("page"))
+    parsed_total_pages = _parse_positive_int(result_info.get("total_pages"))
+    if parsed_page is None or parsed_total_pages is None or parsed_page > parsed_total_pages:
+        blockers.append("queue_list_pagination_invalid")
+        return None
+    if parsed_page != requested_page:
+        blockers.append(
+            f"queue_list_pagination_page_mismatch:expected={requested_page}:actual={parsed_page}"
+        )
+        return None
     return parsed_page, parsed_total_pages
 
 
@@ -582,6 +606,7 @@ def _list_queue_names(
 ) -> set[str]:
     queues: set[str] = set()
     page = 1
+    expected_total_pages: int | None = None
     while True:
         payload = _cloudflare_api_json(
             "GET",
@@ -591,10 +616,21 @@ def _list_queue_names(
             transport,
             blockers,
         )
-        queues.update(_queue_names(payload))
         if blockers:
-            return queues
-        current_page, total_pages = _result_info_page(payload)
+            return set()
+        page_info = _result_info_page(payload, requested_page=page, blockers=blockers)
+        if page_info is None:
+            return set()
+        current_page, total_pages = page_info
+        if expected_total_pages is None:
+            expected_total_pages = total_pages
+        elif total_pages != expected_total_pages:
+            blockers.append(
+                "queue_list_pagination_total_pages_drift:"
+                f"expected={expected_total_pages}:actual={total_pages}"
+            )
+            return set()
+        queues.update(_queue_names(payload))
         if current_page >= total_pages:
             return queues
         page = current_page + 1
