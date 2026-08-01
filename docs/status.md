@@ -1,6 +1,6 @@
 # News Sentry 当前状态
 
-> 更新时间：2026-08-02T04:41:43+08:00
+> 更新时间：2026-08-02T07:03:52+08:00
 > 状态口径：本文件只记录会变化的运行态事实；架构和字段契约仍以 `docs/architecture.md` 与 `docs/contracts-canonical.md` 为准。
 > 完整证据：[2026-08-01 项目健康、安全与低成本全球化审计](./audits/2026-08-01-project-health-security-cost-audit.md)
 
@@ -8,7 +8,7 @@
 
 当前综合健康分为 **58/100**：公开网站和 API 可服务，工程测试基线较强，但持续采集、数据新鲜度、评分一致性、远端状态证明和若干安全边界尚未达到可持续生产运营标准。
 
-2026-08-02 本地 Phase 2 Task 4 已进入修复闭环：新增 Cloudflare Queue/DLQ/consumer/D1 migration preflight、部署 receipt 生成器、显式 `SCHEDULER_MODE=shadow` 与 `WORKER_NATIVE_COLLECT_ENABLED=false`、Worker runtime config fail-closed、非 ASCII quarantine payload UTF-8 byte 边界测试，以及 D1 additive migration partial-apply runbook。随后补齐独立 `news-sentry-api-preview + ns-db-preview` 验证面、真实 Wrangler 结构化回执、Preview Pages 到 Preview API 的构建绑定证明、陈旧/未来时间戳 fail-closed 质量门禁，并把 Wrangler 固定到 `4.114.0`；官方 npm audit 为 0。此更新尚未部署到远端，也没有 72 小时 canary 或 7 天 SLO 证据，因此综合分不提升。
+2026-08-02 Phase 2 Task 4 与隔离 Preview 已完成一次远端闭环：GitHub run `30721353606` 在 commit `4f90cda26fe05c61b2ea46605d2d5e3f6e0208da` 上成功创建/更新 `news-sentry-api-preview`、`ns-db-preview` 与 Preview Pages，并实际执行 Preview 验证。`live`、`ready`、`health` 均返回 `200/ok`，响应正文与 `x-news-sentry-deploy-commit` 对齐同一 commit；D1 schema/seed、Pages 到 Preview API 的构建绑定、精确 CORS、CSP 和快照命中均有 artifact 回执。候选分支同时加入每 6 小时运行的无密钥公开面健康探针，将 Pages、Worker、D1 数据新鲜度和部署 commit 分开验证并保留 14 天 JSON 回执。生产仍未更新，也没有 72 小时 canary 或 7 天 SLO 证据，因此综合分仍为 **58/100**。
 
 最重要的事实不是“网站是否返回 200”，而是：
 
@@ -18,13 +18,14 @@
 - 公开数据中存在一条发布时间为 `2028-01-01` 的未来记录，会污染“最新公开时间”和新鲜度判断。
 - 评分契约完整，但生产样本存在高分饱和、Breaking 字段缺失、分值与标签不一致。
 - 本地 Worker 已实现 Cloudflare Access JWT 的签名、issuer、audience、exp、nbf 与 JWKS 域名验证；生产仍是旧 commit，当前线上伪造 header 探测为 403，但新控制尚未取得远端部署回执。
+- 隔离 Preview 已证明新 Worker/D1/Pages 公开链路可用，但该证明不等于生产恢复，也不覆盖 Queue、Cron、Container 或 Durable Object。
 
 ## 基线
 
 | 项目 | 当前证据 |
 |---|---|
 | 生产已验证分支 | `main@83efaaa74d6c4c1ba0e4a944e7fd1ceb29cd8299` |
-| 本地整改分支 | `dev-xu/fix/cloudflare-persistent-runtime@19370c84`，另有本轮已验证未提交修复 |
+| 整改候选 | `dev-xu/fix/cloudflare-persistent-runtime`，Draft PR [#50](https://github.com/XucroYuri/NewsSentry/pull/50) 当前 `CLEAN`，最近三项 CI 均成功 |
 | Release 距离 | `v2.0.0-rc3-198-g83efaaa`，HEAD 不是已打 tag 的 release |
 | Targets | 配置 82；生产 regions 端点返回 82 |
 | Sources | 1,128 个 YAML 文件、1,127 个 `source_id`；远端审计展开为 1,803 条 target-source 引用 |
@@ -34,22 +35,22 @@
 | Admin frontend | 68 tests、typecheck、build 全部通过 |
 | SEO/GEO | 线上 22/22 通过 |
 | 生产 Deploy | 最新 main run `28563362256` 成功，时间 2026-07-02 |
-| Preview | 与 main 已分叉；最新 preview Deploy `27973208699` 失败 |
-| 未合并工作 | Draft PR #49 仍开放；本地有用户已有未跟踪 latent-value 文件，本次未改动 |
+| Preview | 隔离 run `30721353606` 成功；Worker version `03f7a5ec-6441-45cb-bb37-9a95c889de37`；Pages immutable URL `https://9048b7fc.news-sentry.pages.dev` |
+| 未合并工作 | Draft PR #50 仍未审批/合并；本地有用户已有未跟踪 latent-value 文件，本次未改动 |
 
 ## 本地改造进度（尚未代表生产）
 
 | 项目 | 本地状态 | 远端状态 |
 |---|---|---|
-| Phase 0/1 持久运行基线 | 已提交到 `dev-xu/fix/cloudflare-persistent-runtime` | 未证明生产部署 |
-| Phase 2 Queue shadow 与 DLQ replay | 已提交，含 scoped review/fix 记录 | 未证明生产部署 |
-| Phase 2 Task 4 preview-safe preflight/receipt | 本地实现完成；验证见 Task4 report | 未执行远端 create/apply/upload/deploy |
-| 隔离 Preview Worker/D1 | 本地 config、guard、seed、receipt、Pages/API 绑定和 dry-run 已通过 | `news-sentry-api-preview` / `ns-db-preview` 尚未由 workflow 创建或验证 |
-| 发布治理 | 手动 `workflow_dispatch preview` 可从候选分支创建隔离 Preview；production 只接受 `main`；workflow 不再直接 push/fast-forward `main` | GitHub `main` 与 `preview` 当前均未启用 branch protection，候选分支尚未推送 |
-| 供应链 | Wrangler `4.114.0`、Miniflare `4.20260722.0`、Sharp `0.35.2`；官方 npm audit 0 | 尚未经过远端 CI |
-| 健康质量门禁 | 缺失、畸形、陈旧或未来 `latest_collected_at` 以及未来 `latest_public_at` 均拒绝 | 生产仍由旧门禁和旧 Worker 提供 false-green 200 |
-| 安全深扫 | workspace 已建但 scan setup 仍未提交 | 未启动，无 scanId |
-| 72h canary / 7d SLO | 未开始 | 未开始 |
+| Phase 0/1 持久运行基线 | 已提交到 `dev-xu/fix/cloudflare-persistent-runtime` | 隔离 Preview 已证明，生产未部署 |
+| Phase 2 Queue shadow 与 DLQ replay | 已提交，含 scoped review/fix 记录 | Preview 公开面不证明 Queue/Cron/Container |
+| Phase 2 Task 4 preview-safe preflight/receipt | 实现与测试完成 | run `30721353606` 的 preflight、D1 schema/seed、Worker/Pages deploy 与 verify 全部成功 |
+| 隔离 Preview Worker/D1 | config、guard、seed、receipt、Pages/API 绑定和质量门禁均完成 | `news-sentry-api-preview`、`ns-db-preview`、Preview Pages 已创建并验证 |
+| 发布治理 | `preview` 可从候选分支部署隔离面；`production` 只接受 `main`；workflow 不直接改写 `main` | Draft PR #50 `CLEAN`，但仍无审批/合并；生产 job 在 Preview run 中明确跳过 |
+| 供应链 | Wrangler `4.114.0`、Miniflare `4.20260722.0`、Sharp `0.35.2`；官方 npm audit 0 | GitHub CI 与 Preview 部署均通过 |
+| 健康质量门禁 | 缺失、畸形、陈旧或未来时间戳均拒绝；新增公开面运行探针和 JSON 回执 | Preview 门禁已证明；生产探针会拒绝当前 false-green 状态 |
+| 安全深扫 | workspace 已建，但原生扫描仍停在 `Preparing scan` | 未启动，无 scanId；不得把 UI 停留视为扫描进度 |
+| 72h canary / 7d SLO | 每 6 小时探针 workflow 已纳入候选分支，回执保留 14 天 | 尚未开始积累；需合并后由 schedule 产生持续证据 |
 
 ## 综合评分
 
@@ -72,18 +73,18 @@
 
 1. 恢复采集并让 health 在采集超过阈值时返回 degraded，而不是继续 `status=ok`。
 2. 隔离未来时间戳，修复 `latest_public_at=2028-01-01` 对新鲜度的污染。
-3. 将本地 Access JWT 验证通过 Preview/生产回执落地，并保留线上“伪造 email header 仍 403”回归探测。
+3. 将已通过隔离 Preview 的 Access JWT 与部署回执推进到经审批的生产发布，并保留线上“伪造 email header 仍 403”回归探测。
 4. 给 Breaking 数据增加 `score/version/label/confidence/dimensions` 完整性门禁和历史回填。
 5. 取得正确 NewsSentry Cloudflare 账户的只读状态与费用回执；当前本机可见的 Cloudflare zone 不是本项目 zone。
 
 ## 当前阻塞与边界
 
-- 本机 Wrangler token 仍不可用于 NewsSentry 生产写入；本轮不执行远端 Queue create、D1 apply、Worker upload 或部署。
+- GitHub 环境凭据已能安全写入隔离 Preview；本机 Wrangler token 仍不作为 NewsSentry 生产写入凭据，生产发布尚未执行。
 - `wrangler types`、`wrangler deploy --dry-run`、本地测试和 workflow 文本检查只算本地门禁，不算生产恢复。
 - Preview 只证明公开 API、D1、健康端点和 Pages/API 构建绑定；不证明 Queue、Cron、Container、Durable Object 或生产数据面。
 - Python app 当前同时注册 Bearer 管理 webhook 与 HMAC webhook 的同路径路由；实际路由顺序优先 Bearer 版本。HMAC fail-closed 修复只算防御性修补，必须在契约统一后才能声称外部 webhook 已切换。
 - `origin/preview` 与 `main` 已长期分叉，不作为本轮候选的合并基线。本轮先推送候选分支，通过手动隔离 Preview 取得回执，再以 PR 合入 `main`；禁止 workflow 自动改写 `main`。
-- 下一次真实部署必须先产出 `/tmp/news-sentry-cloudflare-preflight.json` 与 `/tmp/news-sentry-cloudflare-deploy-receipt.json`，并把 version/deployment/D1/Queue/health receipt 对齐到同一 commit。
+- 下一次生产部署必须先产出 `/tmp/news-sentry-cloudflare-preflight.json` 与 `/tmp/news-sentry-cloudflare-deploy-receipt.json`，并把 version/deployment/D1/Queue/health receipt 对齐到同一 commit；隔离 Preview 的同类回执已由 run `30721353606` 证明。
 
 ## 状态更新规则
 

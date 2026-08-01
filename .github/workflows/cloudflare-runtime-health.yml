@@ -1,0 +1,143 @@
+name: Cloudflare Runtime Health
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Runtime environment to probe"
+        required: true
+        default: "production"
+        type: choice
+        options: ["production", "preview"]
+      public_base_url:
+        description: "Override Pages/public origin; required for preview"
+        required: false
+        default: ""
+      api_base_url:
+        description: "Override Worker API origin"
+        required: false
+        default: ""
+      expected_commit:
+        description: "Expected deployed commit; required for preview"
+        required: false
+        default: ""
+      max_data_age_hours:
+        description: "Fail when valid collection data is older than this"
+        required: true
+        default: "2"
+  schedule:
+    # Four short probes per day are enough for 72h/7d evidence without
+    # introducing another always-on service or material artifact cost.
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: news-sentry-runtime-health-${{ github.event.inputs.environment || 'production' }}
+  cancel-in-progress: false
+
+jobs:
+  runtime-health:
+    name: Cloudflare runtime health
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Resolve probe target
+        id: target
+        shell: bash
+        env:
+          INPUT_ENVIRONMENT: ${{ github.event.inputs.environment || '' }}
+          INPUT_PUBLIC_BASE_URL: ${{ github.event.inputs.public_base_url || '' }}
+          INPUT_API_BASE_URL: ${{ github.event.inputs.api_base_url || '' }}
+          INPUT_EXPECTED_COMMIT: ${{ github.event.inputs.expected_commit || '' }}
+          INPUT_MAX_DATA_AGE_HOURS: ${{ github.event.inputs.max_data_age_hours || '' }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "schedule" ]; then
+            environment="production"
+            public_base_url="https://news-sentry.com"
+            api_base_url="https://api.news-sentry.com"
+            expected_commit="${GITHUB_SHA}"
+            max_data_age_hours="2"
+          else
+            environment="${INPUT_ENVIRONMENT:-production}"
+            max_data_age_hours="${INPUT_MAX_DATA_AGE_HOURS:-2}"
+            case "${environment}" in
+              production)
+                public_base_url="${INPUT_PUBLIC_BASE_URL:-https://news-sentry.com}"
+                api_base_url="${INPUT_API_BASE_URL:-https://api.news-sentry.com}"
+                expected_commit="${INPUT_EXPECTED_COMMIT:-${GITHUB_SHA}}"
+                ;;
+              preview)
+                public_base_url="${INPUT_PUBLIC_BASE_URL}"
+                api_base_url="${INPUT_API_BASE_URL:-https://news-sentry-api-preview.xuyu.workers.dev}"
+                expected_commit="${INPUT_EXPECTED_COMMIT}"
+                : "${public_base_url:?Preview public_base_url is required.}"
+                : "${expected_commit:?Preview expected_commit is required.}"
+                ;;
+              *)
+                echo "Unsupported environment: ${environment}" >&2
+                exit 1
+                ;;
+            esac
+          fi
+          reject_multiline() {
+            local label="$1"
+            local value="$2"
+            case "${value}" in
+              *$'\n'*|*$'\r'*)
+                echo "Invalid ${label}: newlines are not allowed." >&2
+                exit 1
+                ;;
+            esac
+          }
+          reject_multiline "environment" "${environment}"
+          reject_multiline "public_base_url" "${public_base_url}"
+          reject_multiline "api_base_url" "${api_base_url}"
+          reject_multiline "expected_commit" "${expected_commit}"
+          reject_multiline "max_data_age_hours" "${max_data_age_hours}"
+          if [[ ! "${expected_commit}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "Invalid expected_commit: expected a 40-character Git commit SHA." >&2
+            exit 1
+          fi
+          printf '%s=%s\n' "environment" "${environment}" >> "${GITHUB_OUTPUT}"
+          printf '%s=%s\n' "public_base_url" "${public_base_url}" >> "${GITHUB_OUTPUT}"
+          printf '%s=%s\n' "api_base_url" "${api_base_url}" >> "${GITHUB_OUTPUT}"
+          printf '%s=%s\n' "expected_commit" "${expected_commit}" >> "${GITHUB_OUTPUT}"
+          printf '%s=%s\n' "max_data_age_hours" "${max_data_age_hours}" >> "${GITHUB_OUTPUT}"
+
+      - name: Probe split Cloudflare runtime
+        env:
+          ENVIRONMENT: ${{ steps.target.outputs.environment }}
+          PUBLIC_BASE_URL: ${{ steps.target.outputs.public_base_url }}
+          API_BASE_URL: ${{ steps.target.outputs.api_base_url }}
+          EXPECTED_COMMIT: ${{ steps.target.outputs.expected_commit }}
+          MAX_DATA_AGE_HOURS: ${{ steps.target.outputs.max_data_age_hours }}
+        run: |
+          set -euo pipefail
+          python tools/cloudflare_runtime_probe.py \
+            --environment "${ENVIRONMENT}" \
+            --public-base-url "${PUBLIC_BASE_URL}" \
+            --api-base-url "${API_BASE_URL}" \
+            --expected-commit "${EXPECTED_COMMIT}" \
+            --max-data-age-hours "${MAX_DATA_AGE_HOURS}" \
+            --max-future-skew-minutes 5 \
+            --timeout-seconds 30 \
+            --output /tmp/news-sentry-cloudflare-runtime-receipt.json
+
+      - name: Upload runtime receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-runtime-receipt-${{ github.run_id }}
+          path: /tmp/news-sentry-cloudflare-runtime-receipt.json
+          if-no-files-found: error
+          retention-days: 14
