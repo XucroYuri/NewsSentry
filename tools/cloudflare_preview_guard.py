@@ -183,8 +183,7 @@ def build_preview_seed_sql(*, now_iso: str, deploy_commit: str, run_id: str) -> 
         f"{_sql_text(now_iso)}, 1, LENGTH({_json_text(payload)}), {_sql_text(now_iso)});"
         for key, payload in snapshots.items()
     )
-    return f"""  # noqa: S608 - generated seed SQL uses escaped literals.
-INSERT OR REPLACE INTO targets
+    return f"""INSERT OR REPLACE INTO targets
   (target_id, display_name, region_id, primary_language, region_type, source_count,
    event_count, cloudflare_collect_enabled, timezone)
 VALUES ('preview', 'Preview', 'preview', 'en', 'preview', 1, 1, 0, 'UTC');
@@ -215,10 +214,11 @@ VALUES
 
 INSERT OR REPLACE INTO source_runtime_state
   (target_id, source_id, tier, capability, state, next_due_at, last_attempt_at,
-   last_success_at, consecutive_failures, payload_bytes, committed_at)
+   last_success_at, consecutive_failures, config_version, updated_at)
 VALUES
   ('preview', 'preview-seed', 'P2', 'preview-seed', 'active', {_sql_text(now_iso)},
-   {_sql_text(now_iso)}, {_sql_text(now_iso)}, 0, 0, {_sql_text(now_iso)});
+   {_sql_text(now_iso)}, {_sql_text(now_iso)}, 0, {_sql_text(deploy_commit)},
+   {_sql_text(now_iso)});
 
 INSERT OR REPLACE INTO ops_state (key, value, updated_at)
 VALUES

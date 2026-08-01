@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
 
 from tools import cloudflare_preview_guard as guard
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_select_preview_d1_requires_exact_unique_database() -> None:
@@ -73,13 +76,17 @@ database_id = "00000000-0000-4000-8000-000000000000"
         guard.render_preview_config(source, output, database_id="x")
 
 
-def test_build_preview_seed_sql_contains_fresh_event_ops_and_snapshots() -> None:
+def test_build_preview_seed_sql_contains_fresh_event_ops_and_snapshots(
+    tmp_path: Path,
+) -> None:
     sql = guard.build_preview_seed_sql(
         now_iso="2026-08-02T00:00:00Z",
         deploy_commit="abc123",
         run_id="run-7",
     )
 
+    assert not sql.lstrip().startswith("#")
+    assert sql.startswith("INSERT OR REPLACE INTO targets")
     assert "preview-smoke-run-7" in sql
     assert "INSERT OR REPLACE INTO events" in sql
     assert "INSERT OR REPLACE INTO ops_state" in sql
@@ -92,6 +99,21 @@ def test_build_preview_seed_sql_contains_fresh_event_ops_and_snapshots() -> None
     assert "facets:v1" in sql
     assert "regions:active:v1" in sql
     assert "abc123" in sql
+
+    connection = sqlite3.connect(tmp_path / "preview.db")
+    try:
+        connection.executescript(
+            (ROOT / "frontend/cloudflare/db/schema.sql").read_text(encoding="utf-8")
+        )
+        connection.executescript(sql)
+        row = connection.execute(
+            "SELECT target_id, config_version FROM source_runtime_state "
+            "WHERE source_id = 'preview-seed'"
+        ).fetchone()
+    finally:
+        connection.close()
+
+    assert row == ("preview", "abc123")
 
 
 def test_parse_preview_deploy_receipt_validates_worker_env_and_https_target(tmp_path: Path) -> None:
