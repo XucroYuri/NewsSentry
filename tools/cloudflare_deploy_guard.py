@@ -1035,7 +1035,7 @@ def _deployment_version_id(deployment_json: dict[str, Any]) -> str | None:
                 continue
             version_id = version.get("version_id") or version.get("id")
             percentage = version.get("percentage")
-            if isinstance(version_id, str) and (percentage in {None, 100, 100.0}):
+            if isinstance(version_id, str) and (percentage in {None, 100}):
                 return version_id
     return None
 
