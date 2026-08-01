@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -12,7 +13,7 @@ from typing import Any, cast
 
 ROOT = Path(__file__).resolve().parents[2]
 PROBE = ROOT / "tools/cloudflare_runtime_probe.py"
-PYTHON = ROOT / ".venv/bin/python"
+PYTHON = Path(sys.executable)
 COMMIT = "a" * 40
 WORKER_VERSION = "worker-version-1"
 
