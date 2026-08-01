@@ -106,7 +106,7 @@ jobs:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler deploy --env="" --dry-run --outdir /tmp/ns-worker-dry-run --containers-rollout none
+        run: node_modules/.bin/wrangler deploy --env="" --dry-run --outdir /tmp/ns-worker-dry-run --containers-rollout none
 
       - name: Lint (ruff)
         run: python -m ruff check
@@ -188,7 +188,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          if npx wrangler d1 execute ns-db --remote --command \
+          if node_modules/.bin/wrangler d1 execute ns-db --remote --command \
             "SELECT breaking_score FROM events LIMIT 1" >/tmp/ns-d1-breaking-check.json 2>/tmp/ns-d1-breaking-check.err; then
             echo "events.breaking_score already exists"
           elif grep -q "no such table: events" /tmp/ns-d1-breaking-check.err; then
@@ -196,7 +196,7 @@ jobs:
             echo "events table is absent; db/schema.sql will initialize breaking columns"
           else
             cat /tmp/ns-d1-breaking-check.err
-            npx wrangler d1 execute ns-db --remote \
+            node_modules/.bin/wrangler d1 execute ns-db --remote \
               --file=db/migrations/20260701_breaking_intelligence_i18n.sql
           fi
 
@@ -207,7 +207,7 @@ jobs:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler d1 execute ns-db --remote --file=db/schema.sql
+        run: node_modules/.bin/wrangler d1 execute ns-db --remote --file=db/schema.sql
 
       - name: Apply Cloudflare D1 shadow job runtime migration
         if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
@@ -217,8 +217,22 @@ jobs:
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: >-
-          npx wrangler d1 execute ns-db --remote
+          node_modules/.bin/wrangler d1 execute ns-db --remote
           --file=db/migrations/20260801_phase1_job_runtime.sql
+
+      - name: Record Cloudflare D1 runtime migration receipts
+        if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          python ../../tools/cloudflare_deploy_guard.py record-runtime-receipts \
+            --wrangler node_modules/.bin/wrangler \
+            --wrangler-toml wrangler.toml \
+            --output /tmp/news-sentry-runtime-migration-receipts.json
 
       - name: Apply Cloudflare D1 target collect flag migration
         if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
@@ -229,12 +243,12 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          if npx wrangler d1 execute ns-db --remote --command \
+          if node_modules/.bin/wrangler d1 execute ns-db --remote --command \
             "SELECT cloudflare_collect_enabled FROM targets LIMIT 1" >/tmp/ns-d1-column-check.json 2>/tmp/ns-d1-column-check.err; then
             echo "targets.cloudflare_collect_enabled already exists"
           else
             cat /tmp/ns-d1-column-check.err
-            npx wrangler d1 execute ns-db --remote \
+            node_modules/.bin/wrangler d1 execute ns-db --remote \
               --file=db/migrations/20260630_add_target_collect_enabled.sql
           fi
 
@@ -251,7 +265,7 @@ jobs:
             --targets-dir config/targets \
             --limit 0 \
             --output-sql /tmp/news-sentry-d1-target-sync.sql
-          (cd frontend/cloudflare && npx wrangler d1 execute ns-db --remote \
+          (cd frontend/cloudflare && node_modules/.bin/wrangler d1 execute ns-db --remote \
             --file /tmp/news-sentry-d1-target-sync.sql)
 
       - name: Refresh Cloudflare public read snapshots
@@ -266,7 +280,7 @@ jobs:
             --wrangler-dir frontend/cloudflare \
             --database ns-db \
             --output-sql /tmp/news-sentry-public-read-snapshots.sql
-          (cd frontend/cloudflare && npx wrangler d1 execute ns-db --remote \
+          (cd frontend/cloudflare && node_modules/.bin/wrangler d1 execute ns-db --remote \
             --file /tmp/news-sentry-public-read-snapshots.sql)
 
   deploy-cloudflare-worker:
@@ -290,13 +304,16 @@ jobs:
         run: npm ci
 
       - name: Cloudflare runtime preflight receipt
+        working-directory: frontend/cloudflare
         env:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          python tools/cloudflare_deploy_guard.py preflight \
+          python ../../tools/cloudflare_deploy_guard.py preflight \
+            --wrangler node_modules/.bin/wrangler \
+            --wrangler-toml wrangler.toml \
             --output /tmp/news-sentry-cloudflare-preflight.json
 
       - name: Deploy Cloudflare Worker
@@ -311,8 +328,9 @@ jobs:
           set -euo pipefail
           : "${CF_ACCESS_TEAM_DOMAIN:?GitHub environment variable CF_ACCESS_TEAM_DOMAIN is required}"
           : "${CF_ACCESS_AUD:?GitHub environment variable CF_ACCESS_AUD is required}"
-          npx wrangler deploy --env="" --containers-rollout gradual \
+          node_modules/.bin/wrangler deploy --env="" --containers-rollout gradual \
             --var "NEWS_SENTRY_DEPLOY_COMMIT:${GITHUB_SHA}" \
+            --var "NEWS_SENTRY_ENVIRONMENT:production" \
             --var "SCHEDULER_MODE:shadow" \
             --var "WORKER_NATIVE_COLLECT_ENABLED:false" \
             --var "CF_ACCESS_TEAM_DOMAIN:${CF_ACCESS_TEAM_DOMAIN}" \
@@ -407,11 +425,11 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          npx wrangler versions list --json > /tmp/ns-worker-versions.json
-          npx wrangler deployments list --json > /tmp/ns-worker-deployments.json
-          npx wrangler d1 execute ns-db --remote \
-            --command "SELECT name FROM d1_migrations ORDER BY name" \
-            --json > /tmp/ns-d1-applied-migrations.json
+          node_modules/.bin/wrangler versions list --json > /tmp/ns-worker-versions.json
+          node_modules/.bin/wrangler deployments list --json > /tmp/ns-worker-deployments.json
+          node_modules/.bin/wrangler d1 execute ns-db --remote \
+            --command "SELECT migration_id FROM runtime_migration_receipts ORDER BY migration_id" \
+            --json > /tmp/ns-d1-runtime-migration-receipts.json
           python - <<'PY'
           import json
           from pathlib import Path
@@ -429,11 +447,11 @@ jobs:
 
           versions = rows(json.loads(Path("/tmp/ns-worker-versions.json").read_text()))
           deployments = rows(json.loads(Path("/tmp/ns-worker-deployments.json").read_text()))
-          migrations = rows(json.loads(Path("/tmp/ns-d1-applied-migrations.json").read_text()))
+          migrations = rows(json.loads(Path("/tmp/ns-d1-runtime-migration-receipts.json").read_text()))
           Path("/tmp/ns-worker-version.json").write_text(json.dumps(versions[0] if versions else {}))
           Path("/tmp/ns-worker-deployment.json").write_text(json.dumps(deployments[0] if deployments else {}))
-          Path("/tmp/ns-applied-migrations.json").write_text(json.dumps([
-              row.get("name") for row in migrations if isinstance(row, dict) and row.get("name")
+          Path("/tmp/ns-runtime-migration-receipts.json").write_text(json.dumps([
+              row.get("migration_id") for row in migrations if isinstance(row, dict) and row.get("migration_id")
           ]))
           PY
           cd ../..
@@ -443,7 +461,7 @@ jobs:
             --version-json /tmp/ns-worker-version.json \
             --deployment-json /tmp/ns-worker-deployment.json \
             --health-json /tmp/worker-ready.json \
-            --applied-migrations-json /tmp/ns-applied-migrations.json \
+            --runtime-migration-receipts-json /tmp/ns-runtime-migration-receipts.json \
             --queue-receipt-json /tmp/news-sentry-cloudflare-preflight.json \
             --output /tmp/news-sentry-cloudflare-deploy-receipt.json
 

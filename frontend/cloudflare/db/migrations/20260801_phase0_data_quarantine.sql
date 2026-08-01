@@ -13,3 +13,18 @@ CREATE INDEX IF NOT EXISTS idx_quarantined_events_reason_created
     ON quarantined_events(reason_code, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_quarantined_events_source_created
     ON quarantined_events(target_id, source_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS runtime_migration_receipts (
+    migration_id TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL DEFAULT (datetime('now')),
+    deploy_commit TEXT,
+    details_json TEXT NOT NULL DEFAULT '{}'
+);
+
+INSERT OR IGNORE INTO runtime_migration_receipts (
+    migration_id,
+    details_json
+) VALUES (
+    '20260801_phase0_data_quarantine',
+    '{"mode":"data-quarantine","authoritative":false}'
+);

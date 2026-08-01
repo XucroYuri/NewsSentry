@@ -74,8 +74,8 @@ Codex Security 深扫在移除旧 `agents.max_threads` 配置后通过 preflight
   `WORKER_NATIVE_COLLECT_ENABLED=false`，缺失或非法组合 fail closed。
 - 当前配置保持 `shadow`，`collection.authoritative=false`；Queue authoritative 还需要显式
   `NEWS_SENTRY_QUEUE_CUTOVER_RECEIPT`，真实 canary 后才能开启。
-- 新增 `tools/cloudflare_deploy_guard.py`：部署前检查 Queue/DLQ、consumer、`d1_migrations`
-  applied receipt 与 `wrangler.toml` 绑定；默认 verify-only，不盲目执行 `wrangler queues create`。
+- 新增 `tools/cloudflare_deploy_guard.py`：部署前通过 Cloudflare Queues REST API 检查 Queue/DLQ，
+  并验证 consumer、`runtime_migration_receipts` 与 PRAGMA/table schema；默认 verify-only，不盲目创建队列。
 - 部署后 receipt 要同时校验 Worker version、deployment、health commit/version/mode、D1 migration 与 Queue preflight。
 - 新增 `docs/deployment/cloudflare-phase2-migration-runbook.md`，明确 partial `ALTER TABLE ADD COLUMN`
   的预检和恢复方式。

@@ -18,6 +18,7 @@ routes = [
 
 [vars]
 NEWS_SENTRY_RUNTIME = "cloudflare-native"
+NEWS_SENTRY_ENVIRONMENT = "production"
 SCHEDULER_MODE = "shadow"
 WORKER_NATIVE_COLLECT_ENABLED = "false"
 
@@ -88,6 +89,7 @@ routes = []
 
 [env.production.vars]
 NEWS_SENTRY_RUNTIME = "cloudflare-native"
+NEWS_SENTRY_ENVIRONMENT = "production"
 SCHEDULER_MODE = "shadow"
 WORKER_NATIVE_COLLECT_ENABLED = "false"
 
@@ -130,6 +132,7 @@ routes = []
 
 [env.dev.vars]
 NEWS_SENTRY_RUNTIME = "cloudflare-native-dev"
+NEWS_SENTRY_ENVIRONMENT = "dev"
 SCHEDULER_MODE = "shadow"
 WORKER_NATIVE_COLLECT_ENABLED = "false"
 

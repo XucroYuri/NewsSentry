@@ -14,6 +14,10 @@ MIGRATION = (
     ROOT
     / "frontend/cloudflare/db/migrations/20260801_phase1_job_runtime.sql"
 )
+PHASE0_MIGRATION = (
+    ROOT
+    / "frontend/cloudflare/db/migrations/20260801_phase0_data_quarantine.sql"
+)
 PHASE2_MIGRATION = (
     ROOT
     / "frontend/cloudflare/db/migrations/20260802_phase2_import_staging.sql"
@@ -82,6 +86,31 @@ def test_phase1_migration_is_additive_and_idempotent(
         "SELECT migration_id FROM runtime_migration_receipts"
     ).fetchall()
     assert [row[0] for row in receipt] == ["20260801_phase1_job_runtime"]
+
+
+def test_phase0_data_quarantine_migration_records_runtime_receipt() -> None:
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.executescript(PHASE0_MIGRATION.read_text(encoding="utf-8"))
+        connection.executescript(PHASE0_MIGRATION.read_text(encoding="utf-8"))
+
+        columns = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA table_info(quarantined_events)"
+            ).fetchall()
+        }
+        assert {"quarantine_id", "reason_code", "payload_json"} <= columns
+        receipt = connection.execute(
+            """
+            SELECT migration_id FROM runtime_migration_receipts
+            WHERE migration_id='20260801_phase0_data_quarantine'
+            """
+        ).fetchone()
+        assert receipt is not None
+    finally:
+        connection.close()
 
 
 def test_phase2_import_staging_migration_upgrades_phase1_runtime() -> None:

@@ -40,8 +40,10 @@ def test_deploy_workflow_uses_fail_closed_cloudflare_preflight_and_receipts() ->
 
     assert "tools/cloudflare_deploy_guard.py preflight" in workflow
     assert "tools/cloudflare_deploy_guard.py receipt" in workflow
-    assert "npx wrangler versions list --json" in workflow
-    assert "npx wrangler deployments list --json" in workflow
-    assert "SELECT name FROM d1_migrations ORDER BY name" in workflow
+    assert "node_modules/.bin/wrangler versions list --json" in workflow
+    assert "node_modules/.bin/wrangler deployments list --json" in workflow
+    assert "SELECT migration_id FROM runtime_migration_receipts ORDER BY migration_id" in workflow
+    assert "tools/cloudflare_deploy_guard.py record-runtime-receipts" in workflow
+    assert "node_modules/.bin/wrangler queues list --json" not in workflow
     assert "--var \"SCHEDULER_MODE:shadow\"" in workflow
     assert "--var \"WORKER_NATIVE_COLLECT_ENABLED:false\"" in workflow
