@@ -712,6 +712,7 @@ def test_cloudflare_shadow_queue_has_producer_consumer_and_dlq() -> None:
     assert "dispatchDueShadowJobs" in queue_ts
     assert "message.ack()" in queue_ts
     assert "message.retry()" in queue_ts
+    assert "stageImportBatchFromMessage" in queue_ts
     assert "importEventsToD1" not in queue_ts
     assert "refreshPublicReadSnapshots" not in queue_ts
     assert "buildAndActivateShadowSnapshotGeneration" not in queue_ts

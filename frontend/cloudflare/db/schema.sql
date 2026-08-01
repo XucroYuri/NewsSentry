@@ -301,9 +301,14 @@ CREATE TABLE IF NOT EXISTS import_batches (
     imported_count INTEGER NOT NULL DEFAULT 0,
     updated_count INTEGER NOT NULL DEFAULT 0,
     checksum TEXT NOT NULL,
+    expected_chunks INTEGER NOT NULL DEFAULT 0 CHECK (expected_chunks >= 0),
+    committed_chunks INTEGER NOT NULL DEFAULT 0 CHECK (committed_chunks >= 0),
+    payload_bytes INTEGER NOT NULL DEFAULT 0 CHECK (payload_bytes >= 0),
+    output_watermark TEXT,
     started_at TEXT NOT NULL,
     committed_at TEXT,
-    error_code TEXT
+    error_code TEXT,
+    error_message TEXT
 );
 
 CREATE TABLE IF NOT EXISTS import_batch_chunks (
@@ -314,8 +319,24 @@ CREATE TABLE IF NOT EXISTS import_batch_chunks (
     statement_count INTEGER NOT NULL DEFAULT 0,
     payload_bytes INTEGER NOT NULL DEFAULT 0,
     committed_at TEXT,
+    error_message TEXT,
     PRIMARY KEY (batch_id, chunk_no)
 );
+
+CREATE TABLE IF NOT EXISTS import_staged_events (
+    batch_id TEXT NOT NULL REFERENCES import_batches(batch_id),
+    chunk_no INTEGER NOT NULL,
+    event_id TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    event_fingerprint TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    staged_at TEXT NOT NULL,
+    PRIMARY KEY (batch_id, event_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_import_staged_events_batch_chunk
+    ON import_staged_events(batch_id, chunk_no);
 
 CREATE TABLE IF NOT EXISTS quarantine_context (
     quarantine_id TEXT PRIMARY KEY REFERENCES quarantined_events(quarantine_id),

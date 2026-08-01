@@ -14,6 +14,10 @@ MIGRATION = (
     ROOT
     / "frontend/cloudflare/db/migrations/20260801_phase1_job_runtime.sql"
 )
+PHASE2_MIGRATION = (
+    ROOT
+    / "frontend/cloudflare/db/migrations/20260802_phase2_import_staging.sql"
+)
 
 
 def _database() -> sqlite3.Connection:
@@ -74,6 +78,52 @@ def test_phase1_migration_is_additive_and_idempotent(
         "SELECT migration_id FROM runtime_migration_receipts"
     ).fetchall()
     assert [row[0] for row in receipt] == ["20260801_phase1_job_runtime"]
+
+
+def test_phase2_import_staging_migration_upgrades_phase1_runtime() -> None:
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.executescript(MIGRATION.read_text(encoding="utf-8"))
+    except Exception:
+        connection.close()
+        raise
+    migration_sql = PHASE2_MIGRATION.read_text(encoding="utf-8")
+
+    connection.executescript(migration_sql)
+
+    tables = {
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        )
+    }
+    assert "import_staged_events" in tables
+    batch_columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(import_batches)").fetchall()
+    }
+    chunk_columns = {
+        row["name"]
+        for row in connection.execute(
+            "PRAGMA table_info(import_batch_chunks)"
+        ).fetchall()
+    }
+    assert {
+        "expected_chunks",
+        "committed_chunks",
+        "payload_bytes",
+        "output_watermark",
+    } <= batch_columns
+    assert "error_message" in chunk_columns
+    receipt = connection.execute(
+        """
+        SELECT migration_id FROM runtime_migration_receipts
+        WHERE migration_id='20260802_phase2_import_staging'
+        """
+    ).fetchone()
+    assert receipt is not None
+    connection.close()
 
 
 def test_job_and_outbox_transaction_has_unique_idempotency(

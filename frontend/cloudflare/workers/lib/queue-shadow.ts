@@ -10,6 +10,7 @@ import {
   updateJobLastError,
   type ClaimedJob,
 } from "./job-store.ts";
+import { stageImportBatchFromMessage } from "./import-staging.ts";
 import { classifyJobError } from "./job-state.ts";
 
 interface QueueLike {
@@ -45,7 +46,17 @@ export interface DispatchSummary {
 }
 
 export interface ShadowQueueOptions {
-  shadowRunner?: (job: ClaimedJob) => Promise<void>;
+  shadowRunner?: (
+    job: ClaimedJob,
+    body: unknown,
+    env: ShadowQueueEnv,
+    generatedAt: string,
+  ) => Promise<ShadowRunnerResult | void>;
+}
+
+interface ShadowRunnerResult {
+  finalStatus?: "committed" | "succeeded";
+  details?: Record<string, unknown>;
 }
 
 interface FailedClaimOutcome {
@@ -99,9 +110,29 @@ export async function dispatchDueShadowJobs(
   return { status: "ok", dispatched, skipped };
 }
 
-async function defaultShadowRunner(_job: ClaimedJob): Promise<void> {
-  // Shadow mode deliberately records queue runtime only. It must not call the
-  // event import path, advance source cursors/watermarks, or flip snapshots.
+async function defaultShadowRunner(
+  job: ClaimedJob,
+  body: unknown,
+  env: ShadowQueueEnv,
+  generatedAt: string,
+): Promise<ShadowRunnerResult | void> {
+  const staged = await stageImportBatchFromMessage(env.DB, job, body, generatedAt);
+  if (staged) {
+    return {
+      finalStatus: "committed",
+      details: {
+        mode: "shadow-canary",
+        batch_id: staged.batchId,
+        chunks: staged.committedChunks,
+        replayed_chunks: staged.replayedChunks,
+        valid_events: staged.validEvents,
+        quarantined_events: staged.quarantinedEvents,
+      },
+    };
+  }
+  // Shadow mode deliberately records queue runtime only. Without an explicit
+  // canary staging payload it must not write public data, advance source
+  // cursors/watermarks, or flip snapshots.
 }
 
 async function markRunning(env: ShadowQueueEnv, job: ClaimedJob, generatedAt: string): Promise<boolean> {
@@ -318,21 +349,25 @@ async function handleMessage(
   }
 
   try {
-    await runner(job);
+    const runnerResult = await runner(job, message.body, env, generatedAt);
     const finishedAt = isoNow();
-    await finishAttempt(env, job, startedAt, finishedAt, "succeeded", false, {
+    const finalStatus = runnerResult?.finalStatus ?? "succeeded";
+    await finishAttempt(env, job, startedAt, finishedAt, finalStatus, false, {
       mode: "shadow",
-      queue_outcome: "succeeded",
+      queue_outcome: finalStatus,
+      ...(runnerResult?.details ?? {}),
     });
-    await transitionClaimedJob(
-      env.DB,
-      job.job_id,
-      "running",
-      "succeeded",
-      job.lease_token,
-      job.fencing_version,
-      finishedAt,
-    );
+    if (finalStatus === "succeeded") {
+      await transitionClaimedJob(
+        env.DB,
+        job.job_id,
+        "running",
+        "succeeded",
+        job.lease_token,
+        job.fencing_version,
+        finishedAt,
+      );
+    }
     message.ack();
   } catch (error) {
     const finishedAt = isoNow();
