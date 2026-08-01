@@ -5,6 +5,7 @@ import {
   loadJobAttemptLimits,
   markOutboxDispatched,
   recordJobAttempt,
+  releaseClaimedJobOutcome,
   transitionClaimedJob,
   updateJobLastError,
   type ClaimedJob,
@@ -45,6 +46,12 @@ export interface DispatchSummary {
 
 export interface ShadowQueueOptions {
   shadowRunner?: (job: ClaimedJob) => Promise<void>;
+}
+
+interface FailedClaimOutcome {
+  nextStatus: "retry_scheduled" | "dead_lettered";
+  released: boolean;
+  recorded: boolean;
 }
 
 function isoNow(): string {
@@ -131,6 +138,92 @@ async function finishAttempt(
   });
 }
 
+async function settleClaimedFailure(
+  env: ShadowQueueEnv,
+  job: ClaimedJob,
+  expectedStatuses: Array<"leased" | "running">,
+  startedAt: string,
+  finishedAt: string,
+  error: unknown,
+  details: Record<string, unknown>,
+): Promise<FailedClaimOutcome> {
+  const classification = classifyJobError({
+    status: typeof (error as { status?: unknown }).status === "number"
+      ? (error as { status: number }).status
+      : undefined,
+    code: typeof (error as { code?: unknown }).code === "string"
+      ? (error as { code: string }).code
+      : undefined,
+    kind: typeof (error as { kind?: unknown }).kind === "string"
+      ? (error as { kind: string }).kind
+      : undefined,
+    name: error instanceof Error ? error.name : undefined,
+    message: errorMessage(error),
+  });
+  let limits: { attempt_count: number; max_attempts: number } | null = null;
+  try {
+    limits = await loadJobAttemptLimits(env.DB, job.job_id);
+  } catch (limitError) {
+    console.error("shadow queue failed to load attempt limits:", limitError);
+  }
+  const exhausted = Boolean(limits && limits.attempt_count >= limits.max_attempts);
+  const nextStatus = classification.retryable && !exhausted ? "retry_scheduled" : "dead_lettered";
+  const attemptDetails = {
+    mode: "shadow",
+    error_category: classification.category,
+    error_message: errorMessage(error),
+    exhausted,
+    ...details,
+  };
+
+  try {
+    await updateJobLastError(env.DB, job.job_id, classification.category, errorMessage(error));
+  } catch (updateError) {
+    console.error("shadow queue failed to update job error:", updateError);
+  }
+
+  let released = false;
+  try {
+    released = await releaseClaimedJobOutcome(
+      env.DB,
+      job.job_id,
+      expectedStatuses,
+      nextStatus,
+      job.lease_token,
+      job.fencing_version,
+      finishedAt,
+    );
+  } catch (releaseError) {
+    console.error("shadow queue failed to release claimed job:", releaseError);
+  }
+
+  let recorded = false;
+  try {
+    await finishAttempt(
+      env,
+      job,
+      startedAt,
+      finishedAt,
+      nextStatus,
+      classification.retryable,
+      attemptDetails,
+    );
+    recorded = true;
+  } catch (recordError) {
+    console.error("shadow queue failed to record job attempt:", recordError);
+  }
+
+  return { nextStatus, released, recorded };
+}
+
+function settleMessage(message: QueueMessageLike, outcome: FailedClaimOutcome): void {
+  if (outcome.nextStatus === "retry_scheduled" || !outcome.released || !outcome.recorded) {
+    message.retry();
+  } else {
+    message.ack();
+  }
+}
+
 async function handleMessage(
   message: QueueMessageLike,
   env: ShadowQueueEnv,
@@ -151,12 +244,76 @@ async function handleMessage(
 
   const startedAt = generatedAt;
   const runner = options.shadowRunner ?? defaultShadowRunner;
-  if (!(await confirmOutboxClaim(env.DB, job.job_id, job.lease_token, job.fencing_version, generatedAt))) {
-    message.retry();
+  let outboxConfirmed = false;
+  try {
+    outboxConfirmed = await confirmOutboxClaim(
+      env.DB,
+      job.job_id,
+      job.lease_token,
+      job.fencing_version,
+      generatedAt,
+    );
+  } catch (error) {
+    settleMessage(
+      message,
+      await settleClaimedFailure(
+        env,
+        job,
+        ["leased"],
+        startedAt,
+        isoNow(),
+        error,
+        { queue_outcome: "confirm_outbox_threw" },
+      ),
+    );
     return;
   }
-  if (!(await markRunning(env, job, generatedAt))) {
-    message.retry();
+  if (!outboxConfirmed) {
+    settleMessage(
+      message,
+      await settleClaimedFailure(
+        env,
+        job,
+        ["leased"],
+        startedAt,
+        isoNow(),
+        Object.assign(new Error("confirm outbox claim changed zero rows"), { kind: "d1" }),
+        { queue_outcome: "confirm_outbox_failed" },
+      ),
+    );
+    return;
+  }
+  let runningMarked = false;
+  try {
+    runningMarked = await markRunning(env, job, generatedAt);
+  } catch (error) {
+    settleMessage(
+      message,
+      await settleClaimedFailure(
+        env,
+        job,
+        ["leased"],
+        startedAt,
+        isoNow(),
+        error,
+        { queue_outcome: "mark_running_threw" },
+      ),
+    );
+    return;
+  }
+  if (!runningMarked) {
+    settleMessage(
+      message,
+      await settleClaimedFailure(
+        env,
+        job,
+        ["leased"],
+        startedAt,
+        isoNow(),
+        Object.assign(new Error("mark running changed zero rows"), { kind: "d1" }),
+        { queue_outcome: "mark_running_failed" },
+      ),
+    );
     return;
   }
 
@@ -179,40 +336,18 @@ async function handleMessage(
     message.ack();
   } catch (error) {
     const finishedAt = isoNow();
-    const classification = classifyJobError({
-      status: typeof (error as { status?: unknown }).status === "number"
-        ? (error as { status: number }).status
-        : undefined,
-      code: typeof (error as { code?: unknown }).code === "string"
-        ? (error as { code: string }).code
-        : undefined,
-      name: error instanceof Error ? error.name : undefined,
-      message: errorMessage(error),
-    });
-    const limits = await loadJobAttemptLimits(env.DB, job.job_id);
-    const exhausted = Boolean(limits && limits.attempt_count >= limits.max_attempts);
-    const nextStatus = classification.retryable && !exhausted ? "retry_scheduled" : "dead_lettered";
-    await updateJobLastError(env.DB, job.job_id, classification.category, errorMessage(error));
-    await finishAttempt(env, job, startedAt, finishedAt, nextStatus, classification.retryable, {
-      mode: "shadow",
-      error_category: classification.category,
-      error_message: errorMessage(error),
-      exhausted,
-    });
-    await transitionClaimedJob(
-      env.DB,
-      job.job_id,
-      "running",
-      nextStatus,
-      job.lease_token,
-      job.fencing_version,
-      finishedAt,
+    settleMessage(
+      message,
+      await settleClaimedFailure(
+        env,
+        job,
+        ["running", "leased"],
+        startedAt,
+        finishedAt,
+        error,
+        { queue_outcome: "runner_failed" },
+      ),
     );
-    if (nextStatus === "retry_scheduled") {
-      message.retry();
-    } else {
-      message.ack();
-    }
   }
 }
 

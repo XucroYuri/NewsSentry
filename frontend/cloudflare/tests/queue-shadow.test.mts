@@ -60,6 +60,10 @@ class FakeD1Database {
   jobs = new Map<string, FakeJob>();
   outbox = new Map<string, FakeOutbox>();
   attempts: Array<Record<string, unknown>> = [];
+  confirmChangesZeroForJob = new Set<string>();
+  markRunningChangesZeroForJob = new Set<string>();
+  throwOnAttemptForJob = new Set<string>();
+  throwOnTransitionToRetryForJob = new Set<string>();
   eventImports = 0;
   cursorUpdates = 0;
   snapshotSwitches = 0;
@@ -135,11 +139,12 @@ class FakeD1Database {
     }
     if (sql.includes("UPDATE job_outbox SET status='confirmed'")) {
       const [_generatedAt, jobId, leaseToken, fencingVersion] = values as [string, string, string, number];
+      if (this.confirmChangesZeroForJob.has(jobId)) return changed(0);
       const row = this.outbox.get(jobId);
       const job = this.jobs.get(jobId);
       if (
         !row ||
-        !["pending", "dispatched"].includes(row.status) ||
+        !["pending", "dispatched", "confirmed"].includes(row.status) ||
         !job ||
         !["leased", "running"].includes(job.status) ||
         job.lease_token !== leaseToken ||
@@ -164,6 +169,10 @@ class FakeD1Database {
         containerUsed,
         detailsJson,
       ] = values;
+      if (this.throwOnAttemptForJob.has(String(jobId))) {
+        this.throwOnAttemptForJob.delete(String(jobId));
+        throw new Error("job_attempts insert failed");
+      }
       this.attempts.push({
         attempt_id: attemptId,
         job_id: jobId,
@@ -177,6 +186,21 @@ class FakeD1Database {
         container_used: containerUsed,
         details_json: detailsJson,
       });
+      return changed(1);
+    }
+    if (sql.includes("UPDATE jobs") && sql.includes("status IN")) {
+      const nextStatus = values[0] as string;
+      const jobId = values[4] as string;
+      const leaseToken = values.at(-2) as string;
+      const fencingVersion = values.at(-1) as number;
+      const job = this.jobs.get(jobId);
+      if (!job || job.lease_token !== leaseToken || job.fencing_version !== fencingVersion) {
+        return changed(0);
+      }
+      job.status = nextStatus;
+      job.lease_token = null;
+      job.lease_owner = null;
+      job.lease_until = null;
       return changed(1);
     }
     if (sql.includes("UPDATE jobs") && sql.includes("SET status=?")) {
@@ -193,6 +217,17 @@ class FakeD1Database {
         leaseToken,
         fencingVersion,
       ] = values as [string, string, number, string, number, number, number, string, string, string, number];
+      if (
+        expectedStatus === "leased" &&
+        nextStatus === "running" &&
+        this.markRunningChangesZeroForJob.has(jobId)
+      ) {
+        return changed(0);
+      }
+      if (nextStatus === "retry_scheduled" && this.throwOnTransitionToRetryForJob.has(jobId)) {
+        this.throwOnTransitionToRetryForJob.delete(jobId);
+        throw new Error("transition failed");
+      }
       const job = this.jobs.get(jobId);
       if (
         !job ||
@@ -273,6 +308,16 @@ function seedJob(db: FakeD1Database, job: Partial<FakeJob> = {}): FakeJob {
     dispatched_at: null,
   });
   return fullJob;
+}
+
+async function withMutedConsoleError(run: () => Promise<void>): Promise<void> {
+  const original = console.error;
+  console.error = () => {};
+  try {
+    await run();
+  } finally {
+    console.error = original;
+  }
 }
 
 test("dispatch sends due outbox rows with stable job identity and is duplicate safe", async () => {
@@ -364,6 +409,140 @@ test("queue handler retries only the failed retryable message in a batch", async
   assert.equal(db.jobs.get("job-ok")?.status, "succeeded");
   assert.equal(db.jobs.get("job-retry")?.status, "retry_scheduled");
   assert.equal(db.jobs.get("job-retry")?.lease_token, null);
+});
+
+test("confirm outbox failure records outcome and releases lease before redelivery", async () => {
+  const db = new FakeD1Database();
+  seedJob(db, { status: "enqueued" });
+  db.confirmChangesZeroForJob.add("job-shadow-1");
+  const firstDelivery = new FakeQueueMessage({ job_id: "job-shadow-1" });
+
+  await handleShadowQueueBatch(
+    { messages: [firstDelivery] } as never,
+    { DB: db as unknown as D1Database },
+    "2026-08-01T00:01:00.000Z",
+  );
+
+  assert.equal(firstDelivery.acked, false);
+  assert.equal(firstDelivery.retried, true);
+  assert.equal(db.jobs.get("job-shadow-1")?.status, "retry_scheduled");
+  assert.equal(db.jobs.get("job-shadow-1")?.lease_token, null);
+  assert.equal(db.attempts.at(-1)?.outcome, "retry_scheduled");
+
+  db.confirmChangesZeroForJob.clear();
+  const redelivery = new FakeQueueMessage({ job_id: "job-shadow-1" });
+  await handleShadowQueueBatch(
+    { messages: [redelivery] } as never,
+    { DB: db as unknown as D1Database },
+    "2026-08-01T00:01:01.000Z",
+  );
+
+  assert.equal(redelivery.acked, true);
+  assert.equal(redelivery.retried, false);
+  assert.equal(db.jobs.get("job-shadow-1")?.status, "succeeded");
+});
+
+test("mark running failure records outcome and releases lease before redelivery", async () => {
+  const db = new FakeD1Database();
+  seedJob(db, { status: "enqueued" });
+  db.markRunningChangesZeroForJob.add("job-shadow-1");
+  const firstDelivery = new FakeQueueMessage({ job_id: "job-shadow-1" });
+
+  await handleShadowQueueBatch(
+    { messages: [firstDelivery] } as never,
+    { DB: db as unknown as D1Database },
+    "2026-08-01T00:01:00.000Z",
+  );
+
+  assert.equal(firstDelivery.acked, false);
+  assert.equal(firstDelivery.retried, true);
+  assert.equal(db.jobs.get("job-shadow-1")?.status, "retry_scheduled");
+  assert.equal(db.jobs.get("job-shadow-1")?.lease_token, null);
+  assert.equal(db.attempts.at(-1)?.outcome, "retry_scheduled");
+
+  db.markRunningChangesZeroForJob.clear();
+  const redelivery = new FakeQueueMessage({ job_id: "job-shadow-1" });
+  await handleShadowQueueBatch(
+    { messages: [redelivery] } as never,
+    { DB: db as unknown as D1Database },
+    "2026-08-01T00:01:01.000Z",
+  );
+
+  assert.equal(redelivery.acked, true);
+  assert.equal(redelivery.retried, false);
+  assert.equal(db.jobs.get("job-shadow-1")?.status, "succeeded");
+});
+
+test("attempt persistence throw does not leave immediate redelivery ack-lost", async () => {
+  const db = new FakeD1Database();
+  seedJob(db, { status: "enqueued" });
+  db.throwOnAttemptForJob.add("job-shadow-1");
+  const firstDelivery = new FakeQueueMessage({ job_id: "job-shadow-1" });
+
+  await withMutedConsoleError(async () => {
+    await handleShadowQueueBatch(
+      { messages: [firstDelivery] } as never,
+      { DB: db as unknown as D1Database },
+      "2026-08-01T00:01:00.000Z",
+      {
+        shadowRunner: async () => {
+          throw Object.assign(new Error("upstream timeout"), { status: 503 });
+        },
+      },
+    );
+  });
+
+  assert.equal(firstDelivery.acked, false);
+  assert.equal(firstDelivery.retried, true);
+  assert.equal(db.jobs.get("job-shadow-1")?.status, "retry_scheduled");
+  assert.equal(db.jobs.get("job-shadow-1")?.lease_token, null);
+
+  const redelivery = new FakeQueueMessage({ job_id: "job-shadow-1" });
+  await handleShadowQueueBatch(
+    { messages: [redelivery] } as never,
+    { DB: db as unknown as D1Database },
+    "2026-08-01T00:01:01.000Z",
+  );
+
+  assert.equal(redelivery.acked, true);
+  assert.equal(redelivery.retried, false);
+  assert.equal(db.jobs.get("job-shadow-1")?.status, "succeeded");
+});
+
+test("transition throw falls back to fenced release before immediate redelivery", async () => {
+  const db = new FakeD1Database();
+  seedJob(db, { status: "enqueued" });
+  db.throwOnTransitionToRetryForJob.add("job-shadow-1");
+  const firstDelivery = new FakeQueueMessage({ job_id: "job-shadow-1" });
+
+  await withMutedConsoleError(async () => {
+    await handleShadowQueueBatch(
+      { messages: [firstDelivery] } as never,
+      { DB: db as unknown as D1Database },
+      "2026-08-01T00:01:00.000Z",
+      {
+        shadowRunner: async () => {
+          throw Object.assign(new Error("upstream timeout"), { status: 503 });
+        },
+      },
+    );
+  });
+
+  assert.equal(firstDelivery.acked, false);
+  assert.equal(firstDelivery.retried, true);
+  assert.equal(db.jobs.get("job-shadow-1")?.status, "retry_scheduled");
+  assert.equal(db.jobs.get("job-shadow-1")?.lease_token, null);
+
+  const redelivery = new FakeQueueMessage({ job_id: "job-shadow-1" });
+  await handleShadowQueueBatch(
+    { messages: [redelivery] } as never,
+    { DB: db as unknown as D1Database },
+    "2026-08-01T00:01:01.000Z",
+  );
+
+  assert.equal(redelivery.acked, true);
+  assert.equal(redelivery.retried, false);
+  assert.equal(db.jobs.get("job-shadow-1")?.status, "succeeded");
 });
 
 test("queue handler dead-letters permanent failures and exhausted retries", async () => {

@@ -76,7 +76,7 @@ max_concurrency = 1
 queue = "news-sentry-jobs-dlq"
 max_batch_size = 5
 max_batch_timeout = 5
-max_retries = 0
+max_retries = 3
 max_concurrency = 1
 
 # 生产环境（可选，覆盖默认值）

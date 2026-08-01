@@ -563,6 +563,20 @@ def test_cloudflare_package_deploy_prod_targets_custom_domain_worker() -> None:
     assert package_json["scripts"]["deploy:prod"] == 'wrangler deploy --env=""'
 
 
+def test_cloudflare_worker_deploy_paths_use_top_level_env_for_queue_bindings() -> None:
+    package_json = json.loads((CLOUDFLARE_DIR / "package.json").read_text(encoding="utf-8"))
+    deploy_yml = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+    combined = "\n".join([json.dumps(package_json["scripts"], sort_keys=True), deploy_yml])
+
+    assert package_json["scripts"]["deploy:prod"] == 'wrangler deploy --env=""'
+    assert 'npx wrangler deploy --env="" --containers-rollout gradual' in deploy_yml
+    assert 'npx wrangler deploy --env="" --dry-run' in deploy_yml
+    assert "wrangler deploy --env production" not in combined
+    assert "wrangler deploy --env=production" not in combined
+    assert "wrangler deploy --env dev" not in combined
+    assert "wrangler deploy --env=dev" not in combined
+
+
 def test_cloudflare_native_runbook_records_performance_first_cutover_strategy() -> None:
     runbook = (ROOT / "docs/deployment/cloudflare-native-vps-removal.md").read_text(
         encoding="utf-8"
@@ -689,7 +703,7 @@ def test_cloudflare_shadow_queue_has_producer_consumer_and_dlq() -> None:
         "queue": "news-sentry-jobs-dlq",
         "max_batch_size": 5,
         "max_batch_timeout": 5,
-        "max_retries": 0,
+        "max_retries": 3,
         "max_concurrency": 1,
     } in consumers
     assert "NEWS_SENTRY_JOBS_QUEUE" in index_ts

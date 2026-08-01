@@ -140,6 +140,45 @@ export async function transitionClaimedJob(
   return result.success && Number(result.meta?.changes || 0) === 1;
 }
 
+export async function releaseClaimedJobOutcome(
+  db: D1Database,
+  jobId: string,
+  expectedStatuses: JobStatus[],
+  nextStatus: JobStatus,
+  leaseToken: string,
+  fencingVersion: number,
+  generatedAt = new Date().toISOString(),
+): Promise<boolean> {
+  if (!expectedStatuses.some((status) => canTransitionJobStatus(status, nextStatus).ok)) {
+    return false;
+  }
+  const terminal = ["succeeded", "dead_lettered", "cancelled"].includes(nextStatus);
+  const placeholders = expectedStatuses.map(() => "?").join(", ");
+  const result = await db
+    .prepare(
+      `UPDATE jobs
+       SET status=?, updated_at=?,
+           finished_at=CASE WHEN ? THEN ? ELSE finished_at END,
+           lease_token=NULL,
+           lease_owner=NULL,
+           lease_until=NULL
+       WHERE job_id=? AND status IN (${placeholders})
+         AND lease_token=? AND fencing_version=?`,
+    )
+    .bind(
+      nextStatus,
+      generatedAt,
+      terminal ? 1 : 0,
+      generatedAt,
+      jobId,
+      ...expectedStatuses,
+      leaseToken,
+      fencingVersion,
+    )
+    .run();
+  return result.success && Number(result.meta?.changes || 0) === 1;
+}
+
 export async function recordJobAttempt(
   db: D1Database,
   input: {
@@ -222,7 +261,7 @@ export async function confirmOutboxClaim(
   const result = await db
     .prepare(
       `UPDATE job_outbox SET status='confirmed', updated_at=?
-       WHERE job_id=? AND status IN ('pending', 'dispatched')
+       WHERE job_id=? AND status IN ('pending', 'dispatched', 'confirmed')
          AND EXISTS (
            SELECT 1 FROM jobs
            WHERE jobs.job_id=job_outbox.job_id
