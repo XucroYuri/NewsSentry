@@ -992,6 +992,68 @@ jobs:
             fi
           }
 
+          preview_ready_matches_commit() {
+            local status=""
+            local curl_rc=0
+            status="$(curl -sS \
+              -o /tmp/preview-ready.json \
+              -D /tmp/preview-ready.headers \
+              -w "%{http_code}" \
+              -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" \
+              -H "Accept: application/json" \
+              "${API_URL}/api/v1/ready")" || curl_rc=$?
+            if [ "${curl_rc}" -ne 0 ]; then
+              if [ -z "${status}" ] || [ "${status}" = "000" ]; then
+                status="curl_error_${curl_rc}"
+              fi
+              printf "%s" "${status}" > /tmp/preview-ready.status
+              return 1
+            fi
+            printf "%s" "${status}" > /tmp/preview-ready.status
+            if [ "${status}" != "200" ]; then
+              return 1
+            fi
+            python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          def load_headers(path: str) -> dict[str, str]:
+              parsed = {}
+              for line in Path(path).read_text(errors="replace").splitlines():
+                  if ":" in line:
+                      key, value = line.split(":", 1)
+                      parsed[key.strip().lower()] = value.strip()
+              return parsed
+
+          payload = json.loads(Path("/tmp/preview-ready.json").read_text())
+          headers = load_headers("/tmp/preview-ready.headers")
+          assert payload.get("status") == "ok"
+          assert payload.get("readiness", {}).get("ok") is True
+          assert headers.get("x-news-sentry-deploy-commit") == os.environ["GITHUB_SHA"]
+          assert payload.get("deployment", {}).get("commit") == os.environ["GITHUB_SHA"]
+          PY
+          }
+
+          wait_for_preview_ready_commit() {
+            local deadline=$((SECONDS + 300))
+            local status="timeout"
+            while [ "${SECONDS}" -lt "${deadline}" ]; do
+              if preview_ready_matches_commit; then
+                return 0
+              fi
+              sleep 10
+            done
+            if [ -s /tmp/preview-ready.status ]; then
+              status="$(cat /tmp/preview-ready.status)"
+            fi
+            echo "::error title=Preview propagation wait timed out::endpoint=/api/v1/ready status=${status}"
+            print_preview_endpoint_failure ready /api/v1/ready "${status}" /tmp/preview-ready.headers /tmp/preview-ready.json
+            return 1
+          }
+
+          wait_for_preview_ready_commit
+
           fetch_preview_public_endpoint live /api/v1/live "${API_URL}/api/v1/live" /tmp/preview-live.json /tmp/preview-live.headers -H "Accept: application/json"
           fetch_preview_public_endpoint ready /api/v1/ready "${API_URL}/api/v1/ready" /tmp/preview-ready.json /tmp/preview-ready.headers -H "Accept: application/json"
           fetch_preview_public_endpoint health /api/v1/health "${API_URL}/api/v1/health" /tmp/preview-health.json /tmp/preview-health.headers -H "Accept: application/json"
@@ -1076,6 +1138,7 @@ jobs:
           python tools/cloudflare_preview_canary.py payload \
             --commit "${GITHUB_SHA}" \
             --commit-time "${COMMIT_TIME}" \
+            --execution-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             --output "${CANARY_DIR}/payload.json" >/dev/null
           python - <<'PY'
           import json
@@ -1163,6 +1226,7 @@ jobs:
 
           CANONICAL_ARTIFACT_KEY="$(python tools/cloudflare_preview_canary.py validate-artifact-key --first-response "${CANARY_DIR}/first-response.json")"
           (cd frontend/cloudflare && node_modules/.bin/wrangler r2 object get "news-sentry-artifacts-preview/${CANONICAL_ARTIFACT_KEY}" \
+            --remote \
             --file "${CANARY_DIR}/artifact.json")
 
           python tools/cloudflare_preview_canary.py receipt \

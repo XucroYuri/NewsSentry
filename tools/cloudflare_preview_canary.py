@@ -64,6 +64,7 @@ LEFT JOIN import_projection_finalize_receipts AS receipt
 """.strip()
 
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+EXECUTION_ID_RE = re.compile(r"^[0-9]{6,20}-[0-9]{1,3}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 BATCH_ID_RE = re.compile(r"^api-batch:[0-9a-f]{64}$")
 JOB_ID_RE = re.compile(r"^api-job:[0-9a-f]{64}$")
@@ -125,6 +126,13 @@ def _validate_commit(commit: str) -> str:
     return candidate
 
 
+def _validate_execution_id(execution_id: str) -> str:
+    candidate = execution_id.strip()
+    if candidate != execution_id or not EXECUTION_ID_RE.fullmatch(candidate):
+        raise PreviewCanaryError("execution_id_invalid")
+    return candidate
+
+
 def _validate_batch_id(batch_id: str) -> str:
     candidate = batch_id.strip()
     if not BATCH_ID_RE.fullmatch(candidate):
@@ -179,14 +187,20 @@ def canonical_artifact_key_from_response_file(path: Path) -> str:
     return canonical_artifact_key(artifact_key)
 
 
-def build_canary_payload(*, commit: str, commit_time: str) -> PreviewCanaryPayload:
+def build_canary_payload(
+    *,
+    commit: str,
+    commit_time: str,
+    execution_id: str,
+) -> PreviewCanaryPayload:
     normalized_commit = _validate_commit(commit)
-    event_id = f"preview-artifact-canary-{normalized_commit[:12]}"
+    execution_digest = hashlib.sha256(_validate_execution_id(execution_id).encode()).hexdigest()
+    event_id = f"preview-artifact-canary-{execution_digest[:12]}"
     return PreviewCanaryPayload(
         commit=normalized_commit,
         commit_time=commit_time,
         event_id=event_id,
-        idempotency_key=f"preview-artifact-canary:{normalized_commit}",
+        idempotency_key=f"preview-artifact-canary:{normalized_commit}:{execution_digest}",
         events=[
             {
                 "collected_at": commit_time,
@@ -197,8 +211,11 @@ def build_canary_payload(*, commit: str, commit_time: str) -> PreviewCanaryPaylo
                 "source_id": "preview-canary-synthetic-source",
                 "summary": "Synthetic event used to verify preview durable import receipts.",
                 "target_id": "preview-canary",
-                "title_original": f"News Sentry Preview Artifact Canary {normalized_commit[:12]}",
-                "url": f"https://example.test/news-sentry/{event_id}",
+                "title_original": (
+                    "News Sentry Preview Artifact Canary "
+                    f"{normalized_commit[:12]} {execution_digest[:12]}"
+                ),
+                "url": f"https://example.test/news-sentry/preview-artifact-canary-{execution_digest}",
             }
         ],
     )
@@ -432,7 +449,11 @@ def parse_wrangler_d1_json(value: Any) -> list[dict[str, Any]]:  # noqa: ANN401
 
 
 def _payload_command(args: argparse.Namespace) -> int:
-    payload = build_canary_payload(commit=args.commit, commit_time=args.commit_time)
+    payload = build_canary_payload(
+        commit=args.commit,
+        commit_time=args.commit_time,
+        execution_id=args.execution_id,
+    )
     rendered = {"api_url": PREVIEW_IMPORT_URL, **asdict(payload)}
     if args.output:
         _write_json(args.output, rendered)
@@ -481,6 +502,7 @@ def build_parser() -> argparse.ArgumentParser:
     payload = subparsers.add_parser("payload")
     payload.add_argument("--commit", required=True)
     payload.add_argument("--commit-time", required=True)
+    payload.add_argument("--execution-id", required=True)
     payload.add_argument("--output", type=Path)
     payload.set_defaults(func=_payload_command)
 

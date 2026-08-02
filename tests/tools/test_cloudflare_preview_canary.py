@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -73,30 +74,82 @@ def _d1_row(*, artifact_bytes: int = 16, event_count: int = 1) -> dict[str, obje
 
 
 def test_payload_is_deterministic_for_preview_import() -> None:
-    payload = canary.build_canary_payload(commit=COMMIT, commit_time=COMMIT_TIME)
+    payload = canary.build_canary_payload(
+        commit=COMMIT,
+        commit_time=COMMIT_TIME,
+        execution_id="30758448534-2",
+    )
+    execution_digest = hashlib.sha256(b"30758448534-2").hexdigest()
 
-    assert payload.idempotency_key == f"preview-artifact-canary:{COMMIT}"
-    assert payload.event_id == "preview-artifact-canary-aaaaaaaaaaaa"
+    assert payload.idempotency_key == (
+        f"preview-artifact-canary:{COMMIT}:{execution_digest}"
+    )
+    assert payload.event_id == f"preview-artifact-canary-{execution_digest[:12]}"
     assert payload.events == [
         {
             "collected_at": COMMIT_TIME,
             "content_original": "Deterministic Cloudflare preview artifact canary.",
-            "event_id": "preview-artifact-canary-aaaaaaaaaaaa",
+            "event_id": f"preview-artifact-canary-{execution_digest[:12]}",
             "language": "en",
             "pipeline_stage": "collected",
             "source_id": "preview-canary-synthetic-source",
             "summary": "Synthetic event used to verify preview durable import receipts.",
             "target_id": "preview-canary",
-            "title_original": "News Sentry Preview Artifact Canary aaaaaaaaaaaa",
-            "url": "https://example.test/news-sentry/preview-artifact-canary-aaaaaaaaaaaa",
+            "title_original": (
+                f"News Sentry Preview Artifact Canary {COMMIT[:12]} "
+                f"{execution_digest[:12]}"
+            ),
+            "url": f"https://example.test/news-sentry/preview-artifact-canary-{execution_digest}",
         }
     ]
     rendered = json.dumps(payload.__dict__, ensure_ascii=False, sort_keys=True)
     assert rendered == json.dumps(
-        canary.build_canary_payload(commit=COMMIT, commit_time=COMMIT_TIME).__dict__,
+        canary.build_canary_payload(
+            commit=COMMIT,
+            commit_time=COMMIT_TIME,
+            execution_id="30758448534-2",
+        ).__dict__,
         ensure_ascii=False,
         sort_keys=True,
     )
+
+
+def test_payload_execution_id_is_strict_and_digest_scoped() -> None:
+    first = canary.build_canary_payload(
+        commit=COMMIT,
+        commit_time=COMMIT_TIME,
+        execution_id="30758448534-1",
+    )
+    second = canary.build_canary_payload(
+        commit=COMMIT,
+        commit_time=COMMIT_TIME,
+        execution_id="30758448534-2",
+    )
+
+    assert first.event_id != second.event_id
+    assert first.idempotency_key != second.idempotency_key
+    assert "30758448534-1" not in json.dumps(first.__dict__, sort_keys=True)
+    assert "30758448534-2" not in json.dumps(second.__dict__, sort_keys=True)
+    assert re.fullmatch(r"preview-artifact-canary-[0-9a-f]{12}", first.event_id)
+    assert re.fullmatch(
+        rf"preview-artifact-canary:{COMMIT}:[0-9a-f]{{64}}",
+        first.idempotency_key,
+    )
+
+    invalid_ids = [
+        "",
+        "30758448534",
+        "run-30758448534-2",
+        "30758448534-2\nX",
+        "30758448534-2/../../secret",
+    ]
+    for execution_id in invalid_ids:
+        with pytest.raises(canary.PreviewCanaryError, match="execution_id_invalid"):
+            canary.build_canary_payload(
+                commit=COMMIT,
+                commit_time=COMMIT_TIME,
+                execution_id=execution_id,
+            )
 
 
 def test_evidence_sql_validates_canonical_ids_and_counts_all_receipts() -> None:
@@ -333,13 +386,29 @@ def test_cli_subcommands_emit_canonical_json_and_failed_receipts(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    assert canary.main(["payload", "--commit", COMMIT, "--commit-time", COMMIT_TIME]) == 0
+    assert (
+        canary.main(
+            [
+                "payload",
+                "--commit",
+                COMMIT,
+                "--commit-time",
+                COMMIT_TIME,
+                "--execution-id",
+                "30758448534-2",
+            ]
+        )
+        == 0
+    )
     payload_stdout = capsys.readouterr().out
     payload_cli = json.loads(payload_stdout)
     assert payload_cli["api_url"] == (
         "https://news-sentry-api-preview.xuyu.workers.dev/api/v1/events/import"
     )
-    assert payload_cli["idempotency_key"] == f"preview-artifact-canary:{COMMIT}"
+    assert re.fullmatch(
+        rf"preview-artifact-canary:{COMMIT}:[0-9a-f]{{64}}",
+        payload_cli["idempotency_key"],
+    )
     assert payload_stdout == json.dumps(json.loads(payload_stdout), sort_keys=True) + "\n"
 
     assert (

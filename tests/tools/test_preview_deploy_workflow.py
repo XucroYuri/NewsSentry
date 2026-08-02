@@ -234,6 +234,28 @@ def test_preview_verification_logs_failed_public_endpoint_evidence() -> None:
     assert "CLOUDFLARE_ACCOUNT_ID" not in script
 
 
+def test_preview_verification_waits_for_ready_commit_before_public_probes() -> None:
+    script = str(
+        _step("verify-preview", "Verify preview Cloudflare-native public endpoints")[
+            "run"
+        ]
+    )
+
+    assert "wait_for_preview_ready_commit" in script
+    assert "deadline=$((SECONDS + 300))" in script
+    assert "sleep 10" in script
+    assert (
+        "fetch_preview_public_endpoint ready /api/v1/ready "
+        '"${API_URL}/api/v1/ready"'
+    ) in script
+    assert 'headers.get("x-news-sentry-deploy-commit") == os.environ["GITHUB_SHA"]' in script
+    assert 'payload.get("deployment", {}).get("commit") == os.environ["GITHUB_SHA"]' in script
+    assert "Preview propagation wait timed out" in script
+    assert script.index("wait_for_preview_ready_commit") < script.index(
+        "fetch_preview_public_endpoint live /api/v1/live",
+    )
+
+
 def test_preview_worker_deploy_job_is_isolated_and_exports_api_url() -> None:
     workflow = _workflow_text()
     preview_worker_job = workflow.split("  deploy-cloudflare-preview-worker:", 1)[1].split(
@@ -374,9 +396,10 @@ def test_verify_preview_runs_authenticated_durable_import_canary_fail_closed() -
     assert d1_targets == ["ns-db-preview"]
     r2_gets = _shell_tokens(
         script,
-        r'wrangler r2 object get "([a-z0-9-]+)/\$\{CANONICAL_ARTIFACT_KEY\}"',
+        r'wrangler r2 object get "([a-z0-9-]+)/\$\{CANONICAL_ARTIFACT_KEY\}"[\s\\]+--remote',
     )
     assert r2_gets == ["news-sentry-artifacts-preview"]
+    assert '--execution-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"' in script
     assert "--artifact-key" not in script
     assert 'ARTIFACT_KEY="$(python -c' not in script
     assert (
