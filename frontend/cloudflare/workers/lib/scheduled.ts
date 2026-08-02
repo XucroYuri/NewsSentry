@@ -1,11 +1,10 @@
-import { getContainer } from "@cloudflare/containers";
-import { refreshPublicReadSnapshots } from "./public-read-snapshots";
-import { assessEventTimestamps } from "./timestamp-policy";
-import { generateShadowJobs } from "./job-store";
-import { buildAndActivateShadowSnapshotGeneration } from "./snapshot-generation";
-import { dispatchDueShadowJobs, type ShadowQueueEnv } from "./queue-shadow";
-import { parseRuntimeConfig, type RuntimeConfigEnv } from "./runtime-config";
-import { importContainerEventsToD1 } from "./container-import";
+import { refreshPublicReadSnapshots } from "./public-read-snapshots.ts";
+import { assessEventTimestamps } from "./timestamp-policy.ts";
+import { generateShadowJobs } from "./job-store.ts";
+import { buildAndActivateShadowSnapshotGeneration } from "./snapshot-generation.ts";
+import { dispatchDueShadowJobs, type ShadowQueueEnv } from "./queue-shadow.ts";
+import { parseRuntimeConfig, type RuntimeConfigEnv } from "./runtime-config.ts";
+import { importContainerEventsToD1 } from "./container-import.ts";
 
 interface ScheduledEnv extends ShadowQueueEnv, RuntimeConfigEnv {
   DB: D1Database;
@@ -19,6 +18,13 @@ type ScheduledTask =
   | "retention-cycle"
   | "cost-audit-cycle";
 type ContainerTask = "collect-cycle" | "public-translation-cycle";
+type ContainerDependencyFailure = {
+  status: "failed_dependency";
+  reason: "container_not_configured";
+};
+type ContainerHandle = {
+  fetch(request: Request): Promise<Response>;
+};
 
 const COLLECT_TARGET_BATCH_SIZE = 4;
 const COLLECT_TARGET_CURSOR_KEY = "cursor:collect-cycle-target-index";
@@ -407,15 +413,29 @@ async function waitForContainerRetryDelay(attempt: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
+export function classifyContainerDependency(
+  container: DurableObjectNamespace | undefined,
+): ContainerDependencyFailure | null {
+  if (container) return null;
+  return { status: "failed_dependency", reason: "container_not_configured" };
+}
+
+async function getContainerHandle(
+  namespace: DurableObjectNamespace,
+  name: string,
+): Promise<ContainerHandle> {
+  const containers = await import("@cloudflare/containers");
+  return containers.getContainer(namespace, name);
+}
+
 async function callContainerInternalTask(
   env: ScheduledEnv,
   task: ContainerTask,
   targetIds?: string[],
 ): Promise<Record<string, unknown>> {
-  if (!env.NEWS_SENTRY_CONTAINER) {
-    return { status: "skipped", reason: "container_not_configured" };
-  }
-  const container = getContainer(env.NEWS_SENTRY_CONTAINER, "admin-runtime");
+  const dependencyFailure = classifyContainerDependency(env.NEWS_SENTRY_CONTAINER);
+  if (dependencyFailure) return dependencyFailure;
+  const container = await getContainerHandle(env.NEWS_SENTRY_CONTAINER, "admin-runtime");
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort("container_task_timeout"),
@@ -670,8 +690,15 @@ export async function runScheduledCloudflareTask(
       snapshots: snapshotRefresh,
       snapshot_generation: snapshotGeneration,
     });
+    const importStatus = isRecord(importResult) && typeof importResult.status === "string"
+      ? importResult.status
+      : null;
     const status =
-      typeof compactDetails.status === "string" && compactDetails.status ? compactDetails.status : "ok";
+      importStatus === "empty_no_new_items"
+        ? importStatus
+        : typeof compactDetails.status === "string" && compactDetails.status
+          ? compactDetails.status
+          : "ok";
     if (task === "collect-cycle" && collectBatch !== null && ["ok", "partial"].includes(status)) {
       await persistCollectTargetCursor(env.DB, collectBatch);
     }

@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
 import { importContainerEventsToD1 } from "../workers/lib/container-import.ts";
+import { classifyContainerDependency } from "../workers/lib/scheduled.ts";
 
 class SqlitePreparedStatement {
   #database: SqliteD1Database;
@@ -181,4 +182,32 @@ test("scheduled validation failures retain the immutable R2 artifact for replay"
   assert.equal(bucket.objects.size, 0);
   assert.deepEqual({ ...db.first("SELECT COUNT(*) AS count FROM events") }, { count: 0 });
   assert.deepEqual({ ...db.first("SELECT COUNT(*) AS count FROM artifact_manifests") }, { count: 0 });
+});
+
+test("missing production container is a dependency failure", () => {
+  const result = classifyContainerDependency(undefined);
+
+  assert.deepEqual(result, {
+    status: "failed_dependency",
+    reason: "container_not_configured",
+  });
+});
+
+test("collected rows without import rows fail closed", async () => {
+  const db = new SqliteD1Database();
+  const bucket = new FakeR2Bucket();
+
+  await assert.rejects(
+    () => importContainerEventsToD1(
+      {
+        DB: db as unknown as D1Database,
+        NEWS_SENTRY_ARTIFACTS: bucket as unknown as R2Bucket,
+      },
+      { body: { summary: { events_collected: 3, import_events_count: 0 }, import_events: [] } },
+      "run-mismatch",
+      "2026-08-02T01:00:00Z",
+      "collect-cycle",
+    ),
+    /container_import_count_mismatch/,
+  );
 });

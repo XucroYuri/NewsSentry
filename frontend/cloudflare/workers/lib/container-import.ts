@@ -12,10 +12,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function extractContainerImportEvents(details: Record<string, unknown>): ImportEventItem[] {
+function extractContainerImportPayload(details: Record<string, unknown>): {
+  summary: Record<string, unknown>;
+  importEvents: unknown[];
+} {
   const body = details.body;
-  if (!isRecord(body) || !Array.isArray(body.import_events)) return [];
-  return body.import_events.filter(isRecord) as ImportEventItem[];
+  if (!isRecord(body)) return { summary: {}, importEvents: [] };
+  return {
+    summary: isRecord(body.summary) ? body.summary : {},
+    importEvents: Array.isArray(body.import_events) ? body.import_events : [],
+  };
+}
+
+function parseNonNegativeInteger(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
 export async function importContainerEventsToD1(
@@ -25,9 +36,27 @@ export async function importContainerEventsToD1(
   _generatedAt: string,
   _task: ContainerImportTask,
 ): Promise<Record<string, unknown>> {
-  const events = extractContainerImportEvents(details);
+  const payload = extractContainerImportPayload(details);
+  const collected = parseNonNegativeInteger(payload.summary.events_collected ?? 0);
+  const declared = parseNonNegativeInteger(
+    payload.summary.import_events_count ?? payload.importEvents.length,
+  );
+  if (
+    collected === null ||
+    declared === null ||
+    declared !== payload.importEvents.length
+  ) {
+    throw new Error("container_import_count_mismatch:declared_vs_actual");
+  }
+  if (collected > 0 && declared === 0) {
+    throw new Error("container_import_count_mismatch:collected_without_import_events");
+  }
+  const events = payload.importEvents.filter(isRecord) as ImportEventItem[];
+  if (events.length !== payload.importEvents.length) {
+    throw new Error("container_import_count_mismatch:declared_vs_actual");
+  }
   if (events.length === 0) {
-    return { received: 0, imported: 0, updated: 0, skipped: 0, errors: [] };
+    return { status: "empty_no_new_items", imported: 0, updated: 0, quarantined: 0, errors: [] };
   }
   const result = await executeDurableProjectionImport(env, {
     origin: "container-import",

@@ -111,9 +111,8 @@ function normalizeQueue(queue: QueueHealthInput | undefined): NonNullable<Health
   };
 }
 
-function hasFailedStatus(status: string | null): boolean {
-  if (!status) return false;
-  return ["error", "failed", "failed_retryable"].includes(status);
+function hasFailedStatus(status: string | null | undefined): boolean {
+  return ["error", "failed", "failed_retryable", "failed_dependency"].includes(String(status ?? ""));
 }
 
 function worstStatus(reasonCodes: string[]): HealthLevel {

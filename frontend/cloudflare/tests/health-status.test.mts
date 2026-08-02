@@ -201,6 +201,16 @@ test("D1 query failure is unhealthy and maps to HTTP 503", () => {
   assert.equal(httpStatusForHealth(health.status), 503);
 });
 
+test("dependency failures make runtime unhealthy", () => {
+  const input = baseInput();
+  input.scheduler.collect_cycle.status = "failed_dependency";
+
+  const health = buildHealthResponse(input);
+
+  assert.equal(health.status, "unhealthy");
+  assert.ok(health.reason_codes.includes("collect_cycle_failed"));
+});
+
 test("health endpoint wires D1 failures to explicit HTTP 503 responses", () => {
   const source = readFileSync(
     new URL("../workers/api/health.ts", import.meta.url),
