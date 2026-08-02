@@ -1,5 +1,6 @@
 """Docker 配置验证测试 — 不执行 docker build，仅验证配置文件的一致性和完整性。"""
 
+import re
 from pathlib import Path
 
 import yaml
@@ -9,6 +10,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 def _read_text(path: str) -> str:
     return (PROJECT_ROOT / path).read_text(encoding="utf-8")
+
+
+def _docker_env_value(name: str) -> str:
+    match = re.search(rf"^ENV\s+{re.escape(name)}=(\S+)\s*$", _read_text("Dockerfile"), re.M)
+    assert match is not None, f"Dockerfile must define ENV {name}"
+    return match.group(1)
 
 
 class TestDockerfile:
@@ -80,6 +87,14 @@ class TestDockerfile:
         """v2 Dockerfile 健康检查应使用 /api/v1/health。"""
         content = _read_text("Dockerfile")
         assert "/api/v1/health" in content
+
+    def test_dockerfile_default_profile_exists_and_is_cloudflare(self):
+        """Container 默认 profile 必须绑定真实 Cloudflare 部署 profile。"""
+        profile_id = _docker_env_value("NEWSSENTRY_PROFILE")
+        profile_path = PROJECT_ROOT / "config" / "profiles" / f"{profile_id}.yaml"
+
+        assert profile_id == "cloudflare"
+        assert profile_path.is_file()
 
 
 class TestDockerCompose:
