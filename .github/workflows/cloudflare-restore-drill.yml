@@ -1,0 +1,335 @@
+name: Cloudflare Restore Drill
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Source environment to export and restore in isolation"
+        required: true
+        default: preview
+        type: choice
+        options: [preview, production]
+      expected_commit:
+        description: "Exact 40-character commit SHA checked out by this run"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: news-sentry-restore-drill-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  restore-drill:
+    name: Export, R2 roundtrip, isolated D1 restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: ${{ inputs.environment }}
+    env:
+      WRANGLER: frontend/cloudflare/node_modules/.bin/wrangler
+      DRILL_DIR: ${{ runner.temp }}/news-sentry-restore-drill
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve fail-closed restore target
+        id: target
+        env:
+          REQUESTED_ENVIRONMENT: ${{ inputs.environment }}
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${EXPECTED_COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "expected_commit must be a full lowercase commit SHA" >&2
+            exit 1
+          fi
+          if [ "${EXPECTED_COMMIT}" != "${GITHUB_SHA}" ]; then
+            echo "expected_commit does not match the checked-out commit" >&2
+            exit 1
+          fi
+          case "${REQUESTED_ENVIRONMENT}" in
+            preview)
+              source_database="ns-db-preview"
+              artifact_bucket="news-sentry-artifacts-preview"
+              backup_bucket="news-sentry-restore-drills-preview"
+              allow_missing_artifact="true"
+              ;;
+            production)
+              if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+                echo "production restore drills are restricted to main" >&2
+                exit 1
+              fi
+              source_database="ns-db"
+              artifact_bucket="news-sentry-artifacts"
+              backup_bucket="news-sentry-restore-drills"
+              allow_missing_artifact="false"
+              ;;
+            *)
+              echo "unsupported restore environment" >&2
+              exit 1
+              ;;
+          esac
+          printf '%s=%s\n' "source_database" "${source_database}" >> "${GITHUB_OUTPUT}"
+          printf '%s=%s\n' "artifact_bucket" "${artifact_bucket}" >> "${GITHUB_OUTPUT}"
+          printf '%s=%s\n' "backup_bucket" "${backup_bucket}" >> "${GITHUB_OUTPUT}"
+          printf '%s=%s\n' "allow_missing_artifact" "${allow_missing_artifact}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/cloudflare/package-lock.json
+
+      - name: Install pinned Wrangler
+        working-directory: frontend/cloudflare
+        run: npm ci
+
+      - name: Ensure isolated private backup bucket
+        env:
+          BACKUP_BUCKET: ${{ steps.target.outputs.backup_bucket }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if ! "${WRANGLER}" r2 bucket info "${BACKUP_BUCKET}" --json \
+            > "${DRILL_DIR}-bucket.json"; then
+            "${WRANGLER}" r2 bucket create "${BACKUP_BUCKET}"
+            "${WRANGLER}" r2 bucket info "${BACKUP_BUCKET}" --json \
+              > "${DRILL_DIR}-bucket.json"
+          fi
+          BACKUP_BUCKET="${BACKUP_BUCKET}" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(Path(os.environ["DRILL_DIR"] + "-bucket.json").read_text())
+          if payload.get("name") != os.environ["BACKUP_BUCKET"]:
+              raise SystemExit("restore drill backup bucket identity mismatch")
+          PY
+
+      - name: Export source D1
+        id: export
+        env:
+          SOURCE_DATABASE: ${{ steps.target.outputs.source_database }}
+          SOURCE_ENVIRONMENT: ${{ inputs.environment }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${DRILL_DIR}"
+          export_file="${DRILL_DIR}/source-export.sql"
+          download_file="${DRILL_DIR}/r2-download.sql"
+          object_key="restore-drills/v1/${SOURCE_ENVIRONMENT}/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.sql"
+          "${WRANGLER}" d1 export "${SOURCE_DATABASE}" --remote \
+            --output "${export_file}" --skip-confirmation
+          test -s "${export_file}"
+          printf '%s=%s\n' "export_file" "${export_file}" >> "${GITHUB_OUTPUT}"
+          printf '%s=%s\n' "download_file" "${download_file}" >> "${GITHUB_OUTPUT}"
+          printf '%s=%s\n' "object_key" "${object_key}" >> "${GITHUB_OUTPUT}"
+
+      - name: Prove R2 backup roundtrip checksum
+        env:
+          BACKUP_BUCKET: ${{ steps.target.outputs.backup_bucket }}
+          EXPORT_FILE: ${{ steps.export.outputs.export_file }}
+          DOWNLOAD_FILE: ${{ steps.export.outputs.download_file }}
+          OBJECT_KEY: ${{ steps.export.outputs.object_key }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          object_path="${BACKUP_BUCKET}/${OBJECT_KEY}"
+          "${WRANGLER}" r2 object put "${object_path}" --remote \
+            --file "${EXPORT_FILE}" --content-type application/sql --force
+          "${WRANGLER}" r2 object get "${object_path}" --remote --file "${DOWNLOAD_FILE}"
+          python tools/cloudflare_restore_drill.py backup-receipt \
+            --object-key "${OBJECT_KEY}" \
+            --uploaded "${EXPORT_FILE}" \
+            --downloaded "${DOWNLOAD_FILE}" \
+            --output "${DRILL_DIR}/backup-receipt.json"
+
+      - name: Create isolated restore database
+        id: create-db
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          restore_database="ns-db-restore-drill-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          python tools/cloudflare_restore_drill.py validate-database \
+            --database "${restore_database}"
+          "${WRANGLER}" d1 create "${restore_database}"
+          printf '%s=%s\n' "database" "${restore_database}" >> "${GITHUB_OUTPUT}"
+          printf '%s=%s\n' "created" "true" >> "${GITHUB_OUTPUT}"
+
+      - name: Import D1 export into isolated database
+        env:
+          RESTORE_DATABASE: ${{ steps.create-db.outputs.database }}
+          DOWNLOAD_FILE: ${{ steps.export.outputs.download_file }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          "${WRANGLER}" d1 execute "${RESTORE_DATABASE}" --remote \
+            --file "${DOWNLOAD_FILE}" --yes
+
+      - name: Collect isolated restore evidence
+        env:
+          RESTORE_DATABASE: ${{ steps.create-db.outputs.database }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          python tools/cloudflare_restore_drill.py collect \
+            --database "${RESTORE_DATABASE}" \
+            --wrangler "${WRANGLER}" \
+            --remote \
+            --output "${DRILL_DIR}/query-results.json"
+
+      - name: Select latest immutable artifact
+        id: artifact
+        run: |
+          set -euo pipefail
+          python tools/cloudflare_restore_drill.py artifact-key \
+            --query-results "${DRILL_DIR}/query-results.json" \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - name: Prove immutable artifact checksum
+        if: steps.artifact.outputs.available == 'true'
+        env:
+          ARTIFACT_BUCKET: ${{ steps.target.outputs.artifact_bucket }}
+          OBJECT_KEY: ${{ steps.artifact.outputs.object_key }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          artifact_file="${DRILL_DIR}/import-artifact.json"
+          "${WRANGLER}" r2 object get "${ARTIFACT_BUCKET}/${OBJECT_KEY}" \
+            --remote --file "${artifact_file}"
+          python tools/cloudflare_restore_drill.py artifact-receipt \
+            --object-key "${OBJECT_KEY}" \
+            --path "${artifact_file}" \
+            --output "${DRILL_DIR}/artifact-receipts.json"
+
+      - name: Record absent preview artifact coverage
+        if: steps.artifact.outputs.available != 'true'
+        run: echo '{}' > "${DRILL_DIR}/artifact-receipts.json"
+
+      - name: Validate restored D1 and R2 evidence
+        env:
+          RESTORE_DATABASE: ${{ steps.create-db.outputs.database }}
+          ALLOW_MISSING_ARTIFACT: ${{ steps.target.outputs.allow_missing_artifact }}
+        run: |
+          set -euo pipefail
+          extra_args=()
+          if [ "${ALLOW_MISSING_ARTIFACT}" = "true" ]; then
+            extra_args+=(--allow-missing-artifact)
+          fi
+          python tools/cloudflare_restore_drill.py validate \
+            --database "${RESTORE_DATABASE}" \
+            --query-results "${DRILL_DIR}/query-results.json" \
+            --artifact-receipts "${DRILL_DIR}/artifact-receipts.json" \
+            --backup-receipt "${DRILL_DIR}/backup-receipt.json" \
+            --output "${DRILL_DIR}/restore-receipt.json" \
+            "${extra_args[@]}"
+
+      - name: Delete isolated restore database
+        id: cleanup
+        if: always() && steps.create-db.outputs.created == 'true'
+        env:
+          RESTORE_DATABASE: ${{ steps.create-db.outputs.database }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          python tools/cloudflare_restore_drill.py validate-database \
+            --database "${RESTORE_DATABASE}"
+          "${WRANGLER}" d1 delete "${RESTORE_DATABASE}" --skip-confirmation
+          "${WRANGLER}" d1 list --json > "${DRILL_DIR}/d1-list-after-cleanup.json"
+          RESTORE_DATABASE="${RESTORE_DATABASE}" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(
+              Path(os.environ["DRILL_DIR"], "d1-list-after-cleanup.json").read_text()
+          )
+          rows = payload if isinstance(payload, list) else payload.get("result", [])
+          if any(row.get("name") == os.environ["RESTORE_DATABASE"] for row in rows):
+              raise SystemExit("isolated restore database still exists after cleanup")
+          PY
+
+      - name: Ensure sanitized workflow receipt
+        if: always()
+        env:
+          CLEANUP_OUTCOME: ${{ steps.cleanup.outcome }}
+          RESTORE_DATABASE: ${{ steps.create-db.outputs.database }}
+          SOURCE_ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from datetime import UTC, datetime
+          from pathlib import Path
+
+          path = Path(os.environ["DRILL_DIR"], "restore-receipt.json")
+          if path.exists():
+              receipt = json.loads(path.read_text())
+          else:
+              receipt = {
+                  "schema_version": "2026-08-02.cloudflare-restore-drill.v1",
+                  "status": "failed",
+                  "source_environment": os.environ["SOURCE_ENVIRONMENT"],
+                  "summary": {"blockers": ["restore_workflow_incomplete"]},
+              }
+          cleanup_outcome = os.environ.get("CLEANUP_OUTCOME")
+          if cleanup_outcome == "success":
+              receipt.setdefault("evidence", {})["cleanup"] = {
+                  "database": os.environ.get("RESTORE_DATABASE"),
+                  "verified_absent": True,
+                  "verified_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+              }
+          elif cleanup_outcome == "failure":
+              receipt["status"] = "failed"
+              blockers = receipt.setdefault("summary", {}).setdefault("blockers", [])
+              blockers.append("restore_database_cleanup_failed")
+              receipt["summary"]["blockers"] = sorted(set(blockers))
+          elif receipt.get("status") == "ok":
+              receipt["status"] = "failed"
+              blockers = receipt.setdefault("summary", {}).setdefault("blockers", [])
+              blockers.append("restore_database_cleanup_not_verified")
+              receipt["summary"]["blockers"] = sorted(set(blockers))
+          path.parent.mkdir(parents=True, exist_ok=True)
+          path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+          PY
+
+      - name: Upload sanitized restore receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-restore-receipt-${{ inputs.environment }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/news-sentry-restore-drill/restore-receipt.json
+          if-no-files-found: error
+          retention-days: 30

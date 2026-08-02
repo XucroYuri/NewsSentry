@@ -1,6 +1,6 @@
 # News Sentry 当前状态
 
-> 更新时间：2026-08-02T07:03:52+08:00
+> 更新时间：2026-08-02T10:21:48+08:00
 > 状态口径：本文件只记录会变化的运行态事实；架构和字段契约仍以 `docs/architecture.md` 与 `docs/contracts-canonical.md` 为准。
 > 完整证据：[2026-08-01 项目健康、安全与低成本全球化审计](./audits/2026-08-01-project-health-security-cost-audit.md)
 
@@ -9,6 +9,8 @@
 当前综合健康分为 **58/100**：公开网站和 API 可服务，工程测试基线较强，但持续采集、数据新鲜度、评分一致性、远端状态证明和若干安全边界尚未达到可持续生产运营标准。
 
 2026-08-02 Phase 2 Task 4 与隔离 Preview 已完成一次远端闭环：GitHub run `30721353606` 在 commit `4f90cda26fe05c61b2ea46605d2d5e3f6e0208da` 上成功创建/更新 `news-sentry-api-preview`、`ns-db-preview` 与 Preview Pages，并实际执行 Preview 验证。`live`、`ready`、`health` 均返回 `200/ok`，响应正文与 `x-news-sentry-deploy-commit` 对齐同一 commit；D1 schema/seed、Pages 到 Preview API 的构建绑定、精确 CORS、CSP 和快照命中均有 artifact 回执。候选分支同时加入每 6 小时运行的无密钥公开面健康探针，将 Pages、Worker、D1 数据新鲜度和部署 commit 分开验证并保留 14 天 JSON 回执。生产仍未更新，也没有 72 小时 canary 或 7 天 SLO 证据，因此综合分仍为 **58/100**。
+
+同日第二次隔离部署 run `30727960018` 在 commit `2bfe26dd1f71bd510ab45826b08659f6506a8ba2` 上完成全量 CI、Preview R2 bucket identity、D1 schema、Worker、Pages 和最终验证。`live`、`ready`、`health` 现场复核均为 `200/ok`，`artifacts_configured=true`，部署 header 对齐该 commit，Worker version 为 `ba19fdc0-95f2-4f67-b15a-ba7758e154ff`，Pages immutable URL 为 `https://469e4bd4.news-sentry.pages.dev`。这证明 R2 binding 与部署门禁可用，仍不证明真实导入对象写入或生产恢复。
 
 最重要的事实不是“网站是否返回 200”，而是：
 
@@ -29,13 +31,13 @@
 | Release 距离 | `v2.0.0-rc3-198-g83efaaa`，HEAD 不是已打 tag 的 release |
 | Targets | 配置 82；生产 regions 端点返回 82 |
 | Sources | 1,128 个 YAML 文件、1,127 个 `source_id`；远端审计展开为 1,803 条 target-source 引用 |
-| Python tests | 当前工作树全量通过、覆盖率 85%；本轮变更相关 88 项通过 |
+| Python tests | 远端全量 CI 通过、覆盖率 85%；本轮 Cloudflare/restore 相关 100 项通过 |
 | Python quality | ruff 通过；CI 等价 `mypy --ignore-missing-imports` 对 142 个源文件通过 |
 | Public frontend | 139 tests、typecheck、build 全部通过 |
 | Admin frontend | 68 tests、typecheck、build 全部通过 |
 | SEO/GEO | 线上 22/22 通过 |
 | 生产 Deploy | 最新 main run `28563362256` 成功，时间 2026-07-02 |
-| Preview | 隔离 run `30721353606` 成功；Worker version `03f7a5ec-6441-45cb-bb37-9a95c889de37`；Pages immutable URL `https://9048b7fc.news-sentry.pages.dev` |
+| Preview | 隔离 run `30727960018` 成功；Worker version `ba19fdc0-95f2-4f67-b15a-ba7758e154ff`；Pages immutable URL `https://469e4bd4.news-sentry.pages.dev` |
 | 未合并工作 | Draft PR #50 仍未审批/合并；本地有用户已有未跟踪 latent-value 文件，本次未改动 |
 
 ## 本地改造进度（尚未代表生产）
@@ -46,10 +48,12 @@
 | Phase 2 Queue shadow 与 DLQ replay | 已提交，含 scoped review/fix 记录 | Preview 公开面不证明 Queue/Cron/Container |
 | Phase 2 Task 4 preview-safe preflight/receipt | 实现与测试完成 | run `30721353606` 的 preflight、D1 schema/seed、Worker/Pages deploy 与 verify 全部成功 |
 | 隔离 Preview Worker/D1 | config、guard、seed、receipt、Pages/API 绑定和质量门禁均完成 | `news-sentry-api-preview`、`ns-db-preview`、Preview Pages 已创建并验证 |
+| D1/R2 持久化边界 | R2 不可变导入正文、D1 manifest、围栏式 finalize 与失败重放已完成 | run `30727960018` 已证明 Preview R2 bucket/binding/ready 门禁；尚无真实导入对象回执 |
+| 隔离恢复演练 | D1 export、独立私有 R2 往返校验、一次性 D1 import、schema/row/orphan/snapshot 校验和强制清理 workflow 已完成本地测试 | 尚未对 Preview/Production 运行；不得把本地 100 项门禁视为恢复成功 |
 | 发布治理 | `preview` 可从候选分支部署隔离面；`production` 只接受 `main`；workflow 不直接改写 `main` | Draft PR #50 `CLEAN`，但仍无审批/合并；生产 job 在 Preview run 中明确跳过 |
 | 供应链 | Wrangler `4.114.0`、Miniflare `4.20260722.0`、Sharp `0.35.2`；官方 npm audit 0 | GitHub CI 与 Preview 部署均通过 |
 | 健康质量门禁 | 缺失、畸形、陈旧或未来时间戳均拒绝；新增公开面运行探针和 JSON 回执 | Preview 门禁已证明；生产探针会拒绝当前 false-green 状态 |
-| 安全深扫 | workspace 已建，但原生扫描仍停在 `Preparing scan` | 未启动，无 scanId；不得把 UI 停留视为扫描进度 |
+| 安全深扫 | 旧 revision 扫描仍停在 `Preparing scan` | 旧 scanId `f7ea0ba1-a833-4239-a7dc-a189073ab1f6` 没有 discovery/finding；最终 SHA 固定后必须新建扫描 |
 | 72h canary / 7d SLO | 每 6 小时探针 workflow 已纳入候选分支，回执保留 14 天 | 尚未开始积累；需合并后由 schedule 产生持续证据 |
 
 ## 综合评分

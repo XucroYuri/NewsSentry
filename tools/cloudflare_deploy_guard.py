@@ -22,10 +22,16 @@ from urllib import request
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from tools.cloudflare_runtime_contract import EXPECTED_MIGRATION_RECEIPTS  # noqa: E402
+
 try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover - Python 3.10 fallback is not used in CI
-    import tomli as tomllib  # type: ignore[no-redef]
+    import tomli as tomllib  # type: ignore[import-not-found,no-redef]
 
 
 Runner = Callable[[list[str]], str]
@@ -44,13 +50,6 @@ EXPECTED_RUNTIME_VARS = {
     "SCHEDULER_MODE": "shadow",
     "WORKER_NATIVE_COLLECT_ENABLED": "false",
 }
-EXPECTED_MIGRATION_RECEIPTS = (
-    "20260801_phase0_data_quarantine",
-    "20260801_phase1_job_runtime",
-    "20260802_phase2_import_staging",
-    "20260802_phase2_dlq_replay_receipts",
-    "20260802_phase3_durable_artifacts",
-)
 RUNTIME_SCHEMA_TABLE_QUERY = (
     "SELECT name FROM sqlite_master WHERE type='table' AND name IN "
     "('import_staged_events','import_batch_finalize_receipts',"

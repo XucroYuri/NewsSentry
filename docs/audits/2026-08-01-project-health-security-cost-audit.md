@@ -366,8 +366,9 @@ Worker 独占 R2 binding；对象 key 由正文 SHA-256 生成，并使用 condi
 migration receipt。
 
 但生产仍未部署该提交，且 Python Container 的 SQLite、Markdown、日志和 memory 仍写入本地 `./data`。
-因此目前只能证明“原始导入事件批次可外置”的本地实现，不能证明全部 Container 状态可无状态替换，
-也没有完成 D1 export + 隔离 import + R2 checksum 的恢复演练。远端分值保持不变。
+因此目前只能证明“原始导入事件批次可外置”的本地实现，不能证明全部 Container 状态可无状态替换。
+D1 export + 独立私有 R2 往返 + 隔离 D1 import + checksum/orphan/snapshot 校验的手动 workflow
+及 fail-closed 工具已完成本地实现与测试，但尚无远端 restore receipt。远端分值保持不变。
 
 低成本持久化边界必须收敛为：
 
