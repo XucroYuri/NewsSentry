@@ -53,7 +53,7 @@ jobs:
               source_database="ns-db-preview"
               artifact_bucket="news-sentry-artifacts-preview"
               backup_bucket="news-sentry-restore-drills-preview"
-              allow_missing_artifact="true"
+              allow_missing_artifact="false"
               ;;
             production)
               if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
@@ -231,27 +231,18 @@ jobs:
             --path "${artifact_file}" \
             --output "${DRILL_DIR}/artifact-receipts.json"
 
-      - name: Record absent preview artifact coverage
-        if: steps.artifact.outputs.available != 'true'
-        run: echo '{}' > "${DRILL_DIR}/artifact-receipts.json"
-
       - name: Validate restored D1 and R2 evidence
         env:
           RESTORE_DATABASE: ${{ steps.create-db.outputs.database }}
-          ALLOW_MISSING_ARTIFACT: ${{ steps.target.outputs.allow_missing_artifact }}
         run: |
           set -euo pipefail
-          extra_args=()
-          if [ "${ALLOW_MISSING_ARTIFACT}" = "true" ]; then
-            extra_args+=(--allow-missing-artifact)
-          fi
+          test -f "${DRILL_DIR}/artifact-receipts.json" || printf '{}\n' > "${DRILL_DIR}/artifact-receipts.json"
           python tools/cloudflare_restore_drill.py validate \
             --database "${RESTORE_DATABASE}" \
             --query-results "${DRILL_DIR}/query-results.json" \
             --artifact-receipts "${DRILL_DIR}/artifact-receipts.json" \
             --backup-receipt "${DRILL_DIR}/backup-receipt.json" \
-            --output "${DRILL_DIR}/restore-receipt.json" \
-            "${extra_args[@]}"
+            --output "${DRILL_DIR}/restore-receipt.json"
 
       - name: Delete isolated restore database
         id: cleanup

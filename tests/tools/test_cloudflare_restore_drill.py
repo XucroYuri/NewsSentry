@@ -74,7 +74,17 @@ def _good_query_results() -> dict[str, list[dict[str, Any]]]:
                 "artifact_batch_orphans": 0,
                 "staged_event_orphans": 0,
                 "finalize_receipt_orphans": 0,
+                "projection_finalize_receipt_orphans": 0,
+                "projection_job_orphans": 0,
+                "projection_artifact_orphans": 0,
+                "finalize_receipt_conflicts": 0,
+                "projection_guard_mismatches": 0,
             }
+        ],
+        "artifact_status_counts": [
+            {"status": "committed", "row_count": 1},
+            {"status": "stored", "row_count": 0},
+            {"status": "failed", "row_count": 0},
         ],
         "public_snapshots": [
             _snapshot("news:featured:v1:page_size=20", {"items": [{"id": "event-1"}]}),
@@ -233,6 +243,47 @@ def test_restore_drill_fails_closed_on_orphan_count() -> None:
     assert "orphan_count_nonzero:artifact_manifest_orphans" in receipt["summary"]["blockers"]
 
 
+@pytest.mark.parametrize(
+    "field",
+    [
+        "projection_finalize_receipt_orphans",
+        "projection_job_orphans",
+        "projection_artifact_orphans",
+        "finalize_receipt_conflicts",
+        "projection_guard_mismatches",
+    ],
+)
+def test_restore_drill_fails_closed_on_projection_receipt_integrity_counts(
+    field: str,
+) -> None:
+    query_results = _good_query_results()
+    query_results["orphan_counts"][0][field] = 1
+
+    receipt = _receipt(query_results=query_results)
+
+    assert receipt["status"] == "failed"
+    assert f"orphan_count_nonzero:{field}" in receipt["summary"]["blockers"]
+    assert receipt["evidence"]["orphan_counts"][field] == 1
+
+
+def test_restore_drill_fails_closed_when_noncommitted_artifacts_exist() -> None:
+    query_results = _good_query_results()
+    query_results["artifact_status_counts"] = [
+        {"status": "committed", "row_count": 1},
+        {"status": "stored", "row_count": 2},
+        {"status": "failed", "row_count": 1},
+    ]
+
+    receipt = _receipt(query_results=query_results)
+
+    assert receipt["status"] == "failed"
+    assert (
+        "artifact_manifest_status_invalid:noncommitted_artifacts:stored=2,failed=1"
+        in receipt["summary"]["blockers"]
+    )
+    assert receipt["evidence"]["noncommitted_artifacts"] == {"stored": 2, "failed": 1}
+
+
 def test_restore_drill_fails_closed_on_checksum_mismatch() -> None:
     receipt = _receipt(artifact_receipts={ARTIFACT_KEY: {"sha256": SHA_B, "bytes": 48}})
 
@@ -250,6 +301,25 @@ def test_restore_drill_fails_closed_on_failed_artifact() -> None:
     assert f"artifact_manifest_status_invalid:{ARTIFACT_KEY}" in receipt["summary"][
         "blockers"
     ]
+
+
+def test_restore_drill_fails_closed_on_stored_artifact() -> None:
+    query_results = _good_query_results()
+    query_results["artifact_manifests"][0]["status"] = "stored"
+
+    receipt = _receipt(query_results=query_results)
+
+    assert receipt["status"] == "failed"
+    assert f"artifact_manifest_status_invalid:{ARTIFACT_KEY}" in receipt["summary"][
+        "blockers"
+    ]
+
+
+def test_artifact_key_ignores_uncommitted_manifest_rows() -> None:
+    query_results = _good_query_results()
+    query_results["artifact_manifests"][0]["status"] = "stored"
+
+    assert drill.selected_artifact_object_key(query_results) is None
 
 
 def test_restore_drill_requires_namespaced_artifact_key() -> None:
@@ -291,18 +361,18 @@ def test_restore_drill_fails_closed_on_backup_roundtrip_mismatch() -> None:
     assert "backup_sha256_mismatch" in receipt["summary"]["blockers"]
 
 
-def test_preview_can_report_missing_artifact_without_claiming_coverage() -> None:
+def test_restore_drill_fails_closed_when_artifact_is_missing() -> None:
     query_results = _good_query_results()
     query_results["artifact_manifests"] = []
 
     receipt = _receipt(
         query_results=query_results,
         artifact_receipts={},
-        require_artifact=False,
     )
 
-    assert receipt["status"] == "ok"
+    assert receipt["status"] == "failed"
     assert receipt["summary"]["artifact_coverage"] == "not_available"
+    assert "artifact_manifest_missing" in receipt["summary"]["blockers"]
 
 
 def test_restore_drill_fails_closed_on_invalid_public_snapshot_json() -> None:

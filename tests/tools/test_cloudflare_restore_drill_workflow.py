@@ -122,7 +122,7 @@ def test_restore_target_accepts_preview_and_rejects_sha_or_production_ref(
     output = (tmp_path / "github-output").read_text(encoding="utf-8")
     assert "source_database=ns-db-preview" in output
     assert "artifact_bucket=news-sentry-artifacts-preview" in output
-    assert "allow_missing_artifact=true" in output
+    assert "allow_missing_artifact=false" in output
     assert "backup_bucket=news-sentry-restore-drills-preview" in output
 
     mismatch = _run_target_step(

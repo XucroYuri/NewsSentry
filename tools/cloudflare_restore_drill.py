@@ -58,6 +58,7 @@ REQUIRED_TABLES = frozenset(
         "import_batch_chunks",
         "import_staged_events",
         "import_batch_finalize_receipts",
+        "import_projection_finalize_receipts",
         "artifact_manifests",
         "dlq_replay_receipts",
         "dlq_consumption_receipts",
@@ -78,6 +79,7 @@ REQUIRED_INDEXES = frozenset(
         "idx_import_staged_events_batch_chunk",
         "idx_artifact_manifests_status_created",
         "idx_artifact_manifests_job",
+        "idx_projection_receipts_idempotency_key",
         "idx_dlq_replay_receipts_original",
         "idx_dlq_consumption_receipts_consumed",
     }
@@ -99,6 +101,11 @@ ZERO_ORPHAN_FIELDS = (
     "artifact_batch_orphans",
     "staged_event_orphans",
     "finalize_receipt_orphans",
+    "projection_finalize_receipt_orphans",
+    "projection_job_orphans",
+    "projection_artifact_orphans",
+    "finalize_receipt_conflicts",
+    "projection_guard_mismatches",
 )
 SCHEMA_VERSION = "2026-08-02.cloudflare-restore-drill.v1"
 
@@ -122,7 +129,11 @@ RESTORE_QUERIES: Mapping[str, str] = {
     ),
     "artifact_manifests": (
         "SELECT artifact_id, batch_id, job_id, object_key, sha256, payload_bytes, status "
-        "FROM artifact_manifests ORDER BY created_at DESC LIMIT 1"
+        "FROM artifact_manifests WHERE status='committed' ORDER BY created_at DESC LIMIT 1"
+    ),
+    "artifact_status_counts": (
+        "SELECT status, COUNT(*) AS row_count FROM artifact_manifests "
+        "WHERE status IN ('stored', 'failed') GROUP BY status ORDER BY status"
     ),
     "orphan_counts": (
         "SELECT "
@@ -137,7 +148,28 @@ RESTORE_QUERIES: Mapping[str, str] = {
         "(SELECT COUNT(*) FROM import_staged_events ise LEFT JOIN import_batches ib "
         "ON ib.batch_id=ise.batch_id WHERE ib.batch_id IS NULL) AS staged_event_orphans, "
         "(SELECT COUNT(*) FROM import_batch_finalize_receipts fr LEFT JOIN import_batches ib "
-        "ON ib.batch_id=fr.batch_id WHERE ib.batch_id IS NULL) AS finalize_receipt_orphans"
+        "ON ib.batch_id=fr.batch_id WHERE ib.batch_id IS NULL) AS finalize_receipt_orphans, "
+        "(SELECT COUNT(*) FROM import_projection_finalize_receipts pfr "
+        "LEFT JOIN import_batches ib ON ib.batch_id=pfr.batch_id "
+        "WHERE ib.batch_id IS NULL) AS projection_finalize_receipt_orphans, "
+        "(SELECT COUNT(*) FROM import_projection_finalize_receipts pfr "
+        "LEFT JOIN jobs j ON j.job_id=pfr.job_id WHERE j.job_id IS NULL) "
+        "AS projection_job_orphans, "
+        "(SELECT COUNT(*) FROM import_projection_finalize_receipts pfr "
+        "LEFT JOIN artifact_manifests am ON am.artifact_id=pfr.artifact_id "
+        "WHERE am.artifact_id IS NULL) AS projection_artifact_orphans, "
+        "(SELECT COUNT(*) FROM import_batch_finalize_receipts fr "
+        "JOIN import_projection_finalize_receipts pfr ON pfr.batch_id=fr.batch_id) "
+        "AS finalize_receipt_conflicts, "
+        "(SELECT COUNT(*) FROM import_projection_finalize_receipts pfr "
+        "LEFT JOIN import_batches ib ON ib.batch_id=pfr.batch_id "
+        "LEFT JOIN jobs j ON j.job_id=pfr.job_id "
+        "LEFT JOIN artifact_manifests am ON am.artifact_id=pfr.artifact_id "
+        "WHERE pfr.batch_guard IS NULL OR pfr.batch_guard != pfr.batch_id "
+        "OR pfr.job_guard IS NULL OR pfr.job_guard != pfr.job_id "
+        "OR pfr.artifact_guard IS NULL OR pfr.artifact_guard != pfr.artifact_id "
+        "OR pfr.batch_checksum IS NULL OR pfr.batch_checksum != ib.checksum) "
+        "AS projection_guard_mismatches"
     ),
     "public_snapshots": (
         "SELECT key, payload_json, payload_bytes, item_count "
@@ -312,6 +344,8 @@ def selected_artifact_object_key(
         return None
     if len(rows) != 1:
         raise RestoreDrillError("artifact_manifest_selection_ambiguous")
+    if rows[0].get("status") != "committed":
+        return None
     object_key = rows[0].get("object_key")
     if not isinstance(object_key, str):
         raise RestoreDrillError("artifact_manifest_object_key_missing")
@@ -398,7 +432,7 @@ def _validate_artifacts(
         if expected_bytes is None or expected_bytes < 0:
             blockers.append(f"artifact_manifest_bytes_invalid:{object_key}")
             continue
-        if status not in {"stored", "committed"}:
+        if status != "committed":
             blockers.append(f"artifact_manifest_status_invalid:{object_key}")
         actual = receipts_by_key.get(object_key)
         if actual is None:
@@ -486,6 +520,24 @@ def _validate_orphan_counts(rows: list[dict[str, Any]]) -> tuple[dict[str, int],
     for field in ZERO_ORPHAN_FIELDS:
         if field not in counts:
             blockers.append(f"orphan_count_missing:{field}")
+    return counts, blockers
+
+
+def _validate_noncommitted_artifacts(
+    rows: list[dict[str, Any]],
+) -> tuple[dict[str, int], list[str]]:
+    counts = {"stored": 0, "failed": 0}
+    for row in rows:
+        status = row.get("status")
+        count = _int_value(row.get("row_count", row.get("count", row.get("total"))))
+        if status in counts and count is not None:
+            counts[status] = count
+    blockers: list[str] = []
+    if counts["stored"] or counts["failed"]:
+        blockers.append(
+            "artifact_manifest_status_invalid:"
+            f"noncommitted_artifacts:stored={counts['stored']},failed={counts['failed']}"
+        )
     return counts, blockers
 
 
@@ -579,6 +631,11 @@ def build_restore_receipt(
     )
     blockers.extend(orphan_blockers)
 
+    noncommitted_artifacts, noncommitted_blockers = _validate_noncommitted_artifacts(
+        query_results.get("artifact_status_counts", [])
+    )
+    blockers.extend(noncommitted_blockers)
+
     public_snapshots, snapshot_blockers = _validate_public_snapshots(
         query_results.get("public_snapshots", [])
     )
@@ -608,6 +665,7 @@ def build_restore_receipt(
             "artifact_manifests": artifacts,
             "backup_roundtrip": backup,
             "orphan_counts": orphan_counts,
+            "noncommitted_artifacts": noncommitted_artifacts,
             "public_snapshots": public_snapshots,
         },
     }
