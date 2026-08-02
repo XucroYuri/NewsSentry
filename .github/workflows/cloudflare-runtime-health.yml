@@ -18,13 +18,17 @@ on:
         required: false
         default: ""
       expected_commit:
-        description: "Expected deployed commit; required for preview"
+        description: "Optional guard commit; must match deployment metadata when set"
         required: false
         default: ""
       max_data_age_hours:
         description: "Fail when valid collection data is older than this"
         required: true
         default: "2"
+      bootstrap_continuity:
+        description: "Start a new audited continuity window when no prior ledger exists"
+        required: true
+        default: "false"
   schedule:
     # Four short probes per day are enough for 72h/7d evidence without
     # introducing another always-on service or material artifact cost.
@@ -67,34 +71,6 @@ jobs:
             public_base_url="https://news-sentry.com"
             api_base_url="https://api.news-sentry.com"
             max_data_age_hours="2"
-            echo "Resolve deployed commit from guard receipt and deployment metadata"
-            python - <<'PY' > /tmp/news-sentry-current-deployment.json
-          import json
-          import sys
-          import urllib.request
-
-          request = urllib.request.Request(
-              "https://api.news-sentry.com/api/v1/ready",
-              headers={"User-Agent": "NewsSentryContinuityResolver/1.0"},
-          )
-          with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
-              payload = json.loads(response.read().decode("utf-8"))
-          deployment = payload.get("deployment") if isinstance(payload, dict) else {}
-          if not isinstance(deployment, dict):
-              deployment = {}
-          deployed_commit = deployment.get("commit")
-          deployed_at = deployment.get("deployed_at") or deployment.get("created_at")
-          if not isinstance(deployed_commit, str) or len(deployed_commit) != 40:
-              print("Deployment metadata did not expose a full deployed commit.", file=sys.stderr)
-              raise SystemExit(1)
-          if not isinstance(deployed_at, str) or not deployed_at:
-              print("Deployment metadata did not expose deployed_at.", file=sys.stderr)
-              raise SystemExit(1)
-          print(json.dumps({"deployed_commit": deployed_commit, "deployed_at": deployed_at}))
-          PY
-            DEPLOYED_COMMIT="$(python -c 'import json;print(json.load(open("/tmp/news-sentry-current-deployment.json"))["deployed_commit"])')"
-            deployed_at="$(python -c 'import json;print(json.load(open("/tmp/news-sentry-current-deployment.json"))["deployed_at"])')"
-            expected_commit="${DEPLOYED_COMMIT}"
           else
             environment="${INPUT_ENVIRONMENT:-production}"
             max_data_age_hours="${INPUT_MAX_DATA_AGE_HOURS:-2}"
@@ -102,17 +78,11 @@ jobs:
               production)
                 public_base_url="${INPUT_PUBLIC_BASE_URL:-https://news-sentry.com}"
                 api_base_url="${INPUT_API_BASE_URL:-https://api.news-sentry.com}"
-                expected_commit="${INPUT_EXPECTED_COMMIT}"
-                : "${expected_commit:?Production expected_commit is required outside scheduled metadata probes.}"
-                deployed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
                 ;;
               preview)
                 public_base_url="${INPUT_PUBLIC_BASE_URL}"
                 api_base_url="${INPUT_API_BASE_URL:-https://news-sentry-api-preview.xuyu.workers.dev}"
-                expected_commit="${INPUT_EXPECTED_COMMIT}"
-                deployed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
                 : "${public_base_url:?Preview public_base_url is required.}"
-                : "${expected_commit:?Preview expected_commit is required.}"
                 ;;
               *)
                 echo "Unsupported environment: ${environment}" >&2
@@ -133,9 +103,43 @@ jobs:
           reject_multiline "environment" "${environment}"
           reject_multiline "public_base_url" "${public_base_url}"
           reject_multiline "api_base_url" "${api_base_url}"
-          reject_multiline "expected_commit" "${expected_commit}"
-          reject_multiline "deployed_at" "${deployed_at}"
+          reject_multiline "input_expected_commit" "${INPUT_EXPECTED_COMMIT}"
           reject_multiline "max_data_age_hours" "${max_data_age_hours}"
+          echo "Resolve deployed commit from guard receipt and deployment metadata"
+          API_BASE_URL="${api_base_url}" INPUT_EXPECTED_COMMIT="${INPUT_EXPECTED_COMMIT}" python - <<'PY' > /tmp/news-sentry-current-deployment.json
+          import json
+          import os
+          import sys
+          import urllib.request
+
+          api_base_url = os.environ["API_BASE_URL"].rstrip("/")
+          request = urllib.request.Request(
+              f"{api_base_url}/api/v1/ready",
+              headers={"User-Agent": "NewsSentryContinuityResolver/1.0"},
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
+              payload = json.loads(response.read().decode("utf-8"))
+          deployment = payload.get("deployment") if isinstance(payload, dict) else {}
+          if not isinstance(deployment, dict):
+              deployment = {}
+          deployed_commit = deployment.get("commit")
+          deployed_at = deployment.get("deployed_at") or deployment.get("created_at")
+          input_expected_commit = os.environ.get("INPUT_EXPECTED_COMMIT") or ""
+          if not isinstance(deployed_commit, str) or len(deployed_commit) != 40:
+              print("Deployment metadata did not expose a full deployed commit.", file=sys.stderr)
+              raise SystemExit(1)
+          if input_expected_commit and input_expected_commit.lower() != deployed_commit.lower():
+              print("Deployment metadata expected_commit mismatch.", file=sys.stderr)
+              raise SystemExit(1)
+          if not isinstance(deployed_at, str) or not deployed_at:
+              print("Deployment metadata did not expose deployed_at.", file=sys.stderr)
+              raise SystemExit(1)
+          print(json.dumps({"deployed_commit": deployed_commit, "deployed_at": deployed_at}))
+          PY
+          DEPLOYED_COMMIT="$(python -c 'import json;print(json.load(open("/tmp/news-sentry-current-deployment.json"))["deployed_commit"])')"
+          deployed_at="$(python -c 'import json;print(json.load(open("/tmp/news-sentry-current-deployment.json"))["deployed_at"])')"
+          expected_commit="${DEPLOYED_COMMIT}"
+          reject_multiline "deployed_at" "${deployed_at}"
           if [[ ! "${expected_commit}" =~ ^[0-9a-fA-F]{40}$ ]]; then
             echo "Invalid expected_commit: expected a 40-character Git commit SHA." >&2
             exit 1
@@ -183,12 +187,15 @@ jobs:
       - name: Download previous continuity ledger
         env:
           GH_TOKEN: ${{ github.token }}
+          ENVIRONMENT: ${{ steps.target.outputs.environment }}
+          EXPECTED_COMMIT: ${{ steps.target.outputs.expected_commit }}
+          BOOTSTRAP_CONTINUITY: ${{ github.event.inputs.bootstrap_continuity || 'false' }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/news-sentry-continuity-artifacts
           previous_run_id="$(gh run list --workflow cloudflare-runtime-health.yml --status completed --limit 5 --json databaseId --jq '.[0].databaseId // ""')"
           if [[ -n "${previous_run_id}" ]]; then
-            artifact_name="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${previous_run_id}/artifacts" --jq '.artifacts[]?.name | select(startswith("cloudflare-continuity-ledger-"))' | head -n 1 || true)"
+            artifact_name="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${previous_run_id}/artifacts" --jq '.artifacts[]?.name | select(startswith("cloudflare-continuity-ledger-${ENVIRONMENT}-${EXPECTED_COMMIT}-"))' | head -n 1 || true)"
             if [[ -n "${artifact_name}" ]]; then
               gh run download "${previous_run_id}" \
                 --name "${artifact_name}" \
@@ -198,7 +205,27 @@ jobs:
           if [[ -f /tmp/news-sentry-continuity-artifacts/news-sentry-cloudflare-continuity-ledger.jsonl ]]; then
             cp /tmp/news-sentry-continuity-artifacts/news-sentry-cloudflare-continuity-ledger.jsonl /tmp/news-sentry-cloudflare-continuity-ledger.jsonl
           else
+            if [[ "${BOOTSTRAP_CONTINUITY}" != "true" ]]; then
+              echo "No previous continuity ledger found; set bootstrap_continuity=true for an audited bootstrap." >&2
+              exit 1
+            fi
             : > /tmp/news-sentry-cloudflare-continuity-ledger.jsonl
+          fi
+          if [[ -s /tmp/news-sentry-cloudflare-continuity-ledger.jsonl ]]; then
+            python tools/cloudflare_continuity_ledger.py evaluate \
+              --ledger /tmp/news-sentry-cloudflare-continuity-ledger.jsonl \
+              --expected-commit "${EXPECTED_COMMIT}" \
+              --output /tmp/news-sentry-cloudflare-continuity-previous-state.json || true
+            python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          state = json.loads(Path("/tmp/news-sentry-cloudflare-continuity-previous-state.json").read_text())
+          if state.get("deployed_commit") != os.environ["EXPECTED_COMMIT"]:
+              print("Ledger deployed_commit does not match expected commit", flush=True)
+              raise SystemExit(1)
+          PY
           fi
           python - <<'PY'
           import json
@@ -253,7 +280,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cloudflare-continuity-ledger-${{ github.run_id }}
+          name: cloudflare-continuity-ledger-${{ steps.target.outputs.environment }}-${{ steps.target.outputs.expected_commit }}-${{ github.run_id }}
           path: |
             /tmp/news-sentry-cloudflare-continuity-ledger.jsonl
             /tmp/news-sentry-cloudflare-continuity-state.json

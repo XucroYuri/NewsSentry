@@ -15,12 +15,17 @@ on:
         description: "Fail when failed live checks exceed this count"
         required: false
         default: "0"
+      bootstrap_weekly_slo:
+        description: "Allow first audited Source Health SLO run without previous summary"
+        required: true
+        default: "false"
   schedule:
     # Weekly source health sweep. Network conditions vary, so the JSONL receipt
     # is the durable review surface when sources fail.
     - cron: "23 2 * * 1"
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -50,6 +55,26 @@ jobs:
             --receipt-output /tmp/news-sentry-source-coverage-receipts.jsonl \
             --pretty > /tmp/news-sentry-source-coverage.json
 
+      - name: Download previous Source Health SLO
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BOOTSTRAP_WEEKLY_SLO: ${{ github.event.inputs.bootstrap_weekly_slo || 'false' }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/news-sentry-source-health-previous
+          previous_run_id="$(gh run list --workflow source-health.yml --status completed --limit 5 --json databaseId --jq '.[0].databaseId // ""')"
+          if [[ -n "${previous_run_id}" ]]; then
+            gh run download "${previous_run_id}" \
+              --name source-health-receipts \
+              --dir /tmp/news-sentry-source-health-previous || true
+          fi
+          if [[ -f /tmp/news-sentry-source-health-previous/news-sentry-source-health-slo.json ]]; then
+            cp /tmp/news-sentry-source-health-previous/news-sentry-source-health-slo.json /tmp/news-sentry-source-health-slo-previous.json
+          elif [[ "${BOOTSTRAP_WEEKLY_SLO}" != "true" ]]; then
+            echo "No previous Source Health SLO receipt found; set bootstrap_weekly_slo=true for an audited bootstrap." >&2
+            exit 1
+          fi
+
       - name: Live source health audit
         shell: bash
         run: |
@@ -67,6 +92,11 @@ jobs:
             --output-slo-json /tmp/news-sentry-source-health-slo.json
             --pretty
           )
+          if [[ -f /tmp/news-sentry-source-health-slo-previous.json ]]; then
+            args+=(--previous-summary-json /tmp/news-sentry-source-health-slo-previous.json)
+          elif [[ "${{ github.event.inputs.bootstrap_weekly_slo || 'false' }}" == "true" ]]; then
+            args+=(--allow-weekly-bootstrap)
+          fi
           if [[ -n "${{ github.event.inputs.target || '' }}" ]]; then
             args+=(--target "${{ github.event.inputs.target }}")
           fi

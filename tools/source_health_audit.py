@@ -463,6 +463,7 @@ def evaluate_source_health_slo(
     minimum_ok_ratio = float(config.get("minimum_ok_ratio", 0.90))
     maximum_failed_ratio = float(config.get("maximum_failed_ratio", 0.02))
     maximum_weekly_ok_drop = float(config.get("maximum_weekly_ok_drop", 0.03))
+    allow_weekly_bootstrap = bool(config.get("allow_weekly_bootstrap", False))
     p0_source_refs = {str(ref) for ref in config.get("p0_source_refs", [])}
     blocking_reason_codes = {
         str(code) for code in config.get("blocking_reason_codes", [])
@@ -483,12 +484,17 @@ def evaluate_source_health_slo(
         blockers.append("global_ok_ratio_below_threshold")
     if failed_ratio > maximum_failed_ratio:
         blockers.append("global_failed_ratio_above_threshold")
+    weekly_bootstrap = False
     if previous_summary is not None:
         previous_ok_ratio = _ratio(previous_summary, "ok")
         if previous_ok_ratio - ok_ratio > maximum_weekly_ok_drop:
             blockers.append("weekly_ok_ratio_drop_exceeded")
     else:
         previous_ok_ratio = None
+        if allow_weekly_bootstrap:
+            weekly_bootstrap = True
+        else:
+            blockers.append("previous_summary_missing")
 
     reason_codes = summary.get("reason_codes")
     if isinstance(reason_codes, list):
@@ -500,6 +506,7 @@ def evaluate_source_health_slo(
         "generated_at": datetime.now(UTC).isoformat(),
         "status": "ok" if not blockers else "failed",
         "blockers": sorted(blockers),
+        "bootstrap": {"weekly_comparison": weekly_bootstrap},
         "ratios": {
             "ok": ok_ratio,
             "failed": failed_ratio,
@@ -570,6 +577,10 @@ def main() -> int:
     parser.add_argument("--slo-config", type=Path)
     parser.add_argument("--previous-summary-json", type=Path)
     parser.add_argument("--output-slo-json", type=Path)
+    parser.add_argument("--allow-weekly-bootstrap", action="store_true")
+    parser.add_argument("--slo-environment")
+    parser.add_argument("--slo-deployed-commit")
+    parser.add_argument("--slo-window")
     parser.add_argument("--pretty", action="store_true")
     parser.add_argument(
         "--max-failed",
@@ -608,12 +619,21 @@ def main() -> int:
             )
             if isinstance(previous_payload, dict):
                 previous_summary = previous_payload.get("summary", previous_payload)
+        slo_config = _load_yaml(args.slo_config)
+        if args.allow_weekly_bootstrap:
+            slo_config["allow_weekly_bootstrap"] = True
         slo_result = evaluate_source_health_slo(
             result["summary"],
             result["rows"],
-            _load_yaml(args.slo_config),
+            slo_config,
             previous_summary if isinstance(previous_summary, dict) else None,
         )
+        if args.slo_environment:
+            slo_result["environment"] = args.slo_environment
+        if args.slo_deployed_commit:
+            slo_result["deployed_commit"] = args.slo_deployed_commit
+        if args.slo_window:
+            slo_result["window"] = args.slo_window
         if args.output_slo_json:
             args.output_slo_json.parent.mkdir(parents=True, exist_ok=True)
             args.output_slo_json.write_text(

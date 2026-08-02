@@ -18,6 +18,7 @@ def test_runtime_health_workflow_schedules_low_cost_production_receipts() -> Non
     triggers = workflow["on"]
     assert triggers["schedule"] == [{"cron": "17 */6 * * *"}]
     assert "workflow_dispatch" in triggers
+    assert triggers["workflow_dispatch"]["inputs"]["bootstrap_continuity"]["default"] == "false"
     assert workflow["permissions"] == {"actions": "read", "contents": "read"}
     assert workflow["concurrency"]["cancel-in-progress"] == "false"
 
@@ -57,14 +58,32 @@ def test_runtime_health_workflow_defaults_schedules_to_production_and_fails_clos
     assert "Resolve deployed commit from guard receipt and deployment metadata" in resolve
     assert 'expected_commit="${DEPLOYED_COMMIT}"' in resolve
     assert 'expected_commit="${GITHUB_SHA}"' not in resolve
+    assert 'deployed_at="$(date -u' not in resolve
+    assert "Production expected_commit is required" not in resolve
     assert 'Preview public_base_url is required.' in resolve
-    assert 'Preview expected_commit is required.' in resolve
+    assert "Deployment metadata expected_commit mismatch." in resolve
     assert "reject_multiline" in resolve
     assert "Invalid expected_commit: expected a 40-character Git commit SHA." in resolve
     assert "printf '%s=%s\\n'" in resolve
     assert "cloudflare-continuity-ledger-" in previous
+    assert "cloudflare-continuity-ledger-${ENVIRONMENT}-${EXPECTED_COMMIT}" in previous
+    assert "bootstrap_continuity" in previous
+    assert "No previous continuity ledger found" in previous
+    assert "Ledger deployed_commit does not match expected commit" in previous
     assert "/tmp/news-sentry-cloudflare-continuity-ledger.jsonl" in previous  # noqa: S108
     assert "tools/cloudflare_continuity_ledger.py append" in continuity
     assert "--source-health-current /tmp/news-sentry-source-health-slo.json" in continuity
     assert "--source-health-start /tmp/news-sentry-source-health-slo-start.json" in continuity
     assert "--source-health-end /tmp/news-sentry-source-health-slo-end.json" in continuity
+
+    continuity_artifact = steps["Upload continuity ledger receipt"]
+    expected_artifact_name = (
+        "cloudflare-continuity-ledger-"
+        "${{ steps.target.outputs.environment }}-"
+        "${{ steps.target.outputs.expected_commit }}-"
+        "${{ github.run_id }}"
+    )
+    assert (
+        continuity_artifact["with"]["name"]
+        == expected_artifact_name
+    )

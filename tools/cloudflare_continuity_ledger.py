@@ -18,6 +18,7 @@ COMMIT_LENGTH = 40
 SLOT_HOURS = 6
 SLOTS_72H = 12
 SLOTS_7D = 28
+MAX_SOURCE_HEALTH_AGE_HOURS = 24
 
 
 class ContinuityReceiptError(ValueError):
@@ -149,6 +150,48 @@ def _future_timestamp_count(receipt: dict[str, Any]) -> int:
     return int(summary.get("future_timestamp_count") or 0)
 
 
+def _receipt_commit(receipt: dict[str, Any]) -> str | None:
+    return _commit(receipt.get("deployed_commit") or receipt.get("expected_commit"))
+
+
+def _source_health_reason_codes(receipt: dict[str, Any]) -> set[str]:
+    reasons: set[str] = set()
+    observed_at = _timestamp(receipt.get("observed_at") or receipt.get("generated_at"))
+    deployed_commit = _receipt_commit(receipt)
+    environment = receipt.get("environment")
+    audits = _source_audits(receipt)
+    audit_times: dict[str, datetime] = {}
+    for name in ("current", "start", "end"):
+        audit = audits.get(name)
+        if not isinstance(audit, dict):
+            reasons.add(f"source_health_{name}_missing")
+            continue
+        if audit.get("status") != "ok":
+            reasons.add("source_health_not_ok")
+        if audit.get("environment") != environment:
+            reasons.add("source_health_environment_mismatch")
+        if _commit(audit.get("deployed_commit")) != deployed_commit:
+            reasons.add("source_health_commit_mismatch")
+        generated_at = _timestamp(audit.get("generated_at"))
+        if generated_at is None:
+            reasons.add("source_health_generated_at_invalid")
+            continue
+        audit_times[name] = generated_at
+        if observed_at is not None:
+            if generated_at > observed_at:
+                reasons.add("source_health_audit_in_future")
+            age_hours = (observed_at - generated_at).total_seconds() / 3600
+            if age_hours > MAX_SOURCE_HEALTH_AGE_HOURS:
+                reasons.add("source_health_audit_too_old")
+    start = audit_times.get("start")
+    current = audit_times.get("current")
+    end = audit_times.get("end")
+    if start is not None and current is not None and end is not None:
+        if not start <= current <= end:
+            reasons.add("source_health_window_order_invalid")
+    return reasons
+
+
 def _source_audits(receipt: dict[str, Any]) -> dict[str, Any]:
     source_health = receipt.get("source_health")
     if not isinstance(source_health, dict):
@@ -174,10 +217,10 @@ def _receipt_is_healthy(receipt: dict[str, Any], *, require_boundary: bool) -> b
     reason_codes = _reason_codes_from_summary(receipt)
     if any("future" in code for code in reason_codes):
         return False
-    if not _source_audit_ok(receipt, "current"):
+    if _source_health_reason_codes(receipt):
         return False
-    if require_boundary and (
-        not _source_audit_ok(receipt, "start") or not _source_audit_ok(receipt, "end")
+    if require_boundary and not (
+        _source_audit_ok(receipt, "start") and _source_audit_ok(receipt, "end")
     ):
         return False
     return True
@@ -192,14 +235,13 @@ def _slot(receipt: dict[str, Any]) -> int | None:
     if elapsed_seconds <= 0:
         return None
     slot_seconds = SLOT_HOURS * 60 * 60
-    if elapsed_seconds % slot_seconds != 0:
-        return None
     return int(elapsed_seconds // slot_seconds)
 
 
 def evaluate_window(
     receipts: list[dict[str, Any]],
     *,
+    expected_commit: str | None = None,
     now: datetime | None = None,
 ) -> WindowResult:
     observed_now = (now or datetime.now(UTC)).astimezone(UTC)
@@ -214,6 +256,8 @@ def evaluate_window(
     if len(commits) != 1:
         reason_codes.add("deployed_commit_changed")
     deployed_commit = next(iter(commits), None)
+    if expected_commit and deployed_commit != expected_commit.lower():
+        reason_codes.add("deployed_commit_mismatch")
 
     slots_72h: set[int] = set()
     slots_7d: set[int] = set()
@@ -241,8 +285,7 @@ def evaluate_window(
             reason_codes.add("runtime_receipt_not_ok")
         if _future_timestamp_count(receipt) != 0:
             reason_codes.add("future_timestamps_present")
-        if not _source_audit_ok(receipt, "current"):
-            reason_codes.add("source_health_not_ok")
+        reason_codes.update(_source_health_reason_codes(receipt))
         if 1 <= slot <= SLOTS_72H and _receipt_is_healthy(receipt, require_boundary=False):
             slots_72h.add(slot)
         if 1 <= slot <= SLOTS_7D and _receipt_is_healthy(receipt, require_boundary=True):
@@ -284,6 +327,24 @@ def _load_json(path: str | None) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def _source_health_receipt(
+    path: str,
+    *,
+    environment: str,
+    deployed_commit: str,
+    window: str,
+) -> dict[str, Any] | None:
+    receipt = _load_json(path)
+    if receipt is None:
+        return None
+    return {
+        **receipt,
+        "environment": receipt.get("environment") or environment,
+        "deployed_commit": receipt.get("deployed_commit") or deployed_commit,
+        "window": receipt.get("window") or window,
+    }
+
+
 def _enrich_receipt(args: argparse.Namespace) -> dict[str, Any]:
     receipt = _load_json(args.receipt)
     if receipt is None:
@@ -300,6 +361,10 @@ def _enrich_receipt(args: argparse.Namespace) -> dict[str, Any]:
     deployed_at = args.deployed_at or receipt.get("deployed_at")
     if not deployed_at:
         raise ContinuityReceiptError("deployed_at is required")
+    environment = str(receipt.get("environment") or "")
+    if not environment:
+        raise ContinuityReceiptError("receipt environment is required")
+    deployed_commit_text = str(deployed_commit)
     enriched = {
         **receipt,
         "schema_version": receipt.get("schema_version"),
@@ -309,9 +374,24 @@ def _enrich_receipt(args: argparse.Namespace) -> dict[str, Any]:
         "run_id": str(run_id),
         "source_health": {
             "audits": {
-                "current": _load_json(args.source_health_current),
-                "start": _load_json(args.source_health_start),
-                "end": _load_json(args.source_health_end),
+                "current": _source_health_receipt(
+                    args.source_health_current,
+                    environment=environment,
+                    deployed_commit=deployed_commit_text,
+                    window="current",
+                ),
+                "start": _source_health_receipt(
+                    args.source_health_start,
+                    environment=environment,
+                    deployed_commit=deployed_commit_text,
+                    window="start",
+                ),
+                "end": _source_health_receipt(
+                    args.source_health_end,
+                    environment=environment,
+                    deployed_commit=deployed_commit_text,
+                    window="end",
+                ),
             }
         },
     }
@@ -333,6 +413,7 @@ def main(argv: list[str] | None = None) -> int:
     append.add_argument("--output")
     evaluate = subparsers.add_parser("evaluate")
     evaluate.add_argument("--ledger", required=True)
+    evaluate.add_argument("--expected-commit")
     evaluate.add_argument("--output")
     args = parser.parse_args(argv)
 
@@ -340,7 +421,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "append":
             result = append_receipt(Path(args.ledger), _enrich_receipt(args))
         else:
-            result = evaluate_window(_read_jsonl(Path(args.ledger)))
+            result = evaluate_window(
+                _read_jsonl(Path(args.ledger)),
+                expected_commit=args.expected_commit,
+            )
     except (ContinuityReceiptError, json.JSONDecodeError) as error:
         print(f"cloudflare continuity ledger failed: {error}", file=sys.stderr)
         return 2

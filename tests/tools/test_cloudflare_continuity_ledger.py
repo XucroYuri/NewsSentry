@@ -17,18 +17,29 @@ DEPLOYED_AT = datetime(2026, 7, 1, 0, 0, tzinfo=UTC)
 def healthy_receipt(
     *,
     hours: int,
+    minutes: int = 17,
     commit: str = COMMIT,
     status: str = "ok",
     run_id: str | None = None,
+    environment: str = "production",
     source_health_status: str = "ok",
+    source_health_generated_at: datetime | None = None,
     future_timestamp_count: int = 0,
 ) -> dict[str, object]:
-    observed_at = DEPLOYED_AT + timedelta(hours=hours)
+    observed_at = DEPLOYED_AT + timedelta(hours=hours, minutes=minutes)
+    audit_generated_at = source_health_generated_at or observed_at
+    source_health_audit = {
+        "status": source_health_status,
+        "generated_at": audit_generated_at.isoformat(),
+        "environment": environment,
+        "deployed_commit": commit,
+    }
     return {
         "deployed_commit": commit,
         "deployed_at": DEPLOYED_AT.isoformat(),
         "observed_at": observed_at.isoformat(),
         "run_id": run_id or f"run-{hours}",
+        "environment": environment,
         "status": status,
         "summary": {
             "reason_codes": [],
@@ -37,9 +48,9 @@ def healthy_receipt(
         "source_health": {
             "status": source_health_status,
             "audits": {
-                "current": {"status": source_health_status},
-                "start": {"status": source_health_status},
-                "end": {"status": source_health_status},
+                "current": source_health_audit,
+                "start": source_health_audit,
+                "end": source_health_audit,
             },
         },
     }
@@ -95,3 +106,57 @@ def test_append_receipt_rejects_conflicting_duplicate_key(tmp_path: Path) -> Non
     conflicting = {**receipt, "status": "failed"}
     with pytest.raises(ContinuityReceiptError, match="conflicting duplicate"):
         append_receipt(ledger_path, conflicting)
+
+
+def test_six_hour_buckets_allow_cron_offsets_and_detect_gaps() -> None:
+    receipts = [
+        healthy_receipt(hours=6, minutes=17, run_id="slot-1-a"),
+        healthy_receipt(hours=6, minutes=43, run_id="slot-1-b"),
+        healthy_receipt(hours=18, minutes=17, run_id="slot-3"),
+    ]
+
+    result = evaluate_window(receipts)
+
+    assert result.status == "failed"
+    assert result.healthy_72h_slots == 2
+    assert "missing_six_hour_slot" in result.reason_codes
+
+
+def test_source_health_evidence_requires_fresh_matching_metadata() -> None:
+    stale = healthy_receipt(
+        hours=6,
+        source_health_generated_at=DEPLOYED_AT - timedelta(days=2),
+    )
+    stale_result = evaluate_window([stale])
+
+    assert stale_result.status == "failed"
+    assert "source_health_audit_too_old" in stale_result.reason_codes
+
+    mismatched = healthy_receipt(hours=6)
+    mismatched["source_health"] = {
+        "audits": {
+            "current": {
+                "status": "ok",
+                "generated_at": (DEPLOYED_AT + timedelta(hours=6)).isoformat(),
+                "environment": "preview",
+                "deployed_commit": COMMIT,
+            },
+            "start": {
+                "status": "ok",
+                "generated_at": (DEPLOYED_AT + timedelta(hours=6)).isoformat(),
+                "environment": "production",
+                "deployed_commit": "b" * 40,
+            },
+            "end": {
+                "status": "ok",
+                "generated_at": (DEPLOYED_AT + timedelta(hours=5)).isoformat(),
+                "environment": "production",
+                "deployed_commit": COMMIT,
+            },
+        }
+    }
+    mismatch_result = evaluate_window([mismatched])
+
+    assert "source_health_environment_mismatch" in mismatch_result.reason_codes
+    assert "source_health_commit_mismatch" in mismatch_result.reason_codes
+    assert "source_health_window_order_invalid" in mismatch_result.reason_codes

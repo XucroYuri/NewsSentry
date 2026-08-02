@@ -79,9 +79,10 @@ def _handler(
     stale_collection: bool = False,
     future_public_item: bool = False,
     stale_public_quality: bool = False,
-    p0_dlq_count: int = 0,
-    backlog_oldest_age_minutes: int = 10,
-    artifact_coverage_ratio: float = 1.0,
+    omit_runtime_slo: bool = False,
+    p0_dlq_count: Any = 0,
+    backlog_oldest_age_minutes: Any = 10,
+    artifact_coverage_ratio: Any = 1.0,
     drop_connections: bool = False,
     malformed_readiness: bool = False,
     container_configured: bool = True,
@@ -103,11 +104,12 @@ def _handler(
         health["public_quality"]["latest_public_at"] = (
             now - timedelta(hours=25)
         ).isoformat().replace("+00:00", "Z")
-    health["runtime_slo"] = {
-        "p0_dlq_count": p0_dlq_count,
-        "backlog_oldest_age_minutes": backlog_oldest_age_minutes,
-        "committed_artifact_coverage_ratio": artifact_coverage_ratio,
-    }
+    if not omit_runtime_slo:
+        health["runtime_slo"] = {
+            "p0_dlq_count": p0_dlq_count,
+            "backlog_oldest_age_minutes": backlog_oldest_age_minutes,
+            "committed_artifact_coverage_ratio": artifact_coverage_ratio,
+        }
     published_at = now + timedelta(days=1) if future_public_item else now
     published = published_at.isoformat().replace("+00:00", "Z")
 
@@ -186,9 +188,10 @@ def _run_probe(
     stale_collection: bool = False,
     future_public_item: bool = False,
     stale_public_quality: bool = False,
-    p0_dlq_count: int = 0,
-    backlog_oldest_age_minutes: int = 10,
-    artifact_coverage_ratio: float = 1.0,
+    omit_runtime_slo: bool = False,
+    p0_dlq_count: Any = 0,
+    backlog_oldest_age_minutes: Any = 10,
+    artifact_coverage_ratio: Any = 1.0,
     api_connection_failure: bool = False,
     malformed_readiness: bool = False,
     container_configured: bool = True,
@@ -203,6 +206,7 @@ def _run_probe(
         stale_collection=stale_collection,
         future_public_item=future_public_item,
         stale_public_quality=stale_public_quality,
+        omit_runtime_slo=omit_runtime_slo,
         p0_dlq_count=p0_dlq_count,
         backlog_oldest_age_minutes=backlog_oldest_age_minutes,
         artifact_coverage_ratio=artifact_coverage_ratio,
@@ -295,6 +299,37 @@ def test_runtime_probe_enforces_continuity_slo_counters(tmp_path: Path) -> None:
         "p0_dlq_not_empty",
         "backlog_oldest_too_old",
         "artifact_coverage_incomplete",
+    } <= set(receipt["summary"]["reason_codes"])
+
+
+def test_runtime_probe_fails_closed_when_continuity_slo_fields_are_missing(
+    tmp_path: Path,
+) -> None:
+    result, receipt = _run_probe(tmp_path, omit_runtime_slo=True)
+
+    assert result.returncode == 1
+    assert {
+        "p0_dlq_count_missing",
+        "backlog_oldest_age_missing",
+        "artifact_coverage_missing",
+    } <= set(receipt["summary"]["reason_codes"])
+
+
+def test_runtime_probe_fails_closed_when_continuity_slo_fields_are_nonnumeric(
+    tmp_path: Path,
+) -> None:
+    result, receipt = _run_probe(
+        tmp_path,
+        p0_dlq_count="zero",
+        backlog_oldest_age_minutes="fresh",
+        artifact_coverage_ratio="full",
+    )
+
+    assert result.returncode == 1
+    assert {
+        "p0_dlq_count_invalid",
+        "backlog_oldest_age_invalid",
+        "artifact_coverage_invalid",
     } <= set(receipt["summary"]["reason_codes"])
 
 

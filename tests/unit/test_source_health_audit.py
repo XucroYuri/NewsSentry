@@ -506,3 +506,23 @@ def test_source_health_slo_blocks_reason_codes() -> None:
 
     assert result["status"] == "failed"
     assert "blocking_reason_code:audit_gap" in result["blockers"]
+
+
+def test_source_health_slo_requires_previous_summary_unless_bootstrap() -> None:
+    result = source_health_audit.evaluate_source_health_slo(
+        summary={"total": 10, "ok": 10, "failed": 0},
+        rows=[],
+        config={"maximum_weekly_ok_drop": 0.03},
+    )
+
+    assert result["status"] == "failed"
+    assert "previous_summary_missing" in result["blockers"]
+
+    bootstrap = source_health_audit.evaluate_source_health_slo(
+        summary={"total": 10, "ok": 10, "failed": 0},
+        rows=[],
+        config={"maximum_weekly_ok_drop": 0.03, "allow_weekly_bootstrap": True},
+    )
+
+    assert bootstrap["status"] == "ok"
+    assert bootstrap["bootstrap"]["weekly_comparison"] is True

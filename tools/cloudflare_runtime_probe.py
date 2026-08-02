@@ -110,6 +110,24 @@ def _mapping(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _number_field(
+    mapping: dict[str, Any],
+    key: str,
+    *,
+    missing_reason: str,
+    invalid_reason: str,
+    reasons: list[str],
+) -> int | float | None:
+    if key not in mapping:
+        reasons.append(missing_reason)
+        return None
+    value = mapping.get(key)
+    if not isinstance(value, int | float):
+        reasons.append(invalid_reason)
+        return None
+    return value
+
+
 def _runtime_reasons(
     response: Response,
     payload: dict[str, Any] | None,
@@ -241,17 +259,37 @@ def build_receipt(
                 reasons.append("latest_public_too_old")
             if payload.get("future_timestamp_count") not in {0, None}:
                 reasons.append("future_timestamps_present")
-            runtime_slo = _mapping(payload.get("runtime_slo"))
-            if int(runtime_slo.get("p0_dlq_count") or 0) != 0:
+            raw_runtime_slo = payload.get("runtime_slo")
+            if not isinstance(raw_runtime_slo, dict):
+                runtime_slo: dict[str, Any] = {}
+            else:
+                runtime_slo = raw_runtime_slo
+            p0_dlq_count = _number_field(
+                runtime_slo,
+                "p0_dlq_count",
+                missing_reason="p0_dlq_count_missing",
+                invalid_reason="p0_dlq_count_invalid",
+                reasons=reasons,
+            )
+            if p0_dlq_count is not None and p0_dlq_count != 0:
                 reasons.append("p0_dlq_not_empty")
-            backlog_oldest_age = runtime_slo.get("backlog_oldest_age_minutes")
-            if (
-                isinstance(backlog_oldest_age, int | float)
-                and backlog_oldest_age > 30
-            ):
+            backlog_oldest_age = _number_field(
+                runtime_slo,
+                "backlog_oldest_age_minutes",
+                missing_reason="backlog_oldest_age_missing",
+                invalid_reason="backlog_oldest_age_invalid",
+                reasons=reasons,
+            )
+            if backlog_oldest_age is not None and backlog_oldest_age > 30:
                 reasons.append("backlog_oldest_too_old")
-            coverage_ratio = runtime_slo.get("committed_artifact_coverage_ratio")
-            if isinstance(coverage_ratio, int | float) and coverage_ratio < 1:
+            coverage_ratio = _number_field(
+                runtime_slo,
+                "committed_artifact_coverage_ratio",
+                missing_reason="artifact_coverage_missing",
+                invalid_reason="artifact_coverage_invalid",
+                reasons=reasons,
+            )
+            if coverage_ratio is not None and coverage_ratio < 1:
                 reasons.append("artifact_coverage_incomplete")
         checks.append(
             _check(
