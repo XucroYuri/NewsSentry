@@ -663,6 +663,9 @@ def _compact_cloudflare_task_summary(task: str, result: dict[str, Any]) -> dict[
     if task == "collect-cycle":
         summary = {
             "target_count": int(result.get("target_count") or len(result.get("targets") or [])),
+            "targets_attempted": int(result.get("targets_attempted") or 0),
+            "targets_succeeded": int(result.get("targets_succeeded") or 0),
+            "targets_failed": int(result.get("targets_failed") or 0),
             "events_collected": int(result.get("events_collected") or 0),
             "import_events_count": int(
                 result.get("import_events_count") or len(result.get("import_events") or [])

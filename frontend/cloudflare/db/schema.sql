@@ -165,5 +165,324 @@ CREATE TABLE IF NOT EXISTS public_read_snapshots (
     updated_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Invalid or implausibly future events are retained for audit without entering
+-- the public event/read-model path.
+CREATE TABLE IF NOT EXISTS quarantined_events (
+    quarantine_id TEXT PRIMARY KEY,
+    target_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    reason_code TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    reviewed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_quarantined_events_reason_created
+    ON quarantined_events(reason_code, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_quarantined_events_source_created
+    ON quarantined_events(target_id, source_id, created_at DESC);
+
 -- 用户/Token 表（简化为 Workers 静态配置，暂不需要）
 -- 认证将在后续阶段通过 Cloudflare Access 实现
+
+-- Phase 1 shadow control-plane state. These tables are additive and do not
+-- replace the legacy ops_state/public_read_snapshots path until canary gates pass.
+CREATE TABLE IF NOT EXISTS jobs (
+    job_id TEXT PRIMARY KEY,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    replay_of_job_id TEXT,
+    job_type TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    capability TEXT NOT NULL,
+    scheduled_for TEXT NOT NULL,
+    scheduled_window TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN (
+            'pending', 'enqueued', 'leased', 'running', 'importing',
+            'committed', 'snapshot_pending', 'succeeded', 'retry_scheduled',
+            'dead_lettered', 'cancelled'
+        )),
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 3 CHECK (max_attempts > 0),
+    lease_token TEXT,
+    lease_owner TEXT,
+    lease_until TEXT,
+    fencing_version INTEGER NOT NULL DEFAULT 0,
+    input_cursor TEXT,
+    output_watermark TEXT,
+    last_error_code TEXT,
+    last_error_message TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    finished_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_jobs_status_scheduled
+    ON jobs(status, scheduled_for);
+CREATE INDEX IF NOT EXISTS idx_jobs_source_status
+    ON jobs(target_id, source_id, status);
+CREATE INDEX IF NOT EXISTS idx_jobs_lease_until
+    ON jobs(lease_until)
+    WHERE lease_until IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_jobs_replay
+    ON jobs(replay_of_job_id)
+    WHERE replay_of_job_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS job_attempts (
+    attempt_id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL REFERENCES jobs(job_id),
+    attempt_no INTEGER NOT NULL,
+    worker_version TEXT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    outcome TEXT,
+    retryable INTEGER NOT NULL DEFAULT 0 CHECK (retryable IN (0, 1)),
+    latency_ms INTEGER,
+    container_used INTEGER NOT NULL DEFAULT 0 CHECK (container_used IN (0, 1)),
+    details_json TEXT NOT NULL DEFAULT '{}',
+    UNIQUE(job_id, attempt_no)
+);
+
+CREATE INDEX IF NOT EXISTS idx_job_attempts_job_started
+    ON job_attempts(job_id, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS job_outbox (
+    outbox_id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL UNIQUE REFERENCES jobs(job_id),
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'dispatched', 'confirmed')),
+    dispatch_attempts INTEGER NOT NULL DEFAULT 0,
+    next_dispatch_at TEXT NOT NULL,
+    dispatched_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_job_outbox_dispatch
+    ON job_outbox(status, next_dispatch_at);
+
+CREATE TABLE IF NOT EXISTS source_runtime_state (
+    target_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    tier TEXT NOT NULL DEFAULT 'P2' CHECK (tier IN ('P0', 'P1', 'P2')),
+    capability TEXT NOT NULL DEFAULT 'container',
+    state TEXT NOT NULL DEFAULT 'active'
+        CHECK (state IN ('active', 'degraded', 'cooling_down', 'suspended', 'dead')),
+    next_due_at TEXT NOT NULL,
+    last_attempt_at TEXT,
+    last_success_at TEXT,
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    rolling_success_rate REAL,
+    backoff_until TEXT,
+    cursor TEXT,
+    etag TEXT,
+    last_modified TEXT,
+    quarantine_count INTEGER NOT NULL DEFAULT 0,
+    config_version TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (target_id, source_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_source_runtime_due
+    ON source_runtime_state(state, next_due_at);
+CREATE INDEX IF NOT EXISTS idx_source_runtime_backoff
+    ON source_runtime_state(backoff_until)
+    WHERE backoff_until IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS import_batches (
+    batch_id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL UNIQUE REFERENCES jobs(job_id),
+    status TEXT NOT NULL DEFAULT 'received'
+        CHECK (status IN ('received', 'validated', 'importing', 'committed', 'rejected', 'failed')),
+    received_count INTEGER NOT NULL DEFAULT 0,
+    valid_count INTEGER NOT NULL DEFAULT 0,
+    quarantined_count INTEGER NOT NULL DEFAULT 0,
+    imported_count INTEGER NOT NULL DEFAULT 0,
+    updated_count INTEGER NOT NULL DEFAULT 0,
+    checksum TEXT NOT NULL,
+    expected_chunks INTEGER NOT NULL DEFAULT 0 CHECK (expected_chunks >= 0),
+    committed_chunks INTEGER NOT NULL DEFAULT 0 CHECK (committed_chunks >= 0),
+    payload_bytes INTEGER NOT NULL DEFAULT 0 CHECK (payload_bytes >= 0),
+    output_watermark TEXT,
+    started_at TEXT NOT NULL,
+    committed_at TEXT,
+    error_code TEXT,
+    error_message TEXT
+);
+
+CREATE TABLE IF NOT EXISTS import_batch_chunks (
+    batch_id TEXT NOT NULL REFERENCES import_batches(batch_id),
+    chunk_no INTEGER NOT NULL CHECK (chunk_no >= 0),
+    checksum TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'committed', 'failed')),
+    statement_count INTEGER NOT NULL DEFAULT 0,
+    payload_bytes INTEGER NOT NULL DEFAULT 0,
+    committed_at TEXT,
+    error_message TEXT,
+    PRIMARY KEY (batch_id, chunk_no)
+);
+
+CREATE TABLE IF NOT EXISTS import_staged_events (
+    batch_id TEXT NOT NULL REFERENCES import_batches(batch_id),
+    chunk_no INTEGER NOT NULL,
+    event_id TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    event_fingerprint TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    staged_at TEXT NOT NULL,
+    PRIMARY KEY (batch_id, event_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_import_staged_events_batch_chunk
+    ON import_staged_events(batch_id, chunk_no);
+
+-- Immutable import bodies live in R2. D1 stores the queryable integrity and
+-- lifecycle manifest only; Container-local files are a spool/cache, not truth.
+CREATE TABLE IF NOT EXISTS artifact_manifests (
+    artifact_id TEXT PRIMARY KEY,
+    batch_id TEXT NOT NULL UNIQUE,
+    job_id TEXT NOT NULL,
+    object_key TEXT NOT NULL UNIQUE,
+    sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
+    payload_bytes INTEGER NOT NULL CHECK (payload_bytes >= 0),
+    content_type TEXT NOT NULL,
+    r2_etag TEXT NOT NULL,
+    r2_version TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'stored'
+        CHECK (status IN ('stored', 'committed', 'failed')),
+    created_at TEXT NOT NULL,
+    finalized_at TEXT,
+    error_code TEXT,
+    error_message TEXT,
+    details_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_artifact_manifests_status_created
+    ON artifact_manifests(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_artifact_manifests_job
+    ON artifact_manifests(job_id);
+
+CREATE TABLE IF NOT EXISTS import_batch_finalize_receipts (
+    batch_id TEXT PRIMARY KEY REFERENCES import_batches(batch_id),
+    job_id TEXT NOT NULL REFERENCES jobs(job_id),
+    target_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    batch_checksum TEXT NOT NULL,
+    lease_token TEXT NOT NULL,
+    fencing_version INTEGER NOT NULL,
+    output_watermark TEXT,
+    finalized_at TEXT NOT NULL,
+    batch_guard TEXT NOT NULL,
+    job_guard TEXT NOT NULL,
+    source_guard TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS import_projection_finalize_receipts (
+    batch_id TEXT PRIMARY KEY REFERENCES import_batches(batch_id),
+    job_id TEXT NOT NULL UNIQUE REFERENCES jobs(job_id),
+    batch_checksum TEXT NOT NULL,
+    artifact_id TEXT NOT NULL UNIQUE REFERENCES artifact_manifests(artifact_id),
+    finalized_at TEXT NOT NULL,
+    batch_guard TEXT NOT NULL,
+    job_guard TEXT NOT NULL,
+    artifact_guard TEXT NOT NULL,
+    origin TEXT NOT NULL CHECK (origin IN ('api-import', 'container-import')),
+    request_idempotency_key_hash TEXT
+        CHECK (request_idempotency_key_hash IS NULL OR length(request_idempotency_key_hash) = 64)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_projection_receipts_idempotency_key
+    ON import_projection_finalize_receipts(request_idempotency_key_hash)
+    WHERE request_idempotency_key_hash IS NOT NULL;
+
+CREATE TRIGGER IF NOT EXISTS trg_projection_receipt_reject_source_receipt
+BEFORE INSERT ON import_projection_finalize_receipts
+WHEN EXISTS (
+    SELECT 1 FROM import_batch_finalize_receipts WHERE batch_id = NEW.batch_id
+)
+BEGIN
+    SELECT RAISE(ABORT, 'import_finalize_receipt_mode_conflict');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_source_receipt_reject_projection_receipt
+BEFORE INSERT ON import_batch_finalize_receipts
+WHEN EXISTS (
+    SELECT 1 FROM import_projection_finalize_receipts WHERE batch_id = NEW.batch_id
+)
+BEGIN
+    SELECT RAISE(ABORT, 'import_finalize_receipt_mode_conflict');
+END;
+
+CREATE TABLE IF NOT EXISTS dlq_replay_receipts (
+    receipt_id TEXT PRIMARY KEY,
+    original_job_id TEXT NOT NULL REFERENCES jobs(job_id),
+    new_job_id TEXT NOT NULL UNIQUE REFERENCES jobs(job_id),
+    operator_id TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    requested_version TEXT NOT NULL,
+    worker_version TEXT,
+    deploy_commit TEXT,
+    created_at TEXT NOT NULL,
+    details_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_dlq_replay_receipts_original
+    ON dlq_replay_receipts(original_job_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS dlq_consumption_receipts (
+    receipt_id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL REFERENCES jobs(job_id),
+    queue_name TEXT NOT NULL,
+    message_body_json TEXT NOT NULL,
+    worker_version TEXT,
+    consumed_at TEXT NOT NULL,
+    UNIQUE(job_id, queue_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_dlq_consumption_receipts_consumed
+    ON dlq_consumption_receipts(consumed_at DESC);
+
+CREATE TABLE IF NOT EXISTS quarantine_context (
+    quarantine_id TEXT PRIMARY KEY REFERENCES quarantined_events(quarantine_id),
+    batch_id TEXT REFERENCES import_batches(batch_id),
+    job_id TEXT REFERENCES jobs(job_id),
+    event_fingerprint TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_quarantine_context_job
+    ON quarantine_context(job_id)
+    WHERE job_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS snapshot_generations (
+    generation_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL
+        CHECK (status IN ('building', 'ready', 'active', 'superseded', 'failed')),
+    source_watermark TEXT,
+    item_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    activated_at TEXT,
+    failure_code TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_snapshot_generations_single_active
+    ON snapshot_generations(status)
+    WHERE status = 'active';
+
+CREATE TABLE IF NOT EXISTS snapshot_generation_items (
+    generation_id TEXT NOT NULL REFERENCES snapshot_generations(generation_id),
+    key TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    item_count INTEGER NOT NULL DEFAULT 0,
+    payload_bytes INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (generation_id, key)
+);
+
+CREATE TABLE IF NOT EXISTS runtime_migration_receipts (
+    migration_id TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL DEFAULT (datetime('now')),
+    deploy_commit TEXT,
+    details_json TEXT NOT NULL DEFAULT '{}'
+);

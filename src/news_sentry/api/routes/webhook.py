@@ -12,6 +12,7 @@ import asyncio
 import hashlib
 import hmac
 import logging
+import os
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -92,13 +93,18 @@ def _verify_signature(body: bytes, signature_header: str | None, secret: str) ->
     return hmac.compare_digest(computed_hex, expected_hex)
 
 
-def _get_webhook_secret() -> str:
+def _get_webhook_secret() -> str | None:
     """从环境变量读取 webhook shared secret。
 
-    生产环境应通过 WEBHOOK_SECRET 注入；本地开发回退到 'dev-secret'。
+    除显式 local 模式外，缺少该值时端点必须 fail closed。
     """
-    import os
-    return os.environ.get("WEBHOOK_SECRET", "dev-secret")
+    secret = os.environ.get("WEBHOOK_SECRET", "").strip()
+    return secret or None
+
+
+def _unsigned_local_webhook_allowed() -> bool:
+    """仅在显式 local 模式允许无 shared secret 的开发请求。"""
+    return os.environ.get("NEWSSENTRY_DEPLOYMENT_ENV", "").strip().lower() == "local"
 
 
 # ── 端点 ──
@@ -148,14 +154,20 @@ async def receive_webhook(
 
     # 2. 签名验证
     secret = _get_webhook_secret()
-    # 本地开发 dev-secret 不强制签名验证
-    dev_secret = "dev-secret"  # noqa: S105
-    if secret != dev_secret or x_signature_256:
-        if not _verify_signature(body, x_signature_256, secret):
+    if secret is None:
+        if not _unsigned_local_webhook_allowed():
             return JSONResponse(
-                status_code=401,
-                content={"error": "invalid_signature", "detail": "签名验证失败"},
+                status_code=503,
+                content={
+                    "error": "webhook_secret_not_configured",
+                    "detail": "Webhook shared secret 未配置",
+                },
             )
+    elif not _verify_signature(body, x_signature_256, secret):
+        return JSONResponse(
+            status_code=401,
+            content={"error": "invalid_signature", "detail": "签名验证失败"},
+        )
 
     # 3. 解析 JSON
     try:

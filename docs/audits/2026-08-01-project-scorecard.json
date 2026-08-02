@@ -1,0 +1,176 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-02T09:20:12+08:00",
+  "repository": "XucroYuri/NewsSentry",
+  "branch": "dev-xu/fix/cloudflare-persistent-runtime",
+  "commit": "working_tree_on_8bc2e2e462187860fb21721f0750692cc85f01db",
+  "verdict": "public_surface_available_but_continuous_collection_unhealthy",
+  "overall_score": 58,
+  "weighted_score_exact": 58.1,
+  "dimensions": [
+    {
+      "id": "public_availability",
+      "score": 82,
+      "weight": 10,
+      "evidence": ["production public endpoints 200", "SEO/GEO 22/22", "protected endpoints 403"]
+    },
+    {
+      "id": "data_freshness",
+      "score": 25,
+      "weight": 15,
+      "evidence": ["latest_collected_at 2026-07-23T07:52:23.678529Z", "future published_at 2028-01-01"]
+    },
+    {
+      "id": "source_continuity",
+      "score": 60,
+      "weight": 10,
+      "evidence": ["1397/1803 ok", "four consecutive weekly audit failures"]
+    },
+    {
+      "id": "scoring_integrity",
+      "score": 52,
+      "weight": 12,
+      "evidence": ["featured sample value_score average 97.6", "18/50 missing breaking metadata", "3 label-threshold mismatches"]
+    },
+    {
+      "id": "software_quality",
+      "score": 86,
+      "weight": 10,
+      "evidence": ["5158 passed", "85 percent coverage", "ruff and CI-equivalent mypy passed", "public 139 and admin 68 tests passed"]
+    },
+    {
+      "id": "security_controls",
+      "score": 58,
+      "weight": 15,
+      "evidence": ["no confirmed SQL injection or RCE", "Access JWT not validated in Worker", "conditional SSRF path and prompt integrity risks"]
+    },
+    {
+      "id": "deployment_governance",
+      "score": 60,
+      "weight": 8,
+      "evidence": ["latest main deploy succeeded", "preview diverged and latest preview deploy failed", "Cloudflare state unavailable"]
+    },
+    {
+      "id": "observability_and_recovery",
+      "score": 45,
+      "weight": 8,
+      "evidence": ["health reports ok for stale collection", "source audit failures did not restore collection"]
+    },
+    {
+      "id": "global_readiness",
+      "score": 78,
+      "weight": 7,
+      "evidence": ["82 configured targets", "81 live facets regions", "large regional health variance"]
+    },
+    {
+      "id": "cost_efficiency",
+      "score": 55,
+      "weight": 5,
+      "evidence": ["Cloudflare scale-to-zero primitives", "15 and 30 minute container wakes with 30 minute sleepAfter", "billing receipt unavailable"]
+    }
+  ],
+  "remote_health": {
+    "api_status": "ok",
+    "total_events": 31567,
+    "latest_collected_at": "2026-07-23T07:52:23.678529+00:00",
+    "seo_geo": {"passed": 22, "failed": 0},
+    "source_health": {
+      "total": 1803,
+      "ok": 1397,
+      "degraded": 77,
+      "failed": 98,
+      "rate_limited": 147,
+      "temporary_unavailable": 84,
+      "ok_percent": 77.48
+    },
+    "live_quality_ok": false,
+    "cloudflare_state_verified": false,
+    "live_commit_header_present": false
+  },
+  "local_remediation_status": {
+    "phase2_task4": {
+      "status": "local_implemented_not_deployed",
+      "changes": [
+        "Cloudflare preflight guard for Queue/DLQ/consumer/D1 applied migrations/wrangler bindings",
+        "deployment receipt builder requiring commit/version/deployment/health mode alignment",
+        "explicit SCHEDULER_MODE shadow and WORKER_NATIVE_COLLECT_ENABLED false",
+        "runtime config fail-closed validation",
+        "queue authoritative mode remains blocked until a real collector runner ships",
+        "UTF-8 byte bounded quarantine payload",
+        "partial additive migration runbook"
+      ],
+      "remote_deploy": "not_executed",
+      "security_deep_scan": "workspace_waiter_conflict_no_scan_id",
+      "canary_72h": "not_started",
+      "slo_7d": "not_started"
+    },
+    "durable_storage": {
+      "status": "local_artifact_boundary_implemented_preview_pending",
+      "d1_binding": true,
+      "r2_binding": false,
+      "r2_binding_configured_locally": true,
+      "r2_binding_verified_remote": false,
+      "container_state_externalized": false,
+      "portable_restore_drill": false,
+      "implemented": [
+        "isolated production preview and dev R2 bindings",
+        "content addressed immutable import artifact envelope",
+        "conditional R2 put with SHA-256 integrity metadata",
+        "D1 artifact manifest with stored committed failed lifecycle",
+        "fenced Queue finalize commits artifact batch job and source watermark together",
+        "Container import fails closed before D1 when R2 is unavailable",
+        "deployment preflight verifies production R2 bucket and phase3 schema receipt"
+      ],
+      "remaining": [
+        "deploy and verify Preview R2 object and D1 manifest receipt",
+        "externalize Markdown logs memory and backup exports",
+        "D1 export isolated import and R2 checksum restore drill",
+        "production exact SHA deployment and 72 hour and 7 day canaries"
+      ],
+      "required_order": [
+        "R2 immutable artifact put",
+        "D1 manifest and staging finalize",
+        "fenced source watermark advance",
+        "job acknowledgement"
+      ],
+      "recovery": [
+        "D1 Time Travel for production rollback",
+        "D1 export and isolated import for routine restore drills"
+      ]
+    }
+  },
+  "production_score_samples": {
+    "ordinary_first_page": {
+      "sample_size": 50,
+      "value_score_min": 80,
+      "value_score_max": 100,
+      "value_score_average": 89.8,
+      "breaking_metadata_complete": 0,
+      "breaking_score_equals_value_score": 50,
+      "future_timestamp_count": 1
+    },
+    "featured_first_page": {
+      "sample_size": 50,
+      "value_score_average": 97.6,
+      "value_score_100_count": 44,
+      "breaking_metadata_complete": 32,
+      "breaking_metadata_missing": 18,
+      "label_threshold_mismatch": 3
+    }
+  },
+  "security_findings": [
+    {"id": "SEC-01", "severity": "high", "status": "configuration_dependent_not_live_bypass", "title": "Worker does not validate Cloudflare Access JWT"},
+    {"id": "SEC-02", "severity": "medium", "status": "conditional", "title": "rules optimize target path containment missing"},
+    {"id": "SEC-03", "severity": "medium", "status": "confirmed_untrusted_url_sink", "title": "external URL scheme allowlist missing"},
+    {"id": "SEC-04", "severity": "medium", "status": "confirmed_integrity_path", "title": "indirect prompt injection can influence scoring fields"},
+    {"id": "SEC-05", "severity": "medium", "status": "conditional", "title": "collector SSRF control lacks post-DNS IP validation"},
+    {"id": "SEC-06", "severity": "medium", "status": "not_runtime_reachable_observed", "title": "geist transitively introduces high npm advisories"}
+  ],
+  "priority_actions": [
+    "restore collection and make health freshness-aware",
+    "quarantine future timestamps",
+    "validate Cloudflare Access JWT in Worker",
+    "enforce Breaking score cross-field invariants and versions",
+    "obtain authoritative Cloudflare state and billing receipts"
+  ]
+}

@@ -15,12 +15,17 @@ on:
         description: "Fail when failed live checks exceed this count"
         required: false
         default: "0"
+      bootstrap_weekly_slo:
+        description: "Allow first audited Source Health SLO run without previous summary"
+        required: true
+        default: "false"
   schedule:
     # Weekly source health sweep. Network conditions vary, so the JSONL receipt
     # is the durable review surface when sources fail.
     - cron: "23 2 * * 1"
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -50,8 +55,61 @@ jobs:
             --receipt-output /tmp/news-sentry-source-coverage-receipts.jsonl \
             --pretty > /tmp/news-sentry-source-coverage.json
 
+      - name: Resolve Source Health SLO metadata
+        id: slo-metadata
+        run: |
+          set -euo pipefail
+          echo "Resolve deployed commit from guard receipt and deployment metadata"
+          python - <<'PY' > /tmp/news-sentry-source-health-deployment.json
+          import json
+          import sys
+          import urllib.request
+
+          request = urllib.request.Request(
+              "https://api.news-sentry.com/api/v1/ready",
+              headers={"User-Agent": "NewsSentrySourceHealthSLO/1.0"},
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
+              payload = json.loads(response.read().decode("utf-8"))
+          deployment = payload.get("deployment") if isinstance(payload, dict) else {}
+          if not isinstance(deployment, dict):
+              deployment = {}
+          deployed_commit = deployment.get("commit")
+          if not isinstance(deployed_commit, str) or len(deployed_commit) != 40:
+              print("Deployment metadata did not expose a full deployed commit.", file=sys.stderr)
+              raise SystemExit(1)
+          print(json.dumps({"environment": "production", "deployed_commit": deployed_commit}))
+          PY
+          SLO_ENVIRONMENT="$(python -c 'import json;print(json.load(open("/tmp/news-sentry-source-health-deployment.json"))["environment"])')"
+          SLO_DEPLOYED_COMMIT="$(python -c 'import json;print(json.load(open("/tmp/news-sentry-source-health-deployment.json"))["deployed_commit"])')"
+          printf '%s=%s\n' "environment" "${SLO_ENVIRONMENT}" >> "${GITHUB_OUTPUT}"
+          printf '%s=%s\n' "deployed_commit" "${SLO_DEPLOYED_COMMIT}" >> "${GITHUB_OUTPUT}"
+
+      - name: Download previous Source Health SLO
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BOOTSTRAP_WEEKLY_SLO: ${{ github.event.inputs.bootstrap_weekly_slo || 'false' }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/news-sentry-source-health-previous
+          previous_run_id="$(gh run list --workflow source-health.yml --status success --limit 5 --json databaseId --jq '.[0].databaseId // ""')"
+          if [[ -n "${previous_run_id}" ]]; then
+            gh run download "${previous_run_id}" \
+              --name source-health-receipts \
+              --dir /tmp/news-sentry-source-health-previous || true
+          fi
+          if [[ -f /tmp/news-sentry-source-health-previous/news-sentry-source-health-slo.json ]]; then
+            cp /tmp/news-sentry-source-health-previous/news-sentry-source-health-slo.json /tmp/news-sentry-source-health-slo-previous.json
+          elif [[ "${BOOTSTRAP_WEEKLY_SLO}" != "true" ]]; then
+            echo "No previous Source Health SLO receipt found; set bootstrap_weekly_slo=true for an audited bootstrap." >&2
+            exit 1
+          fi
+
       - name: Live source health audit
         shell: bash
+        env:
+          SLO_ENVIRONMENT: ${{ steps.slo-metadata.outputs.environment }}
+          SLO_DEPLOYED_COMMIT: ${{ steps.slo-metadata.outputs.deployed_commit }}
         run: |
           set -euo pipefail
           args=(
@@ -63,8 +121,18 @@ jobs:
             --min-entries 1
             --output-json /tmp/news-sentry-source-health.json
             --output-jsonl /tmp/news-sentry-source-health.jsonl
+            --slo-config config/source-health-slo.yaml
+            --output-slo-json /tmp/news-sentry-source-health-slo.json
+            --slo-environment "${SLO_ENVIRONMENT}"
+            --slo-deployed-commit "${SLO_DEPLOYED_COMMIT}"
+            --slo-window current
             --pretty
           )
+          if [[ -f /tmp/news-sentry-source-health-slo-previous.json ]]; then
+            args+=(--previous-summary-json /tmp/news-sentry-source-health-slo-previous.json)
+          elif [[ "${{ github.event.inputs.bootstrap_weekly_slo || 'false' }}" == "true" ]]; then
+            args+=(--allow-weekly-bootstrap)
+          fi
           if [[ -n "${{ github.event.inputs.target || '' }}" ]]; then
             args+=(--target "${{ github.event.inputs.target }}")
           fi
@@ -86,3 +154,6 @@ jobs:
             /tmp/news-sentry-source-coverage-receipts.jsonl
             /tmp/news-sentry-source-health.json
             /tmp/news-sentry-source-health.jsonl
+            /tmp/news-sentry-source-health-slo.json
+          if-no-files-found: error
+          retention-days: 14

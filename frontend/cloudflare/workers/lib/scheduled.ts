@@ -1,9 +1,12 @@
-import { getContainer } from "@cloudflare/containers";
-import { importEventsToD1 } from "../api/webhook";
-import type { ImportEventItem } from "./contracts";
-import { refreshPublicReadSnapshots } from "./public-read-snapshots";
+import { refreshPublicReadSnapshots } from "./public-read-snapshots.ts";
+import { assessEventTimestamps } from "./timestamp-policy.ts";
+import { generateShadowJobs } from "./job-store.ts";
+import { buildAndActivateShadowSnapshotGeneration } from "./snapshot-generation.ts";
+import { dispatchDueShadowJobs, type ShadowQueueEnv } from "./queue-shadow.ts";
+import { parseRuntimeConfig, type RuntimeConfigEnv } from "./runtime-config.ts";
+import { importContainerEventsToD1 } from "./container-import.ts";
 
-interface ScheduledEnv {
+interface ScheduledEnv extends ShadowQueueEnv, RuntimeConfigEnv {
   DB: D1Database;
   NEWS_SENTRY_CONTAINER?: DurableObjectNamespace;
 }
@@ -15,17 +18,101 @@ type ScheduledTask =
   | "retention-cycle"
   | "cost-audit-cycle";
 type ContainerTask = "collect-cycle" | "public-translation-cycle";
+type ContainerDependencyFailure = {
+  status: "failed_dependency";
+  reason: "container_not_configured";
+};
+type ContainerHandle = {
+  fetch(request: Request): Promise<Response>;
+};
+type ScheduledContainerGetter = (
+  namespace: DurableObjectNamespace,
+  name: string,
+) => ContainerHandle | Promise<ContainerHandle>;
 
 const COLLECT_TARGET_BATCH_SIZE = 4;
 const COLLECT_TARGET_CURSOR_KEY = "cursor:collect-cycle-target-index";
 const CONTAINER_TASK_TIMEOUT_MS = 8 * 60_000;
 const CONTAINER_WRITER_LOCK_NAME = "container-sqlite-writer";
+let scheduledContainerGetterForTest: ScheduledContainerGetter | null = null;
 
 interface CollectTargetBatch {
   targetIds: string[];
   cursor: number;
   nextCursor: number;
   totalTargets: number;
+}
+
+interface UnsafeStoredEvent extends Record<string, unknown> {
+  event_id: string;
+  target_id: string;
+  source_id: string;
+  collected_at: string;
+  published_at: string;
+}
+
+function boundedStoredEventPayload(row: UnsafeStoredEvent): string {
+  const payload = JSON.stringify(row);
+  if (payload.length <= 48_000) return payload;
+  return JSON.stringify({
+    event_id: row.event_id,
+    target_id: row.target_id,
+    source_id: row.source_id,
+    collected_at: row.collected_at,
+    published_at: row.published_at,
+    original_url: row.original_url ?? null,
+    title: row.title ?? null,
+    payload_truncated: true,
+    original_bytes: payload.length,
+  });
+}
+
+export async function quarantineExistingUnsafeEvents(
+  db: D1Database,
+  generatedAt = isoNow(),
+): Promise<Record<string, unknown>> {
+  const result = await db
+    .prepare(
+      `SELECT * FROM events
+       WHERE datetime(collected_at) IS NULL
+          OR datetime(published_at) IS NULL
+          OR datetime(collected_at) > datetime(?, '+5 minutes')
+          OR datetime(published_at) > datetime(?, '+24 hours')
+       LIMIT 25`,
+    )
+    .bind(generatedAt, generatedAt)
+    .all<UnsafeStoredEvent>();
+  const events = result.results || [];
+  if (events.length === 0) return { status: "ok", quarantined_events: 0 };
+
+  const statements: D1PreparedStatement[] = [];
+  for (const event of events) {
+    const assessment = assessEventTimestamps(event.collected_at, event.published_at, Date.parse(generatedAt));
+    const reasonCode = assessment.ok ? "timestamp_policy_mismatch" : assessment.reason;
+    statements.push(
+      db
+        .prepare(
+          `INSERT INTO quarantined_events (
+             quarantine_id, target_id, source_id, reason_code, payload_json, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(quarantine_id) DO UPDATE SET
+             reason_code=excluded.reason_code,
+             payload_json=excluded.payload_json`,
+        )
+        .bind(
+          `q-existing-${event.event_id}`,
+          event.target_id || "unknown",
+          event.source_id || "unknown",
+          reasonCode,
+          boundedStoredEventPayload(event),
+          generatedAt,
+        ),
+      db.prepare("DELETE FROM event_localizations WHERE event_id = ?").bind(event.event_id),
+      db.prepare("DELETE FROM events WHERE event_id = ?").bind(event.event_id),
+    );
+  }
+  await db.batch(statements);
+  return { status: "ok", quarantined_events: events.length };
 }
 
 function taskForCron(cron: string): ScheduledTask {
@@ -188,27 +275,12 @@ function taskRuntimeDetails(task: ScheduledTask): Record<string, unknown> {
   return { task_mode: "public_quality", pipeline_stage: "drafts" };
 }
 
-function extractContainerImportEvents(details: Record<string, unknown>): ImportEventItem[] {
-  const body = details.body;
-  if (!isRecord(body) || !Array.isArray(body.import_events)) return [];
-  return body.import_events.filter(isRecord) as ImportEventItem[];
-}
-
-async function importContainerEventsToD1(
-  db: D1Database,
-  details: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  const events = extractContainerImportEvents(details);
-  if (events.length === 0) {
-    return { received: 0, imported: 0, updated: 0, skipped: 0, errors: [] };
-  }
-  const result = await importEventsToD1(db, events);
+function runtimeTaskDetails(env: ScheduledEnv): Record<string, unknown> {
+  const config = parseRuntimeConfig(env);
   return {
-    received: events.length,
-    imported: result.imported,
-    updated: result.updated,
-    skipped: result.skipped,
-    errors: result.errors.slice(0, 10),
+    scheduler_mode: config.schedulerMode,
+    worker_native_collect_enabled: config.workerNativeCollectEnabled,
+    collection_authoritative: config.collectionAuthoritative,
   };
 }
 
@@ -346,15 +418,53 @@ async function waitForContainerRetryDelay(attempt: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
+function isFailedContainerStatus(status: unknown): boolean {
+  return ["error", "failed", "failed_retryable", "failed_dependency"].includes(String(status ?? ""));
+}
+
+function shouldImportContainerEvents(
+  task: ScheduledTask,
+  details: Record<string, unknown>,
+): boolean {
+  return (
+    (task === "collect-cycle" || task === "public-translation-cycle") &&
+    isRecord(details.body) &&
+    !isFailedContainerStatus(details.status)
+  );
+}
+
+export function classifyContainerDependency(
+  container: DurableObjectNamespace | undefined,
+): ContainerDependencyFailure | null {
+  if (container) return null;
+  return { status: "failed_dependency", reason: "container_not_configured" };
+}
+
+export function setScheduledContainerGetterForTest(
+  getter: ScheduledContainerGetter | null,
+): void {
+  scheduledContainerGetterForTest = getter;
+}
+
+async function getContainerHandle(
+  namespace: DurableObjectNamespace,
+  name: string,
+): Promise<ContainerHandle> {
+  if (scheduledContainerGetterForTest) {
+    return scheduledContainerGetterForTest(namespace, name);
+  }
+  const containers = await import("@cloudflare/containers");
+  return containers.getContainer(namespace, name) as unknown as ContainerHandle;
+}
+
 async function callContainerInternalTask(
   env: ScheduledEnv,
   task: ContainerTask,
   targetIds?: string[],
 ): Promise<Record<string, unknown>> {
-  if (!env.NEWS_SENTRY_CONTAINER) {
-    return { status: "skipped", reason: "container_not_configured" };
-  }
-  const container = getContainer(env.NEWS_SENTRY_CONTAINER, "admin-runtime");
+  const dependencyFailure = classifyContainerDependency(env.NEWS_SENTRY_CONTAINER);
+  if (dependencyFailure) return dependencyFailure;
+  const container = await getContainerHandle(env.NEWS_SENTRY_CONTAINER, "admin-runtime");
   const controller = new AbortController();
   const timeout = setTimeout(
     () => controller.abort("container_task_timeout"),
@@ -500,10 +610,10 @@ async function auditCloudflareBudget(db: D1Database): Promise<Record<string, unk
 
 function collectBatchDetails(batch: CollectTargetBatch): Record<string, unknown> {
   return {
-    target_ids: batch.targetIds,
-    cursor: batch.cursor,
-    next_cursor: batch.nextCursor,
-    total_targets: batch.totalTargets,
+    selected_target_ids: batch.targetIds,
+    selection_cursor_before: batch.cursor,
+    selection_cursor_after: batch.nextCursor,
+    enabled_target_count: batch.totalTargets,
     batch_size: COLLECT_TARGET_BATCH_SIZE,
   };
 }
@@ -512,13 +622,20 @@ export async function runScheduledCloudflareTask(
   controller: ScheduledController,
   env: ScheduledEnv,
 ): Promise<void> {
+  const runtimeConfig = parseRuntimeConfig(env);
+  if (!runtimeConfig.ok) {
+    throw new Error(`Invalid Cloudflare runtime config: ${runtimeConfig.errors.join(",")}`);
+  }
   const task = taskForCron(controller.cron);
   const runId = `${task}:${controller.scheduledTime}:${crypto.randomUUID()}`;
   const startedAt = isoNow();
   let collectBatch: CollectTargetBatch | null = null;
   let containerWriterLockAcquired = false;
   if (!(await acquireLock(env.DB, task))) {
-    await recordRun(env.DB, runId, task, "skipped_locked", startedAt, taskRuntimeDetails(task));
+    await recordRun(env.DB, runId, task, "skipped_locked", startedAt, {
+      ...taskRuntimeDetails(task),
+      ...runtimeTaskDetails(env),
+    });
     return;
   }
   try {
@@ -527,6 +644,7 @@ export async function runScheduledCloudflareTask(
       if (!containerWriterLockAcquired) {
         await recordRun(env.DB, runId, task, "skipped_container_locked", startedAt, {
           ...taskRuntimeDetails(task),
+          ...runtimeTaskDetails(env),
           retryable_error: "container_sqlite_writer_locked",
         });
         return;
@@ -535,8 +653,18 @@ export async function runScheduledCloudflareTask(
     collectBatch = task === "collect-cycle" ? await loadCollectTargetBatch(env.DB) : null;
     await recordRunStarted(env.DB, runId, task, startedAt, {
       ...taskRuntimeDetails(task),
+      ...runtimeTaskDetails(env),
       ...(collectBatch === null ? {} : { collect_batch: collectBatchDetails(collectBatch) }),
     });
+    const quarantineCleanup = await quarantineExistingUnsafeEvents(env.DB, startedAt);
+    const shadowJobs =
+      runtimeConfig.schedulerMode === "legacy"
+        ? { mode: "legacy", status: "skipped", reason: "scheduler_mode_legacy" }
+        : await generateShadowJobs(env.DB, startedAt);
+    const shadowDispatch =
+      runtimeConfig.schedulerMode === "legacy"
+        ? { mode: "legacy", status: "skipped", reason: "scheduler_mode_legacy" }
+        : await dispatchDueShadowJobs(env, startedAt);
     let details: Record<string, unknown>;
     if (task === "refresh-public-quality") {
       details = await refreshPublicQuality(env.DB);
@@ -544,36 +672,68 @@ export async function runScheduledCloudflareTask(
       details = await deleteExpiredPublicData(env.DB, 90);
     } else if (task === "cost-audit-cycle") {
       details = await auditCloudflareBudget(env.DB);
+    } else if (task === "collect-cycle" && runtimeConfig.schedulerMode === "queue") {
+      details = { status: "ok", reason: "queue_authoritative_scheduler_dispatched_only" };
     } else if (task === "collect-cycle" && collectBatch?.targetIds.length === 0) {
-      details = { status: "empty_no_targets", reason: "no_active_targets" };
+      details = { status: "failed_dependency", reason: "no_collect_targets_enabled" };
     } else {
       details = await callContainerInternalTask(env, task, collectBatch?.targetIds);
     }
     let importResult: Record<string, unknown> | null = null;
-    if (task === "collect-cycle" || task === "public-translation-cycle") {
-      importResult = await importContainerEventsToD1(env.DB, details);
+    const canImportContainerEvents = shouldImportContainerEvents(task, details);
+    if (canImportContainerEvents) {
+      importResult = await importContainerEventsToD1(
+        env,
+        details,
+        runId,
+        startedAt,
+        task,
+      );
     }
     let snapshotRefresh: Record<string, unknown>;
+    let snapshotGeneration: Record<string, unknown>;
     try {
       snapshotRefresh = await refreshPublicReadSnapshots(env.DB);
+      snapshotGeneration = await buildAndActivateShadowSnapshotGeneration(env.DB);
     } catch (error) {
       snapshotRefresh = {
         status: "error",
         message: error instanceof Error ? error.message : String(error),
       };
+      snapshotGeneration = {
+        mode: "shadow",
+        status: "skipped",
+        reason: "legacy_snapshot_refresh_failed",
+      };
     }
     const compactDetails = compactTaskDetails({
       ...taskRuntimeDetails(task),
+      ...runtimeTaskDetails(env),
       ...details,
+      quarantine_cleanup: quarantineCleanup,
+      shadow_jobs: shadowJobs,
+      shadow_dispatch: shadowDispatch,
       ...(importResult === null ? {} : { import_result: importResult }),
       ...(collectBatch === null
         ? {}
         : { collect_batch: collectBatchDetails(collectBatch) }),
       snapshots: snapshotRefresh,
+      snapshot_generation: snapshotGeneration,
     });
+    const importStatus = isRecord(importResult) && typeof importResult.status === "string"
+      ? importResult.status
+      : null;
     const status =
-      typeof compactDetails.status === "string" && compactDetails.status ? compactDetails.status : "ok";
-    if (task === "collect-cycle" && collectBatch !== null && ["ok", "partial"].includes(status)) {
+      canImportContainerEvents && importStatus === "empty_no_new_items"
+        ? importStatus
+        : typeof compactDetails.status === "string" && compactDetails.status
+          ? compactDetails.status
+          : "ok";
+    if (
+      task === "collect-cycle" &&
+      collectBatch !== null &&
+      ["ok", "partial", "empty_no_new_items"].includes(status)
+    ) {
       await persistCollectTargetCursor(env.DB, collectBatch);
     }
     await recordRun(env.DB, runId, task, status, startedAt, compactDetails);
@@ -581,6 +741,7 @@ export async function runScheduledCloudflareTask(
     const retryableDatabaseLock = isDatabaseLockedDetails(error);
     await recordRun(env.DB, runId, task, retryableDatabaseLock ? "failed_retryable" : "error", startedAt, {
       ...taskRuntimeDetails(task),
+      ...runtimeTaskDetails(env),
       message: error instanceof Error ? error.message : String(error),
       ...(retryableDatabaseLock ? { retryable_error: "database_locked" } : {}),
       ...(collectBatch === null ? {} : { collect_batch: collectBatchDetails(collectBatch) }),

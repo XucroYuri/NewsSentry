@@ -1,0 +1,9 @@
+p0_source_refs:
+  - italy:ansa
+  - germany:tagesschau-politics
+  - france:lemonde-politics
+  - japan:nhk-news
+minimum_ok_ratio: 0.90
+maximum_failed_ratio: 0.02
+maximum_weekly_ok_drop: 0.03
+blocking_reason_codes: []

@@ -155,3 +155,48 @@ def test_evaluate_receipt_fails_when_featured_copy_or_targets_regress() -> None:
     assert result.ok is False
     assert "featured_public_copy_missing" in result.failures
     assert "d1_targets_below_threshold" in result.failures
+
+
+def test_evaluate_receipt_rejects_future_latest_public_timestamp() -> None:
+    receipt = _healthy_receipt()
+    receipt["health"]["public_quality"]["latest_public_at"] = "2026-06-29T08:00:01Z"  # type: ignore[index]
+
+    result = evaluate_receipt(
+        receipt,
+        QualityThresholds(min_featured=100, min_summary_ready=500, max_latest_age_hours=24),
+    )
+
+    assert result.ok is False
+    assert "latest_public_in_future" in result.failures
+
+
+def test_evaluate_receipt_rejects_stale_latest_collected_timestamp() -> None:
+    receipt = _healthy_receipt()
+    receipt["health"]["latest_collected_at"] = "2026-06-27T07:59:59Z"  # type: ignore[index]
+
+    result = evaluate_receipt(
+        receipt,
+        QualityThresholds(
+            min_featured=100,
+            min_summary_ready=500,
+            max_latest_collected_age_hours=24,
+        ),
+    )
+
+    assert result.ok is False
+    assert "latest_collected_too_old" in result.failures
+
+
+def test_evaluate_receipt_rejects_missing_or_malformed_latest_collected_timestamp() -> None:
+    missing = _healthy_receipt()
+    del missing["health"]["latest_collected_at"]  # type: ignore[index]
+    malformed = _healthy_receipt()
+    malformed["health"]["latest_collected_at"] = "not-a-date"  # type: ignore[index]
+
+    missing_result = evaluate_receipt(missing, QualityThresholds())
+    malformed_result = evaluate_receipt(malformed, QualityThresholds())
+
+    assert missing_result.ok is False
+    assert "latest_collected_missing_or_invalid" in missing_result.failures
+    assert malformed_result.ok is False
+    assert "latest_collected_missing_or_invalid" in malformed_result.failures

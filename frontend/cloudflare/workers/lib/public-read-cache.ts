@@ -1,5 +1,5 @@
 const CACHE_ORIGIN = "https://news-sentry.internal";
-const PUBLIC_READ_CACHE_VERSION = "v20260630-data-receipts";
+const PUBLIC_READ_CACHE_VERSION = "v20260801-sanitized-snapshots";
 const DEFAULT_STALE_WHILE_REVALIDATE_SECONDS = 300;
 const DEFAULT_STALE_IF_ERROR_SECONDS = 86400;
 

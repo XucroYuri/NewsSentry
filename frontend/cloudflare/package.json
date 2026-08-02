@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev --local",
+    "test": "node --experimental-strip-types --test tests/*.test.mts",
+    "wrangler-types": "wrangler types",
     "deploy": "wrangler deploy",
     "deploy:prod": "wrangler deploy --env=\"\"",
     "tail": "wrangler tail",
@@ -14,7 +16,7 @@
     "pages:deploy": "wrangler pages deploy ../../dist/cloudflare"
   },
   "devDependencies": {
-    "wrangler": "^4.0.0"
+    "wrangler": "4.114.0"
   },
   "dependencies": {
     "@cloudflare/containers": "^0.3.7"

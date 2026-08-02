@@ -1,5 +1,6 @@
 """Docker 配置验证测试 — 不执行 docker build，仅验证配置文件的一致性和完整性。"""
 
+import re
 from pathlib import Path
 
 import yaml
@@ -9,6 +10,28 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 def _read_text(path: str) -> str:
     return (PROJECT_ROOT / path).read_text(encoding="utf-8")
+
+
+def _docker_env_value(name: str) -> str:
+    match = re.search(rf"^ENV\s+{re.escape(name)}=(\S+)\s*$", _read_text("Dockerfile"), re.M)
+    assert match is not None, f"Dockerfile must define ENV {name}"
+    return match.group(1)
+
+
+def _compose_service() -> dict:
+    data = yaml.safe_load(_read_text("docker-compose.yml"))
+    return data["services"]["news-sentry"]
+
+
+def _compose_environment() -> dict[str, str]:
+    environment = _compose_service().get("environment", {})
+    if isinstance(environment, dict):
+        return {str(key): str(value) for key, value in environment.items()}
+    result: dict[str, str] = {}
+    for item in environment:
+        key, _, value = str(item).partition("=")
+        result[key] = value
+    return result
 
 
 class TestDockerfile:
@@ -81,6 +104,14 @@ class TestDockerfile:
         content = _read_text("Dockerfile")
         assert "/api/v1/health" in content
 
+    def test_dockerfile_default_profile_exists_and_is_cloudflare(self):
+        """Container 默认 profile 必须绑定真实 Cloudflare 部署 profile。"""
+        profile_id = _docker_env_value("NEWSSENTRY_PROFILE")
+        profile_path = PROJECT_ROOT / "config" / "profiles" / f"{profile_id}.yaml"
+
+        assert profile_id == "cloudflare"
+        assert profile_path.is_file()
+
 
 class TestDockerCompose:
     """docker-compose.yml v2 配置验证。"""
@@ -108,16 +139,26 @@ class TestDockerCompose:
 
     def test_compose_news_sentry_builds_from_context(self):
         """news-sentry 服务应使用本地 build 而非外部镜像。"""
-        data = yaml.safe_load(_read_text("docker-compose.yml"))
-        svc = data["services"]["news-sentry"]
+        svc = _compose_service()
         assert "build" in svc
 
     def test_compose_mounts_config_volume(self):
         """docker-compose.yml 应挂载 config/ 为只读卷。"""
-        data = yaml.safe_load(_read_text("docker-compose.yml"))
-        volumes = data["services"]["news-sentry"].get("volumes", [])
+        volumes = _compose_service().get("volumes", [])
         config_volumes = [v for v in volumes if "config" in v]
         assert len(config_volumes) > 0
+
+    def test_compose_profile_override_is_valid_when_present(self):
+        """compose 不得覆盖为不存在 profile；缺省时继承 Dockerfile。"""
+        environment = _compose_environment()
+        if "NEWSSENTRY_PROFILE" not in environment:
+            return
+
+        profile_id = environment["NEWSSENTRY_PROFILE"]
+        profile_path = PROJECT_ROOT / "config" / "profiles" / f"{profile_id}.yaml"
+
+        assert profile_id == _docker_env_value("NEWSSENTRY_PROFILE")
+        assert profile_path.is_file()
 
 
 class TestDockerIgnore:

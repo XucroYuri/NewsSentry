@@ -6,6 +6,7 @@
  */
 
 import type { PublicFacetsResponse, PublicFacetItem } from "../lib/contracts";
+import { PUBLIC_PUBLISHED_AT_SANITY_SQL } from "../lib/public-news-query";
 import {
   maybeServeCachedPublicRead,
   maybeStoreCachedPublicRead,
@@ -35,7 +36,7 @@ export async function handleFacets(
       .prepare(
         `SELECT region_id AS id, region_id AS label, COUNT(*) AS count
          FROM events
-         WHERE pipeline_stage = 'drafts'
+         WHERE pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_SANITY_SQL}
          GROUP BY region_id
          ORDER BY count DESC`
       )
@@ -47,7 +48,7 @@ export async function handleFacets(
         .prepare(
           `SELECT json_each.value AS id, json_each.value AS label, COUNT(*) AS count
            FROM events, json_each(events.issue_tags)
-           WHERE events.pipeline_stage = 'drafts'
+           WHERE events.pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_SANITY_SQL}
            GROUP BY json_each.value
            ORDER BY count DESC`
         )
@@ -56,7 +57,7 @@ export async function handleFacets(
         .prepare(
           `SELECT json_each.value AS id, json_each.value AS label, COUNT(*) AS count
            FROM events, json_each(events.related_tags)
-           WHERE events.pipeline_stage = 'drafts'
+           WHERE events.pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_SANITY_SQL}
            GROUP BY json_each.value
            ORDER BY count DESC`
         )

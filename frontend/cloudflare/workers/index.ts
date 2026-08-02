@@ -17,21 +17,35 @@
  */
 
 import { Container } from "@cloudflare/containers";
-import { registerRoute, dispatch } from "./lib/router";
-import { handleHealth } from "./api/health";
+import { registerRoute, dispatch, type RuntimeMetadata } from "./lib/router";
+import { handleHealth, handleLiveness } from "./api/health";
 import { handleFacets } from "./api/facets";
 import { handleBootstrap } from "./api/bootstrap";
 import { handleNewsFeed, handleNewsDetail } from "./api/news";
 import { handleTargets, handleRegions } from "./api/targets";
 import { handleWebhook, handleImport } from "./api/webhook";
+import { handleDlqReplay } from "./api/dlq-replay";
 import { handleContainerProxy, shouldProxyToContainer } from "./api/proxy";
 import { internalError } from "./lib/errors";
-import { handleWorkerWriteAccess } from "./lib/access";
+import { authorizeWorkerWriteAccess } from "./lib/access";
 import { runScheduledCloudflareTask } from "./lib/scheduled";
+import { handleShadowQueueBatch } from "./lib/queue-shadow";
+import type { AccessPrincipal, CloudflareAccessJwtEnv } from "./lib/access-jwt";
+import { parseRuntimeConfig, type RuntimeConfigEnv } from "./lib/runtime-config";
 
-interface Env {
+interface Env extends CloudflareAccessJwtEnv, RuntimeConfigEnv {
   DB: D1Database;
+  NEWS_SENTRY_ARTIFACTS?: R2Bucket;
   NEWS_SENTRY_CONTAINER?: DurableObjectNamespace;
+  NEWS_SENTRY_JOBS_QUEUE?: Queue;
+  NEWS_SENTRY_JOBS_DLQ?: Queue;
+  NEWS_SENTRY_DEPLOY_COMMIT?: string;
+  NEWS_SENTRY_QUEUE_CUTOVER_RECEIPT?: string;
+  CF_VERSION_METADATA?: {
+    id: string;
+    tag?: string;
+    timestamp?: string;
+  };
   GEMINI_API_KEY?: string;
   OPENROUTER_API_KEY?: string;
   OPENROUTER_API_KEY_2?: string;
@@ -59,7 +73,7 @@ function definedEnv(vars: Record<string, string | undefined>): Record<string, st
 export class NewsSentryContainer extends Container<Env> {
   defaultPort = 8000;
   requiredPorts = [8000];
-  sleepAfter = "30m";
+  sleepAfter = "5m";
   enableInternet = true;
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -99,10 +113,17 @@ const SECURITY_HEADERS: Record<string, string> = {
   "X-Content-Type-Options": "nosniff",
 };
 
-function withSecurityHeaders(response: Response): Response {
+function withSecurityHeaders(response: Response, env: Env): Response {
   const headers = new Headers(response.headers);
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
     headers.set(name, value);
+  }
+  headers.set("X-News-Sentry-Runtime", "cloudflare-worker");
+  if (env.NEWS_SENTRY_DEPLOY_COMMIT) {
+    headers.set("X-News-Sentry-Deploy-Commit", env.NEWS_SENTRY_DEPLOY_COMMIT);
+  }
+  if (env.CF_VERSION_METADATA?.id) {
+    headers.set("X-News-Sentry-Worker-Version", env.CF_VERSION_METADATA.id);
   }
   return new Response(response.body, {
     status: response.status,
@@ -111,8 +132,40 @@ function withSecurityHeaders(response: Response): Response {
   });
 }
 
+function runtimeMetadata(
+  env: Env,
+  accessIdentity: AccessPrincipal | null = null,
+): RuntimeMetadata {
+  const config = parseRuntimeConfig(env);
+  return {
+    access: accessIdentity ?? undefined,
+    commit: env.NEWS_SENTRY_DEPLOY_COMMIT ?? null,
+    environment: env.NEWS_SENTRY_ENVIRONMENT ?? null,
+    runtime: "cloudflare-worker",
+    worker_version: env.CF_VERSION_METADATA?.id ?? null,
+    scheduler_mode: config.schedulerMode,
+    worker_native_collect_enabled: config.workerNativeCollectEnabled,
+    collection_authoritative: config.collectionAuthoritative,
+    config_valid: config.ok,
+    config_errors: config.errors,
+    compute: {
+      container_configured: Boolean(env.NEWS_SENTRY_CONTAINER),
+      queue_configured: Boolean(env.NEWS_SENTRY_JOBS_QUEUE),
+    },
+    queue: {
+      jobs_configured: Boolean(env.NEWS_SENTRY_JOBS_QUEUE),
+      dlq_configured: Boolean(env.NEWS_SENTRY_JOBS_DLQ),
+    },
+    storage: {
+      artifacts_configured: Boolean(env.NEWS_SENTRY_ARTIFACTS),
+    },
+  };
+}
+
 // ── Route registration ────────────────────────────────────────────────────
 registerRoute("GET", "/api/v1/health", handleHealth);
+registerRoute("GET", "/api/v1/live", handleLiveness);
+registerRoute("GET", "/api/v1/ready", handleHealth);
 registerRoute("GET", "/api/v1/public/facets", handleFacets);
 registerRoute("GET", "/api/v1/public/bootstrap", handleBootstrap);
 registerRoute("GET", "/api/v1/public/news", handleNewsFeed);
@@ -121,6 +174,7 @@ registerRoute("GET", "/api/v1/targets", handleTargets);
 registerRoute("GET", "/api/v1/regions", handleRegions);
 registerRoute("POST", "/api/v1/webhook", handleWebhook);
 registerRoute("POST", "/api/v1/events/import", handleImport);
+registerRoute("POST", "/api/v1/jobs/dlq/replay", handleDlqReplay);
 
 // ── Worker entry ───────────────────────────────────────────────────────────
 export default {
@@ -131,16 +185,28 @@ export default {
       if (shouldProxyToContainer(url.pathname)) {
         response = await handleContainerProxy(request, env);
       } else {
-        const workerWriteAccess = handleWorkerWriteAccess(request);
-        response = workerWriteAccess ?? (await dispatch(request, env.DB, ctx));
+        const workerWriteAccess = await authorizeWorkerWriteAccess(request, env);
+        response =
+          workerWriteAccess.ok
+            ? await dispatch(
+                request,
+                env.DB,
+                ctx,
+                runtimeMetadata(env, workerWriteAccess.identity),
+                { artifacts: env.NEWS_SENTRY_ARTIFACTS },
+              )
+            : workerWriteAccess.response;
       }
-      return withSecurityHeaders(response);
+      return withSecurityHeaders(response, env);
     } catch (err) {
       console.error("worker unhandled error:", err);
-      return withSecurityHeaders(internalError());
+      return withSecurityHeaders(internalError(), env);
     }
   },
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     ctx.waitUntil(runScheduledCloudflareTask(controller, env));
+  },
+  async queue(batch: MessageBatch, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(handleShadowQueueBatch(batch, env));
   },
 };

@@ -2,7 +2,7 @@ name: Deploy
 
 on:
   push:
-    branches: [main, preview]
+    branches: [preview]
   workflow_dispatch:
     inputs:
       environment:
@@ -11,19 +11,61 @@ on:
         default: preview
         type: choice
         options: [preview, production]
+      expected_commit:
+        description: "Full commit SHA required for production"
+        required: false
+        type: string
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: news-sentry-deploy
+  cancel-in-progress: false
 
 jobs:
   ci:
     name: CI Gate
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    outputs:
+      deployment_environment: ${{ steps.deployment-mode.outputs.environment }}
     env:
       PYTHONUNBUFFERED: "1"
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve and validate deployment mode
+        id: deployment-mode
+        env:
+          REQUESTED_ENVIRONMENT: ${{ github.event.inputs.environment || '' }}
+          EXPECTED_COMMIT: ${{ github.event.inputs.expected_commit || '' }}
+        run: |
+          set -euo pipefail
+          environment=""
+          if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF}" = "refs/heads/preview" ]; then
+            environment="preview"
+          elif [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${REQUESTED_ENVIRONMENT}" = "preview" ]; then
+            environment="preview"
+          elif [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${REQUESTED_ENVIRONMENT}" = "production" ]; then
+            if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+              echo "Reject production dispatch from non-main: production dispatch is only allowed from refs/heads/main."
+              exit 1
+            fi
+            if ! [[ "${EXPECTED_COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "Reject production dispatch without a full 40-character commit SHA."
+              exit 1
+            fi
+            if [ "${EXPECTED_COMMIT}" != "${GITHUB_SHA}" ]; then
+              echo "Reject production dispatch: expected_commit does not match GITHUB_SHA."
+              exit 1
+            fi
+            environment="production"
+          else
+            echo "Unsupported deployment event/ref/environment combination."
+            exit 1
+          fi
+          echo "environment=${environment}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -92,13 +134,21 @@ jobs:
         working-directory: frontend/cloudflare
         run: npm ci
 
+      - name: Cloudflare Worker behavior tests
+        working-directory: frontend/cloudflare
+        run: npm test
+
+      - name: Cloudflare Worker Wrangler type generation
+        working-directory: frontend/cloudflare
+        run: npm run wrangler-types
+
       - name: Cloudflare Worker dry run
         working-directory: frontend/cloudflare
         env:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler deploy --env="" --dry-run --outdir /tmp/ns-worker-dry-run --containers-rollout none
+        run: node_modules/.bin/wrangler deploy --env="" --dry-run --outdir /tmp/ns-worker-dry-run --containers-rollout none
 
       - name: Lint (ruff)
         run: python -m ruff check
@@ -139,7 +189,9 @@ jobs:
     name: Cloudflare D1 schema migration
     runs-on: ubuntu-latest
     needs: ci
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/preview' || github.event_name == 'workflow_dispatch'
+    if: >-
+      needs.ci.outputs.deployment_environment == 'preview' ||
+      needs.ci.outputs.deployment_environment == 'production'
     steps:
       - uses: actions/checkout@v4
 
@@ -167,12 +219,13 @@ jobs:
           python tools/cloudflare_d1_backfill.py \
             --data-dir data \
             --targets-dir config/targets \
+            --canary-target-allowlist italy,germany,france,japan \
             --dry-run \
             --limit 100 \
             --output-sql /tmp/news-sentry-d1-backfill.sql
 
       - name: Apply Cloudflare D1 breaking intelligence migration
-        if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+        if: needs.ci.outputs.deployment_environment == 'production'
         working-directory: frontend/cloudflare
         env:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
@@ -180,7 +233,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          if npx wrangler d1 execute ns-db --remote --command \
+          if node_modules/.bin/wrangler d1 execute ns-db --remote --command \
             "SELECT breaking_score FROM events LIMIT 1" >/tmp/ns-d1-breaking-check.json 2>/tmp/ns-d1-breaking-check.err; then
             echo "events.breaking_score already exists"
           elif grep -q "no such table: events" /tmp/ns-d1-breaking-check.err; then
@@ -188,21 +241,54 @@ jobs:
             echo "events table is absent; db/schema.sql will initialize breaking columns"
           else
             cat /tmp/ns-d1-breaking-check.err
-            npx wrangler d1 execute ns-db --remote \
+            node_modules/.bin/wrangler d1 execute ns-db --remote \
               --file=db/migrations/20260701_breaking_intelligence_i18n.sql
           fi
 
       - name: Apply Cloudflare D1 schema
-        if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+        if: needs.ci.outputs.deployment_environment == 'production'
         working-directory: frontend/cloudflare
         env:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler d1 execute ns-db --remote --file=db/schema.sql
+        run: node_modules/.bin/wrangler d1 execute ns-db --remote --file=db/schema.sql
 
-      - name: Apply Cloudflare D1 target collect flag migration
-        if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+      - name: Apply durable artifact manifest migration
+        if: needs.ci.outputs.deployment_environment == 'production'
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: >-
+          node_modules/.bin/wrangler d1 execute ns-db --remote
+          --file=db/migrations/20260802_phase3_durable_artifacts.sql
+
+      - name: Apply projection import finalize receipt migration
+        if: needs.ci.outputs.deployment_environment == 'production'
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: >-
+          node_modules/.bin/wrangler d1 execute ns-db --remote
+          --file=db/migrations/20260802_phase4_projection_import.sql
+
+      - name: Apply historical future event quarantine migration
+        if: needs.ci.outputs.deployment_environment == 'production'
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: >-
+          node_modules/.bin/wrangler d1 execute ns-db --remote
+          --file=db/migrations/20260802_phase5_future_event_quarantine.sql
+
+      - name: Ensure production R2 artifact bucket
+        if: needs.ci.outputs.deployment_environment == 'production'
         working-directory: frontend/cloudflare
         env:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
@@ -210,17 +296,65 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          if npx wrangler d1 execute ns-db --remote --command \
+          if ! node_modules/.bin/wrangler r2 bucket info news-sentry-artifacts --json \
+            > /tmp/ns-r2-bucket.json; then
+            node_modules/.bin/wrangler r2 bucket create news-sentry-artifacts
+            node_modules/.bin/wrangler r2 bucket info news-sentry-artifacts --json \
+              > /tmp/ns-r2-bucket.json
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("/tmp/ns-r2-bucket.json").read_text())
+          assert payload.get("name") == "news-sentry-artifacts"
+          PY
+
+      - name: Apply Cloudflare D1 shadow job runtime migration
+        if: needs.ci.outputs.deployment_environment == 'production'
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: >-
+          node_modules/.bin/wrangler d1 execute ns-db --remote
+          --file=db/migrations/20260801_phase1_job_runtime.sql
+
+      - name: Record Cloudflare D1 runtime migration receipts
+        if: needs.ci.outputs.deployment_environment == 'production'
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          python ../../tools/cloudflare_deploy_guard.py record-runtime-receipts \
+            --wrangler node_modules/.bin/wrangler \
+            --wrangler-toml wrangler.toml \
+            --output /tmp/news-sentry-runtime-migration-receipts.json
+
+      - name: Apply Cloudflare D1 target collect flag migration
+        if: needs.ci.outputs.deployment_environment == 'production'
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if node_modules/.bin/wrangler d1 execute ns-db --remote --command \
             "SELECT cloudflare_collect_enabled FROM targets LIMIT 1" >/tmp/ns-d1-column-check.json 2>/tmp/ns-d1-column-check.err; then
             echo "targets.cloudflare_collect_enabled already exists"
           else
             cat /tmp/ns-d1-column-check.err
-            npx wrangler d1 execute ns-db --remote \
+            node_modules/.bin/wrangler d1 execute ns-db --remote \
               --file=db/migrations/20260630_add_target_collect_enabled.sql
           fi
 
       - name: Apply Cloudflare D1 target and source sync
-        if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+        if: needs.ci.outputs.deployment_environment == 'production'
         env:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
@@ -230,13 +364,14 @@ jobs:
           python tools/cloudflare_d1_backfill.py \
             --data-dir data \
             --targets-dir config/targets \
+            --canary-target-allowlist italy,germany,france,japan \
             --limit 0 \
             --output-sql /tmp/news-sentry-d1-target-sync.sql
-          (cd frontend/cloudflare && npx wrangler d1 execute ns-db --remote \
+          (cd frontend/cloudflare && node_modules/.bin/wrangler d1 execute ns-db --remote \
             --file /tmp/news-sentry-d1-target-sync.sql)
 
       - name: Refresh Cloudflare public read snapshots
-        if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+        if: needs.ci.outputs.deployment_environment == 'production'
         env:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
@@ -247,14 +382,14 @@ jobs:
             --wrangler-dir frontend/cloudflare \
             --database ns-db \
             --output-sql /tmp/news-sentry-public-read-snapshots.sql
-          (cd frontend/cloudflare && npx wrangler d1 execute ns-db --remote \
+          (cd frontend/cloudflare && node_modules/.bin/wrangler d1 execute ns-db --remote \
             --file /tmp/news-sentry-public-read-snapshots.sql)
 
   deploy-cloudflare-worker:
     name: Deploy Cloudflare Worker
     runs-on: ubuntu-latest
     needs: [ci, cloudflare-data]
-    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    if: needs.ci.outputs.deployment_environment == 'production'
     environment: production
     steps:
       - uses: actions/checkout@v4
@@ -270,15 +405,7 @@ jobs:
         working-directory: frontend/cloudflare
         run: npm ci
 
-      - name: Deploy Cloudflare Worker
-        working-directory: frontend/cloudflare
-        env:
-          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
-          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx wrangler deploy --env="" --containers-rollout gradual
-
-      - name: Verify Cloudflare Worker health
+      - name: Cloudflare runtime preflight receipt
         working-directory: frontend/cloudflare
         env:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
@@ -286,39 +413,388 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          for i in $(seq 1 36); do
+          python ../../tools/cloudflare_deploy_guard.py preflight \
+            --wrangler node_modules/.bin/wrangler \
+            --wrangler-toml wrangler.toml \
+            --output /tmp/news-sentry-cloudflare-preflight.json
+
+      - name: Deploy Cloudflare Worker
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCESS_TEAM_DOMAIN: ${{ vars.CF_ACCESS_TEAM_DOMAIN }}
+          CF_ACCESS_AUD: ${{ vars.CF_ACCESS_AUD }}
+        run: |
+          set -euo pipefail
+          : "${CF_ACCESS_TEAM_DOMAIN:?GitHub environment variable CF_ACCESS_TEAM_DOMAIN is required}"
+          : "${CF_ACCESS_AUD:?GitHub environment variable CF_ACCESS_AUD is required}"
+          node_modules/.bin/wrangler deploy --env="" --containers-rollout gradual \
+            --var "NEWS_SENTRY_DEPLOY_COMMIT:${GITHUB_SHA}" \
+            --var "NEWS_SENTRY_ENVIRONMENT:production" \
+            --var "SCHEDULER_MODE:shadow" \
+            --var "WORKER_NATIVE_COLLECT_ENABLED:false" \
+            --var "CF_ACCESS_TEAM_DOMAIN:${CF_ACCESS_TEAM_DOMAIN}" \
+            --var "CF_ACCESS_AUD:${CF_ACCESS_AUD}"
+
+      - name: Verify Cloudflare Worker health
+        timeout-minutes: 25
+        run: |
+          set -euo pipefail
+          verify_worker_receipt() {
+            python - "$1" "$2" "$3" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          mode, body_path, headers_path = sys.argv[1:]
+          headers = {}
+          for line in Path(headers_path).read_text(errors="replace").splitlines():
+              if ":" in line:
+                  key, value = line.split(":", 1)
+                  headers[key.strip().lower()] = value.strip()
+
+          body = json.loads(Path(body_path).read_text())
+          assert body.get("status") == "ok", f"Worker {mode} status is not ok"
+          assert headers.get("x-news-sentry-runtime") == "cloudflare-worker"
+          assert headers.get("x-news-sentry-deploy-commit") == os.environ["GITHUB_SHA"]
+          assert headers.get("x-news-sentry-worker-version"), "Worker version receipt missing"
+          if mode == "ready":
+              assert body.get("readiness", {}).get("ok") is True, "Worker readiness is false"
+              assert body.get("deployment", {}).get("commit") == os.environ["GITHUB_SHA"]
+              assert body.get("deployment", {}).get("scheduler_mode") == "shadow"
+              assert body.get("deployment", {}).get("worker_native_collect_enabled") is False
+              assert body.get("deployment", {}).get("collection_authoritative") is False
+              assert body.get("deployment", {}).get("storage", {}).get("artifacts_configured") is True
+          PY
+          }
+
+          for i in $(seq 1 60); do
             STATUS=$(curl -sS \
               -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" \
               -H "Accept: application/json" \
-              -o /tmp/worker-health.json \
+              -D /tmp/worker-live.headers \
+              -o /tmp/worker-live.json \
               -w "%{http_code}" \
-              "https://api.news-sentry.com/api/v1/health" || echo "000")
-            if [ "$STATUS" = "200" ]; then
-              cat /tmp/worker-health.json
-              exit 0
+              "https://api.news-sentry.com/api/v1/live" || true)
+            if [ "$STATUS" = "200" ] && verify_worker_receipt \
+              live /tmp/worker-live.json /tmp/worker-live.headers; then
+              break
             fi
-            if grep -qi "Just a moment" /tmp/worker-health.json 2>/dev/null; then
-              echo "::warning::Cloudflare Challenge blocked GitHub Actions runner; falling back to D1 smoke check."
-              npx wrangler d1 execute ns-db --remote \
-                --command "SELECT COUNT(*) AS total_events, MAX(collected_at) AS latest_collected_at FROM events"
-              exit 0
-            fi
-            echo "Waiting for Worker deployment... (attempt $i, HTTP $STATUS)"
-            if [ -s /tmp/worker-health.json ]; then
-              head -c 500 /tmp/worker-health.json || true
+            echo "Waiting for Worker deployment receipt... (attempt $i, HTTP ${STATUS:-000})"
+            if [ -s /tmp/worker-live.json ]; then
+              head -c 500 /tmp/worker-live.json || true
               echo
+            fi
+            if [ "$i" = "60" ]; then
+              echo "Cloudflare Worker liveness/deployment receipt check failed"
+              exit 1
             fi
             sleep 5
           done
-          echo "Cloudflare Worker health check failed"
-          exit 1
+
+          for i in $(seq 1 240); do
+            STATUS=$(curl -sS \
+              -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" \
+              -H "Accept: application/json" \
+              -D /tmp/worker-ready.headers \
+              -o /tmp/worker-ready.json \
+              -w "%{http_code}" \
+              "https://api.news-sentry.com/api/v1/ready" || true)
+            if [ "$STATUS" = "200" ] && verify_worker_receipt \
+              ready /tmp/worker-ready.json /tmp/worker-ready.headers; then
+              cat /tmp/worker-ready.json
+              exit 0
+            fi
+            echo "Waiting for truthful Worker readiness... (attempt $i, HTTP ${STATUS:-000})"
+            if [ -s /tmp/worker-ready.json ]; then
+              head -c 1000 /tmp/worker-ready.json || true
+              echo
+            fi
+            if [ "$i" = "240" ]; then
+              echo "Cloudflare Worker readiness check failed"
+              exit 1
+            fi
+            sleep 5
+          done
+
+      - name: Collect Cloudflare Worker deployment receipt
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          node_modules/.bin/wrangler versions list --json > /tmp/ns-worker-versions.json
+          node_modules/.bin/wrangler deployments list --json > /tmp/ns-worker-deployments.json
+          node_modules/.bin/wrangler d1 execute ns-db --remote \
+            --command "SELECT migration_id FROM runtime_migration_receipts ORDER BY migration_id" \
+            --json > /tmp/ns-d1-runtime-migration-receipts.json
+          node_modules/.bin/wrangler d1 execute ns-db --remote \
+            --command "SELECT key, value, updated_at FROM ops_state WHERE key='last:collect-cycle'" \
+            --json > /tmp/ns-d1-collect-continuity.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          def rows(value):
+              if isinstance(value, list) and value and isinstance(value[0], dict) and isinstance(value[0].get("results"), list):
+                  return value[0]["results"]
+              if isinstance(value, list):
+                  return value
+              if isinstance(value, dict):
+                  for key in ("results", "result", "items"):
+                      if isinstance(value.get(key), list):
+                          return value[key]
+              return []
+
+          versions = rows(json.loads(Path("/tmp/ns-worker-versions.json").read_text()))
+          deployments = rows(json.loads(Path("/tmp/ns-worker-deployments.json").read_text()))
+          migrations = rows(json.loads(Path("/tmp/ns-d1-runtime-migration-receipts.json").read_text()))
+          collect_rows = rows(json.loads(Path("/tmp/ns-d1-collect-continuity.json").read_text()))
+          collect_value = {}
+          continuity_reason_codes = []
+          raw_value_present = False
+          if collect_rows and isinstance(collect_rows[0], dict):
+              raw_value = collect_rows[0].get("value")
+              raw_value_present = isinstance(raw_value, str) and bool(raw_value)
+              if isinstance(raw_value, str):
+                  try:
+                      collect_value = json.loads(raw_value)
+                  except json.JSONDecodeError:
+                      continuity_reason_codes.append("collect_continuity_json_invalid")
+          malformed_collect_continuity = "collect_continuity_json_invalid" in continuity_reason_codes
+          latest_collect = {
+              "status": "failed" if malformed_collect_continuity else collect_value.get("status"),
+              "run_id": None if malformed_collect_continuity else collect_value.get("runId"),
+              "updated_at": collect_rows[0].get("updated_at") if collect_rows else None,
+          }
+          details = None if malformed_collect_continuity else collect_value.get("details")
+          collect_batch = details.get("collect_batch") if isinstance(details, dict) else {}
+          continuity_status = (
+              "failed"
+              if continuity_reason_codes
+              else "ok" if latest_collect["status"] in {"ok", "partial", "empty_no_new_items"} else "failed"
+          )
+          Path("/tmp/ns-worker-version.json").write_text(json.dumps(versions[0] if versions else {}))
+          Path("/tmp/ns-worker-deployment.json").write_text(json.dumps(deployments[0] if deployments else {}))
+          Path("/tmp/ns-runtime-migration-receipts.json").write_text(json.dumps([
+              row.get("migration_id") for row in migrations if isinstance(row, dict) and row.get("migration_id")
+          ]))
+          Path("/tmp/ns-continuity.json").write_text(json.dumps({
+              "status": continuity_status,
+              "reason_codes": continuity_reason_codes,
+              "raw_value_present": raw_value_present,
+              "deployed_commit": json.loads(Path("/tmp/worker-ready.json").read_text()).get("deployment", {}).get("commit"),
+              "latest_collect": latest_collect,
+              "selected_target_ids": collect_batch.get("selected_target_ids") if isinstance(collect_batch, dict) else [],
+          }))
+          PY
+          cd ../..
+          python tools/cloudflare_deploy_guard.py receipt \
+            --expected-commit "${GITHUB_SHA}" \
+            --expected-scheduler-mode shadow \
+            --version-json /tmp/ns-worker-version.json \
+            --deployment-json /tmp/ns-worker-deployment.json \
+            --health-json /tmp/worker-ready.json \
+            --runtime-migration-receipts-json /tmp/ns-runtime-migration-receipts.json \
+            --queue-receipt-json /tmp/news-sentry-cloudflare-preflight.json \
+            --continuity-json /tmp/ns-continuity.json \
+            --output /tmp/news-sentry-cloudflare-deploy-receipt.json
+
+  deploy-cloudflare-preview-worker:
+    name: Deploy Cloudflare preview Worker
+    runs-on: ubuntu-latest
+    needs: ci
+    if: needs.ci.outputs.deployment_environment == 'preview'
+    environment: preview
+    outputs:
+      preview_api_url: ${{ steps.receipt.outputs.api_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/cloudflare/package-lock.json
+
+      - name: Install Cloudflare Worker dependencies
+        working-directory: frontend/cloudflare
+        run: npm ci
+
+      - name: Resolve Cloudflare preview D1
+        id: d1
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          node_modules/.bin/wrangler d1 list --json > /tmp/ns-preview-d1-list.json
+          set +e
+          python ../../tools/cloudflare_preview_guard.py select-d1 \
+            --input /tmp/ns-preview-d1-list.json \
+            --output /tmp/ns-preview-d1.json
+          status="$?"
+          set -e
+          if [ "${status}" != "0" ]; then
+            if [ "${status}" != "42" ]; then
+              exit "${status}"
+            fi
+            node_modules/.bin/wrangler d1 create ns-db-preview
+            node_modules/.bin/wrangler d1 list --json > /tmp/ns-preview-d1-list.json
+            python ../../tools/cloudflare_preview_guard.py select-d1 \
+              --input /tmp/ns-preview-d1-list.json \
+              --output /tmp/ns-preview-d1.json
+          fi
+          database_id="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          print(json.loads(Path("/tmp/ns-preview-d1.json").read_text())["database_id"])
+          PY
+          )"
+          echo "database_id=${database_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve Cloudflare preview R2 artifact bucket
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if ! node_modules/.bin/wrangler r2 bucket info news-sentry-artifacts-preview --json \
+            > /tmp/ns-preview-r2-bucket.json; then
+            node_modules/.bin/wrangler r2 bucket create news-sentry-artifacts-preview
+            node_modules/.bin/wrangler r2 bucket info news-sentry-artifacts-preview --json \
+              > /tmp/ns-preview-r2-bucket.json
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("/tmp/ns-preview-r2-bucket.json").read_text())
+          assert payload.get("name") == "news-sentry-artifacts-preview"
+          PY
+
+      - name: Prepare Cloudflare preview config and seed
+        env:
+          PREVIEW_D1_DATABASE_ID: ${{ steps.d1.outputs.database_id }}
+        run: |
+          set -euo pipefail
+          python tools/cloudflare_preview_guard.py render-config \
+            --source frontend/cloudflare/wrangler.toml \
+            --output frontend/cloudflare/wrangler.preview.generated.toml \
+            --database-id "${PREVIEW_D1_DATABASE_ID}"
+          python tools/cloudflare_preview_guard.py seed-sql \
+            --output /tmp/news-sentry-preview-seed.sql \
+            --deploy-commit "${GITHUB_SHA}" \
+            --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+      - name: Apply Cloudflare preview D1 schema and seed
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          node_modules/.bin/wrangler d1 execute DB \
+            --config wrangler.preview.generated.toml \
+            --env preview \
+            --remote \
+            --file=db/schema.sql
+          node_modules/.bin/wrangler d1 execute DB \
+            --config wrangler.preview.generated.toml \
+            --env preview \
+            --remote \
+            --file=db/migrations/20260802_phase5_future_event_quarantine.sql
+          node_modules/.bin/wrangler d1 execute DB \
+            --config wrangler.preview.generated.toml \
+            --env preview \
+            --remote \
+            --file=/tmp/news-sentry-preview-seed.sql
+
+      - name: Deploy Cloudflare preview Worker
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCESS_TEAM_DOMAIN: ${{ vars.CF_ACCESS_TEAM_DOMAIN }}
+          CF_ACCESS_AUD: ${{ vars.CF_ACCESS_AUD }}
+          CF_ACCESS_SERVICE_TOKEN_IDS: ${{ vars.CF_ACCESS_SERVICE_TOKEN_IDS }}
+          WRANGLER_OUTPUT_FILE_PATH: /tmp/news-sentry-preview-wrangler-output.ndjson
+        run: |
+          set -euo pipefail
+          : "${CF_ACCESS_TEAM_DOMAIN:?GitHub preview environment variable CF_ACCESS_TEAM_DOMAIN is required}"
+          : "${CF_ACCESS_AUD:?GitHub preview environment variable CF_ACCESS_AUD is required}"
+          : "${CF_ACCESS_SERVICE_TOKEN_IDS:?GitHub preview environment variable CF_ACCESS_SERVICE_TOKEN_IDS is required}"
+          node_modules/.bin/wrangler deploy --config wrangler.preview.generated.toml --env preview \
+            --containers-rollout none \
+            --var "NEWS_SENTRY_DEPLOY_COMMIT:${GITHUB_SHA}" \
+            --var "NEWS_SENTRY_ENVIRONMENT:preview" \
+            --var "SCHEDULER_MODE:shadow" \
+            --var "WORKER_NATIVE_COLLECT_ENABLED:false" \
+            --var "CF_ACCESS_TEAM_DOMAIN:${CF_ACCESS_TEAM_DOMAIN}" \
+            --var "CF_ACCESS_AUD:${CF_ACCESS_AUD}" \
+            --var "CF_ACCESS_SERVICE_TOKEN_IDS:${CF_ACCESS_SERVICE_TOKEN_IDS}"
+
+      - name: Collect Cloudflare preview Worker receipt
+        id: receipt
+        env:
+          WRANGLER_OUTPUT_FILE_PATH: /tmp/news-sentry-preview-wrangler-output.ndjson
+        run: |
+          set -euo pipefail
+          python tools/cloudflare_preview_guard.py deploy-receipt \
+            --input "${WRANGLER_OUTPUT_FILE_PATH}" \
+            --output /tmp/news-sentry-preview-deploy-receipt.json \
+            --github-output "$GITHUB_OUTPUT"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          Path("/tmp/news-sentry-preview-continuity.json").write_text(json.dumps({
+              "status": "not_exercised_preview",
+              "reason_codes": ["production_continuity_not_exercised_in_preview"],
+          }, indent=2, sort_keys=True))
+          PY
+
+      - name: Upload Cloudflare preview Worker receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: news-sentry-preview-worker-receipt
+          path: |
+            /tmp/news-sentry-preview-deploy-receipt.json
+            /tmp/news-sentry-preview-continuity.json
+            /tmp/news-sentry-preview-seed.sql
 
   deploy-cloudflare-pages:
     name: Deploy Cloudflare Pages
     runs-on: ubuntu-latest
-    needs: ci
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/preview' || github.event_name == 'workflow_dispatch'
-    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
+    needs: [ci, cloudflare-data, deploy-cloudflare-worker, deploy-cloudflare-preview-worker]
+    if: >-
+      always() &&
+      needs.ci.result == 'success' &&
+      (
+        (
+          needs.ci.outputs.deployment_environment == 'production' &&
+          needs.cloudflare-data.result == 'success' &&
+          needs.deploy-cloudflare-worker.result == 'success'
+        ) ||
+        (
+          needs.ci.outputs.deployment_environment == 'preview' &&
+          needs.cloudflare-data.result == 'success' &&
+          needs.deploy-cloudflare-preview-worker.result == 'success'
+        )
+      )
+    environment: ${{ needs.ci.outputs.deployment_environment }}
     outputs:
       pages_url: ${{ steps.deploy.outputs.pages_url }}
     steps:
@@ -329,17 +805,38 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: frontend/public/package-lock.json
+          cache-dependency-path: |
+            frontend/public/package-lock.json
+            frontend/cloudflare/package-lock.json
 
       - name: Install public frontend dependencies
         working-directory: frontend/public
         run: npm ci
 
+      - name: Install pinned Cloudflare deployment dependencies
+        working-directory: frontend/cloudflare
+        run: npm ci
+
       - name: Build public frontend
         working-directory: frontend/public
         env:
-          VITE_API_BASE: https://api.news-sentry.com
+          VITE_API_BASE: ${{ needs.ci.outputs.deployment_environment == 'preview' && needs.deploy-cloudflare-preview-worker.outputs.preview_api_url || 'https://api.news-sentry.com' }}
         run: npm run build
+
+      - name: Verify preview frontend API binding
+        if: needs.ci.outputs.deployment_environment == 'preview'
+        working-directory: frontend/public
+        env:
+          PREVIEW_API_URL: ${{ needs.deploy-cloudflare-preview-worker.outputs.preview_api_url }}
+        run: |
+          set -euo pipefail
+          : "${PREVIEW_API_URL:?Preview Worker URL is required in the frontend build}"
+          grep -F -- "${PREVIEW_API_URL}" dist/index.html
+          grep -F -- "connect-src 'self' ${PREVIEW_API_URL}" dist/_headers
+          if grep -F -- "https://api.news-sentry.com" dist/index.html dist/_headers; then
+            echo "Preview frontend leaked the production API origin."
+            exit 1
+          fi
 
       - name: Deploy Cloudflare Pages
         id: deploy
@@ -348,16 +845,28 @@ jobs:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DEPLOYMENT_ENVIRONMENT: ${{ needs.ci.outputs.deployment_environment }}
         run: |
           set -euo pipefail
-          branch="${GITHUB_REF_NAME:-preview}"
-          npx wrangler pages deploy dist/ \
+          if [ "${DEPLOYMENT_ENVIRONMENT}" = "preview" ]; then
+            if [ "${GITHUB_REF}" = "refs/heads/preview" ]; then
+              branch="preview"
+            else
+              branch="manual-preview-${GITHUB_RUN_ID}"
+            fi
+          else
+            branch="main"
+          fi
+          ../cloudflare/node_modules/.bin/wrangler pages deploy dist/ \
             --project-name=news-sentry \
             --branch "${branch}" \
             --commit-dirty=true | tee /tmp/news-sentry-pages-deploy.log
-          pages_url="$(grep -Eo 'https://[^[:space:]]+\\.pages\\.dev' /tmp/news-sentry-pages-deploy.log | tail -1 || true)"
+          pages_url="$(grep -F 'Deployment complete!' /tmp/news-sentry-pages-deploy.log \
+            | grep -Eo 'https://[^[:space:]]+\.pages\.dev' \
+            | tail -1 || true)"
           if [ -z "${pages_url}" ]; then
-            pages_url="https://news-sentry.pages.dev"
+            echo "Failed to extract the immutable Pages deployment URL."
+            exit 1
           fi
           echo "pages_url=${pages_url}" >> "$GITHUB_OUTPUT"
 
@@ -380,12 +889,19 @@ jobs:
   verify-preview:
     name: Verify preview
     runs-on: ubuntu-latest
-    needs: [deploy-cloudflare-pages, cloudflare-data]
-    if: github.ref == 'refs/heads/preview'
+    needs: [ci, deploy-cloudflare-pages, deploy-cloudflare-preview-worker, cloudflare-data]
+    if: >-
+      always() &&
+      needs.ci.result == 'success' &&
+      needs.deploy-cloudflare-pages.result == 'success' &&
+      needs.deploy-cloudflare-preview-worker.result == 'success' &&
+      needs.cloudflare-data.result == 'success' &&
+      needs.ci.outputs.deployment_environment == 'preview'
+    environment: preview
     env:
       BASE_URL: https://preview.news-sentry.com
       PAGES_URL: ${{ needs.deploy-cloudflare-pages.outputs.pages_url }}
-      API_URL: https://api.news-sentry.com
+      API_URL: ${{ needs.deploy-cloudflare-preview-worker.outputs.preview_api_url }}
       CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
       CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -406,58 +922,388 @@ jobs:
       - name: Verify preview Cloudflare-native public endpoints
         run: |
           set -euo pipefail
-          api_ok=1
-          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/health" > /tmp/health.json || api_ok=0
-          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json || api_ok=0
-          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/facets" > /tmp/facets.json || api_ok=0
-          if [ "$api_ok" != "1" ]; then
-            echo "::warning::Cloudflare Challenge blocked GitHub Actions API curl; validating D1 data via Wrangler."
-            (cd frontend/cloudflare && npx wrangler d1 execute ns-db --remote \
-              --command "SELECT COUNT(*) AS total_events, MAX(collected_at) AS latest_collected_at FROM events")
-            exit 0
+          : "${API_URL:?Preview API_URL must point to a preview Worker runtime}"
+          if [ "${API_URL}" = "https://api.news-sentry.com" ]; then
+            echo "Preview API_URL must point to a preview Worker runtime, not production."
+            exit 1
           fi
-          curl -fsS -o /tmp/public-app.html "${PAGES_URL:-${BASE_URL}}/"
+          case "${API_URL}" in
+            https://*) ;;
+            *)
+              echo "Preview API_URL must be an HTTPS URL."
+              exit 1
+              ;;
+          esac
+
+          print_preview_endpoint_failure() {
+            local mode="$1"
+            local endpoint="$2"
+            local status="$3"
+            local headers="$4"
+            local body="$5"
+            local command_token=""
+            command_token="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+            echo "::error title=Preview endpoint failed::mode=${mode} endpoint=${endpoint} status=${status}"
+            echo "Preview endpoint failure: mode=${mode} endpoint=${endpoint} status=${status}"
+            echo "::stop-commands::${command_token}"
+            echo "Response headers (safe subset):"
+            if [ -s "${headers}" ]; then
+              grep -Eai '^(HTTP/|content-type:|content-length:|cache-control:|cf-ray:|x-news-sentry-|date:|server:)' "${headers}" | head -c 2048 || true
+            else
+              echo "(none)"
+            fi
+            echo
+            echo "Response body (first 2048 bytes):"
+            if [ -s "${body}" ]; then
+              head -c 2048 "${body}" || true
+            else
+              echo "(empty)"
+            fi
+            echo
+            echo "::${command_token}::"
+          }
+
+          fetch_preview_public_endpoint() {
+            local mode="$1"
+            local endpoint="$2"
+            local url="$3"
+            local body="$4"
+            local headers="$5"
+            shift 5
+            local status=""
+            local curl_rc=0
+            status="$(curl -sS \
+              -o "${body}" \
+              -D "${headers}" \
+              -w "%{http_code}" \
+              -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" \
+              "$@" \
+              "${url}")" || curl_rc=$?
+            if [ "${curl_rc}" -ne 0 ]; then
+              if [ -z "${status}" ] || [ "${status}" = "000" ]; then
+                status="curl_error_${curl_rc}"
+              fi
+              print_preview_endpoint_failure "${mode}" "${endpoint}" "${status}" "${headers}" "${body}"
+              return 1
+            fi
+            if [ "${status}" != "200" ]; then
+              print_preview_endpoint_failure "${mode}" "${endpoint}" "${status}" "${headers}" "${body}"
+              return 1
+            fi
+          }
+
+          preview_ready_matches_commit() {
+            local status=""
+            local curl_rc=0
+            status="$(curl -sS \
+              --connect-timeout 5 \
+              --max-time 10 \
+              -o /tmp/preview-ready.json \
+              -D /tmp/preview-ready.headers \
+              -w "%{http_code}" \
+              -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" \
+              -H "Accept: application/json" \
+              "${API_URL}/api/v1/ready")" || curl_rc=$?
+            if [ "${curl_rc}" -ne 0 ]; then
+              if [ -z "${status}" ] || [ "${status}" = "000" ]; then
+                status="curl_error_${curl_rc}"
+              fi
+              printf "%s" "${status}" > /tmp/preview-ready.status
+              return 1
+            fi
+            printf "%s" "${status}" > /tmp/preview-ready.status
+            if [ "${status}" != "200" ]; then
+              return 1
+            fi
+            python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          def load_headers(path: str) -> dict[str, str]:
+              parsed = {}
+              for line in Path(path).read_text(errors="replace").splitlines():
+                  if ":" in line:
+                      key, value = line.split(":", 1)
+                      parsed[key.strip().lower()] = value.strip()
+              return parsed
+
+          payload = json.loads(Path("/tmp/preview-ready.json").read_text())
+          headers = load_headers("/tmp/preview-ready.headers")
+          assert payload.get("status") == "ok"
+          assert payload.get("readiness", {}).get("ok") is True
+          assert headers.get("x-news-sentry-deploy-commit") == os.environ["GITHUB_SHA"]
+          assert payload.get("deployment", {}).get("commit") == os.environ["GITHUB_SHA"]
+          PY
+          }
+
+          wait_for_preview_ready_commit() {
+            local deadline=$((SECONDS + 300))
+            local status="timeout"
+            while [ "${SECONDS}" -lt "${deadline}" ]; do
+              if preview_ready_matches_commit; then
+                return 0
+              fi
+              sleep 10
+            done
+            if [ -s /tmp/preview-ready.status ]; then
+              status="$(cat /tmp/preview-ready.status)"
+            fi
+            echo "::error title=Preview propagation wait timed out::endpoint=/api/v1/ready status=${status}"
+            print_preview_endpoint_failure ready /api/v1/ready "${status}" /tmp/preview-ready.headers /tmp/preview-ready.json
+            return 1
+          }
+
+          wait_for_preview_ready_commit
+
+          fetch_preview_public_endpoint live /api/v1/live "${API_URL}/api/v1/live" /tmp/preview-live.json /tmp/preview-live.headers -H "Accept: application/json"
+          fetch_preview_public_endpoint ready /api/v1/ready "${API_URL}/api/v1/ready" /tmp/preview-ready.json /tmp/preview-ready.headers -H "Accept: application/json"
+          fetch_preview_public_endpoint health /api/v1/health "${API_URL}/api/v1/health" /tmp/preview-health.json /tmp/preview-health.headers -H "Accept: application/json"
+          fetch_preview_public_endpoint public-news "/api/v1/public/news?page_size=3" "${API_URL}/api/v1/public/news?page_size=3" /tmp/public-news.json /tmp/public-news.headers -H "Accept: application/json" -H "Origin: ${PAGES_URL}"
+          fetch_preview_public_endpoint facets /api/v1/public/facets "${API_URL}/api/v1/public/facets" /tmp/facets.json /tmp/facets.headers -H "Accept: application/json"
+          fetch_preview_public_endpoint public-app / "${PAGES_URL:-${BASE_URL}}/" /tmp/public-app.html /tmp/public-app.headers
 
           python - <<'PY'
           import json
+          import os
           from pathlib import Path
 
-          health = json.loads(Path("/tmp/health.json").read_text())
+          def load_headers(path: str) -> dict[str, str]:
+              parsed = {}
+              for line in Path(path).read_text(errors="replace").splitlines():
+                  if ":" in line:
+                      key, value = line.split(":", 1)
+                      parsed[key.strip().lower()] = value.strip()
+              return parsed
+
+          def load_receipt(mode: str) -> tuple[dict, dict[str, str]]:
+              return (
+                  json.loads(Path(f"/tmp/preview-{mode}.json").read_text()),
+                  load_headers(f"/tmp/preview-{mode}.headers"),
+              )
+
+          live, live_headers = load_receipt("live")
+          ready, ready_headers = load_receipt("ready")
+          health, health_headers = load_receipt("health")
           news = json.loads(Path("/tmp/public-news.json").read_text())
+          news_headers = load_headers("/tmp/public-news.headers")
+          public_app_headers = load_headers("/tmp/public-app.headers")
           facets = json.loads(Path("/tmp/facets.json").read_text())
 
+          for mode, payload, headers in (
+              ("live", live, live_headers),
+              ("ready", ready, ready_headers),
+              ("health", health, health_headers),
+          ):
+              assert payload.get("status") == "ok", f"Preview Worker {mode} is not ok"
+              assert headers.get("x-news-sentry-runtime") == "cloudflare-worker"
+              assert headers.get("x-news-sentry-deploy-commit") == os.environ["GITHUB_SHA"]
+              assert headers.get("x-news-sentry-worker-version"), f"Preview Worker {mode} version receipt missing"
+
+          assert ready.get("readiness", {}).get("ok") is True, "Preview Worker readiness is false"
+          assert ready.get("deployment", {}).get("commit") == os.environ["GITHUB_SHA"]
+          assert ready.get("deployment", {}).get("storage", {}).get("artifacts_configured") is True
+          assert health.get("deployment", {}).get("commit") == os.environ["GITHUB_SHA"]
           assert health.get("status") == "ok", "Worker health is not ok"
           assert isinstance(health.get("total_events"), int), "health total_events missing"
           assert isinstance(news.get("items"), list), "public news response missing items"
+          assert news_headers.get("access-control-allow-origin") == os.environ["PAGES_URL"]
           assert {"regions", "issues", "related"} <= set(facets), "facets payload missing expected keys"
           public_app_html = Path("/tmp/public-app.html").read_text(errors="ignore")
           assert "News Sentry" in public_app_html or "NewsSentry" in public_app_html
+          assert os.environ["API_URL"] in public_app_html
+          assert "https://api.news-sentry.com" not in public_app_html
+          assert os.environ["API_URL"] in public_app_headers.get("content-security-policy", "")
           PY
 
-  promote-main:
-    name: Promote main
-    runs-on: ubuntu-latest
-    needs: verify-preview
-    if: github.ref == 'refs/heads/preview'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Fast-forward main to verified preview
+      - name: Run authenticated preview durable import canary
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          RECEIPT_PATH: ${{ runner.temp }}/news-sentry-preview-artifact-canary-receipt.json
         run: |
           set -euo pipefail
-          git fetch origin main preview
-          if ! git merge-base --is-ancestor origin/main "${GITHUB_SHA}"; then
-            echo "origin/main is not an ancestor of verified preview ${GITHUB_SHA}; stop promotion."
-            exit 1
+          : "${API_URL:?Preview API_URL must point to a preview Worker runtime}"
+          : "${CF_ACCESS_CLIENT_ID:?GitHub preview environment secret CF_ACCESS_CLIENT_ID is required}"
+          : "${CF_ACCESS_CLIENT_SECRET:?GitHub preview environment secret CF_ACCESS_CLIENT_SECRET is required}"
+          : "${RUNNER_TEMP:?GitHub runner temp directory is required}"
+          CANARY_DIR="${RUNNER_TEMP}/news-sentry-preview-canary"
+          export CANARY_DIR
+          rm -rf "${CANARY_DIR}"
+          mkdir -p "${CANARY_DIR}"
+          cleanup_canary() {
+            rm -rf "${CANARY_DIR}"
+          }
+          trap cleanup_canary EXIT
+
+          COMMIT_TIME="$(git show -s --format=%cI "${GITHUB_SHA}")"
+          python tools/cloudflare_preview_canary.py payload \
+            --commit "${GITHUB_SHA}" \
+            --commit-time "${COMMIT_TIME}" \
+            --execution-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --output "${CANARY_DIR}/payload.json" >/dev/null
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          canary_dir = Path(os.environ["CANARY_DIR"])
+          payload = json.loads((canary_dir / "payload.json").read_text())
+          (canary_dir / "events.json").write_text(
+              json.dumps(payload["events"], ensure_ascii=False, sort_keys=True),
+              encoding="utf-8",
+          )
+          (canary_dir / "idempotency-key").write_text(
+              payload["idempotency_key"],
+              encoding="utf-8",
+          )
+          PY
+          IDEMPOTENCY_KEY="$(cat "${CANARY_DIR}/idempotency-key")"
+
+          ANON_STATUS="$(curl -sS \
+            -o "${CANARY_DIR}/anonymous.json" \
+            -w "%{http_code}" \
+            -X POST \
+            -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            --data-binary @"${CANARY_DIR}/events.json" \
+            "${API_URL}/api/v1/events/import" || true)"
+          [ "${ANON_STATUS}" = "403" ]
+
+          FIRST_STATUS="$(curl -sS \
+            -o "${CANARY_DIR}/first-response.json" \
+            -w "%{http_code}" \
+            -X POST \
+            -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" \
+            -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}" \
+            -H "Idempotency-Key: ${IDEMPOTENCY_KEY}" \
+            --data-binary @"${CANARY_DIR}/events.json" \
+            "${API_URL}/api/v1/events/import" || true)"
+          [ "${FIRST_STATUS}" = "200" ]
+
+          REPLAY_STATUS="$(curl -sS \
+            -o "${CANARY_DIR}/replay-response.json" \
+            -w "%{http_code}" \
+            -X POST \
+            -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" \
+            -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}" \
+            -H "Idempotency-Key: ${IDEMPOTENCY_KEY}" \
+            --data-binary @"${CANARY_DIR}/events.json" \
+            "${API_URL}/api/v1/events/import" || true)"
+          [ "${REPLAY_STATUS}" = "200" ]
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          canary_dir = Path(os.environ["CANARY_DIR"])
+          first = json.loads((canary_dir / "first-response.json").read_text())
+          replay = json.loads((canary_dir / "replay-response.json").read_text())
+          assert first.get("errors") == [], "preview canary first import returned errors"
+          assert replay.get("errors") == [], "preview canary replay returned errors"
+          assert first.get("replayed") is False, "preview canary first import replay flag invalid"
+          assert replay.get("replayed") is True, "preview canary replay flag invalid"
+          for key in ("batch_id", "job_id", "artifact_id", "artifact_key"):
+              assert isinstance(first.get(key), str) and first[key], f"missing first {key}"
+              assert first.get(key) == replay.get(key), f"replay {key} mismatch"
+          PY
+
+          python tools/cloudflare_preview_canary.py evidence-sql \
+            --batch-id "$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["batch_id"])' "${CANARY_DIR}/first-response.json")" \
+            --job-id "$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["job_id"])' "${CANARY_DIR}/first-response.json")" \
+            --artifact-id "$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["artifact_id"])' "${CANARY_DIR}/first-response.json")" \
+            > "${CANARY_DIR}/evidence.sql"
+
+          (cd frontend/cloudflare && node_modules/.bin/wrangler d1 execute ns-db-preview --remote \
+            --command "$(cat "${CANARY_DIR}/evidence.sql")" \
+            --json > "${CANARY_DIR}/d1-evidence.json")
+
+          CANONICAL_ARTIFACT_KEY="$(python tools/cloudflare_preview_canary.py validate-artifact-key --first-response "${CANARY_DIR}/first-response.json")"
+          (cd frontend/cloudflare && node_modules/.bin/wrangler r2 object get "news-sentry-artifacts-preview/${CANONICAL_ARTIFACT_KEY}" \
+            --remote \
+            --file "${CANARY_DIR}/artifact.json")
+
+          print_canary_receipt_failure() {
+            python - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          code_pattern = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+          receipt_path = Path(os.environ["RECEIPT_PATH"])
+
+          def print_blockers(blockers: list[str]) -> None:
+              print("Preview durable import canary failed blockers:")
+              for blocker in blockers:
+                  print(f" - {blocker}")
+
+          try:
+              receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+          except (OSError, json.JSONDecodeError):
+              print_blockers(["receipt_unreadable"])
+              sys.exit(0)
+
+          if not isinstance(receipt, dict) or receipt.get("status") != "failed":
+              print_blockers(["receipt_schema_invalid"])
+              sys.exit(0)
+
+          blockers = receipt.get("blockers")
+          if not isinstance(blockers, list) or not blockers or len(blockers) > 20:
+              print_blockers(["receipt_blockers_invalid"])
+              sys.exit(0)
+
+          safe_blockers = []
+          for blocker in blockers:
+              if (
+                  not isinstance(blocker, str)
+                  or len(blocker) > 64
+                  or not code_pattern.fullmatch(blocker)
+              ):
+                  print_blockers(["receipt_blockers_invalid"])
+                  sys.exit(0)
+              safe_blockers.append(blocker)
+
+          print_blockers(safe_blockers)
+          PY
+          }
+
+          set +e
+          python tools/cloudflare_preview_canary.py receipt \
+            --deploy-commit "${GITHUB_SHA}" \
+            --first-response "${CANARY_DIR}/first-response.json" \
+            --replay-response "${CANARY_DIR}/replay-response.json" \
+            --d1-json "${CANARY_DIR}/d1-evidence.json" \
+            --artifact "${CANARY_DIR}/artifact.json" \
+            --output "${RECEIPT_PATH}" >/dev/null
+          receipt_status=$?
+          set -e
+          if [ "${receipt_status}" -ne 0 ]; then
+            print_canary_receipt_failure
+            exit "${receipt_status}"
           fi
-          git push origin "${GITHUB_SHA}:refs/heads/main"
+
+      - name: Upload preview durable import canary receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: news-sentry-preview-artifact-canary-receipt
+          path: ${{ runner.temp }}/news-sentry-preview-artifact-canary-receipt.json
+          if-no-files-found: error
 
   verify-production:
     name: Verify production
     runs-on: ubuntu-latest
-    needs: [deploy-cloudflare-worker, deploy-cloudflare-pages, cloudflare-data]
-    if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    needs: [ci, deploy-cloudflare-worker, deploy-cloudflare-pages, cloudflare-data]
+    if: needs.ci.outputs.deployment_environment == 'production'
     env:
       BASE_URL: https://news-sentry.com
       PAGES_URL: ${{ needs.deploy-cloudflare-pages.outputs.pages_url }}
@@ -483,17 +1329,10 @@ jobs:
       - name: Verify production public endpoints
         run: |
           set -euo pipefail
-          api_ok=1
-          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/health" > /tmp/health.json || api_ok=0
-          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${APEX_API_URL}/api/v1/health" > /tmp/apex-health.json || api_ok=0
-          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json || api_ok=0
-          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/facets" > /tmp/facets.json || api_ok=0
-          if [ "$api_ok" != "1" ]; then
-            echo "::warning::Cloudflare Challenge blocked GitHub Actions API curl; validating D1 data via Wrangler."
-            (cd frontend/cloudflare && npx wrangler d1 execute ns-db --remote \
-              --command "SELECT COUNT(*) AS total_events, MAX(collected_at) AS latest_collected_at FROM events")
-            exit 0
-          fi
+          curl -fsS -D /tmp/health.headers -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/health" > /tmp/health.json
+          curl -fsS -D /tmp/apex-health.headers -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${APEX_API_URL}/api/v1/health" > /tmp/apex-health.json
+          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json
+          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/facets" > /tmp/facets.json
           if ! curl -fsS -o /tmp/public-app.html "${BASE_URL}/"; then
             echo "::warning::Apex homepage was blocked for GitHub Actions; checking Pages deployment URL."
             curl -fsS -o /tmp/public-app.html "${PAGES_URL:-${BASE_URL}}/"
@@ -504,15 +1343,32 @@ jobs:
 
           python - <<'PY'
           import json
+          import os
           from pathlib import Path
+
+          def load_headers(path: str) -> dict[str, str]:
+              parsed = {}
+              for line in Path(path).read_text(errors="replace").splitlines():
+                  if ":" in line:
+                      key, value = line.split(":", 1)
+                      parsed[key.strip().lower()] = value.strip()
+              return parsed
 
           health = json.loads(Path("/tmp/health.json").read_text())
           apex_health = json.loads(Path("/tmp/apex-health.json").read_text())
+          health_headers = load_headers("/tmp/health.headers")
+          apex_health_headers = load_headers("/tmp/apex-health.headers")
           news = json.loads(Path("/tmp/public-news.json").read_text())
           facets = json.loads(Path("/tmp/facets.json").read_text())
 
           assert health.get("status") == "ok", "Worker health is not ok"
           assert apex_health.get("status") == "ok", "Apex API Worker health is not ok"
+          assert health.get("deployment", {}).get("commit") == os.environ["GITHUB_SHA"]
+          assert apex_health.get("deployment", {}).get("commit") == os.environ["GITHUB_SHA"]
+          assert health_headers.get("x-news-sentry-deploy-commit") == os.environ["GITHUB_SHA"]
+          assert apex_health_headers.get("x-news-sentry-deploy-commit") == os.environ["GITHUB_SHA"]
+          assert health_headers.get("x-news-sentry-worker-version")
+          assert apex_health_headers.get("x-news-sentry-worker-version")
           assert isinstance(health.get("total_events"), int), "health total_events missing"
           assert apex_health.get("total_events") == health.get("total_events"), "Apex API health does not match API subdomain"
           assert health.get("total_events", 0) > 0, "Cloudflare D1 has no events"

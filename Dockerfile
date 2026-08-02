@@ -39,7 +39,7 @@ RUN pip install --no-cache-dir --no-deps . && \
 
 USER appuser
 ENV PYTHONUNBUFFERED=1
-ENV NEWSSENTRY_PROFILE=docker
+ENV NEWSSENTRY_PROFILE=cloudflare
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')" || exit 1
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]

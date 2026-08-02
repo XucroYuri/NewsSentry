@@ -10,11 +10,11 @@
     />
     <link rel="icon" href="/icons/icon-192.svg" type="image/svg+xml" />
     <link rel="canonical" href="https://news-sentry.com/public-app/" />
-    <link rel="dns-prefetch" href="https://api.news-sentry.com" />
-    <link rel="preconnect" href="https://api.news-sentry.com" crossorigin />
+    <link rel="dns-prefetch" href="__NEWS_SENTRY_API_BASE__" />
+    <link rel="preconnect" href="__NEWS_SENTRY_API_BASE__" crossorigin />
     <script>
       window.__NEWS_SENTRY_BOOTSTRAP_PRELOAD__ = fetch(
-        "https://api.news-sentry.com/api/v1/public/bootstrap?featured=true&page_size=20",
+        "__NEWS_SENTRY_API_BASE__/api/v1/public/bootstrap?featured=true&page_size=20",
         { headers: { Accept: "application/json" } },
       )
         .then(function (response) {

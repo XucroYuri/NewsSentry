@@ -156,6 +156,113 @@ def test_collect_backfill_plan_uses_only_drafts_and_counts_targets(tmp_path: Pat
     assert {source.source_id for source in plan.sources} == {"ansa", "nhk"}
 
 
+def test_backfill_canary_allowlist_enables_exact_four_targets(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    targets_dir = tmp_path / "config" / "targets"
+    targets_dir.mkdir(parents=True)
+    for target_id in ("france", "germany", "italy", "japan", "south-korea"):
+        (targets_dir / f"{target_id}.yaml").write_text(
+            f"target_id: {target_id}\n"
+            f"display_name: {target_id}\n"
+            "source_channel_refs:\n"
+            f"  - {target_id}-source\n",
+            encoding="utf-8",
+        )
+
+    plan = collect_backfill_plan(
+        data_dir=data_dir,
+        targets_dir=targets_dir,
+        limit=0,
+        canary_target_allowlist=("france", "germany", "italy", "japan"),
+    )
+    sql = generate_backfill_sql(plan)
+
+    assert plan.canary_target_allowlist == ("france", "germany", "italy", "japan")
+    assert {
+        target.target_id: target.cloudflare_collect_enabled
+        for target in plan.targets
+    } == {
+        "france": 1,
+        "germany": 1,
+        "italy": 1,
+        "japan": 1,
+        "south-korea": 0,
+    }
+
+    with closing(sqlite3.connect(tmp_path / "d1.sqlite")) as db:
+        db.executescript((ROOT / "frontend/cloudflare/db/schema.sql").read_text(encoding="utf-8"))
+        db.executescript(sql)
+        rows = db.execute(
+            "SELECT target_id, cloudflare_collect_enabled FROM targets ORDER BY target_id"
+        ).fetchall()
+
+    assert rows == [
+        ("france", 1),
+        ("germany", 1),
+        ("italy", 1),
+        ("japan", 1),
+        ("south-korea", 0),
+    ]
+
+
+def test_backfill_canary_allowlist_rejects_non_four_target_receipts(tmp_path: Path) -> None:
+    targets_dir = tmp_path / "config" / "targets"
+    targets_dir.mkdir(parents=True)
+    for target_id in ("france", "germany", "italy"):
+        (targets_dir / f"{target_id}.yaml").write_text(
+            f"target_id: {target_id}\nsource_channel_refs:\n  - {target_id}-source\n",
+            encoding="utf-8",
+        )
+
+    with pytest.raises(ValueError, match="canary_target_allowlist_requires_exactly_four_targets"):
+        collect_backfill_plan(
+            data_dir=tmp_path / "data",
+            targets_dir=targets_dir,
+            limit=0,
+            canary_target_allowlist=("france", "germany", "italy"),
+        )
+
+
+def test_backfill_canary_allowlist_rejects_five_entries_with_one_duplicate(
+    tmp_path: Path,
+) -> None:
+    targets_dir = tmp_path / "config" / "targets"
+    targets_dir.mkdir(parents=True)
+    for target_id in ("france", "germany", "italy", "japan"):
+        (targets_dir / f"{target_id}.yaml").write_text(
+            f"target_id: {target_id}\nsource_channel_refs:\n  - {target_id}-source\n",
+            encoding="utf-8",
+        )
+
+    with pytest.raises(ValueError, match="canary_target_allowlist_contains_duplicates"):
+        collect_backfill_plan(
+            data_dir=tmp_path / "data",
+            targets_dir=targets_dir,
+            limit=0,
+            canary_target_allowlist=("france", "germany", "italy", "japan", "italy"),
+        )
+
+
+def test_backfill_canary_allowlist_rejects_four_entries_with_one_duplicate(
+    tmp_path: Path,
+) -> None:
+    targets_dir = tmp_path / "config" / "targets"
+    targets_dir.mkdir(parents=True)
+    for target_id in ("france", "germany", "italy"):
+        (targets_dir / f"{target_id}.yaml").write_text(
+            f"target_id: {target_id}\nsource_channel_refs:\n  - {target_id}-source\n",
+            encoding="utf-8",
+        )
+
+    with pytest.raises(ValueError, match="canary_target_allowlist_contains_duplicates"):
+        collect_backfill_plan(
+            data_dir=tmp_path / "data",
+            targets_dir=targets_dir,
+            limit=0,
+            canary_target_allowlist=("france", "germany", "italy", "italy"),
+        )
+
+
 def test_generate_backfill_sql_is_idempotent_and_preserves_drafts_stage(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     targets_dir = tmp_path / "config" / "targets"

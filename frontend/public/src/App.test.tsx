@@ -265,9 +265,9 @@ describe("Phase 84 public portal app", () => {
     expect(html).toContain('name="description"')
     expect(html).toContain('property="og:title" content="News Sentry | 新闻哨兵"')
     expect(html).toContain('rel="canonical" href="https://news-sentry.com/public-app/"')
-    expect(html).toContain('rel="preconnect" href="https://api.news-sentry.com"')
+    expect(html).toContain('rel="preconnect" href="__NEWS_SENTRY_API_BASE__"')
     expect(html).toContain(
-      '"https://api.news-sentry.com/api/v1/public/bootstrap?featured=true&page_size=20"',
+      '"__NEWS_SENTRY_API_BASE__/api/v1/public/bootstrap?featured=true&page_size=20"',
     )
     expect(html).toContain("__NEWS_SENTRY_BOOTSTRAP_PRELOAD__")
     expect(html).toContain('"@context": "https://schema.org"')
@@ -278,13 +278,14 @@ describe("Phase 84 public portal app", () => {
   })
 
   it("ships Cloudflare Pages cache headers for immutable static assets", () => {
-    const headers = readFileSync("public/_headers", "utf8")
+    const headers = readFileSync("cloudflare-pages.headers", "utf8")
 
     expect(headers).toContain("/assets/*")
     expect(headers).toContain("/icons/*")
     expect(headers).toContain("/sitemap.xml")
     expect(headers).toContain("Strict-Transport-Security")
     expect(headers).toContain("Content-Security-Policy")
+    expect(headers).toContain("__NEWS_SENTRY_API_ORIGIN__")
     expect(headers).toContain("X-Frame-Options: DENY")
     expect(headers).toContain("/public-app*")
     expect(headers).toContain("max-age=60, stale-while-revalidate=300, no-transform")

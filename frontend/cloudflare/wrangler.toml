@@ -18,6 +18,12 @@ routes = [
 
 [vars]
 NEWS_SENTRY_RUNTIME = "cloudflare-native"
+NEWS_SENTRY_ENVIRONMENT = "production"
+SCHEDULER_MODE = "shadow"
+WORKER_NATIVE_COLLECT_ENABLED = "false"
+
+[version_metadata]
+binding = "CF_VERSION_METADATA"
 
 [triggers]
 crons = ["*/15 * * * *", "7,37 * * * *", "11 * * * *", "23 * * * *", "53 */6 * * *"]
@@ -53,56 +59,92 @@ binding = "DB"
 database_name = "ns-db"
 database_id = "35a52961-e7e1-41ef-934e-7a63882ba465"
 
-# 生产环境（可选，覆盖默认值）
-[env.production]
-# Keep the custom domain bound to the top-level Worker deployment.
+[[r2_buckets]]
+binding = "NEWS_SENTRY_ARTIFACTS"
+bucket_name = "news-sentry-artifacts"
+
+[[queues.producers]]
+binding = "NEWS_SENTRY_JOBS_QUEUE"
+queue = "news-sentry-jobs"
+
+[[queues.producers]]
+binding = "NEWS_SENTRY_JOBS_DLQ"
+queue = "news-sentry-jobs-dlq"
+
+[[queues.consumers]]
+queue = "news-sentry-jobs"
+max_batch_size = 5
+max_batch_timeout = 5
+max_retries = 3
+dead_letter_queue = "news-sentry-jobs-dlq"
+max_concurrency = 1
+
+[[queues.consumers]]
+queue = "news-sentry-jobs-dlq"
+max_batch_size = 5
+max_batch_timeout = 5
+max_retries = 3
+max_concurrency = 1
+
+# Preview environment: isolated workers.dev runtime and isolated D1 only.
+[env.preview]
+workers_dev = true
 routes = []
+containers = []
 
-[env.production.vars]
-NEWS_SENTRY_RUNTIME = "cloudflare-native"
+[env.preview.vars]
+NEWS_SENTRY_RUNTIME = "cloudflare-native-preview"
+NEWS_SENTRY_ENVIRONMENT = "preview"
+SCHEDULER_MODE = "shadow"
+WORKER_NATIVE_COLLECT_ENABLED = "false"
+# Preview Access non-secret vars are injected by deploy.yml; Client Secret stays in GitHub Environment secrets only.
 
-[env.production.secrets]
-required = [
-  "GEMINI_API_KEY",
-  "OPENROUTER_API_KEY",
-  "NVIDIA_API_KEY",
-  "OPENCODE_API_KEY",
-  "REKA_API_KEY",
-  "AGNES_API_KEY",
-]
+[env.preview.version_metadata]
+binding = "CF_VERSION_METADATA"
 
-[[env.production.d1_databases]]
+[env.preview.triggers]
+crons = []
+
+[env.preview.secrets]
+required = []
+
+[[env.preview.d1_databases]]
 binding = "DB"
-database_name = "ns-db"
-database_id = "35a52961-e7e1-41ef-934e-7a63882ba465"
+database_name = "ns-db-preview"
+database_id = "00000000-0000-4000-8000-000000000000"
 
-[[env.production.containers]]
-name = "news-sentry-container"
-class_name = "NewsSentryContainer"
-image = "../../Dockerfile"
-max_instances = 2
-instance_type = "basic"
+[[env.preview.r2_buckets]]
+binding = "NEWS_SENTRY_ARTIFACTS"
+bucket_name = "news-sentry-artifacts-preview"
 
-[env.production.containers.ssh]
-enabled = false
+[env.preview.queues]
+producers = []
+consumers = []
 
-[[env.production.durable_objects.bindings]]
-name = "NEWS_SENTRY_CONTAINER"
-class_name = "NewsSentryContainer"
-
-[[env.production.migrations]]
-tag = "v1"
-new_sqlite_classes = ["NewsSentryContainer"]
+[env.preview.durable_objects]
+bindings = []
 
 # 开发环境
 [env.dev]
+routes = []
+
 [env.dev.vars]
 NEWS_SENTRY_RUNTIME = "cloudflare-native-dev"
+NEWS_SENTRY_ENVIRONMENT = "dev"
+SCHEDULER_MODE = "shadow"
+WORKER_NATIVE_COLLECT_ENABLED = "false"
+
+[env.dev.version_metadata]
+binding = "CF_VERSION_METADATA"
 
 [[env.dev.d1_databases]]
 binding = "DB"
 database_name = "ns-db-dev"
 database_id = "ns-db-dev"
+
+[[env.dev.r2_buckets]]
+binding = "NEWS_SENTRY_ARTIFACTS"
+bucket_name = "news-sentry-artifacts-dev"
 
 # 本地开发（wrangler dev）
 # D1 本地数据自动持久化到 .wrangler/state/

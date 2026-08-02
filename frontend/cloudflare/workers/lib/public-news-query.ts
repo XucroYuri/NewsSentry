@@ -6,11 +6,14 @@
  * classification.
  */
 
-import type { PublicNewsItem, PublicNewsSource } from "./contracts";
+import type { PublicNewsItem, PublicNewsSource } from "./contracts.ts";
+import { sanitizeExternalUrlList, validateExternalUrl } from "./external-url.ts";
 
 export const PUBLIC_FEATURED_MIN_SCORE = 60;
 export const PUBLIC_BREAKING_MIN_SCORE = 60;
 export const BREAKING_SCORE_VERSION = "breaking-v1.0";
+export const PUBLIC_PUBLISHED_AT_SANITY_SQL =
+  "datetime(events.published_at) <= datetime('now', '+24 hours')";
 export const SUPPORTED_PUBLIC_LOCALES = ["zh", "en", "es", "ar", "fr"] as const;
 export type PublicLocale = (typeof SUPPORTED_PUBLIC_LOCALES)[number];
 
@@ -110,7 +113,7 @@ export function buildPublicNewsWhere(input: PublicNewsFilterInput): {
   sql: string;
   bindings: unknown[];
 } {
-  let sql = `WHERE pipeline_stage = 'drafts'`;
+  let sql = `WHERE pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_SANITY_SQL}`;
   const bindings: unknown[] = [];
 
   if (input.featured) {
@@ -236,6 +239,7 @@ function parseJsonObject(raw: string | null): Record<string, number> {
 }
 
 export function rowToPublicNewsItem(row: NewsRow): PublicNewsItem {
+  const externalUrl = validateExternalUrl(row.original_url);
   const source: PublicNewsSource = {
     id: row.source_id,
     name: row.source_name,
@@ -254,8 +258,8 @@ export function rowToPublicNewsItem(row: NewsRow): PublicNewsItem {
     summary: row.summary,
     recommendationReason: row.recommendation_reason,
     fullContent: row.full_content,
-    imageUrls: parseJsonArray(row.image_urls),
-    originalUrl: row.original_url,
+    imageUrls: sanitizeExternalUrlList(parseJsonArray(row.image_urls)),
+    originalUrl: externalUrl.ok ? externalUrl.normalizedUrl : null,
     detailUrl: row.detail_url,
     tags: parseJsonArray(row.tags),
     issueTags: parseJsonArray(row.issue_tags),

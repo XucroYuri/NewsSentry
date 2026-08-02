@@ -38,6 +38,10 @@
 - **零 Token 消耗：** 社媒采集完全通过 RSS 管道，不消耗 AI provider token
 - **会话隔离：** 需要登录的平台通过 RSS-Bridge 的 bridge 配置管理，不进 News Sentry 配置
 - **VPS 边界：** RSS-Bridge 不得再作为 VPS/Tunnel 运行依赖；若某个社媒桥无法在 Cloudflare Containers 稳定运行，应降级为外部 SaaS/公开 RSS 源或 Worker-native 采集器候选，而不是恢复 VPS
+- **权威证据边界：** RSS-Bridge 只是外部 source adapter。它产生的 feed 只有进入 Cloudflare
+  D1/R2 durable import、形成真实 committed artifact、通过 72h canary 和 7d continuity/restore
+  绑定后，才可算 production recovery 证据；VPS/systemd/Tunnel 日志、本地 SQLite 和本地 drafts
+  只能辅助人工排查，不能替代 Cloudflare receipt。
 
 ### 2.2 原生 Reddit Collector
 

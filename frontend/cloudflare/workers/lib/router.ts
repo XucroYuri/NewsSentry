@@ -14,6 +14,36 @@
 
 import { addCorsHeaders, corsPreflight } from "./cors";
 import { notFound } from "./errors";
+import { canonicalPathname } from "./path";
+import type { AccessPrincipal } from "./access-jwt";
+
+export interface RuntimeMetadata {
+  commit: string | null;
+  environment: string | null;
+  runtime: string;
+  worker_version: string | null;
+  scheduler_mode?: "legacy" | "shadow" | "queue" | null;
+  worker_native_collect_enabled?: boolean;
+  collection_authoritative?: boolean;
+  config_valid?: boolean;
+  config_errors?: string[];
+  compute?: {
+    container_configured: boolean;
+    queue_configured: boolean;
+  };
+  access?: AccessPrincipal;
+  queue?: {
+    jobs_configured: boolean;
+    dlq_configured: boolean;
+  };
+  storage?: {
+    artifacts_configured: boolean;
+  };
+}
+
+export interface RuntimeBindings {
+  artifacts?: R2Bucket;
+}
 
 type Handler = (
   request: Request,
@@ -21,6 +51,8 @@ type Handler = (
   params: URLSearchParams,
   pathSegments: string[],
   ctx?: ExecutionContext,
+  runtimeMetadata?: RuntimeMetadata,
+  runtimeBindings?: RuntimeBindings,
 ) => Promise<Response>;
 
 const routeMap = new Map<string, Handler>();
@@ -47,9 +79,11 @@ export async function dispatch(
   request: Request,
   db: D1Database,
   ctx?: ExecutionContext,
+  runtimeMetadata?: RuntimeMetadata,
+  runtimeBindings?: RuntimeBindings,
 ): Promise<Response> {
   const url = new URL(request.url);
-  const pathname = url.pathname.replace(/\/+$/, "") || "/";
+  const pathname = canonicalPathname(url.pathname);
   const rawMethod = request.method.toUpperCase();
   const method = rawMethod === "HEAD" ? "GET" : rawMethod;
 
@@ -65,7 +99,15 @@ export async function dispatch(
   if (routeMap.has(exactKey)) {
     const handler = routeMap.get(exactKey)!;
     const getRequest = rawMethod === "HEAD" ? new Request(request, { method: "GET" }) : request;
-    const resp = await handler(getRequest, db, url.searchParams, segments, ctx);
+    const resp = await handler(
+      getRequest,
+      db,
+      url.searchParams,
+      segments,
+      ctx,
+      runtimeMetadata,
+      runtimeBindings,
+    );
     const origin = request.headers.get("Origin");
     const corsResp = addCorsHeaders(resp, origin);
     return rawMethod === "HEAD" ? headResponse(corsResp) : corsResp;
@@ -87,7 +129,15 @@ export async function dispatch(
 
     if (match) {
       const getRequest = rawMethod === "HEAD" ? new Request(request, { method: "GET" }) : request;
-      const resp = await handler(getRequest, db, url.searchParams, reqSegments, ctx);
+      const resp = await handler(
+        getRequest,
+        db,
+        url.searchParams,
+        reqSegments,
+        ctx,
+        runtimeMetadata,
+        runtimeBindings,
+      );
       const origin = request.headers.get("Origin");
       const corsResp = addCorsHeaders(resp, origin);
       return rawMethod === "HEAD" ? headResponse(corsResp) : corsResp;

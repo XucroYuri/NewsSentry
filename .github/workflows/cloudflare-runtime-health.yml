@@ -1,0 +1,291 @@
+name: Cloudflare Runtime Health
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Runtime environment to probe"
+        required: true
+        default: "production"
+        type: choice
+        options: ["production", "preview"]
+      public_base_url:
+        description: "Override Pages/public origin; required for preview"
+        required: false
+        default: ""
+      api_base_url:
+        description: "Override Worker API origin"
+        required: false
+        default: ""
+      expected_commit:
+        description: "Optional guard commit; must match deployment metadata when set"
+        required: false
+        default: ""
+      max_data_age_hours:
+        description: "Fail when valid collection data is older than this"
+        required: true
+        default: "2"
+      bootstrap_continuity:
+        description: "Start a new audited continuity window when no prior ledger exists"
+        required: true
+        default: "false"
+  schedule:
+    # Four short probes per day are enough for 72h/7d evidence without
+    # introducing another always-on service or material artifact cost.
+    - cron: "17 */6 * * *"
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: news-sentry-runtime-health-${{ github.event.inputs.environment || 'production' }}
+  cancel-in-progress: false
+
+jobs:
+  runtime-health:
+    name: Cloudflare runtime health
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Resolve probe target
+        id: target
+        shell: bash
+        env:
+          INPUT_ENVIRONMENT: ${{ github.event.inputs.environment || '' }}
+          INPUT_PUBLIC_BASE_URL: ${{ github.event.inputs.public_base_url || '' }}
+          INPUT_API_BASE_URL: ${{ github.event.inputs.api_base_url || '' }}
+          INPUT_EXPECTED_COMMIT: ${{ github.event.inputs.expected_commit || '' }}
+          INPUT_MAX_DATA_AGE_HOURS: ${{ github.event.inputs.max_data_age_hours || '' }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "schedule" ]; then
+            environment="production"
+            public_base_url="https://news-sentry.com"
+            api_base_url="https://api.news-sentry.com"
+            max_data_age_hours="2"
+          else
+            environment="${INPUT_ENVIRONMENT:-production}"
+            max_data_age_hours="${INPUT_MAX_DATA_AGE_HOURS:-2}"
+            case "${environment}" in
+              production)
+                public_base_url="${INPUT_PUBLIC_BASE_URL:-https://news-sentry.com}"
+                api_base_url="${INPUT_API_BASE_URL:-https://api.news-sentry.com}"
+                ;;
+              preview)
+                public_base_url="${INPUT_PUBLIC_BASE_URL}"
+                api_base_url="${INPUT_API_BASE_URL:-https://news-sentry-api-preview.xuyu.workers.dev}"
+                : "${public_base_url:?Preview public_base_url is required.}"
+                ;;
+              *)
+                echo "Unsupported environment: ${environment}" >&2
+                exit 1
+                ;;
+            esac
+          fi
+          reject_multiline() {
+            local label="$1"
+            local value="$2"
+            case "${value}" in
+              *$'\n'*|*$'\r'*)
+                echo "Invalid ${label}: newlines are not allowed." >&2
+                exit 1
+                ;;
+            esac
+          }
+          reject_multiline "environment" "${environment}"
+          reject_multiline "public_base_url" "${public_base_url}"
+          reject_multiline "api_base_url" "${api_base_url}"
+          reject_multiline "input_expected_commit" "${INPUT_EXPECTED_COMMIT}"
+          reject_multiline "max_data_age_hours" "${max_data_age_hours}"
+          echo "Resolve deployed commit from guard receipt and deployment metadata"
+          API_BASE_URL="${api_base_url}" INPUT_EXPECTED_COMMIT="${INPUT_EXPECTED_COMMIT}" python - <<'PY' > /tmp/news-sentry-current-deployment.json
+          import json
+          import os
+          import sys
+          import urllib.request
+
+          api_base_url = os.environ["API_BASE_URL"].rstrip("/")
+          request = urllib.request.Request(
+              f"{api_base_url}/api/v1/ready",
+              headers={"User-Agent": "NewsSentryContinuityResolver/1.0"},
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
+              payload = json.loads(response.read().decode("utf-8"))
+          deployment = payload.get("deployment") if isinstance(payload, dict) else {}
+          if not isinstance(deployment, dict):
+              deployment = {}
+          deployed_commit = deployment.get("commit")
+          deployed_at = deployment.get("deployed_at") or deployment.get("created_at")
+          input_expected_commit = os.environ.get("INPUT_EXPECTED_COMMIT") or ""
+          if not isinstance(deployed_commit, str) or len(deployed_commit) != 40:
+              print("Deployment metadata did not expose a full deployed commit.", file=sys.stderr)
+              raise SystemExit(1)
+          if input_expected_commit and input_expected_commit.lower() != deployed_commit.lower():
+              print("Deployment metadata expected_commit mismatch.", file=sys.stderr)
+              raise SystemExit(1)
+          if not isinstance(deployed_at, str) or not deployed_at:
+              print("Deployment metadata did not expose deployed_at.", file=sys.stderr)
+              raise SystemExit(1)
+          print(json.dumps({"deployed_commit": deployed_commit, "deployed_at": deployed_at}))
+          PY
+          DEPLOYED_COMMIT="$(python -c 'import json;print(json.load(open("/tmp/news-sentry-current-deployment.json"))["deployed_commit"])')"
+          deployed_at="$(python -c 'import json;print(json.load(open("/tmp/news-sentry-current-deployment.json"))["deployed_at"])')"
+          expected_commit="${DEPLOYED_COMMIT}"
+          reject_multiline "deployed_at" "${deployed_at}"
+          if [[ ! "${expected_commit}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "Invalid expected_commit: expected a 40-character Git commit SHA." >&2
+            exit 1
+          fi
+          printf '%s=%s\n' "environment" "${environment}" >> "${GITHUB_OUTPUT}"
+          printf '%s=%s\n' "public_base_url" "${public_base_url}" >> "${GITHUB_OUTPUT}"
+          printf '%s=%s\n' "api_base_url" "${api_base_url}" >> "${GITHUB_OUTPUT}"
+          printf '%s=%s\n' "expected_commit" "${expected_commit}" >> "${GITHUB_OUTPUT}"
+          printf '%s=%s\n' "deployed_at" "${deployed_at}" >> "${GITHUB_OUTPUT}"
+          printf '%s=%s\n' "max_data_age_hours" "${max_data_age_hours}" >> "${GITHUB_OUTPUT}"
+
+      - name: Probe split Cloudflare runtime
+        env:
+          ENVIRONMENT: ${{ steps.target.outputs.environment }}
+          PUBLIC_BASE_URL: ${{ steps.target.outputs.public_base_url }}
+          API_BASE_URL: ${{ steps.target.outputs.api_base_url }}
+          EXPECTED_COMMIT: ${{ steps.target.outputs.expected_commit }}
+          MAX_DATA_AGE_HOURS: ${{ steps.target.outputs.max_data_age_hours }}
+        run: |
+          set -euo pipefail
+          python tools/cloudflare_runtime_probe.py \
+            --environment "${ENVIRONMENT}" \
+            --public-base-url "${PUBLIC_BASE_URL}" \
+            --api-base-url "${API_BASE_URL}" \
+            --expected-commit "${EXPECTED_COMMIT}" \
+            --max-data-age-hours "${MAX_DATA_AGE_HOURS}" \
+            --max-future-skew-minutes 5 \
+            --timeout-seconds 30 \
+            --run-id "${GITHUB_RUN_ID}" \
+            --output /tmp/news-sentry-cloudflare-runtime-receipt.json
+
+      - name: Download Source Health SLO receipts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/news-sentry-source-health-artifacts
+          run_id="$(gh run list --workflow source-health.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+          : "${run_id:?No successful Source Health workflow run found.}"
+          gh run download "${run_id}" \
+            --name source-health-receipts \
+            --dir /tmp/news-sentry-source-health-artifacts
+          cp /tmp/news-sentry-source-health-artifacts/news-sentry-source-health-slo.json /tmp/news-sentry-source-health-slo.json
+
+      - name: Download previous continuity ledger
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ENVIRONMENT: ${{ steps.target.outputs.environment }}
+          EXPECTED_COMMIT: ${{ steps.target.outputs.expected_commit }}
+          BOOTSTRAP_CONTINUITY: ${{ github.event.inputs.bootstrap_continuity || 'false' }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/news-sentry-continuity-artifacts
+          artifact_name=""
+          previous_run_id=""
+          prefix="cloudflare-continuity-ledger-${ENVIRONMENT}-${EXPECTED_COMMIT}-"
+          for previous_run_id in $(gh run list --workflow cloudflare-runtime-health.yml --status success --limit 10 --json databaseId --jq '.[].databaseId'); do
+            artifact_name="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${previous_run_id}/artifacts" | jq -r --arg prefix "${prefix}" '.artifacts[]?.name | select(startswith($prefix))' | head -n 1 || true)"
+            if [[ -n "${artifact_name}" ]]; then
+              gh run download "${previous_run_id}" \
+                --name "${artifact_name}" \
+                --dir /tmp/news-sentry-continuity-artifacts
+              break
+            fi
+          done
+          if [[ -f /tmp/news-sentry-continuity-artifacts/news-sentry-cloudflare-continuity-ledger.jsonl ]]; then
+            cp /tmp/news-sentry-continuity-artifacts/news-sentry-cloudflare-continuity-ledger.jsonl /tmp/news-sentry-cloudflare-continuity-ledger.jsonl
+          else
+            if [[ "${BOOTSTRAP_CONTINUITY}" != "true" ]]; then
+              echo "No previous continuity ledger found; set bootstrap_continuity=true for an audited bootstrap." >&2
+              exit 1
+            fi
+            : > /tmp/news-sentry-cloudflare-continuity-ledger.jsonl
+          fi
+          if [[ -s /tmp/news-sentry-cloudflare-continuity-ledger.jsonl ]]; then
+            python tools/cloudflare_continuity_ledger.py evaluate \
+              --ledger /tmp/news-sentry-cloudflare-continuity-ledger.jsonl \
+              --expected-commit "${EXPECTED_COMMIT}" \
+              --output /tmp/news-sentry-cloudflare-continuity-previous-state.json || true
+            python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          state = json.loads(Path("/tmp/news-sentry-cloudflare-continuity-previous-state.json").read_text())
+          if state.get("deployed_commit") != os.environ["EXPECTED_COMMIT"]:
+              print("Ledger deployed_commit does not match expected commit", flush=True)
+              raise SystemExit(1)
+          PY
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          ledger_path = Path("/tmp/news-sentry-cloudflare-continuity-ledger.jsonl")
+          current_path = Path("/tmp/news-sentry-source-health-slo.json")
+          start_path = Path("/tmp/news-sentry-source-health-slo-start.json")
+          end_path = Path("/tmp/news-sentry-source-health-slo-end.json")
+          current = json.loads(current_path.read_text())
+          start = current
+          for line in ledger_path.read_text().splitlines():
+              if not line.strip():
+                  continue
+              receipt = json.loads(line)
+              audits = receipt.get("source_health", {}).get("audits", {})
+              candidate = audits.get("current") or audits.get("start")
+              if isinstance(candidate, dict):
+                  start = candidate
+                  break
+          start_path.write_text(json.dumps(start, sort_keys=True))
+          end_path.write_text(json.dumps(current, sort_keys=True))
+          PY
+
+      - name: Update continuity ledger
+        env:
+          EXPECTED_COMMIT: ${{ steps.target.outputs.expected_commit }}
+          DEPLOYED_AT: ${{ steps.target.outputs.deployed_at }}
+        run: |
+          set -euo pipefail
+          python tools/cloudflare_continuity_ledger.py append \
+            --ledger /tmp/news-sentry-cloudflare-continuity-ledger.jsonl \
+            --receipt /tmp/news-sentry-cloudflare-runtime-receipt.json \
+            --deployed-commit "${EXPECTED_COMMIT}" \
+            --deployed-at "${DEPLOYED_AT}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --source-health-current /tmp/news-sentry-source-health-slo.json \
+            --source-health-start /tmp/news-sentry-source-health-slo-start.json \
+            --source-health-end /tmp/news-sentry-source-health-slo-end.json \
+            --output /tmp/news-sentry-cloudflare-continuity-state.json
+
+      - name: Upload runtime receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-runtime-receipt-${{ github.run_id }}
+          path: /tmp/news-sentry-cloudflare-runtime-receipt.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload continuity ledger receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-continuity-ledger-${{ steps.target.outputs.environment }}-${{ steps.target.outputs.expected_commit }}-${{ github.run_id }}
+          path: |
+            /tmp/news-sentry-cloudflare-continuity-ledger.jsonl
+            /tmp/news-sentry-cloudflare-continuity-state.json
+          if-no-files-found: error
+          retention-days: 14

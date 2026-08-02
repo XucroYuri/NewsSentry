@@ -6,9 +6,15 @@
  * Schemas: WebhookResponse, ImportResponse, ImportEventItem
  */
 
-import type { WebhookResponse, ImportResponse, ImportEventItem } from "../lib/contracts";
-import { internalError } from "../lib/errors";
-import { refreshPublicReadSnapshots } from "../lib/public-read-snapshots";
+import type { WebhookResponse, ImportResponse, ImportEventItem } from "../lib/contracts.ts";
+import {
+  executeDurableProjectionImport,
+  MAX_IMPORT_BODY_BYTES,
+} from "../lib/durable-import.ts";
+import { internalError } from "../lib/errors.ts";
+import { sanitizeExternalUrlList, validateExternalUrl } from "../lib/external-url.ts";
+import type { RuntimeBindings, RuntimeMetadata } from "../lib/router.ts";
+import { assessEventTimestamps } from "../lib/timestamp-policy.ts";
 
 type ImportEventWithId = ImportEventItem & {
   event_id?: string;
@@ -28,6 +34,8 @@ type ImportEventWithId = ImportEventItem & {
   value_score?: number;
   china_relevance_label?: string;
 };
+
+type ImportResult = ImportResponse & { quarantined: number };
 
 function jsonText(value: unknown, fallback: unknown): string {
   return JSON.stringify(value ?? fallback);
@@ -161,20 +169,86 @@ async function eventIdFor(item: ImportEventWithId): Promise<string> {
   return `cf-${item.target_id}-${digest.slice(0, 16)}`;
 }
 
+function boundedQuarantinePayload(item: ImportEventWithId): string {
+  const serialized = JSON.stringify(item);
+  if (serialized.length <= 131_072) return serialized;
+  return JSON.stringify({
+    truncated: true,
+    original_bytes: new TextEncoder().encode(serialized).length,
+    prefix: serialized.slice(0, 65_536),
+  });
+}
+
+async function quarantineEvent(
+  db: D1Database,
+  item: ImportEventWithId,
+  reasonCode: string,
+): Promise<void> {
+  const digest = await sha256Hex(
+    [item.target_id, item.source_id, item.url, item.title_original, item.collected_at, reasonCode].join(
+      "\0",
+    ),
+  );
+  await db
+    .prepare(
+      `INSERT INTO quarantined_events (
+         quarantine_id, target_id, source_id, reason_code, payload_json, created_at
+       ) VALUES (?, ?, ?, ?, ?, datetime('now'))
+       ON CONFLICT(quarantine_id) DO UPDATE SET
+         reason_code=excluded.reason_code,
+         payload_json=excluded.payload_json`,
+    )
+    .bind(
+      `q-${digest.slice(0, 24)}`,
+      item.target_id || "unknown",
+      item.source_id || "unknown",
+      reasonCode,
+      boundedQuarantinePayload(item),
+    )
+    .run();
+}
+
 export async function importEventsToD1(
   db: D1Database,
   events: ImportEventWithId[],
-): Promise<ImportResponse> {
+): Promise<ImportResult> {
   let imported = 0;
   let updated = 0;
   let skipped = 0;
+  let quarantined = 0;
   const errors: string[] = [];
 
-  for (const [idx, item] of events.entries()) {
-    if (!item.target_id || !item.source_id || !item.title_original || !item.url || !item.collected_at) {
+  for (const [idx, rawItem] of events.entries()) {
+    if (
+      !rawItem.target_id ||
+      !rawItem.source_id ||
+      !rawItem.title_original ||
+      !rawItem.url ||
+      !rawItem.collected_at
+    ) {
       errors.push(`item ${idx}: missing required import fields`);
       continue;
     }
+
+    const urlResult = validateExternalUrl(rawItem.url);
+    if (!urlResult.ok) {
+      await quarantineEvent(db, rawItem, urlResult.reason);
+      quarantined += 1;
+      continue;
+    }
+    const timestampResult = assessEventTimestamps(rawItem.collected_at, rawItem.published_at);
+    if (!timestampResult.ok) {
+      await quarantineEvent(db, rawItem, timestampResult.reason);
+      quarantined += 1;
+      continue;
+    }
+    const item: ImportEventWithId = {
+      ...rawItem,
+      url: urlResult.normalizedUrl,
+      image_urls: sanitizeExternalUrlList(rawItem.image_urls),
+      collected_at: timestampResult.collectedAt,
+      published_at: timestampResult.publishedAt,
+    };
 
     const eventId = await eventIdFor(item);
     const existing = await db
@@ -360,6 +434,7 @@ export async function importEventsToD1(
     imported,
     updated,
     skipped,
+    quarantined,
     errors,
   };
 }
@@ -393,31 +468,76 @@ export async function handleImport(
   db: D1Database,
   _params: URLSearchParams,
   _segments: string[],
+  _ctx?: ExecutionContext,
+  runtimeMetadata?: RuntimeMetadata,
+  runtimeBindings?: RuntimeBindings,
 ): Promise<Response> {
   try {
     const rawBody = await request.text();
-    let events: ImportEventWithId[] = [];
+    if (new TextEncoder().encode(rawBody).length > MAX_IMPORT_BODY_BYTES) {
+      return importErrorResponse(413, "import_body_too_large");
+    }
+    let events: ImportEventWithId[];
     try {
       events = JSON.parse(rawBody) as ImportEventWithId[];
-      if (!Array.isArray(events)) events = [];
     } catch {
-      events = [];
+      return importErrorResponse(400, "invalid_json");
     }
-
-    const body = await importEventsToD1(db, events);
-    if (body.imported > 0 || body.updated > 0) {
-      try {
-        await refreshPublicReadSnapshots(db);
-      } catch (error) {
-        console.warn("public snapshot refresh after import failed:", error);
-      }
+    if (!Array.isArray(events)) {
+      return importErrorResponse(400, "import_events_not_array");
     }
+    const result = await executeDurableProjectionImport(
+      {
+        DB: db,
+        NEWS_SENTRY_ARTIFACTS: runtimeBindings?.artifacts,
+        NEWS_SENTRY_DEPLOY_COMMIT: runtimeMetadata?.commit ?? "unknown",
+        NEWS_SENTRY_ENVIRONMENT: runtimeMetadata?.environment ?? "unknown",
+      },
+      {
+        origin: "api-import",
+        events,
+        idempotencyKey: request.headers.get("Idempotency-Key"),
+      },
+    );
+    const body: ImportResponse = {
+      imported: result.importedEvents,
+      updated: result.updatedEvents,
+      skipped: 0,
+      quarantined: result.quarantinedEvents,
+      errors: [],
+      batch_id: result.batchId,
+      job_id: result.jobId,
+      artifact_id: result.artifactId,
+      artifact_key: result.artifactKey,
+      artifact_sha256: result.artifactSha256,
+      artifact_bytes: result.artifactBytes,
+      replayed: result.replayed,
+    };
     return new Response(JSON.stringify(body), {
-      status: body.errors.length ? 207 : 200,
+      status: 200,
       headers: { "Content-Type": "application/json" },
     });
   } catch (err) {
+    const kind = typeof err === "object" && err !== null && "kind" in err ? String((err as { kind: unknown }).kind) : "";
+    const code = typeof err === "object" && err !== null && "code" in err ? String((err as { code: unknown }).code) : String(err);
+    if (kind === "validation") return importErrorResponse(422, code);
+    if (kind === "payload_too_large") return importErrorResponse(413, code);
+    if (kind === "idempotency_conflict") return importErrorResponse(409, code);
+    if (kind === "durable_storage") return importErrorResponse(503, code);
     console.error("import error:", err);
     return internalError(String(err));
   }
+}
+
+function importErrorResponse(status: number, code: string): Response {
+  return new Response(
+    JSON.stringify({
+      imported: 0,
+      updated: 0,
+      skipped: 0,
+      quarantined: 0,
+      errors: [code],
+    }),
+    { status, headers: { "Content-Type": "application/json" } },
+  );
 }

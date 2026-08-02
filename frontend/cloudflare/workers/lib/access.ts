@@ -1,3 +1,11 @@
+import {
+  type AccessPrincipal,
+  type AccessJwtVerificationOptions,
+  type CloudflareAccessJwtEnv,
+  verifyCloudflareAccessRequest,
+} from "./access-jwt.ts";
+import { canonicalPathname } from "./path.ts";
+
 const CONTAINER_PROXY_PREFIXES = [
   "/admin/",
   "/api/v1/admin/",
@@ -9,15 +17,17 @@ const CONTAINER_PROXY_PREFIXES = [
 const WORKER_WRITE_PATHS = [
   "/api/v1/events/import",
   "/api/v1/webhook",
+  "/api/v1/jobs/dlq/replay",
 ];
 
 function matchesPrefix(pathname: string, prefixes: string[]): boolean {
-  const normalized = pathname.endsWith("/") ? pathname : `${pathname}/`;
+  const canonical = canonicalPathname(pathname);
+  const normalized = canonical.endsWith("/") ? canonical : `${canonical}/`;
   return prefixes.some((prefix) => {
     if (prefix.endsWith("/")) {
       return normalized.startsWith(prefix);
     }
-    return pathname === prefix;
+    return canonical === canonicalPathname(prefix);
   });
 }
 
@@ -29,11 +39,13 @@ export function isWorkerWritePath(pathname: string): boolean {
   return matchesPrefix(pathname, WORKER_WRITE_PATHS);
 }
 
-export function hasAccessIdentity(request: Request): boolean {
-  // Only trust headers Cloudflare Access injects after a successful user policy.
-  // Client-supplied service-token/JWT-looking headers are not proof unless the
-  // Worker validates the signed assertion against the Access certs.
-  return Boolean(request.headers.get("Cf-Access-Authenticated-User-Email"));
+export async function requireAccessIdentity(
+  request: Request,
+  env: CloudflareAccessJwtEnv,
+  options: AccessJwtVerificationOptions = {},
+): Promise<Response | null> {
+  const verification = await verifyCloudflareAccessRequest(request, env, options);
+  return verification.ok ? null : accessRequired();
 }
 
 export function accessRequired(): Response {
@@ -43,8 +55,38 @@ export function accessRequired(): Response {
   });
 }
 
-export function handleWorkerWriteAccess(request: Request): Response | null {
+export type WorkerWriteAccessDecision =
+  | {
+      ok: true;
+      identity: AccessPrincipal | null;
+    }
+  | {
+      ok: false;
+      response: Response;
+    };
+
+export async function authorizeWorkerWriteAccess(
+  request: Request,
+  env: CloudflareAccessJwtEnv,
+  options: AccessJwtVerificationOptions = {},
+): Promise<WorkerWriteAccessDecision> {
   const url = new URL(request.url);
-  if (!isWorkerWritePath(url.pathname)) return null;
-  return hasAccessIdentity(request) ? null : accessRequired();
+  if (!isWorkerWritePath(url.pathname)) return { ok: true, identity: null };
+  const verification = await verifyCloudflareAccessRequest(request, env, options);
+  if (!verification.ok || !verification.principal) {
+    return { ok: false, response: accessRequired() };
+  }
+  if (verification.principal.kind === "service" && url.pathname !== "/api/v1/events/import") {
+    return { ok: false, response: accessRequired() };
+  }
+  return { ok: true, identity: verification.principal };
+}
+
+export async function handleWorkerWriteAccess(
+  request: Request,
+  env: CloudflareAccessJwtEnv,
+  options: AccessJwtVerificationOptions = {},
+): Promise<Response | null> {
+  const decision = await authorizeWorkerWriteAccess(request, env, options);
+  return decision.ok ? null : decision.response;
 }
