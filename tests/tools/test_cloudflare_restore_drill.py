@@ -81,11 +81,7 @@ def _good_query_results() -> dict[str, list[dict[str, Any]]]:
                 "projection_guard_mismatches": 0,
             }
         ],
-        "artifact_status_counts": [
-            {"status": "committed", "row_count": 1},
-            {"status": "stored", "row_count": 0},
-            {"status": "failed", "row_count": 0},
-        ],
+        "artifact_status_counts": [{"stored_count": 0, "failed_count": 0}],
         "public_snapshots": [
             _snapshot("news:featured:v1:page_size=20", {"items": [{"id": "event-1"}]}),
             _snapshot("news:all:v1:page_size=20", {"items": [{"id": "event-1"}]}),
@@ -268,11 +264,7 @@ def test_restore_drill_fails_closed_on_projection_receipt_integrity_counts(
 
 def test_restore_drill_fails_closed_when_noncommitted_artifacts_exist() -> None:
     query_results = _good_query_results()
-    query_results["artifact_status_counts"] = [
-        {"status": "committed", "row_count": 1},
-        {"status": "stored", "row_count": 2},
-        {"status": "failed", "row_count": 1},
-    ]
+    query_results["artifact_status_counts"] = [{"stored_count": 2, "failed_count": 1}]
 
     receipt = _receipt(query_results=query_results)
 
@@ -282,6 +274,31 @@ def test_restore_drill_fails_closed_when_noncommitted_artifacts_exist() -> None:
         in receipt["summary"]["blockers"]
     )
     assert receipt["evidence"]["noncommitted_artifacts"] == {"stored": 2, "failed": 1}
+
+
+@pytest.mark.parametrize(
+    ("rows", "blocker"),
+    [
+        ([], "artifact_status_counts_missing"),
+        ([{"stored_count": 0}], "artifact_status_counts_malformed"),
+        ([{"stored_count": "0", "failed_count": True}], "artifact_status_counts_malformed"),
+        (
+            [{"stored_count": 0, "failed_count": 0}, {"stored_count": 0, "failed_count": 0}],
+            "artifact_status_counts_malformed",
+        ),
+    ],
+)
+def test_restore_drill_fails_closed_without_complete_artifact_status_counts(
+    rows: list[dict[str, Any]],
+    blocker: str,
+) -> None:
+    query_results = _good_query_results()
+    query_results["artifact_status_counts"] = rows
+
+    receipt = _receipt(query_results=query_results)
+
+    assert receipt["status"] == "failed"
+    assert blocker in receipt["summary"]["blockers"]
 
 
 def test_restore_drill_fails_closed_on_checksum_mismatch() -> None:
@@ -481,6 +498,72 @@ def test_validate_cli_success_with_json_files(
     assert code == 0
     assert receipt["status"] == "ok"
     assert json.loads(stdout)["status"] == "ok"
+
+
+def test_validate_cli_fails_closed_when_artifact_evidence_is_missing(
+    tmp_path: Path,
+) -> None:
+    query_results = _good_query_results()
+    query_results["artifact_manifests"] = []
+    query_path = tmp_path / "queries.json"
+    artifact_path = tmp_path / "artifacts.json"
+    backup_path = tmp_path / "backup.json"
+    output_path = tmp_path / "receipt.json"
+    query_path.write_text(json.dumps(query_results), encoding="utf-8")
+    artifact_path.write_text("{}", encoding="utf-8")
+    backup_path.write_text(json.dumps(_good_backup_receipt()), encoding="utf-8")
+
+    code = drill.main(
+        [
+            "validate",
+            "--database",
+            "ns-db-restore-drill-20260802-5",
+            "--query-results",
+            str(query_path),
+            "--artifact-receipts",
+            str(artifact_path),
+            "--backup-receipt",
+            str(backup_path),
+            "--output",
+            str(output_path),
+        ]
+    )
+
+    receipt = json.loads(output_path.read_text(encoding="utf-8"))
+    assert code == 2
+    assert receipt["status"] == "failed"
+    assert "artifact_manifest_missing" in receipt["summary"]["blockers"]
+
+
+def test_validate_cli_rejects_missing_artifact_bypass_option(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    query_path = tmp_path / "queries.json"
+    artifact_path = tmp_path / "artifacts.json"
+    backup_path = tmp_path / "backup.json"
+    query_path.write_text(json.dumps(_good_query_results()), encoding="utf-8")
+    artifact_path.write_text(json.dumps(_good_artifact_receipts()), encoding="utf-8")
+    backup_path.write_text(json.dumps(_good_backup_receipt()), encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc_info:
+        drill.main(
+            [
+                "validate",
+                "--database",
+                "ns-db-restore-drill-20260802-6",
+                "--query-results",
+                str(query_path),
+                "--artifact-receipts",
+                str(artifact_path),
+                "--backup-receipt",
+                str(backup_path),
+                "--allow-missing-artifact",
+            ]
+        )
+
+    assert exc_info.value.code == 2
+    assert "allow-missing-artifact" in capsys.readouterr().err
 
 
 def test_run_wrangler_d1_query_propagates_runner_errors_without_shell() -> None:

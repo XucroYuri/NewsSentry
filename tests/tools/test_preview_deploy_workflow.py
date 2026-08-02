@@ -321,16 +321,28 @@ def test_cloudflare_data_dry_run_has_one_output_sql_argument() -> None:
 
 
 def test_production_data_job_applies_projection_receipt_migration() -> None:
-    workflow = _workflow_text()
-    cloudflare_data_job = workflow.split("  cloudflare-data:", 1)[1].split(
-        "  deploy-cloudflare-worker:", 1
-    )[0]
+    steps = _workflow()["jobs"]["cloudflare-data"]["steps"]
+    named_steps = {
+        step["name"]: (index, step)
+        for index, step in enumerate(steps)
+        if isinstance(step, dict) and "name" in step
+    }
+    phase3_index, phase3_step = named_steps["Apply durable artifact manifest migration"]
+    phase4_index, phase4_step = named_steps[
+        "Apply projection import finalize receipt migration"
+    ]
 
-    assert (
-        "db/migrations/20260802_phase4_projection_import.sql"
-        in cloudflare_data_job
-    )
-    assert (
-        cloudflare_data_job.index("db/migrations/20260802_phase3_durable_artifacts.sql")
-        < cloudflare_data_job.index("db/migrations/20260802_phase4_projection_import.sql")
+    assert phase3_index < phase4_index
+    assert phase4_step["if"] == "needs.ci.outputs.deployment_environment == 'production'"
+    assert phase4_step["working-directory"] == "frontend/cloudflare"
+    assert phase4_step["run"].split() == [
+        "node_modules/.bin/wrangler",
+        "d1",
+        "execute",
+        "ns-db",
+        "--remote",
+        "--file=db/migrations/20260802_phase4_projection_import.sql",
+    ]
+    assert phase3_step["run"].split()[-1] == (
+        "--file=db/migrations/20260802_phase3_durable_artifacts.sql"
     )

@@ -132,8 +132,10 @@ RESTORE_QUERIES: Mapping[str, str] = {
         "FROM artifact_manifests WHERE status='committed' ORDER BY created_at DESC LIMIT 1"
     ),
     "artifact_status_counts": (
-        "SELECT status, COUNT(*) AS row_count FROM artifact_manifests "
-        "WHERE status IN ('stored', 'failed') GROUP BY status ORDER BY status"
+        "SELECT "
+        "SUM(CASE WHEN status='stored' THEN 1 ELSE 0 END) AS stored_count, "
+        "SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed_count "
+        "FROM artifact_manifests"
     ),
     "orphan_counts": (
         "SELECT "
@@ -526,13 +528,19 @@ def _validate_orphan_counts(rows: list[dict[str, Any]]) -> tuple[dict[str, int],
 def _validate_noncommitted_artifacts(
     rows: list[dict[str, Any]],
 ) -> tuple[dict[str, int], list[str]]:
-    counts = {"stored": 0, "failed": 0}
-    for row in rows:
-        status = row.get("status")
-        count = _int_value(row.get("row_count", row.get("count", row.get("total"))))
-        if status in counts and count is not None:
-            counts[status] = count
     blockers: list[str] = []
+    if not rows:
+        return {}, ["artifact_status_counts_missing"]
+    if len(rows) != 1:
+        return {}, ["artifact_status_counts_malformed"]
+
+    row = rows[0]
+    stored = _int_value(row.get("stored_count"))
+    failed = _int_value(row.get("failed_count"))
+    if stored is None or failed is None or stored < 0 or failed < 0:
+        return {}, ["artifact_status_counts_malformed"]
+
+    counts = {"stored": stored, "failed": failed}
     if counts["stored"] or counts["failed"]:
         blockers.append(
             "artifact_manifest_status_invalid:"
@@ -762,7 +770,6 @@ def _validate_command(args: argparse.Namespace) -> int:
             query_results=query_results,
             artifact_receipts=artifact_receipts,
             backup_receipt=backup_receipt,
-            require_artifact=not args.allow_missing_artifact,
         )
     except (OSError, json.JSONDecodeError, RestoreDrillError) as exc:
         receipt = {
@@ -784,7 +791,6 @@ def main(argv: list[str] | None = None) -> int:
     validate.add_argument("--query-results", type=Path, required=True)
     validate.add_argument("--artifact-receipts", type=Path, required=True)
     validate.add_argument("--backup-receipt", type=Path, required=True)
-    validate.add_argument("--allow-missing-artifact", action="store_true")
     validate.add_argument("--output", type=Path)
     validate.set_defaults(func=_validate_command)
 
