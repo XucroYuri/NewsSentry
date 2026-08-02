@@ -36,6 +36,10 @@ export interface HealthResponse {
     collection_authoritative?: boolean;
     config_valid?: boolean;
     config_errors?: string[];
+    compute?: {
+      container_configured: boolean;
+      queue_configured: boolean;
+    };
   };
   error?: string;
   scheduler?: {

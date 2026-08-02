@@ -147,6 +147,10 @@ function runtimeMetadata(
     collection_authoritative: config.collectionAuthoritative,
     config_valid: config.ok,
     config_errors: config.errors,
+    compute: {
+      container_configured: Boolean(env.NEWS_SENTRY_CONTAINER),
+      queue_configured: Boolean(env.NEWS_SENTRY_JOBS_QUEUE),
+    },
     queue: {
       jobs_configured: Boolean(env.NEWS_SENTRY_JOBS_QUEUE),
       dlq_configured: Boolean(env.NEWS_SENTRY_JOBS_DLQ),

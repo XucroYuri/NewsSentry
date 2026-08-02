@@ -211,6 +211,18 @@ test("dependency failures make runtime unhealthy", () => {
   assert.ok(health.reason_codes.includes("collect_cycle_failed"));
 });
 
+test("production readiness fails when container binding is absent", () => {
+  const input = baseInput();
+  input.compute = { container_configured: false, queue_configured: true };
+
+  const health = buildHealthResponse(input);
+
+  assert.equal(health.status, "unhealthy");
+  assert.equal(health.readiness?.ok, false);
+  assert.ok(health.reason_codes?.includes("container_not_configured"));
+  assert.equal(httpStatusForHealth(health.status), 503);
+});
+
 test("health endpoint wires D1 failures to explicit HTTP 503 responses", () => {
   const source = readFileSync(
     new URL("../workers/api/health.ts", import.meta.url),

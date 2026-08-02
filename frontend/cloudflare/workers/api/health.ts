@@ -301,6 +301,7 @@ export async function handleHealth(
         refresh_public_quality: opsTask(opsRows, "last:refresh-public-quality"),
       },
       active_snapshot: activeSnapshot,
+      compute: runtimeMetadata?.compute,
       collection,
       job_runtime: jobRuntime,
       queue: {

@@ -38,6 +38,11 @@ export interface QueueHealthInput {
   };
 }
 
+export interface ComputeHealthInput {
+  container_configured: boolean;
+  queue_configured: boolean;
+}
+
 export interface PublicQualityInput {
   summary_ready: number;
   recommendation_ready: number;
@@ -59,6 +64,7 @@ export interface HealthSignalsInput {
     refresh_public_quality: SchedulerTaskInput;
   };
   active_snapshot: ActiveSnapshotInput;
+  compute?: ComputeHealthInput;
   queue?: QueueHealthInput;
   collection?: NonNullable<HealthResponse["collection"]>;
   job_runtime?: NonNullable<HealthResponse["job_runtime"]>;
@@ -121,6 +127,7 @@ function worstStatus(reasonCodes: string[]): HealthLevel {
     reasonCodes.includes("collect_cycle_failed") ||
     reasonCodes.includes("collect_cycle_stale") ||
     reasonCodes.includes("events_stale") ||
+    reasonCodes.includes("container_not_configured") ||
     reasonCodes.includes("p0_dlq_nonempty")
   ) {
     return "unhealthy";
@@ -197,6 +204,9 @@ export function buildHealthResponse(input: HealthSignalsInput): HealthResponse {
   }
   if ((queue.retry_count ?? 0) > 0) {
     reasonCodes.push("queue_retries_pending");
+  }
+  if (input.compute?.container_configured === false) {
+    reasonCodes.push("container_not_configured");
   }
 
   const status = worstStatus(reasonCodes);

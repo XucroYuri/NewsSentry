@@ -130,6 +130,16 @@ def _runtime_reasons(
         reasons.append("readiness_not_ok")
     if _mapping(payload.get("deployment")).get("commit") != expected_commit:
         reasons.append("body_commit_mismatch")
+    deployment = _mapping(payload.get("deployment"))
+    compute = _mapping(deployment.get("compute"))
+    if require_readiness and compute.get("container_configured") is not True:
+        reasons.append("container_not_configured")
+    if (
+        require_readiness
+        and deployment.get("scheduler_mode") == "queue"
+        and compute.get("queue_configured") is not True
+    ):
+        reasons.append("queue_not_configured")
     if response.headers.get("x-news-sentry-deploy-commit") != expected_commit:
         reasons.append("header_commit_mismatch")
     if response.headers.get("x-news-sentry-runtime") != "cloudflare-worker":

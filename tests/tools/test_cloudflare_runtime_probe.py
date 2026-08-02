@@ -18,7 +18,7 @@ COMMIT = "a" * 40
 WORKER_VERSION = "worker-version-1"
 
 
-def _runtime_payload(now: datetime) -> dict[str, Any]:
+def _runtime_payload(now: datetime, *, container_configured: bool = True) -> dict[str, Any]:
     timestamp = now.isoformat().replace("+00:00", "Z")
     return {
         "schema_version": "2026-08-01.phase0",
@@ -43,6 +43,10 @@ def _runtime_payload(now: datetime) -> dict[str, Any]:
             "commit": COMMIT,
             "runtime": "cloudflare-worker",
             "worker_version": WORKER_VERSION,
+            "compute": {
+                "container_configured": container_configured,
+                "queue_configured": True,
+            },
         },
     }
 
@@ -69,8 +73,9 @@ def _handler(
     future_public_item: bool = False,
     drop_connections: bool = False,
     malformed_readiness: bool = False,
+    container_configured: bool = True,
 ) -> type[BaseHTTPRequestHandler]:
-    health = _runtime_payload(now)
+    health = _runtime_payload(now, container_configured=container_configured)
     if stale_collection:
         health["latest_collected_at"] = "2020-01-01T00:00:00Z"
         health["latest_valid_collected_at"] = "2020-01-01T00:00:00Z"
@@ -155,6 +160,7 @@ def _run_probe(
     future_public_item: bool = False,
     api_connection_failure: bool = False,
     malformed_readiness: bool = False,
+    container_configured: bool = True,
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, Any]]:
     now = datetime.now(UTC).replace(microsecond=0)
     origins: dict[str, str] = {}
@@ -165,6 +171,7 @@ def _run_probe(
         future_public_item=future_public_item,
         drop_connections=api_connection_failure,
         malformed_readiness=malformed_readiness,
+        container_configured=container_configured,
     )
     with _serve(api_handler) as api_url:
         origins["api"] = api_url
@@ -249,6 +256,18 @@ def test_runtime_probe_records_malformed_runtime_shape_instead_of_crashing(
     assert result.returncode == 1
     assert receipt["status"] == "failed"
     assert "readiness_not_ok" in receipt["summary"]["reason_codes"]
+
+
+def test_probe_rejects_missing_container_readiness(tmp_path: Path) -> None:
+    result, receipt = _run_probe(tmp_path, container_configured=False)
+
+    assert result.returncode == 1
+    assert receipt["status"] == "failed"
+    assert "container_not_configured" in receipt["summary"]["reason_codes"]
+    checks = {check["name"]: check for check in receipt["checks"]}
+    assert checks["live"]["ok"] is True
+    assert checks["ready"]["ok"] is False
+    assert checks["health"]["ok"] is False
 
 
 def test_runtime_probe_records_invalid_target_instead_of_losing_receipt(

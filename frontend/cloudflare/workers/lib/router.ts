@@ -26,6 +26,10 @@ export interface RuntimeMetadata {
   collection_authoritative?: boolean;
   config_valid?: boolean;
   config_errors?: string[];
+  compute?: {
+    container_configured: boolean;
+    queue_configured: boolean;
+  };
   access?: AccessPrincipal;
   queue?: {
     jobs_configured: boolean;
