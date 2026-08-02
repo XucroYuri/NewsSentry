@@ -34,6 +34,8 @@ export interface ShadowQueueEnv {
   NEWS_SENTRY_ARTIFACTS?: R2Bucket;
   NEWS_SENTRY_JOBS_QUEUE?: QueueLike;
   NEWS_SENTRY_JOBS_DLQ?: QueueLike;
+  NEWS_SENTRY_DEPLOY_COMMIT?: string;
+  NEWS_SENTRY_ENVIRONMENT?: string;
   CF_VERSION_METADATA?: {
     id: string;
     tag?: string;
@@ -125,6 +127,11 @@ async function defaultShadowRunner(
     job,
     body,
     generatedAt,
+    {
+      deployCommit: env.NEWS_SENTRY_DEPLOY_COMMIT ?? "unknown",
+      sourceEnvironment: env.NEWS_SENTRY_ENVIRONMENT ?? "unknown",
+      sourceRuntime: "cloudflare-worker",
+    },
   );
   if (staged) {
     return {

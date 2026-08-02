@@ -138,9 +138,9 @@ jobs:
         working-directory: frontend/cloudflare
         run: npm test
 
-      - name: Cloudflare Worker type generation
+      - name: Cloudflare Worker Wrangler type generation
         working-directory: frontend/cloudflare
-        run: npm run types
+        run: npm run wrangler-types
 
       - name: Cloudflare Worker dry run
         working-directory: frontend/cloudflare
@@ -543,24 +543,38 @@ jobs:
           migrations = rows(json.loads(Path("/tmp/ns-d1-runtime-migration-receipts.json").read_text()))
           collect_rows = rows(json.loads(Path("/tmp/ns-d1-collect-continuity.json").read_text()))
           collect_value = {}
+          continuity_reason_codes = []
+          raw_value_present = False
           if collect_rows and isinstance(collect_rows[0], dict):
               raw_value = collect_rows[0].get("value")
+              raw_value_present = isinstance(raw_value, str) and bool(raw_value)
               if isinstance(raw_value, str):
-                  collect_value = json.loads(raw_value)
+                  try:
+                      collect_value = json.loads(raw_value)
+                  except json.JSONDecodeError:
+                      continuity_reason_codes.append("collect_continuity_json_invalid")
+          malformed_collect_continuity = "collect_continuity_json_invalid" in continuity_reason_codes
           latest_collect = {
-              "status": collect_value.get("status"),
-              "run_id": collect_value.get("runId"),
+              "status": "failed" if malformed_collect_continuity else collect_value.get("status"),
+              "run_id": None if malformed_collect_continuity else collect_value.get("runId"),
               "updated_at": collect_rows[0].get("updated_at") if collect_rows else None,
           }
-          details = collect_value.get("details")
+          details = None if malformed_collect_continuity else collect_value.get("details")
           collect_batch = details.get("collect_batch") if isinstance(details, dict) else {}
+          continuity_status = (
+              "failed"
+              if continuity_reason_codes
+              else "ok" if latest_collect["status"] in {"ok", "partial", "empty_no_new_items"} else "failed"
+          )
           Path("/tmp/ns-worker-version.json").write_text(json.dumps(versions[0] if versions else {}))
           Path("/tmp/ns-worker-deployment.json").write_text(json.dumps(deployments[0] if deployments else {}))
           Path("/tmp/ns-runtime-migration-receipts.json").write_text(json.dumps([
               row.get("migration_id") for row in migrations if isinstance(row, dict) and row.get("migration_id")
           ]))
           Path("/tmp/ns-continuity.json").write_text(json.dumps({
-              "status": "ok" if latest_collect["status"] in {"ok", "partial", "empty_no_new_items"} else "failed",
+              "status": continuity_status,
+              "reason_codes": continuity_reason_codes,
+              "raw_value_present": raw_value_present,
               "deployed_commit": json.loads(Path("/tmp/worker-ready.json").read_text()).get("deployment", {}).get("commit"),
               "latest_collect": latest_collect,
               "selected_target_ids": collect_batch.get("selected_target_ids") if isinstance(collect_batch, dict) else [],

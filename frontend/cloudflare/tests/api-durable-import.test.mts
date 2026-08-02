@@ -126,7 +126,12 @@ async function callImport(
     new URLSearchParams(),
     ["api", "v1", "events", "import"],
     undefined,
-    undefined,
+    {
+      commit: "a".repeat(40),
+      environment: "preview",
+      runtime: "cloudflare-worker",
+      worker_version: "version-test",
+    },
     { artifacts: bucket as unknown as R2Bucket },
   );
 }

@@ -4,6 +4,8 @@ import { executeDurableProjectionImport } from "./durable-import.ts";
 export interface ContainerImportEnv {
   DB: D1Database;
   NEWS_SENTRY_ARTIFACTS?: R2Bucket;
+  NEWS_SENTRY_DEPLOY_COMMIT?: string;
+  NEWS_SENTRY_ENVIRONMENT?: string;
 }
 
 type ContainerImportTask = "collect-cycle" | "public-translation-cycle";

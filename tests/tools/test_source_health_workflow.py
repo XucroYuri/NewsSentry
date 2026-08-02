@@ -30,6 +30,8 @@ def test_source_health_workflow_requires_previous_summary_or_bootstrap() -> None
     assert "Resolve deployed commit from guard receipt and deployment metadata" in resolve
     assert "https://api.news-sentry.com/api/v1/ready" in resolve
     assert "source-health-receipts" in previous
+    assert "--status success" in previous
+    assert "--status completed" not in previous
     assert "news-sentry-source-health-slo-previous.json" in previous
     assert "bootstrap_weekly_slo" in previous
     assert "No previous Source Health SLO receipt found" in previous

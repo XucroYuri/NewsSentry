@@ -1,6 +1,9 @@
 export const IMPORT_ARTIFACT_SCHEMA_VERSION = "2026-08-02.import-artifact.v1";
 
 const CONTENT_TYPE = "application/json";
+const DEPLOY_COMMIT_RE = /^[0-9a-f]{40}$/;
+const SOURCE_ENVIRONMENTS = new Set(["production", "preview", "dev"]);
+const SOURCE_RUNTIMES = new Set(["cloudflare-container", "cloudflare-worker"]);
 
 export interface ImportArtifactInput {
   batchId: string;
@@ -82,6 +85,16 @@ function durableError(code: string): Error {
 
 function normalizedIds(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))].sort(compareCodePoints);
+}
+
+function validateProvenance(input: ImportArtifactInput): void {
+  if (
+    !DEPLOY_COMMIT_RE.test(input.deployCommit) ||
+    !SOURCE_ENVIRONMENTS.has(input.sourceEnvironment) ||
+    !SOURCE_RUNTIMES.has(input.sourceRuntime)
+  ) {
+    throw durableError("durable_artifact_provenance_invalid");
+  }
 }
 
 function datePath(generatedAt: string): string {
@@ -210,6 +223,7 @@ export async function persistImportArtifact(
   input: ImportArtifactInput,
 ): Promise<ImportArtifactDescriptor> {
   if (!bucket) throw durableError("durable_artifact_bucket_not_configured");
+  validateProvenance(input);
   if (!input.batchId.trim() || !input.jobId.trim() || !input.task.trim()) {
     throw durableError("durable_artifact_identity_invalid");
   }

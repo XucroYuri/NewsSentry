@@ -92,7 +92,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/news-sentry-source-health-previous
-          previous_run_id="$(gh run list --workflow source-health.yml --status completed --limit 5 --json databaseId --jq '.[0].databaseId // ""')"
+          previous_run_id="$(gh run list --workflow source-health.yml --status success --limit 5 --json databaseId --jq '.[0].databaseId // ""')"
           if [[ -n "${previous_run_id}" ]]; then
             gh run download "${previous_run_id}" \
               --name source-health-receipts \

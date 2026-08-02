@@ -1281,6 +1281,7 @@ def build_deploy_receipt(
         raise ReceiptError("health deployment receipt missing")
     continuity = _as_mapping(continuity_json)
     latest_collect = _as_mapping(continuity.get("latest_collect"))
+    continuity_reason_codes = _as_string_list(continuity.get("reason_codes"))
     worker_version = deployment.get("worker_version")
     version_id = version_json.get("id") or version_json.get("version_id")
     deployment_version_id = _deployment_version_id(deployment_json)
@@ -1296,6 +1297,10 @@ def build_deploy_receipt(
     _require(bool(deployment_json.get("id")), "worker deployment receipt missing")
     _require(deployment.get("commit") == expected_commit, "health commit mismatch")
     _require(continuity.get("deployed_commit") == expected_commit, "continuity commit mismatch")
+    if continuity.get("status") != "ok" and continuity_reason_codes:
+        raise ReceiptError(
+            "continuity status invalid: " + ",".join(sorted(set(continuity_reason_codes)))
+        )
     _require(generated_at is not None, "health generated_at invalid")
     collect_status = latest_collect.get("status")
     _require(

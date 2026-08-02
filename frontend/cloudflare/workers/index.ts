@@ -140,6 +140,7 @@ function runtimeMetadata(
   return {
     access: accessIdentity ?? undefined,
     commit: env.NEWS_SENTRY_DEPLOY_COMMIT ?? null,
+    environment: env.NEWS_SENTRY_ENVIRONMENT ?? null,
     runtime: "cloudflare-worker",
     worker_version: env.CF_VERSION_METADATA?.id ?? null,
     scheduler_mode: config.schedulerMode,

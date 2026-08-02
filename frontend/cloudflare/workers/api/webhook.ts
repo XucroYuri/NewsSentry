@@ -13,7 +13,7 @@ import {
 } from "../lib/durable-import.ts";
 import { internalError } from "../lib/errors.ts";
 import { sanitizeExternalUrlList, validateExternalUrl } from "../lib/external-url.ts";
-import type { RuntimeBindings } from "../lib/router.ts";
+import type { RuntimeBindings, RuntimeMetadata } from "../lib/router.ts";
 import { assessEventTimestamps } from "../lib/timestamp-policy.ts";
 
 type ImportEventWithId = ImportEventItem & {
@@ -469,7 +469,7 @@ export async function handleImport(
   _params: URLSearchParams,
   _segments: string[],
   _ctx?: ExecutionContext,
-  _runtimeMetadata?: unknown,
+  runtimeMetadata?: RuntimeMetadata,
   runtimeBindings?: RuntimeBindings,
 ): Promise<Response> {
   try {
@@ -487,7 +487,12 @@ export async function handleImport(
       return importErrorResponse(400, "import_events_not_array");
     }
     const result = await executeDurableProjectionImport(
-      { DB: db, NEWS_SENTRY_ARTIFACTS: runtimeBindings?.artifacts },
+      {
+        DB: db,
+        NEWS_SENTRY_ARTIFACTS: runtimeBindings?.artifacts,
+        NEWS_SENTRY_DEPLOY_COMMIT: runtimeMetadata?.commit ?? "unknown",
+        NEWS_SENTRY_ENVIRONMENT: runtimeMetadata?.environment ?? "unknown",
+      },
       {
         origin: "api-import",
         events,

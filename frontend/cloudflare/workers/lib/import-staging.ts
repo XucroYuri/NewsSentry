@@ -80,6 +80,12 @@ export interface ImportStagingJob {
   capability?: string;
 }
 
+export interface ImportStagingProvenance {
+  deployCommit: string;
+  sourceEnvironment: string;
+  sourceRuntime: "cloudflare-worker";
+}
+
 interface NormalizedEvent {
   event: ImportStagingEvent;
   eventId: string;
@@ -760,6 +766,7 @@ export async function stageImportBatchFromMessage(
   job: ImportStagingJob,
   body: unknown,
   generatedAt: string,
+  provenance: ImportStagingProvenance,
 ): Promise<ImportStagingResult | null> {
   const payload = importStagingPayload(body);
   if (!payload || !Array.isArray(payload.events)) return null;
@@ -798,6 +805,9 @@ export async function stageImportBatchFromMessage(
     sourceIds: [sourceId],
     outputWatermark,
     generatedAt: artifactGeneratedAt,
+    deployCommit: provenance.deployCommit,
+    sourceEnvironment: provenance.sourceEnvironment,
+    sourceRuntime: provenance.sourceRuntime,
     events: payload.events as ImportStagingEvent[],
   });
   return stageImportBatch(db, {

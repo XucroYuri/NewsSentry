@@ -19,6 +19,7 @@ import type { AccessPrincipal } from "./access-jwt";
 
 export interface RuntimeMetadata {
   commit: string | null;
+  environment: string | null;
   runtime: string;
   worker_version: string | null;
   scheduler_mode?: "legacy" | "shadow" | "queue" | null;

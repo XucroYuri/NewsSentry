@@ -109,6 +109,8 @@ function env(db: SqliteD1Database, overrides: Record<string, unknown> = {}) {
     DB: db as unknown as D1Database,
     SCHEDULER_MODE: "shadow",
     WORKER_NATIVE_COLLECT_ENABLED: "false",
+    NEWS_SENTRY_DEPLOY_COMMIT: "a".repeat(40),
+    NEWS_SENTRY_ENVIRONMENT: "production",
     ...overrides,
   };
 }

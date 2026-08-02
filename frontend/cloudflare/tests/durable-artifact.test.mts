@@ -23,6 +23,7 @@ interface ManifestRow {
   finalized_at: string | null;
   error_code: string | null;
   error_message: string | null;
+  details_json: string | null;
 }
 
 class FakePreparedStatement {
@@ -70,7 +71,8 @@ class FakeD1Database {
         r2Version,
         status,
         createdAt,
-      ] = values as [string, string, string, string, string, number, string, string, string, string, string];
+        detailsJson,
+      ] = values as [string, string, string, string, string, number, string, string, string, string, string, string];
       const existing = this.manifests.get(artifactId);
       if (!existing && ![...this.manifests.values()].some((row) => row.batch_id === batchId)) {
         this.manifests.set(artifactId, {
@@ -88,6 +90,7 @@ class FakeD1Database {
           finalized_at: null,
           error_code: null,
           error_message: null,
+          details_json: detailsJson,
         });
         return changed(1);
       }
@@ -183,6 +186,9 @@ function input(): ImportArtifactInput {
     sourceIds: ["ansa"],
     outputWatermark: "cursor-1",
     generatedAt: "2026-08-02T01:02:03.000Z",
+    deployCommit: "a".repeat(40),
+    sourceEnvironment: "production",
+    sourceRuntime: "cloudflare-container",
     events: [
       {
         event_id: "event-1",
@@ -209,6 +215,31 @@ function nonAsciiInput(): ImportArtifactInput {
     ],
   };
 }
+
+test("durable import artifacts fail closed without required provenance", async () => {
+  const cases: Array<[string, Partial<ImportArtifactInput>]> = [
+    ["missing commit", { deployCommit: "" }],
+    ["unknown environment", { sourceEnvironment: "unknown" }],
+    ["unknown runtime", { sourceRuntime: "unknown" }],
+  ];
+
+  for (const [name, overrides] of cases) {
+    const db = new FakeD1Database();
+    const bucket = new FakeR2Bucket();
+    await assert.rejects(
+      () =>
+        persistImportArtifact(
+          db as unknown as D1Database,
+          bucket as unknown as R2Bucket,
+          { ...input(), ...overrides },
+        ),
+      /durable_artifact_provenance_invalid/,
+      name,
+    );
+    assert.equal(bucket.objects.size, 0, name);
+    assert.equal(db.manifests.size, 0, name);
+  }
+});
 
 test("durable import artifacts fail closed without an R2 binding", async () => {
   const db = new FakeD1Database();
@@ -242,6 +273,16 @@ test("durable import artifacts write immutable R2 content before the D1 manifest
   assert.equal(body.schema_version, "2026-08-02.import-artifact.v1");
   assert.equal(body.batch_id, "batch-1");
   assert.equal(body.events.length, 1);
+  assert.deepEqual(JSON.parse(db.manifests.get(artifact.artifactId)?.details_json || "{}"), {
+    deploy_commit: "a".repeat(40),
+    output_watermark: "cursor-1",
+    schema_version: "2026-08-02.import-artifact.v1",
+    source_environment: "production",
+    source_ids: ["ansa"],
+    source_runtime: "cloudflare-container",
+    target_ids: ["italy"],
+    task: "collect-source",
+  });
 });
 
 test("durable import artifact replay accepts only the same immutable object", async () => {

@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
 import {
+  stageImportBatchFromMessage,
   stageImportBatch,
   type ImportStagingEvent,
 } from "../workers/lib/import-staging.ts";
@@ -78,6 +79,28 @@ class SqliteD1Database {
     }
     const result = this.database.prepare(sql).run(...values);
     return { success: true, meta: { changes: result.changes } };
+  }
+}
+
+class FakeR2Bucket {
+  objects = new Map<string, any>();
+
+  async put(key: string, value: string, options: Record<string, any>) {
+    if (this.objects.has(key)) return null;
+    const object = {
+      key,
+      size: new TextEncoder().encode(value).length,
+      etag: "etag-1",
+      version: "version-1",
+      customMetadata: options.customMetadata,
+      body: value,
+    };
+    this.objects.set(key, object);
+    return object;
+  }
+
+  async head(key: string) {
+    return this.objects.get(key) ?? null;
   }
 }
 
@@ -383,6 +406,98 @@ test("source-fenced finalize requires explicit lease and fence", async () => {
       }),
     /source-fenced finalize requires lease token and fencing version/,
   );
+});
+
+test("source-fenced queue import persists explicit Worker provenance", async () => {
+  const db = new SqliteD1Database();
+  const bucket = new FakeR2Bucket();
+  seedRuntime(db);
+
+  await stageImportBatchFromMessage(
+    db as unknown as D1Database,
+    bucket as unknown as R2Bucket,
+    {
+      job_id: "job-1",
+      scheduled_for: "2026-08-01T00:00:00Z",
+      lease_token: "lease-1",
+      fencing_version: 1,
+      target_id: "italy",
+      source_id: "ansa",
+      capability: "worker-rss",
+    },
+    {
+      import_staging: {
+        batch_id: "batch-queue-1",
+        target_id: "italy",
+        source_id: "ansa",
+        output_watermark: "cursor-1",
+        events: [event(1)],
+      },
+    },
+    "2026-08-01T01:00:00Z",
+    {
+      deployCommit: "b".repeat(40),
+      sourceEnvironment: "preview",
+      sourceRuntime: "cloudflare-worker",
+    },
+  );
+
+  const manifest = db.first<{ status: string; details_json: string }>(
+    "SELECT status, details_json FROM artifact_manifests WHERE batch_id='batch-queue-1'",
+    [],
+  );
+  assert.equal(manifest?.status, "committed");
+  assert.deepEqual(JSON.parse(manifest?.details_json ?? "{}"), {
+    deploy_commit: "b".repeat(40),
+    output_watermark: "cursor-1",
+    schema_version: "2026-08-02.import-artifact.v1",
+    source_environment: "preview",
+    source_ids: ["ansa"],
+    source_runtime: "cloudflare-worker",
+    target_ids: ["italy"],
+    task: "worker-rss",
+  });
+});
+
+test("source-fenced queue import fails closed on unknown provenance", async () => {
+  const db = new SqliteD1Database();
+  const bucket = new FakeR2Bucket();
+  seedRuntime(db);
+
+  await assert.rejects(
+    () =>
+      stageImportBatchFromMessage(
+        db as unknown as D1Database,
+        bucket as unknown as R2Bucket,
+        {
+          job_id: "job-1",
+          scheduled_for: "2026-08-01T00:00:00Z",
+          lease_token: "lease-1",
+          fencing_version: 1,
+          target_id: "italy",
+          source_id: "ansa",
+          capability: "worker-rss",
+        },
+        {
+          import_staging: {
+            batch_id: "batch-queue-1",
+            target_id: "italy",
+            source_id: "ansa",
+            events: [event(1)],
+          },
+        },
+        "2026-08-01T01:00:00Z",
+        {
+          deployCommit: "unknown",
+          sourceEnvironment: "production",
+          sourceRuntime: "cloudflare-worker",
+        },
+      ),
+    /durable_artifact_provenance_invalid/,
+  );
+
+  assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM artifact_manifests", [])?.count, 0);
+  assert.equal(bucket.objects.size, 0);
 });
 
 test("source and projection finalize receipts conflict", async () => {

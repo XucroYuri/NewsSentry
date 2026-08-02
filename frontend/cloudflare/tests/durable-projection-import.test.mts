@@ -189,7 +189,12 @@ async function importEvents(
   idempotencyKey: string | null = null,
 ) {
   return executeDurableProjectionImport(
-    { DB: db as unknown as D1Database, NEWS_SENTRY_ARTIFACTS: bucket as unknown as R2Bucket },
+    {
+      DB: db as unknown as D1Database,
+      NEWS_SENTRY_ARTIFACTS: bucket as unknown as R2Bucket,
+      NEWS_SENTRY_DEPLOY_COMMIT: "a".repeat(40),
+      NEWS_SENTRY_ENVIRONMENT: "preview",
+    },
     { origin: "api-import", events, idempotencyKey },
   );
 }

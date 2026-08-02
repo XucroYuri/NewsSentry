@@ -124,6 +124,25 @@ def test_deploy_workflow_uses_fail_closed_cloudflare_preflight_and_receipts() ->
     assert "--var \"WORKER_NATIVE_COLLECT_ENABLED:false\"" in workflow
 
 
+def test_deploy_workflow_names_wrangler_type_generation_honestly() -> None:
+    workflow = _workflow_text()
+
+    assert "Cloudflare Worker Wrangler type generation" in workflow
+    assert "npm run wrangler-types" in workflow
+    assert "Cloudflare Worker type generation" not in workflow
+    assert "npm run types" not in workflow
+
+
+def test_deploy_workflow_structures_malformed_collect_continuity_reason() -> None:
+    step = _step("deploy-cloudflare-worker", "Collect Cloudflare Worker deployment receipt")
+    script = str(step["run"])
+
+    assert "except json.JSONDecodeError:" in script
+    assert "collect_continuity_json_invalid" in script
+    assert '"reason_codes": continuity_reason_codes' in script
+    assert '"raw_value_present": raw_value_present' in script
+
+
 def test_preview_verification_requires_preview_worker_runtime_proof() -> None:
     workflow = _workflow_text()
     preview_job = workflow.split("  verify-preview:", 1)[1].split(

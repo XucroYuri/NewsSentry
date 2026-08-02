@@ -1612,6 +1612,25 @@ def test_deploy_guard_binds_continuity_to_exact_commit() -> None:
         )
 
 
+def test_deploy_guard_reports_structured_continuity_reason_codes() -> None:
+    with pytest.raises(ReceiptError, match="collect_continuity_json_invalid"):
+        build_deploy_receipt(
+            **_valid_deploy_receipt_kwargs(
+                continuity_json={
+                    "status": "failed",
+                    "reason_codes": ["collect_continuity_json_invalid"],
+                    "deployed_commit": "a" * 40,
+                    "latest_collect": {
+                        "status": "failed",
+                        "run_id": None,
+                        "updated_at": "2026-08-02T09:15:00Z",
+                    },
+                    "selected_target_ids": [],
+                },
+            )
+        )
+
+
 def test_deploy_guard_rejects_unhealthy_health_status() -> None:
     with pytest.raises(ReceiptError, match="health status invalid: unhealthy"):
         build_deploy_receipt(
