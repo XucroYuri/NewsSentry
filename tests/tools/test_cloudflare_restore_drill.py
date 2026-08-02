@@ -14,6 +14,8 @@ from tools import cloudflare_restore_drill as drill
 
 SHA_A = "a" * 64
 SHA_B = "b" * 64
+COMMIT_A = "a" * 40
+COMMIT_B = "b" * 40
 BODY = "restore export body that must never appear in receipts"
 ARTIFACT_KEY = f"imports/v1/2026/08/02/{SHA_A}.json"
 BACKUP_KEY = "restore-drills/v1/preview/20260802-1.sql"
@@ -65,9 +67,11 @@ def _good_query_results() -> dict[str, list[dict[str, Any]]]:
                 "sha256": SHA_A,
                 "payload_bytes": 48,
                 "status": "committed",
+                "deploy_commit": COMMIT_A,
                 "details_json": json.dumps({"note": BODY}),
             }
         ],
+        "real_artifact_proof": [{"real_event_count": 1, "synthetic_event_count": 0}],
         "orphan_counts": [
             {
                 "artifact_manifest_orphans": 0,
@@ -104,14 +108,30 @@ def _good_backup_receipt() -> dict[str, Any]:
     }
 
 
+def synthetic_only_query_results() -> dict[str, list[dict[str, Any]]]:
+    query_results = _good_query_results()
+    query_results["real_artifact_proof"] = [
+        {"real_event_count": 0, "synthetic_event_count": 1}
+    ]
+    return query_results
+
+
 def _receipt(
     query_results: dict[str, list[dict[str, Any]]] | None = None,
     artifact_receipts: dict[str, dict[str, Any]] | None = None,
     backup_receipt: dict[str, Any] | None = None,
+    expected_commit: str = COMMIT_A,
+    continuity_receipt: dict[str, Any] | None = None,
     require_artifact: bool = True,
 ) -> dict[str, Any]:
     return drill.build_restore_receipt(
         database="ns-db-restore-drill-20260802-1",
+        expected_commit=expected_commit,
+        continuity_receipt=(
+            continuity_receipt
+            if continuity_receipt is not None
+            else {"status": "slo_7d_passed", "deployed_commit": expected_commit}
+        ),
         query_results=query_results if query_results is not None else _good_query_results(),
         artifact_receipts=(
             artifact_receipts
@@ -129,6 +149,11 @@ def test_restore_drill_success_sanitizes_receipt_body() -> None:
     receipt = _receipt()
 
     assert receipt["status"] == "ok"
+    assert receipt["expected_commit"] == COMMIT_A
+    assert receipt["continuity_receipt"] == {
+        "status": "slo_7d_passed",
+        "deployed_commit": COMMIT_A,
+    }
     assert receipt["summary"]["blockers"] == []
     rendered = json.dumps(receipt, ensure_ascii=False)
     assert BODY not in rendered
@@ -146,8 +171,49 @@ def test_restore_drill_success_sanitizes_receipt_body() -> None:
             "sha256": SHA_A,
             "bytes": 48,
             "status": "committed",
+            "deploy_commit": COMMIT_A,
         }
     ]
+
+
+def test_restore_rejects_continuity_commit_mismatch() -> None:
+    receipt = _receipt(
+        expected_commit=COMMIT_B,
+        continuity_receipt={"status": "slo_7d_passed", "deployed_commit": COMMIT_A},
+    )
+
+    assert receipt["status"] == "failed"
+    assert "continuity_commit_mismatch" in receipt["summary"]["blockers"]
+
+
+def test_restore_requires_real_committed_artifact_after_canary() -> None:
+    receipt = _receipt(
+        query_results=synthetic_only_query_results(),
+        expected_commit=COMMIT_A,
+        continuity_receipt={"status": "slo_7d_passed", "deployed_commit": COMMIT_A},
+    )
+
+    assert receipt["status"] == "failed"
+    assert "real_committed_artifact_missing" in receipt["summary"]["blockers"]
+
+
+def test_restore_requires_7d_slo_continuity_receipt() -> None:
+    receipt = _receipt(
+        continuity_receipt={"status": "canary_72h_passed", "deployed_commit": COMMIT_A},
+    )
+
+    assert receipt["status"] == "failed"
+    assert "continuity_slo_7d_not_passed" in receipt["summary"]["blockers"]
+
+
+def test_restore_rejects_artifact_commit_mismatch() -> None:
+    query_results = _good_query_results()
+    query_results["artifact_manifests"][0]["deploy_commit"] = COMMIT_B
+
+    receipt = _receipt(query_results=query_results)
+
+    assert receipt["status"] == "failed"
+    assert f"artifact_commit_mismatch:{ARTIFACT_KEY}" in receipt["summary"]["blockers"]
 
 
 def test_restore_database_name_rejects_production_names_and_injection() -> None:
@@ -440,6 +506,11 @@ def test_validate_cli_writes_failed_receipt_for_protected_database(tmp_path: Pat
     query_path.write_text(json.dumps(_good_query_results()), encoding="utf-8")
     artifact_path.write_text(json.dumps(_good_artifact_receipts()), encoding="utf-8")
     backup_path.write_text(json.dumps(_good_backup_receipt()), encoding="utf-8")
+    continuity_path = tmp_path / "continuity.json"
+    continuity_path.write_text(
+        json.dumps({"status": "slo_7d_passed", "deployed_commit": COMMIT_A}),
+        encoding="utf-8",
+    )
 
     code = drill.main(
         [
@@ -452,6 +523,10 @@ def test_validate_cli_writes_failed_receipt_for_protected_database(tmp_path: Pat
             str(artifact_path),
             "--backup-receipt",
             str(backup_path),
+            "--expected-commit",
+            COMMIT_A,
+            "--continuity-receipt",
+            str(continuity_path),
             "--output",
             str(output_path),
         ]
@@ -476,6 +551,11 @@ def test_validate_cli_success_with_json_files(
     query_path.write_text(json.dumps(query_results), encoding="utf-8")
     artifact_path.write_text(json.dumps(artifact_receipts), encoding="utf-8")
     backup_path.write_text(json.dumps(_good_backup_receipt()), encoding="utf-8")
+    continuity_path = tmp_path / "continuity.json"
+    continuity_path.write_text(
+        json.dumps({"status": "slo_7d_passed", "deployed_commit": COMMIT_A}),
+        encoding="utf-8",
+    )
 
     code = drill.main(
         [
@@ -488,6 +568,10 @@ def test_validate_cli_success_with_json_files(
             str(artifact_path),
             "--backup-receipt",
             str(backup_path),
+            "--expected-commit",
+            COMMIT_A,
+            "--continuity-receipt",
+            str(continuity_path),
             "--output",
             str(output_path),
         ]
@@ -512,6 +596,11 @@ def test_validate_cli_fails_closed_when_artifact_evidence_is_missing(
     query_path.write_text(json.dumps(query_results), encoding="utf-8")
     artifact_path.write_text("{}", encoding="utf-8")
     backup_path.write_text(json.dumps(_good_backup_receipt()), encoding="utf-8")
+    continuity_path = tmp_path / "continuity.json"
+    continuity_path.write_text(
+        json.dumps({"status": "slo_7d_passed", "deployed_commit": COMMIT_A}),
+        encoding="utf-8",
+    )
 
     code = drill.main(
         [
@@ -524,6 +613,10 @@ def test_validate_cli_fails_closed_when_artifact_evidence_is_missing(
             str(artifact_path),
             "--backup-receipt",
             str(backup_path),
+            "--expected-commit",
+            COMMIT_A,
+            "--continuity-receipt",
+            str(continuity_path),
             "--output",
             str(output_path),
         ]
@@ -545,6 +638,11 @@ def test_validate_cli_rejects_missing_artifact_bypass_option(
     query_path.write_text(json.dumps(_good_query_results()), encoding="utf-8")
     artifact_path.write_text(json.dumps(_good_artifact_receipts()), encoding="utf-8")
     backup_path.write_text(json.dumps(_good_backup_receipt()), encoding="utf-8")
+    continuity_path = tmp_path / "continuity.json"
+    continuity_path.write_text(
+        json.dumps({"status": "slo_7d_passed", "deployed_commit": COMMIT_A}),
+        encoding="utf-8",
+    )
 
     with pytest.raises(SystemExit) as exc_info:
         drill.main(
@@ -558,6 +656,10 @@ def test_validate_cli_rejects_missing_artifact_bypass_option(
                 str(artifact_path),
                 "--backup-receipt",
                 str(backup_path),
+                "--expected-commit",
+                COMMIT_A,
+                "--continuity-receipt",
+                str(continuity_path),
                 "--allow-missing-artifact",
             ]
         )

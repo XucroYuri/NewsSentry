@@ -1,6 +1,6 @@
 # News Sentry 当前状态
 
-> 更新时间：2026-08-02T10:30:20+08:00
+> 更新时间：2026-08-02T20:05:56+08:00
 > 状态口径：本文件只记录会变化的运行态事实；架构和字段契约仍以 `docs/architecture.md` 与 `docs/contracts-canonical.md` 为准。
 > 完整证据：[2026-08-01 项目健康、安全与低成本全球化审计](./audits/2026-08-01-project-health-security-cost-audit.md)
 
@@ -13,6 +13,8 @@
 同日第二次隔离部署 run `30727960018` 在 commit `2bfe26dd1f71bd510ab45826b08659f6506a8ba2` 上完成全量 CI、Preview R2 bucket identity、D1 schema、Worker、Pages 和最终验证。`live`、`ready`、`health` 现场复核均为 `200/ok`，`artifacts_configured=true`，部署 header 对齐该 commit，Worker version 为 `ba19fdc0-95f2-4f67-b15a-ba7758e154ff`，Pages immutable URL 为 `https://469e4bd4.news-sentry.pages.dev`。这证明 R2 binding 与部署门禁可用，仍不证明真实导入对象写入或生产恢复。
 
 同日 durable import + Preview canary 工作的 Tasks 1-7 已在隔离 worktree 本地实现并完成 scoped review，候选 HEAD 为 `119b3d0ef7912cd2a30ea2941caa683475a3dcc5`。本地代码现在要求 API/Container 正常导入走 R2-first durable import，并为 projection-only finalize 使用 append-only Phase 4 schema；Preview workflow 已接入匿名写 403、机器 Service Token 首次 200、幂等重放、D1/R2 交叉校验和 committed artifact restore 的步骤。Task 9 尚未执行精确 SHA 远端 Preview deploy/canary/restore，因此这些仍是待取得的远端回执，不得写成 Preview 已证明事实。
+
+同日 Task 8 已在本地把 restore receipt 绑定到 `expected_commit` 与 continuity ledger：restore validator 现在要求 `continuity_receipt.status=slo_7d_passed`、`deployed_commit` 与当前恢复演练 commit 完全一致，并拒绝 synthetic-only canary artifact 作为生产恢复证据。该变更仍只是本地实现和测试结论；没有远端 Preview restore、72 小时生产 canary 或 7 天连续健康回执前，不得把它写成生产恢复。
 
 最重要的事实不是“网站是否返回 200”，而是：
 
@@ -52,6 +54,7 @@
 | 隔离 Preview Worker/D1 | config、guard、seed、receipt、Pages/API 绑定和质量门禁均完成 | `news-sentry-api-preview`、`ns-db-preview`、Preview Pages 已创建并验证 |
 | D1/R2 持久化边界 | R2 不可变导入正文、D1 manifest、围栏式 finalize 与失败重放已完成 | run `30727960018` 已证明 Preview R2 bucket/binding/ready 门禁；尚无真实导入对象回执 |
 | Durable import + Preview canary | Tasks 1-7 本地实现和审查完成；API/Container 委托统一 durable projection import；Phase 4 projection receipt 是 append-only schema | Task 9 尚未执行；仍待精确 SHA Preview 匿名 403、机器 200、重放、D1/R2 cross-check 和 restore receipt |
+| Restore/continuity 绑定 | Task 8 本地实现：restore receipt 必须绑定 `expected_commit`、`slo_7d_passed` continuity receipt、real committed artifact 与 cleanup 证据 | 仍无远端 72h/7d continuity ledger，也无同 commit production restore receipt |
 | 隔离恢复演练 | D1 export、独立私有 R2 往返校验、一次性 D1 import、schema/row/orphan/snapshot 校验和强制清理 workflow 已完成本地测试 | Preview run `30728893550` 已证明 31,101-byte R2 往返同 SHA、隔离 import 和 `cleanup.verified_absent=true`；因 Preview migration receipt 为空及 UTF-8 byte count 漂移而 fail-closed，修复待重跑 |
 | 发布治理 | `preview` 可从候选分支部署隔离面；`production` 只接受 `main`；workflow 不直接改写 `main` | Draft PR #50 `CLEAN`，但仍无审批/合并；生产 job 在 Preview run 中明确跳过 |
 | 供应链 | Wrangler `4.114.0`、Miniflare `4.20260722.0`、Sharp `0.35.2`；官方 npm audit 0 | GitHub CI 与 Preview 部署均通过 |
@@ -88,8 +91,10 @@
 
 - GitHub 环境凭据已能安全写入隔离 Preview；本机 Wrangler token 仍不作为 NewsSentry 生产写入凭据，生产发布尚未执行。
 - `wrangler types`、`wrangler deploy --dry-run`、本地测试和 workflow 文本检查只算本地门禁，不算生产恢复。
-- Durable import Task 8 只记录本地验证和文档口径；Task 9 之前不能声称 Preview 已完成匿名 403、机器 200、幂等重放、D1/R2 cross-check 或 committed artifact restore。
+- 状态分四层记录：本地实现只证明代码和测试；Preview proof 只证明隔离 Preview 的匿名 403、机器 200、重放、D1/R2 cross-check 与 restore；72h production canary 只证明 12 个连续 6 小时健康回执；7d continuous healthy 需要 28 个连续 6 小时健康回执、`slo_7d_passed` continuity ledger 与同 commit restore receipt 同时存在。
+- Durable import Task 8 只记录本地验证和文档口径；Task 9 之前不能声称 Preview 已完成匿名 403、机器 200、幂等重放、D1/R2 cross-check 或 committed artifact restore；production promotion 前还必须取得 72h canary 与 7d continuous healthy。
 - Preview 只证明公开 API、D1、健康端点和 Pages/API 构建绑定；不证明 Queue、Cron、Container、Durable Object 或生产数据面。
+- VPS/Tunnel/systemd、VPS snapshot、本地 SQLite 和本地 `data/*/drafts` 只保留为 legacy rollback 或人工审计上下文，不是 Cloudflare production 的权威恢复来源。
 - Python app 当前同时注册 Bearer 管理 webhook 与 HMAC webhook 的同路径路由；实际路由顺序优先 Bearer 版本。HMAC fail-closed 修复只算防御性修补，必须在契约统一后才能声称外部 webhook 已切换。
 - `origin/preview` 与 `main` 已长期分叉，不作为本轮候选的合并基线。本轮先推送候选分支，通过手动隔离 Preview 取得回执，再以 PR 合入 `main`；禁止 workflow 自动改写 `main`。
 - 下一次生产部署必须先产出 `/tmp/news-sentry-cloudflare-preflight.json` 与 `/tmp/news-sentry-cloudflare-deploy-receipt.json`，并把 version/deployment/D1/Queue/health receipt 对齐到同一 commit；隔离 Preview 的同类回执已由 run `30721353606` 证明。

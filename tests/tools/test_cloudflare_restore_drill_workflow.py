@@ -69,6 +69,10 @@ def test_restore_drill_is_manual_exact_sha_and_serialized() -> None:
     assert job["env"]["DRILL_DIR"] == "/tmp/news-sentry-restore-drill"  # noqa: S108
     assert "runner.temp" not in job["env"]["DRILL_DIR"]
     assert workflow["on"]["workflow_dispatch"]["inputs"]["expected_commit"]["required"] == "true"
+    assert (
+        workflow["on"]["workflow_dispatch"]["inputs"]["continuity_receipt"]["required"]
+        == "true"
+    )
 
 
 def test_restore_drill_uses_only_isolated_recovery_surfaces() -> None:
@@ -103,8 +107,19 @@ def test_restore_drill_uploads_only_sanitized_receipt() -> None:
     assert "query-results.json" not in upload_step
     assert "artifact-receipts.json" not in upload_step
     assert "backup-receipt.json" not in upload_step
+    assert "continuity-receipt.json" not in upload_step
     assert "restore_database_cleanup_failed" in workflow
     assert '"verified_absent": True' in workflow
+
+
+def test_restore_drill_binds_restore_to_7d_continuity_receipt() -> None:
+    workflow = _workflow_text()
+
+    assert 'CONTINUITY_RECEIPT: ${{ inputs.continuity_receipt }}' in workflow
+    assert 'payload.get("status") != "slo_7d_passed"' in workflow
+    assert 'payload.get("deployed_commit") != os.environ["EXPECTED_COMMIT"]' in workflow
+    assert "--expected-commit \"${EXPECTED_COMMIT}\"" in workflow
+    assert '--continuity-receipt "${DRILL_DIR}/continuity-receipt.json"' in workflow
 
 
 def test_restore_target_accepts_preview_and_rejects_sha_or_production_ref(
@@ -124,6 +139,7 @@ def test_restore_target_accepts_preview_and_rejects_sha_or_production_ref(
     assert "artifact_bucket=news-sentry-artifacts-preview" in output
     assert "allow_missing_artifact=false" in output
     assert "backup_bucket=news-sentry-restore-drills-preview" in output
+    assert f"expected_commit={sha}" in output
 
     mismatch = _run_target_step(
         tmp_path,

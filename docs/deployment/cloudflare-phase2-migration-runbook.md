@@ -129,6 +129,18 @@ Worker deploy 只注入上述三个非秘密变量。`CF_ACCESS_CLIENT_SECRET` �
 Task 8 只完成本地文档和验证。上述匿名 403、机器 200、重放、D1/R2 cross-check 与 restore
 必须等 Task 9 在精确远端 SHA 上执行后，才能写成已完成事实。
 
+### Promotion state vocabulary
+
+文档和回执只使用以下四层状态，不互相替代：
+
+1. **Local implementation**：本地代码、测试、lint/typecheck/build 和 Wrangler dry-run 通过。
+2. **Preview proof**：隔离 Preview 在同一候选 SHA 上完成匿名 403、机器 200、幂等重放、D1/R2 cross-check 和 restore receipt。
+3. **72h production canary**：`main` 的同一 production SHA 连续 12 个 6 小时健康回执通过，且有真实 committed artifact。
+4. **7d continuous healthy**：同一 production SHA 连续 28 个 6 小时健康回执通过，continuity ledger 为 `slo_7d_passed`，并有绑定同 commit 和真实 artifact 的隔离 restore receipt。
+
+只有第 4 层允许把 Cloudflare-native production recovery 写成已证明。Preview synthetic canary、
+branch-only commit、本地 SQLite、本地 drafts、VPS/Tunnel/systemd 状态都不能提升这个状态。
+
 候选分支推送后，从该分支执行隔离 Preview：
 
 ```bash
@@ -159,14 +171,20 @@ Preview 绿色后只产出验证证据，不再由 workflow 直接 fast-forward/
 
 Preview canary 成功后，`cloudflare-restore-drill.yml` 不得接受
 `artifact_coverage=not_available`。恢复演练必须从 latest committed manifest 下载真实 R2 artifact，
-校验 key、SHA-256、UTF-8 bytes，然后在隔离 D1 中验证：
+校验 key、SHA-256、UTF-8 bytes，并要求 `continuity_receipt.status=slo_7d_passed` 且
+`continuity_receipt.deployed_commit` 等于本次 workflow checkout 的完整 40 位 `expected_commit`。
+然后在隔离 D1 中验证：
 
 - `runtime_migration_receipts` 包含 Phase 0/1/2 和
   `20260802_phase4_projection_import`；
 - source-fenced 与 projection-only 两类 finalize receipt 均无 orphan；
 - 同一 `batch_id` 不得同时存在 source 和 projection receipt；
 - `artifact_manifests.status = committed` 的对象可被 R2 读取且 checksum/bytes 匹配；
+- latest committed artifact 至少包含一条非 synthetic / 非 preview-canary 的真实事件；synthetic-only
+  Preview artifact 只能证明 Preview canary，不得作为 production recovery 证据；
 - cleanup 后隔离 D1 明确 `verified_absent=true`。
 
-任一缺失、冲突、orphan、checksum/bytes 漂移或 cleanup 不确定，都必须 fail closed，不能作为
-production promotion 证据。
+任一缺失、冲突、orphan、checksum/bytes 漂移、commit drift、`slo_7d_passed` 缺失、synthetic-only
+artifact 或 cleanup 不确定，都必须 fail closed，不能作为 production promotion 证据。上传 artifact
+只能是 sanitized restore receipt；不能上传 raw SQL export、raw import artifact、Service Token、
+原始请求头、本地路径或未脱敏 continuity ledger。

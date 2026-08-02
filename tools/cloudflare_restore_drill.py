@@ -29,6 +29,7 @@ from tools.cloudflare_runtime_contract import EXPECTED_MIGRATION_RECEIPTS  # noq
 Runner = Callable[[list[str]], str]
 
 RESTORE_DB_RE = re.compile(r"^ns-db-restore-drill-[0-9]+-[0-9]+$")
+COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 ARTIFACT_KEY_RE = re.compile(
     r"^imports/v1/[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9a-f]{64}\.json$"
 )
@@ -128,8 +129,26 @@ RESTORE_QUERIES: Mapping[str, str] = {
         "SELECT 'runtime_migration_receipts', COUNT(*) FROM runtime_migration_receipts"
     ),
     "artifact_manifests": (
-        "SELECT artifact_id, batch_id, job_id, object_key, sha256, payload_bytes, status "
-        "FROM artifact_manifests WHERE status='committed' ORDER BY created_at DESC LIMIT 1"
+        "SELECT am.artifact_id, am.batch_id, am.job_id, am.object_key, am.sha256, "
+        "am.payload_bytes, am.status, jobs.deploy_commit "
+        "FROM artifact_manifests am LEFT JOIN jobs ON jobs.job_id=am.job_id "
+        "WHERE am.status='committed' ORDER BY am.created_at DESC LIMIT 1"
+    ),
+    "real_artifact_proof": (
+        "WITH latest_artifact AS ("
+        "  SELECT batch_id FROM artifact_manifests "
+        "  WHERE status='committed' ORDER BY created_at DESC LIMIT 1"
+        ") "
+        "SELECT "
+        "COALESCE(SUM(CASE WHEN lower(ise.source_id) NOT LIKE '%synthetic%' "
+        "AND lower(ise.target_id) NOT LIKE '%preview-canary%' "
+        "AND lower(ise.payload_json) NOT LIKE '%synthetic%' THEN 1 ELSE 0 END) "
+        ", 0) AS real_event_count, "
+        "COALESCE(SUM(CASE WHEN lower(ise.source_id) LIKE '%synthetic%' "
+        "OR lower(ise.target_id) LIKE '%preview-canary%' "
+        "OR lower(ise.payload_json) LIKE '%synthetic%' THEN 1 ELSE 0 END) "
+        ", 0) AS synthetic_event_count "
+        "FROM import_staged_events ise JOIN latest_artifact la ON la.batch_id=ise.batch_id"
     ),
     "artifact_status_counts": (
         "SELECT "
@@ -199,6 +218,39 @@ def validate_restore_database_name(database: str) -> str:
     if not RESTORE_DB_RE.fullmatch(candidate):
         raise RestoreDrillError("restore_database_name_invalid")
     return candidate
+
+
+def _validate_expected_commit(expected_commit: str) -> tuple[str, list[str]]:
+    if not isinstance(expected_commit, str) or not COMMIT_RE.fullmatch(expected_commit):
+        return "", ["expected_commit_invalid"]
+    return expected_commit, []
+
+
+def _validate_continuity_receipt(
+    continuity_receipt: Mapping[str, Any],
+    *,
+    expected_commit: str,
+) -> tuple[dict[str, Any], list[str]]:
+    blockers: list[str] = []
+    status = continuity_receipt.get("status")
+    deployed_commit = continuity_receipt.get("deployed_commit")
+
+    if not isinstance(status, str):
+        blockers.append("continuity_status_missing")
+        status = ""
+    elif status != "slo_7d_passed":
+        blockers.append("continuity_slo_7d_not_passed")
+
+    if not isinstance(deployed_commit, str) or not COMMIT_RE.fullmatch(deployed_commit):
+        blockers.append("continuity_commit_invalid")
+        deployed_commit = ""
+    elif deployed_commit != expected_commit:
+        blockers.append("continuity_commit_mismatch")
+
+    return {
+        "status": status,
+        "deployed_commit": deployed_commit,
+    }, blockers
 
 
 def validate_artifact_object_key(object_key: str) -> str:
@@ -406,6 +458,7 @@ def _validate_artifacts(
     rows: list[dict[str, Any]],
     artifact_receipts: Mapping[str, Mapping[str, Any]],
     *,
+    expected_commit: str,
     require_artifact: bool,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     blockers: list[str] = []
@@ -417,6 +470,7 @@ def _validate_artifacts(
         object_key = row.get("object_key")
         expected_sha = row.get("sha256")
         expected_bytes = _int_value(row.get("payload_bytes"))
+        deploy_commit = row.get("deploy_commit")
         status = row.get("status")
         if not isinstance(object_key, str) or not object_key:
             blockers.append("artifact_manifest_object_key_missing")
@@ -436,6 +490,10 @@ def _validate_artifacts(
             continue
         if status != "committed":
             blockers.append(f"artifact_manifest_status_invalid:{object_key}")
+        if not isinstance(deploy_commit, str) or not COMMIT_RE.fullmatch(deploy_commit):
+            blockers.append(f"artifact_commit_missing:{object_key}")
+        elif deploy_commit != expected_commit:
+            blockers.append(f"artifact_commit_mismatch:{object_key}")
         actual = receipts_by_key.get(object_key)
         if actual is None:
             blockers.append(f"artifact_download_receipt_missing:{object_key}")
@@ -451,6 +509,7 @@ def _validate_artifacts(
                 "sha256": expected_sha,
                 "bytes": expected_bytes,
                 "status": status,
+                "deploy_commit": deploy_commit,
             }
         )
     manifest_keys = {
@@ -591,9 +650,38 @@ def _validate_public_snapshots(
     return sanitized, blockers
 
 
+def _validate_real_artifact_proof(
+    rows: list[dict[str, Any]],
+    *,
+    require_artifact: bool,
+) -> tuple[dict[str, int | None], list[str]]:
+    if not require_artifact:
+        return {"real_event_count": None, "synthetic_event_count": None}, []
+    if len(rows) != 1:
+        return {"real_event_count": None, "synthetic_event_count": None}, [
+            "real_artifact_proof_missing"
+        ]
+    row = rows[0]
+    real_count = _int_value(row.get("real_event_count"))
+    synthetic_count = _int_value(row.get("synthetic_event_count"))
+    if real_count is None or synthetic_count is None:
+        return {"real_event_count": real_count, "synthetic_event_count": synthetic_count}, [
+            "real_artifact_proof_malformed"
+        ]
+    blockers = []
+    if real_count <= 0:
+        blockers.append("real_committed_artifact_missing")
+    return {
+        "real_event_count": real_count,
+        "synthetic_event_count": synthetic_count,
+    }, blockers
+
+
 def build_restore_receipt(
     *,
     database: str,
+    expected_commit: str,
+    continuity_receipt: Mapping[str, Any],
     query_results: Mapping[str, list[dict[str, Any]]],
     artifact_receipts: Mapping[str, Mapping[str, Any]],
     backup_receipt: Mapping[str, Any],
@@ -602,6 +690,13 @@ def build_restore_receipt(
 ) -> dict[str, Any]:
     restore_database = validate_restore_database_name(database)
     blockers: list[str] = []
+    commit, commit_blockers = _validate_expected_commit(expected_commit)
+    blockers.extend(commit_blockers)
+    sanitized_continuity, continuity_blockers = _validate_continuity_receipt(
+        continuity_receipt,
+        expected_commit=commit,
+    )
+    blockers.extend(continuity_blockers)
 
     tables = _row_names(query_results.get("tables", []), "name", "table")
     for table in sorted(REQUIRED_TABLES - tables):
@@ -627,6 +722,7 @@ def build_restore_receipt(
     artifacts, artifact_blockers = _validate_artifacts(
         query_results.get("artifact_manifests", []),
         artifact_receipts,
+        expected_commit=commit,
         require_artifact=require_artifact,
     )
     blockers.extend(artifact_blockers)
@@ -649,12 +745,20 @@ def build_restore_receipt(
     )
     blockers.extend(snapshot_blockers)
 
+    real_artifact_proof, real_artifact_blockers = _validate_real_artifact_proof(
+        query_results.get("real_artifact_proof", []),
+        require_artifact=require_artifact,
+    )
+    blockers.extend(real_artifact_blockers)
+
     generated = (generated_at or datetime.now(UTC)).astimezone(UTC)
     return {
         "schema_version": SCHEMA_VERSION,
         "status": "failed" if blockers else "ok",
         "generated_at": generated.isoformat().replace("+00:00", "Z"),
         "database": restore_database,
+        "expected_commit": commit or expected_commit,
+        "continuity_receipt": sanitized_continuity,
         "summary": {
             "blockers": sorted(set(blockers)),
             "table_count": len(tables),
@@ -675,6 +779,7 @@ def build_restore_receipt(
             "orphan_counts": orphan_counts,
             "noncommitted_artifacts": noncommitted_artifacts,
             "public_snapshots": public_snapshots,
+            "real_artifact_proof": real_artifact_proof,
         },
     }
 
@@ -759,14 +864,18 @@ def _validate_command(args: argparse.Namespace) -> int:
         query_results = _load_json(args.query_results)
         artifact_receipts = _load_json(args.artifact_receipts)
         backup_receipt = _load_json(args.backup_receipt)
+        continuity_receipt = _load_json(args.continuity_receipt)
         if (
             not isinstance(query_results, dict)
             or not isinstance(artifact_receipts, dict)
             or not isinstance(backup_receipt, dict)
+            or not isinstance(continuity_receipt, dict)
         ):
             raise RestoreDrillError("restore_drill_input_shape_invalid")
         receipt = build_restore_receipt(
             database=args.database,
+            expected_commit=args.expected_commit,
+            continuity_receipt=continuity_receipt,
             query_results=query_results,
             artifact_receipts=artifact_receipts,
             backup_receipt=backup_receipt,
@@ -791,6 +900,8 @@ def main(argv: list[str] | None = None) -> int:
     validate.add_argument("--query-results", type=Path, required=True)
     validate.add_argument("--artifact-receipts", type=Path, required=True)
     validate.add_argument("--backup-receipt", type=Path, required=True)
+    validate.add_argument("--expected-commit", required=True)
+    validate.add_argument("--continuity-receipt", type=Path, required=True)
     validate.add_argument("--output", type=Path)
     validate.set_defaults(func=_validate_command)
 

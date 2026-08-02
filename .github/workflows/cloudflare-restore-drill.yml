@@ -13,6 +13,10 @@ on:
         description: "Exact 40-character commit SHA checked out by this run"
         required: true
         type: string
+      continuity_receipt:
+        description: "JSON continuity ledger receipt with status=slo_7d_passed and deployed_commit=expected_commit"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -74,6 +78,7 @@ jobs:
           printf '%s=%s\n' "artifact_bucket" "${artifact_bucket}" >> "${GITHUB_OUTPUT}"
           printf '%s=%s\n' "backup_bucket" "${backup_bucket}" >> "${GITHUB_OUTPUT}"
           printf '%s=%s\n' "allow_missing_artifact" "${allow_missing_artifact}" >> "${GITHUB_OUTPUT}"
+          printf '%s=%s\n' "expected_commit" "${EXPECTED_COMMIT}" >> "${GITHUB_OUTPUT}"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -234,14 +239,35 @@ jobs:
       - name: Validate restored D1 and R2 evidence
         env:
           RESTORE_DATABASE: ${{ steps.create-db.outputs.database }}
+          EXPECTED_COMMIT: ${{ steps.target.outputs.expected_commit }}
+          CONTINUITY_RECEIPT: ${{ inputs.continuity_receipt }}
         run: |
           set -euo pipefail
+          CONTINUITY_RECEIPT="${CONTINUITY_RECEIPT}" EXPECTED_COMMIT="${EXPECTED_COMMIT}" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = json.loads(os.environ["CONTINUITY_RECEIPT"])
+          if not isinstance(payload, dict):
+              raise SystemExit("continuity receipt must be a JSON object")
+          if payload.get("status") != "slo_7d_passed":
+              raise SystemExit("continuity receipt has not passed 7d SLO")
+          if payload.get("deployed_commit") != os.environ["EXPECTED_COMMIT"]:
+              raise SystemExit("continuity receipt deployed_commit mismatch")
+          Path(os.environ["DRILL_DIR"], "continuity-receipt.json").write_text(
+              json.dumps(payload, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
           test -f "${DRILL_DIR}/artifact-receipts.json" || printf '{}\n' > "${DRILL_DIR}/artifact-receipts.json"
           python tools/cloudflare_restore_drill.py validate \
             --database "${RESTORE_DATABASE}" \
             --query-results "${DRILL_DIR}/query-results.json" \
             --artifact-receipts "${DRILL_DIR}/artifact-receipts.json" \
             --backup-receipt "${DRILL_DIR}/backup-receipt.json" \
+            --expected-commit "${EXPECTED_COMMIT}" \
+            --continuity-receipt "${DRILL_DIR}/continuity-receipt.json" \
             --output "${DRILL_DIR}/restore-receipt.json"
 
       - name: Delete isolated restore database
