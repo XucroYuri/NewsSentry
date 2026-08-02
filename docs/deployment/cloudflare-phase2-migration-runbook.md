@@ -57,6 +57,16 @@
 - `wrangler.toml` 显式声明 `SCHEDULER_MODE=shadow` 与
   `WORKER_NATIVE_COLLECT_ENABLED=false`。
 
+## Queue authoritative 停止线
+
+当前 Queue consumer 只验证 shadow/import-staging job，不会从 source 配置执行真实采集。因而：
+
+- production 必须继续使用 `SCHEDULER_MODE=shadow`，由 Cron 调用 Container 完成 Python pipeline；
+- 即使 `NEWS_SENTRY_QUEUE_CUTOVER_RECEIPT` 其余字段全部合法，runtime 也必须返回
+  `queue_authoritative_runner_unavailable` 并拒绝 readiness；
+- 只有真实 collector runner、D1/R2 staging、fenced source watermark、snapshot 刷新和 72 小时
+  canary 均有回执后，才允许在独立变更中解除该停止线。
+
 ## 隔离 Preview 验证面
 
 Preview 不复用生产 Worker 或 D1。`deploy-cloudflare-preview-worker` 只允许：

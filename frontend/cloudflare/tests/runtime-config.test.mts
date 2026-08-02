@@ -75,7 +75,7 @@ test("shadow mode stays non-authoritative and forbids worker-native collection",
   assert.deepEqual(runtimeConfigHealthReasonCodes(config), []);
 });
 
-test("queue mode becomes authoritative only with a verified cutover receipt", () => {
+test("queue mode remains fail closed until the authoritative collector runner ships", () => {
   const config = parseRuntimeConfig({
     SCHEDULER_MODE: "queue",
     WORKER_NATIVE_COLLECT_ENABLED: "false",
@@ -103,8 +103,9 @@ test("queue mode becomes authoritative only with a verified cutover receipt", ()
     }),
   }, Date.parse("2026-08-03T00:00:00.000Z"));
 
-  assert.equal(config.ok, true);
-  assert.equal(config.collectionAuthoritative, true);
+  assert.equal(config.ok, false);
+  assert.deepEqual(config.errors, ["queue_authoritative_runner_unavailable"]);
+  assert.equal(config.collectionAuthoritative, false);
 });
 
 test("queue mode rejects stale or mismatched cutover receipts", () => {

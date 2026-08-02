@@ -95,7 +95,7 @@
         "deployment receipt builder requiring commit/version/deployment/health mode alignment",
         "explicit SCHEDULER_MODE shadow and WORKER_NATIVE_COLLECT_ENABLED false",
         "runtime config fail-closed validation",
-        "queue authoritative mode requires an explicit cutover receipt",
+        "queue authoritative mode remains blocked until a real collector runner ships",
         "UTF-8 byte bounded quarantine payload",
         "partial additive migration runbook"
       ],

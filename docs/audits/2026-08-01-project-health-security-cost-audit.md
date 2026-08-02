@@ -74,8 +74,10 @@ Codex Security 深扫在移除旧 `agents.max_threads` 配置后通过 preflight
 
 - Worker runtime 配置新增 `SCHEDULER_MODE=legacy|shadow|queue` 与
   `WORKER_NATIVE_COLLECT_ENABLED=false`，缺失或非法组合 fail closed。
-- 当前配置保持 `shadow`，`collection.authoritative=false`；Queue authoritative 还需要显式
-  `NEWS_SENTRY_QUEUE_CUTOVER_RECEIPT`，真实 canary 后才能开启。
+- 当前配置保持 `shadow`，`collection.authoritative=false`。审计确认现有 Queue consumer 只能处理
+  shadow/import-staging job，不能执行真实 source collection；即使 cutover receipt 完整，runtime
+  仍以 `queue_authoritative_runner_unavailable` fail closed。只有真实 collector runner、持久 cursor、
+  snapshot 与 72h canary 全部闭环后才允许解除该停止线。
 - 新增 `tools/cloudflare_deploy_guard.py`：部署前通过 Cloudflare Queues REST API 检查 Queue/DLQ，
   并验证 consumer、`runtime_migration_receipts` 与 PRAGMA/table schema；默认 verify-only，不盲目创建队列。
 - 部署后 receipt 要同时校验 Worker version、deployment、health commit/version/mode、D1 migration 与 Queue preflight。

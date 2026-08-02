@@ -133,7 +133,14 @@ export function parseRuntimeConfig(env: RuntimeConfigEnv, nowMs = Date.now()): R
     if (!env.NEWS_SENTRY_JOBS_QUEUE || !env.NEWS_SENTRY_JOBS_DLQ) {
       errors.push("queue_mode_requires_queue_binding");
     } else {
-      errors.push(...validateQueueCutoverReceipt(env, nowMs));
+      const cutoverErrors = validateQueueCutoverReceipt(env, nowMs);
+      errors.push(...cutoverErrors);
+      if (cutoverErrors.length === 0) {
+        // The current Queue consumer validates shadow/import-staging jobs but
+        // cannot collect sources. Keep authoritative cutover impossible until
+        // the real collector runner and its durable cursor contract ship.
+        errors.push("queue_authoritative_runner_unavailable");
+      }
     }
   }
 
