@@ -194,6 +194,10 @@ async function importEvents(
   );
 }
 
+function idempotencyBindingKeys(bucket: FakeR2Bucket): string[] {
+  return [...bucket.objects.keys()].filter((key) => key.startsWith("imports/idempotency/v1/"));
+}
+
 test("durable projection import enforces input limits before R2 or D1 mutation", async () => {
   assert.equal(MAX_IMPORT_EVENTS, 500);
   assert.equal(MAX_IMPORT_BODY_BYTES, 8 * 1024 * 1024);
@@ -310,6 +314,42 @@ test("idempotency key hash rejects a different payload", async () => {
 
   assert.equal(bucket.objects.size, 2);
   assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM events", [])?.count, 1);
+});
+
+test("legacy committed receipt rejects conflicting payload before marker backfill", async () => {
+  const db = new SqliteD1Database();
+  const bucket = new FakeR2Bucket();
+  await importEvents(db, bucket, [event(1)], "legacy-key");
+  const [legacyBindingKey] = idempotencyBindingKeys(bucket);
+  assert.ok(legacyBindingKey);
+  bucket.objects.delete(legacyBindingKey);
+  assert.deepEqual(idempotencyBindingKeys(bucket), []);
+
+  await assert.rejects(
+    () => importEvents(db, bucket, [event(2)], "legacy-key"),
+    /idempotency_key_payload_conflict/,
+  );
+
+  assert.deepEqual(idempotencyBindingKeys(bucket), []);
+});
+
+test("legacy committed receipt replays original payload and backfills marker", async () => {
+  const db = new SqliteD1Database();
+  const bucket = new FakeR2Bucket();
+  const first = await importEvents(db, bucket, [event(1)], "legacy-key");
+  const [legacyBindingKey] = idempotencyBindingKeys(bucket);
+  assert.ok(legacyBindingKey);
+  bucket.objects.delete(legacyBindingKey);
+
+  const replay = await importEvents(db, bucket, [event(1)], "legacy-key");
+
+  assert.equal(replay.replayed, true);
+  assert.equal(replay.batchId, first.batchId);
+  const [backfilledKey] = idempotencyBindingKeys(bucket);
+  assert.equal(backfilledKey, legacyBindingKey);
+  const marker = bucket.objects.get(backfilledKey);
+  assert.equal(marker?.customMetadata.batch_id, first.batchId);
+  assert.equal(marker?.customMetadata.artifact_id, first.artifactId);
 });
 
 test("committed replay verifies R2 identity before refreshing snapshots", async () => {

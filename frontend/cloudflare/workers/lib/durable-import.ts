@@ -439,13 +439,14 @@ export async function executeDurableProjectionImport(
 ): Promise<DurableProjectionImportResult> {
   const identity = await buildDurableProjectionIdentity(input);
   const preparedArtifact = await prepareArtifact(identity, input);
-  await bindRequestIdempotencyKey(env.NEWS_SENTRY_ARTIFACTS, identity, preparedArtifact);
   const existing = await loadProjectionReceiptByPayloadOrIdempotencyKey(env.DB, identity);
   if (existing) {
     await verifyCommittedArtifactHead(env.NEWS_SENTRY_ARTIFACTS, existing);
+    await bindRequestIdempotencyKey(env.NEWS_SENTRY_ARTIFACTS, identity, preparedArtifact);
     await refreshSnapshotsForProjection(env.DB, existing.job_id);
     return replayResult(existing, identity);
   }
+  await bindRequestIdempotencyKey(env.NEWS_SENTRY_ARTIFACTS, identity, preparedArtifact);
   const artifact = await persistImportArtifact(env.DB, env.NEWS_SENTRY_ARTIFACTS, preparedArtifact.input);
   await ensureProjectionJob(env.DB, identity, input.origin);
   let staged: ImportStagingResult;
