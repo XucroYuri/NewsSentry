@@ -29,6 +29,58 @@ function parseNonNegativeInteger(value: unknown): number | null {
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
+function validateCollectTargetResults(summary: Record<string, unknown>): void {
+  const targetResults = summary.target_results;
+  const attempted = parseNonNegativeInteger(summary.targets_attempted);
+  const succeeded = parseNonNegativeInteger(summary.targets_succeeded);
+  const failed = parseNonNegativeInteger(summary.targets_failed);
+  if (!Array.isArray(targetResults) || attempted === null || succeeded === null || failed === null) {
+    throw new Error("container_target_results_missing");
+  }
+  if (attempted !== targetResults.length || succeeded + failed !== attempted) {
+    throw new Error("container_target_results_mismatch");
+  }
+
+  let actualSucceeded = 0;
+  let actualFailed = 0;
+  let targetImportCount = 0;
+  const failedTargets: string[] = [];
+  for (const item of targetResults) {
+    if (!isRecord(item)) throw new Error("container_target_results_mismatch");
+    const targetId = String(item.target_id ?? "").trim();
+    const status = String(item.status ?? "").trim();
+    if (!targetId || !status) {
+      throw new Error("container_target_results_mismatch");
+    }
+    if (status !== "ok" && status !== "empty_no_new_items" && status !== "error") {
+      throw new Error("container_target_results_mismatch");
+    }
+    const importCount = parseNonNegativeInteger(
+      status === "error" ? item.import_events_count ?? 0 : item.import_events_count,
+    );
+    if (status !== "error" && importCount === null) {
+      throw new Error("container_target_results_mismatch");
+    }
+    targetImportCount += importCount ?? 0;
+    if (status === "error") {
+      actualFailed += 1;
+      failedTargets.push(`${targetId}:${String(item.reason ?? "collection_failed")}`);
+    } else {
+      actualSucceeded += 1;
+    }
+  }
+  if (actualSucceeded !== succeeded || actualFailed !== failed) {
+    throw new Error("container_target_results_mismatch");
+  }
+  const declared = parseNonNegativeInteger(summary.import_events_count ?? 0);
+  if (declared !== null && targetImportCount !== declared) {
+    throw new Error("container_target_results_mismatch");
+  }
+  if (failedTargets.length > 0) {
+    throw new Error(`container_target_failures:${failedTargets.join(",")}`);
+  }
+}
+
 export async function importContainerEventsToD1(
   env: ContainerImportEnv,
   details: Record<string, unknown>,
@@ -50,6 +102,9 @@ export async function importContainerEventsToD1(
   }
   if (collected > 0 && declared === 0) {
     throw new Error("container_import_count_mismatch:collected_without_import_events");
+  }
+  if (_task === "collect-cycle") {
+    validateCollectTargetResults(payload.summary);
   }
   const events = payload.importEvents.filter(isRecord) as ImportEventItem[];
   if (events.length !== payload.importEvents.length) {

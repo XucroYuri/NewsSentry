@@ -112,6 +112,24 @@ function event(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function collectSummary(importEventsCount: number, eventsCollected = importEventsCount) {
+  return {
+    targets_attempted: 1,
+    targets_succeeded: 1,
+    targets_failed: 0,
+    events_collected: eventsCollected,
+    import_events_count: importEventsCount,
+    target_results: [
+      {
+        target_id: "italy",
+        status: importEventsCount === 0 ? "empty_no_new_items" : "ok",
+        events_collected: eventsCollected,
+        import_events_count: importEventsCount,
+      },
+    ],
+  };
+}
+
 test("scheduled Container imports persist R2 before committing the D1 projection", async () => {
   const db = new SqliteD1Database();
   const bucket = new FakeR2Bucket();
@@ -121,7 +139,7 @@ test("scheduled Container imports persist R2 before committing the D1 projection
       DB: db as unknown as D1Database,
       NEWS_SENTRY_ARTIFACTS: bucket as unknown as R2Bucket,
     },
-    { body: { import_events: [event()] } },
+    { body: { summary: collectSummary(1), import_events: [event()] } },
     "run-1",
     "2026-08-02T01:00:00Z",
     "collect-cycle",
@@ -145,7 +163,7 @@ test("scheduled Container imports fail closed before D1 when R2 is unavailable",
   await assert.rejects(
     () => importContainerEventsToD1(
       { DB: db as unknown as D1Database },
-      { body: { import_events: [event()] } },
+      { body: { summary: collectSummary(1), import_events: [event()] } },
       "run-2",
       "2026-08-02T01:00:00Z",
       "collect-cycle",
@@ -169,6 +187,7 @@ test("scheduled validation failures retain the immutable R2 artifact for replay"
       },
       {
         body: {
+          summary: collectSummary(2),
           import_events: [
             event(),
             event({ event_id: "evt-invalid", title_original: "" }),
@@ -212,6 +231,98 @@ test("collected rows without import rows fail closed", async () => {
       "collect-cycle",
     ),
     /container_import_count_mismatch/,
+  );
+});
+
+test("target failures cannot be hidden by an empty import array", async () => {
+  const db = new SqliteD1Database();
+  const bucket = new FakeR2Bucket();
+
+  await assert.rejects(
+    () => importContainerEventsToD1(
+      {
+        DB: db as unknown as D1Database,
+        NEWS_SENTRY_ARTIFACTS: bucket as unknown as R2Bucket,
+      },
+      {
+        body: {
+          summary: {
+            targets_attempted: 1,
+            targets_succeeded: 0,
+            targets_failed: 1,
+            target_results: [
+              {
+                target_id: "italy",
+                status: "error",
+                reason: "target_database_missing",
+              },
+            ],
+          },
+          import_events: [],
+        },
+      },
+      "run-target-failure",
+      "2026-08-02T01:00:00Z",
+      "collect-cycle",
+    ),
+    /container_target_failures/,
+  );
+});
+
+test("collect-cycle imports require target result aggregates", async () => {
+  const db = new SqliteD1Database();
+  const bucket = new FakeR2Bucket();
+
+  await assert.rejects(
+    () => importContainerEventsToD1(
+      {
+        DB: db as unknown as D1Database,
+        NEWS_SENTRY_ARTIFACTS: bucket as unknown as R2Bucket,
+      },
+      { body: { summary: { events_collected: 0, import_events_count: 0 }, import_events: [] } },
+      "run-missing-target-results",
+      "2026-08-02T01:00:00Z",
+      "collect-cycle",
+    ),
+    /container_target_results_missing/,
+  );
+});
+
+test("collect-cycle imports reject contradictory target result aggregates", async () => {
+  const db = new SqliteD1Database();
+  const bucket = new FakeR2Bucket();
+
+  await assert.rejects(
+    () => importContainerEventsToD1(
+      {
+        DB: db as unknown as D1Database,
+        NEWS_SENTRY_ARTIFACTS: bucket as unknown as R2Bucket,
+      },
+      {
+        body: {
+          summary: {
+            targets_attempted: 2,
+            targets_succeeded: 1,
+            targets_failed: 0,
+            events_collected: 0,
+            import_events_count: 0,
+            target_results: [
+              {
+                target_id: "italy",
+                status: "empty_no_new_items",
+                events_collected: 0,
+                import_events_count: 0,
+              },
+            ],
+          },
+          import_events: [],
+        },
+      },
+      "run-contradictory-target-results",
+      "2026-08-02T01:00:00Z",
+      "collect-cycle",
+    ),
+    /container_target_results_mismatch/,
   );
 });
 

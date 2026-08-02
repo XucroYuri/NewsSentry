@@ -12,6 +12,7 @@ import os
 import re
 import sqlite3
 import time
+from collections import defaultdict
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
@@ -1265,6 +1266,7 @@ def _collect_cloudflare_d1_import_events(
     target_ids: list[str],
     limit: int | None = None,
     event_ids_by_target: dict[str, set[str]] | None = None,
+    target_errors: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     """Return recent local draft rows in the Worker /events/import wire shape."""
     limit = limit or _cloudflare_collect_import_limit()
@@ -1280,6 +1282,8 @@ def _collect_cloudflare_d1_import_events(
             continue
         db_path = Path(data_dir) / target_id / "state.db"
         if not db_path.is_file():
+            if target_errors is not None:
+                target_errors[target_id] = "target_database_missing"
             continue
         try:
             uri = f"file:{quote(str(db_path))}?mode=ro"
@@ -1314,6 +1318,8 @@ def _collect_cloudflare_d1_import_events(
                         (target_id, limit),
                     ).fetchall()
         except sqlite3.Error:
+            if target_errors is not None:
+                target_errors[target_id] = "target_database_unreadable"
             _log.warning(
                 "Cloudflare D1 import payload skipped unreadable target db: target=%s path=%s",
                 target_id,
@@ -1331,6 +1337,76 @@ def _collect_cloudflare_d1_import_events(
     for item in result:
         item.pop("_sort_key", None)
     return result
+
+
+def _context_value(context: Any, key: str, default: Any = None) -> Any:
+    if isinstance(context, dict):
+        return context.get(key, default)
+    return getattr(context, key, default)
+
+
+def _build_cloudflare_collect_target_results(
+    *,
+    target_ids: list[str],
+    contexts: list[Any],
+    import_events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Build one auditable Cloudflare collection outcome per attempted target."""
+    import_counts: dict[str, int] = defaultdict(int)
+    for event in import_events:
+        target_id = str(event.get("target_id") or "").strip()
+        if target_id:
+            import_counts[target_id] += 1
+
+    contexts_by_target: dict[str, Any] = {}
+    for context in contexts:
+        target_id = str(_context_value(context, "target_id", "") or "").strip()
+        if target_id and target_id not in contexts_by_target:
+            contexts_by_target[target_id] = context
+
+    results: list[dict[str, Any]] = []
+    for target_id in target_ids:
+        context = contexts_by_target.get(target_id)
+        import_count = import_counts.get(target_id, 0)
+        if context is None:
+            results.append(
+                {
+                    "target_id": target_id,
+                    "status": "error",
+                    "events_collected": 0,
+                    "import_events_count": import_count,
+                    "reason": "target_database_missing",
+                }
+            )
+            continue
+
+        events_collected = int(_context_value(context, "events_collected", 0) or 0)
+        raw_status = str(_context_value(context, "status", "ok") or "ok")
+        reason = _context_value(context, "reason") or _context_value(context, "error")
+        status = raw_status
+        if reason in {"target_database_missing", "target_database_unreadable"}:
+            status = "error"
+        elif raw_status == "error":
+            status = "error"
+            reason = reason or "collection_failed"
+        elif events_collected == 0 and import_count == 0:
+            status = "empty_no_new_items"
+        elif events_collected > 0 and import_count == 0:
+            status = "error"
+            reason = "import_events_missing"
+        else:
+            status = "ok"
+
+        result = {
+            "target_id": target_id,
+            "status": status,
+            "events_collected": events_collected,
+            "import_events_count": import_count,
+        }
+        if status == "error":
+            result["reason"] = str(reason or "collection_failed")
+        results.append(result)
+    return results
 
 
 def _collect_cloudflare_d1_import_events_for_updates(
@@ -1386,35 +1462,53 @@ async def _run_auto_collect_once(
     )
     _auto_collector_state["total_runs"] += 1
     events_collected = int(_auto_collector_state.get("last_events_collected") or 0)
-    target_results = [
-        {
-            "target_id": getattr(ctx, "target_id", None),
-            "events_collected": int(getattr(ctx, "events_collected", 0) or 0),
-            "status": getattr(ctx, "status", None),
-        }
-        for ctx in context_items
-    ]
-    import_target_ids = [
-        str(item["target_id"])
-        for item in target_results
-        if item.get("target_id") and int(item.get("events_collected") or 0) > 0
-    ] or target_ids
-    import_events = [] if no_target_contexts else _collect_cloudflare_d1_import_events(
-        data_dir=_st._data_dir,
-        target_ids=import_target_ids,
+    target_import_errors: dict[str, str] = {}
+    import_events = (
+        []
+        if no_target_contexts
+        else _collect_cloudflare_d1_import_events(
+            data_dir=_st._data_dir,
+            target_ids=target_ids,
+            target_errors=target_import_errors,
+        )
     )
+    contexts_for_results: list[Any] = []
+    for ctx in context_items:
+        target_id = str(_context_value(ctx, "target_id", "") or "").strip()
+        if target_id in target_import_errors:
+            contexts_for_results.append(
+                {
+                    "target_id": target_id,
+                    "events_collected": int(_context_value(ctx, "events_collected", 0) or 0),
+                    "status": "error",
+                    "reason": target_import_errors[target_id],
+                }
+            )
+        else:
+            contexts_for_results.append(ctx)
+    target_results = _build_cloudflare_collect_target_results(
+        target_ids=target_ids,
+        contexts=contexts_for_results,
+        import_events=import_events,
+    )
+    targets_failed = sum(1 for item in target_results if item.get("status") == "error")
+    targets_attempted = len(target_results)
+    targets_succeeded = targets_attempted - targets_failed
     _log.info("自动采集完成: run_id=%s", run_id)
     return {
-        "status": "error" if no_target_contexts else "ok",
+        "status": "error" if targets_failed else "ok",
         "run_id": run_id,
         "targets": target_ids,
         "target_count": len(target_ids),
+        "targets_attempted": targets_attempted,
+        "targets_succeeded": targets_succeeded,
+        "targets_failed": targets_failed,
         "stage": stage,
         "events_collected": events_collected,
         "target_results": target_results,
         "import_events": import_events,
         "import_events_count": len(import_events),
-        "error": "no target contexts returned" if no_target_contexts else None,
+        "error": "target collection failed" if targets_failed else None,
         "last_run_at": now,
     }
 

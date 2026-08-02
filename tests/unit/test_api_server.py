@@ -24,6 +24,7 @@ from news_sentry.core.api_server import (
 )
 from news_sentry.core.async_store import AsyncStore
 from news_sentry.core.collector_config_utils import (
+    _build_cloudflare_collect_target_results,
     _collect_cloudflare_d1_import_events,
     _collect_cloudflare_d1_import_events_for_updates,
     _parse_target_ids,
@@ -436,6 +437,17 @@ class TestCloudflareInternalAPI:
                 "stage": "all",
                 "events_collected": 3,
                 "target_count": 1,
+                "targets_attempted": 1,
+                "targets_succeeded": 1,
+                "targets_failed": 0,
+                "target_results": [
+                    {
+                        "target_id": "france",
+                        "status": "ok",
+                        "events_collected": 3,
+                        "import_events_count": 1,
+                    }
+                ],
                 "import_events": [import_event],
                 "import_events_count": 1,
             }
@@ -465,10 +477,21 @@ class TestCloudflareInternalAPI:
         assert data["run_id"] == "cf-run-collect"
         assert data["summary"] == {
             "target_count": 1,
+            "targets_attempted": 1,
+            "targets_succeeded": 1,
+            "targets_failed": 0,
             "events_collected": 3,
             "import_events_count": 1,
             "stage": "all",
             "targets": ["france"],
+            "target_results": [
+                {
+                    "target_id": "france",
+                    "status": "ok",
+                    "events_collected": 3,
+                    "import_events_count": 1,
+                }
+            ],
         }
         assert data["import_events"] == [import_event]
         assert "started_at" in data
@@ -575,6 +598,23 @@ class TestCloudflareInternalAPI:
         assert [event["event_id"] for event in events] == ["translated-this-run"]
         assert events[0]["summary"] == "这是一条已经完成中文摘要的公开新闻。"
 
+    def test_cloudflare_collect_reports_missing_target_database(self) -> None:
+        results = _build_cloudflare_collect_target_results(
+            target_ids=["italy"],
+            contexts=[],
+            import_events=[],
+        )
+
+        assert results == [
+            {
+                "target_id": "italy",
+                "status": "error",
+                "events_collected": 0,
+                "import_events_count": 0,
+                "reason": "target_database_missing",
+            }
+        ]
+
     def test_public_translation_cycle_endpoint_compacts_updates(
         self,
         tmp_path: Path,
@@ -652,7 +692,7 @@ class TestCloudflareInternalAPI:
         monkeypatch.setattr(
             collector_config_utils,
             "_collect_cloudflare_d1_import_events",
-            lambda **kwargs: [],
+            lambda **kwargs: [{"target_id": "italy", "event_id": "evt-import"}],
         )
         old = dict(collector_config_utils._auto_collector_state)
         try:
@@ -674,8 +714,16 @@ class TestCloudflareInternalAPI:
 
             assert result["status"] == "ok"
             assert result["events_collected"] == 2
+            assert result["targets_attempted"] == 1
+            assert result["targets_succeeded"] == 1
+            assert result["targets_failed"] == 0
             assert result["target_results"] == [
-                {"target_id": "italy", "events_collected": 2, "status": "ok"}
+                {
+                    "target_id": "italy",
+                    "events_collected": 2,
+                    "status": "ok",
+                    "import_events_count": 1,
+                }
             ]
         finally:
             collector_config_utils._auto_collector_state.clear()
@@ -714,8 +762,19 @@ class TestCloudflareInternalAPI:
             )
 
             assert result["status"] == "error"
-            assert result["error"] == "no target contexts returned"
-            assert result["target_results"] == []
+            assert result["error"] == "target collection failed"
+            assert result["targets_attempted"] == 1
+            assert result["targets_succeeded"] == 0
+            assert result["targets_failed"] == 1
+            assert result["target_results"] == [
+                {
+                    "target_id": "italy",
+                    "events_collected": 0,
+                    "status": "error",
+                    "import_events_count": 0,
+                    "reason": "target_database_missing",
+                }
+            ]
             assert collector_config_utils._auto_collector_state["last_run_status"] == "error"
             assert (
                 collector_config_utils._auto_collector_state["last_error"]
