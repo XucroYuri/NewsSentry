@@ -18,6 +18,22 @@ def _docker_env_value(name: str) -> str:
     return match.group(1)
 
 
+def _compose_service() -> dict:
+    data = yaml.safe_load(_read_text("docker-compose.yml"))
+    return data["services"]["news-sentry"]
+
+
+def _compose_environment() -> dict[str, str]:
+    environment = _compose_service().get("environment", {})
+    if isinstance(environment, dict):
+        return {str(key): str(value) for key, value in environment.items()}
+    result: dict[str, str] = {}
+    for item in environment:
+        key, _, value = str(item).partition("=")
+        result[key] = value
+    return result
+
+
 class TestDockerfile:
     """Dockerfile v2 结构和指令完整性。"""
 
@@ -123,16 +139,26 @@ class TestDockerCompose:
 
     def test_compose_news_sentry_builds_from_context(self):
         """news-sentry 服务应使用本地 build 而非外部镜像。"""
-        data = yaml.safe_load(_read_text("docker-compose.yml"))
-        svc = data["services"]["news-sentry"]
+        svc = _compose_service()
         assert "build" in svc
 
     def test_compose_mounts_config_volume(self):
         """docker-compose.yml 应挂载 config/ 为只读卷。"""
-        data = yaml.safe_load(_read_text("docker-compose.yml"))
-        volumes = data["services"]["news-sentry"].get("volumes", [])
+        volumes = _compose_service().get("volumes", [])
         config_volumes = [v for v in volumes if "config" in v]
         assert len(config_volumes) > 0
+
+    def test_compose_profile_override_is_valid_when_present(self):
+        """compose 不得覆盖为不存在 profile；缺省时继承 Dockerfile。"""
+        environment = _compose_environment()
+        if "NEWSSENTRY_PROFILE" not in environment:
+            return
+
+        profile_id = environment["NEWSSENTRY_PROFILE"]
+        profile_path = PROJECT_ROOT / "config" / "profiles" / f"{profile_id}.yaml"
+
+        assert profile_id == _docker_env_value("NEWSSENTRY_PROFILE")
+        assert profile_path.is_file()
 
 
 class TestDockerIgnore:
