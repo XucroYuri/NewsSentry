@@ -467,6 +467,60 @@ class TestCollect:
         assert article_meta["lead_image_url"] == "https://example.com/lead.jpg"
         assert "https://cdn.example.com/photo.jpg" in article_meta["image_urls"]
 
+    def test_env_zero_disables_full_article_even_when_source_enables_it(self, monkeypatch):
+        """NEWSSENTRY_FETCH_FULL_ARTICLE=0 是生产 fail-safe，覆盖源级 true。"""
+        monkeypatch.setenv("NEWSSENTRY_FETCH_FULL_ARTICLE", "0")
+        config = _make_minimal_config(fetch_full_article=True)
+        collector = RSSCollector(config, None)
+
+        entry = _build_rss_entry(
+            title="Feed Title",
+            link="https://example.com/article/kill-switch",
+            summary="Feed summary only.",
+        )
+
+        with mock.patch("feedparser.parse") as mock_parse:
+            mock_parse.return_value = _patch_feed([entry])
+            with mock.patch("httpx.get") as mock_get:
+                mock_get.return_value = httpx.Response(
+                    200,
+                    text="<rss/>",
+                    request=httpx.Request("GET", config["url"]),
+                )
+                result = collector.collect("run-001")
+
+        assert len(result) == 1
+        assert result[0].content_original == "Feed summary only."
+        assert "article" not in result[0].metadata
+        assert mock_get.call_count == 1
+
+    def test_source_false_disables_full_article_when_env_is_unset(self, monkeypatch):
+        """源级 false 在 env 未设置时仍然关闭二次全文抓取。"""
+        monkeypatch.delenv("NEWSSENTRY_FETCH_FULL_ARTICLE", raising=False)
+        config = _make_minimal_config(fetch_full_article=False)
+        collector = RSSCollector(config, None)
+
+        entry = _build_rss_entry(
+            title="Feed Title",
+            link="https://example.com/article/source-false",
+            summary="Feed summary only.",
+        )
+
+        with mock.patch("feedparser.parse") as mock_parse:
+            mock_parse.return_value = _patch_feed([entry])
+            with mock.patch("httpx.get") as mock_get:
+                mock_get.return_value = httpx.Response(
+                    200,
+                    text="<rss/>",
+                    request=httpx.Request("GET", config["url"]),
+                )
+                result = collector.collect("run-001")
+
+        assert len(result) == 1
+        assert result[0].content_original == "Feed summary only."
+        assert "article" not in result[0].metadata
+        assert mock_get.call_count == 1
+
     def test_entry_without_content_or_summary(self):
         config = _make_minimal_config()
         collector = RSSCollector(config, None)

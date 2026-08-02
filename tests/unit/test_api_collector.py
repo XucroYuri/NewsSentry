@@ -197,6 +197,46 @@ class TestCollect:
         assert event.url == "https://custom.example.com/1"
         assert event.content_original == "Full body text from custom API."
 
+    def test_env_zero_disables_full_article_even_when_source_enables_it(self, monkeypatch):
+        """NEWSSENTRY_FETCH_FULL_ARTICLE=0 是生产 fail-safe，覆盖源级 true。"""
+        monkeypatch.setenv("NEWSSENTRY_FETCH_FULL_ARTICLE", "0")
+        config = _make_minimal_config(fetch_full_article=True)
+        collector = APICollector(config, None)
+        item = _make_mock_api_item(
+            title="API Item",
+            url="https://example.com/article/kill-switch",
+            content="API payload body.",
+        )
+        mock_resp = _make_mock_response(_make_api_response([item]))
+
+        with mock.patch("httpx.get", return_value=mock_resp) as mock_get:
+            result = collector.collect("run-001")
+
+        assert len(result) == 1
+        assert result[0].content_original == "API payload body."
+        assert "article" not in result[0].metadata
+        assert mock_get.call_count == 1
+
+    def test_source_false_disables_full_article_when_env_is_unset(self, monkeypatch):
+        """源级 false 在 env 未设置时仍然关闭二次全文抓取。"""
+        monkeypatch.delenv("NEWSSENTRY_FETCH_FULL_ARTICLE", raising=False)
+        config = _make_minimal_config(fetch_full_article=False)
+        collector = APICollector(config, None)
+        item = _make_mock_api_item(
+            title="API Item",
+            url="https://example.com/article/source-false",
+            content="API payload body.",
+        )
+        mock_resp = _make_mock_response(_make_api_response([item]))
+
+        with mock.patch("httpx.get", return_value=mock_resp) as mock_get:
+            result = collector.collect("run-001")
+
+        assert len(result) == 1
+        assert result[0].content_original == "API payload body."
+        assert "article" not in result[0].metadata
+        assert mock_get.call_count == 1
+
     def test_collect_returns_empty_on_empty_url(self):
         """空 URL 返回空列表。"""
         config = _make_minimal_config(url="")
