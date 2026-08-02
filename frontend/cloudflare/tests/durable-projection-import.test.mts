@@ -194,6 +194,16 @@ async function importEvents(
   );
 }
 
+async function withWallClock<T>(iso: string, fn: () => Promise<T>): Promise<T> {
+  const originalNow = Date.now;
+  Date.now = () => Date.parse(iso);
+  try {
+    return await fn();
+  } finally {
+    Date.now = originalNow;
+  }
+}
+
 function idempotencyBindingKeys(bucket: FakeR2Bucket): string[] {
   return [...bucket.objects.keys()].filter((key) => key.startsWith("imports/idempotency/v1/"));
 }
@@ -207,7 +217,6 @@ test("durable projection import enforces input limits before R2 or D1 mutation",
     ["empty", [], null, /import_events_empty/],
     ["too many", Array.from({ length: 501 }, (_, index) => event(index + 1)), null, /import_events_too_many/],
     ["missing field", [event(1, { title_original: "" })], null, /missing_required_import_fields/],
-    ["invalid timestamps", [event(1, { collected_at: "not-a-date", published_at: "also-bad" })], null, /invalid/],
     ["long idempotency key", [event(1)], "x".repeat(513), /idempotency_key_too_large/],
   ] as const) {
     const db = new SqliteD1Database();
@@ -244,6 +253,38 @@ test("durable import rejects an event without an explicit pipeline stage", async
 
   assert.equal(bucket.objects.size, 0);
   assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM events", [])?.count, 0);
+});
+
+test("durable import quarantines all-invalid timestamp batches without projection", async () => {
+  const db = new SqliteD1Database();
+  const bucket = new FakeR2Bucket();
+
+  const result = await withWallClock("2026-08-02T00:00:00.000Z", () =>
+    importEvents(db, bucket, [
+      event(1, {
+        collected_at: "not-a-date",
+        published_at: "also-bad",
+        pipeline_stage: "drafts",
+      }),
+      event(2, {
+        collected_at: "2028-01-01T00:00:00Z",
+        published_at: "2028-01-01T00:00:00Z",
+        pipeline_stage: "drafts",
+      }),
+    ]),
+  );
+
+  assert.equal(result.validEvents, 0);
+  assert.equal(result.quarantinedEvents, 2);
+  assert.equal(result.importedEvents, 0);
+  assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM events", [])?.count, 0);
+  assert.deepEqual(
+    db.all<{ reason_code: string }>(
+      "SELECT reason_code FROM quarantined_events ORDER BY reason_code",
+      [],
+    ).map((row) => row.reason_code),
+    ["future_collected_at", "invalid_collected_at"],
+  );
 });
 
 test("durable import quarantines future published rows without projecting them", async () => {
@@ -287,6 +328,45 @@ test("durable import quarantines future published rows without projecting them",
       target_id: "japan",
       source_id: "nhk",
     },
+  );
+});
+
+test("durable identity is stable across wall clocks while future collected rows quarantine", async () => {
+  const payload = [
+    event(1, {
+      collected_at: "2028-01-01T00:00:00Z",
+      published_at: "2028-01-01T00:00:00Z",
+      pipeline_stage: "drafts",
+    }),
+  ];
+  const firstDb = new SqliteD1Database();
+  const firstBucket = new FakeR2Bucket();
+  const secondDb = new SqliteD1Database();
+  const secondBucket = new FakeR2Bucket();
+
+  const first = await withWallClock("2026-08-02T00:00:00.000Z", () =>
+    importEvents(firstDb, firstBucket, payload),
+  );
+  const second = await withWallClock("2027-08-02T00:00:00.000Z", () =>
+    importEvents(secondDb, secondBucket, payload),
+  );
+
+  assert.equal(first.batchId, second.batchId);
+  assert.equal(first.jobId, second.jobId);
+  assert.equal(first.artifactSha256, second.artifactSha256);
+  assert.equal(first.artifactBytes, second.artifactBytes);
+  assert.equal(first.generatedAt, second.generatedAt);
+  assert.equal(first.quarantinedEvents, 1);
+  assert.equal(second.quarantinedEvents, 1);
+  assert.equal(firstDb.first<{ count: number }>("SELECT COUNT(*) AS count FROM events", [])?.count, 0);
+  assert.equal(secondDb.first<{ count: number }>("SELECT COUNT(*) AS count FROM events", [])?.count, 0);
+  assert.equal(
+    firstDb.first<{ reason_code: string }>("SELECT reason_code FROM quarantined_events", [])?.reason_code,
+    "future_collected_at",
+  );
+  assert.equal(
+    secondDb.first<{ reason_code: string }>("SELECT reason_code FROM quarantined_events", [])?.reason_code,
+    "future_collected_at",
   );
 });
 

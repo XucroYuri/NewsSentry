@@ -10,12 +10,13 @@ import {
 } from "./durable-artifact.ts";
 import { refreshPublicReadSnapshots } from "./public-read-snapshots.ts";
 import { validateExternalUrl } from "./external-url.ts";
-import { COLLECTED_AT_FUTURE_TOLERANCE_MS } from "./timestamp-policy.ts";
 
 export const MAX_IMPORT_EVENTS = 500;
 export const MAX_IMPORT_BODY_BYTES = 8 * 1024 * 1024;
 export const MAX_IDEMPOTENCY_KEY_BYTES = 512;
 const IDEMPOTENCY_BINDING_SCHEMA_VERSION = "2026-08-02.projection-idempotency.v1";
+const FALLBACK_GENERATED_AT_EPOCH_MS = Date.parse("2026-01-01T00:00:00.000Z");
+const FALLBACK_GENERATED_AT_SPAN_MS = 366 * 24 * 60 * 60_000;
 
 export type DurableProjectionOrigin = "api-import" | "container-import";
 
@@ -127,6 +128,18 @@ function parseTimestamp(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function generatedAtForIdentity(collectedAtCandidates: number[], payloadSha256: string): string {
+  if (collectedAtCandidates.length > 0) {
+    return new Date(Math.max(...collectedAtCandidates)).toISOString();
+  }
+  const offsetMs = Number.parseInt(payloadSha256.slice(0, 8), 16) % FALLBACK_GENERATED_AT_SPAN_MS;
+  return new Date(FALLBACK_GENERATED_AT_EPOCH_MS + offsetMs).toISOString();
+}
+
+function currentPolicyClockIso(): string {
+  return new Date(Date.now()).toISOString();
+}
+
 function compareIdentityEvent(left: ImportStagingEvent, right: ImportStagingEvent): number {
   for (const key of ["target_id", "source_id", "url", "title_original", "collected_at", "event_id"] as const) {
     const comparison = compareCodePoints(String(left[key] ?? ""), String(right[key] ?? ""));
@@ -183,9 +196,8 @@ async function buildDurableProjectionIdentity(
   if (input.idempotencyKey !== null && utf8Bytes(input.idempotencyKey) > MAX_IDEMPOTENCY_KEY_BYTES) {
     throw durableProjectionImportError("payload_too_large", "idempotency_key_too_large");
   }
-  const nowMs = Date.now();
   const normalized: ImportStagingEvent[] = [];
-  const generatedAtCandidates: number[] = [];
+  const collectedAtCandidates: number[] = [];
   for (const [index, raw] of input.events.entries()) {
     const urlResult = validateExternalUrl(raw.url);
     if (!urlResult.ok) {
@@ -193,11 +205,8 @@ async function buildDurableProjectionIdentity(
     }
     const collectedMs = parseTimestamp(raw.collected_at);
     const publishedMs = parseTimestamp(raw.published_at);
-    if (
-      collectedMs !== null &&
-      collectedMs <= nowMs + COLLECTED_AT_FUTURE_TOLERANCE_MS
-    ) {
-      generatedAtCandidates.push(collectedMs);
+    if (collectedMs !== null) {
+      collectedAtCandidates.push(collectedMs);
     }
     const event = {
       ...raw,
@@ -213,9 +222,6 @@ async function buildDurableProjectionIdentity(
     }
     normalized.push(event);
   }
-  if (generatedAtCandidates.length === 0) {
-    throw durableProjectionImportError("validation", "all_event_timestamps_invalid");
-  }
   normalized.sort(compareIdentityEvent);
   const payloadSha256 = await sha256Hex(canonicalJson(normalized));
   const prefix = normalizeOriginPrefix(input.origin);
@@ -224,7 +230,7 @@ async function buildDurableProjectionIdentity(
     payloadSha256,
     batchId: `${prefix}-batch:${payloadSha256}`,
     jobId: `${prefix}-job:${payloadSha256}`,
-    generatedAt: new Date(Math.max(...generatedAtCandidates)).toISOString(),
+    generatedAt: generatedAtForIdentity(collectedAtCandidates, payloadSha256),
     events: normalized,
     idempotencyKeyHash:
       input.idempotencyKey === null ? null : await sha256Hex(input.idempotencyKey),
@@ -475,6 +481,7 @@ export async function executeDurableProjectionImport(
   await bindRequestIdempotencyKey(env.NEWS_SENTRY_ARTIFACTS, identity, preparedArtifact);
   const artifact = await persistImportArtifact(env.DB, env.NEWS_SENTRY_ARTIFACTS, preparedArtifact.input);
   await ensureProjectionJob(env.DB, identity, input.origin);
+  const policyClockIso = currentPolicyClockIso();
   let staged: ImportStagingResult;
   try {
     staged = await stageImportBatch(env.DB, {
@@ -484,7 +491,7 @@ export async function executeDurableProjectionImport(
       sourceId: "multi",
       outputWatermark: null,
       events: identity.events,
-      generatedAt: identity.generatedAt,
+      generatedAt: policyClockIso,
       artifact,
       finalize: {
         mode: "projection-only",
