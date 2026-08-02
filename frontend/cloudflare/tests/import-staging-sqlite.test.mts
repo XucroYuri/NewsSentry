@@ -336,6 +336,34 @@ test("projection-only replay returns original imported and updated counts", asyn
   assert.equal(replay.updatedEvents, 1);
 });
 
+test("projection-only counts duplicate valid event ids from staged rows", async () => {
+  const db = new SqliteD1Database();
+  seedProjectionJob(db, "api-job:abc");
+  const artifact = seedProjectionArtifact(db, "api-batch:abc", "api-job:abc");
+
+  const result = await stageImportBatch(db as unknown as D1Database, {
+    batchId: "api-batch:abc",
+    jobId: "api-job:abc",
+    targetId: "multi",
+    sourceId: "multi",
+    outputWatermark: null,
+    events: [event(1), event(2, { event_id: "evt-1", title_original: "Story 1 duplicate" })],
+    generatedAt: "2026-08-02T00:00:00Z",
+    artifact,
+    finalize: projectionFinalize(),
+  });
+
+  const batchCounts = db.first<{ imported_count: number; updated_count: number }>(
+    "SELECT imported_count, updated_count FROM import_batches WHERE batch_id='api-batch:abc'",
+    [],
+  );
+  assert.equal(result.importedEvents, 1);
+  assert.equal(result.updatedEvents, 0);
+  assert.deepEqual({ ...batchCounts }, { imported_count: 1, updated_count: 0 });
+  assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM import_staged_events", [])?.count, 1);
+  assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM events", [])?.count, 1);
+});
+
 test("source-fenced finalize requires explicit lease and fence", async () => {
   const db = new SqliteD1Database();
   seedRuntime(db);

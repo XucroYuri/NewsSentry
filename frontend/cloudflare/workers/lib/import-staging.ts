@@ -676,7 +676,7 @@ export async function stageImportBatch(
 
   const counts =
     input.finalize.mode === "projection-only"
-      ? await projectionCounts(db, input.batchId, validEvents)
+      ? await projectionCounts(db, input.batchId)
       : { imported: validEvents, updated: 0 };
   await finalizeImportBatch(db, input, checksum, counts);
   const batch = await db
@@ -708,19 +708,25 @@ export async function stageImportBatch(
 async function projectionCounts(
   db: D1Database,
   batchId: string,
-  validEvents: number,
 ): Promise<ProjectionCounts> {
-  const existing = await db
+  const row = await db
     .prepare(
-      `SELECT COUNT(*) AS count
+      `SELECT
+         COUNT(*) AS staged_count,
+         COALESCE(SUM(
+           CASE WHEN EXISTS (
+             SELECT 1 FROM events
+             WHERE events.event_id = import_staged_events.event_id
+           ) THEN 1 ELSE 0 END
+         ), 0) AS updated_count
        FROM import_staged_events
-       INNER JOIN events ON events.event_id = import_staged_events.event_id
-       WHERE import_staged_events.batch_id=?`,
+       WHERE batch_id=?`,
     )
     .bind(batchId)
-    .first<{ count: number }>();
-  const updated = Number(existing?.count ?? 0);
-  return { imported: validEvents - updated, updated };
+    .first<{ staged_count: number; updated_count: number }>();
+  const staged = Number(row?.staged_count ?? 0);
+  const updated = Number(row?.updated_count ?? 0);
+  return { imported: staged - updated, updated };
 }
 
 async function loadProjectionReplayCounts(
