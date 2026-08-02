@@ -73,6 +73,11 @@ def test_restore_drill_is_manual_exact_sha_and_serialized() -> None:
         workflow["on"]["workflow_dispatch"]["inputs"]["continuity_receipt"]["required"]
         == "true"
     )
+    continuity_description = workflow["on"]["workflow_dispatch"]["inputs"][
+        "continuity_receipt"
+    ]["description"]
+    assert "production status=slo_7d_passed" in continuity_description
+    assert "preview status=preview_gate0_passed" in continuity_description
 
 
 def test_restore_drill_uses_only_isolated_recovery_surfaces() -> None:
@@ -119,6 +124,7 @@ def test_restore_drill_binds_restore_to_7d_continuity_receipt() -> None:
     assert 'payload.get("status") != "slo_7d_passed"' not in workflow
     assert 'payload.get("deployed_commit") != os.environ["EXPECTED_COMMIT"]' not in workflow
     assert "--expected-commit \"${EXPECTED_COMMIT}\"" in workflow
+    assert "--source-environment \"${SOURCE_ENVIRONMENT}\"" in workflow
     assert '--continuity-receipt "${DRILL_DIR}/continuity-receipt.json"' in workflow
     assert (
         'printf \'%s\' "${CONTINUITY_RECEIPT}" > '
@@ -161,6 +167,7 @@ def test_restore_target_accepts_preview_and_rejects_sha_or_production_ref(
     assert preview.returncode == 0
     output = (tmp_path / "github-output").read_text(encoding="utf-8")
     assert "source_database=ns-db-preview" in output
+    assert "source_environment=preview" in output
     assert "artifact_bucket=news-sentry-artifacts-preview" in output
     assert "allow_missing_artifact=false" in output
     assert "backup_bucket=news-sentry-restore-drills-preview" in output

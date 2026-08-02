@@ -14,7 +14,7 @@ on:
         required: true
         type: string
       continuity_receipt:
-        description: "JSON continuity ledger receipt with status=slo_7d_passed and deployed_commit=expected_commit"
+        description: "JSON continuity receipt: production status=slo_7d_passed or preview status=preview_gate0_passed, with deployed_commit=expected_commit"
         required: true
         type: string
 
@@ -78,6 +78,7 @@ jobs:
           printf '%s=%s\n' "artifact_bucket" "${artifact_bucket}" >> "${GITHUB_OUTPUT}"
           printf '%s=%s\n' "backup_bucket" "${backup_bucket}" >> "${GITHUB_OUTPUT}"
           printf '%s=%s\n' "allow_missing_artifact" "${allow_missing_artifact}" >> "${GITHUB_OUTPUT}"
+          printf '%s=%s\n' "source_environment" "${REQUESTED_ENVIRONMENT}" >> "${GITHUB_OUTPUT}"
           printf '%s=%s\n' "expected_commit" "${EXPECTED_COMMIT}" >> "${GITHUB_OUTPUT}"
 
       - name: Set up Python
@@ -239,6 +240,7 @@ jobs:
       - name: Validate restored D1 and R2 evidence
         env:
           RESTORE_DATABASE: ${{ steps.create-db.outputs.database }}
+          SOURCE_ENVIRONMENT: ${{ steps.target.outputs.source_environment }}
           EXPECTED_COMMIT: ${{ steps.target.outputs.expected_commit }}
           CONTINUITY_RECEIPT: ${{ inputs.continuity_receipt }}
         run: |
@@ -250,6 +252,7 @@ jobs:
             --query-results "${DRILL_DIR}/query-results.json" \
             --artifact-receipts "${DRILL_DIR}/artifact-receipts.json" \
             --backup-receipt "${DRILL_DIR}/backup-receipt.json" \
+            --source-environment "${SOURCE_ENVIRONMENT}" \
             --expected-commit "${EXPECTED_COMMIT}" \
             --continuity-receipt "${DRILL_DIR}/continuity-receipt.json" \
             --output "${DRILL_DIR}/restore-receipt.json"

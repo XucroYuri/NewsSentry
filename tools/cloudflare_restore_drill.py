@@ -37,6 +37,7 @@ BACKUP_KEY_RE = re.compile(
     r"^restore-drills/v1/(?:preview|production)/[0-9]+-[0-9]+\.sql$"
 )
 PROTECTED_DATABASE_NAMES = frozenset({"ns-db", "ns-db-preview", "ns-db-dev"})
+SOURCE_ENVIRONMENTS = frozenset({"preview", "production"})
 
 REQUIRED_TABLES = frozenset(
     {
@@ -209,6 +210,15 @@ RESTORE_QUERIES: Mapping[str, str] = {
         "SELECT key, payload_json, payload_bytes, item_count "
         "FROM public_read_snapshots ORDER BY key"
     ),
+    "future_residual_counts": (
+        "SELECT "
+        "(SELECT COUNT(*) FROM events "
+        "WHERE datetime(collected_at) > datetime('now', '+5 minutes')) "
+        "AS future_collected_count, "
+        "(SELECT COUNT(*) FROM events "
+        "WHERE datetime(published_at) > datetime('now', '+24 hours')) "
+        "AS future_published_count"
+    ),
 }
 
 
@@ -239,10 +249,17 @@ def _validate_expected_commit(expected_commit: str) -> tuple[str, list[str]]:
     return expected_commit, []
 
 
+def _validate_source_environment(source_environment: str) -> tuple[str, list[str]]:
+    if source_environment not in SOURCE_ENVIRONMENTS:
+        return "", ["source_environment_invalid"]
+    return source_environment, []
+
+
 def _validate_continuity_receipt(
     continuity_receipt: Mapping[str, Any],
     *,
     expected_commit: str,
+    source_environment: str,
 ) -> tuple[dict[str, Any], list[str]]:
     blockers: list[str] = []
     status = continuity_receipt.get("status")
@@ -251,8 +268,10 @@ def _validate_continuity_receipt(
     if not isinstance(status, str):
         blockers.append("continuity_status_missing")
         status = ""
-    elif status != "slo_7d_passed":
+    elif source_environment == "production" and status != "slo_7d_passed":
         blockers.append("continuity_slo_7d_not_passed")
+    elif source_environment == "preview" and status != "preview_gate0_passed":
+        blockers.append("continuity_preview_gate0_not_passed")
 
     if not isinstance(deployed_commit, str) or not COMMIT_RE.fullmatch(deployed_commit):
         blockers.append("continuity_commit_invalid")
@@ -472,6 +491,7 @@ def _validate_artifacts(
     artifact_receipts: Mapping[str, Mapping[str, Any]],
     *,
     expected_commit: str,
+    source_environment: str,
     require_artifact: bool,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     blockers: list[str] = []
@@ -484,6 +504,10 @@ def _validate_artifacts(
         expected_sha = row.get("sha256")
         expected_bytes = _int_value(row.get("payload_bytes"))
         deploy_commit = row.get("deploy_commit")
+        manifest_source_environment = row.get("source_environment")
+        source_runtime = row.get("source_runtime")
+        task = row.get("task")
+        projection_origin = row.get("projection_origin")
         status = row.get("status")
         if not isinstance(object_key, str) or not object_key:
             blockers.append("artifact_manifest_object_key_missing")
@@ -507,6 +531,20 @@ def _validate_artifacts(
             blockers.append(f"artifact_commit_missing:{object_key}")
         elif deploy_commit != expected_commit:
             blockers.append(f"artifact_commit_mismatch:{object_key}")
+        if source_environment == "production":
+            if manifest_source_environment != "production":
+                blockers.append("artifact_provenance_not_production")
+            if source_runtime != "cloudflare-container":
+                blockers.append("artifact_provenance_not_cloudflare_container")
+            if task != "container-import" or projection_origin != "container-import":
+                blockers.append("artifact_provenance_not_container_import")
+        elif source_environment == "preview":
+            if manifest_source_environment != "preview":
+                blockers.append("artifact_provenance_not_preview")
+            if source_runtime != "cloudflare-worker":
+                blockers.append("artifact_provenance_not_cloudflare_worker")
+            if task != "api-import" or projection_origin != "api-import":
+                blockers.append("artifact_provenance_not_api_import")
         actual = receipts_by_key.get(object_key)
         if actual is None:
             blockers.append(f"artifact_download_receipt_missing:{object_key}")
@@ -541,6 +579,8 @@ def _validate_artifacts(
 
 def _validate_backup_roundtrip(
     backup_receipt: Mapping[str, Any],
+    *,
+    source_environment: str,
 ) -> tuple[dict[str, Any], list[str]]:
     blockers: list[str] = []
     object_key = backup_receipt.get("object_key")
@@ -550,6 +590,9 @@ def _validate_backup_roundtrip(
         validate_backup_object_key(object_key)
     except RestoreDrillError:
         return {}, ["backup_object_key_invalid"]
+    backup_environment = object_key.split("/")[2]
+    if backup_environment != source_environment:
+        blockers.append(f"backup_source_environment_mismatch:{backup_environment}")
 
     normalized: dict[str, tuple[str, int]] = {}
     for label in ("uploaded", "downloaded"):
@@ -625,6 +668,29 @@ def _validate_noncommitted_artifacts(
     return counts, blockers
 
 
+def _validate_future_residual_counts(
+    rows: list[dict[str, Any]],
+) -> tuple[dict[str, int], list[str]]:
+    if len(rows) != 1:
+        return {}, ["future_timestamp_residual_counts_missing"]
+    row = rows[0]
+    collected = _int_value(row.get("future_collected_count"))
+    published = _int_value(row.get("future_published_count"))
+    if collected is None or published is None or collected < 0 or published < 0:
+        return {}, ["future_timestamp_residual_counts_malformed"]
+    counts = {
+        "future_collected_count": collected,
+        "future_published_count": published,
+    }
+    if collected or published:
+        blockers = [
+            "future_timestamp_residual_nonzero:"
+            f"collected={collected},published={published}"
+        ]
+        return counts, blockers
+    return counts, []
+
+
 def _validate_public_snapshots(
     rows: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[str]]:
@@ -671,6 +737,7 @@ def _validate_real_artifact_proof(
     rows: list[dict[str, Any]],
     *,
     expected_commit: str,
+    source_environment: str,
     require_artifact: bool,
 ) -> tuple[dict[str, int | str | None], list[str]]:
     if not require_artifact:
@@ -697,7 +764,7 @@ def _validate_real_artifact_proof(
     real_count = _int_value(row.get("real_event_count"))
     synthetic_count = _int_value(row.get("synthetic_event_count"))
     deploy_commit = row.get("deploy_commit")
-    source_environment = row.get("source_environment")
+    artifact_source_environment = row.get("source_environment")
     source_runtime = row.get("source_runtime")
     task = row.get("task")
     projection_origin = row.get("projection_origin")
@@ -707,33 +774,60 @@ def _validate_real_artifact_proof(
             "synthetic_event_count": synthetic_count,
             "deploy_commit": deploy_commit if isinstance(deploy_commit, str) else None,
             "source_environment": (
-                source_environment if isinstance(source_environment, str) else None
+                artifact_source_environment
+                if isinstance(artifact_source_environment, str)
+                else None
             ),
             "source_runtime": source_runtime if isinstance(source_runtime, str) else None,
             "task": task if isinstance(task, str) else None,
             "projection_origin": projection_origin if isinstance(projection_origin, str) else None,
         }, ["real_artifact_proof_malformed"]
     blockers: list[str] = []
-    if real_count <= 0:
-        blockers.append("real_committed_artifact_missing")
-    if synthetic_count > 0:
-        blockers.append("artifact_provenance_synthetic_events_present")
+    if source_environment == "production":
+        if real_count <= 0:
+            blockers.append("real_committed_artifact_missing")
+        if synthetic_count > 0:
+            blockers.append("artifact_provenance_synthetic_events_present")
+    elif source_environment == "preview":
+        if synthetic_count <= 0:
+            blockers.append("preview_synthetic_canary_missing")
+        if real_count != 0:
+            blockers.append("artifact_provenance_real_events_present")
     if not isinstance(deploy_commit, str) or not COMMIT_RE.fullmatch(deploy_commit):
         blockers.append("artifact_commit_missing:real_artifact_proof")
         deploy_commit = None
     elif deploy_commit != expected_commit:
         blockers.append("artifact_commit_mismatch:real_artifact_proof")
-    if source_environment != "production":
+    if (
+        source_environment == "production"
+        and artifact_source_environment != "production"
+    ):
         blockers.append("artifact_provenance_not_production")
-    if source_runtime != "cloudflare-container":
+    if source_environment == "production" and source_runtime != "cloudflare-container":
         blockers.append("artifact_provenance_not_cloudflare_container")
-    if task != "container-import" or projection_origin != "container-import":
+    if (
+        source_environment == "production"
+        and (task != "container-import" or projection_origin != "container-import")
+    ):
         blockers.append("artifact_provenance_not_container_import")
+    if source_environment == "preview" and artifact_source_environment != "preview":
+        blockers.append("artifact_provenance_not_preview")
+    if source_environment == "preview" and source_runtime != "cloudflare-worker":
+        blockers.append("artifact_provenance_not_cloudflare_worker")
+    if (
+        source_environment == "preview"
+        and (task != "api-import" or projection_origin != "api-import")
+    ):
+        blockers.append("artifact_provenance_not_api_import")
     return {
         "real_event_count": real_count,
         "synthetic_event_count": synthetic_count,
         "deploy_commit": deploy_commit,
-        "source_environment": source_environment if isinstance(source_environment, str) else None,
+        "source_environment": (
+            artifact_source_environment
+            if isinstance(artifact_source_environment, str)
+            else None
+        ),
         "source_runtime": source_runtime if isinstance(source_runtime, str) else None,
         "task": task if isinstance(task, str) else None,
         "projection_origin": projection_origin if isinstance(projection_origin, str) else None,
@@ -743,6 +837,7 @@ def _validate_real_artifact_proof(
 def build_restore_receipt(
     *,
     database: str,
+    source_environment: str,
     expected_commit: str,
     continuity_receipt: Mapping[str, Any],
     query_results: Mapping[str, list[dict[str, Any]]],
@@ -755,9 +850,14 @@ def build_restore_receipt(
     blockers: list[str] = []
     commit, commit_blockers = _validate_expected_commit(expected_commit)
     blockers.extend(commit_blockers)
+    validated_environment, environment_blockers = _validate_source_environment(
+        source_environment
+    )
+    blockers.extend(environment_blockers)
     sanitized_continuity, continuity_blockers = _validate_continuity_receipt(
         continuity_receipt,
         expected_commit=commit,
+        source_environment=validated_environment,
     )
     blockers.extend(continuity_blockers)
 
@@ -786,11 +886,15 @@ def build_restore_receipt(
         query_results.get("artifact_manifests", []),
         artifact_receipts,
         expected_commit=commit,
+        source_environment=validated_environment,
         require_artifact=require_artifact,
     )
     blockers.extend(artifact_blockers)
 
-    backup, backup_blockers = _validate_backup_roundtrip(backup_receipt)
+    backup, backup_blockers = _validate_backup_roundtrip(
+        backup_receipt,
+        source_environment=validated_environment,
+    )
     blockers.extend(backup_blockers)
 
     orphan_counts, orphan_blockers = _validate_orphan_counts(
@@ -803,6 +907,11 @@ def build_restore_receipt(
     )
     blockers.extend(noncommitted_blockers)
 
+    future_residual_counts, future_residual_blockers = _validate_future_residual_counts(
+        query_results.get("future_residual_counts", [])
+    )
+    blockers.extend(future_residual_blockers)
+
     public_snapshots, snapshot_blockers = _validate_public_snapshots(
         query_results.get("public_snapshots", [])
     )
@@ -811,6 +920,7 @@ def build_restore_receipt(
     real_artifact_proof, real_artifact_blockers = _validate_real_artifact_proof(
         query_results.get("real_artifact_proof", []),
         expected_commit=commit,
+        source_environment=validated_environment,
         require_artifact=require_artifact,
     )
     blockers.extend(real_artifact_blockers)
@@ -821,6 +931,12 @@ def build_restore_receipt(
         "status": "failed" if blockers else "ok",
         "generated_at": generated.isoformat().replace("+00:00", "Z"),
         "database": restore_database,
+        "source_environment": validated_environment or source_environment,
+        "evidence_class": (
+            "preview_synthetic_canary"
+            if validated_environment == "preview"
+            else "production_real_artifact"
+        ),
         "expected_commit": commit or expected_commit,
         "continuity_receipt": sanitized_continuity,
         "summary": {
@@ -842,6 +958,7 @@ def build_restore_receipt(
             "backup_roundtrip": backup,
             "orphan_counts": orphan_counts,
             "noncommitted_artifacts": noncommitted_artifacts,
+            "future_residual_counts": future_residual_counts,
             "public_snapshots": public_snapshots,
             "real_artifact_proof": real_artifact_proof,
         },
@@ -950,6 +1067,7 @@ def _validate_command(args: argparse.Namespace) -> int:
             raise RestoreDrillError("restore_drill_input_shape_invalid")
         receipt = build_restore_receipt(
             database=args.database,
+            source_environment=args.source_environment,
             expected_commit=args.expected_commit,
             continuity_receipt=continuity_receipt,
             query_results=query_results,
@@ -961,6 +1079,7 @@ def _validate_command(args: argparse.Namespace) -> int:
             "schema_version": SCHEMA_VERSION,
             "status": "failed",
             "database": args.database,
+            "source_environment": getattr(args, "source_environment", ""),
             "summary": {"blockers": [str(exc)]},
         }
     _print_json(receipt, args.output)
@@ -976,6 +1095,11 @@ def main(argv: list[str] | None = None) -> int:
     validate.add_argument("--query-results", type=Path, required=True)
     validate.add_argument("--artifact-receipts", type=Path, required=True)
     validate.add_argument("--backup-receipt", type=Path, required=True)
+    validate.add_argument(
+        "--source-environment",
+        choices=sorted(SOURCE_ENVIRONMENTS),
+        required=True,
+    )
     validate.add_argument("--expected-commit", required=True)
     validate.add_argument("--continuity-receipt", type=Path, required=True)
     validate.add_argument("--output", type=Path)

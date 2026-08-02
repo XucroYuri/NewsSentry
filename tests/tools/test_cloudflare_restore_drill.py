@@ -18,7 +18,8 @@ COMMIT_A = "a" * 40
 COMMIT_B = "b" * 40
 BODY = "restore export body that must never appear in receipts"
 ARTIFACT_KEY = f"imports/v1/2026/08/02/{SHA_A}.json"
-BACKUP_KEY = "restore-drills/v1/preview/20260802-1.sql"
+BACKUP_KEY = "restore-drills/v1/production/20260802-1.sql"
+PREVIEW_BACKUP_KEY = "restore-drills/v1/preview/20260802-1.sql"
 
 
 class FakeRunner:
@@ -100,6 +101,9 @@ def _good_query_results() -> dict[str, list[dict[str, Any]]]:
             }
         ],
         "artifact_status_counts": [{"stored_count": 0, "failed_count": 0}],
+        "future_residual_counts": [
+            {"future_collected_count": 0, "future_published_count": 0}
+        ],
         "public_snapshots": [
             _snapshot("news:featured:v1:page_size=20", {"items": [{"id": "event-1"}]}),
             _snapshot("news:all:v1:page_size=20", {"items": [{"id": "event-1"}]}),
@@ -122,11 +126,35 @@ def _good_backup_receipt() -> dict[str, Any]:
     }
 
 
+def _preview_backup_receipt() -> dict[str, Any]:
+    return {
+        "object_key": PREVIEW_BACKUP_KEY,
+        "uploaded": {"sha256": SHA_B, "bytes": 1024},
+        "downloaded": {"sha256": SHA_B, "bytes": 1024},
+    }
+
+
 def synthetic_only_query_results() -> dict[str, list[dict[str, Any]]]:
     query_results = _good_query_results()
     query_results["real_artifact_proof"] = [
         {"real_event_count": 0, "synthetic_event_count": 1}
     ]
+    return query_results
+
+
+def preview_query_results() -> dict[str, list[dict[str, Any]]]:
+    query_results = _good_query_results()
+    preview_values = {
+        "source_environment": "preview",
+        "source_runtime": "cloudflare-worker",
+        "task": "api-import",
+        "projection_origin": "api-import",
+    }
+    for key, value in preview_values.items():
+        query_results["artifact_manifests"][0][key] = value
+        query_results["real_artifact_proof"][0][key] = value
+    query_results["real_artifact_proof"][0]["real_event_count"] = 0
+    query_results["real_artifact_proof"][0]["synthetic_event_count"] = 1
     return query_results
 
 
@@ -145,9 +173,11 @@ def _receipt(
     expected_commit: str = COMMIT_A,
     continuity_receipt: dict[str, Any] | None = None,
     require_artifact: bool = True,
+    source_environment: str = "production",
 ) -> dict[str, Any]:
     return drill.build_restore_receipt(
         database="ns-db-restore-drill-20260802-1",
+        source_environment=source_environment,
         expected_commit=expected_commit,
         continuity_receipt=(
             continuity_receipt
@@ -171,6 +201,8 @@ def test_restore_drill_success_sanitizes_receipt_body() -> None:
     receipt = _receipt()
 
     assert receipt["status"] == "ok"
+    assert receipt["source_environment"] == "production"
+    assert receipt["evidence_class"] == "production_real_artifact"
     assert receipt["expected_commit"] == COMMIT_A
     assert receipt["continuity_receipt"] == {
         "status": "slo_7d_passed",
@@ -200,6 +232,82 @@ def test_restore_drill_success_sanitizes_receipt_body() -> None:
             "projection_origin": "container-import",
         }
     ]
+
+
+def test_restore_drill_accepts_preview_gate0_synthetic_canary_contract() -> None:
+    receipt = _receipt(
+        query_results=preview_query_results(),
+        backup_receipt=_preview_backup_receipt(),
+        continuity_receipt={"status": "preview_gate0_passed", "deployed_commit": COMMIT_A},
+        source_environment="preview",
+    )
+
+    assert receipt["status"] == "ok"
+    assert receipt["source_environment"] == "preview"
+    assert receipt["evidence_class"] == "preview_synthetic_canary"
+    assert receipt["continuity_receipt"]["status"] == "preview_gate0_passed"
+    assert receipt["evidence"]["real_artifact_proof"] == {
+        "deploy_commit": COMMIT_A,
+        "projection_origin": "api-import",
+        "real_event_count": 0,
+        "source_environment": "preview",
+        "source_runtime": "cloudflare-worker",
+        "synthetic_event_count": 1,
+        "task": "api-import",
+    }
+
+
+def test_restore_drill_rejects_preview_contract_for_production() -> None:
+    receipt = _receipt(
+        query_results=preview_query_results(),
+        backup_receipt=_preview_backup_receipt(),
+        continuity_receipt={"status": "preview_gate0_passed", "deployed_commit": COMMIT_A},
+        source_environment="production",
+    )
+
+    assert receipt["status"] == "failed"
+    assert "continuity_slo_7d_not_passed" in receipt["summary"]["blockers"]
+    assert "artifact_provenance_not_production" in receipt["summary"]["blockers"]
+    assert "backup_source_environment_mismatch:preview" in receipt["summary"]["blockers"]
+
+
+def test_restore_drill_rejects_production_contract_for_preview() -> None:
+    receipt = _receipt(
+        continuity_receipt={"status": "slo_7d_passed", "deployed_commit": COMMIT_A},
+        source_environment="preview",
+    )
+
+    assert receipt["status"] == "failed"
+    assert "continuity_preview_gate0_not_passed" in receipt["summary"]["blockers"]
+    assert "artifact_provenance_not_preview" in receipt["summary"]["blockers"]
+    assert "backup_source_environment_mismatch:production" in receipt["summary"][
+        "blockers"
+    ]
+
+
+def test_restore_drill_rejects_backup_object_key_environment_mismatch() -> None:
+    receipt = _receipt(backup_receipt=_preview_backup_receipt())
+
+    assert receipt["status"] == "failed"
+    assert "backup_source_environment_mismatch:preview" in receipt["summary"]["blockers"]
+
+
+def test_restore_drill_fails_closed_on_future_timestamp_residuals() -> None:
+    query_results = _good_query_results()
+    query_results["future_residual_counts"] = [
+        {"future_collected_count": 1, "future_published_count": 2}
+    ]
+
+    receipt = _receipt(query_results=query_results)
+
+    assert receipt["status"] == "failed"
+    assert "future_timestamp_residual_nonzero:collected=1,published=2" in receipt[
+        "summary"
+    ]["blockers"]
+    assert receipt["evidence"]["future_residual_counts"] == {
+        "future_collected_count": 1,
+        "future_published_count": 2,
+    }
 
 
 def test_restore_rejects_continuity_commit_mismatch() -> None:
@@ -612,6 +720,8 @@ def test_validate_cli_writes_failed_receipt_for_protected_database(tmp_path: Pat
             str(artifact_path),
             "--backup-receipt",
             str(backup_path),
+            "--source-environment",
+            "production",
             "--expected-commit",
             COMMIT_A,
             "--continuity-receipt",
@@ -657,6 +767,8 @@ def test_validate_cli_success_with_json_files(
             str(artifact_path),
             "--backup-receipt",
             str(backup_path),
+            "--source-environment",
+            "production",
             "--expected-commit",
             COMMIT_A,
             "--continuity-receipt",
@@ -702,6 +814,8 @@ def test_validate_cli_fails_closed_when_artifact_evidence_is_missing(
             str(artifact_path),
             "--backup-receipt",
             str(backup_path),
+            "--source-environment",
+            "production",
             "--expected-commit",
             COMMIT_A,
             "--continuity-receipt",
@@ -759,6 +873,8 @@ def test_validate_cli_writes_concrete_continuity_blockers(
             str(artifact_path),
             "--backup-receipt",
             str(backup_path),
+            "--source-environment",
+            "production",
             "--expected-commit",
             COMMIT_A,
             "--continuity-receipt",
@@ -802,6 +918,8 @@ def test_validate_cli_rejects_missing_artifact_bypass_option(
                 str(artifact_path),
                 "--backup-receipt",
                 str(backup_path),
+                "--source-environment",
+                "production",
                 "--expected-commit",
                 COMMIT_A,
                 "--continuity-receipt",
