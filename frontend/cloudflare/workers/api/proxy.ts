@@ -26,7 +26,7 @@ export async function handleContainerProxy(
   }
 
   const access = await verifyCloudflareAccessRequest(request, env);
-  if (!access.ok) {
+  if (!access.ok || access.principal?.kind !== "user") {
     return accessRequired();
   }
 
@@ -38,7 +38,7 @@ export async function handleContainerProxy(
   }
 
   const headers = new Headers(request.headers);
-  headers.set("Cf-Access-Authenticated-User-Email", access.email ?? "verified-access-user");
+  headers.set("Cf-Access-Authenticated-User-Email", access.principal.email);
   headers.set("X-News-Sentry-Proxy", "cloudflare-worker");
   headers.set("X-Forwarded-Host", url.host);
   headers.set("X-Forwarded-Proto", url.protocol.replace(":", ""));

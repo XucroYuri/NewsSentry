@@ -15,6 +15,7 @@
 import { addCorsHeaders, corsPreflight } from "./cors";
 import { notFound } from "./errors";
 import { canonicalPathname } from "./path";
+import type { AccessPrincipal } from "./access-jwt";
 
 export interface RuntimeMetadata {
   commit: string | null;
@@ -25,9 +26,7 @@ export interface RuntimeMetadata {
   collection_authoritative?: boolean;
   config_valid?: boolean;
   config_errors?: string[];
-  access?: {
-    email: string;
-  };
+  access?: AccessPrincipal;
   queue?: {
     jobs_configured: boolean;
     dlq_configured: boolean;

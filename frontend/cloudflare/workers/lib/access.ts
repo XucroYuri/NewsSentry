@@ -1,4 +1,5 @@
 import {
+  type AccessPrincipal,
   type AccessJwtVerificationOptions,
   type CloudflareAccessJwtEnv,
   verifyCloudflareAccessRequest,
@@ -57,9 +58,7 @@ export function accessRequired(): Response {
 export type WorkerWriteAccessDecision =
   | {
       ok: true;
-      identity: {
-        email: string;
-      } | null;
+      identity: AccessPrincipal | null;
     }
   | {
       ok: false;
@@ -74,10 +73,13 @@ export async function authorizeWorkerWriteAccess(
   const url = new URL(request.url);
   if (!isWorkerWritePath(url.pathname)) return { ok: true, identity: null };
   const verification = await verifyCloudflareAccessRequest(request, env, options);
-  if (!verification.ok || !verification.email) {
+  if (!verification.ok || !verification.principal) {
     return { ok: false, response: accessRequired() };
   }
-  return { ok: true, identity: { email: verification.email } };
+  if (verification.principal.kind === "service" && url.pathname !== "/api/v1/events/import") {
+    return { ok: false, response: accessRequired() };
+  }
+  return { ok: true, identity: verification.principal };
 }
 
 export async function handleWorkerWriteAccess(

@@ -111,7 +111,7 @@ async function replay(
     [],
     undefined,
     {
-      access: accessEmail ? { email: accessEmail } : undefined,
+      access: accessEmail ? { kind: "user", id: accessEmail, email: accessEmail } : undefined,
       commit: "commit-1",
       runtime: "cloudflare-worker",
       worker_version: "worker-v1",

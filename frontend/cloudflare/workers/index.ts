@@ -30,7 +30,7 @@ import { internalError } from "./lib/errors";
 import { authorizeWorkerWriteAccess } from "./lib/access";
 import { runScheduledCloudflareTask } from "./lib/scheduled";
 import { handleShadowQueueBatch } from "./lib/queue-shadow";
-import type { CloudflareAccessJwtEnv } from "./lib/access-jwt";
+import type { AccessPrincipal, CloudflareAccessJwtEnv } from "./lib/access-jwt";
 import { parseRuntimeConfig, type RuntimeConfigEnv } from "./lib/runtime-config";
 
 interface Env extends CloudflareAccessJwtEnv, RuntimeConfigEnv {
@@ -134,7 +134,7 @@ function withSecurityHeaders(response: Response, env: Env): Response {
 
 function runtimeMetadata(
   env: Env,
-  accessIdentity: { email: string } | null = null,
+  accessIdentity: AccessPrincipal | null = null,
 ): RuntimeMetadata {
   const config = parseRuntimeConfig(env);
   return {

@@ -1,5 +1,6 @@
 export interface CloudflareAccessJwtEnv {
   CF_ACCESS_AUD?: string;
+  CF_ACCESS_SERVICE_TOKEN_IDS?: string;
   CF_ACCESS_TEAM_DOMAIN?: string;
   NEWS_SENTRY_ACCESS_AUD?: string;
   NEWS_SENTRY_ACCESS_TEAM_DOMAIN?: string;
@@ -18,6 +19,7 @@ export interface AccessJwtVerificationOptions {
 
 export interface AccessJwtClaims {
   aud?: string | string[];
+  common_name?: string;
   email?: string;
   exp?: number;
   iat?: number;
@@ -28,10 +30,15 @@ export interface AccessJwtClaims {
   [claim: string]: unknown;
 }
 
+export type AccessPrincipal =
+  | { kind: "user"; id: string; email: string }
+  | { kind: "service"; id: string; commonName: string };
+
 export interface AccessJwtVerification {
   claims?: AccessJwtClaims;
   email?: string;
   ok: boolean;
+  principal?: AccessPrincipal;
   reason?: string;
 }
 
@@ -174,8 +181,47 @@ function validateClaims(
   if (typeof claims.exp !== "number" || claims.exp <= nowSeconds) return "expired";
   if (typeof claims.nbf === "number" && claims.nbf > nowSeconds) return "not_yet_valid";
   if (claims.nbf !== undefined && typeof claims.nbf !== "number") return "invalid_nbf";
-  if (typeof claims.email !== "string" || !claims.email.includes("@")) return "missing_email";
   return null;
+}
+
+function serviceTokenIds(env: CloudflareAccessJwtEnv): Set<string> {
+  return new Set(
+    (env.CF_ACCESS_SERVICE_TOKEN_IDS ?? "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean),
+  );
+}
+
+function principalFromClaims(
+  claims: AccessJwtClaims,
+  env: CloudflareAccessJwtEnv,
+): { principal?: AccessPrincipal; reason?: string } {
+  if (claims.type === "app") {
+    const commonName = claims.common_name?.trim();
+    if (!commonName) return { reason: "missing_service_common_name" };
+    if (!serviceTokenIds(env).has(commonName)) {
+      return { reason: "service_principal_not_allowed" };
+    }
+    return {
+      principal: {
+        kind: "service",
+        id: commonName,
+        commonName,
+      },
+    };
+  }
+
+  if (typeof claims.email !== "string" || !claims.email.includes("@")) {
+    return { reason: "missing_email" };
+  }
+  return {
+    principal: {
+      kind: "user",
+      id: typeof claims.sub === "string" && claims.sub ? claims.sub : claims.email,
+      email: claims.email,
+    },
+  };
 }
 
 async function verifySignature(
@@ -234,9 +280,6 @@ export async function verifyCloudflareAccessJwt(
   if (header.alg !== "RS256") return { ok: false, reason: "unsupported_alg" };
   if (!header.kid) return { ok: false, reason: "missing_kid" };
 
-  const claimError = validateClaims(claims, config, options.now ?? new Date());
-  if (claimError) return { ok: false, reason: claimError };
-
   const jwks = await loadJwks(config.jwksUrl, options);
   const key = jwks?.keys?.find((candidate) => candidate.kid === header.kid);
   if (!key) return { ok: false, reason: "missing_key" };
@@ -244,7 +287,16 @@ export async function verifyCloudflareAccessJwt(
   const signatureOk = await verifySignature(`${encodedHeader}.${encodedClaims}`, encodedSignature, key);
   if (!signatureOk) return { ok: false, reason: "bad_signature" };
 
-  return { claims, email: claims.email, ok: true };
+  const claimError = validateClaims(claims, config, options.now ?? new Date());
+  if (claimError) return { ok: false, reason: claimError };
+
+  const principalResult = principalFromClaims(claims, env);
+  if (!principalResult.principal) {
+    return { ok: false, reason: principalResult.reason };
+  }
+
+  const email = principalResult.principal.kind === "user" ? principalResult.principal.email : undefined;
+  return { claims, email, ok: true, principal: principalResult.principal };
 }
 
 export async function verifyCloudflareAccessRequest(

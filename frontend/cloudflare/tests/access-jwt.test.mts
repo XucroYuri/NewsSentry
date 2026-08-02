@@ -7,7 +7,7 @@ import {
   type AccessJwtClaims,
   type JsonWebKeySet,
 } from "../workers/lib/access-jwt.ts";
-import { handleWorkerWriteAccess } from "../workers/lib/access.ts";
+import { authorizeWorkerWriteAccess, handleWorkerWriteAccess } from "../workers/lib/access.ts";
 
 const now = new Date("2026-08-01T00:00:00Z");
 const nowSeconds = Math.floor(now.getTime() / 1000);
@@ -65,6 +65,7 @@ async function signedJwt(
       iss: "https://news-sentry.cloudflareaccess.com",
       nbf: nowSeconds - 60,
       sub: "user-123",
+      type: "app",
       ...claims,
     }),
   );
@@ -82,16 +83,109 @@ async function signedJwt(
 }
 
 test("verifies a valid Cloudflare Access RS256 JWT with issuer, audience, exp, and nbf", async () => {
-  const { jwt, jwks } = await signedJwt();
+  const { jwt, jwks } = await signedJwt({ type: undefined });
 
   const result = await verifyCloudflareAccessJwt(jwt, env, { jwks, now });
 
   assert.equal(result.ok, true);
   assert.equal(result.email, "editor@example.com");
+  assert.deepEqual(result.principal, {
+    kind: "user",
+    id: "user-123",
+    email: "editor@example.com",
+  });
+});
+
+test("accepts an allowlisted Access service principal from signed common_name", async () => {
+  const { jwt, jwks } = await signedJwt({
+    email: undefined,
+    common_name: "preview-client-id.access",
+    type: "app",
+  });
+  const result = await verifyCloudflareAccessJwt(
+    jwt,
+    { ...env, CF_ACCESS_SERVICE_TOKEN_IDS: "preview-client-id.access" },
+    { jwks, now },
+  );
+  assert.deepEqual(result.principal, {
+    kind: "service",
+    id: "preview-client-id.access",
+    commonName: "preview-client-id.access",
+  });
+});
+
+test("rejects non-allowlisted service principals and service access outside import", async () => {
+  const { jwt, jwks } = await signedJwt({
+    email: undefined,
+    common_name: "other-client.access",
+    type: "app",
+  });
+  assert.equal(
+    (await verifyCloudflareAccessJwt(jwt, {
+      ...env,
+      CF_ACCESS_SERVICE_TOKEN_IDS: "preview-client-id.access",
+    }, { jwks, now })).reason,
+    "service_principal_not_allowed",
+  );
+  const blocked = await authorizeWorkerWriteAccess(
+    new Request("https://api.news-sentry.com/api/v1/jobs/dlq/replay", {
+      method: "POST",
+      headers: { "Cf-Access-Jwt-Assertion": jwt },
+    }),
+    { ...env, CF_ACCESS_SERVICE_TOKEN_IDS: "other-client.access" },
+    { jwks, now },
+  );
+  assert.equal(blocked.ok, false);
+});
+
+test("rejects forged service token headers without a signed Access assertion", async () => {
+  const blocked = await handleWorkerWriteAccess(
+    new Request("https://api.news-sentry.com/api/v1/events/import", {
+      method: "POST",
+      headers: {
+        "CF-Access-Client-Id": "preview-client-id.access",
+        "CF-Access-Client-Secret": "forged-secret",
+      },
+    }),
+    { ...env, CF_ACCESS_SERVICE_TOKEN_IDS: "preview-client-id.access" },
+    { jwks: { keys: [] }, now },
+  );
+
+  assert.equal(blocked?.status, 403);
+});
+
+test("rejects service principal claims without app type and signed common_name", async () => {
+  const wrongType = await signedJwt({
+    email: undefined,
+    common_name: "preview-client-id.access",
+    type: "user",
+  });
+  assert.equal(
+    (await verifyCloudflareAccessJwt(
+      wrongType.jwt,
+      { ...env, CF_ACCESS_SERVICE_TOKEN_IDS: "preview-client-id.access" },
+      { jwks: wrongType.jwks, now },
+    )).reason,
+    "missing_email",
+  );
+
+  const emptyCommonName = await signedJwt({
+    email: undefined,
+    common_name: "",
+    type: "app",
+  });
+  assert.equal(
+    (await verifyCloudflareAccessJwt(
+      emptyCommonName.jwt,
+      { ...env, CF_ACCESS_SERVICE_TOKEN_IDS: "preview-client-id.access" },
+      { jwks: emptyCommonName.jwks, now },
+    )).reason,
+    "missing_service_common_name",
+  );
 });
 
 test("fetches JWKS only from the configured Cloudflare Access team domain", async () => {
-  const { jwt, jwks } = await signedJwt();
+  const { jwt, jwks } = await signedJwt({ type: undefined });
   const seenUrls: string[] = [];
 
   const result = await verifyCloudflareAccessJwt(jwt, env, {
@@ -144,7 +238,7 @@ test("rejects missing config, missing JWT, wrong issuer, wrong audience, expiry,
 });
 
 test("verifies JWT from request header and rejects unsafe team-domain config", async () => {
-  const { jwt, jwks } = await signedJwt();
+  const { jwt, jwks } = await signedJwt({ type: undefined });
   const request = new Request("https://api.news-sentry.com/admin/", {
     headers: { "Cf-Access-Jwt-Assertion": jwt },
   });

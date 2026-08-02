@@ -91,7 +91,7 @@ export async function handleDlqReplay(
   if (!validation.ok) {
     return jsonResponse({ detail: validation.detail }, 400);
   }
-  const accessEmail = runtimeMetadata?.access?.email ?? null;
+  const accessEmail = runtimeMetadata?.access?.kind === "user" ? runtimeMetadata.access.email : null;
   if (!accessEmail) {
     return jsonResponse({ detail: "verified Access identity is required" }, 403);
   }
