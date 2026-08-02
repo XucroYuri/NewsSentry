@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from tools.cloudflare_continuity_ledger import (
@@ -160,3 +161,18 @@ def test_source_health_evidence_requires_fresh_matching_metadata() -> None:
     assert "source_health_environment_mismatch" in mismatch_result.reason_codes
     assert "source_health_commit_mismatch" in mismatch_result.reason_codes
     assert "source_health_window_order_invalid" in mismatch_result.reason_codes
+
+
+def test_source_health_evidence_rejects_missing_metadata_without_fallback() -> None:
+    receipt = healthy_receipt(hours=6)
+    source_health = cast(dict[str, Any], receipt["source_health"])
+    audits = cast(dict[str, dict[str, Any]], source_health["audits"])
+    for audit in audits.values():
+        audit.pop("environment", None)
+        audit.pop("deployed_commit", None)
+
+    result = evaluate_window([receipt])
+
+    assert result.status == "failed"
+    assert "source_health_environment_mismatch" in result.reason_codes
+    assert "source_health_commit_mismatch" in result.reason_codes

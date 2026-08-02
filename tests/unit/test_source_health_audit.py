@@ -521,8 +521,27 @@ def test_source_health_slo_requires_previous_summary_unless_bootstrap() -> None:
     bootstrap = source_health_audit.evaluate_source_health_slo(
         summary={"total": 10, "ok": 10, "failed": 0},
         rows=[],
-        config={"maximum_weekly_ok_drop": 0.03, "allow_weekly_bootstrap": True},
+        config={
+            "maximum_weekly_ok_drop": 0.03,
+            "allow_weekly_bootstrap": True,
+            "environment": "production",
+            "deployed_commit": "a" * 40,
+        },
     )
 
     assert bootstrap["status"] == "ok"
     assert bootstrap["bootstrap"]["weekly_comparison"] is True
+    assert bootstrap["environment"] == "production"
+    assert bootstrap["deployed_commit"] == "a" * 40
+
+
+def test_source_health_slo_requires_environment_and_full_commit_metadata() -> None:
+    result = source_health_audit.evaluate_source_health_slo(
+        summary={"total": 10, "ok": 10, "failed": 0},
+        rows=[],
+        config={"allow_weekly_bootstrap": True},
+    )
+
+    assert result["status"] == "failed"
+    assert "source_health_environment_missing" in result["blockers"]
+    assert "source_health_deployed_commit_missing" in result["blockers"]

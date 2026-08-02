@@ -453,6 +453,17 @@ def _row_ref(row: dict[str, Any]) -> str:
     return f"{row.get('target_id')}:{row.get('source_id')}"
 
 
+def _full_commit(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip().lower()
+    if len(normalized) != 40 or any(
+        character not in "0123456789abcdef" for character in normalized
+    ):
+        return None
+    return normalized
+
+
 def evaluate_source_health_slo(
     summary: dict[str, Any],
     rows: list[dict[str, Any]],
@@ -469,6 +480,13 @@ def evaluate_source_health_slo(
         str(code) for code in config.get("blocking_reason_codes", [])
     }
     blockers: list[str] = []
+    environment = config.get("environment")
+    deployed_commit = _full_commit(config.get("deployed_commit"))
+    if not isinstance(environment, str) or not environment.strip():
+        blockers.append("source_health_environment_missing")
+        environment = None
+    if deployed_commit is None:
+        blockers.append("source_health_deployed_commit_missing")
     row_by_ref = {_row_ref(row): row for row in rows}
     for source_ref in sorted(p0_source_refs):
         row = row_by_ref.get(source_ref)
@@ -504,6 +522,8 @@ def evaluate_source_health_slo(
     return {
         "schema_version": "news-sentry.source-health-slo.v1",
         "generated_at": datetime.now(UTC).isoformat(),
+        "environment": environment,
+        "deployed_commit": deployed_commit,
         "status": "ok" if not blockers else "failed",
         "blockers": sorted(blockers),
         "bootstrap": {"weekly_comparison": weekly_bootstrap},
@@ -622,16 +642,16 @@ def main() -> int:
         slo_config = _load_yaml(args.slo_config)
         if args.allow_weekly_bootstrap:
             slo_config["allow_weekly_bootstrap"] = True
+        if args.slo_environment:
+            slo_config["environment"] = args.slo_environment
+        if args.slo_deployed_commit:
+            slo_config["deployed_commit"] = args.slo_deployed_commit
         slo_result = evaluate_source_health_slo(
             result["summary"],
             result["rows"],
             slo_config,
             previous_summary if isinstance(previous_summary, dict) else None,
         )
-        if args.slo_environment:
-            slo_result["environment"] = args.slo_environment
-        if args.slo_deployed_commit:
-            slo_result["deployed_commit"] = args.slo_deployed_commit
         if args.slo_window:
             slo_result["window"] = args.slo_window
         if args.output_slo_json:

@@ -327,24 +327,6 @@ def _load_json(path: str | None) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
-def _source_health_receipt(
-    path: str,
-    *,
-    environment: str,
-    deployed_commit: str,
-    window: str,
-) -> dict[str, Any] | None:
-    receipt = _load_json(path)
-    if receipt is None:
-        return None
-    return {
-        **receipt,
-        "environment": receipt.get("environment") or environment,
-        "deployed_commit": receipt.get("deployed_commit") or deployed_commit,
-        "window": receipt.get("window") or window,
-    }
-
-
 def _enrich_receipt(args: argparse.Namespace) -> dict[str, Any]:
     receipt = _load_json(args.receipt)
     if receipt is None:
@@ -364,7 +346,6 @@ def _enrich_receipt(args: argparse.Namespace) -> dict[str, Any]:
     environment = str(receipt.get("environment") or "")
     if not environment:
         raise ContinuityReceiptError("receipt environment is required")
-    deployed_commit_text = str(deployed_commit)
     enriched = {
         **receipt,
         "schema_version": receipt.get("schema_version"),
@@ -374,24 +355,9 @@ def _enrich_receipt(args: argparse.Namespace) -> dict[str, Any]:
         "run_id": str(run_id),
         "source_health": {
             "audits": {
-                "current": _source_health_receipt(
-                    args.source_health_current,
-                    environment=environment,
-                    deployed_commit=deployed_commit_text,
-                    window="current",
-                ),
-                "start": _source_health_receipt(
-                    args.source_health_start,
-                    environment=environment,
-                    deployed_commit=deployed_commit_text,
-                    window="start",
-                ),
-                "end": _source_health_receipt(
-                    args.source_health_end,
-                    environment=environment,
-                    deployed_commit=deployed_commit_text,
-                    window="end",
-                ),
+                "current": _load_json(args.source_health_current),
+                "start": _load_json(args.source_health_start),
+                "end": _load_json(args.source_health_end),
             }
         },
     }

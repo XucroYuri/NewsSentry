@@ -55,6 +55,36 @@ jobs:
             --receipt-output /tmp/news-sentry-source-coverage-receipts.jsonl \
             --pretty > /tmp/news-sentry-source-coverage.json
 
+      - name: Resolve Source Health SLO metadata
+        id: slo-metadata
+        run: |
+          set -euo pipefail
+          echo "Resolve deployed commit from guard receipt and deployment metadata"
+          python - <<'PY' > /tmp/news-sentry-source-health-deployment.json
+          import json
+          import sys
+          import urllib.request
+
+          request = urllib.request.Request(
+              "https://api.news-sentry.com/api/v1/ready",
+              headers={"User-Agent": "NewsSentrySourceHealthSLO/1.0"},
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
+              payload = json.loads(response.read().decode("utf-8"))
+          deployment = payload.get("deployment") if isinstance(payload, dict) else {}
+          if not isinstance(deployment, dict):
+              deployment = {}
+          deployed_commit = deployment.get("commit")
+          if not isinstance(deployed_commit, str) or len(deployed_commit) != 40:
+              print("Deployment metadata did not expose a full deployed commit.", file=sys.stderr)
+              raise SystemExit(1)
+          print(json.dumps({"environment": "production", "deployed_commit": deployed_commit}))
+          PY
+          SLO_ENVIRONMENT="$(python -c 'import json;print(json.load(open("/tmp/news-sentry-source-health-deployment.json"))["environment"])')"
+          SLO_DEPLOYED_COMMIT="$(python -c 'import json;print(json.load(open("/tmp/news-sentry-source-health-deployment.json"))["deployed_commit"])')"
+          printf '%s=%s\n' "environment" "${SLO_ENVIRONMENT}" >> "${GITHUB_OUTPUT}"
+          printf '%s=%s\n' "deployed_commit" "${SLO_DEPLOYED_COMMIT}" >> "${GITHUB_OUTPUT}"
+
       - name: Download previous Source Health SLO
         env:
           GH_TOKEN: ${{ github.token }}
@@ -77,6 +107,9 @@ jobs:
 
       - name: Live source health audit
         shell: bash
+        env:
+          SLO_ENVIRONMENT: ${{ steps.slo-metadata.outputs.environment }}
+          SLO_DEPLOYED_COMMIT: ${{ steps.slo-metadata.outputs.deployed_commit }}
         run: |
           set -euo pipefail
           args=(
@@ -90,6 +123,9 @@ jobs:
             --output-jsonl /tmp/news-sentry-source-health.jsonl
             --slo-config config/source-health-slo.yaml
             --output-slo-json /tmp/news-sentry-source-health-slo.json
+            --slo-environment "${SLO_ENVIRONMENT}"
+            --slo-deployed-commit "${SLO_DEPLOYED_COMMIT}"
+            --slo-window current
             --pretty
           )
           if [[ -f /tmp/news-sentry-source-health-slo-previous.json ]]; then

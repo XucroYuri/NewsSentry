@@ -25,10 +25,15 @@ def test_source_health_workflow_requires_previous_summary_or_bootstrap() -> None
     }
     previous = steps["Download previous Source Health SLO"]["run"]
     audit = steps["Live source health audit"]["run"]
+    resolve = steps["Resolve Source Health SLO metadata"]["run"]
 
+    assert "Resolve deployed commit from guard receipt and deployment metadata" in resolve
+    assert "https://api.news-sentry.com/api/v1/ready" in resolve
     assert "source-health-receipts" in previous
     assert "news-sentry-source-health-slo-previous.json" in previous
     assert "bootstrap_weekly_slo" in previous
     assert "No previous Source Health SLO receipt found" in previous
     assert "--previous-summary-json /tmp/news-sentry-source-health-slo-previous.json" in audit
     assert "--allow-weekly-bootstrap" in audit
+    assert '--slo-environment "${SLO_ENVIRONMENT}"' in audit
+    assert '--slo-deployed-commit "${SLO_DEPLOYED_COMMIT}"' in audit

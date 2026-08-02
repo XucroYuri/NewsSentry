@@ -193,15 +193,17 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p /tmp/news-sentry-continuity-artifacts
-          previous_run_id="$(gh run list --workflow cloudflare-runtime-health.yml --status completed --limit 5 --json databaseId --jq '.[0].databaseId // ""')"
-          if [[ -n "${previous_run_id}" ]]; then
+          artifact_name=""
+          previous_run_id=""
+          for previous_run_id in $(gh run list --workflow cloudflare-runtime-health.yml --status success --limit 10 --json databaseId --jq '.[].databaseId'); do
             artifact_name="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${previous_run_id}/artifacts" --jq '.artifacts[]?.name | select(startswith("cloudflare-continuity-ledger-${ENVIRONMENT}-${EXPECTED_COMMIT}-"))' | head -n 1 || true)"
             if [[ -n "${artifact_name}" ]]; then
               gh run download "${previous_run_id}" \
                 --name "${artifact_name}" \
                 --dir /tmp/news-sentry-continuity-artifacts
+              break
             fi
-          fi
+          done
           if [[ -f /tmp/news-sentry-continuity-artifacts/news-sentry-cloudflare-continuity-ledger.jsonl ]]; then
             cp /tmp/news-sentry-continuity-artifacts/news-sentry-cloudflare-continuity-ledger.jsonl /tmp/news-sentry-cloudflare-continuity-ledger.jsonl
           else
