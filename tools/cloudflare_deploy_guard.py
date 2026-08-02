@@ -53,14 +53,16 @@ EXPECTED_RUNTIME_VARS = {
 RUNTIME_SCHEMA_TABLE_QUERY = (
     "SELECT name FROM sqlite_master WHERE type='table' AND name IN "
     "('import_staged_events','import_batch_finalize_receipts',"
-    "'dlq_replay_receipts','dlq_consumption_receipts','artifact_manifests')"
+    "'dlq_replay_receipts','dlq_consumption_receipts','artifact_manifests',"
+    "'import_projection_finalize_receipts')"
 )
 REQUIRED_RUNTIME_INDEX_QUERY = (
     "SELECT name FROM sqlite_master WHERE type='index' AND name IN "
     "('idx_jobs_status_scheduled','idx_job_outbox_dispatch',"
     "'idx_source_runtime_due','idx_import_staged_events_batch_chunk',"
     "'idx_dlq_replay_receipts_original','idx_dlq_consumption_receipts_consumed',"
-    "'idx_artifact_manifests_status_created','idx_artifact_manifests_job')"
+    "'idx_artifact_manifests_status_created','idx_artifact_manifests_job',"
+    "'idx_projection_receipts_idempotency_key')"
 )
 RUNTIME_RECEIPT_INSERT_SQL = (
     "INSERT OR IGNORE INTO runtime_migration_receipts (migration_id, details_json) "
@@ -73,6 +75,8 @@ RUNTIME_RECEIPT_INSERT_SQL = (
     "('20260802_phase2_dlq_replay_receipts', "
     "'{\"recorded_by\":\"cloudflare_deploy_guard\"}'), "
     "('20260802_phase3_durable_artifacts', "
+    "'{\"recorded_by\":\"cloudflare_deploy_guard\"}'), "
+    "('20260802_phase4_projection_import', "
     "'{\"recorded_by\":\"cloudflare_deploy_guard\"}')"
 )
 
@@ -105,6 +109,13 @@ class UniqueRequirement:
 
 
 @dataclass(frozen=True)
+class PartialIndexRequirement:
+    table: str
+    index: str
+    columns: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class TableRequirement:
     table: str
     columns: tuple[str, ...]
@@ -117,6 +128,7 @@ class ReceiptSchemaRequirement:
     tables: tuple[TableRequirement, ...]
     unique: tuple[UniqueRequirement, ...] = ()
     indexes: tuple[str, ...] = ()
+    partial_indexes: tuple[PartialIndexRequirement, ...] = ()
 
 
 SCHEMA_REQUIREMENTS: tuple[ReceiptSchemaRequirement, ...] = (
@@ -427,6 +439,50 @@ SCHEMA_REQUIREMENTS: tuple[ReceiptSchemaRequirement, ...] = (
         indexes=(
             "idx_artifact_manifests_status_created",
             "idx_artifact_manifests_job",
+        ),
+    ),
+    ReceiptSchemaRequirement(
+        receipt_id="20260802_phase4_projection_import",
+        tables=(
+            TableRequirement(
+                table="import_projection_finalize_receipts",
+                columns=(
+                    "batch_id",
+                    "job_id",
+                    "batch_checksum",
+                    "artifact_id",
+                    "finalized_at",
+                    "batch_guard",
+                    "job_guard",
+                    "artifact_guard",
+                    "origin",
+                    "request_idempotency_key_hash",
+                ),
+                primary_key=("batch_id",),
+            ),
+            TableRequirement(
+                table="runtime_migration_receipts",
+                columns=("migration_id", "applied_at", "deploy_commit", "details_json"),
+                primary_key=("migration_id",),
+            ),
+        ),
+        unique=(
+            UniqueRequirement(
+                table="import_projection_finalize_receipts",
+                columns=("job_id",),
+            ),
+            UniqueRequirement(
+                table="import_projection_finalize_receipts",
+                columns=("artifact_id",),
+            ),
+        ),
+        indexes=("idx_projection_receipts_idempotency_key",),
+        partial_indexes=(
+            PartialIndexRequirement(
+                table="import_projection_finalize_receipts",
+                index="idx_projection_receipts_idempotency_key",
+                columns=("request_idempotency_key_hash",),
+            ),
         ),
     ),
 )
@@ -845,6 +901,48 @@ def _unique_index_columns(
     return columns_by_index
 
 
+def _verify_partial_index(
+    *,
+    config: GuardConfig,
+    runner: Runner,
+    blockers: list[str],
+    commands: list[list[str]],
+    requirement: PartialIndexRequirement,
+) -> bool:
+    index_list = _query_json(
+        config=config,
+        runner=runner,
+        blockers=blockers,
+        commands=commands,
+        sql=f"PRAGMA index_list({requirement.table})",
+    )
+    index_row = next(
+        (
+            row
+            for row in _rows_from_wrapped_json(index_list)
+            if row.get("name") == requirement.index
+        ),
+        None,
+    )
+    if index_row is None or index_row.get("partial") not in {1, "1"}:
+        return False
+    if index_row.get("unique") not in {1, "1"}:
+        return False
+    index_info = _query_json(
+        config=config,
+        runner=runner,
+        blockers=blockers,
+        commands=commands,
+        sql=f"PRAGMA index_info({requirement.index})",
+    )
+    columns = tuple(
+        row["name"]
+        for row in _rows_from_wrapped_json(index_info)
+        if isinstance(row.get("name"), str)
+    )
+    return columns == requirement.columns
+
+
 def _add_schema_blocker(
     blockers: list[str],
     *,
@@ -929,6 +1027,23 @@ def _verify_runtime_schema(
                     detail=(
                         f"{unique_requirement.table}"
                         f"({','.join(unique_requirement.columns)})"
+                    ),
+                )
+        for partial_index_requirement in requirement.partial_indexes:
+            if not _verify_partial_index(
+                config=config,
+                runner=runner,
+                blockers=blockers,
+                commands=commands,
+                requirement=partial_index_requirement,
+            ):
+                _add_schema_blocker(
+                    blockers,
+                    code="schema_partial_index_missing",
+                    receipt_id=requirement.receipt_id,
+                    detail=(
+                        f"{partial_index_requirement.table}"
+                        f".{partial_index_requirement.index}"
                     ),
                 )
 

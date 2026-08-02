@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
+from tools.cloudflare_runtime_contract import EXPECTED_MIGRATION_RECEIPTS
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = ROOT / "frontend/cloudflare/db/schema.sql"
@@ -25,6 +26,14 @@ PHASE2_MIGRATION = (
 PHASE2_DLQ_MIGRATION = (
     ROOT
     / "frontend/cloudflare/db/migrations/20260802_phase2_dlq_replay_receipts.sql"
+)
+PHASE3_MIGRATION = (
+    ROOT
+    / "frontend/cloudflare/db/migrations/20260802_phase3_durable_artifacts.sql"
+)
+PHASE4_MIGRATION = (
+    ROOT
+    / "frontend/cloudflare/db/migrations/20260802_phase4_projection_import.sql"
 )
 
 
@@ -53,6 +62,97 @@ def _insert_job(connection: sqlite3.Connection, *, job_id: str = "job-1") -> Non
         ) VALUES (?, ?, 'collect', 'italy', 'ansa', 'worker-rss', ?, ?, 'enqueued')
         """,
         (job_id, f"idem-{job_id}", "2026-08-01T00:00:00Z", "20260801T0000Z"),
+    )
+
+
+def _phase4_runtime_connection() -> sqlite3.Connection:
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.executescript(MIGRATION.read_text(encoding="utf-8"))
+        connection.executescript(PHASE2_MIGRATION.read_text(encoding="utf-8"))
+        connection.executescript(PHASE3_MIGRATION.read_text(encoding="utf-8"))
+        connection.executescript(PHASE4_MIGRATION.read_text(encoding="utf-8"))
+    except Exception:
+        connection.close()
+        raise
+    return connection
+
+
+def _insert_import_graph(
+    connection: sqlite3.Connection,
+    *,
+    suffix: str,
+    batch_id: str = "batch-shared",
+) -> None:
+    job_id = f"job-{suffix}"
+    artifact_id = f"artifact-{suffix}"
+    _insert_job(connection, job_id=job_id)
+    connection.execute(
+        """
+        INSERT INTO import_batches (
+            batch_id, job_id, checksum, started_at
+        ) VALUES (?, ?, 'a' || lower(hex(randomblob(31))), '2026-08-02T00:00:00Z')
+        """,
+        (batch_id, job_id),
+    )
+    connection.execute(
+        """
+        INSERT INTO artifact_manifests (
+            artifact_id, batch_id, job_id, object_key, sha256, payload_bytes,
+            content_type, r2_etag, r2_version, created_at
+        ) VALUES (
+            ?, ?, ?, ?, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            128, 'application/json', 'etag-1', 'version-1', '2026-08-02T00:00:00Z'
+        )
+        """,
+        (artifact_id, batch_id, job_id, f"imports/{artifact_id}.json"),
+    )
+
+
+def _insert_source_finalize_receipt(
+    connection: sqlite3.Connection,
+    *,
+    batch_id: str = "batch-shared",
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO import_batch_finalize_receipts (
+            batch_id, job_id, target_id, source_id, batch_checksum,
+            lease_token, fencing_version, finalized_at,
+            batch_guard, job_guard, source_guard
+        ) VALUES (
+            ?, 'job-source', 'italy', 'ansa',
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            'lease-source', 1, '2026-08-02T00:01:00Z',
+            'batch-guard', 'job-guard', 'source-guard'
+        )
+        """,
+        (batch_id,),
+    )
+
+
+def _insert_projection_finalize_receipt(
+    connection: sqlite3.Connection,
+    *,
+    batch_id: str = "batch-shared",
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO import_projection_finalize_receipts (
+            batch_id, job_id, batch_checksum, artifact_id, finalized_at,
+            batch_guard, job_guard, artifact_guard, origin,
+            request_idempotency_key_hash
+        ) VALUES (
+            ?, 'job-projection',
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            'artifact-projection', '2026-08-02T00:01:00Z',
+            'batch-guard', 'job-guard', 'artifact-guard',
+            'container-import',
+            'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+        )
+        """,
+        (batch_id,),
     )
 
 
@@ -212,6 +312,83 @@ def test_phase2_dlq_replay_migration_adds_operator_and_consumption_receipts() ->
             """
         ).fetchone()
         assert receipt is not None
+    finally:
+        connection.close()
+
+
+def test_phase4_projection_import_schema_records_receipt_contract(
+    connection: sqlite3.Connection,
+) -> None:
+    projection_columns = {
+        row[1]
+        for row in connection.execute(
+            "PRAGMA table_info(import_projection_finalize_receipts)"
+        )
+    }
+    assert projection_columns == {
+        "batch_id",
+        "job_id",
+        "batch_checksum",
+        "artifact_id",
+        "finalized_at",
+        "batch_guard",
+        "job_guard",
+        "artifact_guard",
+        "origin",
+        "request_idempotency_key_hash",
+    }
+    assert "20260802_phase4_projection_import" in EXPECTED_MIGRATION_RECEIPTS
+
+    indexes = {
+        row["name"]: row["unique"]
+        for row in connection.execute(
+            "PRAGMA index_list(import_projection_finalize_receipts)"
+        ).fetchall()
+    }
+    assert indexes["idx_projection_receipts_idempotency_key"] == 1
+
+
+def test_phase4_projection_import_migration_is_additive_and_idempotent() -> None:
+    connection = _phase4_runtime_connection()
+    try:
+        connection.executescript(PHASE4_MIGRATION.read_text(encoding="utf-8"))
+
+        receipt = connection.execute(
+            """
+            SELECT details_json FROM runtime_migration_receipts
+            WHERE migration_id='20260802_phase4_projection_import'
+            """
+        ).fetchone()
+        assert receipt is not None
+        assert (
+            receipt["details_json"]
+            == '{"finalize_modes":["source-fenced","projection-only"],'
+            '"authoritative_projection":true}'
+        )
+    finally:
+        connection.close()
+
+
+@pytest.mark.parametrize(
+    "first_insert, second_insert",
+    [
+        (_insert_source_finalize_receipt, _insert_projection_finalize_receipt),
+        (_insert_projection_finalize_receipt, _insert_source_finalize_receipt),
+    ],
+)
+def test_phase4_finalize_receipts_reject_mixed_modes_for_same_batch(
+    first_insert: Callable[[sqlite3.Connection], None],
+    second_insert: Callable[[sqlite3.Connection], None],
+) -> None:
+    connection = _phase4_runtime_connection()
+    try:
+        _insert_import_graph(connection, suffix="source")
+        _insert_import_graph(connection, suffix="projection", batch_id="batch-projection")
+
+        first_insert(connection)
+        with pytest.raises(sqlite3.IntegrityError) as error:
+            second_insert(connection)
+        assert "import_finalize_receipt_mode_conflict" in str(error.value)
     finally:
         connection.close()
 

@@ -18,18 +18,21 @@ EXPECTED_RUNTIME_RECEIPTS = (
     "20260802_phase2_import_staging",
     "20260802_phase2_dlq_replay_receipts",
     "20260802_phase3_durable_artifacts",
+    "20260802_phase4_projection_import",
 )
 RUNTIME_SCHEMA_TABLE_QUERY = (
     "SELECT name FROM sqlite_master WHERE type='table' AND name IN "
     "('import_staged_events','import_batch_finalize_receipts',"
-    "'dlq_replay_receipts','dlq_consumption_receipts','artifact_manifests')"
+    "'dlq_replay_receipts','dlq_consumption_receipts','artifact_manifests',"
+    "'import_projection_finalize_receipts')"
 )
 REQUIRED_RUNTIME_INDEX_QUERY = (
     "SELECT name FROM sqlite_master WHERE type='index' AND name IN "
     "('idx_jobs_status_scheduled','idx_job_outbox_dispatch',"
     "'idx_source_runtime_due','idx_import_staged_events_batch_chunk',"
     "'idx_dlq_replay_receipts_original','idx_dlq_consumption_receipts_consumed',"
-    "'idx_artifact_manifests_status_created','idx_artifact_manifests_job')"
+    "'idx_artifact_manifests_status_created','idx_artifact_manifests_job',"
+    "'idx_projection_receipts_idempotency_key')"
 )
 
 
@@ -104,13 +107,17 @@ def _table_info(columns: list[str], pk: list[str] | None = None) -> str:
     )
 
 
-def _index_list(indexes: list[tuple[str, bool]]) -> str:
+def _index_list(indexes: list[tuple[str, bool] | tuple[str, bool, bool]]) -> str:
     return _json(
         [
             {
                 "results": [
-                    {"name": name, "unique": 1 if unique else 0}
-                    for name, unique in indexes
+                    {
+                        "name": row[0],
+                        "unique": 1 if row[1] else 0,
+                        "partial": 1 if len(row) > 2 and row[2] else 0,
+                    }
+                    for row in indexes
                 ]
             }
         ]
@@ -571,6 +578,76 @@ def _schema_ok_responses() -> dict[tuple[str, ...], str]:
             "ns-db",
             "--remote",
             "--command",
+            "PRAGMA table_info(import_projection_finalize_receipts)",
+            "--json",
+        ): _table_info(
+            [
+                "batch_id",
+                "job_id",
+                "batch_checksum",
+                "artifact_id",
+                "finalized_at",
+                "batch_guard",
+                "job_guard",
+                "artifact_guard",
+                "origin",
+                "request_idempotency_key_hash",
+            ],
+            pk=["batch_id"],
+        ),
+        (
+            "wrangler",
+            "d1",
+            "execute",
+            "ns-db",
+            "--remote",
+            "--command",
+            "PRAGMA index_list(import_projection_finalize_receipts)",
+            "--json",
+        ): _index_list(
+            [
+                ("sqlite_autoindex_import_projection_finalize_receipts_2", True),
+                ("sqlite_autoindex_import_projection_finalize_receipts_3", True),
+                ("idx_projection_receipts_idempotency_key", True, True),
+            ]
+        ),
+        (
+            "wrangler",
+            "d1",
+            "execute",
+            "ns-db",
+            "--remote",
+            "--command",
+            "PRAGMA index_info(sqlite_autoindex_import_projection_finalize_receipts_2)",
+            "--json",
+        ): _index_info(["job_id"]),
+        (
+            "wrangler",
+            "d1",
+            "execute",
+            "ns-db",
+            "--remote",
+            "--command",
+            "PRAGMA index_info(sqlite_autoindex_import_projection_finalize_receipts_3)",
+            "--json",
+        ): _index_info(["artifact_id"]),
+        (
+            "wrangler",
+            "d1",
+            "execute",
+            "ns-db",
+            "--remote",
+            "--command",
+            "PRAGMA index_info(idx_projection_receipts_idempotency_key)",
+            "--json",
+        ): _index_info(["request_idempotency_key_hash"]),
+        (
+            "wrangler",
+            "d1",
+            "execute",
+            "ns-db",
+            "--remote",
+            "--command",
             REQUIRED_RUNTIME_INDEX_QUERY,
             "--json",
         ): _json(
@@ -585,6 +662,7 @@ def _schema_ok_responses() -> dict[tuple[str, ...], str]:
                         {"name": "idx_dlq_consumption_receipts_consumed"},
                         {"name": "idx_artifact_manifests_status_created"},
                         {"name": "idx_artifact_manifests_job"},
+                        {"name": "idx_projection_receipts_idempotency_key"},
                     ]
                 }
             ]
@@ -607,6 +685,7 @@ def _schema_ok_responses() -> dict[tuple[str, ...], str]:
                         {"name": "dlq_replay_receipts"},
                         {"name": "dlq_consumption_receipts"},
                         {"name": "artifact_manifests"},
+                        {"name": "import_projection_finalize_receipts"},
                     ]
                 }
             ]
@@ -744,6 +823,7 @@ def test_preflight_apply_uses_api_list_before_creating_missing_queue() -> None:
                             {"migration_id": "20260802_phase2_import_staging"},
                             {"migration_id": "20260802_phase2_dlq_replay_receipts"},
                             {"migration_id": "20260802_phase3_durable_artifacts"},
+                            {"migration_id": "20260802_phase4_projection_import"},
                         ]
                     }
                 ]
@@ -1150,6 +1230,8 @@ def test_record_runtime_receipts_verifies_schema_before_project_receipt() -> Non
         "('20260802_phase2_dlq_replay_receipts', "
         "'{\"recorded_by\":\"cloudflare_deploy_guard\"}'), "
         "('20260802_phase3_durable_artifacts', "
+        "'{\"recorded_by\":\"cloudflare_deploy_guard\"}'), "
+        "('20260802_phase4_projection_import', "
         "'{\"recorded_by\":\"cloudflare_deploy_guard\"}')"
     )
     runner = FakeRunner(
@@ -1321,6 +1403,56 @@ def test_record_runtime_receipts_blocks_missing_phase1_unique_constraint() -> No
     assert receipt["status"] == "blocked"
     assert (
         "schema_unique_missing:20260801_phase1_job_runtime:jobs(idempotency_key)"
+        in receipt["blockers"]
+    )
+    assert not any(
+        "INSERT OR IGNORE INTO runtime_migration_receipts" in call[6]
+        for call in runner.calls
+    )
+
+
+def test_record_runtime_receipts_blocks_non_partial_projection_idempotency_index() -> None:
+    responses = _schema_ok_responses()
+    responses[
+        (
+            "wrangler",
+            "d1",
+            "execute",
+            "ns-db",
+            "--remote",
+            "--command",
+            "PRAGMA index_list(import_projection_finalize_receipts)",
+            "--json",
+        )
+    ] = _index_list(
+        [
+            ("sqlite_autoindex_import_projection_finalize_receipts_2", True),
+            ("sqlite_autoindex_import_projection_finalize_receipts_3", True),
+            ("idx_projection_receipts_idempotency_key", True, False),
+        ]
+    )
+    runner = FakeRunner(
+        {
+            **responses,
+            (
+                "wrangler",
+                "d1",
+                "execute",
+                "ns-db",
+                "--remote",
+                "--command",
+                "SELECT migration_id FROM runtime_migration_receipts ORDER BY migration_id",
+                "--json",
+            ): _runtime_receipts([]),
+        }
+    )
+
+    receipt = record_runtime_receipts(GuardConfig(), runner=runner)
+
+    assert receipt["status"] == "blocked"
+    assert (
+        "schema_partial_index_missing:20260802_phase4_projection_import:"
+        "import_projection_finalize_receipts.idx_projection_receipts_idempotency_key"
         in receipt["blockers"]
     )
     assert not any(
