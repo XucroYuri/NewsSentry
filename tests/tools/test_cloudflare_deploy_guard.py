@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from typing import Any
 
 import pytest
 from tools.cloudflare_deploy_guard import (
@@ -693,7 +694,7 @@ def _schema_ok_responses() -> dict[tuple[str, ...], str]:
     }
 
 
-def test_preflight_blocks_missing_queue_without_blind_create() -> None:
+def test_preflight_degrades_missing_shadow_queue_without_blind_create() -> None:
     runner = FakeRunner(
         {
             (
@@ -772,12 +773,42 @@ def test_preflight_blocks_missing_queue_without_blind_create() -> None:
     )
 
     assert receipt["status"] == "blocked"
-    assert "missing_queue:news-sentry-jobs-dlq" in receipt["blockers"]
-    assert "consumer_missing:news-sentry-jobs" in receipt["blockers"]
+    assert receipt["queue"]["status"] == "degraded"
+    assert "missing_queue:news-sentry-jobs-dlq" in receipt["queue"]["reason_codes"]
+    assert "consumer_missing:news-sentry-jobs" in receipt["queue"]["reason_codes"]
     assert "missing_runtime_migration_receipt:20260802_phase2_import_staging" in receipt["blockers"]
     assert "schema_table_missing:import_batch_finalize_receipts" in receipt["blockers"]
     assert ("wrangler", "queues", "list", "--json") not in runner.calls
     assert not any(call[:3] == ("wrangler", "queues", "create") for call in runner.calls)
+
+
+def test_preflight_blocks_queue_only_when_explicitly_required() -> None:
+    transport = FakeTransport(
+        {
+            ("GET", _queue_page_url(page=1)): (
+                200,
+                {
+                    "success": True,
+                    "result": [{"queue_name": "news-sentry-jobs"}],
+                    "result_info": {"page": 1, "total_pages": 1},
+                },
+            )
+        }
+    )
+
+    receipt = run_preflight(
+        GuardConfig(
+            account_id="acct-1",
+            api_token="token-1",  # noqa: S106
+            queue_required=True,
+        ),
+        runner=_queue_ok_runner(),
+        transport=transport,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["queue"]["status"] == "blocked"
+    assert "missing_queue:news-sentry-jobs-dlq" in receipt["blockers"]
 
 
 def test_preflight_apply_uses_api_list_before_creating_missing_queue() -> None:
@@ -1066,7 +1097,7 @@ def _queue_ok_runner() -> FakeRunner:
         ),
     ],
 )
-def test_preflight_blocks_malformed_queue_list_pagination(
+def test_preflight_degrades_malformed_queue_list_pagination(
     payload: object,
     expected_blocker: str,
 ) -> None:
@@ -1078,12 +1109,13 @@ def test_preflight_blocks_malformed_queue_list_pagination(
         transport=transport,
     )
 
-    assert receipt["status"] == "blocked"
-    assert expected_blocker in receipt["blockers"]
+    assert receipt["status"] == "ok"
+    assert receipt["queue"]["status"] == "degraded"
+    assert expected_blocker in receipt["queue"]["reason_codes"]
     assert receipt["queues"] == []
 
 
-def test_preflight_blocks_queue_list_total_pages_drift() -> None:
+def test_preflight_degrades_queue_list_total_pages_drift() -> None:
     transport = FakeTransport(
         {
             ("GET", _queue_page_url(page=1)): (
@@ -1111,12 +1143,15 @@ def test_preflight_blocks_queue_list_total_pages_drift() -> None:
         transport=transport,
     )
 
-    assert receipt["status"] == "blocked"
-    assert "queue_list_pagination_total_pages_drift:expected=2:actual=3" in receipt["blockers"]
+    assert receipt["status"] == "ok"
+    assert (
+        "queue_list_pagination_total_pages_drift:expected=2:actual=3"
+        in receipt["queue"]["reason_codes"]
+    )
     assert receipt["queues"] == []
 
 
-def test_preflight_apply_blocks_wrong_create_response_without_local_queue_truth() -> None:
+def test_preflight_apply_degrades_wrong_create_response_without_local_queue_truth() -> None:
     runner = FakeRunner({**_schema_ok_responses()})
     transport = FakeTransport(
         {
@@ -1138,11 +1173,11 @@ def test_preflight_apply_blocks_wrong_create_response_without_local_queue_truth(
     )
 
     assert receipt["status"] == "blocked"
-    assert "queue_create_response_mismatch:news-sentry-jobs" in receipt["blockers"]
+    assert "queue_create_response_mismatch:news-sentry-jobs" in receipt["queue"]["reason_codes"]
     assert "news-sentry-jobs" not in receipt["queues"]
 
 
-def test_preflight_apply_blocks_when_created_queue_revalidation_misses() -> None:
+def test_preflight_apply_degrades_when_created_queue_revalidation_misses() -> None:
     runner = FakeRunner({**_schema_ok_responses()})
     transport = FakeTransport(
         {
@@ -1175,7 +1210,7 @@ def test_preflight_apply_blocks_when_created_queue_revalidation_misses() -> None
     )
 
     assert receipt["status"] == "blocked"
-    assert "queue_revalidation_missing:news-sentry-jobs" in receipt["blockers"]
+    assert "queue_revalidation_missing:news-sentry-jobs" in receipt["queue"]["reason_codes"]
     assert "news-sentry-jobs" not in receipt["queues"]
 
 
@@ -1463,23 +1498,34 @@ def test_record_runtime_receipts_blocks_non_partial_projection_idempotency_index
 
 def test_build_deploy_receipt_requires_matching_commit_version_and_health_mode() -> None:
     receipt = build_deploy_receipt(
-        expected_commit="abc123",
-        expected_scheduler_mode="shadow",
-        version_json={"id": "version-1", "metadata": {"source": "unit"}},
-        deployment_json={"id": "deployment-1", "version_id": "version-1", "status": "active"},
-        health_json={
-            "status": "ok",
-            "deployment": {
-                "commit": "abc123",
-                "worker_version": "version-1",
-                "scheduler_mode": "shadow",
-                "worker_native_collect_enabled": False,
+        **_valid_deploy_receipt_kwargs(
+            expected_commit="abc123",
+            version_json={"id": "version-1", "metadata": {"source": "unit"}},
+            deployment_json={
+                "id": "deployment-1",
+                "version_id": "version-1",
+                "status": "active",
             },
-            "collection": {"authoritative": False},
-            "queue": {"configured": True, "dlq": {"configured": True}},
-        },
-        applied_migration_receipts=EXPECTED_RUNTIME_RECEIPTS,
-        queue_receipt={"status": "ok"},
+            health_json={
+                "status": "ok",
+                "deployment": {
+                    "commit": "abc123",
+                    "worker_version": "version-1",
+                    "scheduler_mode": "shadow",
+                    "worker_native_collect_enabled": False,
+                    "compute": {"container_configured": True, "queue_configured": True},
+                    "storage": {"artifacts_configured": True},
+                },
+                "collection": {"authoritative": False},
+                "queue": {"configured": True, "dlq": {"configured": True}},
+            },
+            continuity_json={
+                "status": "ok",
+                "deployed_commit": "abc123",
+                "latest_collect": {"status": "ok", "run_id": "collect-1"},
+                "selected_target_ids": ["france", "germany", "italy", "japan"],
+            },
+        )
     )
 
     assert receipt["status"] == "ok"
@@ -1488,28 +1534,101 @@ def test_build_deploy_receipt_requires_matching_commit_version_and_health_mode()
     assert receipt["health_mode"] == "shadow"
 
 
-def test_build_deploy_receipt_accepts_weighted_deployment_versions() -> None:
-    receipt = build_deploy_receipt(
-        expected_commit="abc123",
-        expected_scheduler_mode="shadow",
-        version_json={"id": "version-1"},
-        deployment_json={
-            "id": "deployment-1",
-            "versions": [{"version_id": "version-1", "percentage": 100}],
-        },
-        health_json={
+def _valid_deploy_receipt_kwargs(**overrides: Any) -> dict[str, Any]:
+    values: dict[str, Any] = {
+        "expected_commit": "a" * 40,
+        "expected_scheduler_mode": "shadow",
+        "version_json": {"id": "version-1"},
+        "deployment_json": {"id": "deployment-1", "version_id": "version-1"},
+        "health_json": {
             "status": "ok",
             "deployment": {
-                "commit": "abc123",
+                "commit": "a" * 40,
                 "worker_version": "version-1",
                 "scheduler_mode": "shadow",
                 "worker_native_collect_enabled": False,
+                "compute": {"container_configured": True, "queue_configured": True},
+                "storage": {"artifacts_configured": True},
             },
             "collection": {"authoritative": False},
             "queue": {"configured": True, "dlq": {"configured": True}},
         },
-        applied_migration_receipts=EXPECTED_RUNTIME_RECEIPTS,
-        queue_receipt={"status": "ok"},
+        "applied_migration_receipts": EXPECTED_RUNTIME_RECEIPTS,
+        "queue_receipt": {"status": "ok"},
+        "continuity_json": {
+            "status": "ok",
+            "deployed_commit": "a" * 40,
+            "latest_collect": {"status": "ok", "run_id": "collect-1"},
+            "selected_target_ids": ["france", "germany", "italy", "japan"],
+        },
+    }
+    values.update(overrides)
+    return values
+
+
+@pytest.mark.parametrize("status", ["skipped", "failed_dependency", "failed_retryable"])
+def test_deploy_guard_rejects_non_authoritative_collect_status(status: str) -> None:
+    with pytest.raises(ReceiptError, match=f"latest collect status invalid: {status}"):
+        build_deploy_receipt(
+            **_valid_deploy_receipt_kwargs(
+                continuity_json={
+                    "status": "failed",
+                    "deployed_commit": "a" * 40,
+                    "latest_collect": {"status": status},
+                },
+            )
+        )
+
+
+def test_deploy_guard_binds_continuity_to_exact_commit() -> None:
+    with pytest.raises(ReceiptError, match="continuity commit mismatch"):
+        build_deploy_receipt(
+            **_valid_deploy_receipt_kwargs(
+                expected_commit="b" * 40,
+                health_json={
+                    "status": "ok",
+                    "deployment": {
+                        "commit": "b" * 40,
+                        "worker_version": "version-1",
+                        "scheduler_mode": "shadow",
+                        "worker_native_collect_enabled": False,
+                        "compute": {"container_configured": True, "queue_configured": True},
+                        "storage": {"artifacts_configured": True},
+                    },
+                },
+                continuity_json={"status": "ok", "deployed_commit": "a" * 40},
+            )
+        )
+
+
+def test_build_deploy_receipt_accepts_weighted_deployment_versions() -> None:
+    receipt = build_deploy_receipt(
+        **_valid_deploy_receipt_kwargs(
+            expected_commit="abc123",
+            deployment_json={
+                "id": "deployment-1",
+                "versions": [{"version_id": "version-1", "percentage": 100}],
+            },
+            health_json={
+                "status": "ok",
+                "deployment": {
+                    "commit": "abc123",
+                    "worker_version": "version-1",
+                    "scheduler_mode": "shadow",
+                    "worker_native_collect_enabled": False,
+                    "compute": {"container_configured": True, "queue_configured": True},
+                    "storage": {"artifacts_configured": True},
+                },
+                "collection": {"authoritative": False},
+                "queue": {"configured": True, "dlq": {"configured": True}},
+            },
+            continuity_json={
+                "status": "ok",
+                "deployed_commit": "abc123",
+                "latest_collect": {"status": "ok", "run_id": "collect-1"},
+                "selected_target_ids": ["france", "germany", "italy", "japan"],
+            },
+        )
     )
 
     assert receipt["deployment_id"] == "deployment-1"
@@ -1525,4 +1644,5 @@ def test_build_deploy_receipt_rejects_dry_run_style_incomplete_evidence() -> Non
             health_json={"status": "ok"},
             applied_migration_receipts=(),
             queue_receipt={"status": "ok"},
+            continuity_json={},
         )

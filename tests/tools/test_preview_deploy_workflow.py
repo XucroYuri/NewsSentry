@@ -116,6 +116,8 @@ def test_deploy_workflow_uses_fail_closed_cloudflare_preflight_and_receipts() ->
     assert "node_modules/.bin/wrangler versions list --json" in workflow
     assert "node_modules/.bin/wrangler deployments list --json" in workflow
     assert "SELECT migration_id FROM runtime_migration_receipts ORDER BY migration_id" in workflow
+    assert "SELECT key, value, updated_at FROM ops_state WHERE key='last:collect-cycle'" in workflow
+    assert "--continuity-json /tmp/ns-continuity.json" in workflow
     assert "tools/cloudflare_deploy_guard.py record-runtime-receipts" in workflow
     assert "node_modules/.bin/wrangler queues list --json" not in workflow
     assert "--var \"SCHEDULER_MODE:shadow\"" in workflow
@@ -182,6 +184,8 @@ def test_preview_worker_deploy_job_is_isolated_and_exports_api_url() -> None:
         in preview_worker_job
     )
     assert "tools/cloudflare_preview_guard.py deploy-receipt" in preview_worker_job
+    assert '"status": "not_exercised_preview"' in preview_worker_job
+    assert "production_continuity_not_exercised_in_preview" in preview_worker_job
     assert "wrangler d1 delete" not in preview_worker_job
     assert "ns-db --remote" not in preview_worker_job
     assert "news-sentry-jobs" not in preview_worker_job

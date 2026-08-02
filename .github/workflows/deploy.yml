@@ -520,6 +520,9 @@ jobs:
           node_modules/.bin/wrangler d1 execute ns-db --remote \
             --command "SELECT migration_id FROM runtime_migration_receipts ORDER BY migration_id" \
             --json > /tmp/ns-d1-runtime-migration-receipts.json
+          node_modules/.bin/wrangler d1 execute ns-db --remote \
+            --command "SELECT key, value, updated_at FROM ops_state WHERE key='last:collect-cycle'" \
+            --json > /tmp/ns-d1-collect-continuity.json
           python - <<'PY'
           import json
           from pathlib import Path
@@ -538,11 +541,30 @@ jobs:
           versions = rows(json.loads(Path("/tmp/ns-worker-versions.json").read_text()))
           deployments = rows(json.loads(Path("/tmp/ns-worker-deployments.json").read_text()))
           migrations = rows(json.loads(Path("/tmp/ns-d1-runtime-migration-receipts.json").read_text()))
+          collect_rows = rows(json.loads(Path("/tmp/ns-d1-collect-continuity.json").read_text()))
+          collect_value = {}
+          if collect_rows and isinstance(collect_rows[0], dict):
+              raw_value = collect_rows[0].get("value")
+              if isinstance(raw_value, str):
+                  collect_value = json.loads(raw_value)
+          latest_collect = {
+              "status": collect_value.get("status"),
+              "run_id": collect_value.get("runId"),
+              "updated_at": collect_rows[0].get("updated_at") if collect_rows else None,
+          }
+          details = collect_value.get("details")
+          collect_batch = details.get("collect_batch") if isinstance(details, dict) else {}
           Path("/tmp/ns-worker-version.json").write_text(json.dumps(versions[0] if versions else {}))
           Path("/tmp/ns-worker-deployment.json").write_text(json.dumps(deployments[0] if deployments else {}))
           Path("/tmp/ns-runtime-migration-receipts.json").write_text(json.dumps([
               row.get("migration_id") for row in migrations if isinstance(row, dict) and row.get("migration_id")
           ]))
+          Path("/tmp/ns-continuity.json").write_text(json.dumps({
+              "status": "ok" if latest_collect["status"] in {"ok", "partial", "empty_no_new_items"} else "failed",
+              "deployed_commit": json.loads(Path("/tmp/worker-ready.json").read_text()).get("deployment", {}).get("commit"),
+              "latest_collect": latest_collect,
+              "selected_target_ids": collect_batch.get("selected_target_ids") if isinstance(collect_batch, dict) else [],
+          }))
           PY
           cd ../..
           python tools/cloudflare_deploy_guard.py receipt \
@@ -553,6 +575,7 @@ jobs:
             --health-json /tmp/worker-ready.json \
             --runtime-migration-receipts-json /tmp/ns-runtime-migration-receipts.json \
             --queue-receipt-json /tmp/news-sentry-cloudflare-preflight.json \
+            --continuity-json /tmp/ns-continuity.json \
             --output /tmp/news-sentry-cloudflare-deploy-receipt.json
 
   deploy-cloudflare-preview-worker:
@@ -701,6 +724,15 @@ jobs:
             --input "${WRANGLER_OUTPUT_FILE_PATH}" \
             --output /tmp/news-sentry-preview-deploy-receipt.json \
             --github-output "$GITHUB_OUTPUT"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          Path("/tmp/news-sentry-preview-continuity.json").write_text(json.dumps({
+              "status": "not_exercised_preview",
+              "reason_codes": ["production_continuity_not_exercised_in_preview"],
+          }, indent=2, sort_keys=True))
+          PY
 
       - name: Upload Cloudflare preview Worker receipt
         uses: actions/upload-artifact@v4
@@ -708,6 +740,7 @@ jobs:
           name: news-sentry-preview-worker-receipt
           path: |
             /tmp/news-sentry-preview-deploy-receipt.json
+            /tmp/news-sentry-preview-continuity.json
             /tmp/news-sentry-preview-seed.sql
 
   deploy-cloudflare-pages:

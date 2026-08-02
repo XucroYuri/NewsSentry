@@ -100,6 +100,7 @@ class GuardConfig:
     api_key: str | None = None
     api_email: str | None = None
     api_base: str = "https://api.cloudflare.com/client/v4"
+    queue_required: bool = False
 
 
 @dataclass(frozen=True)
@@ -1079,17 +1080,18 @@ def run_preflight(
     blockers = validate_wrangler_toml(config.wrangler_toml)
     commands: list[list[str]] = []
 
-    account_id = _account_id(config, blockers)
-    headers = _auth_headers(config, blockers)
+    queue_blockers: list[str] = []
+    account_id = _account_id(config, queue_blockers)
+    headers = _auth_headers(config, queue_blockers)
     queues: set[str] = set()
     if account_id and headers:
         queues = _list_queue_names(
             config=config,
             account_id=account_id,
             headers=headers,
-            transport=transport,
-            blockers=blockers,
-        )
+                transport=transport,
+                blockers=queue_blockers,
+            )
     for queue in (config.queue_name, config.dlq_name):
         if queue in queues:
             continue
@@ -1100,11 +1102,11 @@ def run_preflight(
                 headers=headers,
                 queue=queue,
                 transport=transport,
-                blockers=blockers,
+                blockers=queue_blockers,
             ):
                 queues.add(queue)
         else:
-            blockers.append(f"missing_queue:{queue}")
+            queue_blockers.append(f"missing_queue:{queue}")
 
     consumer_cmd = [
         config.wrangler,
@@ -1116,8 +1118,9 @@ def run_preflight(
         "--json",
     ]
     commands.append(consumer_cmd)
-    if not _consumer_ok(_safe_command_json(consumer_cmd, runner, blockers), config.worker_name):
-        blockers.append(f"consumer_missing:{config.queue_name}")
+    consumer_json = _safe_command_json(consumer_cmd, runner, queue_blockers)
+    if not _consumer_ok(consumer_json, config.worker_name):
+        queue_blockers.append(f"consumer_missing:{config.queue_name}")
 
     r2_cmd = [
         config.wrangler,
@@ -1149,11 +1152,20 @@ def run_preflight(
             blockers.append(f"missing_runtime_migration_receipt:{migration}")
 
     _verify_runtime_schema(config=config, runner=runner, blockers=blockers, commands=commands)
+    if config.queue_required:
+        blockers.extend(queue_blockers)
 
     return {
         "schema_version": "2026-08-02.phase2.preflight",
         "status": "blocked" if blockers else "ok",
         "blockers": blockers,
+        "queue": {
+            "required": config.queue_required,
+            "status": "blocked" if config.queue_required and queue_blockers else "degraded"
+            if queue_blockers
+            else "ok",
+            "reason_codes": sorted(set(queue_blockers)),
+        },
         "queues": sorted(queues),
         "r2_buckets": sorted(artifact_buckets),
         "runtime_migration_receipts": sorted(applied),
@@ -1229,6 +1241,16 @@ def _deployment_version_id(deployment_json: dict[str, Any]) -> str | None:
     return None
 
 
+def _as_mapping(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _as_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str) and item]
+
+
 def build_deploy_receipt(
     *,
     expected_commit: str,
@@ -1238,17 +1260,31 @@ def build_deploy_receipt(
     health_json: dict[str, Any],
     applied_migration_receipts: Iterable[str],
     queue_receipt: dict[str, Any],
+    continuity_json: dict[str, Any],
 ) -> dict[str, Any]:
     deployment = health_json.get("deployment")
     if not isinstance(deployment, dict):
         raise ReceiptError("health deployment receipt missing")
+    continuity = _as_mapping(continuity_json)
+    latest_collect = _as_mapping(continuity.get("latest_collect"))
     worker_version = deployment.get("worker_version")
     version_id = version_json.get("id") or version_json.get("version_id")
     deployment_version_id = _deployment_version_id(deployment_json)
+    compute = _as_mapping(deployment.get("compute"))
+    storage = _as_mapping(deployment.get("storage"))
+    collect_run_id = latest_collect.get("run_id") or continuity.get("collect_run_id")
+    selected_target_ids = _as_string_list(continuity.get("selected_target_ids"))
 
     _require(bool(version_id), "worker version receipt missing")
     _require(bool(deployment_json.get("id")), "worker deployment receipt missing")
     _require(deployment.get("commit") == expected_commit, "health commit mismatch")
+    _require(continuity.get("deployed_commit") == expected_commit, "continuity commit mismatch")
+    collect_status = latest_collect.get("status")
+    _require(
+        collect_status in {"ok", "partial", "empty_no_new_items"},
+        f"latest collect status invalid: {collect_status}",
+    )
+    _require(continuity.get("status") == "ok", "continuity status invalid")
     _require(worker_version == version_id, "health worker version mismatch")
     _require(deployment_version_id == version_id, "deployment version mismatch")
     _require(deployment.get("scheduler_mode") == expected_scheduler_mode, "scheduler mode mismatch")
@@ -1257,10 +1293,32 @@ def build_deploy_receipt(
         "worker-native collect not disabled",
     )
     _require(health_json.get("status") in {"ok", "degraded", "unhealthy"}, "health status missing")
-    _require(queue_receipt.get("status") == "ok", "queue preflight receipt not ok")
+    _require(compute.get("container_configured") is True, "container binding missing")
+    _require(storage.get("artifacts_configured") is True, "R2 artifact binding missing")
+    _require(isinstance(collect_run_id, str) and bool(collect_run_id), "collect run id missing")
+    _require(bool(selected_target_ids), "target selection receipt missing")
     required_receipts = set(GuardConfig().expected_migration_receipts)
     actual_receipts = set(applied_migration_receipts)
     _require(required_receipts <= actual_receipts, "D1 runtime migration receipt missing")
+    queue_required = expected_scheduler_mode != "shadow" or queue_receipt.get("required") is True
+    _require(
+        not queue_required or queue_receipt.get("status") == "ok",
+        "queue preflight receipt not ok",
+    )
+    queue_blockers = queue_receipt.get("blockers")
+    queue_evidence = _as_mapping(queue_receipt.get("queue"))
+    nested_queue_reasons = queue_evidence.get("reason_codes")
+    queue_reason_codes = [
+        reason
+        for reason in [
+            *(queue_blockers if isinstance(queue_blockers, list) else []),
+            *(nested_queue_reasons if isinstance(nested_queue_reasons, list) else []),
+            "queue_not_configured"
+            if compute.get("queue_configured") is not True
+            else None,
+        ]
+        if isinstance(reason, str) and reason
+    ]
 
     return {
         "schema_version": "2026-08-02.phase2.deploy-receipt",
@@ -1272,7 +1330,19 @@ def build_deploy_receipt(
         "health_mode": expected_scheduler_mode,
         "collection_authoritative": deployment.get("collection_authoritative"),
         "runtime_migration_receipts": sorted(actual_receipts),
-        "queue": queue_receipt,
+        "queue": {
+            **queue_receipt,
+            "required": queue_required,
+            "degraded": bool(queue_reason_codes) and not queue_required,
+            "reason_codes": sorted(set(queue_reason_codes)),
+        },
+        "continuity": {
+            "status": "ok",
+            "reason_codes": [],
+            "collect_run_id": collect_run_id,
+            "selected_target_ids": selected_target_ids,
+            "deployed_commit": continuity["deployed_commit"],
+        },
     }
 
 
@@ -1293,6 +1363,7 @@ def _preflight_command(args: argparse.Namespace) -> int:
         api_token=args.api_token,
         api_key=args.api_key,
         api_email=args.api_email,
+        queue_required=args.queue_required,
     )
     receipt = run_preflight(config)
     _print_json(receipt, Path(args.output) if args.output else None)
@@ -1321,6 +1392,7 @@ def _receipt_command(args: argparse.Namespace) -> int:
             json.loads(Path(args.runtime_migration_receipts_json).read_text(encoding="utf-8"))
         ),
         queue_receipt=json.loads(Path(args.queue_receipt_json).read_text(encoding="utf-8")),
+        continuity_json=json.loads(Path(args.continuity_json).read_text(encoding="utf-8")),
     )
     _print_json(receipt, Path(args.output) if args.output else None)
     return 0
@@ -1339,6 +1411,7 @@ def main(argv: list[str] | None = None) -> int:
     preflight.add_argument("--api-token")
     preflight.add_argument("--api-key")
     preflight.add_argument("--api-email")
+    preflight.add_argument("--queue-required", action="store_true")
     preflight.add_argument("--output")
     preflight.set_defaults(func=_preflight_command)
 
@@ -1357,6 +1430,7 @@ def main(argv: list[str] | None = None) -> int:
     receipt.add_argument("--health-json", required=True)
     receipt.add_argument("--runtime-migration-receipts-json", required=True)
     receipt.add_argument("--queue-receipt-json", required=True)
+    receipt.add_argument("--continuity-json", required=True)
     receipt.add_argument("--output")
     receipt.set_defaults(func=_receipt_command)
 
