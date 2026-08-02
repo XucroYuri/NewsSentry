@@ -94,6 +94,14 @@ function event(index: number, overrides: Partial<ImportStagingEvent> = {}): Impo
   };
 }
 
+function projectionFinalize() {
+  return {
+    mode: "projection-only" as const,
+    origin: "api-import" as const,
+    requestIdempotencyKeyHash: "b".repeat(64),
+  };
+}
+
 function seedRuntime(db: SqliteD1Database, overrides: { source?: boolean; lease?: string } = {}): void {
   const lease = overrides.lease ?? "lease-1";
   db.database
@@ -123,6 +131,33 @@ function seedRuntime(db: SqliteD1Database, overrides: { source?: boolean; lease?
 }
 
 function seedArtifact(db: SqliteD1Database) {
+  return seedProjectionArtifact(db, "batch-1", "job-1");
+}
+
+function seedProjectionJob(db: SqliteD1Database, jobId: string): void {
+  db.database
+    .prepare(
+      `INSERT INTO jobs (
+         job_id, idempotency_key, job_type, target_id, source_id,
+         capability, scheduled_for, scheduled_window, status
+       ) VALUES (
+         ?, ?, 'projection_import', 'multi', 'multi',
+         'api-import', '2026-08-02T00:00:00Z', '20260802T0000Z', 'running'
+       )`,
+    )
+    .run(jobId, `idem-${jobId}`);
+  db.database
+    .prepare(
+      `INSERT INTO source_runtime_state (
+         target_id, source_id, tier, capability, next_due_at, cursor, config_version
+       ) VALUES (
+         'italy', 'ansa', 'P0', 'worker-rss', '2026-08-01T00:00:00Z', 'old', 'test'
+       )`,
+    )
+    .run();
+}
+
+function seedProjectionArtifact(db: SqliteD1Database, batchId: string, jobId: string) {
   const artifact = {
     artifactId: `artifact-${"a".repeat(64)}`,
     objectKey: `imports/v1/2026/08/02/${"a".repeat(64)}.json`,
@@ -135,13 +170,15 @@ function seedArtifact(db: SqliteD1Database) {
   };
   db.database
     .prepare(
-      `INSERT INTO artifact_manifests (
+      `INSERT OR IGNORE INTO artifact_manifests (
          artifact_id, batch_id, job_id, object_key, sha256, payload_bytes,
          content_type, r2_etag, r2_version, status, created_at
-       ) VALUES (?, 'batch-1', 'job-1', ?, ?, ?, ?, ?, ?, 'stored', ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'stored', ?)`,
     )
     .run(
       artifact.artifactId,
+      batchId,
+      jobId,
       artifact.objectKey,
       artifact.sha256,
       artifact.payloadBytes,
@@ -154,6 +191,7 @@ function seedArtifact(db: SqliteD1Database) {
 }
 
 async function stage(db: SqliteD1Database, overrides: Partial<Parameters<typeof stageImportBatch>[1]> = {}) {
+  const defaultArtifact = overrides.artifact ?? seedArtifact(db);
   return stageImportBatch(db as unknown as D1Database, {
     batchId: "batch-1",
     jobId: "job-1",
@@ -162,11 +200,196 @@ async function stage(db: SqliteD1Database, overrides: Partial<Parameters<typeof 
     outputWatermark: "cursor-1",
     events: [event(1), event(2)],
     generatedAt: "2026-08-01T01:00:00Z",
-    leaseToken: "lease-1",
-    fencingVersion: 1,
+    artifact: defaultArtifact,
+    finalize: {
+      mode: "source-fenced",
+      leaseToken: "lease-1",
+      fencingVersion: 1,
+    },
     ...overrides,
   });
 }
+
+test("projection-only finalize atomically commits projection receipt job batch artifact", async () => {
+  const db = new SqliteD1Database();
+  seedProjectionJob(db, "api-job:abc");
+  const artifact = seedProjectionArtifact(db, "api-batch:abc", "api-job:abc");
+  const beforeCursor = db.first<{ cursor: string }>(
+    "SELECT cursor FROM source_runtime_state WHERE target_id='italy' AND source_id='ansa'",
+    [],
+  );
+
+  const result = await stageImportBatch(db as unknown as D1Database, {
+    batchId: "api-batch:abc",
+    jobId: "api-job:abc",
+    targetId: "multi",
+    sourceId: "multi",
+    outputWatermark: null,
+    events: [event(1)],
+    generatedAt: "2026-08-02T00:00:00Z",
+    artifact,
+    finalize: projectionFinalize(),
+  });
+
+  assert.equal(db.first<{ status: string }>("SELECT status FROM jobs WHERE job_id='api-job:abc'", [])?.status, "committed");
+  assert.equal(db.first<{ status: string }>("SELECT status FROM import_batches WHERE batch_id='api-batch:abc'", [])?.status, "committed");
+  assert.equal(db.first<{ status: string }>("SELECT status FROM artifact_manifests WHERE batch_id='api-batch:abc'", [])?.status, "committed");
+  assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM import_projection_finalize_receipts", [])?.count, 1);
+  assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM events WHERE event_id='evt-1'", [])?.count, 1);
+  assert.deepEqual(db.first("SELECT cursor FROM source_runtime_state WHERE target_id='italy' AND source_id='ansa'", []), beforeCursor);
+  assert.equal(result.importedEvents, 1);
+  assert.equal(result.updatedEvents, 0);
+});
+
+test("projection-only finalize rollback keeps public projection and lifecycle unchanged", async () => {
+  const db = new SqliteD1Database();
+  seedProjectionJob(db, "api-job:abc");
+  const artifact = seedProjectionArtifact(db, "api-batch:abc", "api-job:abc");
+  db.failOnBatchSql = "INSERT INTO event_localizations";
+
+  await assert.rejects(
+    () =>
+      stageImportBatch(db as unknown as D1Database, {
+        batchId: "api-batch:abc",
+        jobId: "api-job:abc",
+        targetId: "multi",
+        sourceId: "multi",
+        outputWatermark: null,
+        events: [
+          event(1, {
+            localizations: [{ locale: "zh-CN", title: "标题", summary: "摘要" }],
+          }),
+        ],
+        generatedAt: "2026-08-02T00:00:00Z",
+        artifact,
+        finalize: projectionFinalize(),
+      }),
+    /forced sqlite failure/,
+  );
+
+  assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM events", [])?.count, 0);
+  assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM event_localizations", [])?.count, 0);
+  assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM import_projection_finalize_receipts", [])?.count, 0);
+  assert.equal(db.first<{ status: string }>("SELECT status FROM jobs WHERE job_id='api-job:abc'", [])?.status, "running");
+  assert.equal(db.first<{ status: string }>("SELECT status FROM import_batches WHERE batch_id='api-batch:abc'", [])?.status, "importing");
+  assert.equal(db.first<{ status: string }>("SELECT status FROM artifact_manifests WHERE batch_id='api-batch:abc'", [])?.status, "stored");
+});
+
+test("projection-only finalize replay does not duplicate projection or receipt", async () => {
+  const db = new SqliteD1Database();
+  seedProjectionJob(db, "api-job:abc");
+  const artifact = seedProjectionArtifact(db, "api-batch:abc", "api-job:abc");
+  const input = {
+    batchId: "api-batch:abc",
+    jobId: "api-job:abc",
+    targetId: "multi",
+    sourceId: "multi",
+    outputWatermark: null,
+    events: [event(1)],
+    generatedAt: "2026-08-02T00:00:00Z",
+    artifact,
+    finalize: projectionFinalize(),
+  };
+
+  await stageImportBatch(db as unknown as D1Database, input);
+  const replay = await stageImportBatch(db as unknown as D1Database, input);
+
+  assert.equal(replay.replayedChunks, 1);
+  assert.equal(replay.importedEvents, 1);
+  assert.equal(replay.updatedEvents, 0);
+  assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM events", [])?.count, 1);
+  assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM import_projection_finalize_receipts", [])?.count, 1);
+});
+
+test("projection-only replay returns original imported and updated counts", async () => {
+  const db = new SqliteD1Database();
+  seedProjectionJob(db, "api-job:abc");
+  const artifact = seedProjectionArtifact(db, "api-batch:abc", "api-job:abc");
+  db.database
+    .prepare(
+      `INSERT INTO events (
+         event_id, target_id, source_id, published_at, collected_at, title
+       ) VALUES (
+         'evt-1', 'italy', 'ansa', '2026-08-01T00:01:00Z',
+         '2026-08-01T00:01:00Z', 'Existing'
+       )`,
+    )
+    .run();
+  const input = {
+    batchId: "api-batch:abc",
+    jobId: "api-job:abc",
+    targetId: "multi",
+    sourceId: "multi",
+    outputWatermark: null,
+    events: [event(1), event(2)],
+    generatedAt: "2026-08-02T00:00:00Z",
+    artifact,
+    finalize: projectionFinalize(),
+  };
+
+  const first = await stageImportBatch(db as unknown as D1Database, input);
+  const replay = await stageImportBatch(db as unknown as D1Database, input);
+
+  assert.equal(first.importedEvents, 1);
+  assert.equal(first.updatedEvents, 1);
+  assert.equal(replay.importedEvents, 1);
+  assert.equal(replay.updatedEvents, 1);
+});
+
+test("source-fenced finalize requires explicit lease and fence", async () => {
+  const db = new SqliteD1Database();
+  seedRuntime(db);
+
+  await assert.rejects(
+    () =>
+      stageImportBatch(db as unknown as D1Database, {
+        batchId: "batch-1",
+        jobId: "job-1",
+        targetId: "italy",
+        sourceId: "ansa",
+        outputWatermark: "cursor-1",
+        events: [event(1)],
+        generatedAt: "2026-08-01T01:00:00Z",
+        artifact: seedArtifact(db),
+        finalize: { mode: "source-fenced", leaseToken: "", fencingVersion: 1 },
+      }),
+    /source-fenced finalize requires lease token and fencing version/,
+  );
+});
+
+test("source and projection finalize receipts conflict", async () => {
+  const db = new SqliteD1Database();
+  seedProjectionJob(db, "api-job:abc");
+  const artifact = seedProjectionArtifact(db, "api-batch:abc", "api-job:abc");
+  const input = {
+    batchId: "api-batch:abc",
+    jobId: "api-job:abc",
+    targetId: "multi",
+    sourceId: "multi",
+    outputWatermark: null,
+    events: [event(1)],
+    generatedAt: "2026-08-02T00:00:00Z",
+    artifact,
+    finalize: projectionFinalize(),
+  };
+  await stageImportBatch(db as unknown as D1Database, input);
+
+  await assert.rejects(
+    () =>
+      stageImportBatch(db as unknown as D1Database, {
+        ...input,
+        targetId: "italy",
+        sourceId: "ansa",
+        outputWatermark: "cursor-1",
+        finalize: {
+          mode: "source-fenced",
+          leaseToken: "lease-1",
+          fencingVersion: 1,
+        },
+      }),
+    /import_finalize_receipt_mode_conflict/,
+  );
+});
 
 test("sqlite integration recovers after chunk receipts crash before finalize", async () => {
   const db = new SqliteD1Database();

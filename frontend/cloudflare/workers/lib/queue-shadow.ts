@@ -135,6 +135,8 @@ async function defaultShadowRunner(
         chunks: staged.committedChunks,
         replayed_chunks: staged.replayedChunks,
         valid_events: staged.validEvents,
+        imported_events: staged.importedEvents,
+        updated_events: staged.updatedEvents,
         quarantined_events: staged.quarantinedEvents,
       },
     };

@@ -4,6 +4,7 @@ import {
   persistImportArtifact,
   type ImportArtifactDescriptor,
 } from "./durable-artifact.ts";
+import { projectionFinalizeStatements, type ProjectionCounts } from "./projection-sql.ts";
 
 const MAX_CHUNK_EVENTS = 25;
 const MAX_CHUNK_STATEMENTS = 100;
@@ -32,6 +33,18 @@ export interface ImportChunk {
   payloadBytes: number;
 }
 
+export type ImportFinalizeStrategy =
+  | {
+      mode: "source-fenced";
+      leaseToken: string;
+      fencingVersion: number;
+    }
+  | {
+      mode: "projection-only";
+      origin: "api-import" | "container-import";
+      requestIdempotencyKeyHash: string | null;
+    };
+
 export interface ImportStagingInput {
   batchId: string;
   jobId: string;
@@ -39,10 +52,9 @@ export interface ImportStagingInput {
   sourceId: string;
   outputWatermark: string | null;
   events: ImportStagingEvent[];
-  generatedAt?: string;
-  leaseToken?: string;
-  fencingVersion?: number;
-  artifact?: ImportArtifactDescriptor;
+  generatedAt: string;
+  artifact: ImportArtifactDescriptor;
+  finalize: ImportFinalizeStrategy;
 }
 
 export interface ImportStagingResult {
@@ -54,6 +66,8 @@ export interface ImportStagingResult {
   replayedChunks: number;
   validEvents: number;
   quarantinedEvents: number;
+  importedEvents: number;
+  updatedEvents: number;
 }
 
 export interface ImportStagingJob {
@@ -88,6 +102,7 @@ interface ExistingBatch {
 
 type FinalizeReceipt = {
   batch_id: string;
+  mode: ImportFinalizeStrategy["mode"];
 } | null;
 
 type ExistingChunk = {
@@ -293,15 +308,29 @@ async function loadExistingBatch(
 async function loadFinalizeReceipt(
   db: D1Database,
   batchId: string,
+  finalize: ImportFinalizeStrategy,
 ): Promise<FinalizeReceipt> {
-  return db
+  const sourceReceipt = await db
     .prepare(
-      `SELECT batch_id
+      `SELECT batch_id, 'source-fenced' AS mode
        FROM import_batch_finalize_receipts
        WHERE batch_id=?`,
     )
     .bind(batchId)
     .first<FinalizeReceipt>();
+  const projectionReceipt = await db
+    .prepare(
+      `SELECT batch_id, 'projection-only' AS mode
+       FROM import_projection_finalize_receipts
+       WHERE batch_id=?`,
+    )
+    .bind(batchId)
+    .first<FinalizeReceipt>();
+  const receipt = sourceReceipt ?? projectionReceipt;
+  if (receipt && receipt.mode !== finalize.mode) {
+    throw new Error("import_finalize_receipt_mode_conflict");
+  }
+  return receipt;
 }
 
 function chunkStatements(
@@ -405,8 +434,21 @@ async function finalizeImportBatch(
   db: D1Database,
   input: ImportStagingInput & { generatedAt: string },
   checksum: string,
+  counts: ProjectionCounts,
 ): Promise<void> {
-  if (!input.leaseToken || typeof input.fencingVersion !== "number") return;
+  if (input.finalize.mode === "projection-only") {
+    const results = await db.batch(projectionFinalizeStatements(db, input, checksum, counts));
+    const changes = results.map((result) => Number(result.meta?.changes || 0));
+    if (changes[0] !== 1 || changes[1] !== 1 || changes[4] !== 1 || changes[5] !== 1 || changes[6] !== 1) {
+      throw new Error(
+        `projection finalize did not atomically advance receipt/job/batch/artifact: ${changes.join(",")}`,
+      );
+    }
+    return;
+  }
+  if (!input.finalize.leaseToken || typeof input.finalize.fencingVersion !== "number") {
+    throw new Error("source-fenced finalize requires lease token and fencing version");
+  }
   const statements: D1PreparedStatement[] = [
     db
       .prepare(
@@ -439,15 +481,15 @@ async function finalizeImportBatch(
         input.targetId,
         input.sourceId,
         checksum,
-        input.leaseToken,
-        input.fencingVersion,
+        input.finalize.leaseToken,
+        input.finalize.fencingVersion,
         input.outputWatermark,
         input.generatedAt,
         input.batchId,
         checksum,
         input.jobId,
-        input.leaseToken,
-        input.fencingVersion,
+        input.finalize.leaseToken,
+        input.finalize.fencingVersion,
         input.targetId,
         input.sourceId,
       ),
@@ -486,8 +528,8 @@ async function finalizeImportBatch(
         input.outputWatermark,
         input.generatedAt,
         input.jobId,
-        input.leaseToken,
-        input.fencingVersion,
+        input.finalize.leaseToken,
+        input.finalize.fencingVersion,
         input.batchId,
         checksum,
       ),
@@ -503,23 +545,21 @@ async function finalizeImportBatch(
       )
       .bind(input.generatedAt, input.batchId, checksum, input.batchId, checksum),
   ];
-  if (input.artifact) {
-    statements.push(
-      db
-        .prepare(
-          `UPDATE artifact_manifests
-           SET status='committed', finalized_at=?, error_code=NULL, error_message=NULL
-           WHERE artifact_id=? AND batch_id=? AND sha256=?
-             AND status IN ('stored', 'committed')`,
-        )
-        .bind(
-          input.generatedAt,
-          input.artifact.artifactId,
-          input.batchId,
-          input.artifact.sha256,
-        ),
-    );
-  }
+  statements.push(
+    db
+      .prepare(
+        `UPDATE artifact_manifests
+         SET status='committed', finalized_at=?, error_code=NULL, error_message=NULL
+         WHERE artifact_id=? AND batch_id=? AND sha256=?
+           AND status IN ('stored', 'committed')`,
+      )
+      .bind(
+        input.generatedAt,
+        input.artifact.artifactId,
+        input.batchId,
+        input.artifact.sha256,
+      ),
+  );
   const results = await db.batch(statements);
   const changes = results.map((result) => Number(result.meta?.changes || 0));
   if (
@@ -527,7 +567,7 @@ async function finalizeImportBatch(
     changes[1] !== 1 ||
     changes[2] !== 1 ||
     changes[3] !== 1 ||
-    (input.artifact && changes[4] !== 1)
+    changes[4] !== 1
   ) {
     throw new Error(
       `import finalize did not atomically advance batch/job/watermark: ${changes.join(",")}`,
@@ -539,14 +579,13 @@ export async function stageImportBatch(
   db: D1Database,
   rawInput: ImportStagingInput,
 ): Promise<ImportStagingResult> {
-  const generatedAt = rawInput.generatedAt ?? new Date().toISOString();
-  const input = { ...rawInput, generatedAt };
+  const input = rawInput;
   const chunks = await buildImportChunks(input.events);
   const checksum = await sha256Hex(canonicalJson(chunks.map((chunk) => chunk.checksum)));
   const normalizedByChunk = await Promise.all(
     chunks.map((chunk) =>
       Promise.all(
-        chunk.events.map((event) => normalizeEvent(event, Date.parse(generatedAt))),
+        chunk.events.map((event) => normalizeEvent(event, Date.parse(input.generatedAt))),
       ),
     ),
   );
@@ -557,7 +596,12 @@ export async function stageImportBatch(
   if (existingBatch && existingBatch.checksum !== checksum) {
     throw new Error(`batch ${input.batchId} checksum mismatch`);
   }
-  if (existingBatch?.status === "committed" && (await loadFinalizeReceipt(db, input.batchId))) {
+  const existingFinalizeReceipt = await loadFinalizeReceipt(db, input.batchId, input.finalize);
+  if (existingBatch?.status === "committed" && existingFinalizeReceipt) {
+    const counts =
+      input.finalize.mode === "projection-only"
+        ? await loadProjectionReplayCounts(db, input.batchId)
+        : { imported: validEvents, updated: 0 };
     return {
       status: "committed",
       batchId: input.batchId,
@@ -565,8 +609,10 @@ export async function stageImportBatch(
       totalChunks: chunks.length,
       committedChunks: existingBatch.committed_chunks,
       replayedChunks: chunks.length,
-      validEvents,
+      validEvents: input.finalize.mode === "projection-only" ? counts.imported + counts.updated : validEvents,
       quarantinedEvents,
+      importedEvents: counts.imported,
+      updatedEvents: counts.updated,
     };
   }
 
@@ -599,7 +645,7 @@ export async function stageImportBatch(
         chunks.length,
         payloadBytes,
         input.outputWatermark,
-        generatedAt,
+        input.generatedAt,
       )
       .run();
   }
@@ -628,7 +674,11 @@ export async function stageImportBatch(
       .run();
   }
 
-  await finalizeImportBatch(db, input, checksum);
+  const counts =
+    input.finalize.mode === "projection-only"
+      ? await projectionCounts(db, input.batchId, validEvents)
+      : { imported: validEvents, updated: 0 };
+  await finalizeImportBatch(db, input, checksum, counts);
   const batch = await db
     .prepare(
       `SELECT status, committed_chunks, expected_chunks
@@ -650,6 +700,44 @@ export async function stageImportBatch(
     replayedChunks,
     validEvents,
     quarantinedEvents,
+    importedEvents: counts.imported,
+    updatedEvents: counts.updated,
+  };
+}
+
+async function projectionCounts(
+  db: D1Database,
+  batchId: string,
+  validEvents: number,
+): Promise<ProjectionCounts> {
+  const existing = await db
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM import_staged_events
+       INNER JOIN events ON events.event_id = import_staged_events.event_id
+       WHERE import_staged_events.batch_id=?`,
+    )
+    .bind(batchId)
+    .first<{ count: number }>();
+  const updated = Number(existing?.count ?? 0);
+  return { imported: validEvents - updated, updated };
+}
+
+async function loadProjectionReplayCounts(
+  db: D1Database,
+  batchId: string,
+): Promise<ProjectionCounts> {
+  const batch = await db
+    .prepare(
+      `SELECT imported_count, updated_count
+       FROM import_batches
+       WHERE batch_id=?`,
+    )
+    .bind(batchId)
+    .first<{ imported_count: number; updated_count: number }>();
+  return {
+    imported: Number(batch?.imported_count ?? 0),
+    updated: Number(batch?.updated_count ?? 0),
   };
 }
 
@@ -686,22 +774,16 @@ export async function stageImportBatchFromMessage(
       kind: "validation",
     });
   }
+  if (!job.lease_token || typeof job.fencing_version !== "number") {
+    throw Object.assign(new Error("source-fenced finalize requires lease token and fencing version"), {
+      kind: "validation",
+    });
+  }
   const outputWatermark =
     typeof payload.output_watermark === "string" ? payload.output_watermark : null;
   // Queue delivery time changes on every retry. Bind immutable artifact identity
   // to the durable job schedule so a redelivery cannot create a second object.
   const artifactGeneratedAt = job.scheduled_for || generatedAt;
-  const stageInput: ImportStagingInput = {
-    batchId,
-    jobId: job.job_id,
-    targetId,
-    sourceId,
-    outputWatermark,
-    events: payload.events as ImportStagingEvent[],
-    generatedAt,
-    leaseToken: job.lease_token,
-    fencingVersion: job.fencing_version,
-  };
   const artifact = await persistImportArtifact(db, bucket, {
     batchId,
     jobId: job.job_id,
@@ -712,5 +794,19 @@ export async function stageImportBatchFromMessage(
     generatedAt: artifactGeneratedAt,
     events: payload.events as ImportStagingEvent[],
   });
-  return stageImportBatch(db, { ...stageInput, artifact });
+  return stageImportBatch(db, {
+    batchId,
+    jobId: job.job_id,
+    targetId,
+    sourceId,
+    outputWatermark,
+    events: payload.events as ImportStagingEvent[],
+    generatedAt,
+    artifact,
+    finalize: {
+      mode: "source-fenced",
+      leaseToken: job.lease_token,
+      fencingVersion: job.fencing_version,
+    },
+  });
 }

@@ -57,6 +57,8 @@ class FakeD1Database {
   quarantinedEvents: Array<Record<string, unknown>> = [];
   quarantineContexts: Array<Record<string, unknown>> = [];
   finalizeReceipts: Array<Record<string, unknown>> = [];
+  projectionFinalizeReceipts: Array<Record<string, unknown>> = [];
+  artifacts = new Map<string, { status: string; sha256: string }>();
   jobs = new Map<
     string,
     {
@@ -98,7 +100,13 @@ class FakeD1Database {
     }
     if (sql.includes("FROM import_batch_finalize_receipts")) {
       const [batchId] = values as [string];
-      return (this.finalizeReceipts.find((row) => row.batch_id === batchId) ?? null) as T | null;
+      const receipt = this.finalizeReceipts.find((row) => row.batch_id === batchId);
+      return (receipt ? { ...receipt, mode: "source-fenced" } : null) as T | null;
+    }
+    if (sql.includes("FROM import_projection_finalize_receipts")) {
+      const [batchId] = values as [string];
+      const receipt = this.projectionFinalizeReceipts.find((row) => row.batch_id === batchId);
+      return (receipt ? { ...receipt, mode: "projection-only" } : null) as T | null;
     }
     throw new Error(`Unexpected first SQL: ${sql}`);
   }
@@ -268,6 +276,13 @@ class FakeD1Database {
       this.runtimeState.set(`${targetId}:${sourceId}`, { cursor });
       return changed(1);
     }
+    if (sql.includes("UPDATE artifact_manifests")) {
+      const [_finalizedAt, artifactId, _batchId, sha256] = values as [string, string, string, string];
+      const artifact = this.artifacts.get(artifactId);
+      if (!artifact || artifact.sha256 !== sha256) return changed(0);
+      artifact.status = "committed";
+      return changed(1);
+    }
     throw new Error(`Unexpected run SQL: ${sql}`);
   }
 
@@ -279,6 +294,8 @@ class FakeD1Database {
       quarantinedEvents: this.quarantinedEvents,
       quarantineContexts: this.quarantineContexts,
       finalizeReceipts: this.finalizeReceipts,
+      projectionFinalizeReceipts: this.projectionFinalizeReceipts,
+      artifacts: [...this.artifacts],
       jobs: [...this.jobs],
       runtimeState: [...this.runtimeState],
     });
@@ -292,6 +309,8 @@ class FakeD1Database {
       quarantinedEvents: Array<Record<string, unknown>>;
       quarantineContexts: Array<Record<string, unknown>>;
       finalizeReceipts: Array<Record<string, unknown>>;
+      projectionFinalizeReceipts: Array<Record<string, unknown>>;
+      artifacts: Array<[string, { status: string; sha256: string }]>;
       jobs: Array<
         [
           string,
@@ -311,9 +330,40 @@ class FakeD1Database {
     this.quarantinedEvents = snapshot.quarantinedEvents;
     this.quarantineContexts = snapshot.quarantineContexts;
     this.finalizeReceipts = snapshot.finalizeReceipts;
+    this.projectionFinalizeReceipts = snapshot.projectionFinalizeReceipts;
+    this.artifacts = new Map(snapshot.artifacts);
     this.jobs = new Map(snapshot.jobs);
     this.runtimeState = new Map(snapshot.runtimeState);
   }
+}
+
+function artifact() {
+  return {
+    artifactId: `artifact-${"a".repeat(64)}`,
+    objectKey: `imports/v1/2026/08/02/${"a".repeat(64)}.json`,
+    sha256: "a".repeat(64),
+    payloadBytes: 123,
+    contentType: "application/json" as const,
+    r2Etag: "etag-1",
+    r2Version: "version-1",
+    createdAt: "2026-08-01T01:00:00Z",
+  };
+}
+
+function prepareSourceFinalize(db: FakeD1Database) {
+  const durableArtifact = artifact();
+  db.artifacts.set(durableArtifact.artifactId, {
+    status: "stored",
+    sha256: durableArtifact.sha256,
+  });
+  return {
+    artifact: durableArtifact,
+    finalize: {
+      mode: "source-fenced" as const,
+      leaseToken: "lease-1",
+      fencingVersion: 1,
+    },
+  };
 }
 
 function changed(changes: number): { success: boolean; meta: { changes: number } } {
@@ -378,8 +428,7 @@ test("committed chunk replay with same checksum is a no-op", async () => {
     outputWatermark: "cursor-1",
     events: [event(1), event(2)],
     generatedAt: "2026-08-01T00:00:00Z",
-    leaseToken: "lease-1",
-    fencingVersion: 1,
+    ...prepareSourceFinalize(db),
   });
   const replay = await stageImportBatch(db as unknown as D1Database, {
     batchId: "batch-1",
@@ -389,8 +438,7 @@ test("committed chunk replay with same checksum is a no-op", async () => {
     outputWatermark: "cursor-1",
     events: [event(1), event(2)],
     generatedAt: "2026-08-01T00:00:00Z",
-    leaseToken: "lease-1",
-    fencingVersion: 1,
+    ...prepareSourceFinalize(db),
   });
 
   assert.equal(first.status, "committed");
@@ -431,8 +479,7 @@ test("missing chunk recovery commits only uncommitted chunks", async () => {
     outputWatermark: "cursor-2",
     events,
     generatedAt: "2026-08-01T01:00:00Z",
-    leaseToken: "lease-1",
-    fencingVersion: 1,
+    ...prepareSourceFinalize(db),
   });
 
   assert.equal(result.replayedChunks, 1);
@@ -459,8 +506,7 @@ test("partial invalid import writes quarantine context and keeps valid events st
     outputWatermark: "cursor-3",
     events: [event(1), event(2, { url: "javascript:alert(1)" })],
     generatedAt: "2026-08-01T00:00:00Z",
-    leaseToken: "lease-1",
-    fencingVersion: 1,
+    ...prepareSourceFinalize(db),
   });
 
   assert.equal(result.validEvents, 1);
@@ -488,8 +534,7 @@ test("oversized single event is quarantined instead of exceeding chunk payload m
     outputWatermark: "cursor-oversized",
     events: [event(1, { summary: "a".repeat(520 * 1024) }), event(2)],
     generatedAt: "2026-08-01T01:00:00Z",
-    leaseToken: "lease-1",
-    fencingVersion: 1,
+    ...prepareSourceFinalize(db),
   });
 
   assert.equal(result.validEvents, 1);
@@ -516,8 +561,7 @@ test("oversized non-ASCII quarantine payload is bounded by UTF-8 bytes", async (
     outputWatermark: "cursor-oversized-unicode",
     events: [event(1, { summary: "界".repeat(180_000) }), event(2)],
     generatedAt: "2026-08-01T01:00:00Z",
-    leaseToken: "lease-1",
-    fencingVersion: 1,
+    ...prepareSourceFinalize(db),
   });
 
   const payload = db.quarantinedEvents[0].payload_json as string;
@@ -548,8 +592,7 @@ test("chunk failure leaves batch, job, watermark, and snapshots unfinished", asy
         outputWatermark: "cursor-4",
         events: Array.from({ length: 26 }, (_, index) => event(index)),
         generatedAt: "2026-08-01T00:00:00Z",
-        leaseToken: "lease-1",
-        fencingVersion: 1,
+        ...prepareSourceFinalize(db),
       }),
     /chunk 1 failed/,
   );
