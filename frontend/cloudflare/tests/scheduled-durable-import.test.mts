@@ -138,6 +138,8 @@ test("scheduled Container imports persist R2 before committing the D1 projection
     {
       DB: db as unknown as D1Database,
       NEWS_SENTRY_ARTIFACTS: bucket as unknown as R2Bucket,
+      NEWS_SENTRY_DEPLOY_COMMIT: "a".repeat(40),
+      NEWS_SENTRY_ENVIRONMENT: "production",
     },
     { body: { summary: collectSummary(1), import_events: [event()] } },
     "run-1",
@@ -151,6 +153,19 @@ test("scheduled Container imports persist R2 before committing the D1 projection
   assert.match(String(result.artifact_id), /^artifact-[0-9a-f]{64}$/);
   assert.equal(bucket.objects.size, 1);
   assert.deepEqual({ ...db.first("SELECT status FROM artifact_manifests") }, { status: "committed" });
+  assert.deepEqual(
+    JSON.parse(db.first<{ details_json: string }>("SELECT details_json FROM artifact_manifests")!.details_json),
+    {
+      deploy_commit: "a".repeat(40),
+      output_watermark: null,
+      schema_version: "2026-08-02.import-artifact.v1",
+      source_environment: "production",
+      source_ids: ["ansa"],
+      source_runtime: "cloudflare-container",
+      target_ids: ["italy"],
+      task: "container-import",
+    },
+  );
   assert.deepEqual({ ...db.first("SELECT event_id, pipeline_stage FROM events") }, {
     event_id: "evt-1",
     pipeline_stage: "outputted",

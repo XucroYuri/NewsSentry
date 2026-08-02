@@ -130,13 +130,21 @@ RESTORE_QUERIES: Mapping[str, str] = {
     ),
     "artifact_manifests": (
         "SELECT am.artifact_id, am.batch_id, am.job_id, am.object_key, am.sha256, "
-        "am.payload_bytes, am.status, jobs.deploy_commit "
-        "FROM artifact_manifests am LEFT JOIN jobs ON jobs.job_id=am.job_id "
+        "am.payload_bytes, am.status, "
+        "json_extract(am.details_json, '$.deploy_commit') AS deploy_commit, "
+        "json_extract(am.details_json, '$.source_environment') AS source_environment, "
+        "json_extract(am.details_json, '$.source_runtime') AS source_runtime, "
+        "json_extract(am.details_json, '$.task') AS task, "
+        "pfr.origin AS projection_origin "
+        "FROM artifact_manifests am "
+        "LEFT JOIN import_projection_finalize_receipts pfr ON pfr.artifact_id=am.artifact_id "
         "WHERE am.status='committed' ORDER BY am.created_at DESC LIMIT 1"
     ),
     "real_artifact_proof": (
         "WITH latest_artifact AS ("
-        "  SELECT batch_id FROM artifact_manifests "
+        "  SELECT am.batch_id, am.details_json, pfr.origin AS projection_origin "
+        "  FROM artifact_manifests am "
+        "  LEFT JOIN import_projection_finalize_receipts pfr ON pfr.artifact_id=am.artifact_id "
         "  WHERE status='committed' ORDER BY created_at DESC LIMIT 1"
         ") "
         "SELECT "
@@ -147,7 +155,12 @@ RESTORE_QUERIES: Mapping[str, str] = {
         "COALESCE(SUM(CASE WHEN lower(ise.source_id) LIKE '%synthetic%' "
         "OR lower(ise.target_id) LIKE '%preview-canary%' "
         "OR lower(ise.payload_json) LIKE '%synthetic%' THEN 1 ELSE 0 END) "
-        ", 0) AS synthetic_event_count "
+        ", 0) AS synthetic_event_count, "
+        "json_extract(la.details_json, '$.deploy_commit') AS deploy_commit, "
+        "json_extract(la.details_json, '$.source_environment') AS source_environment, "
+        "json_extract(la.details_json, '$.source_runtime') AS source_runtime, "
+        "json_extract(la.details_json, '$.task') AS task, "
+        "la.projection_origin AS projection_origin "
         "FROM import_staged_events ise JOIN latest_artifact la ON la.batch_id=ise.batch_id"
     ),
     "artifact_status_counts": (
@@ -510,6 +523,10 @@ def _validate_artifacts(
                 "bytes": expected_bytes,
                 "status": status,
                 "deploy_commit": deploy_commit,
+                "source_environment": row.get("source_environment"),
+                "source_runtime": row.get("source_runtime"),
+                "task": row.get("task"),
+                "projection_origin": row.get("projection_origin"),
             }
         )
     manifest_keys = {
@@ -653,27 +670,73 @@ def _validate_public_snapshots(
 def _validate_real_artifact_proof(
     rows: list[dict[str, Any]],
     *,
+    expected_commit: str,
     require_artifact: bool,
-) -> tuple[dict[str, int | None], list[str]]:
+) -> tuple[dict[str, int | str | None], list[str]]:
     if not require_artifact:
-        return {"real_event_count": None, "synthetic_event_count": None}, []
+        return {
+            "real_event_count": None,
+            "synthetic_event_count": None,
+            "deploy_commit": None,
+            "source_environment": None,
+            "source_runtime": None,
+            "task": None,
+            "projection_origin": None,
+        }, []
     if len(rows) != 1:
-        return {"real_event_count": None, "synthetic_event_count": None}, [
-            "real_artifact_proof_missing"
-        ]
+        return {
+            "real_event_count": None,
+            "synthetic_event_count": None,
+            "deploy_commit": None,
+            "source_environment": None,
+            "source_runtime": None,
+            "task": None,
+            "projection_origin": None,
+        }, ["real_artifact_proof_missing"]
     row = rows[0]
     real_count = _int_value(row.get("real_event_count"))
     synthetic_count = _int_value(row.get("synthetic_event_count"))
+    deploy_commit = row.get("deploy_commit")
+    source_environment = row.get("source_environment")
+    source_runtime = row.get("source_runtime")
+    task = row.get("task")
+    projection_origin = row.get("projection_origin")
     if real_count is None or synthetic_count is None:
-        return {"real_event_count": real_count, "synthetic_event_count": synthetic_count}, [
-            "real_artifact_proof_malformed"
-        ]
-    blockers = []
+        return {
+            "real_event_count": real_count,
+            "synthetic_event_count": synthetic_count,
+            "deploy_commit": deploy_commit if isinstance(deploy_commit, str) else None,
+            "source_environment": (
+                source_environment if isinstance(source_environment, str) else None
+            ),
+            "source_runtime": source_runtime if isinstance(source_runtime, str) else None,
+            "task": task if isinstance(task, str) else None,
+            "projection_origin": projection_origin if isinstance(projection_origin, str) else None,
+        }, ["real_artifact_proof_malformed"]
+    blockers: list[str] = []
     if real_count <= 0:
         blockers.append("real_committed_artifact_missing")
+    if synthetic_count > 0:
+        blockers.append("artifact_provenance_synthetic_events_present")
+    if not isinstance(deploy_commit, str) or not COMMIT_RE.fullmatch(deploy_commit):
+        blockers.append("artifact_commit_missing:real_artifact_proof")
+        deploy_commit = None
+    elif deploy_commit != expected_commit:
+        blockers.append("artifact_commit_mismatch:real_artifact_proof")
+    if source_environment != "production":
+        blockers.append("artifact_provenance_not_production")
+    if source_runtime != "cloudflare-container":
+        blockers.append("artifact_provenance_not_cloudflare_container")
+    if task != "container-import" or projection_origin != "container-import":
+        blockers.append("artifact_provenance_not_container_import")
     return {
         "real_event_count": real_count,
         "synthetic_event_count": synthetic_count,
+        "deploy_commit": deploy_commit,
+        "source_environment": source_environment if isinstance(source_environment, str) else None,
+        "source_runtime": source_runtime if isinstance(source_runtime, str) else None,
+        "task": task if isinstance(task, str) else None,
+        "projection_origin": projection_origin if isinstance(projection_origin, str) else None,
     }, blockers
 
 
@@ -747,6 +810,7 @@ def build_restore_receipt(
 
     real_artifact_proof, real_artifact_blockers = _validate_real_artifact_proof(
         query_results.get("real_artifact_proof", []),
+        expected_commit=commit,
         require_artifact=require_artifact,
     )
     blockers.extend(real_artifact_blockers)
@@ -786,6 +850,19 @@ def build_restore_receipt(
 
 def _load_json(path: Path) -> Any:  # noqa: ANN401
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _load_continuity_receipt(path: Path) -> dict[str, Any]:
+    text = path.read_text(encoding="utf-8")
+    if not text.strip():
+        raise RestoreDrillError("continuity_receipt_missing")
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise RestoreDrillError("continuity_receipt_malformed") from exc
+    if not isinstance(payload, dict):
+        raise RestoreDrillError("continuity_receipt_malformed")
+    return payload
 
 
 def _print_json(value: dict[str, Any], output: Path | None) -> None:
@@ -864,12 +941,11 @@ def _validate_command(args: argparse.Namespace) -> int:
         query_results = _load_json(args.query_results)
         artifact_receipts = _load_json(args.artifact_receipts)
         backup_receipt = _load_json(args.backup_receipt)
-        continuity_receipt = _load_json(args.continuity_receipt)
+        continuity_receipt = _load_continuity_receipt(args.continuity_receipt)
         if (
             not isinstance(query_results, dict)
             or not isinstance(artifact_receipts, dict)
             or not isinstance(backup_receipt, dict)
-            or not isinstance(continuity_receipt, dict)
         ):
             raise RestoreDrillError("restore_drill_input_shape_invalid")
         receipt = build_restore_receipt(

@@ -17,12 +17,15 @@ export const MAX_IDEMPOTENCY_KEY_BYTES = 512;
 const IDEMPOTENCY_BINDING_SCHEMA_VERSION = "2026-08-02.projection-idempotency.v1";
 const FALLBACK_GENERATED_AT_EPOCH_MS = Date.parse("2026-01-01T00:00:00.000Z");
 const FALLBACK_GENERATED_AT_SPAN_MS = 366 * 24 * 60 * 60_000;
+const DEPLOY_COMMIT_RE = /^[0-9a-f]{40}$/;
 
 export type DurableProjectionOrigin = "api-import" | "container-import";
 
 export interface DurableProjectionImportEnv {
   DB: D1Database;
   NEWS_SENTRY_ARTIFACTS?: R2Bucket;
+  NEWS_SENTRY_DEPLOY_COMMIT?: string;
+  NEWS_SENTRY_ENVIRONMENT?: string;
 }
 
 export interface DurableProjectionImportInput {
@@ -448,7 +451,10 @@ async function verifyCommittedArtifactHead(
 async function prepareArtifact(
   identity: DurableProjectionIdentity,
   input: DurableProjectionImportInput,
+  env: DurableProjectionImportEnv,
 ): Promise<DurableProjectionPreparedArtifact> {
+  const sourceRuntime: ImportArtifactInput["sourceRuntime"] =
+    input.origin === "container-import" ? "cloudflare-container" : "cloudflare-worker";
   const artifactInput = {
     batchId: identity.batchId,
     jobId: identity.jobId,
@@ -457,6 +463,11 @@ async function prepareArtifact(
     sourceIds: identity.events.map((event) => String(event.source_id)),
     outputWatermark: null,
     generatedAt: identity.generatedAt,
+    deployCommit: DEPLOY_COMMIT_RE.test(env.NEWS_SENTRY_DEPLOY_COMMIT ?? "")
+      ? env.NEWS_SENTRY_DEPLOY_COMMIT!
+      : "unknown",
+    sourceEnvironment: env.NEWS_SENTRY_ENVIRONMENT ?? "unknown",
+    sourceRuntime,
     events: identity.events,
   };
   return {
@@ -470,7 +481,7 @@ export async function executeDurableProjectionImport(
   input: DurableProjectionImportInput,
 ): Promise<DurableProjectionImportResult> {
   const identity = await buildDurableProjectionIdentity(input);
-  const preparedArtifact = await prepareArtifact(identity, input);
+  const preparedArtifact = await prepareArtifact(identity, input, env);
   const existing = await loadProjectionReceiptByPayloadOrIdempotencyKey(env.DB, identity);
   if (existing) {
     await verifyCommittedArtifactHead(env.NEWS_SENTRY_ARTIFACTS, existing);

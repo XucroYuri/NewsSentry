@@ -68,10 +68,24 @@ def _good_query_results() -> dict[str, list[dict[str, Any]]]:
                 "payload_bytes": 48,
                 "status": "committed",
                 "deploy_commit": COMMIT_A,
+                "source_environment": "production",
+                "source_runtime": "cloudflare-container",
+                "task": "container-import",
+                "projection_origin": "container-import",
                 "details_json": json.dumps({"note": BODY}),
             }
         ],
-        "real_artifact_proof": [{"real_event_count": 1, "synthetic_event_count": 0}],
+        "real_artifact_proof": [
+            {
+                "real_event_count": 1,
+                "synthetic_event_count": 0,
+                "deploy_commit": COMMIT_A,
+                "source_environment": "production",
+                "source_runtime": "cloudflare-container",
+                "task": "container-import",
+                "projection_origin": "container-import",
+            }
+        ],
         "orphan_counts": [
             {
                 "artifact_manifest_orphans": 0,
@@ -113,6 +127,14 @@ def synthetic_only_query_results() -> dict[str, list[dict[str, Any]]]:
     query_results["real_artifact_proof"] = [
         {"real_event_count": 0, "synthetic_event_count": 1}
     ]
+    return query_results
+
+
+def provenance_query_results(**overrides: str) -> dict[str, list[dict[str, Any]]]:
+    query_results = _good_query_results()
+    for key, value in overrides.items():
+        query_results["artifact_manifests"][0][key] = value
+        query_results["real_artifact_proof"][0][key] = value
     return query_results
 
 
@@ -172,6 +194,10 @@ def test_restore_drill_success_sanitizes_receipt_body() -> None:
             "bytes": 48,
             "status": "committed",
             "deploy_commit": COMMIT_A,
+            "source_environment": "production",
+            "source_runtime": "cloudflare-container",
+            "task": "container-import",
+            "projection_origin": "container-import",
         }
     ]
 
@@ -195,6 +221,69 @@ def test_restore_requires_real_committed_artifact_after_canary() -> None:
 
     assert receipt["status"] == "failed"
     assert "real_committed_artifact_missing" in receipt["summary"]["blockers"]
+
+
+@pytest.mark.parametrize(
+    ("name", "query_results", "blocker"),
+    [
+        (
+            "synthetic provenance with ordinary artifact name",
+            provenance_query_results(task="synthetic-canary"),
+            "artifact_provenance_not_container_import",
+        ),
+        (
+            "preview provenance",
+            provenance_query_results(source_environment="preview"),
+            "artifact_provenance_not_production",
+        ),
+        (
+            "local provenance",
+            provenance_query_results(source_runtime="local-sqlite"),
+            "artifact_provenance_not_cloudflare_container",
+        ),
+        (
+            "unknown provenance",
+            provenance_query_results(source_environment="unknown"),
+            "artifact_provenance_not_production",
+        ),
+        (
+            "missing provenance",
+            provenance_query_results(source_environment=""),
+            "artifact_provenance_not_production",
+        ),
+        (
+            "wrong commit provenance",
+            provenance_query_results(deploy_commit=COMMIT_B),
+            f"artifact_commit_mismatch:{ARTIFACT_KEY}",
+        ),
+    ],
+)
+def test_restore_requires_positive_production_container_artifact_provenance(
+    name: str,
+    query_results: dict[str, list[dict[str, Any]]],
+    blocker: str,
+) -> None:
+    del name
+
+    receipt = _receipt(query_results=query_results)
+
+    assert receipt["status"] == "failed"
+    assert blocker in receipt["summary"]["blockers"]
+
+
+def test_restore_accepts_matching_production_container_artifact_provenance() -> None:
+    receipt = _receipt(query_results=provenance_query_results())
+
+    assert receipt["status"] == "ok"
+    assert receipt["evidence"]["real_artifact_proof"] == {
+        "deploy_commit": COMMIT_A,
+        "projection_origin": "container-import",
+        "real_event_count": 1,
+        "source_environment": "production",
+        "source_runtime": "cloudflare-container",
+        "synthetic_event_count": 0,
+        "task": "container-import",
+    }
 
 
 def test_restore_requires_7d_slo_continuity_receipt() -> None:
@@ -626,6 +715,63 @@ def test_validate_cli_fails_closed_when_artifact_evidence_is_missing(
     assert code == 2
     assert receipt["status"] == "failed"
     assert "artifact_manifest_missing" in receipt["summary"]["blockers"]
+
+
+@pytest.mark.parametrize(
+    ("content", "blocker"),
+    [
+        ("", "continuity_receipt_missing"),
+        ("not json", "continuity_receipt_malformed"),
+        ("[]", "continuity_receipt_malformed"),
+        (
+            json.dumps({"status": "canary_72h_passed", "deployed_commit": COMMIT_A}),
+            "continuity_slo_7d_not_passed",
+        ),
+        (
+            json.dumps({"status": "slo_7d_passed", "deployed_commit": COMMIT_B}),
+            "continuity_commit_mismatch",
+        ),
+    ],
+)
+def test_validate_cli_writes_concrete_continuity_blockers(
+    tmp_path: Path,
+    content: str,
+    blocker: str,
+) -> None:
+    query_path = tmp_path / "queries.json"
+    artifact_path = tmp_path / "artifacts.json"
+    backup_path = tmp_path / "backup.json"
+    output_path = tmp_path / "receipt.json"
+    continuity_path = tmp_path / "continuity.json"
+    query_path.write_text(json.dumps(_good_query_results()), encoding="utf-8")
+    artifact_path.write_text(json.dumps(_good_artifact_receipts()), encoding="utf-8")
+    backup_path.write_text(json.dumps(_good_backup_receipt()), encoding="utf-8")
+    continuity_path.write_text(content, encoding="utf-8")
+
+    code = drill.main(
+        [
+            "validate",
+            "--database",
+            "ns-db-restore-drill-20260802-7",
+            "--query-results",
+            str(query_path),
+            "--artifact-receipts",
+            str(artifact_path),
+            "--backup-receipt",
+            str(backup_path),
+            "--expected-commit",
+            COMMIT_A,
+            "--continuity-receipt",
+            str(continuity_path),
+            "--output",
+            str(output_path),
+        ]
+    )
+
+    receipt = json.loads(output_path.read_text(encoding="utf-8"))
+    assert code == 2
+    assert receipt["status"] == "failed"
+    assert blocker in receipt["summary"]["blockers"]
 
 
 def test_validate_cli_rejects_missing_artifact_bypass_option(

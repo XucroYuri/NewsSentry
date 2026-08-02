@@ -243,23 +243,7 @@ jobs:
           CONTINUITY_RECEIPT: ${{ inputs.continuity_receipt }}
         run: |
           set -euo pipefail
-          CONTINUITY_RECEIPT="${CONTINUITY_RECEIPT}" EXPECTED_COMMIT="${EXPECTED_COMMIT}" python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          payload = json.loads(os.environ["CONTINUITY_RECEIPT"])
-          if not isinstance(payload, dict):
-              raise SystemExit("continuity receipt must be a JSON object")
-          if payload.get("status") != "slo_7d_passed":
-              raise SystemExit("continuity receipt has not passed 7d SLO")
-          if payload.get("deployed_commit") != os.environ["EXPECTED_COMMIT"]:
-              raise SystemExit("continuity receipt deployed_commit mismatch")
-          Path(os.environ["DRILL_DIR"], "continuity-receipt.json").write_text(
-              json.dumps(payload, sort_keys=True) + "\n",
-              encoding="utf-8",
-          )
-          PY
+          printf '%s' "${CONTINUITY_RECEIPT}" > "${DRILL_DIR}/continuity-receipt.json"
           test -f "${DRILL_DIR}/artifact-receipts.json" || printf '{}\n' > "${DRILL_DIR}/artifact-receipts.json"
           python tools/cloudflare_restore_drill.py validate \
             --database "${RESTORE_DATABASE}" \
@@ -340,6 +324,42 @@ jobs:
               receipt["summary"]["blockers"] = sorted(set(blockers))
           path.parent.mkdir(parents=True, exist_ok=True)
           path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+          PY
+
+      - name: Write restore drill summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          receipt_path = Path(os.environ["DRILL_DIR"], "restore-receipt.json")
+          if receipt_path.exists():
+              receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+          else:
+              receipt = {
+                  "status": "failed",
+                  "summary": {"blockers": ["restore_workflow_incomplete"]},
+              }
+          summary = receipt.get("summary", {}) if isinstance(receipt, dict) else {}
+          blockers = summary.get("blockers") if isinstance(summary, dict) else None
+          if not isinstance(blockers, list) or not blockers:
+              blockers = []
+          lines = [
+              "## Cloudflare Restore Drill",
+              "",
+              f"- status: `{receipt.get('status', 'failed')}`",
+              "- summary.blockers:",
+          ]
+          if blockers:
+              lines.extend(f"  - `{blocker}`" for blocker in blockers)
+          else:
+              lines.append("  - none")
+          path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if path:
+              with Path(path).open("a", encoding="utf-8") as handle:
+                  handle.write("\n".join(lines) + "\n")
           PY
 
       - name: Upload sanitized restore receipt

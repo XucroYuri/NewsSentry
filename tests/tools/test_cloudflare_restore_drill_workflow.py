@@ -116,10 +116,35 @@ def test_restore_drill_binds_restore_to_7d_continuity_receipt() -> None:
     workflow = _workflow_text()
 
     assert 'CONTINUITY_RECEIPT: ${{ inputs.continuity_receipt }}' in workflow
-    assert 'payload.get("status") != "slo_7d_passed"' in workflow
-    assert 'payload.get("deployed_commit") != os.environ["EXPECTED_COMMIT"]' in workflow
+    assert 'payload.get("status") != "slo_7d_passed"' not in workflow
+    assert 'payload.get("deployed_commit") != os.environ["EXPECTED_COMMIT"]' not in workflow
     assert "--expected-commit \"${EXPECTED_COMMIT}\"" in workflow
     assert '--continuity-receipt "${DRILL_DIR}/continuity-receipt.json"' in workflow
+    assert (
+        'printf \'%s\' "${CONTINUITY_RECEIPT}" > '
+        '"${DRILL_DIR}/continuity-receipt.json"'
+    ) in workflow
+
+
+def test_restore_drill_uses_single_builder_and_always_writes_step_summary() -> None:
+    workflow = _workflow_text()
+
+    validate_step = workflow.split(
+        "      - name: Validate restored D1 and R2 evidence", 1
+    )[1].split("      - name: Delete isolated restore database", 1)[0]
+    assert 'json.loads(os.environ["CONTINUITY_RECEIPT"])' not in validate_step
+    assert "continuity receipt has not passed 7d SLO" not in validate_step
+    assert "continuity receipt deployed_commit mismatch" not in validate_step
+    assert "tools/cloudflare_restore_drill.py validate" in validate_step
+
+    assert "      - name: Write restore drill summary" in workflow
+    summary_step = workflow.split("      - name: Write restore drill summary", 1)[1].split(
+        "      - name: Upload sanitized restore receipt", 1
+    )[0]
+    assert "if: always()" in summary_step
+    assert "GITHUB_STEP_SUMMARY" in summary_step
+    assert "restore_workflow_incomplete" in summary_step
+    assert "summary.blockers" in summary_step
 
 
 def test_restore_target_accepts_preview_and_rejects_sha_or_production_ref(

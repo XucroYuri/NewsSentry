@@ -10,6 +10,9 @@ export interface ImportArtifactInput {
   sourceIds: string[];
   outputWatermark: string | null;
   generatedAt: string;
+  deployCommit: string;
+  sourceEnvironment: string;
+  sourceRuntime: "cloudflare-container" | "cloudflare-worker" | "unknown";
   events: Array<Record<string, unknown>>;
 }
 
@@ -142,6 +145,9 @@ async function recordStoredManifest(
       canonicalJson({
         schema_version: IMPORT_ARTIFACT_SCHEMA_VERSION,
         task: input.task,
+        deploy_commit: input.deployCommit,
+        source_environment: input.sourceEnvironment,
+        source_runtime: input.sourceRuntime,
         target_ids: normalizedIds(input.targetIds),
         source_ids: normalizedIds(input.sourceIds),
         output_watermark: input.outputWatermark,
