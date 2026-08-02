@@ -11,6 +11,7 @@ from tools import cloudflare_preview_canary as canary
 COMMIT = "a" * 40
 COMMIT_TIME = "2026-08-02T03:00:00+00:00"
 SHA = "b" * 64
+BATCH_CHECKSUM = "c" * 64
 BATCH_ID = f"api-batch:{SHA}"
 JOB_ID = f"api-job:{SHA}"
 ARTIFACT_ID = f"artifact-{SHA}"
@@ -53,16 +54,19 @@ def _d1_row(*, artifact_bytes: int = 16, event_count: int = 1) -> dict[str, obje
         "job_status": "committed",
         "job_count": 1,
         "artifact_id": ARTIFACT_ID,
+        "artifact_batch_id": BATCH_ID,
+        "artifact_job_id": JOB_ID,
         "artifact_key": ARTIFACT_KEY,
         "artifact_sha256": SHA,
         "artifact_bytes": artifact_bytes,
         "artifact_status": "committed",
         "artifact_count": 1,
+        "batch_checksum": BATCH_CHECKSUM,
         "projection_receipt_count": 1,
         "projection_batch_guard": BATCH_ID,
         "projection_job_guard": JOB_ID,
         "projection_artifact_guard": ARTIFACT_ID,
-        "projection_batch_checksum": SHA,
+        "projection_batch_checksum": BATCH_CHECKSUM,
         "event_count": event_count,
     }
 
@@ -109,6 +113,14 @@ def test_evidence_sql_validates_canonical_ids_and_counts_all_receipts() -> None:
     assert "COUNT(*) AS batch_count" in sql
     assert "COUNT(*) AS projection_receipt_count" in sql
     assert "COUNT(*) AS event_count" in sql
+    assert "batch.checksum AS batch_checksum" in sql
+    assert "artifact.batch_id = expected.batch_id" in sql
+    assert "artifact.job_id = expected.job_id" in sql
+    assert (
+        "WHERE artifact_id = expected.artifact_id\n"
+        "      AND batch_id = expected.batch_id\n"
+        "      AND job_id = expected.job_id"
+    ) in sql
 
     with pytest.raises(canary.PreviewCanaryError, match="batch_id_invalid"):
         canary.build_evidence_sql(
@@ -127,7 +139,6 @@ def test_receipt_cross_checks_response_d1_and_r2_without_secret_passthrough(
     row = _d1_row()
     row["artifact_sha256"] = artifact_sha
     row["artifact_key"] = f"imports/v1/2026/08/02/{artifact_sha}.json"
-    row["projection_batch_checksum"] = artifact_sha
     first = _response(replayed=False)
     replay = _response(replayed=True)
     for response in (first, replay):
@@ -192,6 +203,70 @@ def test_receipt_fails_closed_on_missing_or_inconsistent_evidence(
     )
     assert mismatched["status"] == "failed"
     assert "artifact_bytes_mismatch" in mismatched["blockers"]
+
+
+def test_receipt_compares_projection_checksum_to_batch_checksum(
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "artifact.json"
+    artifact.write_bytes(b"x" * 16)
+    artifact_sha = hashlib.sha256(b"x" * 16).hexdigest()
+    row = _d1_row()
+    row["artifact_sha256"] = artifact_sha
+    row["artifact_key"] = f"imports/v1/2026/08/02/{artifact_sha}.json"
+    row["batch_checksum"] = BATCH_CHECKSUM
+    row["projection_batch_checksum"] = BATCH_CHECKSUM
+    first = _response(replayed=False)
+    replay = _response(replayed=True)
+    for response in (first, replay):
+        response["artifact_sha256"] = artifact_sha
+        response["artifact_key"] = row["artifact_key"]
+
+    receipt = canary.build_canary_receipt(
+        first_response=first,
+        replay_response=replay,
+        d1_rows=[row],
+        artifact_path=artifact,
+    )
+
+    assert receipt["status"] == "ok"
+
+
+def test_receipt_fails_when_artifact_manifest_belongs_to_different_import(
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "artifact.json"
+    artifact.write_bytes(b"x" * 16)
+    artifact_sha = hashlib.sha256(b"x" * 16).hexdigest()
+    row = _d1_row()
+    row["artifact_sha256"] = artifact_sha
+    row["artifact_key"] = f"imports/v1/2026/08/02/{artifact_sha}.json"
+    row["artifact_batch_id"] = f"api-batch:{'d' * 64}"
+    row["artifact_job_id"] = f"api-job:{'e' * 64}"
+    first = _response(replayed=False)
+    replay = _response(replayed=True)
+    for response in (first, replay):
+        response["artifact_sha256"] = artifact_sha
+        response["artifact_key"] = row["artifact_key"]
+
+    receipt = canary.build_canary_receipt(
+        first_response=first,
+        replay_response=replay,
+        d1_rows=[row],
+        artifact_path=artifact,
+    )
+
+    assert receipt["status"] == "failed"
+    assert "artifact_batch_id_mismatch" in receipt["blockers"]
+    assert "artifact_job_id_mismatch" in receipt["blockers"]
+
+
+def test_parse_wrangler_d1_json_prefers_wrapped_results_after_noise() -> None:
+    wrapped = "wrangler noise\n" + json.dumps(
+        [{"success": True, "results": [{"batch_id": BATCH_ID}]}]
+    )
+
+    assert canary.parse_wrangler_d1_json(wrapped) == [{"batch_id": BATCH_ID}]
 
 
 def test_cli_subcommands_emit_canonical_json_and_failed_receipts(

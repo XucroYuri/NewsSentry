@@ -8,10 +8,10 @@ import hashlib
 import json
 import re
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 PREVIEW_API_ORIGIN = "https://news-sentry-api-preview.xuyu.workers.dev"
 PREVIEW_IMPORT_URL = f"{PREVIEW_API_ORIGIN}/api/v1/events/import"
@@ -23,18 +23,23 @@ WITH expected(batch_id, job_id, artifact_id) AS (
 SELECT
   expected.batch_id,
   batch.status AS batch_status,
+  batch.checksum AS batch_checksum,
   (SELECT COUNT(*) AS batch_count FROM import_batches WHERE batch_id = expected.batch_id)
     AS batch_count,
   expected.job_id,
   job.status AS job_status,
   (SELECT COUNT(*) AS job_count FROM jobs WHERE job_id = expected.job_id) AS job_count,
   expected.artifact_id,
+  artifact.batch_id AS artifact_batch_id,
+  artifact.job_id AS artifact_job_id,
   artifact.object_key AS artifact_key,
   artifact.sha256 AS artifact_sha256,
   artifact.payload_bytes AS artifact_bytes,
   artifact.status AS artifact_status,
   (SELECT COUNT(*) AS artifact_count FROM artifact_manifests
-    WHERE artifact_id = expected.artifact_id) AS artifact_count,
+    WHERE artifact_id = expected.artifact_id
+      AND batch_id = expected.batch_id
+      AND job_id = expected.job_id) AS artifact_count,
   (SELECT COUNT(*) AS projection_receipt_count FROM import_projection_finalize_receipts
     WHERE batch_id = expected.batch_id AND job_id = expected.job_id
       AND artifact_id = expected.artifact_id) AS projection_receipt_count,
@@ -48,7 +53,10 @@ SELECT
 FROM expected
 LEFT JOIN import_batches AS batch ON batch.batch_id = expected.batch_id
 LEFT JOIN jobs AS job ON job.job_id = expected.job_id
-LEFT JOIN artifact_manifests AS artifact ON artifact.artifact_id = expected.artifact_id
+LEFT JOIN artifact_manifests AS artifact
+  ON artifact.artifact_id = expected.artifact_id
+ AND artifact.batch_id = expected.batch_id
+ AND artifact.job_id = expected.job_id
 LEFT JOIN import_projection_finalize_receipts AS receipt
   ON receipt.batch_id = expected.batch_id
  AND receipt.job_id = expected.job_id
@@ -63,6 +71,7 @@ ARTIFACT_ID_RE = re.compile(r"^artifact-[0-9a-f]{64}$")
 ARTIFACT_KEY_RE = re.compile(
     r"^imports/v1/[0-9]{4}/[0-9]{2}/[0-9]{2}/[0-9a-f]{64}\.json$"
 )
+CommandFunc = Callable[[argparse.Namespace], int]
 
 
 class PreviewCanaryError(RuntimeError):
@@ -302,6 +311,8 @@ def build_canary_receipt(
         ("batch_id", "batch_id"),
         ("job_id", "job_id"),
         ("artifact_id", "artifact_id"),
+        ("artifact_batch_id", "batch_id"),
+        ("artifact_job_id", "job_id"),
         ("artifact_key", "artifact_key"),
         ("artifact_sha256", "artifact_sha256"),
         ("artifact_bytes", "artifact_bytes"),
@@ -315,7 +326,10 @@ def build_canary_receipt(
         blockers.append("projection_job_guard_mismatch")
     if row.get("projection_artifact_guard") != row.get("artifact_id"):
         blockers.append("projection_artifact_guard_mismatch")
-    if row.get("projection_batch_checksum") != row.get("artifact_sha256"):
+    batch_checksum = _validate_sha256(
+        row.get("batch_checksum"), "batch_checksum_invalid", blockers
+    )
+    if row.get("projection_batch_checksum") != batch_checksum:
         blockers.append("projection_batch_checksum_mismatch")
 
     key = _validate_artifact_key(row.get("artifact_key"), blockers)
@@ -377,8 +391,6 @@ def parse_wrangler_d1_json(value: Any) -> list[dict[str, Any]]:  # noqa: ANN401
                 continue
         else:
             raise PreviewCanaryError("wrangler_json_missing")
-    if isinstance(payload, list) and all(isinstance(row, dict) for row in payload):
-        return list(payload)
     candidates = payload if isinstance(payload, list) else [payload]
     for candidate in candidates:
         if not isinstance(candidate, Mapping):
@@ -388,6 +400,8 @@ def parse_wrangler_d1_json(value: Any) -> list[dict[str, Any]]:  # noqa: ANN401
             rows = candidate.get("result")
         if isinstance(rows, list) and all(isinstance(row, dict) for row in rows):
             return list(rows)
+    if isinstance(payload, list) and all(isinstance(row, dict) for row in payload):
+        return list(payload)
     raise PreviewCanaryError("wrangler_results_missing")
 
 
@@ -458,7 +472,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        return args.func(args)
+        command = cast(CommandFunc, args.func)
+        return command(args)
     except PreviewCanaryError as error:
         print(str(error), file=sys.stderr)
         return 2
