@@ -100,9 +100,26 @@
         "partial additive migration runbook"
       ],
       "remote_deploy": "not_executed",
-      "security_deep_scan": "setup_unsubmitted",
+      "security_deep_scan": "workspace_waiter_conflict_no_scan_id",
       "canary_72h": "not_started",
       "slo_7d": "not_started"
+    },
+    "durable_storage": {
+      "status": "architecture_verified_implementation_missing",
+      "d1_binding": true,
+      "r2_binding": false,
+      "container_state_externalized": false,
+      "portable_restore_drill": false,
+      "required_order": [
+        "R2 immutable artifact put",
+        "D1 manifest and staging finalize",
+        "fenced source watermark advance",
+        "job acknowledgement"
+      ],
+      "recovery": [
+        "D1 Time Travel for production rollback",
+        "D1 export and isolated import for routine restore drills"
+      ]
     }
   },
   "production_score_samples": {

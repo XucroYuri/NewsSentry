@@ -348,6 +348,34 @@ flowchart LR
 6. **先 D1/R2，后重型平台。** 在 D1 rows、p95、R2 数据或研究查询明确超过阈值前，不引入 Kafka、Postgres、ClickHouse、独立向量数据库。
 7. **费用是硬约束。** AI Gateway spend limit、Workers CPU limit、Queue backlog、Container 并发和 R2 lifecycle 都要 fail-closed。
 
+#### 当前持久化边界缺口
+
+仓库虽然把 D1/R2 写成目标架构，但当前只有 D1 binding；`wrangler.toml`、Worker `Env` 和运行时代码
+均没有 R2 binding。Python Container 仍把 SQLite、Markdown、日志和 memory 写到本地 `./data`，
+Container 返回后 Worker 才把最多一个有限窗口的事件导入 D1。因此当前状态只能证明“公开索引部分
+持久化”，不能证明 Container 可无状态替换、原始证据可恢复或 D1/R2 可重建。
+
+低成本持久化边界必须收敛为：
+
+1. **R2 Standard 保存不可变对象正文。** 原始响应、规范化批次、Markdown、恢复导出和证据回执写入
+   R2 object body；metadata 只保留 `artifact_id/version/sha256/size/created_at/source/job_id` 等小字段。
+   R2 单对象 metadata 上限为 8 KB，不应把事件或批次本体塞入 metadata。
+   [R2 limits](https://developers.cloudflare.com/r2/platform/limits/)
+2. **D1 保存可查询 manifest 与状态。** `artifact_key/sha256/size/job_id/source_watermark/status`
+   进入 D1；提交顺序必须是 R2 put 成功 → D1 staging/finalize → fenced watermark 前进 → job ack。
+   任何一步失败都可按 job/batch checksum 重放，不能依赖“最近 500 条”恢复窗口。
+3. **Worker 持有存储权限。** 通过 `r2_buckets` binding 和 `env.<BUCKET>` 访问 R2，不把长期
+   R2 credential 塞进 Container。Container 如需对象访问，应通过 Worker outbound handler 或受控
+   R2 binding mount。
+   [R2 Workers API](https://developers.cloudflare.com/r2/api/workers/workers-api-usage/)
+   [Container bindings](https://developers.cloudflare.com/containers/platform-details/workers-connections/)
+4. **恢复必须定期演练。** D1 Time Travel 用于生产回滚，但 restore 是原地破坏性操作；常规演练应
+   `wrangler d1 export --remote` 后导入隔离数据库，再校验 migration manifest、row counts、checksum
+   与公开快照。按计划使用 7 天或 30 天 Time Travel retention，不再围绕已移除的 alpha backup
+   路径设计新流程。
+   [D1 Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/)
+   [D1 import/export](https://developers.cloudflare.com/d1/best-practices/import-export-data/)
+
 ### 7.3 成本目标
 
 | 阶段 | 月度目标 | 架构边界 |
@@ -372,11 +400,12 @@ flowchart LR
 
 1. Source Health 从 `max_failed=0` 改为 SLO：P0 信源 100%、全局 ok ≥90%、failed ≤2%、周退化不超过 3 个百分点。
 2. source 分 tier；共享源单抓取多投影；对 429 使用 host-level token bucket、Retry-After 和指数退避。
-3. Worker-native 化 RSS/JSON 主路径；Container 合并 collect+translation 唤醒并缩短 sleep，目标是实际运行占比 <10%。
-4. 统一 URL validator、DNS 后地址验证、redirect 每跳复检、敏感 header 跨 host 清理。
-5. 修复 rules optimize containment、外链 scheme allowlist、internal task 不可伪造认证。
-6. 移除 `geist → next` 传递树；GitHub Actions 固定 commit SHA；启用 secret scanning/Dependabot。
-7. 修复重复 OpenAPI operation ID 和 aiosqlite 测试资源清理。
+3. 落地 R2 artifact envelope、D1 manifest/checkpoint 与隔离 restore drill；本地目录降为 spool/cache。
+4. Worker-native 化 RSS/JSON 主路径；Container 合并 collect+translation 唤醒并缩短 sleep，目标是实际运行占比 <10%。
+5. 统一 URL validator、DNS 后地址验证、redirect 每跳复检、敏感 header 跨 host 清理。
+6. 修复 rules optimize containment、外链 scheme allowlist、internal task 不可伪造认证。
+7. 移除 `geist → next` 传递树；GitHub Actions 固定 commit SHA；启用 secret scanning/Dependabot。
+8. 修复重复 OpenAPI operation ID 和 aiosqlite 测试资源清理。
 
 完成证据：连续两周 Source Health 绿色；npm production high=0；安全回归测试全绿；Cloudflare surface audit 有完整 state receipt。
 
@@ -393,7 +422,7 @@ flowchart LR
 
 ### P3：45–90 天，形成全球低成本节点
 
-1. D1 保持 hot canonical/event mention/projection；R2 保存 raw evidence 和冷归档；生命周期自动清理。
+1. 在已完成的 D1 manifest/R2 artifact 基线上增加冷存储类与 lifecycle，避免 IA 30 天最低存储期和 retrieval fee 被热对象误用。
 2. Queue + DLQ 承接 backpressure；按 source/target 隔离 poison messages。
 3. 只在网络可达性或合规需要时增加区域 collector，使用短期 node credential 和签名上传，不开放 P2P。
 4. 建立每 target 的 freshness、coverage、language、source diversity 和 cost/event 仪表盘。
