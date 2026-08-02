@@ -601,6 +601,7 @@ def test_cloudflare_scheduled_refreshes_public_read_snapshots() -> None:
 
 def test_cloudflare_scheduled_ops_are_configured() -> None:
     index_ts = _read("workers/index.ts")
+    container_env_ts = _read("workers/lib/container-env.ts")
     scheduled_ts = _read("workers/lib/scheduled.ts")
     container_import_ts = _read("workers/lib/container-import.ts")
     schema_sql = _read("db/schema.sql")
@@ -609,7 +610,10 @@ def test_cloudflare_scheduled_ops_are_configured() -> None:
 
     assert "async scheduled(" in index_ts
     assert "runScheduledCloudflareTask" in index_ts
-    assert 'NEWSSENTRY_COLLECT_STAGE: "all"' in index_ts
+    assert "containerEnvVars(env)" in index_ts
+    assert 'NEWSSENTRY_DEPLOYMENT_ENV: "cloudflare-container"' in container_env_ts
+    assert 'NEWSSENTRY_COLLECT_STAGE: "all"' in container_env_ts
+    assert 'NEWSSENTRY_FETCH_FULL_ARTICLE: "0"' in container_env_ts
     assert "collect-cycle" in scheduled_ts
     assert "public-translation-cycle" in scheduled_ts
     assert "refresh-public-quality" in scheduled_ts
@@ -634,7 +638,7 @@ def test_cloudflare_scheduled_ops_are_configured() -> None:
     assert "import_result" in scheduled_ts
     assert "result.updated" in container_import_ts
     assert "persistImportArtifact" not in container_import_ts
-    assert "COLLECT_TARGET_BATCH_SIZE = 4" in scheduled_ts
+    assert "COLLECT_TARGET_BATCH_SIZE = 1" in scheduled_ts
     assert "cursor:collect-cycle-target-index" in scheduled_ts
     assert "cloudflare_collect_enabled = 1" in scheduled_ts
     assert "CONTAINER_TASK_TIMEOUT_MS = 8 * 60_000" in scheduled_ts
