@@ -4,7 +4,10 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
 import { importContainerEventsToD1 } from "../workers/lib/container-import.ts";
-import { classifyContainerDependency } from "../workers/lib/scheduled.ts";
+import {
+  classifyContainerDependency,
+  runScheduledCloudflareTask,
+} from "../workers/lib/scheduled.ts";
 
 class SqlitePreparedStatement {
   #database: SqliteD1Database;
@@ -210,4 +213,34 @@ test("collected rows without import rows fail closed", async () => {
     ),
     /container_import_count_mismatch/,
   );
+});
+
+test("missing production container scheduled run records dependency failure", async () => {
+  const db = new SqliteD1Database();
+  db.run(
+    `INSERT INTO targets (
+       target_id, display_name, archived, cloudflare_collect_enabled
+     ) VALUES (?, ?, 0, 1)`,
+    ["italy", "Italy"],
+  );
+
+  await runScheduledCloudflareTask(
+    {
+      cron: "*/15 * * * *",
+      scheduledTime: Date.parse("2026-08-02T01:00:00Z"),
+    } as ScheduledController,
+    {
+      DB: db as unknown as D1Database,
+      SCHEDULER_MODE: "shadow",
+      WORKER_NATIVE_COLLECT_ENABLED: "false",
+    },
+  );
+
+  const row = db.first<{ status: string; details_json: string }>(
+    "SELECT status, details_json FROM ops_runs WHERE task='collect-cycle' ORDER BY started_at DESC LIMIT 1",
+  );
+  const details = JSON.parse(row?.details_json ?? "{}") as Record<string, unknown>;
+
+  assert.equal(row?.status, "failed_dependency");
+  assert.equal(details.reason, "container_not_configured");
 });

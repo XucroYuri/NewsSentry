@@ -413,6 +413,21 @@ async function waitForContainerRetryDelay(attempt: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
+function isFailedContainerStatus(status: unknown): boolean {
+  return ["error", "failed", "failed_retryable", "failed_dependency"].includes(String(status ?? ""));
+}
+
+function shouldImportContainerEvents(
+  task: ScheduledTask,
+  details: Record<string, unknown>,
+): boolean {
+  return (
+    (task === "collect-cycle" || task === "public-translation-cycle") &&
+    isRecord(details.body) &&
+    !isFailedContainerStatus(details.status)
+  );
+}
+
 export function classifyContainerDependency(
   container: DurableObjectNamespace | undefined,
 ): ContainerDependencyFailure | null {
@@ -651,7 +666,8 @@ export async function runScheduledCloudflareTask(
       details = await callContainerInternalTask(env, task, collectBatch?.targetIds);
     }
     let importResult: Record<string, unknown> | null = null;
-    if (task === "collect-cycle" || task === "public-translation-cycle") {
+    const canImportContainerEvents = shouldImportContainerEvents(task, details);
+    if (canImportContainerEvents) {
       importResult = await importContainerEventsToD1(
         env,
         details,
@@ -694,7 +710,7 @@ export async function runScheduledCloudflareTask(
       ? importResult.status
       : null;
     const status =
-      importStatus === "empty_no_new_items"
+      canImportContainerEvents && importStatus === "empty_no_new_items"
         ? importStatus
         : typeof compactDetails.status === "string" && compactDetails.status
           ? compactDetails.status
