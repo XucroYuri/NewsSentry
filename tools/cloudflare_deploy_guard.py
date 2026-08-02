@@ -1243,6 +1243,41 @@ def _deployment_version_id(deployment_json: dict[str, Any]) -> str | None:
     return None
 
 
+def _deployment_is_100_percent(deployment_json: dict[str, Any], version_id: str) -> bool:
+    versions = deployment_json.get("versions")
+    if not isinstance(versions, list):
+        return bool(deployment_json.get("version_id") or deployment_json.get("version"))
+    matched = False
+    total_percentage = 0
+    for version in versions:
+        if not isinstance(version, dict):
+            return False
+        candidate_id = version.get("version_id") or version.get("id")
+        percentage = version.get("percentage")
+        if not isinstance(percentage, int):
+            return False
+        total_percentage += percentage
+        if candidate_id == version_id and percentage == 100:
+            matched = True
+    return matched and total_percentage == 100
+
+
+def _annotation_value(payload: dict[str, Any], *keys: str) -> str | None:
+    for container_key in ("annotations", "metadata"):
+        container = payload.get(container_key)
+        if not isinstance(container, dict):
+            continue
+        for key in keys:
+            value = container.get(key)
+            if isinstance(value, str) and value:
+                return value
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
 def _as_mapping(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
@@ -1276,15 +1311,25 @@ def build_deploy_receipt(
     queue_receipt: dict[str, Any],
     continuity_json: dict[str, Any],
 ) -> dict[str, Any]:
+    public_probe = _as_mapping(health_json.get("public_probe"))
+    public_probe_challenged = (
+        health_json.get("status") == "probe_challenged"
+        and public_probe.get("status") == "challenged"
+        and public_probe.get("http_status") == 403
+    )
     deployment = health_json.get("deployment")
-    if not isinstance(deployment, dict):
+    if not isinstance(deployment, dict) and not public_probe_challenged:
         raise ReceiptError("health deployment receipt missing")
+    deployment = _as_mapping(deployment)
     continuity = _as_mapping(continuity_json)
     latest_collect = _as_mapping(continuity.get("latest_collect"))
     continuity_reason_codes = _as_string_list(continuity.get("reason_codes"))
     worker_version = deployment.get("worker_version")
     version_id = version_json.get("id") or version_json.get("version_id")
     deployment_version_id = _deployment_version_id(deployment_json)
+    deployment_created_on = deployment_json.get("created_on") or deployment_json.get("createdOn")
+    version_tag = _annotation_value(version_json, "workers/tag", "tag")
+    version_message = _annotation_value(version_json, "workers/message", "message")
     compute = _as_mapping(deployment.get("compute"))
     storage = _as_mapping(deployment.get("storage"))
     collect_run_id = latest_collect.get("run_id") or continuity.get("collect_run_id")
@@ -1295,8 +1340,28 @@ def build_deploy_receipt(
 
     _require(bool(version_id), "worker version receipt missing")
     _require(bool(deployment_json.get("id")), "worker deployment receipt missing")
-    _require(deployment.get("commit") == expected_commit, "health commit mismatch")
+    assert isinstance(version_id, str)
+    _require(
+        version_tag == expected_commit
+        and isinstance(version_message, str)
+        and expected_commit in version_message,
+        "worker version commit annotation mismatch",
+    )
+    _require(
+        isinstance(deployment_created_on, str) and bool(deployment_created_on),
+        "deployment created_on missing",
+    )
+    _require(
+        _deployment_is_100_percent(deployment_json, version_id),
+        "deployment rollout is not 100 percent",
+    )
+    if not public_probe_challenged:
+        _require(deployment.get("commit") == expected_commit, "health commit mismatch")
     _require(continuity.get("deployed_commit") == expected_commit, "continuity commit mismatch")
+    _require(
+        continuity.get("worker_version") == version_id,
+        "continuity worker version mismatch",
+    )
     if continuity.get("status") != "ok" and continuity_reason_codes:
         raise ReceiptError(
             "continuity status invalid: " + ",".join(sorted(set(continuity_reason_codes)))
@@ -1321,20 +1386,28 @@ def build_deploy_receipt(
         "latest collect stale",
     )
     _require(continuity.get("status") == "ok", "continuity status invalid")
-    _require(worker_version == version_id, "health worker version mismatch")
+    if not public_probe_challenged:
+        _require(worker_version == version_id, "health worker version mismatch")
     _require(deployment_version_id == version_id, "deployment version mismatch")
-    _require(deployment.get("scheduler_mode") == expected_scheduler_mode, "scheduler mode mismatch")
-    _require(
-        deployment.get("worker_native_collect_enabled") is False,
-        "worker-native collect not disabled",
-    )
+    if not public_probe_challenged:
+        _require(
+            deployment.get("scheduler_mode") == expected_scheduler_mode,
+            "scheduler mode mismatch",
+        )
+        _require(
+            deployment.get("worker_native_collect_enabled") is False,
+            "worker-native collect not disabled",
+        )
     health_status = health_json.get("status")
-    _require(
-        health_status in {"ok", "degraded"},
-        f"health status invalid: {health_status}",
-    )
-    _require(compute.get("container_configured") is True, "container binding missing")
-    _require(storage.get("artifacts_configured") is True, "R2 artifact binding missing")
+    if public_probe_challenged:
+        _require(health_status == "probe_challenged", f"health status invalid: {health_status}")
+    else:
+        _require(
+            health_status in {"ok", "degraded"},
+            f"health status invalid: {health_status}",
+        )
+        _require(compute.get("container_configured") is True, "container binding missing")
+        _require(storage.get("artifacts_configured") is True, "R2 artifact binding missing")
     _require(isinstance(collect_run_id, str) and bool(collect_run_id), "collect run id missing")
     _require(bool(selected_target_ids), "target selection receipt missing")
     required_receipts = set(GuardConfig().expected_migration_receipts)
@@ -1345,6 +1418,7 @@ def build_deploy_receipt(
         not queue_required or queue_receipt.get("status") == "ok",
         "queue preflight receipt not ok",
     )
+    _require(queue_receipt.get("status") == "ok", "preflight receipt not ok")
     queue_blockers = queue_receipt.get("blockers")
     queue_evidence = _as_mapping(queue_receipt.get("queue"))
     nested_queue_reasons = queue_evidence.get("reason_codes")
@@ -1363,12 +1437,20 @@ def build_deploy_receipt(
     return {
         "schema_version": "2026-08-02.phase2.deploy-receipt",
         "status": "ok",
+        "environment": "production",
         "commit": expected_commit,
+        "deployed_at": deployment_created_on,
+        "evidence_source": (
+            "cloudflare-control-plane+d1-continuity"
+            if public_probe_challenged
+            else "cloudflare-runtime+control-plane+d1-continuity"
+        ),
         "worker_version": version_id,
         "deployment_id": deployment_json["id"],
-        "health_status": health_json["status"],
+        "health_status": health_status,
         "health_mode": expected_scheduler_mode,
         "collection_authoritative": deployment.get("collection_authoritative"),
+        "public_probe": public_probe if public_probe_challenged else {"status": "ok"},
         "runtime_migration_receipts": sorted(actual_receipts),
         "queue": {
             **queue_receipt,
@@ -1383,6 +1465,7 @@ def build_deploy_receipt(
             "latest_collect_updated_at": collect_updated_at,
             "selected_target_ids": selected_target_ids,
             "deployed_commit": continuity["deployed_commit"],
+            "worker_version": continuity["worker_version"],
         },
     }
 

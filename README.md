@@ -320,6 +320,9 @@ curl http://localhost:8000/api/v1/health
 只有从 `main` 手动运行 `deploy.yml`，并输入与该次运行 `GITHUB_SHA` 完全一致的 40 位
 `expected_commit`，才会进入 production jobs。详见
 [`docs/deployment/cloudflare-phase2-migration-runbook.md`](docs/deployment/cloudflare-phase2-migration-runbook.md)。
+生产门禁把 Worker 版本注解、100% deployment、D1 migration、采集连续性和数据新鲜度绑定到
+同一 commit/Worker version；GitHub Runner 若被 Cloudflare 明确挑战，只切换到控制面 + D1 证明，
+普通 403、5xx、commit 漂移和采集失败仍会阻断发布。
 
 ### Cron（开发/测试）
 

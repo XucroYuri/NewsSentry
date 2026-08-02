@@ -27,13 +27,14 @@ def test_source_health_workflow_requires_previous_summary_or_bootstrap() -> None
     audit = steps["Live source health audit"]["run"]
     resolve = steps["Resolve Source Health SLO metadata"]["run"]
 
-    assert "Resolve deployed commit from guard receipt and deployment metadata" in resolve
-    assert "https://news-sentry.com/api/v1/live" in resolve
-    assert "https://news-sentry.com/api/v1/ready" not in resolve
-    assert "https://api.news-sentry.com/api/v1/live" not in resolve
-    assert 'payload.get("status") != "ok"' in resolve
-    assert "Deployment metadata live status is not ok." in resolve
-    assert "re.fullmatch(r\"[0-9a-fA-F]{40}\"" in resolve
+    assert "Resolve deployed commit from the latest successful main production receipt" in resolve
+    assert "api/v1/live" not in resolve
+    assert "api/v1/ready" not in resolve
+    assert "gh run list --workflow deploy.yml --branch main --status success" in resolve
+    assert 'artifact_name="cloudflare-production-deploy-receipt-${head_sha}"' in resolve
+    assert "tools/deploy_receipt_metadata.py" in resolve
+    assert '--expected-commit "${head_sha}"' in resolve
+    assert "No validated successful main production deploy receipt found." in resolve
     assert "source-health-receipts" in previous
     assert "--status success" in previous
     assert "--status completed" not in previous

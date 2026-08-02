@@ -22,6 +22,7 @@ def _read(path: str) -> str:
 def test_wrangler_routes_are_top_level_not_nested_under_d1() -> None:
     config = tomllib.loads(_read("wrangler.toml"))
 
+    assert config["workers_dev"] is False
     assert config["routes"] == [
         {"pattern": "api.news-sentry.com", "custom_domain": True},
         {"pattern": "news-sentry.com/api/*", "zone_name": "news-sentry.com"},
@@ -87,7 +88,10 @@ def test_deploy_workflow_verifies_apex_api_worker_route() -> None:
     deploy_yml = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
 
     assert "APEX_API_URL: https://news-sentry.com" in deploy_yml
-    assert '"${APEX_API_URL}/api/v1/health" > /tmp/apex-health.json' in deploy_yml
+    assert (
+        'probe_public_json apex-health "${APEX_API_URL}/api/v1/health" '
+        "/tmp/apex-health.json /tmp/apex-health.headers"
+    ) in deploy_yml
     assert "apex_health = json.loads" in deploy_yml
     assert 'apex_health.get("status") == "ok"' in deploy_yml
     assert (

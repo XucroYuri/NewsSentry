@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   runScheduledCloudflareTask,
   setScheduledContainerGetterForTest,
+  setScheduledContainerRetryDelayForTest,
 } from "../workers/lib/scheduled.ts";
 
 class SqlitePreparedStatement {
@@ -172,10 +173,12 @@ test.beforeEach(() => {
     assert.ok(handle);
     return handle;
   });
+  setScheduledContainerRetryDelayForTest(async () => {});
 });
 
 test.afterEach(() => {
   setScheduledContainerGetterForTest(null);
+  setScheduledContainerRetryDelayForTest(null);
 });
 
 class FakeR2Bucket {
@@ -243,6 +246,16 @@ test("collect cycle selects only enabled targets in stable rotating batches", as
   assert.equal(batch.batch_size, 1);
   assert.ok(!batch.selected_target_ids.includes("japan"));
   assert.equal(latest.status, "failed_dependency");
+  assert.equal(latest.details.environment, "production");
+  assert.equal(latest.details.deploy_commit, "a".repeat(40));
+  assert.equal(latest.details.worker_version, null);
+  assert.equal(latest.details.scheduler_mode, "shadow");
+  assert.equal(latest.details.worker_native_collect_enabled, false);
+  assert.equal(latest.details.collection_authoritative, false);
+  assert.equal(latest.details.container_configured, false);
+  assert.equal(latest.details.queue_configured, false);
+  assert.equal(latest.details.dlq_configured, false);
+  assert.equal(latest.details.artifacts_configured, false);
   assert.equal(collectCursor(db), null);
 });
 
@@ -320,6 +333,9 @@ test("collect cycle advances cursor on authoritative ok result", async () => {
         [event()],
       ),
       NEWS_SENTRY_ARTIFACTS: new FakeR2Bucket() as unknown as R2Bucket,
+      NEWS_SENTRY_JOBS_QUEUE: {} as Queue,
+      NEWS_SENTRY_JOBS_DLQ: {} as Queue,
+      CF_VERSION_METADATA: { id: "version-production-1" },
     }),
   );
   const latest = latestCollectRun(db);
@@ -328,7 +344,69 @@ test("collect cycle advances cursor on authoritative ok result", async () => {
   assert.deepEqual(latest.details.collect_batch.selected_target_ids, [
     "france",
   ]);
+  assert.equal(latest.details.worker_version, "version-production-1");
+  assert.equal(latest.details.container_configured, true);
+  assert.equal(latest.details.queue_configured, true);
+  assert.equal(latest.details.dlq_configured, true);
+  assert.equal(latest.details.artifacts_configured, true);
   assert.equal(collectCursor(db), "1");
+});
+
+test("collect cycle survives a sleeping container that becomes ready on the fifth attempt", async () => {
+  const db = new SqliteD1Database();
+  seedTargets(db, [enabled("france")]);
+  const retryAttempts: number[] = [];
+  let fetchCount = 0;
+  const handle = {
+    async fetch() {
+      fetchCount += 1;
+      if (fetchCount < 5) {
+        return new Response(
+          JSON.stringify({ status: "error", message: "container is starting" }),
+          { status: 503, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          status: "ok",
+          summary: {
+            targets_attempted: 1,
+            targets_succeeded: 1,
+            targets_failed: 0,
+            events_collected: 0,
+            import_events_count: 0,
+            target_results: [
+              {
+                target_id: "france",
+                status: "empty_no_new_items",
+                events_collected: 0,
+                import_events_count: 0,
+              },
+            ],
+          },
+          import_events: [],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    },
+  };
+  setScheduledContainerRetryDelayForTest(async (attempt) => {
+    retryAttempts.push(attempt);
+  });
+
+  await runScheduledCloudflareTask(
+    controller("*/15 * * * *"),
+    env(db, {
+      NEWS_SENTRY_CONTAINER: { __containerHandle: handle } as unknown as DurableObjectNamespace,
+    }),
+  );
+  const latest = latestCollectRun(db);
+
+  assert.equal(fetchCount, 5);
+  assert.deepEqual(retryAttempts, [1, 2, 3, 4]);
+  assert.equal(latest.status, "empty_no_new_items");
+  assert.equal(latest.details.container_start, "auto_fetch_retry_4");
+  assert.equal(collectCursor(db), "0");
 });
 
 test("collect cycle rotates one canary target per successful scheduled run", async () => {
