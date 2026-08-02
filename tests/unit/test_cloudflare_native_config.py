@@ -138,7 +138,7 @@ def test_preview_worker_and_verify_shell_are_syntactically_valid() -> None:
         assert result.returncode == 0, result.stderr
 
 
-def test_deployment_mode_gate_routes_preview_and_rejects_non_main_production(
+def test_deployment_mode_gate_requires_explicit_exact_production_commit(
     tmp_path: Path,
 ) -> None:
     workflow = yaml.safe_load(
@@ -151,20 +151,38 @@ def test_deployment_mode_gate_routes_preview_and_rejects_non_main_production(
         if step.get("name") == "Resolve and validate deployment mode"
     )
 
+    sha = "a" * 40
     cases = (
-        ("push", "refs/heads/main", "", 0, "environment=production"),
-        ("push", "refs/heads/preview", "", 0, "environment=preview"),
-        ("workflow_dispatch", "refs/heads/feature", "preview", 0, "environment=preview"),
+        ("push", "refs/heads/main", "", "", 1, ""),
+        ("push", "refs/heads/preview", "", "", 0, "environment=preview"),
+        (
+            "workflow_dispatch",
+            "refs/heads/feature",
+            "preview",
+            "",
+            0,
+            "environment=preview",
+        ),
         (
             "workflow_dispatch",
             "refs/heads/main",
             "production",
+            sha,
             0,
             "environment=production",
         ),
-        ("workflow_dispatch", "refs/heads/feature", "production", 1, ""),
+        ("workflow_dispatch", "refs/heads/main", "production", "", 1, ""),
+        ("workflow_dispatch", "refs/heads/main", "production", "b" * 40, 1, ""),
+        ("workflow_dispatch", "refs/heads/feature", "production", sha, 1, ""),
     )
-    for index, (event, ref, requested, expected_code, expected_output) in enumerate(cases):
+    for index, (
+        event,
+        ref,
+        requested,
+        expected_commit,
+        expected_code,
+        expected_output,
+    ) in enumerate(cases):
         output = tmp_path / f"github-output-{index}.txt"
         result = subprocess.run(
             ["/bin/bash"],
@@ -176,7 +194,9 @@ def test_deployment_mode_gate_routes_preview_and_rejects_non_main_production(
                 **os.environ,
                 "GITHUB_EVENT_NAME": event,
                 "GITHUB_REF": ref,
+                "GITHUB_SHA": sha,
                 "REQUESTED_ENVIRONMENT": requested,
+                "EXPECTED_COMMIT": expected_commit,
                 "GITHUB_OUTPUT": str(output),
             },
         )
