@@ -40,6 +40,10 @@ function opsTask(rows: OpsStateRow[], key: string): { status: string | null; upd
   };
 }
 
+function containerRequiredForEnvironment(environment: string | null | undefined): boolean {
+  return environment !== "preview";
+}
+
 export async function handleHealth(
   _request: Request,
   db: D1Database,
@@ -301,7 +305,12 @@ export async function handleHealth(
         refresh_public_quality: opsTask(opsRows, "last:refresh-public-quality"),
       },
       active_snapshot: activeSnapshot,
-      compute: runtimeMetadata?.compute,
+      compute: runtimeMetadata?.compute
+        ? {
+            ...runtimeMetadata.compute,
+            container_required: containerRequiredForEnvironment(runtimeMetadata.environment),
+          }
+        : undefined,
       collection,
       job_runtime: jobRuntime,
       queue: {

@@ -41,6 +41,7 @@ export interface QueueHealthInput {
 export interface ComputeHealthInput {
   container_configured: boolean;
   queue_configured: boolean;
+  container_required: boolean;
 }
 
 export interface PublicQualityInput {
@@ -206,7 +207,7 @@ export function buildHealthResponse(input: HealthSignalsInput): HealthResponse {
   if ((queue.retry_count ?? 0) > 0) {
     reasonCodes.push("queue_retries_pending");
   }
-  if (input.compute?.container_configured === false) {
+  if (input.compute?.container_required && input.compute.container_configured === false) {
     reasonCodes.push("container_not_configured");
   }
 

@@ -2,20 +2,21 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import type { SQLInputValue } from "node:sqlite";
 
 import { handleHealth } from "../workers/api/health.ts";
 
 class SqlitePreparedStatement {
   #db: SqliteD1Database;
   #sql: string;
-  #values: unknown[] = [];
+  #values: SQLInputValue[] = [];
 
   constructor(db: SqliteD1Database, sql: string) {
     this.#db = db;
     this.#sql = sql;
   }
 
-  bind(...values: unknown[]): SqlitePreparedStatement {
+  bind(...values: SQLInputValue[]): SqlitePreparedStatement {
     this.#values = values;
     return this;
   }
@@ -40,18 +41,16 @@ class SqliteD1Database {
     return new SqlitePreparedStatement(this, sql);
   }
 
-  all<T>(sql: string, values: unknown[]): T[] {
+  all<T>(sql: string, values: SQLInputValue[]): T[] {
     return this.database.prepare(sql).all(...values) as T[];
   }
 
-  first<T>(sql: string, values: unknown[]): T | null {
+  first<T>(sql: string, values: SQLInputValue[]): T | null {
     return (this.database.prepare(sql).get(...values) as T | undefined) ?? null;
   }
 }
 
-test("health readiness degrades while projection import snapshot refresh is pending", async () => {
-  const db = new SqliteD1Database();
-  const now = new Date().toISOString();
+function seedHealthyReadinessData(db: SqliteD1Database, now: string): void {
   db.database
     .prepare(
       `INSERT INTO events (
@@ -79,6 +78,12 @@ test("health readiness degrades while projection import snapshot refresh is pend
        ) VALUES ('news:all:v1:page_size=20', '{}', ?, ?, 1, 2, ?)`,
     )
     .run(now, now, now);
+}
+
+test("health readiness degrades while projection import snapshot refresh is pending", async () => {
+  const db = new SqliteD1Database();
+  const now = new Date().toISOString();
+  seedHealthyReadinessData(db, now);
   db.database
     .prepare(
       `INSERT INTO jobs (
@@ -98,7 +103,13 @@ test("health readiness degrades while projection import snapshot refresh is pend
     new URLSearchParams(),
     ["api", "v1", "ready"],
     undefined,
-    { commit: null, runtime: "test", worker_version: null, storage: { artifacts_configured: true } },
+    {
+      commit: null,
+      environment: null,
+      runtime: "test",
+      worker_version: null,
+      storage: { artifacts_configured: true },
+    },
   );
   const body = await response.json() as Record<string, unknown>;
 
@@ -106,4 +117,45 @@ test("health readiness degrades while projection import snapshot refresh is pend
   assert.equal(body.status, "degraded");
   assert.deepEqual(body.readiness, { status: "degraded", ok: true });
   assert.match(String((body.reason_codes as string[]).join(",")), /projection_snapshot_pending/);
+});
+
+test("preview readiness does not require Container while production and unknown do", async () => {
+  for (const [environment, expectedStatus] of [
+    ["preview", 200],
+    ["production", 503],
+    [null, 503],
+  ] as const) {
+    const db = new SqliteD1Database();
+    seedHealthyReadinessData(db, new Date().toISOString());
+
+    const response = await handleHealth(
+      new Request("https://worker.test/api/v1/ready"),
+      db as unknown as D1Database,
+      new URLSearchParams(),
+      ["api", "v1", "ready"],
+      undefined,
+      {
+        commit: null,
+        environment,
+        runtime: "cloudflare-worker",
+        worker_version: null,
+        compute: {
+          container_configured: false,
+          queue_configured: true,
+        },
+        storage: { artifacts_configured: true },
+      },
+    );
+    const body = await response.json() as Record<string, unknown>;
+    const reasonCodes = body.reason_codes as string[];
+
+    assert.equal(response.status, expectedStatus);
+    if (environment === "preview") {
+      assert.equal(body.status, "ok");
+      assert.equal(reasonCodes.includes("container_not_configured"), false);
+    } else {
+      assert.equal(body.status, "unhealthy");
+      assert.equal(reasonCodes.includes("container_not_configured"), true);
+    }
+  }
 });

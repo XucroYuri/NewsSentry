@@ -7,10 +7,11 @@ import {
   buildHealthResponse,
   httpStatusForHealth,
 } from "../workers/lib/health-status.ts";
+import type { HealthSignalsInput } from "../workers/lib/health-status.ts";
 
 const NOW = "2026-08-01T00:00:00.000Z";
 
-function baseInput() {
+function baseInput(): HealthSignalsInput {
   return {
     generated_at: NOW,
     total_events: 120,
@@ -85,8 +86,8 @@ test("nine day stale collection without heartbeat is unhealthy", () => {
 
   assert.equal(health.status, "unhealthy");
   assert.equal(health.readiness?.ok, false);
-  assert.match(health.reason_codes?.join(","), /collect_cycle_stale/);
-  assert.match(health.reason_codes?.join(","), /events_stale/);
+  assert.match(String(health.reason_codes?.join(",")), /collect_cycle_stale/);
+  assert.match(String(health.reason_codes?.join(",")), /events_stale/);
   assert.equal(httpStatusForHealth(health.status), 503);
 });
 
@@ -105,7 +106,7 @@ test("future timestamps make runtime unhealthy but keep compatibility fields", (
   assert.equal(health.latest_valid_collected_at, "2026-07-31T23:40:00.000Z");
   assert.equal(health.future_timestamp_count, 2);
   assert.equal(health.quarantined_future_count, 3);
-  assert.match(health.reason_codes?.join(","), /future_timestamp_detected/);
+  assert.match(String(health.reason_codes?.join(",")), /future_timestamp_detected/);
 });
 
 test("active snapshot freshness contributes degraded business health", () => {
@@ -116,7 +117,7 @@ test("active snapshot freshness contributes degraded business health", () => {
 
   assert.equal(health.status, "degraded");
   assert.equal(health.active_snapshot?.fresh, false);
-  assert.match(health.reason_codes?.join(","), /active_snapshot_stale/);
+  assert.match(String(health.reason_codes?.join(",")), /active_snapshot_stale/);
 });
 
 test("queue and dlq fields have backward-compatible defaults", () => {
@@ -169,7 +170,7 @@ test("P0 DLQ messages make health unhealthy while non-P0 DLQ only degrades", () 
 
   assert.equal(p0Health.status, "unhealthy");
   assert.equal(httpStatusForHealth(p0Health.status), 503);
-  assert.match(p0Health.reason_codes?.join(","), /p0_dlq_nonempty/);
+  assert.match(String(p0Health.reason_codes?.join(",")), /p0_dlq_nonempty/);
   assert.equal(p0Health.queue?.dlq.p0_messages, 1);
 
   const nonP0Health = buildHealthResponse({
@@ -187,7 +188,7 @@ test("P0 DLQ messages make health unhealthy while non-P0 DLQ only degrades", () 
 
   assert.equal(nonP0Health.status, "degraded");
   assert.equal(httpStatusForHealth(nonP0Health.status), 200);
-  assert.match(nonP0Health.reason_codes?.join(","), /dlq_nonempty/);
+  assert.match(String(nonP0Health.reason_codes?.join(",")), /dlq_nonempty/);
   assert.equal(nonP0Health.queue?.dlq.non_p0_messages, 2);
 });
 
@@ -197,7 +198,7 @@ test("D1 query failure is unhealthy and maps to HTTP 503", () => {
   assert.equal(health.status, "unhealthy");
   assert.equal(health.liveness?.ok, true);
   assert.equal(health.readiness?.ok, false);
-  assert.match(health.reason_codes?.join(","), /d1_query_failed/);
+  assert.match(String(health.reason_codes?.join(",")), /d1_query_failed/);
   assert.equal(httpStatusForHealth(health.status), 503);
 });
 
@@ -208,12 +209,48 @@ test("dependency failures make runtime unhealthy", () => {
   const health = buildHealthResponse(input);
 
   assert.equal(health.status, "unhealthy");
-  assert.ok(health.reason_codes.includes("collect_cycle_failed"));
+  assert.ok(health.reason_codes?.includes("collect_cycle_failed"));
 });
 
 test("production readiness fails when container binding is absent", () => {
   const input = baseInput();
-  input.compute = { container_configured: false, queue_configured: true };
+  input.compute = {
+    container_configured: false,
+    queue_configured: true,
+    container_required: true,
+  };
+
+  const health = buildHealthResponse(input);
+
+  assert.equal(health.status, "unhealthy");
+  assert.equal(health.readiness?.ok, false);
+  assert.ok(health.reason_codes?.includes("container_not_configured"));
+  assert.equal(httpStatusForHealth(health.status), 503);
+});
+
+test("preview readiness stays healthy when container policy is explicitly optional", () => {
+  const input = baseInput();
+  input.compute = {
+    container_configured: false,
+    queue_configured: true,
+    container_required: false,
+  };
+
+  const health = buildHealthResponse(input);
+
+  assert.equal(health.status, "ok");
+  assert.equal(health.readiness?.ok, true);
+  assert.ok(!health.reason_codes?.includes("container_not_configured"));
+  assert.equal(httpStatusForHealth(health.status), 200);
+});
+
+test("unknown readiness fails closed when container binding is absent", () => {
+  const input = baseInput();
+  input.compute = {
+    container_configured: false,
+    queue_configured: true,
+    container_required: true,
+  };
 
   const health = buildHealthResponse(input);
 
