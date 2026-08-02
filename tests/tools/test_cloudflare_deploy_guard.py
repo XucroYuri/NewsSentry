@@ -20,6 +20,7 @@ EXPECTED_RUNTIME_RECEIPTS = (
     "20260802_phase2_dlq_replay_receipts",
     "20260802_phase3_durable_artifacts",
     "20260802_phase4_projection_import",
+    "20260802_phase5_future_event_quarantine",
 )
 RUNTIME_SCHEMA_TABLE_QUERY = (
     "SELECT name FROM sqlite_master WHERE type='table' AND name IN "
@@ -849,12 +850,8 @@ def test_preflight_apply_uses_api_list_before_creating_missing_queue() -> None:
                 [
                     {
                         "results": [
-                            {"migration_id": "20260801_phase0_data_quarantine"},
-                            {"migration_id": "20260801_phase1_job_runtime"},
-                            {"migration_id": "20260802_phase2_import_staging"},
-                            {"migration_id": "20260802_phase2_dlq_replay_receipts"},
-                            {"migration_id": "20260802_phase3_durable_artifacts"},
-                            {"migration_id": "20260802_phase4_projection_import"},
+                            {"migration_id": receipt}
+                            for receipt in EXPECTED_RUNTIME_RECEIPTS
                         ]
                     }
                 ]
@@ -1300,6 +1297,75 @@ def test_record_runtime_receipts_verifies_schema_before_project_receipt() -> Non
     assert any(
         "INSERT OR IGNORE INTO runtime_migration_receipts" in call[6]
         for call in runner.calls
+    )
+    assert not any(
+        "20260802_phase5_future_event_quarantine" in call[6]
+        for call in runner.calls
+        if len(call) > 6 and "INSERT OR IGNORE INTO runtime_migration_receipts" in call[6]
+    )
+
+
+def test_record_runtime_receipts_fails_closed_without_phase5_migration_receipt() -> None:
+    insert_prefix = (
+        "wrangler",
+        "d1",
+        "execute",
+        "ns-db",
+        "--remote",
+        "--command",
+    )
+    expected_insert = (
+        "INSERT OR IGNORE INTO runtime_migration_receipts (migration_id, details_json) "
+        "VALUES ('20260801_phase0_data_quarantine', "
+        "'{\"recorded_by\":\"cloudflare_deploy_guard\"}'), "
+        "('20260801_phase1_job_runtime', "
+        "'{\"recorded_by\":\"cloudflare_deploy_guard\"}'), "
+        "('20260802_phase2_import_staging', "
+        "'{\"recorded_by\":\"cloudflare_deploy_guard\"}'), "
+        "('20260802_phase2_dlq_replay_receipts', "
+        "'{\"recorded_by\":\"cloudflare_deploy_guard\"}'), "
+        "('20260802_phase3_durable_artifacts', "
+        "'{\"recorded_by\":\"cloudflare_deploy_guard\"}'), "
+        "('20260802_phase4_projection_import', "
+        "'{\"recorded_by\":\"cloudflare_deploy_guard\"}')"
+    )
+    legacy_receipts = [
+        {"migration_id": receipt}
+        for receipt in EXPECTED_RUNTIME_RECEIPTS
+        if receipt != "20260802_phase5_future_event_quarantine"
+    ]
+    runner = FakeRunner(
+        {
+            **_schema_ok_responses(),
+            (
+                *insert_prefix,
+                expected_insert,
+                "--json",
+            ): _json([{"results": []}]),
+            (
+                "wrangler",
+                "d1",
+                "execute",
+                "ns-db",
+                "--remote",
+                "--command",
+                "SELECT migration_id FROM runtime_migration_receipts ORDER BY migration_id",
+                "--json",
+            ): _runtime_receipts(legacy_receipts),
+        }
+    )
+
+    receipt = record_runtime_receipts(GuardConfig(), runner=runner)
+
+    assert receipt["status"] == "blocked"
+    assert (
+        "missing_runtime_migration_receipt:20260802_phase5_future_event_quarantine"
+        in receipt["blockers"]
+    )
+    assert not any(
+        "20260802_phase5_future_event_quarantine" in call[6]
+        for call in runner.calls
+        if len(call) > 6 and "INSERT OR IGNORE INTO runtime_migration_receipts" in call[6]
     )
 
 

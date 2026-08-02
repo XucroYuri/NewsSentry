@@ -276,6 +276,17 @@ jobs:
           node_modules/.bin/wrangler d1 execute ns-db --remote
           --file=db/migrations/20260802_phase4_projection_import.sql
 
+      - name: Apply historical future event quarantine migration
+        if: needs.ci.outputs.deployment_environment == 'production'
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: >-
+          node_modules/.bin/wrangler d1 execute ns-db --remote
+          --file=db/migrations/20260802_phase5_future_event_quarantine.sql
+
       - name: Ensure production R2 artifact bucket
         if: needs.ci.outputs.deployment_environment == 'production'
         working-directory: frontend/cloudflare
@@ -699,6 +710,11 @@ jobs:
             --env preview \
             --remote \
             --file=db/schema.sql
+          node_modules/.bin/wrangler d1 execute DB \
+            --config wrangler.preview.generated.toml \
+            --env preview \
+            --remote \
+            --file=db/migrations/20260802_phase5_future_event_quarantine.sql
           node_modules/.bin/wrangler d1 execute DB \
             --config wrangler.preview.generated.toml \
             --env preview \

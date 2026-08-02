@@ -116,6 +116,35 @@ def test_deploy_workflow_requires_access_config_and_deployment_receipts() -> Non
     assert "20260801_phase1_job_runtime.sql" in deploy_yml
 
 
+def test_deploy_workflow_applies_phase5_before_runtime_receipt_recording() -> None:
+    deploy_yml = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+
+    schema_step = deploy_yml.index("Apply Cloudflare D1 schema")
+    phase5_step = deploy_yml.index("20260802_phase5_future_event_quarantine.sql")
+    record_step = deploy_yml.index("Record Cloudflare D1 runtime migration receipts")
+    snapshot_step = deploy_yml.index("Refresh Cloudflare public read snapshots")
+
+    assert schema_step < phase5_step < record_step < snapshot_step
+
+
+def test_preview_workflow_applies_phase5_after_schema_before_seed() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+    )
+    steps = workflow["jobs"]["deploy-cloudflare-preview-worker"]["steps"]
+    script = next(
+        step["run"]
+        for step in steps
+        if step.get("name") == "Apply Cloudflare preview D1 schema and seed"
+    )
+
+    schema_file = script.index("--file=db/schema.sql")
+    phase5_file = script.index("20260802_phase5_future_event_quarantine.sql")
+    seed_file = script.index("--file=/tmp/news-sentry-preview-seed.sql")
+
+    assert schema_file < phase5_file < seed_file
+
+
 def test_worker_health_verification_shell_is_syntactically_valid() -> None:
     workflow = yaml.safe_load(
         (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")

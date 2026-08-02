@@ -35,6 +35,10 @@ PHASE4_MIGRATION = (
     ROOT
     / "frontend/cloudflare/db/migrations/20260802_phase4_projection_import.sql"
 )
+PHASE5_MIGRATION = (
+    ROOT
+    / "frontend/cloudflare/db/migrations/20260802_phase5_future_event_quarantine.sql"
+)
 
 
 def _database() -> sqlite3.Connection:
@@ -77,6 +81,48 @@ def _phase4_runtime_connection() -> sqlite3.Connection:
         connection.close()
         raise
     return connection
+
+
+def _insert_event(
+    connection: sqlite3.Connection,
+    *,
+    event_id: str,
+    collected_at: str,
+    published_at: str,
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO events (
+            event_id, target_id, target_label, region_id, source_id, source_name,
+            source_type, published_at, collected_at, title, summary, original_url,
+            pipeline_stage, value_score, language
+        ) VALUES (
+            ?, 'italy', 'Italy', 'europe', 'ansa', 'ANSA', 'rss',
+            ?, ?, ?, ?, ?, 'collected', 42, 'en'
+        )
+        """,
+        (
+            event_id,
+            published_at,
+            collected_at,
+            f"Title {event_id}",
+            f"Summary {event_id}",
+            f"https://example.test/{event_id}",
+        ),
+    )
+
+
+def _insert_localization(connection: sqlite3.Connection, *, event_id: str) -> None:
+    connection.execute(
+        """
+        INSERT INTO event_localizations (
+            event_id, locale, localized_title, localized_summary,
+            localized_recommendation_reason, localized_language, quality_score,
+            model, route_id
+        ) VALUES (?, 'zh-CN', ?, ?, 'reason', 'zh', 91, 'model-a', 'route-a')
+        """,
+        (event_id, f"本地化 {event_id}", f"摘要 {event_id}"),
+    )
 
 
 def _insert_import_graph(
@@ -389,6 +435,98 @@ def test_phase4_finalize_receipts_reject_mixed_modes_for_same_batch(
         with pytest.raises(sqlite3.IntegrityError) as error:
             second_insert(connection)
         assert "import_finalize_receipt_mode_conflict" in str(error.value)
+    finally:
+        connection.close()
+
+
+def test_phase5_future_event_quarantine_moves_future_events_and_localizations() -> None:
+    connection = _database()
+    try:
+        _insert_event(
+            connection,
+            event_id="safe-event",
+            collected_at="2020-01-01T00:00:00Z",
+            published_at="2020-01-01T00:00:00Z",
+        )
+        _insert_localization(connection, event_id="safe-event")
+        _insert_event(
+            connection,
+            event_id="future-collected",
+            collected_at="2999-01-01T00:06:00Z",
+            published_at="2020-01-01T00:00:00Z",
+        )
+        _insert_localization(connection, event_id="future-collected")
+        _insert_event(
+            connection,
+            event_id="future-published",
+            collected_at="2020-01-01T00:00:00Z",
+            published_at="2999-01-02T01:00:00Z",
+        )
+        _insert_localization(connection, event_id="future-published")
+
+        migration_sql = PHASE5_MIGRATION.read_text(encoding="utf-8")
+        assert "BEGIN" not in migration_sql.upper()
+        assert "COMMIT" not in migration_sql.upper()
+
+        connection.executescript(migration_sql)
+        connection.executescript(migration_sql)
+
+        active_ids = {
+            row["event_id"] for row in connection.execute("SELECT event_id FROM events")
+        }
+        assert active_ids == {"safe-event"}
+        safe_localizations = connection.execute(
+            "SELECT COUNT(*) FROM event_localizations WHERE event_id='safe-event'"
+        ).fetchone()[0]
+        assert safe_localizations == 1
+        future_localizations = connection.execute(
+            """
+            SELECT COUNT(*) FROM event_localizations
+            WHERE event_id IN ('future-collected', 'future-published')
+            """
+        ).fetchone()[0]
+        assert future_localizations == 0
+
+        quarantined = connection.execute(
+            """
+            SELECT quarantine_id, reason_code, payload_json
+            FROM quarantined_events
+            WHERE reason_code IN ('future_collected_at', 'future_published_at')
+            ORDER BY quarantine_id
+            """
+        ).fetchall()
+        assert [row["quarantine_id"] for row in quarantined] == [
+            "20260802_phase5_future_event_quarantine:future-collected",
+            "20260802_phase5_future_event_quarantine:future-published",
+        ]
+        assert [row["reason_code"] for row in quarantined] == [
+            "future_collected_at",
+            "future_published_at",
+        ]
+
+        payload = {
+            row["quarantine_id"].split(":", 1)[1]: row["payload_json"]
+            for row in quarantined
+        }
+        collected_payload = payload["future-collected"]
+        assert '"event_id":"future-collected"' in collected_payload
+        assert '"title":"Title future-collected"' in collected_payload
+        assert '"localizations":[{"event_id":"future-collected"' in collected_payload
+        assert '"localized_title":"本地化 future-collected"' in collected_payload
+        assert '"predicate_version":"2026-08-02.health-v1"' in collected_payload
+
+        receipt_rows = connection.execute(
+            """
+            SELECT details_json FROM runtime_migration_receipts
+            WHERE migration_id='20260802_phase5_future_event_quarantine'
+            """
+        ).fetchall()
+        assert len(receipt_rows) == 1
+        assert '"predicate_version":"2026-08-02.health-v1"' in receipt_rows[0][
+            "details_json"
+        ]
+        assert '"moved_count":2' in receipt_rows[0]["details_json"]
+        assert "20260802_phase5_future_event_quarantine" in EXPECTED_MIGRATION_RECEIPTS
     finally:
         connection.close()
 
