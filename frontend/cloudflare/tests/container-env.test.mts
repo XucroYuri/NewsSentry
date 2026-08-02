@@ -10,4 +10,3 @@ test("container env disables full article fetches for production canary collecti
   assert.equal(envVars.NEWSSENTRY_AUTO_COLLECT, "0");
   assert.equal(envVars.NEWSSENTRY_FETCH_FULL_ARTICLE, "0");
 });
-

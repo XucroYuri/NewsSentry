@@ -46,4 +46,3 @@ export function containerEnvVars(env: ContainerEnvInput): Record<string, string>
     CLOUDFLARE_API_TOKEN: env.CLOUDFLARE_API_TOKEN,
   });
 }
-
