@@ -38,12 +38,23 @@ interface ExistingManifest {
   created_at: string;
 }
 
+function compareCodePoints(left: string, right: string): number {
+  const leftPoints = Array.from(left);
+  const rightPoints = Array.from(right);
+  const length = Math.min(leftPoints.length, rightPoints.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference = leftPoints[index].codePointAt(0)! - rightPoints[index].codePointAt(0)!;
+    if (difference !== 0) return difference;
+  }
+  return leftPoints.length - rightPoints.length;
+}
+
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => compareCodePoints(left, right))
       .map(([key, item]) => [key, canonicalize(item)]),
   );
 }
@@ -67,7 +78,7 @@ function durableError(code: string): Error {
 }
 
 function normalizedIds(values: string[]): string[] {
-  return [...new Set(values.map((value) => value.trim()).filter(Boolean))].sort();
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))].sort(compareCodePoints);
 }
 
 function datePath(generatedAt: string): string {
@@ -151,15 +162,15 @@ async function recordStoredManifest(
   }
 }
 
-export async function persistImportArtifact(
-  db: D1Database,
-  bucket: R2Bucket | undefined,
+export interface ImportArtifactPreview {
+  body: string;
+  digest: ArrayBuffer;
+  artifact: Omit<ImportArtifactDescriptor, "r2Etag" | "r2Version">;
+}
+
+export async function buildImportArtifactPreview(
   input: ImportArtifactInput,
-): Promise<ImportArtifactDescriptor> {
-  if (!bucket) throw durableError("durable_artifact_bucket_not_configured");
-  if (!input.batchId.trim() || !input.jobId.trim() || !input.task.trim()) {
-    throw durableError("durable_artifact_identity_invalid");
-  }
+): Promise<ImportArtifactPreview> {
   const body = canonicalJson({
     schema_version: IMPORT_ARTIFACT_SCHEMA_VERSION,
     batch_id: input.batchId,
@@ -173,38 +184,58 @@ export async function persistImportArtifact(
   });
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
   const sha256 = hex(digest);
-  const objectKey = `imports/v1/${datePath(input.generatedAt)}/${sha256}.json`;
-  const payloadBytes = utf8Bytes(body);
-  const stored = await bucket.put(objectKey, body, {
+  return {
+    body,
+    digest,
+    artifact: {
+      artifactId: `artifact-${sha256}`,
+      objectKey: `imports/v1/${datePath(input.generatedAt)}/${sha256}.json`,
+      sha256,
+      payloadBytes: utf8Bytes(body),
+      contentType: CONTENT_TYPE,
+      createdAt: input.generatedAt,
+    },
+  };
+}
+
+export async function persistImportArtifact(
+  db: D1Database,
+  bucket: R2Bucket | undefined,
+  input: ImportArtifactInput,
+): Promise<ImportArtifactDescriptor> {
+  if (!bucket) throw durableError("durable_artifact_bucket_not_configured");
+  if (!input.batchId.trim() || !input.jobId.trim() || !input.task.trim()) {
+    throw durableError("durable_artifact_identity_invalid");
+  }
+  const preview = await buildImportArtifactPreview(input);
+  const { body, digest } = preview;
+  const { artifact: previewArtifact } = preview;
+  const stored = await bucket.put(previewArtifact.objectKey, body, {
     onlyIf: { etagDoesNotMatch: "*" },
     httpMetadata: { contentType: CONTENT_TYPE },
     customMetadata: {
       schema: IMPORT_ARTIFACT_SCHEMA_VERSION,
-      sha256,
-      artifact_id: `artifact-${sha256}`,
+      sha256: previewArtifact.sha256,
+      artifact_id: previewArtifact.artifactId,
     },
     sha256: digest,
     storageClass: "Standard",
   });
-  const object = stored ?? (await bucket.head(objectKey));
+  const object = stored ?? (await bucket.head(previewArtifact.objectKey));
   if (
     !object ||
-    object.key !== objectKey ||
-    object.size !== payloadBytes ||
-    object.customMetadata?.sha256 !== sha256 ||
-    object.customMetadata?.schema !== IMPORT_ARTIFACT_SCHEMA_VERSION
+    object.key !== previewArtifact.objectKey ||
+    object.size !== previewArtifact.payloadBytes ||
+    object.customMetadata?.sha256 !== previewArtifact.sha256 ||
+    object.customMetadata?.schema !== IMPORT_ARTIFACT_SCHEMA_VERSION ||
+    object.customMetadata?.artifact_id !== previewArtifact.artifactId
   ) {
     throw durableError("durable_artifact_existing_object_mismatch");
   }
   const artifact: ImportArtifactDescriptor = {
-    artifactId: `artifact-${sha256}`,
-    objectKey,
-    sha256,
-    payloadBytes,
-    contentType: CONTENT_TYPE,
+    ...previewArtifact,
     r2Etag: object.etag,
     r2Version: object.version,
-    createdAt: input.generatedAt,
   };
   await recordStoredManifest(db, input, artifact);
   return artifact;

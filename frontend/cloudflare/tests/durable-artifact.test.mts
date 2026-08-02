@@ -194,6 +194,22 @@ function input(): ImportArtifactInput {
   };
 }
 
+function nonAsciiInput(): ImportArtifactInput {
+  return {
+    ...input(),
+    events: [
+      {
+        event_id: "event-é",
+        target_id: "italy",
+        source_id: "ansa",
+        title_original: "标题Ω",
+        "é": { "β": 2, "α": 1 },
+        "中": "value",
+      },
+    ],
+  };
+}
+
 test("durable import artifacts fail closed without an R2 binding", async () => {
   const db = new FakeD1Database();
   await assert.rejects(
@@ -253,6 +269,32 @@ test("durable import artifact replay accepts only the same immutable object", as
     () => persistImportArtifact(db as unknown as D1Database, bucket as unknown as R2Bucket, input()),
     /durable_artifact_existing_object_mismatch/,
   );
+});
+
+test("durable import artifact canonicalization is independent of localeCompare", async () => {
+  const originalLocaleCompare = String.prototype.localeCompare;
+  const stableDb = new FakeD1Database();
+  const stableBucket = new FakeR2Bucket();
+  const expected = await persistImportArtifact(
+    stableDb as unknown as D1Database,
+    stableBucket as unknown as R2Bucket,
+    nonAsciiInput(),
+  );
+
+  const db = new FakeD1Database();
+  const bucket = new FakeR2Bucket();
+  String.prototype.localeCompare = () => -1;
+  try {
+    const artifact = await persistImportArtifact(
+      db as unknown as D1Database,
+      bucket as unknown as R2Bucket,
+      nonAsciiInput(),
+    );
+    assert.equal(artifact.sha256, expected.sha256);
+    assert.equal(artifact.objectKey, expected.objectKey);
+  } finally {
+    String.prototype.localeCompare = originalLocaleCompare;
+  }
 });
 
 test("D1 manifest finalization is idempotent", async () => {

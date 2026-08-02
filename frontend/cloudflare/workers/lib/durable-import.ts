@@ -1,6 +1,13 @@
 import type { ImportStagingEvent, ImportStagingResult } from "./import-staging.ts";
 import { stageImportBatch } from "./import-staging.ts";
-import { persistImportArtifact, markImportArtifactFailed } from "./durable-artifact.ts";
+import {
+  IMPORT_ARTIFACT_SCHEMA_VERSION,
+  buildImportArtifactPreview,
+  persistImportArtifact,
+  markImportArtifactFailed,
+  type ImportArtifactInput,
+  type ImportArtifactPreview,
+} from "./durable-artifact.ts";
 import { refreshPublicReadSnapshots } from "./public-read-snapshots.ts";
 import { validateExternalUrl } from "./external-url.ts";
 import { assessEventTimestamps } from "./timestamp-policy.ts";
@@ -8,6 +15,7 @@ import { assessEventTimestamps } from "./timestamp-policy.ts";
 export const MAX_IMPORT_EVENTS = 500;
 export const MAX_IMPORT_BODY_BYTES = 8 * 1024 * 1024;
 export const MAX_IDEMPOTENCY_KEY_BYTES = 512;
+const IDEMPOTENCY_BINDING_SCHEMA_VERSION = "2026-08-02.projection-idempotency.v1";
 
 export type DurableProjectionOrigin = "api-import" | "container-import";
 
@@ -60,6 +68,11 @@ interface ExistingProjectionReceipt {
   payload_bytes: number;
 }
 
+interface DurableProjectionPreparedArtifact {
+  input: ImportArtifactInput;
+  preview: ImportArtifactPreview;
+}
+
 export function durableProjectionImportError(
   kind: "validation" | "payload_too_large" | "idempotency_conflict" | "durable_storage",
   code: string,
@@ -67,12 +80,23 @@ export function durableProjectionImportError(
   return Object.assign(new Error(code), { kind, code });
 }
 
+function compareCodePoints(left: string, right: string): number {
+  const leftPoints = Array.from(left);
+  const rightPoints = Array.from(right);
+  const length = Math.min(leftPoints.length, rightPoints.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference = leftPoints[index].codePointAt(0)! - rightPoints[index].codePointAt(0)!;
+    if (difference !== 0) return difference;
+  }
+  return leftPoints.length - rightPoints.length;
+}
+
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => compareCodePoints(left, right))
       .map(([key, item]) => [key, canonicalize(item)]),
   );
 }
@@ -99,7 +123,7 @@ function requiredString(event: Record<string, unknown>, key: string): string | n
 
 function compareIdentityEvent(left: ImportStagingEvent, right: ImportStagingEvent): number {
   for (const key of ["target_id", "source_id", "url", "title_original", "collected_at", "event_id"] as const) {
-    const comparison = String(left[key] ?? "").localeCompare(String(right[key] ?? ""));
+    const comparison = compareCodePoints(String(left[key] ?? ""), String(right[key] ?? ""));
     if (comparison !== 0) return comparison;
   }
   return 0;
@@ -271,6 +295,67 @@ async function ensureProjectionJob(
     .run();
 }
 
+function idempotencyBindingKey(identity: DurableProjectionIdentity): string {
+  return `imports/idempotency/v1/${identity.idempotencyKeyHash}.json`;
+}
+
+function idempotencyBindingMetadata(
+  identity: DurableProjectionIdentity,
+  preparedArtifact: DurableProjectionPreparedArtifact,
+): Record<string, string> {
+  return {
+    schema: IDEMPOTENCY_BINDING_SCHEMA_VERSION,
+    origin: identity.origin,
+    idempotency_key_hash: identity.idempotencyKeyHash ?? "",
+    payload_sha256: identity.payloadSha256,
+    batch_id: identity.batchId,
+    job_id: identity.jobId,
+    artifact_id: preparedArtifact.preview.artifact.artifactId,
+    artifact_key: preparedArtifact.preview.artifact.objectKey,
+    artifact_sha256: preparedArtifact.preview.artifact.sha256,
+  };
+}
+
+function idempotencyBindingMatches(
+  metadata: Record<string, string> | undefined,
+  identity: DurableProjectionIdentity,
+  preparedArtifact: DurableProjectionPreparedArtifact,
+): boolean {
+  const expected = idempotencyBindingMetadata(identity, preparedArtifact);
+  return Object.entries(expected).every(([key, value]) => metadata?.[key] === value);
+}
+
+async function bindRequestIdempotencyKey(
+  bucket: R2Bucket | undefined,
+  identity: DurableProjectionIdentity,
+  preparedArtifact: DurableProjectionPreparedArtifact,
+): Promise<void> {
+  if (!identity.idempotencyKeyHash) return;
+  if (!bucket) {
+    throw durableProjectionImportError("durable_storage", "durable_artifact_bucket_not_configured");
+  }
+  const key = idempotencyBindingKey(identity);
+  const metadata = idempotencyBindingMetadata(identity, preparedArtifact);
+  const body = canonicalJson({
+    schema_version: IDEMPOTENCY_BINDING_SCHEMA_VERSION,
+    ...metadata,
+  });
+  const stored = await bucket.put(key, body, {
+    onlyIf: { etagDoesNotMatch: "*" },
+    httpMetadata: { contentType: "application/json" },
+    customMetadata: metadata,
+    storageClass: "Standard",
+  });
+  if (stored) return;
+  const existing = await bucket.head(key);
+  if (!existing || existing.key !== key || existing.customMetadata?.schema !== IDEMPOTENCY_BINDING_SCHEMA_VERSION) {
+    throw durableProjectionImportError("durable_storage", "durable_idempotency_binding_mismatch");
+  }
+  if (!idempotencyBindingMatches(existing.customMetadata, identity, preparedArtifact)) {
+    throw durableProjectionImportError("idempotency_conflict", "idempotency_key_payload_conflict");
+  }
+}
+
 async function markSnapshotPending(db: D1Database, jobId: string, message: string): Promise<void> {
   await db
     .prepare(
@@ -320,24 +405,19 @@ async function verifyCommittedArtifactHead(
     !object ||
     object.key !== receipt.object_key ||
     object.size !== Number(receipt.payload_bytes) ||
-    object.customMetadata?.sha256 !== receipt.sha256
+    object.customMetadata?.sha256 !== receipt.sha256 ||
+    object.customMetadata?.schema !== IMPORT_ARTIFACT_SCHEMA_VERSION ||
+    object.customMetadata?.artifact_id !== receipt.artifact_id
   ) {
     throw durableProjectionImportError("durable_storage", "durable_artifact_existing_object_mismatch");
   }
 }
 
-export async function executeDurableProjectionImport(
-  env: DurableProjectionImportEnv,
+async function prepareArtifact(
+  identity: DurableProjectionIdentity,
   input: DurableProjectionImportInput,
-): Promise<DurableProjectionImportResult> {
-  const identity = await buildDurableProjectionIdentity(input);
-  const existing = await loadProjectionReceiptByPayloadOrIdempotencyKey(env.DB, identity);
-  if (existing) {
-    await verifyCommittedArtifactHead(env.NEWS_SENTRY_ARTIFACTS, existing);
-    await refreshSnapshotsForProjection(env.DB, existing.job_id);
-    return replayResult(existing, identity);
-  }
-  const artifact = await persistImportArtifact(env.DB, env.NEWS_SENTRY_ARTIFACTS, {
+): Promise<DurableProjectionPreparedArtifact> {
+  const artifactInput = {
     batchId: identity.batchId,
     jobId: identity.jobId,
     task: input.origin,
@@ -346,7 +426,27 @@ export async function executeDurableProjectionImport(
     outputWatermark: null,
     generatedAt: identity.generatedAt,
     events: identity.events,
-  });
+  };
+  return {
+    input: artifactInput,
+    preview: await buildImportArtifactPreview(artifactInput),
+  };
+}
+
+export async function executeDurableProjectionImport(
+  env: DurableProjectionImportEnv,
+  input: DurableProjectionImportInput,
+): Promise<DurableProjectionImportResult> {
+  const identity = await buildDurableProjectionIdentity(input);
+  const preparedArtifact = await prepareArtifact(identity, input);
+  await bindRequestIdempotencyKey(env.NEWS_SENTRY_ARTIFACTS, identity, preparedArtifact);
+  const existing = await loadProjectionReceiptByPayloadOrIdempotencyKey(env.DB, identity);
+  if (existing) {
+    await verifyCommittedArtifactHead(env.NEWS_SENTRY_ARTIFACTS, existing);
+    await refreshSnapshotsForProjection(env.DB, existing.job_id);
+    return replayResult(existing, identity);
+  }
+  const artifact = await persistImportArtifact(env.DB, env.NEWS_SENTRY_ARTIFACTS, preparedArtifact.input);
   await ensureProjectionJob(env.DB, identity, input.origin);
   let staged: ImportStagingResult;
   try {

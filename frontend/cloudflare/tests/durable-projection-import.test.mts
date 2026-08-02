@@ -135,9 +135,20 @@ function canonicalize(value: unknown): unknown {
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => compareCodePoints(left, right))
       .map(([key, item]) => [key, canonicalize(item)]),
   );
+}
+
+function compareCodePoints(left: string, right: string): number {
+  const leftPoints = Array.from(left);
+  const rightPoints = Array.from(right);
+  const length = Math.min(leftPoints.length, rightPoints.length);
+  for (let index = 0; index < length; index += 1) {
+    const difference = leftPoints[index].codePointAt(0)! - rightPoints[index].codePointAt(0)!;
+    if (difference !== 0) return difference;
+  }
+  return leftPoints.length - rightPoints.length;
 }
 
 async function sha256Hex(value: string): Promise<string> {
@@ -165,7 +176,7 @@ async function expectedPayloadSha(events: Array<Record<string, unknown>>): Promi
       "collected_at",
       "event_id",
     ]
-      .map((key) => String(left[key] ?? "").localeCompare(String(right[key] ?? "")))
+      .map((key) => compareCodePoints(String(left[key] ?? ""), String(right[key] ?? "")))
       .find((comparison) => comparison !== 0) ?? 0,
   );
   return sha256Hex(JSON.stringify(canonicalize(normalized)));
@@ -248,6 +259,44 @@ test("same normalized payload produces stable identity and replays without dupli
   assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM import_projection_finalize_receipts", [])?.count, 1);
 });
 
+test("idempotency key binds failed pre-finalize attempts before another artifact can be created", async () => {
+  const db = new SqliteD1Database();
+  const bucket = new FakeR2Bucket();
+  db.failOnBatchSql = "INSERT INTO event_localizations";
+
+  await assert.rejects(
+    () => importEvents(
+      db,
+      bucket,
+      [event(1, { localizations: [{ locale: "zh-CN", title: "标题" }] })],
+      "retry-key",
+    ),
+    /forced sqlite failure/,
+  );
+  assert.equal(bucket.objects.size, 2);
+  assert.equal(db.first<{ status: string }>("SELECT status FROM artifact_manifests", [])?.status, "failed");
+
+  await assert.rejects(
+    () => importEvents(db, bucket, [event(2)], "retry-key"),
+    /idempotency_key_payload_conflict/,
+  );
+  assert.equal(bucket.objects.size, 2);
+  assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM artifact_manifests", [])?.count, 1);
+
+  db.failOnBatchSql = null;
+  const recovered = await importEvents(
+    db,
+    bucket,
+    [event(1, { localizations: [{ locale: "zh-CN", title: "标题" }] })],
+    "retry-key",
+  );
+
+  assert.equal(recovered.replayed, false);
+  assert.equal(bucket.objects.size, 2);
+  assert.equal(db.first<{ status: string }>("SELECT status FROM artifact_manifests", [])?.status, "committed");
+  assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM events", [])?.count, 1);
+});
+
 test("idempotency key hash rejects a different payload", async () => {
   const db = new SqliteD1Database();
   const bucket = new FakeR2Bucket();
@@ -259,14 +308,14 @@ test("idempotency key hash rejects a different payload", async () => {
     /idempotency_key_payload_conflict/,
   );
 
-  assert.equal(bucket.objects.size, 1);
+  assert.equal(bucket.objects.size, 2);
   assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM events", [])?.count, 1);
 });
 
 test("committed replay verifies R2 identity before refreshing snapshots", async () => {
   const db = new SqliteD1Database();
   const bucket = new FakeR2Bucket();
-  await importEvents(db, bucket, [event(1)]);
+  const first = await importEvents(db, bucket, [event(1)]);
 
   await assert.rejects(
     () => executeDurableProjectionImport(
@@ -277,6 +326,47 @@ test("committed replay verifies R2 identity before refreshing snapshots", async 
   );
 
   assert.equal(db.first<{ status: string }>("SELECT status FROM jobs", [])?.status, "committed");
+
+  const stored = bucket.objects.get(first.artifactKey);
+  assert.ok(stored);
+  stored.customMetadata.schema = "wrong";
+  await assert.rejects(
+    () => importEvents(db, bucket, [event(1)]),
+    /durable_artifact_existing_object_mismatch/,
+  );
+  stored.customMetadata.schema = "2026-08-02.import-artifact.v1";
+  stored.customMetadata.artifact_id = "artifact-wrong";
+  await assert.rejects(
+    () => importEvents(db, bucket, [event(1)]),
+    /durable_artifact_existing_object_mismatch/,
+  );
+});
+
+test("durable projection identity uses fixed code point ordering for non-ASCII payloads", async () => {
+  const db = new SqliteD1Database();
+  const bucket = new FakeR2Bucket();
+  const originalLocaleCompare = String.prototype.localeCompare;
+  const payload = [
+    event(1, {
+      title_original: "标题Ω",
+      "é": { "β": 2, "α": 1 },
+      "中": "value",
+    }),
+    event(2, {
+      title_original: "标题A",
+      "é": { "α": 1, "β": 2 },
+      "中": "value",
+    }),
+  ];
+  const expectedSha = await expectedPayloadSha(payload);
+  String.prototype.localeCompare = () => -1;
+  try {
+    const result = await importEvents(db, bucket, payload);
+    assert.equal(result.batchId, `api-batch:${expectedSha}`);
+    assert.equal(result.generatedAt, "2026-08-02T02:00:00.000Z");
+  } finally {
+    String.prototype.localeCompare = originalLocaleCompare;
+  }
 });
 
 test("finalize failure marks manifest failed and retry reuses the same artifact", async () => {
