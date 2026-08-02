@@ -62,20 +62,24 @@ jobs:
           echo "Resolve deployed commit from guard receipt and deployment metadata"
           python - <<'PY' > /tmp/news-sentry-source-health-deployment.json
           import json
+          import re
           import sys
           import urllib.request
 
           request = urllib.request.Request(
-              "https://news-sentry.com/api/v1/ready",
+              "https://news-sentry.com/api/v1/live",
               headers={"User-Agent": "NewsSentrySourceHealthSLO/1.0"},
           )
           with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
               payload = json.loads(response.read().decode("utf-8"))
+          if not isinstance(payload, dict) or payload.get("status") != "ok":
+              print("Deployment metadata live status is not ok.", file=sys.stderr)
+              raise SystemExit(1)
           deployment = payload.get("deployment") if isinstance(payload, dict) else {}
           if not isinstance(deployment, dict):
               deployment = {}
           deployed_commit = deployment.get("commit")
-          if not isinstance(deployed_commit, str) or len(deployed_commit) != 40:
+          if not isinstance(deployed_commit, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", deployed_commit):
               print("Deployment metadata did not expose a full deployed commit.", file=sys.stderr)
               raise SystemExit(1)
           print(json.dumps({"environment": "production", "deployed_commit": deployed_commit}))

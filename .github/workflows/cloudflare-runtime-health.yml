@@ -118,23 +118,27 @@ jobs:
           PROBE_API_BASE_URL="${probe_api_base_url}" INPUT_EXPECTED_COMMIT="${INPUT_EXPECTED_COMMIT}" python - <<'PY' > /tmp/news-sentry-current-deployment.json
           import json
           import os
+          import re
           import sys
           import urllib.request
 
           api_base_url = os.environ["PROBE_API_BASE_URL"].rstrip("/")
           request = urllib.request.Request(
-              f"{api_base_url}/api/v1/ready",
+              f"{api_base_url}/api/v1/live",
               headers={"User-Agent": "NewsSentryContinuityResolver/1.0"},
           )
           with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
               payload = json.loads(response.read().decode("utf-8"))
+          if not isinstance(payload, dict) or payload.get("status") != "ok":
+              print("Deployment metadata live status is not ok.", file=sys.stderr)
+              raise SystemExit(1)
           deployment = payload.get("deployment") if isinstance(payload, dict) else {}
           if not isinstance(deployment, dict):
               deployment = {}
           deployed_commit = deployment.get("commit")
           deployed_at = deployment.get("deployed_at") or deployment.get("created_at")
           input_expected_commit = os.environ.get("INPUT_EXPECTED_COMMIT") or ""
-          if not isinstance(deployed_commit, str) or len(deployed_commit) != 40:
+          if not isinstance(deployed_commit, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", deployed_commit):
               print("Deployment metadata did not expose a full deployed commit.", file=sys.stderr)
               raise SystemExit(1)
           if input_expected_commit and input_expected_commit.lower() != deployed_commit.lower():

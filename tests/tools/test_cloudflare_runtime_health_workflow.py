@@ -65,6 +65,11 @@ def test_runtime_health_workflow_defaults_schedules_to_production_and_fails_clos
     assert 'probe_api_base_url="${INPUT_PROBE_API_BASE_URL:-${api_base_url}}"' in resolve
     assert 'printf \'%s=%s\\n\' "probe_api_base_url" "${probe_api_base_url}"' in resolve
     assert "Resolve deployed commit from guard receipt and deployment metadata" in resolve
+    assert 'f"{api_base_url}/api/v1/live"' in resolve
+    assert 'f"{api_base_url}/api/v1/ready"' not in resolve
+    assert 'payload.get("status") != "ok"' in resolve
+    assert "Deployment metadata live status is not ok." in resolve
+    assert "re.fullmatch(r\"[0-9a-fA-F]{40}\"" in resolve
     assert 'expected_commit="${DEPLOYED_COMMIT}"' in resolve
     assert 'expected_commit="${GITHUB_SHA}"' not in resolve
     assert 'deployed_at="$(date -u' not in resolve
