@@ -18,7 +18,13 @@ COMMIT = "a" * 40
 WORKER_VERSION = "worker-version-1"
 
 
-def _runtime_payload(now: datetime, *, container_configured: bool = True) -> dict[str, Any]:
+def _runtime_payload(
+    now: datetime,
+    *,
+    container_configured: bool = True,
+    queue_configured: bool = True,
+    scheduler_mode: str = "shadow",
+) -> dict[str, Any]:
     timestamp = now.isoformat().replace("+00:00", "Z")
     return {
         "schema_version": "2026-08-01.phase0",
@@ -43,9 +49,10 @@ def _runtime_payload(now: datetime, *, container_configured: bool = True) -> dic
             "commit": COMMIT,
             "runtime": "cloudflare-worker",
             "worker_version": WORKER_VERSION,
+            "scheduler_mode": scheduler_mode,
             "compute": {
                 "container_configured": container_configured,
-                "queue_configured": True,
+                "queue_configured": queue_configured,
             },
         },
     }
@@ -74,8 +81,15 @@ def _handler(
     drop_connections: bool = False,
     malformed_readiness: bool = False,
     container_configured: bool = True,
+    queue_configured: bool = True,
+    scheduler_mode: str = "shadow",
 ) -> type[BaseHTTPRequestHandler]:
-    health = _runtime_payload(now, container_configured=container_configured)
+    health = _runtime_payload(
+        now,
+        container_configured=container_configured,
+        queue_configured=queue_configured,
+        scheduler_mode=scheduler_mode,
+    )
     if stale_collection:
         health["latest_collected_at"] = "2020-01-01T00:00:00Z"
         health["latest_valid_collected_at"] = "2020-01-01T00:00:00Z"
@@ -161,6 +175,8 @@ def _run_probe(
     api_connection_failure: bool = False,
     malformed_readiness: bool = False,
     container_configured: bool = True,
+    queue_configured: bool = True,
+    scheduler_mode: str = "shadow",
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, Any]]:
     now = datetime.now(UTC).replace(microsecond=0)
     origins: dict[str, str] = {}
@@ -172,6 +188,8 @@ def _run_probe(
         drop_connections=api_connection_failure,
         malformed_readiness=malformed_readiness,
         container_configured=container_configured,
+        queue_configured=queue_configured,
+        scheduler_mode=scheduler_mode,
     )
     with _serve(api_handler) as api_url:
         origins["api"] = api_url
@@ -264,6 +282,40 @@ def test_probe_rejects_missing_container_readiness(tmp_path: Path) -> None:
     assert result.returncode == 1
     assert receipt["status"] == "failed"
     assert "container_not_configured" in receipt["summary"]["reason_codes"]
+    checks = {check["name"]: check for check in receipt["checks"]}
+    assert checks["live"]["ok"] is True
+    assert checks["ready"]["ok"] is False
+    assert checks["health"]["ok"] is False
+
+
+def test_runtime_probe_records_shadow_missing_queue_without_failing(
+    tmp_path: Path,
+) -> None:
+    result, receipt = _run_probe(
+        tmp_path,
+        scheduler_mode="shadow",
+        queue_configured=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert receipt["status"] == "ok"
+    assert receipt["summary"] == {"passed": 6, "failed": 0, "reason_codes": []}
+    checks = {check["name"]: check for check in receipt["checks"]}
+    assert checks["live"]["degraded_reason_codes"] == []
+    assert checks["ready"]["degraded_reason_codes"] == ["queue_not_configured"]
+    assert checks["health"]["degraded_reason_codes"] == ["queue_not_configured"]
+
+
+def test_runtime_probe_blocks_queue_mode_missing_queue(tmp_path: Path) -> None:
+    result, receipt = _run_probe(
+        tmp_path,
+        scheduler_mode="queue",
+        queue_configured=False,
+    )
+
+    assert result.returncode == 1
+    assert receipt["status"] == "failed"
+    assert "queue_not_configured" in receipt["summary"]["reason_codes"]
     checks = {check["name"]: check for check in receipt["checks"]}
     assert checks["live"]["ok"] is True
     assert checks["ready"]["ok"] is False

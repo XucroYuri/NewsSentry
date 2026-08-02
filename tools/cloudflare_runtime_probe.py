@@ -149,15 +149,34 @@ def _runtime_reasons(
     return reasons
 
 
+def _runtime_degraded_reason_codes(
+    payload: dict[str, Any] | None,
+    *,
+    require_readiness: bool,
+) -> list[str]:
+    if payload is None or not require_readiness:
+        return []
+    deployment = _mapping(payload.get("deployment"))
+    compute = _mapping(deployment.get("compute"))
+    if (
+        deployment.get("scheduler_mode") == "shadow"
+        and compute.get("queue_configured") is not True
+    ):
+        return ["queue_not_configured"]
+    return []
+
+
 def _check(
     name: str,
     reasons: list[str],
     evidence: dict[str, Any],
+    degraded_reason_codes: list[str] | None = None,
 ) -> dict[str, Any]:
     return {
         "name": name,
         "ok": not reasons,
         "reason_codes": sorted(set(reasons)),
+        "degraded_reason_codes": sorted(set(degraded_reason_codes or [])),
         "evidence": evidence,
     }
 
@@ -188,6 +207,10 @@ def build_receipt(
             response,
             payload,
             expected_commit=expected_commit,
+            require_readiness=mode != "live",
+        )
+        degraded_reasons = _runtime_degraded_reason_codes(
+            payload,
             require_readiness=mode != "live",
         )
         if mode == "health" and payload is not None:
@@ -228,6 +251,7 @@ def build_receipt(
                     ),
                     "error": response.error,
                 },
+                degraded_reasons,
             )
         )
 
