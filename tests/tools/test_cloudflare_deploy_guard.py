@@ -127,9 +127,10 @@ def _schema_ok_responses() -> dict[tuple[str, ...], str]:
             "wrangler",
             "r2",
             "bucket",
-            "list",
+            "info",
+            "news-sentry-artifacts",
             "--json",
-        ): _json([{"name": "news-sentry-artifacts"}]),
+        ): _json({"name": "news-sentry-artifacts"}),
         (
             "wrangler",
             "d1",

@@ -169,7 +169,10 @@ def test_preview_worker_provisions_an_isolated_r2_artifact_bucket() -> None:
         "  deploy-cloudflare-pages:", 1
     )[0]
 
-    assert "node_modules/.bin/wrangler r2 bucket list --json" in preview_worker_job
+    assert (
+        "node_modules/.bin/wrangler r2 bucket info "
+        "news-sentry-artifacts-preview --json" in preview_worker_job
+    )
     assert (
         "node_modules/.bin/wrangler r2 bucket create news-sentry-artifacts-preview"
         in preview_worker_job

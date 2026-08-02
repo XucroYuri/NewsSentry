@@ -273,18 +273,19 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          node_modules/.bin/wrangler r2 bucket list --json > /tmp/ns-r2-buckets.json
-          if ! python - <<'PY'
+          if ! node_modules/.bin/wrangler r2 bucket info news-sentry-artifacts --json \
+            > /tmp/ns-r2-bucket.json; then
+            node_modules/.bin/wrangler r2 bucket create news-sentry-artifacts
+            node_modules/.bin/wrangler r2 bucket info news-sentry-artifacts --json \
+              > /tmp/ns-r2-bucket.json
+          fi
+          python - <<'PY'
           import json
           from pathlib import Path
 
-          payload = json.loads(Path("/tmp/ns-r2-buckets.json").read_text())
-          buckets = payload if isinstance(payload, list) else payload.get("buckets", [])
-          raise SystemExit(0 if any(row.get("name") == "news-sentry-artifacts" for row in buckets) else 1)
+          payload = json.loads(Path("/tmp/ns-r2-bucket.json").read_text())
+          assert payload.get("name") == "news-sentry-artifacts"
           PY
-          then
-            node_modules/.bin/wrangler r2 bucket create news-sentry-artifacts
-          fi
 
       - name: Apply Cloudflare D1 shadow job runtime migration
         if: needs.ci.outputs.deployment_environment == 'production'
@@ -607,18 +608,19 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          node_modules/.bin/wrangler r2 bucket list --json > /tmp/ns-preview-r2-buckets.json
-          if ! python - <<'PY'
+          if ! node_modules/.bin/wrangler r2 bucket info news-sentry-artifacts-preview --json \
+            > /tmp/ns-preview-r2-bucket.json; then
+            node_modules/.bin/wrangler r2 bucket create news-sentry-artifacts-preview
+            node_modules/.bin/wrangler r2 bucket info news-sentry-artifacts-preview --json \
+              > /tmp/ns-preview-r2-bucket.json
+          fi
+          python - <<'PY'
           import json
           from pathlib import Path
 
-          payload = json.loads(Path("/tmp/ns-preview-r2-buckets.json").read_text())
-          buckets = payload if isinstance(payload, list) else payload.get("buckets", [])
-          raise SystemExit(0 if any(row.get("name") == "news-sentry-artifacts-preview" for row in buckets) else 1)
+          payload = json.loads(Path("/tmp/ns-preview-r2-bucket.json").read_text())
+          assert payload.get("name") == "news-sentry-artifacts-preview"
           PY
-          then
-            node_modules/.bin/wrangler r2 bucket create news-sentry-artifacts-preview
-          fi
 
       - name: Prepare Cloudflare preview config and seed
         env:

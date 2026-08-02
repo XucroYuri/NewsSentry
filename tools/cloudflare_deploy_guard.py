@@ -519,16 +519,9 @@ def _runtime_migration_receipt_ids(migration_json: Any) -> set[str]:
 
 
 def _r2_bucket_names(payload: Any) -> set[str]:
-    rows = payload
-    if isinstance(payload, dict):
-        rows = payload.get("buckets", payload.get("result", []))
-    if not isinstance(rows, list):
-        return set()
-    return {
-        str(row.get("name"))
-        for row in rows
-        if isinstance(row, dict) and isinstance(row.get("name"), str)
-    }
+    if isinstance(payload, dict) and isinstance(payload.get("name"), str):
+        return {str(payload["name"])}
+    return set()
 
 
 def _load_toml(path: Path) -> dict[str, Any]:
@@ -1012,7 +1005,14 @@ def run_preflight(
     if not _consumer_ok(_safe_command_json(consumer_cmd, runner, blockers), config.worker_name):
         blockers.append(f"consumer_missing:{config.queue_name}")
 
-    r2_cmd = [config.wrangler, "r2", "bucket", "list", "--json"]
+    r2_cmd = [
+        config.wrangler,
+        "r2",
+        "bucket",
+        "info",
+        EXPECTED_ARTIFACT_BUCKET,
+        "--json",
+    ]
     commands.append(r2_cmd)
     artifact_buckets = _r2_bucket_names(_safe_command_json(r2_cmd, runner, blockers))
     if EXPECTED_ARTIFACT_BUCKET not in artifact_buckets:
