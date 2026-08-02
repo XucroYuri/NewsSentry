@@ -29,7 +29,7 @@ jobs:
     environment: ${{ inputs.environment }}
     env:
       WRANGLER: frontend/cloudflare/node_modules/.bin/wrangler
-      DRILL_DIR: ${{ runner.temp }}/news-sentry-restore-drill
+      DRILL_DIR: /tmp/news-sentry-restore-drill
     steps:
       - uses: actions/checkout@v4
 
@@ -330,6 +330,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: cloudflare-restore-receipt-${{ inputs.environment }}-${{ github.run_id }}
-          path: ${{ runner.temp }}/news-sentry-restore-drill/restore-receipt.json
+          path: /tmp/news-sentry-restore-drill/restore-receipt.json
           if-no-files-found: error
           retention-days: 30

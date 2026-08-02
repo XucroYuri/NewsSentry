@@ -66,6 +66,8 @@ def test_restore_drill_is_manual_exact_sha_and_serialized() -> None:
     assert workflow["concurrency"]["cancel-in-progress"] == "false"
     assert job["environment"] == "${{ inputs.environment }}"
     assert not any(key.startswith("CLOUDFLARE_") for key in job["env"])
+    assert job["env"]["DRILL_DIR"] == "/tmp/news-sentry-restore-drill"  # noqa: S108
+    assert "runner.temp" not in job["env"]["DRILL_DIR"]
     assert workflow["on"]["workflow_dispatch"]["inputs"]["expected_commit"]["required"] == "true"
 
 
@@ -96,6 +98,7 @@ def test_restore_drill_uploads_only_sanitized_receipt() -> None:
     upload_step = workflow.split("      - name: Upload sanitized restore receipt", 1)[1]
 
     assert "restore-receipt.json" in upload_step
+    assert "/tmp/news-sentry-restore-drill/restore-receipt.json" in upload_step  # noqa: S108
     assert "source-export.sql" not in upload_step
     assert "query-results.json" not in upload_step
     assert "artifact-receipts.json" not in upload_step
