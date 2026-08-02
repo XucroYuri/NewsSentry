@@ -12,6 +12,8 @@
 
 同日第二次隔离部署 run `30727960018` 在 commit `2bfe26dd1f71bd510ab45826b08659f6506a8ba2` 上完成全量 CI、Preview R2 bucket identity、D1 schema、Worker、Pages 和最终验证。`live`、`ready`、`health` 现场复核均为 `200/ok`，`artifacts_configured=true`，部署 header 对齐该 commit，Worker version 为 `ba19fdc0-95f2-4f67-b15a-ba7758e154ff`，Pages immutable URL 为 `https://469e4bd4.news-sentry.pages.dev`。这证明 R2 binding 与部署门禁可用，仍不证明真实导入对象写入或生产恢复。
 
+同日 durable import + Preview canary 工作的 Tasks 1-7 已在隔离 worktree 本地实现并完成 scoped review，候选 HEAD 为 `119b3d0ef7912cd2a30ea2941caa683475a3dcc5`。本地代码现在要求 API/Container 正常导入走 R2-first durable import，并为 projection-only finalize 使用 append-only Phase 4 schema；Preview workflow 已接入匿名写 403、机器 Service Token 首次 200、幂等重放、D1/R2 交叉校验和 committed artifact restore 的步骤。Task 9 尚未执行精确 SHA 远端 Preview deploy/canary/restore，因此这些仍是待取得的远端回执，不得写成 Preview 已证明事实。
+
 最重要的事实不是“网站是否返回 200”，而是：
 
 - 生产健康端点返回 `200 / status=ok`，但最新采集时间停在 `2026-07-23T07:52:23.678529Z`，审计时已经约 9 天未更新。
@@ -49,6 +51,7 @@
 | Phase 2 Task 4 preview-safe preflight/receipt | 实现与测试完成 | run `30721353606` 的 preflight、D1 schema/seed、Worker/Pages deploy 与 verify 全部成功 |
 | 隔离 Preview Worker/D1 | config、guard、seed、receipt、Pages/API 绑定和质量门禁均完成 | `news-sentry-api-preview`、`ns-db-preview`、Preview Pages 已创建并验证 |
 | D1/R2 持久化边界 | R2 不可变导入正文、D1 manifest、围栏式 finalize 与失败重放已完成 | run `30727960018` 已证明 Preview R2 bucket/binding/ready 门禁；尚无真实导入对象回执 |
+| Durable import + Preview canary | Tasks 1-7 本地实现和审查完成；API/Container 委托统一 durable projection import；Phase 4 projection receipt 是 append-only schema | Task 9 尚未执行；仍待精确 SHA Preview 匿名 403、机器 200、重放、D1/R2 cross-check 和 restore receipt |
 | 隔离恢复演练 | D1 export、独立私有 R2 往返校验、一次性 D1 import、schema/row/orphan/snapshot 校验和强制清理 workflow 已完成本地测试 | Preview run `30728893550` 已证明 31,101-byte R2 往返同 SHA、隔离 import 和 `cleanup.verified_absent=true`；因 Preview migration receipt 为空及 UTF-8 byte count 漂移而 fail-closed，修复待重跑 |
 | 发布治理 | `preview` 可从候选分支部署隔离面；`production` 只接受 `main`；workflow 不直接改写 `main` | Draft PR #50 `CLEAN`，但仍无审批/合并；生产 job 在 Preview run 中明确跳过 |
 | 供应链 | Wrangler `4.114.0`、Miniflare `4.20260722.0`、Sharp `0.35.2`；官方 npm audit 0 | GitHub CI 与 Preview 部署均通过 |
@@ -85,6 +88,7 @@
 
 - GitHub 环境凭据已能安全写入隔离 Preview；本机 Wrangler token 仍不作为 NewsSentry 生产写入凭据，生产发布尚未执行。
 - `wrangler types`、`wrangler deploy --dry-run`、本地测试和 workflow 文本检查只算本地门禁，不算生产恢复。
+- Durable import Task 8 只记录本地验证和文档口径；Task 9 之前不能声称 Preview 已完成匿名 403、机器 200、幂等重放、D1/R2 cross-check 或 committed artifact restore。
 - Preview 只证明公开 API、D1、健康端点和 Pages/API 构建绑定；不证明 Queue、Cron、Container、Durable Object 或生产数据面。
 - Python app 当前同时注册 Bearer 管理 webhook 与 HMAC webhook 的同路径路由；实际路由顺序优先 Bearer 版本。HMAC fail-closed 修复只算防御性修补，必须在契约统一后才能声称外部 webhook 已切换。
 - `origin/preview` 与 `main` 已长期分叉，不作为本轮候选的合并基线。本轮先推送候选分支，通过手动隔离 Preview 取得回执，再以 PR 合入 `main`；禁止 workflow 自动改写 `main`。

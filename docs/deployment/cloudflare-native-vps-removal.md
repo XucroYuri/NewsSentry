@@ -79,7 +79,34 @@ Do not shut down the VPS until all cutover gates pass:
    curl -i https://api.news-sentry.com/api/v1/events/import
    ```
 
-8. A 24-72 hour collector receipt proves new events are written without VPS.
+8. Production import writes are R2-first and D1 is only the query projection:
+   anonymous import returns 403, Access machine import returns 200, identical replay is idempotent,
+   and D1 `artifact_manifests` / `import_batches` / `import_projection_finalize_receipts` cross-check
+   against the committed R2 object key, SHA-256 and UTF-8 bytes.
+9. A committed-artifact restore drill succeeds from production evidence artifacts, including
+   source-fenced and projection-only receipt orphan/conflict checks.
+10. A 24-72 hour collector receipt proves new events are written without VPS, followed by 7 days of
+    SLO evidence.
+
+## Production Stop Line
+
+The durable import and Preview canary implementation is a candidate until exact production receipts
+exist. Local tests, Wrangler dry-runs, Preview public health, Preview D1/R2 checks, or GitHub workflow
+success do not prove production recovery.
+
+Stop before production deploy unless all of these are true:
+
+- PR review and explicit production release authorization are complete.
+- The final `main` SHA is known and passed the required local, CI and security checks.
+- Production has its own Cloudflare Access application, audience and Service Token; Preview
+  `CF_ACCESS_AUD`, `CF_ACCESS_SERVICE_TOKEN_IDS`, `CF_ACCESS_CLIENT_ID` and
+  `CF_ACCESS_CLIENT_SECRET` are not reused.
+- Production `deploy.yml` is manually dispatched from `refs/heads/main` with matching
+  `expected_commit`.
+- The deployment plan includes rollback evidence and a post-deploy canary window.
+
+Until those conditions are met, production remains untouched. The known false-green/stale-data warning
+in `docs/status.md` remains authoritative even when `/api/v1/health` returns `200`.
 
 ## Deployment Notes
 
@@ -87,6 +114,8 @@ Do not shut down the VPS until all cutover gates pass:
 - The container path is Access-gated and fail-closed. If the container binding is missing, the Worker returns an error instead of falling back to any external origin.
 - GitHub Actions does not usually contain the full local `data/*/state.db` tree. Treat CI backfill as a dry-run/contract check unless a trusted data artifact is explicitly attached.
 - `CLOUDFLARE_STATE_JSON` remains required for production deployed-surface audit. Temporary bypasses are removed from the production workflow.
+- Phase 4 D1 changes are append-only. Do not rewrite historical migrations or remove
+  `runtime_migration_receipts` to force a rerun.
 
 ## VPS Decommission
 
@@ -99,3 +128,22 @@ After all cutover gates pass:
 5. Snapshot the VPS for rollback evidence.
 6. Stop News Sentry systemd services.
 7. Keep the snapshot for 7-14 days, then destroy the VPS if no rollback signal appears.
+
+## Rollback Boundary
+
+Rollback is allowed only to a previously verified `main` production SHA and its matching D1/R2 evidence
+set. Do not roll production back to Preview resources, synthetic Preview artifacts, or a branch-only
+candidate SHA.
+
+If production durable import canary fails after deploy:
+
+1. Stop further import writes by disabling the production release path or Access policy that allowed
+   the canary identity.
+2. Preserve D1/R2 receipts, Worker version metadata, Pages deploy URL and workflow artifacts.
+3. Re-dispatch the last verified production SHA through the same `production` environment gate, or
+   restore the legacy rollback surface only if its snapshot and tunnel state were preserved.
+4. Re-run anonymous 403, machine import, idempotent replay, D1/R2 cross-check, public read health and
+   restore drill before declaring rollback complete.
+
+Rollback does not close the production false-green issue by itself. Fresh collector and SLO evidence
+are still required before decommissioning VPS fallback or claiming continuous acquisition is restored.

@@ -11,6 +11,22 @@
   `runtime_migration_receipts` 表为准。
 - 若 migration 部分执行，先做 schema preflight，再用补丁 migration 或人工恢复脚本补齐缺项。
 
+## Phase 4 projection import migration
+
+`frontend/cloudflare/db/migrations/20260802_phase4_projection_import.sql` 是 Phase 2 之后的
+append-only migration。它只新增 projection-only finalize 所需的 D1 对象：
+
+- `import_projection_finalize_receipts`
+- `idx_projection_receipts_idempotency_key`
+- `trg_projection_receipt_reject_source_receipt`
+- `trg_source_receipt_reject_projection_receipt`
+- `runtime_migration_receipts.migration_id = '20260802_phase4_projection_import'`
+
+不得修改已提交的 Phase 0/1/2 migration，不得压扁 `db/schema.sql` 后重写历史 migration，也不得
+删除 `runtime_migration_receipts` 来重跑已经应用的 Phase 4。若远端 schema 部分存在但 receipt
+缺失，先保存 PRAGMA/table/index/trigger 证据，再用只补缺项的 additive SQL 或 guard 的
+`record-runtime-receipts` 恢复 receipt。
+
 ## 部署前 preflight
 
 1. 查询项目 runtime migration receipt：
@@ -84,6 +100,35 @@ Queue/Cron/Container/DO 必须在独立 canary 和生产 receipt 中验证，不
 `workers.dev` origin、Pages deploy URL 无法解析，或 frontend bundle 未嵌入 Preview API URL，
 都必须 fail closed。
 
+### Preview durable import canary
+
+Task 9 的 Preview canary 使用正常受保护入口
+`https://news-sentry-api-preview.xuyu.workers.dev/api/v1/events/import`，不增加 preview-only
+公开测试路由。GitHub `preview` Environment 必须包含：
+
+- Variables：`CF_ACCESS_TEAM_DOMAIN`、`CF_ACCESS_AUD`、`CF_ACCESS_SERVICE_TOKEN_IDS`
+- Secrets：`CF_ACCESS_CLIENT_ID`、`CF_ACCESS_CLIENT_SECRET`
+
+Worker deploy 只注入上述三个非秘密变量。`CF_ACCESS_CLIENT_SECRET` 只作为 workflow 请求头
+输入存在，不能进入 Worker vars、D1/R2、日志、artifact 或上传回执。
+
+验证顺序固定为：
+
+1. 不携带 Access token 对 `/api/v1/events/import` POST synthetic canary payload，必须返回 403，
+   且 R2/D1 均不变。
+2. 携带 `CF-Access-Client-Id`、`CF-Access-Client-Secret` 和
+   `Idempotency-Key: preview-artifact-canary:<full commit>` POST，同一 payload 首次必须 200。
+3. 重放同一请求必须 200 且 `replayed=true`，不得新增第二个 artifact、batch 或 event。
+4. 用 Wrangler 只读查询 `ns-db-preview`，交叉检查 `artifact_manifests`、
+   `import_batches`、`jobs`、`import_projection_finalize_receipts` 和 event count。
+5. 用响应中的 content-addressed key 只读 GET `news-sentry-artifacts-preview`，校验 key、
+   SHA-256 和 UTF-8 bytes 与 D1 manifest 一致。
+6. 上传的 receipt 只包含摘要、对象 key、SHA-256、bytes、状态和计数；不得包含 secrets、JWT、
+   原始请求头或完整 payload。
+
+Task 8 只完成本地文档和验证。上述匿名 403、机器 200、重放、D1/R2 cross-check 与 restore
+必须等 Task 9 在精确远端 SHA 上执行后，才能写成已完成事实。
+
 候选分支推送后，从该分支执行隔离 Preview：
 
 ```bash
@@ -109,3 +154,19 @@ Preview 绿色后只产出验证证据，不再由 workflow 直接 fast-forward/
 当前远端 `main`/`preview` 尚未启用 branch protection；在保护规则建立前，不得把“PR 流程”写成
 强制治理事实。为降低这一远端治理缺口的风险，`main` push 不再触发 production，生产提升必须
 通过上述精确 commit 手动门禁。
+
+### Committed artifact restore drill
+
+Preview canary 成功后，`cloudflare-restore-drill.yml` 不得接受
+`artifact_coverage=not_available`。恢复演练必须从 latest committed manifest 下载真实 R2 artifact，
+校验 key、SHA-256、UTF-8 bytes，然后在隔离 D1 中验证：
+
+- `runtime_migration_receipts` 包含 Phase 0/1/2 和
+  `20260802_phase4_projection_import`；
+- source-fenced 与 projection-only 两类 finalize receipt 均无 orphan；
+- 同一 `batch_id` 不得同时存在 source 和 projection receipt；
+- `artifact_manifests.status = committed` 的对象可被 R2 读取且 checksum/bytes 匹配；
+- cleanup 后隔离 D1 明确 `verified_absent=true`。
+
+任一缺失、冲突、orphan、checksum/bytes 漂移或 cleanup 不确定，都必须 fail closed，不能作为
+production promotion 证据。

@@ -1,7 +1,7 @@
 # Cloudflare 统一持久化导入与 Preview 真实制品设计
 
 > 日期：2026-08-02
-> 状态：书面规格已批准，进入实施计划与 TDD
+> 状态：Tasks 1-7 本地实现与代码审查已完成；Task 9 精确 SHA Preview 远端部署、canary 与恢复演练待执行
 > 适用范围：Cloudflare Worker、D1、R2、Preview Access、部署与恢复演练
 
 ## 1. 背景
@@ -9,6 +9,13 @@
 当前候选分支已经实现 R2 不可变导入正文、D1 `artifact_manifests`、分块导入、围栏式
 finalize 和隔离恢复演练。精确提交 `021739caf2e8c9c83573ba91a297dec48f0b4adb`
 也已经通过 Preview Worker、D1、R2 binding、Pages 和恢复演练。
+
+2026-08-02 的 durable import 实施分为本地完成与远端证明两段。Tasks 1-7 已在隔离
+worktree 中实现并完成 review：Access service principal、projection finalize schema、
+API/Container R2-first 导入、恢复门禁、Preview canary helper 和 workflow wiring 已进入候选
+分支。Task 9 尚未执行，因此本文档中的 Preview 匿名 403、机器 200、幂等重放、D1/R2
+交叉校验和真实 artifact restore 仍是下一步远端验收项，不是当前已完成事实。Production
+未部署本候选分支，也未启动 72 小时 canary 或 7 天 SLO 计时。
 
 但导入入口仍不一致：
 
@@ -170,6 +177,15 @@ Preview Environment 还保存该应用独立的 `CF_ACCESS_TEAM_DOMAIN`、`CF_AC
 
 Preview 和 production 使用不同 Service Token。当前阶段只创建 Preview token。
 
+Preview GitHub Environment 的变量与秘密名称固定如下：
+
+- Variables：`CF_ACCESS_TEAM_DOMAIN`、`CF_ACCESS_AUD`、`CF_ACCESS_SERVICE_TOKEN_IDS`。
+- Secrets：`CF_ACCESS_CLIENT_ID`、`CF_ACCESS_CLIENT_SECRET`。
+
+`CF_ACCESS_CLIENT_SECRET` 只用于 GitHub Actions canary 请求，禁止作为 Worker var、日志字段、
+artifact 内容或回执字段。`CF_ACCESS_SERVICE_TOKEN_IDS` 只保存已验签 JWT `common_name`
+的 Client ID allowlist；Worker 仍以 `Cf-Access-Jwt-Assertion` 为授权事实源。
+
 ## 5. Preview canary
 
 部署精确 SHA 后，workflow 执行一次确定性 synthetic import：
@@ -215,6 +231,11 @@ Production 发布仍需要：
 3. production 独立 Access 配置与独立机器身份。
 4. 生产真实采集生成 artifact，而不是复用 Preview synthetic 制品。
 5. 72 小时 canary 和 7 天 SLO 证据。
+
+Phase 4 schema 只允许 append-only 推进：`20260802_phase4_projection_import` 新增
+`import_projection_finalize_receipts`、partial idempotency index 和 source/projection 双向互斥
+trigger，并写入 `runtime_migration_receipts`。不得改写或压扁既有 migration，也不得通过手工
+删除 receipt 来重跑已应用的 D1 迁移。
 
 ## 7. 失败语义
 
@@ -291,3 +312,7 @@ Production 发布仍需要：
 5. Preview D1/R2 交叉校验和真实 artifact restore drill 通过。
 6. 回执不含秘密，Preview 资源名和 production 资源名严格隔离。
 7. Production 仍保持未变更，直到独立审批、深扫和发布门禁满足。
+
+截至 Task 8，验收项 1、3 和本地配置/流程审查已完成；验收项 4、5 需要 Task 9 对精确远端
+SHA 执行 Preview deploy、canary 和 restore 后才能关闭。验收项 7 仍是硬边界：生产不能因
+本地测试或 Preview 绿色而被描述为已恢复或持续健康。
