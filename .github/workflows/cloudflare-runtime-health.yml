@@ -195,8 +195,9 @@ jobs:
           mkdir -p /tmp/news-sentry-continuity-artifacts
           artifact_name=""
           previous_run_id=""
+          prefix="cloudflare-continuity-ledger-${ENVIRONMENT}-${EXPECTED_COMMIT}-"
           for previous_run_id in $(gh run list --workflow cloudflare-runtime-health.yml --status success --limit 10 --json databaseId --jq '.[].databaseId'); do
-            artifact_name="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${previous_run_id}/artifacts" --jq '.artifacts[]?.name | select(startswith("cloudflare-continuity-ledger-${ENVIRONMENT}-${EXPECTED_COMMIT}-"))' | head -n 1 || true)"
+            artifact_name="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${previous_run_id}/artifacts" | jq -r --arg prefix "${prefix}" '.artifacts[]?.name | select(startswith($prefix))' | head -n 1 || true)"
             if [[ -n "${artifact_name}" ]]; then
               gh run download "${previous_run_id}" \
                 --name "${artifact_name}" \

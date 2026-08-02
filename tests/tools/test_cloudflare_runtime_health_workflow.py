@@ -66,9 +66,14 @@ def test_runtime_health_workflow_defaults_schedules_to_production_and_fails_clos
     assert "Invalid expected_commit: expected a 40-character Git commit SHA." in resolve
     assert "printf '%s=%s\\n'" in resolve
     assert "cloudflare-continuity-ledger-" in previous
-    assert "cloudflare-continuity-ledger-${ENVIRONMENT}-${EXPECTED_COMMIT}" in previous
     assert "--status success" in previous
     assert "for previous_run_id in" in previous
+    assert 'prefix="cloudflare-continuity-ledger-${ENVIRONMENT}-${EXPECTED_COMMIT}-"' in previous
+    assert '--arg prefix "${prefix}"' in previous
+    assert (
+        'startswith("cloudflare-continuity-ledger-${ENVIRONMENT}-${EXPECTED_COMMIT}-")'
+        not in previous
+    )
     assert "bootstrap_continuity" in previous
     assert "No previous continuity ledger found" in previous
     assert "Ledger deployed_commit does not match expected commit" in previous
