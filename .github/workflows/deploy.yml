@@ -1124,6 +1124,7 @@ jobs:
             --file "${CANARY_DIR}/artifact.json")
 
           python tools/cloudflare_preview_canary.py receipt \
+            --deploy-commit "${GITHUB_SHA}" \
             --first-response "${CANARY_DIR}/first-response.json" \
             --replay-response "${CANARY_DIR}/replay-response.json" \
             --d1-json "${CANARY_DIR}/d1-evidence.json" \

@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 from tools.cloudflare_runtime_contract import EXPECTED_MIGRATION_RECEIPTS
 
+from tools import cloudflare_preview_canary as canary
 from tools import cloudflare_restore_drill as drill
 
 SHA_A = "a" * 64
@@ -255,6 +256,82 @@ def test_restore_drill_accepts_preview_gate0_synthetic_canary_contract() -> None
         "synthetic_event_count": 1,
         "task": "api-import",
     }
+
+
+def test_restore_drill_accepts_real_preview_canary_receipt_without_wrapper(
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "artifact.json"
+    artifact.write_bytes(b"x" * 48)
+    artifact_sha = hashlib.sha256(b"x" * 48).hexdigest()
+    first = {
+        "batch_id": f"api-batch:{SHA_A}",
+        "job_id": f"api-job:{SHA_A}",
+        "artifact_id": f"artifact-{SHA_A}",
+        "artifact_key": f"imports/v1/2026/08/02/{artifact_sha}.json",
+        "artifact_sha256": artifact_sha,
+        "artifact_bytes": 48,
+        "errors": [],
+        "replayed": False,
+    }
+    replay = {**first, "replayed": True}
+    d1_row = {
+        "batch_id": first["batch_id"],
+        "batch_status": "committed",
+        "batch_count": 1,
+        "batch_checksum": SHA_B,
+        "job_id": first["job_id"],
+        "job_status": "committed",
+        "job_count": 1,
+        "artifact_id": first["artifact_id"],
+        "artifact_batch_id": first["batch_id"],
+        "artifact_job_id": first["job_id"],
+        "artifact_key": first["artifact_key"],
+        "artifact_sha256": artifact_sha,
+        "artifact_bytes": 48,
+        "artifact_status": "committed",
+        "artifact_count": 1,
+        "projection_receipt_count": 1,
+        "projection_batch_guard": first["batch_id"],
+        "projection_job_guard": first["job_id"],
+        "projection_artifact_guard": first["artifact_id"],
+        "projection_batch_checksum": SHA_B,
+        "event_count": 1,
+    }
+    continuity_receipt = canary.build_canary_receipt(
+        deploy_commit=COMMIT_A,
+        first_response=first,
+        replay_response=replay,
+        d1_rows=[d1_row],
+        artifact_path=artifact,
+    )
+
+    query_results = preview_query_results()
+    query_results["artifact_manifests"][0]["object_key"] = first["artifact_key"]
+    query_results["artifact_manifests"][0]["sha256"] = artifact_sha
+    query_results["artifact_manifests"][0]["payload_bytes"] = 48
+
+    preview = _receipt(
+        query_results=query_results,
+        backup_receipt=_preview_backup_receipt(),
+        artifact_receipts={str(first["artifact_key"]): {"sha256": artifact_sha, "bytes": 48}},
+        continuity_receipt=continuity_receipt,
+        source_environment="preview",
+    )
+    production = _receipt(
+        query_results=query_results,
+        backup_receipt=_preview_backup_receipt(),
+        artifact_receipts={str(first["artifact_key"]): {"sha256": artifact_sha, "bytes": 48}},
+        continuity_receipt=continuity_receipt,
+        source_environment="production",
+    )
+
+    assert continuity_receipt["status"] == "ok"
+    assert continuity_receipt["gate_status"] == "preview_gate0_passed"
+    assert continuity_receipt["deployed_commit"] == COMMIT_A
+    assert preview["status"] == "ok"
+    assert production["status"] == "failed"
+    assert "continuity_slo_7d_not_passed" in production["summary"]["blockers"]
 
 
 def test_restore_drill_rejects_preview_contract_for_production() -> None:

@@ -263,6 +263,7 @@ def _validate_continuity_receipt(
 ) -> tuple[dict[str, Any], list[str]]:
     blockers: list[str] = []
     status = continuity_receipt.get("status")
+    gate_status = continuity_receipt.get("gate_status")
     deployed_commit = continuity_receipt.get("deployed_commit")
 
     if not isinstance(status, str):
@@ -270,7 +271,10 @@ def _validate_continuity_receipt(
         status = ""
     elif source_environment == "production" and status != "slo_7d_passed":
         blockers.append("continuity_slo_7d_not_passed")
-    elif source_environment == "preview" and status != "preview_gate0_passed":
+    elif source_environment == "preview" and not (
+        status == "preview_gate0_passed"
+        or (status == "ok" and gate_status == "preview_gate0_passed")
+    ):
         blockers.append("continuity_preview_gate0_not_passed")
 
     if not isinstance(deployed_commit, str) or not COMMIT_RE.fullmatch(deployed_commit):
@@ -279,10 +283,13 @@ def _validate_continuity_receipt(
     elif deployed_commit != expected_commit:
         blockers.append("continuity_commit_mismatch")
 
-    return {
+    sanitized = {
         "status": status,
         "deployed_commit": deployed_commit,
-    }, blockers
+    }
+    if isinstance(gate_status, str):
+        sanitized["gate_status"] = gate_status
+    return sanitized, blockers
 
 
 def validate_artifact_object_key(object_key: str) -> str:

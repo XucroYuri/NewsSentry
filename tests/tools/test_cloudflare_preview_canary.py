@@ -147,6 +147,7 @@ def test_receipt_cross_checks_response_d1_and_r2_without_secret_passthrough(
         response["artifact_key"] = row["artifact_key"]
 
     receipt = canary.build_canary_receipt(
+        deploy_commit=COMMIT,
         first_response=first,
         replay_response=replay,
         d1_rows=[row],
@@ -154,6 +155,10 @@ def test_receipt_cross_checks_response_d1_and_r2_without_secret_passthrough(
     )
 
     assert receipt["status"] == "ok"
+    assert receipt["gate_status"] == "preview_gate0_passed"
+    assert receipt["deployed_commit"] == COMMIT
+    assert receipt["source_environment"] == "preview"
+    assert receipt["source_runtime"] == "cloudflare-worker"
     assert receipt["identity"] == {
         "batch_id": BATCH_ID,
         "job_id": JOB_ID,
@@ -188,6 +193,7 @@ def test_receipt_fails_closed_on_missing_or_inconsistent_evidence(
     artifact.write_bytes(b"x" * 16)
 
     missing = canary.build_canary_receipt(
+        deploy_commit=COMMIT,
         first_response=_response(replayed=False),
         replay_response=_response(replayed=True),
         d1_rows=[],
@@ -197,6 +203,7 @@ def test_receipt_fails_closed_on_missing_or_inconsistent_evidence(
     assert "d1_row_count_invalid" in missing["blockers"]
 
     mismatched = canary.build_canary_receipt(
+        deploy_commit=COMMIT,
         first_response=_response(replayed=False),
         replay_response=_response(replayed=True),
         d1_rows=[_d1_row(artifact_bytes=17)],
@@ -224,6 +231,7 @@ def test_receipt_compares_projection_checksum_to_batch_checksum(
         response["artifact_key"] = row["artifact_key"]
 
     receipt = canary.build_canary_receipt(
+        deploy_commit=COMMIT,
         first_response=first,
         replay_response=replay,
         d1_rows=[row],
@@ -251,6 +259,7 @@ def test_receipt_fails_when_artifact_manifest_belongs_to_different_import(
         response["artifact_key"] = row["artifact_key"]
 
     receipt = canary.build_canary_receipt(
+        deploy_commit=COMMIT,
         first_response=first,
         replay_response=replay,
         d1_rows=[row],
@@ -414,6 +423,8 @@ def test_cli_subcommands_emit_canonical_json_and_failed_receipts(
     code = canary.main(
         [
             "receipt",
+            "--deploy-commit",
+            COMMIT,
             "--first-response",
             str(first_path),
             "--replay-response",
@@ -431,3 +442,47 @@ def test_cli_subcommands_emit_canonical_json_and_failed_receipts(
     receipt = json.loads(output.read_text(encoding="utf-8"))
     assert receipt["status"] == "failed"
     assert "artifact_sha256_mismatch" in receipt["blockers"]
+
+
+def test_deploy_workflow_passes_exact_commit_to_preview_canary_receipt() -> None:
+    workflow = (
+        Path(__file__).resolve().parents[2] / ".github/workflows/deploy.yml"
+    ).read_text(encoding="utf-8")
+    canary_step = workflow.split(
+        "      - name: Run authenticated preview durable import canary", 1
+    )[1].split("      - name: Upload preview durable import canary receipt", 1)[0]
+
+    assert "python tools/cloudflare_preview_canary.py receipt" in canary_step
+    assert '--deploy-commit "${GITHUB_SHA}"' in canary_step
+
+
+def test_receipt_cli_requires_explicit_deploy_commit(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    first_path = tmp_path / "first.json"
+    replay_path = tmp_path / "replay.json"
+    rows_path = tmp_path / "rows.json"
+    artifact = tmp_path / "artifact.json"
+    first_path.write_text(json.dumps(_response(replayed=False)), encoding="utf-8")
+    replay_path.write_text(json.dumps(_response(replayed=True)), encoding="utf-8")
+    rows_path.write_text(json.dumps([_d1_row()]), encoding="utf-8")
+    artifact.write_bytes(b"x" * 16)
+
+    with pytest.raises(SystemExit) as error:
+        canary.main(
+            [
+                "receipt",
+                "--first-response",
+                str(first_path),
+                "--replay-response",
+                str(replay_path),
+                "--d1-json",
+                str(rows_path),
+                "--artifact",
+                str(artifact),
+            ]
+        )
+
+    assert error.value.code == 2
+    assert "deploy-commit" in capsys.readouterr().err

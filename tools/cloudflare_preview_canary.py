@@ -290,12 +290,14 @@ def _failed_receipt(blockers: list[str]) -> dict[str, Any]:
 
 def build_canary_receipt(
     *,
+    deploy_commit: str,
     first_response: Mapping[str, Any],
     replay_response: Mapping[str, Any],
     d1_rows: list[dict[str, Any]],
     artifact_path: Path,
 ) -> dict[str, Any]:
     blockers: list[str] = []
+    deployed_commit = _validate_commit(deploy_commit)
     first = _response_identity(first_response, "first_response", blockers)
     replay = _response_identity(replay_response, "replay_response", blockers)
     for field in (
@@ -370,6 +372,11 @@ def build_canary_receipt(
     return {
         "schema_version": SCHEMA_VERSION,
         "status": "ok",
+        "gate_status": "preview_gate0_passed",
+        "deployed_commit": deployed_commit,
+        "source_environment": "preview",
+        "source_runtime": "cloudflare-worker",
+        "evidence_class": "preview_synthetic_canary",
         "identity": {
             "batch_id": first["batch_id"],
             "job_id": first["job_id"],
@@ -453,6 +460,7 @@ def _receipt_command(args: argparse.Namespace) -> int:
     try:
         d1_rows = parse_wrangler_d1_json(args.d1_json.read_text(encoding="utf-8"))
         receipt = build_canary_receipt(
+            deploy_commit=args.deploy_commit,
             first_response=_read_json(args.first_response),
             replay_response=_read_json(args.replay_response),
             d1_rows=d1_rows,
@@ -487,6 +495,7 @@ def build_parser() -> argparse.ArgumentParser:
     artifact_key.set_defaults(func=_validate_artifact_key_command)
 
     receipt = subparsers.add_parser("receipt")
+    receipt.add_argument("--deploy-commit", required=True)
     receipt.add_argument("--first-response", required=True, type=Path)
     receipt.add_argument("--replay-response", required=True, type=Path)
     receipt.add_argument("--d1-json", required=True, type=Path)
