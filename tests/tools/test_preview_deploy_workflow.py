@@ -180,16 +180,48 @@ def test_preview_verification_requires_preview_worker_runtime_proof() -> None:
     assert "API_URL: https://api.news-sentry.com" not in preview_job
     assert "Preview API_URL must point to a preview Worker runtime" in preview_job
     assert "https://api.news-sentry.com" in preview_job
-    assert '"${API_URL}${path}"' in preview_job
-    assert "fetch_preview_worker_receipt live /api/v1/live" in preview_job
-    assert "fetch_preview_worker_receipt ready /api/v1/ready" in preview_job
-    assert "fetch_preview_worker_receipt health /api/v1/health" in preview_job
+    assert 'fetch_preview_public_endpoint live /api/v1/live "${API_URL}/api/v1/live"' in preview_job
+    assert (
+        'fetch_preview_public_endpoint ready /api/v1/ready "${API_URL}/api/v1/ready"'
+        in preview_job
+    )
+    assert (
+        'fetch_preview_public_endpoint health /api/v1/health "${API_URL}/api/v1/health"'
+        in preview_job
+    )
     assert "x-news-sentry-deploy-commit" in preview_job
     assert "x-news-sentry-worker-version" in preview_job
     assert (
         "health.get(\"deployment\", {}).get(\"commit\") == os.environ[\"GITHUB_SHA\"]"
         in preview_job
     )
+
+
+def test_preview_verification_logs_failed_public_endpoint_evidence() -> None:
+    script = str(
+        _step("verify-preview", "Verify preview Cloudflare-native public endpoints")[
+            "run"
+        ]
+    )
+
+    assert "curl -fsS" not in script
+    assert '-o "${body}"' in script
+    assert '-D "${headers}"' in script
+    assert '-w "%{http_code}"' in script
+    assert "Preview endpoint failure: mode=${mode} endpoint=${endpoint} status=${status}" in script
+    assert "Response headers (safe subset):" in script
+    assert "Response body (first 2048 bytes):" in script
+    assert "head -c 2048" in script
+    assert "fetch_preview_public_endpoint live /api/v1/live" in script
+    assert "fetch_preview_public_endpoint ready /api/v1/ready" in script
+    assert "fetch_preview_public_endpoint health /api/v1/health" in script
+    assert "fetch_preview_public_endpoint public-news" in script
+    assert "fetch_preview_public_endpoint facets" in script
+    assert "fetch_preview_public_endpoint public-app" in script
+    assert "printenv" not in script
+    assert "CLOUDFLARE_API_KEY" not in script
+    assert "CLOUDFLARE_EMAIL" not in script
+    assert "CLOUDFLARE_ACCOUNT_ID" not in script
 
 
 def test_preview_worker_deploy_job_is_isolated_and_exports_api_url() -> None:

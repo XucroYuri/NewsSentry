@@ -935,27 +935,65 @@ jobs:
               ;;
           esac
 
-          fetch_preview_worker_receipt() {
+          print_preview_endpoint_failure() {
             local mode="$1"
-            local path="$2"
-            curl -fsS \
-              -D "/tmp/preview-${mode}.headers" \
-              -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" \
-              -H "Accept: application/json" \
-              "${API_URL}${path}" > "/tmp/preview-${mode}.json"
+            local endpoint="$2"
+            local status="$3"
+            local headers="$4"
+            local body="$5"
+            echo "::error title=Preview endpoint failed::mode=${mode} endpoint=${endpoint} status=${status}"
+            echo "Preview endpoint failure: mode=${mode} endpoint=${endpoint} status=${status}"
+            echo "Response headers (safe subset):"
+            if [ -s "${headers}" ]; then
+              grep -Eai '^(HTTP/|content-type:|content-length:|cache-control:|cf-ray:|x-news-sentry-|date:|server:)' "${headers}" | head -c 2048 || true
+            else
+              echo "(none)"
+            fi
+            echo
+            echo "Response body (first 2048 bytes):"
+            if [ -s "${body}" ]; then
+              head -c 2048 "${body}" || true
+            else
+              echo "(empty)"
+            fi
+            echo
           }
 
-          fetch_preview_worker_receipt live /api/v1/live
-          fetch_preview_worker_receipt ready /api/v1/ready
-          fetch_preview_worker_receipt health /api/v1/health
-          curl -fsS \
-            -D /tmp/public-news.headers \
-            -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" \
-            -H "Accept: application/json" \
-            -H "Origin: ${PAGES_URL}" \
-            "${API_URL}/api/v1/public/news?page_size=3" > /tmp/public-news.json
-          curl -fsS -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" -H "Accept: application/json" "${API_URL}/api/v1/public/facets" > /tmp/facets.json
-          curl -fsS -D /tmp/public-app.headers -o /tmp/public-app.html "${PAGES_URL:-${BASE_URL}}/"
+          fetch_preview_public_endpoint() {
+            local mode="$1"
+            local endpoint="$2"
+            local url="$3"
+            local body="$4"
+            local headers="$5"
+            shift 5
+            local status=""
+            local curl_rc=0
+            status="$(curl -sS \
+              -o "${body}" \
+              -D "${headers}" \
+              -w "%{http_code}" \
+              -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" \
+              "$@" \
+              "${url}")" || curl_rc=$?
+            if [ "${curl_rc}" -ne 0 ]; then
+              if [ -z "${status}" ] || [ "${status}" = "000" ]; then
+                status="curl_error_${curl_rc}"
+              fi
+              print_preview_endpoint_failure "${mode}" "${endpoint}" "${status}" "${headers}" "${body}"
+              return 1
+            fi
+            if [ "${status}" != "200" ]; then
+              print_preview_endpoint_failure "${mode}" "${endpoint}" "${status}" "${headers}" "${body}"
+              return 1
+            fi
+          }
+
+          fetch_preview_public_endpoint live /api/v1/live "${API_URL}/api/v1/live" /tmp/preview-live.json /tmp/preview-live.headers -H "Accept: application/json"
+          fetch_preview_public_endpoint ready /api/v1/ready "${API_URL}/api/v1/ready" /tmp/preview-ready.json /tmp/preview-ready.headers -H "Accept: application/json"
+          fetch_preview_public_endpoint health /api/v1/health "${API_URL}/api/v1/health" /tmp/preview-health.json /tmp/preview-health.headers -H "Accept: application/json"
+          fetch_preview_public_endpoint public-news "/api/v1/public/news?page_size=3" "${API_URL}/api/v1/public/news?page_size=3" /tmp/public-news.json /tmp/public-news.headers -H "Accept: application/json" -H "Origin: ${PAGES_URL}"
+          fetch_preview_public_endpoint facets /api/v1/public/facets "${API_URL}/api/v1/public/facets" /tmp/facets.json /tmp/facets.headers -H "Accept: application/json"
+          fetch_preview_public_endpoint public-app / "${PAGES_URL:-${BASE_URL}}/" /tmp/public-app.html /tmp/public-app.headers
 
           python - <<'PY'
           import json
