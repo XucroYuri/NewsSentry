@@ -97,6 +97,7 @@ NEWS_SENTRY_RUNTIME = "cloudflare-native-preview"
 NEWS_SENTRY_ENVIRONMENT = "preview"
 SCHEDULER_MODE = "shadow"
 WORKER_NATIVE_COLLECT_ENABLED = "false"
+# Preview Access non-secret vars are injected by deploy.yml; Client Secret stays in GitHub Environment secrets only.
 
 [env.preview.version_metadata]
 binding = "CF_VERSION_METADATA"

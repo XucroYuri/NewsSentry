@@ -57,6 +57,32 @@ def test_preview_worker_uses_isolated_state_and_no_active_runtime_bindings() -> 
     assert preview["secrets"] == {"required": []}
 
 
+def test_preview_worker_config_keeps_access_secret_out_of_static_worker_vars() -> None:
+    config = tomllib.loads(_read("wrangler.toml"))
+    preview = config["env"]["preview"]
+    preview_vars = preview["vars"]
+
+    assert "CF_ACCESS_CLIENT_SECRET" not in preview_vars
+    assert "CF_ACCESS_CLIENT_ID" not in preview_vars
+    assert preview["d1_databases"] == [
+        {
+            "binding": "DB",
+            "database_name": "ns-db-preview",
+            "database_id": "00000000-0000-4000-8000-000000000000",
+        }
+    ]
+    assert preview["r2_buckets"] == [
+        {
+            "binding": "NEWS_SENTRY_ARTIFACTS",
+            "bucket_name": "news-sentry-artifacts-preview",
+        }
+    ]
+    assert preview["queues"] == {"producers": [], "consumers": []}
+    assert preview["durable_objects"] == {"bindings": []}
+    assert preview["triggers"] == {"crons": []}
+    assert preview["containers"] == []
+
+
 def test_deploy_workflow_verifies_apex_api_worker_route() -> None:
     deploy_yml = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
 

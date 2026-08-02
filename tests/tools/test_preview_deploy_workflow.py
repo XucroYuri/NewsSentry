@@ -25,6 +25,30 @@ def _workflow() -> dict[str, Any]:
     )
 
 
+def _job(name: str) -> dict[str, Any]:
+    return cast(dict[str, Any], _workflow()["jobs"][name])
+
+
+def _step(job_name: str, step_name: str) -> dict[str, Any]:
+    steps = cast(list[dict[str, Any]], _job(job_name)["steps"])
+    return next(step for step in steps if step.get("name") == step_name)
+
+
+def _step_names(job_name: str) -> list[str]:
+    return [
+        str(step.get("name", step.get("uses", "")))
+        for step in cast(list[dict[str, Any]], _job(job_name)["steps"])
+    ]
+
+
+def _shell_tokens(script: str, pattern: str) -> list[str]:
+    return re.findall(pattern, script)
+
+
+def _shell_token_pairs(script: str, pattern: str) -> list[tuple[str, str]]:
+    return cast(list[tuple[str, str]], re.findall(pattern, script))
+
+
 def _run_deployment_mode_script(
     tmp_path: Path,
     *,
@@ -163,6 +187,42 @@ def test_preview_worker_deploy_job_is_isolated_and_exports_api_url() -> None:
     assert "news-sentry-jobs" not in preview_worker_job
 
 
+def test_preview_worker_deploy_injects_only_non_secret_access_vars() -> None:
+    deploy_step = _step("deploy-cloudflare-preview-worker", "Deploy Cloudflare preview Worker")
+    env = cast(dict[str, str], deploy_step["env"])
+    script = str(deploy_step["run"])
+
+    assert env["CF_ACCESS_TEAM_DOMAIN"] == "${{ vars.CF_ACCESS_TEAM_DOMAIN }}"
+    assert env["CF_ACCESS_AUD"] == "${{ vars.CF_ACCESS_AUD }}"
+    assert (
+        env["CF_ACCESS_SERVICE_TOKEN_IDS"]
+        == "${{ vars.CF_ACCESS_SERVICE_TOKEN_IDS }}"  # noqa: S105
+    )
+    assert "CF_ACCESS_CLIENT_SECRET" not in env
+
+    required_vars = set(
+        _shell_tokens(script, r': "\$\{(CF_ACCESS_[A-Z_]+):\?[^"]+\}"')
+    )
+    assert required_vars == {
+        "CF_ACCESS_TEAM_DOMAIN",
+        "CF_ACCESS_AUD",
+        "CF_ACCESS_SERVICE_TOKEN_IDS",
+    }
+
+    wrangler_vars = set(_shell_tokens(script, r'--var "([^:"]+):'))
+    assert {
+        "NEWS_SENTRY_DEPLOY_COMMIT",
+        "NEWS_SENTRY_ENVIRONMENT",
+        "SCHEDULER_MODE",
+        "WORKER_NATIVE_COLLECT_ENABLED",
+        "CF_ACCESS_TEAM_DOMAIN",
+        "CF_ACCESS_AUD",
+        "CF_ACCESS_SERVICE_TOKEN_IDS",
+    } <= wrangler_vars
+    assert "CF_ACCESS_CLIENT_SECRET" not in wrangler_vars
+    assert "set -x" not in script
+
+
 def test_preview_worker_provisions_an_isolated_r2_artifact_bucket() -> None:
     workflow = _workflow_text()
     preview_worker_job = workflow.split("  deploy-cloudflare-preview-worker:", 1)[1].split(
@@ -178,6 +238,75 @@ def test_preview_worker_provisions_an_isolated_r2_artifact_bucket() -> None:
         in preview_worker_job
     )
     assert "news-sentry-artifacts-preview" in preview_worker_job
+
+
+def test_verify_preview_uses_preview_environment_secrets_for_canary_only() -> None:
+    verify_job = _job("verify-preview")
+    env = cast(dict[str, str], verify_job["env"])
+
+    assert verify_job["environment"] == "preview"
+    assert env["CF_ACCESS_CLIENT_ID"] == "${{ secrets.CF_ACCESS_CLIENT_ID }}"
+    assert (
+        env["CF_ACCESS_CLIENT_SECRET"]
+        == "${{ secrets.CF_ACCESS_CLIENT_SECRET }}"  # noqa: S105
+    )
+
+    worker_job_text = yaml.dump(_job("deploy-cloudflare-preview-worker"))
+    assert "CF_ACCESS_CLIENT_SECRET" not in worker_job_text
+    assert "CF_ACCESS_CLIENT_ID" not in worker_job_text
+
+
+def test_verify_preview_runs_authenticated_durable_import_canary_fail_closed() -> None:
+    step_names = _step_names("verify-preview")
+    assert step_names.index("Run authenticated preview durable import canary") < step_names.index(
+        "Upload preview durable import canary receipt"
+    )
+
+    canary_step = _step("verify-preview", "Run authenticated preview durable import canary")
+    script = str(canary_step["run"])
+
+    helper_commands = _shell_tokens(
+        script,
+        r"tools/cloudflare_preview_canary\.py (payload|evidence-sql|receipt)",
+    )
+    assert helper_commands == ["payload", "evidence-sql", "receipt"]
+
+    status_checks: dict[str, str] = dict(
+        _shell_token_pairs(script, r'\[ "\$\{([A-Z_]+)\}" = "([0-9]+)" \]')
+    )
+    assert status_checks["ANON_STATUS"] == "403"
+    assert status_checks["FIRST_STATUS"] == "200"
+    assert status_checks["REPLAY_STATUS"] == "200"
+    assert 'replay.get("replayed") is True' in script
+
+    d1_targets = _shell_tokens(script, r"wrangler d1 execute ([a-z0-9-]+) --remote")
+    assert d1_targets == ["ns-db-preview"]
+    r2_gets = _shell_tokens(
+        script,
+        r"wrangler r2 object get ([a-z0-9-]+)/\$\{ARTIFACT_KEY\}",
+    )
+    assert r2_gets == ["news-sentry-artifacts-preview"]
+
+    forbidden = (
+        "ns-db --remote",
+        "news-sentry-artifacts/${",
+        "set -x",
+        "Cf-Access-Jwt-Assertion",
+        "Authorization:",
+    )
+    for token in forbidden:
+        assert token not in script
+
+
+def test_preview_canary_uploads_only_sanitized_receipt() -> None:
+    upload = _step("verify-preview", "Upload preview durable import canary receipt")
+
+    assert upload["uses"] == "actions/upload-artifact@v4"
+    assert upload["with"] == {
+        "name": "news-sentry-preview-artifact-canary-receipt",
+        "path": "${{ runner.temp }}/news-sentry-preview-artifact-canary-receipt.json",
+        "if-no-files-found": "error",
+    }
 
 
 def test_pages_preview_build_uses_preview_worker_output_but_main_can_skip_it() -> None:

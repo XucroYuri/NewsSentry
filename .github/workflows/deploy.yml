@@ -672,15 +672,24 @@ jobs:
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCESS_TEAM_DOMAIN: ${{ vars.CF_ACCESS_TEAM_DOMAIN }}
+          CF_ACCESS_AUD: ${{ vars.CF_ACCESS_AUD }}
+          CF_ACCESS_SERVICE_TOKEN_IDS: ${{ vars.CF_ACCESS_SERVICE_TOKEN_IDS }}
           WRANGLER_OUTPUT_FILE_PATH: /tmp/news-sentry-preview-wrangler-output.ndjson
         run: |
           set -euo pipefail
+          : "${CF_ACCESS_TEAM_DOMAIN:?GitHub preview environment variable CF_ACCESS_TEAM_DOMAIN is required}"
+          : "${CF_ACCESS_AUD:?GitHub preview environment variable CF_ACCESS_AUD is required}"
+          : "${CF_ACCESS_SERVICE_TOKEN_IDS:?GitHub preview environment variable CF_ACCESS_SERVICE_TOKEN_IDS is required}"
           node_modules/.bin/wrangler deploy --config wrangler.preview.generated.toml --env preview \
             --containers-rollout none \
             --var "NEWS_SENTRY_DEPLOY_COMMIT:${GITHUB_SHA}" \
             --var "NEWS_SENTRY_ENVIRONMENT:preview" \
             --var "SCHEDULER_MODE:shadow" \
-            --var "WORKER_NATIVE_COLLECT_ENABLED:false"
+            --var "WORKER_NATIVE_COLLECT_ENABLED:false" \
+            --var "CF_ACCESS_TEAM_DOMAIN:${CF_ACCESS_TEAM_DOMAIN}" \
+            --var "CF_ACCESS_AUD:${CF_ACCESS_AUD}" \
+            --var "CF_ACCESS_SERVICE_TOKEN_IDS:${CF_ACCESS_SERVICE_TOKEN_IDS}"
 
       - name: Collect Cloudflare preview Worker receipt
         id: receipt
@@ -823,6 +832,7 @@ jobs:
       needs.deploy-cloudflare-preview-worker.result == 'success' &&
       needs.cloudflare-data.result == 'success' &&
       needs.ci.outputs.deployment_environment == 'preview'
+    environment: preview
     env:
       BASE_URL: https://preview.news-sentry.com
       PAGES_URL: ${{ needs.deploy-cloudflare-pages.outputs.pages_url }}
@@ -830,6 +840,8 @@ jobs:
       CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
       CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@v4
 
@@ -934,6 +946,131 @@ jobs:
           assert "https://api.news-sentry.com" not in public_app_html
           assert os.environ["API_URL"] in public_app_headers.get("content-security-policy", "")
           PY
+
+      - name: Run authenticated preview durable import canary
+        env:
+          RECEIPT_PATH: ${{ runner.temp }}/news-sentry-preview-artifact-canary-receipt.json
+        run: |
+          set -euo pipefail
+          : "${API_URL:?Preview API_URL must point to a preview Worker runtime}"
+          : "${CF_ACCESS_CLIENT_ID:?GitHub preview environment secret CF_ACCESS_CLIENT_ID is required}"
+          : "${CF_ACCESS_CLIENT_SECRET:?GitHub preview environment secret CF_ACCESS_CLIENT_SECRET is required}"
+          : "${RUNNER_TEMP:?GitHub runner temp directory is required}"
+          CANARY_DIR="${RUNNER_TEMP}/news-sentry-preview-canary"
+          export CANARY_DIR
+          rm -rf "${CANARY_DIR}"
+          mkdir -p "${CANARY_DIR}"
+          cleanup_canary() {
+            rm -rf "${CANARY_DIR}"
+          }
+          trap cleanup_canary EXIT
+
+          COMMIT_TIME="$(git show -s --format=%cI "${GITHUB_SHA}")"
+          python tools/cloudflare_preview_canary.py payload \
+            --commit "${GITHUB_SHA}" \
+            --commit-time "${COMMIT_TIME}" \
+            --output "${CANARY_DIR}/payload.json" >/dev/null
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          canary_dir = Path(os.environ["CANARY_DIR"])
+          payload = json.loads((canary_dir / "payload.json").read_text())
+          (canary_dir / "events.json").write_text(
+              json.dumps(payload["events"], ensure_ascii=False, sort_keys=True),
+              encoding="utf-8",
+          )
+          (canary_dir / "idempotency-key").write_text(
+              payload["idempotency_key"],
+              encoding="utf-8",
+          )
+          PY
+          IDEMPOTENCY_KEY="$(cat "${CANARY_DIR}/idempotency-key")"
+
+          ANON_STATUS="$(curl -sS \
+            -o "${CANARY_DIR}/anonymous.json" \
+            -w "%{http_code}" \
+            -X POST \
+            -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            --data-binary @"${CANARY_DIR}/events.json" \
+            "${API_URL}/api/v1/events/import" || true)"
+          [ "${ANON_STATUS}" = "403" ]
+
+          FIRST_STATUS="$(curl -sS \
+            -o "${CANARY_DIR}/first-response.json" \
+            -w "%{http_code}" \
+            -X POST \
+            -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" \
+            -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}" \
+            -H "Idempotency-Key: ${IDEMPOTENCY_KEY}" \
+            --data-binary @"${CANARY_DIR}/events.json" \
+            "${API_URL}/api/v1/events/import" || true)"
+          [ "${FIRST_STATUS}" = "200" ]
+
+          REPLAY_STATUS="$(curl -sS \
+            -o "${CANARY_DIR}/replay-response.json" \
+            -w "%{http_code}" \
+            -X POST \
+            -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" \
+            -H "Accept: application/json" \
+            -H "Content-Type: application/json" \
+            -H "CF-Access-Client-Id: ${CF_ACCESS_CLIENT_ID}" \
+            -H "CF-Access-Client-Secret: ${CF_ACCESS_CLIENT_SECRET}" \
+            -H "Idempotency-Key: ${IDEMPOTENCY_KEY}" \
+            --data-binary @"${CANARY_DIR}/events.json" \
+            "${API_URL}/api/v1/events/import" || true)"
+          [ "${REPLAY_STATUS}" = "200" ]
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          canary_dir = Path(os.environ["CANARY_DIR"])
+          first = json.loads((canary_dir / "first-response.json").read_text())
+          replay = json.loads((canary_dir / "replay-response.json").read_text())
+          assert first.get("errors") == [], "preview canary first import returned errors"
+          assert replay.get("errors") == [], "preview canary replay returned errors"
+          assert first.get("replayed") is False, "preview canary first import replay flag invalid"
+          assert replay.get("replayed") is True, "preview canary replay flag invalid"
+          for key in ("batch_id", "job_id", "artifact_id", "artifact_key"):
+              assert isinstance(first.get(key), str) and first[key], f"missing first {key}"
+              assert first.get(key) == replay.get(key), f"replay {key} mismatch"
+          PY
+
+          python tools/cloudflare_preview_canary.py evidence-sql \
+            --batch-id "$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["batch_id"])' "${CANARY_DIR}/first-response.json")" \
+            --job-id "$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["job_id"])' "${CANARY_DIR}/first-response.json")" \
+            --artifact-id "$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["artifact_id"])' "${CANARY_DIR}/first-response.json")" \
+            > "${CANARY_DIR}/evidence.sql"
+
+          (cd frontend/cloudflare && node_modules/.bin/wrangler d1 execute ns-db-preview --remote \
+            --file "${CANARY_DIR}/evidence.sql" \
+            --json > "${CANARY_DIR}/d1-evidence.json")
+
+          ARTIFACT_KEY="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["artifact_key"])' "${CANARY_DIR}/first-response.json")"
+          (cd frontend/cloudflare && node_modules/.bin/wrangler r2 object get news-sentry-artifacts-preview/${ARTIFACT_KEY} \
+            --file "${CANARY_DIR}/artifact.json")
+
+          python tools/cloudflare_preview_canary.py receipt \
+            --first-response "${CANARY_DIR}/first-response.json" \
+            --replay-response "${CANARY_DIR}/replay-response.json" \
+            --d1-json "${CANARY_DIR}/d1-evidence.json" \
+            --artifact "${CANARY_DIR}/artifact.json" \
+            --output "${RECEIPT_PATH}" >/dev/null
+
+      - name: Upload preview durable import canary receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: news-sentry-preview-artifact-canary-receipt
+          path: ${{ runner.temp }}/news-sentry-preview-artifact-canary-receipt.json
+          if-no-files-found: error
 
   verify-production:
     name: Verify production
