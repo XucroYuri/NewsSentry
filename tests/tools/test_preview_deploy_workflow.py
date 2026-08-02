@@ -212,6 +212,16 @@ def test_preview_verification_logs_failed_public_endpoint_evidence() -> None:
     assert "Response headers (safe subset):" in script
     assert "Response body (first 2048 bytes):" in script
     assert "head -c 2048" in script
+    assert "secrets.token_hex(32)" in script
+    assert "::stop-commands::${command_token}" in script
+    assert "::${command_token}::" in script
+    assert (
+        script.index("secrets.token_hex(32)")
+        < script.index("::stop-commands::${command_token}")
+        < script.index("grep -Eai")
+        < script.index("head -c 2048")
+        < script.index("::${command_token}::")
+    )
     assert "fetch_preview_public_endpoint live /api/v1/live" in script
     assert "fetch_preview_public_endpoint ready /api/v1/ready" in script
     assert "fetch_preview_public_endpoint health /api/v1/health" in script

@@ -941,8 +941,11 @@ jobs:
             local status="$3"
             local headers="$4"
             local body="$5"
+            local command_token=""
+            command_token="$(python -c 'import secrets; print(secrets.token_hex(32))')"
             echo "::error title=Preview endpoint failed::mode=${mode} endpoint=${endpoint} status=${status}"
             echo "Preview endpoint failure: mode=${mode} endpoint=${endpoint} status=${status}"
+            echo "::stop-commands::${command_token}"
             echo "Response headers (safe subset):"
             if [ -s "${headers}" ]; then
               grep -Eai '^(HTTP/|content-type:|content-length:|cache-control:|cf-ray:|x-news-sentry-|date:|server:)' "${headers}" | head -c 2048 || true
@@ -957,6 +960,7 @@ jobs:
               echo "(empty)"
             fi
             echo
+            echo "::${command_token}::"
           }
 
           fetch_preview_public_endpoint() {
