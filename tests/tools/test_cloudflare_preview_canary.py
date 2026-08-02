@@ -239,6 +239,75 @@ def test_receipt_cross_checks_response_d1_and_r2_without_secret_passthrough(
         assert marker not in rendered
 
 
+def test_receipt_normalizes_d1_string_artifact_bytes_before_comparing_response(
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "artifact.json"
+    artifact.write_bytes(b"x" * 943)
+    artifact_sha = hashlib.sha256(b"x" * 943).hexdigest()
+    row = _d1_row()
+    row["artifact_sha256"] = artifact_sha
+    row["artifact_key"] = f"imports/v1/2026/08/02/{artifact_sha}.json"
+    row["artifact_bytes"] = "943"
+    first = _response(replayed=False)
+    replay = _response(replayed=True)
+    for response in (first, replay):
+        response["artifact_sha256"] = artifact_sha
+        response["artifact_key"] = row["artifact_key"]
+        response["artifact_bytes"] = 943
+
+    receipt = canary.build_canary_receipt(
+        deploy_commit=COMMIT,
+        first_response=first,
+        replay_response=replay,
+        d1_rows=[row],
+        artifact_path=artifact,
+    )
+
+    assert receipt["status"] == "ok"
+    assert receipt["artifact"]["bytes"] == 943
+
+
+@pytest.mark.parametrize(
+    ("d1_artifact_bytes", "expected_blocker"),
+    [
+        ("944", "artifact_bytes_mismatch"),
+        (True, "artifact_bytes_invalid"),
+        ("not-a-byte-count", "artifact_bytes_invalid"),
+        (-1, "artifact_bytes_invalid"),
+    ],
+)
+def test_receipt_fails_closed_on_invalid_or_mismatched_d1_artifact_bytes(
+    tmp_path: Path,
+    d1_artifact_bytes: object,
+    expected_blocker: str,
+) -> None:
+    artifact = tmp_path / "artifact.json"
+    artifact.write_bytes(b"x" * 943)
+    artifact_sha = hashlib.sha256(b"x" * 943).hexdigest()
+    row = _d1_row()
+    row["artifact_sha256"] = artifact_sha
+    row["artifact_key"] = f"imports/v1/2026/08/02/{artifact_sha}.json"
+    row["artifact_bytes"] = d1_artifact_bytes
+    first = _response(replayed=False)
+    replay = _response(replayed=True)
+    for response in (first, replay):
+        response["artifact_sha256"] = artifact_sha
+        response["artifact_key"] = row["artifact_key"]
+        response["artifact_bytes"] = 943
+
+    receipt = canary.build_canary_receipt(
+        deploy_commit=COMMIT,
+        first_response=first,
+        replay_response=replay,
+        d1_rows=[row],
+        artifact_path=artifact,
+    )
+
+    assert receipt["status"] == "failed"
+    assert expected_blocker in receipt["blockers"]
+
+
 def test_receipt_fails_closed_on_missing_or_inconsistent_evidence(
     tmp_path: Path,
 ) -> None:

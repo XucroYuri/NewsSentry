@@ -353,10 +353,13 @@ def build_canary_receipt(
         ("artifact_job_id", "job_id"),
         ("artifact_key", "artifact_key"),
         ("artifact_sha256", "artifact_sha256"),
-        ("artifact_bytes", "artifact_bytes"),
     ):
         if row.get(row_key) != first.get(response_key):
             blockers.append(f"{row_key}_mismatch")
+    expected_bytes = _int_value(row.get("artifact_bytes"))
+    response_bytes = _int_value(first.get("artifact_bytes"))
+    if expected_bytes != response_bytes:
+        blockers.append("artifact_bytes_mismatch")
 
     if row.get("projection_batch_guard") != row.get("batch_id"):
         blockers.append("projection_batch_guard_mismatch")
@@ -372,7 +375,6 @@ def build_canary_receipt(
 
     key = _validate_artifact_key(row.get("artifact_key"), blockers)
     sha256 = _validate_sha256(row.get("artifact_sha256"), "artifact_sha256_invalid", blockers)
-    expected_bytes = _int_value(row.get("artifact_bytes"))
     if expected_bytes is None or expected_bytes < 0:
         blockers.append("artifact_bytes_invalid")
     file_receipt = object_receipt(artifact_path)
