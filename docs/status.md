@@ -1,6 +1,6 @@
 # News Sentry 当前状态
 
-> 更新时间：2026-08-02T10:21:48+08:00
+> 更新时间：2026-08-02T10:30:20+08:00
 > 状态口径：本文件只记录会变化的运行态事实；架构和字段契约仍以 `docs/architecture.md` 与 `docs/contracts-canonical.md` 为准。
 > 完整证据：[2026-08-01 项目健康、安全与低成本全球化审计](./audits/2026-08-01-project-health-security-cost-audit.md)
 
@@ -49,7 +49,7 @@
 | Phase 2 Task 4 preview-safe preflight/receipt | 实现与测试完成 | run `30721353606` 的 preflight、D1 schema/seed、Worker/Pages deploy 与 verify 全部成功 |
 | 隔离 Preview Worker/D1 | config、guard、seed、receipt、Pages/API 绑定和质量门禁均完成 | `news-sentry-api-preview`、`ns-db-preview`、Preview Pages 已创建并验证 |
 | D1/R2 持久化边界 | R2 不可变导入正文、D1 manifest、围栏式 finalize 与失败重放已完成 | run `30727960018` 已证明 Preview R2 bucket/binding/ready 门禁；尚无真实导入对象回执 |
-| 隔离恢复演练 | D1 export、独立私有 R2 往返校验、一次性 D1 import、schema/row/orphan/snapshot 校验和强制清理 workflow 已完成本地测试 | 尚未对 Preview/Production 运行；不得把本地 100 项门禁视为恢复成功 |
+| 隔离恢复演练 | D1 export、独立私有 R2 往返校验、一次性 D1 import、schema/row/orphan/snapshot 校验和强制清理 workflow 已完成本地测试 | Preview run `30728893550` 已证明 31,101-byte R2 往返同 SHA、隔离 import 和 `cleanup.verified_absent=true`；因 Preview migration receipt 为空及 UTF-8 byte count 漂移而 fail-closed，修复待重跑 |
 | 发布治理 | `preview` 可从候选分支部署隔离面；`production` 只接受 `main`；workflow 不直接改写 `main` | Draft PR #50 `CLEAN`，但仍无审批/合并；生产 job 在 Preview run 中明确跳过 |
 | 供应链 | Wrangler `4.114.0`、Miniflare `4.20260722.0`、Sharp `0.35.2`；官方 npm audit 0 | GitHub CI 与 Preview 部署均通过 |
 | 健康质量门禁 | 缺失、畸形、陈旧或未来时间戳均拒绝；新增公开面运行探针和 JSON 回执 | Preview 门禁已证明；生产探针会拒绝当前 false-green 状态 |

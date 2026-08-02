@@ -13,6 +13,12 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from tools.cloudflare_runtime_contract import EXPECTED_MIGRATION_RECEIPTS  # noqa: E402
+
 PREVIEW_DATABASE_NAME = "ns-db-preview"
 PREVIEW_WORKER_NAME = "news-sentry-api-preview"
 PREVIEW_ENVIRONMENT = "preview"
@@ -95,6 +101,11 @@ def _sql_text(value: str | None) -> str:
 
 def _json_text(value: Any) -> str:  # noqa: ANN401
     return _sql_text(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
+
+
+def _json_bytes(value: Any) -> int:  # noqa: ANN401
+    payload = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    return len(payload.encode("utf-8"))
 
 
 def _preview_item(event_id: str, now_iso: str, deploy_commit: str) -> dict[str, Any]:
@@ -180,8 +191,15 @@ def build_preview_seed_sql(*, now_iso: str, deploy_commit: str, run_id: str) -> 
         "(key, payload_json, generated_at, source_latest_public_at, "
         "item_count, payload_bytes, updated_at) "
         f"VALUES ({_sql_text(key)}, {_json_text(payload)}, {_sql_text(now_iso)}, "
-        f"{_sql_text(now_iso)}, 1, LENGTH({_json_text(payload)}), {_sql_text(now_iso)});"
+        f"{_sql_text(now_iso)}, 1, {_json_bytes(payload)}, {_sql_text(now_iso)});"
         for key, payload in snapshots.items()
+    )
+    migration_receipt_rows = "\n".join(
+        "INSERT OR IGNORE INTO runtime_migration_receipts "
+        "(migration_id, deploy_commit, details_json) "
+        f"VALUES ({_sql_text(migration_id)}, {_sql_text(deploy_commit)}, "
+        f"{_json_text({'recorded_by': 'preview_fresh_schema'})});"
+        for migration_id in EXPECTED_MIGRATION_RECEIPTS
     )
     return f"""INSERT OR REPLACE INTO targets
   (target_id, display_name, region_id, primary_language, region_type, source_count,
@@ -225,6 +243,8 @@ VALUES
   ('last:collect-cycle', {_json_text(ops_value)}, {_sql_text(now_iso)}),
   ('last:public-translation-cycle', {_json_text(ops_value)}, {_sql_text(now_iso)}),
   ('last:refresh-public-quality', {_json_text(ops_value)}, {_sql_text(now_iso)});
+
+{migration_receipt_rows}
 
 {snapshot_rows}
 """.strip() + "\n"

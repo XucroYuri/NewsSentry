@@ -5,6 +5,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+from tools.cloudflare_runtime_contract import EXPECTED_MIGRATION_RECEIPTS
 
 from tools import cloudflare_preview_guard as guard
 
@@ -110,10 +111,24 @@ def test_build_preview_seed_sql_contains_fresh_event_ops_and_snapshots(
             "SELECT target_id, config_version FROM source_runtime_state "
             "WHERE source_id = 'preview-seed'"
         ).fetchone()
+        migration_receipts = {
+            result[0]
+            for result in connection.execute(
+                "SELECT migration_id FROM runtime_migration_receipts"
+            ).fetchall()
+        }
+        snapshot_sizes = connection.execute(
+            "SELECT payload_json, payload_bytes FROM public_read_snapshots"
+        ).fetchall()
     finally:
         connection.close()
 
     assert row == ("preview", "abc123")
+    assert migration_receipts == set(EXPECTED_MIGRATION_RECEIPTS)
+    assert all(
+        len(payload_json.encode("utf-8")) == payload_bytes
+        for payload_json, payload_bytes in snapshot_sizes
+    )
 
 
 def test_parse_preview_deploy_receipt_validates_worker_env_and_https_target(tmp_path: Path) -> None:
