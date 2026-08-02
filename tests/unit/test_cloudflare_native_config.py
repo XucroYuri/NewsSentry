@@ -98,16 +98,33 @@ def test_deploy_workflow_verifies_apex_api_worker_route() -> None:
 
 def test_deploy_workflow_requires_access_config_and_deployment_receipts() -> None:
     deploy_yml = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+    workflow = yaml.load(
+        deploy_yml,
+        Loader=yaml.BaseLoader,  # noqa: S506 - preserves GitHub's `on` key.
+    )
+    deploy_steps = workflow["jobs"]["deploy-cloudflare-worker"]["steps"]
+    worker_health = next(
+        step["run"]
+        for step in deploy_steps
+        if step.get("name") == "Verify Cloudflare Worker health"
+    )
 
     assert "Cloudflare Worker behavior tests" in deploy_yml
     assert "run: npm test" in deploy_yml
+    assert "VITE_API_BASE: https://api.news-sentry.com" in deploy_yml
+    assert (
+        "VITE_API_BASE: ${{ needs.ci.outputs.deployment_environment == 'preview' &&"
+        in deploy_yml
+    )
     assert "CF_ACCESS_TEAM_DOMAIN: ${{ vars.CF_ACCESS_TEAM_DOMAIN }}" in deploy_yml
     assert "CF_ACCESS_AUD: ${{ vars.CF_ACCESS_AUD }}" in deploy_yml
     assert '--var "NEWS_SENTRY_DEPLOY_COMMIT:${GITHUB_SHA}"' in deploy_yml
     assert '--var "CF_ACCESS_TEAM_DOMAIN:${CF_ACCESS_TEAM_DOMAIN}"' in deploy_yml
     assert '--var "CF_ACCESS_AUD:${CF_ACCESS_AUD}"' in deploy_yml
-    assert '"https://api.news-sentry.com/api/v1/live"' in deploy_yml
-    assert '"https://api.news-sentry.com/api/v1/ready"' in deploy_yml
+    assert '"https://news-sentry.com/api/v1/live"' in worker_health
+    assert '"https://news-sentry.com/api/v1/ready"' in worker_health
+    assert '"https://api.news-sentry.com/api/v1/live"' not in worker_health
+    assert '"https://api.news-sentry.com/api/v1/ready"' not in worker_health
     assert 'headers.get("x-news-sentry-deploy-commit") == os.environ["GITHUB_SHA"]' in deploy_yml
     assert 'headers.get("x-news-sentry-worker-version")' in deploy_yml
     assert "falling back to D1 smoke check" not in deploy_yml

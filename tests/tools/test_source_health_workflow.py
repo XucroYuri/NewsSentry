@@ -28,7 +28,8 @@ def test_source_health_workflow_requires_previous_summary_or_bootstrap() -> None
     resolve = steps["Resolve Source Health SLO metadata"]["run"]
 
     assert "Resolve deployed commit from guard receipt and deployment metadata" in resolve
-    assert "https://api.news-sentry.com/api/v1/ready" in resolve
+    assert "https://news-sentry.com/api/v1/ready" in resolve
+    assert "https://api.news-sentry.com/api/v1/ready" not in resolve
     assert "source-health-receipts" in previous
     assert "--status success" in previous
     assert "--status completed" not in previous

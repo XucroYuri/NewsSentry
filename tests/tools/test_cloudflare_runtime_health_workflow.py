@@ -54,7 +54,10 @@ def test_runtime_health_workflow_defaults_schedules_to_production_and_fails_clos
 
     assert 'environment="production"' in resolve
     assert 'public_base_url="https://news-sentry.com"' in resolve
-    assert 'api_base_url="https://api.news-sentry.com"' in resolve
+    assert 'api_base_url="https://news-sentry.com"' in resolve
+    assert 'api_base_url="${INPUT_API_BASE_URL:-https://news-sentry.com}"' in resolve
+    assert "https://api.news-sentry.com" not in resolve
+    assert "https://news-sentry-api-preview.xuyu.workers.dev" in resolve
     assert "Resolve deployed commit from guard receipt and deployment metadata" in resolve
     assert 'expected_commit="${DEPLOYED_COMMIT}"' in resolve
     assert 'expected_commit="${GITHUB_SHA}"' not in resolve

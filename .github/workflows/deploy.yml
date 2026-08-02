@@ -478,7 +478,7 @@ jobs:
               -D /tmp/worker-live.headers \
               -o /tmp/worker-live.json \
               -w "%{http_code}" \
-              "https://api.news-sentry.com/api/v1/live" || true)
+              "https://news-sentry.com/api/v1/live" || true)
             if [ "$STATUS" = "200" ] && verify_worker_receipt \
               live /tmp/worker-live.json /tmp/worker-live.headers; then
               break
@@ -502,7 +502,7 @@ jobs:
               -D /tmp/worker-ready.headers \
               -o /tmp/worker-ready.json \
               -w "%{http_code}" \
-              "https://api.news-sentry.com/api/v1/ready" || true)
+              "https://news-sentry.com/api/v1/ready" || true)
             if [ "$STATUS" = "200" ] && verify_worker_receipt \
               ready /tmp/worker-ready.json /tmp/worker-ready.headers; then
               cat /tmp/worker-ready.json
