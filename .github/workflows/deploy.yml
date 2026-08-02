@@ -1223,7 +1223,7 @@ jobs:
             > "${CANARY_DIR}/evidence.sql"
 
           (cd frontend/cloudflare && node_modules/.bin/wrangler d1 execute ns-db-preview --remote \
-            --file "${CANARY_DIR}/evidence.sql" \
+            --command "$(cat "${CANARY_DIR}/evidence.sql")" \
             --json > "${CANARY_DIR}/d1-evidence.json")
 
           CANONICAL_ARTIFACT_KEY="$(python tools/cloudflare_preview_canary.py validate-artifact-key --first-response "${CANARY_DIR}/first-response.json")"

@@ -427,6 +427,23 @@ def test_verify_preview_runs_authenticated_durable_import_canary_fail_closed() -
         assert token not in script
 
 
+def test_preview_canary_reads_evidence_sql_with_remote_d1_command_not_file() -> None:
+    canary_step = _step("verify-preview", "Run authenticated preview durable import canary")
+    script = str(canary_step["run"])
+
+    d1_evidence_query = script.split(
+        "wrangler d1 execute ns-db-preview --remote",
+        1,
+    )[1].split("CANONICAL_ARTIFACT_KEY", 1)[0]
+    assert '> "${CANARY_DIR}/evidence.sql"' in script
+    assert '--command "$(cat "${CANARY_DIR}/evidence.sql")"' in d1_evidence_query
+    assert '--json > "${CANARY_DIR}/d1-evidence.json"' in d1_evidence_query
+    assert "--file" not in d1_evidence_query
+    assert script.index('> "${CANARY_DIR}/evidence.sql"') < script.index(
+        '--command "$(cat "${CANARY_DIR}/evidence.sql")"',
+    )
+
+
 def test_preview_canary_receipt_failure_logs_only_safe_blocker_codes() -> None:
     canary_step = _step("verify-preview", "Run authenticated preview durable import canary")
     script = str(canary_step["run"])
