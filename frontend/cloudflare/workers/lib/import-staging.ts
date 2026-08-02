@@ -1,5 +1,9 @@
 import { validateExternalUrl } from "./external-url.ts";
 import { assessEventTimestamps } from "./timestamp-policy.ts";
+import {
+  persistImportArtifact,
+  type ImportArtifactDescriptor,
+} from "./durable-artifact.ts";
 
 const MAX_CHUNK_EVENTS = 25;
 const MAX_CHUNK_STATEMENTS = 100;
@@ -38,6 +42,7 @@ export interface ImportStagingInput {
   generatedAt?: string;
   leaseToken?: string;
   fencingVersion?: number;
+  artifact?: ImportArtifactDescriptor;
 }
 
 export interface ImportStagingResult {
@@ -53,10 +58,12 @@ export interface ImportStagingResult {
 
 export interface ImportStagingJob {
   job_id: string;
+  scheduled_for?: string;
   lease_token?: string;
   fencing_version?: number;
   target_id?: string;
   source_id?: string;
+  capability?: string;
 }
 
 interface NormalizedEvent {
@@ -400,7 +407,7 @@ async function finalizeImportBatch(
   checksum: string,
 ): Promise<void> {
   if (!input.leaseToken || typeof input.fencingVersion !== "number") return;
-  const results = await db.batch([
+  const statements: D1PreparedStatement[] = [
     db
       .prepare(
         `INSERT INTO import_batch_finalize_receipts (
@@ -495,9 +502,33 @@ async function finalizeImportBatch(
            )`,
       )
       .bind(input.generatedAt, input.batchId, checksum, input.batchId, checksum),
-  ]);
+  ];
+  if (input.artifact) {
+    statements.push(
+      db
+        .prepare(
+          `UPDATE artifact_manifests
+           SET status='committed', finalized_at=?, error_code=NULL, error_message=NULL
+           WHERE artifact_id=? AND batch_id=? AND sha256=?
+             AND status IN ('stored', 'committed')`,
+        )
+        .bind(
+          input.generatedAt,
+          input.artifact.artifactId,
+          input.batchId,
+          input.artifact.sha256,
+        ),
+    );
+  }
+  const results = await db.batch(statements);
   const changes = results.map((result) => Number(result.meta?.changes || 0));
-  if (changes[0] !== 1 || changes[1] !== 1 || changes[2] !== 1 || changes[3] !== 1) {
+  if (
+    changes[0] !== 1 ||
+    changes[1] !== 1 ||
+    changes[2] !== 1 ||
+    changes[3] !== 1 ||
+    (input.artifact && changes[4] !== 1)
+  ) {
     throw new Error(
       `import finalize did not atomically advance batch/job/watermark: ${changes.join(",")}`,
     );
@@ -631,6 +662,7 @@ function importStagingPayload(body: unknown): Record<string, unknown> | null {
 
 export async function stageImportBatchFromMessage(
   db: D1Database,
+  bucket: R2Bucket | undefined,
   job: ImportStagingJob,
   body: unknown,
   generatedAt: string,
@@ -656,7 +688,10 @@ export async function stageImportBatchFromMessage(
   }
   const outputWatermark =
     typeof payload.output_watermark === "string" ? payload.output_watermark : null;
-  return stageImportBatch(db, {
+  // Queue delivery time changes on every retry. Bind immutable artifact identity
+  // to the durable job schedule so a redelivery cannot create a second object.
+  const artifactGeneratedAt = job.scheduled_for || generatedAt;
+  const stageInput: ImportStagingInput = {
     batchId,
     jobId: job.job_id,
     targetId,
@@ -666,5 +701,16 @@ export async function stageImportBatchFromMessage(
     generatedAt,
     leaseToken: job.lease_token,
     fencingVersion: job.fencing_version,
+  };
+  const artifact = await persistImportArtifact(db, bucket, {
+    batchId,
+    jobId: job.job_id,
+    task: job.capability || "queue-import-staging",
+    targetIds: [targetId],
+    sourceIds: [sourceId],
+    outputWatermark,
+    generatedAt: artifactGeneratedAt,
+    events: payload.events as ImportStagingEvent[],
   });
+  return stageImportBatch(db, { ...stageInput, artifact });
 }

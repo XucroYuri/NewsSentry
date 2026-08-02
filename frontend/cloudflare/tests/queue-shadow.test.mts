@@ -114,6 +114,10 @@ class FakeD1Database {
       job.attempt_count += 1;
       return {
         job_id: job.job_id,
+        target_id: job.target_id,
+        source_id: job.source_id,
+        capability: job.capability,
+        scheduled_for: job.scheduled_for,
         status: "leased",
         lease_token: leaseToken,
         lease_owner: leaseOwner,

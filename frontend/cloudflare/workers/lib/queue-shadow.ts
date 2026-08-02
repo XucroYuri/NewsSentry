@@ -31,6 +31,7 @@ interface QueueBatchLike {
 
 export interface ShadowQueueEnv {
   DB: D1Database;
+  NEWS_SENTRY_ARTIFACTS?: R2Bucket;
   NEWS_SENTRY_JOBS_QUEUE?: QueueLike;
   NEWS_SENTRY_JOBS_DLQ?: QueueLike;
   CF_VERSION_METADATA?: {
@@ -118,7 +119,13 @@ async function defaultShadowRunner(
   env: ShadowQueueEnv,
   generatedAt: string,
 ): Promise<ShadowRunnerResult | void> {
-  const staged = await stageImportBatchFromMessage(env.DB, job, body, generatedAt);
+  const staged = await stageImportBatchFromMessage(
+    env.DB,
+    env.NEWS_SENTRY_ARTIFACTS,
+    job,
+    body,
+    generatedAt,
+  );
   if (staged) {
     return {
       finalStatus: "committed",

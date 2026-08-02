@@ -163,6 +163,20 @@ def test_preview_worker_deploy_job_is_isolated_and_exports_api_url() -> None:
     assert "news-sentry-jobs" not in preview_worker_job
 
 
+def test_preview_worker_provisions_an_isolated_r2_artifact_bucket() -> None:
+    workflow = _workflow_text()
+    preview_worker_job = workflow.split("  deploy-cloudflare-preview-worker:", 1)[1].split(
+        "  deploy-cloudflare-pages:", 1
+    )[0]
+
+    assert "node_modules/.bin/wrangler r2 bucket list --json" in preview_worker_job
+    assert (
+        "node_modules/.bin/wrangler r2 bucket create news-sentry-artifacts-preview"
+        in preview_worker_job
+    )
+    assert "news-sentry-artifacts-preview" in preview_worker_job
+
+
 def test_pages_preview_build_uses_preview_worker_output_but_main_can_skip_it() -> None:
     workflow = _workflow_text()
     pages_job = workflow.split("  deploy-cloudflare-pages:", 1)[1].split(

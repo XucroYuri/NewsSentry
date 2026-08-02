@@ -34,6 +34,7 @@ HttpTransport = Callable[[str, str, dict[str, str], object | None], tuple[int, s
 EXPECTED_QUEUE = "news-sentry-jobs"
 EXPECTED_DLQ = "news-sentry-jobs-dlq"
 EXPECTED_WORKER = "news-sentry-api"
+EXPECTED_ARTIFACT_BUCKET = "news-sentry-artifacts"
 EXPECTED_BATCH_SIZE = 5
 EXPECTED_BATCH_TIMEOUT = 5
 EXPECTED_RETRIES = 3
@@ -48,17 +49,19 @@ EXPECTED_MIGRATION_RECEIPTS = (
     "20260801_phase1_job_runtime",
     "20260802_phase2_import_staging",
     "20260802_phase2_dlq_replay_receipts",
+    "20260802_phase3_durable_artifacts",
 )
 RUNTIME_SCHEMA_TABLE_QUERY = (
     "SELECT name FROM sqlite_master WHERE type='table' AND name IN "
     "('import_staged_events','import_batch_finalize_receipts',"
-    "'dlq_replay_receipts','dlq_consumption_receipts')"
+    "'dlq_replay_receipts','dlq_consumption_receipts','artifact_manifests')"
 )
 REQUIRED_RUNTIME_INDEX_QUERY = (
     "SELECT name FROM sqlite_master WHERE type='index' AND name IN "
     "('idx_jobs_status_scheduled','idx_job_outbox_dispatch',"
     "'idx_source_runtime_due','idx_import_staged_events_batch_chunk',"
-    "'idx_dlq_replay_receipts_original','idx_dlq_consumption_receipts_consumed')"
+    "'idx_dlq_replay_receipts_original','idx_dlq_consumption_receipts_consumed',"
+    "'idx_artifact_manifests_status_created','idx_artifact_manifests_job')"
 )
 RUNTIME_RECEIPT_INSERT_SQL = (
     "INSERT OR IGNORE INTO runtime_migration_receipts (migration_id, details_json) "
@@ -69,6 +72,8 @@ RUNTIME_RECEIPT_INSERT_SQL = (
     "('20260802_phase2_import_staging', "
     "'{\"recorded_by\":\"cloudflare_deploy_guard\"}'), "
     "('20260802_phase2_dlq_replay_receipts', "
+    "'{\"recorded_by\":\"cloudflare_deploy_guard\"}'), "
+    "('20260802_phase3_durable_artifacts', "
     "'{\"recorded_by\":\"cloudflare_deploy_guard\"}')"
 )
 
@@ -386,6 +391,45 @@ SCHEMA_REQUIREMENTS: tuple[ReceiptSchemaRequirement, ...] = (
             "idx_dlq_consumption_receipts_consumed",
         ),
     ),
+    ReceiptSchemaRequirement(
+        receipt_id="20260802_phase3_durable_artifacts",
+        tables=(
+            TableRequirement(
+                table="artifact_manifests",
+                columns=(
+                    "artifact_id",
+                    "batch_id",
+                    "job_id",
+                    "object_key",
+                    "sha256",
+                    "payload_bytes",
+                    "content_type",
+                    "r2_etag",
+                    "r2_version",
+                    "status",
+                    "created_at",
+                    "finalized_at",
+                    "error_code",
+                    "error_message",
+                    "details_json",
+                ),
+                primary_key=("artifact_id",),
+            ),
+            TableRequirement(
+                table="runtime_migration_receipts",
+                columns=("migration_id", "applied_at", "deploy_commit", "details_json"),
+                primary_key=("migration_id",),
+            ),
+        ),
+        unique=(
+            UniqueRequirement(table="artifact_manifests", columns=("batch_id",)),
+            UniqueRequirement(table="artifact_manifests", columns=("object_key",)),
+        ),
+        indexes=(
+            "idx_artifact_manifests_status_created",
+            "idx_artifact_manifests_job",
+        ),
+    ),
 )
 
 
@@ -474,6 +518,19 @@ def _runtime_migration_receipt_ids(migration_json: Any) -> set[str]:
     return names
 
 
+def _r2_bucket_names(payload: Any) -> set[str]:
+    rows = payload
+    if isinstance(payload, dict):
+        rows = payload.get("buckets", payload.get("result", []))
+    if not isinstance(rows, list):
+        return set()
+    return {
+        str(row.get("name"))
+        for row in rows
+        if isinstance(row, dict) and isinstance(row.get("name"), str)
+    }
+
+
 def _load_toml(path: Path) -> dict[str, Any]:
     with path.open("rb") as handle:
         return tomllib.load(handle)
@@ -500,6 +557,17 @@ def validate_wrangler_toml(path: Path) -> list[str]:
         blockers.append("wrangler_queue_binding_missing:NEWS_SENTRY_JOBS_QUEUE")
     if producer_bindings.get("NEWS_SENTRY_JOBS_DLQ") != EXPECTED_DLQ:
         blockers.append("wrangler_queue_binding_missing:NEWS_SENTRY_JOBS_DLQ")
+    r2_buckets = data.get("r2_buckets", [])
+    artifact_binding = next(
+        (
+            row
+            for row in r2_buckets
+            if isinstance(row, dict) and row.get("binding") == "NEWS_SENTRY_ARTIFACTS"
+        ),
+        None,
+    )
+    if not artifact_binding or artifact_binding.get("bucket_name") != EXPECTED_ARTIFACT_BUCKET:
+        blockers.append("wrangler_r2_binding_missing:NEWS_SENTRY_ARTIFACTS")
     primary = next(
         (row for row in consumers if isinstance(row, dict) and row.get("queue") == EXPECTED_QUEUE),
         None,
@@ -944,6 +1012,12 @@ def run_preflight(
     if not _consumer_ok(_safe_command_json(consumer_cmd, runner, blockers), config.worker_name):
         blockers.append(f"consumer_missing:{config.queue_name}")
 
+    r2_cmd = [config.wrangler, "r2", "bucket", "list", "--json"]
+    commands.append(r2_cmd)
+    artifact_buckets = _r2_bucket_names(_safe_command_json(r2_cmd, runner, blockers))
+    if EXPECTED_ARTIFACT_BUCKET not in artifact_buckets:
+        blockers.append(f"missing_r2_bucket:{EXPECTED_ARTIFACT_BUCKET}")
+
     migration_cmd = [
         config.wrangler,
         "d1",
@@ -967,6 +1041,7 @@ def run_preflight(
         "status": "blocked" if blockers else "ok",
         "blockers": blockers,
         "queues": sorted(queues),
+        "r2_buckets": sorted(artifact_buckets),
         "runtime_migration_receipts": sorted(applied),
         "commands": commands,
         "mode": "apply" if config.apply else "verify-only",

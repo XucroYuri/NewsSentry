@@ -1,12 +1,11 @@
 import { getContainer } from "@cloudflare/containers";
-import { importEventsToD1 } from "../api/webhook";
-import type { ImportEventItem } from "./contracts";
 import { refreshPublicReadSnapshots } from "./public-read-snapshots";
 import { assessEventTimestamps } from "./timestamp-policy";
 import { generateShadowJobs } from "./job-store";
 import { buildAndActivateShadowSnapshotGeneration } from "./snapshot-generation";
 import { dispatchDueShadowJobs, type ShadowQueueEnv } from "./queue-shadow";
 import { parseRuntimeConfig, type RuntimeConfigEnv } from "./runtime-config";
+import { importContainerEventsToD1 } from "./container-import";
 
 interface ScheduledEnv extends ShadowQueueEnv, RuntimeConfigEnv {
   DB: D1Database;
@@ -271,30 +270,6 @@ function runtimeTaskDetails(env: ScheduledEnv): Record<string, unknown> {
     scheduler_mode: config.schedulerMode,
     worker_native_collect_enabled: config.workerNativeCollectEnabled,
     collection_authoritative: config.collectionAuthoritative,
-  };
-}
-
-function extractContainerImportEvents(details: Record<string, unknown>): ImportEventItem[] {
-  const body = details.body;
-  if (!isRecord(body) || !Array.isArray(body.import_events)) return [];
-  return body.import_events.filter(isRecord) as ImportEventItem[];
-}
-
-async function importContainerEventsToD1(
-  db: D1Database,
-  details: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  const events = extractContainerImportEvents(details);
-  if (events.length === 0) {
-    return { received: 0, imported: 0, updated: 0, skipped: 0, errors: [] };
-  }
-  const result = await importEventsToD1(db, events);
-  return {
-    received: events.length,
-    imported: result.imported,
-    updated: result.updated,
-    skipped: result.skipped,
-    errors: result.errors.slice(0, 10),
   };
 }
 
@@ -657,7 +632,13 @@ export async function runScheduledCloudflareTask(
     }
     let importResult: Record<string, unknown> | null = null;
     if (task === "collect-cycle" || task === "public-translation-cycle") {
-      importResult = await importContainerEventsToD1(env.DB, details);
+      importResult = await importContainerEventsToD1(
+        env,
+        details,
+        runId,
+        startedAt,
+        task,
+      );
     }
     let snapshotRefresh: Record<string, unknown>;
     let snapshotGeneration: Record<string, unknown>;

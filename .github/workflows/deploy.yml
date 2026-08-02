@@ -253,6 +253,39 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node_modules/.bin/wrangler d1 execute ns-db --remote --file=db/schema.sql
 
+      - name: Apply durable artifact manifest migration
+        if: needs.ci.outputs.deployment_environment == 'production'
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: >-
+          node_modules/.bin/wrangler d1 execute ns-db --remote
+          --file=db/migrations/20260802_phase3_durable_artifacts.sql
+
+      - name: Ensure production R2 artifact bucket
+        if: needs.ci.outputs.deployment_environment == 'production'
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          node_modules/.bin/wrangler r2 bucket list --json > /tmp/ns-r2-buckets.json
+          if ! python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("/tmp/ns-r2-buckets.json").read_text())
+          buckets = payload if isinstance(payload, list) else payload.get("buckets", [])
+          raise SystemExit(0 if any(row.get("name") == "news-sentry-artifacts" for row in buckets) else 1)
+          PY
+          then
+            node_modules/.bin/wrangler r2 bucket create news-sentry-artifacts
+          fi
+
       - name: Apply Cloudflare D1 shadow job runtime migration
         if: needs.ci.outputs.deployment_environment == 'production'
         working-directory: frontend/cloudflare
@@ -409,6 +442,7 @@ jobs:
               assert body.get("deployment", {}).get("scheduler_mode") == "shadow"
               assert body.get("deployment", {}).get("worker_native_collect_enabled") is False
               assert body.get("deployment", {}).get("collection_authoritative") is False
+              assert body.get("deployment", {}).get("storage", {}).get("artifacts_configured") is True
           PY
           }
 
@@ -564,6 +598,27 @@ jobs:
           PY
           )"
           echo "database_id=${database_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve Cloudflare preview R2 artifact bucket
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          node_modules/.bin/wrangler r2 bucket list --json > /tmp/ns-preview-r2-buckets.json
+          if ! python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("/tmp/ns-preview-r2-buckets.json").read_text())
+          buckets = payload if isinstance(payload, list) else payload.get("buckets", [])
+          raise SystemExit(0 if any(row.get("name") == "news-sentry-artifacts-preview" for row in buckets) else 1)
+          PY
+          then
+            node_modules/.bin/wrangler r2 bucket create news-sentry-artifacts-preview
+          fi
 
       - name: Prepare Cloudflare preview config and seed
         env:
@@ -853,6 +908,7 @@ jobs:
 
           assert ready.get("readiness", {}).get("ok") is True, "Preview Worker readiness is false"
           assert ready.get("deployment", {}).get("commit") == os.environ["GITHUB_SHA"]
+          assert ready.get("deployment", {}).get("storage", {}).get("artifacts_configured") is True
           assert health.get("deployment", {}).get("commit") == os.environ["GITHUB_SHA"]
           assert health.get("status") == "ok", "Worker health is not ok"
           assert isinstance(health.get("total_events"), int), "health total_events missing"

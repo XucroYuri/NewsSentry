@@ -35,6 +35,7 @@ import { parseRuntimeConfig, type RuntimeConfigEnv } from "./lib/runtime-config"
 
 interface Env extends CloudflareAccessJwtEnv, RuntimeConfigEnv {
   DB: D1Database;
+  NEWS_SENTRY_ARTIFACTS?: R2Bucket;
   NEWS_SENTRY_CONTAINER?: DurableObjectNamespace;
   NEWS_SENTRY_JOBS_QUEUE?: Queue;
   NEWS_SENTRY_JOBS_DLQ?: Queue;
@@ -149,6 +150,9 @@ function runtimeMetadata(
     queue: {
       jobs_configured: Boolean(env.NEWS_SENTRY_JOBS_QUEUE),
       dlq_configured: Boolean(env.NEWS_SENTRY_JOBS_DLQ),
+    },
+    storage: {
+      artifacts_configured: Boolean(env.NEWS_SENTRY_ARTIFACTS),
     },
   };
 }

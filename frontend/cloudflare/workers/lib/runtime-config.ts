@@ -31,6 +31,7 @@ const REQUIRED_RUNTIME_MIGRATION_RECEIPTS = [
   "20260801_phase1_job_runtime",
   "20260802_phase2_import_staging",
   "20260802_phase2_dlq_replay_receipts",
+  "20260802_phase3_durable_artifacts",
 ] as const;
 
 function normalizeBoolean(value: string | undefined): boolean | null {

@@ -122,6 +122,37 @@ function seedRuntime(db: SqliteD1Database, overrides: { source?: boolean; lease?
   }
 }
 
+function seedArtifact(db: SqliteD1Database) {
+  const artifact = {
+    artifactId: `artifact-${"a".repeat(64)}`,
+    objectKey: `imports/v1/2026/08/02/${"a".repeat(64)}.json`,
+    sha256: "a".repeat(64),
+    payloadBytes: 123,
+    contentType: "application/json" as const,
+    r2Etag: "etag-1",
+    r2Version: "version-1",
+    createdAt: "2026-08-01T01:00:00Z",
+  };
+  db.database
+    .prepare(
+      `INSERT INTO artifact_manifests (
+         artifact_id, batch_id, job_id, object_key, sha256, payload_bytes,
+         content_type, r2_etag, r2_version, status, created_at
+       ) VALUES (?, 'batch-1', 'job-1', ?, ?, ?, ?, ?, ?, 'stored', ?)`,
+    )
+    .run(
+      artifact.artifactId,
+      artifact.objectKey,
+      artifact.sha256,
+      artifact.payloadBytes,
+      artifact.contentType,
+      artifact.r2Etag,
+      artifact.r2Version,
+      artifact.createdAt,
+    );
+  return artifact;
+}
+
 async function stage(db: SqliteD1Database, overrides: Partial<Parameters<typeof stageImportBatch>[1]> = {}) {
   return stageImportBatch(db as unknown as D1Database, {
     batchId: "batch-1",
@@ -228,4 +259,36 @@ test("sqlite integration releases the lease at explicit committed canary lifecyc
     lease_owner: null,
     lease_until: null,
   });
+});
+
+test("sqlite finalize commits the R2 manifest in the same fenced D1 batch", async () => {
+  const db = new SqliteD1Database();
+  seedRuntime(db);
+  const artifact = seedArtifact(db);
+
+  await stage(db, { artifact });
+
+  const manifest = db.first<{ status: string; finalized_at: string | null }>(
+    "SELECT status, finalized_at FROM artifact_manifests WHERE artifact_id=?",
+    [artifact.artifactId],
+  );
+  assert.deepEqual({ ...manifest }, {
+    status: "committed",
+    finalized_at: "2026-08-01T01:00:00Z",
+  });
+});
+
+test("sqlite finalize rollback leaves the durable artifact replayable", async () => {
+  const db = new SqliteD1Database();
+  seedRuntime(db);
+  const artifact = seedArtifact(db);
+  db.failOnBatchSql = "UPDATE source_runtime_state";
+
+  await assert.rejects(() => stage(db, { artifact }), /forced sqlite failure/);
+
+  const manifest = db.first<{ status: string; finalized_at: string | null }>(
+    "SELECT status, finalized_at FROM artifact_manifests WHERE artifact_id=?",
+    [artifact.artifactId],
+  );
+  assert.deepEqual({ ...manifest }, { status: "stored", finalized_at: null });
 });

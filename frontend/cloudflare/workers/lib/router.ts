@@ -32,6 +32,9 @@ export interface RuntimeMetadata {
     jobs_configured: boolean;
     dlq_configured: boolean;
   };
+  storage?: {
+    artifacts_configured: boolean;
+  };
 }
 
 type Handler = (

@@ -26,7 +26,7 @@ def test_wrangler_routes_are_top_level_not_nested_under_d1() -> None:
         {"pattern": "api.news-sentry.com", "custom_domain": True},
         {"pattern": "news-sentry.com/api/*", "zone_name": "news-sentry.com"},
     ]
-    assert config["env"]["production"]["routes"] == []
+    assert "production" not in config["env"]
     assert config["env"]["dev"]["routes"] == []
     for binding in config["d1_databases"]:
         assert "routes" not in binding
@@ -522,6 +522,7 @@ def test_cloudflare_scheduled_refreshes_public_read_snapshots() -> None:
 def test_cloudflare_scheduled_ops_are_configured() -> None:
     index_ts = _read("workers/index.ts")
     scheduled_ts = _read("workers/lib/scheduled.ts")
+    container_import_ts = _read("workers/lib/container-import.ts")
     schema_sql = _read("db/schema.sql")
     migration_sql = _read("db/migrations/20260630_add_target_collect_enabled.sql")
     wrangler_toml = tomllib.loads(_read("wrangler.toml"))
@@ -546,11 +547,12 @@ def test_cloudflare_scheduled_ops_are_configured() -> None:
     ]
     assert 'compactDetails.status === "string"' in scheduled_ts
     assert "await recordRun(env.DB, runId, task, status" in scheduled_ts
-    assert "importEventsToD1" in scheduled_ts
-    assert "extractContainerImportEvents" in scheduled_ts
+    assert "importEventsToD1" in container_import_ts
+    assert "extractContainerImportEvents" in container_import_ts
     assert "importContainerEventsToD1" in scheduled_ts
     assert "import_result" in scheduled_ts
-    assert "result.updated" in scheduled_ts
+    assert "result.updated" in container_import_ts
+    assert "persistImportArtifact" in container_import_ts
     assert "COLLECT_TARGET_BATCH_SIZE = 4" in scheduled_ts
     assert "cursor:collect-cycle-target-index" in scheduled_ts
     assert "cloudflare_collect_enabled = 1" in scheduled_ts
@@ -659,10 +661,8 @@ def test_container_proxy_requires_cloudflare_access_identity() -> None:
     assert "BACKEND_ORIGIN" not in proxy_ts
     assert "https://news-sentry.com" not in _read("wrangler.toml")
     assert "BACKEND_ORIGIN" not in wrangler_toml.get("vars", {})
-    assert "BACKEND_ORIGIN" not in wrangler_toml["env"]["production"].get("vars", {})
     assert wrangler_toml["containers"][0]["class_name"] == "NewsSentryContainer"
     assert wrangler_toml["containers"][0]["image"] == "../../Dockerfile"
-    assert wrangler_toml["env"]["production"]["containers"][0]["image"] == "../../Dockerfile"
     assert wrangler_toml["durable_objects"]["bindings"][0] == {
         "name": "NEWS_SENTRY_CONTAINER",
         "class_name": "NewsSentryContainer",
@@ -715,6 +715,37 @@ def test_cloudflare_wrangler_is_pinned_to_a_non_vulnerable_release() -> None:
     assert package_json["devDependencies"]["wrangler"] == expected_version
     assert package_lock["packages"][""]["devDependencies"]["wrangler"] == expected_version
     assert package_lock["packages"]["node_modules/wrangler"]["version"] == expected_version
+
+
+def test_cloudflare_artifact_storage_is_isolated_and_manifested() -> None:
+    wrangler = tomllib.loads(_read("wrangler.toml"))
+    schema_sql = _read("db/schema.sql")
+    migration_sql = _read("db/migrations/20260802_phase3_durable_artifacts.sql")
+
+    assert wrangler["r2_buckets"] == [
+        {
+            "binding": "NEWS_SENTRY_ARTIFACTS",
+            "bucket_name": "news-sentry-artifacts",
+        }
+    ]
+    assert wrangler["env"]["preview"]["r2_buckets"] == [
+        {
+            "binding": "NEWS_SENTRY_ARTIFACTS",
+            "bucket_name": "news-sentry-artifacts-preview",
+        }
+    ]
+    assert wrangler["env"]["dev"]["r2_buckets"] == [
+        {
+            "binding": "NEWS_SENTRY_ARTIFACTS",
+            "bucket_name": "news-sentry-artifacts-dev",
+        }
+    ]
+    for sql in (schema_sql, migration_sql):
+        assert "CREATE TABLE IF NOT EXISTS artifact_manifests" in sql
+        assert "object_key TEXT NOT NULL UNIQUE" in sql
+        assert "sha256 TEXT NOT NULL" in sql
+        assert "status TEXT NOT NULL" in sql
+    assert "20260802_phase3_durable_artifacts" in migration_sql
 
 
 def test_cloudflare_worker_deploy_paths_use_top_level_env_for_queue_bindings() -> None:

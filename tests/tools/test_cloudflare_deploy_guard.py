@@ -17,17 +17,19 @@ EXPECTED_RUNTIME_RECEIPTS = (
     "20260801_phase1_job_runtime",
     "20260802_phase2_import_staging",
     "20260802_phase2_dlq_replay_receipts",
+    "20260802_phase3_durable_artifacts",
 )
 RUNTIME_SCHEMA_TABLE_QUERY = (
     "SELECT name FROM sqlite_master WHERE type='table' AND name IN "
     "('import_staged_events','import_batch_finalize_receipts',"
-    "'dlq_replay_receipts','dlq_consumption_receipts')"
+    "'dlq_replay_receipts','dlq_consumption_receipts','artifact_manifests')"
 )
 REQUIRED_RUNTIME_INDEX_QUERY = (
     "SELECT name FROM sqlite_master WHERE type='index' AND name IN "
     "('idx_jobs_status_scheduled','idx_job_outbox_dispatch',"
     "'idx_source_runtime_due','idx_import_staged_events_batch_chunk',"
-    "'idx_dlq_replay_receipts_original','idx_dlq_consumption_receipts_consumed')"
+    "'idx_dlq_replay_receipts_original','idx_dlq_consumption_receipts_consumed',"
+    "'idx_artifact_manifests_status_created','idx_artifact_manifests_job')"
 )
 
 
@@ -121,6 +123,13 @@ def _index_info(columns: list[str]) -> str:
 
 def _schema_ok_responses() -> dict[tuple[str, ...], str]:
     return {
+        (
+            "wrangler",
+            "r2",
+            "bucket",
+            "list",
+            "--json",
+        ): _json([{"name": "news-sentry-artifacts"}]),
         (
             "wrangler",
             "d1",
@@ -497,6 +506,70 @@ def _schema_ok_responses() -> dict[tuple[str, ...], str]:
             "ns-db",
             "--remote",
             "--command",
+            "PRAGMA table_info(artifact_manifests)",
+            "--json",
+        ): _table_info(
+            [
+                "artifact_id",
+                "batch_id",
+                "job_id",
+                "object_key",
+                "sha256",
+                "payload_bytes",
+                "content_type",
+                "r2_etag",
+                "r2_version",
+                "status",
+                "created_at",
+                "finalized_at",
+                "error_code",
+                "error_message",
+                "details_json",
+            ],
+            pk=["artifact_id"],
+        ),
+        (
+            "wrangler",
+            "d1",
+            "execute",
+            "ns-db",
+            "--remote",
+            "--command",
+            "PRAGMA index_list(artifact_manifests)",
+            "--json",
+        ): _index_list(
+            [
+                ("sqlite_autoindex_artifact_manifests_2", True),
+                ("sqlite_autoindex_artifact_manifests_3", True),
+            ]
+        ),
+        (
+            "wrangler",
+            "d1",
+            "execute",
+            "ns-db",
+            "--remote",
+            "--command",
+            "PRAGMA index_info(sqlite_autoindex_artifact_manifests_2)",
+            "--json",
+        ): _index_info(["batch_id"]),
+        (
+            "wrangler",
+            "d1",
+            "execute",
+            "ns-db",
+            "--remote",
+            "--command",
+            "PRAGMA index_info(sqlite_autoindex_artifact_manifests_3)",
+            "--json",
+        ): _index_info(["object_key"]),
+        (
+            "wrangler",
+            "d1",
+            "execute",
+            "ns-db",
+            "--remote",
+            "--command",
             REQUIRED_RUNTIME_INDEX_QUERY,
             "--json",
         ): _json(
@@ -509,6 +582,8 @@ def _schema_ok_responses() -> dict[tuple[str, ...], str]:
                         {"name": "idx_import_staged_events_batch_chunk"},
                         {"name": "idx_dlq_replay_receipts_original"},
                         {"name": "idx_dlq_consumption_receipts_consumed"},
+                        {"name": "idx_artifact_manifests_status_created"},
+                        {"name": "idx_artifact_manifests_job"},
                     ]
                 }
             ]
@@ -530,6 +605,7 @@ def _schema_ok_responses() -> dict[tuple[str, ...], str]:
                         {"name": "import_batch_finalize_receipts"},
                         {"name": "dlq_replay_receipts"},
                         {"name": "dlq_consumption_receipts"},
+                        {"name": "artifact_manifests"},
                     ]
                 }
             ]
@@ -666,6 +742,7 @@ def test_preflight_apply_uses_api_list_before_creating_missing_queue() -> None:
                             {"migration_id": "20260801_phase1_job_runtime"},
                             {"migration_id": "20260802_phase2_import_staging"},
                             {"migration_id": "20260802_phase2_dlq_replay_receipts"},
+                            {"migration_id": "20260802_phase3_durable_artifacts"},
                         ]
                     }
                 ]
@@ -1070,6 +1147,8 @@ def test_record_runtime_receipts_verifies_schema_before_project_receipt() -> Non
         "('20260802_phase2_import_staging', "
         "'{\"recorded_by\":\"cloudflare_deploy_guard\"}'), "
         "('20260802_phase2_dlq_replay_receipts', "
+        "'{\"recorded_by\":\"cloudflare_deploy_guard\"}'), "
+        "('20260802_phase3_durable_artifacts', "
         "'{\"recorded_by\":\"cloudflare_deploy_guard\"}')"
     )
     runner = FakeRunner(

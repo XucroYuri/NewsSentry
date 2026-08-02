@@ -6,11 +6,11 @@
  * Schemas: WebhookResponse, ImportResponse, ImportEventItem
  */
 
-import type { WebhookResponse, ImportResponse, ImportEventItem } from "../lib/contracts";
-import { internalError } from "../lib/errors";
-import { sanitizeExternalUrlList, validateExternalUrl } from "../lib/external-url";
-import { refreshPublicReadSnapshots } from "../lib/public-read-snapshots";
-import { assessEventTimestamps } from "../lib/timestamp-policy";
+import type { WebhookResponse, ImportResponse, ImportEventItem } from "../lib/contracts.ts";
+import { internalError } from "../lib/errors.ts";
+import { sanitizeExternalUrlList, validateExternalUrl } from "../lib/external-url.ts";
+import { refreshPublicReadSnapshots } from "../lib/public-read-snapshots.ts";
+import { assessEventTimestamps } from "../lib/timestamp-policy.ts";
 
 type ImportEventWithId = ImportEventItem & {
   event_id?: string;

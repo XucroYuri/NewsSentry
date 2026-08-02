@@ -20,6 +20,10 @@ interface DueSourceRow {
 
 export interface ClaimedJob {
   job_id: string;
+  target_id: string;
+  source_id: string;
+  capability: string;
+  scheduled_for: string;
   status: "leased";
   lease_token: string;
   lease_owner: string;
@@ -124,7 +128,8 @@ export async function claimJob(
        WHERE job_id=?
          AND status IN ('enqueued', 'retry_scheduled', 'leased')
          AND (lease_until IS NULL OR lease_until <= ?)
-       RETURNING job_id, status, lease_token, lease_owner, lease_until,
+       RETURNING job_id, target_id, source_id, capability, scheduled_for,
+                 status, lease_token, lease_owner, lease_until,
                  fencing_version, attempt_count`,
     )
     .bind(leaseToken, leaseOwner, leaseUntil, nowIso, jobId, nowIso)

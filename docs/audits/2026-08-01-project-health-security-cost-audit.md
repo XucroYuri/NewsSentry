@@ -93,6 +93,15 @@ Codex Security 深扫在移除旧 `agents.max_threads` 配置后通过 preflight
   fail closed，不回退到通用 `news-sentry.pages.dev`。
 - live quality gate 现在拒绝缺失、畸形、陈旧或未来的 `latest_collected_at`，并拒绝未来
   `latest_public_at`，避免旧生产中的 2028 时间戳继续制造 false-green。
+- 当前分支已增加 production/preview/dev 隔离的 `NEWS_SENTRY_ARTIFACTS` R2 binding、
+  `artifact_manifests` D1 表和 `20260802_phase3_durable_artifacts` 迁移。Container/Queue 导入事件
+  必须先以 content-addressed key、SHA-256 和 conditional put 写入 R2，再建立 D1 manifest；R2 缺失时
+  fail closed，不允许只写 D1。
+- Queue staging 的 artifact manifest 与 batch/job/source watermark 在同一个 fenced D1 batch 中 finalize；
+  Container 导入校验失败时保留 R2 原始批次并把 manifest 标为 failed，供确定性重放。当前 80 个
+  Worker 测试和 86 个 Cloudflare 配置/门禁测试已通过，但该能力尚未部署到生产，所以不提高远端分值。
+- 删除了未被正式 workflow 使用、却会共享生产 D1 的 `[env.production]` 第二 Worker 身份；生产只允许
+  顶层 `--env=""` 配置，避免误部署第二计算身份读写同一事实库。
 - Cloudflare Worker 工具链固定为 Wrangler `4.114.0`，传递依赖 Sharp `0.35.2`；官方 registry
   `npm audit` 为 0 vulnerabilities。
 - 部署 workflow 以 CI 输出的单一 `deployment_environment` 驱动所有 job：任意候选分支可手动
@@ -348,12 +357,17 @@ flowchart LR
 6. **先 D1/R2，后重型平台。** 在 D1 rows、p95、R2 数据或研究查询明确超过阈值前，不引入 Kafka、Postgres、ClickHouse、独立向量数据库。
 7. **费用是硬约束。** AI Gateway spend limit、Workers CPU limit、Queue backlog、Container 并发和 R2 lifecycle 都要 fail-closed。
 
-#### 当前持久化边界缺口
+#### 当前持久化边界进展与剩余缺口
 
-仓库虽然把 D1/R2 写成目标架构，但当前只有 D1 binding；`wrangler.toml`、Worker `Env` 和运行时代码
-均没有 R2 binding。Python Container 仍把 SQLite、Markdown、日志和 memory 写到本地 `./data`，
-Container 返回后 Worker 才把最多一个有限窗口的事件导入 D1。因此当前状态只能证明“公开索引部分
-持久化”，不能证明 Container 可无状态替换、原始证据可恢复或 D1/R2 可重建。
+当前分支已落地第一段可执行边界：R2 保存不可变导入批次正文，D1 保存可查询 manifest 和公开投影，
+Worker 独占 R2 binding；对象 key 由正文 SHA-256 生成，并使用 conditional put 拒绝覆盖。Container 导入
+和 Queue import-staging 都遵守“R2 先于 D1”，Queue 路径进一步把 manifest、batch、job 和 watermark
+放进同一 fenced finalize batch。部署门禁同时检查生产 R2 bucket、binding、artifact schema/index 和
+migration receipt。
+
+但生产仍未部署该提交，且 Python Container 的 SQLite、Markdown、日志和 memory 仍写入本地 `./data`。
+因此目前只能证明“原始导入事件批次可外置”的本地实现，不能证明全部 Container 状态可无状态替换，
+也没有完成 D1 export + 隔离 import + R2 checksum 的恢复演练。远端分值保持不变。
 
 低成本持久化边界必须收敛为：
 
@@ -400,7 +414,8 @@ Container 返回后 Worker 才把最多一个有限窗口的事件导入 D1。�
 
 1. Source Health 从 `max_failed=0` 改为 SLO：P0 信源 100%、全局 ok ≥90%、failed ≤2%、周退化不超过 3 个百分点。
 2. source 分 tier；共享源单抓取多投影；对 429 使用 host-level token bucket、Retry-After 和指数退避。
-3. 落地 R2 artifact envelope、D1 manifest/checkpoint 与隔离 restore drill；本地目录降为 spool/cache。
+3. R2 artifact envelope 与 D1 manifest/checkpoint 已在当前分支落地；继续外置 Markdown/log/memory，
+   完成隔离 restore drill 后，才能把本地目录正式降为 spool/cache。
 4. Worker-native 化 RSS/JSON 主路径；Container 合并 collect+translation 唤醒并缩短 sleep，目标是实际运行占比 <10%。
 5. 统一 URL validator、DNS 后地址验证、redirect 每跳复检、敏感 header 跨 host 清理。
 6. 修复 rules optimize containment、外链 scheme allowlist、internal task 不可伪造认证。

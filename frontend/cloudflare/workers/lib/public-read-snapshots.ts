@@ -5,7 +5,7 @@ import type {
   PublicNewsFeedResponse,
   RegionInfo,
   RegionListResponse,
-} from "./contracts";
+} from "./contracts.ts";
 import {
   buildPublicNewsWhere,
   type NewsRow,
@@ -16,10 +16,10 @@ import {
   PUBLIC_PUBLISHED_AT_SANITY_SQL,
   rowToPublicNewsItem,
   SUPPORTED_PUBLIC_LOCALES,
-} from "./public-news-query";
-import { createPublicReadSession } from "./public-read-session";
-import { publicReadCacheControl } from "./public-read-cache";
-import { sanitizePublicSnapshotPayload } from "./snapshot-policy";
+} from "./public-news-query.ts";
+import { createPublicReadSession } from "./public-read-session.ts";
+import { publicReadCacheControl } from "./public-read-cache.ts";
+import { sanitizePublicSnapshotPayload } from "./snapshot-policy.ts";
 
 export const PUBLIC_SNAPSHOT_PAGE_SIZE = 20;
 export const NEWS_FEATURED_SNAPSHOT_KEY = "news:featured:v1:page_size=20";

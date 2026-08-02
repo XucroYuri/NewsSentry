@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-08-02T02:23:23+08:00",
+  "generated_at": "2026-08-02T09:20:12+08:00",
   "repository": "XucroYuri/NewsSentry",
   "branch": "dev-xu/fix/cloudflare-persistent-runtime",
-  "commit": "83efaaa74d6c4c1ba0e4a944e7fd1ceb29cd8299",
+  "commit": "working_tree_on_8bc2e2e462187860fb21721f0750692cc85f01db",
   "verdict": "public_surface_available_but_continuous_collection_unhealthy",
   "overall_score": 58,
   "weighted_score_exact": 58.1,
@@ -105,11 +105,28 @@
       "slo_7d": "not_started"
     },
     "durable_storage": {
-      "status": "architecture_verified_implementation_missing",
+      "status": "local_artifact_boundary_implemented_preview_pending",
       "d1_binding": true,
       "r2_binding": false,
+      "r2_binding_configured_locally": true,
+      "r2_binding_verified_remote": false,
       "container_state_externalized": false,
       "portable_restore_drill": false,
+      "implemented": [
+        "isolated production preview and dev R2 bindings",
+        "content addressed immutable import artifact envelope",
+        "conditional R2 put with SHA-256 integrity metadata",
+        "D1 artifact manifest with stored committed failed lifecycle",
+        "fenced Queue finalize commits artifact batch job and source watermark together",
+        "Container import fails closed before D1 when R2 is unavailable",
+        "deployment preflight verifies production R2 bucket and phase3 schema receipt"
+      ],
+      "remaining": [
+        "deploy and verify Preview R2 object and D1 manifest receipt",
+        "externalize Markdown logs memory and backup exports",
+        "D1 export isolated import and R2 checksum restore drill",
+        "production exact SHA deployment and 72 hour and 7 day canaries"
+      ],
       "required_order": [
         "R2 immutable artifact put",
         "D1 manifest and staging finalize",

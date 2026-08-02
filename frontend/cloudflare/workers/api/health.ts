@@ -318,6 +318,15 @@ export async function handleHealth(
     body.readiness = { status: "unhealthy", ok: false };
     body.business_health = { status: "unhealthy", ok: false };
   }
+  if (runtimeMetadata?.storage?.artifacts_configured === false) {
+    body.status = "unhealthy";
+    body.reason_codes = [
+      ...(body.reason_codes ?? []),
+      "durable_artifact_storage_unconfigured",
+    ];
+    body.readiness = { status: "unhealthy", ok: false };
+    body.business_health = { status: "unhealthy", ok: false };
+  }
   return new Response(JSON.stringify(body), {
     status: httpStatusForHealth(body.status),
     headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
