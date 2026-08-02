@@ -1,7 +1,7 @@
 # Cloudflare 统一持久化导入与 Preview 真实制品设计
 
 > 日期：2026-08-02
-> 状态：方案 A 已获批准，待书面规格复核
+> 状态：书面规格已批准，进入实施计划与 TDD
 > 适用范围：Cloudflare Worker、D1、R2、Preview Access、部署与恢复演练
 
 ## 1. 背景
