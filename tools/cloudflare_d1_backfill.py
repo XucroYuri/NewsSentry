@@ -182,10 +182,14 @@ def _normalize_canary_target_allowlist(
 ) -> tuple[str, ...] | None:
     if targets is None:
         return None
-    normalized = tuple(dict.fromkeys(target.strip() for target in targets if target.strip()))
-    if len(normalized) != 4:
+    entries = tuple(target.strip() for target in targets)
+    if any(not target for target in entries):
         raise ValueError("canary_target_allowlist_requires_exactly_four_targets")
-    return normalized
+    if len(set(entries)) != len(entries):
+        raise ValueError("canary_target_allowlist_contains_duplicates")
+    if len(entries) != 4:
+        raise ValueError("canary_target_allowlist_requires_exactly_four_targets")
+    return entries
 
 
 def _iter_event_rows(db_path: Path) -> list[sqlite3.Row]:

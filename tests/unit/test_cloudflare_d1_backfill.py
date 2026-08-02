@@ -223,6 +223,46 @@ def test_backfill_canary_allowlist_rejects_non_four_target_receipts(tmp_path: Pa
         )
 
 
+def test_backfill_canary_allowlist_rejects_five_entries_with_one_duplicate(
+    tmp_path: Path,
+) -> None:
+    targets_dir = tmp_path / "config" / "targets"
+    targets_dir.mkdir(parents=True)
+    for target_id in ("france", "germany", "italy", "japan"):
+        (targets_dir / f"{target_id}.yaml").write_text(
+            f"target_id: {target_id}\nsource_channel_refs:\n  - {target_id}-source\n",
+            encoding="utf-8",
+        )
+
+    with pytest.raises(ValueError, match="canary_target_allowlist_contains_duplicates"):
+        collect_backfill_plan(
+            data_dir=tmp_path / "data",
+            targets_dir=targets_dir,
+            limit=0,
+            canary_target_allowlist=("france", "germany", "italy", "japan", "italy"),
+        )
+
+
+def test_backfill_canary_allowlist_rejects_four_entries_with_one_duplicate(
+    tmp_path: Path,
+) -> None:
+    targets_dir = tmp_path / "config" / "targets"
+    targets_dir.mkdir(parents=True)
+    for target_id in ("france", "germany", "italy"):
+        (targets_dir / f"{target_id}.yaml").write_text(
+            f"target_id: {target_id}\nsource_channel_refs:\n  - {target_id}-source\n",
+            encoding="utf-8",
+        )
+
+    with pytest.raises(ValueError, match="canary_target_allowlist_contains_duplicates"):
+        collect_backfill_plan(
+            data_dir=tmp_path / "data",
+            targets_dir=targets_dir,
+            limit=0,
+            canary_target_allowlist=("france", "germany", "italy", "italy"),
+        )
+
+
 def test_generate_backfill_sql_is_idempotent_and_preserves_drafts_stage(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     targets_dir = tmp_path / "config" / "targets"

@@ -3,7 +3,10 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
-import { runScheduledCloudflareTask } from "../workers/lib/scheduled.ts";
+import {
+  runScheduledCloudflareTask,
+  setScheduledContainerGetterForTest,
+} from "../workers/lib/scheduled.ts";
 
 class SqlitePreparedStatement {
   #database: SqliteD1Database;
@@ -127,15 +130,21 @@ function successfulContainerWithEvents(summary: Record<string, unknown>, importE
       );
     },
   };
-  return {
-    idFromName(name: string) {
-      return name;
-    },
-    get() {
-      return handle;
-    },
-  } as unknown as DurableObjectNamespace;
+  return { __containerHandle: handle } as unknown as DurableObjectNamespace;
 }
+
+test.beforeEach(() => {
+  setScheduledContainerGetterForTest((namespace) => {
+    const handle = (namespace as unknown as { __containerHandle?: { fetch(request: Request): Promise<Response> } })
+      .__containerHandle;
+    assert.ok(handle);
+    return handle;
+  });
+});
+
+test.afterEach(() => {
+  setScheduledContainerGetterForTest(null);
+});
 
 class FakeR2Bucket {
   objects = new Map<string, any>();

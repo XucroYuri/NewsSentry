@@ -25,11 +25,16 @@ type ContainerDependencyFailure = {
 type ContainerHandle = {
   fetch(request: Request): Promise<Response>;
 };
+type ScheduledContainerGetter = (
+  namespace: DurableObjectNamespace,
+  name: string,
+) => ContainerHandle | Promise<ContainerHandle>;
 
 const COLLECT_TARGET_BATCH_SIZE = 4;
 const COLLECT_TARGET_CURSOR_KEY = "cursor:collect-cycle-target-index";
 const CONTAINER_TASK_TIMEOUT_MS = 8 * 60_000;
 const CONTAINER_WRITER_LOCK_NAME = "container-sqlite-writer";
+let scheduledContainerGetterForTest: ScheduledContainerGetter | null = null;
 
 interface CollectTargetBatch {
   targetIds: string[];
@@ -435,11 +440,21 @@ export function classifyContainerDependency(
   return { status: "failed_dependency", reason: "container_not_configured" };
 }
 
+export function setScheduledContainerGetterForTest(
+  getter: ScheduledContainerGetter | null,
+): void {
+  scheduledContainerGetterForTest = getter;
+}
+
 async function getContainerHandle(
   namespace: DurableObjectNamespace,
   name: string,
 ): Promise<ContainerHandle> {
-  return namespace.get(namespace.idFromName(name)) as unknown as ContainerHandle;
+  if (scheduledContainerGetterForTest) {
+    return scheduledContainerGetterForTest(namespace, name);
+  }
+  const containers = await import("@cloudflare/containers");
+  return containers.getContainer(namespace, name) as unknown as ContainerHandle;
 }
 
 async function callContainerInternalTask(
