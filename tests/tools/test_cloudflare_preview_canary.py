@@ -1,0 +1,255 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+
+import pytest
+
+from tools import cloudflare_preview_canary as canary
+
+COMMIT = "a" * 40
+COMMIT_TIME = "2026-08-02T03:00:00+00:00"
+SHA = "b" * 64
+BATCH_ID = f"api-batch:{SHA}"
+JOB_ID = f"api-job:{SHA}"
+ARTIFACT_ID = f"artifact-{SHA}"
+ARTIFACT_KEY = f"imports/v1/2026/08/02/{SHA}.json"
+SECRET_MARKERS = (
+    "CF-Access-Client-Secret",
+    "Cf-Access-Jwt-Assertion",
+    "jwt-token-value",
+    "client-secret-value",
+    "headers",
+    "request_body",
+)
+
+
+def _response(*, replayed: bool) -> dict[str, object]:
+    return {
+        "imported": 1 if not replayed else 0,
+        "updated": 0 if not replayed else 1,
+        "skipped": 0,
+        "quarantined": 0,
+        "errors": [],
+        "batch_id": BATCH_ID,
+        "job_id": JOB_ID,
+        "artifact_id": ARTIFACT_ID,
+        "artifact_key": ARTIFACT_KEY,
+        "artifact_sha256": SHA,
+        "artifact_bytes": 16,
+        "replayed": replayed,
+        "headers": {"CF-Access-Client-Secret": "client-secret-value"},
+        "request_body": [{"title_original": "must not leak"}],
+    }
+
+
+def _d1_row(*, artifact_bytes: int = 16, event_count: int = 1) -> dict[str, object]:
+    return {
+        "batch_id": BATCH_ID,
+        "batch_status": "committed",
+        "batch_count": 1,
+        "job_id": JOB_ID,
+        "job_status": "committed",
+        "job_count": 1,
+        "artifact_id": ARTIFACT_ID,
+        "artifact_key": ARTIFACT_KEY,
+        "artifact_sha256": SHA,
+        "artifact_bytes": artifact_bytes,
+        "artifact_status": "committed",
+        "artifact_count": 1,
+        "projection_receipt_count": 1,
+        "projection_batch_guard": BATCH_ID,
+        "projection_job_guard": JOB_ID,
+        "projection_artifact_guard": ARTIFACT_ID,
+        "projection_batch_checksum": SHA,
+        "event_count": event_count,
+    }
+
+
+def test_payload_is_deterministic_for_preview_import() -> None:
+    payload = canary.build_canary_payload(commit=COMMIT, commit_time=COMMIT_TIME)
+
+    assert payload.idempotency_key == f"preview-artifact-canary:{COMMIT}"
+    assert payload.event_id == "preview-artifact-canary-aaaaaaaaaaaa"
+    assert payload.events == [
+        {
+            "collected_at": COMMIT_TIME,
+            "content_original": "Deterministic Cloudflare preview artifact canary.",
+            "event_id": "preview-artifact-canary-aaaaaaaaaaaa",
+            "language": "en",
+            "pipeline_stage": "collected",
+            "source_id": "preview-canary-synthetic-source",
+            "summary": "Synthetic event used to verify preview durable import receipts.",
+            "target_id": "preview-canary",
+            "title_original": "News Sentry Preview Artifact Canary aaaaaaaaaaaa",
+            "url": "https://example.test/news-sentry/preview-artifact-canary-aaaaaaaaaaaa",
+        }
+    ]
+    rendered = json.dumps(payload.__dict__, ensure_ascii=False, sort_keys=True)
+    assert rendered == json.dumps(
+        canary.build_canary_payload(commit=COMMIT, commit_time=COMMIT_TIME).__dict__,
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
+def test_evidence_sql_validates_canonical_ids_and_counts_all_receipts() -> None:
+    sql = canary.build_evidence_sql(
+        batch_id=BATCH_ID,
+        job_id=JOB_ID,
+        artifact_id=ARTIFACT_ID,
+    )
+
+    assert "import_batches" in sql
+    assert "jobs" in sql
+    assert "artifact_manifests" in sql
+    assert "import_projection_finalize_receipts" in sql
+    assert "import_staged_events" in sql
+    assert "COUNT(*) AS batch_count" in sql
+    assert "COUNT(*) AS projection_receipt_count" in sql
+    assert "COUNT(*) AS event_count" in sql
+
+    with pytest.raises(canary.PreviewCanaryError, match="batch_id_invalid"):
+        canary.build_evidence_sql(
+            batch_id=f"{BATCH_ID}' OR 1=1 --",
+            job_id=JOB_ID,
+            artifact_id=ARTIFACT_ID,
+        )
+
+
+def test_receipt_cross_checks_response_d1_and_r2_without_secret_passthrough(
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "artifact.json"
+    artifact.write_bytes(b"x" * 16)
+    artifact_sha = hashlib.sha256(b"x" * 16).hexdigest()
+    row = _d1_row()
+    row["artifact_sha256"] = artifact_sha
+    row["artifact_key"] = f"imports/v1/2026/08/02/{artifact_sha}.json"
+    row["projection_batch_checksum"] = artifact_sha
+    first = _response(replayed=False)
+    replay = _response(replayed=True)
+    for response in (first, replay):
+        response["artifact_sha256"] = artifact_sha
+        response["artifact_key"] = row["artifact_key"]
+
+    receipt = canary.build_canary_receipt(
+        first_response=first,
+        replay_response=replay,
+        d1_rows=[row],
+        artifact_path=artifact,
+    )
+
+    assert receipt["status"] == "ok"
+    assert receipt["identity"] == {
+        "batch_id": BATCH_ID,
+        "job_id": JOB_ID,
+        "artifact_id": ARTIFACT_ID,
+    }
+    assert receipt["counts"] == {
+        "artifact": 1,
+        "batch": 1,
+        "event": 1,
+        "job": 1,
+        "projection_receipt": 1,
+    }
+    assert receipt["artifact"] == {
+        "bytes": 16,
+        "key": row["artifact_key"],
+        "sha256": artifact_sha,
+        "status": "committed",
+    }
+    assert receipt["responses"] == {
+        "first": {"status": "committed", "replayed": False},
+        "replay": {"status": "committed", "replayed": True},
+    }
+    rendered = json.dumps(receipt, ensure_ascii=False, sort_keys=True)
+    for marker in SECRET_MARKERS:
+        assert marker not in rendered
+
+
+def test_receipt_fails_closed_on_missing_or_inconsistent_evidence(
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "artifact.json"
+    artifact.write_bytes(b"x" * 16)
+
+    missing = canary.build_canary_receipt(
+        first_response=_response(replayed=False),
+        replay_response=_response(replayed=True),
+        d1_rows=[],
+        artifact_path=artifact,
+    )
+    assert missing["status"] == "failed"
+    assert "d1_row_count_invalid" in missing["blockers"]
+
+    mismatched = canary.build_canary_receipt(
+        first_response=_response(replayed=False),
+        replay_response=_response(replayed=True),
+        d1_rows=[_d1_row(artifact_bytes=17)],
+        artifact_path=artifact,
+    )
+    assert mismatched["status"] == "failed"
+    assert "artifact_bytes_mismatch" in mismatched["blockers"]
+
+
+def test_cli_subcommands_emit_canonical_json_and_failed_receipts(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert canary.main(["payload", "--commit", COMMIT, "--commit-time", COMMIT_TIME]) == 0
+    payload_stdout = capsys.readouterr().out
+    payload_cli = json.loads(payload_stdout)
+    assert payload_cli["api_url"] == (
+        "https://news-sentry-api-preview.xuyu.workers.dev/api/v1/events/import"
+    )
+    assert payload_cli["idempotency_key"] == f"preview-artifact-canary:{COMMIT}"
+    assert payload_stdout == json.dumps(json.loads(payload_stdout), sort_keys=True) + "\n"
+
+    assert (
+        canary.main(
+            [
+                "evidence-sql",
+                "--batch-id",
+                BATCH_ID,
+                "--job-id",
+                JOB_ID,
+                "--artifact-id",
+                ARTIFACT_ID,
+            ]
+        )
+        == 0
+    )
+    assert "FROM import_batches" in capsys.readouterr().out
+
+    first_path = tmp_path / "first.json"
+    replay_path = tmp_path / "replay.json"
+    rows_path = tmp_path / "rows.json"
+    artifact = tmp_path / "artifact.json"
+    output = tmp_path / "receipt.json"
+    first_path.write_text(json.dumps(_response(replayed=False)), encoding="utf-8")
+    replay_path.write_text(json.dumps(_response(replayed=True)), encoding="utf-8")
+    rows_path.write_text(json.dumps([_d1_row()]), encoding="utf-8")
+    artifact.write_bytes(b"x" * 16)
+
+    code = canary.main(
+        [
+            "receipt",
+            "--first-response",
+            str(first_path),
+            "--replay-response",
+            str(replay_path),
+            "--d1-json",
+            str(rows_path),
+            "--artifact",
+            str(artifact),
+            "--output",
+            str(output),
+        ]
+    )
+
+    assert code == 2
+    receipt = json.loads(output.read_text(encoding="utf-8"))
+    assert receipt["status"] == "failed"
+    assert "artifact_sha256_mismatch" in receipt["blockers"]
