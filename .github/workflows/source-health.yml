@@ -63,6 +63,8 @@ jobs:
             --min-entries 1
             --output-json /tmp/news-sentry-source-health.json
             --output-jsonl /tmp/news-sentry-source-health.jsonl
+            --slo-config config/source-health-slo.yaml
+            --output-slo-json /tmp/news-sentry-source-health-slo.json
             --pretty
           )
           if [[ -n "${{ github.event.inputs.target || '' }}" ]]; then
@@ -86,3 +88,6 @@ jobs:
             /tmp/news-sentry-source-coverage-receipts.jsonl
             /tmp/news-sentry-source-health.json
             /tmp/news-sentry-source-health.jsonl
+            /tmp/news-sentry-source-health-slo.json
+          if-no-files-found: error
+          retention-days: 14

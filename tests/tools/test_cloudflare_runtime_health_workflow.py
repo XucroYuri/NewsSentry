@@ -18,7 +18,7 @@ def test_runtime_health_workflow_schedules_low_cost_production_receipts() -> Non
     triggers = workflow["on"]
     assert triggers["schedule"] == [{"cron": "17 */6 * * *"}]
     assert "workflow_dispatch" in triggers
-    assert workflow["permissions"] == {"contents": "read"}
+    assert workflow["permissions"] == {"actions": "read", "contents": "read"}
     assert workflow["concurrency"]["cancel-in-progress"] == "false"
 
     job = workflow["jobs"]["runtime-health"]
@@ -48,13 +48,23 @@ def test_runtime_health_workflow_defaults_schedules_to_production_and_fails_clos
     job = workflow["jobs"]["runtime-health"]
     steps = {step["name"]: step for step in job["steps"] if "name" in step}
     resolve = steps["Resolve probe target"]["run"]
+    previous = steps["Download previous continuity ledger"]["run"]
+    continuity = steps["Update continuity ledger"]["run"]
 
     assert 'environment="production"' in resolve
     assert 'public_base_url="https://news-sentry.com"' in resolve
     assert 'api_base_url="https://api.news-sentry.com"' in resolve
-    assert 'expected_commit="${GITHUB_SHA}"' in resolve
+    assert "Resolve deployed commit from guard receipt and deployment metadata" in resolve
+    assert 'expected_commit="${DEPLOYED_COMMIT}"' in resolve
+    assert 'expected_commit="${GITHUB_SHA}"' not in resolve
     assert 'Preview public_base_url is required.' in resolve
     assert 'Preview expected_commit is required.' in resolve
     assert "reject_multiline" in resolve
     assert "Invalid expected_commit: expected a 40-character Git commit SHA." in resolve
     assert "printf '%s=%s\\n'" in resolve
+    assert "cloudflare-continuity-ledger-" in previous
+    assert "/tmp/news-sentry-cloudflare-continuity-ledger.jsonl" in previous  # noqa: S108
+    assert "tools/cloudflare_continuity_ledger.py append" in continuity
+    assert "--source-health-current /tmp/news-sentry-source-health-slo.json" in continuity
+    assert "--source-health-start /tmp/news-sentry-source-health-slo-start.json" in continuity
+    assert "--source-health-end /tmp/news-sentry-source-health-slo-end.json" in continuity

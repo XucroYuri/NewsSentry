@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -190,6 +191,7 @@ def build_receipt(
     max_data_age_hours: float,
     max_future_skew_minutes: float,
     timeout_seconds: float,
+    run_id: str | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     generated_at = (now or datetime.now(UTC)).astimezone(UTC)
@@ -235,8 +237,22 @@ def build_receipt(
                 reasons.append("latest_public_missing_or_invalid")
             elif latest_public_at > max_future:
                 reasons.append("latest_public_in_future")
+            elif latest_public_at < generated_at - timedelta(hours=24):
+                reasons.append("latest_public_too_old")
             if payload.get("future_timestamp_count") not in {0, None}:
                 reasons.append("future_timestamps_present")
+            runtime_slo = _mapping(payload.get("runtime_slo"))
+            if int(runtime_slo.get("p0_dlq_count") or 0) != 0:
+                reasons.append("p0_dlq_not_empty")
+            backlog_oldest_age = runtime_slo.get("backlog_oldest_age_minutes")
+            if (
+                isinstance(backlog_oldest_age, int | float)
+                and backlog_oldest_age > 30
+            ):
+                reasons.append("backlog_oldest_too_old")
+            coverage_ratio = runtime_slo.get("committed_artifact_coverage_ratio")
+            if isinstance(coverage_ratio, int | float) and coverage_ratio < 1:
+                reasons.append("artifact_coverage_incomplete")
         checks.append(
             _check(
                 mode,
@@ -361,10 +377,13 @@ def build_receipt(
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": generated_at.isoformat(),
+        "observed_at": generated_at.isoformat(),
+        "run_id": run_id,
         "environment": environment,
         "public_base_url": public_base_url,
         "api_base_url": api_base_url,
         "expected_commit": expected_commit,
+        "deployed_commit": expected_commit,
         "thresholds": {
             "max_data_age_hours": max_data_age_hours,
             "max_future_skew_minutes": max_future_skew_minutes,
@@ -389,10 +408,13 @@ def _failure_receipt(
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": datetime.now(UTC).isoformat(),
+        "observed_at": datetime.now(UTC).isoformat(),
+        "run_id": os.environ.get("GITHUB_RUN_ID"),
         "environment": environment,
         "public_base_url": None,
         "api_base_url": None,
         "expected_commit": expected_commit,
+        "deployed_commit": expected_commit,
         "status": "failed",
         "summary": {
             "passed": 0,
@@ -428,6 +450,7 @@ def main() -> int:
     parser.add_argument("--max-data-age-hours", type=float, default=2.0)
     parser.add_argument("--max-future-skew-minutes", type=float, default=5.0)
     parser.add_argument("--timeout-seconds", type=float, default=30.0)
+    parser.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID"))
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
@@ -443,6 +466,7 @@ def main() -> int:
             max_data_age_hours=args.max_data_age_hours,
             max_future_skew_minutes=args.max_future_skew_minutes,
             timeout_seconds=args.timeout_seconds,
+            run_id=args.run_id,
         )
     except ValueError as error:
         receipt = _failure_receipt(

@@ -456,3 +456,53 @@ def test_source_rows_can_exclude_hosts_and_cap_per_host(tmp_path: Path) -> None:
     )
 
     assert [row["source_id"] for row in rows] == ["slow-one", "slow-two"]
+
+
+def test_source_health_slo_requires_p0_and_ratio_thresholds() -> None:
+    result = source_health_audit.evaluate_source_health_slo(
+        summary={"total": 100, "ok": 91, "failed": 1},
+        rows=[
+            {
+                "target_id": "italy",
+                "source_id": "ansa",
+                "health_status": "failed",
+            }
+        ],
+        config={
+            "p0_source_refs": ["italy:ansa"],
+            "minimum_ok_ratio": 0.90,
+            "maximum_failed_ratio": 0.02,
+        },
+    )
+
+    assert result["status"] == "failed"
+    assert "p0_source_failed:italy:ansa" in result["blockers"]
+
+
+def test_source_health_slo_blocks_global_ratios_and_weekly_drop() -> None:
+    result = source_health_audit.evaluate_source_health_slo(
+        summary={"total": 100, "ok": 86, "failed": 3},
+        rows=[],
+        config={
+            "minimum_ok_ratio": 0.90,
+            "maximum_failed_ratio": 0.02,
+            "maximum_weekly_ok_drop": 0.03,
+        },
+        previous_summary={"total": 100, "ok": 92, "failed": 1},
+    )
+
+    assert result["status"] == "failed"
+    assert "global_ok_ratio_below_threshold" in result["blockers"]
+    assert "global_failed_ratio_above_threshold" in result["blockers"]
+    assert "weekly_ok_ratio_drop_exceeded" in result["blockers"]
+
+
+def test_source_health_slo_blocks_reason_codes() -> None:
+    result = source_health_audit.evaluate_source_health_slo(
+        summary={"total": 10, "ok": 10, "failed": 0, "reason_codes": ["audit_gap"]},
+        rows=[],
+        config={"blocking_reason_codes": ["audit_gap"]},
+    )
+
+    assert result["status"] == "failed"
+    assert "blocking_reason_code:audit_gap" in result["blockers"]

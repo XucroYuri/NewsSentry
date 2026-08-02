@@ -169,7 +169,16 @@ def _entry_time_to_iso(entry: Any) -> str | None:
         value = getattr(entry, field, None)
         if value:
             try:
-                return datetime(*value[:6], tzinfo=UTC).isoformat()
+                year, month, day, hour, minute, second = value[:6]
+                return datetime(
+                    int(year),
+                    int(month),
+                    int(day),
+                    int(hour),
+                    int(minute),
+                    int(second),
+                    tzinfo=UTC,
+                ).isoformat()
             except (TypeError, ValueError):
                 continue
     return None
@@ -433,6 +442,86 @@ def _build_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _ratio(summary: dict[str, Any], key: str) -> float:
+    total = int(summary.get("total") or 0)
+    if total <= 0:
+        return 0.0
+    return int(summary.get(key) or 0) / total
+
+
+def _row_ref(row: dict[str, Any]) -> str:
+    return f"{row.get('target_id')}:{row.get('source_id')}"
+
+
+def evaluate_source_health_slo(
+    summary: dict[str, Any],
+    rows: list[dict[str, Any]],
+    config: dict[str, Any],
+    previous_summary: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return a secret-free SLO receipt for source health audit output."""
+    minimum_ok_ratio = float(config.get("minimum_ok_ratio", 0.90))
+    maximum_failed_ratio = float(config.get("maximum_failed_ratio", 0.02))
+    maximum_weekly_ok_drop = float(config.get("maximum_weekly_ok_drop", 0.03))
+    p0_source_refs = {str(ref) for ref in config.get("p0_source_refs", [])}
+    blocking_reason_codes = {
+        str(code) for code in config.get("blocking_reason_codes", [])
+    }
+    blockers: list[str] = []
+    row_by_ref = {_row_ref(row): row for row in rows}
+    for source_ref in sorted(p0_source_refs):
+        row = row_by_ref.get(source_ref)
+        if row is None:
+            blockers.append(f"p0_source_missing:{source_ref}")
+            continue
+        if row.get("health_status") != "ok":
+            blockers.append(f"p0_source_failed:{source_ref}")
+
+    ok_ratio = _ratio(summary, "ok")
+    failed_ratio = _ratio(summary, "failed")
+    if ok_ratio < minimum_ok_ratio:
+        blockers.append("global_ok_ratio_below_threshold")
+    if failed_ratio > maximum_failed_ratio:
+        blockers.append("global_failed_ratio_above_threshold")
+    if previous_summary is not None:
+        previous_ok_ratio = _ratio(previous_summary, "ok")
+        if previous_ok_ratio - ok_ratio > maximum_weekly_ok_drop:
+            blockers.append("weekly_ok_ratio_drop_exceeded")
+    else:
+        previous_ok_ratio = None
+
+    reason_codes = summary.get("reason_codes")
+    if isinstance(reason_codes, list):
+        for code in sorted({str(code) for code in reason_codes} & blocking_reason_codes):
+            blockers.append(f"blocking_reason_code:{code}")
+
+    return {
+        "schema_version": "news-sentry.source-health-slo.v1",
+        "generated_at": datetime.now(UTC).isoformat(),
+        "status": "ok" if not blockers else "failed",
+        "blockers": sorted(blockers),
+        "ratios": {
+            "ok": ok_ratio,
+            "failed": failed_ratio,
+            "previous_ok": previous_ok_ratio,
+        },
+        "thresholds": {
+            "minimum_ok_ratio": minimum_ok_ratio,
+            "maximum_failed_ratio": maximum_failed_ratio,
+            "maximum_weekly_ok_drop": maximum_weekly_ok_drop,
+        },
+        "p0_source_refs": sorted(p0_source_refs),
+        "summary": {
+            "total": int(summary.get("total") or 0),
+            "ok": int(summary.get("ok") or 0),
+            "failed": int(summary.get("failed") or 0),
+            "degraded": int(summary.get("degraded") or 0),
+            "rate_limited": int(summary.get("rate_limited") or 0),
+            "temporary_unavailable": int(summary.get("temporary_unavailable") or 0),
+        },
+    }
+
+
 def write_audit_jsonl(rows: list[dict[str, Any]], output_path: Path) -> int:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(
@@ -478,6 +567,9 @@ def main() -> int:
     )
     parser.add_argument("--output-json", type=Path)
     parser.add_argument("--output-jsonl", type=Path)
+    parser.add_argument("--slo-config", type=Path)
+    parser.add_argument("--previous-summary-json", type=Path)
+    parser.add_argument("--output-slo-json", type=Path)
     parser.add_argument("--pretty", action="store_true")
     parser.add_argument(
         "--max-failed",
@@ -507,13 +599,41 @@ def main() -> int:
         )
     if args.output_jsonl:
         write_audit_jsonl(result["rows"], args.output_jsonl)
+    slo_result: dict[str, Any] | None = None
+    if args.slo_config:
+        previous_summary = None
+        if args.previous_summary_json and args.previous_summary_json.exists():
+            previous_payload = json.loads(
+                args.previous_summary_json.read_text(encoding="utf-8")
+            )
+            if isinstance(previous_payload, dict):
+                previous_summary = previous_payload.get("summary", previous_payload)
+        slo_result = evaluate_source_health_slo(
+            result["summary"],
+            result["rows"],
+            _load_yaml(args.slo_config),
+            previous_summary if isinstance(previous_summary, dict) else None,
+        )
+        if args.output_slo_json:
+            args.output_slo_json.parent.mkdir(parents=True, exist_ok=True)
+            args.output_slo_json.write_text(
+                json.dumps(
+                    slo_result,
+                    ensure_ascii=False,
+                    indent=2 if args.pretty else None,
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
     print(
         json.dumps(
-            result["summary"],
+            slo_result or result["summary"],
             ensure_ascii=False,
             indent=2 if args.pretty else None,
         )
     )
+    if slo_result is not None and slo_result["status"] != "ok":
+        return 1
     if args.max_failed is not None and result["summary"]["failed"] > args.max_failed:
         return 1
     return 0

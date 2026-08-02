@@ -78,6 +78,10 @@ def _handler(
     origins: dict[str, str],
     stale_collection: bool = False,
     future_public_item: bool = False,
+    stale_public_quality: bool = False,
+    p0_dlq_count: int = 0,
+    backlog_oldest_age_minutes: int = 10,
+    artifact_coverage_ratio: float = 1.0,
     drop_connections: bool = False,
     malformed_readiness: bool = False,
     container_configured: bool = True,
@@ -95,6 +99,15 @@ def _handler(
         health["latest_valid_collected_at"] = "2020-01-01T00:00:00Z"
     if malformed_readiness:
         health["readiness"] = "invalid"
+    if stale_public_quality:
+        health["public_quality"]["latest_public_at"] = (
+            now - timedelta(hours=25)
+        ).isoformat().replace("+00:00", "Z")
+    health["runtime_slo"] = {
+        "p0_dlq_count": p0_dlq_count,
+        "backlog_oldest_age_minutes": backlog_oldest_age_minutes,
+        "committed_artifact_coverage_ratio": artifact_coverage_ratio,
+    }
     published_at = now + timedelta(days=1) if future_public_item else now
     published = published_at.isoformat().replace("+00:00", "Z")
 
@@ -172,6 +185,10 @@ def _run_probe(
     *,
     stale_collection: bool = False,
     future_public_item: bool = False,
+    stale_public_quality: bool = False,
+    p0_dlq_count: int = 0,
+    backlog_oldest_age_minutes: int = 10,
+    artifact_coverage_ratio: float = 1.0,
     api_connection_failure: bool = False,
     malformed_readiness: bool = False,
     container_configured: bool = True,
@@ -185,6 +202,10 @@ def _run_probe(
         origins=origins,
         stale_collection=stale_collection,
         future_public_item=future_public_item,
+        stale_public_quality=stale_public_quality,
+        p0_dlq_count=p0_dlq_count,
+        backlog_oldest_age_minutes=backlog_oldest_age_minutes,
+        artifact_coverage_ratio=artifact_coverage_ratio,
         drop_connections=api_connection_failure,
         malformed_readiness=malformed_readiness,
         container_configured=container_configured,
@@ -256,6 +277,25 @@ def test_runtime_probe_fails_closed_on_future_public_item(tmp_path: Path) -> Non
     assert result.returncode == 1
     assert receipt["status"] == "failed"
     assert "public_item_in_future" in receipt["summary"]["reason_codes"]
+
+
+def test_runtime_probe_enforces_continuity_slo_counters(tmp_path: Path) -> None:
+    result, receipt = _run_probe(
+        tmp_path,
+        stale_public_quality=True,
+        p0_dlq_count=1,
+        backlog_oldest_age_minutes=31,
+        artifact_coverage_ratio=0.99,
+    )
+
+    assert result.returncode == 1
+    assert receipt["status"] == "failed"
+    assert {
+        "latest_public_too_old",
+        "p0_dlq_not_empty",
+        "backlog_oldest_too_old",
+        "artifact_coverage_incomplete",
+    } <= set(receipt["summary"]["reason_codes"])
 
 
 def test_runtime_probe_records_network_failure_instead_of_crashing(tmp_path: Path) -> None:

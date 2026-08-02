@@ -31,6 +31,7 @@ on:
     - cron: "17 */6 * * *"
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -65,8 +66,35 @@ jobs:
             environment="production"
             public_base_url="https://news-sentry.com"
             api_base_url="https://api.news-sentry.com"
-            expected_commit="${GITHUB_SHA}"
             max_data_age_hours="2"
+            echo "Resolve deployed commit from guard receipt and deployment metadata"
+            python - <<'PY' > /tmp/news-sentry-current-deployment.json
+          import json
+          import sys
+          import urllib.request
+
+          request = urllib.request.Request(
+              "https://api.news-sentry.com/api/v1/ready",
+              headers={"User-Agent": "NewsSentryContinuityResolver/1.0"},
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
+              payload = json.loads(response.read().decode("utf-8"))
+          deployment = payload.get("deployment") if isinstance(payload, dict) else {}
+          if not isinstance(deployment, dict):
+              deployment = {}
+          deployed_commit = deployment.get("commit")
+          deployed_at = deployment.get("deployed_at") or deployment.get("created_at")
+          if not isinstance(deployed_commit, str) or len(deployed_commit) != 40:
+              print("Deployment metadata did not expose a full deployed commit.", file=sys.stderr)
+              raise SystemExit(1)
+          if not isinstance(deployed_at, str) or not deployed_at:
+              print("Deployment metadata did not expose deployed_at.", file=sys.stderr)
+              raise SystemExit(1)
+          print(json.dumps({"deployed_commit": deployed_commit, "deployed_at": deployed_at}))
+          PY
+            DEPLOYED_COMMIT="$(python -c 'import json;print(json.load(open("/tmp/news-sentry-current-deployment.json"))["deployed_commit"])')"
+            deployed_at="$(python -c 'import json;print(json.load(open("/tmp/news-sentry-current-deployment.json"))["deployed_at"])')"
+            expected_commit="${DEPLOYED_COMMIT}"
           else
             environment="${INPUT_ENVIRONMENT:-production}"
             max_data_age_hours="${INPUT_MAX_DATA_AGE_HOURS:-2}"
@@ -74,12 +102,15 @@ jobs:
               production)
                 public_base_url="${INPUT_PUBLIC_BASE_URL:-https://news-sentry.com}"
                 api_base_url="${INPUT_API_BASE_URL:-https://api.news-sentry.com}"
-                expected_commit="${INPUT_EXPECTED_COMMIT:-${GITHUB_SHA}}"
+                expected_commit="${INPUT_EXPECTED_COMMIT}"
+                : "${expected_commit:?Production expected_commit is required outside scheduled metadata probes.}"
+                deployed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
                 ;;
               preview)
                 public_base_url="${INPUT_PUBLIC_BASE_URL}"
                 api_base_url="${INPUT_API_BASE_URL:-https://news-sentry-api-preview.xuyu.workers.dev}"
                 expected_commit="${INPUT_EXPECTED_COMMIT}"
+                deployed_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
                 : "${public_base_url:?Preview public_base_url is required.}"
                 : "${expected_commit:?Preview expected_commit is required.}"
                 ;;
@@ -103,6 +134,7 @@ jobs:
           reject_multiline "public_base_url" "${public_base_url}"
           reject_multiline "api_base_url" "${api_base_url}"
           reject_multiline "expected_commit" "${expected_commit}"
+          reject_multiline "deployed_at" "${deployed_at}"
           reject_multiline "max_data_age_hours" "${max_data_age_hours}"
           if [[ ! "${expected_commit}" =~ ^[0-9a-fA-F]{40}$ ]]; then
             echo "Invalid expected_commit: expected a 40-character Git commit SHA." >&2
@@ -112,6 +144,7 @@ jobs:
           printf '%s=%s\n' "public_base_url" "${public_base_url}" >> "${GITHUB_OUTPUT}"
           printf '%s=%s\n' "api_base_url" "${api_base_url}" >> "${GITHUB_OUTPUT}"
           printf '%s=%s\n' "expected_commit" "${expected_commit}" >> "${GITHUB_OUTPUT}"
+          printf '%s=%s\n' "deployed_at" "${deployed_at}" >> "${GITHUB_OUTPUT}"
           printf '%s=%s\n' "max_data_age_hours" "${max_data_age_hours}" >> "${GITHUB_OUTPUT}"
 
       - name: Probe split Cloudflare runtime
@@ -131,7 +164,81 @@ jobs:
             --max-data-age-hours "${MAX_DATA_AGE_HOURS}" \
             --max-future-skew-minutes 5 \
             --timeout-seconds 30 \
+            --run-id "${GITHUB_RUN_ID}" \
             --output /tmp/news-sentry-cloudflare-runtime-receipt.json
+
+      - name: Download Source Health SLO receipts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/news-sentry-source-health-artifacts
+          run_id="$(gh run list --workflow source-health.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+          : "${run_id:?No successful Source Health workflow run found.}"
+          gh run download "${run_id}" \
+            --name source-health-receipts \
+            --dir /tmp/news-sentry-source-health-artifacts
+          cp /tmp/news-sentry-source-health-artifacts/news-sentry-source-health-slo.json /tmp/news-sentry-source-health-slo.json
+
+      - name: Download previous continuity ledger
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/news-sentry-continuity-artifacts
+          previous_run_id="$(gh run list --workflow cloudflare-runtime-health.yml --status completed --limit 5 --json databaseId --jq '.[0].databaseId // ""')"
+          if [[ -n "${previous_run_id}" ]]; then
+            artifact_name="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${previous_run_id}/artifacts" --jq '.artifacts[]?.name | select(startswith("cloudflare-continuity-ledger-"))' | head -n 1 || true)"
+            if [[ -n "${artifact_name}" ]]; then
+              gh run download "${previous_run_id}" \
+                --name "${artifact_name}" \
+                --dir /tmp/news-sentry-continuity-artifacts
+            fi
+          fi
+          if [[ -f /tmp/news-sentry-continuity-artifacts/news-sentry-cloudflare-continuity-ledger.jsonl ]]; then
+            cp /tmp/news-sentry-continuity-artifacts/news-sentry-cloudflare-continuity-ledger.jsonl /tmp/news-sentry-cloudflare-continuity-ledger.jsonl
+          else
+            : > /tmp/news-sentry-cloudflare-continuity-ledger.jsonl
+          fi
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          ledger_path = Path("/tmp/news-sentry-cloudflare-continuity-ledger.jsonl")
+          current_path = Path("/tmp/news-sentry-source-health-slo.json")
+          start_path = Path("/tmp/news-sentry-source-health-slo-start.json")
+          end_path = Path("/tmp/news-sentry-source-health-slo-end.json")
+          current = json.loads(current_path.read_text())
+          start = current
+          for line in ledger_path.read_text().splitlines():
+              if not line.strip():
+                  continue
+              receipt = json.loads(line)
+              audits = receipt.get("source_health", {}).get("audits", {})
+              candidate = audits.get("current") or audits.get("start")
+              if isinstance(candidate, dict):
+                  start = candidate
+                  break
+          start_path.write_text(json.dumps(start, sort_keys=True))
+          end_path.write_text(json.dumps(current, sort_keys=True))
+          PY
+
+      - name: Update continuity ledger
+        env:
+          EXPECTED_COMMIT: ${{ steps.target.outputs.expected_commit }}
+          DEPLOYED_AT: ${{ steps.target.outputs.deployed_at }}
+        run: |
+          set -euo pipefail
+          python tools/cloudflare_continuity_ledger.py append \
+            --ledger /tmp/news-sentry-cloudflare-continuity-ledger.jsonl \
+            --receipt /tmp/news-sentry-cloudflare-runtime-receipt.json \
+            --deployed-commit "${EXPECTED_COMMIT}" \
+            --deployed-at "${DEPLOYED_AT}" \
+            --run-id "${GITHUB_RUN_ID}" \
+            --source-health-current /tmp/news-sentry-source-health-slo.json \
+            --source-health-start /tmp/news-sentry-source-health-slo-start.json \
+            --source-health-end /tmp/news-sentry-source-health-slo-end.json \
+            --output /tmp/news-sentry-cloudflare-continuity-state.json
 
       - name: Upload runtime receipt
         if: always()
@@ -139,5 +246,16 @@ jobs:
         with:
           name: cloudflare-runtime-receipt-${{ github.run_id }}
           path: /tmp/news-sentry-cloudflare-runtime-receipt.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload continuity ledger receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-continuity-ledger-${{ github.run_id }}
+          path: |
+            /tmp/news-sentry-cloudflare-continuity-ledger.jsonl
+            /tmp/news-sentry-cloudflare-continuity-state.json
           if-no-files-found: error
           retention-days: 14
