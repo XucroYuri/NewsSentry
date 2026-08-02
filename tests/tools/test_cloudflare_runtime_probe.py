@@ -24,15 +24,17 @@ def _runtime_payload(
     container_configured: bool = True,
     queue_configured: bool = True,
     scheduler_mode: str = "shadow",
+    status: str = "ok",
+    readiness_ok: bool = True,
 ) -> dict[str, Any]:
     timestamp = now.isoformat().replace("+00:00", "Z")
     return {
         "schema_version": "2026-08-01.phase0",
         "generated_at": timestamp,
-        "status": "ok",
+        "status": status,
         "reason_codes": [],
         "liveness": {"status": "ok", "ok": True},
-        "readiness": {"status": "ok", "ok": True},
+        "readiness": {"status": "ok" if readiness_ok else "failed", "ok": readiness_ok},
         "business_health": {"status": "ok", "ok": True},
         "total_events": 3,
         "latest_collected_at": timestamp,
@@ -88,13 +90,25 @@ def _handler(
     container_configured: bool = True,
     queue_configured: bool = True,
     scheduler_mode: str = "shadow",
+    live_status: str = "ok",
+    ready_status: str = "ok",
+    ready_readiness_ok: bool = True,
+    health_status: str = "ok",
 ) -> type[BaseHTTPRequestHandler]:
-    health = _runtime_payload(
+    base_health = _runtime_payload(
         now,
         container_configured=container_configured,
         queue_configured=queue_configured,
         scheduler_mode=scheduler_mode,
+        status="ok",
+        readiness_ok=True,
     )
+    ready_payload = {**base_health, "status": ready_status}
+    ready_payload["readiness"] = {
+        "status": "ok" if ready_readiness_ok else "failed",
+        "ok": ready_readiness_ok,
+    }
+    health = {**base_health, "status": health_status}
     if stale_collection:
         health["latest_collected_at"] = "2020-01-01T00:00:00Z"
         health["latest_valid_collected_at"] = "2020-01-01T00:00:00Z"
@@ -136,12 +150,15 @@ def _handler(
             if self.path == "/api/v1/live":
                 self._json(
                     {
-                        "status": "ok",
+                        "status": live_status,
                         "deployment": health["deployment"],
                     }
                 )
                 return
-            if self.path in {"/api/v1/ready", "/api/v1/health"}:
+            if self.path == "/api/v1/ready":
+                self._json(ready_payload)
+                return
+            if self.path == "/api/v1/health":
                 self._json(health)
                 return
             if self.path.startswith("/api/v1/public/news"):
@@ -197,6 +214,12 @@ def _run_probe(
     container_configured: bool = True,
     queue_configured: bool = True,
     scheduler_mode: str = "shadow",
+    live_status: str = "ok",
+    ready_status: str = "ok",
+    ready_readiness_ok: bool = True,
+    health_status: str = "ok",
+    canonical_api_origin: str | None = None,
+    use_probe_api_base_url: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, Any]]:
     now = datetime.now(UTC).replace(microsecond=0)
     origins: dict[str, str] = {}
@@ -215,32 +238,39 @@ def _run_probe(
         container_configured=container_configured,
         queue_configured=queue_configured,
         scheduler_mode=scheduler_mode,
+        live_status=live_status,
+        ready_status=ready_status,
+        ready_readiness_ok=ready_readiness_ok,
+        health_status=health_status,
     )
     with _serve(api_handler) as api_url:
-        origins["api"] = api_url
+        origins["api"] = canonical_api_origin or api_url
         public_handler = _handler(now=now, origins=origins)
         with _serve(public_handler) as public_url:
             origins["public"] = public_url
             receipt_path = tmp_path / "runtime-receipt.json"
+            args = [
+                str(PYTHON),
+                str(PROBE),
+                "--environment",
+                "preview",
+                "--public-base-url",
+                public_url,
+                "--api-base-url",
+                canonical_api_origin or api_url,
+                "--expected-commit",
+                COMMIT,
+                "--max-data-age-hours",
+                "2",
+                "--max-future-skew-minutes",
+                "5",
+                "--output",
+                str(receipt_path),
+            ]
+            if use_probe_api_base_url:
+                args.extend(["--probe-api-base-url", api_url])
             result = subprocess.run(  # noqa: S603 - fixed local interpreter and script.
-                [
-                    str(PYTHON),
-                    str(PROBE),
-                    "--environment",
-                    "preview",
-                    "--public-base-url",
-                    public_url,
-                    "--api-base-url",
-                    api_url,
-                    "--expected-commit",
-                    COMMIT,
-                    "--max-data-age-hours",
-                    "2",
-                    "--max-future-skew-minutes",
-                    "5",
-                    "--output",
-                    str(receipt_path),
-                ],
+                args,
                 cwd=ROOT,
                 capture_output=True,
                 text=True,
@@ -265,6 +295,71 @@ def test_runtime_probe_proves_split_pages_worker_and_commit_receipts(tmp_path: P
         "public_facets",
         "pages_binding",
     }
+
+
+def test_runtime_probe_separates_canonical_and_machine_probe_api_origins(
+    tmp_path: Path,
+) -> None:
+    result, receipt = _run_probe(
+        tmp_path,
+        canonical_api_origin="https://api.news-sentry.com",
+        use_probe_api_base_url=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert receipt["status"] == "ok"
+    assert receipt["api_base_url"] == "https://api.news-sentry.com"
+    assert receipt["probe_api_base_url"].startswith("http://127.0.0.1:")
+    checks = {check["name"]: check for check in receipt["checks"]}
+    assert checks["pages_binding"]["ok"] is True
+    assert checks["live"]["evidence"]["http_status"] == 200
+    assert checks["ready"]["evidence"]["http_status"] == 200
+    assert checks["public_news"]["evidence"]["http_status"] == 200
+    assert checks["public_facets"]["evidence"]["http_status"] == 200
+
+
+def test_runtime_probe_defaults_probe_origin_to_canonical_for_preview(
+    tmp_path: Path,
+) -> None:
+    result, receipt = _run_probe(tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert receipt["api_base_url"] == receipt["probe_api_base_url"]
+
+
+def test_runtime_probe_accepts_degraded_ready_when_readiness_is_true(
+    tmp_path: Path,
+) -> None:
+    result, receipt = _run_probe(tmp_path, ready_status="degraded")
+
+    assert result.returncode == 0, result.stderr
+    checks = {check["name"]: check for check in receipt["checks"]}
+    assert checks["ready"]["ok"] is True
+
+
+def test_runtime_probe_rejects_degraded_ready_when_readiness_is_false(
+    tmp_path: Path,
+) -> None:
+    result, receipt = _run_probe(
+        tmp_path,
+        ready_status="degraded",
+        ready_readiness_ok=False,
+    )
+
+    assert result.returncode == 1
+    checks = {check["name"]: check for check in receipt["checks"]}
+    assert checks["ready"]["ok"] is False
+    assert "readiness_not_ok" in checks["ready"]["reason_codes"]
+    assert "runtime_status_not_ok" not in checks["ready"]["reason_codes"]
+
+
+def test_runtime_probe_rejects_degraded_live(tmp_path: Path) -> None:
+    result, receipt = _run_probe(tmp_path, live_status="degraded")
+
+    assert result.returncode == 1
+    checks = {check["name"]: check for check in receipt["checks"]}
+    assert checks["live"]["ok"] is False
+    assert "runtime_status_not_ok" in checks["live"]["reason_codes"]
 
 
 def test_runtime_probe_fails_closed_on_stale_collection(tmp_path: Path) -> None:

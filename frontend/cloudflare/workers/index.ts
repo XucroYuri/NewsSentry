@@ -32,6 +32,7 @@ import { runScheduledCloudflareTask } from "./lib/scheduled";
 import { handleShadowQueueBatch } from "./lib/queue-shadow";
 import type { AccessPrincipal, CloudflareAccessJwtEnv } from "./lib/access-jwt";
 import { parseRuntimeConfig, type RuntimeConfigEnv } from "./lib/runtime-config";
+import { containerEnvVars } from "./lib/container-env";
 
 interface Env extends CloudflareAccessJwtEnv, RuntimeConfigEnv {
   DB: D1Database;
@@ -64,12 +65,6 @@ interface Env extends CloudflareAccessJwtEnv, RuntimeConfigEnv {
 
 export { ContainerProxy } from "@cloudflare/containers";
 
-function definedEnv(vars: Record<string, string | undefined>): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(vars).filter((entry): entry is [string, string] => Boolean(entry[1])),
-  );
-}
-
 export class NewsSentryContainer extends Container<Env> {
   defaultPort = 8000;
   requiredPorts = [8000];
@@ -78,28 +73,7 @@ export class NewsSentryContainer extends Container<Env> {
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    this.envVars = definedEnv({
-      NEWSSENTRY_DEPLOYMENT_ENV: "cloudflare-container",
-      NEWSSENTRY_PROFILE: "cloudflare",
-      NEWSSENTRY_AUTO_COLLECT: "0",
-      NEWSSENTRY_COLLECT_STAGE: "all",
-      NEWSSENTRY_PUBLIC_TRANSLATION: "1",
-      NEWSSENTRY_LOG_LEVEL: "INFO",
-      GEMINI_API_KEY: env.GEMINI_API_KEY,
-      OPENROUTER_API_KEY: env.OPENROUTER_API_KEY,
-      OPENROUTER_API_KEY_2: env.OPENROUTER_API_KEY_2,
-      NVIDIA_API_KEY: env.NVIDIA_API_KEY,
-      NVIDIA_API_KEY_2: env.NVIDIA_API_KEY_2,
-      OPENCODE_API_KEY: env.OPENCODE_API_KEY,
-      OPENCODE_API_KEY_2: env.OPENCODE_API_KEY_2,
-      REKA_API_KEY: env.REKA_API_KEY,
-      AGNES_API_KEY: env.AGNES_API_KEY,
-      AGNES_API_KEY_2: env.AGNES_API_KEY_2,
-      DEEPSEEK_API_KEY: env.DEEPSEEK_API_KEY,
-      GROQ_API_KEY: env.GROQ_API_KEY,
-      CLOUDFLARE_ACCOUNT_ID: env.CLOUDFLARE_ACCOUNT_ID,
-      CLOUDFLARE_API_TOKEN: env.CLOUDFLARE_API_TOKEN,
-    });
+    this.envVars = containerEnvVars(env);
   }
 }
 

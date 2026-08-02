@@ -98,16 +98,43 @@ def test_deploy_workflow_verifies_apex_api_worker_route() -> None:
 
 def test_deploy_workflow_requires_access_config_and_deployment_receipts() -> None:
     deploy_yml = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+    workflow = yaml.load(
+        deploy_yml,
+        Loader=yaml.BaseLoader,  # noqa: S506 - preserves GitHub's `on` key.
+    )
+    deploy_steps = workflow["jobs"]["deploy-cloudflare-worker"]["steps"]
+    worker_health = next(
+        step["run"]
+        for step in deploy_steps
+        if step.get("name") == "Verify Cloudflare Worker health"
+    )
 
     assert "Cloudflare Worker behavior tests" in deploy_yml
     assert "run: npm test" in deploy_yml
+    assert "VITE_API_BASE: https://api.news-sentry.com" in deploy_yml
+    assert (
+        "VITE_API_BASE: ${{ needs.ci.outputs.deployment_environment == 'preview' &&"
+        in deploy_yml
+    )
     assert "CF_ACCESS_TEAM_DOMAIN: ${{ vars.CF_ACCESS_TEAM_DOMAIN }}" in deploy_yml
     assert "CF_ACCESS_AUD: ${{ vars.CF_ACCESS_AUD }}" in deploy_yml
     assert '--var "NEWS_SENTRY_DEPLOY_COMMIT:${GITHUB_SHA}"' in deploy_yml
     assert '--var "CF_ACCESS_TEAM_DOMAIN:${CF_ACCESS_TEAM_DOMAIN}"' in deploy_yml
     assert '--var "CF_ACCESS_AUD:${CF_ACCESS_AUD}"' in deploy_yml
-    assert '"https://api.news-sentry.com/api/v1/live"' in deploy_yml
-    assert '"https://api.news-sentry.com/api/v1/ready"' in deploy_yml
+    assert '"https://news-sentry.com/api/v1/live"' in worker_health
+    assert '"https://news-sentry.com/api/v1/ready"' in worker_health
+    assert '"https://api.news-sentry.com/api/v1/live"' not in worker_health
+    assert '"https://api.news-sentry.com/api/v1/ready"' not in worker_health
+    assert 'if mode == "live":' in worker_health
+    assert (
+        'assert body.get("status") == "ok", "Worker live status is not ok"'
+        in worker_health
+    )
+    assert 'if mode == "ready":' in worker_health
+    assert (
+        'assert body.get("status") in {"ok", "degraded"}, '
+        '"Worker ready status is not ok or degraded"'
+    ) in worker_health
     assert 'headers.get("x-news-sentry-deploy-commit") == os.environ["GITHUB_SHA"]' in deploy_yml
     assert 'headers.get("x-news-sentry-worker-version")' in deploy_yml
     assert "falling back to D1 smoke check" not in deploy_yml
@@ -574,6 +601,7 @@ def test_cloudflare_scheduled_refreshes_public_read_snapshots() -> None:
 
 def test_cloudflare_scheduled_ops_are_configured() -> None:
     index_ts = _read("workers/index.ts")
+    container_env_ts = _read("workers/lib/container-env.ts")
     scheduled_ts = _read("workers/lib/scheduled.ts")
     container_import_ts = _read("workers/lib/container-import.ts")
     schema_sql = _read("db/schema.sql")
@@ -582,7 +610,10 @@ def test_cloudflare_scheduled_ops_are_configured() -> None:
 
     assert "async scheduled(" in index_ts
     assert "runScheduledCloudflareTask" in index_ts
-    assert 'NEWSSENTRY_COLLECT_STAGE: "all"' in index_ts
+    assert "containerEnvVars(env)" in index_ts
+    assert 'NEWSSENTRY_DEPLOYMENT_ENV: "cloudflare-container"' in container_env_ts
+    assert 'NEWSSENTRY_COLLECT_STAGE: "all"' in container_env_ts
+    assert 'NEWSSENTRY_FETCH_FULL_ARTICLE: "0"' in container_env_ts
     assert "collect-cycle" in scheduled_ts
     assert "public-translation-cycle" in scheduled_ts
     assert "refresh-public-quality" in scheduled_ts
@@ -607,7 +638,7 @@ def test_cloudflare_scheduled_ops_are_configured() -> None:
     assert "import_result" in scheduled_ts
     assert "result.updated" in container_import_ts
     assert "persistImportArtifact" not in container_import_ts
-    assert "COLLECT_TARGET_BATCH_SIZE = 4" in scheduled_ts
+    assert "COLLECT_TARGET_BATCH_SIZE = 1" in scheduled_ts
     assert "cursor:collect-cycle-target-index" in scheduled_ts
     assert "cloudflare_collect_enabled = 1" in scheduled_ts
     assert "CONTAINER_TASK_TIMEOUT_MS = 8 * 60_000" in scheduled_ts

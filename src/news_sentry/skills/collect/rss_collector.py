@@ -175,6 +175,19 @@ def _response_feed_payload(response: httpx.Response) -> bytes:
     return b""
 
 
+def _should_fetch_full_article(config: dict[str, Any]) -> bool:
+    """Return whether the collector may perform per-item full article fetches.
+
+    NEWSSENTRY_FETCH_FULL_ARTICLE=0 is a global production fail-safe kill switch:
+    it must win over source-level opt-ins so canary collection can stay bounded.
+    When the env var is unset, preserve the existing source/default behavior.
+    """
+    env_value = os.environ.get("NEWSSENTRY_FETCH_FULL_ARTICLE")
+    if env_value is not None and env_value.strip().lower() in {"0", "false", "no"}:
+        return False
+    return bool(config.get("fetch_full_article", True))
+
+
 class RSSCollector:
     """从 RSS/Atom feed 采集新闻事件。
 
@@ -206,10 +219,7 @@ class RSSCollector:
         self._language: Language = coerce_language(config.get("language"))
         self._timeout: float = float(config.get("timeout_seconds", 30))
         self._max_items: int = int(config.get("max_items_per_run", 50))
-        env_default = os.environ.get("NEWSSENTRY_FETCH_FULL_ARTICLE", "1").lower()
-        self._fetch_full_article: bool = bool(
-            config.get("fetch_full_article", env_default not in {"0", "false", "no"})
-        )
+        self._fetch_full_article = _should_fetch_full_article(config)
         # 注册当前源的速率限制间隔
         interval = float(config.get("fetch_interval_seconds", 5.0))
         self._rate_limiter.set_interval(self._source_id, interval)

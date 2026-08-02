@@ -30,7 +30,7 @@ type ScheduledContainerGetter = (
   name: string,
 ) => ContainerHandle | Promise<ContainerHandle>;
 
-const COLLECT_TARGET_BATCH_SIZE = 4;
+const COLLECT_TARGET_BATCH_SIZE = 1;
 const COLLECT_TARGET_CURSOR_KEY = "cursor:collect-cycle-target-index";
 const CONTAINER_TASK_TIMEOUT_MS = 8 * 60_000;
 const CONTAINER_WRITER_LOCK_NAME = "container-sqlite-writer";

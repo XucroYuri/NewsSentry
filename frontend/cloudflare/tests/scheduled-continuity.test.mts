@@ -135,6 +135,36 @@ function successfulContainerWithEvents(summary: Record<string, unknown>, importE
   return { __containerHandle: handle } as unknown as DurableObjectNamespace;
 }
 
+function capturingContainer(
+  summariesByTarget: Record<string, Record<string, unknown>>,
+  calls: string[][],
+) {
+  const handle = {
+    async fetch(request: Request) {
+      const body = await request.json() as { targetIds?: string[] };
+      const targetIds = body.targetIds ?? [];
+      calls.push(targetIds);
+      assert.equal(targetIds.length, 1);
+      const targetId = targetIds[0];
+      const summary = summariesByTarget[targetId] ?? {
+        targets_attempted: 1,
+        targets_succeeded: 1,
+        targets_failed: 0,
+        events_collected: 0,
+        import_events_count: 0,
+        target_results: [
+          { target_id: targetId, status: "empty_no_new_items", events_collected: 0, import_events_count: 0 },
+        ],
+      };
+      return new Response(
+        JSON.stringify({ status: "ok", summary, import_events: [] }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    },
+  };
+  return { __containerHandle: handle } as unknown as DurableObjectNamespace;
+}
+
 test.beforeEach(() => {
   setScheduledContainerGetterForTest((namespace) => {
     const handle = (namespace as unknown as { __containerHandle?: { fetch(request: Request): Promise<Response> } })
@@ -206,10 +236,11 @@ test("collect cycle selects only enabled targets in stable rotating batches", as
   const latest = latestCollectRun(db);
   const batch = latest.details.collect_batch;
 
-  assert.deepEqual(batch.selected_target_ids, ["france", "germany", "italy"]);
+  assert.deepEqual(batch.selected_target_ids, ["france"]);
   assert.equal(batch.enabled_target_count, 3);
   assert.equal(batch.selection_cursor_before, 0);
-  assert.equal(batch.selection_cursor_after, 0);
+  assert.equal(batch.selection_cursor_after, 1);
+  assert.equal(batch.batch_size, 1);
   assert.ok(!batch.selected_target_ids.includes("japan"));
   assert.equal(latest.status, "failed_dependency");
   assert.equal(collectCursor(db), null);
@@ -243,16 +274,13 @@ test("collect cycle advances cursor on authoritative empty no new items", async 
     controller("*/15 * * * *"),
     env(db, {
       NEWS_SENTRY_CONTAINER: successfulContainer({
-        targets_attempted: 4,
-        targets_succeeded: 4,
+        targets_attempted: 1,
+        targets_succeeded: 1,
         targets_failed: 0,
         events_collected: 0,
         import_events_count: 0,
         target_results: [
           { target_id: "france", status: "empty_no_new_items", events_collected: 0, import_events_count: 0 },
-          { target_id: "germany", status: "empty_no_new_items", events_collected: 0, import_events_count: 0 },
-          { target_id: "italy", status: "empty_no_new_items", events_collected: 0, import_events_count: 0 },
-          { target_id: "japan", status: "empty_no_new_items", events_collected: 0, import_events_count: 0 },
         ],
       }),
     }),
@@ -261,8 +289,8 @@ test("collect cycle advances cursor on authoritative empty no new items", async 
 
   assert.equal(latest.status, "empty_no_new_items");
   assert.equal(latest.details.collect_batch.selection_cursor_before, 0);
-  assert.equal(latest.details.collect_batch.selection_cursor_after, 4);
-  assert.equal(collectCursor(db), "4");
+  assert.equal(latest.details.collect_batch.selection_cursor_after, 1);
+  assert.equal(collectCursor(db), "1");
 });
 
 test("collect cycle advances cursor on authoritative ok result", async () => {
@@ -280,16 +308,13 @@ test("collect cycle advances cursor on authoritative ok result", async () => {
     env(db, {
       NEWS_SENTRY_CONTAINER: successfulContainerWithEvents(
         {
-          targets_attempted: 4,
-          targets_succeeded: 4,
+          targets_attempted: 1,
+          targets_succeeded: 1,
           targets_failed: 0,
           events_collected: 1,
           import_events_count: 1,
           target_results: [
             { target_id: "france", status: "ok", events_collected: 1, import_events_count: 1 },
-            { target_id: "germany", status: "empty_no_new_items", events_collected: 0, import_events_count: 0 },
-            { target_id: "italy", status: "empty_no_new_items", events_collected: 0, import_events_count: 0 },
-            { target_id: "japan", status: "empty_no_new_items", events_collected: 0, import_events_count: 0 },
           ],
         },
         [event()],
@@ -302,9 +327,33 @@ test("collect cycle advances cursor on authoritative ok result", async () => {
   assert.equal(latest.status, "ok");
   assert.deepEqual(latest.details.collect_batch.selected_target_ids, [
     "france",
-    "germany",
-    "italy",
-    "japan",
   ]);
-  assert.equal(collectCursor(db), "4");
+  assert.equal(collectCursor(db), "1");
+});
+
+test("collect cycle rotates one canary target per successful scheduled run", async () => {
+  const db = new SqliteD1Database();
+  seedTargets(db, [
+    enabled("france"),
+    enabled("germany"),
+    enabled("italy"),
+    enabled("japan"),
+  ]);
+  const calls: string[][] = [];
+
+  await runScheduledCloudflareTask(
+    controller("*/15 * * * *"),
+    env(db, {
+      NEWS_SENTRY_CONTAINER: capturingContainer({}, calls),
+    }),
+  );
+  await runScheduledCloudflareTask(
+    controller("*/15 * * * *"),
+    env(db, {
+      NEWS_SENTRY_CONTAINER: capturingContainer({}, calls),
+    }),
+  );
+
+  assert.deepEqual(calls, [["france"], ["germany"]]);
+  assert.equal(collectCursor(db), "2");
 });

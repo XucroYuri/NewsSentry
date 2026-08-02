@@ -19,7 +19,11 @@ import httpx
 from news_sentry.core.ratelimit import RateLimiter
 from news_sentry.models.newsevent import Language, NewsEvent, PipelineStage
 from news_sentry.skills.collect.language_utils import coerce_language
-from news_sentry.skills.collect.rss_collector import _compact_article_text, _extract_article_payload
+from news_sentry.skills.collect.rss_collector import (
+    _compact_article_text,
+    _extract_article_payload,
+    _should_fetch_full_article,
+)
 
 
 def _raise_on_redirect(resp: httpx.Response, source_id: str) -> None:
@@ -89,10 +93,7 @@ class APICollector:
         self._language: Language = coerce_language(config.get("language"))
         self._timeout: float = float(config.get("timeout_seconds", 30))
         self._max_items: int = int(config.get("max_items_per_run", 50))
-        env_default = os.environ.get("NEWSSENTRY_FETCH_FULL_ARTICLE", "1").lower()
-        self._fetch_full_article: bool = bool(
-            config.get("fetch_full_article", env_default not in {"0", "false", "no"})
-        )
+        self._fetch_full_article = _should_fetch_full_article(config)
         # 可选：JSON 响应到 NewsEvent 的字段映射
         self._mapping: dict[str, str] = config.get("api_mapping", {}) or {}
         # Phase 12: 支持 endpoint 配置对象（优先）或 url 字段
