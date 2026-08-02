@@ -57,33 +57,34 @@ jobs:
 
       - name: Resolve Source Health SLO metadata
         id: slo-metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          echo "Resolve deployed commit from guard receipt and deployment metadata"
-          python - <<'PY' > /tmp/news-sentry-source-health-deployment.json
-          import json
-          import re
-          import sys
-          import urllib.request
-
-          request = urllib.request.Request(
-              "https://news-sentry.com/api/v1/live",
-              headers={"User-Agent": "NewsSentrySourceHealthSLO/1.0"},
-          )
-          with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
-              payload = json.loads(response.read().decode("utf-8"))
-          if not isinstance(payload, dict) or payload.get("status") != "ok":
-              print("Deployment metadata live status is not ok.", file=sys.stderr)
-              raise SystemExit(1)
-          deployment = payload.get("deployment") if isinstance(payload, dict) else {}
-          if not isinstance(deployment, dict):
-              deployment = {}
-          deployed_commit = deployment.get("commit")
-          if not isinstance(deployed_commit, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", deployed_commit):
-              print("Deployment metadata did not expose a full deployed commit.", file=sys.stderr)
-              raise SystemExit(1)
-          print(json.dumps({"environment": "production", "deployed_commit": deployed_commit}))
-          PY
+          echo "Resolve deployed commit from the latest successful main production receipt"
+          receipt_dir="/tmp/news-sentry-production-deploy-receipt"
+          mkdir -p "${receipt_dir}"
+          found="false"
+          while IFS=$'\t' read -r run_id head_sha; do
+            artifact_name="cloudflare-production-deploy-receipt-${head_sha}"
+            if ! gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts" \
+              | jq -e --arg name "${artifact_name}" '.artifacts[]? | select(.name == $name and .expired == false)' \
+              >/dev/null; then
+              continue
+            fi
+            gh run download "${run_id}" --name "${artifact_name}" --dir "${receipt_dir}"
+            python tools/deploy_receipt_metadata.py \
+              --receipt "${receipt_dir}/news-sentry-cloudflare-deploy-receipt.json" \
+              --expected-commit "${head_sha}" \
+              --output /tmp/news-sentry-source-health-deployment.json
+            found="true"
+            break
+          done < <(gh run list --workflow deploy.yml --branch main --status success --limit 20 \
+            --json databaseId,headSha --jq '.[] | [.databaseId, .headSha] | @tsv')
+          if [[ "${found}" != "true" ]]; then
+            echo "No validated successful main production deploy receipt found." >&2
+            exit 1
+          fi
           SLO_ENVIRONMENT="$(python -c 'import json;print(json.load(open("/tmp/news-sentry-source-health-deployment.json"))["environment"])')"
           SLO_DEPLOYED_COMMIT="$(python -c 'import json;print(json.load(open("/tmp/news-sentry-source-health-deployment.json"))["deployed_commit"])')"
           printf '%s=%s\n' "environment" "${SLO_ENVIRONMENT}" >> "${GITHUB_OUTPUT}"

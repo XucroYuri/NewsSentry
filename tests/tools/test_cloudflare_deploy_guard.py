@@ -1566,11 +1566,19 @@ def test_build_deploy_receipt_requires_matching_commit_version_and_health_mode()
     receipt = build_deploy_receipt(
         **_valid_deploy_receipt_kwargs(
             expected_commit="abc123",
-            version_json={"id": "version-1", "metadata": {"source": "unit"}},
+            version_json={
+                "id": "version-1",
+                "metadata": {"source": "unit"},
+                "annotations": {
+                    "workers/tag": "abc123",
+                    "workers/message": "NewsSentry production abc123",
+                },
+            },
             deployment_json={
                 "id": "deployment-1",
                 "version_id": "version-1",
                 "status": "active",
+                "created_on": "2026-08-02T09:59:00Z",
             },
             health_json={
                 "status": "ok",
@@ -1589,6 +1597,7 @@ def test_build_deploy_receipt_requires_matching_commit_version_and_health_mode()
             continuity_json={
                 "status": "ok",
                 "deployed_commit": "abc123",
+                "worker_version": "version-1",
                 "latest_collect": {
                     "status": "ok",
                     "run_id": "collect-1",
@@ -1606,16 +1615,27 @@ def test_build_deploy_receipt_requires_matching_commit_version_and_health_mode()
 
 
 def _valid_deploy_receipt_kwargs(**overrides: Any) -> dict[str, Any]:
+    commit = "a" * 40
     values: dict[str, Any] = {
-        "expected_commit": "a" * 40,
+        "expected_commit": commit,
         "expected_scheduler_mode": "shadow",
-        "version_json": {"id": "version-1"},
-        "deployment_json": {"id": "deployment-1", "version_id": "version-1"},
+        "version_json": {
+            "id": "version-1",
+            "annotations": {
+                "workers/tag": commit,
+                "workers/message": f"NewsSentry production {commit}",
+            },
+        },
+        "deployment_json": {
+            "id": "deployment-1",
+            "version_id": "version-1",
+            "created_on": "2026-08-02T09:59:00Z",
+        },
         "health_json": {
             "status": "ok",
             "generated_at": "2026-08-02T10:00:00Z",
             "deployment": {
-                "commit": "a" * 40,
+                "commit": commit,
                 "worker_version": "version-1",
                 "scheduler_mode": "shadow",
                 "worker_native_collect_enabled": False,
@@ -1629,7 +1649,8 @@ def _valid_deploy_receipt_kwargs(**overrides: Any) -> dict[str, Any]:
         "queue_receipt": {"status": "ok"},
         "continuity_json": {
             "status": "ok",
-            "deployed_commit": "a" * 40,
+            "deployed_commit": commit,
+            "worker_version": "version-1",
             "latest_collect": {
                 "status": "ok",
                 "run_id": "collect-1",
@@ -1648,8 +1669,8 @@ def test_deploy_guard_rejects_non_authoritative_collect_status(status: str) -> N
         build_deploy_receipt(
             **_valid_deploy_receipt_kwargs(
                 continuity_json={
+                    **_valid_deploy_receipt_kwargs()["continuity_json"],
                     "status": "failed",
-                    "deployed_commit": "a" * 40,
                     "latest_collect": {"status": status},
                 },
             )
@@ -1661,6 +1682,13 @@ def test_deploy_guard_binds_continuity_to_exact_commit() -> None:
         build_deploy_receipt(
             **_valid_deploy_receipt_kwargs(
                 expected_commit="b" * 40,
+                version_json={
+                    "id": "version-1",
+                    "annotations": {
+                        "workers/tag": "b" * 40,
+                        "workers/message": f"NewsSentry production {'b' * 40}",
+                    },
+                },
                 health_json={
                     "status": "ok",
                     "generated_at": "2026-08-02T10:00:00Z",
@@ -1678,14 +1706,26 @@ def test_deploy_guard_binds_continuity_to_exact_commit() -> None:
         )
 
 
+def test_deploy_guard_binds_continuity_to_exact_worker_version() -> None:
+    with pytest.raises(ReceiptError, match="continuity worker version mismatch"):
+        build_deploy_receipt(
+            **_valid_deploy_receipt_kwargs(
+                continuity_json={
+                    **_valid_deploy_receipt_kwargs()["continuity_json"],
+                    "worker_version": "version-old",
+                },
+            )
+        )
+
+
 def test_deploy_guard_reports_structured_continuity_reason_codes() -> None:
     with pytest.raises(ReceiptError, match="collect_continuity_json_invalid"):
         build_deploy_receipt(
             **_valid_deploy_receipt_kwargs(
                 continuity_json={
+                    **_valid_deploy_receipt_kwargs()["continuity_json"],
                     "status": "failed",
                     "reason_codes": ["collect_continuity_json_invalid"],
-                    "deployed_commit": "a" * 40,
                     "latest_collect": {
                         "status": "failed",
                         "run_id": None,
@@ -1704,6 +1744,82 @@ def test_deploy_guard_rejects_unhealthy_health_status() -> None:
                 health_json={
                     **_valid_deploy_receipt_kwargs()["health_json"],
                     "status": "unhealthy",
+                },
+            )
+        )
+
+
+def test_deploy_guard_rejects_missing_exact_commit_annotation() -> None:
+    with pytest.raises(ReceiptError, match="worker version commit annotation mismatch"):
+        build_deploy_receipt(
+            **_valid_deploy_receipt_kwargs(
+                version_json={
+                    "id": "version-1",
+                    "annotations": {
+                        "workers/tag": "not-the-expected-commit",
+                        "workers/message": "NewsSentry production without exact sha",
+                    },
+                },
+            )
+        )
+
+
+def test_deploy_guard_rejects_non_100_percent_deployment_rollout() -> None:
+    with pytest.raises(ReceiptError, match="deployment rollout is not 100 percent"):
+        build_deploy_receipt(
+            **_valid_deploy_receipt_kwargs(
+                deployment_json={
+                    "id": "deployment-1",
+                    "created_on": "2026-08-02T09:59:00Z",
+                    "versions": [
+                        {"version_id": "version-1", "percentage": 50},
+                        {"version_id": "version-old", "percentage": 50},
+                    ],
+                },
+            )
+        )
+
+
+def test_deploy_guard_accepts_challenged_public_probe_with_control_plane_evidence() -> None:
+    receipt = build_deploy_receipt(
+        **_valid_deploy_receipt_kwargs(
+            health_json={
+                "status": "probe_challenged",
+                "generated_at": "2026-08-02T10:00:00Z",
+                "public_probe": {
+                    "status": "challenged",
+                    "http_status": 403,
+                    "evidence_source": "github-runner-public-probe",
+                },
+            },
+            deployment_json={
+                "id": "deployment-1",
+                "created_on": "2026-08-02T09:59:00Z",
+                "versions": [{"version_id": "version-1", "percentage": 100}],
+            },
+        )
+    )
+
+    assert receipt["status"] == "ok"
+    assert receipt["health_status"] == "probe_challenged"
+    assert receipt["evidence_source"] == "cloudflare-control-plane+d1-continuity"
+    assert receipt["environment"] == "production"
+    assert receipt["deployed_at"] == "2026-08-02T09:59:00Z"
+    assert receipt["public_probe"]["status"] == "challenged"
+
+
+def test_deploy_guard_rejects_non_challenge_public_probe_fallback() -> None:
+    with pytest.raises(ReceiptError, match="health deployment receipt missing"):
+        build_deploy_receipt(
+            **_valid_deploy_receipt_kwargs(
+                health_json={
+                    "status": "probe_failed",
+                    "generated_at": "2026-08-02T10:00:00Z",
+                    "public_probe": {
+                        "status": "failed",
+                        "http_status": 503,
+                        "evidence_source": "github-runner-public-probe",
+                    },
                 },
             )
         )
@@ -1763,8 +1879,16 @@ def test_build_deploy_receipt_accepts_weighted_deployment_versions() -> None:
     receipt = build_deploy_receipt(
         **_valid_deploy_receipt_kwargs(
             expected_commit="abc123",
+            version_json={
+                "id": "version-1",
+                "annotations": {
+                    "workers/tag": "abc123",
+                    "workers/message": "NewsSentry production abc123",
+                },
+            },
             deployment_json={
                 "id": "deployment-1",
+                "created_on": "2026-08-02T09:59:00Z",
                 "versions": [{"version_id": "version-1", "percentage": 100}],
             },
             health_json={
@@ -1781,10 +1905,11 @@ def test_build_deploy_receipt_accepts_weighted_deployment_versions() -> None:
                 "collection": {"authoritative": False},
                 "queue": {"configured": True, "dlq": {"configured": True}},
             },
-            continuity_json={
-                "status": "ok",
-                "deployed_commit": "abc123",
-                "latest_collect": {
+                continuity_json={
+                    "status": "ok",
+                    "deployed_commit": "abc123",
+                    "worker_version": "version-1",
+                    "latest_collect": {
                     "status": "ok",
                     "run_id": "collect-1",
                     "updated_at": "2026-08-02T09:15:00Z",

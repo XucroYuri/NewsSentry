@@ -9,6 +9,7 @@ import { importContainerEventsToD1 } from "./container-import.ts";
 interface ScheduledEnv extends ShadowQueueEnv, RuntimeConfigEnv {
   DB: D1Database;
   NEWS_SENTRY_CONTAINER?: DurableObjectNamespace;
+  NEWS_SENTRY_ARTIFACTS?: R2Bucket;
 }
 
 type ScheduledTask =
@@ -29,12 +30,16 @@ type ScheduledContainerGetter = (
   namespace: DurableObjectNamespace,
   name: string,
 ) => ContainerHandle | Promise<ContainerHandle>;
+type ScheduledContainerRetryDelay = (attempt: number) => Promise<void>;
 
 const COLLECT_TARGET_BATCH_SIZE = 1;
 const COLLECT_TARGET_CURSOR_KEY = "cursor:collect-cycle-target-index";
 const CONTAINER_TASK_TIMEOUT_MS = 8 * 60_000;
+const CONTAINER_STARTUP_MAX_ATTEMPTS = 5;
+const CONTAINER_STARTUP_RETRY_DELAYS_MS = [5_000, 15_000, 30_000, 45_000] as const;
 const CONTAINER_WRITER_LOCK_NAME = "container-sqlite-writer";
 let scheduledContainerGetterForTest: ScheduledContainerGetter | null = null;
+let scheduledContainerRetryDelayForTest: ScheduledContainerRetryDelay | null = null;
 
 interface CollectTargetBatch {
   targetIds: string[];
@@ -278,9 +283,16 @@ function taskRuntimeDetails(task: ScheduledTask): Record<string, unknown> {
 function runtimeTaskDetails(env: ScheduledEnv): Record<string, unknown> {
   const config = parseRuntimeConfig(env);
   return {
+    environment: env.NEWS_SENTRY_ENVIRONMENT ?? null,
+    deploy_commit: env.NEWS_SENTRY_DEPLOY_COMMIT ?? null,
+    worker_version: env.CF_VERSION_METADATA?.id ?? null,
     scheduler_mode: config.schedulerMode,
     worker_native_collect_enabled: config.workerNativeCollectEnabled,
     collection_authoritative: config.collectionAuthoritative,
+    container_configured: Boolean(env.NEWS_SENTRY_CONTAINER),
+    queue_configured: Boolean(env.NEWS_SENTRY_JOBS_QUEUE),
+    dlq_configured: Boolean(env.NEWS_SENTRY_JOBS_DLQ),
+    artifacts_configured: Boolean(env.NEWS_SENTRY_ARTIFACTS),
   };
 }
 
@@ -414,7 +426,12 @@ function markRetryableContainerDetails(details: Record<string, unknown>): Record
 }
 
 async function waitForContainerRetryDelay(attempt: number): Promise<void> {
-  const delayMs = attempt <= 1 ? 5_000 : 15_000;
+  if (scheduledContainerRetryDelayForTest) {
+    await scheduledContainerRetryDelayForTest(attempt);
+    return;
+  }
+  const delayMs = CONTAINER_STARTUP_RETRY_DELAYS_MS[attempt - 1];
+  if (delayMs === undefined) return;
   await new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
@@ -446,6 +463,12 @@ export function setScheduledContainerGetterForTest(
   scheduledContainerGetterForTest = getter;
 }
 
+export function setScheduledContainerRetryDelayForTest(
+  delay: ScheduledContainerRetryDelay | null,
+): void {
+  scheduledContainerRetryDelayForTest = delay;
+}
+
 async function getContainerHandle(
   namespace: DurableObjectNamespace,
   name: string,
@@ -472,7 +495,7 @@ async function callContainerInternalTask(
   );
   let lastError: unknown = null;
   try {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; attempt < CONTAINER_STARTUP_MAX_ATTEMPTS; attempt += 1) {
       if (attempt > 0) {
         await waitForContainerRetryDelay(attempt);
       }
@@ -488,7 +511,7 @@ async function callContainerInternalTask(
         if (
           Number(details.http_status || 0) >= 400 &&
           isContainerStartupDetails(details) &&
-          attempt < 2
+          attempt < CONTAINER_STARTUP_MAX_ATTEMPTS - 1
         ) {
           lastError = details;
           continue;
@@ -496,7 +519,12 @@ async function callContainerInternalTask(
         return markRetryableContainerDetails(details);
       } catch (error) {
         lastError = error;
-        if (!isContainerNotRunningError(error) || attempt === 2) throw error;
+        if (
+          !isContainerNotRunningError(error) ||
+          attempt === CONTAINER_STARTUP_MAX_ATTEMPTS - 1
+        ) {
+          throw error;
+        }
       }
     }
     throw lastError;

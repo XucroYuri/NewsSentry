@@ -23,9 +23,11 @@ def test_runtime_health_workflow_schedules_low_cost_production_receipts() -> Non
     assert workflow["concurrency"]["cancel-in-progress"] == "false"
 
     job = workflow["jobs"]["runtime-health"]
-    assert job["timeout-minutes"] == "5"
+    assert job["timeout-minutes"] == "10"
+    assert job["environment"] == "${{ github.event.inputs.environment || 'production' }}"
     steps = {step["name"]: step for step in job["steps"] if "name" in step}
-    probe = steps["Probe split Cloudflare runtime"]
+    probe = steps["Probe preview split Cloudflare runtime"]
+    assert probe["if"] == "steps.target.outputs.environment == 'preview'"
     assert "python tools/cloudflare_runtime_probe.py" in probe["run"]
     assert '--expected-commit "${EXPECTED_COMMIT}"' in probe["run"]
     assert '--output /tmp/news-sentry-cloudflare-runtime-receipt.json' in probe["run"]
@@ -64,18 +66,26 @@ def test_runtime_health_workflow_defaults_schedules_to_production_and_fails_clos
     )
     assert 'probe_api_base_url="${INPUT_PROBE_API_BASE_URL:-${api_base_url}}"' in resolve
     assert 'printf \'%s=%s\\n\' "probe_api_base_url" "${probe_api_base_url}"' in resolve
-    assert "Resolve deployed commit from guard receipt and deployment metadata" in resolve
+    assert (
+        "Resolve production deployment from the latest validated successful main receipt"
+        in resolve
+    )
+    assert "gh run list --workflow deploy.yml --branch main --status success" in resolve
+    assert 'artifact_name="cloudflare-production-deploy-receipt-${head_sha}"' in resolve
+    assert "tools/deploy_receipt_metadata.py" in resolve
+    assert "No validated successful main production deploy receipt found." in resolve
+    assert "Resolve preview deployment from isolated Worker metadata" in resolve
     assert 'f"{api_base_url}/api/v1/live"' in resolve
     assert 'f"{api_base_url}/api/v1/ready"' not in resolve
     assert 'payload.get("status") != "ok"' in resolve
-    assert "Deployment metadata live status is not ok." in resolve
+    assert "Preview deployment metadata live status is not ok." in resolve
     assert "re.fullmatch(r\"[0-9a-fA-F]{40}\"" in resolve
     assert 'expected_commit="${DEPLOYED_COMMIT}"' in resolve
     assert 'expected_commit="${GITHUB_SHA}"' not in resolve
     assert 'deployed_at="$(date -u' not in resolve
     assert "Production expected_commit is required" not in resolve
     assert 'Preview public_base_url is required.' in resolve
-    assert "Deployment metadata expected_commit mismatch." in resolve
+    assert "Preview deployment metadata expected_commit mismatch." in resolve
     assert "reject_multiline" in resolve
     assert "Invalid expected_commit: expected a 40-character Git commit SHA." in resolve
     assert "printf '%s=%s\\n'" in resolve
@@ -96,12 +106,29 @@ def test_runtime_health_workflow_defaults_schedules_to_production_and_fails_clos
     assert "--source-health-current /tmp/news-sentry-source-health-slo.json" in continuity
     assert "--source-health-start /tmp/news-sentry-source-health-slo-start.json" in continuity
     assert "--source-health-end /tmp/news-sentry-source-health-slo-end.json" in continuity
-    probe = steps["Probe split Cloudflare runtime"]["run"]
-    probe_env = steps["Probe split Cloudflare runtime"]["env"]
+    probe = steps["Probe preview split Cloudflare runtime"]["run"]
+    probe_env = steps["Probe preview split Cloudflare runtime"]["env"]
     assert probe_env["API_BASE_URL"] == "${{ steps.target.outputs.api_base_url }}"
     assert probe_env["PROBE_API_BASE_URL"] == "${{ steps.target.outputs.probe_api_base_url }}"
     assert '--api-base-url "${API_BASE_URL}"' in probe
     assert '--probe-api-base-url "${PROBE_API_BASE_URL}"' in probe
+
+    production_probe = steps["Probe production Cloudflare control plane and D1"]
+    assert production_probe["if"] == "steps.target.outputs.environment == 'production'"
+    production_script = production_probe["run"]
+    assert "node_modules/.bin/wrangler d1 execute ns-db --remote" in production_script
+    assert "WHERE key='last:collect-cycle'" in production_script
+    assert "future_timestamp_count" in production_script
+    assert "p0_dead_lettered" in production_script
+    assert "tools/cloudflare_control_plane_runtime_probe.py" in production_script
+    assert "--deployment-metadata /tmp/news-sentry-current-deployment.json" in production_script
+    assert "node_modules/.bin/wrangler versions list --json" in production_script
+    assert "node_modules/.bin/wrangler deployments list --json" in production_script
+    assert "--versions-json /tmp/news-sentry-runtime-worker-versions.json" in production_script
+    assert (
+        "--deployments-json /tmp/news-sentry-runtime-worker-deployments.json"
+        in production_script
+    )
 
     continuity_artifact = steps["Upload continuity ledger receipt"]
     expected_artifact_name = (

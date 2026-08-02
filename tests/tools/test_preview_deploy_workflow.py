@@ -122,6 +122,11 @@ def test_deploy_workflow_uses_fail_closed_cloudflare_preflight_and_receipts() ->
     assert "node_modules/.bin/wrangler queues list --json" not in workflow
     assert "--var \"SCHEDULER_MODE:shadow\"" in workflow
     assert "--var \"WORKER_NATIVE_COLLECT_ENABLED:false\"" in workflow
+    assert '--tag "${GITHUB_SHA}"' in workflow
+    assert '--message "NewsSentry production ${GITHUB_SHA}"' in workflow
+    assert "cloudflare-production-deploy-receipt-${{ github.sha }}" in workflow
+    assert "path: /tmp/news-sentry-cloudflare-deploy-receipt.json" in workflow
+    assert "actions/upload-artifact@v4" in workflow
 
 
 def test_deploy_workflow_names_wrangler_type_generation_honestly() -> None:
@@ -141,6 +146,60 @@ def test_deploy_workflow_structures_malformed_collect_continuity_reason() -> Non
     assert "collect_continuity_json_invalid" in script
     assert '"reason_codes": continuity_reason_codes' in script
     assert '"raw_value_present": raw_value_present' in script
+    assert 'details.get("deploy_commit")' in script
+    assert 'details.get("worker_version")' in script
+    assert "Waiting for exact-version scheduled collection continuity" in script
+
+
+def test_deploy_workflow_records_cloudflare_challenge_fallback_observation() -> None:
+    verify_script = str(_step("deploy-cloudflare-worker", "Verify Cloudflare Worker health")["run"])
+    receipt_script = str(
+        _step("deploy-cloudflare-worker", "Collect Cloudflare Worker deployment receipt")[
+            "run"
+        ]
+    )
+
+    assert "is_cloudflare_challenge" in verify_script
+    assert "cf-mitigated" in verify_script
+    assert "Just a moment" in verify_script
+    assert "public_probe_challenged" in verify_script
+    assert "/tmp/worker-public-probe-observation.json" in verify_script  # noqa: S108
+    assert "--health-json /tmp/worker-ready.json" in receipt_script
+
+
+def test_production_verification_uses_exact_control_plane_receipt_on_runner_challenge() -> None:
+    names = _step_names("verify-production")
+    public_script = str(
+        _step("verify-production", "Verify production public endpoints")["run"]
+    )
+    quality_script = str(
+        _step("verify-production", "Live quality gate with HEAD probe")["run"]
+    )
+    audit_script = str(_step("verify-production", "Audit deployed surface")["run"])
+
+    assert "Download exact production deploy receipt" in names
+    assert "Verify production control plane and D1 runtime" in names
+    control_plane_script = str(
+        _step("verify-production", "Verify production control plane and D1 runtime")[
+            "run"
+        ]
+    )
+    assert "tools/deploy_receipt_metadata.py" in control_plane_script
+    assert "tools/cloudflare_control_plane_runtime_probe.py" in control_plane_script
+    assert "wrangler d1 execute ns-db --remote" in control_plane_script
+    assert "wrangler versions list --json" in control_plane_script
+    assert "wrangler deployments list --json" in control_plane_script
+    assert "--versions-json /tmp/news-sentry-runtime-worker-versions.json" in control_plane_script
+    assert (
+        "--deployments-json /tmp/news-sentry-runtime-worker-deployments.json"
+        in control_plane_script
+    )
+    assert "is_cloudflare_challenge" in public_script
+    assert "cf-mitigated" in public_script
+    assert "Just a moment" in public_script
+    assert "PUBLIC_API_PROBE_MODE=challenged" in public_script
+    assert "news-sentry-cloudflare-runtime-receipt.json" in quality_script
+    assert "cloudflare_state_only_after_explicit_runner_challenge" in audit_script
 
 
 def test_cloudflare_data_sync_is_bounded_to_four_canary_targets() -> None:

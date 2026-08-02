@@ -50,7 +50,8 @@ jobs:
   runtime-health:
     name: Cloudflare runtime health
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
+    environment: ${{ github.event.inputs.environment || 'production' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -63,6 +64,7 @@ jobs:
         id: target
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           INPUT_ENVIRONMENT: ${{ github.event.inputs.environment || '' }}
           INPUT_PUBLIC_BASE_URL: ${{ github.event.inputs.public_base_url || '' }}
           INPUT_API_BASE_URL: ${{ github.event.inputs.api_base_url || '' }}
@@ -114,8 +116,37 @@ jobs:
           reject_multiline "probe_api_base_url" "${probe_api_base_url}"
           reject_multiline "input_expected_commit" "${INPUT_EXPECTED_COMMIT}"
           reject_multiline "max_data_age_hours" "${max_data_age_hours}"
-          echo "Resolve deployed commit from guard receipt and deployment metadata"
-          PROBE_API_BASE_URL="${probe_api_base_url}" INPUT_EXPECTED_COMMIT="${INPUT_EXPECTED_COMMIT}" python - <<'PY' > /tmp/news-sentry-current-deployment.json
+          if [[ "${environment}" == "production" ]]; then
+            echo "Resolve production deployment from the latest validated successful main receipt"
+            receipt_dir="/tmp/news-sentry-production-deploy-receipt"
+            mkdir -p "${receipt_dir}"
+            found="false"
+            while IFS=$'\t' read -r run_id head_sha; do
+              if [[ -n "${INPUT_EXPECTED_COMMIT}" && "${head_sha,,}" != "${INPUT_EXPECTED_COMMIT,,}" ]]; then
+                continue
+              fi
+              artifact_name="cloudflare-production-deploy-receipt-${head_sha}"
+              if ! gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts" \
+                | jq -e --arg name "${artifact_name}" '.artifacts[]? | select(.name == $name and .expired == false)' \
+                >/dev/null; then
+                continue
+              fi
+              gh run download "${run_id}" --name "${artifact_name}" --dir "${receipt_dir}"
+              python tools/deploy_receipt_metadata.py \
+                --receipt "${receipt_dir}/news-sentry-cloudflare-deploy-receipt.json" \
+                --expected-commit "${head_sha}" \
+                --output /tmp/news-sentry-current-deployment.json
+              found="true"
+              break
+            done < <(gh run list --workflow deploy.yml --branch main --status success --limit 20 \
+              --json databaseId,headSha --jq '.[] | [.databaseId, .headSha] | @tsv')
+            if [[ "${found}" != "true" ]]; then
+              echo "No validated successful main production deploy receipt found." >&2
+              exit 1
+            fi
+          else
+            echo "Resolve preview deployment from isolated Worker metadata"
+            PROBE_API_BASE_URL="${probe_api_base_url}" INPUT_EXPECTED_COMMIT="${INPUT_EXPECTED_COMMIT}" python - <<'PY' > /tmp/news-sentry-current-deployment.json
           import json
           import os
           import re
@@ -130,7 +161,7 @@ jobs:
           with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
               payload = json.loads(response.read().decode("utf-8"))
           if not isinstance(payload, dict) or payload.get("status") != "ok":
-              print("Deployment metadata live status is not ok.", file=sys.stderr)
+              print("Preview deployment metadata live status is not ok.", file=sys.stderr)
               raise SystemExit(1)
           deployment = payload.get("deployment") if isinstance(payload, dict) else {}
           if not isinstance(deployment, dict):
@@ -139,16 +170,17 @@ jobs:
           deployed_at = deployment.get("deployed_at") or deployment.get("created_at")
           input_expected_commit = os.environ.get("INPUT_EXPECTED_COMMIT") or ""
           if not isinstance(deployed_commit, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", deployed_commit):
-              print("Deployment metadata did not expose a full deployed commit.", file=sys.stderr)
+              print("Preview deployment metadata did not expose a full deployed commit.", file=sys.stderr)
               raise SystemExit(1)
           if input_expected_commit and input_expected_commit.lower() != deployed_commit.lower():
-              print("Deployment metadata expected_commit mismatch.", file=sys.stderr)
+              print("Preview deployment metadata expected_commit mismatch.", file=sys.stderr)
               raise SystemExit(1)
           if not isinstance(deployed_at, str) or not deployed_at:
-              print("Deployment metadata did not expose deployed_at.", file=sys.stderr)
+              print("Preview deployment metadata did not expose deployed_at.", file=sys.stderr)
               raise SystemExit(1)
           print(json.dumps({"deployed_commit": deployed_commit, "deployed_at": deployed_at}))
           PY
+          fi
           DEPLOYED_COMMIT="$(python -c 'import json;print(json.load(open("/tmp/news-sentry-current-deployment.json"))["deployed_commit"])')"
           deployed_at="$(python -c 'import json;print(json.load(open("/tmp/news-sentry-current-deployment.json"))["deployed_at"])')"
           expected_commit="${DEPLOYED_COMMIT}"
@@ -165,7 +197,8 @@ jobs:
           printf '%s=%s\n' "deployed_at" "${deployed_at}" >> "${GITHUB_OUTPUT}"
           printf '%s=%s\n' "max_data_age_hours" "${max_data_age_hours}" >> "${GITHUB_OUTPUT}"
 
-      - name: Probe split Cloudflare runtime
+      - name: Probe preview split Cloudflare runtime
+        if: steps.target.outputs.environment == 'preview'
         env:
           ENVIRONMENT: ${{ steps.target.outputs.environment }}
           PUBLIC_BASE_URL: ${{ steps.target.outputs.public_base_url }}
@@ -184,6 +217,65 @@ jobs:
             --max-data-age-hours "${MAX_DATA_AGE_HOURS}" \
             --max-future-skew-minutes 5 \
             --timeout-seconds 30 \
+            --run-id "${GITHUB_RUN_ID}" \
+            --output /tmp/news-sentry-cloudflare-runtime-receipt.json
+
+      - name: Set up Node for production control-plane probe
+        if: steps.target.outputs.environment == 'production'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/cloudflare/package-lock.json
+
+      - name: Install Cloudflare Worker dependencies for production probe
+        if: steps.target.outputs.environment == 'production'
+        working-directory: frontend/cloudflare
+        run: npm ci
+
+      - name: Probe production Cloudflare control plane and D1
+        if: steps.target.outputs.environment == 'production'
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MAX_DATA_AGE_HOURS: ${{ steps.target.outputs.max_data_age_hours }}
+        run: |
+          set -euo pipefail
+          node_modules/.bin/wrangler versions list --json \
+            > /tmp/news-sentry-runtime-worker-versions.json
+          node_modules/.bin/wrangler deployments list --json \
+            > /tmp/news-sentry-runtime-worker-deployments.json
+          runtime_sql="SELECT
+            (SELECT value FROM ops_state WHERE key='last:collect-cycle') AS collect_value,
+            (SELECT updated_at FROM ops_state WHERE key='last:collect-cycle') AS collect_updated_at,
+            (SELECT COUNT(*) FROM events) AS total_events,
+            (SELECT MAX(collected_at) FROM events
+              WHERE collected_at IS NOT NULL
+                AND datetime(collected_at) <= datetime('now', '+5 minutes')) AS latest_valid_collected_at,
+            (SELECT COUNT(*) FROM events
+              WHERE (collected_at IS NOT NULL AND datetime(collected_at) > datetime('now', '+5 minutes'))
+                 OR (published_at IS NOT NULL AND datetime(published_at) > datetime('now', '+24 hours')))
+              AS future_timestamp_count,
+            (SELECT COUNT(*) FROM public_read_snapshots) AS snapshot_total,
+            (SELECT MAX(generated_at) FROM public_read_snapshots) AS latest_snapshot_generated_at,
+            (SELECT MAX(source_latest_public_at) FROM public_read_snapshots) AS latest_source_public_at,
+            (SELECT COUNT(*) FROM jobs
+              LEFT JOIN source_runtime_state AS runtime
+                ON runtime.target_id = jobs.target_id AND runtime.source_id = jobs.source_id
+              WHERE jobs.status='dead_lettered' AND COALESCE(runtime.tier, 'P2')='P0')
+              AS p0_dead_lettered"
+          node_modules/.bin/wrangler d1 execute ns-db --remote \
+            --command "${runtime_sql}" --json > /tmp/news-sentry-runtime-d1.json
+          cd ../..
+          python tools/cloudflare_control_plane_runtime_probe.py \
+            --deployment-metadata /tmp/news-sentry-current-deployment.json \
+            --versions-json /tmp/news-sentry-runtime-worker-versions.json \
+            --deployments-json /tmp/news-sentry-runtime-worker-deployments.json \
+            --d1-json /tmp/news-sentry-runtime-d1.json \
+            --max-data-age-hours "${MAX_DATA_AGE_HOURS}" \
+            --max-future-skew-minutes 5 \
             --run-id "${GITHUB_RUN_ID}" \
             --output /tmp/news-sentry-cloudflare-runtime-receipt.json
 

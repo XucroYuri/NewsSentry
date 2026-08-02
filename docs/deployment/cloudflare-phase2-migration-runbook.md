@@ -81,7 +81,26 @@ append-only migration。它只新增 projection-only finalize 所需的 D1 对�
 - 即使 `NEWS_SENTRY_QUEUE_CUTOVER_RECEIPT` 其余字段全部合法，runtime 也必须返回
   `queue_authoritative_runner_unavailable` 并拒绝 readiness；
 - 只有真实 collector runner、D1/R2 staging、fenced source watermark、snapshot 刷新和 72 小时
-  canary 均有回执后，才允许在独立变更中解除该停止线。
+canary 均有回执后，才允许在独立变更中解除该停止线。
+
+## 生产采集与发布证明
+
+生产 Cron 每 15 分钟选择一个启用 target 作为低成本旋转 canary，Container 继续保持
+`sleepAfter = "5m"`，避免把 15 分钟周期变成近似常驻费用。Container 从休眠恢复时，Worker 最多
+尝试 5 次，间隔为 5、15、30、45 秒；总等待 95 秒仍包含在 8 分钟任务总超时内。只有采集状态为
+`ok`、`partial` 或 `empty_no_new_items` 时才推进 target cursor，失败不会跳过该 target。
+
+生产发布回执必须同时满足：
+
+- Worker version 的 tag/message 包含精确 40 位 `GITHUB_SHA`；
+- 当前 deployment 以 100% 流量指向该 Worker version；
+- D1 `last:collect-cycle` 由同一 commit、同一 Worker version 成功写入，并包含非空 target 选择；
+- migration、Queue/DLQ/R2、数据新鲜度、未来时间戳和 P0 DLQ 门禁通过。
+
+GitHub Runner 访问自定义域名时若收到可识别的 Cloudflare Challenge 403，可只把公网 HTTP 探针
+降级为观察项，并使用上述控制面 + D1 回执继续验证。普通 403、5xx、畸形回执、旧 commit/旧
+Worker version 或失败采集不能走该回退。此机制不要求开放 `workers.dev`，也不要求为 CI 放宽
+WAF/Bot 策略。
 
 ## 隔离 Preview 验证面
 
