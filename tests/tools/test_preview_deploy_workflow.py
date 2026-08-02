@@ -143,6 +143,19 @@ def test_deploy_workflow_structures_malformed_collect_continuity_reason() -> Non
     assert '"raw_value_present": raw_value_present' in script
 
 
+def test_cloudflare_data_sync_is_bounded_to_four_canary_targets() -> None:
+    dry_run = _step("cloudflare-data", "Cloudflare D1 backfill dry run")["run"]
+    production_sync = _step(
+        "cloudflare-data",
+        "Apply Cloudflare D1 target and source sync",
+    )["run"]
+
+    for script in (str(dry_run), str(production_sync)):
+        assert "tools/cloudflare_d1_backfill.py" in script
+        assert "--canary-target-allowlist italy,germany,france,japan" in script
+        assert "--canary-target-allowlist italy,germany,france,japan," not in script
+
+
 def test_preview_verification_requires_preview_worker_runtime_proof() -> None:
     workflow = _workflow_text()
     preview_job = workflow.split("  verify-preview:", 1)[1].split(

@@ -219,6 +219,7 @@ jobs:
           python tools/cloudflare_d1_backfill.py \
             --data-dir data \
             --targets-dir config/targets \
+            --canary-target-allowlist italy,germany,france,japan \
             --dry-run \
             --limit 100 \
             --output-sql /tmp/news-sentry-d1-backfill.sql
@@ -352,6 +353,7 @@ jobs:
           python tools/cloudflare_d1_backfill.py \
             --data-dir data \
             --targets-dir config/targets \
+            --canary-target-allowlist italy,germany,france,japan \
             --limit 0 \
             --output-sql /tmp/news-sentry-d1-target-sync.sql
           (cd frontend/cloudflare && node_modules/.bin/wrangler d1 execute ns-db --remote \
