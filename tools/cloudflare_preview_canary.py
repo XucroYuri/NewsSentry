@@ -160,6 +160,12 @@ def _validate_artifact_key(value: Any, blockers: list[str]) -> str | None:  # no
     return None
 
 
+def canonical_artifact_key(value: str) -> str:
+    if not ARTIFACT_KEY_RE.fullmatch(value):
+        raise PreviewCanaryError("artifact_key_invalid")
+    return value
+
+
 def build_canary_payload(*, commit: str, commit_time: str) -> PreviewCanaryPayload:
     normalized_commit = _validate_commit(commit)
     event_id = f"preview-artifact-canary-{normalized_commit[:12]}"
@@ -425,6 +431,11 @@ def _evidence_sql_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def _validate_artifact_key_command(args: argparse.Namespace) -> int:
+    print(canonical_artifact_key(args.artifact_key))
+    return 0
+
+
 def _receipt_command(args: argparse.Namespace) -> int:
     try:
         d1_rows = parse_wrangler_d1_json(args.d1_json.read_text(encoding="utf-8"))
@@ -457,6 +468,10 @@ def build_parser() -> argparse.ArgumentParser:
     sql.add_argument("--job-id", required=True)
     sql.add_argument("--artifact-id", required=True)
     sql.set_defaults(func=_evidence_sql_command)
+
+    artifact_key = subparsers.add_parser("validate-artifact-key")
+    artifact_key.add_argument("--artifact-key", required=True)
+    artifact_key.set_defaults(func=_validate_artifact_key_command)
 
     receipt = subparsers.add_parser("receipt")
     receipt.add_argument("--first-response", required=True, type=Path)

@@ -245,11 +245,23 @@ def test_verify_preview_uses_preview_environment_secrets_for_canary_only() -> No
     env = cast(dict[str, str], verify_job["env"])
 
     assert verify_job["environment"] == "preview"
-    assert env["CF_ACCESS_CLIENT_ID"] == "${{ secrets.CF_ACCESS_CLIENT_ID }}"
+    assert "CF_ACCESS_CLIENT_ID" not in env
+    assert "CF_ACCESS_CLIENT_SECRET" not in env
+
+    canary_step = _step("verify-preview", "Run authenticated preview durable import canary")
+    canary_env = cast(dict[str, str], canary_step["env"])
+    assert canary_env["CF_ACCESS_CLIENT_ID"] == "${{ secrets.CF_ACCESS_CLIENT_ID }}"
     assert (
-        env["CF_ACCESS_CLIENT_SECRET"]
+        canary_env["CF_ACCESS_CLIENT_SECRET"]
         == "${{ secrets.CF_ACCESS_CLIENT_SECRET }}"  # noqa: S105
     )
+
+    for step in cast(list[dict[str, Any]], verify_job["steps"]):
+        if step.get("name") == "Run authenticated preview durable import canary":
+            continue
+        step_env = cast(dict[str, str], step.get("env", {}))
+        assert "CF_ACCESS_CLIENT_ID" not in step_env
+        assert "CF_ACCESS_CLIENT_SECRET" not in step_env
 
     worker_job_text = yaml.dump(_job("deploy-cloudflare-preview-worker"))
     assert "CF_ACCESS_CLIENT_SECRET" not in worker_job_text
@@ -267,9 +279,10 @@ def test_verify_preview_runs_authenticated_durable_import_canary_fail_closed() -
 
     helper_commands = _shell_tokens(
         script,
-        r"tools/cloudflare_preview_canary\.py (payload|evidence-sql|receipt)",
+        r"tools/cloudflare_preview_canary\.py "
+        r"(payload|evidence-sql|validate-artifact-key|receipt)",
     )
-    assert helper_commands == ["payload", "evidence-sql", "receipt"]
+    assert helper_commands == ["payload", "evidence-sql", "validate-artifact-key", "receipt"]
 
     status_checks: dict[str, str] = dict(
         _shell_token_pairs(script, r'\[ "\$\{([A-Z_]+)\}" = "([0-9]+)" \]')
@@ -283,9 +296,15 @@ def test_verify_preview_runs_authenticated_durable_import_canary_fail_closed() -
     assert d1_targets == ["ns-db-preview"]
     r2_gets = _shell_tokens(
         script,
-        r"wrangler r2 object get ([a-z0-9-]+)/\$\{ARTIFACT_KEY\}",
+        r'wrangler r2 object get "([a-z0-9-]+)/\$\{CANONICAL_ARTIFACT_KEY\}"',
     )
     assert r2_gets == ["news-sentry-artifacts-preview"]
+    assert "--artifact-key \"${ARTIFACT_KEY}\"" in script
+    assert (
+        'CANONICAL_ARTIFACT_KEY="$(python tools/cloudflare_preview_canary.py '
+        'validate-artifact-key --artifact-key "${ARTIFACT_KEY}")"'
+    ) in script
+    assert script.index("validate-artifact-key") < script.index("wrangler r2 object get")
 
     forbidden = (
         "ns-db --remote",

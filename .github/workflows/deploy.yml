@@ -840,8 +840,6 @@ jobs:
       CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
       CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
     steps:
       - uses: actions/checkout@v4
 
@@ -949,6 +947,8 @@ jobs:
 
       - name: Run authenticated preview durable import canary
         env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           RECEIPT_PATH: ${{ runner.temp }}/news-sentry-preview-artifact-canary-receipt.json
         run: |
           set -euo pipefail
@@ -1055,7 +1055,8 @@ jobs:
             --json > "${CANARY_DIR}/d1-evidence.json")
 
           ARTIFACT_KEY="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["artifact_key"])' "${CANARY_DIR}/first-response.json")"
-          (cd frontend/cloudflare && node_modules/.bin/wrangler r2 object get news-sentry-artifacts-preview/${ARTIFACT_KEY} \
+          CANONICAL_ARTIFACT_KEY="$(python tools/cloudflare_preview_canary.py validate-artifact-key --artifact-key "${ARTIFACT_KEY}")"
+          (cd frontend/cloudflare && node_modules/.bin/wrangler r2 object get "news-sentry-artifacts-preview/${CANONICAL_ARTIFACT_KEY}" \
             --file "${CANARY_DIR}/artifact.json")
 
           python tools/cloudflare_preview_canary.py receipt \

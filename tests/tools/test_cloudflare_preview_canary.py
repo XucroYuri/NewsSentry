@@ -269,6 +269,23 @@ def test_parse_wrangler_d1_json_prefers_wrapped_results_after_noise() -> None:
     assert canary.parse_wrangler_d1_json(wrapped) == [{"batch_id": BATCH_ID}]
 
 
+def test_artifact_key_validation_emits_only_canonical_key() -> None:
+    assert canary.canonical_artifact_key(ARTIFACT_KEY) == ARTIFACT_KEY
+
+    invalid_keys = [
+        f" {ARTIFACT_KEY}",
+        f"{ARTIFACT_KEY}\n",
+        f"{ARTIFACT_KEY} --file /tmp/leak.json",
+        "--help",
+        "../artifact.json",
+        f"news-sentry-artifacts-preview/{ARTIFACT_KEY}",
+        f"{ARTIFACT_KEY}/extra",
+    ]
+    for value in invalid_keys:
+        with pytest.raises(canary.PreviewCanaryError, match="artifact_key_invalid"):
+            canary.canonical_artifact_key(value)
+
+
 def test_cli_subcommands_emit_canonical_json_and_failed_receipts(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -297,6 +314,23 @@ def test_cli_subcommands_emit_canonical_json_and_failed_receipts(
         == 0
     )
     assert "FROM import_batches" in capsys.readouterr().out
+
+    assert canary.main(["validate-artifact-key", "--artifact-key", ARTIFACT_KEY]) == 0
+    assert capsys.readouterr().out == f"{ARTIFACT_KEY}\n"
+
+    assert (
+        canary.main(
+            [
+                "validate-artifact-key",
+                "--artifact-key",
+                f"{ARTIFACT_KEY}\n",
+            ]
+        )
+        == 2
+    )
+    invalid_cli = capsys.readouterr()
+    assert invalid_cli.out == ""
+    assert "artifact_key_invalid" in invalid_cli.err
 
     first_path = tmp_path / "first.json"
     replay_path = tmp_path / "replay.json"
