@@ -1508,6 +1508,7 @@ def test_build_deploy_receipt_requires_matching_commit_version_and_health_mode()
             },
             health_json={
                 "status": "ok",
+                "generated_at": "2026-08-02T10:00:00Z",
                 "deployment": {
                     "commit": "abc123",
                     "worker_version": "version-1",
@@ -1522,7 +1523,11 @@ def test_build_deploy_receipt_requires_matching_commit_version_and_health_mode()
             continuity_json={
                 "status": "ok",
                 "deployed_commit": "abc123",
-                "latest_collect": {"status": "ok", "run_id": "collect-1"},
+                "latest_collect": {
+                    "status": "ok",
+                    "run_id": "collect-1",
+                    "updated_at": "2026-08-02T09:15:00Z",
+                },
                 "selected_target_ids": ["france", "germany", "italy", "japan"],
             },
         )
@@ -1542,6 +1547,7 @@ def _valid_deploy_receipt_kwargs(**overrides: Any) -> dict[str, Any]:
         "deployment_json": {"id": "deployment-1", "version_id": "version-1"},
         "health_json": {
             "status": "ok",
+            "generated_at": "2026-08-02T10:00:00Z",
             "deployment": {
                 "commit": "a" * 40,
                 "worker_version": "version-1",
@@ -1558,7 +1564,11 @@ def _valid_deploy_receipt_kwargs(**overrides: Any) -> dict[str, Any]:
         "continuity_json": {
             "status": "ok",
             "deployed_commit": "a" * 40,
-            "latest_collect": {"status": "ok", "run_id": "collect-1"},
+            "latest_collect": {
+                "status": "ok",
+                "run_id": "collect-1",
+                "updated_at": "2026-08-02T09:15:00Z",
+            },
             "selected_target_ids": ["france", "germany", "italy", "japan"],
         },
     }
@@ -1587,6 +1597,7 @@ def test_deploy_guard_binds_continuity_to_exact_commit() -> None:
                 expected_commit="b" * 40,
                 health_json={
                     "status": "ok",
+                    "generated_at": "2026-08-02T10:00:00Z",
                     "deployment": {
                         "commit": "b" * 40,
                         "worker_version": "version-1",
@@ -1601,6 +1612,68 @@ def test_deploy_guard_binds_continuity_to_exact_commit() -> None:
         )
 
 
+def test_deploy_guard_rejects_unhealthy_health_status() -> None:
+    with pytest.raises(ReceiptError, match="health status invalid: unhealthy"):
+        build_deploy_receipt(
+            **_valid_deploy_receipt_kwargs(
+                health_json={
+                    **_valid_deploy_receipt_kwargs()["health_json"],
+                    "status": "unhealthy",
+                },
+            )
+        )
+
+
+def test_deploy_guard_accepts_fresh_collect_continuity() -> None:
+    receipt = build_deploy_receipt(
+        **_valid_deploy_receipt_kwargs(
+            health_json={
+                **_valid_deploy_receipt_kwargs()["health_json"],
+                "generated_at": "2026-08-02T10:00:00Z",
+            },
+            continuity_json={
+                **_valid_deploy_receipt_kwargs()["continuity_json"],
+                "latest_collect": {
+                    "status": "ok",
+                    "run_id": "collect-fresh",
+                    "updated_at": "2026-08-02T08:00:01Z",
+                },
+            },
+        )
+    )
+
+    assert receipt["continuity"]["collect_run_id"] == "collect-fresh"
+    assert receipt["continuity"]["latest_collect_updated_at"] == "2026-08-02T08:00:01Z"
+
+
+@pytest.mark.parametrize(
+    ("updated_at", "expected_error"),
+    [
+        (None, "latest collect updated_at missing"),
+        ("not-a-date", "latest collect updated_at invalid"),
+        ("2026-08-02T07:59:59Z", "latest collect stale"),
+        ("2026-08-02T10:00:01Z", "latest collect updated_at in future"),
+    ],
+)
+def test_deploy_guard_rejects_non_fresh_collect_continuity(
+    updated_at: str | None,
+    expected_error: str,
+) -> None:
+    latest_collect = {"status": "ok", "run_id": "collect-1"}
+    if updated_at is not None:
+        latest_collect["updated_at"] = updated_at
+
+    with pytest.raises(ReceiptError, match=expected_error):
+        build_deploy_receipt(
+            **_valid_deploy_receipt_kwargs(
+                continuity_json={
+                    **_valid_deploy_receipt_kwargs()["continuity_json"],
+                    "latest_collect": latest_collect,
+                },
+            )
+        )
+
+
 def test_build_deploy_receipt_accepts_weighted_deployment_versions() -> None:
     receipt = build_deploy_receipt(
         **_valid_deploy_receipt_kwargs(
@@ -1611,6 +1684,7 @@ def test_build_deploy_receipt_accepts_weighted_deployment_versions() -> None:
             },
             health_json={
                 "status": "ok",
+                "generated_at": "2026-08-02T10:00:00Z",
                 "deployment": {
                     "commit": "abc123",
                     "worker_version": "version-1",
@@ -1625,7 +1699,11 @@ def test_build_deploy_receipt_accepts_weighted_deployment_versions() -> None:
             continuity_json={
                 "status": "ok",
                 "deployed_commit": "abc123",
-                "latest_collect": {"status": "ok", "run_id": "collect-1"},
+                "latest_collect": {
+                    "status": "ok",
+                    "run_id": "collect-1",
+                    "updated_at": "2026-08-02T09:15:00Z",
+                },
                 "selected_target_ids": ["france", "germany", "italy", "japan"],
             },
         )

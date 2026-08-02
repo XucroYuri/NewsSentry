@@ -16,6 +16,7 @@ import subprocess
 import sys
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib import request
@@ -50,6 +51,7 @@ EXPECTED_RUNTIME_VARS = {
     "SCHEDULER_MODE": "shadow",
     "WORKER_NATIVE_COLLECT_ENABLED": "false",
 }
+MAX_COLLECT_CONTINUITY_AGE = timedelta(hours=2)
 RUNTIME_SCHEMA_TABLE_QUERY = (
     "SELECT name FROM sqlite_master WHERE type='table' AND name IN "
     "('import_staged_events','import_batch_finalize_receipts',"
@@ -1251,6 +1253,18 @@ def _as_string_list(value: Any) -> list[str]:
     return [item for item in value if isinstance(item, str) and item]
 
 
+def _utc_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(UTC)
+
+
 def build_deploy_receipt(
     *,
     expected_commit: str,
@@ -1273,16 +1287,33 @@ def build_deploy_receipt(
     compute = _as_mapping(deployment.get("compute"))
     storage = _as_mapping(deployment.get("storage"))
     collect_run_id = latest_collect.get("run_id") or continuity.get("collect_run_id")
+    collect_updated_at = latest_collect.get("updated_at")
     selected_target_ids = _as_string_list(continuity.get("selected_target_ids"))
+    generated_at_value = health_json.get("generated_at") or health_json.get("generatedAt")
+    generated_at = _utc_timestamp(generated_at_value)
 
     _require(bool(version_id), "worker version receipt missing")
     _require(bool(deployment_json.get("id")), "worker deployment receipt missing")
     _require(deployment.get("commit") == expected_commit, "health commit mismatch")
     _require(continuity.get("deployed_commit") == expected_commit, "continuity commit mismatch")
+    _require(generated_at is not None, "health generated_at invalid")
     collect_status = latest_collect.get("status")
     _require(
         collect_status in {"ok", "partial", "empty_no_new_items"},
         f"latest collect status invalid: {collect_status}",
+    )
+    _require(
+        isinstance(collect_updated_at, str) and bool(collect_updated_at),
+        "latest collect updated_at missing",
+    )
+    parsed_collect_updated_at = _utc_timestamp(collect_updated_at)
+    _require(parsed_collect_updated_at is not None, "latest collect updated_at invalid")
+    assert parsed_collect_updated_at is not None
+    assert generated_at is not None
+    _require(parsed_collect_updated_at <= generated_at, "latest collect updated_at in future")
+    _require(
+        generated_at - parsed_collect_updated_at <= MAX_COLLECT_CONTINUITY_AGE,
+        "latest collect stale",
     )
     _require(continuity.get("status") == "ok", "continuity status invalid")
     _require(worker_version == version_id, "health worker version mismatch")
@@ -1292,7 +1323,11 @@ def build_deploy_receipt(
         deployment.get("worker_native_collect_enabled") is False,
         "worker-native collect not disabled",
     )
-    _require(health_json.get("status") in {"ok", "degraded", "unhealthy"}, "health status missing")
+    health_status = health_json.get("status")
+    _require(
+        health_status in {"ok", "degraded"},
+        f"health status invalid: {health_status}",
+    )
     _require(compute.get("container_configured") is True, "container binding missing")
     _require(storage.get("artifacts_configured") is True, "R2 artifact binding missing")
     _require(isinstance(collect_run_id, str) and bool(collect_run_id), "collect run id missing")
@@ -1340,6 +1375,7 @@ def build_deploy_receipt(
             "status": "ok",
             "reason_codes": [],
             "collect_run_id": collect_run_id,
+            "latest_collect_updated_at": collect_updated_at,
             "selected_target_ids": selected_target_ids,
             "deployed_commit": continuity["deployed_commit"],
         },
