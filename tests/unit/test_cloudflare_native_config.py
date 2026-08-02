@@ -435,10 +435,8 @@ def test_cloudflare_public_read_endpoints_use_worker_cache_and_head() -> None:
     cache_ts = _read("workers/lib/public-read-cache.ts")
 
     assert "ctx: ExecutionContext" in index_ts
-    assert (
-        "dispatch(request, env.DB, ctx, runtimeMetadata(env, workerWriteAccess.identity))"
-        in index_ts
-    )
+    assert "runtimeMetadata(env, workerWriteAccess.identity)" in index_ts
+    assert "{ artifacts: env.NEWS_SENTRY_ARTIFACTS }" in index_ts
     assert "rawMethod === \"HEAD\"" in router_ts
     assert "new Response(null" in router_ts
     assert "maybeServeCachedPublicRead" in news_ts
@@ -547,12 +545,13 @@ def test_cloudflare_scheduled_ops_are_configured() -> None:
     ]
     assert 'compactDetails.status === "string"' in scheduled_ts
     assert "await recordRun(env.DB, runId, task, status" in scheduled_ts
-    assert "importEventsToD1" in container_import_ts
+    assert "executeDurableProjectionImport" in container_import_ts
+    assert "importEventsToD1" not in container_import_ts
     assert "extractContainerImportEvents" in container_import_ts
     assert "importContainerEventsToD1" in scheduled_ts
     assert "import_result" in scheduled_ts
     assert "result.updated" in container_import_ts
-    assert "persistImportArtifact" in container_import_ts
+    assert "persistImportArtifact" not in container_import_ts
     assert "COLLECT_TARGET_BATCH_SIZE = 4" in scheduled_ts
     assert "cursor:collect-cycle-target-index" in scheduled_ts
     assert "cloudflare_collect_enabled = 1" in scheduled_ts
@@ -617,19 +616,17 @@ def test_cloudflare_worker_exposes_public_targets_and_regions_contracts() -> Non
     assert "include_empty" in targets_ts
 
 
-def test_events_import_persists_to_cloudflare_d1() -> None:
+def test_events_import_uses_unified_durable_projection_import() -> None:
     webhook_ts = _read("workers/api/webhook.ts")
+    handle_import_ts = webhook_ts[webhook_ts.index("export async function handleImport") :]
 
     assert "db: D1Database" in webhook_ts
-    assert "importEventsToD1" in webhook_ts
-    assert "INSERT INTO events" in webhook_ts
-    assert "recommendation_reason" in webhook_ts
-    assert "value_score" in webhook_ts
-    assert "ON CONFLICT(event_id)" in webhook_ts
-    assert "DO NOTHING" not in webhook_ts
-    assert "DO UPDATE SET" in webhook_ts
-    assert "updated" in webhook_ts
-    assert "COALESCE(NULLIF" in webhook_ts
+    assert "executeDurableProjectionImport" in handle_import_ts
+    assert "importEventsToD1" not in handle_import_ts
+    assert "INSERT INTO events" not in handle_import_ts
+    assert "batch_id" in handle_import_ts
+    assert "artifact_sha256" in handle_import_ts
+    assert "updated" in handle_import_ts
 
 
 def test_container_proxy_requires_cloudflare_access_identity() -> None:
@@ -653,7 +650,7 @@ def test_container_proxy_requires_cloudflare_access_identity() -> None:
     assert "issuer_mismatch" in access_jwt_ts
     assert "audience_mismatch" in access_jwt_ts
     assert 'claims.email !== "string"' in access_jwt_ts
-    assert 'headers.set("Cf-Access-Authenticated-User-Email", access.email' in proxy_ts
+    assert 'headers.set("Cf-Access-Authenticated-User-Email", access.principal.email' in proxy_ts
     assert '"CF-Access-Client-Id"' not in access_ts
     assert "Cloudflare Access authentication required" in access_ts
     assert "NEWS_SENTRY_CONTAINER" in proxy_ts
@@ -786,12 +783,10 @@ def test_worker_write_endpoints_require_cloudflare_access_identity() -> None:
     assert '"/api/v1/events/import"' in access_ts
     assert '"/api/v1/webhook"' in access_ts
     assert "await authorizeWorkerWriteAccess(request, env)" in index_ts
-    assert (
-        "dispatch(request, env.DB, ctx, runtimeMetadata(env, workerWriteAccess.identity))"
-        in index_ts
-    )
+    assert "runtimeMetadata(env, workerWriteAccess.identity)" in index_ts
+    assert "{ artifacts: env.NEWS_SENTRY_ARTIFACTS }" in index_ts
     assert "verifyCloudflareAccessRequest(request, env, options)" in access_ts
-    assert "identity: { email: verification.email }" in access_ts
+    assert "identity: verification.principal" in access_ts
     assert '"Cf-Access-Jwt-Assertion"' in access_jwt_ts
     assert 'if (!config) return { ok: false, reason: "missing_config" }' in access_jwt_ts
     assert '"CF-Access-Client-Id"' not in access_ts

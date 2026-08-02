@@ -92,6 +92,7 @@ export interface HealthResponse {
     oldest_pending_outbox_at: string | null;
     retry_scheduled: number;
     dead_lettered: number;
+    snapshot_pending?: number;
   };
   total_events: number;
   latest_collected_at: string | null;
@@ -278,4 +279,11 @@ export interface ImportResponse {
   skipped: number;
   quarantined?: number;
   errors: string[];
+  batch_id?: string;
+  job_id?: string;
+  artifact_id?: string;
+  artifact_key?: string;
+  artifact_sha256?: string;
+  artifact_bytes?: number;
+  replayed?: boolean;
 }

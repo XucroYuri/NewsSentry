@@ -110,7 +110,11 @@ async function recordStoredManifest(
          artifact_id, batch_id, job_id, object_key, sha256, payload_bytes,
          content_type, r2_etag, r2_version, status, created_at, details_json
        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(artifact_id) DO NOTHING`,
+       ON CONFLICT(artifact_id) DO UPDATE SET
+         status='stored',
+         error_code=NULL,
+         error_message=NULL
+       WHERE artifact_manifests.status IN ('stored', 'failed')`,
     )
     .bind(
       artifact.artifactId,

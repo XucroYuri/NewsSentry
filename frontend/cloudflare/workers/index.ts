@@ -183,7 +183,13 @@ export default {
         const workerWriteAccess = await authorizeWorkerWriteAccess(request, env);
         response =
           workerWriteAccess.ok
-            ? await dispatch(request, env.DB, ctx, runtimeMetadata(env, workerWriteAccess.identity))
+            ? await dispatch(
+                request,
+                env.DB,
+                ctx,
+                runtimeMetadata(env, workerWriteAccess.identity),
+                { artifacts: env.NEWS_SENTRY_ARTIFACTS },
+              )
             : workerWriteAccess.response;
       }
       return withSecurityHeaders(response, env);

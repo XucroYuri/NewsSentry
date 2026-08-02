@@ -20,13 +20,16 @@ class SqlitePreparedStatement {
     return this;
   }
 
+  async all<T>() {
+    return { results: this.#database.all<T>(this.#sql, this.#values), success: true };
+  }
+
   async run() {
-    const result = this.#database.database.prepare(this.#sql).run(...this.#values);
-    return { success: true, meta: { changes: result.changes } };
+    return this.#database.run(this.#sql, this.#values);
   }
 
   async first<T>(): Promise<T | null> {
-    return (this.#database.database.prepare(this.#sql).get(...this.#values) as T | undefined) ?? null;
+    return this.#database.first<T>(this.#sql, this.#values);
   }
 }
 
@@ -41,8 +44,31 @@ class SqliteD1Database {
     return new SqlitePreparedStatement(this, sql);
   }
 
-  first<T>(sql: string): T | null {
-    return (this.database.prepare(sql).get() as T | undefined) ?? null;
+  async batch(statements: SqlitePreparedStatement[]) {
+    this.database.exec("SAVEPOINT d1_batch");
+    const results = [];
+    try {
+      for (const statement of statements) results.push(await statement.run());
+      this.database.exec("RELEASE d1_batch");
+      return results;
+    } catch (error) {
+      this.database.exec("ROLLBACK TO d1_batch");
+      this.database.exec("RELEASE d1_batch");
+      throw error;
+    }
+  }
+
+  all<T>(sql: string, values: unknown[]): T[] {
+    return this.database.prepare(sql).all(...values) as T[];
+  }
+
+  first<T>(sql: string, values: unknown[] = []): T | null {
+    return (this.database.prepare(sql).get(...values) as T | undefined) ?? null;
+  }
+
+  run(sql: string, values: unknown[]) {
+    const result = this.database.prepare(sql).run(...values);
+    return { success: true, meta: { changes: result.changes } };
   }
 }
 
@@ -98,6 +124,8 @@ test("scheduled Container imports persist R2 before committing the D1 projection
   );
 
   assert.equal(result.imported, 1);
+  assert.match(String(result.batch_id), /^container-batch:[0-9a-f]{64}$/);
+  assert.match(String(result.job_id), /^container-job:[0-9a-f]{64}$/);
   assert.match(String(result.artifact_id), /^artifact-[0-9a-f]{64}$/);
   assert.equal(bucket.objects.size, 1);
   assert.deepEqual({ ...db.first("SELECT status FROM artifact_manifests") }, { status: "committed" });
@@ -147,13 +175,10 @@ test("scheduled validation failures retain the immutable R2 artifact for replay"
       "2026-08-02T01:00:00Z",
       "collect-cycle",
     ),
-    /container D1 import rejected 1 events/,
+    /missing_required_import_fields/,
   );
 
-  assert.equal(bucket.objects.size, 1);
+  assert.equal(bucket.objects.size, 0);
   assert.deepEqual({ ...db.first("SELECT COUNT(*) AS count FROM events") }, { count: 0 });
-  assert.deepEqual(
-    { ...db.first("SELECT status, error_code FROM artifact_manifests") },
-    { status: "failed", error_code: "d1_import_validation_failed" },
-  );
+  assert.deepEqual({ ...db.first("SELECT COUNT(*) AS count FROM artifact_manifests") }, { count: 0 });
 });

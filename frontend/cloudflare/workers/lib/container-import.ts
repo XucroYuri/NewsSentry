@@ -1,10 +1,5 @@
-import { importEventsToD1 } from "../api/webhook.ts";
 import type { ImportEventItem } from "./contracts.ts";
-import {
-  markImportArtifactCommitted,
-  markImportArtifactFailed,
-  persistImportArtifact,
-} from "./durable-artifact.ts";
+import { executeDurableProjectionImport } from "./durable-import.ts";
 
 export interface ContainerImportEnv {
   DB: D1Database;
@@ -23,100 +18,34 @@ function extractContainerImportEvents(details: Record<string, unknown>): ImportE
   return body.import_events.filter(isRecord) as ImportEventItem[];
 }
 
-function validateRequiredImportFields(events: ImportEventItem[]): string[] {
-  const errors: string[] = [];
-  for (const [index, event] of events.entries()) {
-    if (
-      !event.target_id ||
-      !event.source_id ||
-      !event.title_original ||
-      !event.url ||
-      !event.collected_at
-    ) {
-      errors.push(`item ${index}: missing required import fields`);
-    }
-  }
-  return errors;
-}
-
 export async function importContainerEventsToD1(
   env: ContainerImportEnv,
   details: Record<string, unknown>,
-  runId: string,
-  generatedAt: string,
-  task: ContainerImportTask,
+  _runId: string,
+  _generatedAt: string,
+  _task: ContainerImportTask,
 ): Promise<Record<string, unknown>> {
   const events = extractContainerImportEvents(details);
   if (events.length === 0) {
     return { received: 0, imported: 0, updated: 0, skipped: 0, errors: [] };
   }
-  const artifact = await persistImportArtifact(env.DB, env.NEWS_SENTRY_ARTIFACTS, {
-    batchId: `container-batch:${runId}`,
-    jobId: `container-job:${runId}`,
-    task,
-    targetIds: events.map((event) => String(event.target_id || "")),
-    sourceIds: events.map((event) => String(event.source_id || "")),
-    outputWatermark: null,
-    generatedAt,
+  const result = await executeDurableProjectionImport(env, {
+    origin: "container-import",
     events,
+    idempotencyKey: null,
   });
-  // The legacy webhook importer is intentionally item-oriented. Durable
-  // Container batches must reject all hard validation errors before it can
-  // mutate any public D1 projection.
-  const validationErrors = validateRequiredImportFields(events);
-  if (validationErrors.length > 0) {
-    await markImportArtifactFailed(
-      env.DB,
-      artifact.artifactId,
-      "d1_import_validation_failed",
-      validationErrors.slice(0, 10).join("; "),
-    );
-    throw Object.assign(
-      new Error(`container D1 import rejected ${validationErrors.length} events`),
-      {
-        kind: "validation",
-        code: "container_d1_import_validation_failed",
-      },
-    );
-  }
-  let result: Awaited<ReturnType<typeof importEventsToD1>>;
-  try {
-    result = await importEventsToD1(env.DB, events);
-  } catch (error) {
-    try {
-      await markImportArtifactFailed(
-        env.DB,
-        artifact.artifactId,
-        "d1_import_exception",
-        error instanceof Error ? error.message : String(error),
-      );
-    } catch (manifestError) {
-      console.error("failed to record durable artifact import failure:", manifestError);
-    }
-    throw error;
-  }
-  if (result.errors.length > 0) {
-    await markImportArtifactFailed(
-      env.DB,
-      artifact.artifactId,
-      "d1_import_validation_failed",
-      result.errors.slice(0, 10).join("; "),
-    );
-    throw Object.assign(new Error(`container D1 import rejected ${result.errors.length} events`), {
-      kind: "validation",
-      code: "container_d1_import_validation_failed",
-    });
-  }
-  await markImportArtifactCommitted(env.DB, artifact.artifactId, generatedAt);
   return {
     received: events.length,
-    imported: result.imported,
-    updated: result.updated,
-    skipped: result.skipped,
-    errors: result.errors.slice(0, 10),
-    artifact_id: artifact.artifactId,
-    artifact_key: artifact.objectKey,
-    artifact_sha256: artifact.sha256,
-    artifact_bytes: artifact.payloadBytes,
+    imported: result.importedEvents,
+    updated: result.updatedEvents,
+    skipped: 0,
+    errors: [],
+    batch_id: result.batchId,
+    job_id: result.jobId,
+    artifact_id: result.artifactId,
+    artifact_key: result.artifactKey,
+    artifact_sha256: result.artifactSha256,
+    artifact_bytes: result.artifactBytes,
+    replayed: result.replayed,
   };
 }

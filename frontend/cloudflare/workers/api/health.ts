@@ -4,17 +4,17 @@
  * Python: 内联 dict[str, str]，无 Pydantic 模型。
  */
 
-import type { HealthResponse } from "../lib/contracts";
+import type { HealthResponse } from "../lib/contracts.ts";
 import {
   buildD1FailureHealthResponse,
   buildHealthResponse,
   httpStatusForHealth,
-} from "../lib/health-status";
+} from "../lib/health-status.ts";
 import {
   buildPublicNewsWhere,
   PUBLIC_PUBLISHED_AT_SANITY_SQL,
-} from "../lib/public-news-query";
-import type { RuntimeMetadata } from "../lib/router";
+} from "../lib/public-news-query.ts";
+import type { RuntimeMetadata } from "../lib/router.ts";
 
 interface OpsStateRow {
   key: string;
@@ -83,6 +83,7 @@ export async function handleHealth(
     oldest_dead_lettered_at: null as string | null,
     p0_dead_lettered: 0,
     non_p0_dead_lettered: 0,
+    snapshot_pending: 0,
   };
 
   try {
@@ -172,6 +173,10 @@ export async function handleHealth(
                AS retry_scheduled,
              SUM(CASE WHEN jobs.status = 'dead_lettered' THEN 1 ELSE 0 END)
                AS dead_lettered,
+             SUM(CASE
+               WHEN jobs.status = 'snapshot_pending'
+                AND jobs.job_type = 'projection-import'
+               THEN 1 ELSE 0 END) AS snapshot_pending,
              MIN(CASE WHEN jobs.status = 'dead_lettered' THEN jobs.updated_at END)
                AS oldest_dead_lettered_at,
              SUM(CASE
@@ -192,6 +197,7 @@ export async function handleHealth(
           oldest_pending_outbox_at: string | null;
           retry_scheduled: number | null;
           dead_lettered: number | null;
+          snapshot_pending: number | null;
           oldest_dead_lettered_at: string | null;
           p0_dead_lettered: number | null;
           non_p0_dead_lettered: number | null;
@@ -264,6 +270,7 @@ export async function handleHealth(
       oldest_dead_lettered_at: jobRuntimeResult?.oldest_dead_lettered_at ?? null,
       p0_dead_lettered: jobRuntimeResult?.p0_dead_lettered ?? 0,
       non_p0_dead_lettered: jobRuntimeResult?.non_p0_dead_lettered ?? 0,
+      snapshot_pending: jobRuntimeResult?.snapshot_pending ?? 0,
     };
   } catch (error) {
     const body: HealthResponse = {
@@ -326,6 +333,12 @@ export async function handleHealth(
     ];
     body.readiness = { status: "unhealthy", ok: false };
     body.business_health = { status: "unhealthy", ok: false };
+  }
+  if (jobRuntime.snapshot_pending > 0) {
+    body.status = body.status === "unhealthy" ? "unhealthy" : "degraded";
+    body.reason_codes = [...(body.reason_codes ?? []), "projection_snapshot_pending"];
+    body.readiness = { status: body.status, ok: body.status !== "unhealthy" };
+    body.business_health = { status: body.status, ok: false };
   }
   return new Response(JSON.stringify(body), {
     status: httpStatusForHealth(body.status),

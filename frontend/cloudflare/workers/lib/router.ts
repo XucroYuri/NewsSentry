@@ -36,6 +36,10 @@ export interface RuntimeMetadata {
   };
 }
 
+export interface RuntimeBindings {
+  artifacts?: R2Bucket;
+}
+
 type Handler = (
   request: Request,
   db: D1Database,
@@ -43,6 +47,7 @@ type Handler = (
   pathSegments: string[],
   ctx?: ExecutionContext,
   runtimeMetadata?: RuntimeMetadata,
+  runtimeBindings?: RuntimeBindings,
 ) => Promise<Response>;
 
 const routeMap = new Map<string, Handler>();
@@ -70,6 +75,7 @@ export async function dispatch(
   db: D1Database,
   ctx?: ExecutionContext,
   runtimeMetadata?: RuntimeMetadata,
+  runtimeBindings?: RuntimeBindings,
 ): Promise<Response> {
   const url = new URL(request.url);
   const pathname = canonicalPathname(url.pathname);
@@ -95,6 +101,7 @@ export async function dispatch(
       segments,
       ctx,
       runtimeMetadata,
+      runtimeBindings,
     );
     const origin = request.headers.get("Origin");
     const corsResp = addCorsHeaders(resp, origin);
@@ -124,6 +131,7 @@ export async function dispatch(
         reqSegments,
         ctx,
         runtimeMetadata,
+        runtimeBindings,
       );
       const origin = request.headers.get("Origin");
       const corsResp = addCorsHeaders(resp, origin);

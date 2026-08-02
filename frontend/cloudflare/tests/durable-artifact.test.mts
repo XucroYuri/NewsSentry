@@ -71,7 +71,8 @@ class FakeD1Database {
         status,
         createdAt,
       ] = values as [string, string, string, string, string, number, string, string, string, string, string];
-      if (![...this.manifests.values()].some((row) => row.batch_id === batchId)) {
+      const existing = this.manifests.get(artifactId);
+      if (!existing && ![...this.manifests.values()].some((row) => row.batch_id === batchId)) {
         this.manifests.set(artifactId, {
           artifact_id: artifactId,
           batch_id: batchId,
@@ -90,7 +91,22 @@ class FakeD1Database {
         });
         return changed(1);
       }
+      if (existing && ["stored", "failed"].includes(existing.status)) {
+        existing.status = "stored";
+        existing.error_code = null;
+        existing.error_message = null;
+        return changed(1);
+      }
       return changed(0);
+    }
+    if (sql.includes("UPDATE artifact_manifests") && sql.includes("status='stored'")) {
+      const [artifactId] = values as [string];
+      const row = this.manifests.get(artifactId);
+      if (!row || !["stored", "failed"].includes(row.status)) return changed(0);
+      row.status = "stored";
+      row.error_code = null;
+      row.error_message = null;
+      return changed(1);
     }
     if (sql.includes("UPDATE artifact_manifests") && sql.includes("status='committed'")) {
       const [finalizedAt, artifactId] = values as [string, string];
@@ -295,4 +311,5 @@ test("failed manifests preserve the same immutable artifact for deterministic re
   assert.deepEqual(replay, artifact);
   assert.equal(bucket.objects.size, 1);
   assert.equal(db.manifests.get(artifact.artifactId)?.status, "committed");
+  assert.equal(db.manifests.get(artifact.artifactId)?.error_code, null);
 });

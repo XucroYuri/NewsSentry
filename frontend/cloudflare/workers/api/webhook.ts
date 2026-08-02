@@ -7,9 +7,13 @@
  */
 
 import type { WebhookResponse, ImportResponse, ImportEventItem } from "../lib/contracts.ts";
+import {
+  executeDurableProjectionImport,
+  MAX_IMPORT_BODY_BYTES,
+} from "../lib/durable-import.ts";
 import { internalError } from "../lib/errors.ts";
 import { sanitizeExternalUrlList, validateExternalUrl } from "../lib/external-url.ts";
-import { refreshPublicReadSnapshots } from "../lib/public-read-snapshots.ts";
+import type { RuntimeBindings } from "../lib/router.ts";
 import { assessEventTimestamps } from "../lib/timestamp-policy.ts";
 
 type ImportEventWithId = ImportEventItem & {
@@ -464,31 +468,71 @@ export async function handleImport(
   db: D1Database,
   _params: URLSearchParams,
   _segments: string[],
+  _ctx?: ExecutionContext,
+  _runtimeMetadata?: unknown,
+  runtimeBindings?: RuntimeBindings,
 ): Promise<Response> {
   try {
     const rawBody = await request.text();
-    let events: ImportEventWithId[] = [];
+    if (new TextEncoder().encode(rawBody).length > MAX_IMPORT_BODY_BYTES) {
+      return importErrorResponse(413, "import_body_too_large");
+    }
+    let events: ImportEventWithId[];
     try {
       events = JSON.parse(rawBody) as ImportEventWithId[];
-      if (!Array.isArray(events)) events = [];
     } catch {
-      events = [];
+      return importErrorResponse(400, "invalid_json");
     }
-
-    const body = await importEventsToD1(db, events);
-    if (body.imported > 0 || body.updated > 0) {
-      try {
-        await refreshPublicReadSnapshots(db);
-      } catch (error) {
-        console.warn("public snapshot refresh after import failed:", error);
-      }
+    if (!Array.isArray(events)) {
+      return importErrorResponse(400, "import_events_not_array");
     }
+    const result = await executeDurableProjectionImport(
+      { DB: db, NEWS_SENTRY_ARTIFACTS: runtimeBindings?.artifacts },
+      {
+        origin: "api-import",
+        events,
+        idempotencyKey: request.headers.get("Idempotency-Key"),
+      },
+    );
+    const body: ImportResponse = {
+      imported: result.importedEvents,
+      updated: result.updatedEvents,
+      skipped: 0,
+      quarantined: result.quarantinedEvents,
+      errors: [],
+      batch_id: result.batchId,
+      job_id: result.jobId,
+      artifact_id: result.artifactId,
+      artifact_key: result.artifactKey,
+      artifact_sha256: result.artifactSha256,
+      artifact_bytes: result.artifactBytes,
+      replayed: result.replayed,
+    };
     return new Response(JSON.stringify(body), {
-      status: body.errors.length ? 207 : 200,
+      status: 200,
       headers: { "Content-Type": "application/json" },
     });
   } catch (err) {
+    const kind = typeof err === "object" && err !== null && "kind" in err ? String((err as { kind: unknown }).kind) : "";
+    const code = typeof err === "object" && err !== null && "code" in err ? String((err as { code: unknown }).code) : String(err);
+    if (kind === "validation") return importErrorResponse(422, code);
+    if (kind === "payload_too_large") return importErrorResponse(413, code);
+    if (kind === "idempotency_conflict") return importErrorResponse(409, code);
+    if (kind === "durable_storage") return importErrorResponse(503, code);
     console.error("import error:", err);
     return internalError(String(err));
   }
+}
+
+function importErrorResponse(status: number, code: string): Response {
+  return new Response(
+    JSON.stringify({
+      imported: 0,
+      updated: 0,
+      skipped: 0,
+      quarantined: 0,
+      errors: [code],
+    }),
+    { status, headers: { "Content-Type": "application/json" } },
+  );
 }
