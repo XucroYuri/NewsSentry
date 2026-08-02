@@ -29,7 +29,10 @@ function parseNonNegativeInteger(value: unknown): number | null {
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
-function validateCollectTargetResults(summary: Record<string, unknown>): void {
+function validateCollectTargetResults(
+  summary: Record<string, unknown>,
+  importEvents: unknown[],
+): void {
   const targetResults = summary.target_results;
   const attempted = parseNonNegativeInteger(summary.targets_attempted);
   const succeeded = parseNonNegativeInteger(summary.targets_succeeded);
@@ -44,6 +47,7 @@ function validateCollectTargetResults(summary: Record<string, unknown>): void {
   let actualSucceeded = 0;
   let actualFailed = 0;
   let targetImportCount = 0;
+  const declaredTargetCounts = new Map<string, number>();
   const failedTargets: string[] = [];
   for (const item of targetResults) {
     if (!isRecord(item)) throw new Error("container_target_results_mismatch");
@@ -55,13 +59,26 @@ function validateCollectTargetResults(summary: Record<string, unknown>): void {
     if (status !== "ok" && status !== "empty_no_new_items" && status !== "error") {
       throw new Error("container_target_results_mismatch");
     }
+    if (declaredTargetCounts.has(targetId)) {
+      throw new Error("container_target_results_mismatch");
+    }
+    const eventsCollected = parseNonNegativeInteger(
+      status === "error" ? item.events_collected ?? 0 : item.events_collected,
+    );
     const importCount = parseNonNegativeInteger(
       status === "error" ? item.import_events_count ?? 0 : item.import_events_count,
     );
-    if (status !== "error" && importCount === null) {
+    if (status !== "error" && (eventsCollected === null || importCount === null)) {
+      throw new Error("container_target_results_mismatch");
+    }
+    if (
+      status === "empty_no_new_items" &&
+      ((eventsCollected ?? 0) !== 0 || (importCount ?? 0) !== 0)
+    ) {
       throw new Error("container_target_results_mismatch");
     }
     targetImportCount += importCount ?? 0;
+    declaredTargetCounts.set(targetId, importCount ?? 0);
     if (status === "error") {
       actualFailed += 1;
       failedTargets.push(`${targetId}:${String(item.reason ?? "collection_failed")}`);
@@ -78,6 +95,21 @@ function validateCollectTargetResults(summary: Record<string, unknown>): void {
   }
   if (failedTargets.length > 0) {
     throw new Error(`container_target_failures:${failedTargets.join(",")}`);
+  }
+
+  const actualTargetCounts = new Map<string, number>();
+  for (const event of importEvents) {
+    if (!isRecord(event)) throw new Error("container_target_results_mismatch");
+    const targetId = String(event.target_id ?? "").trim();
+    if (!targetId || !declaredTargetCounts.has(targetId)) {
+      throw new Error("container_target_results_mismatch");
+    }
+    actualTargetCounts.set(targetId, (actualTargetCounts.get(targetId) ?? 0) + 1);
+  }
+  for (const [targetId, declaredCount] of declaredTargetCounts) {
+    if ((actualTargetCounts.get(targetId) ?? 0) !== declaredCount) {
+      throw new Error("container_target_results_mismatch");
+    }
   }
 }
 
@@ -104,7 +136,7 @@ export async function importContainerEventsToD1(
     throw new Error("container_import_count_mismatch:collected_without_import_events");
   }
   if (_task === "collect-cycle") {
-    validateCollectTargetResults(payload.summary);
+    validateCollectTargetResults(payload.summary, payload.importEvents);
   }
   const events = payload.importEvents.filter(isRecord) as ImportEventItem[];
   if (events.length !== payload.importEvents.length) {

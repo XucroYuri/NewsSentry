@@ -326,6 +326,74 @@ test("collect-cycle imports reject contradictory target result aggregates", asyn
   );
 });
 
+test("collect-cycle imports reject shifted event targets", async () => {
+  const db = new SqliteD1Database();
+  const bucket = new FakeR2Bucket();
+
+  await assert.rejects(
+    () => importContainerEventsToD1(
+      {
+        DB: db as unknown as D1Database,
+        NEWS_SENTRY_ARTIFACTS: bucket as unknown as R2Bucket,
+      },
+      {
+        body: {
+          summary: collectSummary(1),
+          import_events: [event({ target_id: "france" })],
+        },
+      },
+      "run-shifted-target",
+      "2026-08-02T01:00:00Z",
+      "collect-cycle",
+    ),
+    /container_target_results_mismatch/,
+  );
+
+  assert.deepEqual({ ...db.first("SELECT COUNT(*) AS count FROM events") }, { count: 0 });
+  assert.equal(bucket.objects.size, 0);
+});
+
+test("collect-cycle imports reject empty target status with positive counts", async () => {
+  const db = new SqliteD1Database();
+  const bucket = new FakeR2Bucket();
+
+  await assert.rejects(
+    () => importContainerEventsToD1(
+      {
+        DB: db as unknown as D1Database,
+        NEWS_SENTRY_ARTIFACTS: bucket as unknown as R2Bucket,
+      },
+      {
+        body: {
+          summary: {
+            targets_attempted: 1,
+            targets_succeeded: 1,
+            targets_failed: 0,
+            events_collected: 1,
+            import_events_count: 1,
+            target_results: [
+              {
+                target_id: "italy",
+                status: "empty_no_new_items",
+                events_collected: 1,
+                import_events_count: 1,
+              },
+            ],
+          },
+          import_events: [event()],
+        },
+      },
+      "run-empty-positive-counts",
+      "2026-08-02T01:00:00Z",
+      "collect-cycle",
+    ),
+    /container_target_results_mismatch/,
+  );
+
+  assert.deepEqual({ ...db.first("SELECT COUNT(*) AS count FROM events") }, { count: 0 });
+  assert.equal(bucket.objects.size, 0);
+});
+
 test("missing production container scheduled run records dependency failure", async () => {
   const db = new SqliteD1Database();
   db.run(
