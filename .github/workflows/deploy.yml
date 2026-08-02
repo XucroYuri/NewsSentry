@@ -996,6 +996,8 @@ jobs:
             local status=""
             local curl_rc=0
             status="$(curl -sS \
+              --connect-timeout 5 \
+              --max-time 10 \
               -o /tmp/preview-ready.json \
               -D /tmp/preview-ready.headers \
               -w "%{http_code}" \

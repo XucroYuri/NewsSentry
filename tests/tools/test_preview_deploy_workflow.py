@@ -244,6 +244,14 @@ def test_preview_verification_waits_for_ready_commit_before_public_probes() -> N
     assert "wait_for_preview_ready_commit" in script
     assert "deadline=$((SECONDS + 300))" in script
     assert "sleep 10" in script
+    assert "--connect-timeout 5" in script
+    assert "--max-time 10" in script
+    assert (
+        script.index("preview_ready_matches_commit")
+        < script.index("--connect-timeout 5")
+        < script.index("--max-time 10")
+        < script.index('"${API_URL}/api/v1/ready"')
+    )
     assert (
         "fetch_preview_public_endpoint ready /api/v1/ready "
         '"${API_URL}/api/v1/ready"'
