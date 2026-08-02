@@ -90,15 +90,15 @@ test("nine day stale collection without heartbeat is unhealthy", () => {
   assert.equal(httpStatusForHealth(health.status), 503);
 });
 
-test("future timestamps degrade health but keep compatibility fields", () => {
+test("future timestamps make runtime unhealthy but keep compatibility fields", () => {
   const input = baseInput();
   input.latest_collected_at = "2028-01-01T00:00:00.000Z";
   input.future_timestamp_count = 2;
 
   const health = buildHealthResponse(input);
 
-  assert.equal(health.status, "degraded");
-  assert.equal(health.readiness?.ok, true);
+  assert.equal(health.status, "unhealthy");
+  assert.equal(health.readiness?.ok, false);
   assert.equal(health.business_health?.ok, false);
   assert.equal(health.total_events, 120);
   assert.equal(health.latest_collected_at, "2028-01-01T00:00:00.000Z");

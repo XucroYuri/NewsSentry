@@ -148,7 +148,14 @@ function validateEventEnvelope(events: Array<Record<string, unknown>>): void {
     throw durableProjectionImportError("payload_too_large", "import_body_too_large");
   }
   for (const [index, event] of events.entries()) {
-    for (const field of ["target_id", "source_id", "title_original", "url", "collected_at"]) {
+    for (const field of [
+      "target_id",
+      "source_id",
+      "title_original",
+      "url",
+      "collected_at",
+      "pipeline_stage",
+    ]) {
       if (!requiredString(event, field)) {
         throw durableProjectionImportError(
           "validation",

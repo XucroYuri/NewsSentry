@@ -127,6 +127,7 @@ function worstStatus(reasonCodes: string[]): HealthLevel {
     reasonCodes.includes("collect_cycle_failed") ||
     reasonCodes.includes("collect_cycle_stale") ||
     reasonCodes.includes("events_stale") ||
+    reasonCodes.includes("future_timestamp_detected") ||
     reasonCodes.includes("container_not_configured") ||
     reasonCodes.includes("p0_dlq_nonempty")
   ) {

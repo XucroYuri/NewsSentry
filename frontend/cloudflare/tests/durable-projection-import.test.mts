@@ -233,6 +233,19 @@ test("durable projection import fails closed when R2 is unavailable", async () =
   assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM jobs", [])?.count, 0);
 });
 
+test("durable import rejects an event without an explicit pipeline stage", async () => {
+  const db = new SqliteD1Database();
+  const bucket = new FakeR2Bucket();
+
+  await assert.rejects(
+    () => importEvents(db, bucket, [event(1, { pipeline_stage: "" })]),
+    /missing_required_import_fields/,
+  );
+
+  assert.equal(bucket.objects.size, 0);
+  assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM events", [])?.count, 0);
+});
+
 test("same normalized payload produces stable identity and replays without duplicate objects", async () => {
   const db = new SqliteD1Database();
   const bucket = new FakeR2Bucket();

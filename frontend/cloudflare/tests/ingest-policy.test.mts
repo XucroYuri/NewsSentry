@@ -5,7 +5,7 @@ import {
   sanitizeExternalUrlList,
   validateExternalUrl,
 } from "../workers/lib/external-url.ts";
-import { rowToPublicNewsItem } from "../workers/lib/public-news-query.ts";
+import { buildPublicNewsWhere, rowToPublicNewsItem } from "../workers/lib/public-news-query.ts";
 import { sanitizePublicSnapshotPayload } from "../workers/lib/snapshot-policy.ts";
 import {
   assessEventTimestamps,
@@ -104,6 +104,7 @@ test("timestamp policy quarantines invalid and future timestamps", () => {
   });
   assert.equal(isPublishedTimestampSafe("2026-08-01T23:59:59Z", now), true);
   assert.equal(isPublishedTimestampSafe("2026-08-02T00:00:01Z", now), false);
+  assert.match(buildPublicNewsWhere({}).sql, /published_at.*datetime\('now', '\+24 hours'\)/);
 });
 
 test("legacy snapshot reads remove future items and unsafe external URLs", () => {

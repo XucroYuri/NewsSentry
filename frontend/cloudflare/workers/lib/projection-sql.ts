@@ -104,7 +104,7 @@ export function projectionFinalizeStatements(
            COALESCE(json_extract(payload_json, '$.region_tags'), json_array(COALESCE(NULLIF(json_extract(payload_json, '$.region_id'), ''), json_extract(payload_json, '$.target_id')))),
            COALESCE(json_extract(payload_json, '$.entities'), '[]'),
            COALESCE(NULLIF(json_extract(payload_json, '$.language'), ''), 'mixed'),
-           COALESCE(NULLIF(json_extract(payload_json, '$.pipeline_stage'), ''), 'published'),
+           json_extract(payload_json, '$.pipeline_stage'),
            COALESCE(NULLIF(json_extract(payload_json, '$.value_label'), ''), '普通'),
            json_extract(payload_json, '$.value_score'),
            COALESCE(NULLIF(json_extract(payload_json, '$.china_relevance_label'), ''), '未知'),
