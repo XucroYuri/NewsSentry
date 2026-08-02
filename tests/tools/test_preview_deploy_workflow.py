@@ -427,6 +427,43 @@ def test_verify_preview_runs_authenticated_durable_import_canary_fail_closed() -
         assert token not in script
 
 
+def test_preview_canary_receipt_failure_logs_only_safe_blocker_codes() -> None:
+    canary_step = _step("verify-preview", "Run authenticated preview durable import canary")
+    script = str(canary_step["run"])
+
+    assert '--output "${RECEIPT_PATH}" >/dev/null' in script
+    assert "print_canary_receipt_failure() {" in script
+    assert "set +e" in script
+    assert "receipt_status=$?" in script
+    assert "set -e" in script
+    assert '[ "${receipt_status}" -ne 0 ]' in script
+    assert 'exit "${receipt_status}"' in script
+    assert script.index("set +e") < script.index("tools/cloudflare_preview_canary.py receipt")
+    assert script.index("receipt_status=$?") > script.index(
+        "tools/cloudflare_preview_canary.py receipt",
+    )
+
+    diagnostic = script.split("print_canary_receipt_failure() {", 1)[1].split(
+        "\npython tools/cloudflare_preview_canary.py receipt",
+        1,
+    )[0]
+    assert 'Path(os.environ["RECEIPT_PATH"])' in diagnostic
+    assert 'receipt.get("status") != "failed"' in diagnostic
+    assert 'receipt.get("blockers")' in diagnostic
+    assert "len(blockers) > 20" in diagnostic
+    assert "len(blocker) > 64" in diagnostic
+    assert r"^[a-z][a-z0-9_]{0,63}$" in diagnostic
+    assert 'print("Preview durable import canary failed blockers:")' in diagnostic
+    assert 'print(f" - {blocker}")' in diagnostic
+    assert "json.dumps(receipt" not in diagnostic
+    assert "first-response" not in diagnostic
+    assert "replay-response" not in diagnostic
+    assert "d1-evidence" not in diagnostic
+    assert "artifact.json" not in diagnostic
+    assert "CF_ACCESS_CLIENT_SECRET" not in diagnostic
+    assert "Exception" not in diagnostic
+
+
 def test_preview_canary_uploads_only_sanitized_receipt() -> None:
     upload = _step("verify-preview", "Upload preview durable import canary receipt")
 

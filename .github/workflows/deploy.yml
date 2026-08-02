@@ -1231,6 +1231,53 @@ jobs:
             --remote \
             --file "${CANARY_DIR}/artifact.json")
 
+          print_canary_receipt_failure() {
+            python - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+          from pathlib import Path
+
+          code_pattern = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+          receipt_path = Path(os.environ["RECEIPT_PATH"])
+
+          def print_blockers(blockers: list[str]) -> None:
+              print("Preview durable import canary failed blockers:")
+              for blocker in blockers:
+                  print(f" - {blocker}")
+
+          try:
+              receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+          except (OSError, json.JSONDecodeError):
+              print_blockers(["receipt_unreadable"])
+              sys.exit(0)
+
+          if not isinstance(receipt, dict) or receipt.get("status") != "failed":
+              print_blockers(["receipt_schema_invalid"])
+              sys.exit(0)
+
+          blockers = receipt.get("blockers")
+          if not isinstance(blockers, list) or not blockers or len(blockers) > 20:
+              print_blockers(["receipt_blockers_invalid"])
+              sys.exit(0)
+
+          safe_blockers = []
+          for blocker in blockers:
+              if (
+                  not isinstance(blocker, str)
+                  or len(blocker) > 64
+                  or not code_pattern.fullmatch(blocker)
+              ):
+                  print_blockers(["receipt_blockers_invalid"])
+                  sys.exit(0)
+              safe_blockers.append(blocker)
+
+          print_blockers(safe_blockers)
+          PY
+          }
+
+          set +e
           python tools/cloudflare_preview_canary.py receipt \
             --deploy-commit "${GITHUB_SHA}" \
             --first-response "${CANARY_DIR}/first-response.json" \
@@ -1238,6 +1285,12 @@ jobs:
             --d1-json "${CANARY_DIR}/d1-evidence.json" \
             --artifact "${CANARY_DIR}/artifact.json" \
             --output "${RECEIPT_PATH}" >/dev/null
+          receipt_status=$?
+          set -e
+          if [ "${receipt_status}" -ne 0 ]; then
+            print_canary_receipt_failure
+            exit "${receipt_status}"
+          fi
 
       - name: Upload preview durable import canary receipt
         uses: actions/upload-artifact@v4
