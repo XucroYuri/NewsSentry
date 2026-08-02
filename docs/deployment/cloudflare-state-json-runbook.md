@@ -154,33 +154,27 @@ uv run --no-project --with 'httpx[socks]' --with pyyaml \
 
 只有该命令无 finding，才允许进入 preview -> main 发布链。
 
-## 临时一次性放行
+## 生产发布门禁
 
-仅当需要先恢复线上部署、且已经确认 Cloudflare Access 至少保护了 admin/auth/status/runtime
-高风险入口时，可以使用一次性 bypass。该 bypass 会使用
-`docs/deployment/cloudflare-state-json.example.json` 让 deployed-surface audit 继续执行，
-并在 GitHub Actions 日志中输出 `TEMPORARY_CLOUDFLARE_STATE_BYPASS` warning。
+当前 production workflow 不提供 Cloudflare 状态证据 bypass。缺少真实
+`CLOUDFLARE_STATE_JSON` 时，deployed-surface audit 必须 fail closed。
 
-触发条件之一即可:
-
-- 手动运行 workflow 时选择 production，并把
-  `allow_temporary_cloudflare_state_bypass` 设置为 `true`。
-- 或发布提交消息包含 `[temporary-cloudflare-state-bypass]`。
-
-示例:
+从 `main` 读取将要发布的完整 SHA，并把同一值作为 `expected_commit`：
 
 ```bash
+git fetch origin main
+EXPECTED_COMMIT="$(git rev-parse origin/main)"
 gh workflow run deploy.yml \
   --repo XucroYuri/NewsSentry \
   --ref main \
   -f environment=production \
-  -f allow_temporary_cloudflare_state_bypass=true
+  -f expected_commit="${EXPECTED_COMMIT}"
 ```
 
 注意:
 
-- 这是应急发布开关，不是长期门禁策略。
-- 下一次普通 production deploy 如果没有提交消息标记或手动输入，仍会要求真实
-  `CLOUDFLARE_STATE_JSON`。
-- 发布完成后必须尽快用上文的 Cloudflare token 或 Dashboard 审计方式补齐 production
-  environment secret。
+- production dispatch 只允许从 `refs/heads/main` 执行。
+- `expected_commit` 必须是 40 位小写 Git SHA，且必须等于该次 workflow 的 `GITHUB_SHA`。
+- `main` push 不会自动触发 production；生产发布是显式、可审计的人工提升动作。
+- 发布前必须用上文的 Cloudflare token 或 Dashboard 审计方式维护 production environment
+  的 `CLOUDFLARE_STATE_JSON` secret。

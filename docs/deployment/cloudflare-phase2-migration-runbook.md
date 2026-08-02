@@ -91,8 +91,11 @@ Preview 绿色后只产出验证证据，不再由 workflow 直接 fast-forward/
 
 1. 以候选分支创建到 `main` 的 PR；
 2. 要求 CI、Preview receipt 与安全审计通过；
-3. 经人工合并后由 `main` push 触发 production；
-4. 收集 production Worker/D1/Queue/Pages/health 同 commit receipt。
+3. 经人工合并后确认远端 `main` 的完整 40 位 commit SHA；
+4. 从 `main` 手动运行 `deploy.yml`，选择 `production` 并把该完整 SHA 作为
+   `expected_commit`；workflow 会拒绝非 `main`、空 SHA、非法 SHA 或与 `GITHUB_SHA` 不一致的请求；
+5. 收集 production Worker/D1/Queue/Pages/health 同 commit receipt。
 
 当前远端 `main`/`preview` 尚未启用 branch protection；在保护规则建立前，不得把“PR 流程”写成
-强制治理事实。
+强制治理事实。为降低这一远端治理缺口的风险，`main` push 不再触发 production，生产提升必须
+通过上述精确 commit 手动门禁。

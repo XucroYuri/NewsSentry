@@ -314,9 +314,12 @@ curl http://localhost:8000/api/v1/health
 
 > 详细部署指南：[docs/architecture.md](docs/architecture.md) §7 部署拓扑
 
-### systemd（VPS 生产）
+### Cloudflare 生产发布
 
-通过 GitHub Actions 自动部署（push to main），见 `.github/workflows/deploy.yml`。
+生产运行面为 Cloudflare Pages + Workers + D1/Queues/Containers。`main` 推送不会自动发布生产；
+只有从 `main` 手动运行 `deploy.yml`，并输入与该次运行 `GITHUB_SHA` 完全一致的 40 位
+`expected_commit`，才会进入 production jobs。详见
+[`docs/deployment/cloudflare-phase2-migration-runbook.md`](docs/deployment/cloudflare-phase2-migration-runbook.md)。
 
 ### Cron（开发/测试）
 

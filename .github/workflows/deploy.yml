@@ -2,7 +2,7 @@ name: Deploy
 
 on:
   push:
-    branches: [main, preview]
+    branches: [preview]
   workflow_dispatch:
     inputs:
       environment:
@@ -11,6 +11,10 @@ on:
         default: preview
         type: choice
         options: [preview, production]
+      expected_commit:
+        description: "Full commit SHA required for production"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -35,18 +39,25 @@ jobs:
         id: deployment-mode
         env:
           REQUESTED_ENVIRONMENT: ${{ github.event.inputs.environment || '' }}
+          EXPECTED_COMMIT: ${{ github.event.inputs.expected_commit || '' }}
         run: |
           set -euo pipefail
           environment=""
-          if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF}" = "refs/heads/main" ]; then
-            environment="production"
-          elif [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF}" = "refs/heads/preview" ]; then
+          if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF}" = "refs/heads/preview" ]; then
             environment="preview"
           elif [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${REQUESTED_ENVIRONMENT}" = "preview" ]; then
             environment="preview"
           elif [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "${REQUESTED_ENVIRONMENT}" = "production" ]; then
             if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
               echo "Reject production dispatch from non-main: production dispatch is only allowed from refs/heads/main."
+              exit 1
+            fi
+            if ! [[ "${EXPECTED_COMMIT}" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "Reject production dispatch without a full 40-character commit SHA."
+              exit 1
+            fi
+            if [ "${EXPECTED_COMMIT}" != "${GITHUB_SHA}" ]; then
+              echo "Reject production dispatch: expected_commit does not match GITHUB_SHA."
               exit 1
             fi
             environment="production"

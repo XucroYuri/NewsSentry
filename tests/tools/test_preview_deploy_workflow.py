@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
+from typing import Any, cast
+
+import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_PATH = PROJECT_ROOT / ".github" / "workflows" / "deploy.yml"
@@ -9,6 +13,50 @@ WORKFLOW_PATH = PROJECT_ROOT / ".github" / "workflows" / "deploy.yml"
 
 def _workflow_text() -> str:
     return WORKFLOW_PATH.read_text(encoding="utf-8")
+
+
+def _workflow() -> dict[str, Any]:
+    return cast(
+        dict[str, Any],
+        yaml.load(
+            _workflow_text(),
+            Loader=yaml.BaseLoader,  # noqa: S506 - preserves GitHub's `on` key.
+        ),
+    )
+
+
+def _run_deployment_mode_script(
+    tmp_path: Path,
+    *,
+    event_name: str,
+    ref: str,
+    sha: str,
+    requested_environment: str,
+    expected_commit: str,
+) -> subprocess.CompletedProcess[str]:
+    workflow = _workflow()
+    steps = workflow["jobs"]["ci"]["steps"]
+    step = next(
+        candidate
+        for candidate in steps
+        if candidate.get("name") == "Resolve and validate deployment mode"
+    )
+    output_path = tmp_path / "github-output"
+    return subprocess.run(  # noqa: S603 - executes repository-owned workflow script.
+        ["/bin/bash", "-c", step["run"]],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            "GITHUB_EVENT_NAME": event_name,
+            "GITHUB_REF": ref,
+            "GITHUB_SHA": sha,
+            "GITHUB_OUTPUT": str(output_path),
+            "REQUESTED_ENVIRONMENT": requested_environment,
+            "EXPECTED_COMMIT": expected_commit,
+            "PATH": "/usr/bin:/bin",
+        },
+    )
 
 
 def test_preview_deploy_workflow_uses_cloudflare_native_surfaces() -> None:
@@ -181,6 +229,49 @@ def test_manual_preview_is_serialized_and_never_directly_promotes_main() -> None
     assert "production dispatch is only allowed from refs/heads/main" in workflow
     assert "  promote-main:" not in workflow
     assert 'git push origin "${GITHUB_SHA}:refs/heads/main"' not in workflow
+
+
+def test_main_push_cannot_trigger_production_deployment() -> None:
+    workflow = _workflow()
+
+    assert workflow["on"]["push"]["branches"] == ["preview"]
+
+
+def test_production_dispatch_requires_exact_main_commit(tmp_path: Path) -> None:
+    sha = "a" * 40
+    wrong_sha = "b" * 40
+
+    missing = _run_deployment_mode_script(
+        tmp_path,
+        event_name="workflow_dispatch",
+        ref="refs/heads/main",
+        sha=sha,
+        requested_environment="production",
+        expected_commit="",
+    )
+    wrong = _run_deployment_mode_script(
+        tmp_path,
+        event_name="workflow_dispatch",
+        ref="refs/heads/main",
+        sha=sha,
+        requested_environment="production",
+        expected_commit=wrong_sha,
+    )
+    exact = _run_deployment_mode_script(
+        tmp_path,
+        event_name="workflow_dispatch",
+        ref="refs/heads/main",
+        sha=sha,
+        requested_environment="production",
+        expected_commit=sha,
+    )
+
+    assert missing.returncode != 0
+    assert "full 40-character commit SHA" in missing.stdout
+    assert wrong.returncode != 0
+    assert "does not match GITHUB_SHA" in wrong.stdout
+    assert exact.returncode == 0, exact.stderr
+    assert (tmp_path / "github-output").read_text(encoding="utf-8") == "environment=production\n"
 
 
 def test_production_jobs_require_main_and_preview_dispatch_stays_nonproduction() -> None:
