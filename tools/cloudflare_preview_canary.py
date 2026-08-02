@@ -166,6 +166,19 @@ def canonical_artifact_key(value: str) -> str:
     return value
 
 
+def canonical_artifact_key_from_response_file(path: Path) -> str:
+    try:
+        response = _read_json(path)
+    except (OSError, json.JSONDecodeError) as error:
+        raise PreviewCanaryError("artifact_key_invalid") from error
+    if not isinstance(response, Mapping):
+        raise PreviewCanaryError("artifact_key_invalid")
+    artifact_key = response.get("artifact_key")
+    if not isinstance(artifact_key, str):
+        raise PreviewCanaryError("artifact_key_invalid")
+    return canonical_artifact_key(artifact_key)
+
+
 def build_canary_payload(*, commit: str, commit_time: str) -> PreviewCanaryPayload:
     normalized_commit = _validate_commit(commit)
     event_id = f"preview-artifact-canary-{normalized_commit[:12]}"
@@ -432,7 +445,7 @@ def _evidence_sql_command(args: argparse.Namespace) -> int:
 
 
 def _validate_artifact_key_command(args: argparse.Namespace) -> int:
-    print(canonical_artifact_key(args.artifact_key))
+    print(canonical_artifact_key_from_response_file(args.first_response))
     return 0
 
 
@@ -470,7 +483,7 @@ def build_parser() -> argparse.ArgumentParser:
     sql.set_defaults(func=_evidence_sql_command)
 
     artifact_key = subparsers.add_parser("validate-artifact-key")
-    artifact_key.add_argument("--artifact-key", required=True)
+    artifact_key.add_argument("--first-response", required=True, type=Path)
     artifact_key.set_defaults(func=_validate_artifact_key_command)
 
     receipt = subparsers.add_parser("receipt")

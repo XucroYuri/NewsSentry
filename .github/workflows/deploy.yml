@@ -1054,8 +1054,7 @@ jobs:
             --file "${CANARY_DIR}/evidence.sql" \
             --json > "${CANARY_DIR}/d1-evidence.json")
 
-          ARTIFACT_KEY="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["artifact_key"])' "${CANARY_DIR}/first-response.json")"
-          CANONICAL_ARTIFACT_KEY="$(python tools/cloudflare_preview_canary.py validate-artifact-key --artifact-key "${ARTIFACT_KEY}")"
+          CANONICAL_ARTIFACT_KEY="$(python tools/cloudflare_preview_canary.py validate-artifact-key --first-response "${CANARY_DIR}/first-response.json")"
           (cd frontend/cloudflare && node_modules/.bin/wrangler r2 object get "news-sentry-artifacts-preview/${CANONICAL_ARTIFACT_KEY}" \
             --file "${CANARY_DIR}/artifact.json")
 

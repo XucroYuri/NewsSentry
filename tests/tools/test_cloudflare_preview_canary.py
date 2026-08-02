@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -275,6 +276,7 @@ def test_artifact_key_validation_emits_only_canonical_key() -> None:
     invalid_keys = [
         f" {ARTIFACT_KEY}",
         f"{ARTIFACT_KEY}\n",
+        f"{ARTIFACT_KEY} ",
         f"{ARTIFACT_KEY} --file /tmp/leak.json",
         "--help",
         "../artifact.json",
@@ -284,6 +286,38 @@ def test_artifact_key_validation_emits_only_canonical_key() -> None:
     for value in invalid_keys:
         with pytest.raises(canary.PreviewCanaryError, match="artifact_key_invalid"):
             canary.canonical_artifact_key(value)
+
+
+def test_artifact_key_cli_rejects_response_json_value_after_shell_substitution(
+    tmp_path: Path,
+) -> None:
+    response_path = tmp_path / "first-response.json"
+    response_path.write_text(
+        json.dumps({"artifact_key": f"{ARTIFACT_KEY}\n"}),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(  # noqa: S603 - regression runs repository-owned helper.
+        [
+            "/bin/bash",
+            "-c",
+            (
+                'artifact_key="$(python -c \'import json,sys; '
+                'print(json.load(open(sys.argv[1]))["artifact_key"])\' "$1")"\n'
+                "python tools/cloudflare_preview_canary.py validate-artifact-key "
+                '--artifact-key "${artifact_key}"'
+            ),
+            "bash",
+            str(response_path),
+        ],
+        cwd=Path(__file__).resolve().parents[2],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert result.stdout == ""
 
 
 def test_cli_subcommands_emit_canonical_json_and_failed_receipts(
@@ -315,15 +349,34 @@ def test_cli_subcommands_emit_canonical_json_and_failed_receipts(
     )
     assert "FROM import_batches" in capsys.readouterr().out
 
-    assert canary.main(["validate-artifact-key", "--artifact-key", ARTIFACT_KEY]) == 0
-    assert capsys.readouterr().out == f"{ARTIFACT_KEY}\n"
-
+    valid_response_path = tmp_path / "valid-first-response.json"
+    valid_response_path.write_text(
+        json.dumps({"artifact_key": ARTIFACT_KEY}),
+        encoding="utf-8",
+    )
     assert (
         canary.main(
             [
                 "validate-artifact-key",
-                "--artifact-key",
-                f"{ARTIFACT_KEY}\n",
+                "--first-response",
+                str(valid_response_path),
+            ]
+        )
+        == 0
+    )
+    assert capsys.readouterr().out == f"{ARTIFACT_KEY}\n"
+
+    invalid_response_path = tmp_path / "invalid-first-response.json"
+    invalid_response_path.write_text(
+        json.dumps({"artifact_key": f"{ARTIFACT_KEY}\n"}),
+        encoding="utf-8",
+    )
+    assert (
+        canary.main(
+            [
+                "validate-artifact-key",
+                "--first-response",
+                str(invalid_response_path),
             ]
         )
         == 2
@@ -331,6 +384,22 @@ def test_cli_subcommands_emit_canonical_json_and_failed_receipts(
     invalid_cli = capsys.readouterr()
     assert invalid_cli.out == ""
     assert "artifact_key_invalid" in invalid_cli.err
+
+    malformed_response_path = tmp_path / "malformed-first-response.json"
+    malformed_response_path.write_text("{not-json", encoding="utf-8")
+    assert (
+        canary.main(
+            [
+                "validate-artifact-key",
+                "--first-response",
+                str(malformed_response_path),
+            ]
+        )
+        == 2
+    )
+    malformed_cli = capsys.readouterr()
+    assert malformed_cli.out == ""
+    assert "artifact_key_invalid" in malformed_cli.err
 
     first_path = tmp_path / "first.json"
     replay_path = tmp_path / "replay.json"

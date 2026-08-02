@@ -299,10 +299,11 @@ def test_verify_preview_runs_authenticated_durable_import_canary_fail_closed() -
         r'wrangler r2 object get "([a-z0-9-]+)/\$\{CANONICAL_ARTIFACT_KEY\}"',
     )
     assert r2_gets == ["news-sentry-artifacts-preview"]
-    assert "--artifact-key \"${ARTIFACT_KEY}\"" in script
+    assert "--artifact-key" not in script
+    assert 'ARTIFACT_KEY="$(python -c' not in script
     assert (
         'CANONICAL_ARTIFACT_KEY="$(python tools/cloudflare_preview_canary.py '
-        'validate-artifact-key --artifact-key "${ARTIFACT_KEY}")"'
+        'validate-artifact-key --first-response "${CANARY_DIR}/first-response.json")"'
     ) in script
     assert script.index("validate-artifact-key") < script.index("wrangler r2 object get")
 
