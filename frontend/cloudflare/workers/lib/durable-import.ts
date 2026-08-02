@@ -10,7 +10,7 @@ import {
 } from "./durable-artifact.ts";
 import { refreshPublicReadSnapshots } from "./public-read-snapshots.ts";
 import { validateExternalUrl } from "./external-url.ts";
-import { assessEventTimestamps } from "./timestamp-policy.ts";
+import { COLLECTED_AT_FUTURE_TOLERANCE_MS } from "./timestamp-policy.ts";
 
 export const MAX_IMPORT_EVENTS = 500;
 export const MAX_IMPORT_BODY_BYTES = 8 * 1024 * 1024;
@@ -121,6 +121,12 @@ function requiredString(event: Record<string, unknown>, key: string): string | n
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function parseTimestamp(value: unknown): number | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function compareIdentityEvent(left: ImportStagingEvent, right: ImportStagingEvent): number {
   for (const key of ["target_id", "source_id", "url", "title_original", "collected_at", "event_id"] as const) {
     const comparison = compareCodePoints(String(left[key] ?? ""), String(right[key] ?? ""));
@@ -177,22 +183,37 @@ async function buildDurableProjectionIdentity(
   if (input.idempotencyKey !== null && utf8Bytes(input.idempotencyKey) > MAX_IDEMPOTENCY_KEY_BYTES) {
     throw durableProjectionImportError("payload_too_large", "idempotency_key_too_large");
   }
+  const nowMs = Date.now();
   const normalized: ImportStagingEvent[] = [];
+  const generatedAtCandidates: number[] = [];
   for (const [index, raw] of input.events.entries()) {
     const urlResult = validateExternalUrl(raw.url);
-    const timestampResult = assessEventTimestamps(raw.collected_at, raw.published_at);
     if (!urlResult.ok) {
       throw durableProjectionImportError("validation", `item_${index}_${urlResult.reason}`);
     }
-    if (!timestampResult.ok) continue;
-    normalized.push({
+    const collectedMs = parseTimestamp(raw.collected_at);
+    const publishedMs = parseTimestamp(raw.published_at);
+    if (
+      collectedMs !== null &&
+      collectedMs <= nowMs + COLLECTED_AT_FUTURE_TOLERANCE_MS
+    ) {
+      generatedAtCandidates.push(collectedMs);
+    }
+    const event = {
       ...raw,
       url: urlResult.normalizedUrl,
-      collected_at: timestampResult.collectedAt,
-      published_at: timestampResult.publishedAt,
-    } as ImportStagingEvent);
+    } as ImportStagingEvent;
+    if (collectedMs !== null) {
+      event.collected_at = new Date(collectedMs).toISOString();
+    }
+    if (publishedMs !== null) {
+      event.published_at = new Date(publishedMs).toISOString();
+    } else if (!requiredString(raw, "published_at") && collectedMs !== null) {
+      event.published_at = new Date(collectedMs).toISOString();
+    }
+    normalized.push(event);
   }
-  if (normalized.length === 0) {
+  if (generatedAtCandidates.length === 0) {
     throw durableProjectionImportError("validation", "all_event_timestamps_invalid");
   }
   normalized.sort(compareIdentityEvent);
@@ -203,9 +224,7 @@ async function buildDurableProjectionIdentity(
     payloadSha256,
     batchId: `${prefix}-batch:${payloadSha256}`,
     jobId: `${prefix}-job:${payloadSha256}`,
-    generatedAt: new Date(
-      Math.max(...normalized.map((event) => Date.parse(String(event.collected_at)))),
-    ).toISOString(),
+    generatedAt: new Date(Math.max(...generatedAtCandidates)).toISOString(),
     events: normalized,
     idempotencyKeyHash:
       input.idempotencyKey === null ? null : await sha256Hex(input.idempotencyKey),

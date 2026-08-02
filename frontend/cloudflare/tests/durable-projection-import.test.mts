@@ -246,6 +246,50 @@ test("durable import rejects an event without an explicit pipeline stage", async
   assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM events", [])?.count, 0);
 });
 
+test("durable import quarantines future published rows without projecting them", async () => {
+  const db = new SqliteD1Database();
+  const bucket = new FakeR2Bucket();
+
+  const result = await importEvents(db, bucket, [
+    event(1, { pipeline_stage: "drafts" }),
+    event(2, {
+      pipeline_stage: "drafts",
+      published_at: "2028-01-01T00:00:00Z",
+    }),
+  ]);
+
+  assert.equal(result.validEvents, 1);
+  assert.equal(result.quarantinedEvents, 1);
+  assert.equal(result.importedEvents, 1);
+  assert.equal(db.first<{ count: number }>("SELECT COUNT(*) AS count FROM events", [])?.count, 1);
+  assert.equal(
+    db.first<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM events WHERE pipeline_stage = 'drafts'",
+      [],
+    )?.count,
+    1,
+  );
+  assert.equal(
+    db.first<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM events WHERE published_at >= '2028-01-01T00:00:00Z'",
+      [],
+    )?.count,
+    0,
+  );
+  const quarantined = db.first<{ reason_code: string; target_id: string; source_id: string }>(
+    "SELECT reason_code, target_id, source_id FROM quarantined_events",
+    [],
+  );
+  assert.deepEqual(
+    { ...quarantined },
+    {
+      reason_code: "future_published_at",
+      target_id: "japan",
+      source_id: "nhk",
+    },
+  );
+});
+
 test("same normalized payload produces stable identity and replays without duplicate objects", async () => {
   const db = new SqliteD1Database();
   const bucket = new FakeR2Bucket();
