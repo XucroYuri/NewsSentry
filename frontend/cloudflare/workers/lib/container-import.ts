@@ -12,7 +12,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function extractContainerImportPayload(details: Record<string, unknown>): {
+function extractContainerImportEvents(details: Record<string, unknown>): {
   summary: Record<string, unknown>;
   importEvents: unknown[];
 } {
@@ -120,7 +120,7 @@ export async function importContainerEventsToD1(
   _generatedAt: string,
   _task: ContainerImportTask,
 ): Promise<Record<string, unknown>> {
-  const payload = extractContainerImportPayload(details);
+  const payload = extractContainerImportEvents(details);
   const collected = parseNonNegativeInteger(payload.summary.events_collected ?? 0);
   const declared = parseNonNegativeInteger(
     payload.summary.import_events_count ?? payload.importEvents.length,

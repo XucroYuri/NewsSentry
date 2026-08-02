@@ -61,6 +61,7 @@ class D1BackfillPlan:
     events: list[D1Event]
     targets: list[D1Target]
     sources: list[D1Source]
+    canary_target_allowlist: tuple[str, ...] | None = None
 
 
 def _sql(value: Any) -> str:
@@ -133,14 +134,14 @@ def _read_target_config(path: Path, target_id: str) -> dict[str, Any]:
 def _target_primary_language(config: dict[str, Any]) -> str:
     language_scope = config.get("language_scope")
     if isinstance(language_scope, dict) and isinstance(language_scope.get("primary"), str):
-        return language_scope["primary"]
+        return str(language_scope["primary"])
     return "en"
 
 
 def _target_lifecycle_status(config: dict[str, Any]) -> str:
     lifecycle = config.get("lifecycle")
     if isinstance(lifecycle, dict) and isinstance(lifecycle.get("status"), str):
-        return lifecycle["status"].strip().lower()
+        return str(lifecycle["status"]).strip().lower()
     status = config.get("status")
     return str(status or "active").strip().lower()
 
@@ -151,7 +152,7 @@ def _source_ref_text(value: Any) -> str:
     if isinstance(value, dict):
         for key in ("source_id", "id", "ref"):
             if isinstance(value.get(key), str):
-                return value[key].strip()
+                return str(value[key]).strip()
     return ""
 
 
@@ -176,6 +177,17 @@ def _target_has_source_config(targets_dir: Path, target_id: str, config: dict[st
     )
 
 
+def _normalize_canary_target_allowlist(
+    targets: tuple[str, ...] | list[str] | None,
+) -> tuple[str, ...] | None:
+    if targets is None:
+        return None
+    normalized = tuple(dict.fromkeys(target.strip() for target in targets if target.strip()))
+    if len(normalized) != 4:
+        raise ValueError("canary_target_allowlist_requires_exactly_four_targets")
+    return normalized
+
+
 def _iter_event_rows(db_path: Path) -> list[sqlite3.Row]:
     with closing(sqlite3.connect(db_path)) as conn:
         conn.row_factory = sqlite3.Row
@@ -198,11 +210,13 @@ def collect_backfill_plan(
     data_dir: Path,
     targets_dir: Path,
     limit: int | None = None,
+    canary_target_allowlist: tuple[str, ...] | list[str] | None = None,
 ) -> D1BackfillPlan:
     events: list[D1Event] = []
     target_event_counts: dict[str, int] = {}
     target_source_ids: dict[str, set[str]] = {}
     source_names: dict[tuple[str, str], str] = {}
+    normalized_canary_allowlist = _normalize_canary_target_allowlist(canary_target_allowlist)
 
     for db_path in sorted(data_dir.glob("*/state.db")):
         rows = _iter_event_rows(db_path)
@@ -261,6 +275,18 @@ def collect_backfill_plan(
             target_source_ids.setdefault(target_id, set()).add(source_id)
             source_names.setdefault((target_id, source_id), source_id)
 
+    if normalized_canary_allowlist is not None:
+        unknown_targets = [
+            target_id
+            for target_id in normalized_canary_allowlist
+            if target_id not in configured_targets and target_id not in target_event_counts
+        ]
+        if unknown_targets:
+            raise ValueError(
+                "canary_target_allowlist_unknown_targets:"
+                + ",".join(sorted(unknown_targets))
+            )
+
     targets: list[D1Target] = []
     for target_id in sorted(set(target_event_counts) | set(configured_targets)):
         target_config = configured_targets.get(target_id) or _read_target_config(
@@ -273,6 +299,8 @@ def collect_backfill_plan(
             _target_lifecycle_status(target_config) not in inactive_statuses
             and _target_has_source_config(targets_dir, target_id, target_config)
         )
+        if normalized_canary_allowlist is not None:
+            collect_enabled = collect_enabled and target_id in normalized_canary_allowlist
         targets.append(
             D1Target(
                 target_id=target_id,
@@ -290,7 +318,12 @@ def collect_backfill_plan(
         D1Source(source_id=source_id, target_id=target_id, name=name)
         for (target_id, source_id), name in sorted(source_names.items())
     ]
-    return D1BackfillPlan(events=events, targets=targets, sources=sources)
+    return D1BackfillPlan(
+        events=events,
+        targets=targets,
+        sources=sources,
+        canary_target_allowlist=normalized_canary_allowlist,
+    )
 
 
 def _target_insert(target: D1Target) -> str:
@@ -401,6 +434,12 @@ def generate_backfill_sql(plan: D1BackfillPlan) -> str:
     return "\n".join(statements) + "\n"
 
 
+def parse_canary_target_allowlist(value: str | None) -> tuple[str, ...] | None:
+    if value is None:
+        return None
+    return _normalize_canary_target_allowlist(value.split(","))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
@@ -408,15 +447,25 @@ def main() -> int:
     parser.add_argument("--limit", type=int)
     parser.add_argument("--output-sql", type=Path)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--canary-target-allowlist",
+        type=parse_canary_target_allowlist,
+        help=(
+            "Comma-separated exact four-target allowlist to enable for production "
+            "canary collection."
+        ),
+    )
     args = parser.parse_args()
 
     plan = collect_backfill_plan(
         data_dir=args.data_dir,
         targets_dir=args.targets_dir,
         limit=args.limit,
+        canary_target_allowlist=args.canary_target_allowlist,
     )
     print(
-        f"events={len(plan.events)} targets={len(plan.targets)} sources={len(plan.sources)}",
+        f"events={len(plan.events)} targets={len(plan.targets)} sources={len(plan.sources)} "
+        f"canary_target_allowlist={list(plan.canary_target_allowlist or [])}",
     )
     if args.output_sql:
         args.output_sql.write_text(generate_backfill_sql(plan), encoding="utf-8")

@@ -439,8 +439,7 @@ async function getContainerHandle(
   namespace: DurableObjectNamespace,
   name: string,
 ): Promise<ContainerHandle> {
-  const containers = await import("@cloudflare/containers");
-  return containers.getContainer(namespace, name);
+  return namespace.get(namespace.idFromName(name)) as unknown as ContainerHandle;
 }
 
 async function callContainerInternalTask(
@@ -596,10 +595,10 @@ async function auditCloudflareBudget(db: D1Database): Promise<Record<string, unk
 
 function collectBatchDetails(batch: CollectTargetBatch): Record<string, unknown> {
   return {
-    target_ids: batch.targetIds,
-    cursor: batch.cursor,
-    next_cursor: batch.nextCursor,
-    total_targets: batch.totalTargets,
+    selected_target_ids: batch.targetIds,
+    selection_cursor_before: batch.cursor,
+    selection_cursor_after: batch.nextCursor,
+    enabled_target_count: batch.totalTargets,
     batch_size: COLLECT_TARGET_BATCH_SIZE,
   };
 }
@@ -661,7 +660,7 @@ export async function runScheduledCloudflareTask(
     } else if (task === "collect-cycle" && runtimeConfig.schedulerMode === "queue") {
       details = { status: "ok", reason: "queue_authoritative_scheduler_dispatched_only" };
     } else if (task === "collect-cycle" && collectBatch?.targetIds.length === 0) {
-      details = { status: "empty_no_targets", reason: "no_active_targets" };
+      details = { status: "failed_dependency", reason: "no_collect_targets_enabled" };
     } else {
       details = await callContainerInternalTask(env, task, collectBatch?.targetIds);
     }
@@ -715,7 +714,11 @@ export async function runScheduledCloudflareTask(
         : typeof compactDetails.status === "string" && compactDetails.status
           ? compactDetails.status
           : "ok";
-    if (task === "collect-cycle" && collectBatch !== null && ["ok", "partial"].includes(status)) {
+    if (
+      task === "collect-cycle" &&
+      collectBatch !== null &&
+      ["ok", "partial", "empty_no_new_items"].includes(status)
+    ) {
       await persistCollectTargetCursor(env.DB, collectBatch);
     }
     await recordRun(env.DB, runId, task, status, startedAt, compactDetails);
