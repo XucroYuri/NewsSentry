@@ -125,6 +125,16 @@ def test_deploy_workflow_requires_access_config_and_deployment_receipts() -> Non
     assert '"https://news-sentry.com/api/v1/ready"' in worker_health
     assert '"https://api.news-sentry.com/api/v1/live"' not in worker_health
     assert '"https://api.news-sentry.com/api/v1/ready"' not in worker_health
+    assert 'if mode == "live":' in worker_health
+    assert (
+        'assert body.get("status") == "ok", "Worker live status is not ok"'
+        in worker_health
+    )
+    assert 'if mode == "ready":' in worker_health
+    assert (
+        'assert body.get("status") in {"ok", "degraded"}, '
+        '"Worker ready status is not ok or degraded"'
+    ) in worker_health
     assert 'headers.get("x-news-sentry-deploy-commit") == os.environ["GITHUB_SHA"]' in deploy_yml
     assert 'headers.get("x-news-sentry-worker-version")' in deploy_yml
     assert "falling back to D1 smoke check" not in deploy_yml

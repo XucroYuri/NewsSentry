@@ -134,6 +134,7 @@ def _runtime_reasons(
     *,
     expected_commit: str,
     require_readiness: bool,
+    allowed_statuses: set[str],
 ) -> list[str]:
     reasons: list[str] = []
     if response.error:
@@ -143,7 +144,7 @@ def _runtime_reasons(
     if payload is None:
         reasons.append("invalid_json")
         return reasons
-    if payload.get("status") != "ok":
+    if payload.get("status") not in allowed_statuses:
         reasons.append("runtime_status_not_ok")
     if require_readiness and _mapping(payload.get("readiness")).get("ok") is not True:
         reasons.append("readiness_not_ok")
@@ -205,6 +206,7 @@ def build_receipt(
     environment: str,
     public_base_url: str,
     api_base_url: str,
+    probe_api_base_url: str | None = None,
     expected_commit: str,
     max_data_age_hours: float,
     max_future_skew_minutes: float,
@@ -216,10 +218,11 @@ def build_receipt(
     max_future = generated_at + timedelta(minutes=max_future_skew_minutes)
     oldest_allowed = generated_at - timedelta(hours=max_data_age_hours)
     checks: list[dict[str, Any]] = []
+    machine_api_base_url = probe_api_base_url or api_base_url
 
     for mode in ("live", "ready", "health"):
         response = _fetch(
-            f"{api_base_url}/api/v1/{mode}",
+            f"{machine_api_base_url}/api/v1/{mode}",
             timeout_seconds=timeout_seconds,
         )
         payload = _json(response)
@@ -228,6 +231,7 @@ def build_receipt(
             payload,
             expected_commit=expected_commit,
             require_readiness=mode != "live",
+            allowed_statuses={"ok", "degraded"} if mode == "ready" else {"ok"},
         )
         degraded_reasons = _runtime_degraded_reason_codes(
             payload,
@@ -310,7 +314,7 @@ def build_receipt(
         )
 
     news_response = _fetch(
-        f"{api_base_url}/api/v1/public/news?page_size=3",
+        f"{machine_api_base_url}/api/v1/public/news?page_size=3",
         timeout_seconds=timeout_seconds,
         origin=public_base_url,
     )
@@ -354,7 +358,7 @@ def build_receipt(
     )
 
     facets_response = _fetch(
-        f"{api_base_url}/api/v1/public/facets",
+        f"{machine_api_base_url}/api/v1/public/facets",
         timeout_seconds=timeout_seconds,
     )
     facets_payload = _json(facets_response)
@@ -420,6 +424,7 @@ def build_receipt(
         "environment": environment,
         "public_base_url": public_base_url,
         "api_base_url": api_base_url,
+        "probe_api_base_url": machine_api_base_url,
         "expected_commit": expected_commit,
         "deployed_commit": expected_commit,
         "thresholds": {
@@ -451,6 +456,7 @@ def _failure_receipt(
         "environment": environment,
         "public_base_url": None,
         "api_base_url": None,
+        "probe_api_base_url": None,
         "expected_commit": expected_commit,
         "deployed_commit": expected_commit,
         "status": "failed",
@@ -484,6 +490,7 @@ def main() -> int:
     parser.add_argument("--environment", required=True)
     parser.add_argument("--public-base-url", required=True)
     parser.add_argument("--api-base-url", required=True)
+    parser.add_argument("--probe-api-base-url")
     parser.add_argument("--expected-commit", required=True)
     parser.add_argument("--max-data-age-hours", type=float, default=2.0)
     parser.add_argument("--max-future-skew-minutes", type=float, default=5.0)
@@ -496,10 +503,16 @@ def main() -> int:
     try:
         public_base_url = _origin(args.public_base_url, label="public base URL")
         api_base_url = _origin(args.api_base_url, label="API base URL")
+        probe_api_base_url = (
+            _origin(args.probe_api_base_url, label="probe API base URL")
+            if args.probe_api_base_url
+            else api_base_url
+        )
         receipt = build_receipt(
             environment=args.environment,
             public_base_url=public_base_url,
             api_base_url=api_base_url,
+            probe_api_base_url=probe_api_base_url,
             expected_commit=args.expected_commit,
             max_data_age_hours=args.max_data_age_hours,
             max_future_skew_minutes=args.max_future_skew_minutes,

@@ -17,6 +17,10 @@ on:
         description: "Override Worker API origin"
         required: false
         default: ""
+      probe_api_base_url:
+        description: "Override machine probe API origin"
+        required: false
+        default: ""
       expected_commit:
         description: "Optional guard commit; must match deployment metadata when set"
         required: false
@@ -62,6 +66,7 @@ jobs:
           INPUT_ENVIRONMENT: ${{ github.event.inputs.environment || '' }}
           INPUT_PUBLIC_BASE_URL: ${{ github.event.inputs.public_base_url || '' }}
           INPUT_API_BASE_URL: ${{ github.event.inputs.api_base_url || '' }}
+          INPUT_PROBE_API_BASE_URL: ${{ github.event.inputs.probe_api_base_url || '' }}
           INPUT_EXPECTED_COMMIT: ${{ github.event.inputs.expected_commit || '' }}
           INPUT_MAX_DATA_AGE_HOURS: ${{ github.event.inputs.max_data_age_hours || '' }}
         run: |
@@ -69,7 +74,8 @@ jobs:
           if [ "${GITHUB_EVENT_NAME}" = "schedule" ]; then
             environment="production"
             public_base_url="https://news-sentry.com"
-            api_base_url="https://news-sentry.com"
+            api_base_url="https://api.news-sentry.com"
+            probe_api_base_url="https://news-sentry.com"
             max_data_age_hours="2"
           else
             environment="${INPUT_ENVIRONMENT:-production}"
@@ -77,11 +83,13 @@ jobs:
             case "${environment}" in
               production)
                 public_base_url="${INPUT_PUBLIC_BASE_URL:-https://news-sentry.com}"
-                api_base_url="${INPUT_API_BASE_URL:-https://news-sentry.com}"
+                api_base_url="${INPUT_API_BASE_URL:-https://api.news-sentry.com}"
+                probe_api_base_url="${INPUT_PROBE_API_BASE_URL:-https://news-sentry.com}"
                 ;;
               preview)
                 public_base_url="${INPUT_PUBLIC_BASE_URL}"
                 api_base_url="${INPUT_API_BASE_URL:-https://news-sentry-api-preview.xuyu.workers.dev}"
+                probe_api_base_url="${INPUT_PROBE_API_BASE_URL:-${api_base_url}}"
                 : "${public_base_url:?Preview public_base_url is required.}"
                 ;;
               *)
@@ -103,16 +111,17 @@ jobs:
           reject_multiline "environment" "${environment}"
           reject_multiline "public_base_url" "${public_base_url}"
           reject_multiline "api_base_url" "${api_base_url}"
+          reject_multiline "probe_api_base_url" "${probe_api_base_url}"
           reject_multiline "input_expected_commit" "${INPUT_EXPECTED_COMMIT}"
           reject_multiline "max_data_age_hours" "${max_data_age_hours}"
           echo "Resolve deployed commit from guard receipt and deployment metadata"
-          API_BASE_URL="${api_base_url}" INPUT_EXPECTED_COMMIT="${INPUT_EXPECTED_COMMIT}" python - <<'PY' > /tmp/news-sentry-current-deployment.json
+          PROBE_API_BASE_URL="${probe_api_base_url}" INPUT_EXPECTED_COMMIT="${INPUT_EXPECTED_COMMIT}" python - <<'PY' > /tmp/news-sentry-current-deployment.json
           import json
           import os
           import sys
           import urllib.request
 
-          api_base_url = os.environ["API_BASE_URL"].rstrip("/")
+          api_base_url = os.environ["PROBE_API_BASE_URL"].rstrip("/")
           request = urllib.request.Request(
               f"{api_base_url}/api/v1/ready",
               headers={"User-Agent": "NewsSentryContinuityResolver/1.0"},
@@ -147,6 +156,7 @@ jobs:
           printf '%s=%s\n' "environment" "${environment}" >> "${GITHUB_OUTPUT}"
           printf '%s=%s\n' "public_base_url" "${public_base_url}" >> "${GITHUB_OUTPUT}"
           printf '%s=%s\n' "api_base_url" "${api_base_url}" >> "${GITHUB_OUTPUT}"
+          printf '%s=%s\n' "probe_api_base_url" "${probe_api_base_url}" >> "${GITHUB_OUTPUT}"
           printf '%s=%s\n' "expected_commit" "${expected_commit}" >> "${GITHUB_OUTPUT}"
           printf '%s=%s\n' "deployed_at" "${deployed_at}" >> "${GITHUB_OUTPUT}"
           printf '%s=%s\n' "max_data_age_hours" "${max_data_age_hours}" >> "${GITHUB_OUTPUT}"
@@ -156,6 +166,7 @@ jobs:
           ENVIRONMENT: ${{ steps.target.outputs.environment }}
           PUBLIC_BASE_URL: ${{ steps.target.outputs.public_base_url }}
           API_BASE_URL: ${{ steps.target.outputs.api_base_url }}
+          PROBE_API_BASE_URL: ${{ steps.target.outputs.probe_api_base_url }}
           EXPECTED_COMMIT: ${{ steps.target.outputs.expected_commit }}
           MAX_DATA_AGE_HOURS: ${{ steps.target.outputs.max_data_age_hours }}
         run: |
@@ -164,6 +175,7 @@ jobs:
             --environment "${ENVIRONMENT}" \
             --public-base-url "${PUBLIC_BASE_URL}" \
             --api-base-url "${API_BASE_URL}" \
+            --probe-api-base-url "${PROBE_API_BASE_URL}" \
             --expected-commit "${EXPECTED_COMMIT}" \
             --max-data-age-hours "${MAX_DATA_AGE_HOURS}" \
             --max-future-skew-minutes 5 \

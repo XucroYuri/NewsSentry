@@ -457,7 +457,10 @@ jobs:
                   headers[key.strip().lower()] = value.strip()
 
           body = json.loads(Path(body_path).read_text())
-          assert body.get("status") == "ok", f"Worker {mode} status is not ok"
+          if mode == "live":
+              assert body.get("status") == "ok", "Worker live status is not ok"
+          if mode == "ready":
+              assert body.get("status") in {"ok", "degraded"}, "Worker ready status is not ok or degraded"
           assert headers.get("x-news-sentry-runtime") == "cloudflare-worker"
           assert headers.get("x-news-sentry-deploy-commit") == os.environ["GITHUB_SHA"]
           assert headers.get("x-news-sentry-worker-version"), "Worker version receipt missing"

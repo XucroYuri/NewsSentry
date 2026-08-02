@@ -54,10 +54,16 @@ def test_runtime_health_workflow_defaults_schedules_to_production_and_fails_clos
 
     assert 'environment="production"' in resolve
     assert 'public_base_url="https://news-sentry.com"' in resolve
-    assert 'api_base_url="https://news-sentry.com"' in resolve
-    assert 'api_base_url="${INPUT_API_BASE_URL:-https://news-sentry.com}"' in resolve
-    assert "https://api.news-sentry.com" not in resolve
-    assert "https://news-sentry-api-preview.xuyu.workers.dev" in resolve
+    assert 'api_base_url="https://api.news-sentry.com"' in resolve
+    assert 'probe_api_base_url="https://news-sentry.com"' in resolve
+    assert 'api_base_url="${INPUT_API_BASE_URL:-https://api.news-sentry.com}"' in resolve
+    assert 'probe_api_base_url="${INPUT_PROBE_API_BASE_URL:-https://news-sentry.com}"' in resolve
+    assert (
+        'api_base_url="${INPUT_API_BASE_URL:-https://news-sentry-api-preview.xuyu.workers.dev}"'
+        in resolve
+    )
+    assert 'probe_api_base_url="${INPUT_PROBE_API_BASE_URL:-${api_base_url}}"' in resolve
+    assert 'printf \'%s=%s\\n\' "probe_api_base_url" "${probe_api_base_url}"' in resolve
     assert "Resolve deployed commit from guard receipt and deployment metadata" in resolve
     assert 'expected_commit="${DEPLOYED_COMMIT}"' in resolve
     assert 'expected_commit="${GITHUB_SHA}"' not in resolve
@@ -85,6 +91,12 @@ def test_runtime_health_workflow_defaults_schedules_to_production_and_fails_clos
     assert "--source-health-current /tmp/news-sentry-source-health-slo.json" in continuity
     assert "--source-health-start /tmp/news-sentry-source-health-slo-start.json" in continuity
     assert "--source-health-end /tmp/news-sentry-source-health-slo-end.json" in continuity
+    probe = steps["Probe split Cloudflare runtime"]["run"]
+    probe_env = steps["Probe split Cloudflare runtime"]["env"]
+    assert probe_env["API_BASE_URL"] == "${{ steps.target.outputs.api_base_url }}"
+    assert probe_env["PROBE_API_BASE_URL"] == "${{ steps.target.outputs.probe_api_base_url }}"
+    assert '--api-base-url "${API_BASE_URL}"' in probe
+    assert '--probe-api-base-url "${PROBE_API_BASE_URL}"' in probe
 
     continuity_artifact = steps["Upload continuity ledger receipt"]
     expected_artifact_name = (
