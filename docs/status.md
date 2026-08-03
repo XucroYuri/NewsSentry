@@ -1,106 +1,119 @@
 # News Sentry 当前状态
 
-> 更新时间：2026-08-02T20:05:56+08:00
+> 更新时间：2026-08-03T13:20:16+08:00
 > 状态口径：本文件只记录会变化的运行态事实；架构和字段契约仍以 `docs/architecture.md` 与 `docs/contracts-canonical.md` 为准。
-> 完整证据：[2026-08-01 项目健康、安全与低成本全球化审计](./audits/2026-08-01-project-health-security-cost-audit.md)
+> 完整基线：[2026-08-01 项目健康、安全与低成本全球化审计](./audits/2026-08-01-project-health-security-cost-audit.md)
 
 ## 结论
 
-当前综合健康分为 **58/100**：公开网站和 API 可服务，工程测试基线较强，但持续采集、数据新鲜度、评分一致性、远端状态证明和若干安全边界尚未达到可持续生产运营标准。
+正式网站已恢复到 **公开面可用、定时采集持续推进、首页展示新鲜新闻、生产控制面与 D1 可验证** 的状态。当前生产运行态为 `ok`，综合治理分由恢复前的 **58/100** 提升到 **78/100**。
 
-2026-08-02 Phase 2 Task 4 与隔离 Preview 已完成一次远端闭环：GitHub run `30721353606` 在 commit `4f90cda26fe05c61b2ea46605d2d5e3f6e0208da` 上成功创建/更新 `news-sentry-api-preview`、`ns-db-preview` 与 Preview Pages，并实际执行 Preview 验证。`live`、`ready`、`health` 均返回 `200/ok`，响应正文与 `x-news-sentry-deploy-commit` 对齐同一 commit；D1 schema/seed、Pages 到 Preview API 的构建绑定、精确 CORS、CSP 和快照命中均有 artifact 回执。候选分支同时加入每 6 小时运行的无密钥公开面健康探针，将 Pages、Worker、D1 数据新鲜度和部署 commit 分开验证并保留 14 天 JSON 回执。生产仍未更新，也没有 72 小时 canary 或 7 天 SLO 证据，因此综合分仍为 **58/100**。
+这两个结论需要分开理解：
 
-同日第二次隔离部署 run `30727960018` 在 commit `2bfe26dd1f71bd510ab45826b08659f6506a8ba2` 上完成全量 CI、Preview R2 bucket identity、D1 schema、Worker、Pages 和最终验证。`live`、`ready`、`health` 现场复核均为 `200/ok`，`artifacts_configured=true`，部署 header 对齐该 commit，Worker version 为 `ba19fdc0-95f2-4f67-b15a-ba7758e154ff`，Pages immutable URL 为 `https://469e4bd4.news-sentry.pages.dev`。这证明 R2 binding 与部署门禁可用，仍不证明真实导入对象写入或生产恢复。
+- **生产运行正常**：Worker、D1、Cron、公共快照、首页回退和 P0 DLQ 均有同一生产 commit 的远端回执。
+- **全球信源库存仍需治理**：最新 1,803 条引用审计只有 74.10% 为 `ok`，未达到 90% 的库存 SLO；4 个 P0 信源全部正常，因此该问题保持独立告警，不再误报为整站停机。
 
-同日 durable import + Preview canary 工作的 Tasks 1-7 已在隔离 worktree 本地实现并完成 scoped review，候选 HEAD 为 `119b3d0ef7912cd2a30ea2941caa683475a3dcc5`。本地代码现在要求 API/Container 正常导入走 R2-first durable import，并为 projection-only finalize 使用 append-only Phase 4 schema；Preview workflow 已接入匿名写 403、机器 Service Token 首次 200、幂等重放、D1/R2 交叉校验和 committed artifact restore 的步骤。Task 9 尚未执行精确 SHA 远端 Preview deploy/canary/restore，因此这些仍是待取得的远端回执，不得写成 Preview 已证明事实。
+72 小时和 7 天持续性证明已经开始积累，但自然时间窗口尚未结束。当前 continuity 状态为 `collecting_72h`，已有 1 条有效回执；不能提前声称 `canary_72h_passed` 或 `slo_7d_passed`。
 
-同日 Task 8 已在本地把 restore receipt 绑定到 `expected_commit` 与 continuity ledger：restore validator 现在要求 `continuity_receipt.status=slo_7d_passed`、`deployed_commit` 与当前恢复演练 commit 完全一致，并拒绝 synthetic-only canary artifact 作为生产恢复证据。该变更仍只是本地实现和测试结论；没有远端 Preview restore、72 小时生产 canary 或 7 天连续健康回执前，不得把它写成生产恢复。
-
-最重要的事实不是“网站是否返回 200”，而是：
-
-- 生产健康端点返回 `200 / status=ok`，但最新采集时间停在 `2026-07-23T07:52:23.678529Z`，审计时已经约 9 天未更新。
-- 最近 4 次每周 Source Health Audit 全部失败；最新一次 1,803 条引用中仅 1,397 条为 `ok`，健康率 77.48%。
-- 生产性能门禁失败，多个热缓存接口的 warm TTFB 中位数或 p95 超过 900/1200 ms 阈值。
-- 公开数据中存在一条发布时间为 `2028-01-01` 的未来记录，会污染“最新公开时间”和新鲜度判断。
-- 评分契约完整，但生产样本存在高分饱和、Breaking 字段缺失、分值与标签不一致。
-- 本地 Worker 已实现 Cloudflare Access JWT 的签名、issuer、audience、exp、nbf 与 JWKS 域名验证；生产仍是旧 commit，当前线上伪造 header 探测为 403，但新控制尚未取得远端部署回执。
-- 隔离 Preview 已证明新 Worker/D1/Pages 公开链路可用，但该证明不等于生产恢复，也不覆盖 Queue、Cron、Container 或 Durable Object。
-
-## 基线
+## 生产证据
 
 | 项目 | 当前证据 |
 |---|---|
-| 生产已验证分支 | `main@83efaaa74d6c4c1ba0e4a944e7fd1ceb29cd8299` |
-| 整改候选 | `dev-xu/fix/cloudflare-persistent-runtime`，Draft PR [#50](https://github.com/XucroYuri/NewsSentry/pull/50) 当前 `CLEAN`，最近三项 CI 均成功 |
-| Release 距离 | `v2.0.0-rc3-198-g83efaaa`，HEAD 不是已打 tag 的 release |
-| Targets | 配置 82；生产 regions 端点返回 82 |
-| Sources | 1,128 个 YAML 文件、1,127 个 `source_id`；远端审计展开为 1,803 条 target-source 引用 |
-| Python tests | 远端全量 CI 通过、覆盖率 85%；本轮 Cloudflare/restore 相关 100 项通过 |
-| Python quality | ruff 通过；CI 等价 `mypy --ignore-missing-imports` 对 142 个源文件通过 |
-| Public frontend | 139 tests、typecheck、build 全部通过 |
-| Admin frontend | 68 tests、typecheck、build 全部通过 |
-| SEO/GEO | 线上 22/22 通过 |
-| 生产 Deploy | 最新 main run `28563362256` 成功，时间 2026-07-02 |
-| Preview | 隔离 run `30727960018` 成功；Worker version `ba19fdc0-95f2-4f67-b15a-ba7758e154ff`；Pages immutable URL `https://469e4bd4.news-sentry.pages.dev` |
-| 未合并工作 | Draft PR #50 仍未审批/合并；本地有用户已有未跟踪 latent-value 文件，本次未改动 |
+| 生产部署 commit | `e130570bc4d6621de079691da547a0f4f2cbe62e` |
+| Worker version | `068af049-1bdb-4a44-bf93-dcf442e32c52` |
+| Deployment ID | `9479de87-9c8d-4a9e-a5ee-1bbd0a87e5c4` |
+| 生产部署 | GitHub run [`30783636458`](https://github.com/XucroYuri/NewsSentry/actions/runs/30783636458) 成功 |
+| 最终 Runtime Health | GitHub run [`30786864478`](https://github.com/XucroYuri/NewsSentry/actions/runs/30786864478) 成功；6/6 checks 通过、0 reason code |
+| 采集连续性 | `collect-cycle` 于 `2026-08-03T05:17:19.443Z` 完成，状态 `ok`，本轮 target 为 `france` |
+| 数据新鲜度 | `total_events=32265`；`latest_valid_collected_at=2026-08-03T05:17:02.874Z`；未来时间戳 0 |
+| 公开快照 | 17 个快照；最新生成 `2026-08-03T05:17:13.717Z`；最新源发布时间 `2026-08-03T05:15:20.505Z` |
+| P0 DLQ | `p0_dead_lettered=0` |
+| 首页 | 生产浏览器验证已同时请求 featured bootstrap 与 all-news fallback，根文档、JS、CSS、两类 API 均为 200；页面展示 2026-08-03 新内容，控制台无错误 |
+| Continuity | `collecting_72h`；1 条有效回执；12 个 6 小时槽后才可通过 72h，28 个槽后才可通过 7d |
 
-## 本地改造进度（尚未代表生产）
+## 本轮根因与修复
 
-| 项目 | 本地状态 | 远端状态 |
-|---|---|---|
-| Phase 0/1 持久运行基线 | 已提交到 `dev-xu/fix/cloudflare-persistent-runtime` | 隔离 Preview 已证明，生产未部署 |
-| Phase 2 Queue shadow 与 DLQ replay | 已提交，含 scoped review/fix 记录 | Preview 公开面不证明 Queue/Cron/Container |
-| Phase 2 Task 4 preview-safe preflight/receipt | 实现与测试完成 | run `30721353606` 的 preflight、D1 schema/seed、Worker/Pages deploy 与 verify 全部成功 |
-| 隔离 Preview Worker/D1 | config、guard、seed、receipt、Pages/API 绑定和质量门禁均完成 | `news-sentry-api-preview`、`ns-db-preview`、Preview Pages 已创建并验证 |
-| D1/R2 持久化边界 | R2 不可变导入正文、D1 manifest、围栏式 finalize 与失败重放已完成 | run `30727960018` 已证明 Preview R2 bucket/binding/ready 门禁；尚无真实导入对象回执 |
-| Durable import + Preview canary | Tasks 1-7 本地实现和审查完成；API/Container 委托统一 durable projection import；Phase 4 projection receipt 是 append-only schema | Task 9 尚未执行；仍待精确 SHA Preview 匿名 403、机器 200、重放、D1/R2 cross-check 和 restore receipt |
-| Restore/continuity 绑定 | Task 8 本地实现：restore receipt 必须绑定 `expected_commit`、`slo_7d_passed` continuity receipt、real committed artifact 与 cleanup 证据 | 仍无远端 72h/7d continuity ledger，也无同 commit production restore receipt |
-| 隔离恢复演练 | D1 export、独立私有 R2 往返校验、一次性 D1 import、schema/row/orphan/snapshot 校验和强制清理 workflow 已完成本地测试 | Preview run `30728893550` 已证明 31,101-byte R2 往返同 SHA、隔离 import 和 `cleanup.verified_absent=true`；因 Preview migration receipt 为空及 UTF-8 byte count 漂移而 fail-closed，修复待重跑 |
-| 发布治理 | `preview` 可从候选分支部署隔离面；`production` 只接受 `main`；workflow 不直接改写 `main` | Draft PR #50 `CLEAN`，但仍无审批/合并；生产 job 在 Preview run 中明确跳过 |
-| 供应链 | Wrangler `4.114.0`、Miniflare `4.20260722.0`、Sharp `0.35.2`；官方 npm audit 0 | GitHub CI 与 Preview 部署均通过 |
-| 健康质量门禁 | 缺失、畸形、陈旧或未来时间戳均拒绝；新增公开面运行探针和 JSON 回执 | Preview 门禁已证明；生产探针会拒绝当前 false-green 状态 |
-| 安全深扫 | 旧 revision 扫描仍停在 `Preparing scan` | 旧 scanId `f7ea0ba1-a833-4239-a7dc-a189073ab1f6` 没有 discovery/finding；最终 SHA 固定后必须新建扫描 |
-| 72h canary / 7d SLO | 每 6 小时探针 workflow 已纳入候选分支，回执保留 14 天 | 尚未开始积累；需合并后由 schedule 产生持续证据 |
+1. **采集路径不适合冷启动容器**：采集工作量过大、target 固定、成功游标推进不完整。现在使用有界采集、轮换 target 和成功游标，避免单轮工作把容器拖入超时。
+2. **Durable Object / Container RPC 边界错误**：端口等待不显式，且把不可跨 RPC 传输的 `AbortSignal` 传入 Durable Object。现在由服务端建立等待与超时边界。
+3. **幽灵 target 阻断轮转**：D1 中存在配置已删除的 `china-watch-en`，轮转后触发 `target_config_not_found`。现在部署同步会权威归档或禁用配置中不存在的 target。
+4. **部署回执误读**：健康脚本把 Wrangler deployment 历史列表第一项当作 active deployment。现在改用 `wrangler deployments status --json`，并按 exact version/percentage fail-closed。
+5. **就绪快照时钟陈旧**：健康检查读取旧的 ready snapshot，导致成功部署被误判。现在刷新时钟与部署回执统一。
+6. **首页 featured 数据永久陈旧**：低成本新采集没有 enrichment 字段，无法进入 featured，旧的高价值新闻长期占据首页。默认首页在 featured 为空或超过 24 小时时自动回退到 all-news 最新页；筛选视图不做该回退，手动刷新仍优先重试 featured。
+7. **Source Health 与 Runtime Health 混为一体**：全局库存 SLO 未达标会阻止平台连续性回执，即使 P0 源、Cron 和 D1 全部正常。现在 Source Health 同时输出严格的库存 `status` 与 fail-closed 的 `operational_status`；P0、部署元数据、基线缺失仍会阻断，只有全局库存比例类问题作为独立治理告警。
+8. **持续性窗口原本不可达**：Source Health 每周运行，但 ledger 要求 24 小时内审计，并让固定 start 边界随时间过期。现在 current/end 与每周周期对齐为 7 天，start 固定为部署边界且不得早于 deployment。
+
+对应修复已通过 PR [#51](https://github.com/XucroYuri/NewsSentry/pull/51) 至 [#59](https://github.com/XucroYuri/NewsSentry/pull/59) 分阶段进入 `main`。
+
+## 信源健康
+
+最新审计 run [`30786439282`](https://github.com/XucroYuri/NewsSentry/actions/runs/30786439282) 的结论：
+
+| 状态 | 数量 | 占比/说明 |
+|---|---:|---|
+| ok | 1,336 | 74.10% |
+| failed | 98 | 5.44%，高于 2% 库存阈值 |
+| degraded | 127 | 空 feed、解析异常等 |
+| rate_limited | 130 | 主要受共享 GDELT API 限流影响 |
+| temporary_unavailable | 112 | 临时断连、超时或上游 5xx |
+| 合计 | 1,803 | 1,024 个唯一 source ref |
+
+库存 SLO 保持 `failed`，阻塞原因是 `global_ok_ratio_below_threshold` 和 `global_failed_ratio_above_threshold`。运行关键面为 `operational_status=ok`、`operational_blockers=[]`；ANSA、Tagesschau Politics、Le Monde Politics、NHK News 四个 P0 信源均为 `ok`。
+
+下一阶段按影响排序治理：
+
+1. 先修复或替换 403/404、invalid JSON 和空 feed 的唯一源，不为第三方限流降低正式 SLO。
+2. 将共享 GDELT 查询按 host 做更低并发和错峰审计，区分自致 429 与真实生产不可用。
+3. 对被多个 target 复用的 pool source 同时保留“唯一源健康”和“受影响 target 数”两种指标，避免只看引用加权比例。
+4. 连续两次确认失效后进入 degraded/dead 生命周期；不得静默删除历史证据。
 
 ## 综合评分
 
 | 维度 | 分值 | 权重 | 当前判断 |
 |---|---:|---:|---|
-| 公开面可用性 | 82 | 10% | 核心公开面 200、受保护面 403、SEO/GEO 全绿 |
-| 数据新鲜度 | 25 | 15% | 采集停滞约 9 天，且未来时间戳掩盖真实陈旧度 |
-| 信源连续性 | 60 | 10% | 77.48% ok，连续 4 周审计失败 |
-| 评分完整性 | 52 | 12% | 契约强，但线上饱和、回退、缺字段和标签漂移明显 |
-| 软件质量 | 86 | 10% | 测试/覆盖率/前端门禁强，仍有线程清理和本地门禁一致性问题 |
-| 安全控制 | 58 | 15% | 未发现已确认 RCE/SQL 注入；存在鉴权、SSRF、路径、URL、提示词和供应链缺口 |
-| 部署治理 | 60 | 8% | main 部署有回执，preview 分叉，Cloudflare 状态和 live commit 不能闭环证明 |
-| 可观测与恢复 | 45 | 8% | 有日志/审计脚本，但 health 会对陈旧数据报 ok，连续失败未形成恢复闭环 |
-| 全球化准备度 | 78 | 7% | 82 targets、多语言和边缘架构已成形，区域质量差异仍大 |
-| 成本效率 | 55 | 5% | D1/R2/Workers 适合低成本，但当前 cron 可能让 basic Container 无法休眠 |
+| 公开面可用性 | 96 | 10% | Pages、静态资源、公共 API、首页实时阅读流均已验证 |
+| 数据新鲜度 | 94 | 15% | 15 分钟采集持续推进，D1 与公开快照在分钟级更新，未来时间戳为 0 |
+| 信源连续性 | 60 | 10% | P0 4/4 正常，但全量引用仅 74.10% 为 ok |
+| 评分完整性 | 52 | 12% | 本轮未解决历史高分饱和、Breaking 字段缺失和标签漂移 |
+| 软件质量 | 90 | 10% | PR CI、234 项相关工具测试、全量后端/前端门禁和独立审查均通过 |
+| 安全控制 | 68 | 15% | 生产鉴权与部署面 fail-closed；旧安全深扫仍缺最终报告，注入面整改尚未全部关闭 |
+| 部署治理 | 92 | 8% | exact commit/version/deployment/D1 回执闭环，生产与 preview 边界明确 |
+| 可观测与恢复 | 84 | 8% | Runtime Health 已全绿并建立 ledger；72h/7d 仍需自然积累 |
+| 全球化准备度 | 78 | 7% | 81 个有效 target 与全球信源骨架可用，区域源质量仍不均衡 |
+| 成本效率 | 68 | 5% | 未增加常驻监控服务；使用 Cloudflare 与 GitHub 定时回执，但 Container 唤醒成本仍需真实账单校准 |
 
-加权总分：`58.10`，四舍五入为 **58/100**。
+加权总分：`78.08`，四舍五入为 **78/100**。
 
-## 当前 P0
+## 当前优先级
 
-1. 恢复采集并让 health 在采集超过阈值时返回 degraded，而不是继续 `status=ok`。
-2. 隔离未来时间戳，修复 `latest_public_at=2028-01-01` 对新鲜度的污染。
-3. 将已通过隔离 Preview 的 Access JWT 与部署回执推进到经审批的生产发布，并保留线上“伪造 email header 仍 403”回归探测。
-4. 给 Breaking 数据增加 `score/version/label/confidence/dimensions` 完整性门禁和历史回填。
-5. 取得正确 NewsSentry Cloudflare 账户的只读状态与费用回执；当前本机可见的 Cloudflare zone 不是本项目 zone。
+### P0：生产运行
 
-## 当前阻塞与边界
+当前没有已知未关闭的生产运行 P0。以下条件已经满足：
 
-- GitHub 环境凭据已能安全写入隔离 Preview；本机 Wrangler token 仍不作为 NewsSentry 生产写入凭据，生产发布尚未执行。
-- `wrangler types`、`wrangler deploy --dry-run`、本地测试和 workflow 文本检查只算本地门禁，不算生产恢复。
-- 状态分四层记录：本地实现只证明代码和测试；Preview proof 只证明隔离 Preview 的匿名 403、机器 200、重放、D1/R2 cross-check 与 restore；72h production canary 只证明 12 个连续 6 小时健康回执；7d continuous healthy 需要 28 个连续 6 小时健康回执、`slo_7d_passed` continuity ledger 与同 commit restore receipt 同时存在。
-- Durable import Task 8 只记录本地验证和文档口径；Task 9 之前不能声称 Preview 已完成匿名 403、机器 200、幂等重放、D1/R2 cross-check 或 committed artifact restore；production promotion 前还必须取得 72h canary 与 7d continuous healthy。
-- Preview 只证明公开 API、D1、健康端点和 Pages/API 构建绑定；不证明 Queue、Cron、Container、Durable Object 或生产数据面。
-- VPS/Tunnel/systemd、VPS snapshot、本地 SQLite 和本地 `data/*/drafts` 只保留为 legacy rollback 或人工审计上下文，不是 Cloudflare production 的权威恢复来源。
-- Python app 当前同时注册 Bearer 管理 webhook 与 HMAC webhook 的同路径路由；实际路由顺序优先 Bearer 版本。HMAC fail-closed 修复只算防御性修补，必须在契约统一后才能声称外部 webhook 已切换。
-- `origin/preview` 与 `main` 已长期分叉，不作为本轮候选的合并基线。本轮先推送候选分支，通过手动隔离 Preview 取得回执，再以 PR 合入 `main`；禁止 workflow 自动改写 `main`。
-- 下一次生产部署必须先产出 `/tmp/news-sentry-cloudflare-preflight.json` 与 `/tmp/news-sentry-cloudflare-deploy-receipt.json`，并把 version/deployment/D1/Queue/health receipt 对齐到同一 commit；隔离 Preview 的同类回执已由 run `30721353606` 证明。
+- 当前 active Worker 与部署回执一致；
+- Cron 持续推进，数据未超过 2 小时阈值；
+- 未来时间戳为 0，P0 DLQ 为 0；
+- 首页展示新鲜新闻；
+- Runtime Health 回执和 continuity ledger 已成功落盘。
+
+### P1：持续性与质量
+
+1. 等待并验证 12 个连续 6 小时槽，取得 `canary_72h_passed`。
+2. 等待并验证 28 个连续 6 小时槽与边界 Source Health，取得 `slo_7d_passed`。
+3. 将全局信源 `ok` 比例从 74.10% 提升到至少 90%，hard-failed 比例降到 2% 以下。
+4. 继续评分一致性、Breaking 完整性和历史回填整改。
+5. 对最终生产 SHA 重新发起安全深扫并取得可审计报告；不得把停在 `Preparing scan` 的旧扫描视为通过。
+
+## 低成本运行边界
+
+- 生产采集继续使用现有 15 分钟 Cron，不新增常驻监控进程。
+- Runtime Health 每 6 小时运行一次，artifact 保留 14 天，用 GitHub Actions 替代新的监控服务器。
+- Source Health 每周全量审计一次；P0/元数据故障阻断生产连续性，全局库存质量独立告警。
+- D1 保存结构化状态，R2 保存大对象与恢复证据，Pages/Workers 提供公开边缘面；VPS 仅保留 legacy rollback，不作为生产依赖。
+- 未取得 Cloudflare 真实费用回执前，不把“架构便宜”写成“成本已证明”。
 
 ## 状态更新规则
 
-- 每次生产部署、采集恢复、P0 关闭或评分显著变化时更新本文件。
-- 不把本地测试、GitHub workflow 成功或 preview 可访问等同于生产已持续健康。
-- 易漂移的 SHA、计数、时间、阻塞项只保留在本文件和同日审计收据中。
+- 每次生产部署、采集恢复、P0 关闭、评分显著变化或 continuity 状态升级时更新本文件。
+- 不把本地测试、Preview、单次 200 或单次 Cron 等同于持续健康。
+- 72h 需要 12 个连续 6 小时槽；7d 需要 28 个槽、边界 Source Health 与同 commit 回执。
+- 易漂移的 SHA、计数、时间和运行链接只记录在本文件及对应 artifact 中。
