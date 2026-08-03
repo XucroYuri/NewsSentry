@@ -51,6 +51,7 @@ def test_runtime_health_workflow_defaults_schedules_to_production_and_fails_clos
     job = workflow["jobs"]["runtime-health"]
     steps = {step["name"]: step for step in job["steps"] if "name" in step}
     resolve = steps["Resolve probe target"]["run"]
+    source_health = steps["Download Source Health SLO receipts"]["run"]
     previous = steps["Download previous continuity ledger"]["run"]
     continuity = steps["Update continuity ledger"]["run"]
 
@@ -89,6 +90,11 @@ def test_runtime_health_workflow_defaults_schedules_to_production_and_fails_clos
     assert "reject_multiline" in resolve
     assert "Invalid expected_commit: expected a 40-character Git commit SHA." in resolve
     assert "printf '%s=%s\\n'" in resolve
+    assert "gh run list --workflow source-health.yml --status completed" in source_health
+    assert "for candidate_run_id in" in source_health
+    assert 'select(.name == "source-health-receipts" and .expired == false)' in source_health
+    assert "No completed Source Health receipt artifact found." in source_health
+    assert "--status success" not in source_health
     assert "cloudflare-continuity-ledger-" in previous
     assert "--status success" in previous
     assert "for previous_run_id in" in previous

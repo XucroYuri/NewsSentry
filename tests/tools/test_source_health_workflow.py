@@ -16,6 +16,7 @@ def test_source_health_workflow_requires_previous_summary_or_bootstrap() -> None
 
     dispatch = workflow["on"]["workflow_dispatch"]["inputs"]
     assert dispatch["bootstrap_weekly_slo"]["default"] == "false"
+    assert dispatch["max_failed"]["default"] == ""
     assert workflow["permissions"] == {"actions": "read", "contents": "read"}
 
     steps = {
@@ -45,3 +46,5 @@ def test_source_health_workflow_requires_previous_summary_or_bootstrap() -> None
     assert "--allow-weekly-bootstrap" in audit
     assert '--slo-environment "${SLO_ENVIRONMENT}"' in audit
     assert '--slo-deployed-commit "${SLO_DEPLOYED_COMMIT}"' in audit
+    assert "github.event.inputs.max_failed || '0'" not in audit
+    assert 'github.event.inputs.max_failed || \'\'' in audit

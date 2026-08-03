@@ -480,21 +480,28 @@ def evaluate_source_health_slo(
         str(code) for code in config.get("blocking_reason_codes", [])
     }
     blockers: list[str] = []
+    operational_blockers: list[str] = []
     environment = config.get("environment")
     deployed_commit = _full_commit(config.get("deployed_commit"))
     if not isinstance(environment, str) or not environment.strip():
         blockers.append("source_health_environment_missing")
+        operational_blockers.append("source_health_environment_missing")
         environment = None
     if deployed_commit is None:
         blockers.append("source_health_deployed_commit_missing")
+        operational_blockers.append("source_health_deployed_commit_missing")
     row_by_ref = {_row_ref(row): row for row in rows}
     for source_ref in sorted(p0_source_refs):
         row = row_by_ref.get(source_ref)
         if row is None:
-            blockers.append(f"p0_source_missing:{source_ref}")
+            blocker = f"p0_source_missing:{source_ref}"
+            blockers.append(blocker)
+            operational_blockers.append(blocker)
             continue
         if row.get("health_status") != "ok":
-            blockers.append(f"p0_source_failed:{source_ref}")
+            blocker = f"p0_source_failed:{source_ref}"
+            blockers.append(blocker)
+            operational_blockers.append(blocker)
 
     ok_ratio = _ratio(summary, "ok")
     failed_ratio = _ratio(summary, "failed")
@@ -513,11 +520,14 @@ def evaluate_source_health_slo(
             weekly_bootstrap = True
         else:
             blockers.append("previous_summary_missing")
+            operational_blockers.append("previous_summary_missing")
 
     reason_codes = summary.get("reason_codes")
     if isinstance(reason_codes, list):
         for code in sorted({str(code) for code in reason_codes} & blocking_reason_codes):
-            blockers.append(f"blocking_reason_code:{code}")
+            blocker = f"blocking_reason_code:{code}"
+            blockers.append(blocker)
+            operational_blockers.append(blocker)
 
     return {
         "schema_version": "news-sentry.source-health-slo.v1",
@@ -526,6 +536,8 @@ def evaluate_source_health_slo(
         "deployed_commit": deployed_commit,
         "status": "ok" if not blockers else "failed",
         "blockers": sorted(blockers),
+        "operational_status": "ok" if not operational_blockers else "failed",
+        "operational_blockers": sorted(operational_blockers),
         "bootstrap": {"weekly_comparison": weekly_bootstrap},
         "ratios": {
             "ok": ok_ratio,

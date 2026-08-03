@@ -12,9 +12,9 @@ on:
         required: false
         default: ""
       max_failed:
-        description: "Fail when failed live checks exceed this count"
+        description: "Optional stricter cap for failed live checks; leave blank to use the SLO ratio"
         required: false
-        default: "0"
+        default: ""
       bootstrap_weekly_slo:
         description: "Allow first audited Source Health SLO run without previous summary"
         required: true
@@ -144,8 +144,8 @@ jobs:
           if [[ -n "${{ github.event.inputs.limit || '' }}" ]]; then
             args+=(--limit "${{ github.event.inputs.limit }}")
           fi
-          if [[ -n "${{ github.event.inputs.max_failed || '0' }}" ]]; then
-            args+=(--max-failed "${{ github.event.inputs.max_failed || '0' }}")
+          if [[ -n "${{ github.event.inputs.max_failed || '' }}" ]]; then
+            args+=(--max-failed "${{ github.event.inputs.max_failed || '' }}")
           fi
           python tools/source_health_audit.py "${args[@]}"
 

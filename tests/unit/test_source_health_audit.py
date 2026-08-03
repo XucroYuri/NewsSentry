@@ -476,7 +476,9 @@ def test_source_health_slo_requires_p0_and_ratio_thresholds() -> None:
     )
 
     assert result["status"] == "failed"
+    assert result["operational_status"] == "failed"
     assert "p0_source_failed:italy:ansa" in result["blockers"]
+    assert "p0_source_failed:italy:ansa" in result["operational_blockers"]
 
 
 def test_source_health_slo_blocks_global_ratios_and_weekly_drop() -> None:
@@ -487,11 +489,15 @@ def test_source_health_slo_blocks_global_ratios_and_weekly_drop() -> None:
             "minimum_ok_ratio": 0.90,
             "maximum_failed_ratio": 0.02,
             "maximum_weekly_ok_drop": 0.03,
+            "environment": "production",
+            "deployed_commit": "a" * 40,
         },
         previous_summary={"total": 100, "ok": 92, "failed": 1},
     )
 
     assert result["status"] == "failed"
+    assert result["operational_status"] == "ok"
+    assert result["operational_blockers"] == []
     assert "global_ok_ratio_below_threshold" in result["blockers"]
     assert "global_failed_ratio_above_threshold" in result["blockers"]
     assert "weekly_ok_ratio_drop_exceeded" in result["blockers"]
@@ -512,11 +518,17 @@ def test_source_health_slo_requires_previous_summary_unless_bootstrap() -> None:
     result = source_health_audit.evaluate_source_health_slo(
         summary={"total": 10, "ok": 10, "failed": 0},
         rows=[],
-        config={"maximum_weekly_ok_drop": 0.03},
+        config={
+            "maximum_weekly_ok_drop": 0.03,
+            "environment": "production",
+            "deployed_commit": "a" * 40,
+        },
     )
 
     assert result["status"] == "failed"
+    assert result["operational_status"] == "failed"
     assert "previous_summary_missing" in result["blockers"]
+    assert "previous_summary_missing" in result["operational_blockers"]
 
     bootstrap = source_health_audit.evaluate_source_health_slo(
         summary={"total": 10, "ok": 10, "failed": 0},
@@ -530,6 +542,7 @@ def test_source_health_slo_requires_previous_summary_unless_bootstrap() -> None:
     )
 
     assert bootstrap["status"] == "ok"
+    assert bootstrap["operational_status"] == "ok"
     assert bootstrap["bootstrap"]["weekly_comparison"] is True
     assert bootstrap["environment"] == "production"
     assert bootstrap["deployed_commit"] == "a" * 40
@@ -543,5 +556,6 @@ def test_source_health_slo_requires_environment_and_full_commit_metadata() -> No
     )
 
     assert result["status"] == "failed"
+    assert result["operational_status"] == "failed"
     assert "source_health_environment_missing" in result["blockers"]
     assert "source_health_deployed_commit_missing" in result["blockers"]
