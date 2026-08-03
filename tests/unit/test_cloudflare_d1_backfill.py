@@ -205,6 +205,57 @@ def test_backfill_canary_allowlist_enables_exact_four_targets(tmp_path: Path) ->
     ]
 
 
+def test_target_sync_archives_removed_targets_and_reactivates_configured_targets(
+    tmp_path: Path,
+) -> None:
+    data_dir = tmp_path / "data"
+    targets_dir = tmp_path / "config" / "targets"
+    targets_dir.mkdir(parents=True)
+    (targets_dir / "italy.yaml").write_text(
+        "target_id: italy\n"
+        "display_name: Italy\n"
+        "source_channel_refs:\n"
+        "  - ansa\n",
+        encoding="utf-8",
+    )
+    sql = generate_backfill_sql(
+        collect_backfill_plan(data_dir=data_dir, targets_dir=targets_dir, limit=0)
+    )
+
+    with closing(sqlite3.connect(tmp_path / "d1.sqlite")) as db:
+        db.executescript((ROOT / "frontend/cloudflare/db/schema.sql").read_text(encoding="utf-8"))
+        db.executemany(
+            """
+            INSERT INTO targets (
+              target_id, display_name, region_id, lifecycle, archived,
+              cloudflare_collect_enabled
+            ) VALUES (?, ?, ?, '{}', ?, ?)
+            """,
+            [
+                ("china-watch-en", "Retired China Watch", "china-watch-en", 0, 1),
+                ("italy", "Old Italy", "italy", 1, 0),
+            ],
+        )
+        db.executemany(
+            "INSERT INTO sources (source_id, target_id, name, enabled) VALUES (?, ?, ?, ?)",
+            [
+                ("legacy-china", "china-watch-en", "Legacy China", 1),
+                ("ansa", "italy", "ANSA", 0),
+            ],
+        )
+        db.executescript(sql)
+        db.executescript(sql)
+        targets = dict(
+            db.execute(
+                "SELECT target_id, archived || ':' || cloudflare_collect_enabled FROM targets"
+            ).fetchall()
+        )
+        sources = dict(db.execute("SELECT source_id, enabled FROM sources").fetchall())
+
+    assert targets == {"china-watch-en": "1:0", "italy": "0:1"}
+    assert sources == {"ansa": 1, "legacy-china": 0}
+
+
 def test_backfill_canary_allowlist_rejects_non_four_target_receipts(tmp_path: Path) -> None:
     targets_dir = tmp_path / "config" / "targets"
     targets_dir.mkdir(parents=True)
