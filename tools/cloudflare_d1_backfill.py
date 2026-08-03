@@ -46,6 +46,7 @@ class D1Target:
     timezone: str
     source_count: int
     event_count: int
+    archived: int = 0
     cloudflare_collect_enabled: int = 1
 
 
@@ -54,6 +55,7 @@ class D1Source:
     source_id: str
     target_id: str
     name: str
+    enabled: int = 1
 
 
 @dataclass(frozen=True)
@@ -61,6 +63,7 @@ class D1BackfillPlan:
     events: list[D1Event]
     targets: list[D1Target]
     sources: list[D1Source]
+    active_target_ids: tuple[str, ...] = ()
     canary_target_allowlist: tuple[str, ...] | None = None
 
 
@@ -82,6 +85,7 @@ _COMPACT_UTC_RE = re.compile(
     r"^(?P<date>\d{4})(?P<month>\d{2})(?P<day>\d{2})T"
     r"(?P<hour>\d{2})(?P<minute>\d{2})(?P<second>\d{2})Z$"
 )
+_INACTIVE_TARGET_STATUSES = {"retired", "archive", "archived", "dead"}
 
 
 def _normalize_timestamp(value: Any) -> str:
@@ -279,6 +283,15 @@ def collect_backfill_plan(
             target_source_ids.setdefault(target_id, set()).add(source_id)
             source_names.setdefault((target_id, source_id), source_id)
 
+    active_target_ids = tuple(
+        sorted(
+            target_id
+            for target_id, target_config in configured_targets.items()
+            if _target_lifecycle_status(target_config) not in _INACTIVE_TARGET_STATUSES
+        )
+    )
+    active_target_id_set = set(active_target_ids)
+
     if normalized_canary_allowlist is not None:
         unknown_targets = [
             target_id
@@ -298,9 +311,8 @@ def collect_backfill_plan(
             target_id,
         )
         source_count = len(target_source_ids.get(target_id, set()))
-        inactive_statuses = {"retired", "archive", "archived", "dead"}
         collect_enabled = (
-            _target_lifecycle_status(target_config) not in inactive_statuses
+            target_id in active_target_id_set
             and _target_has_source_config(targets_dir, target_id, target_config)
         )
         if normalized_canary_allowlist is not None:
@@ -314,18 +326,25 @@ def collect_backfill_plan(
                 timezone=str(target_config.get("timezone") or "UTC"),
                 source_count=source_count,
                 event_count=target_event_counts.get(target_id, 0),
+                archived=0 if target_id in active_target_id_set else 1,
                 cloudflare_collect_enabled=1 if collect_enabled else 0,
             )
         )
 
     sources = [
-        D1Source(source_id=source_id, target_id=target_id, name=name)
+        D1Source(
+            source_id=source_id,
+            target_id=target_id,
+            name=name,
+            enabled=1 if target_id in active_target_id_set else 0,
+        )
         for (target_id, source_id), name in sorted(source_names.items())
     ]
     return D1BackfillPlan(
         events=events,
         targets=targets,
         sources=sources,
+        active_target_ids=active_target_ids,
         canary_target_allowlist=normalized_canary_allowlist,
     )
 
@@ -337,12 +356,13 @@ def _target_insert(target: D1Target) -> str:
         "cloudflare_collect_enabled, timezone) VALUES "
         f"({_sql(target.target_id)}, {_sql(target.display_name)}, {_sql(target.target_id)}, "
         f"{_sql(target.primary_language)}, {_sql(target.region_type)}, {target.source_count}, "
-        f"{target.event_count}, '{{}}', 0, {target.cloudflare_collect_enabled}, "
+        f"{target.event_count}, '{{}}', {target.archived}, {target.cloudflare_collect_enabled}, "
         f"{_sql(target.timezone)}) "
         "ON CONFLICT(target_id) DO UPDATE SET "
         "display_name=excluded.display_name, primary_language=excluded.primary_language, "
         "region_type=excluded.region_type, source_count=excluded.source_count, "
         "event_count=MAX(COALESCE(targets.event_count, 0), COALESCE(excluded.event_count, 0)), "
+        "archived=excluded.archived, "
         "cloudflare_collect_enabled=excluded.cloudflare_collect_enabled, "
         "timezone=excluded.timezone;"
     )
@@ -351,7 +371,8 @@ def _target_insert(target: D1Target) -> str:
 def _source_insert(source: D1Source) -> str:
     return (
         "INSERT INTO sources (source_id, target_id, name, type, enabled) VALUES "  # noqa: S608
-        f"({_sql(source.source_id)}, {_sql(source.target_id)}, {_sql(source.name)}, 'rss', 1) "
+        f"({_sql(source.source_id)}, {_sql(source.target_id)}, {_sql(source.name)}, "
+        f"'rss', {source.enabled}) "
         "ON CONFLICT(source_id) DO UPDATE SET "
         "target_id=excluded.target_id, name=excluded.name, enabled=excluded.enabled;"
     )
@@ -432,6 +453,16 @@ def _event_insert(event: D1Event) -> str:
 
 def generate_backfill_sql(plan: D1BackfillPlan) -> str:
     statements: list[str] = []
+    if plan.active_target_ids:
+        active_targets = ", ".join(_sql(target_id) for target_id in plan.active_target_ids)
+        statements.append(
+            "UPDATE targets SET archived=1, cloudflare_collect_enabled=0 "  # noqa: S608
+            f"WHERE target_id NOT IN ({active_targets});"
+        )
+        statements.append(
+            "UPDATE sources SET enabled=0 "  # noqa: S608
+            f"WHERE target_id NOT IN ({active_targets});"
+        )
     statements.extend(_target_insert(target) for target in plan.targets)
     statements.extend(_source_insert(source) for source in plan.sources)
     statements.extend(_event_insert(event) for event in plan.events)

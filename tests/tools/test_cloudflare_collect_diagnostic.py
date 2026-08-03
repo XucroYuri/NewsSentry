@@ -60,6 +60,40 @@ def test_collect_diagnostic_extracts_bounded_runtime_failure() -> None:
         "error": "Failed to start container: port 8000 is not ready",
     }
     assert diagnostic["selected_target_ids"] == ["france"]
+    assert diagnostic["target_results"] == []
+
+
+def test_collect_diagnostic_extracts_sanitized_target_results() -> None:
+    diagnostic = build_diagnostic(
+        _d1_result(
+            {
+                "body": {
+                    "error": "target collection failed",
+                    "summary": {
+                        "target_results": [
+                            {
+                                "target_id": "china-watch-en",
+                                "status": "error",
+                                "events_collected": 0,
+                                "import_events_count": 0,
+                                "reason": "target_database_missing",
+                            }
+                        ]
+                    },
+                }
+            }
+        )
+    )
+
+    assert diagnostic["target_results"] == [
+        {
+            "target_id": "china-watch-en",
+            "status": "error",
+            "events_collected": 0,
+            "import_events_count": 0,
+            "reason": "target_database_missing",
+        }
+    ]
 
 
 def test_collect_diagnostic_redacts_credentials_and_truncates_error() -> None:
