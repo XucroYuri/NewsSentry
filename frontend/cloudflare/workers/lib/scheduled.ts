@@ -25,7 +25,6 @@ type ContainerDependencyFailure = {
 };
 type ContainerStartOptions = {
   cancellationOptions?: {
-    abort?: AbortSignal;
     instanceGetTimeoutMS?: number;
     portReadyTimeoutMS?: number;
     waitInterval?: number;
@@ -514,7 +513,6 @@ async function callContainerInternalTask(
       try {
         await container.startAndWaitForPorts({
           cancellationOptions: {
-            abort: controller.signal,
             instanceGetTimeoutMS: CONTAINER_INSTANCE_GET_TIMEOUT_MS,
             portReadyTimeoutMS: CONTAINER_PORT_READY_TIMEOUT_MS,
             waitInterval: CONTAINER_STARTUP_POLL_INTERVAL_MS,

@@ -423,7 +423,7 @@ test("collect cycle explicitly waits for container ports before the first fetch"
       };
     }) {
       calls.push("start");
-      assert.ok(options.cancellationOptions?.abort);
+      assert.equal("abort" in (options.cancellationOptions ?? {}), false);
       assert.equal(options.cancellationOptions.instanceGetTimeoutMS, 60_000);
       assert.equal(options.cancellationOptions.portReadyTimeoutMS, 120_000);
       assert.equal(options.cancellationOptions.waitInterval, 500);
