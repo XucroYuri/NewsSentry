@@ -62,6 +62,26 @@ def _safe_error(value: Any) -> str | None:
     return cleaned[:MAX_ERROR_CHARS]
 
 
+def _safe_target_results(body: dict[str, Any]) -> list[dict[str, Any]]:
+    summary = _mapping(body.get("summary"))
+    raw_results = summary.get("target_results")
+    if not isinstance(raw_results, list):
+        return []
+    results: list[dict[str, Any]] = []
+    for raw_result in raw_results[:20]:
+        if not isinstance(raw_result, dict):
+            continue
+        result = {
+            "target_id": raw_result.get("target_id"),
+            "status": raw_result.get("status"),
+            "events_collected": raw_result.get("events_collected"),
+            "import_events_count": raw_result.get("import_events_count"),
+            "reason": _safe_error(raw_result.get("reason")),
+        }
+        results.append(result)
+    return results
+
+
 def build_diagnostic(d1_json: Any) -> dict[str, Any]:
     row = _row(d1_json)
     raw_value = row.get("value")
@@ -106,6 +126,7 @@ def build_diagnostic(d1_json: Any) -> dict[str, Any]:
             and all(isinstance(target_id, str) for target_id in selected_targets)
             else []
         ),
+        "target_results": _safe_target_results(body_mapping),
     }
 
 
