@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -1847,13 +1848,48 @@ def test_deploy_guard_accepts_fresh_collect_continuity() -> None:
     assert receipt["continuity"]["latest_collect_updated_at"] == "2026-08-02T08:00:01Z"
 
 
+def test_deploy_guard_uses_receipt_clock_for_post_probe_collect() -> None:
+    receipt = build_deploy_receipt(
+        **_valid_deploy_receipt_kwargs(
+            health_json={
+                **_valid_deploy_receipt_kwargs()["health_json"],
+                "generated_at": "2026-08-02T10:00:00Z",
+            },
+            continuity_json={
+                **_valid_deploy_receipt_kwargs()["continuity_json"],
+                "latest_collect": {
+                    "status": "ok",
+                    "run_id": "collect-after-probe",
+                    "updated_at": "2026-08-02T10:15:00Z",
+                },
+            },
+            receipt_generated_at=datetime(2026, 8, 2, 10, 15, 30, tzinfo=UTC),
+        )
+    )
+
+    assert receipt["continuity"]["collect_run_id"] == "collect-after-probe"
+
+
+def test_deploy_guard_rejects_health_timestamp_beyond_future_skew() -> None:
+    with pytest.raises(ReceiptError, match="health generated_at in future"):
+        build_deploy_receipt(
+            **_valid_deploy_receipt_kwargs(
+                health_json={
+                    **_valid_deploy_receipt_kwargs()["health_json"],
+                    "generated_at": "2026-08-02T10:05:01Z",
+                },
+                receipt_generated_at=datetime(2026, 8, 2, 10, 0, 0, tzinfo=UTC),
+            )
+        )
+
+
 @pytest.mark.parametrize(
     ("updated_at", "expected_error"),
     [
         (None, "latest collect updated_at missing"),
         ("not-a-date", "latest collect updated_at invalid"),
         ("2026-08-02T07:59:59Z", "latest collect stale"),
-        ("2026-08-02T10:00:01Z", "latest collect updated_at in future"),
+        ("2026-08-02T10:05:01Z", "latest collect updated_at in future"),
     ],
 )
 def test_deploy_guard_rejects_non_fresh_collect_continuity(
