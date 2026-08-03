@@ -24,6 +24,7 @@ def healthy_receipt(
     run_id: str | None = None,
     environment: str = "production",
     source_health_status: str = "ok",
+    source_health_operational_status: str | None = None,
     source_health_generated_at: datetime | None = None,
     future_timestamp_count: int = 0,
 ) -> dict[str, object]:
@@ -31,6 +32,7 @@ def healthy_receipt(
     audit_generated_at = source_health_generated_at or observed_at
     source_health_audit = {
         "status": source_health_status,
+        "operational_status": source_health_operational_status or source_health_status,
         "generated_at": audit_generated_at.isoformat(),
         "environment": environment,
         "deployed_commit": commit,
@@ -49,9 +51,9 @@ def healthy_receipt(
         "source_health": {
             "status": source_health_status,
             "audits": {
-                "current": source_health_audit,
-                "start": source_health_audit,
-                "end": source_health_audit,
+                "current": {**source_health_audit},
+                "start": {**source_health_audit},
+                "end": {**source_health_audit},
             },
         },
     }
@@ -97,6 +99,19 @@ def test_window_fails_on_commit_drift_future_timestamps_and_unhealthy_receipts()
     assert "source_health_not_ok" in evaluate_window(unhealthy).reason_codes
 
 
+def test_window_accepts_inventory_slo_failure_when_p0_operations_are_healthy() -> None:
+    inventory_degraded = healthy_receipt(
+        hours=6,
+        source_health_status="failed",
+        source_health_operational_status="ok",
+    )
+
+    result = evaluate_window([inventory_degraded])
+
+    assert result.status == "collecting_72h"
+    assert "source_health_not_ok" not in result.reason_codes
+
+
 def test_append_receipt_rejects_conflicting_duplicate_key(tmp_path: Path) -> None:
     ledger_path = tmp_path / "continuity.jsonl"
     receipt = healthy_receipt(hours=6, run_id="same-run")
@@ -126,7 +141,7 @@ def test_six_hour_buckets_allow_cron_offsets_and_detect_gaps() -> None:
 def test_source_health_evidence_requires_fresh_matching_metadata() -> None:
     stale = healthy_receipt(
         hours=6,
-        source_health_generated_at=DEPLOYED_AT - timedelta(days=2),
+        source_health_generated_at=DEPLOYED_AT - timedelta(days=8),
     )
     stale_result = evaluate_window([stale])
 
@@ -161,6 +176,29 @@ def test_source_health_evidence_requires_fresh_matching_metadata() -> None:
     assert "source_health_environment_mismatch" in mismatch_result.reason_codes
     assert "source_health_commit_mismatch" in mismatch_result.reason_codes
     assert "source_health_window_order_invalid" in mismatch_result.reason_codes
+
+
+def test_source_health_start_boundary_can_age_across_the_continuity_window() -> None:
+    receipt = healthy_receipt(hours=192)
+    source_health = cast(dict[str, Any], receipt["source_health"])
+    audits = cast(dict[str, dict[str, Any]], source_health["audits"])
+    audits["start"]["generated_at"] = (DEPLOYED_AT + timedelta(minutes=1)).isoformat()
+
+    result = evaluate_window([receipt])
+
+    assert "source_health_audit_too_old" not in result.reason_codes
+    assert "source_health_start_before_deployment" not in result.reason_codes
+
+
+def test_source_health_start_boundary_cannot_predate_the_deployment() -> None:
+    receipt = healthy_receipt(hours=6)
+    source_health = cast(dict[str, Any], receipt["source_health"])
+    audits = cast(dict[str, dict[str, Any]], source_health["audits"])
+    audits["start"]["generated_at"] = (DEPLOYED_AT - timedelta(minutes=1)).isoformat()
+
+    result = evaluate_window([receipt])
+
+    assert "source_health_start_before_deployment" in result.reason_codes
 
 
 def test_source_health_evidence_rejects_missing_metadata_without_fallback() -> None:

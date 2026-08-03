@@ -18,7 +18,7 @@ COMMIT_LENGTH = 40
 SLOT_HOURS = 6
 SLOTS_72H = 12
 SLOTS_7D = 28
-MAX_SOURCE_HEALTH_AGE_HOURS = 24
+MAX_SOURCE_HEALTH_AGE_HOURS = 7 * 24
 
 
 class ContinuityReceiptError(ValueError):
@@ -154,9 +154,18 @@ def _receipt_commit(receipt: dict[str, Any]) -> str | None:
     return _commit(receipt.get("deployed_commit") or receipt.get("expected_commit"))
 
 
+def _source_audit_operational_ok(audit: dict[str, Any]) -> bool:
+    operational_status = audit.get("operational_status")
+    if operational_status is None:
+        status = audit.get("status")
+        return isinstance(status, str) and status == "ok"
+    return isinstance(operational_status, str) and operational_status == "ok"
+
+
 def _source_health_reason_codes(receipt: dict[str, Any]) -> set[str]:
     reasons: set[str] = set()
     observed_at = _timestamp(receipt.get("observed_at") or receipt.get("generated_at"))
+    deployed_at = _timestamp(receipt.get("deployed_at"))
     deployed_commit = _receipt_commit(receipt)
     environment = receipt.get("environment")
     audits = _source_audits(receipt)
@@ -166,7 +175,7 @@ def _source_health_reason_codes(receipt: dict[str, Any]) -> set[str]:
         if not isinstance(audit, dict):
             reasons.add(f"source_health_{name}_missing")
             continue
-        if audit.get("status") != "ok":
+        if not _source_audit_operational_ok(audit):
             reasons.add("source_health_not_ok")
         if audit.get("environment") != environment:
             reasons.add("source_health_environment_mismatch")
@@ -180,9 +189,13 @@ def _source_health_reason_codes(receipt: dict[str, Any]) -> set[str]:
         if observed_at is not None:
             if generated_at > observed_at:
                 reasons.add("source_health_audit_in_future")
-            age_hours = (observed_at - generated_at).total_seconds() / 3600
-            if age_hours > MAX_SOURCE_HEALTH_AGE_HOURS:
-                reasons.add("source_health_audit_too_old")
+            if name == "start":
+                if deployed_at is not None and generated_at < deployed_at:
+                    reasons.add("source_health_start_before_deployment")
+            else:
+                age_hours = (observed_at - generated_at).total_seconds() / 3600
+                if age_hours > MAX_SOURCE_HEALTH_AGE_HOURS:
+                    reasons.add("source_health_audit_too_old")
     start = audit_times.get("start")
     current = audit_times.get("current")
     end = audit_times.get("end")
@@ -204,9 +217,9 @@ def _source_audit_ok(receipt: dict[str, Any], name: str) -> bool:
     audits = _source_audits(receipt)
     audit = audits.get(name)
     if isinstance(audit, dict):
-        return audit.get("status") == "ok"
+        return _source_audit_operational_ok(audit)
     source_health = receipt.get("source_health")
-    return isinstance(source_health, dict) and source_health.get("status") == "ok"
+    return isinstance(source_health, dict) and _source_audit_operational_ok(source_health)
 
 
 def _receipt_is_healthy(receipt: dict[str, Any], *, require_boundary: bool) -> bool:
