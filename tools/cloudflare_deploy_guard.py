@@ -52,6 +52,7 @@ EXPECTED_RUNTIME_VARS = {
     "WORKER_NATIVE_COLLECT_ENABLED": "false",
 }
 MAX_COLLECT_CONTINUITY_AGE = timedelta(hours=2)
+MAX_COLLECT_FUTURE_SKEW = timedelta(minutes=5)
 RUNTIME_SCHEMA_TABLE_QUERY = (
     "SELECT name FROM sqlite_master WHERE type='table' AND name IN "
     "('import_staged_events','import_batch_finalize_receipts',"
@@ -1310,6 +1311,7 @@ def build_deploy_receipt(
     applied_migration_receipts: Iterable[str],
     queue_receipt: dict[str, Any],
     continuity_json: dict[str, Any],
+    receipt_generated_at: datetime | None = None,
 ) -> dict[str, Any]:
     public_probe = _as_mapping(health_json.get("public_probe"))
     public_probe_challenged = (
@@ -1367,6 +1369,16 @@ def build_deploy_receipt(
             "continuity status invalid: " + ",".join(sorted(set(continuity_reason_codes)))
         )
     _require(generated_at is not None, "health generated_at invalid")
+    assert generated_at is not None
+    if receipt_generated_at is not None:
+        _require(receipt_generated_at.tzinfo is not None, "receipt generated_at invalid")
+        receipt_generated_at = receipt_generated_at.astimezone(UTC)
+    continuity_reference_at = receipt_generated_at or generated_at
+    assert continuity_reference_at is not None
+    _require(
+        generated_at <= continuity_reference_at + MAX_COLLECT_FUTURE_SKEW,
+        "health generated_at in future",
+    )
     collect_status = latest_collect.get("status")
     _require(
         collect_status in {"ok", "partial", "empty_no_new_items"},
@@ -1379,10 +1391,12 @@ def build_deploy_receipt(
     parsed_collect_updated_at = _utc_timestamp(collect_updated_at)
     _require(parsed_collect_updated_at is not None, "latest collect updated_at invalid")
     assert parsed_collect_updated_at is not None
-    assert generated_at is not None
-    _require(parsed_collect_updated_at <= generated_at, "latest collect updated_at in future")
     _require(
-        generated_at - parsed_collect_updated_at <= MAX_COLLECT_CONTINUITY_AGE,
+        parsed_collect_updated_at <= continuity_reference_at + MAX_COLLECT_FUTURE_SKEW,
+        "latest collect updated_at in future",
+    )
+    _require(
+        continuity_reference_at - parsed_collect_updated_at <= MAX_COLLECT_CONTINUITY_AGE,
         "latest collect stale",
     )
     _require(continuity.get("status") == "ok", "continuity status invalid")
@@ -1517,6 +1531,7 @@ def _receipt_command(args: argparse.Namespace) -> int:
         ),
         queue_receipt=json.loads(Path(args.queue_receipt_json).read_text(encoding="utf-8")),
         continuity_json=json.loads(Path(args.continuity_json).read_text(encoding="utf-8")),
+        receipt_generated_at=datetime.now(UTC),
     )
     _print_json(receipt, Path(args.output) if args.output else None)
     return 0
