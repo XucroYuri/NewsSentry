@@ -35,13 +35,11 @@ def _versions() -> list[dict[str, object]]:
     ]
 
 
-def _deployments() -> list[dict[str, object]]:
-    return [
-        {
-            "id": "deployment-1",
-            "versions": [{"version_id": "version-1", "percentage": 100}],
-        }
-    ]
+def _deployments() -> dict[str, object]:
+    return {
+        "id": "deployment-1",
+        "versions": [{"version_id": "version-1", "percentage": 100.0}],
+    }
 
 
 def _d1_row(**overrides: object) -> dict[str, object]:
@@ -174,7 +172,7 @@ def test_control_plane_probe_rejects_malformed_d1_evidence() -> None:
         )
 
 
-def test_control_plane_probe_rejects_a_rollback_to_another_active_deployment() -> None:
+def test_control_plane_probe_rejects_deployment_history_as_current_status() -> None:
     receipt = build_receipt(
         deployment_metadata=_metadata(),
         versions_json=_versions(),
@@ -194,4 +192,46 @@ def test_control_plane_probe_rejects_a_rollback_to_another_active_deployment() -
 
     assert receipt["status"] == "failed"
     assert "active_deployment_id_mismatch" in receipt["summary"]["reason_codes"]
+    assert "active_worker_version_mismatch" in receipt["summary"]["reason_codes"]
+
+
+def test_control_plane_probe_rejects_missing_receipt_deployment() -> None:
+    receipt = build_receipt(
+        deployment_metadata=_metadata(),
+        versions_json=_versions(),
+        deployments_json={
+            "id": "deployment-rollback",
+            "versions": [{"version_id": "version-old", "percentage": 100}],
+        },
+        d1_json=_d1_payload(),
+        max_data_age_hours=2,
+        max_future_skew_minutes=5,
+        run_id="run-1",
+        now=NOW,
+    )
+
+    assert receipt["status"] == "failed"
+    assert "active_deployment_id_mismatch" in receipt["summary"]["reason_codes"]
+    assert "active_worker_version_mismatch" in receipt["summary"]["reason_codes"]
+
+
+def test_control_plane_probe_rejects_receipt_deployment_without_exact_version() -> None:
+    receipt = build_receipt(
+        deployment_metadata=_metadata(),
+        versions_json=_versions(),
+        deployments_json={
+            "id": "deployment-1",
+            "versions": [
+                {"version_id": "version-1", "percentage": 50},
+                {"version_id": "version-old", "percentage": 50},
+            ],
+        },
+        d1_json=_d1_payload(),
+        max_data_age_hours=2,
+        max_future_skew_minutes=5,
+        run_id="run-1",
+        now=NOW,
+    )
+
+    assert receipt["status"] == "failed"
     assert "active_worker_version_mismatch" in receipt["summary"]["reason_codes"]

@@ -123,7 +123,8 @@ def test_runtime_health_workflow_defaults_schedules_to_production_and_fails_clos
     assert "tools/cloudflare_control_plane_runtime_probe.py" in production_script
     assert "--deployment-metadata /tmp/news-sentry-current-deployment.json" in production_script
     assert "node_modules/.bin/wrangler versions list --json" in production_script
-    assert "node_modules/.bin/wrangler deployments list --json" in production_script
+    assert "node_modules/.bin/wrangler deployments status --json" in production_script
+    assert "node_modules/.bin/wrangler deployments list --json" not in production_script
     assert "--versions-json /tmp/news-sentry-runtime-worker-versions.json" in production_script
     assert (
         "--deployments-json /tmp/news-sentry-runtime-worker-deployments.json"
