@@ -23,8 +23,17 @@ type ContainerDependencyFailure = {
   status: "failed_dependency";
   reason: "container_not_configured";
 };
+type ContainerStartOptions = {
+  cancellationOptions?: {
+    abort?: AbortSignal;
+    instanceGetTimeoutMS?: number;
+    portReadyTimeoutMS?: number;
+    waitInterval?: number;
+  };
+};
 type ContainerHandle = {
   fetch(request: Request): Promise<Response>;
+  startAndWaitForPorts?(options: ContainerStartOptions): Promise<void>;
 };
 type ScheduledContainerGetter = (
   namespace: DurableObjectNamespace,
@@ -37,6 +46,9 @@ const COLLECT_TARGET_CURSOR_KEY = "cursor:collect-cycle-target-index";
 const CONTAINER_TASK_TIMEOUT_MS = 8 * 60_000;
 const CONTAINER_STARTUP_MAX_ATTEMPTS = 5;
 const CONTAINER_STARTUP_RETRY_DELAYS_MS = [5_000, 15_000, 30_000, 45_000] as const;
+const CONTAINER_INSTANCE_GET_TIMEOUT_MS = 60_000;
+const CONTAINER_PORT_READY_TIMEOUT_MS = 120_000;
+const CONTAINER_STARTUP_POLL_INTERVAL_MS = 500;
 const CONTAINER_WRITER_LOCK_NAME = "container-sqlite-writer";
 let scheduledContainerGetterForTest: ScheduledContainerGetter | null = null;
 let scheduledContainerRetryDelayForTest: ScheduledContainerRetryDelay | null = null;
@@ -407,6 +419,8 @@ function isContainerStartupDetails(details: Record<string, unknown>): boolean {
     text.includes("container is not running") ||
     text.includes("container startup") ||
     text.includes("container is starting") ||
+    text.includes("failed to start container") ||
+    text.includes("no container instance available") ||
     text.includes("temporarily unavailable")
   );
 }
@@ -494,7 +508,23 @@ async function callContainerInternalTask(
     CONTAINER_TASK_TIMEOUT_MS,
   );
   let lastError: unknown = null;
+  let explicitlyReady = false;
   try {
+    if (container.startAndWaitForPorts) {
+      try {
+        await container.startAndWaitForPorts({
+          cancellationOptions: {
+            abort: controller.signal,
+            instanceGetTimeoutMS: CONTAINER_INSTANCE_GET_TIMEOUT_MS,
+            portReadyTimeoutMS: CONTAINER_PORT_READY_TIMEOUT_MS,
+            waitInterval: CONTAINER_STARTUP_POLL_INTERVAL_MS,
+          },
+        });
+        explicitlyReady = true;
+      } catch (error) {
+        lastError = error;
+      }
+    }
     for (let attempt = 0; attempt < CONTAINER_STARTUP_MAX_ATTEMPTS; attempt += 1) {
       if (attempt > 0) {
         await waitForContainerRetryDelay(attempt);
@@ -505,7 +535,13 @@ async function callContainerInternalTask(
         );
         const details = {
           ...parsed,
-          container_start: attempt === 0 ? "auto_fetch" : `auto_fetch_retry_${attempt}`,
+          container_start: explicitlyReady
+            ? attempt === 0
+              ? "explicit_port_ready"
+              : `explicit_port_ready_retry_${attempt}`
+            : attempt === 0
+              ? "auto_fetch"
+              : `auto_fetch_retry_${attempt}`,
           container_timeout_ms: CONTAINER_TASK_TIMEOUT_MS,
         };
         if (

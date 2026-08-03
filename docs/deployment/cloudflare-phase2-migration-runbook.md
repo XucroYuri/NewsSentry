@@ -86,8 +86,10 @@ canary 均有回执后，才允许在独立变更中解除该停止线。
 ## 生产采集与发布证明
 
 生产 Cron 每 15 分钟选择一个启用 target 作为低成本旋转 canary，Container 继续保持
-`sleepAfter = "5m"`，避免把 15 分钟周期变成近似常驻费用。Container 从休眠恢复时，Worker 最多
-尝试 5 次，间隔为 5、15、30、45 秒；总等待 95 秒仍包含在 8 分钟任务总超时内。只有采集状态为
+`sleepAfter = "5m"`，避免把 15 分钟周期变成近似常驻费用。Container 从休眠恢复时，Worker 先用
+`startAndWaitForPorts()` 显式等待实例和应用端口就绪：实例取得预算为 60 秒、端口就绪预算为
+120 秒、轮询间隔为 500 毫秒，并与后续采集共用 8 分钟总超时。若 SDK 仍返回可识别的临时启动
+失败，Worker 最多再尝试 5 次 `fetch()`，间隔为 5、15、30、45 秒。只有采集状态为
 `ok`、`partial` 或 `empty_no_new_items` 时才推进 target cursor，失败不会跳过该 target。
 
 生产发布回执必须同时满足：
