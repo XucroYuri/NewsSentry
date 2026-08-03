@@ -12,6 +12,7 @@ import {
 import type { PublicNewsFeedResponse, PublicNewsItem } from "@/types/public-news"
 
 export type FeedStatus = "loading" | "ready" | "empty" | "error"
+type ActiveFeedMode = "selected" | "all-news-fallback"
 
 export interface FeedState {
   status: FeedStatus
@@ -38,6 +39,8 @@ const initialFeedState: FeedState = {
   total: 0,
 }
 
+const FEATURED_FRESHNESS_WINDOW_MS = 24 * 60 * 60 * 1000
+
 function feedStateFromResponse(response: PublicNewsFeedResponse): FeedState {
   return {
     status: response.items.length > 0 ? "ready" : "empty",
@@ -50,6 +53,26 @@ function feedStateFromResponse(response: PublicNewsFeedResponse): FeedState {
     pollAfterMs: response.pollAfterMs ?? 30_000,
     total: response.total ?? response.items.length,
   }
+}
+
+function allNewsFallbackQuery(filters: FeedFilters) {
+  return {
+    pageSize: filters.pageSize,
+    locale: filters.locale,
+  }
+}
+
+function latestPublishedAtMs(items: PublicNewsItem[]) {
+  const timestamps = items
+    .map((item) => Date.parse(item.publishedAt))
+    .filter((timestamp) => Number.isFinite(timestamp))
+  return timestamps.length > 0 ? Math.max(...timestamps) : null
+}
+
+function hasStaleLatestPublishedAt(items: PublicNewsItem[]) {
+  const latest = latestPublishedAtMs(items)
+  if (latest === null) return items.length > 0
+  return Date.now() - latest > FEATURED_FRESHNESS_WINDOW_MS
 }
 
 function normalizeError(error: unknown) {
@@ -86,12 +109,8 @@ function filtersEqual(left: FeedFilters, right: FeedFilters) {
   )
 }
 
-function sortByValue(items: PublicNewsItem[]) {
-  return [...items].sort(
-    (left, right) =>
-      (right.breakingScore ?? right.valueScore ?? 0) -
-      (left.breakingScore ?? left.valueScore ?? 0),
-  )
+function shouldUseAllNewsFallback(filters: FeedFilters, items: PublicNewsItem[]) {
+  return shouldFallbackFeatured(filters) && (items.length === 0 || hasStaleLatestPublishedAt(items))
 }
 
 export function usePublicFeed(
@@ -107,10 +126,50 @@ export function usePublicFeed(
   const [loadingMore, setLoadingMore] = useState(false)
   const [pollFailures, setPollFailures] = useState(0)
   const [pollNonce, setPollNonce] = useState(0)
+  const [activeFeedMode, setActiveFeedMode] = useState<ActiveFeedMode>("selected")
   const poll = options.poll ?? true
   const initialFeed = options.initialFeed ?? null
   const waitForInitialData = options.waitForInitialData ?? false
   const consumedInitialForFilters = useRef<FeedFilters | null>(null)
+
+  const loadAllNewsFallback = useCallback(
+    async (mode: "replace" | "refresh" = "replace") => {
+      setRefreshing(true)
+      setPollFailures(0)
+      setFeedState((current) => ({
+        ...current,
+        status: current.items.length > 0 && mode === "refresh" ? "ready" : "loading",
+        error: undefined,
+        pendingNewItems: mode === "replace" ? [] : current.pendingNewItems,
+        recentlyInsertedIds: mode === "replace" ? [] : current.recentlyInsertedIds,
+      }))
+      try {
+        const result = await listPublicNews(allNewsFallbackQuery(filters))
+        const items = result.data?.items ?? []
+        setActiveFeedMode("all-news-fallback")
+        setFeedState({
+          status: items.length > 0 ? "ready" : "empty",
+          items,
+          pendingNewItems: [],
+          recentlyInsertedIds: [],
+          latestCursor: result.data?.latestCursor ?? null,
+          nextCursor: result.data?.nextCursor ?? null,
+          etag: result.etag,
+          pollAfterMs: result.pollAfterMs ?? result.data?.pollAfterMs ?? 30_000,
+          total: result.data?.total ?? items.length,
+        })
+      } catch (error) {
+        setFeedState((current) => ({
+          ...current,
+          status: "error",
+          error: normalizeError(error),
+        }))
+      } finally {
+        setRefreshing(false)
+      }
+    },
+    [filters],
+  )
 
   const loadFeed = useCallback(
     async (mode: "replace" | "refresh" = "replace") => {
@@ -126,17 +185,18 @@ export function usePublicFeed(
       try {
         let result = await listPublicNews(makeFeedQuery(filters))
         let items = result.data?.items ?? []
-        if (items.length === 0 && shouldFallbackFeatured(filters)) {
+        let nextFeedMode: ActiveFeedMode = "selected"
+        if (shouldUseAllNewsFallback(filters, items)) {
           const fallback = await listPublicNews({
             pageSize: filters.pageSize,
             locale: filters.locale,
           })
           const fallbackItems = fallback.data?.items ?? []
-          if (fallbackItems.length > 0) {
-            result = fallback
-            items = sortByValue(fallbackItems)
-          }
+          result = fallback
+          items = fallbackItems
+          nextFeedMode = "all-news-fallback"
         }
+        setActiveFeedMode(nextFeedMode)
         setFeedState({
           status: items.length > 0 ? "ready" : "empty",
           items,
@@ -163,11 +223,16 @@ export function usePublicFeed(
 
   useEffect(() => {
     if (!initialFeed) return
+    const shouldFallbackInitialFeed = shouldUseAllNewsFallback(filters, initialFeed.items)
+    setActiveFeedMode(shouldFallbackInitialFeed ? "all-news-fallback" : "selected")
     setFeedState(feedStateFromResponse(initialFeed))
     if (!waitForInitialData) {
       consumedInitialForFilters.current = { ...filters }
     }
-  }, [initialFeed])
+    if (!waitForInitialData && shouldFallbackInitialFeed) {
+      void loadAllNewsFallback("refresh")
+    }
+  }, [filters, initialFeed, loadAllNewsFallback, waitForInitialData])
 
   useEffect(() => {
     if (waitForInitialData) return
@@ -202,7 +267,9 @@ export function usePublicFeed(
         try {
           const result = await listPublicNews(
             {
-              ...makeFeedQuery(filters),
+              ...(activeFeedMode === "all-news-fallback"
+                ? allNewsFallbackQuery(filters)
+                : makeFeedQuery(filters)),
               sinceCursor: feedState.latestCursor ?? undefined,
               pageSize: filters.pageSize,
             },
@@ -248,6 +315,7 @@ export function usePublicFeed(
     feedState.latestCursor,
     feedState.pollAfterMs,
     feedState.status,
+    activeFeedMode,
     filters,
     poll,
     pollFailures,
@@ -259,7 +327,7 @@ export function usePublicFeed(
     setLoadingMore(true)
     try {
       const result = await listPublicNews({
-        ...makeFeedQuery(filters),
+        ...(activeFeedMode === "all-news-fallback" ? allNewsFallbackQuery(filters) : makeFeedQuery(filters)),
         beforeCursor: feedState.nextCursor,
         pageSize: filters.pageSize,
       })
@@ -284,7 +352,7 @@ export function usePublicFeed(
     } finally {
       setLoadingMore(false)
     }
-  }, [feedState.nextCursor, filters, loadingMore])
+  }, [activeFeedMode, feedState.nextCursor, filters, loadingMore])
 
   const applyPending = useCallback(() => {
     setFeedState((current) => ({

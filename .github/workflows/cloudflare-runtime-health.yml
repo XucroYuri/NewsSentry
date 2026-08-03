@@ -245,7 +245,7 @@ jobs:
           set -euo pipefail
           node_modules/.bin/wrangler versions list --json \
             > /tmp/news-sentry-runtime-worker-versions.json
-          node_modules/.bin/wrangler deployments list --json \
+          node_modules/.bin/wrangler deployments status --json \
             > /tmp/news-sentry-runtime-worker-deployments.json
           runtime_sql="SELECT
             (SELECT value FROM ops_state WHERE key='last:collect-cycle') AS collect_value,

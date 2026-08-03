@@ -114,7 +114,10 @@ def test_deploy_workflow_uses_fail_closed_cloudflare_preflight_and_receipts() ->
     assert "tools/cloudflare_deploy_guard.py preflight" in workflow
     assert "tools/cloudflare_deploy_guard.py receipt" in workflow
     assert "node_modules/.bin/wrangler versions list --json" in workflow
-    assert "node_modules/.bin/wrangler deployments list --json" in workflow
+    assert "node_modules/.bin/wrangler deployments status --json" in workflow
+    assert "node_modules/.bin/wrangler deployments list --json" not in workflow
+    assert "else (versions[0] if versions else {})" not in workflow
+    assert "else (deployments[0] if deployments else {})" not in workflow
     assert "SELECT migration_id FROM runtime_migration_receipts ORDER BY migration_id" in workflow
     assert "SELECT key, value, updated_at FROM ops_state WHERE key='last:collect-cycle'" in workflow
     assert "--continuity-json /tmp/ns-continuity.json" in workflow
@@ -188,7 +191,8 @@ def test_production_verification_uses_exact_control_plane_receipt_on_runner_chal
     assert "tools/cloudflare_control_plane_runtime_probe.py" in control_plane_script
     assert "wrangler d1 execute ns-db --remote" in control_plane_script
     assert "wrangler versions list --json" in control_plane_script
-    assert "wrangler deployments list --json" in control_plane_script
+    assert "wrangler deployments status --json" in control_plane_script
+    assert "wrangler deployments list --json" not in control_plane_script
     assert "--versions-json /tmp/news-sentry-runtime-worker-versions.json" in control_plane_script
     assert (
         "--deployments-json /tmp/news-sentry-runtime-worker-deployments.json"

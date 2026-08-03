@@ -84,17 +84,34 @@ def _deployment_is_exact_version(deployment: dict[str, Any], version_id: str) ->
     versions = deployment.get("versions")
     if not isinstance(versions, list) or not versions:
         return False
-    total = 0
+    total = 0.0
     exact = False
     for version in versions:
-        if not isinstance(version, dict) or not isinstance(version.get("percentage"), int):
+        if not isinstance(version, dict):
             return False
-        percentage = version["percentage"]
+        percentage_value = version.get("percentage")
+        if isinstance(percentage_value, bool) or not isinstance(
+            percentage_value, (int, float)
+        ):
+            return False
+        percentage = float(percentage_value)
+        if not 0 <= percentage <= 100:
+            return False
         total += percentage
         candidate = version.get("version_id") or version.get("id")
         if candidate == version_id and percentage == 100:
             exact = True
     return exact and total == 100
+
+
+def _current_deployment(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    deployment_id = value.get("id")
+    versions = value.get("versions")
+    if not isinstance(deployment_id, str) or not isinstance(versions, list):
+        return {}
+    return value
 
 
 def _check(name: str, reasons: list[str], evidence: dict[str, Any]) -> dict[str, Any]:
@@ -189,8 +206,7 @@ def build_receipt(
     elif active_version_id != worker_version:
         active_reasons.append("active_version_receipt_mismatch")
 
-    deployments = _rows(deployments_json)
-    active_deployment = deployments[0] if deployments else {}
+    active_deployment = _current_deployment(deployments_json)
     active_deployment_id = active_deployment.get("id")
     if active_deployment_id != deployment_metadata.get("deployment_id"):
         active_reasons.append("active_deployment_id_mismatch")

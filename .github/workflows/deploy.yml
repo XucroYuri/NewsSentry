@@ -592,7 +592,7 @@ jobs:
         run: |
           set -euo pipefail
           node_modules/.bin/wrangler versions list --json > /tmp/ns-worker-versions.json
-          node_modules/.bin/wrangler deployments list --json > /tmp/ns-worker-deployments.json
+          node_modules/.bin/wrangler deployments status --json > /tmp/ns-worker-deployments.json
           node_modules/.bin/wrangler d1 execute ns-db --remote \
             --command "SELECT migration_id FROM runtime_migration_receipts ORDER BY migration_id" \
             --json > /tmp/ns-d1-runtime-migration-receipts.json
@@ -673,7 +673,8 @@ jobs:
               return []
 
           versions = rows(json.loads(Path("/tmp/ns-worker-versions.json").read_text()))
-          deployments = rows(json.loads(Path("/tmp/ns-worker-deployments.json").read_text()))
+          deployment_status_value = json.loads(Path("/tmp/ns-worker-deployments.json").read_text())
+          deployment_status = deployment_status_value if isinstance(deployment_status_value, dict) else {}
           migrations = rows(json.loads(Path("/tmp/ns-d1-runtime-migration-receipts.json").read_text()))
           collect_rows = rows(json.loads(Path("/tmp/ns-d1-collect-continuity.json").read_text()))
           expected_commit = os.environ["GITHUB_SHA"]
@@ -710,13 +711,13 @@ jobs:
               if annotation_value(row, "workers/tag", "tag") == expected_commit
               and expected_commit in (annotation_value(row, "workers/message", "message") or "")
           ]
-          selected_version = matching_versions[0] if matching_versions else (versions[0] if versions else {})
+          selected_version = matching_versions[0] if matching_versions else {}
           selected_version_id = version_id(selected_version)
-          matching_deployments = [
-              row for row in deployments
-              if selected_version_id and selected_version_id in deployment_version_ids(row)
-          ]
-          selected_deployment = matching_deployments[0] if matching_deployments else (deployments[0] if deployments else {})
+          selected_deployment = (
+              deployment_status
+              if selected_version_id and selected_version_id in deployment_version_ids(deployment_status)
+              else {}
+          )
           collect_value = {}
           continuity_reason_codes = []
           raw_value_present = False
@@ -1514,7 +1515,7 @@ jobs:
           cd frontend/cloudflare
           node_modules/.bin/wrangler versions list --json \
             > /tmp/news-sentry-runtime-worker-versions.json
-          node_modules/.bin/wrangler deployments list --json \
+          node_modules/.bin/wrangler deployments status --json \
             > /tmp/news-sentry-runtime-worker-deployments.json
           runtime_sql="SELECT
             (SELECT value FROM ops_state WHERE key='last:collect-cycle') AS collect_value,

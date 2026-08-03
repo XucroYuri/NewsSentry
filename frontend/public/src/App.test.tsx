@@ -912,6 +912,181 @@ describe("Phase 84 public portal app", () => {
     ).toBe(true)
   })
 
+  it("falls back to the latest all-news page when the default featured bootstrap is stale", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date("2026-08-03T12:00:00Z"))
+    const staleTitle = "首页精选里滞留的七月旧闻"
+    const freshTitle = "八月三日最新公共新闻"
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.startsWith("/api/v1/public/bootstrap")) {
+        return jsonResponse({
+          news: feed([makeItem("event-stale-featured", { title: staleTitle, publishedAt: "2026-07-01T08:00:00Z" })]),
+          regions: { regions: [] },
+          facets: { regions: [], issues: [], related: [] },
+          generatedAt: "2026-08-03T12:00:00Z",
+        })
+      }
+      if (url.startsWith("/api/v1/regions")) {
+        return jsonResponse({ regions: [] })
+      }
+      if (url === "/api/v1/public/news?page_size=20") {
+        return jsonResponse(
+          feed([makeItem("event-fresh-all-news", { title: freshTitle, publishedAt: "2026-08-03T11:30:00Z" })]),
+        )
+      }
+      return jsonResponse({})
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<App />)
+
+    expect((await screen.findAllByText(freshTitle)).length).toBeGreaterThan(0)
+    expect(screen.queryByText(staleTitle)).not.toBeInTheDocument()
+    expect(
+      fetchMock.mock.calls.some(([input]) => String(input) === "/api/v1/public/news?page_size=20"),
+    ).toBe(true)
+  })
+
+  it("polls all-news after the default featured feed has fallen back for staleness", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date("2026-08-03T12:00:00Z"))
+    const freshTitle = "八月三日最新公共新闻"
+    const polledTitle = "八月三日轮询新增新闻"
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.startsWith("/api/v1/public/bootstrap")) {
+        return jsonResponse({
+          news: feed([makeItem("event-stale-featured", { publishedAt: "2026-07-01T08:00:00Z" })]),
+          regions: { regions: [] },
+          facets: { regions: [], issues: [], related: [] },
+          generatedAt: "2026-08-03T12:00:00Z",
+        })
+      }
+      if (url.startsWith("/api/v1/regions")) {
+        return jsonResponse({ regions: [] })
+      }
+      if (url === "/api/v1/public/news?page_size=20") {
+        return jsonResponse(
+          feed([makeItem("event-fresh-all-news", { title: freshTitle, publishedAt: "2026-08-03T11:30:00Z" })]),
+        )
+      }
+      if (url === "/api/v1/public/news?since_cursor=cursor-initial&page_size=20") {
+        return jsonResponse(
+          feed([makeItem("event-polled-all-news", { title: polledTitle, publishedAt: "2026-08-03T11:45:00Z" })]),
+          { headers: { "Content-Type": "application/json", ETag: '"etag-polled"', "X-Poll-After-Ms": "30000" } },
+        )
+      }
+      if (url.includes("since_cursor=cursor-initial")) {
+        return jsonResponse(feed([]))
+      }
+      return jsonResponse({})
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<App />)
+
+    expect((await screen.findAllByText(freshTitle)).length).toBeGreaterThan(0)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000)
+    })
+
+    expect((await screen.findAllByText(polledTitle)).length).toBeGreaterThan(0)
+    expect(
+      fetchMock.mock.calls.some(
+        ([input]) => String(input) === "/api/v1/public/news?featured=true&since_cursor=cursor-initial&page_size=20",
+      ),
+    ).toBe(false)
+  })
+
+  it("retries featured on manual refresh after a stale featured fallback", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date("2026-08-03T12:00:00Z"))
+    const fallbackTitle = "八月三日公共新闻兜底"
+    const refreshedFeaturedTitle = "八月三日新鲜精选新闻"
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.startsWith("/api/v1/public/bootstrap")) {
+        return jsonResponse({
+          news: feed([makeItem("event-stale-featured", { publishedAt: "2026-07-01T08:00:00Z" })]),
+          regions: { regions: [] },
+          facets: { regions: [], issues: [], related: [] },
+          generatedAt: "2026-08-03T12:00:00Z",
+        })
+      }
+      if (url.startsWith("/api/v1/regions")) {
+        return jsonResponse({ regions: [] })
+      }
+      if (url === "/api/v1/public/news?page_size=20") {
+        return jsonResponse(
+          feed([makeItem("event-fallback-all-news", { title: fallbackTitle, publishedAt: "2026-08-03T11:30:00Z" })]),
+        )
+      }
+      if (url === "/api/v1/public/news?featured=true&page_size=20") {
+        return jsonResponse(
+          feed([
+            makeItem("event-refreshed-featured", {
+              title: refreshedFeaturedTitle,
+              publishedAt: "2026-08-03T11:50:00Z",
+              summary: null,
+              recommendationReason: null,
+            }),
+          ]),
+        )
+      }
+      return jsonResponse({})
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<App />)
+
+    expect((await screen.findAllByText(fallbackTitle)).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getAllByRole("button", { name: "刷新" })[0])
+
+    expect((await screen.findAllByText(refreshedFeaturedTitle)).length).toBeGreaterThan(0)
+    expect(screen.queryByText(fallbackTitle)).not.toBeInTheDocument()
+  })
+
+  it("does not use the all-news fallback for a filtered stale featured feed", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date("2026-08-03T12:00:00Z"))
+    window.location.hash = "#/feed?channel=featured&target_id=italy"
+    const filteredTitle = "意大利筛选中的旧精选"
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.startsWith("/api/v1/regions")) {
+        return jsonResponse({ regions: [] })
+      }
+      if (url.startsWith("/api/v1/public/bootstrap")) {
+        return jsonResponse({
+          news: feed([]),
+          regions: { regions: [] },
+          facets: { regions: [], issues: [], related: [] },
+          generatedAt: "2026-08-03T12:00:00Z",
+        })
+      }
+      if (url.startsWith("/api/v1/public/news") && url.includes("target_id=italy")) {
+        return jsonResponse(
+          feed([
+            makeItem("event-filtered-stale", {
+              title: filteredTitle,
+              publishedAt: "2026-07-01T08:00:00Z",
+            }),
+          ]),
+        )
+      }
+      return jsonResponse({})
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(<App />)
+
+    expect((await screen.findAllByText(filteredTitle)).length).toBeGreaterThan(0)
+    expect(
+      fetchMock.mock.calls.some(([input]) => String(input) === "/api/v1/public/news?page_size=20"),
+    ).toBe(false)
+  })
+
   it("does not load target analysis on the default reading feed", async () => {
     let resolveFeed: (() => void) | undefined
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
@@ -956,7 +1131,7 @@ describe("Phase 84 public portal app", () => {
         return new Promise<Response>((resolve) => {
           resolveFeed = () => {
             resolve(
-              new Response(JSON.stringify(feed([makeItem("event-1")])), {
+              new Response(JSON.stringify(feed([makeItem("event-1", { publishedAt: new Date().toISOString() })])), {
                 status: 200,
                 headers: { "Content-Type": "application/json", ETag: '"etag"' },
               }),
