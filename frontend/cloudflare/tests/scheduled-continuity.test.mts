@@ -362,8 +362,8 @@ test("collect cycle survives a sleeping container that becomes ready on the fift
       fetchCount += 1;
       if (fetchCount < 5) {
         return new Response(
-          JSON.stringify({ status: "error", message: "container is starting" }),
-          { status: 503, headers: { "Content-Type": "application/json" } },
+          "Failed to start container: application port is not ready",
+          { status: 500, headers: { "Content-Type": "text/plain" } },
         );
       }
       return new Response(
@@ -406,6 +406,66 @@ test("collect cycle survives a sleeping container that becomes ready on the fift
   assert.deepEqual(retryAttempts, [1, 2, 3, 4]);
   assert.equal(latest.status, "empty_no_new_items");
   assert.equal(latest.details.container_start, "auto_fetch_retry_4");
+  assert.equal(collectCursor(db), "0");
+});
+
+test("collect cycle explicitly waits for container ports before the first fetch", async () => {
+  const db = new SqliteD1Database();
+  seedTargets(db, [enabled("france")]);
+  const calls: string[] = [];
+  const handle = {
+    async startAndWaitForPorts(options: {
+      cancellationOptions?: {
+        abort?: AbortSignal;
+        instanceGetTimeoutMS?: number;
+        portReadyTimeoutMS?: number;
+        waitInterval?: number;
+      };
+    }) {
+      calls.push("start");
+      assert.ok(options.cancellationOptions?.abort);
+      assert.equal(options.cancellationOptions.instanceGetTimeoutMS, 60_000);
+      assert.equal(options.cancellationOptions.portReadyTimeoutMS, 120_000);
+      assert.equal(options.cancellationOptions.waitInterval, 500);
+    },
+    async fetch() {
+      calls.push("fetch");
+      return new Response(
+        JSON.stringify({
+          status: "ok",
+          summary: {
+            targets_attempted: 1,
+            targets_succeeded: 1,
+            targets_failed: 0,
+            events_collected: 0,
+            import_events_count: 0,
+            target_results: [
+              {
+                target_id: "france",
+                status: "empty_no_new_items",
+                events_collected: 0,
+                import_events_count: 0,
+              },
+            ],
+          },
+          import_events: [],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    },
+  };
+
+  await runScheduledCloudflareTask(
+    controller("*/15 * * * *"),
+    env(db, {
+      NEWS_SENTRY_CONTAINER: { __containerHandle: handle } as unknown as DurableObjectNamespace,
+    }),
+  );
+  const latest = latestCollectRun(db);
+
+  assert.deepEqual(calls, ["start", "fetch"]);
+  assert.equal(latest.status, "empty_no_new_items");
+  assert.equal(latest.details.container_start, "explicit_port_ready");
   assert.equal(collectCursor(db), "0");
 });
 
