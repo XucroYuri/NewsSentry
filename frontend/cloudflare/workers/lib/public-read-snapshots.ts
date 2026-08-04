@@ -20,6 +20,7 @@ import {
 import { createPublicReadSession } from "./public-read-session.ts";
 import { publicReadCacheControl } from "./public-read-cache.ts";
 import { sanitizePublicSnapshotPayload } from "./snapshot-policy.ts";
+import { kvReadSnapshot } from "./kv-snapshot-store.ts";
 
 export const PUBLIC_SNAPSHOT_PAGE_SIZE = 20;
 export const NEWS_FEATURED_SNAPSHOT_KEY = "news:featured:v1:page_size=20";
@@ -449,4 +450,44 @@ export async function refreshPublicReadSnapshots(db: D1Database): Promise<Record
     facets: facets.regions.length + facets.issues.length + facets.related.length,
     regions: regions.regions.length,
   };
+}
+
+export async function readPublicSnapshotPayloadKvFirst(
+  kv: KVNamespace,
+  db: D1Database,
+  key: string | null,
+): Promise<unknown | null> {
+  if (!key) return null;
+  const fromKv = key && kv ? await kvReadSnapshot(kv, key) : null;
+  if (fromKv) return fromKv.payload;
+  return readPublicSnapshotPayload(db, key);
+}
+
+export async function readPublicSnapshotKvFirst(
+  request: Request,
+  kv: KVNamespace,
+  db: D1Database,
+  key: string | null,
+  cacheSeconds: number,
+): Promise<Response | null> {
+  if (request.method !== "GET" || !key) return null;
+  const fromKv = kv ? await kvReadSnapshot(kv, key) : null;
+  if (fromKv) {
+    const payloadJson = JSON.stringify(fromKv.payload);
+    const etag = fromKv.etag ?? snapshotEtag(payloadJson);
+    if (request.headers.get("If-None-Match") === etag) {
+      return withSnapshotHeader(
+        new Response(null, {
+          status: 304,
+          headers: { ETag: etag, "X-Poll-After-Ms": String(cacheSeconds * 1000) },
+        }),
+        "hit",
+      );
+    }
+    const response = jsonResponse(payloadJson, cacheSeconds);
+    response.headers.set("ETag", etag);
+    response.headers.set("X-Poll-After-Ms", String(cacheSeconds * 1000));
+    return withSnapshotHeader(response, "hit");
+  }
+  return readPublicSnapshot(request, db, key, cacheSeconds);
 }
