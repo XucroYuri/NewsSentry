@@ -130,3 +130,15 @@
 | 一次性存量回填 | `npm run backfill:kv`（`tools/backfill-kv-snapshots.mts`）把 `public_read_snapshots` 存量同步到 KV；由 `wrangler kv namespace create` 建出的 namespace id 写入 `wrangler.toml` 的 `[[kv_namespaces]]` |
 
 部署时须先以 `npx wrangler kv namespace create PUBLIC_SNAPSHOT_KV` 创建 KV namespace，并把返回的 `id`/`preview_id` 回填到 `wrangler.toml`（当前为占位全零 id，未回填前 KV 写读不会命中、公开读自动走 D1 兜底，可安全运行）。
+
+## Phase B1：评分器 TS 移植
+
+已完成 latent 新闻价值评分器从 Python 到 TypeScript 的纯函数移植。新增 `frontend/cloudflare/workers/lib/latent-value-model.ts`，暴露 `scoreNewsEvent`（0-100 评分）、`rankNewsValues`（Breaking/Potential 双列表排序）、`evaluateBacktest`（回测指标统计）、`featuresFromEventMetadata`（从 NewsEvent 元数据提取并归一特征）等纯函数 API，并复用 half-to-even `clampScore` 钳位得分。模块为无副作用纯函数实现，便于在 Cloudflare Worker 端复用评分逻辑而无需依赖 Python 运行时。
+
+| 变更项 | 内容 |
+|---|---|
+| 新增 `latent-value-model.ts` | 提供 `LATENT_VALUE_MODEL_VERSION`、`clampScore`（half-to-even）、`neutralFeatures`/`normalizeFeatures`、`featuresFromEventMetadata`、`scoreNewsEvent`、`withDomainPercentiles`、`rankNewsValues`、`evaluateBacktest` 等导出 |
+| 纯函数移植 | `scoreNewsEvent` 输出与 Python 逐位对齐；`clampScore` 复用 half-to-even 取整，保证 0-100 边界行为一致 |
+| 行为基准 | 以 Python `tests/unit/test_latent_value_model.py` 作为 bit-for-bit 行为基准，TS 各 API 均有对应的 Python-parity 单元测试 |
+
+无回归：Cloudflare 全套 145 项测试全绿，Python `test_latent_value_model.py` 6/6 通过，作为行为基准仍成立。
