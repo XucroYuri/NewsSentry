@@ -59,11 +59,15 @@ export async function makeCollectId(
   return `ne-${target_id}-${source_id}-${dateStr}-${hash8}`;
 }
 
-/** 从 ISO 字符串取 `%Y%m%d`；不可解析 → 当前 UTC 日期。 */
+/** 从 ISO 字符串取 `%Y%m%d`；形状合法但非真实日历日期 → 当前 UTC 日期（对齐 Python `fromisoformat` 拒绝语义）。 */
 function datePart(publishedAtIso: string): string {
   if (publishedAtIso && typeof publishedAtIso === "string") {
     const d = publishedAtIso.slice(0, 10);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d.replaceAll("-", "");
+    // 形状校验 YYYY-MM-DD，再用 round-trip 校验真实日历日期（如 2024-02-30 → 非法回退）。
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      const dt = new Date(`${d}T00:00:00Z`);
+      if (dt.toISOString().slice(0, 10) === d) return d.replaceAll("-", "");
+    }
   }
   return new Date().toISOString().slice(0, 10).replaceAll("-", "");
 }
