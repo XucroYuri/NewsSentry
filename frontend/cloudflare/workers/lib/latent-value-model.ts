@@ -409,3 +409,145 @@ export function rankNewsValues(
     candidate_cards: calibrated,
   };
 }
+
+/** One historical item replayed to compute backtest metrics (Python `BacktestItem`). */
+export interface BacktestItem {
+  event_id: string;
+  predicted_score: number;
+  predicted_probability: number;
+  actual_relevance: number;
+  actual_label: number;
+  is_slow_burn?: boolean;
+  domain?: string | null;
+  redundancy_cluster?: string | null;
+}
+
+/** Top-k ranking and calibration metrics for a historical replay (Python `BacktestMetrics`). */
+export interface BacktestMetrics {
+  precision_at_k: number;
+  recall_at_k: number;
+  ndcg_at_k: number;
+  brier_score: number;
+  expected_calibration_error: number;
+  duplicate_rate_at_k: number;
+  domain_diversity_at_k: number;
+  slow_burn_recall_at_k: number;
+}
+
+/** `_clamp_score(v)/100` — probability bounded to [0,1] on the 0-100 scale. */
+function probability0_1(value: number): number {
+  return clampScore(value) / 100;
+}
+
+/** `_binary_label` — 1 only when the label is exactly 1. */
+function binaryLabel(value: number): number {
+  return value === 1 ? 1 : 0;
+}
+
+/** `_dcg` — sum of (2^rel - 1) / log2(index+2) over the position-ordered list. */
+function dcg(items: BacktestItem[]): number {
+  let total = 0;
+  for (let index = 0; index < items.length; index++) {
+    const relevance = items[index].actual_relevance;
+    total += (Math.pow(2, relevance) - 1) / Math.log2(index + 2);
+  }
+  return total;
+}
+
+/** `_ndcg_at_k` — dcg(top)/dcg(ideal), ideal sorted by actual_relevance desc, both truncated to k. */
+function ndcgAtK(items: BacktestItem[], k: number): number {
+  const top = items.slice(0, Math.max(0, k));
+  const ideal = [...items]
+    .sort((a, b) => b.actual_relevance - a.actual_relevance)
+    .slice(0, Math.max(0, k));
+  const idealDcg = dcg(ideal);
+  if (idealDcg === 0) return 0;
+  return dcg(top) / idealDcg;
+}
+
+/** `_brier_score` — mean square error between 0-1 probability and binary label. */
+function brierScore(items: BacktestItem[]): number {
+  if (items.length === 0) return 0;
+  let sum = 0;
+  for (const item of items) {
+    const err = probability0_1(item.predicted_probability) - binaryLabel(item.actual_label);
+    sum += err * err;
+  }
+  return sum / items.length;
+}
+
+/** `_expected_calibration_error` — 10-bins, weighted |confidence - accuracy|, last bin includes 1.0. */
+function expectedCalibrationError(items: BacktestItem[], bins = 10): number {
+  if (items.length === 0) return 0;
+  const total = items.length;
+  let error = 0;
+  for (let binIndex = 0; binIndex < bins; binIndex++) {
+    const lower = binIndex / bins;
+    const upper = (binIndex + 1) / bins;
+    const bucket: BacktestItem[] = [];
+    for (const item of items) {
+      const p = probability0_1(item.predicted_probability);
+      if (
+        (lower <= p && p < upper) ||
+        (binIndex === bins - 1 && p === 1)
+      ) {
+        bucket.push(item);
+      }
+    }
+    if (bucket.length === 0) continue;
+    let confidence = 0;
+    let accuracy = 0;
+    for (const item of bucket) {
+      confidence += probability0_1(item.predicted_probability);
+      accuracy += binaryLabel(item.actual_label);
+    }
+    confidence /= bucket.length;
+    accuracy /= bucket.length;
+    error += (bucket.length / total) * Math.abs(confidence - accuracy);
+  }
+  return error;
+}
+
+/** `_duplicate_rate` — 1 - unique/clusters among items that carry a redundancy_cluster. */
+function duplicateRate(items: BacktestItem[]): number {
+  const clusters = items.map((i) => i.redundancy_cluster).filter((c) => c != null && c !== "");
+  if (clusters.length === 0) return 0;
+  return 1 - new Set(clusters).size / clusters.length;
+}
+
+/**
+ * `evaluate_backtest` — compute top-k ranking and calibration metrics for a
+ * historical replay. Items are sorted by `predicted_score` desc; the top `k`
+ * (k clamped to >= 0) drive precision/recall/NDCG/duplicate/diversity/slow-burn.
+ */
+export function evaluateBacktest(items: BacktestItem[], k = 10): BacktestMetrics {
+  const ordered = [...items].sort((a, b) => b.predicted_score - a.predicted_score);
+  const top = ordered.slice(0, Math.max(0, k));
+  const relevantTotal = items.reduce((n, i) => n + (i.actual_label === 1 ? 1 : 0), 0);
+  const relevantTop = top.reduce((n, i) => n + (i.actual_label === 1 ? 1 : 0), 0);
+  const precision = top.length ? relevantTop / top.length : 0;
+  const recall = relevantTotal ? relevantTop / relevantTotal : 0;
+
+  const slowBurnTotal = items.reduce(
+    (n, i) => n + (i.is_slow_burn && i.actual_label === 1 ? 1 : 0),
+    0,
+  );
+  const slowBurnTop = top.reduce(
+    (n, i) => n + (i.is_slow_burn && i.actual_label === 1 ? 1 : 0),
+    0,
+  );
+
+  const domains = new Set(top.map((i) => i.domain).filter((d) => d != null && d !== ""));
+  const domainDiversity = top.length ? domains.size / top.length : 0;
+
+  return {
+    precision_at_k: precision,
+    recall_at_k: recall,
+    ndcg_at_k: ndcgAtK(ordered, k),
+    brier_score: brierScore(items),
+    expected_calibration_error: expectedCalibrationError(items),
+    duplicate_rate_at_k: duplicateRate(top),
+    domain_diversity_at_k: domainDiversity,
+    slow_burn_recall_at_k: slowBurnTotal ? slowBurnTop / slowBurnTotal : 0,
+  };
+}

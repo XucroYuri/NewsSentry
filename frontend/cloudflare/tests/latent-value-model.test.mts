@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { LatentValueFeatures } from "../workers/lib/latent-value-model.ts";
+import type { BacktestItem, LatentValueFeatures } from "../workers/lib/latent-value-model.ts";
 import {
   neutralFeatures,
   scoreNewsEvent,
   clampScore,
   rankNewsValues,
+  evaluateBacktest,
 } from "../workers/lib/latent-value-model.ts";
 
 function baseEvent(id: string, l0 = "uncategorized", clusterId: string | null = null) {
@@ -77,4 +78,24 @@ test("rankNewsValues applies domain percentiles and redundancy constraints (Pyth
 
   const clusters = new Set(result.breaking_top.map((c) => c.redundancy_cluster));
   assert.equal(clusters.size, result.breaking_top.length);
+});
+
+// --- B1.3 backtest metrics (Python `evaluate_backtest` parity) ---
+// Four-item fixture verbatim from `tests/unit/test_latent_value_model.py`.
+const BACKTEST_ITEMS: BacktestItem[] = [
+  { event_id: "a", predicted_score: 95, predicted_probability: 90, actual_relevance: 3, actual_label: 1 },
+  { event_id: "b", predicted_score: 88, predicted_probability: 75, actual_relevance: 2, actual_label: 1 },
+  { event_id: "c", predicted_score: 60, predicted_probability: 70, actual_relevance: 0, actual_label: 0 },
+  { event_id: "d", predicted_score: 42, predicted_probability: 35, actual_relevance: 3, actual_label: 1, is_slow_burn: true },
+];
+
+test("evaluateBacktest matches Python evaluate_backtest on the four-item fixture", () => {
+  const m = evaluateBacktest(BACKTEST_ITEMS, 3);
+
+  assert.equal(m.precision_at_k, 2 / 3);
+  assert.equal(m.recall_at_k, 2 / 3);
+  assert.ok(m.ndcg_at_k > 0 && m.ndcg_at_k <= 1);
+  assert.ok(m.brier_score >= 0 && m.brier_score <= 1);
+  assert.ok(m.expected_calibration_error >= 0 && m.expected_calibration_error <= 1);
+  assert.equal(m.slow_burn_recall_at_k, 0);
 });
