@@ -117,3 +117,16 @@
 - 不把本地测试、Preview、单次 200 或单次 Cron 等同于持续健康。
 - 72h 需要 12 个连续 6 小时槽；7d 需要 28 个槽、边界 Source Health 与同 commit 回执。
 - 易漂移的 SHA、计数、时间和运行链接只记录在本文件及对应 artifact 中。
+
+## Phase A：公开读 KV 快照优先
+
+已完成公开读快照链路的 KV-first 迁移，同一 commit 已含 139 项 Cloudflare 工具测试全绿、后端 ruff 全通过、mypy 无错误（对照本 Phase 未 touch Python）。核心手段是新增 KV 快照投影存取并双写快照，把公开读热路径从 D1 查询切到 KV 读取，降低首页/公开 API 对 D1 的直接耦合。
+
+| 变更项 | 内容 |
+|---|---|
+| 新增 `kv-snapshot-store.ts` | 提供 `getSnapshotKv()`/`setSnapshotKv()` 单例 KV binding 注入、`kvWriteSnapshot()`/`kvReadSnapshot()` 写读封装，key 统一加 `k:` 前缀，写入前经 `sanitizePublicSnapshotPayload` 净化 |
+| 公开读切换 KV-first | `readPublicSnapshotKvFirst*`/`readPublicSnapshotPayloadKvFirst` 先读 KV，未命中（KV miss 或未配置 binding 时 `getSnapshotKv()` 为 null）才回退 D1；`readPublicSnapshot*` 保留 D1-only 路径 |
+| 快照刷新双写 | `writeSnapshotAndMaybeKv` 落 D1 后再写 KV，KV 失败 `try/catch` 不阻塞 D1 主链路；首页 bootstrap、news、facets 刷新均接入 |
+| 一次性存量回填 | `npm run backfill:kv`（`tools/backfill-kv-snapshots.mts`）把 `public_read_snapshots` 存量同步到 KV；由 `wrangler kv namespace create` 建出的 namespace id 写入 `wrangler.toml` 的 `[[kv_namespaces]]` |
+
+部署时须先以 `npx wrangler kv namespace create PUBLIC_SNAPSHOT_KV` 创建 KV namespace，并把返回的 `id`/`preview_id` 回填到 `wrangler.toml`（当前为占位全零 id，未回填前 KV 写读不会命中、公开读自动走 D1 兜底，可安全运行）。
