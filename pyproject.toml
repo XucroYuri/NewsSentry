@@ -138,3 +138,15 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "pystray"
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "webview"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "webview.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "PIL"
+ignore_missing_imports = true
