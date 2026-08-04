@@ -14,8 +14,9 @@ import {
 import {
   FACETS_SNAPSHOT_KEY,
   markSnapshotMiss,
-  readPublicSnapshot,
+  readPublicSnapshotKvFirst,
 } from "../lib/public-read-snapshots";
+import { getSnapshotKv } from "../lib/kv-snapshot-store.ts";
 
 export async function handleFacets(
   request: Request,
@@ -28,7 +29,13 @@ export async function handleFacets(
     const cacheKey = "public-read:facets";
     const cached = await maybeServeCachedPublicRead(request, cacheKey);
     if (cached) return cached;
-    const snapshot = await readPublicSnapshot(request, db, FACETS_SNAPSHOT_KEY, 300);
+    const snapshot = await readPublicSnapshotKvFirst(
+      request,
+      getSnapshotKv()!,
+      db,
+      FACETS_SNAPSHOT_KEY,
+      300,
+    );
     if (snapshot) return maybeStoreCachedPublicRead(request, cacheKey, snapshot, ctx, 300);
 
     // 按 region 分组统计

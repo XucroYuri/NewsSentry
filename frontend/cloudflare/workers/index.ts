@@ -33,10 +33,12 @@ import { handleShadowQueueBatch } from "./lib/queue-shadow";
 import type { AccessPrincipal, CloudflareAccessJwtEnv } from "./lib/access-jwt";
 import { parseRuntimeConfig, type RuntimeConfigEnv } from "./lib/runtime-config";
 import { containerEnvVars } from "./lib/container-env";
+import { setSnapshotKv } from "./lib/kv-snapshot-store.ts";
 
 interface Env extends CloudflareAccessJwtEnv, RuntimeConfigEnv {
   DB: D1Database;
   NEWS_SENTRY_ARTIFACTS?: R2Bucket;
+  PUBLIC_SNAPSHOT_KV?: KVNamespace;
   NEWS_SENTRY_CONTAINER?: DurableObjectNamespace;
   NEWS_SENTRY_JOBS_QUEUE?: Queue;
   NEWS_SENTRY_JOBS_DLQ?: Queue;
@@ -154,6 +156,7 @@ registerRoute("POST", "/api/v1/jobs/dlq/replay", handleDlqReplay);
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
+      setSnapshotKv(env.PUBLIC_SNAPSHOT_KV);
       const url = new URL(request.url);
       let response: Response;
       if (shouldProxyToContainer(url.pathname)) {

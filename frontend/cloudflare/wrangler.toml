@@ -64,6 +64,11 @@ database_id = "35a52961-e7e1-41ef-934e-7a63882ba465"
 binding = "NEWS_SENTRY_ARTIFACTS"
 bucket_name = "news-sentry-artifacts"
 
+[[kv_namespaces]]
+binding = "PUBLIC_SNAPSHOT_KV"
+id = "00000000-0000-4000-8000-000000000000"
+preview_id = "00000000-0000-4000-8000-000000000000"
+
 [[queues.producers]]
 binding = "NEWS_SENTRY_JOBS_QUEUE"
 queue = "news-sentry-jobs"

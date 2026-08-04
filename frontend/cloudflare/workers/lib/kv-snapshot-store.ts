@@ -2,6 +2,10 @@ import { sanitizePublicSnapshotPayload } from "./snapshot-policy.ts";
 
 const KV_SNAPSHOT_PREFIX = "k:";
 
+let _kv: KVNamespace | null = null;
+export function setSnapshotKv(kv: KVNamespace | null): void { _kv = kv; }
+export function getSnapshotKv(): KVNamespace | null { return _kv; }
+
 export function kvSnapshotKey(snapshotKey: string): string {
   return `${KV_SNAPSHOT_PREFIX}${snapshotKey}`;
 }

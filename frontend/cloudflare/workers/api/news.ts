@@ -32,11 +32,12 @@ import {
   newsAllSnapshotKey,
   newsFeaturedSnapshotKey,
   PUBLIC_SNAPSHOT_PAGE_SIZE,
-  readPublicSnapshot,
-  readPublicSnapshotPayload,
+  readPublicSnapshotKvFirst,
+  readPublicSnapshotPayloadKvFirst,
   slicePublicNewsSnapshot,
   snapshotPayloadResponse,
 } from "../lib/public-read-snapshots";
+import { getSnapshotKv } from "../lib/kv-snapshot-store.ts";
 
 function newsCacheKey(featured: boolean, pageSize: number): string {
   return `public-read:news:${featured ? "featured" : "all"}:page_size=${pageSize}`;
@@ -144,13 +145,14 @@ export async function handleNewsFeed(
       : null;
     const snapshot =
       pageSize === PUBLIC_SNAPSHOT_PAGE_SIZE
-        ? await readPublicSnapshot(request, db, snapshotKey, 30)
+        ? await readPublicSnapshotKvFirst(request, getSnapshotKv()!, db, snapshotKey, 30)
         : snapshotKey
           ? await (async () => {
-              const payload = await readPublicSnapshotPayload<PublicNewsFeedResponse>(
+              const payload = await readPublicSnapshotPayloadKvFirst(
+                getSnapshotKv()!,
                 db,
                 snapshotKey,
-              );
+              ) as PublicNewsFeedResponse | null;
               return payload
                 ? snapshotPayloadResponse(slicePublicNewsSnapshot(payload, pageSize), 30)
                 : null;
