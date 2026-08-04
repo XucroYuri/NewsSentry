@@ -142,3 +142,18 @@
 | 行为基准 | 以 Python `tests/unit/test_latent_value_model.py` 作为 bit-for-bit 行为基准，TS 各 API 均有对应的 Python-parity 单元测试 |
 
 无回归：Cloudflare 全套 145 项测试全绿，Python `test_latent_value_model.py` 6/6 通过，作为行为基准仍成立。
+
+## Phase B2：采集层（scheduler+fetcher+自研 RSS 解析）
+
+已完成 Cloudflare Worker 侧的采集层第一阶段（抓取 + 解析 → 可移植 `CollectedEvent`），即现有 Python 采集管线首段的 TS 移植。新增 `frontend/cloudflare/workers/lib/collect/` 子目录，包含四个无副作用、可单元测试的模块：
+
+| 变更项 | 内容 |
+|---|---|
+| 新增 `rss-parser.ts` | 自研轻量 RSS/Atom 解析器 `parseFeed`，不用任何外部 XML/RSS 库（YAGNI，仅匹配主流 RSS 2.0 与 Atom 字段）；`decodeEntities` 贪心解码常见 HTML 实体，`linkOf` 优先文本内容再取 href 属性 |
+| 新增 `collected-event.ts` | `CollectedEvent` 可移植采集事件、`Language`/`coerceLanguage`、`collectedEventFromEntry`；`makeCollectId` 为异步函数，优先用 Web Crypto `crypto.subtle.digest`，环境不可用时回退 Node `node:crypto`，两者产出同一位哈希 |
+| 新增 `fetcher.ts` | `fetchCollectedEvents` 抓取 + 归一化；对齐 Python `_raise_on_redirect`（3xx 视为失败）与 `_retry_fetch`（5xx / 网络错误重试一次）；抓/解析失败一律返回非 `ok` 的 `CollectOutcome`，不对外抛异常 |
+| 新增 `batch-scheduler.ts` | 纯函数 `nextBatch` 从 cursor 起环形取 batchSize 个 target，返回 `selected`/`next_cursor`/`complete_cycle`；无状态、无 D1（游标持久化由调用方负责，Phase B4 接续） |
+
+ID 与行为基准：`makeCollectId` 输出 `ne-{target}-{src}-{yyyymmdd}-{hash8}` 格式，hash8 由 SHA-256( target_id + source_id + url + published_at_iso ) 截取前 8 位十六进制生成，与 Python `uuid` 语义无关的 `hashlib.sha256(...).hexdigest()[:8]` 逐位一致，保证 Python/TS 两侧同一事件产生相同 ID。日期部分取 `published_at_iso` 前 10 位并按真实日历日期 round-trip 校验，形状合法但非法（如 2024-02-30）回退当前 UTC 日期，对齐 Python `fromisoformat` 拒绝语义。`coerceLanguage` 小写获取 `-` 前 base 与已知集合匹配，未命中回退 MIXED——均以 Python 采集/`make_id`/`coerce_language`/`_extract_*` 作为行为基准，TS 各 API 均有对应的 Python-parity 单元测试。
+
+无回归：Cloudflare 全套 159 项测试全绿（含新增 collect 层 30 余项），Python `tests/` collect 相关 194 项通过作为行为基准仍成立。Phase B3（Durable Object 调度接线）与 B4（D1 游标持久化）待接续。
