@@ -20,7 +20,7 @@ import {
 import { createPublicReadSession } from "./public-read-session.ts";
 import { publicReadCacheControl } from "./public-read-cache.ts";
 import { sanitizePublicSnapshotPayload } from "./snapshot-policy.ts";
-import { kvReadSnapshot } from "./kv-snapshot-store.ts";
+import { getSnapshotKv, kvReadSnapshot, kvWriteSnapshot } from "./kv-snapshot-store.ts";
 
 export const PUBLIC_SNAPSHOT_PAGE_SIZE = 20;
 export const NEWS_FEATURED_SNAPSHOT_KEY = "news:featured:v1:page_size=20";
@@ -371,6 +371,28 @@ async function writeSnapshot(
     .run();
 }
 
+// D1 write + opportunistic KV write. We always write D1 first; a KV failure must
+// never block the D1 snapshot refresh (the KV write is best-effort and wrapped in
+// try/catch). If no KV binding is configured (getSnapshotKv() null), D1 only.
+export async function writeSnapshotAndMaybeKv(
+  db: D1Database,
+  key: string,
+  payload: unknown,
+  itemCount: number,
+  sourceLatestPublicAt: string | null,
+  generatedAt: string,
+): Promise<void> {
+  await writeSnapshot(db, key, payload, itemCount, sourceLatestPublicAt, generatedAt);
+  const kv = getSnapshotKv();
+  if (kv) {
+    try {
+      await kvWriteSnapshot(kv, key, payload);
+    } catch (error) {
+      console.warn("KV snapshot write failed (D1 keep):", error);
+    }
+  }
+}
+
 export async function refreshPublicReadSnapshots(db: D1Database): Promise<Record<string, unknown>> {
   const generatedAt = new Date().toISOString();
   const sourceLatestPublicAt = await latestPublicAt(db);
@@ -391,7 +413,7 @@ export async function refreshPublicReadSnapshots(db: D1Database): Promise<Record
         generatedAt,
       };
       await Promise.all([
-        writeSnapshot(
+        writeSnapshotAndMaybeKv(
           db,
           newsFeaturedSnapshotKey(locale),
           featuredNews,
@@ -399,7 +421,7 @@ export async function refreshPublicReadSnapshots(db: D1Database): Promise<Record
           sourceLatestPublicAt,
           generatedAt,
         ),
-        writeSnapshot(
+        writeSnapshotAndMaybeKv(
           db,
           newsAllSnapshotKey(locale),
           allNews,
@@ -407,7 +429,7 @@ export async function refreshPublicReadSnapshots(db: D1Database): Promise<Record
           sourceLatestPublicAt,
           generatedAt,
         ),
-        writeSnapshot(
+        writeSnapshotAndMaybeKv(
           db,
           bootstrapFeaturedSnapshotKey(locale),
           bootstrap,
@@ -421,7 +443,7 @@ export async function refreshPublicReadSnapshots(db: D1Database): Promise<Record
   );
 
   await Promise.all([
-    writeSnapshot(
+    writeSnapshotAndMaybeKv(
       db,
       FACETS_SNAPSHOT_KEY,
       facets,
@@ -429,7 +451,7 @@ export async function refreshPublicReadSnapshots(db: D1Database): Promise<Record
       sourceLatestPublicAt,
       generatedAt,
     ),
-    writeSnapshot(
+    writeSnapshotAndMaybeKv(
       db,
       REGIONS_ACTIVE_SNAPSHOT_KEY,
       regions,
