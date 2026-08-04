@@ -119,6 +119,62 @@ export function normalizeFeatures(f: LatentValueFeatures): Record<string, number
   };
 }
 
+/**
+ * Build the neutral baseline, then overlay any known key present in a raw
+ * mapping, clamped to 0-100 (Python `_normalize_features`).
+ */
+function normalizeFromMapping(rawFeatures: Record<string, unknown>): Record<string, number> {
+  const neutral: Record<string, number> = normalizeFeatures(neutralFeatures());
+  for (const key of Object.keys(neutral)) {
+    const raw = rawFeatures[key];
+    if (raw !== undefined) neutral[key] = clampScore(raw);
+  }
+  return neutral;
+}
+
+/**
+ * Read semantic features from `metadata.latent_value.features`, falling back to
+ * legacy `metadata.latent_value_features`, then neutral. Missing values keep the
+ * neutral 50-point baseline; values are bounded to the canonical 0-100 scale.
+ * (Python `features_from_event_metadata`.)
+ */
+export function featuresFromEventMetadata(event: {
+  metadata: Record<string, unknown>;
+}): LatentValueFeatures {
+  const raw = event.metadata["latent_value"];
+  let rawFeatures: Record<string, unknown> | null = null;
+  if (typeof raw === "object" && raw !== null) {
+    const features = (raw as Record<string, unknown>)["features"];
+    if (typeof features === "object" && features !== null) rawFeatures = features as Record<string, unknown>;
+  }
+  if (rawFeatures === null) {
+    const legacyFeatures = event.metadata["latent_value_features"];
+    if (typeof legacyFeatures === "object" && legacyFeatures !== null) {
+      rawFeatures = legacyFeatures as Record<string, unknown>;
+    } else {
+      rawFeatures = {};
+    }
+  }
+
+  return featuresFromNormalized(normalizeFromMapping(rawFeatures));
+}
+
+/** Build a `LatentValueFeatures` from a full set of normalized keys (Python `_features_from_normalized`). */
+function featuresFromNormalized(values: Record<string, number>): LatentValueFeatures {
+  return {
+    novelty: values["novelty"],
+    urgency: values["urgency"],
+    entity_prominence: values["entity_prominence"],
+    impact_scale: values["impact_scale"],
+    irreversibility: values["irreversibility"],
+    cross_domain_spread: values["cross_domain_spread"],
+    evidence_reliability: values["evidence_reliability"],
+    long_term_significance: values["long_term_significance"],
+    duplicate_similarity: values["duplicate_similarity"],
+    propagation_velocity: values["propagation_velocity"],
+  };
+}
+
 /** Weighted sum divided by total weight, minus penalty, clamped. */
 function weightedScore(
   values: Record<string, number>,

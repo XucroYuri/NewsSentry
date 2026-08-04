@@ -7,6 +7,8 @@ import {
   clampScore,
   rankNewsValues,
   evaluateBacktest,
+  featuresFromEventMetadata,
+  normalizeFeatures,
 } from "../workers/lib/latent-value-model.ts";
 
 function baseEvent(id: string, l0 = "uncategorized", clusterId: string | null = null) {
@@ -98,4 +100,33 @@ test("evaluateBacktest matches Python evaluate_backtest on the four-item fixture
   assert.ok(m.brier_score >= 0 && m.brier_score <= 1);
   assert.ok(m.expected_calibration_error >= 0 && m.expected_calibration_error <= 1);
   assert.equal(m.slow_burn_recall_at_k, 0);
+});
+
+test("featuresFromEventMetadata clamps read features, falls back to neutral (Python parity)", () => {
+  const event = {
+    id: "ne-meta",
+    source_id: "wire",
+    story_id: null,
+    cluster_id: null,
+    metadata: {
+      latent_value: {
+        features: {
+          novelty: 140,
+          urgency: 72,
+          entity_prominence: 65,
+          impact_scale: 58,
+          irreversibility: 44,
+          cross_domain_spread: 52,
+          evidence_reliability: -10,
+          long_term_significance: 80,
+          duplicate_similarity: 15,
+        },
+      },
+    },
+  };
+  const features = featuresFromEventMetadata(event);
+  const normalized = normalizeFeatures(features);
+  assert.equal(normalized["novelty"], 100);
+  assert.equal(normalized["evidence_reliability"], 0);
+  assert.equal(normalized["propagation_velocity"], 50);
 });
