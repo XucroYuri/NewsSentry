@@ -586,8 +586,8 @@ def test_cloudflare_small_default_news_requests_reuse_twenty_item_snapshots() ->
     assert "pageSize <= PUBLIC_SNAPSHOT_PAGE_SIZE" in bootstrap_ts
     assert "slicePublicNewsSnapshot" in news_ts
     assert "sliceBootstrapSnapshot" in bootstrap_ts
-    assert "readPublicSnapshotPayload<PublicNewsFeedResponse>" in news_ts
-    assert "readPublicSnapshotPayload<PublicBootstrapResponse>" in bootstrap_ts
+    assert "readPublicSnapshotPayloadKvFirst" in news_ts
+    assert "readPublicSnapshotPayloadKvFirst" in bootstrap_ts
     assert (
         "`public-read:news:${featured ? \"featured\" : \"all\"}:page_size=${pageSize}`"
         in news_ts
