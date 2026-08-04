@@ -13,7 +13,8 @@
     "db:init": "wrangler d1 execute ns-db --file=db/schema.sql",
     "db:init:dev": "wrangler d1 execute ns-db-dev --file=db/schema.sql",
     "build:frontend": "cd ../.. && npm run build --workspace=admin && npm run build --workspace=public",
-    "pages:deploy": "wrangler pages deploy ../../dist/cloudflare"
+    "pages:deploy": "wrangler pages deploy ../../dist/cloudflare",
+    "backfill:kv": "node --experimental-strip-types tools/backfill-kv-snapshots.mts"
   },
   "devDependencies": {
     "wrangler": "4.114.0"

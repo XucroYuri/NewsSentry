@@ -20,6 +20,7 @@ import {
 import { createPublicReadSession } from "./public-read-session.ts";
 import { publicReadCacheControl } from "./public-read-cache.ts";
 import { sanitizePublicSnapshotPayload } from "./snapshot-policy.ts";
+import { getSnapshotKv, kvReadSnapshot, kvWriteSnapshot } from "./kv-snapshot-store.ts";
 
 export const PUBLIC_SNAPSHOT_PAGE_SIZE = 20;
 export const NEWS_FEATURED_SNAPSHOT_KEY = "news:featured:v1:page_size=20";
@@ -370,6 +371,28 @@ async function writeSnapshot(
     .run();
 }
 
+// D1 write + opportunistic KV write. We always write D1 first; a KV failure must
+// never block the D1 snapshot refresh (the KV write is best-effort and wrapped in
+// try/catch). If no KV binding is configured (getSnapshotKv() null), D1 only.
+export async function writeSnapshotAndMaybeKv(
+  db: D1Database,
+  key: string,
+  payload: unknown,
+  itemCount: number,
+  sourceLatestPublicAt: string | null,
+  generatedAt: string,
+): Promise<void> {
+  await writeSnapshot(db, key, payload, itemCount, sourceLatestPublicAt, generatedAt);
+  const kv = getSnapshotKv();
+  if (kv) {
+    try {
+      await kvWriteSnapshot(kv, key, payload);
+    } catch (error) {
+      console.warn("KV snapshot write failed (D1 keep):", error);
+    }
+  }
+}
+
 export async function refreshPublicReadSnapshots(db: D1Database): Promise<Record<string, unknown>> {
   const generatedAt = new Date().toISOString();
   const sourceLatestPublicAt = await latestPublicAt(db);
@@ -390,7 +413,7 @@ export async function refreshPublicReadSnapshots(db: D1Database): Promise<Record
         generatedAt,
       };
       await Promise.all([
-        writeSnapshot(
+        writeSnapshotAndMaybeKv(
           db,
           newsFeaturedSnapshotKey(locale),
           featuredNews,
@@ -398,7 +421,7 @@ export async function refreshPublicReadSnapshots(db: D1Database): Promise<Record
           sourceLatestPublicAt,
           generatedAt,
         ),
-        writeSnapshot(
+        writeSnapshotAndMaybeKv(
           db,
           newsAllSnapshotKey(locale),
           allNews,
@@ -406,7 +429,7 @@ export async function refreshPublicReadSnapshots(db: D1Database): Promise<Record
           sourceLatestPublicAt,
           generatedAt,
         ),
-        writeSnapshot(
+        writeSnapshotAndMaybeKv(
           db,
           bootstrapFeaturedSnapshotKey(locale),
           bootstrap,
@@ -420,7 +443,7 @@ export async function refreshPublicReadSnapshots(db: D1Database): Promise<Record
   );
 
   await Promise.all([
-    writeSnapshot(
+    writeSnapshotAndMaybeKv(
       db,
       FACETS_SNAPSHOT_KEY,
       facets,
@@ -428,7 +451,7 @@ export async function refreshPublicReadSnapshots(db: D1Database): Promise<Record
       sourceLatestPublicAt,
       generatedAt,
     ),
-    writeSnapshot(
+    writeSnapshotAndMaybeKv(
       db,
       REGIONS_ACTIVE_SNAPSHOT_KEY,
       regions,
@@ -449,4 +472,44 @@ export async function refreshPublicReadSnapshots(db: D1Database): Promise<Record
     facets: facets.regions.length + facets.issues.length + facets.related.length,
     regions: regions.regions.length,
   };
+}
+
+export async function readPublicSnapshotPayloadKvFirst(
+  kv: KVNamespace,
+  db: D1Database,
+  key: string | null,
+): Promise<unknown | null> {
+  if (!key) return null;
+  const fromKv = key && kv ? await kvReadSnapshot(kv, key) : null;
+  if (fromKv) return fromKv.payload;
+  return readPublicSnapshotPayload(db, key);
+}
+
+export async function readPublicSnapshotKvFirst(
+  request: Request,
+  kv: KVNamespace,
+  db: D1Database,
+  key: string | null,
+  cacheSeconds: number,
+): Promise<Response | null> {
+  if (request.method !== "GET" || !key) return null;
+  const fromKv = kv ? await kvReadSnapshot(kv, key) : null;
+  if (fromKv) {
+    const payloadJson = JSON.stringify(fromKv.payload);
+    const etag = fromKv.etag ?? snapshotEtag(payloadJson);
+    if (request.headers.get("If-None-Match") === etag) {
+      return withSnapshotHeader(
+        new Response(null, {
+          status: 304,
+          headers: { ETag: etag, "X-Poll-After-Ms": String(cacheSeconds * 1000) },
+        }),
+        "hit",
+      );
+    }
+    const response = jsonResponse(payloadJson, cacheSeconds);
+    response.headers.set("ETag", etag);
+    response.headers.set("X-Poll-After-Ms", String(cacheSeconds * 1000));
+    return withSnapshotHeader(response, "hit");
+  }
+  return readPublicSnapshot(request, db, key, cacheSeconds);
 }

@@ -33,11 +33,12 @@ import {
   markSnapshotBypass,
   markSnapshotMiss,
   PUBLIC_SNAPSHOT_PAGE_SIZE,
-  readPublicSnapshot,
-  readPublicSnapshotPayload,
+  readPublicSnapshotKvFirst,
+  readPublicSnapshotPayloadKvFirst,
   sliceBootstrapSnapshot,
   snapshotPayloadResponse,
 } from "../lib/public-read-snapshots";
+import { getSnapshotKv } from "../lib/kv-snapshot-store.ts";
 
 function withLocaleHeaders(response: Response, locale: string): Response {
   const headers = new Headers(response.headers);
@@ -76,18 +77,20 @@ export async function handleBootstrap(
     if (cached) return withLocaleHeaders(cached, locale);
     const snapshot =
       pageSize === PUBLIC_SNAPSHOT_PAGE_SIZE
-        ? await readPublicSnapshot(
+        ? await readPublicSnapshotKvFirst(
             request,
+            getSnapshotKv()!,
             db,
             cacheKey ? bootstrapFeaturedSnapshotKey(locale) : null,
             60,
           )
         : cacheKey
           ? await (async () => {
-              const payload = await readPublicSnapshotPayload<PublicBootstrapResponse>(
+              const payload = await readPublicSnapshotPayloadKvFirst(
+                getSnapshotKv()!,
                 db,
                 bootstrapFeaturedSnapshotKey(locale),
-              );
+              ) as PublicBootstrapResponse | null;
               return payload
                 ? snapshotPayloadResponse(sliceBootstrapSnapshot(payload, pageSize), 60)
                 : null;
