@@ -289,3 +289,123 @@ export function scoreNewsEvent(
     model_version: LATENT_VALUE_MODEL_VERSION,
   };
 }
+
+/** Per-list selection caps for dual-list ranking. Defaults match Python `RankingConstraints` (10/4/4). */
+export interface RankingConstraints {
+  top_n?: number;
+  max_per_domain?: number;
+  max_per_source?: number;
+}
+
+/**
+ * Assign each card a domain-relative percentile from its `potential_score`
+ * rank within its domain group (Python `_with_domain_percentiles`). Single-element
+ * groups get 100; otherwise `clamp(100*(denom-idx)/denom)` with idx 0 = top.
+ */
+export function withDomainPercentiles(
+  cards: NewsValueScoreCard[],
+): NewsValueScoreCard[] {
+  const byDomain = new Map<string, NewsValueScoreCard[]>();
+  for (const card of cards) {
+    const group = byDomain.get(card.domain) ?? [];
+    group.push(card);
+    byDomain.set(card.domain, group);
+  }
+
+  const percentileById = new Map<string, number>();
+  for (const domainCards of byDomain.values()) {
+    const ordered = [...domainCards].sort(
+      (a, b) => b.potential_score - a.potential_score,
+    );
+    if (ordered.length === 1) {
+      percentileById.set(ordered[0].event_id, 100);
+      continue;
+    }
+    const denominator = ordered.length - 1;
+    for (let index = 0; index < ordered.length; index++) {
+      percentileById.set(
+        ordered[index].event_id,
+        clampScore((100 * (denominator - index)) / denominator),
+      );
+    }
+  }
+
+  return cards.map((card) => ({
+    ...card,
+    domain_percentile: percentileById.get(card.event_id) ?? 50,
+  }));
+}
+
+/** Sort cards desc by `(score_fn, confidence)`; stable so equal keys keep input order (Python `_ordered_cards`). */
+function orderedCards(
+  cards: NewsValueScoreCard[],
+  scoreFn: (card: NewsValueScoreCard) => number,
+): NewsValueScoreCard[] {
+  return [...cards].sort((a, b) => {
+    const da = scoreFn(a);
+    const db = scoreFn(b);
+    if (da !== db) return db - da;
+    return b.confidence - a.confidence;
+  });
+}
+
+/**
+ * Select up to `top_n` cards walking the ordered list, skipping already-seen
+ * redundancy clusters and over-budget domains/sources (Python `_select_with_constraints`).
+ */
+function selectWithConstraints(
+  orderedCards: NewsValueScoreCard[],
+  constraints: RankingConstraints,
+): NewsValueScoreCard[] {
+  const selected: NewsValueScoreCard[] = [];
+  const domainCounts = new Map<string, number>();
+  const sourceCounts = new Map<string, number>();
+  const clusters = new Set<string>();
+
+  const topN = Math.max(0, constraints.top_n ?? 10);
+  const maxPerDomain = constraints.max_per_domain ?? 4;
+  const maxPerSource = constraints.max_per_source ?? 4;
+
+  for (const card of orderedCards) {
+    if (selected.length >= topN) break;
+    if (clusters.has(card.redundancy_cluster)) continue;
+    if ((domainCounts.get(card.domain) ?? 0) >= maxPerDomain) continue;
+    if ((sourceCounts.get(card.source_id) ?? 0) >= maxPerSource) continue;
+    selected.push(card);
+    domainCounts.set(card.domain, (domainCounts.get(card.domain) ?? 0) + 1);
+    sourceCounts.set(card.source_id, (sourceCounts.get(card.source_id) ?? 0) + 1);
+    clusters.add(card.redundancy_cluster);
+  }
+  return selected;
+}
+
+/**
+ * Score a batch of events and return dual Breaking/Potential ranked lists plus
+ * the full calibrated candidate set (Python `rank_news_values`). Preserves the
+ * given ordering when scores tie, matching Python's stable sort.
+ */
+export function rankNewsValues(
+  events: NewsEventLike[],
+  featuresByEventId: Record<string, LatentValueFeatures>,
+  constraints?: RankingConstraints,
+): { breaking_top: NewsValueScoreCard[]; potential_top: NewsValueScoreCard[]; candidate_cards: NewsValueScoreCard[] } {
+  const cards = events.map((event) =>
+    scoreNewsEvent(event, featuresByEventId[event.id] ?? neutralFeatures()),
+  );
+  const calibrated = withDomainPercentiles(cards);
+
+  const breakingOrder = orderedCards(
+    calibrated,
+    (card) => card.breaking_score * 0.8 + card.domain_percentile * 0.2,
+  );
+  const potentialOrder = orderedCards(
+    calibrated,
+    (card) => card.potential_score * 0.75 + card.domain_percentile * 0.25,
+  );
+
+  return {
+    breaking_top: selectWithConstraints(breakingOrder, constraints ?? {}),
+    potential_top: selectWithConstraints(potentialOrder, constraints ?? {}),
+    candidate_cards: calibrated,
+  };
+}
