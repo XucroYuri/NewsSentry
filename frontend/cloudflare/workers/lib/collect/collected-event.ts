@@ -30,11 +30,26 @@ export type Language = (typeof Language)[keyof typeof Language];
 
 const LANGUAGE_VALUES = new Set<string>(Object.values(Language));
 
-/** 小写匹配已知语言；未知/缺失 → def（默认 MIXED）。 */
+/** 小写匹配已知语言；未知/缺失 → def（默认 MIXED）。`-`/`_` 主子标签均取首段。 */
 export function coerceLanguage(value: string | null | undefined, def: Language = Language.MIXED): Language {
   const normalized = value?.trim().toLowerCase() ?? "";
-  const base = normalized.split("-")[0] as Language;
+  const base = normalized.split(/[-_]/)[0] as Language;
   return LANGUAGE_VALUES.has(base) ? base : def;
+}
+
+/**
+ * 把原始发布时间（RSS pubDate / Atom published / 任意 ISO）归一化为 canonical ISO-8601 UTC 串。
+ *
+ * 对齐 Python `datetime.fromtimestamp(ts, tz=UTC).isoformat()` 的输出：
+ * `YYYY-MM-DDTHH:MM:SS+00:00`（秒精度、无小数、`+00:00` 而非 `Z`）。
+ * 解析失败 → 原样返回 raw（优雅降级，不抛错）。
+ */
+export function normalizePublishedAt(raw: string): string {
+  if (!raw || typeof raw !== "string") return raw;
+  const ms = Date.parse(raw);
+  if (Number.isNaN(ms)) return raw;
+  // toISOString() -> `2024-01-01T00:00:00.000Z`；去毫秒、`Z`→`+00:00` 对齐 Python isoformat()。
+  return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "+00:00");
 }
 
 /**
@@ -86,7 +101,10 @@ async function sha256Hex(input: string): Promise<string> {
 /**
  * 用解析后的 FeedEntry 组装便携式采集事件。
  *
- * published_at 对齐采集库输出；collected_at 记录采集时刻（ISO）。
+ * published_at 归一化为 canonical ISO（对齐 Python `event.published_at`）后，
+ * 才参与 `makeCollectId` 的 hash 计算，保证与 Python `NewsEvent.make_id` 一致。
+ * collected_at 记录采集时刻（ISO）。
+ * feed_url 存入 `metadata.collection.feed_url`（对齐 Python `_entry_to_event`）。
  */
 export async function collectedEventFromEntry(
   target_id: string,
@@ -96,7 +114,8 @@ export async function collectedEventFromEntry(
   feed_url: string,
   entry: FeedEntry,
 ): Promise<CollectedEvent> {
-  const id = await makeCollectId(target_id, source_id, entry.link, entry.published_at);
+  const published_at = normalizePublishedAt(entry.published_at);
+  const id = await makeCollectId(target_id, source_id, entry.link, published_at);
   return {
     id,
     run_id,
@@ -105,10 +124,10 @@ export async function collectedEventFromEntry(
     title_original: entry.title,
     content_original: entry.content,
     language,
-    published_at: entry.published_at,
+    published_at,
     collected_at: new Date().toISOString(),
     pipeline_stage: "collected",
-    metadata: {},
+    metadata: { collection: { feed_url } },
   };
 }
 

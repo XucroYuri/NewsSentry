@@ -24,12 +24,20 @@ test("fetchCollectedEvents reports http_error on non-2xx (no throw)", async () =
   assert.equal(out.events.length, 0);
 });
 
-test("fetchCollectedEvents reports http_error on 3xx redirect (no throw)", async () => {
+test("fetchCollectedEvents reports http_error on 3xx redirect (no throw, redirect:manual passed)", async () => {
+  let receivedInit: RequestInit | undefined;
   const src: CollectSource = { target_id: "it", source_id: "src", url: "https://feeds/redir" };
-  const out = await fetchCollectedEvents(src, "run-1", { fetcher: async () => new Response("", { status: 302 }) as any });
+  const out = await fetchCollectedEvents(src, "run-1", {
+    fetcher: (async (_url: string, init?: RequestInit) => {
+      receivedInit = init;
+      return new Response("", { status: 302 }) as any;
+    }) as any,
+  });
   assert.equal(out.fetch_status, "http_error");
   assert.equal(out.status_code, 302);
   assert.equal(out.events.length, 0);
+  // 关键：真实 globalThis.fetch 默认跟随 3xx，必须显式 redirect:"manual" 才把 302 拦截为 http_error。
+  assert.equal(receivedInit?.redirect, "manual");
 });
 
 test("fetchCollectedEvents reports parse_error on non-feed body (no throw)", async () => {

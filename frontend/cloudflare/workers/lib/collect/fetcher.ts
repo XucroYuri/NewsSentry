@@ -38,6 +38,7 @@ function isOkStatus(status: number): boolean {
 /**
  * 抓取 `source.url`，对 5xx / 网络错误重试一次（对齐 Python `_retry_fetch`）。
  * 最终非 2xx 或网络失败返回 null（调用方转为 `http_error`）。
+ * `redirect: "manual"`：禁止跟随 3xx，重定向与 Python `_raise_on_redirect` 一致 → `http_error`。
  */
 async function fetchBody(
   url: string,
@@ -46,7 +47,7 @@ async function fetchBody(
   const attempts = [1, 2]; // 首次 + 重试一次
   for (const attempt of attempts) {
     try {
-      const res = await fetcher(url);
+      const res = await fetcher(url, { redirect: "manual" });
       const status = res.status;
       // 5xx / 网络瞬时错误：重试一次；4xx、3xx 等客户端/重定向态不重试。
       if (status >= 500 && attempt < attempts.length) continue;

@@ -4,6 +4,7 @@ import {
   coerceLanguage,
   Language,
   makeCollectId,
+  normalizePublishedAt,
   collectedEventFromEntry,
 } from "../workers/lib/collect/collected-event.ts";
 
@@ -37,6 +38,26 @@ test("coerceLanguage maps known and falls back to MIXED", () => {
   assert.equal(coerceLanguage(""), Language.MIXED);
 });
 
+test("coerceLanguage handles underscore region subtags and hyphens", () => {
+  assert.equal(coerceLanguage("en_us"), Language.EN);
+  assert.equal(coerceLanguage("zh-hans"), Language.ZH);
+  assert.equal(coerceLanguage("it_IT"), Language.IT);
+  assert.equal(coerceLanguage("ZH_CN"), Language.ZH);
+  assert.equal(coerceLanguage("xx_yy"), Language.MIXED);
+});
+
+test("makeCollectId canonicalizes raw vs ISO published_at to the same ID (Python parity)", async () => {
+  // 同一时刻的两种表示：RSS pubDate 原始串 vs canonical ISO-8601。
+  // Python `_extract_published` 产出 `datetime.fromtimestamp(ts, tz=UTC).isoformat()`
+  // 即 `2024-01-01T00:00:00+00:00`；normalizePublishedAt 必须把 raw 归一化到同一串，
+  // 保证相同文章 ID 与 Python `NewsEvent.make_id` 逐字符一致。
+  const raw = await makeCollectId("it", "ansa", "https://ex.com/a", normalizePublishedAt("Mon, 01 Jan 2024 00:00:00 GMT"));
+  const iso = await makeCollectId("it", "ansa", "https://ex.com/a", normalizePublishedAt("2024-01-01T00:00:00+00:00"));
+  assert.equal(raw, iso);
+  // 与 Python 参考逐字符一致（SHA-256(...) 前 8 位 == 899e4c50）。
+  assert.equal(raw, "ne-it-ansa-20240101-899e4c50");
+});
+
 test("collectedEventFromEntry builds a portable CollectedEvent", async () => {
   const ev = await collectedEventFromEntry(
     "it",
@@ -62,5 +83,26 @@ test("collectedEventFromEntry builds a portable CollectedEvent", async () => {
   assert.equal(ev.run_id, "run-1");
   assert.ok(ev.id.startsWith("ne-it-ansa-"));
   assert.ok(ev.collected_at.length > 0);
-  assert.deepEqual(ev.metadata, {});
+  assert.deepEqual(ev.metadata, { collection: { feed_url: "https://feeds/ansa" } });
+});
+
+test("collectedEventFromEntry normalizes raw RSS pubDate in published_at and id hash", async () => {
+  const ev = await collectedEventFromEntry(
+    "it",
+    "ansa",
+    "run-1",
+    Language.IT,
+    "https://feeds/ansa",
+    {
+      title: "T",
+      link: "https://ex.com/a",
+      content: "C",
+      published_at: "Mon, 01 Jan 2024 00:00:00 GMT",
+      guid: "g",
+    },
+  );
+  // published_at 归一化为 canonical ISO（对齐 Python `event.published_at`）。
+  assert.equal(ev.published_at, "2024-01-01T00:00:00+00:00");
+  // id 使用归一化后的串参与 hash → 与 Python `NewsEvent.make_id` 一致。
+  assert.equal(ev.id, "ne-it-ansa-20240101-899e4c50");
 });
