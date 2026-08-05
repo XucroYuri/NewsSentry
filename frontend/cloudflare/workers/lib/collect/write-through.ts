@@ -10,7 +10,7 @@
  */
 
 import type { CollectedEvent } from "./collected-event.ts";
-import { writeCursor, writeProcessedWatermark } from "./ops-state.ts";
+import { D1KvRepo, writeCursor, writeProcessedWatermark } from "./ops-state.ts";
 import type { KvRepo } from "./ops-state.ts";
 import { refreshPublicReadSnapshots } from "../public-read-snapshots.ts";
 
@@ -151,16 +151,10 @@ export const defaultWriteTable: WriteTable = {
 
 /**
  * 把单个已处理事件直接 upsert 进 events 表（幂等）。
- * 内部使用 `defaultWriteTable`；模块级可替换以支持测试注入。
+ * 固定使用 `defaultWriteTable`（测试通过状态化 fake D1 断言 SQL/bind，无需接口注入）。
  */
-let table: WriteTable = defaultWriteTable;
-
-export function setWriteTable(t: WriteTable): void {
-  table = t;
-}
-
 export async function writeEventToD1(db: D1Database, event: CollectedEvent): Promise<void> {
-  await table.insertStatement(db, event).run();
+  await defaultWriteTable.insertStatement(db, event).run();
 }
 
 /**
@@ -168,15 +162,20 @@ export async function writeEventToD1(db: D1Database, event: CollectedEvent): Pro
  *
  * 端到端写穿最小闭环：events 进 D1 + 游标推进 + 水位记录。
  *  - 逐事件调 `writeEventToD1`（顺序循环即可，D1 写廉价，避免并发淹没）。
- *  - `next_cursor = cursor + events.length`（与 B2 `nextBatch` 的 wrap-around 对齐）。
- *  - `repo` 缺省用 `D1KvRepo`（生产后端）；测试注入 `MapKvRepo` 桩。
- *  - 持久化游标 `collect_cursor` 与可选的去重水位 `collect_processed`。
+ *  - 游标推进：优先用 `nextCursor`（B2 `nextBatch` 按**目标数**预推进的下一批起点）；
+ *    未传时退回 `cursor + events.length`（直接调用方的向后兼容缺省）。
+ *  - `repo` 缺省用 `D1KvRepo`（生产后端），保证哪怕直接调用也会持久化游标/水位；
+ *    测试用 `MapKvRepo` 桩注入。
+ *  - 持久化游标 `collect_cursor` 与去重水位 `collect_processed`。
+ *    水位（knownIds）目前只是批内简化占位，真正的唯一去重由 events upsert 幂等兜底。
  */
 export interface WriteBatchToD1Options {
   db: D1Database;
   events: CollectedEvent[];
   cursor: number;
   repo?: KvRepo;
+  /** 显式下一批游标（B2 `nextBatch.next_cursor`，按目标数推进）。缺省退回 events 数。 */
+  nextCursor?: number;
   batchSizeMarker?: string;
 }
 
@@ -187,13 +186,12 @@ export async function writeBatchToD1(
     await writeEventToD1(opts.db, event);
   }
   const written = opts.events.length;
-  const next_cursor = opts.cursor + written;
+  const next_cursor = opts.nextCursor ?? opts.cursor + written;
 
-  if (opts.repo) {
-    await writeCursor(opts.repo, next_cursor, "collect_cursor");
-    if (opts.batchSizeMarker) {
-      await writeProcessedWatermark(opts.repo, opts.batchSizeMarker, "collect_processed");
-    }
+  const repo = opts.repo ?? new D1KvRepo(opts.db);
+  await writeCursor(repo, next_cursor, "collect_cursor");
+  if (opts.batchSizeMarker) {
+    await writeProcessedWatermark(repo, opts.batchSizeMarker, "collect_processed");
   }
 
   return { written, next_cursor };
@@ -211,13 +209,21 @@ export interface WriteAndRefreshOptions {
   events: CollectedEvent[];
   cursor: number;
   repo?: KvRepo;
+  /** 显式下一批游标（按目标数推进）；缺省退回 `writeBatchToD1` 的 events 数缺省。 */
+  nextCursor?: number;
   refresh?: typeof refreshPublicReadSnapshots;
 }
 
 export async function writeAndRefresh(
   opts: WriteAndRefreshOptions,
 ): Promise<{ written: number; next_cursor: number; refreshed: boolean }> {
-  const batch = await writeBatchToD1(opts);
+  const batch = await writeBatchToD1({
+    db: opts.db,
+    events: opts.events,
+    cursor: opts.cursor,
+    repo: opts.repo,
+    nextCursor: opts.nextCursor,
+  });
   const refreshFn = opts.refresh ?? refreshPublicReadSnapshots;
   await refreshFn(opts.db);
   return { ...batch, refreshed: true };

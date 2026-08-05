@@ -53,21 +53,33 @@ export async function runCollectCycle(
 ): Promise<RunCollectCycleResult> {
   const repo = opts.repo ?? new D1KvRepo(opts.db);
   const cursor = await readCursor(repo, "collect_cursor");
-  const { selected } = nextBatch(opts.repos.targets, cursor, opts.batchSize ?? 8);
+  const { selected, next_cursor: batchNextCursor } = nextBatch(
+    opts.repos.targets,
+    cursor,
+    opts.batchSize ?? 8,
+  );
 
   // B2：对批次内每 target 抓取 + 归一。
   const runId = `collect-cycle-${Date.now()}`;
   const collectedEvents: CollectedEvent[] = [];
   for (const target of selected) {
     // 编排层最小 feed 派生：target 即 source_id，url 为占位 feed。
+    // target_id/region_id 后续按事件 source_id（= 该 feed 的目标）逐条标注（见下）。
     const source: CollectSource = {
-      target_id: opts.config.targetId,
+      target_id: target,
       source_id: target,
       url: `https://feeds.example.com/${target}`,
       language: "mixed",
     };
     const outcome = await fetchCollectedEvents(source, runId, { fetcher: opts.fetcher });
     collectedEvents.push(...outcome.events);
+  }
+
+  // I2：把每条事件的 target_id/region_id 标注为其真实来源（source_id），
+  // 避免多 target 批次把单一日标写进所有事件（写穿读取 per-event metadata）。
+  for (const event of collectedEvents) {
+    event.metadata["target_id"] = event.source_id;
+    event.metadata["region_id"] = event.source_id;
   }
 
   // B3：过滤（去重水位捷径）；真正的去重由 events upsert 幂等兜底。
@@ -92,12 +104,14 @@ export async function runCollectCycle(
     event.metadata["china_relevance"] = china_relevance;
   }
 
-  // B4：写穿 events + 推进游标 + 刷新公开快照。
+  // B4：写穿 events + 推进游标（按目标数，取自 nextBatch.next_cursor）+ 刷新公开快照。
+  // 传同一 `repo`（生产缺省 D1KvRepo），保证游标/水位跨调持久化。
   const result = await writeAndRefresh({
     db: opts.db,
     events: clustered,
     cursor,
-    repo: opts.repo,
+    nextCursor: batchNextCursor,
+    repo,
     refresh: opts.refresh,
   });
 

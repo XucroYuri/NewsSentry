@@ -11,6 +11,7 @@ import {
 } from "../workers/lib/collect/ops-state.ts";
 import type { CollectedEvent } from "../workers/lib/collect/collected-event.ts";
 import type { KvRepo } from "../workers/lib/collect/ops-state.ts";
+import { D1KvRepo } from "../workers/lib/collect/ops-state.ts";
 
 /** 内存 D1 桩：捕获 prepare(sql).bind(...).run() 的 SQL 与 bind 参数。 */
 function fakeDb() {
@@ -204,18 +205,59 @@ test("writeBatchToD1: 逐事件 upsert、统计 written、推进游标并记录�
   );
 });
 
-test("writeBatchToD1: 未传 repo/watermark 时仅写事件，不推进状态", async () => {
-  const { db, calls } = fakeDb();
-  const events = processedEvents(2);
+test("[C1] writeBatchToD1 不传 repo 时内部缺省 D1KvRepo，游标仍持久化（produção 闭环）", async () => {
+  // 状态化 D1：真的把 ops_state 行存下，且 SELECT 返回已存值。
+  const ops = new Map<string, string>();
+  const eventsCalls: { sql: string; args: unknown[] }[] = [];
+  const db = {
+    prepare(sql: string) {
+      return {
+        bind(...args: unknown[]) {
+          return {
+            first: async () =>
+              /SELECT value FROM ops_state/i.test(sql) ? { value: ops.get(String(args[0])) ?? null } : null,
+            run: async () => {
+              if (/INSERT INTO ops_state/i.test(sql)) {
+                ops.set(String(args[0]), String(args[1]));
+                return { success: true, meta: {} };
+              }
+              eventsCalls.push({ sql, args });
+              return { success: true, meta: {} };
+            },
+          };
+        },
+      };
+    },
+  } as unknown as D1Database;
 
-  const result = await writeBatchToD1({ db, events, cursor: 10 });
+  const events = processedEvents(2);
+  // 关键：不传 repo —— 生产 opts.repo 为 undefined。若 C1 未修复（`if (opts.repo)` 跳过），此处不会持久化。
+  const result = await writeBatchToD1({ db, events, cursor: 10, batchSizeMarker: "batch-x" });
 
   assert.equal(result.written, 2);
+  // 缺省（未传 nextCursor）仍退回 events 数推进：10 + 2 = 12。
   assert.equal(result.next_cursor, 12);
-  assert.equal(calls.length, 2); // 只有 2 条 events upsert，无 ops_state 写。
-  for (const c of calls) {
-    assert.doesNotMatch(c.sql, /ops_state/);
-  }
+
+  // 游标已持久化到 D1 后端 ops_state，且 round-trip 回读 = 12。
+  assert.equal(ops.get("collect_cursor"), "12");
+  assert.equal(await readCursor(new D1KvRepo(db)), 12);
+  assert.equal(ops.get("collect_processed"), "batch-x");
+  // 2 条 events upsert。
+  assert.equal(eventsCalls.length, 2);
+  assert.ok(eventsCalls.every((c) => /\bINSERT INTO events\b/.test(c.sql)));
+});
+
+test("writeBatchToD1: 显式 nextCursor（按目标数推进）优先于 events 数", async () => {
+  const { db } = fakeDb();
+  const repo = new MapKvRepo();
+  const events = processedEvents(4); // 4 条事件
+  // 目标数推进：cursor=10，选中目标 advance=2（非事件数 4）。
+  const result = await writeBatchToD1({ db, events, cursor: 10, nextCursor: 12, repo });
+
+  assert.equal(result.next_cursor, 12, "显式目标数推进覆盖事件数");
+  assert.equal(await readCursor(repo), 12);
+  // 事件仍按 4 条逐一 upsert。
+  assert.equal(result.written, 4);
 });
 
 test("writeAndRefresh: 写穿后触发公开快照刷新并返回 refreshed", async () => {
