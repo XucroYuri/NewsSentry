@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { writeBatchToD1, writeEventToD1 } from "../workers/lib/collect/write-through.ts";
+import {
+  writeAndRefresh,
+  writeBatchToD1,
+  writeEventToD1,
+} from "../workers/lib/collect/write-through.ts";
 import {
   readCursor,
   readProcessedWatermark,
@@ -212,4 +216,41 @@ test("writeBatchToD1: 未传 repo/watermark 时仅写事件，不推进状态", 
   for (const c of calls) {
     assert.doesNotMatch(c.sql, /ops_state/);
   }
+});
+
+test("writeAndRefresh: 写穿后触发公开快照刷新并返回 refreshed", async () => {
+  const { db, calls } = fakeDb();
+  const repo = new MapKvRepo();
+  const events = processedEvents(3);
+  let refreshDb: D1Database | undefined;
+  let refreshCalls = 0;
+  const refresh = async (arg: D1Database) => {
+    refreshCalls += 1;
+    refreshDb = arg;
+    return { status: "ok" as const };
+  };
+
+  const result = await writeAndRefresh({
+    db,
+    events,
+    cursor: 100,
+    repo,
+    refresh,
+  });
+
+  // 写穿照常执行：3 条 events upsert，游标/水位已持久化。
+  assert.equal(calls.length, 3);
+  for (const c of calls) {
+    assert.match(c.sql, /INSERT INTO events/);
+  }
+  assert.equal(await readCursor(repo), 103);
+
+  // refresh spy 恰好被调用一次，且以同一 db 实例。
+  assert.equal(refreshCalls, 1);
+  assert.equal(refreshDb, db);
+
+  // 返回 batch 结果 + refreshed: true。
+  assert.equal(result.written, 3);
+  assert.equal(result.next_cursor, 103);
+  assert.equal(result.refreshed, true);
 });

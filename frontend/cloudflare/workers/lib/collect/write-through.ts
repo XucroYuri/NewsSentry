@@ -12,6 +12,7 @@
 import type { CollectedEvent } from "./collected-event.ts";
 import { writeCursor, writeProcessedWatermark } from "./ops-state.ts";
 import type { KvRepo } from "./ops-state.ts";
+import { refreshPublicReadSnapshots } from "../public-read-snapshots.ts";
 
 /** 判定列值来源的 metadata 取值辅助：返回 string 或 fallback。 */
 function metaString(
@@ -196,4 +197,28 @@ export async function writeBatchToD1(
   }
 
   return { written, next_cursor };
+}
+
+/**
+ * 写穿后触发公开快照刷新：构成端到端最小闭环「写入 → 快照刷新 → 公开面更新」。
+ *
+ *  - 先委托 `writeBatchToD1` 完成 events 写穿 + 游标/水位推进。
+ *  - 再调用公开快照刷新（写穿后立即刷新公开阅读器可见的聚合快照）。
+ *  - `refresh` 可注入：测试用 fake spy（不真刷快照）；生产缺省用 `refreshPublicReadSnapshots`。
+ */
+export interface WriteAndRefreshOptions {
+  db: D1Database;
+  events: CollectedEvent[];
+  cursor: number;
+  repo?: KvRepo;
+  refresh?: typeof refreshPublicReadSnapshots;
+}
+
+export async function writeAndRefresh(
+  opts: WriteAndRefreshOptions,
+): Promise<{ written: number; next_cursor: number; refreshed: boolean }> {
+  const batch = await writeBatchToD1(opts);
+  const refreshFn = opts.refresh ?? refreshPublicReadSnapshots;
+  await refreshFn(opts.db);
+  return { ...batch, refreshed: true };
 }
