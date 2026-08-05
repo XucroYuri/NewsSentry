@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { writeEventToD1 } from "../workers/lib/collect/write-through.ts";
+import { writeBatchToD1, writeEventToD1 } from "../workers/lib/collect/write-through.ts";
+import {
+  readCursor,
+  readProcessedWatermark,
+} from "../workers/lib/collect/ops-state.ts";
 import type { CollectedEvent } from "../workers/lib/collect/collected-event.ts";
+import type { KvRepo } from "../workers/lib/collect/ops-state.ts";
 
 /** 内存 D1 桩：捕获 prepare(sql).bind(...).run() 的 SQL 与 bind 参数。 */
 function fakeDb() {
@@ -137,4 +142,74 @@ test("writeEventToD1 classification absent -> '{}' and pipeline_stage inferred",
   assert.ok(args.includes("collected"), "pipeline_stage 缺省 collected");
   // value_score 缺省 null。
   assert.ok(args.some((a) => a === null), "value_score 缺省 null");
+});
+
+/** Map 后端 KvRepo：测试隔离，无需 D1。 */
+class MapKvRepo implements KvRepo {
+  private map = new Map<string, string>();
+  get(key: string): Promise<string | null> {
+    return Promise.resolve(this.map.get(key) ?? null);
+  }
+  set(key: string, value: string): Promise<void> {
+    this.map.set(key, value);
+    return Promise.resolve();
+  }
+}
+
+/** 构造批量的多个已处理事件（id 不同、共享目标/来源）。 */
+function processedEvents(n: number): CollectedEvent[] {
+  return Array.from({ length: n }, (_, i) => ({
+    ...processedEvent(),
+    id: `ne-it-ansa-20240101-${String(i).padStart(8, "0")}`,
+  }));
+}
+
+test("writeBatchToD1: 逐事件 upsert、统计 written、推进游标并记录水位", async () => {
+  const { db, calls } = fakeDb();
+  const repo = new MapKvRepo();
+  const events = processedEvents(3);
+  const cursor = 100;
+
+  const result = await writeBatchToD1({
+    db,
+    events,
+    cursor,
+    repo,
+    batchSizeMarker: "batch-2026-08-05:a1b2c3",
+  });
+
+  // 每个事件都触发一次 writeEventToD1（3 条 upsert，events 表）。
+  assert.equal(calls.length, 3);
+  for (const c of calls) {
+    assert.match(c.sql, /INSERT INTO events/);
+  }
+  assert.ok(calls[0].args.includes(events[0].id));
+  assert.ok(calls[1].args.includes(events[1].id));
+  assert.ok(calls[2].args.includes(events[2].id));
+
+  // 返回值：written = 事件数，next_cursor = cursor + events.length。
+  assert.equal(result.written, 3);
+  assert.equal(result.next_cursor, 103);
+
+  // 游标与水位已持久化到 repo（作为 KvRepo，而非 D1 直写）。
+  assert.equal(await readCursor(repo), 103);
+  assert.equal(await repo.get("collect_cursor"), "103");
+  assert.equal(
+    await readProcessedWatermark(repo),
+    "batch-2026-08-05:a1b2c3",
+  );
+});
+
+test("writeBatchToD1: 未传 repo/watermark 时仅写事件，不推进状态", async () => {
+  const { db, calls } = fakeDb();
+  const events = processedEvents(2);
+
+  const result = await writeBatchToD1({ db, events, cursor: 10 });
+
+  assert.equal(result.written, 2);
+  assert.equal(result.next_cursor, 12);
+  assert.equal(calls.length, 2); // 只有 2 条 events upsert，无 ops_state 写。
+  for (const c of calls) {
+    assert.doesNotMatch(c.sql, /ops_state/);
+  }
 });

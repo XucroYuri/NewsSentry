@@ -10,6 +10,8 @@
  */
 
 import type { CollectedEvent } from "./collected-event.ts";
+import { writeCursor, writeProcessedWatermark } from "./ops-state.ts";
+import type { KvRepo } from "./ops-state.ts";
 
 /** 判定列值来源的 metadata 取值辅助：返回 string 或 fallback。 */
 function metaString(
@@ -158,4 +160,40 @@ export function setWriteTable(t: WriteTable): void {
 
 export async function writeEventToD1(db: D1Database, event: CollectedEvent): Promise<void> {
   await table.insertStatement(db, event).run();
+}
+
+/**
+ * 批次写穿：把一批已处理事件逐条 upsert 进 events 表，并推进采集游标/水位。
+ *
+ * 端到端写穿最小闭环：events 进 D1 + 游标推进 + 水位记录。
+ *  - 逐事件调 `writeEventToD1`（顺序循环即可，D1 写廉价，避免并发淹没）。
+ *  - `next_cursor = cursor + events.length`（与 B2 `nextBatch` 的 wrap-around 对齐）。
+ *  - `repo` 缺省用 `D1KvRepo`（生产后端）；测试注入 `MapKvRepo` 桩。
+ *  - 持久化游标 `collect_cursor` 与可选的去重水位 `collect_processed`。
+ */
+export interface WriteBatchToD1Options {
+  db: D1Database;
+  events: CollectedEvent[];
+  cursor: number;
+  repo?: KvRepo;
+  batchSizeMarker?: string;
+}
+
+export async function writeBatchToD1(
+  opts: WriteBatchToD1Options,
+): Promise<{ written: number; next_cursor: number }> {
+  for (const event of opts.events) {
+    await writeEventToD1(opts.db, event);
+  }
+  const written = opts.events.length;
+  const next_cursor = opts.cursor + written;
+
+  if (opts.repo) {
+    await writeCursor(opts.repo, next_cursor, "collect_cursor");
+    if (opts.batchSizeMarker) {
+      await writeProcessedWatermark(opts.repo, opts.batchSizeMarker, "collect_processed");
+    }
+  }
+
+  return { written, next_cursor };
 }
