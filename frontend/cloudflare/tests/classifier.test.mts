@@ -115,3 +115,34 @@ test("classifyEvent: 纯函数，不改动 event", async () => {
   classifyEvent(ev, minimalConfig());
   assert.equal(JSON.stringify(ev), before);
 });
+
+test("classifyEvent: 命中落在 .5 边界取偶，对齐 Python round（half-to-even）", async () => {
+  // domain 有 8 个关键词、命中 5 个 → 5/8*100 = 62.5 → half-to-even 得 62（而非 Math.round 的 63）。
+  const config: ClassificationConfig = {
+    l0_domains: [
+      {
+        code: "economy",
+        keywords_en: ["a", "b", "c", "d", "e", "f", "g", "h"],
+      },
+    ],
+    l1_topics: [],
+    country_axes: {},
+  };
+  const ev = await collectedEventFromEntry(
+    "it",
+    "ansa",
+    "run-1",
+    Language.IT,
+    "https://feeds/ansa",
+    {
+      title: "a b c d e",
+      link: "https://ex.com/t",
+      content: "unrelated filler words that do not hit the keyword list.",
+      published_at: "2024-01-01T00:00:00+00:00",
+      guid: "g",
+    },
+  );
+  const result = classifyEvent(ev, config);
+  assert.equal(result.l0, "economy");
+  assert.equal(result.confidence, 62, "62.5 应 half-to-even 舍入为 62，不是 Math.round 的 63");
+});

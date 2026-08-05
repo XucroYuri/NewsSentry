@@ -13,6 +13,7 @@
 
 import { canonicalL0, keywordMatches } from "./transform-keywords.ts";
 import type { CollectedEvent } from "./collected-event.ts";
+import { roundHalfToEven } from "./round-half-to-even.ts";
 
 /** L0 一级领域定义。`keywords_*` 为任意语言关键词键（如 keywords_en/keywords_it/keywords_zh）。 */
 export interface L0Domain {
@@ -124,7 +125,7 @@ function classifyL0(text: string, l0Domains: L0Domain[]): {
         const kws = bestDef[langKey];
         if (Array.isArray(kws)) totalKw += kws.length;
       }
-      confidence = totalKw > 0 ? Math.min(Math.round((bestCount / totalKw) * 100), 100) : 0;
+      confidence = totalKw > 0 ? Math.min(roundHalfToEven((bestCount / totalKw) * 100), 100) : 0;
     }
   }
 
@@ -157,7 +158,7 @@ function classifyL1(text: string, l0Domain: string, l1Topics: L1Topic[]): AxisRe
     }
 
     if (hits > 0 && total > 0) {
-      const confidence = Math.min(Math.round((hits / total) * 100), 100);
+      const confidence = Math.min(roundHalfToEven((hits / total) * 100), 100);
       results.push({ code: topic.code, confidence });
     }
   }
@@ -184,7 +185,7 @@ function classifyL2(
     }
 
     if (axisConfidences.length > 0) {
-      const avg = Math.round(
+      const avg = roundHalfToEven(
         axisConfidences.reduce((sum, c) => sum + c, 0) / axisConfidences.length,
       );
       results.push({ code: axisCode, confidence: avg });
