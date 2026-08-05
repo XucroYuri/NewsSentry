@@ -173,3 +173,19 @@ ID 与行为基准：`makeCollectId` 输出 `ne-{target}-{src}-{yyyymmdd}-{hash8
 关键语义：规则过滤与研判的分数统一以 `metadata.filter_score` 为键（B2 尚无 news_value_score，用命名空间键保持 shape 稳定）；`classifyEvent`/`judgeEvent`/`assignClusters` 均为纯函数，调用方负责次序编排；`assignClusters` 为 async 且按批次独立计算稳定 id，批次间不共享状态。以 Python `tests/unit/` 对应的规则/分类/聚类/研判用例作为行为基准，TS 各 API 均有 Python-parity 单元测试。
 
 无回归：Cloudflare 全套 198 项测试全绿（含新增 B3 规则层与既有 collect 层用例），Python `tests/` 对应行为基准仍成立。Phase B4（D1 游标持久化接线、`knownIds` 去重状态化持久）待接续。
+
+## Phase B4：写穿管道（采集→处理→公开读闭环）
+
+已完成 Cloudflare 自由层的**写穿（write-through）管道**，串起 B2（批次调度 + 抓取归一）→ B3（规则过滤/分类/聚类/研判）→ B4（写穿 + 快照刷新）为一个完整采集周期，打通「采集 → 处理 → 公开阅读」全闭环。本阶段不引入任何 legacy 的 `import_batches`/回执守卫机制，批次 `INSERT ... SELECT` 被逐事件幂等 upsert 取代。全部新增于 `frontend/cloudflare/workers/lib/collect/`，其中 `ops-state.ts`/`write-through.ts`/`collect-cycle.ts` 为本相位新模块，均为可注入、可单测的组合式实现。
+
+| 变更项 | 内容 |
+|---|---|
+| 新增 `ops-state.ts` | 抽象键值仓库接口 `KvRepo`（`get`/`set`），薄封装为 `readCursor`/`writeCursor`（`collect_cursor`）、`readProcessedWatermark`/`writeProcessedWatermark`（`collect_processed`）。生产实现 `D1KvRepo` 走 `ops_state` 表（key/value/updated_at，upsert 语义）；测试用 `MapKvRepo` 桩，使纯逻辑不绑定 D1 即可单测 |
+| 新增 `write-through.ts` | `writeEventToD1` 单事件直接参数化 `INSERT ... ON CONFLICT(event_id) DO UPDATE` upsert 进 `events`，复用 projection-sql 的列映射/COALESCE 语义，无 `import_batches`/回执机制；`writeBatchToD1` 逐事件 upsert、统计 `written`、推进游标 `collect_cursor = cursor + events.length`、可选写去重水位 `collect_processed`；`update_at` 统一刷新 |
+| 新增 `write-through.ts`（续） | `writeAndRefresh` 先委托 `writeBatchToD1` 完成 events 写穿 + 游标/水位推进，再触发 `refreshPublicReadSnapshots` 刷新公开快照（复用 Phase A 快照链路），返回 `{ written, next_cursor, refreshed }`，构成「写入 → 快照刷新 → 公开面更新」最小闭环；`resolutionPipelineStage` 缺省推断 JUDGED |
+| 新增 `collect-cycle.ts` | `runCollectCycle` 端到端编排：读游标 → `nextBatch` 环形选 target（默认 batchSize 8）→ `fetchCollectedEvents` 抓取归一 → `filterEvents` 过滤（水位捷径，真去重靠 events upsert 幂等兜底）→ `assignClusters` 聚类 → `classifyEvent` 分类 → `judgeEvent` 研判 → `writeAndRefresh` 写穿；只组合不重写，复用 B2/B3/B4 既有导出 |
+| 去重与状态语义 | events 表 `ON CONFLICT(event_id)` upsert 幂等是真正的去重兜底，去重水位 `knownIds` 仅作为批内捷径、不承担唯一性；采集游标与去重水位持久化于 D1 `ops_state`，跨 worker 调用可恢复 |
+
+关键语义：`KvRepo` 是采集层状态存取的唯一依赖，业务函数不直接绑定 D1 `prepare/bind`，从而游标/水位纯逻辑可用 `MapKvRepo` 桩无 D1 测试；`WriteTable` 可注入（`setWriteTable`）以支持断言 SQL/bind；`refresh`/`fetcher`/`repo` 均可注入，生产缺省用 `D1KvRepo` 与 `refreshPublicReadSnapshots`。`runCollectCycle` 为纯编排层，不重写任何既有逻辑，把所有 P0-B3/B4 函数串成一个完整采集周期，回执即 `{ processed, written, next_cursor, refreshed }`。
+
+无回归：Cloudflare 全套 **215 项测试全绿**（含新增 B4 写穿/编排与既有 B1-B3 用例），本相位仅新增 Cloudflare 侧 collect 层，未 touch Python 基线，Python 对应行为基准仍成立。至此 Cloudflare Worker 侧已具备自 `collect` 至公开读快照刷新的完整自由层采集闭环。
