@@ -157,3 +157,19 @@
 ID 与行为基准：`makeCollectId` 输出 `ne-{target}-{src}-{yyyymmdd}-{hash8}` 格式，hash8 由 SHA-256( target_id + source_id + url + published_at_iso ) 截取前 8 位十六进制生成，与 Python `uuid` 语义无关的 `hashlib.sha256(...).hexdigest()[:8]` 逐位一致，保证 Python/TS 两侧同一事件产生相同 ID。日期部分取 `published_at_iso` 前 10 位并按真实日历日期 round-trip 校验，形状合法但非法（如 2024-02-30）回退当前 UTC 日期，对齐 Python `fromisoformat` 拒绝语义。`coerceLanguage` 小写获取 `-` 前 base 与已知集合匹配，未命中回退 MIXED——均以 Python 采集/`make_id`/`coerce_language`/`_extract_*` 作为行为基准，TS 各 API 均有对应的 Python-parity 单元测试。
 
 无回归：Cloudflare 全套 159 项测试全绿（含新增 collect 层 30 余项），Python `tests/` collect 相关 194 项通过作为行为基准仍成立。Phase B3（Durable Object 调度接线）与 B4（D1 游标持久化）待接续。
+
+## Phase B3：规则过滤/分类/聚类/研判 TS 移植
+
+已完成采集事件 → 研判的规则层转译链 TS 移植，覆盖 Python 的 `rules_filter` / `classifier_rules` / `event_clustering` / `rules_judge` / `classification_taxonomy` 行为基线。全部新增于 `frontend/cloudflare/workers/lib/collect/`，均为配置驱动、无副作用、可单测的纯函数，不依赖 Python 运行时，为 Cloudflare Worker 端离线转译奠定基础。
+
+| 变更项 | 内容 |
+|---|---|
+| 新增 `transform-keywords.ts` | 关键词匹配与分类法兼容助手：`keywordMatches`（对 CJK/假名/谚文做子串匹配，否则词边界；2-4 位全大写缩写大小写敏感，其余忽略大小写）、`canonicalL0`（trim+lowercase、legacy 别名映射、空回退 uncategorized）、`classificationTerms`（规范 l0 + l1 文本去重保序）、`isCanonicalL0`；全量 `CANONICAL_L0` 与 `LEGACY_L0_ALIASES` 逐一复刻 Python `classification_taxonomy.py` |
+| 新增 `filter.ts` | `filterEvents` 对齐 Python `RulesFilter.filter`：命中 knownIds 去重（skipped_known）、`now-published_at <= max_age_hours` 时效（解析失败宽容通过）、关键词按 weight*100 计分顶 100 并写 `metadata.filter_matched_keywords`、低于 `score_threshold` 跳过（skipped_low_score）；通过者分数写 `metadata.filter_score`。不写 memory、不 mutate knownIds——内存去重能力移交 B4 接线，本阶段仅返回四类计数器 |
+| 新增 `classifier.ts` | `classifyEvent` 对齐 Python `ClassifierRules.classify`，配置驱动（`ClassificationConfig` 含 l0_domains/l1_topics/country_axes）：`_gather_text` 聚合 title+content、L0 命中计数选最高域+置信度、L1 在命中域下匹配子议题、L2 国家子轴按子议题平均置信度激活；L3 阶段留空，返回 `classifier_version: "rules-v1"` |
+| 新增 `clustering.ts` | `assignClusters` 对齐 Python `assign_lightweight_clusters`：token profiler（NFKD→ascii→regex 抽取→去 stopword/泛词→synonym 映射）、`_same_event` union-find 轻量归组（标题重叠 + 分类 term 兼容）、`_stable_id` 用 `sha256Hex`（复用 B2 导出）对 `target|terms|tokens` 算 SHA-256 前 12 位 hex 生成**确定性** cluster/story id；写入 `metadata.clustering`（cluster_type/cluster_id/story_id/cluster_size/confidence/matched_by/reason/clustered_at） |
+| 新增 `judge.ts` | `judgeEvent` 对齐 Python `rules_judge.py`：home_relevance 子串命中 +10 顶 100、`decideRecommendation` 依 score/L0 得 `publish/review/archive/discard`、`buildRationale` 生成简体中文研判理由、`buildFlags` 产 high_value/home_significant/home_related/breaking/priority_topic；返回新对象不改动 event，`china_relevance` 为 home_rel 向后兼容别名 |
+
+关键语义：规则过滤与研判的分数统一以 `metadata.filter_score` 为键（B2 尚无 news_value_score，用命名空间键保持 shape 稳定）；`classifyEvent`/`judgeEvent`/`assignClusters` 均为纯函数，调用方负责次序编排；`assignClusters` 为 async 且按批次独立计算稳定 id，批次间不共享状态。以 Python `tests/unit/` 对应的规则/分类/聚类/研判用例作为行为基准，TS 各 API 均有 Python-parity 单元测试。
+
+无回归：Cloudflare 全套 198 项测试全绿（含新增 B3 规则层与既有 collect 层用例），Python `tests/` 对应行为基准仍成立。Phase B4（D1 游标持久化接线、`knownIds` 去重状态化持久）待接续。
