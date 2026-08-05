@@ -87,7 +87,7 @@ function datePart(publishedAtIso: string): string {
   return new Date().toISOString().slice(0, 10).replaceAll("-", "");
 }
 
-async function sha256Hex(input: string): Promise<string> {
+export async function sha256Hex(input: string): Promise<string> {
   const subtle = globalThis.crypto?.subtle;
   if (subtle) {
     const buf = await subtle.digest("SHA-256", new TextEncoder().encode(input));
