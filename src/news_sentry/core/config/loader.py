@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from jsonschema import validate as jsonschema_validate
+from jsonschema.validators import validator_for
 
 from news_sentry.core.config.models import ResolvedConfig
 from news_sentry.skills.filter.classification_taxonomy import canonical_l0
@@ -29,6 +29,7 @@ class ConfigLoader:
             config_root: 项目根目录（包含 config/、schemas/ 子目录）。
         """
         self._config_root = config_root
+        self._schema_cache: dict[Path, Any] = {}
 
     # ── 公共接口 ─────────────────────────────────────────────
 
@@ -173,10 +174,16 @@ class ConfigLoader:
         """
         if not schema_path.is_file():
             raise FileNotFoundError(f"Schema 文件不存在: {schema_path}")
-        with open(schema_path, encoding="utf-8") as fh:
-            schema = yaml.safe_load(fh)
+        validator = self._schema_cache.get(schema_path)
+        if validator is None:
+            with open(schema_path, encoding="utf-8") as fh:
+                schema = yaml.safe_load(fh)
+            validator_cls = validator_for(schema)
+            validator_cls.check_schema(schema)
+            validator = validator_cls(schema)
+            self._schema_cache[schema_path] = validator
         try:
-            jsonschema_validate(instance=data, schema=schema)
+            validator.validate(data)
         except Exception as exc:
             msgs = [f"配置校验失败: {yaml_path or 'unknown'}"]
             if hasattr(exc, "message"):

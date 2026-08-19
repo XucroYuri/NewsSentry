@@ -2,8 +2,11 @@
 # Install: pip install -r requirements.txt
 # Rebuild: pip freeze --exclude-editable > requirements.txt
 
+aiosqlite==0.22.1
 annotated-types==0.7.0
 anyio==4.13.0
+attrs==26.1.0
+cachetools==7.1.7
 certifi==2026.4.22
 click==8.3.3
 feedparser==6.0.12
@@ -11,8 +14,13 @@ h11==0.16.0
 httpcore==1.0.9
 httpx==0.28.1
 idna==3.14
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
 pydantic==2.13.4
 pydantic_core==2.46.4
 PyYAML==6.0.3
+referencing==0.37.0
+rpds-py==0.30.0
+sgmllib3k==1.0.0
 typing-inspection==0.4.2
 typing_extensions==4.15.0

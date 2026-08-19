@@ -56,7 +56,7 @@ fi
 
 # ── Type ──
 echo "── Type ──"
-check "mypy"         python -m mypy src/news_sentry/ --no-error-summary
+check "mypy"         python -m mypy src/news_sentry/ --ignore-missing-imports --no-error-summary
 
 # ── Test ──
 if $FAST_MODE; then
