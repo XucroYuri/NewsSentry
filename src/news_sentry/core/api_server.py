@@ -4170,7 +4170,13 @@ def create_app(
         user: dict[str, Any] = Depends(require_permission("write")),
     ) -> RulesOptimizeResponse:
         """触发规则优化。"""
-        filter_yaml = (_config_base_dir() / "filters" / req.target_id / "default.yaml").resolve()
+        _validate_target_slug(req.target_id)
+        filters_root = (_config_base_dir() / "filters").resolve()
+        filter_yaml = (filters_root / req.target_id / "default.yaml").resolve()
+        try:
+            filter_yaml.relative_to(filters_root)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid target_id") from exc
         if not filter_yaml.exists():
             raise HTTPException(status_code=404, detail=f"Filter config not found: {filter_yaml}")
         import news_sentry.core._state as _st2

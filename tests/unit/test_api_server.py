@@ -4852,6 +4852,20 @@ class TestFeedbackAndAlertAPI:
         )
         assert resp.status_code == 404
 
+    async def test_rules_optimize_rejects_path_traversal_target_id(
+        self, client_with_feedback
+    ):
+        """POST /api/v1/rules/optimize 拒绝目录穿越 target_id。"""
+        client, _ = client_with_feedback
+        resp = await client.post(
+            "/api/v1/rules/optimize",
+            json={
+                "target_id": "../italy",
+                "dry_run": True,
+            },
+        )
+        assert resp.status_code == 400
+
     async def test_rules_optimize_uses_target_default_filter_path(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, client_with_feedback
     ):
