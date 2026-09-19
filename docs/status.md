@@ -6,22 +6,32 @@
 
 > ### ⚠️ 2026-09-19 实测更正（本节由 L1.1 执行期间加入）
 >
-> **下方"结论"与生产实测不一致。** 2026-09-19 直连
-> `https://api.news-sentry.com/api/v1/health` 的实测结果：
+> **下方"结论"的 `ok` 声称与实测不符，但生产总体是健康的。** 2026-09-19 直连
+> `https://api.news-sentry.com/api/v1/health` 的完整实测：
 >
 > | 字段 | 本文件声称（2026-08-03） | 2026-09-19 实测 |
 > |------|------------------------|----------------|
-> | `status` | 运行态为 `ok` | **`degraded`** |
-> | `reason_codes` | — | **`['projection_snapshot_pending']`** |
-> | 上线 commit | `e130570b` | `e130570b`（**未变**，即仍是 8 月初的构建） |
+> | `status` | 运行态为 `ok` | **`degraded`**（仅由单一 `reason_codes: ['projection_snapshot_pending']` 引起） |
+> | `liveness` / `readiness` | — | `ok` / `degraded`（`ok: true`） |
+> | `latest_collected_at` | — | **2026-09-19T15:03:08Z（今日）** |
+> | `public_quality.latest_public_at` | — | **2026-09-19T15:00:50Z（今日）** |
+> | `total_events` | 32,265 | **130,840** |
+> | `queue.dlq.messages` / `p0` | — | **0 / 0** |
+> | `active_snapshot` | — | `total: 17`，`fresh: true` |
+> | 上线 commit | `e130570b` | `e130570b`（**未变**，仍是 8 月初的构建） |
 >
-> 即：**本文件所描述的"恢复后状态"已 47 天未更新，且当前生产为 `degraded`。**
-> 另有两项在执行期间确认的事实，见
+> **准确表述**：生产**正在正常采集与服务新鲜内容**（采集于今日、内容为今日、DLQ 为空）；
+> `degraded` 是一个**窄信号**（快照投影待完成），不等于站点异常。
+> 需更正的是 **`ok` 这个断言本身**，以及本文件已 47 天未更新。
+>
+> 另两项在执行期间确认的事实见
 > [`spec/02-engineering-baseline.md §2.7`](./spec/02-engineering-baseline.md)：
-> 生产 KV id 仍为占位全零（KV-first 特性合并但从未激活），
+> 生产与 preview 的 KV id 均为占位全零（KV-first 特性合并但从未激活），
 > 且生产自 2026-08-05 引入 KV 块以来从未成功部署过。
 >
-> **更正原则（宪法 INV-3）**：状态不可叙述，只能测量。本文件不得在没有实测回执的情况下声称 `ok`。
+> **更正原则（宪法 INV-3）**：状态不可叙述，只能测量。
+> 不得在没有实测回执的情况下声称 `ok`，同样**不得把窄信号渲染成广泛故障**——
+> 两种都是"叙述代替测量"。
 
 ## 结论
 
