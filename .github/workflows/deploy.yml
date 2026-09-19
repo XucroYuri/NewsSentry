@@ -172,6 +172,17 @@ jobs:
       - name: Config schema validation
         run: python -m pytest tests/unit/test_config_schema_validation.py -q
 
+      # 生成物与规范体系门禁。与 ci.yml 保持一致 —— 二者任一缺失都会让
+      # stale 生成物溜进 preview（2026-09-19 实际发生过：metrics 漏计一个测试文件，
+      # 本地能查出而 preview 流水线放行，见 docs/spec/phases/L1-instrument.md §11）。
+      - name: Generated facts are in sync
+        run: |
+          python tools/gen_metrics.py --check
+          python tools/render_docs.py --check
+
+      - name: SPEC system guard
+        run: python tools/spec_guard.py --check
+
       - name: E2E tests
         timeout-minutes: 10
         env:
