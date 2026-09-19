@@ -357,7 +357,7 @@ flowchart LR
 **当前状态：** Phase 1-10 全部完成。M-12 ~ M-32 完成。项目处于 v2.0 RC 稳定基线。
 <!-- GENERATED:status BEGIN -->
 - **版本:** `2.0.0-rc3`（来源 `pyproject.toml`）
-- **测试资产:** 151 个 pytest 文件 / 2,820 个测试函数；Worker 34 文件 / 224 用例；JS 20 文件
+- **测试资产:** 152 个 pytest 文件 / 2,824 个测试函数；Worker 34 文件 / 224 用例；JS 20 文件
 - **代码规模:** Python 142 文件 / 42,238 行；Worker TS 52 文件 / 11,489 行
 - **Schema:** 19 份（契约文档 §10.2 原声称 18 份）
 - **ADR:** 28 份
@@ -385,7 +385,7 @@ flowchart LR
 
 <!-- GENERATED:quickref BEGIN -->
 - **Python 版本**：3.11+ / Pydantic v2
-- **测试规模**：151 个 pytest 文件 / 2,820 个测试函数；ruff=0, mypy=0（可执行用例数由 CI 汇总）
+- **测试规模**：152 个 pytest 文件 / 2,824 个测试函数；ruff=0, mypy=0（可执行用例数由 CI 汇总）
 - **监控目标**：81 targets（58 国家 / 11 区域 / 2 大洲 / 10 全球）
 - **信源规模**：1,125 个源文件（1,026 RSS + 99 API）；canonical 覆盖 81/81 target 达标（≥20 条有效引用，共 1,831 条引用 / 1,803 条有效）
 - **评测集**：112 / 210 / 250（v1/v2/v3）

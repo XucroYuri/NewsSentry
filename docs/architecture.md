@@ -371,7 +371,7 @@ Deployment Profile → Target Config
 ## 10. 测试策略
 
 <!-- GENERATED:architecture-tests BEGIN -->
-**151 个 pytest 文件 / 2,820 个测试函数；Worker 34 文件 / 224 用例；JS 20 文件。**
+**152 个 pytest 文件 / 2,824 个测试函数；Worker 34 文件 / 224 用例；JS 20 文件。**
 
 覆盖率不在文档中声明：仓库内不存在 `--cov-fail-under` 门禁。
 
