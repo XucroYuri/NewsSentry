@@ -1,7 +1,7 @@
 # SPEC: 零边界工程（Zero-Boundary Engineering）
 
 > ⚠️ **本文件已被取代（SUPERSEDED）**
-> **后续版本**：`docs/specs/2026-09-19-dual-track-controlled-engineering-spec.md`（双轨对照工程）
+> **后续版本**：`docs/spec/02-engineering-baseline.md`（双轨对照工程）
 > **取代原因**：v1 的核心方案（删 Container）存在一个本文件 §6 R1 自己记录的致命漏洞 ——「你连 10ms 能不能跑完都不知道，就在谈删容器」。v2 用**对照组**（生产 vs preview）结构性消除了这个漏洞，使删除动作发生在实验组，生产零风险。
 > **保留价值**：本文件的 §1（量纲分析与五条定理）、§2（七条对抗性断言及其证伪命令）、§3.7（反方法清单）被 v2 完整继承并引用。
 > **状态**：历史参考，不再作为决策依据。

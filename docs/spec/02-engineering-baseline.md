@@ -4,7 +4,7 @@
 > **日期**：2026-09-19
 > **基线**：双站点（对照组 production / 实验组 preview）+ 双分支（`main` / `preview`）
 > **约束**：零新增成本 · 零新增技术栈 · 零新增运行时依赖 · 零新增云服务
-> **取代**：`docs/specs/2026-09-19-zero-boundary-engineering-spec.md`（v1，降级为历史参考）
+> **取代**：`docs/spec/archive/v1-zero-boundary-spec.md`（v1，降级为历史参考）
 > **写作规则**：每条强断言附**可执行证伪命令**。无证伪命令者，一律视为观点，不得作为决策依据。
 
 ---
