@@ -72,18 +72,20 @@ L4 有权把发现的新缺口打回 L2——闭环不是直线。
 |---|------|------|
 | 1 | ~~`main` 自 2026-08-20 起无法通过 Deploy 的 CI Gate（陈旧 `geist` 测试）~~ | ✅ **已解除**（L1.0） |
 | 2 | ~~preview 配置渲染守卫因占位符碰撞失败（自 2026-08-05，45 天）~~ | ✅ **已修复**（L1.1）；preview 流水线全绿（run `35449872399`） |
-| 3 | **生产不可部署**：占位 KV id 被 Cloudflare 拒绝（探针实测 `[code: 10042]`），而生产顶层 `[[kv_namespaces]]` 用的是同一个占位 id | 🔴 **L1.2 最高优先级**：建议删除该从未生效的块。见 `phases/L1-instrument.md §9` |
+| 3 | ~~生产不可部署：占位 KV id 被 Cloudflare 拒绝（`[code: 10042]`）~~ | ✅ **配置级已解除**（L1.2，方案 b：删除从未生效的 KV 块）。端到端生产部署仍未验证 |
 | 4 | 全仓库无任何同时读取两个 D1 的对比工具 | L1.4 建设 |
 | 5 | preview→main 无提升判据 | L1.6 建设（支配判定编码） |
 | 6 | `docs/status.md` 声称生产 `ok`，实测 `degraded`（单一 `projection_snapshot_pending`；生产**采集与内容均为当日**，DLQ 为空） | 活文档已加实测更正 |
 
 **L1 的退出条件**：`python tools/spec_guard.py --check` 通过 + preview 可部署 ✅ + 隔离哨兵证明通过。
 
-> **新增阻塞 B3｜生产部署阻断**：占位 KV id 使**任何生产部署**在 `workers/scripts/news-sentry-api`
-> 上 fail-closed 失败（上传阶段拒绝，在线 worker 不受影响）。
-> **解除条件**：删除 `wrangler.toml` 中从未生效的 `[[kv_namespaces]]` 块（方案 b），
-> 或创建真实 namespace 并回填 id（方案 a/c）。
-> 解除前，**新栈无法提升到生产**，因此这是 L2 之前必须清掉的最后一道配置级障碍。
+> **阻塞 B3｜生产部署阻断 —— 配置级已解除，端到端未验证**
+> 占位 KV id 曾使**任何生产部署**在 `workers/scripts/news-sentry-api` 上 fail-closed 失败（`[code: 10042]`）。
+> **已执行**：删除 `wrangler.toml` 中从未生效的 `[[kv_namespaces]]` 块（方案 b），
+> 该失败模式的来源已不存在；`preview` 流水线全绿（run `35455324360`）并已提升到 `main`。
+> **仍未验证**：`dry-run` 不校验 namespace，故"生产部署端到端成功"自 2026-08-03 起从未发生过。
+> 是否执行一次真实生产部署（会推送 45 天的提交）仍是**独立决策**。
+> 详见 [`phases/L1-instrument.md §10`](./phases/L1-instrument.md)。
 
 ---
 
