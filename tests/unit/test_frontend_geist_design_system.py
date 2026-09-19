@@ -56,10 +56,32 @@ def test_shared_geist_design_system_is_wired_to_both_frontends() -> None:
 
 
 def test_geist_font_is_self_hosted_in_public_and_admin() -> None:
+    """字体自托管：vendored woff2 经共享设计系统引入，且**不依赖** npm 包。
+
+    历史：本断言原先检查 ``dependencies["geist"] == "1.7.2"``。
+    ``0942547``（2026-08-20）为消除高危 npm audit 漏洞移除了这个**未被使用**的依赖，
+    断言随之失效，并阻断了部署通道 46 天
+    （见 ``docs/spec/phases/L1-instrument.md`` §7.1）。
+
+    现改为校验真正的自托管意图——本地 woff2 + ``@font-face`` 相对路径 + 无 npm 依赖——
+    使这条测试从"与安全修复矛盾"变成"守护安全修复"。
+    """
+    design_system = REPO_ROOT / "frontend" / "design-system"
+    token_css = (design_system / "geist-tokens.css").read_text()
+    assert "@font-face" in token_css
+
+    for font in ("Geist-Variable.woff2", "GeistMono-Variable.woff2"):
+        assert (design_system / "fonts" / font).exists()
+        assert f"./fonts/{font}" in token_css
+
     for frontend in ("public", "admin"):
         package_json = REPO_ROOT / "frontend" / frontend / "package.json"
         data = json.loads(package_json.read_text())
-        assert data["dependencies"]["geist"] == "1.7.2"
+        for section in ("dependencies", "devDependencies"):
+            assert "geist" not in data.get(section, {}), (
+                f"frontend/{frontend} 不应依赖 npm geist 包："
+                "字体已 vendored 自托管，该依赖曾引入高危 npm audit 漏洞（0942547）"
+            )
 
 
 def test_vite_dev_servers_allow_shared_design_system_assets() -> None:
