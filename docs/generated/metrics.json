@@ -1,4 +1,5 @@
 {
+  "basis": "git-tracked files only",
   "code": {
     "python": {
       "files": 142,
@@ -141,7 +142,7 @@
     "python": {
       "criteria": "tests/**/test_*.py 文件中以 def test_ 开头的函数（含类方法）",
       "files": 148,
-      "functions": 2782
+      "functions": 2787
     },
     "worker": {
       "cases": 224,

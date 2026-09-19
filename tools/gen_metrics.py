@@ -38,11 +38,45 @@ TEST_FUNCTION_RE = re.compile(r"^\s*(?:async\s+)?def\s+test_", re.MULTILINE)
 WORKER_TEST_CASE_RE = re.compile(r"\btest\s*\(")
 
 
-def _iter_yaml(root: Path) -> list[Path]:
-    """列出配置 YAML，跳过以下划线开头的模板文件。"""
-    if not root.is_dir():
+class MetricsError(RuntimeError):
+    """事实基线无法在可信前提下生成（fail-closed）。"""
+
+
+def _require_tracked_paths(root: Path) -> set[str]:
+    """返回 git 跟踪的相对路径集合。
+
+    **为什么必须按跟踪状态过滤**：本脚本产出的是"关于这次提交的事实"。
+    若统计工作树，一个尚未 `git add` 的新文件会被计入，
+    从而使**中间提交与其自身内容不一致** —— L0 执行期间实际发生过：
+    `adr-0029.md` 在尚未被跟踪时就被计入 ADR 数。
+
+    相应操作约定：**先 `git add` 新文件，再生成基线，然后提交。**
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "-z"],
+            capture_output=True,
+            check=True,
+            timeout=120,
+        )
+    except FileNotFoundError as exc:
+        raise MetricsError("缺少 git，无法确定跟踪状态（事实基线要求按提交统计）") from exc
+    except subprocess.SubprocessError as exc:
+        raise MetricsError(f"git ls-files 失败：{exc}") from exc
+    return {item for item in result.stdout.decode("utf-8", "replace").split("\0") if item}
+
+
+def _tracked_only(root: Path, paths: list[Path], tracked: set[str]) -> list[Path]:
+    """只保留已被 git 跟踪的文件。"""
+    return [path for path in paths if path.relative_to(root).as_posix() in tracked]
+
+
+def _iter_yaml(root: Path, directory: Path, tracked: set[str]) -> list[Path]:
+    """列出配置 YAML，跳过以下划线开头的模板文件，且只保留已跟踪文件。"""
+    if not directory.is_dir():
         return []
-    return sorted(p for p in root.rglob("*.yaml") if not p.name.startswith("_"))
+    candidates = sorted(p for p in directory.rglob("*.yaml") if not p.name.startswith("_"))
+    return _tracked_only(root, candidates, tracked)
 
 
 def _read_frontmatter_field(path: Path, field: str) -> str | None:
@@ -62,9 +96,9 @@ def _read_frontmatter_field(path: Path, field: str) -> str | None:
     return None
 
 
-def collect_targets(root: Path) -> dict[str, Any]:
+def collect_targets(root: Path, tracked: set[str]) -> dict[str, Any]:
     """统计 config/targets 下的 target 数量与监控类型分布。"""
-    target_files = _iter_yaml(root / "config" / "targets")
+    target_files = _iter_yaml(root, root / "config" / "targets", tracked)
     by_scope: dict[str, int] = {}
     for path in target_files:
         scope = _read_frontmatter_field(path, "monitoring_type") or "unknown"
@@ -75,7 +109,7 @@ def collect_targets(root: Path) -> dict[str, Any]:
     }
 
 
-def collect_sources(root: Path) -> dict[str, Any]:
+def collect_sources(root: Path, tracked: set[str]) -> dict[str, Any]:
     """统计信源规模，并复用项目自身的覆盖工具产出 canonical 覆盖事实。
 
     覆盖口径**不在本脚本重新实现**：它直接调用
@@ -92,7 +126,7 @@ def collect_sources(root: Path) -> dict[str, Any]:
 
     if sources_root.is_dir():
         for target_dir in sorted(p for p in sources_root.iterdir() if p.is_dir()):
-            files = _iter_yaml(target_dir)
+            files = _iter_yaml(root, target_dir, tracked)
             if not files:
                 continue
             directory_counts[target_dir.name] = len(files)
@@ -138,23 +172,26 @@ def _canonical_coverage(root: Path) -> dict[str, Any]:
     }
 
 
-def collect_tests(root: Path) -> dict[str, Any]:
+def collect_tests(root: Path, tracked: set[str]) -> dict[str, Any]:
     """统计测试资产规模（纯静态，不依赖运行环境）。"""
-    py_files = sorted((root / "tests").rglob("test_*.py")) if (root / "tests").is_dir() else []
+    py_candidates = sorted((root / "tests").rglob("test_*.py")) if (root / "tests").is_dir() else []
+    py_files = _tracked_only(root, py_candidates, tracked)
     py_functions = sum(
         len(TEST_FUNCTION_RE.findall(path.read_text(encoding="utf-8", errors="replace")))
         for path in py_files
     )
 
     worker_dir = root / "frontend" / "cloudflare" / "tests"
-    worker_files = sorted(worker_dir.glob("*.test.mts")) if worker_dir.is_dir() else []
+    worker_candidates = sorted(worker_dir.glob("*.test.mts")) if worker_dir.is_dir() else []
+    worker_files = _tracked_only(root, worker_candidates, tracked)
     worker_cases = sum(
         len(WORKER_TEST_CASE_RE.findall(path.read_text(encoding="utf-8", errors="replace")))
         for path in worker_files
     )
 
     js_dir = root / "tests" / "js"
-    js_files = sorted(js_dir.glob("*.mjs")) if js_dir.is_dir() else []
+    js_candidates = sorted(js_dir.glob("*.mjs")) if js_dir.is_dir() else []
+    js_files = _tracked_only(root, js_candidates, tracked)
 
     return {
         "python": {
@@ -182,26 +219,32 @@ def _count_lines(paths: list[Path]) -> int:
     return total
 
 
-def collect_code(root: Path) -> dict[str, Any]:
+def collect_code(root: Path, tracked: set[str]) -> dict[str, Any]:
     """统计源码规模。"""
-    src_files = (
+    src_candidates = (
         sorted((root / "src" / "news_sentry").rglob("*.py")) if (root / "src").is_dir() else []
     )
+    src_files = _tracked_only(root, src_candidates, tracked)
     workers_dir = root / "frontend" / "cloudflare" / "workers"
-    worker_files = sorted(workers_dir.rglob("*.ts")) if workers_dir.is_dir() else []
+    worker_candidates = sorted(workers_dir.rglob("*.ts")) if workers_dir.is_dir() else []
+    worker_files = _tracked_only(root, worker_candidates, tracked)
     return {
         "python": {"files": len(src_files), "loc": _count_lines(src_files)},
         "worker_ts": {"files": len(worker_files), "loc": _count_lines(worker_files)},
     }
 
 
-def collect_contracts(root: Path) -> dict[str, Any]:
+def collect_contracts(root: Path, tracked: set[str]) -> dict[str, Any]:
     """统计 schema 与 ADR 数量，并暴露与契约文档声称值的差异。"""
-    schema_files = sorted((root / "schemas").glob("*.json")) if (root / "schemas").is_dir() else []
+    schema_candidates = (
+        sorted((root / "schemas").glob("*.json")) if (root / "schemas").is_dir() else []
+    )
+    schema_files = _tracked_only(root, schema_candidates, tracked)
     adr_dir = root / "docs" / "adr"
-    adr_files = (
+    adr_candidates = (
         sorted(p for p in adr_dir.glob("*.md") if p.name != "README.md") if adr_dir.is_dir() else []
     )
+    adr_files = _tracked_only(root, adr_candidates, tracked)
     return {
         "schemas": {
             "total": len(schema_files),
@@ -213,12 +256,13 @@ def collect_contracts(root: Path) -> dict[str, Any]:
     }
 
 
-def collect_eval_sets(root: Path) -> dict[str, Any]:
+def collect_eval_sets(root: Path, tracked: set[str]) -> dict[str, Any]:
     """统计评测集规模。"""
     sets: list[dict[str, Any]] = []
     eval_dir = root / "data" / "eval"
     if eval_dir.is_dir():
-        for path in sorted(eval_dir.glob("eval-set-*.json")):
+        eval_candidates = sorted(eval_dir.glob("eval-set-*.json"))
+        for path in _tracked_only(root, eval_candidates, tracked):
             try:
                 payload = json.loads(path.read_text(encoding="utf-8"))
                 items = len(payload.get("examples", []))
@@ -273,17 +317,19 @@ def collect_package_version(root: Path) -> str | None:
 
 
 def build_metrics(root: Path) -> dict[str, Any]:
-    """组装完整事实基线。"""
+    """组装完整事实基线。只统计 **git 已跟踪**的文件（见 _require_tracked_paths）。"""
+    tracked = _require_tracked_paths(root)
     return {
         "schema_version": SCHEMA_VERSION,
         "generator": "tools/gen_metrics.py",
+        "basis": "git-tracked files only",
         "project_version": collect_package_version(root),
-        "targets": collect_targets(root),
-        "sources": collect_sources(root),
-        "tests": collect_tests(root),
-        "code": collect_code(root),
-        "contracts": collect_contracts(root),
-        "eval": collect_eval_sets(root),
+        "targets": collect_targets(root, tracked),
+        "sources": collect_sources(root, tracked),
+        "tests": collect_tests(root, tracked),
+        "code": collect_code(root, tracked),
+        "contracts": collect_contracts(root, tracked),
+        "eval": collect_eval_sets(root, tracked),
         "dev_artifacts": collect_dev_artifacts(root),
     }
 
@@ -300,7 +346,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--print", dest="print_only", action="store_true", help="输出到 stdout")
     args = parser.parse_args(argv)
 
-    rendered = dump(build_metrics(PROJECT_ROOT))
+    try:
+        rendered = dump(build_metrics(PROJECT_ROOT))
+    except MetricsError as exc:
+        print(f"FAIL: {exc}", file=sys.stderr)
+        return 1
 
     if args.print_only:
         sys.stdout.write(rendered)
@@ -311,9 +361,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"FAIL: 缺少生成物 {args.output.relative_to(PROJECT_ROOT)}")
             return 1
         if args.output.read_text(encoding="utf-8") != rendered:
-            print("FAIL: 生成物与工作区不一致，请运行 python tools/gen_metrics.py")
+            print("FAIL: 生成物与提交内容不一致，请运行 python tools/gen_metrics.py")
+            print("      提示：新文件需先 git add，本基线只统计已跟踪文件")
             return 1
-        print("OK: 生成物与工作区一致")
+        print("OK: 生成物与提交内容一致")
         return 0
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
