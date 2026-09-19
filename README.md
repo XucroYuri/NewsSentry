@@ -7,16 +7,21 @@
 <p align="center">
   <strong>AI 驱动的多语种新闻情报平台</strong><br>
   实时追踪全球信源 · 智能研判关键事件 · 主动推送决策简报<br>
-  3020 tests · 87% coverage · mypy strict · ruff zero
+<!-- GENERATED:readme-tagline BEGIN -->
+  2,782 个测试函数 · 148 个测试文件 · mypy strict · ruff zero<br>
+  覆盖率不在此声明（仓库无覆盖率门禁，见 docs/generated/metrics.json）
+<!-- GENERATED:readme-tagline END -->
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.0--rc2-blue.svg" alt="version" />
+<!-- GENERATED:readme-badges BEGIN -->
+  <img src="https://img.shields.io/badge/version-2.0.0--rc3-blue.svg" alt="version" />
   <img src="https://img.shields.io/badge/python-3.11+-3776AB.svg?logo=python&logoColor=white" alt="python" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-orange.svg" alt="license" />
   <img src="https://img.shields.io/badge/ruff-0%20errors-success.svg" alt="ruff" />
-  <img src="https://img.shields.io/badge/tests-3001%20passed-brightgreen.svg" alt="tests" />
-  <img src="https://img.shields.io/badge/coverage-87%25-9cf.svg" alt="coverage" />
+  <img src="https://img.shields.io/badge/tests-2782%20functions-brightgreen.svg" alt="tests" />
+  <img src="https://img.shields.io/badge/coverage-not%20gated-lightgrey.svg" alt="coverage" />
+<!-- GENERATED:readme-badges END -->
 </p>
 
 <p align="center">

@@ -134,7 +134,7 @@ flowchart LR
 | `docs/contracts-canonical.md` | **口径规范基准** | 字段命名、分值量纲、目录映射、pipeline_stage 枚举的唯一权威来源 |
 | `docs/architecture.md` | **架构总览** | 系统架构、数据流、目录结构 |
 | `docs/external-integration-strategy.md` | **外部接入策略** | RSS-Bridge 接入原则、Provider chain 设计 |
-| `schemas/` (13 份 JSON Schema) | **机器可读契约** | 与 contracts-canonical.md 双向绑定 (ADR-0014) |
+| `schemas/` (19 份 JSON Schema，见 `docs/generated/metrics.json`) | **机器可读契约** | 与 contracts-canonical.md 双向绑定 (ADR-0014) |
 | `config/` | **运行时配置骨架** | 各国参数独立封装 (ADR-0015) |
 | `src/news_sentry/` | **Python 实现** | Python 3.11+ / Pydantic v2 (ADR-0012, ADR-0013) |
 
@@ -342,15 +342,18 @@ flowchart LR
 | M-32 | public 前端独立化 — outDir dist/ + base 双模 + Cloudflare Pages deploy job + check.sh --frontend | ✅ |
 
 **当前状态：** Phase 1-10 全部完成。M-12 ~ M-32 完成。项目处于 v2.0 RC 稳定基线。
-- **Tag:** v2.0.0-rc3
-- **Commit:** `c2a052e0`
-- **测试:** 2,738 collected, 2,736 passed, 2 skipped
-- **覆盖率:** 85%
-- **Type:** mypy strict + ruff: 零错误
-- **生产:** news-sentry.com — `{"status": "ok"}`
-- **Docker:** ghcr.io/xucroyuri/news-sentry (279MB)
-- **品牌:** 金色瞭望塔, 已挂载管理面板 + README
-- **发布:** CHANGELOG.md + .github/release.yml 就绪
+<!-- GENERATED:status BEGIN -->
+- **版本:** `2.0.0-rc3`（来源 `pyproject.toml`）
+- **测试资产:** 148 个 pytest 文件 / 2,782 个测试函数；Worker 34 文件 / 224 用例；JS 20 文件
+- **代码规模:** Python 142 文件 / 42,238 行；Worker TS 52 文件 / 11,489 行
+- **Schema:** 19 份（契约文档 §10.2 原声称 18 份）
+- **ADR:** 28 份
+- **覆盖率:** 不声明 —— 仓库内不存在 `--cov-fail-under` 门禁，发布覆盖率数字不可验证
+- **基线提交:** 见 `git rev-parse HEAD`（文档不固定 commit，避免自引用失效）
+- **生产状态:** 属运行时事实，见 `docs/status.md`，不在本文件静态声明
+
+> 本区间由 tools/render_docs.py 生成，请勿手改；数字来源 docs/generated/metrics.json
+<!-- GENERATED:status END -->
 
 ---
 
@@ -367,10 +370,15 @@ flowchart LR
 
 ## 项目当前状态速查
 
+<!-- GENERATED:quickref BEGIN -->
 - **Python 版本**：3.11+ / Pydantic v2
-- **测试规模**：2,738 tests, 85% 覆盖率, ruff=0, mypy=0, frontend=0
-- **监控目标**：81 targets (italy, china-watch-en, japan, germany, france + 76 更多)
-- **信源规模**：244 源 (147 RSS + 97 API)，覆盖 81 个 target
+- **测试规模**：148 个 pytest 文件 / 2,782 个测试函数；ruff=0, mypy=0（可执行用例数由 CI 汇总）
+- **监控目标**：81 targets（58 国家 / 11 区域 / 2 大洲 / 10 全球）
+- **信源规模**：1,125 个源文件（1,026 RSS + 99 API）；canonical 覆盖 81/81 target 达标（≥20 条有效引用，共 1,831 条引用 / 1,803 条有效）
+- **评测集**：112 / 210 / 250（v1/v2/v3）
 - **AI Provider**：内置 chain: Gemini → DeepSeek → Groq → Cloudflare Workers AI → OpenRouter → NVIDIA/Agnes/OpenCode/Reka
 - **部署方式**：Cloudflare Pages + Workers + D1/R2；Cloudflare Containers 承接过渡期 Python/RSS-Bridge 后台面；VPS/Tunnel 仅作 legacy rollback，不是运行依赖
 - **可选组件**：`[api]` FastAPI + Web UI（管理后台 + 公开新闻阅读器）
+
+> 本区间由 tools/render_docs.py 生成，请勿手改；数字来源 docs/generated/metrics.json
+<!-- GENERATED:quickref END -->

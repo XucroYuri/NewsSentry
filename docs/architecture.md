@@ -370,7 +370,13 @@ Deployment Profile → Target Config
 
 ## 10. 测试策略
 
-**3,013 tests, 86% 覆盖率, 0 失败, 0 警告**
+<!-- GENERATED:architecture-tests BEGIN -->
+**148 个 pytest 文件 / 2,782 个测试函数；Worker 34 文件 / 224 用例；JS 20 文件。**
+
+覆盖率不在文档中声明：仓库内不存在 `--cov-fail-under` 门禁。
+
+> 本区间由 tools/render_docs.py 生成，请勿手改；数字来源 docs/generated/metrics.json
+<!-- GENERATED:architecture-tests END -->
 
 | 保障项 | 命令 | 阈值 |
 |--------|------|------|
