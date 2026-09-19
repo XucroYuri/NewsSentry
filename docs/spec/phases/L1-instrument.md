@@ -497,6 +497,25 @@ Cloudflare 在上传阶段拒绝，在线 worker 不受影响。
 哨兵确实出现在写入轨（**阳性对照**）。任一不成立即 FAIL。
 空集合下的"查不到"不构成证据。
 
+**（c）"可导入的函数"与"可执行的命令行"是两个不同的制品（INV-D 又一实例）**
+
+首版三个工具缺少 `sys.path` bootstrap，因此**作为命令行完全不可用**，
+而当时 **35 项单元测试全部通过** —— 因为它们直接导入并调用 `main()`，
+pytest 已把仓库根放进 `sys.path`：
+
+| 环节 | 结果 |
+|------|------|
+| 单元测试（直接调 `main()`） | ✅ 全过 |
+| `python tools/control_receipt.py --help` | ❌ `ModuleNotFoundError: No module named 'tools'` |
+
+**修法与防线**：按既有工具（`cloudflare_preview_guard.py`）的写法补 bootstrap；
+新增 `tests/tools/test_control_cli.py` 通过 subprocess 调用**真实脚本**，
+并刻意把 `cwd` 设在仓库外的临时目录。实测有效：临时移除 bootstrap 后该测试立即失败。
+
+> 该实例已追认进 [`00-constitution.md §3.2`](../00-constitution.md) 的 INV-D 证据表 ——
+> 它是在**同一批工作中当场发现**的，说明 INV-D 描述的不是历史错误，
+> 而是一种**持续存在的失效模式**。
+
 ### 11.3 验收证据
 
 | # | 检查 | 结果 |
