@@ -56,6 +56,39 @@ SYNTHETIC_PLACEHOLDER = "00000000-0000-4000-8000-000000000000"
 SYNTHETIC_PREVIEW_D1 = "22222222-2222-4222-8222-222222222222"
 
 
+def _kv_bindings(node: object) -> list[dict[str, object]]:
+    """递归收集配置中所有 ``kv_namespaces`` 绑定（顶层与各 env 下）。"""
+    found: list[dict[str, object]] = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "kv_namespaces" and isinstance(value, list):
+                found.extend(item for item in value if isinstance(item, dict))
+            else:
+                found.extend(_kv_bindings(value))
+    elif isinstance(node, list):
+        for item in node:
+            found.extend(_kv_bindings(item))
+    return found
+
+
+def test_no_placeholder_kv_binding_is_committed() -> None:
+    """回归防线：不得提交占位 KV id。
+
+    占位 id 被 Cloudflare 拒绝 —— ``KV namespace '0000…' is not valid [code: 10042]`` ——
+    曾使**生产完全不可部署**（2026-08-05 至 2026-09-19，见
+    ``docs/spec/phases/L1-instrument.md §9``）。
+
+    若将来确需 KV：必须使用**真实** namespace id，或由流水线注入。
+    """
+    data = tomllib.loads(REAL_WRANGLER.read_text(encoding="utf-8"))
+    offenders = [
+        binding
+        for binding in _kv_bindings(data)
+        if SYNTHETIC_PLACEHOLDER in (binding.get("id"), binding.get("preview_id"))
+    ]
+    assert not offenders, f"禁止提交占位 KV id（Cloudflare 以 10042 拒绝）：{offenders}"
+
+
 def test_render_preview_config_uses_the_real_wrangler_toml(tmp_path: Path) -> None:
     """INV-D：守卫读取真实制品，因此必须针对真实制品测试。
 
@@ -80,9 +113,10 @@ def test_render_preview_config_uses_the_real_wrangler_toml(tmp_path: Path) -> No
     assert rendered["d1_databases"][0]["database_id"] == original["d1_databases"][0]["database_id"]
     assert rendered["r2_buckets"][0] == original["r2_buckets"][0]
 
-    # 3) KV 占位符必须原样保留——那是 L1.2 的独立议题，不属于本函数职责
-    assert rendered["kv_namespaces"][0]["id"] == SYNTHETIC_PLACEHOLDER
-    assert rendered["kv_namespaces"][0]["preview_id"] == SYNTHETIC_PLACEHOLDER
+    # 3) KV 配置不被本函数触碰：渲染后的 KV 绑定集合与源配置完全一致
+    #    （占位 KV 块已于 2026-09-19 移除，见 docs/spec/phases/L1-instrument.md §9；
+    #     此处不再断言"占位符保留"，改为断言"渲染不改变 KV 配置"）
+    assert _kv_bindings(rendered) == _kv_bindings(original)
 
     # 4) 除目标字段外，整份配置深度相等（"有没有多改"的断言）
     expected = copy.deepcopy(original)

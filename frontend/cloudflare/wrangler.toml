@@ -64,10 +64,20 @@ database_id = "35a52961-e7e1-41ef-934e-7a63882ba465"
 binding = "NEWS_SENTRY_ARTIFACTS"
 bucket_name = "news-sentry-artifacts"
 
-[[kv_namespaces]]
-binding = "PUBLIC_SNAPSHOT_KV"
-id = "00000000-0000-4000-8000-000000000000"
-preview_id = "00000000-0000-4000-8000-000000000000"
+# 无 KV 绑定（2026-09-19 移除占位块，见 docs/spec/phases/L1-instrument.md §9）
+#
+# 移除原因：此前的 [[kv_namespaces]] 使用占位 id "00000000-0000-4000-8000-000000000000"，
+# 而 Cloudflare **拒绝**占位 id（[code: 10042]），导致**任何部署都无法完成**——
+# 生产因此自 2026-08-05 起不可部署。
+#
+# 为什么移除而非补建真实 namespace：
+#   1. 代码早已容忍缺失绑定（workers/index.ts:41 为可选类型；preview 一直无 KV 运行正常）
+#   2. KV-first 针对的读路径可能被 L5（单 HTML + 内联快照 + 边缘缓存）取代
+#      —— T0：不激活即将被拆除的路径
+#   3. 移除后两轨形态一致（此前生产声明了 KV 而 preview 没有）
+#
+# 若将来确需 KV：必须使用**真实** namespace id，或由流水线注入，
+# 不得再提交占位值 —— 回归防线见 tests/tools/test_cloudflare_preview_guard.py。
 
 [[queues.producers]]
 binding = "NEWS_SENTRY_JOBS_QUEUE"
