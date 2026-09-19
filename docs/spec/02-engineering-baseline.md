@@ -213,13 +213,31 @@ git push origin preview-legacy-2026-06
 |---|------|------|------|--------|
 | **G0** | **preview 配置渲染 fail-closed 失败（已坏 45 天）** | §2.2 实测；`04818fe`（2026-08-05）引入 | **任何 push 到 preview 都 exit 2，preview 完全不可部署** | **L1（阻塞项）** |
 | **G1** | preview 分支落后 433 提交 | §2.4 | 实验组跑的是 6 月的代码 | L0 |
-| **G2** | **`[env.preview]` 没有 KV 隔离** | `wrangler.toml:67-70`（仅顶层）、`[env.preview]` 无 KV 块 → preview 继承占位绑定 | 隔离不完整；**且正是它撞坏了 G0** | L1 |
+| **G2** | **`[env.preview]` 未声明 `kv_namespaces`** | `wrangler.toml:67-70` 仅顶层声明。Wrangler **不把 `kv_namespaces` 继承给命名环境**（部署日志明文警告 `"kv_namespaces" is not inherited by environments`），故 preview **完全没有** KV 绑定 | **首版表述「preview 继承占位绑定」有误**，更正见 §2.7。真实性质是**特性未激活**，非隔离缺陷 | L1（**降级**） |
 | **G3** | **`[env.preview.triggers] crons = []`** | `wrangler.toml:112` | **实验组根本不跑管道**，只有 1 条合成种子 → C1（同输入）不成立 | L2 |
 | **G4** | 没有对比工具 | 全仓库无任何脚本同时读取两个 D1；`run_eval.py` 只做单次 actual-vs-expected（`:137-174`），无 `--compare/--baseline` | **有仪器，没有读数** | L1 |
 | **G5** | 没有提升规则 | preview → main 无判据 | **有实验，没有结论** | L1 |
 
 > **G3 是核心缺口，G0 是阻塞缺口。** §2.1 的 preview 是"部署 canary"（空壳烟测 + 1 条合成事件），不是对照组。本 SPEC 把它升级为**真实运行的对照轨道**。
 > **G0 必须先修**——否则 L1 之后的一切都无法部署到实验组。
+
+### 2.7 更正说明：G2 与 KV 的真实状态
+
+> **更正日期**：2026-09-19　**触发**：L1.1 修复后 preview 流水线全绿，CI 日志给出了与本文首版相反的证据。
+
+| 项 | 首版表述（**错误**） | 更正后（CI 证据） |
+|----|---------------------|------------------|
+| Wrangler 行为 | preview 继承顶层 `[[kv_namespaces]]`（占位 id） | **不继承**。部署日志逐字警告：`"kv_namespaces" exists at the top level, but not on "env.preview". This is not what you probably want, since "kv_namespaces" is not inherited by environments.` |
+| preview 的绑定 | 有一个指向占位 UUID 的 KV 绑定 | **完全没有 KV 绑定** |
+| 生产的状态 | 未提及 | **生产 KV id 同样是占位全零**，且 `docs/status.md:132` **明文记录了这一点**：<br>`部署时须先以 npx wrangler kv namespace create PUBLIC_SNAPSHOT_KV 创建 KV namespace，并把返回的 id/preview_id 回填到 wrangler.toml（当前为占位全零 id，未回填前 KV 写读不会命中、公开读自动走 D1 兜底，可安全运行）` |
+| 结论 | 隔离缺陷，L1 修复 | **两轨当前同为 D1 兜底模式**。这是 **KV-first 特性（`04818fe`）合并但从未激活**，不是隔离缺陷 |
+
+**对计划的影响**：
+
+1. **L1.2 降级**：它不阻塞 preview 部署（已全绿），也不是"对照组被污染"的风险——因为生产同样没有 KV，**两轨的读路径实际上是一致的**。
+2. **真正的问题是特性激活**：`04818fe` 引入的"公开读 KV-first"在生产**从未生效**。是否激活它，是一次独立的功能决策（需要创建真实 KV、回填 id、并在 `deploy.yml` 中补上自动创建步骤——D1/R2 都有自动创建，唯独 KV 没有）。
+3. **新增风险 N2**：`deploy.yml` **零 KV 处理**，KV 的创建与回填是**纯手工**步骤。而生产自 KV 块引入（`04818fe`，2026-08-05）以来**从未成功部署过**（最后一次成功部署为 2026-08-03，早于该提交）——即占位 id 在**部署时是否被 Wrangler 接受，尚未被验证**。
+4. **新增风险 N3**：`docs/status.md:9,13` 声称生产"运行态为 `ok`""生产运行正常"，而 2026-09-19 实测生产健康为 **`degraded`**（`reason_codes: ['projection_snapshot_pending']`）。该文档更新于 2026-08-03，已 47 天未更新。
 
 ---
 

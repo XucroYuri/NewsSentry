@@ -70,13 +70,14 @@ L4 有权把发现的新缺口打回 L2——闭环不是直线。
 
 | # | 事实 | 影响 |
 |---|------|------|
-| 1 | `main` 自 2026-08-20 起无法通过 Deploy 的 CI Gate（陈旧 `geist` 测试） | **生产无法部署**；L1.0 必须先解除 |
-| 2 | preview 配置渲染守卫因占位符碰撞失败（自 2026-08-05，45 天） | preview 不可部署；L1.1 修复 |
-| 3 | `[env.preview]` 无 KV 隔离，且继承占位 UUID | L1.2 修复 |
-| 4 | 全仓库无任何同时读取两个 D1 的对比工具 | L1.3 建设 |
-| 5 | preview→main 无提升判据 | L1.4 建设（支配判定编码） |
+| 1 | ~~`main` 自 2026-08-20 起无法通过 Deploy 的 CI Gate（陈旧 `geist` 测试）~~ | ✅ **已解除**（L1.0） |
+| 2 | ~~preview 配置渲染守卫因占位符碰撞失败（自 2026-08-05，45 天）~~ | ✅ **已修复**（L1.1）；preview 流水线全绿（run `35449872399`） |
+| 3 | **KV-first 特性合并但从未激活**：生产与 preview 的 KV id 均为占位全零；Wrangler 不把 `kv_namespaces` 继承给命名环境，故 preview 无 KV 绑定；`deploy.yml` 零 KV 处理 | 非隔离缺陷（两轨当前同为 D1 兜底）。**待裁决是否激活** —— 见 `02 §2.7` |
+| 4 | 全仓库无任何同时读取两个 D1 的对比工具 | L1.4 建设 |
+| 5 | preview→main 无提升判据 | L1.6 建设（支配判定编码） |
+| 6 | `docs/status.md` 声称生产 `ok`，实测 `degraded`（`projection_snapshot_pending`） | 活文档应与运行时事实同步 |
 
-**L1 的退出条件**：`python tools/spec_guard.py --check` 通过 + preview 可部署 + 隔离哨兵证明通过。
+**L1 的退出条件**：`python tools/spec_guard.py --check` 通过 + preview 可部署 ✅ + 隔离哨兵证明通过。
 
 ---
 

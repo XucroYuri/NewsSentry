@@ -31,9 +31,9 @@ L0 证明了两件事：对照设施早已建成（隔离 Worker / D1 / R2 / 泄
 
 | 步骤 | 交付物 | 说明 | 状态 |
 |------|--------|------|------|
-| **L1.0** | `tests/unit/test_frontend_geist_design_system.py` 修正 | 解除 `main` 的部署阻断（见 §7.1） | 本次执行 |
-| **L1.1** | `tools/cloudflare_preview_guard.py` 结构化渲染 + 真实制品测试 | 修 G0：占位符碰撞 | 待办 |
-| **L1.2** | 新建 `ns-public-kv-preview` + `[env.preview.kv_namespaces]` | 补齐 KV 隔离 | 待办 |
+| **L1.0** | `tests/unit/test_frontend_geist_design_system.py` 修正 | 解除 `main` 的部署阻断（见 §7.1） | ✅ **完成** |
+| **L1.1** | `tools/cloudflare_preview_guard.py` 结构化渲染 + 真实制品测试 | 修 G0：占位符碰撞（见 §7.6） | ✅ **完成** |
+| **L1.2** | KV：创建真实 namespace + `deploy.yml` 自动创建步骤 | **已降级**：非隔离缺陷，而是"KV-first 特性从未激活"。见 `02-engineering-baseline.md §2.7` | ⏸ 待裁决 |
 | **L1.3** | `tools/control_receipt.py` | 对照回执协议（两组共用 schema） | 待办 |
 | **L1.4** | `tools/control_compare.py` | 从两个 D1 读事件集，算 recall / precision / digest diff | 待办 |
 | **L1.5** | `tools/isolation_proof.py` | 哨兵事件证明 A 组写入不到达 B 组 | 待办 |
@@ -199,4 +199,47 @@ Deploy Cloudflare preview Worker → Prepare Cloudflare preview config and seed
 
 ### 7.5 待补充
 
-L1.1–L1.7 的结果将在执行后追加到本节，格式与 L0 §7 一致。
+L1.3–L1.7 的结果将在执行后追加到本节，格式与 L0 §7 一致。
+
+### 7.6 L1.1 结果与验收
+
+**修法**：把"字符串全局唯一"假设换成**结构化定位 + 渲染后深度校验**。
+
+| 环节 | 实现 |
+|------|------|
+| 定位 | `tomllib` 解析 → 从 `[[env.preview.d1_databases]]` 取唯一表项并校验其值 |
+| 替换 | 对该段落做定点行替换（保留缩进与行尾注释） |
+| **校验** | 渲染结果重新解析，与源配置做**深度相等**比较，唯一允许差异是该字段 —— 这正是首版缺失的"**有没有多改**"断言 |
+| fail-closed | 缺段落 / 值非占位符 / 缺 `database_id` 行 / 多表项 / 非法 TOML |
+
+**验收证据**：
+
+| # | 检查 | 结果 |
+|---|------|------|
+| 1 | 真实 `wrangler.toml` 渲染 | ✅ `RENDER OK`（首版为 `FAILS`） |
+| 2 | 字节级 diff | ✅ **恰好 1 行**（第 120 行），其余 173 行逐字节不变 |
+| 3 | 生产 D1 / R2 / KV 占位符 | ✅ 全部未被触碰 |
+| 4 | 单元测试 | ✅ `16 passed`（含 5 个 fail-closed 参数化用例） |
+| 5 | **生产 CI：preview 全流水线** | ✅ **CI Gate / Deploy preview Worker / D1 迁移 / Pages / Verify preview 全部 success** |
+
+> **L1.1 完成。preview 轨道自 2026-06-22 以来首次成功部署并通过端到端验证**
+> （run `35449872399`，preview worker 版本 `2f750e2e-5d35-448e-a9c5-dbf49e3a923a`）。
+
+### 7.7 L1.1 的意外收获：一个被推翻的预测，与三个新事实
+
+**我在动手前预测**："修好 G0 后，preview 会因为继承了占位 KV id 而失败，所以 L1.2 也得一起做。"
+
+**CI 结果：预测错误，流水线全绿。** 若我按预测"高效地"提前改 `deploy.yml`，
+就会为不存在的问题动一个 1,734 行的 workflow。这正是本体系要求**先测量再断言**的原因。
+
+三个由 CI 日志与线上探测得到的新事实：
+
+| # | 事实 | 证据 | 影响 |
+|---|------|------|------|
+| **N1** | Wrangler **不把 `kv_namespaces` 继承给命名环境** | 部署日志逐字警告：`"kv_namespaces" exists at the top level, but not on "env.preview" ... not inherited by environments` | preview **完全没有** KV 绑定；SPEC 首版 G2 表述有误 → 已在 `02 §2.7` 更正 |
+| **N2** | 生产 KV id 也是**占位全零**，且 `deploy.yml` **零 KV 处理** | `docs/status.md:132` 明文记录占位状态与手工回填步骤；D1/R2 有自动创建而 KV 没有；生产最后一次成功部署为 2026-08-03，**早于** KV 块引入（2026-08-05） | 「公开读 KV-first」（`04818fe`）**合并但从未激活**；占位 id 在部署时是否被接受**尚未验证** |
+| **N3** | `docs/status.md` 声称生产 `ok`，实测为 **`degraded`** | 文档 `:9,:13` vs 实测 `reason_codes: ['projection_snapshot_pending']`；文档更新于 2026-08-03，已 47 天 | 运行时事实与文档冲突 → 属 `status.md`（活文档）应立即更新 |
+
+**N2/N3 需裁决**（不在 L1.1 范围内，且 N2 涉及生产变更）：
+是否激活 KV-first 特性（创建真实 KV + 回填 + 给 `deploy.yml` 补自动创建），
+以及是否执行一次生产部署以验证可部署性。**这两件事都不应由执行方单方面决定。**
