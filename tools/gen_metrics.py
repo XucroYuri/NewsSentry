@@ -7,8 +7,13 @@
 
 1. **不写挂钟时间** —— 否则生成物永远无法与提交物保持一致（`git diff` 恒非空）。
 2. **不写 HEAD commit** —— 否则每次提交都会让生成物自我失效（自引用悖论）。
-3. **不臆造环境相关事实** —— 依赖运行环境才能得到的事实（如可执行用例数、覆盖率、
-   node_modules 体积）一律记为 `null` 并附原因，绝不猜测。
+3. **不臆造环境相关事实** —— 依赖运行环境才能得到的事实（如可执行用例数、覆盖率）
+   一律记为 `null` 并附原因，绝不猜测。
+
+> **2026-09-19 教训**：首版曾把 `node_modules` 体积计入基线，而它是**工作树**属性：
+> 本地有 `backend/node_modules`、CI 有 `frontend/cloudflare/node_modules`，
+> 于是 `--check` 在不同环境必然分歧（CI 首次运行即失败）。
+> 该字段已整体移除 —— **基线只能包含从提交可推导的事实**。
 
 用法：
     python tools/gen_metrics.py                # 生成
@@ -272,37 +277,6 @@ def collect_eval_sets(root: Path, tracked: set[str]) -> dict[str, Any]:
     return {"sets": sets}
 
 
-def collect_dev_artifacts(root: Path) -> dict[str, Any]:
-    """统计开发期产物（node_modules）体积；缺失时记为 null。"""
-    workspaces = ["frontend/public", "frontend/admin", "frontend/cloudflare", "backend"]
-    sizes: dict[str, int | None] = {}
-    for workspace in workspaces:
-        path = root / workspace / "node_modules"
-        sizes[workspace] = _du_bytes(path) if path.is_dir() else None
-    present = [v for v in sizes.values() if v is not None]
-    return {
-        "node_modules_bytes": sizes,
-        "node_modules_total_bytes": sum(present) if present else None,
-        "note": "开发期产物，不入库；缺失时该项为 null",
-    }
-
-
-def _du_bytes(path: Path) -> int | None:
-    """用 du 统计目录体积（比 Python 遍历快得多）。"""
-    try:
-        result = subprocess.run(
-            ["du", "-sb", str(path)],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=120,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    first = result.stdout.split("\t", 1)[0].strip()
-    return int(first) if first.isdigit() else None
-
-
 def collect_package_version(root: Path) -> str | None:
     """从 pyproject.toml 读取项目版本。"""
     pyproject = root / "pyproject.toml"
@@ -330,7 +304,6 @@ def build_metrics(root: Path) -> dict[str, Any]:
         "code": collect_code(root, tracked),
         "contracts": collect_contracts(root, tracked),
         "eval": collect_eval_sets(root, tracked),
-        "dev_artifacts": collect_dev_artifacts(root),
     }
 
 

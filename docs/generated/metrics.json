@@ -71,16 +71,6 @@
       "total": 19
     }
   },
-  "dev_artifacts": {
-    "node_modules_bytes": {
-      "backend": 114299092,
-      "frontend/admin": 168095850,
-      "frontend/cloudflare": null,
-      "frontend/public": 297991498
-    },
-    "node_modules_total_bytes": 580386440,
-    "note": "开发期产物，不入库；缺失时该项为 null"
-  },
   "eval": {
     "sets": [
       {
