@@ -133,11 +133,16 @@ else
 fi
 
 # ---------------------------------------------------------------- A6
-stale_gate=$(grep -c 'reasonCodes.push("stale\|reasonCodes.push("no_recent\|reasonCodes.push("collection_stale' \
-  frontend/cloudflare/workers/lib/health-status.ts 2>/dev/null) || stale_gate=0
+# 判据：health-status.ts 中存在任何以 _stale 结尾的 reason code。
+# 注意：首版判据只匹配 "stale"/"no_recent"/"collection_stale" 字面量，
+# 漏掉了 collect_cycle_stale 与 events_stale，导致误报 PRESENT（已修正）。
+health_file=frontend/cloudflare/workers/lib/health-status.ts
+stale_codes=$(grep -o 'reasonCodes.push("[a-z_]*stale"' "$health_file" 2>/dev/null \
+  | sed 's/reasonCodes.push("//; s/"$//' | sort -u | tr '\n' ',' | sed 's/,$//')
+stale_gate=$(grep -c 'reasonCodes.push("[a-z_]*stale"' "$health_file" 2>/dev/null) || stale_gate=0
 if [ "$stale_gate" -gt 0 ]; then
   record "A6" "采集停滞会导致 health 非 ok（健康语义不再失真）" "FIXED" \
-    "health-status.ts 存在陈旧性 reason code：${stale_gate} 处"
+    "health-status.ts 存在陈旧性 reason code：${stale_codes}（静态判据；最终结论需运行时验证）"
 else
   record "A6" "采集停滞会导致 health 非 ok（健康语义不再失真）" "PRESENT" \
     "health-status.ts 无任何陈旧性 reason code（静态代理判定，最终结论需运行时验证）"
