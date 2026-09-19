@@ -34,11 +34,11 @@ L0 证明了两件事：对照设施早已建成（隔离 Worker / D1 / R2 / 泄
 | **L1.0** | `tests/unit/test_frontend_geist_design_system.py` 修正 | 解除 `main` 的部署阻断（见 §7.1） | ✅ **完成** |
 | **L1.1** | `tools/cloudflare_preview_guard.py` 结构化渲染 + 真实制品测试 | 修 G0：占位符碰撞（见 §7.6） | ✅ **完成** |
 | **L1.2** | KV：解除占位 id 造成的**生产部署阻断** | ✅ **已完成**（方案 b：删除从未生效的 `[[kv_namespaces]]` 块）。已提升到 `main`。见 §10 | ✅ **完成** |
-| **L1.3** | `tools/control_receipt.py` | 对照回执协议（两组共用 schema） | 待办 |
-| **L1.4** | `tools/control_compare.py` | 从两个 D1 读事件集，算 recall / precision / digest diff | 待办 |
-| **L1.5** | `tools/isolation_proof.py` | 哨兵事件证明 A 组写入不到达 B 组 | 待办 |
-| **L1.6** | 支配判定编码进 `control_compare.py` | 四条规则，**不可人工覆盖** | 待办 |
-| **L1.7** | `tools/gen_metrics.py` 只统计 `git ls-files` 跟踪的文件 | 修 L0 §7.4 第 5 项：生成物必须严格对应提交 | 待办 |
+| **L1.3** | `tools/control_receipt.py` | 对照回执协议（两组共用 schema） | ✅ **完成**（见 §11） |
+| **L1.4** | `tools/control_compare.py` | 从两个 D1 读事件集，算 recall / precision / digest diff | ✅ **完成**（见 §11） |
+| **L1.5** | `tools/isolation_proof.py` | 哨兵事件证明 A 组写入不到达 B 组 | ✅ **完成**（见 §11） |
+| **L1.6** | 支配判定编码进 `control_compare.py` | 四条规则，**不可人工覆盖** | ✅ **完成**（见 §11） |
+| **L1.7** | `tools/gen_metrics.py` 只统计 `git ls-files` 跟踪的文件 | 修 L0 §7.4 第 5 项 | ✅ **完成**（见 §11） |
 
 ### L1.1 的技术要点（G0）
 
@@ -454,3 +454,91 @@ Cloudflare 在上传阶段拒绝，在线 worker 不受影响。
 
 > **规则**：任何会写回文件的验证命令（`git checkout <path>`、`git restore` 等）
 > 之前，工作区改动必须已经提交 —— 否则验证动作会吞掉被测对象。
+
+---
+
+## §11 L1.3–L1.7 结果：仪器已建成
+
+> **状态**：五个步骤全部完成（2026-09-19）。**但仪器尚未对真实数据取过读数** —— 见 §11.4。
+
+### 11.1 交付物
+
+四个纯函数工具，**一律不做网络 I/O**：输入是已经取好的 `wrangler d1 execute --json` 结果集，
+因此可在无凭据环境下被完整测试（与既有 `cloudflare_preview_guard.py` 的"No network"约定一致）。
+
+| 步骤 | 工具 | 作用 |
+|------|------|------|
+| L1.3 | `tools/control_receipt.py` | 对照回执协议：两轨写**同一 schema**，此即"可比性"的物理保证 |
+| L1.4 | `tools/control_compare.py` | 从两个 D1 结果集算 recall / precision / 双向差异 / 摘要差异 |
+| L1.5 | `tools/isolation_proof.py` | 哨兵事件证明跨轨写入不泄漏 |
+| L1.6 | `tools/control_compare.py`（判定部分） | 六项指标 + 四条规则 + 绝对地板 → 支配判定 |
+| L1.7 | `tools/gen_metrics.py` | 事实基线改为只统计 `git ls-files` 跟踪的文件 |
+| 共享 | `tools/control_common.py` | D1 JSON 解析、规范摘要、fail-closed 校验器 |
+
+**对照主键**：`events.event_id` 是内容寻址的
+（`ne-{target}-{source}-{yyyymmdd}-{hash8}`），因此
+**"两组是否看到同一批新闻"退化为一次字符串比较** —— 不需要传全量数据。
+
+### 11.2 两个方法论要点
+
+**（a）判定不可人工覆盖（L1.6 硬要求）**
+
+一个可以被开关覆盖的判据等于没有判据。实现上：
+
+- 阈值是模块常量，**不通过 CLI 暴露**（无法"调参通过"）
+- 命令行只有输入与 `--assert-dominance`，**不存在** `--force` / `--override` / `--skip*`
+- 有测试断言 `--help` 中不含上述任何开关
+
+**（b）隔离验证要求阳性对照（L1.5）**
+
+> 只查"哨兵不在对照组"是**没有意义**的 —— 查询过滤本身就能造成"查不到"。
+
+因此 `verify` 要求**三条同时成立**：写入轨结果集非空、另一轨结果集非空、
+哨兵确实出现在写入轨（**阳性对照**）。任一不成立即 FAIL。
+空集合下的"查不到"不构成证据。
+
+### 11.3 验收证据
+
+| # | 检查 | 结果 |
+|---|------|------|
+| 1 | `tests/tools/` 全量 | ✅ **263 passed**（其中 35 项为本次新增） |
+| 2 | `ruff` | ✅ 0 |
+| 3 | 三个生成门禁 | ✅ `gen_metrics --check` / `render_docs --check` / `spec_guard --check` |
+| 4 | preview 流水线 | ✅ 见 §11.5 |
+
+新增测试覆盖的关键性质：
+
+| 性质 | 测试 |
+|------|------|
+| 摘要与行序无关（否则两轨读数无法配对） | `test_digests_are_order_independent` |
+| 同一批事件但分值漂移可被检出 | `test_digests_detect_score_change` / `test_compare_event_sets_detects_score_drift` |
+| **缺数据 ⇒ 不支配** | `test_dominance_requires_all_six_metrics` |
+| 绝对地板优先于相对优势 | `test_absolute_floor_blocks_even_when_relatively_better` |
+| 对照组 ok 率是准入门槛 | `test_control_source_ok_ratio_is_an_admission_gate` |
+| 槽位与零代价是必要条件 | `test_persistence_and_zero_cost_are_mandatory` |
+| 隔离的三条判据与空集合 fail-closed | `tests/tools/test_isolation_proof.py` 全组 |
+
+### 11.4 诚实的完成边界：仪器已建成，但**尚未取过读数**
+
+L1 的退出条件是"**隔离哨兵证明通过**"。
+截至目前：**工具已就绪并通过全部单元测试，但从未对真实 D1 运行过** ——
+因为取数需要 Cloudflare 凭据，而本地环境没有（`CLOUDFLARE_API_KEY` 等均未设置）。
+
+| 项 | 状态 |
+|----|------|
+| preview 可部署 | ✅ 已达成（L1.1/L1.2） |
+| 守卫与门禁全绿 | ✅ 已达成 |
+| **隔离哨兵证明通过** | ❌ **未达成** —— 工具未对真实数据运行 |
+| **首份 `dominance.json` 读数** | ❌ **未达成** —— 同上 |
+
+**要真正退出 L1，需要一个能取数的执行路径**。最自然的形式是一个**只读**工作流：
+分别对 `ns-db`（对照）与 `ns-db-preview`（实验）执行
+`SELECT event_id, value_score, pipeline_stage FROM events`，
+写入哨兵 SQL、运行 `isolation_proof verify`、运行 `control_compare`，
+并把 `dominance.json` 作为回执上传。
+
+**该路径涉及对生产 D1 的只读访问**，因此登记为待裁决项，不擅自新增工作流。
+
+### 11.5 验证运行
+
+`preview` 推送触发 Deploy 工作流；结果记录于本次执行的收尾报告（run 见提交信息）。
