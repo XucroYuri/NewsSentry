@@ -23,7 +23,11 @@ import hashlib
 import sys
 from pathlib import Path
 
-from tools.control_common import TRACKS, ControlError, event_ids, load_rows
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from tools.control_common import TRACKS, ControlError, event_ids, load_rows  # noqa: E402
 
 SENTINEL_PREFIX = "iso-sentinel-"
 

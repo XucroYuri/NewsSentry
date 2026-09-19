@@ -141,8 +141,8 @@
     },
     "python": {
       "criteria": "tests/**/test_*.py 文件中以 def test_ 开头的函数（含类方法）",
-      "files": 148,
-      "functions": 2787
+      "files": 151,
+      "functions": 2820
     },
     "worker": {
       "cases": 224,

@@ -26,7 +26,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from tools.control_common import (
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from tools.control_common import (  # noqa: E402
     RECEIPT_VERSION,
     TRACKS,
     ControlError,
