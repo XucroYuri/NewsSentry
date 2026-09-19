@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import copy
 import json
 import sqlite3
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -49,32 +51,120 @@ def test_select_preview_d1_rejects_ambiguous_or_invalid_payloads() -> None:
         guard.select_preview_d1_database({"unexpected": "shape"})
 
 
-def test_render_preview_config_replaces_placeholder_exactly_once(tmp_path: Path) -> None:
+REAL_WRANGLER = ROOT / "frontend" / "cloudflare" / "wrangler.toml"
+SYNTHETIC_PLACEHOLDER = "00000000-0000-4000-8000-000000000000"
+SYNTHETIC_PREVIEW_D1 = "22222222-2222-4222-8222-222222222222"
+
+
+def test_render_preview_config_uses_the_real_wrangler_toml(tmp_path: Path) -> None:
+    """INV-D：守卫读取真实制品，因此必须针对真实制品测试。
+
+    首版守卫假设占位符全局唯一，而它的测试用的是**恰好一个占位符**的合成 TOML；
+    真实配置有 3 处（KV 的 id 与 preview_id 复用了 D1 的占位 UUID），
+    故障因此隐藏 45 天（见 docs/spec/phases/L1-instrument.md §7.4）。
+    """
+    output = tmp_path / "wrangler.preview.generated.toml"
+
+    guard.render_preview_config(REAL_WRANGLER, output, database_id=SYNTHETIC_PREVIEW_D1)
+
+    original = tomllib.loads(REAL_WRANGLER.read_text(encoding="utf-8"))
+    rendered = tomllib.loads(output.read_text(encoding="utf-8"))
+
+    # 1) 目标字段已替换，且该表项的其余字段未变
+    preview_d1 = rendered["env"]["preview"]["d1_databases"][0]
+    assert preview_d1["database_id"] == SYNTHETIC_PREVIEW_D1
+    assert preview_d1["binding"] == "DB"
+    assert preview_d1["database_name"] == "ns-db-preview"
+
+    # 2) 生产资源零改动
+    assert rendered["d1_databases"][0]["database_id"] == original["d1_databases"][0]["database_id"]
+    assert rendered["r2_buckets"][0] == original["r2_buckets"][0]
+
+    # 3) KV 占位符必须原样保留——那是 L1.2 的独立议题，不属于本函数职责
+    assert rendered["kv_namespaces"][0]["id"] == SYNTHETIC_PLACEHOLDER
+    assert rendered["kv_namespaces"][0]["preview_id"] == SYNTHETIC_PLACEHOLDER
+
+    # 4) 除目标字段外，整份配置深度相等（"有没有多改"的断言）
+    expected = copy.deepcopy(original)
+    expected["env"]["preview"]["d1_databases"][0]["database_id"] = SYNTHETIC_PREVIEW_D1
+    assert rendered == expected
+
+
+def test_render_preview_config_changes_exactly_one_line(tmp_path: Path) -> None:
+    """渲染是定点替换：真实配置的字节级 diff 应恰好一行。"""
+    output = tmp_path / "wrangler.preview.generated.toml"
+
+    guard.render_preview_config(REAL_WRANGLER, output, database_id=SYNTHETIC_PREVIEW_D1)
+
+    before = REAL_WRANGLER.read_text(encoding="utf-8").splitlines()
+    after = output.read_text(encoding="utf-8").splitlines()
+    assert len(before) == len(after)
+    changed = [index for index, (a, b) in enumerate(zip(before, after, strict=True)) if a != b]
+    assert len(changed) == 1
+    assert after[changed[0]] == f'database_id = "{SYNTHETIC_PREVIEW_D1}"'
+
+
+def test_render_preview_config_happy_path_on_synthetic_config(tmp_path: Path) -> None:
     source = tmp_path / "wrangler.toml"
     output = tmp_path / "wrangler.preview.toml"
     source.write_text(
-        """
-[[env.preview.d1_databases]]
-binding = "DB"
-database_name = "ns-db-preview"
-database_id = "00000000-0000-4000-8000-000000000000"
-""".strip(),
+        "\n".join(
+            [
+                "[[d1_databases]]",
+                'binding = "DB"',
+                'database_name = "ns-db"',
+                'database_id = "35a52961-e7e1-41ef-934e-7a63882ba465"',
+                "",
+                "[[env.preview.d1_databases]]",
+                'binding = "DB"',
+                'database_name = "ns-db-preview"',
+                f'database_id = "{SYNTHETIC_PLACEHOLDER}"',
+                "",
+            ]
+        ),
         encoding="utf-8",
     )
 
-    guard.render_preview_config(
-        source,
-        output,
-        database_id="22222222-2222-4222-8222-222222222222",
-    )
+    guard.render_preview_config(source, output, database_id=SYNTHETIC_PREVIEW_D1)
 
-    rendered = output.read_text(encoding="utf-8")
-    assert "00000000-0000-4000-8000-000000000000" not in rendered
-    assert "22222222-2222-4222-8222-222222222222" in rendered
+    rendered = tomllib.loads(output.read_text(encoding="utf-8"))
+    assert rendered["env"]["preview"]["d1_databases"][0]["database_id"] == SYNTHETIC_PREVIEW_D1
+    assert rendered["d1_databases"][0]["database_id"] == "35a52961-e7e1-41ef-934e-7a63882ba465"
 
-    source.write_text("database_id = \"no-placeholder\"\n", encoding="utf-8")
+
+def test_render_preview_config_rejects_non_uuid_target(tmp_path: Path) -> None:
+    output = tmp_path / "out.toml"
     with pytest.raises(guard.PreviewGuardError):
-        guard.render_preview_config(source, output, database_id="x")
+        guard.render_preview_config(REAL_WRANGLER, output, database_id="not-a-uuid")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        # 缺少 [[env.preview.d1_databases]] 段
+        '[[d1_databases]]\ndatabase_id = "00000000-0000-4000-8000-000000000000"\n',
+        # 该段存在但 database_id 已是真实值（重复渲染应被拒）
+        "[[env.preview.d1_databases]]\n"
+        'database_id = "22222222-2222-4222-8222-222222222222"\n',
+        # 该段存在但没有 database_id 行
+        '[[env.preview.d1_databases]]\nbinding = "DB"\n',
+        # 该段有两个表项 → 歧义
+        "[[env.preview.d1_databases]]\n"
+        f'database_id = "{SYNTHETIC_PLACEHOLDER}"\n'
+        "[[env.preview.d1_databases]]\n"
+        f'database_id = "{SYNTHETIC_PLACEHOLDER}"\n',
+        # 非法 TOML
+        "[[env.preview.d1_databases]\ndatabase_id = broken\n",
+    ],
+)
+def test_render_preview_config_fails_closed(tmp_path: Path, body: str) -> None:
+    source = tmp_path / "wrangler.toml"
+    source.write_text(body, encoding="utf-8")
+
+    with pytest.raises(guard.PreviewGuardError):
+        guard.render_preview_config(
+            source, tmp_path / "out.toml", database_id=SYNTHETIC_PREVIEW_D1
+        )
 
 
 def test_build_preview_seed_sql_contains_fresh_event_ops_and_snapshots(

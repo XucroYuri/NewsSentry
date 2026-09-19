@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import re
 import sys
+import tomllib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -81,16 +83,114 @@ def select_preview_d1_database(payload: Any) -> PreviewDatabase:  # noqa: ANN401
     return PreviewDatabase(database_name=PREVIEW_DATABASE_NAME, database_id=database_id)
 
 
+PREVIEW_D1_SECTION = "[[env.preview.d1_databases]]"
+_DATABASE_ID_LINE_RE = re.compile(
+    r'^(?P<indent>\s*)database_id\s*=\s*(?P<quote>["\'])[^"\']*(?P=quote)'
+    r"(?P<trailer>\s*(?:#.*)?)(?P<eol>\r?\n)?$"
+)
+
+
 def render_preview_config(source: Path, output: Path, *, database_id: str) -> None:
+    """渲染 preview 专用 wrangler 配置：只替换 preview D1 的 `database_id`。
+
+    **历史教训（INV-D）**：首版实现假设占位符在整个文件中**全局唯一**
+    （`text.count(placeholder) != 1` 即失败）。`04818fe` 为 KV 绑定复用了同一个
+    占位 UUID，使该假设失效 —— preview 部署因此静默失败 45 天。
+
+    现改为**结构化定位**：用 `tomllib` 解析后确认目标字段，再对目标段落做定点替换，
+    最后**重新解析渲染结果并深度比较**，确保除该字段外没有任何字节语义发生变化。
+    """
     if not _UUID_RE.match(database_id):
         raise PreviewGuardError("Preview D1 database id is not UUID-shaped")
+
     text = source.read_text(encoding="utf-8")
-    count = text.count(PREVIEW_D1_PLACEHOLDER)
-    if count != 1:
+    original = _parse_toml(text, source)
+
+    entry = _preview_d1_entry(original)
+    current = entry.get("database_id")
+    if current != PREVIEW_D1_PLACEHOLDER:
         raise PreviewGuardError(
-            f"Preview D1 placeholder must appear exactly once; found {count}"
+            f"{PREVIEW_D1_SECTION} database_id must be the placeholder "
+            f"{PREVIEW_D1_PLACEHOLDER!r}; found {current!r}"
         )
-    output.write_text(text.replace(PREVIEW_D1_PLACEHOLDER, database_id), encoding="utf-8")
+
+    rendered = _replace_database_id_line(text, database_id)
+    _assert_only_database_id_changed(original, rendered, database_id)
+    output.write_text(rendered, encoding="utf-8")
+
+
+def _parse_toml(text: str, source: Path) -> dict[str, Any]:
+    try:
+        return tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        raise PreviewGuardError(f"{source.name} is not valid TOML: {exc}") from exc
+
+
+def _preview_d1_entry(data: dict[str, Any]) -> dict[str, Any]:
+    """取出 `[[env.preview.d1_databases]]` 的唯一表项，否则 fail-closed。"""
+    env = data.get("env")
+    preview = env.get("preview") if isinstance(env, dict) else None
+    entries = preview.get("d1_databases") if isinstance(preview, dict) else None
+    if not isinstance(entries, list) or not entries:
+        raise PreviewGuardError(f"wrangler.toml has no {PREVIEW_D1_SECTION} entry")
+    if len(entries) != 1:
+        raise PreviewGuardError(
+            f"{PREVIEW_D1_SECTION} must have exactly one entry; found {len(entries)}"
+        )
+    entry = entries[0]
+    if not isinstance(entry, dict):
+        raise PreviewGuardError(f"{PREVIEW_D1_SECTION} entry is not a table")
+    return entry
+
+
+def _replace_database_id_line(text: str, database_id: str) -> str:
+    """在 `[[env.preview.d1_databases]]` 段内定点替换 database_id 行。"""
+    lines = text.splitlines(keepends=True)
+    start = next(
+        (index for index, line in enumerate(lines) if line.strip() == PREVIEW_D1_SECTION),
+        None,
+    )
+    if start is None:
+        raise PreviewGuardError(f"wrangler.toml has no {PREVIEW_D1_SECTION} header")
+
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        if lines[index].lstrip().startswith("["):
+            end = index
+            break
+
+    replaced = 0
+    for index in range(start + 1, end):
+        match = _DATABASE_ID_LINE_RE.match(lines[index])
+        if not match:
+            continue
+        lines[index] = (
+            f'{match.group("indent")}database_id = "{database_id}"'
+            f'{match.group("trailer")}{match.group("eol") or ""}'
+        )
+        replaced += 1
+    if replaced != 1:
+        raise PreviewGuardError(
+            f"{PREVIEW_D1_SECTION} must contain exactly one database_id line; found {replaced}"
+        )
+    return "".join(lines)
+
+
+def _assert_only_database_id_changed(
+    original: dict[str, Any], rendered: str, database_id: str
+) -> None:
+    """渲染结果必须与源配置**深度相等**，唯一差异是 preview D1 的 database_id。
+
+    这正是首版缺失的断言：它只检查了目标值是否出现，没检查**有没有多改**。
+    """
+    rendered_data = _parse_toml(rendered, Path("wrangler.preview.generated.toml"))
+    expected = copy.deepcopy(original)
+    expected["env"]["preview"]["d1_databases"][0]["database_id"] = database_id
+    if rendered_data != expected:
+        raise PreviewGuardError(
+            "rendered config differs from source beyond "
+            f"{PREVIEW_D1_SECTION}.database_id"
+        )
 
 
 def _sql_text(value: str | None) -> str:
