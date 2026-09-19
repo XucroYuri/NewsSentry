@@ -144,6 +144,59 @@ python tools/gen_metrics.py --check
 需先确认 `geist` 字体是否仍自托管（`frontend/design-system/fonts/` 下是否存在 woff2），
 再决定断言应该检查什么。
 
-### 7.2 待补充
+### 7.2 L1.0 设计意图核实（执行前）
 
-L1 其余步骤的结果将在执行后追加到本节，格式与 L0 §7 一致。
+| 检查 | 结果 |
+|------|------|
+| 字体是否已 vendored | ✅ `Geist-Variable.woff2`（69,652 B）、`GeistMono-Variable.woff2`（71,368 B） |
+| `@font-face` 是否用相对路径 | ✅ `src: url("./fonts/Geist-Variable.woff2")` |
+| 两个前端是否仍依赖 npm `geist` | ✅ 均无（dependencies 与 devDependencies 都为空） |
+| 源码是否仍有 `import ... from "geist"` | ✅ 零命中 |
+| 移除提交的真实理由 | `0942547` 原文：**"移除前端未使用的 geist 依赖，消除生产高危 npm audit 漏洞"** |
+
+**结论**：该依赖是**未使用**的，移除它是**安全修复**；
+而原断言 `dependencies["geist"] == "1.7.2"` 与"自托管"的语义**正好相反**
+（自托管的字面含义就是不依赖 npm 包）。断言纯属陈旧。
+
+### 7.3 L1.0 结果与验收
+
+**交付**：`tests/unit/test_frontend_geist_design_system.py` 的
+`test_geist_font_is_self_hosted_in_public_and_admin` 改为校验真实意图：
+
+1. 共享设计系统中存在 `@font-face`
+2. 两个 woff2 文件存在，且 `@font-face` 以 `./fonts/<name>` 相对路径引用
+3. 两个前端的 `dependencies` 与 `devDependencies` **均不含** `geist`
+
+**验收证据**：
+
+| # | 检查 | 结果 |
+|---|------|------|
+| 1 | 单文件测试 | ✅ `4 passed` |
+| 2 | **门禁有效性**：重新注入 `geist` 依赖 | ✅ 测试**失败**（证明它现在守护安全修复，而非与之矛盾） |
+| 3 | 恢复后 | ✅ `4 passed`，工作区干净 |
+| 4 | **生产 CI**：Deploy 工作流 `CI Gate` | ✅ **completed/success**（此前因该测试失败，全部部署步骤被 skip） |
+
+> **L1.0 完成。46 天的部署通道阻断已解除。**
+
+### 7.4 G0 已在生产 CI 中被证实
+
+L1.0 解除阻断后，同一次流水线第一次走到了 preview 部署步骤，并**如预测般在 G0 失败**：
+
+```
+Deploy Cloudflare preview Worker → Prepare Cloudflare preview config and seed
+  Preview D1 placeholder must appear exactly once; found 3
+  ##[error]Process completed with exit code 2.
+```
+
+这完成了从"本地断言"到"生产证据"的升级：
+
+| 断言来源 | 状态 |
+|---------|------|
+| SPEC 本地复核（§7.4 上游分析） | 已证实 |
+| **生产 CI 流水线** | **✅ 已证实**（run `35447135968`） |
+
+**因此 L1.1（G0 修复）是 preview 轨道可用的唯一剩余阻塞。**
+
+### 7.5 待补充
+
+L1.1–L1.7 的结果将在执行后追加到本节，格式与 L0 §7 一致。
