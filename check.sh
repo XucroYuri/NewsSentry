@@ -62,6 +62,7 @@ check "mypy"         python -m mypy src/news_sentry/ --ignore-missing-imports --
 echo "── Facts ──"
 check "metrics in sync"  python tools/gen_metrics.py --check
 check "docs in sync"     python tools/render_docs.py --check
+check "spec system"      python tools/spec_guard.py --check
 
 # ── Test ──
 if $FAST_MODE; then

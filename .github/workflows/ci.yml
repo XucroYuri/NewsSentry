@@ -62,6 +62,10 @@ jobs:
           python tools/gen_metrics.py --check
           python tools/render_docs.py --check
 
+      # SPEC 体系：结构 + 阶段状态单一来源 + 旧体系冻结清单
+      - name: SPEC system guard
+        run: python tools/spec_guard.py --check
+
       - name: Config schema validation
         run: python -m pytest tests/unit/test_config_schema_validation.py -q
 
