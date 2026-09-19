@@ -51,6 +51,8 @@
 | [ADR-0025](./adr-0025.md) | API Server 嵌入式 SPA 架构 | Accepted | 2026-05-18 |
 | [ADR-0026](./adr-0026.md) | 三阶段客户端架构演进路线 (pywebview → Tauri → 云端集群+分布式) | Accepted | 2026-05-21 |
 | [ADR-0027](./adr-0027.md) | 公共门户前端重平台化：独立 React + shadcn/ui 试点 | Accepted | 2026-06-09 |
+| [ADR-0028](./adr-0028.md) | 实时内容引擎：in-process EventBus + 告警推送架构 | Accepted | 2026-06-25 |
+| [ADR-0029](./adr-0029.md) | 双轨对照工程与产品基准方向 | Accepted | 2026-09-19 |
 
 ## 引用方式
 
