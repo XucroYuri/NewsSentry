@@ -115,10 +115,16 @@ LLM 能力分布是锯齿状的——某些维度超人，某些维度犯蠢：
 ### 架构权威来源
 
 修改架构、schema、pipeline 行为、权限、provider 路由或工具执行前，必读：
-- `docs/contracts-canonical.md` — 口径规范唯一权威
-- `docs/adr/` — ADR-0001 至 ADR-0025
-- `schemas/` — 13 份 JSON Schema 2020-12（与 contracts-canonical.md 双向绑定）
+- `docs/spec/` — **规范体系唯一权威**（宪法 / 产品基准 / 工程基准 / 阶段总表 / 分阶段执行 SPEC）
+  - `00-constitution.md` 是最高权威：不变量、定理、红线
+  - `03-phase-plan.md` 是唯一阶段状态来源（矩阵由 `tools/spec_guard.py --render` 生成）
+  - `LEGACY.md` 列出已冻结的 169 个旧文档与"最易误导文档"
+- `docs/contracts-canonical.md` — **数据口径唯一权威**（字段/量纲/目录映射）
+- `docs/adr/` — ADR-0001 至 ADR-0029（记录**为什么**；与 SPEC 冲突时以 SPEC 为准）
+- `schemas/` — 19 份 JSON Schema 2020-12（与 contracts-canonical.md 双向绑定）
 - `config/` — 运行时配置骨架
+
+**新文档只能放进 `docs/spec/`**；放进冻结树会让 `tools/spec_guard.py --check` 失败。
 
 ### 核心决策（不可违反）
 

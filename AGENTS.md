@@ -1,5 +1,17 @@
 # News Sentry Agent Instructions
 
+> ## ⚠️ 规范权威已迁移
+>
+> **当前规范体系的唯一权威是 [`docs/spec/`](docs/spec/README.md)**：
+> 宪法（不变量/定理/红线）、产品基准、工程基准、阶段总表、分阶段执行 SPEC。
+>
+> 本文件与 `CLAUDE.md` 是**行为准则与速查**，不是规范来源。
+> `docs/specs/`、`docs/plans/`、`docs/superpowers/`、`docs/roadmap/`、`docs/deployment/` 等
+> **旧文档树已冻结**（169 个文件，SHA-256 锁定），不得作为执行依据——
+> 处置清单与"最易误导文档"列表见 [`docs/spec/LEGACY.md`](docs/spec/LEGACY.md)。
+>
+> **新增文档只能放进 `docs/spec/`。** 放进冻结树会让 `tools/spec_guard.py --check` 失败。
+
 ## 项目速览
 
 News Sentry 是一个持续新闻监控系统。它的核心流程是：
@@ -131,7 +143,8 @@ flowchart LR
 
 | 文件 | 作用 | 为什么重要 |
 |------|------|-----------|
-| `docs/contracts-canonical.md` | **口径规范基准** | 字段命名、分值量纲、目录映射、pipeline_stage 枚举的唯一权威来源 |
+| `docs/spec/` | **规范体系唯一权威** | 宪法（不变量/定理/红线）、产品基准、工程基准、阶段总表、分阶段执行 SPEC；冲突时以它为准 |
+| `docs/contracts-canonical.md` | **数据口径唯一权威** | 字段命名、分值量纲、目录映射、pipeline_stage 枚举的唯一权威来源 |
 | `docs/architecture.md` | **架构总览** | 系统架构、数据流、目录结构 |
 | `docs/external-integration-strategy.md` | **外部接入策略** | RSS-Bridge 接入原则、Provider chain 设计 |
 | `schemas/` (19 份 JSON Schema，见 `docs/generated/metrics.json`) | **机器可读契约** | 与 contracts-canonical.md 双向绑定 (ADR-0014) |
