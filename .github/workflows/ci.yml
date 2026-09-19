@@ -56,6 +56,12 @@ jobs:
       - name: Hardcoded target scan
         run: python tools/check_no_hardcoded_target.py
 
+      # L0 真相层：文档规模数字是生成物，手改即红（见 ADR-0029 / INV-D）
+      - name: Generated facts are in sync
+        run: |
+          python tools/gen_metrics.py --check
+          python tools/render_docs.py --check
+
       - name: Config schema validation
         run: python -m pytest tests/unit/test_config_schema_validation.py -q
 

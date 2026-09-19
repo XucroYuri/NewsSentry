@@ -58,6 +58,11 @@ fi
 echo "── Type ──"
 check "mypy"         python -m mypy src/news_sentry/ --ignore-missing-imports --no-error-summary
 
+# ── Facts (L0 真相层：文档规模数字必须是生成物) ──
+echo "── Facts ──"
+check "metrics in sync"  python tools/gen_metrics.py --check
+check "docs in sync"     python tools/render_docs.py --check
+
 # ── Test ──
 if $FAST_MODE; then
     echo ""
