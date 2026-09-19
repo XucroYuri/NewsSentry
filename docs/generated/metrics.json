@@ -1,0 +1,152 @@
+{
+  "code": {
+    "python": {
+      "files": 142,
+      "loc": 42238
+    },
+    "worker_ts": {
+      "files": 52,
+      "loc": 11489
+    }
+  },
+  "contracts": {
+    "adr": {
+      "files": [
+        "0001-canonical-contracts.md",
+        "0002-output-result-field-alignment.md",
+        "0003-sandbox-write-roots-and-error-enum.md",
+        "0004-bilingual-translation-timing.md",
+        "0005-pipeline-stage-vs-workflow-state.md",
+        "0006-cli-entry-deferred.md",
+        "0007-prd-open-questions-resolved.md",
+        "0008-external-deps-install-not-vendor.md",
+        "0009-four-layer-classification-framework.md",
+        "0010-no-dedicated-frontend.md",
+        "0011-opencli-baseline-toolmanifest.md",
+        "0012-python-implementation-language.md",
+        "0013-src-layout-package-structure.md",
+        "0014-json-schema-contract-validation.md",
+        "0015-config-merge-priority.md",
+        "0016-cli-entry-point.md",
+        "adr-0017.md",
+        "adr-0018.md",
+        "adr-0019.md",
+        "adr-0020.md",
+        "adr-0021.md",
+        "adr-0022.md",
+        "adr-0024.md",
+        "adr-0025.md",
+        "adr-0026.md",
+        "adr-0027.md",
+        "adr-0028.md",
+        "adr-0029.md"
+      ],
+      "total": 28
+    },
+    "schemas": {
+      "canonical_claimed": 18,
+      "files": [
+        "classification.schema.json",
+        "deploymentprofile.schema.json",
+        "deploymentsurfacepolicy.schema.json",
+        "evalexample.schema.json",
+        "filterrules.schema.json",
+        "matrixgovernance.schema.json",
+        "newsevent.schema.json",
+        "outputdestinations.schema.json",
+        "outputresult.schema.json",
+        "pipelinecontext.schema.json",
+        "providerconfig.schema.json",
+        "sandbox-audit.schema.json",
+        "sandboxpolicy.schema.json",
+        "skillmanifest.schema.json",
+        "socialsource.schema.json",
+        "sourcechannel.schema.json",
+        "targetconfig.schema.json",
+        "toolmanifest.schema.json",
+        "toolrunresult.schema.json"
+      ],
+      "matches_canonical_claim": false,
+      "total": 19
+    }
+  },
+  "dev_artifacts": {
+    "node_modules_bytes": {
+      "backend": 114299092,
+      "frontend/admin": 168095850,
+      "frontend/cloudflare": null,
+      "frontend/public": 297991498
+    },
+    "node_modules_total_bytes": 580386440,
+    "note": "开发期产物，不入库；缺失时该项为 null"
+  },
+  "eval": {
+    "sets": [
+      {
+        "file": "eval-set-v1.json",
+        "items": 112,
+        "name": "eval-set-v1"
+      },
+      {
+        "file": "eval-set-v2.json",
+        "items": 210,
+        "name": "eval-set-v2"
+      },
+      {
+        "file": "eval-set-v3.json",
+        "items": 250,
+        "name": "eval-set-v3"
+      }
+    ]
+  },
+  "generator": "tools/gen_metrics.py",
+  "project_version": "2.0.0-rc3",
+  "schema_version": "news-sentry.metrics.v1",
+  "sources": {
+    "by_type": {
+      "api": 99,
+      "rss": 1026
+    },
+    "coverage": {
+      "criterion": "文件存在 + 通过 sourcechannel.schema.json 校验 + URL 不重复，且数量 >= 阈值",
+      "minimum_refs": 20,
+      "ready_targets": 81,
+      "source": "tools/source_coverage_report.py:170",
+      "source_ref_total": 1831,
+      "target_count": 81,
+      "targets_below_minimum": [],
+      "valid_source_ref_total": 1803
+    },
+    "targets_with_sources": 81,
+    "total": 1125
+  },
+  "targets": {
+    "by_scope": {
+      "continent": 2,
+      "country": 58,
+      "global": 10,
+      "region": 11
+    },
+    "total": 81
+  },
+  "tests": {
+    "collected": null,
+    "collected_reason": "可执行用例数依赖运行环境，由 CI 汇总，不写入仓库",
+    "coverage": null,
+    "coverage_reason": "仓库中不存在 --cov-fail-under 门禁，因此不发布覆盖率数字",
+    "js": {
+      "criteria": "tests/js/*.mjs",
+      "files": 20
+    },
+    "python": {
+      "criteria": "tests/**/test_*.py 文件中以 def test_ 开头的函数（含类方法）",
+      "files": 148,
+      "functions": 2782
+    },
+    "worker": {
+      "cases": 224,
+      "criteria": "frontend/cloudflare/tests/*.test.mts 中 test( 调用数",
+      "files": 34
+    }
+  }
+}
