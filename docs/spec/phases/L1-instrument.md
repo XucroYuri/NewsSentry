@@ -33,7 +33,7 @@ L0 证明了两件事：对照设施早已建成（隔离 Worker / D1 / R2 / 泄
 |------|--------|------|------|
 | **L1.0** | `tests/unit/test_frontend_geist_design_system.py` 修正 | 解除 `main` 的部署阻断（见 §7.1） | ✅ **完成** |
 | **L1.1** | `tools/cloudflare_preview_guard.py` 结构化渲染 + 真实制品测试 | 修 G0：占位符碰撞（见 §7.6） | ✅ **完成** |
-| **L1.2** | KV：创建真实 namespace + `deploy.yml` 自动创建步骤 | **已降级**：非隔离缺陷，而是"KV-first 特性从未激活"。见 `02-engineering-baseline.md §2.7` | ⏸ 待裁决 |
+| **L1.2** | KV：解除占位 id 造成的**生产部署阻断** | **已升级为最高优先级**（探针证实 Cloudflare 以 10042 拒绝占位 id）。建议方案 (b)：删除从未生效的 `[[kv_namespaces]]` 块。见 §9 | 🔴 **待执行** |
 | **L1.3** | `tools/control_receipt.py` | 对照回执协议（两组共用 schema） | 待办 |
 | **L1.4** | `tools/control_compare.py` | 从两个 D1 读事件集，算 recall / precision / digest diff | 待办 |
 | **L1.5** | `tools/isolation_proof.py` | 哨兵事件证明 A 组写入不到达 B 组 | 待办 |
@@ -312,3 +312,92 @@ push 一次 preview，观察 `wrangler deploy` 是否接受占位 id。
 1. **preview 占位 KV 探针**（零风险，一次 push）→ 得到 D-A/D-B 所需的事实
 2. **L1.3–L1.7**（全部在 preview 轨道内，不需要任何生产变更）
 3. **生产部署**推迟到：新栈在 preview 被证明支配，**或** 内容/连续性出现真实时效需求时，作为一次独立的、有计划的操作
+
+---
+
+## §9 preview 占位 KV 探针：结果
+
+> **状态**：已完成（2026-09-19）。**假设被证实，并产出一个此前未知的阻塞级事实。**
+
+### 9.1 预注册的假设与证伪条件
+
+| 项 | 内容 |
+|----|------|
+| **假设 H** | Wrangler 拒绝占位 KV id（部署失败） |
+| **证伪条件** | 部署成功 → H 被推翻 → 占位 id 不阻止生产部署 |
+| **实验变量** | 单一：在 `[env.preview]` 下新增与生产同形态的 KV 绑定（同 binding 名、同占位 id、同 `preview_id`） |
+| **隔离性** | `git diff --stat main preview` = **`wrangler.toml \| 11 +++++++++++`** —— 两轨唯一差异就是这 11 行 |
+| **回滚** | 单个 commit，`git revert` 即可 |
+
+### 9.2 结果：**H 成立**
+
+```
+CI Gate                         -> success
+Deploy Cloudflare preview Worker -> FAILURE     ← 部署被拒
+Cloudflare D1 schema migration   -> success
+Deploy Cloudflare preview Pages  -> skipped
+Verify preview                   -> skipped
+```
+
+失败日志逐字（run `35451993516`）：
+
+```
+env.PUBLIC_SNAPSHOT_KV (00000000-0000-4000-8000-000000000000)   KV Namespace
+✘ [ERROR] A request to the Cloudflare API (/accounts/***/workers/scripts/news-sentry-api-preview) failed.
+  KV namespace '00000000-0000-4000-8000-000000000000' is not valid.
+  Please verify the namespace_id in your configuration. [code: 10042]
+##[error]Process completed with exit code 1.
+```
+
+**Cloudflare 错误码 10042**：`KV namespace '<id>' is not valid`。
+
+### 9.3 因果证据与安全确认
+
+| # | 检查 | 结果 |
+|---|------|------|
+| 1 | **加之前**：连续 3 次 preview 部署 | ✅ 全绿（run `35449872399`、`35450729061`、及第三次） |
+| 2 | **加之后**：同一条流水线 | ❌ 部署失败，错误**指名该 namespace id** |
+| 3 | **唯一变量** | ✅ `main` 与 `preview` 的差异只有那 11 行 |
+| 4 | **失败是否伤到线上** | ✅ **未伤**：preview worker 仍为上一次成功版本（`a368edaf` / `d019b00`），health `ok`，公共读 200 / `snapshot: hit` |
+
+**结论**：这是一次干净的对照实验 —— 单变量、隔离轨道、可回滚、失败 fail-closed。
+**失败模式是安全的**：Cloudflare 在上传阶段拒绝，在线 worker 不受影响。
+
+### 9.4 阻塞级发现：**生产当前不可部署**
+
+> **推论（高可信，直接证据来自 preview）**：生产顶层 `[[kv_namespaces]]` 使用**同一个占位 id**
+> （`wrangler.toml:67-70`），因此任何生产部署都会以**同样方式**在 `workers/scripts/news-sentry-api`
+> 上失败于 10042。占位 id 在两轨是**字面相同的配置值**，故该推论不依赖额外假设。
+
+这构成 **2026-08-05 `04818fe` 引入的第二处部署阻断**，与 geist 陈旧测试（L1.0）属同一类：
+**配置里有一个"看起来配好了其实没配"的值，且没有任何门禁会发现它。**
+
+| 阻断 | 引入 | 失效期 | 发现方式 | 状态 |
+|------|------|--------|---------|------|
+| 陈旧 `geist` 测试 | `0942547`（2026-08-20） | 46 天 | L0 期间跑测试 | ✅ 已解除（L1.0） |
+| **占位 KV id** | `04818fe`（2026-08-05） | **至今（生产从未部署过）** | **本探针** | ❌ **待解除** |
+
+### 9.5 L1.2 重新升级——但**性质变了**
+
+原判定（§7.7）把 L1.2 降级为"KV-first 特性未激活，不紧急"。**探针证明该判定不完整**：
+
+> L1.2 **不是**"是否激活 KV-first"的问题，而是"**生产能否部署**"的问题。
+
+**三个解法**：
+
+| 方案 | 内容 | 代价 | 与 T0 的关系 |
+|------|------|------|-------------|
+| **(a)** 建真实 KV + 回填 id | 执行 `status.md:132` 记录的手工程序 | 需 Cloudflare 凭据；激活一个可能被 L5 取代的读路径 | ⚠️ 违背 T0（在将拆的房子里装修） |
+| **(b)** **删除 `[[kv_namespaces]]` 块** | 删 7 行 | 最小、立即可验证 | ✅ 一致：不激活将死的路径，且移除假配置 |
+| **(c)** 补自动创建 + 渲染（对齐 D1/R2） | 改 `deploy.yml` + 守卫 | 最大 | ⚠️ 同上 |
+
+**建议 (b)**，理由：
+
+1. **立即解除阻断**，且改动最小（删除一个从未生效的块）
+2. **代码已容忍缺失绑定**：preview 自建立起就没有 KV 绑定，一直正常运行（D1 兜底）
+3. **移除"假配置"**：一个声明了却永远无效的绑定属于 INV-D 类隐患
+4. **把 KV 决策推迟到读路径定型时**：L5 的目标（单 HTML + 内联快照 + 边缘缓存）可能使 KV 冗余；届时再决定它是否还有位置
+5. **恢复两轨形态一致**：目前生产声明了 KV 而 preview 没有 —— 这本身是 C2（状态隔离/可比性）上的一个差异
+
+**注意**：无论选哪个方案，都**不应**在没有直接验证的情况下做生产部署 —— 但探针已把风险性质从
+"未知后果的生产变更"降级为"上传阶段 fail-closed，在线版本不受影响"。

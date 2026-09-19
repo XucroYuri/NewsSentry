@@ -236,7 +236,11 @@ git push origin preview-legacy-2026-06
 
 1. **L1.2 降级**：它不阻塞 preview 部署（已全绿），也不是"对照组被污染"的风险——因为生产同样没有 KV，**两轨的读路径实际上是一致的**。
 2. **真正的问题是特性激活**：`04818fe` 引入的"公开读 KV-first"在生产**从未生效**。是否激活它，是一次独立的功能决策（需要创建真实 KV、回填 id、并在 `deploy.yml` 中补上自动创建步骤——D1/R2 都有自动创建，唯独 KV 没有）。
-3. **新增风险 N2**：`deploy.yml` **零 KV 处理**，KV 的创建与回填是**纯手工**步骤。而生产自 KV 块引入（`04818fe`，2026-08-05）以来**从未成功部署过**（最后一次成功部署为 2026-08-03，早于该提交）——即占位 id 在**部署时是否被 Wrangler 接受，尚未被验证**。
+3. **新增风险 N2（已由探针验证为阻塞级）**：`deploy.yml` **零 KV 处理**，KV 的创建与回填是**纯手工**步骤。
+   生产自 KV 块引入（`04818fe`，2026-08-05）以来**从未成功部署过**（最后一次成功部署为 2026-08-03，早于该提交）。
+   **2026-09-19 的 preview 占位 KV 探针给出确定答案**：Cloudflare **拒绝**占位 id ——
+   `KV namespace '00000000-0000-4000-8000-000000000000' is not valid ... [code: 10042]`。
+   → **生产当前不可部署**；详见 [`phases/L1-instrument.md §9`](./phases/L1-instrument.md)。
 4. **新增风险 N3**：`docs/status.md:9,13` 声称生产"运行态为 `ok`""生产运行正常"，而 2026-09-19 实测 `status` 为 **`degraded`**（单一 reason code `projection_snapshot_pending`）。
    **但必须同时记录反方向的证据**（避免把窄信号渲染成广泛故障）：同一次实测显示生产**正常采集与服务新鲜内容** ——
    `latest_collected_at` 与 `public_quality.latest_public_at` 均为当日、`total_events: 130,840`、`queue.dlq.messages: 0`、

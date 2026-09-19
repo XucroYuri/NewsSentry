@@ -72,12 +72,18 @@ L4 有权把发现的新缺口打回 L2——闭环不是直线。
 |---|------|------|
 | 1 | ~~`main` 自 2026-08-20 起无法通过 Deploy 的 CI Gate（陈旧 `geist` 测试）~~ | ✅ **已解除**（L1.0） |
 | 2 | ~~preview 配置渲染守卫因占位符碰撞失败（自 2026-08-05，45 天）~~ | ✅ **已修复**（L1.1）；preview 流水线全绿（run `35449872399`） |
-| 3 | **KV-first 特性合并但从未激活**：生产与 preview 的 KV id 均为占位全零；Wrangler 不把 `kv_namespaces` 继承给命名环境，故 preview 无 KV 绑定；`deploy.yml` 零 KV 处理 | 非隔离缺陷（两轨当前同为 D1 兜底）。**待裁决是否激活** —— 见 `02 §2.7` |
+| 3 | **生产不可部署**：占位 KV id 被 Cloudflare 拒绝（探针实测 `[code: 10042]`），而生产顶层 `[[kv_namespaces]]` 用的是同一个占位 id | 🔴 **L1.2 最高优先级**：建议删除该从未生效的块。见 `phases/L1-instrument.md §9` |
 | 4 | 全仓库无任何同时读取两个 D1 的对比工具 | L1.4 建设 |
 | 5 | preview→main 无提升判据 | L1.6 建设（支配判定编码） |
-| 6 | `docs/status.md` 声称生产 `ok`，实测 `degraded`（`projection_snapshot_pending`） | 活文档应与运行时事实同步 |
+| 6 | `docs/status.md` 声称生产 `ok`，实测 `degraded`（单一 `projection_snapshot_pending`；生产**采集与内容均为当日**，DLQ 为空） | 活文档已加实测更正 |
 
 **L1 的退出条件**：`python tools/spec_guard.py --check` 通过 + preview 可部署 ✅ + 隔离哨兵证明通过。
+
+> **新增阻塞 B3｜生产部署阻断**：占位 KV id 使**任何生产部署**在 `workers/scripts/news-sentry-api`
+> 上 fail-closed 失败（上传阶段拒绝，在线 worker 不受影响）。
+> **解除条件**：删除 `wrangler.toml` 中从未生效的 `[[kv_namespaces]]` 块（方案 b），
+> 或创建真实 namespace 并回填 id（方案 a/c）。
+> 解除前，**新栈无法提升到生产**，因此这是 L2 之前必须清掉的最后一道配置级障碍。
 
 ---
 
