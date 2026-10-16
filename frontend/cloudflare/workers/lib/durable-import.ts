@@ -419,6 +419,34 @@ async function markSnapshotReady(db: D1Database, jobId: string): Promise<void> {
     .run();
 }
 
+/**
+ * Reclaim projection-import jobs left in snapshot_pending by an earlier failed
+ * refresh. Call only after a global refreshPublicReadSnapshots() succeeded: that
+ * refresh already covers every projection committed before it started, so the
+ * stale markers would otherwise keep /health degraded forever.
+ */
+export async function reconcileSnapshotPendingJobs(
+  db: D1Database,
+  refreshStartedAt: string,
+): Promise<{ reconciled: number }> {
+  // jobs.updated_at is written by SQLite datetime('now'): "YYYY-MM-DD HH:MM:SS" (UTC).
+  const cutoff = new Date(refreshStartedAt).toISOString().replace("T", " ").slice(0, 19);
+  const result = await db
+    .prepare(
+      `UPDATE jobs
+       SET status='committed',
+           last_error_code=NULL,
+           last_error_message=NULL,
+           updated_at=datetime('now')
+       WHERE job_type='projection-import'
+         AND status='snapshot_pending'
+         AND updated_at <= ?`,
+    )
+    .bind(cutoff)
+    .run();
+  return { reconciled: Number(result.meta?.changes || 0) };
+}
+
 async function refreshSnapshotsForProjection(db: D1Database, jobId: string): Promise<void> {
   try {
     await refreshPublicReadSnapshots(db);

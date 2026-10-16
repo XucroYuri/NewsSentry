@@ -88,10 +88,13 @@ class FakeD1Database {
 
   async all<T>(sql: string, values: unknown[]): Promise<{ results: T[]; success: boolean }> {
     if (sql.includes("FROM job_outbox")) {
-      const [now, limit] = values as [string, number];
+      const [now, , dispatchedCutoff, limit] = values as [string, string, string, number];
       const results = [...this.outbox.values()]
-        .filter((row) => ["pending", "dispatched"].includes(row.status))
         .filter((row) => row.next_dispatch_at <= now)
+        .filter((row) =>
+          row.status === "pending" ||
+          (row.status === "dispatched" &&
+            (row.dispatched_at == null || row.dispatched_at <= dispatchedCutoff)))
         .sort((a, b) => a.next_dispatch_at.localeCompare(b.next_dispatch_at))
         .slice(0, limit)
         .map((row) => ({ job_id: row.job_id })) as T[];
@@ -390,12 +393,18 @@ test("dispatch sends due outbox rows with stable job identity and is duplicate s
     { DB: db as unknown as D1Database, NEWS_SENTRY_JOBS_QUEUE: queue as never },
     "2026-08-01T00:00:00.000Z",
   );
+  // Dispatched-but-unconfirmed rows back off for 15 minutes before redelivery.
+  const backedOff = await dispatchDueShadowJobs(
+    { DB: db as unknown as D1Database, NEWS_SENTRY_JOBS_QUEUE: queue as never },
+    "2026-08-01T00:05:00.000Z",
+  );
   const second = await dispatchDueShadowJobs(
     { DB: db as unknown as D1Database, NEWS_SENTRY_JOBS_QUEUE: queue as never },
-    "2026-08-01T00:00:00.000Z",
+    "2026-08-01T00:15:00.000Z",
   );
 
   assert.deepEqual(first, { status: "ok", dispatched: 1, skipped: 0 });
+  assert.deepEqual(backedOff, { status: "ok", dispatched: 0, skipped: 0 });
   assert.deepEqual(second, { status: "ok", dispatched: 1, skipped: 0 });
   assert.deepEqual(queue.sent, [{ job_id: "job-shadow-1" }, { job_id: "job-shadow-1" }]);
   assert.equal(db.jobs.get("job-shadow-1")?.status, "enqueued");
