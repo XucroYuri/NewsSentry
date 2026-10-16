@@ -5,6 +5,7 @@ import { buildAndActivateShadowSnapshotGeneration } from "./snapshot-generation.
 import { dispatchDueShadowJobs, type ShadowQueueEnv } from "./queue-shadow.ts";
 import { parseRuntimeConfig, type RuntimeConfigEnv } from "./runtime-config.ts";
 import { importContainerEventsToD1 } from "./container-import.ts";
+import { reconcileSnapshotPendingJobs } from "./durable-import.ts";
 
 interface ScheduledEnv extends ShadowQueueEnv, RuntimeConfigEnv {
   DB: D1Database;
@@ -754,8 +755,18 @@ export async function runScheduledCloudflareTask(
     }
     let snapshotRefresh: Record<string, unknown>;
     let snapshotGeneration: Record<string, unknown>;
+    let snapshotReconcile: Record<string, unknown> | null = null;
     try {
+      const refreshStartedAt = new Date().toISOString();
       snapshotRefresh = await refreshPublicReadSnapshots(env.DB);
+      try {
+        snapshotReconcile = await reconcileSnapshotPendingJobs(env.DB, refreshStartedAt);
+      } catch (error) {
+        snapshotReconcile = {
+          status: "error",
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
       snapshotGeneration = await buildAndActivateShadowSnapshotGeneration(env.DB);
     } catch (error) {
       snapshotRefresh = {
@@ -780,6 +791,7 @@ export async function runScheduledCloudflareTask(
         ? {}
         : { collect_batch: collectBatchDetails(collectBatch) }),
       snapshots: snapshotRefresh,
+      snapshot_reconcile: snapshotReconcile,
       snapshot_generation: snapshotGeneration,
     });
     const importStatus = isRecord(importResult) && typeof importResult.status === "string"
