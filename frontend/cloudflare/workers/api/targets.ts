@@ -4,17 +4,18 @@
  * Python: list_public_targets() and public_regions_payload().
  */
 
-import type { RegionInfo, RegionListResponse, TargetInfo, TargetListResponse } from "../lib/contracts";
+import type { RegionInfo, RegionListResponse, TargetInfo, TargetListResponse } from "../lib/contracts.ts";
+import { localeFromRequest } from "../lib/public-news-query.ts";
 import {
-  maybeServeCachedPublicRead,
-  maybeStoreCachedPublicRead,
-} from "../lib/public-read-cache";
+  publicEdgeCacheControl,
+  servePublicEdgeCache,
+} from "../lib/public-read-cache.ts";
 import {
   markSnapshotBypass,
   markSnapshotMiss,
   readPublicSnapshot,
   REGIONS_ACTIVE_SNAPSHOT_KEY,
-} from "../lib/public-read-snapshots";
+} from "../lib/public-read-snapshots.ts";
 
 function parseLifecycle(raw: unknown): Record<string, unknown> {
   if (typeof raw !== "string" || !raw.trim()) return {};
@@ -45,26 +46,30 @@ async function loadTargets(db: D1Database, includeEmpty: boolean) {
 }
 
 export async function handleTargets(
-  _request: Request,
+  request: Request,
   db: D1Database,
   params: URLSearchParams,
   _segments: string[],
+  ctx?: ExecutionContext,
 ): Promise<Response> {
-  const includeEmpty = params.get("include_empty") === "true";
-  const rows = await loadTargets(db, includeEmpty);
-  const targets: TargetInfo[] = rows.map((row: any) => ({
-    target_id: row.target_id,
-    display_name: row.display_name,
-    primary_language: row.primary_language || "en",
-    region_type: row.region_type || "country",
-    source_count: row.source_count || 0,
-    event_count: row.event_count || 0,
-    lifecycle: parseLifecycle(row.lifecycle),
-    archived: !!row.archived,
-  }));
-  const body: TargetListResponse = { targets };
-  return new Response(JSON.stringify(body), {
-    headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=60" },
+  const locale = localeFromRequest(request, params.get("locale"));
+  return servePublicEdgeCache(request, locale, ctx, async () => {
+    const includeEmpty = params.get("include_empty") === "true";
+    const rows = await loadTargets(db, includeEmpty);
+    const targets: TargetInfo[] = rows.map((row: any) => ({
+      target_id: row.target_id,
+      display_name: row.display_name,
+      primary_language: row.primary_language || "en",
+      region_type: row.region_type || "country",
+      source_count: row.source_count || 0,
+      event_count: row.event_count || 0,
+      lifecycle: parseLifecycle(row.lifecycle),
+      archived: !!row.archived,
+    }));
+    const body: TargetListResponse = { targets };
+    return new Response(JSON.stringify(body), {
+      headers: { "Content-Type": "application/json", "Cache-Control": publicEdgeCacheControl() },
+    });
   });
 }
 
@@ -76,32 +81,31 @@ export async function handleRegions(
   ctx?: ExecutionContext,
 ): Promise<Response> {
   const includeEmpty = params.get("include_empty") === "true";
-  const cacheKey = `public-read:regions:${includeEmpty ? "include-empty" : "active"}`;
-  const cached = await maybeServeCachedPublicRead(request, cacheKey);
-  if (cached) return cached;
-  const snapshot = await readPublicSnapshot(
-    request,
-    db,
-    includeEmpty ? null : REGIONS_ACTIVE_SNAPSHOT_KEY,
-    300,
-  );
-  if (snapshot) return maybeStoreCachedPublicRead(request, cacheKey, snapshot, ctx, 300);
+  const locale = localeFromRequest(request, params.get("locale"));
+  return servePublicEdgeCache(request, locale, ctx, async () => {
+    const snapshot = await readPublicSnapshot(
+      request,
+      db,
+      includeEmpty ? null : REGIONS_ACTIVE_SNAPSHOT_KEY,
+      60,
+    );
+    if (snapshot) return snapshot;
 
-  const rows = await loadTargets(db, includeEmpty);
-  const regions: RegionInfo[] = rows.map((row: any) => ({
-    region_id: row.region_id || row.target_id,
-    display_name: row.display_name,
-    primary_language: row.primary_language || "en",
-    region_type: row.region_type || "country",
-    source_count: row.source_count || 0,
-    event_count: row.event_count || 0,
-    lifecycle: parseLifecycle(row.lifecycle),
-    archived: !!row.archived,
-  }));
-  const body: RegionListResponse = { regions };
-  const response = new Response(JSON.stringify(body), {
-    headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=60" },
+    const rows = await loadTargets(db, includeEmpty);
+    const regions: RegionInfo[] = rows.map((row: any) => ({
+      region_id: row.region_id || row.target_id,
+      display_name: row.display_name,
+      primary_language: row.primary_language || "en",
+      region_type: row.region_type || "country",
+      source_count: row.source_count || 0,
+      event_count: row.event_count || 0,
+      lifecycle: parseLifecycle(row.lifecycle),
+      archived: !!row.archived,
+    }));
+    const body: RegionListResponse = { regions };
+    const response = new Response(JSON.stringify(body), {
+      headers: { "Content-Type": "application/json", "Cache-Control": publicEdgeCacheControl() },
+    });
+    return includeEmpty ? markSnapshotBypass(response) : markSnapshotMiss(response);
   });
-  const markedResponse = includeEmpty ? markSnapshotBypass(response) : markSnapshotMiss(response);
-  return maybeStoreCachedPublicRead(request, cacheKey, markedResponse, ctx, 300);
 }

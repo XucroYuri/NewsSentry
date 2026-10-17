@@ -13,7 +13,9 @@ import {
   publicNewsOrderBy,
   publicNewsLocaleJoin,
   publicNewsSelectColumnsForLocale,
-  PUBLIC_PUBLISHED_AT_SANITY_SQL,
+  PUBLIC_PUBLISHED_AT_WINDOW_SQL,
+  publicJsonTagFacetSql,
+  publicRegionFacetSql,
   rowToPublicNewsItem,
   SUPPORTED_PUBLIC_LOCALES,
 } from "./public-news-query.ts";
@@ -280,31 +282,13 @@ async function buildRegionsSnapshot(db: D1Database, includeEmpty = false): Promi
 async function buildFacetsSnapshot(db: D1Database): Promise<PublicFacetsResponse> {
   const [regionResult, issueResult, relatedResult] = await Promise.all([
     db
-      .prepare(
-        `SELECT region_id AS id, region_id AS label, COUNT(*) AS count
-         FROM events
-         WHERE pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_SANITY_SQL}
-         GROUP BY region_id
-         ORDER BY count DESC`,
-      )
+      .prepare(publicRegionFacetSql())
       .all<{ id: string; label: string; count: number }>(),
     db
-      .prepare(
-        `SELECT json_each.value AS id, json_each.value AS label, COUNT(*) AS count
-         FROM events, json_each(events.issue_tags)
-         WHERE events.pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_SANITY_SQL}
-         GROUP BY json_each.value
-         ORDER BY count DESC`,
-      )
+      .prepare(publicJsonTagFacetSql("issue_tags"))
       .all<{ id: string; label: string; count: number }>(),
     db
-      .prepare(
-        `SELECT json_each.value AS id, json_each.value AS label, COUNT(*) AS count
-         FROM events, json_each(events.related_tags)
-         WHERE events.pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_SANITY_SQL}
-         GROUP BY json_each.value
-         ORDER BY count DESC`,
-      )
+      .prepare(publicJsonTagFacetSql("related_tags"))
       .all<{ id: string; label: string; count: number }>(),
   ]);
 
@@ -331,7 +315,7 @@ async function latestPublicAt(db: D1Database): Promise<string | null> {
     .prepare(
       `SELECT MAX(published_at) AS latest_public_at
        FROM events
-       WHERE pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_SANITY_SQL}`,
+       WHERE pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_WINDOW_SQL}`,
     )
     .first<{ latest_public_at: string | null }>();
   return row?.latest_public_at ?? null;

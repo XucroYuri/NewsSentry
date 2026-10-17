@@ -14,6 +14,13 @@ export const PUBLIC_BREAKING_MIN_SCORE = 60;
 export const BREAKING_SCORE_VERSION = "breaking-v1.0";
 export const PUBLIC_PUBLISHED_AT_SANITY_SQL =
   "datetime(events.published_at) <= datetime('now', '+24 hours')";
+// 与库内 ISO `...000Z` 对齐。左值保持裸列，SQLite 才能对 published_at 做范围扫描。
+export const PUBLIC_PUBLISHED_AT_LOWER_BOUND_SQL =
+  "strftime('%Y-%m-%dT%H:%M:%fZ','now','-7 days')";
+export const PUBLIC_PUBLISHED_AT_UPPER_BOUND_SQL =
+  "strftime('%Y-%m-%dT%H:%M:%fZ','now','+24 hours')";
+export const PUBLIC_PUBLISHED_AT_WINDOW_SQL =
+  `events.published_at >= ${PUBLIC_PUBLISHED_AT_LOWER_BOUND_SQL} AND events.published_at <= ${PUBLIC_PUBLISHED_AT_UPPER_BOUND_SQL} AND ${PUBLIC_PUBLISHED_AT_SANITY_SQL}`;
 export const SUPPORTED_PUBLIC_LOCALES = ["zh", "en", "es", "ar", "fr"] as const;
 export type PublicLocale = (typeof SUPPORTED_PUBLIC_LOCALES)[number];
 
@@ -107,13 +114,18 @@ export interface PublicNewsFilterInput {
   related?: string;
   date?: string;
   q?: string;
+  /** 公开列表/总数默认只看近 7 天。健康检查等运维计数传 false，保留全量 +24h 上限。 */
+  recentWindow?: boolean;
 }
 
 export function buildPublicNewsWhere(input: PublicNewsFilterInput): {
   sql: string;
   bindings: unknown[];
 } {
-  let sql = `WHERE pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_SANITY_SQL}`;
+  const timeSql = input.recentWindow === false
+    ? PUBLIC_PUBLISHED_AT_SANITY_SQL
+    : PUBLIC_PUBLISHED_AT_WINDOW_SQL;
+  let sql = `WHERE pipeline_stage = 'drafts' AND ${timeSql}`;
   const bindings: unknown[] = [];
 
   if (input.featured) {
@@ -170,6 +182,32 @@ export function buildPublicNewsWhere(input: PublicNewsFilterInput): {
   }
 
   return { sql, bindings };
+}
+
+function facetLimit(limit?: number): string {
+  if (limit === undefined) return "";
+  const bounded = Math.trunc(limit);
+  if (!Number.isFinite(bounded) || bounded <= 0) return "";
+  return `\nLIMIT ${bounded}`;
+}
+
+export function publicRegionFacetSql(limit?: number): string {
+  return `SELECT region_id AS id, region_id AS label, COUNT(*) AS count
+         FROM events
+         WHERE pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_WINDOW_SQL}
+         GROUP BY region_id
+         ORDER BY count DESC${facetLimit(limit)}`;
+}
+
+export function publicJsonTagFacetSql(
+  column: "issue_tags" | "related_tags",
+  limit?: number,
+): string {
+  return `SELECT json_each.value AS id, json_each.value AS label, COUNT(*) AS count
+           FROM events, json_each(events.${column})
+           WHERE events.pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_WINDOW_SQL}
+           GROUP BY json_each.value
+           ORDER BY count DESC${facetLimit(limit)}`;
 }
 
 export function publicNewsOrderBy(featured: boolean): string {

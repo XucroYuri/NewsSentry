@@ -57,6 +57,8 @@ CREATE INDEX IF NOT EXISTS idx_events_source_id ON events(source_id);
 CREATE INDEX IF NOT EXISTS idx_events_value_label ON events(value_label);
 CREATE INDEX IF NOT EXISTS idx_events_public_featured ON events(pipeline_stage, value_score DESC, published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_events_public_breaking ON events(pipeline_stage, breaking_score DESC, published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_events_public_stage_published_at
+ON events(pipeline_stage, published_at);
 
 CREATE TABLE IF NOT EXISTS event_localizations (
     event_id TEXT NOT NULL,

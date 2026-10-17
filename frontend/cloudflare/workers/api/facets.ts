@@ -5,17 +5,21 @@
  * Schemas: PublicFacetsResponse, PublicFacetItem
  */
 
-import type { PublicFacetsResponse, PublicFacetItem } from "../lib/contracts";
-import { PUBLIC_PUBLISHED_AT_SANITY_SQL } from "../lib/public-news-query";
+import type { PublicFacetsResponse, PublicFacetItem } from "../lib/contracts.ts";
 import {
-  maybeServeCachedPublicRead,
-  maybeStoreCachedPublicRead,
-} from "../lib/public-read-cache";
+  localeFromRequest,
+  publicJsonTagFacetSql,
+  publicRegionFacetSql,
+} from "../lib/public-news-query.ts";
+import {
+  publicEdgeCacheControl,
+  servePublicEdgeCache,
+} from "../lib/public-read-cache.ts";
 import {
   FACETS_SNAPSHOT_KEY,
   markSnapshotMiss,
   readPublicSnapshot,
-} from "../lib/public-read-snapshots";
+} from "../lib/public-read-snapshots.ts";
 
 export async function handleFacets(
   request: Request,
@@ -24,43 +28,27 @@ export async function handleFacets(
   _segments: string[],
   ctx?: ExecutionContext,
 ): Promise<Response> {
+  const locale = localeFromRequest(request, _params.get("locale"));
+  return servePublicEdgeCache(request, locale, ctx, () => produceFacets(request, db));
+}
+
+async function produceFacets(request: Request, db: D1Database): Promise<Response> {
   try {
-    const cacheKey = "public-read:facets";
-    const cached = await maybeServeCachedPublicRead(request, cacheKey);
-    if (cached) return cached;
-    const snapshot = await readPublicSnapshot(request, db, FACETS_SNAPSHOT_KEY, 300);
-    if (snapshot) return maybeStoreCachedPublicRead(request, cacheKey, snapshot, ctx, 300);
+    const snapshot = await readPublicSnapshot(request, db, FACETS_SNAPSHOT_KEY, 60);
+    if (snapshot) return snapshot;
 
     // 按 region 分组统计
     const regionResult = await db
-      .prepare(
-        `SELECT region_id AS id, region_id AS label, COUNT(*) AS count
-         FROM events
-         WHERE pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_SANITY_SQL}
-         GROUP BY region_id
-         ORDER BY count DESC`
-      )
+      .prepare(publicRegionFacetSql())
       .all<{ id: string; label: string; count: number }>();
 
     // 按 issue_tag 分组统计
     const [issueResult, relatedResult] = await Promise.all([
       db
-        .prepare(
-          `SELECT json_each.value AS id, json_each.value AS label, COUNT(*) AS count
-           FROM events, json_each(events.issue_tags)
-           WHERE events.pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_SANITY_SQL}
-           GROUP BY json_each.value
-           ORDER BY count DESC`
-        )
+        .prepare(publicJsonTagFacetSql("issue_tags"))
         .all<{ id: string; label: string; count: number }>(),
       db
-        .prepare(
-          `SELECT json_each.value AS id, json_each.value AS label, COUNT(*) AS count
-           FROM events, json_each(events.related_tags)
-           WHERE events.pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_SANITY_SQL}
-           GROUP BY json_each.value
-           ORDER BY count DESC`
-        )
+        .prepare(publicJsonTagFacetSql("related_tags"))
         .all<{ id: string; label: string; count: number }>(),
     ]);
 
@@ -86,14 +74,14 @@ export async function handleFacets(
 
     const response = new Response(JSON.stringify(body), {
       status: 200,
-      headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=60" },
+      headers: { "Content-Type": "application/json", "Cache-Control": publicEdgeCacheControl() },
     });
-    return maybeStoreCachedPublicRead(request, cacheKey, markSnapshotMiss(response), ctx, 300);
+    return markSnapshotMiss(response);
   } catch (err) {
     console.error("facets error:", err);
     return new Response(JSON.stringify({ regions: [], issues: [], related: [] }), {
       status: 200,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
     });
   }
 }

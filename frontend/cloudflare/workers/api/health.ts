@@ -91,7 +91,7 @@ export async function handleHealth(
   };
 
   try {
-    const featuredFilters = buildPublicNewsWhere({ featured: true });
+    const featuredFilters = buildPublicNewsWhere({ featured: true, recentWindow: false });
     const [
       result,
       qualityResult,
