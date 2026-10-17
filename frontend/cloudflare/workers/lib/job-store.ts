@@ -90,6 +90,9 @@ export async function markOutboxDispatched(
   return results.every((result) => result.success);
 }
 
+// Dispatched-but-unconfirmed rows are re-sent only after this backoff.
+export const DISPATCHED_REDELIVERY_BACKOFF_MS = 15 * 60 * 1000;
+
 export async function loadDispatchableOutboxJobs(
   db: D1Database,
   generatedAt = new Date().toISOString(),
@@ -99,11 +102,18 @@ export async function loadDispatchableOutboxJobs(
     .prepare(
       `SELECT job_id
        FROM job_outbox
-       WHERE status IN ('pending', 'dispatched') AND next_dispatch_at <= ?
+       WHERE (status = 'pending' AND next_dispatch_at <= ?)
+          OR (status = 'dispatched' AND next_dispatch_at <= ?
+              AND (dispatched_at IS NULL OR dispatched_at <= ?))
        ORDER BY next_dispatch_at ASC, job_id ASC
        LIMIT ?`,
     )
-    .bind(generatedAt, Math.max(1, Math.trunc(limit)))
+    .bind(
+      generatedAt,
+      generatedAt,
+      new Date(Date.parse(generatedAt) - DISPATCHED_REDELIVERY_BACKOFF_MS).toISOString(),
+      Math.max(1, Math.trunc(limit)),
+    )
     .all<DispatchableOutboxJob>();
   return result.results || [];
 }
