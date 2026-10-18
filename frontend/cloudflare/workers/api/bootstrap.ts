@@ -10,24 +10,25 @@ import type {
   PublicNewsFeedResponse,
   RegionListResponse,
   PublicFacetsResponse,
-} from "../lib/contracts";
-import type { PublicFacetItem } from "../lib/contracts";
+} from "../lib/contracts.ts";
+import type { PublicFacetItem } from "../lib/contracts.ts";
 import {
   buildPublicNewsWhere,
   type NewsRow,
   BREAKING_SCORE_VERSION,
   localeFromRequest,
-  PUBLIC_PUBLISHED_AT_SANITY_SQL,
+  publicJsonTagFacetSql,
   publicNewsOrderBy,
   publicNewsLocaleJoin,
   publicNewsSelectColumnsForLocale,
+  publicRegionFacetSql,
   rowToPublicNewsItem,
-} from "../lib/public-news-query";
+} from "../lib/public-news-query.ts";
 import {
   hasOnlyParams,
-  maybeServeCachedPublicRead,
-  maybeStoreCachedPublicRead,
-} from "../lib/public-read-cache";
+  publicEdgeCacheControl,
+  servePublicEdgeCache,
+} from "../lib/public-read-cache.ts";
 import {
   bootstrapFeaturedSnapshotKey,
   markSnapshotBypass,
@@ -37,7 +38,7 @@ import {
   readPublicSnapshotPayload,
   sliceBootstrapSnapshot,
   snapshotPayloadResponse,
-} from "../lib/public-read-snapshots";
+} from "../lib/public-read-snapshots.ts";
 
 function withLocaleHeaders(response: Response, locale: string): Response {
   const headers = new Headers(response.headers);
@@ -58,31 +59,36 @@ export async function handleBootstrap(
   _segments: string[],
   ctx?: ExecutionContext,
 ): Promise<Response> {
+  const locale = localeFromRequest(request, params.get("locale"));
+  return servePublicEdgeCache(request, locale, ctx, () => produceBootstrap(request, db, params, locale));
+}
+
+async function produceBootstrap(
+  request: Request,
+  db: D1Database,
+  params: URLSearchParams,
+  locale: ReturnType<typeof localeFromRequest>,
+): Promise<Response> {
   try {
     const featured = params.get("featured") !== "false";
-    const locale = localeFromRequest(request, params.get("locale"));
     const requestedPageSize = Number.parseInt(params.get("page_size") || "20", 10);
     const pageSize =
       Number.isFinite(requestedPageSize) && requestedPageSize > 0
         ? Math.min(requestedPageSize, PUBLIC_SNAPSHOT_PAGE_SIZE)
         : PUBLIC_SNAPSHOT_PAGE_SIZE;
-    const cacheKey =
+    const snapshotEligible =
       featured &&
       pageSize <= PUBLIC_SNAPSHOT_PAGE_SIZE &&
-      hasOnlyParams(params, ["featured", "page_size", "locale"])
-        ? `public-read:bootstrap:featured:page_size=${pageSize}:locale=${locale}`
-        : null;
-    const cached = await maybeServeCachedPublicRead(request, cacheKey);
-    if (cached) return withLocaleHeaders(cached, locale);
+      hasOnlyParams(params, ["featured", "page_size", "locale"]);
     const snapshot =
       pageSize === PUBLIC_SNAPSHOT_PAGE_SIZE
         ? await readPublicSnapshot(
             request,
             db,
-            cacheKey ? bootstrapFeaturedSnapshotKey(locale) : null,
+            snapshotEligible ? bootstrapFeaturedSnapshotKey(locale) : null,
             60,
           )
-        : cacheKey
+        : snapshotEligible
           ? await (async () => {
               const payload = await readPublicSnapshotPayload<PublicBootstrapResponse>(
                 db,
@@ -93,15 +99,7 @@ export async function handleBootstrap(
                 : null;
             })()
           : null;
-    if (snapshot) {
-      return maybeStoreCachedPublicRead(
-        request,
-        cacheKey,
-        withLocaleHeaders(snapshot, locale),
-        ctx,
-        60,
-      );
-    }
+    if (snapshot) return withLocaleHeaders(snapshot, locale);
 
     const newsFilters = buildPublicNewsWhere({ featured });
     const localeJoin = publicNewsLocaleJoin(locale);
@@ -142,38 +140,11 @@ export async function handleBootstrap(
           )
           .all(),
 
-        db
-          .prepare(
-            `SELECT region_id AS id, region_id AS label, COUNT(*) AS count
-             FROM events
-             WHERE pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_SANITY_SQL}
-             GROUP BY region_id
-             ORDER BY count DESC
-             LIMIT 30`
-          )
-          .all(),
+        db.prepare(publicRegionFacetSql(30)).all(),
 
-        db
-          .prepare(
-            `SELECT json_each.value AS id, json_each.value AS label, COUNT(*) AS count
-             FROM events, json_each(events.issue_tags)
-             WHERE events.pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_SANITY_SQL}
-             GROUP BY json_each.value
-             ORDER BY count DESC
-             LIMIT 30`
-          )
-          .all(),
+        db.prepare(publicJsonTagFacetSql("issue_tags", 30)).all(),
 
-        db
-          .prepare(
-            `SELECT json_each.value AS id, json_each.value AS label, COUNT(*) AS count
-             FROM events, json_each(events.related_tags)
-             WHERE events.pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_SANITY_SQL}
-             GROUP BY json_each.value
-             ORDER BY count DESC
-             LIMIT 30`
-          )
-          .all(),
+        db.prepare(publicJsonTagFacetSql("related_tags", 30)).all(),
       ]);
 
     // 构建 news
@@ -235,10 +206,9 @@ export async function handleBootstrap(
 
     const response = withLocaleHeaders(new Response(JSON.stringify(body), {
       status: 200,
-      headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=30" },
+      headers: { "Content-Type": "application/json", "Cache-Control": publicEdgeCacheControl() },
     }), locale);
-    const markedResponse = cacheKey ? markSnapshotMiss(response) : markSnapshotBypass(response);
-    return maybeStoreCachedPublicRead(request, cacheKey, markedResponse, ctx, 60);
+    return snapshotEligible ? markSnapshotMiss(response) : markSnapshotBypass(response);
   } catch (err) {
     console.error("bootstrap error:", err);
     const fallback: PublicBootstrapResponse = {
@@ -256,7 +226,7 @@ export async function handleBootstrap(
     };
     return new Response(JSON.stringify(fallback), {
       status: 200,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
     });
   }
 }

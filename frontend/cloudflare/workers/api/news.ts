@@ -8,8 +8,8 @@
 
 import type {
   PublicNewsFeedResponse,
-} from "../lib/contracts";
-import { notFound } from "../lib/errors";
+} from "../lib/contracts.ts";
+import { notFound } from "../lib/errors.ts";
 import {
   buildPublicNewsWhere,
   type NewsRow,
@@ -20,12 +20,12 @@ import {
   publicNewsSelectColumnsForLocale,
   PUBLIC_PUBLISHED_AT_SANITY_SQL,
   rowToPublicNewsItem,
-} from "../lib/public-news-query";
+} from "../lib/public-news-query.ts";
 import {
   hasOnlyParams,
-  maybeServeCachedPublicRead,
-  maybeStoreCachedPublicRead,
-} from "../lib/public-read-cache";
+  publicEdgeCacheControl,
+  servePublicEdgeCache,
+} from "../lib/public-read-cache.ts";
 import {
   markSnapshotBypass,
   markSnapshotMiss,
@@ -36,11 +36,7 @@ import {
   readPublicSnapshotPayload,
   slicePublicNewsSnapshot,
   snapshotPayloadResponse,
-} from "../lib/public-read-snapshots";
-
-function newsCacheKey(featured: boolean, pageSize: number): string {
-  return `public-read:news:${featured ? "featured" : "all"}:page_size=${pageSize}`;
-}
+} from "../lib/public-read-snapshots.ts";
 
 interface CursorRow {
   event_id: string;
@@ -106,6 +102,16 @@ export async function handleNewsFeed(
   _segments: string[],
   ctx?: ExecutionContext,
 ): Promise<Response> {
+  const locale = localeFromRequest(request, params.get("locale"));
+  return servePublicEdgeCache(request, locale, ctx, () => produceNewsFeed(request, db, params, locale));
+}
+
+async function produceNewsFeed(
+  request: Request,
+  db: D1Database,
+  params: URLSearchParams,
+  locale: ReturnType<typeof localeFromRequest>,
+): Promise<Response> {
   try {
     const regionId = params.get("region_id") || params.get("target_id") || undefined;
     const sourceId = params.get("source_id") || undefined;
@@ -114,7 +120,6 @@ export async function handleNewsFeed(
     const date = params.get("date") || undefined;
     const q = params.get("q") || undefined;
     const featured = params.get("featured") === "true";
-    const locale = localeFromRequest(request, params.get("locale"));
     const beforeCursor = params.get("before_cursor");
     const sinceCursor = params.get("since_cursor");
     const requestedPageSize = Number.parseInt(params.get("page_size") || "20", 10);
@@ -122,7 +127,7 @@ export async function handleNewsFeed(
       Number.isFinite(requestedPageSize) && requestedPageSize > 0
         ? Math.min(requestedPageSize, 50)
         : 20;
-    const cacheKey =
+    const snapshotEligible =
       pageSize <= PUBLIC_SNAPSHOT_PAGE_SIZE &&
       !beforeCursor &&
       !sinceCursor &&
@@ -132,12 +137,8 @@ export async function handleNewsFeed(
       !related &&
       !date &&
       !q &&
-      hasOnlyParams(params, ["featured", "page_size", "locale"])
-        ? `${newsCacheKey(featured, pageSize)}:locale=${locale}`
-        : null;
-    const cached = await maybeServeCachedPublicRead(request, cacheKey);
-    if (cached) return withLocaleHeaders(cached, locale);
-    const snapshotKey = cacheKey
+      hasOnlyParams(params, ["featured", "page_size", "locale"]);
+    const snapshotKey = snapshotEligible
       ? featured
         ? newsFeaturedSnapshotKey(locale)
         : newsAllSnapshotKey(locale)
@@ -156,15 +157,7 @@ export async function handleNewsFeed(
                 : null;
             })()
           : null;
-    if (snapshot) {
-      return maybeStoreCachedPublicRead(
-        request,
-        cacheKey,
-        withLocaleHeaders(snapshot, locale),
-        ctx,
-        30,
-      );
-    }
+    if (snapshot) return withLocaleHeaders(snapshot, locale);
 
     const filters = buildPublicNewsWhere({
       featured,
@@ -224,10 +217,9 @@ export async function handleNewsFeed(
 
     const response = withLocaleHeaders(new Response(JSON.stringify(body), {
       status: 200,
-      headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=15" },
+      headers: { "Content-Type": "application/json", "Cache-Control": publicEdgeCacheControl() },
     }), locale);
-    const markedResponse = cacheKey ? markSnapshotMiss(response) : markSnapshotBypass(response);
-    return maybeStoreCachedPublicRead(request, cacheKey, markedResponse, ctx, 30);
+    return snapshotEligible ? markSnapshotMiss(response) : markSnapshotBypass(response);
   } catch (err) {
     console.error("newsFeed error:", err);
     const fallback: PublicNewsFeedResponse = {
@@ -240,7 +232,7 @@ export async function handleNewsFeed(
     };
     return new Response(JSON.stringify(fallback), {
       status: 200,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
     });
   }
 }
@@ -250,11 +242,19 @@ export async function handleNewsDetail(
   db: D1Database,
   params: URLSearchParams,
   segments: string[],
+  ctx?: ExecutionContext,
 ): Promise<Response> {
   // segments: ["api", "v1", "public", "news", "{event_id}"]
   const eventId = segments[segments.length - 1];
-
   const locale = localeFromRequest(request, params.get("locale"));
+  return servePublicEdgeCache(request, locale, ctx, () => produceNewsDetail(db, locale, eventId));
+}
+
+async function produceNewsDetail(
+  db: D1Database,
+  locale: ReturnType<typeof localeFromRequest>,
+  eventId: string,
+): Promise<Response> {
   const localeJoin = publicNewsLocaleJoin(locale);
   try {
     const result = await db
@@ -270,19 +270,26 @@ export async function handleNewsDetail(
       .first<NewsRow>();
 
     if (!result) {
-      return notFound("Event not found");
+      const missing = notFound("Event not found");
+      const headers = new Headers(missing.headers);
+      headers.set("Cache-Control", "no-store");
+      return new Response(missing.body, {
+        status: missing.status,
+        statusText: missing.statusText,
+        headers,
+      });
     }
 
     const item = rowToPublicNewsItem(result);
     return withLocaleHeaders(new Response(JSON.stringify(item), {
       status: 200,
-      headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=60" },
+      headers: { "Content-Type": "application/json", "Cache-Control": publicEdgeCacheControl() },
     }), locale);
   } catch (err) {
     console.error("newsDetail error:", err);
     return new Response(JSON.stringify({ detail: "Event not found" }), {
       status: 404,
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
     });
   }
 }
