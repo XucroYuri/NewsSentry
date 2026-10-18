@@ -320,10 +320,15 @@ def test_public_facets_contract_includes_related_tags() -> None:
     )
     assert public_facets is not None
     assert "related: PublicFacetItem[]" in public_facets.group("body")
-    assert "json_each(events.related_tags)" in facets_ts
+    query_ts = _read("workers/lib/public-news-query.ts")
+    snapshots_ts = _read("workers/lib/public-read-snapshots.ts")
+    assert 'publicJsonTagFacetSql("related_tags")' in facets_ts
     assert "related:" in facets_ts
-    assert "json_each(events.related_tags)" in bootstrap_ts
+    assert 'publicJsonTagFacetSql("related_tags", 30)' in bootstrap_ts
     assert "related:" in bootstrap_ts
+    assert 'column: "issue_tags" | "related_tags"' in query_ts
+    assert "json_each(events.${column})" in query_ts
+    assert 'publicJsonTagFacetSql("related_tags")' in snapshots_ts
 
 
 def test_public_news_supports_related_filter() -> None:
@@ -340,9 +345,21 @@ def test_public_reader_uses_drafts_stage_like_python_reader() -> None:
     bootstrap_ts = _read("workers/api/bootstrap.ts")
     query_ts = _read("workers/lib/public-news-query.ts")
 
+    published_stage = "pipeline_stage IN ('published', 'reviewed')"
     for worker_source in (news_ts, facets_ts, bootstrap_ts, query_ts):
-        assert "pipeline_stage = 'drafts'" in worker_source
-        assert "pipeline_stage IN ('published', 'reviewed')" not in worker_source
+        assert published_stage not in worker_source
+
+    assert "buildPublicNewsWhere(" in news_ts
+    assert "events.pipeline_stage = 'drafts'" in news_ts
+    assert "publicRegionFacetSql(" in facets_ts
+    assert 'publicJsonTagFacetSql("issue_tags")' in facets_ts
+    assert 'publicJsonTagFacetSql("related_tags")' in facets_ts
+    assert "buildPublicNewsWhere(" in bootstrap_ts
+    assert "publicRegionFacetSql(" in bootstrap_ts
+    assert "publicJsonTagFacetSql(" in bootstrap_ts
+    assert "WHERE pipeline_stage = 'drafts' AND ${timeSql}" in query_ts
+    assert "WHERE pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_WINDOW_SQL}" in query_ts
+    assert "WHERE events.pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_WINDOW_SQL}" in query_ts
 
     assert "total: newsCountResult?.total ?? newsRows.length" in bootstrap_ts
 
@@ -525,14 +542,29 @@ def test_cloudflare_public_read_endpoints_use_worker_cache_and_head() -> None:
     assert "{ artifacts: env.NEWS_SENTRY_ARTIFACTS }" in index_ts
     assert "rawMethod === \"HEAD\"" in router_ts
     assert "new Response(null" in router_ts
-    assert "maybeServeCachedPublicRead" in news_ts
-    assert "maybeStoreCachedPublicRead" in news_ts
+    for handler in (news_ts, bootstrap_ts, facets_ts, targets_ts):
+        assert "servePublicEdgeCache(" in handler
+        assert "maybeServeCachedPublicRead" not in handler
+        assert "maybeStoreCachedPublicRead" not in handler
+    assert "export async function servePublicEdgeCache(" in cache_ts
+    assert "const key = publicEdgeCacheKey(request, locale);" in cache_ts
+    assert "const cached = await maybeServeCachedPublicRead(request, key);" in cache_ts
+    assert "return maybeStoreCachedPublicRead(" in cache_ts
+    assert "PUBLIC_EDGE_CACHE_SECONDS,\n    0,\n    0," in cache_ts
     assert "X-News-Sentry-Worker-Cache" in cache_ts
     assert "PUBLIC_READ_CACHE_VERSION" in cache_ts
-    assert "public-read:news:${featured ? \"featured\" : \"all\"}:page_size=${pageSize}" in news_ts
-    assert "public-read:bootstrap:featured" in bootstrap_ts
-    assert "public-read:facets" in facets_ts
-    assert "public-read:regions" in targets_ts
+    assert "PUBLIC_EDGE_CACHE_SECONDS = 60" in cache_ts
+    assert "return `${path}?${query}:locale=${encodeURIComponent(locale)}`;" in cache_ts
+    for path in (
+        '"/api/v1/public/news"',
+        '"/api/v1/public/facets"',
+        '"/api/v1/public/bootstrap"',
+        '"/api/v1/targets"',
+        '"/api/v1/regions"',
+    ):
+        assert path in cache_ts
+    assert 'const prefix = "/api/v1/public/news/";' in cache_ts
+    assert 'if (request.headers.get("Authorization")) return true;' in cache_ts
     assert "publicReadCacheControl" in cache_ts
     assert "s-maxage" in cache_ts
     assert "stale-while-revalidate" in cache_ts
@@ -581,6 +613,7 @@ def test_cloudflare_public_read_endpoints_use_snapshots_before_queries() -> None
 def test_cloudflare_small_default_news_requests_reuse_twenty_item_snapshots() -> None:
     news_ts = _read("workers/api/news.ts")
     bootstrap_ts = _read("workers/api/bootstrap.ts")
+    snapshots_ts = _read("workers/lib/public-read-snapshots.ts")
 
     assert "pageSize <= PUBLIC_SNAPSHOT_PAGE_SIZE" in news_ts
     assert "pageSize <= PUBLIC_SNAPSHOT_PAGE_SIZE" in bootstrap_ts
@@ -588,12 +621,21 @@ def test_cloudflare_small_default_news_requests_reuse_twenty_item_snapshots() ->
     assert "sliceBootstrapSnapshot" in bootstrap_ts
     assert "readPublicSnapshotPayload<PublicNewsFeedResponse>" in news_ts
     assert "readPublicSnapshotPayload<PublicBootstrapResponse>" in bootstrap_ts
-    assert (
-        "`public-read:news:${featured ? \"featured\" : \"all\"}:page_size=${pageSize}`"
-        in news_ts
-    )
-    assert "public-read:bootstrap:featured:page_size=${pageSize}" in bootstrap_ts
-    assert "locale=${locale}" in bootstrap_ts
+    assert "pageSize === PUBLIC_SNAPSHOT_PAGE_SIZE" in news_ts
+    assert "pageSize === PUBLIC_SNAPSHOT_PAGE_SIZE" in bootstrap_ts
+    assert "newsFeaturedSnapshotKey(locale)" in news_ts
+    assert "newsAllSnapshotKey(locale)" in news_ts
+    assert "bootstrapFeaturedSnapshotKey(locale)" in bootstrap_ts
+    assert 'NEWS_FEATURED_SNAPSHOT_KEY = "news:featured:v1:page_size=20"' in snapshots_ts
+    assert 'NEWS_ALL_SNAPSHOT_KEY = "news:all:v1:page_size=20"' in snapshots_ts
+    assert 'BOOTSTRAP_FEATURED_SNAPSHOT_KEY = "bootstrap:featured:v1:page_size=20"' in snapshots_ts
+    assert "`news:featured:v1:locale=${locale}:page_size=20`" in snapshots_ts
+    assert "`news:all:v1:locale=${locale}:page_size=20`" in snapshots_ts
+    assert "`bootstrap:featured:v1:locale=${locale}:page_size=20`" in snapshots_ts
+    assert "feed.items.slice(0, boundedPageSize)" in snapshots_ts
+    assert "boundedPageSize >= PUBLIC_SNAPSHOT_PAGE_SIZE" in snapshots_ts
+    assert "page_size=${pageSize}" not in news_ts
+    assert "page_size=${pageSize}" not in bootstrap_ts
 
 
 def test_cloudflare_scheduled_refreshes_public_read_snapshots() -> None:
