@@ -161,24 +161,32 @@ test("stage+published_at index serves the windowed count without a full pipeline
   const migration = readFileSync("db/migrations/20261017_public_published_at_window.sql", "utf8");
   const schema = readFileSync("db/schema.sql", "utf8");
   const indexSql =
-    "CREATE INDEX IF NOT EXISTS idx_events_public_stage_published_at\nON events(pipeline_stage, published_at);";
+    "CREATE INDEX IF NOT EXISTS idx_events_public_stage_published_at\nON events(pipeline_stage, published_at DESC);";
   assert.match(migration, /CREATE INDEX IF NOT EXISTS idx_events_public_stage_published_at/);
-  assert.match(migration, /ON events\(pipeline_stage, published_at\)/);
+  assert.match(migration, /ON events\(pipeline_stage, published_at DESC\)/);
+  assert.match(migration, /DROP INDEX IF EXISTS idx_events_public_stage_published_at/);
   assert.equal(schema.includes(indexSql), true);
+  assert.equal(schema.includes("ON events(pipeline_stage, published_at);"), false);
 
   const db = new DatabaseSync(":memory:");
   db.exec(schema);
   db.exec(migration);
+  const indexColumns = db.prepare(
+    "PRAGMA index_xinfo('idx_events_public_stage_published_at')",
+  ).all() as Array<{ name: string | null; desc: number; key: number }>;
+  const publishedAt = indexColumns.find((column) => column.name === "published_at");
+  assert.equal(publishedAt?.desc, 1);
+
   const where = buildPublicNewsWhere({}).sql;
-  const countPlan = db.prepare(`EXPLAIN QUERY PLAN SELECT COUNT(*) AS total FROM events ${where}`).all() as Array<{
-    detail: string;
-  }>;
-  const listPlan = db.prepare(
-    `EXPLAIN QUERY PLAN SELECT event_id FROM events ${where} ORDER BY published_at DESC LIMIT 21`,
-  ).all() as Array<{ detail: string }>;
+  const countSql = `SELECT COUNT(*) AS total FROM events ${where}`;
+  const listSql = `SELECT event_id FROM events ${where} ORDER BY published_at DESC LIMIT 21`;
+  const countPlan = db.prepare(`EXPLAIN QUERY PLAN ${countSql}`).all() as Array<{ detail: string }>;
+  const listPlan = db.prepare(`EXPLAIN QUERY PLAN ${listSql}`).all() as Array<{ detail: string }>;
   const tagPlan = db.prepare(`EXPLAIN QUERY PLAN ${publicJsonTagFacetSql("issue_tags")}`).all() as Array<{
     detail: string;
   }>;
+  const countDetails = countPlan.map((row) => row.detail).join("\n");
+  assert.match(countDetails, /USING COVERING INDEX idx_events_public_stage_published_at/);
   for (const plan of [countPlan, listPlan, tagPlan]) {
     const details = plan.map((row) => row.detail).join("\n");
     assert.match(details, /idx_events_public_stage_published_at/);
@@ -186,6 +194,15 @@ test("stage+published_at index serves the windowed count without a full pipeline
     assert.match(details, /published_at</);
     assert.equal(details.includes("idx_events_public_breaking"), false);
   }
+  const listDetails = listPlan.map((row) => row.detail).join("\n");
+  assert.equal(listDetails.includes("USE TEMP B-TREE"), false);
+
+  const listOpcodes = (db.prepare(`EXPLAIN ${listSql}`).all() as Array<{ opcode: string }>).map(
+    (row) => row.opcode,
+  );
+  assert.equal(listOpcodes.includes("Next"), true);
+  assert.equal(listOpcodes.includes("Prev"), false);
+  assert.equal(listOpcodes.includes("Sort"), false);
 });
 
 test("generated handler SQL for list, count, and tag stats carries the 7-day lower bound", async () => {
