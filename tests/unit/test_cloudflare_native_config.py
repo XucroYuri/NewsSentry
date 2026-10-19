@@ -359,7 +359,10 @@ def test_public_reader_uses_drafts_stage_like_python_reader() -> None:
     assert "publicJsonTagFacetSql(" in bootstrap_ts
     assert "WHERE pipeline_stage = 'drafts' AND ${timeSql}" in query_ts
     assert "WHERE pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_WINDOW_SQL}" in query_ts
-    assert "WHERE events.pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_WINDOW_SQL}" in query_ts
+    assert (
+        "WHERE events.pipeline_stage = 'drafts' AND ${PUBLIC_PUBLISHED_AT_WINDOW_SQL}"
+        in query_ts
+    )
 
     assert "total: newsCountResult?.total ?? newsRows.length" in bootstrap_ts
 
