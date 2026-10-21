@@ -10,6 +10,7 @@
     "test": "vitest run",
     "build": "tsc --noEmit && vite build",
     "build:preview": "tsc --noEmit && vite build --mode redesign-preview",
+    "preview:preview": "vite preview --mode redesign-preview --host 127.0.0.1 --port 5174",
     "preview": "vite preview --host 127.0.0.1 --port 5174"
   },
   "dependencies": {
