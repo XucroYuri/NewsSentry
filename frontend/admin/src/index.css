@@ -1,5 +1,50 @@
 @import "../../design-system/geist-tokens.css";
 
+/* admin 作用域覆盖：恢复 3d2603b 的主按钮、焦点环和实体徽标原值。
+ * Yuri 10-21 19:37 批准，仅 admin 生效。
+ */
+:root {
+  --primary: 23 23 23;
+  --primary-foreground: 255 255 255;
+  --ring: 0 107 255;
+  --info: 0 107 255;
+  --info-foreground: 255 255 255;
+  --feature: 160 0 248;
+  --feature-foreground: 255 255 255;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not(.light) {
+    --primary: 237 237 237;
+    --primary-foreground: 0 0 0;
+    --ring: 0 110 254;
+    --info: 0 110 254;
+    --info-foreground: 255 255 255;
+    --feature: 148 64 213;
+    --feature-foreground: 255 255 255;
+  }
+}
+
+:root.dark {
+  --primary: 237 237 237;
+  --primary-foreground: 0 0 0;
+  --ring: 0 110 254;
+  --info: 0 110 254;
+  --info-foreground: 255 255 255;
+  --feature: 148 64 213;
+  --feature-foreground: 255 255 255;
+}
+
+:root.light {
+  --primary: 23 23 23;
+  --primary-foreground: 255 255 255;
+  --ring: 0 107 255;
+  --info: 0 107 255;
+  --info-foreground: 255 255 255;
+  --feature: 160 0 248;
+  --feature-foreground: 255 255 255;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
