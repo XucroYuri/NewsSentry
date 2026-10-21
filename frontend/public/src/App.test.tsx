@@ -476,12 +476,14 @@ describe("Phase 84 public portal app", () => {
           feed([
             makeItem("event-with-image", {
               publishedAt,
+              targetId: "global",
+              targetLabel: "全球新闻监控",
               title: "微软双向转售 GPT 与 DeepSeek 成全球最大 AI 中间商",
               originalTitle:
                 "Microsoft quietly becomes China's gateway to OpenAI and routes models through Singapore",
               summary:
                 "微软把 OpenAI 与 DeepSeek 模型同时接入跨境客户网络，折射出全球 AI 供应链和合规路径正在重组。",
-              tags: ["DeepSeek", "Microsoft", "行业动态"],
+              tags: ["全球", "DeepSeek", "Microsoft", "行业动态"],
               issueTags: ["科技"],
               relatedTags: ["涉中", "涉美"],
               regionTags: ["全球"],
@@ -503,27 +505,24 @@ describe("Phase 84 public portal app", () => {
     })
     const card = matchingLinks.find((link) => link.tagName.toLowerCase() === "article")
     if (!card) throw new Error("Expected timeline article card to render")
-    expect(card).toHaveClass("px-2.5")
-    expect(card).toHaveClass("py-2")
+    expect(card).toHaveAttribute("tabindex", "0")
     expect(screen.getAllByText(cardTimeLabel).length).toBeGreaterThan(0)
     expect(within(card).queryByText(cardTimeLabel)).not.toBeInTheDocument()
     expect(within(card).getByText("ANSA.it")).toBeInTheDocument()
-    const cardHeading = within(card).getByRole("heading", { name: /微软双向转售 GPT 与 DeepSeek/ })
-    expect(cardHeading).toHaveClass("text-sm")
-    expect(cardHeading).toHaveClass("leading-5")
+    expect(within(card).getByRole("heading", { name: /微软双向转售 GPT 与 DeepSeek/ })).toBeInTheDocument()
     expect(
       within(card).getByText(
         "Microsoft quietly becomes China's gateway to OpenAI and routes models through Singapore",
       ),
-    ).toHaveClass("text-xs")
-    expect(within(card).getByText(/全球 AI 供应链和合规路径正在重组/)).toHaveClass("text-xs")
+    ).toBeInTheDocument()
+    expect(within(card).getByText(/全球 AI 供应链和合规路径正在重组/)).toBeInTheDocument()
     const metaRow = card.querySelector(".flex.min-w-0.items-start.justify-between")
     if (!metaRow) throw new Error("Expected news card meta row")
-    expect(metaRow).toHaveClass("text-[11px]")
-    expect(within(metaRow as HTMLElement).getByText("全球")).toBeInTheDocument()
+    expect(within(metaRow as HTMLElement).getAllByText("全球")).toHaveLength(1)
     expect(within(metaRow as HTMLElement).getByText("科技")).toBeInTheDocument()
-    expect(within(metaRow as HTMLElement).getByText("涉中")).toBeInTheDocument()
-    expect(within(metaRow as HTMLElement).getByText("DeepSeek")).toBeInTheDocument()
+    for (const omittedTag of ["涉中", "涉美", "DeepSeek", "Microsoft", "行业动态"]) {
+      expect(within(metaRow as HTMLElement).queryByText(omittedTag)).not.toBeInTheDocument()
+    }
     expect(within(card).queryByLabelText("新闻标签")).not.toBeInTheDocument()
     const scoreBadge = within(metaRow as HTMLElement).getByLabelText("Breaking News 分值 75")
     expect(scoreBadge).toHaveTextContent("75")
@@ -542,6 +541,24 @@ describe("Phase 84 public portal app", () => {
 
     const dialog = await screen.findByRole("dialog", { name: "新闻图片预览" })
     expect(within(dialog).getByRole("img", { name: /新闻大图/ })).toHaveAttribute("src", imageUrl)
+    fireEvent.keyDown(dialog, { key: "Escape" })
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "新闻图片预览" })).not.toBeInTheDocument())
+    expect(thumbnail).toHaveFocus()
+  })
+
+  it("opens a story with Enter and moves focus to the detail content", async () => {
+    installFetchMock()
+    window.location.hash = "#/feed?channel=all"
+    render(<App />)
+    const links = await screen.findAllByRole("link", { name: new RegExp(LEAD_TITLE) })
+    const card = links.find((link) => link.tagName.toLowerCase() === "article")!
+    card.focus()
+    fireEvent.keyDown(card, { key: "Enter" })
+    expect(await screen.findByRole("button", { name: "复制摘要" })).toBeInTheDocument()
+    expect(screen.getByRole("main")).toHaveFocus()
+    fireEvent.click(screen.getByRole("link", { name: "返回新闻流" }))
+    expect(await screen.findByRole("heading", { name: "新闻纵览" })).toBeInTheDocument()
+    expect(screen.getByRole("main")).toHaveFocus()
   })
 
   it("suppresses redundant hot-topic summaries while keeping the timeline summary", async () => {
@@ -574,21 +591,16 @@ describe("Phase 84 public portal app", () => {
     expect(screen.getByText(redundantSummary)).toBeInTheDocument()
   })
 
-  it("keeps the hot-topic strip visually compact", async () => {
+  it("limits hot topics to three navigable stories", async () => {
     installFetchMock()
     window.location.hash = "#/feed?channel=all"
 
     render(<App />)
 
     const hotTopics = await screen.findByRole("region", { name: "当前热点" })
-    expect(hotTopics).toHaveClass("py-1.5")
-    expect(hotTopics).not.toHaveClass("py-3")
     const hotLinks = within(hotTopics).getAllByRole("link")
-    expect(hotLinks[0]).toHaveClass("py-1")
-    expect(hotLinks[0]).not.toHaveClass("p-2")
-    expect(hotLinks[0]).not.toHaveClass("border")
-    expect(hotLinks[0]).not.toHaveClass("bg-background/80")
-    expect(hotLinks[0]).not.toHaveClass("rounded-md")
+    expect(hotLinks).toHaveLength(3)
+    expect(hotLinks.every((link) => link.getAttribute("href")?.includes("/events/"))).toBe(true)
   })
 
   it("collapses a date group when the date header is clicked", async () => {
@@ -643,7 +655,7 @@ describe("Phase 84 public portal app", () => {
     expect(logo.className).not.toContain("bg-white/[0.03]")
     const sidebar = container.querySelector("aside")
     expect(sidebar?.className).not.toContain("bg-slate-950")
-    expect(sidebar?.className).toContain("bg-card")
+    expect(sidebar?.className).toContain("bg-background")
 
     const utilityNav = screen.getByRole("navigation", { name: "侧边栏辅助菜单" })
     expect(utilityNav.className).toContain("self-start")
@@ -664,7 +676,7 @@ describe("Phase 84 public portal app", () => {
     expect(container.querySelector(".grid.gap-1.text-xs.text-slate-500")).toBeNull()
   })
 
-  it("constrains the desktop sidebar controls so active items cannot spill into the content column", async () => {
+  it("constrains sidebar controls while leaving room for focus and allowing vertical scrolling", async () => {
     installFetchMock()
     window.location.hash = "#/daily?date=2026-06-09"
 
@@ -672,10 +684,12 @@ describe("Phase 84 public portal app", () => {
 
     await screen.findByRole("heading", { name: "新闻日报" })
     const sidebar = container.querySelector("aside")
-    expect(sidebar?.className).toContain("overflow-hidden")
+    expect(sidebar?.className).toContain("overflow-y-auto")
+    expect(sidebar?.className).toContain("scroll-p-1.5")
     const nav = screen.getByRole("navigation", { name: "公共站侧边栏" })
     expect(nav.className).toContain("min-w-0")
-    expect(nav.className).toContain("overflow-hidden")
+    expect(nav.className).not.toContain("overflow-hidden")
+    expect(nav.className).toContain("p-1.5")
 
     const activeDailyButton = within(nav).getByRole("button", {
       name: /新闻日报 Daily News/,
@@ -690,13 +704,13 @@ describe("Phase 84 public portal app", () => {
     expect(utilityNav.className).not.toContain("w-max")
     expect(within(utilityNav).queryByRole("link", { name: "About" })).not.toBeInTheDocument()
     expect(within(utilityNav).queryByRole("link", { name: "Method" })).not.toBeInTheDocument()
-    expect(within(utilityNav).getByRole("link", { name: "Sources" }).className).toContain("size-6")
+    expect(within(utilityNav).getByRole("link", { name: "Sources" }).className).toContain("size-11")
     expect(within(utilityNav).getAllByRole("button", { name: /切换主题/ })[0].className).toContain(
-      "size-6",
+      "size-11",
     )
   })
 
-  it("uses the Geist neutral theme without legacy red or one-off blue reader accents", async () => {
+  it("uses shared light/dark tokens without one-off reader accent colours", async () => {
     installFetchMock()
 
     const { container } = render(<App />)
@@ -708,9 +722,9 @@ describe("Phase 84 public portal app", () => {
     const css = readFileSync("src/index.css", "utf8")
     expect(css).toContain("../../design-system/geist-tokens.css")
     const tokenCss = readFileSync("../design-system/geist-tokens.css", "utf8")
-    expect(tokenCss).toContain("--geist-gray-1000: 23 23 23")
-    expect(tokenCss).toContain("--geist-gray-1000: 237 237 237")
-    expect(tokenCss).toContain("--primary: var(--geist-gray-1000)")
+    expect(tokenCss).toContain(":root.dark")
+    expect(tokenCss).toContain("prefers-color-scheme: dark")
+    expect(tokenCss).toContain("--ring: var(--primary)")
     expect(tokenCss).not.toMatch(/356 64% 37%|356 58% 58%|188 86% 53%|188 80% 12%|#22d3ee|#0891b2|cyan/i)
   })
 
@@ -766,7 +780,8 @@ describe("Phase 84 public portal app", () => {
     expect(main).not.toBeNull()
     expect(main?.className).toContain("w-full")
     expect(main?.className).not.toContain("max-w-[1600px]")
-    expect(container.firstElementChild?.className).toContain("lg:grid-cols-[160px_minmax(0,1fr)]")
+    expect(screen.getByRole("link", { name: "跳转到新闻内容" })).toHaveAttribute("href", `#${main?.id}`)
+    expect(main).toHaveAttribute("tabindex", "-1")
   })
 
   it.each([
@@ -1177,11 +1192,50 @@ describe("Phase 84 public portal app", () => {
     expect(screen.getByRole("button", { name: "外交" })).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /ANSA.it/ })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole("button", { name: "筛选" }))
+    const trigger = screen.getByRole("button", { name: "筛选" })
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    trigger.focus()
+    fireEvent.click(trigger)
 
     expect(await screen.findByRole("heading", { name: "筛选新闻" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /ANSA.it/ })).toBeInTheDocument()
     expect(screen.getByLabelText("搜索新闻")).toBeInTheDocument()
+    const dialog = screen.getByRole("dialog", { name: "筛选新闻" })
+    const issues = within(dialog).getByRole("region", { name: "议题筛选" })
+    const related = within(dialog).getByRole("region", { name: "相关筛选" })
+    const regions = within(dialog).getByRole("region", { name: "地区筛选" })
+    fireEvent.click(within(issues).getByRole("button", { name: /外交/ }))
+    fireEvent.click(within(related).getByRole("button", { name: /涉中/ }))
+    fireEvent.click(within(regions).getByRole("button", { name: /意大利/ }))
+    expect(new URLSearchParams(window.location.search).get("issue")).toBe("国际关系")
+    expect(new URLSearchParams(window.location.search).get("related")).toBe("涉中")
+    expect(new URLSearchParams(window.location.search).get("target_id")).toBe("italy")
+
+    fireEvent.keyDown(dialog, { key: "Escape" })
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+    expect(trigger).toHaveFocus()
+  })
+
+  it("clears a compact selected filter while preserving the other query values", async () => {
+    installFetchMock()
+    window.history.replaceState({}, "", "/public-app/?channel=all&target_id=italy&issue=国际关系&related=涉中&q=trade")
+
+    render(<App />)
+
+    await findLeadStory()
+    const selected = screen.getByRole("region", { name: "已选筛选条件" })
+    expect(within(selected).getByRole("button", { name: "清除地区：意大利" })).toBeInTheDocument()
+    expect(within(selected).getByRole("button", { name: "清除相关：涉中" })).toBeInTheDocument()
+    expect(within(selected).getByRole("button", { name: "清除搜索：trade" })).toBeInTheDocument()
+    fireEvent.click(within(selected).getByRole("button", { name: "清除议题：外交" }))
+
+    const query = new URLSearchParams(window.location.search)
+    expect(query.has("issue")).toBe(false)
+    expect(query.get("target_id")).toBe("italy")
+    expect(query.get("related")).toBe("涉中")
+    expect(query.get("q")).toBe("trade")
+    expect(within(selected).queryByRole("button", { name: "清除议题：外交" })).not.toBeInTheDocument()
+    expect(screen.getByRole("textbox", { name: "快速搜索" })).toHaveValue("trade")
   })
 
   it("uses region chips as the primary region entry and keeps the feed shape", async () => {

@@ -19,6 +19,7 @@ export const geistPreset = {
         ring: rgbVar("--ring"),
         background: rgbVar("--background"),
         foreground: rgbVar("--foreground"),
+        scrim: rgbVar("--scrim"),
         primary: {
           DEFAULT: rgbVar("--primary"),
           foreground: rgbVar("--primary-foreground"),
@@ -63,6 +64,18 @@ export const geistPreset = {
       fontFamily: {
         sans: ["var(--font-geist-sans)"],
         mono: ["var(--font-geist-mono)"],
+      },
+      fontSize: {
+        meta: ["var(--text-meta)", { lineHeight: "1.5" }],
+        body: ["var(--text-body)", { lineHeight: "1.75" }],
+        section: ["var(--text-section)", { lineHeight: "1.5" }],
+        title: ["var(--text-title)", { lineHeight: "1.3" }],
+        lead: ["var(--text-lead)", { lineHeight: "1.4" }],
+      },
+      spacing: {
+        gutter: "var(--space-gutter)",
+        section: "var(--space-section)",
+        stack: "var(--space-stack)",
       },
       borderRadius: {
         lg: "var(--radius-md)",

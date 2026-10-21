@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
+import * as DialogPrimitive from "@radix-ui/react-dialog"
 import type { KeyboardEvent, MouseEvent } from "react"
 import {
   ArrowLeftIcon,
@@ -150,6 +151,7 @@ function handleRouteAnchorClick(event: MouseEvent<HTMLAnchorElement>, route: Pub
 }
 
 function handleRouteCardKeyDown(event: KeyboardEvent<HTMLElement>, route: PublicRoute) {
+  if (event.target !== event.currentTarget) return
   if (event.key !== "Enter" && event.key !== " ") return
   event.preventDefault()
   navigateToPublicRoute(route)
@@ -198,13 +200,14 @@ function NewsCard({
   isRead?: boolean
 }) {
   const [previewImage, setPreviewImage] = useState<string | null>(null)
+  const previewTrigger = useRef<HTMLButtonElement>(null)
   const title = primaryNewsTitle(item)
   const originalTitle = originalNewsTitle(item)
   const summary = item.summary?.trim()
   const detailRoute = buildDetailRoute(item, returnTo)
   const targetLabel = targetShortLabel(item.targetLabel)
   const imageUrl = item.imageUrls?.find((url) => url.trim())
-  const tags = uniqueNewsTags(item)
+  const tags = [...new Set([targetLabel, ...uniqueNewsTags(item)])].slice(0, 2)
   const breakingScore = Math.round(breakingScoreValue(item))
   const detailPath = buildPublicAppPath(detailRoute)
 
@@ -221,59 +224,59 @@ function NewsCard({
           markAsRead(item.id)
         }}
         onKeyDown={(event) => handleRouteCardKeyDown(event, detailRoute)}
-        className={`group block cursor-pointer rounded-md border bg-card/95 px-2.5 py-2 text-card-foreground transition-colors hover:border-primary/45 hover:bg-accent/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:bg-card/80 ${
+        className={`news-card group block cursor-pointer rounded-lg border bg-card p-stack text-card-foreground transition-colors hover:bg-secondary ${
           isNew ? "news-card-entering" : ""
-        } ${isRead ? "opacity-70" : ""}`}
+        }`}
       >
         <div className="grid min-w-0 gap-1.5">
-          <div className="flex min-w-0 items-start justify-between gap-2 text-[11px] text-muted-foreground">
+          <div className="mb-2 flex min-w-0 items-start justify-between gap-3 text-meta text-muted-foreground">
             <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
               <span className="inline-flex min-w-0 items-center gap-1">
                 <Globe2Icon className="size-3 shrink-0" aria-hidden="true" />
                 <span className="truncate">{item.source.name}</span>
               </span>
-              <span className="text-muted-foreground/80">{sourceTypeLabel(item.source.type)}</span>
-              <Badge variant="outline" className="h-4 rounded px-1 text-[9px] font-normal" title={item.targetLabel}>
-                {targetLabel}
-              </Badge>
+              <span>{sourceTypeLabel(item.source.type)}</span>
+              {isRead ? <span>已读</span> : null}
               {tags.map((tag) => (
                 <Badge
                   key={tag}
-                  variant="secondary"
-                  className="h-4 rounded px-1 text-[9px] font-normal"
+                  variant={tag === targetLabel ? "outline" : "secondary"}
+                  className="font-normal"
+                  title={tag === targetLabel ? item.targetLabel : undefined}
                 >
                   {tag}
                 </Badge>
               ))}
             </div>
-            <Badge
+            <span
               aria-label={`Breaking News 分值 ${breakingScore}`}
-              className="ml-auto h-5 rounded-full px-2 text-[11px] font-semibold"
+              className="ml-auto shrink-0 font-medium tabular-nums"
             >
               {breakingScore}
-            </Badge>
+            </span>
           </div>
 
           <div className="grid min-w-0 gap-2">
             <div className="grid min-w-0 gap-1.5">
               <div className={imageUrl ? "grid gap-2 md:grid-cols-[minmax(0,1fr)_148px]" : "grid gap-1.5"}>
                 <div className="grid min-w-0 gap-1">
-                  <h2 className="text-sm font-semibold leading-5 text-foreground">
+                  <h2 className="text-section font-semibold text-foreground">
                     {title}
                   </h2>
                   {originalTitle ? (
-                    <p className="line-clamp-1 text-xs leading-4 text-muted-foreground">
+                    <p className="mt-1 line-clamp-1 text-meta text-muted-foreground">
                       {originalTitle}
                     </p>
                   ) : null}
                   {summary ? (
-                    <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">
+                    <p className="mt-1 line-clamp-2 text-body text-muted-foreground">
                       {summary}
                     </p>
                   ) : null}
                 </div>
                 {imageUrl ? (
                   <button
+                    ref={previewTrigger}
                     type="button"
                     aria-label={`浏览大图：${title}`}
                     className="group/image overflow-hidden rounded-md border bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -296,34 +299,32 @@ function NewsCard({
           </div>
         </div>
       </article>
-      {previewImage ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="新闻图片预览"
-          className="fixed inset-0 z-50 grid place-items-center bg-background/80 p-4 backdrop-blur-sm"
-          onClick={() => setPreviewImage(null)}
-        >
-          <div className="relative max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-lg border bg-card shadow-xl">
-            <button
+      <DialogPrimitive.Root open={previewImage !== null} onOpenChange={(open) => { if (!open) setPreviewImage(null) }}>
+        <DialogPrimitive.Portal>
+          <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-scrim/60" />
+          <DialogPrimitive.Content
+            aria-describedby={undefined}
+            onCloseAutoFocus={(event) => { event.preventDefault(); previewTrigger.current?.focus() }}
+            className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-5xl -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-card p-2 shadow-xl"
+          >
+            <DialogPrimitive.Title className="sr-only">新闻图片预览</DialogPrimitive.Title>
+            <DialogPrimitive.Close asChild>
+              <button
               type="button"
               aria-label="关闭图片预览"
-              className="absolute right-2 top-2 z-10 inline-flex size-8 items-center justify-center rounded-md border bg-background/90 text-foreground shadow-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={(event) => {
-                event.stopPropagation()
-                setPreviewImage(null)
-              }}
+              className="absolute right-3 top-3 z-10 inline-flex size-11 items-center justify-center rounded-md border bg-card text-foreground hover:bg-accent"
             >
               <XIcon className="size-4" aria-hidden="true" />
             </button>
+            </DialogPrimitive.Close>
             <img
-              src={previewImage}
+              src={previewImage ?? undefined}
               alt={`新闻大图：${title}`}
               className="max-h-[90vh] w-full object-contain"
             />
-          </div>
-        </div>
-      ) : null}
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Portal>
+      </DialogPrimitive.Root>
     </>
   )
 }
@@ -444,7 +445,7 @@ export function NewsFeedPage({
   const readIds = useMemo(() => getReadIds(), [state.items.length])
 
   return (
-    <section className="min-w-0 overflow-hidden rounded-lg border bg-card/95 dark:bg-card/80">
+    <section className="news-feed min-w-0">
       <LiveUpdateBanner count={state.pendingNewItems.length} onApply={onApplyPending} />
 
       {state.status === "loading" ? <LoadingFeed /> : null}
@@ -453,12 +454,12 @@ export function NewsFeedPage({
       ) : null}
       {hasItems ? (
         <div>
-          <section className="border-b px-3 py-1.5" aria-label="当前热点">
-            <div className="mb-1 flex items-center justify-between gap-3">
+          <section className="feed-highlights rounded-lg bg-secondary p-stack" aria-label="当前热点">
+            <div className="mb-3 flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-xs font-semibold">当前热点</h2>
+                <h2 className="text-section font-semibold">当前热点</h2>
               </div>
-              <span className="text-[10px] uppercase text-muted-foreground">TOP {topItems.length}</span>
+              <span className="text-meta text-muted-foreground">{topItems.length} 条重点</span>
             </div>
             <div className="divide-y">
               {topItems.map((item, index) => {
@@ -469,18 +470,18 @@ export function NewsFeedPage({
                     key={item.id}
                     href={buildPublicAppPath(detailRoute)}
                     onClick={(event) => handleRouteAnchorClick(event, detailRoute)}
-                    className="grid gap-x-2 gap-y-0.5 px-1 py-1 text-sm hover:bg-muted/30 md:grid-cols-[1.25rem_minmax(0,1fr)_auto] md:items-center"
+                    className="grid grid-cols-[1.5rem_minmax(0,1fr)] items-start gap-x-3 gap-y-3 rounded-md py-stack hover:bg-accent"
                   >
-                    <span className="text-xs font-semibold text-primary">{index + 1}</span>
-                    <span className="line-clamp-1 font-semibold">{item.title}</span>
-                    <span className="text-[11px] text-muted-foreground">
-                      {item.source.name} · {formatTime(item.publishedAt)}
-                    </span>
+                    <span className="pt-1 text-meta tabular-nums text-muted-foreground">{index + 1}</span>
+                    <span className="line-clamp-2 text-title font-bold">{primaryNewsTitle(item)}</span>
                     {supplement ? (
-                      <span className="hidden line-clamp-1 text-[11px] text-muted-foreground sm:block md:col-start-2 md:col-end-4">
+                      <span className="col-start-2 line-clamp-1 text-body text-muted-foreground">
                         {supplement}
                       </span>
                     ) : null}
+                    <span className="col-start-2 text-meta text-muted-foreground">
+                      {item.source.name} · {formatTime(item.publishedAt)}
+                    </span>
                   </a>
                 )
               })}
@@ -489,7 +490,7 @@ export function NewsFeedPage({
           {grouped.map((group) => {
             const collapsed = collapsedGroupKeys.has(group.key)
             return (
-            <section key={group.key} aria-label={group.label} className="grid gap-2 px-3 py-3">
+            <section key={group.key} aria-label={group.label} className="grid gap-stack py-section">
               <button
                 type="button"
                 aria-expanded={!collapsed}
@@ -515,15 +516,12 @@ export function NewsFeedPage({
                 />
               </button>
               {collapsed ? null : (
-                <div className="grid gap-2">
+                <div className="news-timeline grid gap-stack">
                   {group.items.map((item) => (
-                  <div key={item.id} className="grid gap-2 md:grid-cols-[3.5rem_0.75rem_minmax(0,1fr)]">
-                    <time className="pt-3 text-xs font-semibold text-muted-foreground">
+                  <div key={item.id} className="timeline-entry grid min-w-0 gap-2 md:grid-cols-[3.5rem_minmax(0,1fr)]">
+                    <time className="pt-1 text-meta tabular-nums text-muted-foreground md:pt-5">
                       {formatTime(item.publishedAt)}
                     </time>
-                    <div className="hidden md:grid md:justify-center">
-                      <span className="mt-4 size-2 rounded-full bg-primary shadow-[var(--shadow-primary-soft)]" />
-                    </div>
                     <NewsCard item={item} returnTo={feedRoute} isNew={recentlyInsertedIds.has(item.id)} isRead={readIds.has(item.id)} />
                   </div>
                   ))}
@@ -591,11 +589,11 @@ function QuickEntryButton({
       type="button"
       variant="outline"
       size="sm"
-      className="h-8 min-w-0 justify-between gap-2 rounded-md px-2 text-xs"
+      className="min-w-0 justify-between gap-3 rounded-md px-3 text-sm"
       onClick={onClick}
     >
       <span className="truncate">{label}</span>
-      <span className="shrink-0 text-[10px] text-muted-foreground">{count}</span>
+      <span className="shrink-0 text-meta tabular-nums text-muted-foreground">{count}</span>
     </Button>
   )
 }
@@ -681,23 +679,15 @@ export function BreakingHomePage({
   }
 
   return (
-    <section className="grid min-w-0 gap-3" aria-label="极速突发首页">
+    <section className="home-page grid min-w-0 gap-section" aria-label="极速突发首页">
       <LiveUpdateBanner count={state.pendingNewItems.length} onApply={onApplyPending} />
 
-      <section className="overflow-hidden rounded-lg border bg-card/95 dark:bg-card/80" aria-label="极速突发">
-        <div className="grid gap-3 border-b px-3 py-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+      <section className="home-lead min-w-0" aria-label="极速突发">
+        <div className="home-heading grid gap-stack border-b pb-stack sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
           <div className="min-w-0">
-            <div className="mb-1 flex flex-wrap items-center gap-2">
-              <Badge className="rounded-full px-2 text-[10px] uppercase tracking-normal">
-                {breakingLabelText(lead)}
-              </Badge>
-              <span className="text-[11px] text-muted-foreground">
-                {state.total} 条精选信号 · {formatTime(lead.publishedAt)} 更新
-              </span>
-            </div>
-            <h1 className="text-xl font-semibold leading-tight">极速突发</h1>
-            <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-              优先展示高价值、分类明确的突发新闻；完整时间线继续放在新闻纵览。
+            <h1 className="text-meta font-medium text-muted-foreground">极速突发</h1>
+            <p className="mt-2 text-meta text-muted-foreground">
+              {state.total} 条精选信号，最近更新于 {formatTime(lead.publishedAt)}
             </p>
           </div>
           <Button type="button" variant="outline" size="sm" className="w-fit rounded-md" onClick={onOpenAll}>
@@ -711,45 +701,43 @@ export function BreakingHomePage({
             <a
               href={buildPublicAppPath(leadRoute)}
               onClick={(event) => handleRouteAnchorClick(event, leadRoute)}
-              className="grid gap-3 px-3 py-4 hover:bg-accent/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:grid-cols-[minmax(0,1fr)_14rem]"
+              className="lead-story grid gap-section rounded-lg py-section md:grid-cols-[minmax(0,1fr)_12rem] lg:grid-cols-[minmax(0,1fr)_15rem]"
               aria-label={`主突发新闻 ${primaryNewsTitle(lead)}`}
             >
               <div className="min-w-0">
-                <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <Badge variant="secondary" className="rounded-md">
-                    主突发
-                  </Badge>
+                <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-meta text-muted-foreground">
+                  <span className="font-medium text-primary">{breakingLabelText(lead)}</span>
                   <span>{lead.source.name}</span>
                   <span>{targetShortLabel(lead.targetLabel)}</span>
                   <span>当地 {formatTimeInZone(lead.publishedAt, lead.targetTimezone)}</span>
                   <span>你的时间 {formatTimeInZone(lead.publishedAt)}</span>
                 </div>
-                <h2 className="text-lg font-semibold leading-7 text-foreground sm:text-xl">
+                <h2 className="max-w-[32em] text-lead font-semibold tracking-tight text-foreground">
                   {primaryNewsTitle(lead)}
                 </h2>
                 {leadSupplement ? (
-                  <p className="mt-2 line-clamp-3 text-sm leading-6 text-muted-foreground">
+                  <p className="mt-4 max-w-[65ch] text-body text-muted-foreground">
                     {leadSupplement}
                   </p>
                 ) : null}
                 {lead.recommendationReason ? (
-                  <p className="mt-3 rounded-md border bg-background/70 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                  <p className="mt-5 max-w-[65ch] border-l-2 pl-4 text-body text-muted-foreground">
                     <span className="font-medium text-foreground">为什么重要：</span>
                     {lead.breakingReason || lead.recommendationReason}
                   </p>
                 ) : null}
               </div>
-              <div className="grid content-between gap-3 rounded-md border bg-background/70 p-3">
+              <div className="lead-assessment grid content-start gap-5 rounded-lg bg-secondary p-stack">
                 <div>
-                  <p className="text-xs text-muted-foreground">Breaking News 分值</p>
-                  <p className="mt-1 text-3xl font-semibold">{Math.round(breakingScoreValue(lead))}</p>
+                  <p className="text-meta text-muted-foreground">Breaking News 分值</p>
+                  <p className="mt-2 text-3xl font-medium tabular-nums">{Math.round(breakingScoreValue(lead))}<span className="ml-2 text-meta font-normal text-muted-foreground">/ 100</span></p>
                   {lead.breakingConfidence != null ? (
-                    <p className="mt-1 text-xs text-muted-foreground">置信度 {lead.breakingConfidence}</p>
+                    <p className="mt-2 text-meta text-muted-foreground">置信度 {lead.breakingConfidence}</p>
                   ) : null}
                 </div>
                 <div className="flex flex-wrap gap-1">
                   {uniqueNewsTags(lead).slice(0, 5).map((tag) => (
-                    <Badge key={tag} variant="outline" className="rounded px-1.5 text-[10px] font-normal">
+                    <Badge key={tag} variant="outline" className="font-normal">
                       {tag}
                     </Badge>
                   ))}
@@ -760,10 +748,10 @@ export function BreakingHomePage({
         ) : null}
       </section>
 
-      <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
-        <section className="overflow-hidden rounded-lg border bg-card/95 dark:bg-card/80" aria-label="高价值动态">
-          <div className="border-b px-3 py-2">
-            <h2 className="text-sm font-semibold">Top 3 高价值动态</h2>
+      <div className="home-streams grid min-w-0 gap-section xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
+        <section className="min-w-0" aria-label="高价值动态">
+          <div className="border-b pb-3">
+            <h2 className="text-section font-semibold">高价值动态</h2>
           </div>
           <div className="divide-y">
             {topItems.map((item, index) => {
@@ -773,16 +761,16 @@ export function BreakingHomePage({
                   <a
                     href={buildPublicAppPath(detailRoute)}
                     onClick={(event) => handleRouteAnchorClick(event, detailRoute)}
-                    className="grid gap-1 px-3 py-2.5 hover:bg-accent/15 sm:grid-cols-[2rem_minmax(0,1fr)_auto] sm:items-start"
+                    className="grid grid-cols-[1.5rem_minmax(0,1fr)_auto] items-start gap-3 rounded-md py-stack hover:bg-secondary"
                   >
-                    <span className="text-lg font-semibold text-primary">{index + 1}</span>
+                    <span className="text-meta tabular-nums text-muted-foreground">{index + 1}</span>
                     <span className="min-w-0">
-                      <span className="line-clamp-1 text-sm font-semibold">{primaryNewsTitle(item)}</span>
-                      <span className="mt-1 line-clamp-1 text-xs text-muted-foreground">
+                      <span className="line-clamp-2 text-body font-medium">{primaryNewsTitle(item)}</span>
+                      <span className="mt-2 block text-meta text-muted-foreground">
                         {item.source.name} · {formatTime(item.publishedAt)}
                       </span>
                     </span>
-                    <Badge className="w-fit rounded-full px-2">{Math.round(item.valueScore ?? 0)}</Badge>
+                    <span className="text-meta tabular-nums text-muted-foreground" aria-label={`新闻价值 ${Math.round(item.valueScore ?? 0)} 分`}>{Math.round(item.valueScore ?? 0)}</span>
                   </a>
                 </article>
               )
@@ -790,9 +778,9 @@ export function BreakingHomePage({
           </div>
         </section>
 
-        <section className="overflow-hidden rounded-lg border bg-card/95 dark:bg-card/80" aria-label="最近推进">
-          <div className="border-b px-3 py-2">
-            <h2 className="text-sm font-semibold">最近推进</h2>
+        <section className="min-w-0" aria-label="最近推进">
+          <div className="border-b pb-3">
+            <h2 className="text-section font-semibold">最近推进</h2>
           </div>
           <div className="divide-y">
             {recent.map((item) => {
@@ -802,10 +790,10 @@ export function BreakingHomePage({
                   <a
                     href={buildPublicAppPath(detailRoute)}
                     onClick={(event) => handleRouteAnchorClick(event, detailRoute)}
-                    className="grid grid-cols-[3.25rem_minmax(0,1fr)] gap-2 px-3 py-2 text-sm hover:bg-accent/15"
+                    className="grid grid-cols-[3.25rem_minmax(0,1fr)] gap-3 rounded-md py-3 text-body hover:bg-secondary"
                   >
-                    <time className="text-xs font-medium text-muted-foreground">{formatTime(item.publishedAt)}</time>
-                    <span className="line-clamp-1 font-medium">{primaryNewsTitle(item)}</span>
+                    <time className="pt-1 text-meta tabular-nums text-muted-foreground">{formatTime(item.publishedAt)}</time>
+                    <span className="line-clamp-2">{primaryNewsTitle(item)}</span>
                   </a>
                 </article>
               )
@@ -814,9 +802,9 @@ export function BreakingHomePage({
         </section>
       </div>
 
-      <section className="grid gap-3 rounded-lg border bg-card/95 p-3 dark:bg-card/80" aria-label="突发快捷入口">
+      <section className="grid gap-stack border-t pt-stack" aria-label="突发快捷入口">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold">快速进入完整时间线</h2>
+          <h2 className="text-section font-semibold">继续追踪</h2>
           <Button type="button" variant="ghost" size="sm" className="h-7 rounded-md px-2 text-xs" onClick={onOpenAll}>
             全部新闻
             <ChevronRightIcon className="size-3.5" aria-hidden="true" />
@@ -865,7 +853,7 @@ function RelatedSection({
   returnTo?: PublicRoute | null
 }) {
   return (
-    <section className="grid gap-2">
+    <section className="grid min-w-0 content-start gap-2">
       <h3 className="text-base font-semibold">{title}</h3>
       {items.length > 0 ? (
         <div className="grid gap-2">
@@ -1046,8 +1034,8 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
   return (
     <>
       <SeoHead payload={seoPayload} />
-      <article className="overflow-hidden rounded-lg border bg-background">
-        <div className="border-b px-3 py-3 sm:px-4">
+      <article className="detail-page min-w-0">
+        <div className="detail-heading border-b pb-section">
           <Button asChild variant="ghost" size="sm" className="-ml-2 mb-2">
             <a
               href={buildPublicAppPath(feedRoute)}
@@ -1057,8 +1045,8 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
               返回新闻流
             </a>
           </Button>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <Badge variant={item.valueLabel === "精选" ? "default" : "secondary"}>
+          <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-meta text-muted-foreground">
+            <Badge variant="secondary">
               {item.valueLabel}
             </Badge>
             <span>{formatFullTime(item.publishedAt)}</span>
@@ -1066,23 +1054,23 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
             <span>{sourceTypeLabel(item.source.type)}</span>
             {item.source.credibilityLabel ? <span>{item.source.credibilityLabel}</span> : null}
           </div>
-          <h1 className="mt-2 text-xl font-semibold leading-tight sm:text-2xl">{title}</h1>
+          <h1 className="mt-5 max-w-[32em] text-lead font-semibold tracking-tight">{title}</h1>
           {originalTitle ? (
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">{originalTitle}</p>
+            <p className="mt-4 max-w-[75ch] text-body text-muted-foreground">{originalTitle}</p>
           ) : null}
         </div>
-        <div className="grid gap-4 px-3 py-4 sm:px-4 lg:grid-cols-[minmax(0,1fr)_260px]">
-          <section className="grid gap-4">
+        <div className="detail-layout grid gap-section py-section md:grid-cols-[minmax(0,2fr)_minmax(14rem,1fr)] lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]">
+          <section className="detail-copy grid min-w-0 content-start gap-section">
             <div>
-              <h2 className="text-base font-semibold">新闻摘要</h2>
+              <h2 className="text-section font-semibold">新闻摘要</h2>
               {item.summary ? (
-                <p className="mt-2 text-sm leading-7 text-muted-foreground">
+                <p className="mt-3 text-body text-foreground">
                   {item.summary}
                 </p>
               ) : null}
             </div>
           {item.recommendationReason ? (
-            <div className="rounded-md border bg-muted/35 p-3 text-sm leading-6 text-muted-foreground">
+            <div className="rounded-lg bg-secondary p-stack text-body text-muted-foreground">
               <span className="font-medium text-foreground">推荐理由：</span>
               {item.recommendationReason}
             </div>
@@ -1099,8 +1087,8 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
             ) : null}
             {item.fullContent ? (
               <div>
-                <h2 className="text-base font-semibold">全文</h2>
-                <div className="mt-2 whitespace-pre-line text-sm leading-7 text-foreground/90">
+                <h2 className="text-section font-semibold">全文</h2>
+                <div className="article-prose mt-3 whitespace-pre-line text-body text-foreground">
                   {item.fullContent}
                 </div>
               </div>
@@ -1129,13 +1117,13 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
               ) : null}
             </div>
           </section>
-          <aside className="grid h-fit gap-3">
-            <Card className="rounded-lg">
+          <aside className="grid min-w-0 content-start gap-stack">
+            <Card className="rounded-lg bg-secondary">
               <CardHeader className="pb-3">
-                <CardTitle className="text-base">来源</CardTitle>
+                <CardTitle className="text-section">来源</CardTitle>
               </CardHeader>
-              <CardContent className="grid gap-2 text-sm">
-                <p className="font-medium">{item.source.name}</p>
+              <CardContent className="grid gap-3 text-body">
+                <p className="text-section font-semibold">{item.source.name}</p>
                 <p className="text-muted-foreground">{sourceTypeLabel(item.source.type)}</p>
                 {item.source.credibilityLabel ? (
                   <p className="text-muted-foreground">可信度：{item.source.credibilityLabel}</p>
@@ -1152,9 +1140,17 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
                 ) : null}
               </CardContent>
             </Card>
+            <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-3 px-stack text-meta">
+              <dt className="text-muted-foreground">新闻价值</dt>
+              <dd className="text-right font-medium tabular-nums">{item.valueScore == null ? "待评估" : `${Math.round(item.valueScore)} / 100`}</dd>
+              <dt className="text-muted-foreground">关注地区</dt>
+              <dd className="text-right">{targetShortLabel(item.targetLabel)}</dd>
+              <dt className="text-muted-foreground">中国相关度</dt>
+              <dd className="text-right">{item.chinaRelevanceLabel}</dd>
+            </dl>
           </aside>
         </div>
-        <div className="grid gap-3 border-t px-3 py-4 sm:px-4 lg:grid-cols-3">
+        <div className="grid items-start gap-section border-t py-section lg:grid-cols-3">
           <RelatedSection title="同来源信号" items={buckets.sameSource} returnTo={feedRoute} />
           <RelatedSection title="同目标信号" items={buckets.sameTarget} returnTo={feedRoute} />
           <RelatedSection title="同主题信号" items={buckets.sameTopic} returnTo={feedRoute} />
@@ -1334,7 +1330,7 @@ export function SourceDirectoryPage() {
                       key={source.id}
                       href={buildPublicAppPath(sourceRoute)}
                       onClick={(event) => handleRouteAnchorClick(event, sourceRoute)}
-                      className="grid gap-2 px-3 py-2.5 text-sm transition-colors hover:bg-accent/20 lg:grid-cols-[minmax(11rem,1.4fr)_minmax(7rem,0.8fr)_minmax(8rem,1fr)_minmax(12rem,1.2fr)_minmax(16rem,1.6fr)] lg:items-start lg:gap-3"
+                      className="focus-inset grid gap-2 px-3 py-2.5 text-sm transition-colors hover:bg-accent/20 lg:grid-cols-[minmax(11rem,1.4fr)_minmax(7rem,0.8fr)_minmax(8rem,1fr)_minmax(12rem,1.2fr)_minmax(16rem,1.6fr)] lg:items-start lg:gap-3"
                     >
                       <div className="min-w-0">
                         <div className="flex min-w-0 items-center gap-2">
@@ -1464,7 +1460,7 @@ export function SourceDetailPage({ sourceId }: { sourceId: string }) {
   }
 
   return (
-    <section className="overflow-hidden rounded-lg border bg-background">
+    <section className="rounded-lg border bg-background">
       <div className="border-b px-3 py-3">
         <Button asChild variant="ghost" size="sm" className="-ml-2 mb-2">
           <a
@@ -2142,7 +2138,7 @@ function FunnelDropdown({
                   onSelect(opt.id)
                   setOpen(false)
                 }}
-                className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-accent ${
+                className={`focus-inset flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-accent ${
                   opt.id === selectedId ? "bg-accent/50 font-medium" : ""
                 }`}
               >
