@@ -113,6 +113,7 @@ src/news_sentry/static/admin/
 # Public portal frontend (M-2 / Cloudflare Pages)
 frontend/public/node_modules/
 frontend/public/dist/
+frontend/public/dist-preview/
 src/news_sentry/static/public_app/
 
 # Backend BFF layer

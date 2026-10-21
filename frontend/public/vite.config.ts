@@ -72,7 +72,7 @@ export default defineConfig(({ mode }) => ({
     },
   },
   build: {
-    outDir: defaultOutDir,
+    outDir: mode === "redesign-preview" ? "dist-preview" : defaultOutDir,
     emptyOutDir: true,
     assetsDir: "assets",
   },
