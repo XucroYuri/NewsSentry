@@ -207,7 +207,7 @@ function NewsCard({
   const detailRoute = buildDetailRoute(item, returnTo)
   const targetLabel = targetShortLabel(item.targetLabel)
   const imageUrl = item.imageUrls?.find((url) => url.trim())
-  const tags = uniqueNewsTags(item)
+  const tags = [...new Set([targetLabel, ...uniqueNewsTags(item)])].slice(0, 2)
   const breakingScore = Math.round(breakingScoreValue(item))
   const detailPath = buildPublicAppPath(detailRoute)
 
@@ -237,26 +237,23 @@ function NewsCard({
               </span>
               <span>{sourceTypeLabel(item.source.type)}</span>
               {isRead ? <span>已读</span> : null}
-              <Badge variant="outline" className="font-normal" title={item.targetLabel}>
-                {targetLabel}
-              </Badge>
               {tags.map((tag) => (
                 <Badge
                   key={tag}
-                  variant="secondary"
+                  variant={tag === targetLabel ? "outline" : "secondary"}
                   className="font-normal"
+                  title={tag === targetLabel ? item.targetLabel : undefined}
                 >
                   {tag}
                 </Badge>
               ))}
             </div>
-            <Badge
+            <span
               aria-label={`Breaking News 分值 ${breakingScore}`}
-              variant="secondary"
-              className="ml-auto shrink-0 tabular-nums"
+              className="ml-auto shrink-0 font-medium tabular-nums"
             >
               {breakingScore}
-            </Badge>
+            </span>
           </div>
 
           <div className="grid min-w-0 gap-2">
@@ -473,18 +470,18 @@ export function NewsFeedPage({
                     key={item.id}
                     href={buildPublicAppPath(detailRoute)}
                     onClick={(event) => handleRouteAnchorClick(event, detailRoute)}
-                    className="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-md py-3 text-sm hover:bg-accent md:grid-cols-[1.5rem_minmax(0,1fr)_auto] md:items-center"
+                    className="grid grid-cols-[1.5rem_minmax(0,1fr)] items-start gap-x-3 gap-y-3 rounded-md py-stack hover:bg-accent"
                   >
-                    <span className="text-meta tabular-nums text-muted-foreground">{index + 1}</span>
-                    <span className="line-clamp-2 font-medium">{item.title}</span>
-                    <span className="col-start-2 text-meta text-muted-foreground md:col-start-auto">
-                      {item.source.name} · {formatTime(item.publishedAt)}
-                    </span>
+                    <span className="pt-1 text-meta tabular-nums text-muted-foreground">{index + 1}</span>
+                    <span className="line-clamp-2 text-title font-bold">{primaryNewsTitle(item)}</span>
                     {supplement ? (
-                      <span className="col-start-2 hidden line-clamp-1 text-meta text-muted-foreground sm:block md:col-end-4">
+                      <span className="col-start-2 line-clamp-1 text-body text-muted-foreground">
                         {supplement}
                       </span>
                     ) : null}
+                    <span className="col-start-2 text-meta text-muted-foreground">
+                      {item.source.name} · {formatTime(item.publishedAt)}
+                    </span>
                   </a>
                 )
               })}
@@ -688,7 +685,7 @@ export function BreakingHomePage({
       <section className="home-lead min-w-0" aria-label="极速突发">
         <div className="home-heading grid gap-stack border-b pb-stack sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
           <div className="min-w-0">
-            <h1 className="text-title font-semibold">极速突发</h1>
+            <h1 className="text-meta font-medium text-muted-foreground">极速突发</h1>
             <p className="mt-2 text-meta text-muted-foreground">
               {state.total} 条精选信号，最近更新于 {formatTime(lead.publishedAt)}
             </p>
@@ -856,7 +853,7 @@ function RelatedSection({
   returnTo?: PublicRoute | null
 }) {
   return (
-    <section className="grid gap-2">
+    <section className="grid min-w-0 content-start gap-2">
       <h3 className="text-base font-semibold">{title}</h3>
       {items.length > 0 ? (
         <div className="grid gap-2">
@@ -1153,7 +1150,7 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
             </dl>
           </aside>
         </div>
-        <div className="grid gap-section border-t py-section lg:grid-cols-3">
+        <div className="grid items-start gap-section border-t py-section lg:grid-cols-3">
           <RelatedSection title="同来源信号" items={buckets.sameSource} returnTo={feedRoute} />
           <RelatedSection title="同目标信号" items={buckets.sameTarget} returnTo={feedRoute} />
           <RelatedSection title="同主题信号" items={buckets.sameTopic} returnTo={feedRoute} />
@@ -1333,7 +1330,7 @@ export function SourceDirectoryPage() {
                       key={source.id}
                       href={buildPublicAppPath(sourceRoute)}
                       onClick={(event) => handleRouteAnchorClick(event, sourceRoute)}
-                      className="grid gap-2 px-3 py-2.5 text-sm transition-colors hover:bg-accent/20 lg:grid-cols-[minmax(11rem,1.4fr)_minmax(7rem,0.8fr)_minmax(8rem,1fr)_minmax(12rem,1.2fr)_minmax(16rem,1.6fr)] lg:items-start lg:gap-3"
+                      className="focus-inset grid gap-2 px-3 py-2.5 text-sm transition-colors hover:bg-accent/20 lg:grid-cols-[minmax(11rem,1.4fr)_minmax(7rem,0.8fr)_minmax(8rem,1fr)_minmax(12rem,1.2fr)_minmax(16rem,1.6fr)] lg:items-start lg:gap-3"
                     >
                       <div className="min-w-0">
                         <div className="flex min-w-0 items-center gap-2">
@@ -1463,7 +1460,7 @@ export function SourceDetailPage({ sourceId }: { sourceId: string }) {
   }
 
   return (
-    <section className="overflow-hidden rounded-lg border bg-background">
+    <section className="rounded-lg border bg-background">
       <div className="border-b px-3 py-3">
         <Button asChild variant="ghost" size="sm" className="-ml-2 mb-2">
           <a
@@ -2141,7 +2138,7 @@ function FunnelDropdown({
                   onSelect(opt.id)
                   setOpen(false)
                 }}
-                className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-accent ${
+                className={`focus-inset flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-accent ${
                   opt.id === selectedId ? "bg-accent/50 font-medium" : ""
                 }`}
               >

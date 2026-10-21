@@ -77,6 +77,7 @@
   --space-stack: clamp(0.75rem, 0.55rem + 0.6vw, 1.25rem);
   --sidebar-width: clamp(12rem, 15vw, 14rem);
   --header-height: 4rem;
+  --mobile-navigation-height: 4.25rem;
 
   --shadow-raised: none;
   --shadow-popover: 0 8px 24px rgb(var(--scrim) / 0.12);

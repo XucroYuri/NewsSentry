@@ -15,6 +15,7 @@ import {
   SearchIcon,
   SparklesIcon,
   SunIcon,
+  XIcon,
   ZapIcon,
 } from "lucide-react"
 
@@ -444,12 +445,12 @@ function SidebarNav({
   onSelect: (id: NavId) => void
 }) {
   return (
-    <aside className="reader-sidebar sticky top-0 hidden h-dvh min-w-0 overflow-hidden bg-background px-3 py-4 text-foreground lg:grid lg:grid-rows-[auto_1fr_auto]">
+    <aside className="reader-sidebar sticky top-0 hidden h-dvh min-w-0 overflow-y-auto scroll-p-1.5 bg-background px-3 py-4 text-foreground lg:grid lg:grid-rows-[auto_1fr_auto]">
       <a href="/public-app/" className="mb-6 flex min-h-11 min-w-0 items-center gap-2 px-2">
         <BrandMark />
         <span className="text-lg font-semibold tracking-tight">NewsSentry</span>
       </a>
-      <nav aria-label="公共站侧边栏" className="grid min-w-0 content-start gap-1 overflow-hidden p-1">
+      <nav aria-label="公共站侧边栏" className="grid min-w-0 content-start gap-1 p-1.5">
         {navItems.map((item) => (
           <NavButton key={item.id} item={item} active={active === item.id} onSelect={onSelect} />
         ))}
@@ -721,7 +722,7 @@ function FilterPanel({
         </div>
         <div className="grid w-full min-w-0 gap-2">
           {targets.length > 0 ? (
-            targets.slice(0, 8).map((target) => (
+            targets.map((target) => (
               <Button
                 key={target.target_id}
                 type="button"
@@ -804,7 +805,7 @@ function FilterSheet({ children }: { children: ReactNode }) {
             按关键词、地区、议题、相关和来源收窄新闻流。
           </SheetDescription>
         </SheetHeader>
-        <div className="min-h-0 overflow-y-auto pr-4">{children}</div>
+        <div className="min-h-0 overflow-y-auto scroll-p-1.5 p-1.5">{children}</div>
       </SheetContent>
     </Sheet>
   )
@@ -998,6 +999,15 @@ function ReaderControls({
     : filters.channel === "all" || filters.channel === "targets"
       ? "按地区、议题与相关标签筛选，直接进入同一条时间线阅读。"
       : "AI 辅助从公共新闻流里挑选时效性高、影响更明确的重大新闻。"
+  const activeFilters = [
+    { key: "targetId", label: "地区", value: filters.targetId, text: targetShortLabel(selectedTargetLabel ?? filters.targetId) },
+    { key: "issue", label: "议题", value: filters.issue, text: filters.issue ? displayFacetLabel(filters.issue) ?? filters.issue : "" },
+    { key: "related", label: "相关", value: filters.related, text: filters.related ? displayFacetLabel(filters.related) ?? filters.related : "" },
+    { key: "sourceId", label: "来源", value: filters.sourceId, text: filters.sourceId },
+    { key: "category", label: "分类", value: filters.category, text: filters.category },
+    { key: "date", label: "日期", value: filters.date, text: filters.date },
+    { key: "search", label: "搜索", value: filters.search, text: filters.search },
+  ].filter((filter) => filter.value)
 
   useEffect(() => {
     setSearch(filters.search ?? "")
@@ -1071,7 +1081,7 @@ function ReaderControls({
                       type="button"
                       role="option"
                       aria-selected={suggestionIndex === index}
-                      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-accent aria-selected:bg-accent ${
+                      className={`focus-inset flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-accent aria-selected:bg-accent ${
                         suggestionIndex === index ? "bg-accent" : ""
                       }`}
                       onClick={() => {
@@ -1094,7 +1104,25 @@ function ReaderControls({
         </div>
       </div>
 
-      <div className="reader-facets grid gap-2 border-t pt-stack" role="region" aria-label="地区议题相关筛选">
+      <div className="-m-1.5 flex min-w-0 gap-2 overflow-x-auto p-1.5 md:hidden" role="region" aria-label="已选筛选条件">
+        {activeFilters.length > 0 ? activeFilters.map((filter) => (
+          <Button
+            key={filter.key}
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="focus-inset max-w-[12rem] shrink-0"
+            aria-label={`清除${filter.label}：${filter.text}`}
+            title={`${filter.label}：${filter.text}`}
+            onClick={() => onChange({ [filter.key]: undefined })}
+          >
+            <span className="truncate">{filter.text}</span>
+            <XIcon className="size-3.5" aria-hidden="true" />
+          </Button>
+        )) : <span className="py-2 text-meta text-muted-foreground">全部地区 · 全部议题</span>}
+      </div>
+
+      <div className="reader-facets hidden gap-2 border-t pt-stack md:grid" role="region" aria-label="地区议题相关筛选">
         <FacetFilterRow
           label="地区"
           allLabel="全部"

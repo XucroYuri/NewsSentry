@@ -43,7 +43,7 @@ const CardContent = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDi
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn("box-border min-w-0 max-w-full overflow-hidden p-6 pt-0", className)}
+      className={cn("box-border min-w-0 max-w-full p-6 pt-0", className)}
       {...props}
     />
   ),
