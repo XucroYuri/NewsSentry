@@ -503,23 +503,19 @@ describe("Phase 84 public portal app", () => {
     })
     const card = matchingLinks.find((link) => link.tagName.toLowerCase() === "article")
     if (!card) throw new Error("Expected timeline article card to render")
-    expect(card).toHaveClass("px-2.5")
-    expect(card).toHaveClass("py-2")
+    expect(card).toHaveAttribute("tabindex", "0")
     expect(screen.getAllByText(cardTimeLabel).length).toBeGreaterThan(0)
     expect(within(card).queryByText(cardTimeLabel)).not.toBeInTheDocument()
     expect(within(card).getByText("ANSA.it")).toBeInTheDocument()
-    const cardHeading = within(card).getByRole("heading", { name: /微软双向转售 GPT 与 DeepSeek/ })
-    expect(cardHeading).toHaveClass("text-sm")
-    expect(cardHeading).toHaveClass("leading-5")
+    expect(within(card).getByRole("heading", { name: /微软双向转售 GPT 与 DeepSeek/ })).toBeInTheDocument()
     expect(
       within(card).getByText(
         "Microsoft quietly becomes China's gateway to OpenAI and routes models through Singapore",
       ),
-    ).toHaveClass("text-xs")
-    expect(within(card).getByText(/全球 AI 供应链和合规路径正在重组/)).toHaveClass("text-xs")
+    ).toBeInTheDocument()
+    expect(within(card).getByText(/全球 AI 供应链和合规路径正在重组/)).toBeInTheDocument()
     const metaRow = card.querySelector(".flex.min-w-0.items-start.justify-between")
     if (!metaRow) throw new Error("Expected news card meta row")
-    expect(metaRow).toHaveClass("text-[11px]")
     expect(within(metaRow as HTMLElement).getByText("全球")).toBeInTheDocument()
     expect(within(metaRow as HTMLElement).getByText("科技")).toBeInTheDocument()
     expect(within(metaRow as HTMLElement).getByText("涉中")).toBeInTheDocument()
@@ -542,6 +538,24 @@ describe("Phase 84 public portal app", () => {
 
     const dialog = await screen.findByRole("dialog", { name: "新闻图片预览" })
     expect(within(dialog).getByRole("img", { name: /新闻大图/ })).toHaveAttribute("src", imageUrl)
+    fireEvent.keyDown(dialog, { key: "Escape" })
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "新闻图片预览" })).not.toBeInTheDocument())
+    expect(thumbnail).toHaveFocus()
+  })
+
+  it("opens a story with Enter and moves focus to the detail content", async () => {
+    installFetchMock()
+    window.location.hash = "#/feed?channel=all"
+    render(<App />)
+    const links = await screen.findAllByRole("link", { name: new RegExp(LEAD_TITLE) })
+    const card = links.find((link) => link.tagName.toLowerCase() === "article")!
+    card.focus()
+    fireEvent.keyDown(card, { key: "Enter" })
+    expect(await screen.findByRole("button", { name: "复制摘要" })).toBeInTheDocument()
+    expect(screen.getByRole("main")).toHaveFocus()
+    fireEvent.click(screen.getByRole("link", { name: "返回新闻流" }))
+    expect(await screen.findByRole("heading", { name: "新闻纵览" })).toBeInTheDocument()
+    expect(screen.getByRole("main")).toHaveFocus()
   })
 
   it("suppresses redundant hot-topic summaries while keeping the timeline summary", async () => {
@@ -574,21 +588,16 @@ describe("Phase 84 public portal app", () => {
     expect(screen.getByText(redundantSummary)).toBeInTheDocument()
   })
 
-  it("keeps the hot-topic strip visually compact", async () => {
+  it("limits hot topics to three navigable stories", async () => {
     installFetchMock()
     window.location.hash = "#/feed?channel=all"
 
     render(<App />)
 
     const hotTopics = await screen.findByRole("region", { name: "当前热点" })
-    expect(hotTopics).toHaveClass("py-1.5")
-    expect(hotTopics).not.toHaveClass("py-3")
     const hotLinks = within(hotTopics).getAllByRole("link")
-    expect(hotLinks[0]).toHaveClass("py-1")
-    expect(hotLinks[0]).not.toHaveClass("p-2")
-    expect(hotLinks[0]).not.toHaveClass("border")
-    expect(hotLinks[0]).not.toHaveClass("bg-background/80")
-    expect(hotLinks[0]).not.toHaveClass("rounded-md")
+    expect(hotLinks).toHaveLength(3)
+    expect(hotLinks.every((link) => link.getAttribute("href")?.includes("/events/"))).toBe(true)
   })
 
   it("collapses a date group when the date header is clicked", async () => {
@@ -643,7 +652,7 @@ describe("Phase 84 public portal app", () => {
     expect(logo.className).not.toContain("bg-white/[0.03]")
     const sidebar = container.querySelector("aside")
     expect(sidebar?.className).not.toContain("bg-slate-950")
-    expect(sidebar?.className).toContain("bg-card")
+    expect(sidebar?.className).toContain("bg-background")
 
     const utilityNav = screen.getByRole("navigation", { name: "侧边栏辅助菜单" })
     expect(utilityNav.className).toContain("self-start")
@@ -690,13 +699,13 @@ describe("Phase 84 public portal app", () => {
     expect(utilityNav.className).not.toContain("w-max")
     expect(within(utilityNav).queryByRole("link", { name: "About" })).not.toBeInTheDocument()
     expect(within(utilityNav).queryByRole("link", { name: "Method" })).not.toBeInTheDocument()
-    expect(within(utilityNav).getByRole("link", { name: "Sources" }).className).toContain("size-6")
+    expect(within(utilityNav).getByRole("link", { name: "Sources" }).className).toContain("size-11")
     expect(within(utilityNav).getAllByRole("button", { name: /切换主题/ })[0].className).toContain(
-      "size-6",
+      "size-11",
     )
   })
 
-  it("uses the Geist neutral theme without legacy red or one-off blue reader accents", async () => {
+  it("uses shared light/dark tokens without one-off reader accent colours", async () => {
     installFetchMock()
 
     const { container } = render(<App />)
@@ -708,9 +717,9 @@ describe("Phase 84 public portal app", () => {
     const css = readFileSync("src/index.css", "utf8")
     expect(css).toContain("../../design-system/geist-tokens.css")
     const tokenCss = readFileSync("../design-system/geist-tokens.css", "utf8")
-    expect(tokenCss).toContain("--geist-gray-1000: 23 23 23")
-    expect(tokenCss).toContain("--geist-gray-1000: 237 237 237")
-    expect(tokenCss).toContain("--primary: var(--geist-gray-1000)")
+    expect(tokenCss).toContain(":root.dark")
+    expect(tokenCss).toContain("prefers-color-scheme: dark")
+    expect(tokenCss).toContain("--ring: var(--primary)")
     expect(tokenCss).not.toMatch(/356 64% 37%|356 58% 58%|188 86% 53%|188 80% 12%|#22d3ee|#0891b2|cyan/i)
   })
 
@@ -766,7 +775,8 @@ describe("Phase 84 public portal app", () => {
     expect(main).not.toBeNull()
     expect(main?.className).toContain("w-full")
     expect(main?.className).not.toContain("max-w-[1600px]")
-    expect(container.firstElementChild?.className).toContain("lg:grid-cols-[160px_minmax(0,1fr)]")
+    expect(screen.getByRole("link", { name: "跳转到新闻内容" })).toHaveAttribute("href", `#${main?.id}`)
+    expect(main).toHaveAttribute("tabindex", "-1")
   })
 
   it.each([
