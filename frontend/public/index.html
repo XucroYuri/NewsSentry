@@ -13,6 +13,7 @@
     <link rel="dns-prefetch" href="__NEWS_SENTRY_API_BASE__" />
     <link rel="preconnect" href="__NEWS_SENTRY_API_BASE__" crossorigin />
     <script>
+      if ("%MODE%" !== "redesign-preview") {
       window.__NEWS_SENTRY_BOOTSTRAP_PRELOAD__ = fetch(
         "__NEWS_SENTRY_API_BASE__/api/v1/public/bootstrap?featured=true&page_size=20",
         { headers: { Accept: "application/json" } },
@@ -23,6 +24,7 @@
         .catch(function () {
           return null;
         });
+      }
     </script>
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="News Sentry" />

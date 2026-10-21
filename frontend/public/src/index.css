@@ -15,6 +15,9 @@
     font-feature-settings:
       "rlig" 1,
       "calt" 1;
+    font-size: var(--text-body);
+    line-height: 1.65;
+    overflow-wrap: anywhere;
   }
 
   a {
@@ -26,28 +29,123 @@
   [role="button"]:not(:disabled) {
     cursor: pointer;
   }
+
+  html {
+    scroll-padding-block: 1rem 6rem;
+  }
+
+  h1, h2, h3 {
+    text-wrap: pretty;
+  }
 }
 
 @layer components {
-  .news-card-entering {
-    animation: news-card-enter 520ms ease-out both;
+  /* 全宽算式：视口 = 侧栏 + 阅读区；阅读区 = 双侧 gutter + 栏宽 + gap。 */
+  .reader-canvas {
+    min-height: calc(100dvh - var(--header-height));
+    background: rgb(var(--card));
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .news-card-entering {
-      animation: none;
+  .reader-shell {
+    padding-bottom: calc(4.25rem + env(safe-area-inset-bottom));
+  }
+
+  .mobile-navigation {
+    position: fixed;
+    inset: auto 0 0;
+    z-index: 30;
+  }
+
+  .skip-link {
+    position: fixed;
+    top: 1rem;
+    left: 1rem;
+    z-index: 60;
+    transform: translateY(-200%);
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-sm);
+    background: rgb(var(--card));
+    color: rgb(var(--foreground));
+  }
+
+  .skip-link:focus {
+    transform: none;
+  }
+
+  .lead-story:hover h2,
+  .news-card:hover h2 {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.2em;
+  }
+
+  .detail-copy > * {
+    min-width: 0;
+    max-width: 78ch;
+  }
+
+  .article-prose {
+    line-height: 1.95;
+  }
+
+  .lead-assessment {
+    align-self: start;
+  }
+
+  @media (min-width: 1024px) {
+    .reader-shell {
+      padding-bottom: 0;
+    }
+
+    .reader-canvas {
+      margin: 0 0.5rem 0.5rem 0;
+      min-height: calc(100dvh - var(--header-height) - 0.5rem);
+      border: 1px solid rgb(var(--border));
+      border-radius: var(--radius-lg);
+    }
+  }
+
+  @media (min-width: 1600px) {
+    .news-timeline {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      align-items: start;
+    }
+  }
+
+  @media (min-width: 768px) and (max-width: 1023px) {
+    /* 平板保留地区快选，其余条件通过同一筛选抽屉访问。 */
+    .reader-facets .facet-row + .facet-row {
+      display: none;
+    }
+  }
+
+  @media (max-width: 767px) {
+    .reader-facets {
+      display: none;
+    }
+
+    .feed-highlights {
+      display: none;
+    }
+
+    .lead-assessment {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      align-items: center;
     }
   }
 }
 
-@keyframes news-card-enter {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
+/* 全站只用这一种焦点环；覆盖旧组件的 ring/outline 工具类，包括 Radix portal。 */
+:root :focus-visible {
+  outline: 2px solid rgb(var(--ring));
+  outline-offset: 3px;
+  box-shadow: none;
+}
 
-  to {
-    opacity: 1;
-    transform: translateY(0);
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
   }
 }

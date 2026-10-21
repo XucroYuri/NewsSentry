@@ -26,7 +26,7 @@ function resolveApiBase(): string {
   return parsed.origin
 }
 
-function newsSentryPagesMetadata(): Plugin {
+function newsSentryPagesMetadata(localPreview: boolean): Plugin {
   const apiBase = resolveApiBase()
   const headersTemplate = readFileSync(
     path.resolve(__dirname, "cloudflare-pages.headers"),
@@ -36,7 +36,10 @@ function newsSentryPagesMetadata(): Plugin {
   return {
     name: "news-sentry-pages-metadata",
     transformIndexHtml(html) {
-      return html.split("__NEWS_SENTRY_API_BASE__").join(apiBase)
+      const result = html.split("__NEWS_SENTRY_API_BASE__").join(apiBase)
+      return localPreview
+        ? result.replace(/<link rel="(?:dns-prefetch|preconnect)"[^>]*>/g, "")
+        : result
     },
     generateBundle() {
       if (!isCloudflarePages) return
@@ -49,9 +52,9 @@ function newsSentryPagesMetadata(): Plugin {
   }
 }
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   base,
-  plugins: [react(), newsSentryPagesMetadata()],
+  plugins: [react(), newsSentryPagesMetadata(mode === "redesign-preview")],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -76,4 +79,4 @@ export default defineConfig({
   test: {
     environment: "jsdom",
   },
-})
+}))

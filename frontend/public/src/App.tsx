@@ -23,6 +23,7 @@ import { SeoHead } from "@/components/seo/seo-head"
 import { Input } from "@/components/ui/input"
 import {
   Sheet,
+  SheetClose,
   SheetContent,
   SheetDescription,
   SheetHeader,
@@ -218,9 +219,9 @@ function ThemeToggle({
       type="button"
       aria-label={`切换主题：当前${labels[theme]}，点击切换到${labels[nextTheme]}`}
       onClick={() => onChange(nextTheme)}
-      className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-primary/10 hover:text-primary"
+      className="utility-action flex size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
     >
-      <Icon className="size-3" aria-hidden="true" />
+      <Icon className="size-4" aria-hidden="true" />
     </button>
   )
 }
@@ -373,13 +374,13 @@ function NavButton({
       aria-label={item.sublabel ? `${item.label} ${item.sublabel}` : item.label}
       aria-pressed={active}
       onClick={() => onSelect(item.id)}
-      className="group flex w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-lg px-2.5 py-2 text-left text-xs font-medium text-muted-foreground transition hover:bg-primary/10 hover:text-primary aria-pressed:border aria-pressed:border-primary/30 aria-pressed:bg-primary/15 aria-pressed:text-primary"
+      className="group flex w-full min-w-0 max-w-full items-center gap-3 overflow-hidden rounded-md px-3 py-3 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground aria-pressed:bg-accent aria-pressed:text-foreground"
     >
-      <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+      <Icon className="size-4 shrink-0" aria-hidden="true" />
       <span className="min-w-0 flex-1 overflow-hidden">
         <span className="block truncate">{item.label}</span>
         {item.sublabel ? (
-          <span className="block truncate text-[10px] font-normal opacity-70">{item.sublabel}</span>
+          <span className="mt-0.5 block truncate text-xs font-normal text-muted-foreground">{item.sublabel}</span>
         ) : null}
       </span>
     </button>
@@ -401,7 +402,7 @@ function UtilityMenu({
   return (
     <nav
       aria-label="侧边栏辅助菜单"
-      className="grid w-full min-w-0 max-w-full grid-cols-3 gap-0.5 self-start overflow-hidden rounded-full border border-border bg-background/80 p-0.5"
+      className="grid w-full min-w-0 max-w-full grid-cols-3 gap-1 self-start p-1"
     >
       {utilityLinks.map((link) => {
         const Icon = link.icon
@@ -410,15 +411,24 @@ function UtilityMenu({
             key={link.href}
             href={link.href}
             aria-label={link.label}
-            className="flex size-6 items-center justify-center rounded-full text-muted-foreground transition hover:bg-primary/10 hover:text-primary"
+            className="utility-action flex size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             title={link.label}
           >
-            <Icon className="size-3" aria-hidden="true" />
+            <Icon className="size-4" aria-hidden="true" />
           </a>
         )
       })}
       <ThemeToggle theme={theme} onChange={onThemeChange} />
     </nav>
+  )
+}
+
+function BrandMark() {
+  return (
+    <svg viewBox="0 0 32 32" fill="none" className="size-7 shrink-0 text-primary" aria-hidden="true">
+      <path d="M8 28V12l8-8 8 8v16h-6v-8h-4v8H8Z" fill="currentColor" />
+      <circle cx="16" cy="13" r="2" className="fill-background" />
+    </svg>
   )
 }
 
@@ -434,13 +444,12 @@ function SidebarNav({
   onSelect: (id: NavId) => void
 }) {
   return (
-    <aside className="sticky top-0 hidden h-screen w-40 min-w-0 overflow-hidden border-r border-border bg-card px-2 py-3 text-foreground lg:grid lg:grid-rows-[auto_1fr_auto]">
-      <a href="/public-app/" className="mb-3 flex h-10 min-w-0 max-w-full items-center overflow-hidden px-2">
-        <span className="text-base font-black tracking-wide">
-          News<span className="text-primary">Sentry</span>
-        </span>
+    <aside className="reader-sidebar sticky top-0 hidden h-dvh min-w-0 overflow-hidden bg-background px-3 py-4 text-foreground lg:grid lg:grid-rows-[auto_1fr_auto]">
+      <a href="/public-app/" className="mb-6 flex min-h-11 min-w-0 items-center gap-2 px-2">
+        <BrandMark />
+        <span className="text-lg font-semibold tracking-tight">NewsSentry</span>
       </a>
-      <nav aria-label="公共站侧边栏" className="grid min-w-0 content-start gap-1 overflow-hidden">
+      <nav aria-label="公共站侧边栏" className="grid min-w-0 content-start gap-1 overflow-hidden p-1">
         {navItems.map((item) => (
           <NavButton key={item.id} item={item} active={active === item.id} onSelect={onSelect} />
         ))}
@@ -460,7 +469,7 @@ function MobileNavigation({
   return (
     <nav
       aria-label="移动端公共菜单"
-      className="z-40 grid grid-cols-5 border-t bg-background/95 px-2 pb-[calc(env(safe-area-inset-bottom)+0.2rem)] pt-1 shadow-geist-popover backdrop-blur lg:hidden"
+      className="mobile-navigation grid grid-cols-5 border-t bg-card px-2 pb-[calc(env(safe-area-inset-bottom)+0.25rem)] pt-1 lg:hidden"
     >
       {navItems.map((item) => {
         const Icon = item.icon
@@ -470,7 +479,7 @@ function MobileNavigation({
             type="button"
             aria-pressed={active === item.id}
             onClick={() => onSelect(item.id)}
-            className="flex min-w-0 flex-col items-center justify-center gap-0.5 rounded-md px-1 py-1 text-xs text-muted-foreground aria-pressed:text-primary"
+            className="flex min-h-12 min-w-0 flex-col items-center justify-center gap-1 rounded-md px-1 py-1 text-xs text-muted-foreground aria-pressed:bg-accent aria-pressed:text-foreground"
           >
             <Icon className="size-4" aria-hidden="true" />
             <span className="truncate">{item.label}</span>
@@ -495,15 +504,17 @@ function MobileHeader({
   onNavigate: (id: NavId) => void
 }) {
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b bg-background/90 px-3 py-3 backdrop-blur lg:hidden">
-      <a href="/public-app/" className="min-w-0">
-        <p className="truncate text-sm font-black">News Sentry</p>
-        <p className="truncate text-xs text-muted-foreground">新闻哨兵</p>
+    <header className="reader-header flex min-h-16 items-center justify-between gap-3 px-gutter py-2">
+      <a href="/public-app/" className="flex min-w-0 items-center gap-2 lg:hidden">
+        <BrandMark />
+        <span className="truncate text-base font-semibold">News Sentry</span>
       </a>
+      <p className="hidden text-sm font-medium text-muted-foreground lg:block">全球新闻 <span className="mx-2" aria-hidden="true">/</span> 阅读工作台</p>
       <div className="flex items-center gap-2">
+        <ThemeToggle theme={theme} onChange={onThemeChange} />
         <Sheet>
           <SheetTrigger asChild>
-            <Button variant="outline" size="icon" aria-label="打开菜单">
+            <Button variant="ghost" size="icon" className="lg:hidden" aria-label="打开菜单">
               <MenuIcon className="size-4" aria-hidden="true" />
             </Button>
           </SheetTrigger>
@@ -517,14 +528,18 @@ function MobileHeader({
             <div className="grid gap-4 pr-4">
               <div className="grid gap-2">
                 {navItems.map((item) => (
-                  <NavButton key={item.id} item={item} active={false} onSelect={onNavigate} />
+                  <SheetClose asChild key={item.id}>
+                    <button type="button" onClick={() => onNavigate(item.id)} className="min-h-11 rounded-md px-3 text-left text-sm hover:bg-accent">
+                      {item.label}
+                    </button>
+                  </SheetClose>
                 ))}
               </div>
               <UtilityMenu theme={theme} onThemeChange={onThemeChange} />
             </div>
           </SheetContent>
         </Sheet>
-        <Button variant="outline" size="icon" onClick={onRefresh} disabled={refreshing} aria-label="刷新">
+        <Button variant="ghost" size="icon" onClick={onRefresh} disabled={refreshing} aria-label="刷新">
           {refreshing ? (
             <Loader2Icon className="size-4 animate-spin" aria-hidden="true" />
           ) : (
@@ -551,9 +566,10 @@ function AppShell({
 }) {
   const { theme, setTheme } = useThemePreference()
   return (
-    <div className="h-screen min-h-screen overflow-hidden bg-background text-foreground lg:grid lg:h-auto lg:min-h-screen lg:grid-cols-[160px_minmax(0,1fr)] lg:overflow-visible">
+    <div className="reader-shell min-h-dvh bg-background text-foreground lg:grid lg:grid-cols-[var(--sidebar-width)_minmax(0,1fr)]">
+      <a className="skip-link" href="#main-content">跳转到新闻内容</a>
       <SidebarNav active={activeNav} theme={theme} onThemeChange={setTheme} onSelect={onNavigate} />
-      <div className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)_auto] lg:block lg:h-auto lg:min-h-0">
+      <div className="min-w-0">
         <MobileHeader
           onRefresh={onRefresh}
           refreshing={refreshing}
@@ -561,7 +577,10 @@ function AppShell({
           onThemeChange={setTheme}
           onNavigate={onNavigate}
         />
-        <div className="min-h-0 min-w-0 overflow-y-auto lg:overflow-visible">{children}</div>
+        {import.meta.env.MODE === "redesign-preview" ? (
+          <p className="preview-notice px-gutter pb-3 text-meta text-muted-foreground">本地预览 · 示例内容</p>
+        ) : null}
+        <div className="reader-canvas min-w-0">{children}</div>
         <MobileNavigation active={activeNav} onSelect={onNavigate} />
       </div>
     </div>
@@ -588,7 +607,7 @@ function FilterPanel({
   }, [filters.search])
 
   return (
-    <div className="grid w-full min-w-0 max-w-full gap-4 overflow-hidden">
+    <div className="grid w-full min-w-0 max-w-full gap-4 p-1">
       <form
         className="grid w-full min-w-0 max-w-full gap-2"
         onSubmit={(event) => {
@@ -599,7 +618,7 @@ function FilterPanel({
         <label className="text-xs font-medium text-muted-foreground" htmlFor="public-search">
           搜索新闻
         </label>
-        <div className="grid w-full min-w-0 max-w-full grid-cols-[minmax(0,1fr)_2.5rem] gap-2">
+        <div className="grid w-full min-w-0 max-w-full grid-cols-[minmax(0,1fr)_2.75rem] gap-2">
           <Input
             id="public-search"
             value={search}
@@ -622,7 +641,7 @@ function FilterPanel({
             </Button>
           ) : null}
         </div>
-        <div className="flex w-full min-w-0 gap-2 overflow-x-auto lg:grid lg:grid-cols-2">
+        <div className="flex w-full min-w-0 flex-wrap gap-2">
           {facets.issues
             .map((issue) => ({
               ...issue,
@@ -635,17 +654,17 @@ function FilterPanel({
               <Button
                 key={issue.id}
                 type="button"
-                variant={filters.issue === issue.label ? "default" : "outline"}
+                variant={filters.issue === issue.label ? "secondary" : "outline"}
                 size="sm"
                 aria-pressed={filters.issue === issue.label}
                 title={issue.label}
                 onClick={() =>
                   onChange({ issue: filters.issue === issue.label ? undefined : issue.label })
                 }
-                className="min-w-0 shrink-0 justify-start lg:w-full lg:shrink"
+                className="min-w-0 max-w-full justify-start"
               >
                 <span className="truncate">{issue.displayLabel}</span>
-                <span className="ml-auto text-[10px] opacity-70">{issue.count}</span>
+                <span className="ml-auto text-xs tabular-nums text-muted-foreground">{issue.count}</span>
               </Button>
             ))}
         </div>
@@ -660,7 +679,7 @@ function FilterPanel({
             </Button>
           ) : null}
         </div>
-        <div className="flex w-full min-w-0 gap-2 overflow-x-auto lg:grid lg:grid-cols-2">
+        <div className="flex w-full min-w-0 flex-wrap gap-2">
           {facets.related
             .map((related) => ({
               ...related,
@@ -673,7 +692,7 @@ function FilterPanel({
               <Button
                 key={related.id}
                 type="button"
-                variant={filters.related === related.label ? "default" : "outline"}
+                variant={filters.related === related.label ? "secondary" : "outline"}
                 size="sm"
                 aria-pressed={filters.related === related.label}
                 title={related.label}
@@ -682,10 +701,10 @@ function FilterPanel({
                     related: filters.related === related.label ? undefined : related.label,
                   })
                 }
-                className="min-w-0 shrink-0 justify-start lg:w-full lg:shrink"
+                className="min-w-0 max-w-full justify-start"
               >
                 <span className="truncate">{related.displayLabel}</span>
-                <span className="ml-auto text-[10px] opacity-70">{related.count}</span>
+                <span className="ml-auto text-xs tabular-nums text-muted-foreground">{related.count}</span>
               </Button>
             ))}
         </div>
@@ -807,18 +826,18 @@ function FacetFilterRow({
   if (!allLabel && items.length === 0) return null
 
   return (
-    <div className="grid min-w-0 gap-1 md:grid-cols-[4.25rem_minmax(0,1fr)] md:items-start">
-      <span className="pt-1.5 text-[11px] font-semibold leading-none text-muted-foreground">
+    <div className="facet-row grid min-w-0 gap-2 md:grid-cols-[3rem_minmax(0,1fr)] md:items-start">
+      <span className="pt-3 text-meta font-medium text-muted-foreground">
         {label}
       </span>
       <div className="flex min-w-0 flex-wrap gap-1.5 overflow-visible" aria-label={`${label}筛选`}>
         {allLabel ? (
           <Button
             type="button"
-            variant={activeValue ? "outline" : "default"}
+            variant="ghost"
             size="sm"
             aria-pressed={!activeValue}
-            className="h-7 shrink-0 rounded-md px-2 text-xs"
+            className="facet-option shrink-0 rounded-md px-3 text-sm aria-pressed:bg-accent aria-pressed:text-foreground"
             onClick={() => onSelect(undefined)}
           >
             {allLabel}
@@ -828,16 +847,16 @@ function FacetFilterRow({
           <Button
             key={item.id}
             type="button"
-            variant={activeValue === item.id ? "default" : "outline"}
+            variant="ghost"
             size="sm"
             aria-pressed={activeValue === item.id}
             title={item.label}
-            className="h-7 max-w-[9rem] rounded-md px-2 text-xs"
+            className="facet-option max-w-[12rem] rounded-md px-3 text-sm aria-pressed:bg-accent aria-pressed:text-foreground"
             onClick={() => onSelect(item.id)}
           >
             <span className="truncate">{item.label}</span>
             {typeof item.count === "number" ? (
-              <span aria-hidden="true" className="ml-1 text-[10px] opacity-70">
+              <span aria-hidden="true" className="ml-1 text-xs tabular-nums text-muted-foreground">
                 {item.count}
               </span>
             ) : null}
@@ -985,16 +1004,16 @@ function ReaderControls({
   }, [filters.search])
 
   return (
-    <section className="grid gap-2 rounded-lg border bg-card/95 p-3 dark:bg-card/80">
-      <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
+    <section className="reader-controls grid gap-stack">
+      <div className="flex flex-col gap-stack xl:flex-row xl:items-center xl:justify-between">
         <div className="min-w-0">
-          <h1 className="text-lg font-semibold">{heading}</h1>
-          <p className="hidden text-xs text-muted-foreground sm:block">{description}</p>
+          <h1 className="text-title font-semibold">{heading}</h1>
+          <p className="mt-2 hidden text-meta text-muted-foreground sm:block">{description}</p>
         </div>
         <div className="flex items-center gap-1.5 xl:w-[500px]">
           <div ref={searchContainerRef} className="relative min-w-0 flex-1">
             <form
-              className="grid grid-cols-[minmax(0,1fr)_2rem] gap-1.5"
+              className="grid grid-cols-[minmax(0,1fr)_2.75rem] gap-2"
               onSubmit={(event) => {
                 event.preventDefault()
                 setSuggestionsVisible(false)
@@ -1028,9 +1047,9 @@ function ReaderControls({
                     setSuggestionIndex(-1)
                   }
                 }}
-                className="h-8 min-w-0 rounded-md"
+                className="min-w-0 rounded-md"
               />
-              <Button type="submit" size="icon" aria-label="搜索" className="size-8 rounded-md">
+              <Button type="submit" size="icon" aria-label="搜索">
                 <SearchIcon className="size-3.5" aria-hidden="true" />
               </Button>
             </form>
@@ -1055,8 +1074,7 @@ function ReaderControls({
                       className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-accent aria-selected:bg-accent ${
                         suggestionIndex === index ? "bg-accent" : ""
                       }`}
-                      onMouseDown={(event) => {
-                        event.preventDefault() // 阻止 blur 抢先关闭建议
+                      onClick={() => {
                         setSearch(label)
                         setSuggestionsVisible(false)
                         setSuggestionIndex(-1)
@@ -1076,7 +1094,7 @@ function ReaderControls({
         </div>
       </div>
 
-      <div className="grid gap-1.5" role="region" aria-label="地区议题相关筛选">
+      <div className="reader-facets grid gap-2 border-t pt-stack" role="region" aria-label="地区议题相关筛选">
         <FacetFilterRow
           label="地区"
           allLabel="全部"
@@ -1203,6 +1221,15 @@ function UpdatePage({ updatedAt }: { updatedAt?: string | null }) {
 export default function App() {
   const { route, navigate } = useHashRoute()
   const [filters, setFilters] = useState<FeedFilters>(() => filtersFromRoute(route))
+  const pageKey = route.name === "event" ? `event:${route.eventId}` : route.name
+  const previousPageKey = useRef(pageKey)
+
+  useEffect(() => {
+    if (previousPageKey.current !== pageKey) {
+      document.getElementById("main-content")?.focus()
+      previousPageKey.current = pageKey
+    }
+  }, [pageKey])
 
   useEffect(() => {
     if (route.name === "feed") {
@@ -1371,8 +1398,8 @@ export default function App() {
       onNavigate={navigatePrimary}
     >
       <SeoHead payload={appSeoPayload} locale={route.locale} />
-      <main className="grid w-full min-w-0 gap-3 px-2.5 pb-4 pt-2.5 sm:px-3 lg:px-4 lg:py-4 2xl:px-5">
-        <section className="grid min-w-0 gap-3">
+      <main id="main-content" tabIndex={-1} className="grid w-full min-w-0 gap-section p-gutter">
+        <section className="grid min-w-0 gap-section">
           {mainContent}
         </section>
       </main>
