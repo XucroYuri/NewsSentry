@@ -476,12 +476,14 @@ describe("Phase 84 public portal app", () => {
           feed([
             makeItem("event-with-image", {
               publishedAt,
+              targetId: "global",
+              targetLabel: "全球新闻监控",
               title: "微软双向转售 GPT 与 DeepSeek 成全球最大 AI 中间商",
               originalTitle:
                 "Microsoft quietly becomes China's gateway to OpenAI and routes models through Singapore",
               summary:
                 "微软把 OpenAI 与 DeepSeek 模型同时接入跨境客户网络，折射出全球 AI 供应链和合规路径正在重组。",
-              tags: ["DeepSeek", "Microsoft", "行业动态"],
+              tags: ["全球", "DeepSeek", "Microsoft", "行业动态"],
               issueTags: ["科技"],
               relatedTags: ["涉中", "涉美"],
               regionTags: ["全球"],
@@ -516,10 +518,11 @@ describe("Phase 84 public portal app", () => {
     expect(within(card).getByText(/全球 AI 供应链和合规路径正在重组/)).toBeInTheDocument()
     const metaRow = card.querySelector(".flex.min-w-0.items-start.justify-between")
     if (!metaRow) throw new Error("Expected news card meta row")
-    expect(within(metaRow as HTMLElement).getByText("全球")).toBeInTheDocument()
+    expect(within(metaRow as HTMLElement).getAllByText("全球")).toHaveLength(1)
     expect(within(metaRow as HTMLElement).getByText("科技")).toBeInTheDocument()
-    expect(within(metaRow as HTMLElement).getByText("涉中")).toBeInTheDocument()
-    expect(within(metaRow as HTMLElement).getByText("DeepSeek")).toBeInTheDocument()
+    for (const omittedTag of ["涉中", "涉美", "DeepSeek", "Microsoft", "行业动态"]) {
+      expect(within(metaRow as HTMLElement).queryByText(omittedTag)).not.toBeInTheDocument()
+    }
     expect(within(card).queryByLabelText("新闻标签")).not.toBeInTheDocument()
     const scoreBadge = within(metaRow as HTMLElement).getByLabelText("Breaking News 分值 75")
     expect(scoreBadge).toHaveTextContent("75")
@@ -673,7 +676,7 @@ describe("Phase 84 public portal app", () => {
     expect(container.querySelector(".grid.gap-1.text-xs.text-slate-500")).toBeNull()
   })
 
-  it("constrains the desktop sidebar controls so active items cannot spill into the content column", async () => {
+  it("constrains sidebar controls while leaving room for focus and allowing vertical scrolling", async () => {
     installFetchMock()
     window.location.hash = "#/daily?date=2026-06-09"
 
@@ -681,10 +684,12 @@ describe("Phase 84 public portal app", () => {
 
     await screen.findByRole("heading", { name: "新闻日报" })
     const sidebar = container.querySelector("aside")
-    expect(sidebar?.className).toContain("overflow-hidden")
+    expect(sidebar?.className).toContain("overflow-y-auto")
+    expect(sidebar?.className).toContain("scroll-p-1.5")
     const nav = screen.getByRole("navigation", { name: "公共站侧边栏" })
     expect(nav.className).toContain("min-w-0")
-    expect(nav.className).toContain("overflow-hidden")
+    expect(nav.className).not.toContain("overflow-hidden")
+    expect(nav.className).toContain("p-1.5")
 
     const activeDailyButton = within(nav).getByRole("button", {
       name: /新闻日报 Daily News/,
@@ -1187,11 +1192,50 @@ describe("Phase 84 public portal app", () => {
     expect(screen.getByRole("button", { name: "外交" })).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /ANSA.it/ })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole("button", { name: "筛选" }))
+    const trigger = screen.getByRole("button", { name: "筛选" })
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    trigger.focus()
+    fireEvent.click(trigger)
 
     expect(await screen.findByRole("heading", { name: "筛选新闻" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: /ANSA.it/ })).toBeInTheDocument()
     expect(screen.getByLabelText("搜索新闻")).toBeInTheDocument()
+    const dialog = screen.getByRole("dialog", { name: "筛选新闻" })
+    const issues = within(dialog).getByRole("region", { name: "议题筛选" })
+    const related = within(dialog).getByRole("region", { name: "相关筛选" })
+    const regions = within(dialog).getByRole("region", { name: "地区筛选" })
+    fireEvent.click(within(issues).getByRole("button", { name: /外交/ }))
+    fireEvent.click(within(related).getByRole("button", { name: /涉中/ }))
+    fireEvent.click(within(regions).getByRole("button", { name: /意大利/ }))
+    expect(new URLSearchParams(window.location.search).get("issue")).toBe("国际关系")
+    expect(new URLSearchParams(window.location.search).get("related")).toBe("涉中")
+    expect(new URLSearchParams(window.location.search).get("target_id")).toBe("italy")
+
+    fireEvent.keyDown(dialog, { key: "Escape" })
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+    expect(trigger).toHaveFocus()
+  })
+
+  it("clears a compact selected filter while preserving the other query values", async () => {
+    installFetchMock()
+    window.history.replaceState({}, "", "/public-app/?channel=all&target_id=italy&issue=国际关系&related=涉中&q=trade")
+
+    render(<App />)
+
+    await findLeadStory()
+    const selected = screen.getByRole("region", { name: "已选筛选条件" })
+    expect(within(selected).getByRole("button", { name: "清除地区：意大利" })).toBeInTheDocument()
+    expect(within(selected).getByRole("button", { name: "清除相关：涉中" })).toBeInTheDocument()
+    expect(within(selected).getByRole("button", { name: "清除搜索：trade" })).toBeInTheDocument()
+    fireEvent.click(within(selected).getByRole("button", { name: "清除议题：外交" }))
+
+    const query = new URLSearchParams(window.location.search)
+    expect(query.has("issue")).toBe(false)
+    expect(query.get("target_id")).toBe("italy")
+    expect(query.get("related")).toBe("涉中")
+    expect(query.get("q")).toBe("trade")
+    expect(within(selected).queryByRole("button", { name: "清除议题：外交" })).not.toBeInTheDocument()
+    expect(screen.getByRole("textbox", { name: "快速搜索" })).toHaveValue("trade")
   })
 
   it("uses region chips as the primary region entry and keeps the feed shape", async () => {

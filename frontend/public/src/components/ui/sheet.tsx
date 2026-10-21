@@ -35,7 +35,7 @@ const SheetContent = React.forwardRef<
     <SheetPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed inset-y-0 right-0 z-50 flex h-dvh w-[min(92vw,26rem)] flex-col gap-6 overflow-y-auto border-l bg-card p-5 shadow-lg outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
+        "focus-inset fixed inset-y-0 right-0 z-50 flex h-dvh w-[min(92vw,26rem)] flex-col gap-6 overflow-y-auto scroll-p-1.5 border-l bg-card p-5 shadow-lg outline-none data-[state=closed]:animate-out data-[state=open]:animate-in",
         className,
       )}
       {...props}

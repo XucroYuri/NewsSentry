@@ -31,7 +31,7 @@
   }
 
   html {
-    scroll-padding-block: 1rem 6rem;
+    scroll-padding-block: 1rem calc(var(--mobile-navigation-height) + env(safe-area-inset-bottom) + 1rem);
   }
 
   h1, h2, h3 {
@@ -46,14 +46,15 @@
     background: rgb(var(--card));
   }
 
-  .reader-shell {
-    padding-bottom: calc(4.25rem + env(safe-area-inset-bottom));
+  .reader-shell #main-content {
+    padding-bottom: calc(var(--mobile-navigation-height) + env(safe-area-inset-bottom) + var(--space-gutter));
   }
 
   .mobile-navigation {
     position: fixed;
     inset: auto 0 0;
     z-index: 30;
+    height: calc(var(--mobile-navigation-height) + env(safe-area-inset-bottom));
   }
 
   .skip-link {
@@ -93,8 +94,12 @@
   }
 
   @media (min-width: 1024px) {
-    .reader-shell {
-      padding-bottom: 0;
+    html {
+      scroll-padding-bottom: 1rem;
+    }
+
+    .reader-shell #main-content {
+      padding-bottom: var(--space-gutter);
     }
 
     .reader-canvas {
@@ -120,10 +125,6 @@
   }
 
   @media (max-width: 767px) {
-    .reader-facets {
-      display: none;
-    }
-
     .feed-highlights {
       display: none;
     }
@@ -140,6 +141,11 @@
   outline: 2px solid rgb(var(--ring));
   outline-offset: 3px;
   box-shadow: none;
+}
+
+/* 保留统一轮廓；贴着裁切边界的中性控件改向内绘制，避免滚动容器裁掉焦点。 */
+:root .focus-inset:focus-visible {
+  outline-offset: -3px;
 }
 
 @media (prefers-reduced-motion: reduce) {
