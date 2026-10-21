@@ -16,10 +16,10 @@ npm run dev:preview
 
 ```sh
 npm run build:preview --prefix frontend/public
-npm run preview --prefix frontend/public
+npm run preview:preview --prefix frontend/public
 ```
 
-此时端口为 5174。预览模式显示“本地预览 · 示例内容”，只使用 `frontend/public/src/preview/local-preview.ts` 中的虚构样例；所有 `fetch` 在浏览器内响应，未知端点和写入返回 404，不连接后台。普通 `npm run build` 不包含预览数据；两种构建共用 `dist/`，以最后一次构建为准。
+此时端口为 5174。预览模式显示“本地预览 · 示例内容”，只使用 `frontend/public/src/preview/local-preview.ts` 中的虚构样例；所有 `fetch` 在浏览器内响应，未知端点和写入返回 404，不连接后台。普通 `npm run build` 不包含预览数据。预览构建输出到 `frontend/public/dist-preview/`，不会覆盖生产构建的 `dist/`。
 
 ## 原则与 token
 
