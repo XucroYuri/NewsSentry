@@ -115,6 +115,10 @@ jobs:
         env:
           SLO_ENVIRONMENT: ${{ steps.slo-metadata.outputs.environment }}
           SLO_DEPLOYED_COMMIT: ${{ steps.slo-metadata.outputs.deployed_commit }}
+          BOOTSTRAP_WEEKLY_SLO: ${{ github.event.inputs.bootstrap_weekly_slo || 'false' }}
+          TARGET: ${{ github.event.inputs.target || '' }}
+          LIMIT: ${{ github.event.inputs.limit || '' }}
+          MAX_FAILED: ${{ github.event.inputs.max_failed || '' }}
         run: |
           set -euo pipefail
           args=(
@@ -135,17 +139,17 @@ jobs:
           )
           if [[ -f /tmp/news-sentry-source-health-slo-previous.json ]]; then
             args+=(--previous-summary-json /tmp/news-sentry-source-health-slo-previous.json)
-          elif [[ "${{ github.event.inputs.bootstrap_weekly_slo || 'false' }}" == "true" ]]; then
+          elif [[ "${BOOTSTRAP_WEEKLY_SLO}" == "true" ]]; then
             args+=(--allow-weekly-bootstrap)
           fi
-          if [[ -n "${{ github.event.inputs.target || '' }}" ]]; then
-            args+=(--target "${{ github.event.inputs.target }}")
+          if [[ -n "${TARGET}" ]]; then
+            args+=(--target "${TARGET}")
           fi
-          if [[ -n "${{ github.event.inputs.limit || '' }}" ]]; then
-            args+=(--limit "${{ github.event.inputs.limit }}")
+          if [[ -n "${LIMIT}" ]]; then
+            args+=(--limit "${LIMIT}")
           fi
-          if [[ -n "${{ github.event.inputs.max_failed || '' }}" ]]; then
-            args+=(--max-failed "${{ github.event.inputs.max_failed || '' }}")
+          if [[ -n "${MAX_FAILED}" ]]; then
+            args+=(--max-failed "${MAX_FAILED}")
           fi
           python tools/source_health_audit.py "${args[@]}"
 
