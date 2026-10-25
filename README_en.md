@@ -7,16 +7,14 @@
 <p align="center">
   <strong>AI-Powered Multilingual News Intelligence Platform</strong><br>
   Real-time global source tracking · Intelligent event assessment · Decision briefings on autopilot<br>
-  3,020 tests · 87% coverage · mypy strict · ruff zero
+  mypy strict · ruff zero · quality gates in docs/status.md
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.0--rc2-blue.svg" alt="version" />
+  <img src="https://img.shields.io/github/v/release/XucroYuri/NewsSentry?label=release" alt="release" />
   <img src="https://img.shields.io/badge/python-3.11+-3776AB.svg?logo=python&logoColor=white" alt="python" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-orange.svg" alt="license" />
   <img src="https://img.shields.io/badge/ruff-0%20errors-success.svg" alt="ruff" />
-  <img src="https://img.shields.io/badge/tests-3020%20passed-brightgreen.svg" alt="tests" />
-  <img src="https://img.shields.io/badge/coverage-87%25-9cf.svg" alt="coverage" />
 </p>
 
 <p align="center">
@@ -192,6 +190,8 @@ News Sentry is fully YAML-configuration driven. Add new sources, countries, and 
 | 🇩🇪 **germany** | de→zh | 22 | 46 | Full-dimensional Germany news |
 | 🇫🇷 **france** | fr→zh | 21 | 45 | Full-dimensional France news |
 
+> These are flagship examples; the full configuration has **81 targets** spanning global regions and topics. See `config/targets/` for the live list.
+
 Add a new country (zero code):
 
 ```bash
@@ -278,9 +278,13 @@ pip install -e ".[api,proxy]"
 curl http://localhost:8000/api/v1/health
 ```
 
-### systemd (VPS Production)
+### Cloudflare-native runtime (production)
 
-Automatically deployed via GitHub Actions on push to `main`. See `.github/workflows/deploy.yml`.
+Production runs on the Cloudflare-native stack: Workers + D1 + KV + Pages, with a 15-minute Cron collection cycle serving news-sentry.com. Volatile runtime facts (production commit, test counts and coverage, source health, continuity status) live only in [`docs/status.md`](docs/status.md).
+
+### systemd (VPS, legacy rollback)
+
+The VPS is kept only as a legacy rollback path and is not a production dependency.
 
 ### Cron (development)
 
@@ -303,7 +307,7 @@ Automatically deployed via GitHub Actions on push to `main`. See `.github/workfl
 | Storage | Markdown/YAML + SQLite (aiosqlite) | File protocol + async indexing |
 | Config | PyYAML 6.0+ | Fully YAML-driven |
 | Cache | cachetools | LRU cache + TTL |
-| Testing | pytest 8.0+ | 3,020 tests + coverage tracking |
+| Testing | pytest 8.0+ | Full regression suite + coverage tracking |
 
 ---
 
@@ -320,7 +324,7 @@ python tools/scan_sensitive_data.py
 **Quality gates:**
 - `ruff check` — 0 errors
 - `mypy --strict` — 0 issues
-- `pytest` — 3,020 tests pass
+- `pytest` — full suite passes (counts and coverage in docs/status.md)
 - `tsc --noEmit` (frontend) — 0 errors
 
 ---

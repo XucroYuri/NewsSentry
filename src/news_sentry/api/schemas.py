@@ -5,6 +5,7 @@ All request/response models used by the FastAPI application.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -1075,6 +1076,18 @@ class RulesOptimizeRequest(BaseModel):
 
     target_id: str
     dry_run: bool = True
+
+    @field_validator("target_id")
+    @classmethod
+    def validate_target_id_slug(cls, value: str) -> str:
+        # SEC-02：target_id 直接拼进 config/filters/{target_id}/default.yaml 路径，
+        # 必须是严格 slug，杜绝 ../、绝对路径、编码穿越等路径逃逸。
+        if not value or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", value):
+            raise ValueError(
+                "Invalid target_id: only lowercase letters, digits, '-' and '_' allowed "
+                "(max 64 chars, must start with alphanumeric)"
+            )
+        return value
 
 
 class RulesOptimizeResponse(BaseModel):

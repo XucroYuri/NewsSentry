@@ -4170,15 +4170,26 @@ def create_app(
         user: dict[str, Any] = Depends(require_permission("write")),
     ) -> RulesOptimizeResponse:
         """触发规则优化。"""
-        filter_yaml = (_config_base_dir() / "filters" / req.target_id / "default.yaml").resolve()
+        # SEC-02 纵深防御：Pydantic 层已做 slug 校验（422），此处再显式校验一次，
+        # 并在 resolve() 后强制路径位于 filters 根 / data 根之内，杜绝路径逃逸。
+        try:
+            _validate_target_slug(req.target_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        filters_root = (_config_base_dir() / "filters").resolve()
+        filter_yaml = (filters_root / req.target_id / "default.yaml").resolve()
+        if not filter_yaml.is_relative_to(filters_root):
+            raise HTTPException(status_code=400, detail="Invalid target_id: path escapes filters root")
         if not filter_yaml.exists():
             raise HTTPException(status_code=404, detail=f"Filter config not found: {filter_yaml}")
         import news_sentry.core._state as _st2
         from news_sentry.core.rules_optimizer import RulesOptimizer
 
-        data_dir = (
-            _st2._data_dir / req.target_id if _st2._data_dir else Path("data") / req.target_id
-        )
+        data_root = (_st2._data_dir if _st2._data_dir else Path("data")).resolve()
+        data_dir = (data_root / req.target_id).resolve()
+        if not data_dir.is_relative_to(data_root):
+            raise HTTPException(status_code=400, detail="Invalid target_id: path escapes data root")
         optimizer = RulesOptimizer(filter_yaml, data_dir)
         result = optimizer.optimize(dry_run=req.dry_run)
         return RulesOptimizeResponse(

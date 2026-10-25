@@ -71,6 +71,8 @@ flowchart TB
 - **管道阶段**：四个顺序执行的阶段，每个阶段处理并传递 NewsEvent
 - **外部适配**：AI Provider 供研判/翻译使用，RSS-Bridge 供社媒采集使用
 - **文件存储**：文件系统目录协议，每个目录有明确的语义
+- **Cloudflare 原生运行面**：`frontend/cloudflare/`（Workers + `wrangler.toml` + D1 migrations）承载 TS 采集→研判→公开读管线；`backend/` TS API 模块
+- **前端与桌面**：`frontend/admin/` 管理后台、`frontend/public/` 公开阅读器；`clients/tauri/` 桌面客户端
 
 ---
 
@@ -134,7 +136,7 @@ flowchart LR
 | `docs/contracts-canonical.md` | **口径规范基准** | 字段命名、分值量纲、目录映射、pipeline_stage 枚举的唯一权威来源 |
 | `docs/architecture.md` | **架构总览** | 系统架构、数据流、目录结构 |
 | `docs/external-integration-strategy.md` | **外部接入策略** | RSS-Bridge 接入原则、Provider chain 设计 |
-| `schemas/` (13 份 JSON Schema) | **机器可读契约** | 与 contracts-canonical.md 双向绑定 (ADR-0014) |
+| `schemas/` (JSON Schema) | **机器可读契约** | 与 contracts-canonical.md 双向绑定 (ADR-0014) |
 | `config/` | **运行时配置骨架** | 各国参数独立封装 (ADR-0015) |
 | `src/news_sentry/` | **Python 实现** | Python 3.11+ / Pydantic v2 (ADR-0012, ADR-0013) |
 
@@ -300,13 +302,13 @@ flowchart LR
 
 ## Phase 完成状态
 
-**v1.0.0 主线 23 个 Phase 全部完成。v2.0 重构 Phase 1-5 已完成。**
+**v1.0.0 主线 23 个 Phase 全部完成；v2.0 重构 Phase 1-10 完成；Cloudflare 原生迁移 Phase A + B1-B4 完成。**
 
 | Phase | 名称 | 状态 |
 |-------|------|------|
 | 1-7 | 基础框架 + 多 Target 扩展 | ✅ |
 | 8-11 | Obsidian 同步 + AI 研判优化 | ✅ |
-| 12 | Italy 信源矩阵 (163 源 + 14 社媒维度) | ✅ |
+| 12 | Italy 信源矩阵 + 社媒维度 | ✅ |
 | 13 | 评测集 (250 条) | ✅ |
 | 14 | AI Judge 优化 | ✅ |
 | 15 | Cloud VPS 部署 | ✅ |
@@ -341,16 +343,21 @@ flowchart LR
 | M-31 | 前端依赖管理规范化 — 根 package.json + .nvmrc + 移除死依赖 | ✅ |
 | M-32 | public 前端独立化 — outDir dist/ + base 双模 + Cloudflare Pages deploy job + check.sh --frontend | ✅ |
 
-**当前状态：** Phase 1-10 全部完成。M-12 ~ M-32 完成。项目处于 v2.0 RC 稳定基线。
-- **Tag:** v2.0.0-rc3
-- **Commit:** `c2a052e0`
-- **测试:** 2,738 collected, 2,736 passed, 2 skipped
-- **覆盖率:** 85%
-- **Type:** mypy strict + ruff: 零错误
-- **生产:** news-sentry.com — `{"status": "ok"}`
-- **Docker:** ghcr.io/xucroyuri/news-sentry (279MB)
-- **品牌:** 金色瞭望塔, 已挂载管理面板 + README
-- **发布:** CHANGELOG.md + .github/release.yml 就绪
+**当前阶段：Cloudflare 原生（Cloudflare-native）迁移，Phase A + B1-B4 已完成。**
+
+生产公开面与采集闭环已由 TypeScript 在 Cloudflare Worker 侧落地，Python 侧（`src/news_sentry/`）保持采集/研判/评分的**行为基准**地位：
+
+| Phase | 内容 |
+|-------|------|
+| Phase A | 公开读 KV 快照优先：公开读热路径从 D1 查询切到 KV 读取，双写快照，未命中回退 D1 |
+| Phase B1 | 评分器 TS 移植：latent 新闻价值评分器纯函数移植，与 Python 逐位对齐 |
+| Phase B2 | 采集层：批次调度 + 抓取 + 自研 RSS 解析，产出可移植 `CollectedEvent` |
+| Phase B3 | 规则过滤/分类/聚类/研判 TS 移植，全部为配置驱动的纯函数 |
+| Phase B4 | 写穿管道：D1 游标/水位持久化 + 幂等 upsert + 快照刷新，端到端采集闭环 |
+
+**生产运行面**：Cloudflare Workers + D1 + KV + Pages，15 分钟 Cron 采集推进，公开站点 news-sentry.com。TS 各 API 均有对应 Python-parity 单元测试。
+
+> 会变化的运行态事实（生产 commit / Worker version、测试计数与覆盖率、信源健康比例、连续性状态）**以 [`docs/status.md`](./docs/status.md) 为唯一来源**，本文件不再复制这些数字。
 
 ---
 
@@ -367,10 +374,11 @@ flowchart LR
 
 ## 项目当前状态速查
 
-- **Python 版本**：3.11+ / Pydantic v2
-- **测试规模**：2,738 tests, 85% 覆盖率, ruff=0, mypy=0, frontend=0
-- **监控目标**：81 targets (italy, china-watch-en, japan, germany, france + 76 更多)
-- **信源规模**：244 源 (147 RSS + 97 API)，覆盖 81 个 target
+- **Python 版本**：3.11+ / Pydantic v2（采集/研判/评分行为基准）
+- **TypeScript**：Cloudflare Workers 生产面 + `backend/` TS API 模块（`frontend/cloudflare/`、`frontend/admin/`、`frontend/public/`）
+- **监控目标**：81 个已配置 target（italy、china-watch-en、japan、germany、france 等，覆盖全球区域与议题）
+- **信源配置**：集中在 `config/sources/`（运行时信源健康与引用计数见 docs/status.md）
 - **AI Provider**：内置 chain: Gemini → DeepSeek → Groq → Cloudflare Workers AI → OpenRouter → NVIDIA/Agnes/OpenCode/Reka
-- **部署方式**：Cloudflare Pages + Workers + D1/R2；Cloudflare Containers 承接过渡期 Python/RSS-Bridge 后台面；VPS/Tunnel 仅作 legacy rollback，不是运行依赖
-- **可选组件**：`[api]` FastAPI + Web UI（管理后台 + 公开新闻阅读器）
+- **部署方式**：Cloudflare Pages + Workers + D1 + KV（R2 存大对象）；15 分钟 Cron 采集推进；VPS/Containers 仅作 legacy rollback，不是运行依赖
+- **质量与测试**：ruff / mypy strict / pytest / Cloudflare 工具测试 / tsc 全绿（实时计数与覆盖率见 docs/status.md）
+- **可选组件**：`[api]` FastAPI + Web UI（管理后台 + 公开新闻阅读器）、`clients/tauri/` 桌面客户端

@@ -7,16 +7,14 @@
 <p align="center">
   <strong>AI 驱动的多语种新闻情报平台</strong><br>
   实时追踪全球信源 · 智能研判关键事件 · 主动推送决策简报<br>
-  3020 tests · 87% coverage · mypy strict · ruff zero
+  mypy strict · ruff zero · 质量门禁见 docs/status.md
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0.0--rc2-blue.svg" alt="version" />
+  <img src="https://img.shields.io/github/v/release/XucroYuri/NewsSentry?label=release" alt="release" />
   <img src="https://img.shields.io/badge/python-3.11+-3776AB.svg?logo=python&logoColor=white" alt="python" />
   <img src="https://img.shields.io/badge/license-Apache%202.0-orange.svg" alt="license" />
   <img src="https://img.shields.io/badge/ruff-0%20errors-success.svg" alt="ruff" />
-  <img src="https://img.shields.io/badge/tests-3001%20passed-brightgreen.svg" alt="tests" />
-  <img src="https://img.shields.io/badge/coverage-87%25-9cf.svg" alt="coverage" />
 </p>
 
 <p align="center">
@@ -215,6 +213,8 @@ News Sentry 完全由 YAML 配置驱动，无需代码即可添加新信源、�
 | 🇩🇪 **germany** | de→zh | 22 | 46 | 德国全维度新闻 |
 | 🇫🇷 **france** | fr→zh | 21 | 45 | 法国全维度新闻 |
 
+> 以上为旗舰 target 示例；完整配置含 **81 个已配置 target**，覆盖全球区域与议题。实时清单见 `config/targets/`。
+
 添加新国家（零代码）：
 
 ```bash
@@ -324,6 +324,8 @@ curl http://localhost:8000/api/v1/health
 同一 commit/Worker version；GitHub Runner 若被 Cloudflare 明确挑战，只切换到控制面 + D1 证明，
 普通 403、5xx、commit 漂移和采集失败仍会阻断发布。
 
+> **Cloudflare-native 运行面**：生产公开面与采集闭环已迁移到 Cloudflare 原生栈（Workers + D1 + KV + Pages，15 分钟 Cron 采集推进，公开站点 news-sentry.com）。会变化的运行态事实（生产 commit、测试计数与覆盖率、信源健康、连续性状态）以 [`docs/status.md`](docs/status.md) 为唯一来源。
+
 ### Cron（开发/测试）
 
 ```bash
@@ -362,7 +364,7 @@ python tools/scan_sensitive_data.py  # 扫描敏感数据
 **质量门禁：**
 - `ruff check` — 0 errors
 - `mypy --strict` — 0 issues
-- `pytest` — 3,020 tests pass
+- `pytest` — 全量通过（计数与覆盖率见 docs/status.md）
 - `tsc --noEmit` (frontend) — 0 errors
 
 ---
