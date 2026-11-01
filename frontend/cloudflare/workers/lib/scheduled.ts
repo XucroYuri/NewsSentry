@@ -43,6 +43,7 @@ type ScheduledContainerRetryDelay = (attempt: number) => Promise<void>;
 
 const COLLECT_TARGET_BATCH_SIZE = 1;
 const COLLECT_TARGET_CURSOR_KEY = "cursor:collect-cycle-target-index";
+const QUARANTINE_WATERMARK_KEY = "cursor:quarantine-existing-events-rowid";
 const CONTAINER_TASK_TIMEOUT_MS = 8 * 60_000;
 const CONTAINER_STARTUP_MAX_ATTEMPTS = 5;
 const CONTAINER_STARTUP_RETRY_DELAYS_MS = [5_000, 15_000, 30_000, 45_000] as const;
@@ -61,6 +62,7 @@ interface CollectTargetBatch {
 }
 
 interface UnsafeStoredEvent extends Record<string, unknown> {
+  rowid: number;
   event_id: string;
   target_id: string;
   source_id: string;
@@ -88,24 +90,32 @@ export async function quarantineExistingUnsafeEvents(
   db: D1Database,
   generatedAt = isoNow(),
 ): Promise<Record<string, unknown>> {
+  const state = await db
+    .prepare("SELECT value FROM ops_state WHERE key = ?")
+    .bind(QUARANTINE_WATERMARK_KEY)
+    .first<{ value: string }>();
+  const watermark = Number(state?.value ?? 0);
+  if (!Number.isSafeInteger(watermark) || watermark < 0) {
+    throw new Error("Invalid quarantine rowid watermark");
+  }
   const result = await db
     .prepare(
-      `SELECT * FROM events
-       WHERE datetime(collected_at) IS NULL
-          OR datetime(published_at) IS NULL
-          OR datetime(collected_at) > datetime(?, '+5 minutes')
-          OR datetime(published_at) > datetime(?, '+24 hours')
+      `SELECT rowid, * FROM events
+       WHERE rowid > ?
+       ORDER BY rowid
        LIMIT 25`,
     )
-    .bind(generatedAt, generatedAt)
+    .bind(watermark)
     .all<UnsafeStoredEvent>();
   const events = result.results || [];
   if (events.length === 0) return { status: "ok", quarantined_events: 0 };
 
   const statements: D1PreparedStatement[] = [];
+  let quarantinedEvents = 0;
   for (const event of events) {
     const assessment = assessEventTimestamps(event.collected_at, event.published_at, Date.parse(generatedAt));
-    const reasonCode = assessment.ok ? "timestamp_policy_mismatch" : assessment.reason;
+    if (assessment.ok) continue;
+    quarantinedEvents += 1;
     statements.push(
       db
         .prepare(
@@ -120,7 +130,7 @@ export async function quarantineExistingUnsafeEvents(
           `q-existing-${event.event_id}`,
           event.target_id || "unknown",
           event.source_id || "unknown",
-          reasonCode,
+          assessment.reason,
           boundedStoredEventPayload(event),
           generatedAt,
         ),
@@ -128,8 +138,15 @@ export async function quarantineExistingUnsafeEvents(
       db.prepare("DELETE FROM events WHERE event_id = ?").bind(event.event_id),
     );
   }
+  statements.push(
+    db.prepare(
+      `INSERT INTO ops_state (key, value, updated_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`,
+    ).bind(QUARANTINE_WATERMARK_KEY, String(events[events.length - 1].rowid), generatedAt),
+  );
   await db.batch(statements);
-  return { status: "ok", quarantined_events: events.length };
+  return { status: "ok", quarantined_events: quarantinedEvents };
 }
 
 function taskForCron(cron: string): ScheduledTask {
@@ -606,14 +623,14 @@ export async function deleteExpiredPublicData(
   db: D1Database,
   retentionDays = 90,
 ): Promise<Record<string, unknown>> {
-  const cutoffExpr = `-${Math.max(1, Math.trunc(retentionDays))} days`;
+  const cutoff = new Date(Date.now() - Math.max(1, Math.trunc(retentionDays)) * 86_400_000).toISOString();
   const expired = await db
     .prepare(
       `SELECT event_id FROM events
-       WHERE datetime(COALESCE(published_at, collected_at, created_at)) < datetime('now', ?)
+       WHERE published_at < ?
        LIMIT 500`,
     )
-    .bind(cutoffExpr)
+    .bind(cutoff)
     .all<{ event_id: string }>();
   const ids = (expired.results || []).map((row) => row.event_id).filter(Boolean);
   if (ids.length === 0) {
