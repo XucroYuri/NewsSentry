@@ -4,6 +4,8 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
 import {
+  deleteExpiredPublicData,
+  quarantineExistingUnsafeEvents,
   runScheduledCloudflareTask,
   setScheduledContainerGetterForTest,
   setScheduledContainerRetryDelayForTest,
@@ -494,4 +496,64 @@ test("collect cycle rotates one canary target per successful scheduled run", asy
 
   assert.deepEqual(calls, [["france"], ["germany"]]);
   assert.equal(collectCursor(db), "2");
+});
+
+test("quarantine scans 25 rowids per run and advances past safe rows", async () => {
+  const db = new SqliteD1Database();
+  const now = "2026-08-02T01:00:00.000Z";
+  for (let index = 1; index <= 27; index += 1) {
+    db.run(
+      `INSERT INTO events (event_id, target_id, source_id, published_at, collected_at, title)
+       VALUES (?, 'france', 'lemonde', ?, ?, 'Story')`,
+      [`evt-${index}`, index === 26 ? "not-a-date" : now, now],
+    );
+  }
+
+  const plan = db.all<{ detail: string }>(
+    "EXPLAIN QUERY PLAN SELECT rowid, * FROM events WHERE rowid > ? ORDER BY rowid LIMIT 25",
+    [0],
+  );
+  assert.ok(plan.some((step) => step.detail.includes("INTEGER PRIMARY KEY (rowid>?)")));
+
+  assert.equal((await quarantineExistingUnsafeEvents(db as unknown as D1Database, now)).quarantined_events, 0);
+  assert.equal(db.first<{ value: string }>(
+    "SELECT value FROM ops_state WHERE key='cursor:quarantine-existing-events-rowid'",
+  )?.value, "25");
+  assert.equal((await quarantineExistingUnsafeEvents(db as unknown as D1Database, now)).quarantined_events, 1);
+  assert.equal(db.first<{ value: string }>(
+    "SELECT value FROM ops_state WHERE key='cursor:quarantine-existing-events-rowid'",
+  )?.value, "27");
+  assert.equal(db.first<{ event_id: string }>("SELECT event_id FROM events WHERE event_id='evt-26'"), null);
+  assert.equal(db.first<{ reason_code: string }>(
+    "SELECT reason_code FROM quarantined_events WHERE quarantine_id='q-existing-evt-26'",
+  )?.reason_code, "invalid_published_at");
+  assert.equal((await quarantineExistingUnsafeEvents(db as unknown as D1Database, now)).quarantined_events, 0);
+});
+
+test("retention uses the published timestamp index and deletes localizations", async () => {
+  const db = new SqliteD1Database();
+  const old = new Date(Date.now() - 91 * 86_400_000).toISOString();
+  const recent = new Date().toISOString();
+  for (const [eventId, publishedAt] of [["old", old], ["recent", recent]]) {
+    db.run(
+      `INSERT INTO events (event_id, target_id, source_id, published_at, collected_at, title)
+       VALUES (?, 'france', 'lemonde', ?, ?, 'Story')`,
+      [eventId, publishedAt, recent],
+    );
+  }
+  db.run(
+    `INSERT INTO event_localizations (event_id, locale, localized_title, localized_language)
+     VALUES ('old', 'fr', 'Titre', 'fr')`,
+    [],
+  );
+  const plan = db.all<{ detail: string }>(
+    "EXPLAIN QUERY PLAN SELECT event_id FROM events WHERE published_at < ? LIMIT 500",
+    [recent],
+  );
+  assert.ok(plan.some((step) => step.detail.includes("idx_events_published_at")));
+
+  const result = await deleteExpiredPublicData(db as unknown as D1Database, 90);
+  assert.equal(result.deleted_events, 1);
+  assert.equal(result.deleted_localizations, 1);
+  assert.deepEqual(db.all<{ event_id: string }>("SELECT event_id FROM events", []).map((row) => row.event_id), ["recent"]);
 });
