@@ -25,6 +25,7 @@ import { handleNewsFeed, handleNewsDetail } from "./api/news";
 import { handleTargets, handleRegions } from "./api/targets";
 import { handleWebhook, handleImport } from "./api/webhook";
 import { handleDlqReplay } from "./api/dlq-replay";
+import { handleReader, type ReaderEnv } from "./api/reader";
 import { handleContainerProxy, shouldProxyToContainer } from "./api/proxy";
 import { internalError } from "./lib/errors";
 import { authorizeWorkerWriteAccess } from "./lib/access";
@@ -34,7 +35,7 @@ import type { AccessPrincipal, CloudflareAccessJwtEnv } from "./lib/access-jwt";
 import { parseRuntimeConfig, type RuntimeConfigEnv } from "./lib/runtime-config";
 import { containerEnvVars } from "./lib/container-env";
 
-interface Env extends CloudflareAccessJwtEnv, RuntimeConfigEnv {
+interface Env extends CloudflareAccessJwtEnv, RuntimeConfigEnv, ReaderEnv {
   DB: D1Database;
   NEWS_SENTRY_ARTIFACTS?: R2Bucket;
   NEWS_SENTRY_CONTAINER?: DurableObjectNamespace;
@@ -156,7 +157,9 @@ export default {
     try {
       const url = new URL(request.url);
       let response: Response;
-      if (shouldProxyToContainer(url.pathname)) {
+      if (url.pathname === "/api/v1/reader" || url.pathname.startsWith("/api/v1/reader/")) {
+        response = await handleReader(request, env);
+      } else if (shouldProxyToContainer(url.pathname)) {
         response = await handleContainerProxy(request, env);
       } else {
         const workerWriteAccess = await authorizeWorkerWriteAccess(request, env);

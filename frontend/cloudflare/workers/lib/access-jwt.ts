@@ -7,7 +7,7 @@ export interface CloudflareAccessJwtEnv {
 }
 
 export interface JsonWebKeySet {
-  keys?: JsonWebKey[];
+  keys?: Array<JsonWebKey & { kid?: string }>;
 }
 
 export interface AccessJwtVerificationOptions {
@@ -57,7 +57,7 @@ const DEFAULT_CACHE_TTL_MS = 5 * 60 * 1000;
 const ACCESS_JWT_HEADER = "Cf-Access-Jwt-Assertion";
 const jwksCache = new Map<string, CachedJwks>();
 
-function base64UrlToBytes(value: string): Uint8Array | null {
+function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> | null {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
   const padding = "=".repeat((4 - (normalized.length % 4)) % 4);
   try {

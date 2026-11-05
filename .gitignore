@@ -120,6 +120,8 @@ backend/node_modules/
 
 # Cloudflare 部署产物 (M-8)
 dist/cloudflare/
+frontend/cloudflare/node_modules/
+frontend/cloudflare/.dev.vars*
 
 # Tauri
 clients/tauri/target/
