@@ -43,6 +43,7 @@ export interface RuntimeMetadata {
 
 export interface RuntimeBindings {
   artifacts?: R2Bucket;
+  reader?: import("./reader-contracts.ts").ReaderEnv;
 }
 
 type Handler = (
