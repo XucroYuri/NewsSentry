@@ -1,5 +1,5 @@
 import {
-  markdownHash, normalizeMarkdown, readBounded, readerBody, ReaderError, readerJson, readerUrl,
+  assertPublicReaderUrl, markdownHash, normalizeMarkdown, readBounded, readerBody, ReaderError, readerJson, readerUrl,
 } from "./reader-http.ts";
 import { validateExternalUrl } from "./external-url.ts";
 import { marked } from "marked";
@@ -21,6 +21,12 @@ interface Translation {
   translated: string;
   lang: string;
   provider: "magpie" | "workers-ai" | "none";
+}
+
+interface MagpieConfig {
+  endpoint: string;
+  groups: string[];
+  local: boolean;
 }
 
 function language(value: unknown): string {
@@ -50,17 +56,18 @@ function validTranslation(value: unknown, markdown: string): value is string {
     && JSON.stringify(destinations(value)) === JSON.stringify(destinations(markdown));
 }
 
-function magpieConfig(env: ReaderTranslationEnv): { endpoint: string; groups: string[] } | null {
+function magpieConfig(env: ReaderTranslationEnv): MagpieConfig | null {
   if (!env.MAGPIE_BASE_URL || env.MAGPIE_FREE_ONLY !== "1" || !env.MAGPIE_FREE_GROUP) return null;
   const groups = [...new Set([env.MAGPIE_FREE_GROUP, env.MAGPIE_IDLE_GROUP].filter((group): group is string => !!group))];
   if (groups.some((group) => !/^group\/[\w/-]+$/.test(group) || group.length > 128)) {
     throw new ReaderError(503, "MAGPIE_CONFIG_INVALID", "Magpie 仅接受已审核的免费/闲置 group 路由。");
   }
   let base: URL;
+  let local = false;
   try {
     base = new URL(env.MAGPIE_BASE_URL);
     if (!validateExternalUrl(base.href).ok || base.search || base.hash) throw Error("invalid base");
-    const local = env.NEWS_SENTRY_ENVIRONMENT === "dev"
+    local = env.NEWS_SENTRY_ENVIRONMENT === "dev"
       && base.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(base.hostname);
     if (!local) {
       if (base.protocol !== "https:") throw Error("HTTPS required");
@@ -71,20 +78,21 @@ function magpieConfig(env: ReaderTranslationEnv): { endpoint: string; groups: st
   }
   const path = base.pathname.replace(/\/+$/, "");
   base.pathname = `${path.endsWith("/v1") ? path : `${path}/v1`}/chat/completions`;
-  return { endpoint: base.href, groups };
+  return { endpoint: base.href, groups, local };
 }
 
 async function magpie(
-  endpoint: string, group: string, env: ReaderTranslationEnv,
+  config: MagpieConfig, group: string, env: ReaderTranslationEnv,
   markdown: string, targetLang: string, sourceLang?: string,
 ): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);
   try {
+    if (!config.local) await assertPublicReaderUrl(config.endpoint, controller.signal);
     const headers = new Headers({ "Content-Type": "application/json", "X-News-Sentry-Cost-Policy": "free-only" });
     if (env.MAGPIE_API_KEY) headers.set("Authorization", `Bearer ${env.MAGPIE_API_KEY}`);
-    const response = await fetch(endpoint, {
-      method: "POST", headers, signal: controller.signal, redirect: "error",
+    const response = await fetch(config.endpoint, {
+      method: "POST", headers, signal: controller.signal, redirect: "manual",
       body: JSON.stringify({
         model: group, stream: false, max_tokens: 8192,
         metadata: { cost_policy: "free-only", allow_paid_fallback: false },
@@ -156,11 +164,12 @@ export async function readerTranslate(request: Request, env: ReaderTranslationEn
   for (const group of config?.groups ?? []) {
     try {
       translated = {
-        translated: await magpie(config!.endpoint, group, env, markdown, targetLang, sourceLang),
+        translated: await magpie(config!, group, env, markdown, targetLang, sourceLang),
         lang: targetLang, provider: "magpie",
       };
       break;
     } catch (error) {
+      if (error instanceof ReaderError && ["UNSAFE_URL", "DNS_RESOLUTION_FAILED"].includes(error.code)) throw error;
       lastError = error instanceof ReaderError ? error : lastError;
     }
   }

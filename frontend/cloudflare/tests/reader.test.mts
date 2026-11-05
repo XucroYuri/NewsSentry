@@ -4,6 +4,8 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { handleReader } from "../workers/api/reader.ts";
 import { extractArticle } from "../workers/lib/reader-extract.ts";
+import { fetchReaderResource } from "../workers/lib/reader-http.ts";
+import { imageProxyUrl } from "../workers/lib/reader-image.ts";
 
 const origin = "https://news-sentry.com";
 const source = "https://publisher.example/news/story";
@@ -52,11 +54,29 @@ function post(body: unknown, path = "preview", headers: Record<string, string> =
   });
 }
 
-function upstream(t: test.TestContext, handler: (url: string, init?: RequestInit) => Response | Promise<Response>) {
+function dnsAnswer(url: string, addresses?: string[]) {
+  const query = new URL(url);
+  const type = query.searchParams.get("type") === "AAAA" ? 28 : 1;
+  const name = `${query.searchParams.get("name")}.`;
+  return {
+    Status: 0, TC: false, RD: true, RA: true, AD: false, CD: false,
+    Question: [{ name, type }],
+    Answer: (addresses ?? [type === 1 ? "93.184.215.14" : "2606:4700:4700::1111"])
+      .map((data) => ({ name, type, TTL: 60, data })),
+  };
+}
+
+function upstream(
+  t: test.TestContext,
+  handler: (url: string, init?: RequestInit) => Response | Promise<Response>,
+  resolver: (url: string, init?: RequestInit) => Response | Promise<Response>
+    = (url) => Response.json(dnsAnswer(url)),
+) {
   const calls: string[] = [];
   t.mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (url.endsWith("/cdn-cgi/access/certs")) return Response.json({ keys: [jwk] });
+    if (new URL(url).origin === "https://cloudflare-dns.com") return resolver(url, init);
     calls.push(url);
     return handler(url, init);
   });
@@ -173,6 +193,274 @@ test("IP literal hosts and normalized variants are rejected before any upstream 
   assert.deepEqual(calls, []);
 });
 
+for (const address of [
+  "0.0.0.0", "0.1.2.3", "10.1.2.3", "100.64.0.1", "100.127.255.254",
+  "127.0.0.1", "127.255.255.254", "169.254.169.254", "172.16.0.1", "172.31.255.254",
+  "192.168.1.1", "192.0.0.1", "192.0.2.1", "192.88.99.1",
+  "198.18.0.1", "198.19.255.254", "198.51.100.1", "203.0.113.1",
+  "224.0.0.1", "240.0.0.1", "255.255.255.255",
+  "::", "::1", "0:0:0:0:0:0:0:1", "fc00::1", "FDFF:FFFF::1",
+  "fe80::1", "febf:ffff::1", "fec0::1", "ff02::1",
+  "::ffff:127.0.0.1", "::ffff:a00:1", "::127.0.0.1",
+  "64:ff9b::a00:1", "2002:7f00:1::", "2001:0:4136:e378:8000:63bf:3fff:fdd2",
+  "2001:db8::1", "3fff::1",
+]) {
+  test(`DNS check rejects resolved ${address} even alongside public answers`, async (t) => {
+    const calls = upstream(t, () => new Response(html, { headers: { "Content-Type": "text/html" } }), (url) => {
+      const result = dnsAnswer(url);
+      if ((result.Question[0].type === 28) === address.includes(":")) {
+        result.Answer.push({ ...result.Answer[0], data: address });
+      }
+      return Response.json(result);
+    });
+    const response = await handleReader(post({ url: source }), env());
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).code, "UNSAFE_URL");
+    assert.deepEqual(calls, []);
+  });
+}
+
+for (const [label, ipv4, ipv6] of [
+  ["IPv4 only", ["8.8.8.8"], []],
+  ["IPv6 only", [], ["2606:4700:4700:0:0:0:0:1111"]],
+  ["dual stack", ["93.184.215.14"], ["2a00:1450:4001:80b::200e"]],
+  ["public range boundaries", ["100.63.255.254", "100.128.0.1", "172.15.255.254", "172.32.0.1"], []],
+] as const) {
+  test(`DNS check accepts ${label} after both lookups and keeps the original host`, async (t) => {
+    const queries: string[] = [];
+    const calls = upstream(t, (url, init) => {
+      assert.equal(url, source);
+      assert.deepEqual(queries.sort(), ["A", "AAAA"]);
+      assert.equal(init?.redirect, "manual");
+      return new Response(html, { headers: { "Content-Type": "text/html" } });
+    }, (url, init) => {
+      const query = new URL(url);
+      assert.equal(query.pathname, "/dns-query");
+      assert.equal(query.searchParams.get("name"), "publisher.example");
+      assert.equal(new Headers(init?.headers).get("Accept"), "application/dns-json");
+      assert.equal(init?.redirect, "manual");
+      assert.equal(init?.cache, "no-store");
+      assert.ok(init?.signal);
+      queries.push(query.searchParams.get("type")!);
+      return Response.json(dnsAnswer(url, [...(query.searchParams.get("type") === "A" ? ipv4 : ipv6)]));
+    });
+    assert.equal((await handleReader(post({ url: source }), env())).status, 200);
+    assert.deepEqual(calls, [source]);
+  });
+}
+
+test("DNS check accepts recursive CNAME answers only with a public terminal address", async (t) => {
+  const calls = upstream(t, () => new Response(html, { headers: { "Content-Type": "text/html" } }), (url) => {
+    const result = dnsAnswer(url);
+    result.Answer = [
+      { name: "publisher.example.", type: 5, TTL: 60, data: "edge.example." },
+      { name: "edge.example.", type: 5, TTL: 60, data: "origin.example." },
+      { ...result.Answer[0], name: "origin.example." },
+    ];
+    return Response.json(result);
+  });
+  assert.equal((await handleReader(post({ url: source }), env())).status, 200);
+  assert.deepEqual(calls, [source]);
+});
+
+test("DNS check accepts an IPv4-only CNAME with an empty AAAA terminal answer", async (t) => {
+  const calls = upstream(t, () => new Response(html, { headers: { "Content-Type": "text/html" } }), (url) => {
+    const result = dnsAnswer(url);
+    result.Answer = [
+      { name: "publisher.example.", type: 5, TTL: 60, data: "edge.example." },
+      ...(result.Question[0].type === 1 ? [{ ...result.Answer[0], name: "edge.example." }] : []),
+    ];
+    return Response.json(result);
+  });
+  assert.equal((await handleReader(post({ url: source }), env())).status, 200);
+  assert.deepEqual(calls, [source]);
+});
+
+test("DNS check rejects a CNAME terminal private address before fetching the alias", async (t) => {
+  const calls = upstream(t, () => new Response(html, { headers: { "Content-Type": "text/html" } }), (url) => {
+    const result = dnsAnswer(url);
+    result.Answer = [
+      { name: "publisher.example.", type: 5, TTL: 60, data: "edge.example." },
+      { ...result.Answer[0], name: "edge.example.", data: result.Question[0].type === 1 ? "169.254.169.254" : "fe80::1" },
+    ];
+    return Response.json(result);
+  });
+  const response = await handleReader(post({ url: source }), env());
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, "UNSAFE_URL");
+  assert.deepEqual(calls, []);
+});
+
+for (const failedType of ["A", "AAAA"]) {
+  test(`DNS check rejects ${failedType} failure even if the other family is public`, async (t) => {
+    const calls = upstream(t, () => new Response(html, { headers: { "Content-Type": "text/html" } }), (url) => {
+      const result = dnsAnswer(url);
+      if (new URL(url).searchParams.get("type") === failedType) result.Status = 2;
+      return Response.json(result);
+    });
+    const response = await handleReader(post({ url: source }), env());
+    assert.equal(response.status, 502);
+    assert.equal((await response.json()).code, "DNS_RESOLUTION_FAILED");
+    assert.deepEqual(calls, []);
+  });
+}
+
+for (const location of ["https://redirect.example/story", "/next"]) {
+  test(`DNS check repeats before redirect ${location} and rejects a changed answer`, async (t) => {
+    const queries: string[] = [];
+    let redirected = false;
+    const calls = upstream(t, () => {
+      redirected = true;
+      return new Response(null, { status: 302, headers: { Location: location } });
+    }, (url) => {
+      queries.push(new URL(url).searchParams.get("name")!);
+      return Response.json(dnsAnswer(url,
+        redirected && new URL(url).searchParams.get("type") === "AAAA" ? ["fe80::1"] : undefined));
+    });
+    const response = await handleReader(post({ url: source }), env());
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).code, "UNSAFE_URL");
+    assert.deepEqual(calls, [source]);
+    assert.deepEqual(queries, [
+      "publisher.example", "publisher.example",
+      ...Array(2).fill(location.startsWith("/") ? "publisher.example" : "redirect.example"),
+    ]);
+  });
+}
+
+for (const [label, change] of [
+  ["NXDOMAIN", (answer) => ({ ...answer, Status: 3 })],
+  ["SERVFAIL", (answer) => ({ ...answer, Status: 2 })],
+  ["truncated response", (answer) => ({ ...answer, TC: true })],
+  ["missing status", (answer) => ({ ...answer, Status: undefined })],
+  ["missing truncation flag", (answer) => ({ ...answer, TC: undefined })],
+  ["null payload", () => null],
+  ["empty answers", (answer) => ({ ...answer, Answer: [] })],
+  ["missing answers", (answer) => ({ ...answer, Answer: undefined })],
+  ["malformed answers", (answer) => ({ ...answer, Answer: {} })],
+  ["wrong question", (answer) => ({ ...answer, Question: [{ name: "other.example.", type: answer.Question[0].type }] })],
+  ["missing question", (answer) => ({ ...answer, Question: undefined })],
+  ["wrong question type", (answer) => ({ ...answer, Question: [{ ...answer.Question[0], type: 16 }] })],
+  ["invalid address", (answer) => ({ ...answer, Answer: [{ ...answer.Answer[0], data: "not-an-ip" }] })],
+  ["wrong address family", (answer) => ({ ...answer, Answer: [{ ...answer.Answer[0], data: answer.Question[0].type === 1 ? "2606:4700::1111" : "8.8.8.8" }] })],
+  ["shorthand IPv4", (answer) => ({ ...answer, Answer: [{ ...answer.Answer[0], type: 1, data: "127.1" }] })],
+  ["octal IPv4", (answer) => ({ ...answer, Answer: [{ ...answer.Answer[0], type: 1, data: "0177.0.0.1" }] })],
+  ["out of range IPv4", (answer) => ({ ...answer, Answer: [{ ...answer.Answer[0], type: 1, data: "256.0.0.1" }] })],
+  ["malformed IPv6", (answer) => ({ ...answer, Answer: [{ ...answer.Answer[0], type: 28, data: "2606:::" }] })],
+  ["unknown record", (answer) => ({ ...answer, Answer: [{ ...answer.Answer[0], type: 16 }] })],
+  ["unrelated address owner", (answer) => ({ ...answer, Answer: [{ ...answer.Answer[0], name: "other.example." }] })],
+  ["CNAME without address", (answer) => ({ ...answer, Answer: [{ ...answer.Answer[0], type: 5, data: "edge.example." }] })],
+  ["CNAME loop", (answer) => ({ ...answer, Answer: [{ ...answer.Answer[0], type: 5, data: answer.Question[0].name }] })],
+  ["too many records", (answer) => ({ ...answer, Answer: Array(65).fill(answer.Answer[0]) })],
+  ["CNAME alongside address", (answer) => ({ ...answer, Answer: [...answer.Answer, { ...answer.Answer[0], type: 5, data: "edge.example." }] })],
+  ["ambiguous CNAME", (answer) => ({ ...answer, Answer: [
+    { ...answer.Answer[0], type: 5, data: "edge.example." },
+    { ...answer.Answer[0], type: 5, data: "other.example." },
+  ] })],
+  ["too many CNAME hops", (answer) => ({ ...answer, Answer: [
+    ...Array.from({ length: 9 }, (_unused, index) => ({
+      name: index === 0 ? answer.Question[0].name : `edge${index}.example.`,
+      type: 5, TTL: 60, data: `edge${index + 1}.example.`,
+    })),
+    { ...answer.Answer[0], name: "edge9.example." },
+  ] })],
+] satisfies Array<[string, (answer: ReturnType<typeof dnsAnswer>) => unknown]>) {
+  test(`DNS check fails closed on ${label}`, async (t) => {
+    const calls = upstream(t, () => new Response(html, { headers: { "Content-Type": "text/html" } }),
+      (url) => Response.json(change(dnsAnswer(url))));
+    const response = await handleReader(post({ url: source }), env());
+    assert.equal(response.status, 502);
+    assert.equal((await response.json()).code, "DNS_RESOLUTION_FAILED");
+    assert.deepEqual(calls, []);
+  });
+}
+
+for (const [label, resolver] of [
+  ["network error", () => { throw new TypeError("offline"); }],
+  ["HTTP error", () => new Response("unavailable", { status: 503 })],
+  ["resolver redirect", () => new Response(null, { status: 302, headers: { Location: "http://127.0.0.1/" } })],
+  ["invalid JSON", () => new Response("{broken")],
+  ["oversized body", () => new Response(" ".repeat(64 * 1024 + 1))],
+] satisfies Array<[string, () => Response]>) {
+  test(`DNS check blocks the target on ${label}`, async (t) => {
+    const calls = upstream(t, () => new Response(html, { headers: { "Content-Type": "text/html" } }), resolver);
+    const response = await handleReader(post({ url: source }), env());
+    assert.equal(response.status, 502);
+    assert.equal((await response.json()).code, "DNS_RESOLUTION_FAILED");
+    assert.deepEqual(calls, []);
+  });
+}
+
+test("DNS check times out and aborts both lookups without fetching the target", { timeout: 1000 }, async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const started = Promise.withResolvers<void>();
+  let lookups = 0;
+  let aborted = 0;
+  const calls = upstream(t, () => { throw Error("unexpected target"); }, (_url, init) => new Promise((_resolve, reject) => {
+    init!.signal!.addEventListener("abort", () => {
+      aborted++;
+      reject(init!.signal!.reason);
+    }, { once: true });
+    if (++lookups === 2) started.resolve();
+  }));
+  const result = assert.rejects(fetchReaderResource(source, "text/html", 1024),
+    { status: 502, code: "DNS_RESOLUTION_FAILED" });
+  await started.promise;
+  t.mock.timers.tick(3000);
+  await result;
+  assert.equal(aborted, 2);
+  assert.deepEqual(calls, []);
+});
+
+test("DNS check on a redirect shares the remaining resource deadline", { timeout: 1000 }, async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const started = Promise.withResolvers<void>();
+  let redirected = false;
+  let lookups = 0;
+  let aborted = 0;
+  const calls = upstream(t, () => {
+    t.mock.timers.tick(9000);
+    redirected = true;
+    return new Response(null, { status: 302, headers: { Location: "/next" } });
+  }, (url, init) => {
+    if (!redirected) return Response.json(dnsAnswer(url));
+    return new Promise((_resolve, reject) => {
+      init!.signal!.addEventListener("abort", () => {
+        aborted++;
+        reject(init!.signal!.reason);
+      }, { once: true });
+      if (++lookups === 2) started.resolve();
+    });
+  });
+  const result = assert.rejects(fetchReaderResource(source, "text/html", 1024),
+    { status: 502, code: "DNS_RESOLUTION_FAILED" });
+  await started.promise;
+  t.mock.timers.tick(1000);
+  await result;
+  assert.equal(aborted, 2);
+  assert.deepEqual(calls, [source]);
+});
+
+test("image DNS check runs after HMAC verification and before the signed target fetch", async (t) => {
+  const queries: string[] = [];
+  const calls = upstream(t, () => new Response(new Uint8Array([137, 80, 78, 71]), {
+    headers: { "Content-Type": "image/png" },
+  }), (url) => {
+    queries.push(url);
+    return Response.json(dnsAnswer(url, new URL(url).searchParams.get("type") === "A" ? ["192.168.1.1"] : []));
+  });
+  const proxy = new URL(await imageProxyUrl("https://images.example/photo.png", secret), origin);
+  const response = await handleReader(new Request(proxy), env());
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, "UNSAFE_URL");
+  assert.equal(queries.length, 2);
+  assert.deepEqual(calls, []);
+  queries.length = 0;
+  proxy.searchParams.set("s", "0".repeat(64));
+  assert.equal((await handleReader(new Request(proxy), env())).status, 403);
+  assert.deepEqual(queries, []);
+});
+
 test("empty or blocked pages fail gracefully with a usable original URL", async (t) => {
   upstream(t, () => new Response("<html><head><title>Blocked</title></head><body><nav>Login</nav></body></html>", {
     headers: { "Content-Type": "text/html" },
@@ -252,6 +540,76 @@ class MemoryKV {
   }
   async put(key: string, value: string) { this.entries.set(key, value); }
 }
+
+for (const [label, addresses] of [
+  ["private IPv4", ["10.0.0.2"]],
+  ["private IPv6", ["fd00::2"]],
+  ["unresolved host", []],
+] as const) {
+  test(`translation DNS check blocks ${label} before credentials, content or fallback leave`, async (t) => {
+    const kv = new MemoryKV();
+    let aiCalls = 0;
+    const calls = upstream(t, () => Response.json({ choices: [{ message: { content: "你好。" }, finish_reason: "stop" }] }),
+      (url, init) => {
+        const headers = new Headers(init?.headers);
+        assert.equal(headers.has("Authorization"), false);
+        assert.equal(headers.has("Cookie"), false);
+        assert.equal(init?.body, undefined);
+        const isIPv6 = new URL(url).searchParams.get("type") === "AAAA";
+        return Response.json(dnsAnswer(url, addresses.filter((address) => address.includes(":") === isIPv6)));
+      });
+    const response = await handleReader(post({ markdown, contentHash: hash, targetLang: "zh", sourceLang: "en" }, "translate"),
+      env({
+        ...freeRoute, READER_TRANSLATIONS: kv, MAGPIE_API_KEY: "reader-test-key",
+        READER_WORKERS_AI: "1", READER_WORKERS_AI_FREE_ONLY: "1",
+        AI: { async run() { aiCalls++; return { translated_text: "你好。" }; } },
+      }));
+    assert.equal(response.status, addresses.length ? 400 : 502);
+    assert.equal((await response.json()).code, addresses.length ? "UNSAFE_URL" : "DNS_RESOLUTION_FAILED");
+    assert.deepEqual(calls, []);
+    assert.equal(aiCalls, 0);
+    assert.equal(kv.entries.size, 0);
+  });
+}
+
+test("translation DNS check repeats before idle retry and rejects newly private answers", async (t) => {
+  let providerFailed = false;
+  const kv = new MemoryKV();
+  const calls = upstream(t, (_url, init) => {
+    assert.equal(init?.redirect, "manual");
+    providerFailed = true;
+    return new Response("busy", { status: 429 });
+  }, (url) => Response.json(dnsAnswer(url,
+    providerFailed && new URL(url).searchParams.get("type") === "AAAA" ? ["::1"] : undefined)));
+  const response = await handleReader(post({ markdown, contentHash: hash, targetLang: "zh" }, "translate"),
+    env({ ...freeRoute, READER_TRANSLATIONS: kv }));
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, "UNSAFE_URL");
+  assert.deepEqual(calls, ["https://magpie.example/v1/chat/completions"]);
+  assert.equal(kv.entries.size, 0);
+});
+
+test("translation never follows a provider redirect with credentials or article content", async (t) => {
+  const calls = upstream(t, (_url, init) => {
+    assert.equal(init?.redirect, "manual");
+    return new Response(null, { status: 307, headers: { Location: "https://private.example/translate" } });
+  });
+  const response = await handleReader(post({ markdown, contentHash: hash, targetLang: "zh" }, "translate"),
+    env({ ...freeRoute, MAGPIE_API_KEY: "reader-test-key", READER_TRANSLATIONS: new MemoryKV() }));
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, "MAGPIE_UNAVAILABLE");
+  assert.deepEqual(calls, Array(2).fill("https://magpie.example/v1/chat/completions"));
+});
+
+test("dev does not exempt public Magpie hostnames from DNS checks", async (t) => {
+  const calls = upstream(t, () => Response.json({ choices: [{ message: { content: "你好。" }, finish_reason: "stop" }] }),
+    (url) => Response.json(dnsAnswer(url, new URL(url).searchParams.get("type") === "A" ? ["127.0.0.1"] : [])));
+  const response = await handleReader(post({ markdown, contentHash: hash, targetLang: "zh" }, "translate"),
+    env({ ...freeRoute, NEWS_SENTRY_ENVIRONMENT: "dev", READER_TRANSLATIONS: new MemoryKV() }));
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, "UNSAFE_URL");
+  assert.deepEqual(calls, []);
+});
 
 test("translation requires session, KV and an explicitly free route", async (t) => {
   const calls = upstream(t, () => { throw Error("unexpected provider request"); });

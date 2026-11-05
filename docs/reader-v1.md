@@ -8,13 +8,54 @@ preview、dev 的仓库配置均默认关闭。既有公开新闻接口、采集
 
 **硬门禁：** Before setting `READER_V1=1` in production, M1 (DNS rebinding) must be fixed or explicitly signed off by Yuri.
 
-在 M1 修复或 Yuri 明确签字接受残余风险前，生产必须保持 `READER_V1=0`。
-当前 URL 校验在 WHATWG URL 规范化后拒绝所有 IPv4/IPv6 字面量主机，包括
-十进制、八进制、十六进制 IPv4 变体与 IPv4-mapped IPv6；每次重定向都重复校验。
-这些检查只作用于主机名字符串，不解析 DNS。普通 Workers `fetch` 不提供可依赖的
-私网保护兜底；公网域名解析至私网或发生 DNS rebinding 时，仍可能通过 URL 校验，
-逐跳重校验也不能消除此残余风险。同源 Access 用户会话和现有图片 HMAC 授权
-限制调用边界，但不能代替解析后的地址校验。
+**M1 状态（2026-11-05）：解析后拒绝非公网地址已实现；连接级 DNS rebinding
+尚未完全封闭。生产仍保持 `READER_V1=0`，本次修复不授权开启生产旗或部署。**
+
+URL 先经 WHATWG 规范化，拒绝所有 IPv4/IPv6 字面量主机，包括十进制、八进制、
+十六进制 IPv4 变体与 IPv4-mapped IPv6。随后在目标 `fetch` 前调用
+`assertPublicReaderUrl`，使用免费 1.1.1.1 服务的固定 DoH 端点
+`https://cloudflare-dns.com/dns-query`，并行查询 A 和 AAAA：
+
+| 请求链路 | 解析后校验位置 |
+|---|---|
+| preview 原文 | `fetchReaderResource` 每次抓取前，包括每一跳重定向 |
+| image 图片 | HMAC 验签后，经同一个 `fetchReaderResource` 逐跳校验 |
+| translate 远端 Magpie | 每次免费/闲置组 POST 前，先校验再构造含凭据、正文的请求 |
+
+两种记录查询都必须成功，至少有一个终端地址，并且返回的全部地址必须公开。
+允许单栈站点另一种记录为空；校验递归响应中的 CNAME 链和终端记录归属，
+拒绝循环、不完整、歧义或异常响应。IPv4 拒绝私网、回环、链路本地、CGNAT、
+未指定、文档、基准测试、多播和保留网段；IPv6 只接受 `2000::/3` 中的普通
+全局单播地址，并排除 `2001::/23`、`2001:db8::/32`、`2002::/16`、
+`3fff::/20`。因此 ULA、回环、链路本地、site-local、多播、IPv4-mapped/
+compatible、NAT64 和 6to4 等特殊/转换地址也不会放行。此策略有意保守，
+特殊用途公网地址可能被拒绝。
+
+DoH 只发送域名和记录类型，不携带正文、Cookie 或 Authorization；禁止跟随解析器
+重定向，不在应用或 HTTP 层缓存校验结果（递归解析器自身仍遵守 DNS TTL）。
+每组 A/AAAA 共用 3 秒期限，并受原请求 10 秒/翻译 15 秒总期限约束；每个响应上限
+64 KiB、64 条记录、8 跳 CNAME。遇到非公网地址返回 `400 UNSAFE_URL`；
+超时、NXDOMAIN/SERVFAIL、无地址、截断、格式/HTTP/网络异常统一
+`502 DNS_RESOLUTION_FAILED`，不请求目标。DNS 校验失败直接结束翻译请求，
+不再尝试其他组或 Workers AI；普通提供商失败仍保留已有免费→闲置降级。
+Magpie 重定向响应按失败处理，不向新目标转发凭据或正文。
+
+既有本机开发例外保持不变：仅 `NEWS_SENTRY_ENVIRONMENT=dev` 下显式配置的
+HTTP `localhost`、`127.0.0.1`、`[::1]` 可直连；公开域名即使在 dev 下也必须
+经过 DoH，不能通过解析到环回来取得例外。preview/image 没有该例外。
+
+**平台取舍与剩余门禁：** 使用 1.1.1.1 的域名端点，是因为 Workers 不支持直接
+向 IP 地址执行普通 `fetch`。`cf.resolveOverride` 要求原 URL 主机和替代主机
+都在本 zone 内，不能为任意新闻站点固定已校验的 IP；本次没有使用它。依据：
+[1.1.1.1 DoH JSON API](https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/make-api-requests/dns-json/)、
+[Workers IP 限制](https://developers.cloudflare.com/workers/platform/known-issues/#fetch-to-ip-addresses)、
+[resolveOverride 约束](https://developers.cloudflare.com/workers/runtime-apis/request/#the-cf-property-requestinitcfproperties)。
+
+DoH 预检与实际 `fetch` 仍是两次独立解析，无法证明最终连接的 IP 与校验结果一致。
+逐跳/逐次重查可以阻止本次查询已返回私网的域名，不能消除检查后换址的时间窗口，
+也不将普通 Workers `fetch` 视作私网保护兜底。因此 M1 的解析校验部分已补齐，
+完整 DNS rebinding 风险仍须通过连接固定/可信出站层消除，或由 Yuri 明确签字接受，
+才可另行讨论生产启用。同源 Access 会话与图片 HMAC 不能替代上述约束。
 
 ## 接口与会话
 
@@ -36,7 +77,7 @@ Preview/translate 要求 `Origin` 与请求 URL 完全同源，并且有有效�
 
 图片端点只信签名，Cookie 不授予访问权；签名错误时不请求上游。只转发
 JPEG/PNG/GIF/WebP/AVIF，拒绝 SVG/HTML 类型，丢弃原站 Cookie，不透传用户
-Cookie/Authorization。每次重定向重新检查 URL；拒绝内网 IP、特殊主机名、
+Cookie/Authorization。每次重定向重新检查 URL 和解析后的地址；拒绝内网 IP、特殊主机名、
 非标准端口和非 HTTP(S) 地址。签名没有独立过期字段，轮换签名密钥会使旧 URL
 失效。
 
@@ -127,6 +168,9 @@ WRANGLER_SEND_METRICS=false node_modules/.bin/wrangler deploy --env="" \
 Readability 异常回退、内网/重定向防护、图片验签、hash 不匹配、错误信封、
 localhost 限制、缓存损坏和 KV 故障。测试断言中文和英文两种完整响应以及
 `tr:{hash}:zh` / `tr:{hash}:en` 两个独立缓存项，不调用真实 Magpie。
+M1 测试使用本地 DoH 响应，覆盖 IPv4/IPv6 私网和特殊地址、公私混答、单栈/双栈、
+CNAME、同主机重定向后换址、远端翻译重试前换址、DNS 超时/异常，以及拒绝时
+目标请求数为零、翻译不写 KV、不调用兜底；这些结果不构成连接固定或线上验收证据。
 
 可读原文样例：`https://blog.cloudflare.com/workers-ai/`。
 启动本机旁路时，可在被 Git 忽略的 `frontend/cloudflare/.dev.vars.dev` 中配置
