@@ -66,6 +66,7 @@ async function preview(request: Request, env: ReaderEnv): Promise<Response> {
   markdown = normalizeMarkdown(markdown);
   return readerJson({
     markdown, images, sourceUrl: resource.sourceUrl, lang: article.lang, title: article.title,
+    byline: article.byline, publishedTime: article.publishedTime,
     contentHash: await markdownHash(markdown),
     attribution: `原文来源：${new URL(resource.sourceUrl).hostname} · ${resource.sourceUrl}`,
   });

@@ -122,6 +122,7 @@ async function readerDnsAnswers(hostname: string, type: "A" | "AAAA", signal: Ab
     if (visited.has(current)) throw new Error("DNS alias loop");
     visited.add(current);
     const aliases = records.filter((record) => record.name === current && record.type === 5);
+    // 所有地址记录已在 map 中通过公网校验；终端分支再验证全部记录的归属，不能先按 name 缩小校验范围。
     const addresses = records.filter((record) => record.type === recordType);
     if (aliases.length === 0) {
       if (addresses.some((record) => record.name !== current)) throw new Error("Unrelated DNS address");

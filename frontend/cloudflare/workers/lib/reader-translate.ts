@@ -88,6 +88,7 @@ async function magpie(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);
   try {
+    // 仅显式本机 dev 直连豁免 DoH；公开域名及 preview/image 均无此豁免。
     if (!config.local) await assertPublicReaderUrl(config.endpoint, controller.signal);
     const headers = new Headers({ "Content-Type": "application/json", "X-News-Sentry-Cost-Policy": "free-only" });
     if (env.MAGPIE_API_KEY) headers.set("Authorization", `Bearer ${env.MAGPIE_API_KEY}`);

@@ -5,6 +5,8 @@ import { normalizeMarkdown, ReaderError, readerUrl } from "./reader-http.ts";
 
 export interface ExtractedArticle {
   title: string;
+  byline: string | null;
+  publishedTime: string | null;
   lang: string;
   markdown: string;
   images: Array<{ src: string; alt?: string }>;
@@ -34,12 +36,16 @@ export function extractArticle(html: string, sourceUrl: string): ExtractedArticl
   let content: string | null = null;
   let articleTitle = title;
   let articleLang = lang;
+  let byline: string | null = null;
+  let publishedTime: string | null = null;
   try {
     const article = new Readability(document, { charThreshold: 120, maxElemsToParse: 10_000 }).parse();
     if (article?.content && (article.textContent?.trim().length ?? 0) >= 120) {
       content = article.content;
       articleTitle = article.title || title;
       articleLang = article.lang || lang;
+      byline = article.byline?.trim() || null;
+      publishedTime = article.publishedTime?.trim() || null;
     }
   } catch {
     // 极端 DOM 或无法识别的页面只回退到显式正文容器，不把全页导航当新闻。
@@ -75,7 +81,7 @@ export function extractArticle(html: string, sourceUrl: string): ExtractedArticl
   });
   const converter = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
   return {
-    title: articleTitle, lang: articleLang, images,
+    title: articleTitle, byline, publishedTime, lang: articleLang, images,
     // DOM 输入避免 Workers 依赖 Node DOM parser。
     markdown: normalizeMarkdown(converter.turndown(cleaned)),
   };

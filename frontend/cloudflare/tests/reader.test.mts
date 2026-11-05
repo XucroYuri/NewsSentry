@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { handleReader } from "../workers/api/reader.ts";
@@ -136,6 +137,65 @@ test("preview extracts markdown, resolves relative URLs and signs only safe inli
   assert.equal(body.contentHash, createHash("sha256").update(body.markdown).digest("hex").slice(0, 32));
   assert.ok(body.attribution.includes("publisher.example"));
 });
+
+for (const fixture of [
+  {
+    name: "news-site", title: "Harbor ferry returns", byline: "Elena Chen",
+    publishedTime: "2026-11-04T09:15:00Z",
+    text: /The harbor ferry resumed service on Wednesday/,
+    formatting: /> The crossing connects our school and market/,
+    images: [{ src: "https://publisher.example/photos/ferry.jpg", alt: "Ferry at the repaired landing" }],
+  },
+  {
+    name: "blog", title: "Testing a neighborhood rain gauge", byline: "Mina Rossi",
+    publishedTime: "2026-10-28T07:30:00+01:00",
+    text: /I installed a simple rain gauge beside the community garden/,
+    formatting: /\*\*consistent schedule\*\*/,
+    images: [{ src: "https://publisher.example/images/rain-gauge.png", alt: "Rain gauge beside the garden" }],
+  },
+  {
+    name: "lazy-load", title: "Bridge restoration photo diary", byline: null, publishedTime: null,
+    text: /The restoration team photographed the footbridge/,
+    formatting: /The replacement deck is ready for inspection/,
+    images: [
+      { src: "https://publisher.example/images/bridge-deck.jpg", alt: "New bridge deck" },
+      { src: "https://cdn.publisher.example/bridge-joint.webp", alt: "Bridge joint detail" },
+    ],
+  },
+]) {
+  test(`preview fixture ${fixture.name} extracts metadata, body and HMAC images`, async (context) => {
+    const fixtureHtml = readFileSync(new URL(`./fixtures/reader/${fixture.name}.html`, import.meta.url), "utf8");
+    const calls = upstream(context, () => new Response(fixtureHtml, { headers: { "Content-Type": "text/html" } }));
+    const response = await handleReader(post({ url: source }), env());
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.title, fixture.title);
+    assert.equal(body.byline, fixture.byline);
+    assert.equal(body.publishedTime, fixture.publishedTime);
+    assert.equal(body.lang, "en");
+    assert.equal(body.sourceUrl, source);
+    assert.match(body.markdown, fixture.text);
+    assert.match(body.markdown, fixture.formatting);
+    assert.doesNotMatch(body.markdown, /NAVIGATION_ONLY|FOOTER_ONLY|SIDEBAR_ONLY|UNTRUSTED_SCRIPT/);
+    assert.deepEqual(body.images.map(({ src, alt }) => ({ src, alt })), fixture.images);
+    for (const image of body.images) {
+      const proxy = new URL(image.proxyUrl, origin);
+      assert.equal(proxy.origin, origin);
+      assert.equal(proxy.pathname, "/api/v1/reader/image");
+      assert.equal(proxy.searchParams.get("u"), image.src);
+      assert.equal(proxy.searchParams.get("s"),
+        createHmac("sha256", secret).update(`reader-image-v1\n${image.src}`).digest("hex"));
+      assert.ok(body.markdown.includes(`](${image.proxyUrl})`));
+      assert.ok(!body.markdown.includes(`](${image.src})`));
+    }
+    const inlineImages = [...body.markdown.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)]
+      .map((match) => match[1]);
+    assert.equal(inlineImages.length, fixture.name === "lazy-load" ? 3 : 1);
+    assert.deepEqual(new Set(inlineImages), new Set(body.images.map((image) => image.proxyUrl)));
+    assert.equal(body.contentHash, createHash("sha256").update(body.markdown).digest("hex").slice(0, 32));
+    assert.deepEqual(calls, [source]);
+  });
+}
 
 test("articleId uses the public D1 visibility predicate and wins over a supplied URL", async (t) => {
   const db = new DatabaseSync(":memory:");
@@ -288,6 +348,24 @@ test("DNS check rejects a CNAME terminal private address before fetching the ali
   const response = await handleReader(post({ url: source }), env());
   assert.equal(response.status, 400);
   assert.equal((await response.json()).code, "UNSAFE_URL");
+  assert.deepEqual(calls, []);
+});
+
+test("DNS check returns UNSAFE_URL for CNAME targets with private hostnames", async (context) => {
+  let target = "";
+  const calls = upstream(context, () => { throw Error("unexpected target fetch"); }, (url) => {
+    const result = dnsAnswer(url);
+    result.Answer = [
+      { name: "publisher.example.", type: 5, TTL: 60, data: target },
+      { ...result.Answer[0], name: target },
+    ];
+    return Response.json(result);
+  });
+  for (target of ["internal.lan.", "localhost.", "private.internal."]) {
+    const response = await handleReader(post({ url: source }), env());
+    assert.equal(response.status, 400, target);
+    assert.equal((await response.json()).code, "UNSAFE_URL", target);
+  }
   assert.deepEqual(calls, []);
 });
 
@@ -481,6 +559,8 @@ test("Readability failure falls back to an explicit article without navigation",
   assert.match(result.markdown, /A detailed report/);
   assert.doesNotMatch(result.markdown, /menu/);
   assert.equal(result.lang, "it");
+  assert.equal(result.byline, null);
+  assert.equal(result.publishedTime, null);
 });
 
 test("proxy checks HMAC without cookies, strips upstream cookies and rejects tampering", async (t) => {

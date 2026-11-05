@@ -61,7 +61,7 @@ DoH 预检与实际 `fetch` 仍是两次独立解析，无法证明最终连接�
 
 | 方法与路径 | 请求 | 成功响应 |
 |---|---|---|
-| `POST /api/v1/reader/preview` | `{articleId?, url?}`，至少一个，优先 articleId | `{markdown, images, sourceUrl, lang, title, contentHash, attribution}` |
+| `POST /api/v1/reader/preview` | `{articleId?, url?}`，至少一个，优先 articleId | `{markdown, images, sourceUrl, lang, title, byline, publishedTime, contentHash, attribution}` |
 | `GET /api/v1/reader/image?u=&s=` | 原图 URL 和 HMAC-SHA256 签名 | 支持的位图响应 |
 | `POST /api/v1/reader/translate` | `{markdown, targetLang, contentHash, sourceLang?}`，兼容 text 别名 | `{translated, lang, cached, provider}` |
 
@@ -86,14 +86,42 @@ Cookie/Authorization。每次重定向重新检查 URL 和解析后的地址；�
 
 ## 提取与边界
 
-安装依赖：`@mozilla/readability@0.6.0`、`linkedom@0.18.12`、
-`turndown@7.2.4`，只通过 npm 管理，不 vendor。
+### 开源依赖核验（Step2b，2026-11-06）
+
+版本以 `frontend/cloudflare/package.json` 为准；本次核对 `package-lock.json`、
+已安装包的 `package.json` 和 LICENSE，三者一致。只通过 npm 管理，不 vendor。
+
+| 依赖 | package.json 版本 | SPDX 许可证 | 职责与许可证原文 |
+|---|---|---|---|
+| `@mozilla/readability` | `0.6.0` | `Apache-2.0` | 正文与元数据提取；[LICENSE.md](https://github.com/mozilla/readability/blob/0.6.0/LICENSE.md) |
+| `linkedom` | `0.18.12` | `ISC` | Workers 中的 DOM；[LICENSE](https://github.com/WebReflection/linkedom/blob/v0.18.12/LICENSE) |
+| `turndown` | `7.2.4` | `MIT` | DOM 转 Markdown；[LICENSE](https://github.com/mixmark-io/turndown/blob/v7.2.4/LICENSE) |
+
+**许可证口径修正：** Step2b 需求中把 linkedom 写为 MIT，但该版本安装包、
+锁文件和 npm 发布元数据均声明 ISC，LICENSE 标题也是 `ISC License`，因此记录
+实际许可证 ISC。此处只记录依赖许可证核验，不另作法律解释。
+
+核验确认主路径为 `Readability.parse()` → DOM 清理 → `TurndownService`，
+没有手写正文提取主路径。本次保留三库和所有版本；显式正文容器仍只用于回退。
 翻译目标校验使用 `marked@18.1.3` 解析 Markdown，覆盖行内、引用式和自动链接，
 避免模型改写签名图片地址后仍被缓存。
 先 Readability 提取，再清理 DOM，并用 Turndown 转为 Markdown；Readability
 失败时仅回退到显式 `article/main/[role=main]`，不足 120 字符则失败。
+
+### Preview 输出
+
+| 字段 | 行为 |
+|---|---|
+| `title` | Readability 标题，缺失时使用原文 `<title>` 或主机名 |
+| `byline` | Readability 作者，去除首尾空白；缺失或使用显式容器回退时为 `null` |
+| `publishedTime` | Readability 发布时间原值，去除首尾空白；缺失或回退时为 `null`；不猜测或重写日期、时区 |
+| `markdown` | 清理后的正文 Markdown，保留段落、标题、引用、强调等结构；行内图片地址改为同源代理 |
+| `images` | 去重的 `{src, alt?, proxyUrl}`；`src` 保留安全的原图绝对地址供来源核对，`proxyUrl` 用于展示 |
+
 图片相对地址转为绝对地址，再改写为同源签名代理。正文上限 2 MiB、
 图片 5 MiB、最多 40 个去重图片 URL，最多 3 次重定向，抓取期限 10 秒。
+代理路径为 `/api/v1/reader/image?u=...&s=...`，`s` 是独立图片 secret 对
+`reader-image-v1\n{src}` 的 HMAC-SHA256 小写 hex；签名端点沿用验签与出站检查。
 
 `contentHash` 为规范化 Markdown 的 SHA-256 前 32 位小写 hex。规范化按顺序
 把 CRLF/CR 转为 LF、去除每行末尾空格/Tab、连续三行及以上换行收为两行、
@@ -152,7 +180,10 @@ CI 使用 Node 22。先在 `frontend/cloudflare/` 安装已锁定的依赖，全
 npm ci
 npm test
 npm run typecheck:reader
-npm run typecheck:reader
+
+# 三类自编静态 HTML，经过真实提取库和 preview API，网络仅使用本地 stub。
+node --experimental-strip-types --test --test-name-pattern='preview fixture' \
+  tests/reader.test.mts
 
 # 两种语言、缓存、免费→闲置降级：所有模型/网络响应均为本地测试 stub。
 node --experimental-strip-types --test \
@@ -168,9 +199,36 @@ WRANGLER_SEND_METRICS=false node_modules/.bin/wrangler deploy --env="" \
 Readability 异常回退、内网/重定向防护、图片验签、hash 不匹配、错误信封、
 localhost 限制、缓存损坏和 KV 故障。测试断言中文和英文两种完整响应以及
 `tr:{hash}:zh` / `tr:{hash}:en` 两个独立缓存项，不调用真实 Magpie。
+
+Step2b 的 `frontend/cloudflare/tests/fixtures/reader/` 包含三类自编 HTML，
+不抓取或复制站点正文：
+
+| Fixture | 覆盖 |
+|---|---|
+| `news-site.html` | 新闻正文、meta 作者/发布时间、相对链接、引用、图片及导航清理 |
+| `blog.html` | JSON-LD 博客作者/发布时间、标题/强调、相对图片 |
+| `lazy-load.html` | `data-src` / `data-original` 恢复、协议相对图片、重复图去重、缺失作者/时间返回 `null` |
+
+三类均断言标题、作者、时间、正文、图片清单、Markdown 中的签名代理以及 hash，
+使用 Node `createHmac` 独立计算期望签名；不 mock Readability、linkedom 或 Turndown。
+显式容器回退另断言作者与时间为 `null`。#77 MINOR-1 新增内网 CNAME 名称的
+400/`UNSAFE_URL` 回归测试，确认现有行为已对齐，无需改变错误处理；
+MINOR-2/3 仅补全量公网校验前提与 dev 直连例外的中文注释。
+
 M1 测试使用本地 DoH 响应，覆盖 IPv4/IPv6 私网和特殊地址、公私混答、单栈/双栈、
 CNAME、同主机重定向后换址、远端翻译重试前换址、DNS 超时/异常，以及拒绝时
 目标请求数为零、翻译不写 KV、不调用兜底；这些结果不构成连接固定或线上验收证据。
+
+### Step2b 延期清单
+
+- M1 连接级 DNS rebinding 窗口仍按既有生产硬门禁处理，另行解决可信出站或签字；
+  本次不放宽门禁。
+- 扩展只在 `srcset` / `<picture><source>` 中提供的图片、脚本动态内容、
+  复杂表格及付费墙，不在本次静态样例核验范围。
+- 本地 `core.autocrlf=true` 会使 `db/schema.sql` 变为 CRLF，导致既有
+  `public-read-window.test.mts` 的 `stage+published_at index serves the windowed count without a full pipeline_stage scan`
+  LF 字符串断言失败。#77 已记录同一问题，本次不修改该测试、SQL 或 Git 配置；
+  同时在禁用归档换行转换的 LF 副本验证全套 Workers 测试。
 
 可读原文样例：`https://blog.cloudflare.com/workers-ai/`。
 启动本机旁路时，可在被 Git 忽略的 `frontend/cloudflare/.dev.vars.dev` 中配置
