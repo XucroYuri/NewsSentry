@@ -116,6 +116,35 @@ def test_deploy_workflow_verifies_apex_api_worker_route() -> None:
     )
 
 
+def test_deploy_workflow_requires_magpie_preview_secret_preflight() -> None:
+    deploy_yml = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+    workflow = yaml.load(
+        deploy_yml,
+        Loader=yaml.BaseLoader,  # noqa: S506 - preserves GitHub's `on` key.
+    )
+    preview_steps = workflow["jobs"]["deploy-cloudflare-preview-worker"]["steps"]
+    preflight = next(
+        step["run"]
+        for step in preview_steps
+        if step.get("name") == "Verify Magpie preview Worker secrets pre-provisioned"
+    )
+    assert "wrangler secret list --name news-sentry-api-preview --format json" in preflight
+    assert "MAGPIE_CF_ACCESS_CLIENT_ID" in preflight
+    assert "MAGPIE_CF_ACCESS_CLIENT_SECRET" in preflight
+    assert "MAGPIE_API_KEY" in preflight
+    executable = "\n".join(
+        line
+        for line in preflight.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    )
+    assert "secret list --name news-sentry-api-preview" in executable
+    assert not any(
+        "wrangler secret put" in line for line in executable.splitlines()
+        if "missing Magpie secrets" not in line
+    )
+    assert "Verify Magpie preview Worker secrets pre-provisioned" in deploy_yml
+
+
 def test_deploy_workflow_requires_access_config_and_deployment_receipts() -> None:
     deploy_yml = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
     workflow = yaml.load(
