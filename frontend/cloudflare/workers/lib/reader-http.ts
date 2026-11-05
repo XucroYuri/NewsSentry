@@ -20,25 +20,20 @@ export function readerFailure(error: unknown): Response {
   return readerJson({ error: failure.code, code: failure.code, message: failure.message }, failure.status);
 }
 
-/** 仅允许公开 HTTP(S) 目标；Workers 的外部 fetch 网络边界进一步隔离私网。 */
+/**
+ * 仅按 URL 主机名拒绝 IP 字面量和特殊主机名，不解析 DNS。
+ * 普通 Workers fetch 不提供私网保护兜底，域名解析至私网和 DNS rebinding 仍有残余风险。
+ * 生产启用前须满足 docs/reader-v1.md 的 M1 硬门禁。
+ */
 export function readerUrl(value: unknown): string {
   const checked = validateExternalUrl(value);
   if (!checked.ok) throw new ReaderError(400, "UNSAFE_URL", "需要有效的公开 HTTP(S) URL。");
   const url = new URL(checked.normalizedUrl);
   const host = url.hostname.toLowerCase().replace(/\.$/, "");
-  const privateName = !host.includes(".") || host.startsWith("[")
+  const ipLiteral = host.startsWith("[") || /^\d+\.\d+\.\d+\.\d+$/.test(host);
+  const privateName = !host.includes(".")
     || /(?:^|\.)(localhost|local|internal|home|lan|onion|invalid)$/.test(host);
-  const octets = /^\d+\.\d+\.\d+\.\d+$/.test(host) ? host.split(".").map(Number) : null;
-  const privateIp = octets && (
-    [0, 10, 127].includes(octets[0]) || octets[0] >= 224
-    || (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127)
-    || (octets[0] === 169 && octets[1] === 254)
-    || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31)
-    || (octets[0] === 192 && [0, 168].includes(octets[1]))
-    || (octets[0] === 198 && [18, 19, 51].includes(octets[1]))
-    || (octets[0] === 203 && octets[1] === 0 && octets[2] === 113)
-  );
-  if (privateName || privateIp || (url.port && !["80", "443"].includes(url.port))) {
+  if (ipLiteral || privateName || (url.port && !["80", "443"].includes(url.port))) {
     throw new ReaderError(400, "UNSAFE_URL", "不允许内网、特殊地址或非标准端口。");
   }
   url.hash = "";

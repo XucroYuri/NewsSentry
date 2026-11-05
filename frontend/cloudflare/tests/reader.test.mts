@@ -152,6 +152,27 @@ test("invalid inputs, private URLs and redirect-to-private never fetch the priva
   assert.deepEqual(calls, [source]);
 });
 
+test("IP literal hosts and normalized variants are rejected before any upstream fetch", async (t) => {
+  const calls = upstream(t, () => { throw Error("unexpected network"); });
+  for (const url of [
+    "http://127.0.0.1/a", "http://127.1/a", "http://2130706433/a",
+    "http://0x7f000001/a", "http://0x7f.1/a", "http://0177.0.0.1/a",
+    "http://10.0.0.1/a", "http://169.254.169.254/a",
+    "https://8.8.8.8/a", "https://8.8.8.8./a", "https://8.8.2056/a",
+    "https://134744072/a", "https://0x08080808/a", "https://0x8.0x8.0x8.0x8/a",
+    "https://010.010.010.010/a",
+    "http://[::1]/a", "http://[fd00::1]/a", "http://[fe80::1]/a",
+    "https://[2606:4700:4700::1111]/a",
+    "http://[::ffff:127.0.0.1]/a", "http://[::ffff:7f00:1]/a",
+    "https://[::ffff:8.8.8.8]/a", "https://[::ffff:808:808]/a",
+  ]) {
+    const response = await handleReader(post({ url }), env());
+    assert.equal(response.status, 400, url);
+    assert.equal((await response.json()).code, "UNSAFE_URL", url);
+  }
+  assert.deepEqual(calls, []);
+});
+
 test("empty or blocked pages fail gracefully with a usable original URL", async (t) => {
   upstream(t, () => new Response("<html><head><title>Blocked</title></head><body><nav>Login</nav></body></html>", {
     headers: { "Content-Type": "text/html" },

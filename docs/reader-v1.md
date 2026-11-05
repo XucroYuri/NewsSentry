@@ -4,6 +4,18 @@ Reader 是独立 Worker API。`READER_V1` 只有精确等于 `"1"` 才启用；�
 preview、dev 的仓库配置均默认关闭。既有公开新闻接口、采集和研判链路不变，
 不新增 D1 表、不持久化原文、不自动发布。本次交付仅提交代码与 draft PR。
 
+## 生产启用硬门禁与 M1 威胁模型
+
+**硬门禁：** Before setting `READER_V1=1` in production, M1 (DNS rebinding) must be fixed or explicitly signed off by Yuri.
+
+在 M1 修复或 Yuri 明确签字接受残余风险前，生产必须保持 `READER_V1=0`。
+当前 URL 校验在 WHATWG URL 规范化后拒绝所有 IPv4/IPv6 字面量主机，包括
+十进制、八进制、十六进制 IPv4 变体与 IPv4-mapped IPv6；每次重定向都重复校验。
+这些检查只作用于主机名字符串，不解析 DNS。普通 Workers `fetch` 不提供可依赖的
+私网保护兜底；公网域名解析至私网或发生 DNS rebinding 时，仍可能通过 URL 校验，
+逐跳重校验也不能消除此残余风险。同源 Access 用户会话和现有图片 HMAC 授权
+限制调用边界，但不能代替解析后的地址校验。
+
 ## 接口与会话
 
 | 方法与路径 | 请求 | 成功响应 |
