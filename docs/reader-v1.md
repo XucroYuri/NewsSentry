@@ -57,6 +57,38 @@ DoH 预检与实际 `fetch` 仍是两次独立解析，无法证明最终连接�
 完整 DNS rebinding 风险仍须通过连接固定/可信出站层消除，或由 Yuri 明确签字接受，
 才可另行讨论生产启用。同源 Access 会话与图片 HMAC 不能替代上述约束。
 
+## P2 阅读界面
+
+公开前端新增 `/{locale}/reader/{articleId}?locale={locale}` 路由；嵌入模式自动带
+`/public-app/` 前缀。壳层支持 zh/en/es/ar/fr/ja/de/it/pt/ko，使用本地 SVG 加短码，
+语言自称作为 tooltip，无障碍名称同时包含短码。显式路径优先于 query；无显式语言时，
+依次选择 localStorage 手动偏好、`navigator.languages`（兼容 `navigator.language`）中
+首个支持的语种，最后回退 `en`。区域标签如 `zh-CN`、`pt-BR` 归一为语言码；
+仅手动切换写入偏好。阿拉伯语壳层和正文均采用 RTL。
+
+界面采用紧凑卡片壳层，正文沿用 Geist、70ch 最大行长和独立段距。默认译文，
+可切回原文；加载时显示骨架并禁用语言/模式切换。翻译失败保留原文并提供重试，
+图片失败保留占位和重试按钮。动效为 180–200ms，遵循 reduced-motion。
+
+`VITE_READER_V1` 仅精确等于 `"1"` 才启用真实请求，缺省关闭；后端仍由
+独立的 `READER_V1` 控制。所有新闻列表/卡片主入口均进入站内阅读器，保留返回
+新闻流的筛选条件。关闭时显示未开放提示，不请求 Reader API；源站链接始终是
+次要小链接，使用 `target="_blank" rel="noopener noreferrer"`。
+新闻详情不再渲染库内 `full_content` 或热链原图；列表缩略图也只接受签名代理，
+点击缩略图与卡片均进入 Reader。阅读器提供十语问题反馈入口。
+真实 adapter 只调用同源 `/api/v1/reader/*`，使用 `credentials: "same-origin"`，
+不接触模型凭据。Markdown 禁用原始 HTML，图片必须匹配响应中的同源签名
+`proxyUrl` 白名单；不会自动回退到外媒原图。
+
+本机可运行 `npm --prefix frontend/public run build` 和
+`npm --prefix frontend/public run preview`，打开
+`http://127.0.0.1:5174/zh/reader/demo?reader=mock&locale=zh`。
+mock 仅允许 loopback 主机，按需加载虚构样稿，不调用外部模型或 API；
+`readerState=image-fail|translate-loading|translate-unavailable|preview-unavailable`
+可复现兜底状态。代理图成功状态需本地测试夹具响应，假签名不用于真实后端。
+组件、路由和 adapter 契约检查使用 `npm --prefix frontend/public test`；
+类型检查使用 `npm --prefix frontend/public run lint`。本次不启用实网 preview 或生产开关。
+
 ## 接口与会话
 
 | 方法与路径 | 请求 | 成功响应 |

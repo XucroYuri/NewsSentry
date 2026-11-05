@@ -1,6 +1,9 @@
 import type { PublicChannel } from "@/lib/feed-state"
+import { readerLocales, preferredLocale } from "@/lib/reader/locales"
+import { parseReaderRoute, readerPath } from "@/lib/reader/routes"
 
 export type PublicRoute =
+  | { name: "reader"; articleId: string; search: URLSearchParams; locale?: string }
   | { name: "feed"; channel: PublicChannel; search: URLSearchParams; locale?: string }
   | { name: "event"; eventId: string; targetId?: string; search: URLSearchParams; locale?: string }
   | { name: "sources"; search: URLSearchParams; locale?: string }
@@ -20,7 +23,7 @@ const feedChannels = new Set<PublicChannel>([
   "daily",
 ])
 
-const publicLocales = new Set(["zh", "en", "es", "ar", "fr", "it"])
+const publicLocales = new Set<string>(readerLocales)
 
 function normalizeLocale(locale = "zh") {
   const normalized = locale.toLowerCase().split("-")[0]
@@ -134,6 +137,8 @@ function parsePublicAppPath(pathname: string, search: string): PublicRoute | nul
 export function parseLocationRoute(
   locationLike: Pick<Location, "pathname" | "search" | "hash">,
 ): PublicRoute {
+  const reader = parseReaderRoute(locationLike)
+  if (reader) return { name: "reader", articleId: reader.articleId, locale: reader.locale, search: reader.params }
   const hash = locationLike.hash?.trim() ?? ""
   if (hash.startsWith("#/")) return parseHashRoute(hash)
   const params = buildSearchParams(locationLike.search)
@@ -163,6 +168,7 @@ function localePrefix(locale: string) {
 }
 
 export function buildPublicAppPath(route: PublicRoute) {
+  if (route.name === "reader") return readerPath(route.articleId, preferredLocale(route.locale), route.search)
   const prefix = localePrefix(route.locale ?? "zh")
   if (route.name === "event") {
     const params = new URLSearchParams(route.search)
@@ -202,6 +208,7 @@ export function buildPublicAppPath(route: PublicRoute) {
 }
 
 export function buildRouteHash(route: PublicRoute) {
+  if (route.name === "reader") return `#${buildPublicAppPath(route)}`
   if (route.name === "event") {
     const params = new URLSearchParams(route.search)
     if (route.targetId) params.set("target_id", route.targetId)

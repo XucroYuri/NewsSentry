@@ -16,7 +16,6 @@ import {
   RadioIcon,
   SendIcon,
   SkipForwardIcon,
-  XIcon,
 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
@@ -49,6 +48,8 @@ import { buildEventSeoPayload } from "@/lib/seo/site-seo"
 import type { FeedState } from "@/hooks/use-public-feed"
 import type { PublicAnalysisResponse, PublicNewsItem, PublicNewsSourceType, PublicTargetInfo } from "@/types/public-news"
 import { buildPublicAppPath, parseLocationRoute, type PublicRoute } from "@/lib/routes"
+import { readerLink } from "@/lib/reader/routes"
+import { safeProxyUrl } from "@/lib/reader/adapter"
 
 function normalizeError(error: unknown) {
   if (error instanceof PublicNewsApiError) return error.message
@@ -118,15 +119,10 @@ function uniqueNewsTags(item: PublicNewsItem) {
 function buildDetailRoute(
   item: PublicNewsItem,
   returnTo?: PublicRoute | null,
-): Extract<PublicRoute, { name: "event" }> {
-  const search = new URLSearchParams(item.targetId ? { target_id: item.targetId } : undefined)
-  if (returnTo) search.set("return_to", buildPublicAppPath(returnTo))
-  return {
-    name: "event",
-    eventId: item.id,
-    targetId: item.targetId || undefined,
-    search,
-  }
+): PublicRoute {
+  const url = new URL(readerLink(item), window.location.origin)
+  if (returnTo) url.searchParams.set("return_to", buildPublicAppPath(returnTo))
+  return parseLocationRoute({ pathname: url.pathname, search: url.search, hash: "" })
 }
 
 function navigateToPublicRoute(route: PublicRoute) {
@@ -197,13 +193,12 @@ function NewsCard({
   isNew?: boolean
   isRead?: boolean
 }) {
-  const [previewImage, setPreviewImage] = useState<string | null>(null)
   const title = primaryNewsTitle(item)
   const originalTitle = originalNewsTitle(item)
   const summary = item.summary?.trim()
   const detailRoute = buildDetailRoute(item, returnTo)
   const targetLabel = targetShortLabel(item.targetLabel)
-  const imageUrl = item.imageUrls?.find((url) => url.trim())
+  const imageUrl = item.imageUrls?.map((url) => safeProxyUrl(url)).find(Boolean)
   const tags = uniqueNewsTags(item)
   const breakingScore = Math.round(breakingScoreValue(item))
   const detailPath = buildPublicAppPath(detailRoute)
@@ -273,57 +268,19 @@ function NewsCard({
                   ) : null}
                 </div>
                 {imageUrl ? (
-                  <button
-                    type="button"
-                    aria-label={`浏览大图：${title}`}
-                    className="group/image overflow-hidden rounded-md border bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      setPreviewImage(imageUrl)
-                    }}
-                  >
-                    <img
-                      src={imageUrl}
-                      alt={`新闻缩略图：${title}`}
-                      className="aspect-[16/10] h-full w-full object-cover transition-transform group-hover/image:scale-[1.02]"
-                      loading="lazy"
-                    />
-                  </button>
+                  <img
+                    src={imageUrl}
+                    alt={`新闻缩略图：${title}`}
+                    className="aspect-[16/10] h-full w-full rounded-md border object-cover"
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                  />
                 ) : null}
               </div>
             </div>
           </div>
         </div>
       </article>
-      {previewImage ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="新闻图片预览"
-          className="fixed inset-0 z-50 grid place-items-center bg-background/80 p-4 backdrop-blur-sm"
-          onClick={() => setPreviewImage(null)}
-        >
-          <div className="relative max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-lg border bg-card shadow-xl">
-            <button
-              type="button"
-              aria-label="关闭图片预览"
-              className="absolute right-2 top-2 z-10 inline-flex size-8 items-center justify-center rounded-md border bg-background/90 text-foreground shadow-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={(event) => {
-                event.stopPropagation()
-                setPreviewImage(null)
-              }}
-            >
-              <XIcon className="size-4" aria-hidden="true" />
-            </button>
-            <img
-              src={previewImage}
-              alt={`新闻大图：${title}`}
-              className="max-h-[90vh] w-full object-contain"
-            />
-          </div>
-        </div>
-      ) : null}
     </>
   )
 }
@@ -1087,24 +1044,6 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
               {item.recommendationReason}
             </div>
           ) : null}
-            {item.imageUrls && item.imageUrls.length > 0 ? (
-              <div className="grid gap-2">
-                <img
-                  src={item.imageUrls[0]}
-                  alt=""
-                  className="max-h-[360px] w-full rounded-md border object-cover"
-                  loading="lazy"
-                />
-              </div>
-            ) : null}
-            {item.fullContent ? (
-              <div>
-                <h2 className="text-base font-semibold">全文</h2>
-                <div className="mt-2 whitespace-pre-line text-sm leading-7 text-foreground/90">
-                  {item.fullContent}
-                </div>
-              </div>
-            ) : null}
             <div className="flex flex-wrap gap-2">
               {item.tags.map((tag) => (
                 <Badge key={tag} variant="outline">
@@ -1119,13 +1058,12 @@ export function EventDetailPage({ route }: { route: Extract<PublicRoute, { name:
             </div>
             <div className="flex flex-wrap gap-2">
               <CopySummaryButton item={item} />
+              <Button asChild size="sm"><a href={readerLink(item)}>站内阅读</a></Button>
               {item.originalUrl ? (
-                <Button asChild size="sm">
-                  <a href={item.originalUrl} target="_blank" rel="noreferrer">
-                    查看原文
-                    <ArrowUpRightIcon className="size-4" aria-hidden="true" />
-                  </a>
-                </Button>
+                <a className="inline-flex items-center gap-1 text-xs text-muted-foreground underline underline-offset-4" href={item.originalUrl} target="_blank" rel="noopener noreferrer">
+                  在源站打开
+                  <ArrowUpRightIcon className="size-3" aria-hidden="true" />
+                </a>
               ) : null}
             </div>
           </section>
