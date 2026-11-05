@@ -25,6 +25,8 @@ import { handleNewsFeed, handleNewsDetail } from "./api/news";
 import { handleTargets, handleRegions } from "./api/targets";
 import { handleWebhook, handleImport } from "./api/webhook";
 import { handleDlqReplay } from "./api/dlq-replay";
+import { handleReaderPreview, handleReaderTranslate, handleReaderImage } from "./api/reader";
+import type { ReaderEnv } from "./lib/reader-contracts";
 import { handleContainerProxy, shouldProxyToContainer } from "./api/proxy";
 import { internalError } from "./lib/errors";
 import { authorizeWorkerWriteAccess } from "./lib/access";
@@ -34,7 +36,7 @@ import type { AccessPrincipal, CloudflareAccessJwtEnv } from "./lib/access-jwt";
 import { parseRuntimeConfig, type RuntimeConfigEnv } from "./lib/runtime-config";
 import { containerEnvVars } from "./lib/container-env";
 
-interface Env extends CloudflareAccessJwtEnv, RuntimeConfigEnv {
+interface Env extends CloudflareAccessJwtEnv, RuntimeConfigEnv, ReaderEnv {
   DB: D1Database;
   NEWS_SENTRY_ARTIFACTS?: R2Bucket;
   NEWS_SENTRY_CONTAINER?: DurableObjectNamespace;
@@ -149,6 +151,13 @@ registerRoute("GET", "/api/v1/regions", handleRegions);
 registerRoute("POST", "/api/v1/webhook", handleWebhook);
 registerRoute("POST", "/api/v1/events/import", handleImport);
 registerRoute("POST", "/api/v1/jobs/dlq/replay", handleDlqReplay);
+// draft 旁路：handler 内显式开关，默认关闭。
+registerRoute("POST", "/api/v1/reader/preview", (request, _db, _params, _segments, _ctx, _runtime, bindings) =>
+  handleReaderPreview(request, bindings?.reader));
+registerRoute("POST", "/api/v1/reader/translate", (request, _db, _params, _segments, _ctx, _runtime, bindings) =>
+  handleReaderTranslate(request, bindings?.reader));
+registerRoute("GET", "/api/v1/reader/image", (request, _db, _params, _segments, _ctx, _runtime, bindings) =>
+  handleReaderImage(request, bindings?.reader));
 
 // ── Worker entry ───────────────────────────────────────────────────────────
 export default {
@@ -167,7 +176,14 @@ export default {
                 env.DB,
                 ctx,
                 runtimeMetadata(env, workerWriteAccess.identity),
-                { artifacts: env.NEWS_SENTRY_ARTIFACTS },
+                {
+                  artifacts: env.NEWS_SENTRY_ARTIFACTS,
+                  reader: {
+                    READER_ENABLED: env.READER_ENABLED,
+                    READER_ALLOWED_HOSTS: env.READER_ALLOWED_HOSTS,
+                    READER_IMAGE_SIGNING_SECRET: env.READER_IMAGE_SIGNING_SECRET,
+                  },
+                },
               )
             : workerWriteAccess.response;
       }
