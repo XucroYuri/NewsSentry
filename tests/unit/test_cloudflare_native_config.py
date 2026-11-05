@@ -44,8 +44,20 @@ def test_preview_worker_uses_isolated_state_and_no_active_runtime_bindings() -> 
         "NEWS_SENTRY_ENVIRONMENT": "preview",
         "SCHEDULER_MODE": "shadow",
         "WORKER_NATIVE_COLLECT_ENABLED": "false",
-        "READER_V1": "0",
+        "READER_V1": "1",
+        "MAGPIE_FREE_ONLY": "1",
+        "MAGPIE_FREE_GROUP": "group/translate-free",
+        "MAGPIE_BASE_URL": "https://magpie-preview.news-sentry.com",
     }
+    assert "MAGPIE_CF_ACCESS_CLIENT_ID" not in preview["vars"]
+    assert "MAGPIE_CF_ACCESS_CLIENT_SECRET" not in preview["vars"]
+    assert "MAGPIE_API_KEY" not in preview["vars"]
+    assert preview["kv_namespaces"] == [
+        {
+            "binding": "READER_TRANSLATIONS",
+            "id": "a86dfa040f0e4121b73ca670ccea633c",
+        }
+    ]
     assert preview["d1_databases"] == [
         {
             "binding": "DB",
@@ -66,6 +78,9 @@ def test_preview_worker_config_keeps_access_secret_out_of_static_worker_vars() -
 
     assert "CF_ACCESS_CLIENT_SECRET" not in preview_vars
     assert "CF_ACCESS_CLIENT_ID" not in preview_vars
+    assert "MAGPIE_CF_ACCESS_CLIENT_ID" not in preview_vars
+    assert "MAGPIE_CF_ACCESS_CLIENT_SECRET" not in preview_vars
+    assert "MAGPIE_API_KEY" not in preview_vars
     assert preview["d1_databases"] == [
         {
             "binding": "DB",
