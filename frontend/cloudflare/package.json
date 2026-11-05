@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "wrangler dev --local",
     "test": "node --experimental-strip-types --test tests/*.test.mts",
+    "typecheck:reader": "tsc --project tsconfig.reader.json",
     "wrangler-types": "wrangler types",
     "deploy": "wrangler deploy",
     "deploy:prod": "wrangler deploy --env=\"\"",
@@ -16,9 +17,16 @@
     "pages:deploy": "wrangler pages deploy ../../dist/cloudflare"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "5.20261104.1",
+    "@types/turndown": "5.0.6",
+    "typescript": "5.9.3",
     "wrangler": "4.114.0"
   },
   "dependencies": {
-    "@cloudflare/containers": "^0.3.7"
+    "@cloudflare/containers": "^0.3.7",
+    "@mozilla/readability": "0.6.0",
+    "linkedom": "0.18.12",
+    "marked": "18.1.3",
+    "turndown": "7.2.4"
   }
 }

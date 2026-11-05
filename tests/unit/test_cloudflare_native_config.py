@@ -44,6 +44,7 @@ def test_preview_worker_uses_isolated_state_and_no_active_runtime_bindings() -> 
         "NEWS_SENTRY_ENVIRONMENT": "preview",
         "SCHEDULER_MODE": "shadow",
         "WORKER_NATIVE_COLLECT_ENABLED": "false",
+        "READER_V1": "0",
     }
     assert preview["d1_databases"] == [
         {

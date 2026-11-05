@@ -22,6 +22,10 @@ NEWS_SENTRY_RUNTIME = "cloudflare-native"
 NEWS_SENTRY_ENVIRONMENT = "production"
 SCHEDULER_MODE = "shadow"
 WORKER_NATIVE_COLLECT_ENABLED = "false"
+# Reader 旁路默认关闭；KV/Magpie/Access 接线见 docs/reader-v1.md。
+READER_V1 = "0"
+READER_WORKERS_AI = "0"
+READER_WORKERS_AI_FREE_ONLY = "0"
 
 [version_metadata]
 binding = "CF_VERSION_METADATA"
@@ -98,6 +102,7 @@ NEWS_SENTRY_RUNTIME = "cloudflare-native-preview"
 NEWS_SENTRY_ENVIRONMENT = "preview"
 SCHEDULER_MODE = "shadow"
 WORKER_NATIVE_COLLECT_ENABLED = "false"
+READER_V1 = "0"
 # Preview Access non-secret vars are injected by deploy.yml; Client Secret stays in GitHub Environment secrets only.
 
 [env.preview.version_metadata]
@@ -134,6 +139,7 @@ NEWS_SENTRY_RUNTIME = "cloudflare-native-dev"
 NEWS_SENTRY_ENVIRONMENT = "dev"
 SCHEDULER_MODE = "shadow"
 WORKER_NATIVE_COLLECT_ENABLED = "false"
+READER_V1 = "0"
 
 [env.dev.version_metadata]
 binding = "CF_VERSION_METADATA"

@@ -414,6 +414,7 @@ News Sentry 正在从本地新闻监控引擎演进为全球新闻情报平台�
 | [开发者引导](MAKE_GUIDE.md) | 快速开始、配置、排障 |
 | [契约规范](docs/contracts-canonical.md) | 字段命名、评分量纲、目录映射 |
 | [API 文档](docs/api-reference.md) | REST API 端点、认证、Webhook |
+| [Reader v1 旁路](docs/reader-v1.md) | 原文提取、签名图代理、Magpie 免费翻译接线与验证 |
 | [安全审计](docs/security-audit-report.md) | OWASP Top 10 审计报告 |
 
 ---

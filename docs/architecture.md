@@ -280,6 +280,10 @@ routes:
 | `/api/v1/admin/*` | 管理面板 | API Key |
 | `/admin/*` | 管理 Web UI | Session / API Key |
 | `/public-app/*` | 公开新闻站点 (React) | 无 |
+| `/api/v1/reader/*` | 默认关闭的原文、签名图代理与免费翻译旁路 | 同源 Access 用户 session；图片仅 HMAC |
+
+Reader 的配置、接口与验收方法见 [Reader v1 旁路](reader-v1.md)；
+`READER_V1` 默认关闭，翻译结果不写入 canonical 字段。
 
 ### 安全
 
