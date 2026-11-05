@@ -5,6 +5,8 @@ import { readFileSync } from "node:fs"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import App from "@/App"
+import PortalEntry from "@/components/reader/PortalEntry"
+import { mockArticle, mockImageUrl } from "@/lib/reader/mock-adapter"
 import { formatTime } from "@/lib/public-view"
 import type { PublicNewsFeedResponse, PublicNewsItem } from "@/types/public-news"
 
@@ -67,6 +69,8 @@ function jsonResponse(payload: unknown, init: ResponseInit = {}) {
 function installFetchMock() {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const url = String(input)
+    if (url === "/api/v1/reader/preview") return jsonResponse({ ...mockArticle, title: LEAD_TITLE })
+    if (url === "/api/v1/reader/translate") return jsonResponse({ translated: "站内完整译文。", lang: "zh", cached: false, provider: "test" })
     if (url.startsWith("/api/v1/public/bootstrap")) {
       return jsonResponse({
         news: feed([
@@ -309,6 +313,8 @@ describe("Phase 84 public portal app", () => {
     window.location.hash = ""
     vi.useRealTimers()
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+    localStorage.clear()
   })
 
   it("renders a breaking-news home instead of the all-news timeline", async () => {
@@ -463,8 +469,8 @@ describe("Phase 84 public portal app", () => {
     expect(within(leadLink).getByText(/为什么重要：/)).toBeInTheDocument()
   })
 
-  it("renders timeline news cards with translated title, source context, image preview, tags, and index branches", async () => {
-    const imageUrl = "https://example.com/news-image.jpg"
+  it("renders timeline cards with signed thumbnails that open the reader and rejects hotlinked images", async () => {
+    const imageUrl = mockImageUrl
     const publishedAt = "2026-06-09T08:00:00Z"
     const cardTimeLabel = formatTime(publishedAt)
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
@@ -485,7 +491,7 @@ describe("Phase 84 public portal app", () => {
               issueTags: ["科技"],
               relatedTags: ["涉中", "涉美"],
               regionTags: ["全球"],
-              imageUrls: [imageUrl],
+              imageUrls: ["https://example.com/news-image.jpg", imageUrl],
               valueScore: 75,
             }),
           ]),
@@ -535,13 +541,14 @@ describe("Phase 84 public portal app", () => {
     expect(within(card).queryByText("信源")).not.toBeInTheDocument()
     expect(within(card).queryByText("标签")).not.toBeInTheDocument()
 
-    const thumbnail = within(card).getByRole("button", { name: /浏览大图/ })
-    expect(within(thumbnail).getByRole("img", { name: /新闻缩略图/ })).toHaveAttribute("src", imageUrl)
+    const thumbnail = within(card).getByRole("img", { name: /新闻缩略图/ })
+    expect(thumbnail).toHaveAttribute("src", imageUrl)
+    expect(card.querySelector('img[src^="https://"]')).toBeNull()
 
     fireEvent.click(thumbnail)
 
-    const dialog = await screen.findByRole("dialog", { name: "新闻图片预览" })
-    expect(within(dialog).getByRole("img", { name: /新闻大图/ })).toHaveAttribute("src", imageUrl)
+    expect(window.location.pathname).toMatch(/^\/[a-z]{2}\/reader\/event-with-image$/)
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   })
 
   it("suppresses redundant hot-topic summaries while keeping the timeline summary", async () => {
@@ -1391,13 +1398,32 @@ describe("Phase 84 public portal app", () => {
     expect(screen.getByText("加载更多")).toBeInTheDocument()
   })
 
-  it("opens a reader event detail page with source, entities, copy, and related signals", async () => {
-    installFetchMock()
-    render(<App />)
-
+  it.each(["headline", "card"])("opens the in-site translated reader from a list %s and keeps the source link secondary", async (entry) => {
+    const fetchMock = installFetchMock()
+    vi.stubEnv("VITE_READER_V1", "1")
+    localStorage.setItem("news-sentry-reader-locale", "zh")
+    window.history.replaceState({}, "", "/public-app/?channel=targets&target_id=italy")
+    render(<PortalEntry />)
     await findLeadStory()
-    fireEvent.click(screen.getAllByRole("link", { name: new RegExp(LEAD_TITLE) })[0])
-    window.dispatchEvent(new HashChangeEvent("hashchange"))
+    const links = screen.getAllByRole("link", { name: new RegExp(LEAD_TITLE) })
+    const link = links.find((element) => element.tagName === (entry === "card" ? "ARTICLE" : "A"))!
+    fireEvent.click(link)
+    expect(await screen.findByText("站内完整译文。")).toBeVisible()
+    expect(window.location.pathname).toBe("/zh/reader/event-1")
+    expect(window.location.search).toContain("locale=zh")
+    expect(fetchMock.mock.calls.some(([input]) => String(input) === "/api/v1/reader/preview")).toBe(true)
+    const sourceLink = screen.getByRole("link", { name: /在源站打开/ })
+    expect(sourceLink).toHaveAttribute("target", "_blank")
+    expect(sourceLink).toHaveAttribute("rel", "noopener noreferrer")
+    expect(sourceLink).toHaveClass("reader-source-link")
+    expect(screen.getByRole("link", { name: "返回新闻流" })).toHaveAttribute("href", "/public-app/?channel=targets&target_id=italy")
+    expect(screen.getByRole("button", { name: "译文" })).toHaveAttribute("aria-pressed", "true")
+  })
+
+  it("opens a legacy event detail URL with source, entities, copy, and related signals", async () => {
+    installFetchMock()
+    window.history.replaceState({}, "", "/public-app/events/event-1?target_id=italy")
+    render(<App />)
 
     expect(await screen.findByRole("heading", { name: LEAD_TITLE })).toBeInTheDocument()
     expect(await screen.findByText("Italy and EU leaders discuss trade in Rome")).toBeInTheDocument()
@@ -1410,17 +1436,10 @@ describe("Phase 84 public portal app", () => {
     expect(screen.getByText("同来源信号")).toBeInTheDocument()
   })
 
-  it("preserves the targets channel context when opening and leaving an event detail page", async () => {
+  it("preserves the targets channel context when leaving a legacy event detail URL", async () => {
     installFetchMock()
-    window.history.replaceState({}, "", "/public-app/?channel=targets&target_id=italy")
-
+    window.history.replaceState({}, "", "/public-app/events/event-1?target_id=italy&return_to=%2Fpublic-app%2F%3Fchannel%3Dtargets%26target_id%3Ditaly")
     render(<App />)
-
-    await findLeadStory()
-    const detailLink = screen.getAllByRole("link", { name: new RegExp(LEAD_TITLE) })[0]
-    expect(detailLink.getAttribute("href")).toContain("return_to=%2Fpublic-app%2F%3Fchannel%3Dtargets%26target_id%3Ditaly")
-
-    fireEvent.click(detailLink)
 
     expect(
       await screen.findByRole("heading", { name: LEAD_TITLE }),
@@ -1472,10 +1491,8 @@ describe("Phase 84 public portal app", () => {
 
   it("uses a smaller related-signals request window on the detail page", async () => {
     const fetchMock = installFetchMock()
+    window.history.replaceState({}, "", "/public-app/events/event-1?target_id=italy")
     render(<App />)
-
-    await findLeadStory()
-    fireEvent.click(screen.getAllByRole("link", { name: new RegExp(LEAD_TITLE) })[0])
 
     await screen.findByRole("heading", { name: LEAD_TITLE })
     await waitFor(() =>

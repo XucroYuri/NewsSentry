@@ -7,7 +7,10 @@ function searchEqual(left: URLSearchParams, right: URLSearchParams) {
 }
 
 function routesEqual(left: PublicRoute, right: PublicRoute) {
-  if (left.name !== right.name) return false
+  if (left.name !== right.name || left.locale !== right.locale) return false
+  if (left.name === "reader" && right.name === "reader") {
+    return left.articleId === right.articleId && searchEqual(left.search, right.search)
+  }
   if (left.name === "feed" && right.name === "feed") {
     return left.channel === right.channel && searchEqual(left.search, right.search)
   }
