@@ -14,170 +14,126 @@
   font-weight: 100 900;
 }
 
+/* 一条纯灰阶 + 金色主色 + 成功 / 警告 / 危险。亮暗主题同名同义。 */
 :root {
   color-scheme: light;
-
-  --font-geist-sans: "Geist", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-geist-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-
   --geist-background-100: 255 255 255;
-  --geist-background-200: 250 250 250;
+  --geist-background-200: 247 247 247;
   --geist-gray-100: 242 242 242;
   --geist-gray-200: 235 235 235;
-  --geist-gray-300: 230 230 230;
-  --geist-gray-400: 234 234 234;
-  --geist-gray-500: 201 201 201;
-  --geist-gray-600: 168 168 168;
-  --geist-gray-700: 143 143 143;
-  --geist-gray-800: 125 125 125;
-  --geist-gray-900: 77 77 77;
+  --geist-gray-300: 224 224 224;
+  --geist-gray-400: 210 210 210;
+  --geist-gray-500: 170 170 170;
+  --geist-gray-600: 118 118 118;
+  --geist-gray-700: 105 105 105;
+  --geist-gray-800: 90 90 90;
+  --geist-gray-900: 82 82 82;
   --geist-gray-1000: 23 23 23;
-  --geist-blue-700: 0 107 255;
-  --geist-red-800: 234 0 29;
-  --geist-amber-800: 255 147 0;
-  --geist-green-700: 40 169 72;
-  --geist-purple-700: 160 0 248;
-  --geist-teal-700: 0 172 150;
+  --primary: 120 88 0;
+  --primary-foreground: 255 255 255;
+  --success: 24 104 64;
+  --success-foreground: 255 255 255;
+  --warning: 135 77 14;
+  --warning-foreground: 255 255 255;
+  --destructive: 180 35 45;
+  --destructive-foreground: 255 255 255;
 
-  --background: var(--geist-background-100);
+  --font-geist-sans: "Geist", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+  --font-geist-mono: "Geist Mono", ui-monospace, monospace;
+
+  --background: var(--geist-background-200);
   --foreground: var(--geist-gray-1000);
   --card: var(--geist-background-100);
-  --card-foreground: var(--geist-gray-1000);
-  --primary: var(--geist-gray-1000);
-  --primary-foreground: var(--geist-background-100);
-  --secondary: var(--geist-background-200);
-  --secondary-foreground: var(--geist-gray-1000);
+  --card-foreground: var(--foreground);
+  --secondary: var(--geist-gray-100);
+  --secondary-foreground: var(--foreground);
   --muted: var(--geist-gray-100);
   --muted-foreground: var(--geist-gray-900);
-  --accent: var(--geist-gray-100);
-  --accent-foreground: var(--geist-gray-1000);
-  --destructive: var(--geist-red-800);
-  --destructive-foreground: 255 255 255;
+  --accent: var(--geist-gray-200);
+  --accent-foreground: var(--foreground);
   --border: var(--geist-gray-300);
-  --input: var(--geist-gray-300);
-  --ring: var(--geist-blue-700);
-  --success: var(--geist-green-700);
-  --success-foreground: 255 255 255;
-  --warning: var(--geist-amber-800);
-  --warning-foreground: 23 23 23;
-  --info: var(--geist-blue-700);
-  --info-foreground: 255 255 255;
-  --feature: var(--geist-purple-700);
-  --feature-foreground: 255 255 255;
+  --input: var(--geist-gray-600);
+  --ring: var(--primary);
+  /* 兼容既有 shadcn 调用；信息和实体类型不再引入独立色相。 */
+  --info: var(--foreground);
+  --info-foreground: var(--card);
+  --feature: var(--foreground);
+  --feature-foreground: var(--card);
+  --scrim: 0 0 0;
 
   --radius-sm: 6px;
-  --radius-md: 12px;
+  --radius-md: 8px;
   --radius-lg: 16px;
   --radius-full: 9999px;
   --radius: var(--radius-md);
 
-  --shadow-raised: 0 2px 2px rgb(0 0 0 / 0.04);
-  --shadow-popover: 0 1px 1px rgb(0 0 0 / 0.02), 0 4px 8px -4px rgb(0 0 0 / 0.04), 0 16px 24px -8px rgb(0 0 0 / 0.06);
-  --shadow-modal: 0 1px 1px rgb(0 0 0 / 0.02), 0 8px 16px -4px rgb(0 0 0 / 0.04), 0 24px 32px -8px rgb(0 0 0 / 0.06);
-  --shadow-primary-soft: 0 0 0 3px rgb(var(--primary) / 0.14);
-  --ease-geist: cubic-bezier(0.175, 0.885, 0.32, 1.1);
+  --text-meta: clamp(0.75rem, 0.72rem + 0.12vw, 0.875rem);
+  --text-body: clamp(0.9375rem, 0.9rem + 0.16vw, 1.0625rem);
+  --text-section: clamp(1rem, 0.94rem + 0.3vw, 1.25rem);
+  --text-title: clamp(1.5rem, 1.25rem + 0.8vw, 2rem);
+  --text-lead: clamp(1.5rem, 1.05rem + 1.4vw, 2.5rem);
+  --space-gutter: clamp(1rem, 0.6rem + 1.5vw, 2.5rem);
+  --space-section: clamp(1.5rem, 1rem + 1.5vw, 3rem);
+  --space-stack: clamp(0.75rem, 0.55rem + 0.6vw, 1.25rem);
+  --sidebar-width: clamp(12rem, 15vw, 14rem);
+  --header-height: 4rem;
+  --mobile-navigation-height: 4.25rem;
+
+  --shadow-raised: none;
+  --shadow-popover: 0 8px 24px rgb(var(--scrim) / 0.12);
+  --shadow-modal: 0 16px 48px rgb(var(--scrim) / 0.18);
+  --shadow-primary-soft: none;
+  --ease-geist: cubic-bezier(0.2, 0, 0, 1);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
     color-scheme: dark;
-
-    --geist-background-100: 0 0 0;
-    --geist-background-200: 0 0 0;
-    --geist-gray-100: 26 26 26;
-    --geist-gray-200: 31 31 31;
-    --geist-gray-300: 41 41 41;
-    --geist-gray-400: 46 46 46;
-    --geist-gray-500: 69 69 69;
-    --geist-gray-600: 135 135 135;
-    --geist-gray-700: 143 143 143;
-    --geist-gray-800: 125 125 125;
-    --geist-gray-900: 160 160 160;
-    --geist-gray-1000: 237 237 237;
-    --geist-blue-700: 0 110 254;
-    --geist-red-800: 226 22 42;
-    --geist-amber-800: 255 147 0;
-    --geist-green-700: 0 172 58;
-    --geist-purple-700: 148 64 213;
-    --geist-teal-700: 0 170 149;
-
-    --background: var(--geist-background-100);
-    --foreground: var(--geist-gray-1000);
-    --card: var(--geist-background-100);
-    --card-foreground: var(--geist-gray-1000);
-    --primary: var(--geist-gray-1000);
-    --primary-foreground: var(--geist-background-100);
-    --secondary: var(--geist-gray-100);
-    --secondary-foreground: var(--geist-gray-1000);
-    --muted: var(--geist-gray-100);
-    --muted-foreground: var(--geist-gray-900);
-    --accent: var(--geist-gray-200);
-    --accent-foreground: var(--geist-gray-1000);
-    --destructive: var(--geist-red-800);
-    --destructive-foreground: 255 255 255;
-    --border: var(--geist-gray-300);
-    --input: var(--geist-gray-400);
-    --ring: var(--geist-blue-700);
-    --success: var(--geist-green-700);
-    --success-foreground: 255 255 255;
-    --warning: var(--geist-amber-800);
-    --warning-foreground: 0 0 0;
-    --info: var(--geist-blue-700);
-    --info-foreground: 255 255 255;
-    --feature: var(--geist-purple-700);
-    --feature-foreground: 255 255 255;
-    --shadow-primary-soft: 0 0 0 3px rgb(var(--primary) / 0.16);
+    --geist-background-100: 20 20 20;
+    --geist-background-200: 13 13 13;
+    --geist-gray-100: 31 31 31;
+    --geist-gray-200: 39 39 39;
+    --geist-gray-300: 55 55 55;
+    --geist-gray-400: 75 75 75;
+    --geist-gray-500: 104 104 104;
+    --geist-gray-600: 145 145 145;
+    --geist-gray-700: 160 160 160;
+    --geist-gray-800: 177 177 177;
+    --geist-gray-900: 184 184 184;
+    --geist-gray-1000: 242 242 242;
+    --primary: 224 183 78;
+    --primary-foreground: 20 20 20;
+    --success: 111 205 150;
+    --success-foreground: 20 20 20;
+    --warning: 240 189 89;
+    --warning-foreground: 20 20 20;
+    --destructive: 247 139 146;
+    --destructive-foreground: 20 20 20;
   }
 }
 
 :root.dark {
   color-scheme: dark;
-
-  --geist-background-100: 0 0 0;
-  --geist-background-200: 0 0 0;
-  --geist-gray-100: 26 26 26;
-  --geist-gray-200: 31 31 31;
-  --geist-gray-300: 41 41 41;
-  --geist-gray-400: 46 46 46;
-  --geist-gray-500: 69 69 69;
-  --geist-gray-600: 135 135 135;
-  --geist-gray-700: 143 143 143;
-  --geist-gray-800: 125 125 125;
-  --geist-gray-900: 160 160 160;
-  --geist-gray-1000: 237 237 237;
-  --geist-blue-700: 0 110 254;
-  --geist-red-800: 226 22 42;
-  --geist-amber-800: 255 147 0;
-  --geist-green-700: 0 172 58;
-  --geist-purple-700: 148 64 213;
-  --geist-teal-700: 0 170 149;
-
-  --background: var(--geist-background-100);
-  --foreground: var(--geist-gray-1000);
-  --card: var(--geist-background-100);
-  --card-foreground: var(--geist-gray-1000);
-  --primary: var(--geist-gray-1000);
-  --primary-foreground: var(--geist-background-100);
-  --secondary: var(--geist-gray-100);
-  --secondary-foreground: var(--geist-gray-1000);
-  --muted: var(--geist-gray-100);
-  --muted-foreground: var(--geist-gray-900);
-  --accent: var(--geist-gray-200);
-  --accent-foreground: var(--geist-gray-1000);
-  --destructive: var(--geist-red-800);
-  --destructive-foreground: 255 255 255;
-  --border: var(--geist-gray-300);
-  --input: var(--geist-gray-400);
-  --ring: var(--geist-blue-700);
-  --success: var(--geist-green-700);
-  --success-foreground: 255 255 255;
-  --warning: var(--geist-amber-800);
-  --warning-foreground: 0 0 0;
-  --info: var(--geist-blue-700);
-  --info-foreground: 255 255 255;
-  --feature: var(--geist-purple-700);
-  --feature-foreground: 255 255 255;
-  --shadow-primary-soft: 0 0 0 3px rgb(var(--primary) / 0.16);
+  --geist-background-100: 20 20 20;
+  --geist-background-200: 13 13 13;
+  --geist-gray-100: 31 31 31;
+  --geist-gray-200: 39 39 39;
+  --geist-gray-300: 55 55 55;
+  --geist-gray-400: 75 75 75;
+  --geist-gray-500: 104 104 104;
+  --geist-gray-600: 145 145 145;
+  --geist-gray-700: 160 160 160;
+  --geist-gray-800: 177 177 177;
+  --geist-gray-900: 184 184 184;
+  --geist-gray-1000: 242 242 242;
+  --primary: 224 183 78;
+  --primary-foreground: 20 20 20;
+  --success: 111 205 150;
+  --success-foreground: 20 20 20;
+  --warning: 240 189 89;
+  --warning-foreground: 20 20 20;
+  --destructive: 247 139 146;
+  --destructive-foreground: 20 20 20;
 }
 
 :root.light {
