@@ -8,6 +8,8 @@ export interface ReaderTranslationEnv {
   READER_TRANSLATIONS?: KVNamespace;
   MAGPIE_BASE_URL?: string;
   MAGPIE_API_KEY?: string;
+  MAGPIE_CF_ACCESS_CLIENT_ID?: string;
+  MAGPIE_CF_ACCESS_CLIENT_SECRET?: string;
   MAGPIE_FREE_ONLY?: string;
   MAGPIE_FREE_GROUP?: string;
   MAGPIE_IDLE_GROUP?: string;
@@ -58,6 +60,9 @@ function validTranslation(value: unknown, markdown: string): value is string {
 
 function magpieConfig(env: ReaderTranslationEnv): MagpieConfig | null {
   if (!env.MAGPIE_BASE_URL || env.MAGPIE_FREE_ONLY !== "1" || !env.MAGPIE_FREE_GROUP) return null;
+  if (!!env.MAGPIE_CF_ACCESS_CLIENT_ID !== !!env.MAGPIE_CF_ACCESS_CLIENT_SECRET) {
+    throw new ReaderError(503, "MAGPIE_CONFIG_INVALID", "Magpie Access 服务令牌必须同时配置 Client ID 和 Client Secret。");
+  }
   const groups = [...new Set([env.MAGPIE_FREE_GROUP, env.MAGPIE_IDLE_GROUP].filter((group): group is string => !!group))];
   if (groups.some((group) => !/^group\/[\w/-]+$/.test(group) || group.length > 128)) {
     throw new ReaderError(503, "MAGPIE_CONFIG_INVALID", "Magpie 仅接受已审核的免费/闲置 group 路由。");
@@ -92,6 +97,10 @@ async function magpie(
     if (!config.local) await assertPublicReaderUrl(config.endpoint, controller.signal);
     const headers = new Headers({ "Content-Type": "application/json", "X-News-Sentry-Cost-Policy": "free-only" });
     if (env.MAGPIE_API_KEY) headers.set("Authorization", `Bearer ${env.MAGPIE_API_KEY}`);
+    if (env.MAGPIE_CF_ACCESS_CLIENT_ID && env.MAGPIE_CF_ACCESS_CLIENT_SECRET) {
+      headers.set("CF-Access-Client-Id", env.MAGPIE_CF_ACCESS_CLIENT_ID);
+      headers.set("CF-Access-Client-Secret", env.MAGPIE_CF_ACCESS_CLIENT_SECRET);
+    }
     const response = await fetch(config.endpoint, {
       method: "POST", headers, signal: controller.signal, redirect: "manual",
       body: JSON.stringify({

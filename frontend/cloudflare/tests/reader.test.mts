@@ -706,6 +706,54 @@ test("translation requires session, KV and an explicitly free route", async (t) 
   assert.deepEqual(calls, []);
 });
 
+for (const [label, access, clientId, clientSecret] of [
+  ["configured", { MAGPIE_CF_ACCESS_CLIENT_ID: "reader-access-id", MAGPIE_CF_ACCESS_CLIENT_SECRET: "reader-access-secret" },
+    "reader-access-id", "reader-access-secret"],
+  ["absent", {}, null, null],
+  ["empty", { MAGPIE_CF_ACCESS_CLIENT_ID: "", MAGPIE_CF_ACCESS_CLIENT_SECRET: "" }, null, null],
+] as const) {
+  test(`Magpie Access headers are ${label} alongside API key and cost policy`, async (t) => {
+    const headers: Headers[] = [];
+    const calls = upstream(t, (_url, init) => {
+      headers.push(new Headers(init?.headers));
+      return Response.json({ choices: [{ message: { content: "你好。" }, finish_reason: "stop" }] });
+    });
+    const response = await handleReader(post({ markdown, contentHash: hash, targetLang: "zh" }, "translate"),
+      env({ ...freeRoute, ...access, MAGPIE_API_KEY: "reader-api-key", READER_TRANSLATIONS: new MemoryKV() }));
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).provider, "magpie");
+    assert.deepEqual(calls, ["https://magpie.example/v1/chat/completions"]);
+    assert.equal(headers[0].get("CF-Access-Client-Id"), clientId);
+    assert.equal(headers[0].get("CF-Access-Client-Secret"), clientSecret);
+    assert.equal(headers[0].get("Authorization"), "Bearer reader-api-key");
+    assert.equal(headers[0].get("X-News-Sentry-Cost-Policy"), "free-only");
+  });
+}
+
+for (const [label, access] of [
+  ["ID only", { MAGPIE_CF_ACCESS_CLIENT_ID: "reader-access-id" }],
+  ["secret only", { MAGPIE_CF_ACCESS_CLIENT_SECRET: "reader-access-secret" }],
+  ["empty ID", { MAGPIE_CF_ACCESS_CLIENT_ID: "", MAGPIE_CF_ACCESS_CLIENT_SECRET: "reader-access-secret" }],
+  ["empty secret", { MAGPIE_CF_ACCESS_CLIENT_ID: "reader-access-id", MAGPIE_CF_ACCESS_CLIENT_SECRET: "" }],
+] as const) {
+  test(`Magpie rejects incomplete Access token (${label}) before provider requests`, async (t) => {
+    const kv = new MemoryKV();
+    let aiCalls = 0;
+    const calls = upstream(t, () => Response.json({ choices: [{ message: { content: "你好。" }, finish_reason: "stop" }] }));
+    const response = await handleReader(post({ markdown, contentHash: hash, targetLang: "zh", sourceLang: "en" }, "translate"),
+      env({
+        ...freeRoute, ...access, READER_TRANSLATIONS: kv,
+        READER_WORKERS_AI: "1", READER_WORKERS_AI_FREE_ONLY: "1",
+        AI: { async run() { aiCalls++; return { translated_text: "你好。" }; } },
+      }));
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).code, "MAGPIE_CONFIG_INVALID");
+    assert.deepEqual(calls, []);
+    assert.equal(aiCalls, 0);
+    assert.equal(kv.entries.size, 0);
+  });
+}
+
 test("Magpie demonstrates zh and en, stores hash×language cache and skips providers on a hit", async (t) => {
   const kv = new MemoryKV();
   const calls = upstream(t, (url, init) => {

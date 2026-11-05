@@ -141,6 +141,8 @@ attribution/sourceUrl。Markdown 是非可信展示数据，后续 UI 渲染仍�
 | `READER_TRANSLATIONS` | KV binding；没有绑定时翻译返回 503 |
 | `MAGPIE_BASE_URL` | Magpie 根地址或 `/v1` 地址；代码追加 `/chat/completions` |
 | `MAGPIE_API_KEY` | 可选 secret，只发给显式配置的 Magpie，不进入响应 |
+| `MAGPIE_CF_ACCESS_CLIENT_ID` | 可选 preview Access service token 的 Client ID secret；与下项同时非空时发送两个 `CF-Access-Client-*` 请求头 |
+| `MAGPIE_CF_ACCESS_CLIENT_SECRET` | 配套 Client Secret；仅一项非空时返回 503 `MAGPIE_CONFIG_INVALID`，不请求 Magpie；均未配置或均为空时不发送 Access 请求头 |
 | `MAGPIE_FREE_ONLY` | 仅 `"1"` 允许 Magpie 请求，代表运营方已核实服务端免费策略 |
 | `MAGPIE_FREE_GROUP` | 显式配置、服务端审核过的免费 `group/...` |
 | `MAGPIE_IDLE_GROUP` | 可选闲置组；免费组失败时只尝试一次 |
