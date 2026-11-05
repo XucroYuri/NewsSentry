@@ -183,6 +183,21 @@ attribution/sourceUrl。Markdown 是非可信展示数据，后续 UI 渲染仍�
 
 Workers 无法访问本机 `127.0.0.1:3425`。远端接线需提供可从 Worker 访问的公开
 HTTPS Magpie URL，使用 secret/env 配置；不在仓库保存真实地址或密钥。
+
+preview Worker（`news-sentry-api-preview`）的 Magpie 出站凭据**不由** Deploy workflow /
+GitHub Environment secrets 注入。合入 Access 头能力后，运维须在部署前对本 Worker 手动
+`wrangler secret put`（或确认已存在）以下三项，Deploy 的 preview 作业会用
+`wrangler secret list` 做存在性门禁，缺任一则失败：
+
+```bash
+npx wrangler secret put MAGPIE_CF_ACCESS_CLIENT_ID --name news-sentry-api-preview
+npx wrangler secret put MAGPIE_CF_ACCESS_CLIENT_SECRET --name news-sentry-api-preview
+npx wrangler secret put MAGPIE_API_KEY --name news-sentry-api-preview
+```
+
+`MAGPIE_CF_ACCESS_CLIENT_*` 映射为出站请求头 `CF-Access-Client-Id` /
+`CF-Access-Client-Secret`；`MAGPIE_API_KEY` 映射为 `Authorization: Bearer`。
+生产顶层 `READER_V1` 默认保持 `"0"`，本流程不 put 生产 Worker 的 Magpie secrets。
 只有 `NEWS_SENTRY_ENVIRONMENT=dev` 时允许 localhost HTTP，供本机测试。
 不能把 Worker 的本地环回地址当成这台机器的 Magpie。
 
