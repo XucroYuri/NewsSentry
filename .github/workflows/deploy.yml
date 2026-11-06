@@ -1009,6 +1009,36 @@ jobs:
             exit 1
           fi
 
+      - name: Bind preview Pages /api to preview Worker
+        if: needs.ci.outputs.deployment_environment == 'preview'
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          : "${CLOUDFLARE_API_KEY:?GitHub secret CLOUDFLARE_API_KEY is required}"
+          : "${CLOUDFLARE_EMAIL:?GitHub secret CLOUDFLARE_EMAIL is required}"
+          : "${CLOUDFLARE_ACCOUNT_ID:?GitHub secret CLOUDFLARE_ACCOUNT_ID is required}"
+          curl -fsS \
+            -H "X-Auth-Email: ${CLOUDFLARE_EMAIL}" \
+            -H "X-Auth-Key: ${CLOUDFLARE_API_KEY}" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/news-sentry" \
+            > /tmp/news-sentry-pages-project.json
+          python tools/cloudflare_preview_guard.py pages-service-patch \
+            --input /tmp/news-sentry-pages-project.json \
+            --output /tmp/news-sentry-pages-project-patch.json
+          curl -fsS -X PATCH \
+            -H "X-Auth-Email: ${CLOUDFLARE_EMAIL}" \
+            -H "X-Auth-Key: ${CLOUDFLARE_API_KEY}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/news-sentry-pages-project-patch.json \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/news-sentry" \
+            > /tmp/news-sentry-pages-project-patched.json
+          python tools/cloudflare_preview_guard.py pages-service-check \
+            --before /tmp/news-sentry-pages-project.json \
+            --after /tmp/news-sentry-pages-project-patched.json
+
       - name: Deploy Cloudflare Pages
         id: deploy
         working-directory: frontend/public
@@ -1025,6 +1055,8 @@ jobs:
             else
               branch="manual-preview-${GITHUB_RUN_ID}"
             fi
+            test -f 'functions/api/[[path]].js'
+            test -f functions/preview-api-host.js
           else
             branch="main"
           fi
@@ -1040,6 +1072,51 @@ jobs:
             exit 1
           fi
           echo "pages_url=${pages_url}" >> "$GITHUB_OUTPUT"
+          if [ "${DEPLOYMENT_ENVIRONMENT}" = "preview" ]; then
+            pages_alias="$(grep -F 'Deployment alias URL:' /tmp/news-sentry-pages-deploy.log \
+              | grep -Eo 'https://[^[:space:]]+\.pages\.dev' \
+              | tail -1 || true)"
+            if [ -z "${pages_alias}" ]; then
+              echo "Failed to extract the Pages preview alias URL."
+              exit 1
+            fi
+            echo "pages_alias=${pages_alias}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Point preview.news-sentry.com at this Pages deployment
+        if: needs.ci.outputs.deployment_environment == 'preview'
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          PAGES_ALIAS: ${{ steps.deploy.outputs.pages_alias }}
+        run: |
+          set -euo pipefail
+          : "${CLOUDFLARE_API_KEY:?GitHub secret CLOUDFLARE_API_KEY is required}"
+          : "${CLOUDFLARE_EMAIL:?GitHub secret CLOUDFLARE_EMAIL is required}"
+          : "${PAGES_ALIAS:?Pages preview alias is required}"
+          curl -fsS \
+            -H "X-Auth-Email: ${CLOUDFLARE_EMAIL}" \
+            -H "X-Auth-Key: ${CLOUDFLARE_API_KEY}" \
+            "https://api.cloudflare.com/client/v4/zones?name=news-sentry.com" \
+            > /tmp/news-sentry-zone.json
+          zone_id="$(python tools/cloudflare_preview_guard.py select-zone \
+            --input /tmp/news-sentry-zone.json)"
+          curl -fsS \
+            -H "X-Auth-Email: ${CLOUDFLARE_EMAIL}" \
+            -H "X-Auth-Key: ${CLOUDFLARE_API_KEY}" \
+            "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?name=preview.news-sentry.com&per_page=100" \
+            > /tmp/news-sentry-preview-dns.json
+          record_id="$(python tools/cloudflare_preview_guard.py preview-dns \
+            --input /tmp/news-sentry-preview-dns.json \
+            --alias "${PAGES_ALIAS}" \
+            --output /tmp/news-sentry-preview-dns-update.json)"
+          curl -fsS -X PUT \
+            -H "X-Auth-Email: ${CLOUDFLARE_EMAIL}" \
+            -H "X-Auth-Key: ${CLOUDFLARE_API_KEY}" \
+            -H "Content-Type: application/json" \
+            --data-binary @/tmp/news-sentry-preview-dns-update.json \
+            "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records/${record_id}" \
+            > /tmp/news-sentry-preview-dns-updated.json
 
       - name: Verify Cloudflare Pages deployment
         run: |
@@ -1089,6 +1166,96 @@ jobs:
       - name: Install Cloudflare Worker dependencies
         working-directory: frontend/cloudflare
         run: npm ci
+
+      - name: Verify same-origin preview Reader reaches preview Worker
+        run: |
+          set -euo pipefail
+          probe_reader() {
+            local label="$1"
+            local origin="$2"
+            local body="/tmp/reader-${label}.json"
+            local headers="/tmp/reader-${label}.headers"
+            local status=""
+            status="$(curl -sS \
+              -o "${body}" \
+              -D "${headers}" \
+              -w "%{http_code}" \
+              -X POST \
+              -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" \
+              -H "Accept: application/json" \
+              -H "Content-Type: application/json" \
+              -H "Origin: ${origin}" \
+              --data '{"articleId":"preview-same-origin-probe"}' \
+              "${origin}/api/v1/reader/preview" || true)"
+            LABEL="${label}" STATUS="${status}" BODY="${body}" HEADERS="${headers}" \
+              python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          label = os.environ["LABEL"]
+          status = os.environ["STATUS"]
+          raw = Path(os.environ["BODY"]).read_text(errors="replace")
+          headers = {}
+          for line in Path(os.environ["HEADERS"]).read_text(errors="replace").splitlines():
+              if ":" in line:
+                  key, value = line.split(":", 1)
+                  headers[key.strip().lower()] = value.strip()
+          try:
+              payload = json.loads(raw)
+          except json.JSONDecodeError:
+              payload = None
+          ok = (
+              status == "403"
+              and isinstance(payload, dict)
+              and payload.get("code") == "SESSION_REQUIRED"
+              and headers.get("x-news-sentry-runtime") == "cloudflare-worker"
+              and headers.get("x-news-sentry-deploy-commit") == os.environ["GITHUB_SHA"]
+          )
+          if not ok:
+              print(f"same-origin reader probe failed: {label} status={status}")
+              print(raw[:500])
+              raise SystemExit(1)
+          PY
+          }
+
+          probe_custom_html() {
+            curl -fsS \
+              -o /tmp/preview-custom.html \
+              -A "Mozilla/5.0 (compatible; NewsSentryDeploy/1.0; +https://news-sentry.com)" \
+              "${BASE_URL}/" || return 1
+            python - <<'PY'
+          import os
+          from pathlib import Path
+
+          html = Path("/tmp/preview-custom.html").read_text(errors="ignore")
+          if "https://api.news-sentry.com" in html or os.environ["API_URL"] not in html:
+              raise SystemExit(1)
+          PY
+          }
+
+          : "${PAGES_URL:?Pages deployment URL is required}"
+          : "${BASE_URL:?Preview custom host is required}"
+          : "${API_URL:?Preview Worker URL is required}"
+          deadline=$((SECONDS + 120))
+          until probe_reader pages "${PAGES_URL}"; do
+            if [ "${SECONDS}" -ge "${deadline}" ]; then
+              echo "Pages preview /api did not reach the preview Worker."
+              exit 1
+            fi
+            echo "Waiting for the Pages preview /api function..."
+            sleep 5
+          done
+
+          deadline=$((SECONDS + 120))
+          until probe_custom_html && probe_reader custom "${BASE_URL}"; do
+            if [ "${SECONDS}" -ge "${deadline}" ]; then
+              echo "preview.news-sentry.com did not serve this preview build and preview Worker."
+              exit 1
+            fi
+            echo "Waiting for preview.news-sentry.com to follow the Pages alias..."
+            sleep 5
+          done
 
       - name: Verify preview Cloudflare-native public endpoints
         run: |

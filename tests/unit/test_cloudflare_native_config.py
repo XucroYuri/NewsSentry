@@ -37,7 +37,12 @@ def test_preview_worker_uses_isolated_state_and_no_active_runtime_bindings() -> 
     config = tomllib.loads(_read("wrangler.toml"))
     preview = config["env"]["preview"]
 
-    assert preview["routes"] == []
+    assert preview["routes"] == [
+        {"pattern": "preview.news-sentry.com/api/*", "zone_name": "news-sentry.com"},
+    ]
+    assert all(route.get("custom_domain") is not True for route in preview["routes"])
+    assert all("api.news-sentry.com" not in route["pattern"] for route in preview["routes"])
+    assert all(not route["pattern"].startswith("news-sentry.com/") for route in preview["routes"])
     assert preview["workers_dev"] is True
     assert preview["vars"] == {
         "NEWS_SENTRY_RUNTIME": "cloudflare-native-preview",

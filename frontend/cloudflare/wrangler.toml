@@ -92,9 +92,14 @@ max_retries = 3
 max_concurrency = 1
 
 # Preview environment: isolated workers.dev runtime and isolated D1 only.
+# 唯一 zone route 是 preview 主机的 /api/*，让阅读器相对路径同源打到本 Worker。
+# 不得挂 api.news-sentry.com 或 news-sentry.com/api/*；那些仍属于顶层生产 Worker。
+# workers_dev 必须保持 true，否则 deploy receipt 失去 workers.dev 源。
 [env.preview]
 workers_dev = true
-routes = []
+routes = [
+  { pattern = "preview.news-sentry.com/api/*", zone_name = "news-sentry.com" },
+]
 containers = []
 
 [env.preview.vars]
