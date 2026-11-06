@@ -892,6 +892,41 @@ jobs:
             --remote \
             --file=/tmp/news-sentry-preview-seed.sql
 
+      - name: Verify Magpie preview Worker secrets pre-provisioned
+        working-directory: frontend/cloudflare
+        env:
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          # Magpie outbound Access/API secrets are NOT injected by this workflow
+          # (GitHub Environment secret put is unauthorized for this account).
+          # They must already exist on news-sentry-api-preview via:
+          #   npx wrangler secret put MAGPIE_CF_ACCESS_CLIENT_ID --name news-sentry-api-preview
+          #   npx wrangler secret put MAGPIE_CF_ACCESS_CLIENT_SECRET --name news-sentry-api-preview
+          #   npx wrangler secret put MAGPIE_API_KEY --name news-sentry-api-preview
+          node_modules/.bin/wrangler secret list --name news-sentry-api-preview --format json \
+            > /tmp/ns-preview-magpie-secrets.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          required = {
+              "MAGPIE_CF_ACCESS_CLIENT_ID",
+              "MAGPIE_CF_ACCESS_CLIENT_SECRET",
+              "MAGPIE_API_KEY",
+          }
+          rows = json.loads(Path("/tmp/ns-preview-magpie-secrets.json").read_text())
+          names = {str(row.get("name") or "") for row in rows}
+          missing = sorted(required - names)
+          if missing:
+              raise SystemExit(
+                  "Preview Worker missing Magpie secrets (pre-provision via Worker secret list names): "
+                  + ", ".join(missing)
+              )
+          print("Magpie preview secrets present:", ", ".join(sorted(required)))
+          PY
+
       - name: Deploy Cloudflare preview Worker
         working-directory: frontend/cloudflare
         env:
