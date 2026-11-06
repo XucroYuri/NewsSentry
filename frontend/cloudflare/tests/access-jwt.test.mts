@@ -114,6 +114,20 @@ test("accepts an allowlisted Access service principal from signed common_name", 
   });
 });
 
+test("accepts a user OTP JWT with type app and email but no common_name", async () => {
+  const { jwt, jwks } = await signedJwt({ type: "app" });
+
+  const result = await verifyCloudflareAccessJwt(jwt, env, { jwks, now });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.email, "editor@example.com");
+  assert.deepEqual(result.principal, {
+    kind: "user",
+    id: "user-123",
+    email: "editor@example.com",
+  });
+});
+
 test("rejects non-allowlisted service principals and service access outside import", async () => {
   const { jwt, jwks } = await signedJwt({
     email: undefined,
@@ -180,7 +194,7 @@ test("rejects service principal claims without app type and signed common_name",
       { ...env, CF_ACCESS_SERVICE_TOKEN_IDS: "preview-client-id.access" },
       { jwks: emptyCommonName.jwks, now },
     )).reason,
-    "missing_service_common_name",
+    "missing_email",
   );
 });
 

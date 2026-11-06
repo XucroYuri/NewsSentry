@@ -199,17 +199,18 @@ function principalFromClaims(
 ): { principal?: AccessPrincipal; reason?: string } {
   if (claims.type === "app") {
     const commonName = claims.common_name?.trim();
-    if (!commonName) return { reason: "missing_service_common_name" };
-    if (!serviceTokenIds(env).has(commonName)) {
-      return { reason: "service_principal_not_allowed" };
+    if (commonName) {
+      if (!serviceTokenIds(env).has(commonName)) {
+        return { reason: "service_principal_not_allowed" };
+      }
+      return {
+        principal: {
+          kind: "service",
+          id: commonName,
+          commonName,
+        },
+      };
     }
-    return {
-      principal: {
-        kind: "service",
-        id: commonName,
-        commonName,
-      },
-    };
   }
 
   if (typeof claims.email !== "string" || !claims.email.includes("@")) {
