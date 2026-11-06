@@ -49,6 +49,16 @@ def _shell_token_pairs(script: str, pattern: str) -> list[tuple[str, str]]:
     return cast(list[tuple[str, str]], re.findall(pattern, script))
 
 
+# `_` is an identifier character, so MAGPIE_CF_ACCESS_CLIENT_* does not match.
+_BARE_ACCESS_CLIENT_CREDENTIAL = re.compile(
+    r"(?<![A-Za-z0-9_])CF_ACCESS_CLIENT_(?:ID|SECRET)(?![A-Za-z0-9_])"
+)
+
+
+def _has_bare_access_client_credential(text: str) -> bool:
+    return _BARE_ACCESS_CLIENT_CREDENTIAL.search(text) is not None
+
+
 def _run_deployment_mode_script(
     tmp_path: Path,
     *,
@@ -411,6 +421,17 @@ def test_preview_worker_provisions_an_isolated_r2_artifact_bucket() -> None:
     assert "news-sentry-artifacts-preview" in preview_worker_job
 
 
+def test_bare_access_client_credential_check_allows_magpie_secret_names() -> None:
+    assert not _has_bare_access_client_credential("MAGPIE_CF_ACCESS_CLIENT_SECRET")
+    assert not _has_bare_access_client_credential("MAGPIE_CF_ACCESS_CLIENT_ID")
+    assert _has_bare_access_client_credential("CF_ACCESS_CLIENT_SECRET")
+    assert _has_bare_access_client_credential("CF_ACCESS_CLIENT_ID")
+    assert _has_bare_access_client_credential(
+        "CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}"
+    )
+    assert _has_bare_access_client_credential("${CF_ACCESS_CLIENT_ID}")
+
+
 def test_verify_preview_uses_preview_environment_secrets_for_canary_only() -> None:
     verify_job = _job("verify-preview")
     env = cast(dict[str, str], verify_job["env"])
@@ -435,8 +456,7 @@ def test_verify_preview_uses_preview_environment_secrets_for_canary_only() -> No
         assert "CF_ACCESS_CLIENT_SECRET" not in step_env
 
     worker_job_text = yaml.dump(_job("deploy-cloudflare-preview-worker"))
-    assert "CF_ACCESS_CLIENT_SECRET" not in worker_job_text
-    assert "CF_ACCESS_CLIENT_ID" not in worker_job_text
+    assert not _has_bare_access_client_credential(worker_job_text)
 
 
 def test_verify_preview_runs_authenticated_durable_import_canary_fail_closed() -> None:
