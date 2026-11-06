@@ -321,3 +321,10 @@ Access 参数和图片 secret 缺一则保持受控错误。回退时将 `READER
 在公开页面调用时使用相对 `/api/v1/reader/*`，浏览器会自动提供 Origin；
 `news-sentry.com` 页面向 `api.news-sentry.com` 发起 POST 属于跨 origin，会被拒绝。
 Reader 返回的 Markdown 包含相对图代理地址；浏览器示例应使用同源基地址解析。
+
+Preview 同样保持这条相对路径，不把阅读器改成跨域 `workers.dev`。
+`preview.news-sentry.com/api/*` 由 preview Worker 的 zone route 接收；
+`*.news-sentry.pages.dev` 预览部署里的 Pages Function 仅在 `PREVIEW_API`
+绑定存在时，把原始请求转给 `news-sentry-api-preview`。Origin、Cookie 和
+Access 用户 JWT 仍留在预览主机上。`workers.dev` 没有用户会话时继续返回
+`403 SESSION_REQUIRED`。生产 route、生产 Pages 和生产 `READER_V1=0` 不变。

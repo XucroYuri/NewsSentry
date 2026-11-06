@@ -555,6 +555,33 @@ def test_preview_canary_uploads_only_sanitized_receipt() -> None:
     }
 
 
+def test_preview_pages_api_is_wired_to_preview_worker_without_production_routes() -> None:
+    workflow = _workflow_text()
+    pages_job = workflow.split("  deploy-cloudflare-pages:", 1)[1].split(
+        "  verify-preview:", 1
+    )[0]
+    verify_job = workflow.split("  verify-preview:", 1)[1].split(
+        "  verify-production:", 1
+    )[0]
+
+    assert "Bind preview Pages /api to preview Worker" in pages_job
+    assert "needs.ci.outputs.deployment_environment == 'preview'" in pages_job
+    assert "pages-service-patch" in pages_job
+    assert "pages-service-check" in pages_job
+    assert "pages/projects/news-sentry" in pages_job
+    assert "test -f 'functions/api/[[path]].js'" in pages_job
+    assert "Point preview.news-sentry.com at this Pages deployment" in pages_job
+    assert "preview-dns" in pages_job
+    assert "select-zone" in pages_job
+    assert "dns_records?name=preview.news-sentry.com" in pages_job
+    assert "Failed to extract the Pages preview alias URL." in pages_job
+    assert "Verify same-origin preview Reader reaches preview Worker" in verify_job
+    assert 'payload.get("code") == "SESSION_REQUIRED"' in verify_job
+    assert '"https://api.news-sentry.com" in html' in verify_job
+    assert "news-sentry.com/api/*" not in pages_job
+    assert 'branch="main"' in pages_job
+
+
 def test_pages_preview_build_uses_preview_worker_output_but_main_can_skip_it() -> None:
     workflow = _workflow_text()
     pages_job = workflow.split("  deploy-cloudflare-pages:", 1)[1].split(

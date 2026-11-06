@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import re
 import sys
@@ -21,7 +22,23 @@ from tools.cloudflare_runtime_contract import EXPECTED_MIGRATION_RECEIPTS  # noq
 
 PREVIEW_DATABASE_NAME = "ns-db-preview"
 PREVIEW_WORKER_NAME = "news-sentry-api-preview"
+PRODUCTION_WORKER_NAME = "news-sentry-api"
 PREVIEW_ENVIRONMENT = "preview"
+PREVIEW_PAGES_PROJECT = "news-sentry"
+PREVIEW_PAGES_BINDING = "PREVIEW_API"
+PREVIEW_CUSTOM_HOST = "preview.news-sentry.com"
+PAGES_APEX_HOST = "news-sentry.pages.dev"
+_PRODUCTION_CONFIG_KEYS = (
+    "env_vars",
+    "kv_namespaces",
+    "d1_databases",
+    "r2_buckets",
+    "durable_object_namespaces",
+    "services",
+    "compatibility_date",
+    "compatibility_flags",
+)
+_REDACTED_ENV_VALUES = {"", "***", "[REDACTED]", "REDACTED"}
 PREVIEW_D1_PLACEHOLDER = "00000000-0000-4000-8000-000000000000"
 PREVIEW_D1_MISSING_EXIT = 42
 _UUID_RE = re.compile(
@@ -275,60 +292,243 @@ def _iter_ndjson(path: Path) -> list[dict[str, Any]]:
     return objects
 
 
-def _target_url(candidate: dict[str, Any]) -> str | None:
-    target = candidate.get("target")
-    if isinstance(target, str):
-        return target
-    url = candidate.get("url")
-    if isinstance(url, str):
-        return url
+def _iter_target_strings(candidate: dict[str, Any]) -> list[str]:
+    values: list[str] = []
+    for key in ("target", "url"):
+        value = candidate.get(key)
+        if isinstance(value, str):
+            values.append(value)
     targets = candidate.get("targets")
     if isinstance(targets, list):
         for item in targets:
             if isinstance(item, str):
-                return item
-            if isinstance(item, dict):
-                item_url = item.get("url")
-                if isinstance(item_url, str):
-                    return item_url
-    return None
+                values.append(item)
+            elif isinstance(item, dict):
+                for key in ("url", "target"):
+                    item_url = item.get(key)
+                    if isinstance(item_url, str):
+                        values.append(item_url)
+                        break
+    return values
+
+
+def _canonical_workers_dev_origin(api_url: str) -> str | None:
+    parsed_url = urlparse(api_url)
+    hostname = parsed_url.hostname or ""
+    if (
+        parsed_url.scheme != "https"
+        or not hostname.startswith(f"{PREVIEW_WORKER_NAME}.")
+        or not hostname.endswith(".workers.dev")
+        or parsed_url.username is not None
+        or parsed_url.password is not None
+        or parsed_url.port not in (None, 443)
+        or parsed_url.path not in ("", "/")
+        or parsed_url.params
+        or parsed_url.query
+        or parsed_url.fragment
+    ):
+        return None
+    return api_url.rstrip("/")
 
 
 def parse_preview_deploy_receipt(path: Path) -> PreviewDeployReceipt:
     for candidate in reversed(_iter_ndjson(path)):
         worker_name = str(candidate.get("worker_name") or candidate.get("workerName") or "").strip()
         environment = str(candidate.get("wrangler_environment") or "").strip()
-        api_url = _target_url(candidate)
-        if not (worker_name or environment or api_url):
+        urls = _iter_target_strings(candidate)
+        if not (worker_name or environment or urls):
             continue
         if worker_name != PREVIEW_WORKER_NAME:
             raise PreviewGuardError(f"Unexpected preview Worker name: {worker_name or '<missing>'}")
         if environment != PREVIEW_ENVIRONMENT:
             raise PreviewGuardError(f"Unexpected preview environment: {environment or '<missing>'}")
-        if api_url is None:
-            raise PreviewGuardError("Preview Worker target URL is missing")
-        parsed_url = urlparse(api_url)
-        if (
-            parsed_url.scheme != "https"
-            or not parsed_url.hostname
-            or not parsed_url.hostname.endswith(".workers.dev")
-            or parsed_url.username is not None
-            or parsed_url.password is not None
-            or parsed_url.port not in (None, 443)
-            or parsed_url.path not in ("", "/")
-            or parsed_url.params
-            or parsed_url.query
-            or parsed_url.fragment
-        ):
+        matches = [
+            origin
+            for url in urls
+            if (origin := _canonical_workers_dev_origin(url)) is not None
+        ]
+        if len(matches) != 1:
             raise PreviewGuardError(
-                "Preview Worker target URL must be a canonical HTTPS workers.dev origin"
+                "Preview Worker target URL must be exactly one canonical HTTPS workers.dev origin"
             )
         return PreviewDeployReceipt(
             worker_name=worker_name,
             environment=environment,
-            api_url=api_url.rstrip("/"),
+            api_url=matches[0],
         )
     raise PreviewGuardError("No preview deploy receipt found in Wrangler output")
+
+
+def _project_result(payload: Any) -> dict[str, Any]:  # noqa: ANN401
+    if isinstance(payload, dict) and isinstance(payload.get("result"), dict):
+        return payload["result"]
+    if isinstance(payload, dict):
+        return payload
+    raise PreviewGuardError("Pages project payload is not an object")
+
+
+def _deployment_configs(project: dict[str, Any]) -> dict[str, Any]:
+    configs = project.get("deployment_configs")
+    if not isinstance(configs, dict):
+        raise PreviewGuardError("Pages project is missing deployment_configs")
+    return configs
+
+
+def _env_var_value(spec: Any) -> Any:  # noqa: ANN401
+    if isinstance(spec, dict) and "value" in spec:
+        return spec.get("value")
+    return spec
+
+
+def _assert_round_trippable(config: dict[str, Any], label: str) -> None:
+    env_vars = config.get("env_vars") or {}
+    if not isinstance(env_vars, dict):
+        raise PreviewGuardError(f"{label} env_vars is invalid")
+    for key, spec in env_vars.items():
+        value = _env_var_value(spec)
+        normalized = value.strip().upper() if isinstance(value, str) else ""
+        if normalized in _REDACTED_ENV_VALUES:
+            raise PreviewGuardError(
+                f"{label} env var {key} is redacted; refusing to rewrite Pages config"
+            )
+
+
+def _service_name(spec: Any) -> str | None:  # noqa: ANN401
+    if isinstance(spec, dict):
+        service = spec.get("service")
+        if isinstance(service, str):
+            return service
+    return None
+
+
+def preview_pages_service_patch(payload: Any) -> dict[str, Any]:  # noqa: ANN401
+    """Add the preview Worker binding without retargeting production Pages."""
+    configs = _deployment_configs(_project_result(payload))
+    production = configs.get("production")
+    preview = configs.get("preview")
+    if not isinstance(production, dict) or not isinstance(preview, dict):
+        raise PreviewGuardError("Pages production and preview configs are required")
+    _assert_round_trippable(production, "production")
+    _assert_round_trippable(preview, "preview")
+
+    merged_preview = copy.deepcopy(preview)
+    services = merged_preview.get("services") or {}
+    if not isinstance(services, dict):
+        raise PreviewGuardError("Pages preview services config is invalid")
+    services = dict(services)
+    for spec in services.values():
+        if _service_name(spec) == PRODUCTION_WORKER_NAME:
+            raise PreviewGuardError("Preview Pages must not bind the production Worker")
+    services[PREVIEW_PAGES_BINDING] = {"service": PREVIEW_WORKER_NAME}
+    merged_preview["services"] = services
+    if _service_name(services[PREVIEW_PAGES_BINDING]) != PREVIEW_WORKER_NAME:
+        raise PreviewGuardError("Preview Pages service binding is invalid")
+    return {
+        "deployment_configs": {
+            "production": copy.deepcopy(production),
+            "preview": merged_preview,
+        }
+    }
+
+
+def _fingerprint(config: Any) -> dict[str, Any]:  # noqa: ANN401
+    if not isinstance(config, dict):
+        return {}
+    fingerprinted: dict[str, Any] = {}
+    for key in _PRODUCTION_CONFIG_KEYS:
+        value = config.get(key)
+        if value in (None, {}, []):
+            continue
+        fingerprinted[key] = value
+    return fingerprinted
+
+
+def assert_preview_pages_service_binding(before: Any, after: Any) -> None:  # noqa: ANN401
+    before_configs = _deployment_configs(_project_result(before))
+    after_configs = _deployment_configs(_project_result(after))
+    if _fingerprint(before_configs.get("production")) != _fingerprint(
+        after_configs.get("production")
+    ):
+        raise PreviewGuardError("Pages production deployment config changed")
+    preview = after_configs.get("preview")
+    if not isinstance(preview, dict):
+        raise PreviewGuardError("Pages preview deployment config is missing after patch")
+    services = preview.get("services") if isinstance(preview.get("services"), dict) else {}
+    bound = _service_name(services.get(PREVIEW_PAGES_BINDING))
+    if bound != PREVIEW_WORKER_NAME:
+        raise PreviewGuardError("Preview Pages service binding PREVIEW_API is missing")
+    production_services = (after_configs.get("production") or {}).get("services") or {}
+    if isinstance(production_services, dict) and any(
+        _service_name(spec) == PREVIEW_WORKER_NAME for spec in production_services.values()
+    ):
+        raise PreviewGuardError("Production Pages must not bind the preview Worker")
+
+
+def select_news_sentry_zone_id(payload: Any) -> str:  # noqa: ANN401
+    zones = _rows(payload)
+    matches = [zone for zone in zones if zone.get("name") == "news-sentry.com"]
+    if len(matches) != 1:
+        raise PreviewGuardError(f"news-sentry.com zone is not unique: {len(matches)} matches")
+    zone_id = str(matches[0].get("id") or "").strip()
+    if not zone_id:
+        raise PreviewGuardError("news-sentry.com zone id is missing")
+    return zone_id
+
+
+def _hostname(value: str) -> str:
+    return value.strip().rstrip(".").lower()
+
+
+def plan_preview_pages_dns(records_payload: Any, alias_url: str) -> dict[str, Any]:  # noqa: ANN401
+    """Point the proxied preview CNAME at this deploy's Pages branch alias."""
+    parsed = urlparse(alias_url.strip())
+    alias_host = _hostname(parsed.hostname or "")
+    if (
+        parsed.scheme != "https"
+        or not alias_host.endswith(f".{PAGES_APEX_HOST}")
+        or alias_host == PAGES_APEX_HOST
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.port not in (None, 443)
+        or parsed.path not in ("", "/")
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise PreviewGuardError(
+            "Preview Pages alias must be a non-production https://*.news-sentry.pages.dev URL"
+        )
+    matches = [
+        record
+        for record in _rows(records_payload)
+        if _hostname(str(record.get("name") or "")) == PREVIEW_CUSTOM_HOST
+    ]
+    if len(matches) != 1:
+        raise PreviewGuardError(
+            f"{PREVIEW_CUSTOM_HOST} DNS record is not unique: {len(matches)} matches"
+        )
+    record = matches[0]
+    if str(record.get("type") or "").upper() != "CNAME":
+        raise PreviewGuardError(f"{PREVIEW_CUSTOM_HOST} DNS record must be a CNAME")
+    if record.get("proxied") is not True:
+        raise PreviewGuardError(f"{PREVIEW_CUSTOM_HOST} DNS record must stay proxied")
+    current = _hostname(str(record.get("content") or ""))
+    if current != PAGES_APEX_HOST and not current.endswith(f".{PAGES_APEX_HOST}"):
+        raise PreviewGuardError(
+            f"{PREVIEW_CUSTOM_HOST} CNAME is not a news-sentry.pages.dev alias"
+        )
+    record_id = str(record.get("id") or "").strip()
+    if not record_id:
+        raise PreviewGuardError(f"{PREVIEW_CUSTOM_HOST} DNS record id is missing")
+    return {
+        "id": record_id,
+        "record": {
+            "type": "CNAME",
+            "name": PREVIEW_CUSTOM_HOST,
+            "content": alias_host,
+            "proxied": True,
+            "ttl": 1,
+        },
+    }
 
 
 def _load_json(path: Path) -> Any:  # noqa: ANN401
@@ -358,6 +558,22 @@ def main(argv: list[str] | None = None) -> int:
     receipt.add_argument("--output", type=Path, required=True)
     receipt.add_argument("--github-output", type=Path)
 
+    service_patch = subparsers.add_parser("pages-service-patch")
+    service_patch.add_argument("--input", type=Path, required=True)
+    service_patch.add_argument("--output", type=Path, required=True)
+
+    service_check = subparsers.add_parser("pages-service-check")
+    service_check.add_argument("--before", type=Path, required=True)
+    service_check.add_argument("--after", type=Path, required=True)
+
+    zone = subparsers.add_parser("select-zone")
+    zone.add_argument("--input", type=Path, required=True)
+
+    dns = subparsers.add_parser("preview-dns")
+    dns.add_argument("--input", type=Path, required=True)
+    dns.add_argument("--alias", required=True)
+    dns.add_argument("--output", type=Path, required=True)
+
     args = parser.parse_args(argv)
     try:
         if args.command == "select-d1":
@@ -380,6 +596,21 @@ def main(argv: list[str] | None = None) -> int:
             if args.github_output is not None:
                 with args.github_output.open("a", encoding="utf-8") as fh:
                     fh.write(f"api_url={parsed.api_url}\n")
+            return 0
+        if args.command == "pages-service-patch":
+            patch = preview_pages_service_patch(_load_json(args.input))
+            args.output.write_text(json.dumps(patch), encoding="utf-8")
+            return 0
+        if args.command == "pages-service-check":
+            assert_preview_pages_service_binding(_load_json(args.before), _load_json(args.after))
+            return 0
+        if args.command == "select-zone":
+            print(select_news_sentry_zone_id(_load_json(args.input)))
+            return 0
+        if args.command == "preview-dns":
+            planned = plan_preview_pages_dns(_load_json(args.input), args.alias)
+            args.output.write_text(json.dumps(planned["record"]), encoding="utf-8")
+            print(planned["id"])
             return 0
     except PreviewGuardError as exc:
         print(str(exc), file=sys.stderr)
