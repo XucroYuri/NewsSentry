@@ -14,7 +14,8 @@ export class TranslationKV {
 export function translationFixture(extra: Record<string, unknown> = {}) {
   const sqlite = new DatabaseSync(":memory:");
   sqlite.exec(readFileSync(new URL("../db/migrations/20261107_reader_translation_jobs.sql", import.meta.url), "utf8"));
-  const queue: Array<{ jobId: string }> = [];
+  const queue: Array<{ jobId: string; generation: number }> = [];
+  const delays: Array<number | undefined> = [];
   const db = {
     withSession(constraint: string) {
       if (constraint !== "first-primary") throw Error("primary session required");
@@ -25,6 +26,7 @@ export function translationFixture(extra: Record<string, unknown> = {}) {
         bind(...values: unknown[]) {
           return {
             async first() { return sqlite.prepare(sql).get(...values) ?? null; },
+            async all() { return { results: sqlite.prepare(sql).all(...values) }; },
             async run() {
               const result = sqlite.prepare(sql).run(...values);
               return { success: true, meta: { changes: Number(result.changes) } };
@@ -36,10 +38,15 @@ export function translationFixture(extra: Record<string, unknown> = {}) {
   };
   const env = {
     DB: db, READER_V1: "1", READER_TRANSLATIONS: new TranslationKV(),
-    READER_TRANSLATE_QUEUE: { async send(body: { jobId: string }) { queue.push(body); } },
+    READER_TRANSLATE_QUEUE: {
+      async send(body: { jobId: string; generation: number }, options?: { delaySeconds: number }) {
+        queue.push(body);
+        delays.push(options?.delaySeconds);
+      },
+    },
     NEWS_SENTRY_ENVIRONMENT: "dev", MAGPIE_BASE_URL: "http://localhost:3425",
     MAGPIE_FREE_ONLY: "1", MAGPIE_FREE_GROUP: "group/reader-free",
     ...extra,
   } as unknown as ReaderTranslationJobsEnv;
-  return { env, queue, sqlite };
+  return { env, queue, delays, sqlite };
 }

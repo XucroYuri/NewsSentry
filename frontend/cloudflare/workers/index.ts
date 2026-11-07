@@ -31,7 +31,7 @@ import { internalError } from "./lib/errors";
 import { authorizeWorkerWriteAccess } from "./lib/access";
 import { runScheduledCloudflareTask } from "./lib/scheduled";
 import { handleShadowQueueBatch } from "./lib/queue-shadow";
-import { handleTranslationQueueBatch, READER_TRANSLATE_QUEUE_NAME } from "./lib/reader-translate-jobs";
+import { dispatchReaderQueue, dispatchReaderSchedule } from "./lib/reader-dispatch";
 import type { AccessPrincipal, CloudflareAccessJwtEnv } from "./lib/access-jwt";
 import { parseRuntimeConfig, type RuntimeConfigEnv } from "./lib/runtime-config";
 import { containerEnvVars } from "./lib/container-env";
@@ -182,13 +182,9 @@ export default {
     }
   },
   async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(runScheduledCloudflareTask(controller, env));
+    ctx.waitUntil(dispatchReaderSchedule(controller.cron, env, () => runScheduledCloudflareTask(controller, env)));
   },
   async queue(batch: MessageBatch, env: Env, ctx: ExecutionContext): Promise<void> {
-    if (batch.queue === READER_TRANSLATE_QUEUE_NAME) {
-      await handleTranslationQueueBatch(batch, env);
-      return;
-    }
-    ctx.waitUntil(handleShadowQueueBatch(batch, env));
+    await dispatchReaderQueue(batch, env, () => handleShadowQueueBatch(batch, env));
   },
 };

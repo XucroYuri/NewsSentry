@@ -6,6 +6,7 @@ import { marked } from "marked";
 
 export interface ReaderTranslationEnv {
   READER_TRANSLATIONS?: KVNamespace;
+  READER_TRANSLATION_CACHE_VERSION?: string;
   MAGPIE_BASE_URL?: string;
   MAGPIE_API_KEY?: string;
   MAGPIE_CF_ACCESS_CLIENT_ID?: string;
@@ -125,7 +126,11 @@ async function magpie(
     });
     if (!response.ok) {
       await response.body?.cancel();
-      throw new ReaderError(response.status === 429 ? 429 : 503, "MAGPIE_UNAVAILABLE", "免费翻译路由暂不可用。");
+      const retryAfter = response.headers.get("Retry-After");
+      const delay = retryAfter === null ? 60 : /^\d+$/.test(retryAfter)
+        ? Number(retryAfter) : (Date.parse(retryAfter) - Date.now()) / 1000;
+      throw new ReaderError(response.status === 429 ? 429 : 503, "MAGPIE_UNAVAILABLE", "免费翻译路由暂不可用。",
+        Number.isFinite(delay) ? Math.min(86_400, Math.max(1, Math.ceil(delay))) : 60);
     }
     let data: {
       choices?: Array<{ message?: { content?: unknown }; finish_reason?: string }>;
@@ -174,12 +179,25 @@ export async function parseTranslationInput(request: Request): Promise<Translati
   return { markdown, contentHash: body.contentHash, targetLang, sourceLang, retry: body.retry === true };
 }
 
+export async function translationCacheKey(
+  input: TranslationInput, env: ReaderTranslationEnv, owner: string,
+): Promise<string> {
+  const scope = await markdownHash(JSON.stringify([
+    env.NEWS_SENTRY_ENVIRONMENT ?? "unconfigured", owner,
+  ]));
+  const options = await markdownHash(JSON.stringify([
+    env.READER_TRANSLATION_CACHE_VERSION ?? "reader-r2-v1",
+    input.contentHash, input.sourceLang ?? "", input.targetLang,
+  ]));
+  return `reader-tr:${scope}:${options}`;
+}
+
 export async function readTranslationCache(
-  input: TranslationInput, env: ReaderTranslationEnv,
+  input: TranslationInput, env: ReaderTranslationEnv, owner: string,
 ): Promise<Translation | null> {
-  const { markdown, targetLang, contentHash } = input;
+  const { markdown, targetLang } = input;
   if (!env.READER_TRANSLATIONS) throw new ReaderError(503, "TRANSLATION_CACHE_UNCONFIGURED", "翻译 KV 尚未配置。");
-  const key = `tr:${contentHash}:${targetLang}`;
+  const key = await translationCacheKey(input, env, owner);
   let cached: Translation | null = null;
   try {
     cached = await env.READER_TRANSLATIONS.get<Translation>(key, "json");
@@ -213,7 +231,8 @@ export async function translateReaderInput(
       break;
     } catch (error) {
       if (signal?.aborted || (error instanceof ReaderError
-        && ["UNSAFE_URL", "DNS_RESOLUTION_FAILED", "TRANSLATION_TIMED_OUT"].includes(error.code))) throw error;
+        && (error.status === 429
+          || ["UNSAFE_URL", "DNS_RESOLUTION_FAILED", "TRANSLATION_TIMED_OUT"].includes(error.code)))) throw error;
       lastError = error instanceof ReaderError ? error : lastError;
     }
   }

@@ -123,46 +123,106 @@ Cookie/Authorization。每次重定向重新检查 URL 和解析后的地址；�
 POST 仅校验、读取合法缓存、创建持久化任务并发送 Queue 消息，不等待模型。
 执行使用已有 Queues 产品的隔离队列 `news-sentry-reader-translate-preview`，
 preview 新增 producer `READER_TRANSLATE_QUEUE`；consumer batch size 1、
-batch timeout 1 秒、并发 2、`max_retries=0`。不新增 DO、DLQ 或 cron；
-生产配置不变。部署前需另行创建队列，并向 `ns-db-preview` 应用
+batch timeout 1 秒、并发 1、`max_retries=3`、`retry_delay=60`，
+专用 DLQ `news-sentry-reader-translate-dlq-preview`。
+DLQ consumer 同样 size 1、timeout 1、并发 1、retries 3、retry delay 60。
+Preview 独立 cron `*/2 * * * *`（UTC）执行恢复与终态收敛，
+不运行原有采集 scheduler；不新增 DO，生产配置不变。
+部署前需另行创建两个专用队列，并向 `ns-db-preview` 应用
 `frontend/cloudflare/db/migrations/20261107_reader_translation_jobs.sql`；
-该迁移与 `schema.sql` 保持一致，只有新增表和索引，不覆盖已有数据。
-若资源创建要求新增付费产品或套餐，停止部署。
+该迁移与 `schema.sql` 的任务表定义一致，增加表、列定义、索引及自定义
+`runtime_migration_receipts` 回执 `20261107_reader_translation_jobs_r2`，
+不覆盖已有业务数据。仓库使用逐文件 `d1 execute --file`，
+没有启用 Wrangler 默认 migration ledger；部署方只执行本次增量，
+不运行全量 schema/seed 或批量 apply 未审 pending migrations。
+上一轮文件未部署，直接修订 CREATE；如发现远端旧表已存在但缺新列，
+必须停止并另审 additive ALTER，CREATE IF NOT EXISTS 不会升级旧表。
+本轮不验证远端 ledger、不部署、不运行远端 wrangler。
+用户已授权 preview Queues/Workers/D1/KV 按量费用，不含付费模型、
+生产扩容或其他计费产品。
 
 任务表 `reader_translation_jobs` 保存 Access `principal.id`、正文 hash、
 源/目标语言、最多 24000 字符正文、状态、错误、attempt_count、毫秒时间戳
-及最多 100000 字符的成功译文。KV 保留原 key/TTL；D1 保存结果快照，
+及最多 100000 字符的成功译文，另存 generation、execution_count、
+lease_until、next_attempt_at、last_enqueued_at。KV 使用
+`reader-tr:{scopeHash}:{optionsHash}`：scope 哈希环境+owner，options 哈希
+contentHash、sourceLang、targetLang 和 `READER_TRANSLATION_CACHE_VERSION`
+（preview 为 `reader-r2-v1`，提示词/翻译选项变化必须 bump）。
+不再读取旧 `tr:{hash}:{lang}`；命中仍跑完整 validTranslation，
+仅 fenced D1 成功且完整的结果写 KV，TTL 7 天；失败/截断不写。
+D1 保存权威结果快照，
 不因 KV 传播延迟或 7 天后过期而丢失已完成任务。不同用户的 jobId 和错误隔离；
-相同正文的合法 KV 译文允许共享，缓存命中也分配各自的任务记录。
+缓存默认不跨用户、环境、源语言或版本共享。
+KV 最终一致性下 miss 只会返回 D1 去重后的原任务；GET 不读 KV，
+不依赖其传播时延，成功状态与成功结果一同持久化。
 
-同用户、contentHash、targetLang、sourceLang 使用同一个 dedupe key；
+同用户、环境、contentHash、targetLang、sourceLang、缓存版本使用同一个 dedupe key；
 D1 原子 INSERT SELECT、`UNIQUE(dedupe_key, attempt_count)` 及非终态局部
-UNIQUE 索引处理并发。消费者 `UPDATE ... WHERE status='queued' RETURNING`
-只领取一次，重复 Queue 消息不重复调用模型。D1 操作使用 first-primary session。
+UNIQUE 索引处理并发。消息仅为 `{jobId,generation}`；领取条件为相同代际且
+queued 或 running 租约过期，原子设置 running、330 秒 lease，
+generation/execution_count 各加一，最多两次领取。
+终态/不匹配 generation 的重复消息 ACK，不调模型；
+结果和失败写回都 fence `id + generation + status='running'`，
+成功还检查租约，旧代际不得写 D1 结果或 KV。
+正常成功路径及并发重复提交只触发一次上游调用；崩溃/租约过期恢复可能导致有界的
+重复上游调用。每次执行保留既有免费组/闲置组 fallback，因此两次领取
+不等于所有配置下最多两次 HTTP 调用。D1 操作使用 first-primary session。
 `queued → running → succeeded|failed|timed_out` 只反映真实状态；
 finish_reason 必须为 stop，非空、限长并保留 Markdown 链接/图片才算成功。
-上游 429/502、非法/空/截断结果明确记录 failed；没有自动模型重试。
+上游 502、非法/空/截断结果明确记录 failed。
+首次 429 不换组，持久排队并以当前新 generation 加 delaySeconds 延迟重投，
+Retry-After 支持整数/HTTP 日期，默认 60 秒，下限 1 秒、平台上限 86400 秒；
+超过任务剩余寿命不再调用模型。第二次 429 failed，计入两次领取上限。
 只有 failed/timed_out 后的 `retry:true` 创建新 jobId，attempt_count 加一。
 普通重复提交返回已有任务；对 queued/running/succeeded 的 retry 不新建任务。
 
-每次 Magpie 调用保留 120 秒期限；整个执行窗口 5 分钟。running 超过
-5 分钟或 queued 超过 10 分钟，GET/下次消费原子标记 timed_out。
-超时后的迟到结果不得覆盖终态。Queue send 失败记录
-`TRANSLATION_ENQUEUE_FAILED`；若 Worker 在 D1 插入与 send 之间终止，
-未投递任务按 queued 超时收敛并允许人工重试。该跨产品窗口不宣称对外部模型
-提供跨故障 exactly-once，不自动重放可能已经到达上游的请求。
+每次 Magpie 调用保留 120 秒期限；每次执行窗口最多 5 分钟，
+整个任务自创建最多 10 分钟。Queue send 失败或插入后崩溃保留 queued；
+sweeper 对超过 60 秒未领取/重发的 queued 重新发送同 jobId，
+对过期租约重发当前 generation，下一次领取加一。
+基础设施异常按消息 retry(delaySeconds=60)，最多 3 次后进入专用 DLQ；
+DLQ 把对应 queued/租约已过期的 running 落 failed，不能终结新代际/活跃租约。
+过期投递、两次执行耗尽且租约过期、总寿命耗尽由 consumer/sweeper 落
+timed_out。消息 retention 到期会删除，不保证进 DLQ，独立 sweeper
+负责没有消息时的持久收敛；DLQ 自身失败也由总寿命兜底。
+cron/D1 不可用时须等恢复后的成功 sweep，不能承诺绝对墙钟 SLA。
+不宣称跨故障 exactly-once。queue() 只按精确四个队列名分发，
+Reader 队列只允许 preview；未知队列告警并 ACK，不进入业务处理。
 
 GET 按 `id AND owner` 查询，其他用户或未知 jobId 均为 404，无任务内容泄漏。
 浏览器同源 GET 允许缺省 Origin；存在不匹配的 Origin 或 cross-site 标记时拒绝。
-GET 从不调用 Magpie、Workers AI 或 Queue，只查询/标记过期任务。
+GET 从不调用 Magpie、Workers AI 或 Queue，零写入副作用，
+包括超期 job 也只查询 D1 真实状态，持久收敛不依靠用户轮询。
 任务失败属于 HTTP 200 的终态 DTO，code/message/errorStatus 描述执行错误；
 鉴权、输入、资源不可用等 API 错误仍使用统一 HTTP 错误响应。
 
 前端以 sessionStorage 保存对应正文/语言的 jobId，刷新先查询同一任务。
 提交后按 1.5 秒到 5 秒退避轮询，没有客户端总超时，卸载仍取消请求和等待；
 显示真实排队/运行状态，失败/超时保留原文并提供显式重试。
-接口与前端需一起发布。回滚时 revert PR #88，并把 preview Worker
-回滚到 `4028f09c` 对应版本；迁移为 additive，保留新表即可。
+接口与前端需一起发布。Preview 新增 `READER_ASYNC_SUBMIT="1"`；
+设为 `"0"` 时新提交（含 retry/缓存命中）在输入、KV、D1、Queue 处理前
+返回 503/TRANSLATION_SUBMIT_DISABLED；GET、consumer、cron 继续处理旧任务。
+
+### 回滚 runbook（Cloudflare-Bot 执行，本轮不执行）
+
+1. 在兼容 Worker 先设 `READER_ASYNC_SUBMIT=0`，读回并验证 POST 已停；
+   保持 READER_V1=1 以便 GET/consumer/sweeper 完成旧任务。
+2. 暂停两个专用队列并读回 paused 状态：
+   `wrangler queues pause-delivery news-sentry-reader-translate-preview`、
+   `wrangler queues pause-delivery news-sentry-reader-translate-dlq-preview`。
+   不动生产 news-sentry-jobs/DLQ；pause 不取消在途、不阻止 producer、
+   不冻结 retention，不 purge 或移除 consumer。
+3. 保留兼容 Worker 和 cron，等待在途完成与租约/10 分钟寿命到期，
+   sweeper 将旧任务持久收敛；确认 D1 queued/running 为零，
+   或逐项保留处理记录。暂停期间重发的消息留在队列；旧结果受 fence 限制。
+4. 保留 D1 表/结果/回执、KV、两队列消息与恢复书签；不 drop、
+   不清空、不删队列。代码回滚不恢复 D1/KV 数据。
+5. 确认两队列暂停、在途与持久状态已处理后，才回配套兼容
+   Worker/Pages 版本，最后停 Reader cron。部署前重新捕获成对版本，
+   不机械使用预检旧 `4028f09c`；consumer 注册单独核对。
+   旧 Worker 无 consumer 时队列必须继续 paused，禁止继续投递。
+6. 恢复时先装兼容 consumer/cron 并核对 preview 绑定与 schema，
+   保持提交关闭，恢复两队列投递并验证终态 ACK，最后再开启提交。
 
 ## 提取与边界
 

@@ -5,6 +5,7 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { handleReader as handleReaderRoute, type ReaderEnv } from "../workers/api/reader.ts";
 import { handleTranslationQueueBatch } from "../workers/lib/reader-translate-jobs.ts";
+import { translationCacheKey } from "../workers/lib/reader-translate.ts";
 import { translationFixture } from "./reader-job-fixture.mts";
 import { extractArticle } from "../workers/lib/reader-extract.ts";
 import { fetchReaderResource } from "../workers/lib/reader-http.ts";
@@ -24,9 +25,11 @@ async function handleReader(request: Request, configuration: ReaderEnv) {
     const submitted = await handleReaderRoute(request, fixture.env as ReaderEnv);
     if (!submitted.ok) return submitted;
     const payload = await submitted.json();
-    await handleTranslationQueueBatch({
-      messages: fixture.queue.map((body) => ({ body, ack() {} })),
-    }, fixture.env);
+    while (fixture.queue.length) {
+      const body = fixture.queue.shift()!;
+      fixture.sqlite.prepare("UPDATE reader_translation_jobs SET next_attempt_at=0 WHERE id=?").run(body.jobId);
+      await handleTranslationQueueBatch({ messages: [{ body, ack() {}, retry() {} }] }, fixture.env);
+    }
     const result = await handleReaderRoute(new Request(`${request.url}/${payload.jobId}`, {
       headers: request.headers,
     }), fixture.env as ReaderEnv);
@@ -698,7 +701,7 @@ test("translation DNS check repeats before idle retry and rejects newly private 
   const calls = upstream(t, (_url, init) => {
     assert.equal(init?.redirect, "manual");
     providerFailed = true;
-    return new Response("busy", { status: 429 });
+    return new Response("unavailable", { status: 503 });
   }, (url) => Response.json(dnsAnswer(url,
     providerFailed && new URL(url).searchParams.get("type") === "AAAA" ? ["::1"] : undefined)));
   const response = await handleReader(post({ markdown, contentHash: hash, targetLang: "zh" }, "translate"),
@@ -814,7 +817,7 @@ test("Magpie demonstrates zh and en, stores hash×language cache and skips provi
       translated: lang === "zh" ? "# 图书馆\n\n你好，世界。" : markdown,
       lang, cached: false, provider: "magpie",
     });
-    assert.ok(kv.entries.has(`tr:${hash}:${lang}`));
+    assert.ok(kv.entries.has(await translationCacheKey({ ...requestBody, retry: false }, {}, "editor")));
     // Even with all provider wiring absent, KV hits are returned without a provider call.
     const cached = await handleReader(post(requestBody, "translate"), env({ READER_TRANSLATIONS: kv }));
     assert.equal(cached.status, 200);
@@ -842,7 +845,7 @@ test("free group failure falls back once to idle without any default provider ch
   upstream(t, (_url, init) => {
     const model = JSON.parse(String(init?.body)).model;
     models.push(model);
-    return model === "group/reader-free" ? new Response("busy", { status: 429 })
+    return model === "group/reader-free" ? new Response("unavailable", { status: 503 })
       : Response.json({ choices: [{ message: { content: "你好。" }, finish_reason: "stop" }] });
   });
   const response = await handleReader(post({ markdown, targetLang: "zh", contentHash: hash }, "translate"),
@@ -941,7 +944,7 @@ test("translation validates reference images, reference links and autolinks by t
     const rejected = await handleReader(post(body, "translate"), env({ ...freeRoute, READER_TRANSLATIONS: kv }));
     assert.equal(rejected.status, 502, original);
     assert.equal((await rejected.json()).code, "TRANSLATION_INVALID");
-    assert.equal(kv.entries.has(`tr:${contentHash}:zh`), false);
+    assert.equal(kv.entries.has(await translationCacheKey({ ...body, retry: false }, {}, "editor")), false);
     output = original.replace("Library", "图书馆");
     const accepted = await handleReader(post(body, "translate"), env({ ...freeRoute, READER_TRANSLATIONS: kv }));
     assert.equal(accepted.status, 200);
@@ -951,7 +954,9 @@ test("translation validates reference images, reference links and autolinks by t
 
 test("cache hits return only translation contract fields", async (t) => {
   const kv = new MemoryKV();
-  kv.entries.set(`tr:${hash}:zh`, JSON.stringify({
+  kv.entries.set(await translationCacheKey({
+    markdown, contentHash: hash, targetLang: "zh", retry: false,
+  }, {}, "editor"), JSON.stringify({
     translated: "你好。", lang: "zh", provider: "magpie", internal: "not public",
   }));
   const calls = upstream(t, () => { throw Error("unexpected provider request"); });
@@ -966,7 +971,7 @@ test("cache hits return only translation contract fields", async (t) => {
 
 test("malformed KV JSON is a cache miss and a valid free translation repairs it", async (t) => {
   const kv = new MemoryKV();
-  const key = `tr:${hash}:zh`;
+  const key = await translationCacheKey({ markdown, contentHash: hash, targetLang: "zh", retry: false }, {}, "editor");
   kv.entries.set(key, "{broken");
   const calls = upstream(t, () => Response.json({
     choices: [{ message: { content: "# 图书馆\n\n你好。" }, finish_reason: "stop" }],

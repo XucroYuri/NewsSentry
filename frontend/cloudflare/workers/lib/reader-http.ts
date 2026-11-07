@@ -3,10 +3,12 @@ import { validateExternalUrl } from "./external-url.ts";
 export class ReaderError extends Error {
   readonly status: number;
   readonly code: string;
-  constructor(status: number, code: string, message: string) {
+  readonly retryDelaySeconds?: number;
+  constructor(status: number, code: string, message: string, retryDelaySeconds?: number) {
     super(message);
     this.status = status;
     this.code = code;
+    this.retryDelaySeconds = retryDelaySeconds;
   }
 }
 
