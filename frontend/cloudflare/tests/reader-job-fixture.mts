@@ -14,7 +14,8 @@ export class TranslationKV {
 export function translationFixture(extra: Record<string, unknown> = {}) {
   const sqlite = new DatabaseSync(":memory:");
   sqlite.exec(readFileSync(new URL("../db/migrations/20261107_reader_translation_jobs.sql", import.meta.url), "utf8"));
-  const queue: Array<{ jobId: string; generation: number }> = [];
+  sqlite.exec(readFileSync(new URL("../db/migrations/20261107_reader_translation_chunks.sql", import.meta.url), "utf8"));
+  const queue: Array<{ jobId: string; generation: number; chunk_index?: number }> = [];
   const delays: Array<number | undefined> = [];
   const db = {
     withSession(constraint: string) {
@@ -25,6 +26,7 @@ export function translationFixture(extra: Record<string, unknown> = {}) {
       return {
         bind(...values: unknown[]) {
           return {
+            sql, values,
             async first() { return sqlite.prepare(sql).get(...values) ?? null; },
             async all() { return { results: sqlite.prepare(sql).all(...values) }; },
             async run() {
@@ -34,6 +36,20 @@ export function translationFixture(extra: Record<string, unknown> = {}) {
           };
         },
       };
+    },
+    async batch(statements: Array<{ sql: string; values: unknown[] }>) {
+      sqlite.exec("SAVEPOINT translation_batch");
+      try {
+        const results = statements.map(({ sql, values }) => ({
+          results: sqlite.prepare(sql).all(...values), success: true, meta: {},
+        }));
+        sqlite.exec("RELEASE translation_batch");
+        return results;
+      } catch (error) {
+        sqlite.exec("ROLLBACK TO translation_batch");
+        sqlite.exec("RELEASE translation_batch");
+        throw error;
+      }
     },
   };
   const env = {

@@ -41,6 +41,8 @@ export interface ReaderTranslationJob {
   jobId: string
   status: ReaderTranslationStatus
   attemptCount: number
+  completedChunks?: number
+  totalChunks?: number
   translated?: string
   lang?: string
   cached?: boolean

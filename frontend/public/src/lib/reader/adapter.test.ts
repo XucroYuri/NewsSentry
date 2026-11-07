@@ -8,6 +8,7 @@ import messages from "./messages.json"
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } })
 const translationInput = { markdown: mockArticle.markdown, targetLang: "zh", contentHash: mockArticle.contentHash, sourceLang: "en" }
 const completedJob = { jobId: "job-1", status: "succeeded", attemptCount: 1, translated: "译文", lang: "zh", cached: true, provider: "kv" }
+const savedJobKey = `news-sentry-reader-job:v1:${JSON.stringify(["article-1", translationInput.contentHash, "zh", "en"])}`
 
 afterEach(() => { localStorage.clear(); sessionStorage.clear(); vi.useRealTimers(); vi.restoreAllMocks() })
 
@@ -97,6 +98,114 @@ describe("Reader #76 adapter", () => {
     controller.abort()
     await cancelled
     expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it.each(["another-account-job", "nonexistent-job", "cleaned-job"])("clears restored 404 reference %s and requires explicit resubmission even after refresh", async (jobId) => {
+    vi.useFakeTimers()
+    sessionStorage.setItem(savedJobKey, jobId)
+    sessionStorage.setItem("unrelated-job", "keep")
+    const fetcher = vi.fn().mockResolvedValue(json({ code: "NOT_FOUND", message: "Not found" }, 404))
+    const progress = vi.fn()
+    const context = { articleId: "article-1", onProgress: progress }
+    const api = createReaderAdapter(fetcher)
+    await expect(api.translate(translationInput, undefined, context)).rejects.toMatchObject({
+      status: 404, code: "TRANSLATION_JOB_NOT_FOUND",
+    })
+    expect(fetcher).toHaveBeenCalledExactlyOnceWith(`/api/v1/reader/translate/${jobId}`, expect.objectContaining({ method: "GET" }))
+    expect(sessionStorage.getItem(savedJobKey)).toBeNull()
+    expect(sessionStorage.getItem("unrelated-job")).toBe("keep")
+    expect(progress).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(60_000)
+    await expect(createReaderAdapter(fetcher).translate(translationInput, undefined, context)).rejects.toMatchObject({ code: "TRANSLATION_JOB_NOT_FOUND" })
+    expect(fetcher).toHaveBeenCalledTimes(1)
+
+    fetcher.mockImplementation(() => Promise.resolve(json(completedJob)))
+    await expect(api.translate({ ...translationInput, retry: true }, undefined, context)).resolves.toMatchObject({ translated: "译文" })
+    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/v1/reader/translate", expect.objectContaining({
+      method: "POST", body: JSON.stringify({ ...translationInput, retry: true }),
+    }))
+    expect(sessionStorage.getItem(savedJobKey)).toBe("job-1")
+    expect(sessionStorage.getItem(`${savedJobKey}:resubmit`)).toBeNull()
+    await expect(createReaderAdapter(fetcher).translate(translationInput, undefined, context)).resolves.toMatchObject({ translated: "译文" })
+    expect(fetcher).toHaveBeenNthCalledWith(3, "/api/v1/reader/translate/job-1", expect.objectContaining({ method: "GET" }))
+  })
+
+  it("stops polling and clears the reference if an existing job disappears", async () => {
+    vi.useFakeTimers()
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(json({ jobId: "deleted-job", status: "running", attemptCount: 1 }))
+      .mockResolvedValue(json({ code: "NOT_FOUND" }, 404))
+    const pending = createReaderAdapter(fetcher).translate(translationInput, undefined, { articleId: "article-1" })
+    const failed = expect(pending).rejects.toMatchObject({ status: 404, code: "TRANSLATION_JOB_NOT_FOUND" })
+    await vi.advanceTimersByTimeAsync(1500)
+    await failed
+    expect(sessionStorage.getItem(savedJobKey)).toBeNull()
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(fetcher).toHaveBeenLastCalledWith("/api/v1/reader/translate/deleted-job", expect.objectContaining({ method: "GET" }))
+  })
+
+  it("keeps explicit resubmission required if the new POST fails", async () => {
+    sessionStorage.setItem(savedJobKey, "missing-job")
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(json({}, 404))
+      .mockResolvedValue(json({ code: "TRANSLATION_SUBMIT_DISABLED" }, 503))
+    const api = createReaderAdapter(fetcher)
+    const context = { articleId: "article-1" }
+    await expect(api.translate(translationInput, undefined, context)).rejects.toMatchObject({ code: "TRANSLATION_JOB_NOT_FOUND" })
+    await expect(api.translate({ ...translationInput, retry: true }, undefined, context)).rejects.toMatchObject({ status: 503 })
+    await expect(createReaderAdapter(fetcher).translate(translationInput, undefined, context)).rejects.toMatchObject({ code: "TRANSLATION_JOB_NOT_FOUND" })
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([403, 429, 503])("preserves restored job references and errors for GET %s", async (status) => {
+    sessionStorage.setItem(savedJobKey, "existing-job")
+    const fetcher = vi.fn().mockResolvedValue(json({ code: "TEST_ERROR", message: "detail" }, status))
+    await expect(createReaderAdapter(fetcher).translate(translationInput, undefined, { articleId: "article-1" })).rejects.toMatchObject({ status, code: "TEST_ERROR", message: "detail" })
+    expect(sessionStorage.getItem(savedJobKey)).toBe("existing-job")
+    expect(sessionStorage.getItem(`${savedJobKey}:resubmit`)).toBeNull()
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+
+  it("validates and forwards real chunk counts independently of execution attempts", async () => {
+    vi.useFakeTimers()
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(json({ jobId: "chunks", status: "queued", attemptCount: 0, completedChunks: 0, totalChunks: 0 }))
+      .mockResolvedValueOnce(json({ jobId: "chunks", status: "running", attemptCount: 1, completedChunks: 0, totalChunks: 4 }))
+      .mockResolvedValueOnce(json({ jobId: "chunks", status: "running", attemptCount: 2, completedChunks: 2, totalChunks: 4 }))
+      .mockResolvedValueOnce(json({ ...completedJob, jobId: "chunks", completedChunks: 4, totalChunks: 4 }))
+    const progress = vi.fn()
+    const pending = createReaderAdapter(fetcher).translate(translationInput, undefined, { onProgress: progress })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({ completedChunks: 0, totalChunks: 0 }))
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({ completedChunks: 0, totalChunks: 4 }))
+    await vi.advanceTimersByTimeAsync(2250)
+    expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({ completedChunks: 2, totalChunks: 4 }))
+    await vi.advanceTimersByTimeAsync(3375)
+    await expect(pending).resolves.toMatchObject({ translated: "译文" })
+    expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({ completedChunks: 4, totalChunks: 4 }))
+  })
+
+  it.each([
+    { completedChunks: -1, totalChunks: 4 },
+    { completedChunks: 1.5, totalChunks: 4 },
+    { completedChunks: "1", totalChunks: 4 },
+    { completedChunks: null, totalChunks: 4 },
+    { completedChunks: 5, totalChunks: 4 },
+    { completedChunks: 0, totalChunks: -1 },
+    { completedChunks: 0, totalChunks: 1.5 },
+    { completedChunks: 0, totalChunks: "4" },
+    { completedChunks: 0, totalChunks: null },
+    { completedChunks: 0, totalChunks: Number.MAX_SAFE_INTEGER + 1 },
+    { completedChunks: 1 },
+    { totalChunks: 4 },
+  ])("rejects invalid chunk progress %j", async (counts) => {
+    const progress = vi.fn()
+    const fetcher = vi.fn().mockResolvedValue(json({ ...completedJob, ...counts }))
+    await expect(createReaderAdapter(fetcher).translate(translationInput, undefined, { onProgress: progress })).rejects.toMatchObject({ code: "INVALID_READER_RESPONSE" })
+    expect(progress).not.toHaveBeenCalled()
+    expect(fetcher).toHaveBeenCalledTimes(1)
   })
 
   it.each(["failed", "timed_out"])("restores %s without resubmitting and POSTs only on explicit retry", async (status) => {

@@ -198,6 +198,8 @@ test("validated owner cache creates a succeeded D1 record independent of KV visi
   const own = await (await submitTranslationJob(request(), fixture.env, "user-a")).json();
   assert.equal(own.status, "succeeded");
   assert.equal(own.cached, true);
+  assert.equal(own.completedChunks, 0);
+  assert.equal(own.totalChunks, 0);
   assert.equal("privateField" in own, false);
   await assert.rejects(getTranslationJob(own.jobId, fixture.env, "user-b"), { status: 404 });
   await assert.rejects(submitTranslationJob(request(), fixture.env, "user-b"), { code: "TRANSLATION_QUEUE_UNCONFIGURED" });
@@ -217,7 +219,7 @@ test("enqueue failure remains queued; sweeper resends the same job after the gap
   fixture.env.READER_TRANSLATE_QUEUE = { async send(message) { fixture.queue.push(message); } };
   context.mock.timers.tick(TRANSLATION_REENQUEUE_MS + 1);
   await sweepTranslationJobs(fixture.env);
-  assert.deepEqual(fixture.queue, [{ jobId: failed.jobId, generation: 0 }]);
+  assert.deepEqual(fixture.queue, [{ jobId: failed.jobId, generation: 0, chunk_index: 0 }]);
   await processTranslationJob(failed.jobId, fixture.env, fixture.queue[0].generation);
   assert.equal((await (await getTranslationJob(failed.jobId, fixture.env, "user-a")).json()).status, "succeeded");
 });
@@ -257,7 +259,7 @@ test("lease recovery increments generation and fences a late old success and cac
   assert.equal(fixture.sqlite.prepare("SELECT generation FROM reader_translation_jobs").get()!.generation, 1);
   context.mock.timers.tick(TRANSLATION_LEASE_MS + 1);
   await sweepTranslationJobs(fixture.env);
-  assert.deepEqual(fixture.queue.at(-1), { jobId: job.jobId, generation: 1 });
+  assert.deepEqual(fixture.queue.at(-1), { jobId: job.jobId, generation: 1, chunk_index: 0 });
   const recovery = processTranslationJob(job.jobId, fixture.env, 1);
   await recoveryStarted.promise;
   const afterRecovery = fixture.sqlite.prepare("SELECT * FROM reader_translation_jobs").all();
@@ -321,7 +323,7 @@ test("crash immediately after durable insert is recovered even when no first mes
     .run(Date.now() - TRANSLATION_REENQUEUE_MS - 1);
   await sweepTranslationJobs(fixture.env);
   await sweepTranslationJobs(fixture.env);
-  assert.deepEqual(fixture.queue, [{ jobId: job.jobId, generation: 0 }]);
+  assert.deepEqual(fixture.queue, [{ jobId: job.jobId, generation: 0, chunk_index: 0 }]);
 });
 
 test("429 honors Retry-After through delayed same-id new-generation delivery, counts attempts, then fails", async (context) => {
@@ -336,7 +338,7 @@ test("429 honors Retry-After through delayed same-id new-generation delivery, co
   const job = await (await submitTranslationJob(request(), fixture.env, "user-a")).json();
   await processTranslationJob(job.jobId, fixture.env);
   assert.equal(calls, 1);
-  assert.deepEqual(fixture.queue.at(-1), { jobId: job.jobId, generation: 1 });
+  assert.deepEqual(fixture.queue.at(-1), { jobId: job.jobId, generation: 1, chunk_index: 0 });
   assert.equal(fixture.delays.at(-1), 90);
   await processTranslationJob(job.jobId, fixture.env, 1);
   assert.equal(calls, 1);
@@ -395,7 +397,7 @@ test("429 delayed send failure stays queued in the new generation and cron repai
   fixture.env.READER_TRANSLATE_QUEUE = { async send(message) { fixture.queue.push(message); } };
   context.mock.timers.tick(60_001);
   await sweepTranslationJobs(fixture.env);
-  assert.deepEqual(fixture.queue.at(-1), { jobId: job.jobId, generation: 1 });
+  assert.deepEqual(fixture.queue.at(-1), { jobId: job.jobId, generation: 1, chunk_index: 0 });
 });
 
 test("DLQ cannot kill a live lease or a newer queued generation", async (context) => {

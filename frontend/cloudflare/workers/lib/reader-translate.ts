@@ -186,7 +186,7 @@ export async function translationCacheKey(
     env.NEWS_SENTRY_ENVIRONMENT ?? "unconfigured", owner,
   ]));
   const options = await markdownHash(JSON.stringify([
-    env.READER_TRANSLATION_CACHE_VERSION ?? "reader-r2-v1",
+    env.READER_TRANSLATION_CACHE_VERSION ?? "reader-r4-chunks-v1",
     input.contentHash, input.sourceLang ?? "", input.targetLang,
   ]));
   return `reader-tr:${scope}:${options}`;
@@ -215,13 +215,13 @@ export async function readTranslationCache(
 }
 
 export async function translateReaderInput(
-  input: TranslationInput, env: ReaderTranslationEnv, signal?: AbortSignal,
+  input: TranslationInput, env: ReaderTranslationEnv, signal?: AbortSignal, singleAttempt = false,
 ): Promise<Translation> {
   const { markdown, targetLang, sourceLang } = input;
   let translated: Translation | null = null;
   let lastError = new ReaderError(503, "TRANSLATION_UNAVAILABLE", "尚未接通免费翻译路由，请使用原文。");
   const config = magpieConfig(env);
-  for (const group of config?.groups ?? []) {
+  for (const group of (config?.groups ?? []).slice(0, singleAttempt ? 1 : undefined)) {
     signal?.throwIfAborted();
     try {
       translated = {
@@ -237,7 +237,7 @@ export async function translateReaderInput(
     }
   }
   // 仅使用显式提供的 AI binding；不创建账户、不接受 REST 付费凭据、不接既有付费 provider chain。
-  if (!translated && env.READER_WORKERS_AI === "1" && env.READER_WORKERS_AI_FREE_ONLY === "1" && env.AI) {
+  if (!singleAttempt && !translated && env.READER_WORKERS_AI === "1" && env.READER_WORKERS_AI_FREE_ONLY === "1" && env.AI) {
     const source = sourceLang && AI_LANGUAGES[sourceLang.split("-")[0]];
     const target = AI_LANGUAGES[targetLang.split("-")[0]];
     if (source && target) {

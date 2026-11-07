@@ -8,7 +8,7 @@ import { createReaderAdapter, safeReaderLink } from "@/lib/reader/adapter"
 import { saveLocale, type ReaderLocale } from "@/lib/reader/locales"
 import messages from "@/lib/reader/messages.json"
 import { readerPath, type parseReaderRoute, type ReaderMode } from "@/lib/reader/routes"
-import { ReaderApiError, type ReaderAdapter, type ReaderArticle, type ReaderTranslationStatus } from "@/lib/reader/types"
+import { ReaderApiError, type ReaderAdapter, type ReaderArticle, type ReaderTranslationJob } from "@/lib/reader/types"
 import "./reader.css"
 
 type ReaderRoute = NonNullable<ReturnType<typeof parseReaderRoute>>
@@ -28,6 +28,7 @@ function errorCopy(error: unknown, locale: ReaderLocale, preview = false) {
     if (error.status === 403) return text.accessRequired
     if (error.status === 429) return text.rateLimited
     if (error.code === "READER_DISABLED") return text.disabled
+    if (error.code === "TRANSLATION_JOB_NOT_FOUND") return text.translationJobUnavailable
     if (error.jobStatus === "timed_out") return text.translationTimedOut
   }
   return preview ? text.previewFailed : text.translationFailed
@@ -40,7 +41,7 @@ export function ReaderView({ route, adapter, demo = false }: { route: ReaderRout
   const [translations, setTranslations] = useState<Partial<Record<ReaderLocale, string>>>({})
   const [previewLoading, setPreviewLoading] = useState(true)
   const [translating, setTranslating] = useState(false)
-  const [translationStatus, setTranslationStatus] = useState<ReaderTranslationStatus | null>(null)
+  const [translationJob, setTranslationJob] = useState<ReaderTranslationJob | null>(null)
   const [previewError, setPreviewError] = useState<unknown>(null)
   const [translationError, setTranslationError] = useState<unknown>(null)
   const [previewAttempt, setPreviewAttempt] = useState(0)
@@ -55,6 +56,11 @@ export function ReaderView({ route, adapter, demo = false }: { route: ReaderRout
   const hasTranslation = mode === "translated" && Boolean(translations[locale])
   const markdown = hasTranslation ? translations[locale]! : article?.markdown ?? ""
   const language = hasTranslation ? locale : article?.lang || locale
+  const needsResubmit = translationError instanceof ReaderApiError && translationError.code === "TRANSLATION_JOB_NOT_FOUND"
+  const translationLabel = translationJob?.status === "queued" ? text.translationQueued : translationJob?.status === "running" ? text.translationRunning : text.translationSubmitting
+  const loadingLabel = previewLoading ? text.previewLoading : translationJob?.completedChunks !== undefined && translationJob.totalChunks !== undefined
+    ? `${translationLabel} ${text.translationProgress.replace("{completed}", String(translationJob.completedChunks)).replace("{total}", String(translationJob.totalChunks))}`
+    : translationLabel
 
   useEffect(() => {
     const controller = new AbortController()
@@ -81,12 +87,12 @@ export function ReaderView({ route, adapter, demo = false }: { route: ReaderRout
     const retry = retryRequested.current
     retryRequested.current = false
     setTranslating(true)
-    setTranslationStatus(null)
+    setTranslationJob(null)
     setTranslationError(null)
     adapter.translate(
       { markdown: article.markdown, contentHash: article.contentHash, sourceLang: article.lang, targetLang: locale, ...(retry ? { retry: true } : {}) },
       controller.signal,
-      { articleId: route.articleId, onProgress: (job) => { if (!controller.signal.aborted) setTranslationStatus(job.status) } },
+      { articleId: route.articleId, onProgress: (job) => { if (!controller.signal.aborted) setTranslationJob(job) } },
     ).then((result) => {
       if (!controller.signal.aborted) setTranslations((current) => ({ ...current, [locale]: result.translated }))
     }).catch((error: unknown) => {
@@ -140,8 +146,8 @@ export function ReaderView({ route, adapter, demo = false }: { route: ReaderRout
       <div className="reader-layout">
         <section className="reader-card reader-content" aria-label={text.reader}>
           {previewError ? <div className="reader-error" role="alert"><p>{errorCopy(previewError, locale, true)}</p><button className="reader-button" type="button" onClick={() => setPreviewAttempt(previewAttempt + 1)}>{text.retry}</button></div> : null}
-          {translationError ? <div className="reader-error" role="alert"><p>{errorCopy(translationError, locale)}</p><button className="reader-button" type="button" disabled={busy} onClick={() => { retryRequested.current = true; setMode("translated"); setTranslationAttempt(translationAttempt + 1) }}>{text.retry}</button></div> : null}
-          <ReaderBody markdown={markdown} images={article?.images ?? []} locale={locale} language={language} busy={busy} loadingLabel={previewLoading ? text.previewLoading : translationStatus === "queued" ? text.translationQueued : translationStatus === "running" ? text.translationRunning : text.translationSubmitting} />
+          {translationError ? <div className="reader-error" role="alert"><p>{errorCopy(translationError, locale)}</p><button className="reader-button" type="button" disabled={busy} onClick={() => { retryRequested.current = true; setMode("translated"); setTranslationAttempt(translationAttempt + 1) }}>{needsResubmit ? text.resubmitTranslation : text.retry}</button></div> : null}
+          <ReaderBody markdown={markdown} images={article?.images ?? []} locale={locale} language={language} busy={busy} loadingLabel={loadingLabel} />
         </section>
         <ReaderMeta locale={locale} source={source} sourceUrl={sourceUrl} language={language} publishedAt={publishedAt} articleId={route.articleId} attribution={article?.attribution} />
       </div>

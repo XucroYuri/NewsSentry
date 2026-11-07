@@ -9,6 +9,8 @@ import { ReaderBody } from "./ReaderBody"
 import ReaderPage, { ReaderView } from "./ReaderPage"
 import { createReaderAdapter } from "@/lib/reader/adapter"
 import { mockArticle, mockImageUrl } from "@/lib/reader/mock-adapter"
+import { readerLocales } from "@/lib/reader/locales"
+import messages from "@/lib/reader/messages.json"
 import { parseReaderRoute } from "@/lib/reader/routes"
 import { ReaderApiError, type ReaderAdapter, type ReaderTranslation, type TranslationContext } from "@/lib/reader/types"
 
@@ -162,6 +164,64 @@ describe("Reader states", () => {
     fireEvent.click(screen.getByRole("button", { name: "JA · 日本語" }))
     await waitFor(() => expect(api.translate).toHaveBeenCalledTimes(3))
     expect(api.translate).toHaveBeenLastCalledWith(expect.not.objectContaining({ retry: true }), expect.any(AbortSignal), expect.any(Object))
+  })
+
+  it.each(readerLocales)("shows true chunk progress in %s without estimating from attempts or time", async (locale) => {
+    let context: TranslationContext | undefined
+    let finish!: (value: ReaderTranslation) => void
+    const api = adapter()
+    api.translate = vi.fn((_input, _signal, progress) => {
+      context = progress
+      progress?.onProgress?.({ jobId: "chunks-ui", status: "queued", attemptCount: 0, completedChunks: 0, totalChunks: 4 })
+      return new Promise<ReaderTranslation>((resolve) => { finish = resolve })
+    })
+    render(<ReaderView route={route(locale)} adapter={api} />)
+    const label = (completed: number) => messages[locale].translationProgress.replace("{completed}", String(completed)).replace("{total}", "4")
+    expect(await screen.findByRole("status", { name: `${messages[locale].translationQueued} ${label(0)}` })).toBeVisible()
+    act(() => context?.onProgress?.({ jobId: "chunks-ui", status: "running", attemptCount: 1, completedChunks: 2, totalChunks: 4 }))
+    expect(screen.getByRole("status")).toHaveTextContent(label(2))
+    act(() => context?.onProgress?.({ jobId: "chunks-ui", status: "running", attemptCount: 2, completedChunks: 2, totalChunks: 4 }))
+    expect(screen.getByRole("status")).toHaveTextContent(label(2))
+    act(() => context?.onProgress?.({ jobId: "chunks-ui", status: "running", attemptCount: 2, completedChunks: 3, totalChunks: 4 }))
+    expect(screen.getByRole("status")).toHaveTextContent(label(3))
+    act(() => finish({ ...translated, lang: locale }))
+    expect(await screen.findByText("完整译文内容。")).toBeVisible()
+    expect(screen.queryByRole("status")).toBeNull()
+  })
+
+  it.each(readerLocales)("requires clicking the localized resubmit action after a restored 404 in %s", async (locale) => {
+    const key = `news-sentry-reader-job:v1:${JSON.stringify(["demo", mockArticle.contentHash, locale, mockArticle.lang])}`
+    sessionStorage.setItem(key, "other-account-or-missing-job")
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } })
+    const fetcher = vi.fn().mockImplementation((path: string) => {
+      if (path.endsWith("/preview")) return Promise.resolve(json(mockArticle))
+      if (path.endsWith("/other-account-or-missing-job")) return Promise.resolve(json({ code: "NOT_FOUND" }, 404))
+      if (path.endsWith("/translate")) return Promise.resolve(json({ jobId: "new-job", status: "succeeded", attemptCount: 1, ...translated, lang: locale }))
+      throw new Error(`Unexpected request: ${path}`)
+    })
+    const first = render(<ReaderView route={route(locale)} adapter={createReaderAdapter(fetcher)} />)
+    expect(await screen.findByRole("alert")).toHaveTextContent(messages[locale].translationJobUnavailable)
+    expect(screen.getByRole("heading", { name: "Background: pressure on the shipping corridor", level: 2 })).toBeVisible()
+    expect(screen.getByRole("button", { name: messages[locale].resubmitTranslation })).toBeEnabled()
+    expect(sessionStorage.getItem(key)).toBeNull()
+    expect(fetcher.mock.calls.filter(([, init]) => init.method === "GET")).toHaveLength(1)
+    expect(fetcher.mock.calls.filter(([path]) => path === "/api/v1/reader/translate")).toHaveLength(0)
+    fireEvent.click(screen.getByRole("button", { name: messages[locale].translated }))
+    await waitFor(() => expect(screen.getByRole("button", { name: messages[locale].original })).toHaveAttribute("aria-pressed", "true"))
+    expect(fetcher).toHaveBeenCalledTimes(2)
+
+    first.unmount()
+    render(<ReaderView route={route(locale)} adapter={createReaderAdapter(fetcher)} />)
+    expect(await screen.findByRole("alert")).toHaveTextContent(messages[locale].translationJobUnavailable)
+    expect(fetcher).toHaveBeenCalledTimes(3)
+    fireEvent.click(screen.getByRole("button", { name: messages[locale].resubmitTranslation }))
+    expect(await screen.findByText("完整译文内容。")).toBeVisible()
+    expect(screen.queryByRole("alert")).toBeNull()
+    expect(fetcher.mock.calls.filter(([path]) => path === "/api/v1/reader/translate")).toHaveLength(1)
+    expect(fetcher).toHaveBeenLastCalledWith("/api/v1/reader/translate", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ markdown: mockArticle.markdown, contentHash: mockArticle.contentHash, sourceLang: mockArticle.lang, targetLang: locale, retry: true }),
+    }))
   })
 
   it("restores a queued translation after remount with GET and no new POST", async () => {

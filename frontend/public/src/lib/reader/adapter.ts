@@ -51,11 +51,16 @@ function articleResponse(value: unknown): ReaderArticle {
 
 function translationJob(value: unknown): ReaderTranslationJob {
   if (!record(value)) return invalid()
-  const { jobId, status, attemptCount, translated, lang, cached, provider, code, message, errorStatus } = value
+  const { jobId, status, attemptCount, completedChunks, totalChunks, translated, lang, cached, provider, code, message, errorStatus } = value
   if (
     typeof jobId !== "string" || !jobId.trim() ||
     typeof status !== "string" || !["queued", "running", "succeeded", "failed", "timed_out"].includes(status) ||
     typeof attemptCount !== "number" || !Number.isInteger(attemptCount) || attemptCount < 0 ||
+    ((completedChunks !== undefined || totalChunks !== undefined) && (
+      typeof completedChunks !== "number" || !Number.isSafeInteger(completedChunks) || completedChunks < 0 ||
+      typeof totalChunks !== "number" || !Number.isSafeInteger(totalChunks) || totalChunks < 0 ||
+      completedChunks > totalChunks
+    )) ||
     (translated !== undefined && typeof translated !== "string") ||
     (lang !== undefined && typeof lang !== "string") ||
     (cached !== undefined && typeof cached !== "boolean") ||
@@ -66,7 +71,7 @@ function translationJob(value: unknown): ReaderTranslationJob {
   ) return invalid()
   if (status === "succeeded" && (typeof translated !== "string" || !translated.trim() || typeof lang !== "string" || !lang.trim())) return invalid()
   if ((status === "failed" || status === "timed_out") && (typeof code !== "string" || typeof message !== "string")) return invalid()
-  return { jobId, status: status as ReaderTranslationStatus, attemptCount, translated, lang, cached, provider, code, message, errorStatus }
+  return { jobId, status: status as ReaderTranslationStatus, attemptCount, completedChunks, totalChunks, translated, lang, cached, provider, code, message, errorStatus }
 }
 
 function checkAbort(signal?: AbortSignal) {
@@ -97,6 +102,14 @@ function saveJob(key: string, jobId: string) {
   try { sessionStorage.setItem(key, jobId) } catch { return }
 }
 
+function removeJob(key: string) {
+  try { sessionStorage.removeItem(key) } catch { return }
+}
+
+function missingJob(): ReaderApiError {
+  return new ReaderApiError(404, "TRANSLATION_JOB_NOT_FOUND", "Translation job unavailable; resubmit to translate again")
+}
+
 export function createReaderAdapter(fetcher: typeof fetch = fetch): ReaderAdapter {
   async function request(path: string, signal?: AbortSignal, body?: unknown): Promise<unknown> {
     checkAbort(signal)
@@ -122,14 +135,28 @@ export function createReaderAdapter(fetcher: typeof fetch = fetch): ReaderAdapte
   return {
     preview: async (input, signal) => articleResponse(await request("preview", signal, input)),
     async translate(input, signal, context) {
+      checkAbort(signal)
       const key = `news-sentry-reader-job:v1:${JSON.stringify([context?.articleId ?? "", input.contentHash, input.targetLang, input.sourceLang ?? ""])}`
+      const resubmitKey = `${key}:resubmit`
+      if (!input.retry && savedJob(resubmitKey)) throw missingJob()
+      async function getJob(jobId: string) {
+        try {
+          return translationJob(await request(`translate/${encodeURIComponent(jobId)}`, signal))
+        } catch (error) {
+          if (error instanceof ReaderApiError && error.status === 404) {
+            removeJob(key)
+            saveJob(resubmitKey, "1")
+            throw missingJob()
+          }
+          throw error
+        }
+      }
       const jobId = input.retry ? null : savedJob(key)
-      let job = translationJob(await (jobId
-        ? request(`translate/${encodeURIComponent(jobId)}`, signal)
-        : request("translate", signal, input)))
+      let job = jobId ? await getJob(jobId) : translationJob(await request("translate", signal, input))
       let delay = 1500
       while (true) {
         saveJob(key, job.jobId)
+        removeJob(resubmitKey)
         checkAbort(signal)
         context?.onProgress?.(job)
         if (job.status === "succeeded") {
@@ -139,7 +166,7 @@ export function createReaderAdapter(fetcher: typeof fetch = fetch): ReaderAdapte
           throw new ReaderApiError(job.errorStatus ?? 503, job.code!, job.message!, job.status)
         }
         await pollDelay(delay, signal)
-        job = translationJob(await request(`translate/${encodeURIComponent(job.jobId)}`, signal))
+        job = await getJob(job.jobId)
         delay = Math.min(5000, delay * 1.5)
       }
     },

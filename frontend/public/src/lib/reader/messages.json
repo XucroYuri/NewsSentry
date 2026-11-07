@@ -5,6 +5,9 @@
     "translationQueued": "翻译任务排队中…",
     "translationRunning": "正在翻译…",
     "translationTimedOut": "翻译任务已超时，已保留原文。可重试。",
+    "translationProgress": "已完成 {completed}/{total} 段",
+    "translationJobUnavailable": "无法恢复此翻译任务，可能因账号已切换、任务不存在或已清理。已保留原文；点击“重新提交翻译”后才会创建任务。",
+    "resubmitTranslation": "重新提交翻译",
     "reader": "站内阅读", "back": "返回新闻流", "languages": "阅读语言", "mode": "阅读模式", "original": "原文", "translated": "译文", "mt": "机器翻译", "disclaimer": "机器翻译仅供辅助阅读。请对照原文核实关键事实与措辞。", "meta": "文章信息", "source": "来源", "language": "正文语言", "time": "发布时间", "openSource": "在源站打开", "loading": "正在翻译…", "previewLoading": "正在获取原文…", "imageFailed": "图片暂时无法显示", "imageHint": "正文仍可阅读，可前往源站查看图片。", "retry": "重试", "translationFailed": "翻译暂不可用，已保留原文。可稍后重试。", "previewFailed": "暂时无法提取正文，请稍后重试或在源站阅读。", "accessRequired": "需要有效的访问会话才能读取正文，请登录后重试。", "disabled": "站内阅读尚未开放。", "rateLimited": "请求过于频繁，请稍后重试。", "unavailable": "暂不可用", "demo": "本地演示", "caption": "图片由站内代理提供", "articleId": "文章 ID"
   },
   "en": {
@@ -13,6 +16,9 @@
     "translationQueued": "Translation queued…",
     "translationRunning": "Translating…",
     "translationTimedOut": "Translation timed out. The original is retained; retry to translate again.",
+    "translationProgress": "{completed}/{total} chunks completed",
+    "translationJobUnavailable": "This translation job cannot be restored. The account may have changed, or the job may be missing or removed. The original is retained. Select “Resubmit translation” to create a job.",
+    "resubmitTranslation": "Resubmit translation",
     "reader": "Read in News Sentry", "back": "Back to news", "languages": "Reading language", "mode": "Reading mode", "original": "Original", "translated": "Translation", "mt": "Machine translated", "disclaimer": "Machine translation assists reading. Check the original for key facts and wording.", "meta": "Article details", "source": "Source", "language": "Body language", "time": "Published", "openSource": "Open at source", "loading": "Translating…", "previewLoading": "Loading original…", "imageFailed": "Image unavailable", "imageHint": "You can still read the article or view the image at its source.", "retry": "Retry", "translationFailed": "Translation is unavailable. The original is retained; try again later.", "previewFailed": "We could not extract this article. Retry or read it at the source.", "accessRequired": "A valid access session is required. Sign in and retry.", "disabled": "In-site reading is not available yet.", "rateLimited": "Too many requests. Try again later.", "unavailable": "Unavailable", "demo": "Local demo", "caption": "Image served through the site proxy", "articleId": "Article ID"
   },
   "es": {
@@ -21,6 +27,9 @@
     "translationQueued": "Traducción en cola…",
     "translationRunning": "Traduciendo…",
     "translationTimedOut": "La traducción agotó el tiempo de espera. Se conserva el original; puedes reintentar.",
+    "translationProgress": "{completed}/{total} fragmentos completados",
+    "translationJobUnavailable": "No se puede recuperar esta tarea de traducción. Puede que la cuenta haya cambiado o que la tarea no exista o se haya eliminado. Se conserva el original. Pulsa «Volver a enviar la traducción» para crear una tarea.",
+    "resubmitTranslation": "Volver a enviar la traducción",
     "reader": "Leer en News Sentry", "back": "Volver a las noticias", "languages": "Idioma de lectura", "mode": "Modo de lectura", "original": "Original", "translated": "Traducción", "mt": "Traducción automática", "disclaimer": "La traducción automática facilita la lectura. Verifica los datos y las expresiones clave en el original.", "meta": "Datos del artículo", "source": "Fuente", "language": "Idioma del texto", "time": "Publicado", "openSource": "Abrir en la fuente", "loading": "Traduciendo…", "previewLoading": "Cargando el original…", "imageFailed": "Imagen no disponible", "imageHint": "Puedes seguir leyendo o ver la imagen en la fuente.", "retry": "Reintentar", "translationFailed": "Traducción no disponible. Se conserva el original; inténtalo más tarde.", "previewFailed": "No se pudo extraer el artículo. Reintenta o lee en la fuente.", "accessRequired": "Se requiere una sesión de acceso válida. Inicia sesión y reintenta.", "disabled": "La lectura interna aún no está disponible.", "rateLimited": "Demasiadas solicitudes. Inténtalo más tarde.", "unavailable": "No disponible", "demo": "Demo local", "caption": "Imagen servida a través del proxy del sitio", "articleId": "ID del artículo"
   },
   "ar": {
@@ -29,6 +38,9 @@
     "translationQueued": "الترجمة في قائمة الانتظار…",
     "translationRunning": "جارٍ الترجمة…",
     "translationTimedOut": "انتهت مهلة الترجمة. تم الاحتفاظ بالأصل؛ يمكنك إعادة المحاولة.",
+    "translationProgress": "اكتملت {completed}/{total} من المقاطع",
+    "translationJobUnavailable": "تعذر استعادة مهمة الترجمة. ربما تغير الحساب، أو أن المهمة غير موجودة أو حُذفت. تم الاحتفاظ بالأصل. اختر «إعادة إرسال طلب الترجمة» لإنشاء مهمة.",
+    "resubmitTranslation": "إعادة إرسال طلب الترجمة",
     "reader": "القراءة في News Sentry", "back": "العودة إلى الأخبار", "languages": "لغة القراءة", "mode": "وضع القراءة", "original": "الأصل", "translated": "الترجمة", "mt": "ترجمة آلية", "disclaimer": "الترجمة الآلية للمساعدة في القراءة. راجع النص الأصلي للتحقق من الحقائق والصياغة المهمة.", "meta": "تفاصيل المقال", "source": "المصدر", "language": "لغة النص", "time": "تاريخ النشر", "openSource": "فتح في الموقع الأصلي", "loading": "جارٍ الترجمة…", "previewLoading": "جارٍ تحميل النص الأصلي…", "imageFailed": "الصورة غير متاحة", "imageHint": "يمكنك متابعة القراءة أو مشاهدة الصورة في المصدر.", "retry": "إعادة المحاولة", "translationFailed": "الترجمة غير متاحة. تم الاحتفاظ بالأصل؛ حاول لاحقًا.", "previewFailed": "تعذر استخراج المقال. حاول مجددًا أو اقرأه في المصدر.", "accessRequired": "يلزم تسجيل الدخول بجلسة صالحة. سجل الدخول ثم أعد المحاولة.", "disabled": "القراءة داخل الموقع غير متاحة بعد.", "rateLimited": "طلبات كثيرة جدًا. حاول لاحقًا.", "unavailable": "غير متاح", "demo": "عرض محلي", "caption": "الصورة مقدمة عبر وسيط الموقع", "articleId": "معرّف المقال"
   },
   "fr": {
@@ -37,6 +49,9 @@
     "translationQueued": "Traduction en attente…",
     "translationRunning": "Traduction en cours…",
     "translationTimedOut": "Le délai de traduction est dépassé. L’original est conservé ; vous pouvez réessayer.",
+    "translationProgress": "{completed}/{total} segments terminés",
+    "translationJobUnavailable": "Impossible de restaurer cette traduction. Le compte a peut-être changé, ou la tâche est introuvable ou supprimée. L’original est conservé. Cliquez sur « Renvoyer la traduction » pour créer une tâche.",
+    "resubmitTranslation": "Renvoyer la traduction",
     "reader": "Lire dans News Sentry", "back": "Retour aux actualités", "languages": "Langue de lecture", "mode": "Mode de lecture", "original": "Original", "translated": "Traduction", "mt": "Traduction automatique", "disclaimer": "La traduction automatique facilite la lecture. Vérifiez les faits et les formulations importantes dans l’original.", "meta": "Détails de l’article", "source": "Source", "language": "Langue du texte", "time": "Publication", "openSource": "Ouvrir à la source", "loading": "Traduction en cours…", "previewLoading": "Chargement de l’original…", "imageFailed": "Image indisponible", "imageHint": "Vous pouvez continuer la lecture ou voir l’image à la source.", "retry": "Réessayer", "translationFailed": "Traduction indisponible. L’original est conservé ; réessayez plus tard.", "previewFailed": "Impossible d’extraire cet article. Réessayez ou consultez la source.", "accessRequired": "Une session d’accès valide est nécessaire. Connectez-vous puis réessayez.", "disabled": "La lecture sur le site n’est pas encore disponible.", "rateLimited": "Trop de requêtes. Réessayez plus tard.", "unavailable": "Indisponible", "demo": "Démo locale", "caption": "Image fournie par le proxy du site", "articleId": "ID de l’article"
   },
   "ja": {
@@ -45,6 +60,9 @@
     "translationQueued": "翻訳の順番待ち…",
     "translationRunning": "翻訳中…",
     "translationTimedOut": "翻訳がタイムアウトしました。原文を保持しています。再試行できます。",
+    "translationProgress": "{completed}/{total} チャンク完了",
+    "translationJobUnavailable": "翻訳タスクを復元できません。アカウントが切り替わったか、タスクが存在しない、または削除された可能性があります。原文を保持しています。「翻訳を再送信」を押すとタスクを作成します。",
+    "resubmitTranslation": "翻訳を再送信",
     "reader": "サイト内で読む", "back": "ニュース一覧に戻る", "languages": "読む言語", "mode": "表示モード", "original": "原文", "translated": "翻訳", "mt": "機械翻訳", "disclaimer": "機械翻訳は読解を補助するものです。重要な事実や表現は原文と照合してください。", "meta": "記事情報", "source": "出典", "language": "本文の言語", "time": "公開日時", "openSource": "元のサイトで開く", "loading": "翻訳中…", "previewLoading": "原文を取得中…", "imageFailed": "画像を表示できません", "imageHint": "本文は引き続き読めます。画像は元のサイトで確認できます。", "retry": "再試行", "translationFailed": "翻訳を利用できません。原文を保持しています。後でもう一度お試しください。", "previewFailed": "本文を取得できませんでした。再試行するか、元のサイトでお読みください。", "accessRequired": "有効なアクセスセッションが必要です。ログインして再試行してください。", "disabled": "サイト内閲覧はまだ利用できません。", "rateLimited": "リクエストが多すぎます。しばらくしてからお試しください。", "unavailable": "情報なし", "demo": "ローカルデモ", "caption": "サイトのプロキシ経由で表示", "articleId": "記事 ID"
   },
   "de": {
@@ -53,6 +71,9 @@
     "translationQueued": "Übersetzung in der Warteschlange…",
     "translationRunning": "Wird übersetzt…",
     "translationTimedOut": "Die Übersetzung hat das Zeitlimit erreicht. Das Original bleibt erhalten. Versuche es erneut.",
+    "translationProgress": "{completed}/{total} Abschnitte abgeschlossen",
+    "translationJobUnavailable": "Diese Übersetzungsaufgabe kann nicht wiederhergestellt werden. Das Konto wurde möglicherweise gewechselt oder die Aufgabe fehlt oder wurde gelöscht. Das Original bleibt erhalten. Klicke auf „Übersetzung neu anfordern“, um eine Aufgabe zu erstellen.",
+    "resubmitTranslation": "Übersetzung neu anfordern",
     "reader": "In News Sentry lesen", "back": "Zurück zu den Nachrichten", "languages": "Lesesprache", "mode": "Lesemodus", "original": "Original", "translated": "Übersetzung", "mt": "Maschinell übersetzt", "disclaimer": "Die maschinelle Übersetzung unterstützt das Lesen. Prüfe wichtige Fakten und Formulierungen im Original.", "meta": "Artikeldetails", "source": "Quelle", "language": "Textsprache", "time": "Veröffentlicht", "openSource": "Bei der Quelle öffnen", "loading": "Wird übersetzt…", "previewLoading": "Original wird geladen…", "imageFailed": "Bild nicht verfügbar", "imageHint": "Du kannst weiterlesen oder das Bild bei der Quelle ansehen.", "retry": "Erneut versuchen", "translationFailed": "Übersetzung nicht verfügbar. Das Original bleibt erhalten. Versuche es später erneut.", "previewFailed": "Der Artikel konnte nicht geladen werden. Versuche es erneut oder lies bei der Quelle.", "accessRequired": "Eine gültige Sitzung ist erforderlich. Melde dich an und versuche es erneut.", "disabled": "Das Lesen auf der Website ist noch nicht verfügbar.", "rateLimited": "Zu viele Anfragen. Versuche es später erneut.", "unavailable": "Nicht verfügbar", "demo": "Lokale Demo", "caption": "Bild über den Website-Proxy bereitgestellt", "articleId": "Artikel-ID"
   },
   "it": {
@@ -61,6 +82,9 @@
     "translationQueued": "Traduzione in coda…",
     "translationRunning": "Traduzione in corso…",
     "translationTimedOut": "Il tempo per la traduzione è scaduto. L’originale è conservato; puoi riprovare.",
+    "translationProgress": "{completed}/{total} segmenti completati",
+    "translationJobUnavailable": "Impossibile ripristinare questa traduzione. L’account potrebbe essere cambiato oppure l’attività non esiste o è stata rimossa. L’originale è conservato. Premi «Invia di nuovo la traduzione» per creare un’attività.",
+    "resubmitTranslation": "Invia di nuovo la traduzione",
     "reader": "Leggi su News Sentry", "back": "Torna alle notizie", "languages": "Lingua di lettura", "mode": "Modalità di lettura", "original": "Originale", "translated": "Traduzione", "mt": "Traduzione automatica", "disclaimer": "La traduzione automatica aiuta la lettura. Verifica fatti e formulazioni importanti nel testo originale.", "meta": "Dettagli dell’articolo", "source": "Fonte", "language": "Lingua del testo", "time": "Pubblicato", "openSource": "Apri alla fonte", "loading": "Traduzione in corso…", "previewLoading": "Caricamento dell’originale…", "imageFailed": "Immagine non disponibile", "imageHint": "Puoi continuare a leggere o vedere l’immagine alla fonte.", "retry": "Riprova", "translationFailed": "Traduzione non disponibile. L’originale è conservato; riprova più tardi.", "previewFailed": "Impossibile estrarre l’articolo. Riprova o leggilo alla fonte.", "accessRequired": "È necessaria una sessione di accesso valida. Accedi e riprova.", "disabled": "La lettura sul sito non è ancora disponibile.", "rateLimited": "Troppe richieste. Riprova più tardi.", "unavailable": "Non disponibile", "demo": "Demo locale", "caption": "Immagine fornita dal proxy del sito", "articleId": "ID articolo"
   },
   "pt": {
@@ -69,6 +93,9 @@
     "translationQueued": "Tradução na fila…",
     "translationRunning": "A traduzir…",
     "translationTimedOut": "A tradução excedeu o tempo limite. O original foi mantido; pode tentar novamente.",
+    "translationProgress": "{completed}/{total} segmentos concluídos",
+    "translationJobUnavailable": "Não foi possível recuperar esta tradução. A conta pode ter mudado ou a tarefa pode não existir ou ter sido removida. O original foi mantido. Selecione «Reenviar tradução» para criar uma tarefa.",
+    "resubmitTranslation": "Reenviar tradução",
     "reader": "Ler no News Sentry", "back": "Voltar às notícias", "languages": "Idioma de leitura", "mode": "Modo de leitura", "original": "Original", "translated": "Tradução", "mt": "Tradução automática", "disclaimer": "A tradução automática ajuda a leitura. Confirme os factos e as expressões importantes no original.", "meta": "Detalhes do artigo", "source": "Fonte", "language": "Idioma do texto", "time": "Publicado", "openSource": "Abrir na fonte", "loading": "A traduzir…", "previewLoading": "A carregar o original…", "imageFailed": "Imagem indisponível", "imageHint": "Pode continuar a ler ou ver a imagem na fonte.", "retry": "Tentar novamente", "translationFailed": "Tradução indisponível. O original foi mantido; tente mais tarde.", "previewFailed": "Não foi possível extrair o artigo. Tente novamente ou leia na fonte.", "accessRequired": "É necessária uma sessão de acesso válida. Inicie sessão e tente novamente.", "disabled": "A leitura no site ainda não está disponível.", "rateLimited": "Demasiados pedidos. Tente mais tarde.", "unavailable": "Indisponível", "demo": "Demo local", "caption": "Imagem fornecida pelo proxy do site", "articleId": "ID do artigo"
   },
   "ko": {
@@ -77,6 +104,9 @@
     "translationQueued": "번역 대기 중…",
     "translationRunning": "번역 중…",
     "translationTimedOut": "번역 시간이 초과되었습니다. 원문이 유지됩니다. 다시 시도할 수 있습니다.",
+    "translationProgress": "{completed}/{total}개 구간 완료",
+    "translationJobUnavailable": "번역 작업을 복원할 수 없습니다. 계정이 바뀌었거나 작업이 없거나 삭제되었을 수 있습니다. 원문이 유지됩니다. ‘번역 다시 제출’을 눌러야 작업이 생성됩니다.",
+    "resubmitTranslation": "번역 다시 제출",
     "reader": "사이트에서 읽기", "back": "뉴스 목록으로", "languages": "읽기 언어", "mode": "읽기 모드", "original": "원문", "translated": "번역", "mt": "기계 번역", "disclaimer": "기계 번역은 읽기를 돕기 위한 것입니다. 주요 사실과 표현은 원문에서 확인하세요.", "meta": "기사 정보", "source": "출처", "language": "본문 언어", "time": "게시 일시", "openSource": "원본 사이트에서 열기", "loading": "번역 중…", "previewLoading": "원문을 불러오는 중…", "imageFailed": "이미지를 표시할 수 없습니다", "imageHint": "본문은 계속 읽을 수 있습니다. 이미지는 원본 사이트에서 확인하세요.", "retry": "다시 시도", "translationFailed": "번역을 사용할 수 없습니다. 원문이 유지됩니다. 나중에 다시 시도하세요.", "previewFailed": "본문을 추출할 수 없습니다. 다시 시도하거나 원본 사이트에서 읽어 주세요.", "accessRequired": "유효한 접근 세션이 필요합니다. 로그인한 후 다시 시도하세요.", "disabled": "사이트 내 읽기는 아직 제공되지 않습니다.", "rateLimited": "요청이 너무 많습니다. 나중에 다시 시도하세요.", "unavailable": "정보 없음", "demo": "로컬 데모", "caption": "사이트 프록시를 통해 제공되는 이미지", "articleId": "기사 ID"
   }
 }

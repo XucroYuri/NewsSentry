@@ -5,13 +5,21 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { handleReader as handleReaderRoute, type ReaderEnv } from "../workers/api/reader.ts";
 import { handleTranslationQueueBatch } from "../workers/lib/reader-translate-jobs.ts";
-import { translationCacheKey } from "../workers/lib/reader-translate.ts";
+import { translationCacheKey, parseTranslationInput, translateReaderInput } from "../workers/lib/reader-translate.ts";
 import { translationFixture } from "./reader-job-fixture.mts";
 import { extractArticle } from "../workers/lib/reader-extract.ts";
-import { fetchReaderResource } from "../workers/lib/reader-http.ts";
+import { fetchReaderResource, readerFailure } from "../workers/lib/reader-http.ts";
 import { imageProxyUrl } from "../workers/lib/reader-image.ts";
 
 const origin = "https://news-sentry.com";
+
+async function handleTranslationProvider(request: Request, configuration: ReaderEnv) {
+  try {
+    return Response.json(await translateReaderInput(await parseTranslationInput(request), configuration));
+  } catch (error) {
+    return readerFailure(error);
+  }
+}
 
 async function handleReader(request: Request, configuration: ReaderEnv) {
   if (new URL(request.url).pathname !== "/api/v1/reader/translate" || request.method !== "POST") {
@@ -704,7 +712,7 @@ test("translation DNS check repeats before idle retry and rejects newly private 
     return new Response("unavailable", { status: 503 });
   }, (url) => Response.json(dnsAnswer(url,
     providerFailed && new URL(url).searchParams.get("type") === "AAAA" ? ["::1"] : undefined)));
-  const response = await handleReader(post({ markdown, contentHash: hash, targetLang: "zh" }, "translate"),
+  const response = await handleTranslationProvider(post({ markdown, contentHash: hash, targetLang: "zh" }, "translate"),
     env({ ...freeRoute, READER_TRANSLATIONS: kv }));
   assert.equal(response.status, 400);
   assert.equal((await response.json()).code, "UNSAFE_URL");
@@ -717,7 +725,7 @@ test("translation never follows a provider redirect with credentials or article 
     assert.equal(init?.redirect, "manual");
     return new Response(null, { status: 307, headers: { Location: "https://private.example/translate" } });
   });
-  const response = await handleReader(post({ markdown, contentHash: hash, targetLang: "zh" }, "translate"),
+  const response = await handleTranslationProvider(post({ markdown, contentHash: hash, targetLang: "zh" }, "translate"),
     env({ ...freeRoute, MAGPIE_API_KEY: "reader-test-key", READER_TRANSLATIONS: new MemoryKV() }));
   assert.equal(response.status, 503);
   assert.equal((await response.json()).code, "MAGPIE_UNAVAILABLE");
@@ -848,7 +856,7 @@ test("free group failure falls back once to idle without any default provider ch
     return model === "group/reader-free" ? new Response("unavailable", { status: 503 })
       : Response.json({ choices: [{ message: { content: "你好。" }, finish_reason: "stop" }] });
   });
-  const response = await handleReader(post({ markdown, targetLang: "zh", contentHash: hash }, "translate"),
+  const response = await handleTranslationProvider(post({ markdown, targetLang: "zh", contentHash: hash }, "translate"),
     env({ ...freeRoute, READER_TRANSLATIONS: new MemoryKV() }));
   assert.equal(response.status, 200);
   assert.deepEqual(models, ["group/reader-free", "group/reader-idle"]);
@@ -904,10 +912,10 @@ test("Workers AI requires both explicit fallback and free-only switches, and is 
   const body = { markdown, targetLang: "zh", contentHash: hash, sourceLang: "en" };
   const config = { READER_TRANSLATIONS: new MemoryKV(), AI };
   for (const switches of [{}, { READER_WORKERS_AI: "1" }, { READER_WORKERS_AI_FREE_ONLY: "1" }]) {
-    assert.equal((await handleReader(post(body, "translate"), env({ ...config, ...switches }))).status, 503);
+    assert.equal((await handleTranslationProvider(post(body, "translate"), env({ ...config, ...switches }))).status, 503);
   }
   assert.equal(aiCalls, 0);
-  const response = await handleReader(post(body, "translate"), env({
+  const response = await handleTranslationProvider(post(body, "translate"), env({
     ...config, ...freeRoute, READER_WORKERS_AI: "1", READER_WORKERS_AI_FREE_ONLY: "1",
   }));
   assert.equal(response.status, 200);
