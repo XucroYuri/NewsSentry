@@ -31,6 +31,9 @@ interface MagpieConfig {
   local: boolean;
 }
 
+// 免费路由翻译长文常需超过 15s，等待上限放宽到 120s；上游耗时仍需单独治理。
+const MAGPIE_FETCH_TIMEOUT_MS = 120_000;
+
 function language(value: unknown): string {
   if (typeof value !== "string" || !/^[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,8})*$/.test(value)) {
     throw new ReaderError(422, "INVALID_LANGUAGE", "语言必须是有效的 BCP 47 标签，例如 zh 或 en。");
@@ -91,7 +94,7 @@ async function magpie(
   markdown: string, targetLang: string, sourceLang?: string,
 ): Promise<string> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15_000);
+  const timeout = setTimeout(() => controller.abort(), MAGPIE_FETCH_TIMEOUT_MS);
   try {
     // 仅显式本机 dev 直连豁免 DoH；公开域名及 preview/image 均无此豁免。
     if (!config.local) await assertPublicReaderUrl(config.endpoint, controller.signal);
