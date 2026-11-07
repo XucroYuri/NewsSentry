@@ -16,11 +16,11 @@ def _workflow_text() -> str:
     return WORKFLOW_PATH.read_text(encoding="utf-8")
 
 
-def _workflow() -> dict[str, Any]:
+def _workflow(path: Path = WORKFLOW_PATH) -> dict[str, Any]:
     return cast(
         dict[str, Any],
         yaml.load(
-            _workflow_text(),
+            path.read_text(encoding="utf-8"),
             Loader=yaml.BaseLoader,  # noqa: S506 - preserves GitHub's `on` key.
         ),
     )
@@ -54,15 +54,27 @@ def _job_condition_matches(
         lambda match: f"'{results[match.group(1)]}'",
         condition,
     )
-    condition = re.sub(r"\b(true|false)\b", r"'\1' == 'true'", condition)
-    result = subprocess.run(  # noqa: S603 - evaluates repository-owned job conditions.
-        ["/bin/bash", "-c", f"[[ {' '.join(condition.split())} ]]"],
-        check=False,
-        capture_output=True,
-        text=True,
+    return _condition_matches(condition)
+
+
+def _condition_matches(condition: str) -> bool:
+    def atom_matches(atom: str) -> bool:
+        atom = atom.strip()
+        if atom in ("true", "false"):
+            return atom == "true"
+        result = subprocess.run(  # noqa: S603 - evaluates repository-owned comparisons.
+            ["/bin/bash", "-c", f"[[ {' '.join(atom.split())} ]]"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode in (0, 1), result.stderr
+        return result.returncode == 0
+
+    return any(
+        all(atom_matches(atom) for atom in clause.split("&&"))
+        for clause in condition.split("||")
     )
-    assert result.returncode in (0, 1), result.stderr
-    return result.returncode == 0
 
 
 def _shell_tokens(script: str, pattern: str) -> list[str]:
@@ -105,6 +117,64 @@ def _run_deployment_mode_script(
             "PATH": "/usr/bin:/bin",
         },
     )
+
+
+@pytest.mark.parametrize(
+    "path", sorted(WORKFLOW_PATH.parent.glob("*.yml")), ids=lambda path: path.name
+)
+def test_cloudflare_credential_jobs_require_environment(path: Path) -> None:
+    for job_name, job in _workflow(path)["jobs"].items():
+        if path == WORKFLOW_PATH and job_name == "ci":
+            # 仅豁免无凭据 dry-run，CI 不绑 environment，以免被环境审批拦住。
+            # 删除 repo 级 secrets 后该步骤的 env 变为空字符串，dry-run 仍可用。
+            assert "environment" not in job
+            job = {
+                **job,
+                "steps": [
+                    step
+                    for step in job["steps"]
+                    if step.get("name") != "Cloudflare Worker dry run"
+                ],
+            }
+        if "secrets.CLOUDFLARE_" in yaml.dump(job):
+            assert job.get("environment"), f"{path.name}/{job_name} 缺少 environment"
+
+
+def test_cloudflare_data_uses_production_environment_secrets() -> None:
+    job = _job("cloudflare-data")
+
+    assert job["environment"] == "${{ needs.ci.outputs.deployment_environment }}"
+    assert job["if"] == "needs.ci.outputs.deployment_environment == 'production'"
+
+
+def test_verify_production_uses_production_environment_secrets() -> None:
+    assert _job("verify-production")["environment"] == "production"
+
+
+def test_public_translation_backfill_uses_production_environment_secrets() -> None:
+    workflow = _workflow(WORKFLOW_PATH.parent / "public-translation-backfill.yml")
+
+    assert workflow["jobs"]["public-translation-backfill"]["environment"] == "production"
+
+
+@pytest.mark.parametrize(
+    ("condition", "expected"),
+    [
+        ("true || false", True),
+        ("false || true", True),
+        ("false || false", False),
+        ("false && true || true", True),
+        ("true || false && false", True),
+        ("true && false || false", False),
+        ("false || true && false", False),
+        ("'preview' == 'production' || 'success' == 'success'", True),
+        ("'preview' == 'production' && 'success' == 'success' || false", False),
+    ],
+)
+def test_condition_matches_uses_github_actions_logical_precedence(
+    condition: str, expected: bool
+) -> None:
+    assert _condition_matches(condition) is expected
 
 
 def test_preview_deploy_workflow_uses_cloudflare_native_surfaces() -> None:
@@ -746,6 +816,12 @@ def test_production_pages_requires_all_production_dependencies(
 def test_ci_preserves_production_config_dry_run() -> None:
     step = _step("ci", "Cloudflare Worker dry run")
 
+    assert "environment" not in _job("ci")
+    assert step["env"] == {
+        "CLOUDFLARE_API_KEY": "${{ secrets.CLOUDFLARE_API_KEY }}",
+        "CLOUDFLARE_EMAIL": "${{ secrets.CLOUDFLARE_EMAIL }}",
+        "CLOUDFLARE_ACCOUNT_ID": "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}",
+    }
     assert step["working-directory"] == "frontend/cloudflare"
     assert step["run"] == (
         'node_modules/.bin/wrangler deploy --env="" --dry-run '

@@ -33,6 +33,7 @@ jobs:
   public-translation-backfill:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    environment: production
     env:
       CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
       CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
