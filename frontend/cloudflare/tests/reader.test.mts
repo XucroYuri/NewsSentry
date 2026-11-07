@@ -767,7 +767,7 @@ for (const [label, access, clientId, clientSecret] of [
     const headers: Headers[] = [];
     const calls = upstream(t, (_url, init) => {
       headers.push(new Headers(init?.headers));
-      return Response.json({ choices: [{ message: { content: "你好。" }, finish_reason: "stop" }] });
+      return Response.json({ choices: [{ message: { content: "# 图书馆\n\n你好。" }, finish_reason: "stop" }] });
     });
     const response = await handleReader(post({ markdown, contentHash: hash, targetLang: "zh" }, "translate"),
       env({ ...freeRoute, ...access, MAGPIE_API_KEY: "reader-api-key", READER_TRANSLATIONS: new MemoryKV() }));
@@ -854,7 +854,7 @@ test("free group failure falls back once to idle without any default provider ch
     const model = JSON.parse(String(init?.body)).model;
     models.push(model);
     return model === "group/reader-free" ? new Response("unavailable", { status: 503 })
-      : Response.json({ choices: [{ message: { content: "你好。" }, finish_reason: "stop" }] });
+      : Response.json({ choices: [{ message: { content: "# 图书馆\n\n你好。" }, finish_reason: "stop" }] });
   });
   const response = await handleTranslationProvider(post({ markdown, targetLang: "zh", contentHash: hash }, "translate"),
     env({ ...freeRoute, READER_TRANSLATIONS: new MemoryKV() }));
@@ -885,7 +885,7 @@ test("exhausted free routes report 429, and empty/truncated translations never e
 });
 
 test("localhost Magpie is allowed only in dev, and production never tries loopback", async (t) => {
-  const calls = upstream(t, () => Response.json({ choices: [{ message: { content: "你好。" }, finish_reason: "stop" }] }));
+  const calls = upstream(t, () => Response.json({ choices: [{ message: { content: "# 图书馆\n\n你好。" }, finish_reason: "stop" }] }));
   const config = { ...freeRoute, MAGPIE_BASE_URL: "http://127.0.0.1:3425/v1", READER_TRANSLATIONS: new MemoryKV() };
   const body = { markdown, targetLang: "zh", contentHash: hash };
   assert.equal((await handleReader(post(body, "translate"), env({ ...config, NEWS_SENTRY_ENVIRONMENT: "production" }))).status, 503);
@@ -907,7 +907,7 @@ test("Workers AI requires both explicit fallback and free-only switches, and is 
     assert.equal(model, "@cf/meta/m2m100-1.2b");
     assert.equal(input.target_lang, "chinese");
     assert.equal(input.source_lang, "english");
-    return { translated_text: "图书馆，世界你好。" };
+    return { translated_text: "# 图书馆\n\n世界你好。" };
   } };
   const body = { markdown, targetLang: "zh", contentHash: hash, sourceLang: "en" };
   const config = { READER_TRANSLATIONS: new MemoryKV(), AI };
@@ -965,14 +965,14 @@ test("cache hits return only translation contract fields", async (t) => {
   kv.entries.set(await translationCacheKey({
     markdown, contentHash: hash, targetLang: "zh", retry: false,
   }, {}, "editor"), JSON.stringify({
-    translated: "你好。", lang: "zh", provider: "magpie", internal: "not public",
+    translated: "# 图书馆\n\n你好。", lang: "zh", provider: "magpie", internal: "not public",
   }));
   const calls = upstream(t, () => { throw Error("unexpected provider request"); });
   const response = await handleReader(post({ markdown, targetLang: "zh", contentHash: hash }, "translate"),
     env({ READER_TRANSLATIONS: kv }));
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
-    translated: "你好。", lang: "zh", provider: "magpie", cached: true,
+    translated: "# 图书馆\n\n你好。", lang: "zh", provider: "magpie", cached: true,
   });
   assert.deepEqual(calls, []);
 });

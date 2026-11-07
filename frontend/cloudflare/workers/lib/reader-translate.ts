@@ -2,7 +2,7 @@ import {
   assertPublicReaderUrl, markdownHash, normalizeMarkdown, readBounded, readerBody, ReaderError, readerUrl,
 } from "./reader-http.ts";
 import { validateExternalUrl } from "./external-url.ts";
-import { marked } from "marked";
+import { translationDifferences } from "./reader-translation-validation.ts";
 
 export interface ReaderTranslationEnv {
   READER_TRANSLATIONS?: KVNamespace;
@@ -53,20 +53,8 @@ function language(value: unknown): string {
   }
 }
 
-function destinations(markdown: string): string[] {
-  const targets: string[] = [];
-  // 解析最终会渲染的目标，覆盖引用式图片/链接、自动链接和嵌套标签。
-  marked.walkTokens(marked.lexer(markdown), (token) => {
-    if ((token.type === "link" || token.type === "image") && typeof token.href === "string") {
-      targets.push(`${token.type}:${token.href}`);
-    }
-  });
-  return targets.sort();
-}
-
 export function validTranslation(value: unknown, markdown: string): value is string {
-  return typeof value === "string" && value.trim().length > 0 && value.length <= 100_000
-    && JSON.stringify(destinations(value)) === JSON.stringify(destinations(markdown));
+  return translationDifferences(value, markdown).length === 0;
 }
 
 function magpieConfig(env: ReaderTranslationEnv): MagpieConfig | null {
@@ -141,9 +129,12 @@ async function magpie(
       throw new ReaderError(502, "TRANSLATION_INVALID", "翻译响应格式无效，请重试或打开原文。");
     }
     const choice = data?.choices?.[0];
-    if (choice?.finish_reason !== "stop"
-      || !validTranslation(choice?.message?.content, markdown)) {
-      throw new ReaderError(502, "TRANSLATION_INVALID", "翻译为空、不完整或更改了图片/链接，请打开原文。");
+    if (choice?.finish_reason !== "stop") {
+      throw new ReaderError(502, "TRANSLATION_INVALID", "翻译未完整结束，请重试或打开原文。");
+    }
+    const differences = translationDifferences(choice?.message?.content, markdown);
+    if (differences.length) {
+      throw new ReaderError(502, "TRANSLATION_INVALID", `翻译结构校验失败：${differences.join("；")}。`);
     }
     return choice.message!.content as string;
   } catch (error) {
@@ -186,7 +177,7 @@ export async function translationCacheKey(
     env.NEWS_SENTRY_ENVIRONMENT ?? "unconfigured", owner,
   ]));
   const options = await markdownHash(JSON.stringify([
-    env.READER_TRANSLATION_CACHE_VERSION ?? "reader-r4-chunks-v1",
+    env.READER_TRANSLATION_CACHE_VERSION ?? "reader-r5-structure-v1",
     input.contentHash, input.sourceLang ?? "", input.targetLang,
   ]));
   return `reader-tr:${scope}:${options}`;

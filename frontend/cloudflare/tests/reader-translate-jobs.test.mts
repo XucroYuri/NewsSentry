@@ -103,13 +103,19 @@ for (const [label, upstream, code, errorStatus] of [
     }] };
     await handleTranslationQueueBatch(batch, fixture.env);
     await handleTranslationQueueBatch(batch, fixture.env);
+    if (code === "TRANSLATION_INVALID") {
+      const retry = fixture.queue.find((message) => message.generation === 1)!;
+      assert.ok(retry);
+      await handleTranslationQueueBatch({ messages: [{ ...batch.messages[0], body: retry }] }, fixture.env);
+    }
     const result = await (await getTranslationJob(job.jobId, fixture.env, "user-a")).json();
     assert.equal(result.status, "failed");
     assert.equal(result.code, code);
     assert.equal(result.errorStatus, errorStatus);
     assert.equal("translated" in result, false);
-    assert.equal(calls, 1);
-    assert.equal(acknowledged, 2);
+    const expectedCalls = code === "TRANSLATION_INVALID" ? 2 : 1;
+    assert.equal(calls, expectedCalls);
+    assert.equal(acknowledged, expectedCalls + 1);
     const resubmit = await (await submitTranslationJob(request(), fixture.env, "user-a")).json();
     assert.equal(resubmit.jobId, job.jobId);
     assert.equal(resubmit.status, "failed");
@@ -119,7 +125,7 @@ for (const [label, upstream, code, errorStatus] of [
     assert.notEqual(retries[0].jobId, job.jobId);
     assert.equal(retries[0].attemptCount, 2);
     assert.equal(retries[0].status, "queued");
-    assert.equal(calls, 1);
+    assert.equal(calls, expectedCalls);
   });
 }
 
@@ -193,7 +199,7 @@ test("validated owner cache creates a succeeded D1 record independent of KV visi
   });
   context.after(() => fixture.sqlite.close());
   await fixture.env.READER_TRANSLATIONS!.put(await translationCacheKey({ ...body, retry: false }, fixture.env, "user-a"),
-    JSON.stringify({ translated: "你好。", lang: "zh", provider: "magpie", privateField: "hidden" }));
+    JSON.stringify({ translated: "# 图书馆\n\n你好。", lang: "zh", provider: "magpie", privateField: "hidden" }));
   context.mock.method(globalThis, "fetch", () => { throw Error("cache must not fetch"); });
   const own = await (await submitTranslationJob(request(), fixture.env, "user-a")).json();
   assert.equal(own.status, "succeeded");
@@ -204,7 +210,7 @@ test("validated owner cache creates a succeeded D1 record independent of KV visi
   await assert.rejects(getTranslationJob(own.jobId, fixture.env, "user-b"), { status: 404 });
   await assert.rejects(submitTranslationJob(request(), fixture.env, "user-b"), { code: "TRANSLATION_QUEUE_UNCONFIGURED" });
   fixture.env.READER_TRANSLATIONS = undefined;
-  assert.equal((await (await getTranslationJob(own.jobId, fixture.env, "user-a")).json()).translated, "你好。");
+  assert.equal((await (await getTranslationJob(own.jobId, fixture.env, "user-a")).json()).translated, "# 图书馆\n\n你好。");
 });
 
 test("enqueue failure remains queued; sweeper resends the same job after the gap and completes", async (context) => {

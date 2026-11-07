@@ -149,7 +149,7 @@ R4 保持 R2 迁移原文不变；新增段表与回执 `20261107_reader_transla
 lease_until、next_attempt_at、last_enqueued_at。KV 使用
 `reader-tr:{scopeHash}:{optionsHash}`：scope 哈希环境+owner，options 哈希
 contentHash、sourceLang、targetLang 和 `READER_TRANSLATION_CACHE_VERSION`
-（默认和 preview 为 `reader-r4-chunks-v1`，提示词/翻译选项变化必须 bump）。
+（默认和 preview 为 `reader-r5-structure-v1`，提示词/翻译选项变化必须 bump）。
 不再读取旧 `tr:{hash}:{lang}`；命中仍跑完整 validTranslation，
 仅 fenced D1 成功且完整的结果写 KV，TTL 7 天；失败/截断不写。
 D1 保存权威结果快照，
@@ -173,10 +173,15 @@ fallback 接口与 MAGPIE 配置默认值保留，测试单独覆盖。
 正常 n 段成功需 n 次调用；崩溃/过期租约恢复可能有重复上游请求，最多 2n 次。
 D1 操作使用 first-primary session 和 batch 事务，不能宣称跨故障 exactly-once。
 `queued → running → queued（下一段） → … → succeeded|failed|timed_out` 只反映真实状态；
-finish_reason 必须为 stop，非空、限长并保留 Markdown 链接/图片才算成功。
-finish_reason=stop 不等于完整译文；validTranslation 仅是非空、长度、
-Markdown 目的地完整性启发式，不能检测语义漏译，这是 PR 前已有的边界。
-上游 502、非法/空/截断结果明确记录 failed，附第 x/y 段。
+finish_reason 必须为 stop，译文非空、限长并通过逐段和全文结构等价校验才算成功：
+代码围栏数量与每块原始围栏（包括语言、代码空白）逐字一致，链接和图片目的地
+分别按多重集比较，标题数量和层级顺序一致，表格数量和各表行数（含表头）一致。
+围栏后的分隔换行不属于围栏内容。标题、表格单元格、链接标签可以翻译。
+每段写入 D1 前校验，最后一段提交前再校验拼接全文；失败均不持久化该次段结果、
+完整结果或 KV，TRANSLATION_INVALID 沿用该段最多两次领取预算，立即重排当前段。
+第二次仍无效则 failed，错误附第 x/y 段与结构差异摘要；已成功的前缀不重跑。
+非法 JSON、空译文和非 stop 也受同一无效结果重试上限约束；上游 502 明确 failed。
+finish_reason=stop 和结构等价都不能证明逐句语义无漏译。
 首次 429 不换组，持久排队并以当前新 generation 加 delaySeconds 延迟重投，
 Retry-After 支持整数/HTTP 日期，默认 60 秒，下限 1 秒、平台上限 86400 秒；
 超过任务剩余寿命不再调用模型。该段第二次 429 failed，计入该段两次领取上限。

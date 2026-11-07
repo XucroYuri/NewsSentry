@@ -301,9 +301,15 @@ test("whole-result destination validation rejects cross-chunk reference collisio
   assert.equal(job.totalChunks, 2);
   await deliver(fixture);
   await deliver(fixture);
+  assert.equal((await status(fixture, job.jobId)).status, "queued");
+  assert.equal((await status(fixture, job.jobId)).completedChunks, 1);
+  await deliver(fixture);
   assert.equal((await status(fixture, job.jobId)).status, "failed");
   assert.equal((await status(fixture, job.jobId)).code, "TRANSLATION_INVALID");
   assert.equal((await status(fixture, job.jobId)).completedChunks, 1);
+  assert.match((await status(fixture, job.jobId)).message, /拼接全文.*链接目的地/);
+  assert.equal(calls, 3);
+  assert.equal(fixture.sqlite.prepare("SELECT result_json FROM reader_translation_chunks WHERE chunk_index=1").get()!.result_json, null);
 });
 
 test("R4 migration is additive, repeatable, schema-equivalent and preserves existing R2 job/result/receipt", () => {

@@ -4,6 +4,7 @@ import {
   type ReaderTranslationEnv, type Translation,
 } from "./reader-translate.ts";
 import { splitTranslationMarkdown, TRANSLATION_PLAN_VERSION } from "./reader-translation-chunks.ts";
+import { translationDifferences } from "./reader-translation-validation.ts";
 
 export const READER_TRANSLATE_QUEUE_NAME = "news-sentry-reader-translate-preview";
 export const READER_TRANSLATE_DLQ_NAME = "news-sentry-reader-translate-dlq-preview";
@@ -241,8 +242,9 @@ export async function processTranslationJob(
       }, env, controller.signal, true),
       deadline,
     ]);
-    if (!validTranslation(translated.translated, chunk.markdown)) {
-      throw new ReaderError(502, "TRANSLATION_INVALID", "翻译结果无效，请重试或打开原文。");
+    const differences = translationDifferences(translated.translated, chunk.markdown);
+    if (differences.length) {
+      throw new ReaderError(502, "TRANSLATION_INVALID", `翻译结构校验失败：${differences.join("；")}。`);
     }
     const finished = Date.now();
     if (finished >= expiresAt) {
@@ -254,8 +256,9 @@ export async function processTranslationJob(
       translated: chunks.map((item) => item.chunk_index === chunkIndex
         ? translated.translated : (JSON.parse(item.result_json!) as Translation).translated).join("\n\n"),
     } : null;
-    if (assembled && !validTranslation(assembled.translated, job.markdown)) {
-      throw new ReaderError(502, "TRANSLATION_INVALID", "拼接后的翻译 Markdown 目的地不完整。");
+    const assembledDifferences = assembled ? translationDifferences(assembled.translated, job.markdown) : [];
+    if (assembledDifferences.length) {
+      throw new ReaderError(502, "TRANSLATION_INVALID", `拼接全文结构校验失败：${assembledDifferences.join("；")}。`);
     }
     const committed = await db.batch([
       db.prepare(
@@ -293,9 +296,10 @@ export async function processTranslationJob(
       : new ReaderError(503, "TRANSLATION_UNAVAILABLE", "翻译后台暂不可用，请重试或打开原文。");
     const finished = Date.now();
     if (finished >= expiresAt) failure = new ReaderError(504, "TRANSLATION_TIMED_OUT", "翻译任务超时。");
-    if (failure.status === 429 && job.execution_count < TRANSLATION_MAX_EXECUTIONS
+    if ((failure.status === 429 || failure.code === "TRANSLATION_INVALID")
+      && job.execution_count < TRANSLATION_MAX_EXECUTIONS
       && finished < expiresAt) {
-      const delaySeconds = failure.retryDelaySeconds ?? 60;
+      const delaySeconds = failure.status === 429 ? failure.retryDelaySeconds ?? 60 : 0;
       const released = await db.prepare(
         `UPDATE reader_translation_jobs SET status = 'queued', lease_until = NULL, updated_at = ?,
          next_attempt_at = ?, last_enqueued_at = ?
