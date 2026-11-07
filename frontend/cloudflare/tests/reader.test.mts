@@ -3,12 +3,42 @@ import { createHash, createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { handleReader } from "../workers/api/reader.ts";
+import { handleReader as handleReaderRoute, type ReaderEnv } from "../workers/api/reader.ts";
+import { handleTranslationQueueBatch } from "../workers/lib/reader-translate-jobs.ts";
+import { translationFixture } from "./reader-job-fixture.mts";
 import { extractArticle } from "../workers/lib/reader-extract.ts";
 import { fetchReaderResource } from "../workers/lib/reader-http.ts";
 import { imageProxyUrl } from "../workers/lib/reader-image.ts";
 
 const origin = "https://news-sentry.com";
+
+async function handleReader(request: Request, configuration: ReaderEnv) {
+  if (new URL(request.url).pathname !== "/api/v1/reader/translate" || request.method !== "POST") {
+    return handleReaderRoute(request, configuration);
+  }
+  const fixture = translationFixture({
+    READER_TRANSLATIONS: undefined, MAGPIE_BASE_URL: undefined, MAGPIE_FREE_ONLY: undefined,
+    MAGPIE_FREE_GROUP: undefined, NEWS_SENTRY_ENVIRONMENT: undefined, ...configuration,
+  });
+  try {
+    const submitted = await handleReaderRoute(request, fixture.env as ReaderEnv);
+    if (!submitted.ok) return submitted;
+    const payload = await submitted.json();
+    await handleTranslationQueueBatch({
+      messages: fixture.queue.map((body) => ({ body, ack() {} })),
+    }, fixture.env);
+    const result = await handleReaderRoute(new Request(`${request.url}/${payload.jobId}`, {
+      headers: request.headers,
+    }), fixture.env as ReaderEnv);
+    const job = await result.json();
+    if (job.status === "succeeded") return Response.json({
+      translated: job.translated, lang: job.lang, cached: job.cached, provider: job.provider,
+    });
+    return Response.json({ error: job.code, code: job.code, message: job.message }, { status: job.errorStatus });
+  } finally {
+    fixture.sqlite.close();
+  }
+}
 const source = "https://publisher.example/news/story";
 const secret = "reader-test-signing-secret-at-least-32-bytes";
 const paragraph = "A detailed report describes the local community and its new public library. "
@@ -35,6 +65,16 @@ const input = `${encode({ alg: "RS256", kid: "reader-key" })}.${encode({
 const jwt = `${input}.${Buffer.from(await crypto.subtle.sign(
   "RSASSA-PKCS1-v1_5", keyPair.privateKey, new TextEncoder().encode(input),
 )).toString("base64url")}`;
+
+async function userToken(id: string) {
+  const unsigned = `${encode({ alg: "RS256", kid: "reader-key" })}.${encode({
+    iss: "https://reader-test.cloudflareaccess.com", aud: "reader-aud",
+    email: `${id}@example.com`, sub: id, exp: Math.floor(Date.now() / 1000) + 3600,
+  })}`;
+  return `${unsigned}.${Buffer.from(await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5", keyPair.privateKey, new TextEncoder().encode(unsigned),
+  )).toString("base64url")}`;
+}
 
 function env(extra: Record<string, unknown> = {}) {
   return {
@@ -954,4 +994,41 @@ test("unavailable KV fails with 503 before any provider request", async (t) => {
     message: "翻译缓存暂不可用，请稍后重试。",
   });
   assert.deepEqual(calls, []);
+});
+
+test("async HTTP routes verify owner isolation, same-origin GET without Origin, and no GET enqueue/model calls", async (context) => {
+  const fixture = translationFixture(env());
+  context.after(() => fixture.sqlite.close());
+  const otherJwt = await userToken("other-editor");
+  const calls = upstream(context, () => { throw Error("GET/submit must not call model"); });
+  const submitted = await handleReaderRoute(post({ markdown, contentHash: hash, targetLang: "zh", owner: "forged" }, "translate"),
+    fixture.env as ReaderEnv);
+  assert.equal(submitted.status, 202);
+  const own = await submitted.json();
+  assert.equal(own.status, "queued");
+  assert.equal(fixture.queue.length, 1);
+  function query(token = jwt, extra: Record<string, string> = {}) {
+    return new Request(`${origin}/api/v1/reader/translate/${own.jobId}`, {
+      headers: { Cookie: `CF_Authorization=${token}`, "Sec-Fetch-Site": "same-origin", ...extra },
+    });
+  }
+  const other = await handleReaderRoute(query(otherJwt), fixture.env as ReaderEnv);
+  assert.equal(other.status, 404);
+  assert.deepEqual(await other.json(), {
+    error: "TRANSLATION_JOB_NOT_FOUND", code: "TRANSLATION_JOB_NOT_FOUND", message: "翻译任务不存在。",
+  });
+  const result = await handleReaderRoute(query(), fixture.env as ReaderEnv);
+  assert.equal(result.status, 202);
+  assert.equal((await result.json()).jobId, own.jobId);
+  assert.equal(result.headers.get("Cache-Control"), "no-store");
+  for (const headers of [
+    { Cookie: "" }, { Origin: "https://evil.example" }, { "Sec-Fetch-Site": "cross-site" },
+  ]) {
+    const rejected = await handleReaderRoute(query(jwt, headers), fixture.env as ReaderEnv);
+    assert.equal(rejected.status, 403);
+  }
+  assert.equal(fixture.queue.length, 1);
+  assert.deepEqual(calls, []);
+  const stored = fixture.sqlite.prepare("SELECT owner FROM reader_translation_jobs WHERE id = ?").get(own.jobId);
+  assert.equal(stored.owner, "editor");
 });

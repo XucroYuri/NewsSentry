@@ -3,21 +3,24 @@ import { canonicalPathname } from "../lib/path.ts";
 import { PUBLIC_PUBLISHED_AT_SANITY_SQL } from "../lib/public-news-query.ts";
 import { extractArticle } from "../lib/reader-extract.ts";
 import { imageProxyUrl, readerImage, requireImageSecret } from "../lib/reader-image.ts";
-import { readerTranslate, type ReaderTranslationEnv } from "../lib/reader-translate.ts";
+import {
+  getTranslationJob, submitTranslationJob, type ReaderTranslationJobsEnv,
+} from "../lib/reader-translate-jobs.ts";
 import {
   fetchReaderResource, markdownHash, normalizeMarkdown, readerBody,
   ReaderError, readerFailure, readerJson,
 } from "../lib/reader-http.ts";
 
-export interface ReaderEnv extends CloudflareAccessJwtEnv, ReaderTranslationEnv {
+export interface ReaderEnv extends CloudflareAccessJwtEnv, ReaderTranslationJobsEnv {
   DB?: D1Database;
   READER_V1?: string;
   READER_IMAGE_SECRET?: string;
 }
 
-async function requireReaderSession(request: Request, env: ReaderEnv): Promise<void> {
+async function requireReaderSession(request: Request, env: ReaderEnv): Promise<string> {
   const origin = new URL(request.url).origin;
-  if (request.headers.get("Origin") !== origin
+  if ((request.method !== "GET" && request.headers.get("Origin") !== origin)
+    || (request.headers.has("Origin") && request.headers.get("Origin") !== origin)
     || request.headers.get("Sec-Fetch-Site") === "cross-site") {
     throw new ReaderError(403, "SAME_ORIGIN_REQUIRED", "阅读器要求同源请求。");
   }
@@ -29,6 +32,7 @@ async function requireReaderSession(request: Request, env: ReaderEnv): Promise<v
   if (!verification.ok || verification.principal?.kind !== "user") {
     throw new ReaderError(403, "SESSION_REQUIRED", "需要有效的 Cloudflare Access 用户会话。");
   }
+  return verification.principal.id;
 }
 
 async function preview(request: Request, env: ReaderEnv): Promise<Response> {
@@ -80,11 +84,16 @@ export async function handleReader(request: Request, env: ReaderEnv): Promise<Re
     if (path === "/api/v1/reader/image" && request.method === "GET") {
       return await readerImage(request, env.READER_IMAGE_SECRET);
     }
+    const job = /^\/api\/v1\/reader\/translate\/([a-f0-9-]{36})$/.exec(path);
+    if (job && request.method === "GET") {
+      const owner = await requireReaderSession(request, env);
+      return await getTranslationJob(job[1], env, owner);
+    }
     if (!["/api/v1/reader/preview", "/api/v1/reader/translate"].includes(path) || request.method !== "POST") {
       throw new ReaderError(404, "READER_ROUTE_NOT_FOUND", "阅读器端点不存在。");
     }
-    await requireReaderSession(request, env);
-    return path.endsWith("/translate") ? await readerTranslate(request, env) : await preview(request, env);
+    const owner = await requireReaderSession(request, env);
+    return path.endsWith("/translate") ? await submitTranslationJob(request, env, owner) : await preview(request, env);
   } catch (error) {
     return readerFailure(error);
   }

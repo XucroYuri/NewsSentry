@@ -32,15 +32,36 @@ export interface TranslationInput {
   targetLang: string
   contentHash: string
   sourceLang?: string
+  retry?: boolean
+}
+
+export type ReaderTranslationStatus = "queued" | "running" | "succeeded" | "failed" | "timed_out"
+
+export interface ReaderTranslationJob {
+  jobId: string
+  status: ReaderTranslationStatus
+  attemptCount: number
+  translated?: string
+  lang?: string
+  cached?: boolean
+  provider?: string
+  code?: string
+  message?: string
+  errorStatus?: number
+}
+
+export interface TranslationContext {
+  articleId?: string
+  onProgress?: (job: ReaderTranslationJob) => void
 }
 
 export interface ReaderAdapter {
   preview(input: PreviewInput, signal?: AbortSignal): Promise<ReaderArticle>
-  translate(input: TranslationInput, signal?: AbortSignal): Promise<ReaderTranslation>
+  translate(input: TranslationInput, signal?: AbortSignal, context?: TranslationContext): Promise<ReaderTranslation>
 }
 
 export class ReaderApiError extends Error {
-  constructor(public status: number, public code: string, message: string) {
+  constructor(public status: number, public code: string, message: string, public jobStatus?: ReaderTranslationStatus) {
     super(message)
     this.name = "ReaderApiError"
   }

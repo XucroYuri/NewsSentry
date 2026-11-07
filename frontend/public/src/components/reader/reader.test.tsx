@@ -1,21 +1,22 @@
 import "@testing-library/jest-dom/vitest"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 
 import { LocaleChips } from "./LocaleChips"
 import { ModeToggle } from "./ModeToggle"
 import { ProxyImage } from "./ProxyImage"
 import { ReaderBody } from "./ReaderBody"
 import ReaderPage, { ReaderView } from "./ReaderPage"
+import { createReaderAdapter } from "@/lib/reader/adapter"
 import { mockArticle, mockImageUrl } from "@/lib/reader/mock-adapter"
 import { parseReaderRoute } from "@/lib/reader/routes"
-import { ReaderApiError, type ReaderAdapter, type ReaderTranslation } from "@/lib/reader/types"
+import { ReaderApiError, type ReaderAdapter, type ReaderTranslation, type TranslationContext } from "@/lib/reader/types"
 
 const route = (locale = "zh") => parseReaderRoute({ pathname: `/${locale}/reader/demo`, search: `?locale=${locale}` })!
 const translated = { translated: "## 译文标题\n\n完整译文内容。", lang: "zh", cached: false, provider: "test" }
 const adapter = (): ReaderAdapter => ({ preview: vi.fn().mockResolvedValue(mockArticle), translate: vi.fn().mockResolvedValue(translated) })
 
-afterEach(() => { cleanup(); localStorage.clear(); window.history.replaceState({}, "", "/"); vi.restoreAllMocks() })
+afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); window.history.replaceState({}, "", "/"); vi.restoreAllMocks() })
 
 describe("Reader controls", () => {
   it("shows exactly ten SVG and language-code chips with endonym labels", () => {
@@ -86,7 +87,7 @@ describe("Reader states", () => {
     const input = parseReaderRoute({ pathname: "/reader/demo", search: "" })!
     const { container } = render(<ReaderView route={input} adapter={api} />)
     expect(await screen.findByText("完整译文内容。")).toBeVisible()
-    expect(api.translate).toHaveBeenCalledWith(expect.objectContaining({ targetLang: expected }), expect.any(AbortSignal))
+    expect(api.translate).toHaveBeenCalledWith(expect.objectContaining({ targetLang: expected }), expect.any(AbortSignal), expect.objectContaining({ articleId: "demo", onProgress: expect.any(Function) }))
     expect(container.querySelector("main")).toHaveAttribute("lang", expected)
     expect(container.querySelector(".reader-mode button:last-child")).toHaveAttribute("aria-pressed", "true")
     expect(window.location.pathname).toBe(`/${expected}/reader/demo`)
@@ -100,7 +101,7 @@ describe("Reader states", () => {
     const api = adapter()
     render(<ReaderView route={parseReaderRoute({ pathname: "/reader/demo", search: "" })!} adapter={api} />)
     expect(await screen.findByText("完整译文内容。")).toBeVisible()
-    expect(api.translate).toHaveBeenCalledWith(expect.objectContaining({ targetLang: "ar" }), expect.any(AbortSignal))
+    expect(api.translate).toHaveBeenCalledWith(expect.objectContaining({ targetLang: "ar" }), expect.any(AbortSignal), expect.objectContaining({ articleId: "demo" }))
   })
 
   it("loads translated by default and reversibly toggles without duplicate requests", async () => {
@@ -120,11 +121,81 @@ describe("Reader states", () => {
     api.translate = vi.fn(() => new Promise<ReaderTranslation>((resolve) => { finish = resolve }))
     const { container } = render(<ReaderView route={route()} adapter={api} />)
     await waitFor(() => expect(api.translate).toHaveBeenCalledTimes(1))
-    expect(screen.getByRole("status", { name: "正在翻译…" })).toBeVisible()
+    expect(screen.getByRole("status", { name: "正在提交翻译任务…" })).toBeVisible()
     for (const button of container.querySelectorAll(".reader-toolbar button")) expect(button).toBeDisabled()
     expect(container.querySelector(".reader-body")).toHaveStyle({ visibility: "hidden" })
     finish(translated)
     expect(await screen.findByText("完整译文内容。")).toBeVisible()
+  })
+
+  it("renders queued and running states from progress callbacks without invented progress", async () => {
+    let context: TranslationContext | undefined
+    let finish!: (value: ReaderTranslation) => void
+    const api = adapter()
+    api.translate = vi.fn((_input, _signal, progress) => {
+      context = progress
+      progress?.onProgress?.({ jobId: "ui-job", status: "queued", attemptCount: 0 })
+      return new Promise<ReaderTranslation>((resolve) => { finish = resolve })
+    })
+    const { container } = render(<ReaderView route={route()} adapter={api} />)
+    expect(await screen.findByRole("status", { name: "翻译任务排队中…" })).toBeVisible()
+    act(() => context?.onProgress?.({ jobId: "ui-job", status: "running", attemptCount: 1 }))
+    expect(screen.getByRole("status", { name: "正在翻译…" })).toBeVisible()
+    expect(container.querySelector('[role="progressbar"]')).toBeNull()
+    act(() => finish(translated))
+    expect(await screen.findByText("完整译文内容。")).toBeVisible()
+  })
+
+  it.each(["failed", "timed_out"] as const)("keeps the original after %s and retries with retry:true", async (status) => {
+    const api = adapter()
+    api.translate = vi.fn()
+      .mockRejectedValueOnce(new ReaderApiError(503, "MODEL_ERROR", "detail", status))
+      .mockResolvedValue(translated)
+    render(<ReaderView route={route()} adapter={api} />)
+    expect(await screen.findByRole("alert")).toHaveTextContent(status === "timed_out" ? "翻译任务已超时" : "翻译暂不可用")
+    expect(screen.getByRole("heading", { name: "Background: pressure on the shipping corridor", level: 2 })).toBeVisible()
+    expect(api.translate).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole("button", { name: "重试" }))
+    expect(await screen.findByText("完整译文内容。")).toBeVisible()
+    expect(api.translate).toHaveBeenLastCalledWith(expect.objectContaining({ retry: true }), expect.any(AbortSignal), expect.objectContaining({ articleId: "demo" }))
+    expect(screen.queryByRole("alert")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "JA · 日本語" }))
+    await waitFor(() => expect(api.translate).toHaveBeenCalledTimes(3))
+    expect(api.translate).toHaveBeenLastCalledWith(expect.not.objectContaining({ retry: true }), expect.any(AbortSignal), expect.any(Object))
+  })
+
+  it("restores a queued translation after remount with GET and no new POST", async () => {
+    const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { "Content-Type": "application/json" } })
+    const fetcher = vi.fn().mockImplementation((path: string) => {
+      if (path.endsWith("/preview")) return Promise.resolve(json(mockArticle))
+      if (path.endsWith("/translate")) return Promise.resolve(json({ jobId: "restored-ui-job", status: "queued", attemptCount: 0 }))
+      return Promise.resolve(json({ jobId: "restored-ui-job", status: "succeeded", attemptCount: 1, ...translated }))
+    })
+    const first = render(<ReaderView route={route()} adapter={createReaderAdapter(fetcher)} />)
+    expect(await screen.findByRole("status", { name: "翻译任务排队中…" })).toBeVisible()
+    first.unmount()
+    const restoredApi = createReaderAdapter(fetcher)
+    render(<ReaderView route={route()} adapter={restoredApi} />)
+    expect(await screen.findByText("完整译文内容。")).toBeVisible()
+    expect(fetcher.mock.calls.filter(([path]) => path === "/api/v1/reader/translate")).toHaveLength(1)
+    expect(fetcher).toHaveBeenCalledWith("/api/v1/reader/translate/restored-ui-job", expect.objectContaining({ method: "GET", credentials: "same-origin" }))
+  })
+
+  it("aborts the translation signal on unmount and ignores late progress", async () => {
+    let signal: AbortSignal | undefined
+    let context: TranslationContext | undefined
+    const api = adapter()
+    api.translate = vi.fn((_input, abortSignal, progress) => {
+      signal = abortSignal
+      context = progress
+      return new Promise<ReaderTranslation>(() => undefined)
+    })
+    const { unmount } = render(<ReaderView route={route()} adapter={api} />)
+    await waitFor(() => expect(api.translate).toHaveBeenCalledTimes(1))
+    expect(signal?.aborted).toBe(false)
+    unmount()
+    expect(signal?.aborted).toBe(true)
+    expect(() => context?.onProgress?.({ jobId: "late", status: "running", attemptCount: 1 })).not.toThrow()
   })
 
   it("keeps original and shows a clear retry fallback for translation 503", async () => {

@@ -1,5 +1,5 @@
 import {
-  assertPublicReaderUrl, markdownHash, normalizeMarkdown, readBounded, readerBody, ReaderError, readerJson, readerUrl,
+  assertPublicReaderUrl, markdownHash, normalizeMarkdown, readBounded, readerBody, ReaderError, readerUrl,
 } from "./reader-http.ts";
 import { validateExternalUrl } from "./external-url.ts";
 import { marked } from "marked";
@@ -19,7 +19,7 @@ export interface ReaderTranslationEnv {
   AI?: Ai;
 }
 
-interface Translation {
+export interface Translation {
   translated: string;
   lang: string;
   provider: "magpie" | "workers-ai" | "none";
@@ -31,8 +31,15 @@ interface MagpieConfig {
   local: boolean;
 }
 
-// 免费路由翻译长文常需超过 15s，等待上限放宽到 120s；上游耗时仍需单独治理。
 const MAGPIE_FETCH_TIMEOUT_MS = 120_000;
+
+export interface TranslationInput {
+  markdown: string;
+  contentHash: string;
+  targetLang: string;
+  sourceLang?: string;
+  retry: boolean;
+}
 
 function language(value: unknown): string {
   if (typeof value !== "string" || !/^[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,8})*$/.test(value)) {
@@ -56,7 +63,7 @@ function destinations(markdown: string): string[] {
   return targets.sort();
 }
 
-function validTranslation(value: unknown, markdown: string): value is string {
+export function validTranslation(value: unknown, markdown: string): value is string {
   return typeof value === "string" && value.trim().length > 0 && value.length <= 100_000
     && JSON.stringify(destinations(value)) === JSON.stringify(destinations(markdown));
 }
@@ -91,13 +98,14 @@ function magpieConfig(env: ReaderTranslationEnv): MagpieConfig | null {
 
 async function magpie(
   config: MagpieConfig, group: string, env: ReaderTranslationEnv,
-  markdown: string, targetLang: string, sourceLang?: string,
+  markdown: string, targetLang: string, sourceLang?: string, jobSignal?: AbortSignal,
 ): Promise<string> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), MAGPIE_FETCH_TIMEOUT_MS);
+  const signal = jobSignal ? AbortSignal.any([controller.signal, jobSignal]) : controller.signal;
   try {
     // 仅显式本机 dev 直连豁免 DoH；公开域名及 preview/image 均无此豁免。
-    if (!config.local) await assertPublicReaderUrl(config.endpoint, controller.signal);
+    if (!config.local) await assertPublicReaderUrl(config.endpoint, signal);
     const headers = new Headers({ "Content-Type": "application/json", "X-News-Sentry-Cost-Policy": "free-only" });
     if (env.MAGPIE_API_KEY) headers.set("Authorization", `Bearer ${env.MAGPIE_API_KEY}`);
     if (env.MAGPIE_CF_ACCESS_CLIENT_ID && env.MAGPIE_CF_ACCESS_CLIENT_SECRET) {
@@ -105,7 +113,7 @@ async function magpie(
       headers.set("CF-Access-Client-Secret", env.MAGPIE_CF_ACCESS_CLIENT_SECRET);
     }
     const response = await fetch(config.endpoint, {
-      method: "POST", headers, signal: controller.signal, redirect: "manual",
+      method: "POST", headers, signal, redirect: "manual",
       body: JSON.stringify({
         model: group, stream: false, max_tokens: 8192,
         metadata: { cost_policy: "free-only", allow_paid_fallback: false },
@@ -119,16 +127,22 @@ async function magpie(
       await response.body?.cancel();
       throw new ReaderError(response.status === 429 ? 429 : 503, "MAGPIE_UNAVAILABLE", "免费翻译路由暂不可用。");
     }
-    const data = JSON.parse(new TextDecoder().decode(await readBounded(response.body, 512 * 1024))) as {
+    let data: {
       choices?: Array<{ message?: { content?: unknown }; finish_reason?: string }>;
     };
-    const choice = data.choices?.[0];
-    if ((choice?.finish_reason && choice.finish_reason !== "stop")
+    try {
+      data = JSON.parse(new TextDecoder().decode(await readBounded(response.body, 512 * 1024)));
+    } catch {
+      throw new ReaderError(502, "TRANSLATION_INVALID", "翻译响应格式无效，请重试或打开原文。");
+    }
+    const choice = data?.choices?.[0];
+    if (choice?.finish_reason !== "stop"
       || !validTranslation(choice?.message?.content, markdown)) {
       throw new ReaderError(502, "TRANSLATION_INVALID", "翻译为空、不完整或更改了图片/链接，请打开原文。");
     }
     return choice.message!.content as string;
   } catch (error) {
+    if (signal.aborted) throw new ReaderError(504, "TRANSLATION_TIMED_OUT", "翻译执行超时，请重试或打开原文。");
     if (error instanceof ReaderError) throw error;
     throw new ReaderError(503, "MAGPIE_UNAVAILABLE", "免费翻译路由暂不可用。");
   } finally {
@@ -141,7 +155,7 @@ const AI_LANGUAGES: Record<string, string> = {
   de: "german", es: "spanish", pt: "portuguese", ru: "russian", ar: "arabic",
 };
 
-export async function readerTranslate(request: Request, env: ReaderTranslationEnv): Promise<Response> {
+export async function parseTranslationInput(request: Request): Promise<TranslationInput> {
   const body = await readerBody(request);
   const input = body.markdown === undefined ? body.text : body.markdown;
   if (typeof input !== "string" || !input.trim() || input.length > 24_000) {
@@ -154,8 +168,18 @@ export async function readerTranslate(request: Request, env: ReaderTranslationEn
     || body.contentHash !== await markdownHash(markdown)) {
     throw new ReaderError(400, "CONTENT_HASH_MISMATCH", "contentHash 与规范化后的 Markdown 不一致。");
   }
+  if (body.retry !== undefined && typeof body.retry !== "boolean") {
+    throw new ReaderError(400, "INVALID_RETRY", "retry 必须是布尔值。");
+  }
+  return { markdown, contentHash: body.contentHash, targetLang, sourceLang, retry: body.retry === true };
+}
+
+export async function readTranslationCache(
+  input: TranslationInput, env: ReaderTranslationEnv,
+): Promise<Translation | null> {
+  const { markdown, targetLang, contentHash } = input;
   if (!env.READER_TRANSLATIONS) throw new ReaderError(503, "TRANSLATION_CACHE_UNCONFIGURED", "翻译 KV 尚未配置。");
-  const key = `tr:${body.contentHash}:${targetLang}`;
+  const key = `tr:${contentHash}:${targetLang}`;
   let cached: Translation | null = null;
   try {
     cached = await env.READER_TRANSLATIONS.get<Translation>(key, "json");
@@ -167,22 +191,29 @@ export async function readerTranslate(request: Request, env: ReaderTranslationEn
   }
   if (cached && cached.lang === targetLang && ["magpie", "workers-ai", "none"].includes(cached.provider)
     && validTranslation(cached.translated, markdown)) {
-    return readerJson({
-      translated: cached.translated, lang: cached.lang, provider: cached.provider, cached: true,
-    });
+    return { translated: cached.translated, lang: cached.lang, provider: cached.provider };
   }
+  return null;
+}
+
+export async function translateReaderInput(
+  input: TranslationInput, env: ReaderTranslationEnv, signal?: AbortSignal,
+): Promise<Translation> {
+  const { markdown, targetLang, sourceLang } = input;
   let translated: Translation | null = null;
   let lastError = new ReaderError(503, "TRANSLATION_UNAVAILABLE", "尚未接通免费翻译路由，请使用原文。");
   const config = magpieConfig(env);
   for (const group of config?.groups ?? []) {
+    signal?.throwIfAborted();
     try {
       translated = {
-        translated: await magpie(config!, group, env, markdown, targetLang, sourceLang),
+        translated: await magpie(config!, group, env, markdown, targetLang, sourceLang, signal),
         lang: targetLang, provider: "magpie",
       };
       break;
     } catch (error) {
-      if (error instanceof ReaderError && ["UNSAFE_URL", "DNS_RESOLUTION_FAILED"].includes(error.code)) throw error;
+      if (signal?.aborted || (error instanceof ReaderError
+        && ["UNSAFE_URL", "DNS_RESOLUTION_FAILED", "TRANSLATION_TIMED_OUT"].includes(error.code))) throw error;
       lastError = error instanceof ReaderError ? error : lastError;
     }
   }
@@ -204,6 +235,5 @@ export async function readerTranslate(request: Request, env: ReaderTranslationEn
     }
   }
   if (!translated) throw lastError;
-  await env.READER_TRANSLATIONS.put(key, JSON.stringify(translated), { expirationTtl: 7 * 24 * 3600 });
-  return readerJson({ ...translated, cached: false });
+  return translated;
 }

@@ -70,7 +70,8 @@ function installFetchMock() {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const url = String(input)
     if (url === "/api/v1/reader/preview") return jsonResponse({ ...mockArticle, title: LEAD_TITLE })
-    if (url === "/api/v1/reader/translate") return jsonResponse({ translated: "站内完整译文。", lang: "zh", cached: false, provider: "test" })
+    if (url === "/api/v1/reader/translate") return jsonResponse({ jobId: "app-reader-job", status: "succeeded", attemptCount: 1, translated: "站内完整译文。", lang: "zh", cached: false, provider: "test" })
+    if (url === "/api/v1/reader/translate/app-reader-job") return jsonResponse({ jobId: "app-reader-job", status: "succeeded", attemptCount: 1, translated: "站内完整译文。", lang: "zh", cached: true, provider: "test" })
     if (url.startsWith("/api/v1/public/bootstrap")) {
       return jsonResponse({
         news: feed([
@@ -315,6 +316,7 @@ describe("Phase 84 public portal app", () => {
     vi.unstubAllGlobals()
     vi.unstubAllEnvs()
     localStorage.clear()
+    sessionStorage.clear()
   })
 
   it("renders a breaking-news home instead of the all-news timeline", async () => {

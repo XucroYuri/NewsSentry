@@ -141,9 +141,16 @@ database_id = "00000000-0000-4000-8000-000000000000"
 binding = "NEWS_SENTRY_ARTIFACTS"
 bucket_name = "news-sentry-artifacts-preview"
 
-[env.preview.queues]
-producers = []
-consumers = []
+[[env.preview.queues.producers]]
+binding = "READER_TRANSLATE_QUEUE"
+queue = "news-sentry-reader-translate-preview"
+
+[[env.preview.queues.consumers]]
+queue = "news-sentry-reader-translate-preview"
+max_batch_size = 1
+max_batch_timeout = 1
+max_retries = 0
+max_concurrency = 2
 
 [env.preview.durable_objects]
 bindings = []

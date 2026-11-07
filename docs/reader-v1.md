@@ -1,8 +1,9 @@
 # Reader v1：原文与免费翻译旁路
 
 Reader 是独立 Worker API。`READER_V1` 只有精确等于 `"1"` 才启用；生产、
-preview、dev 的仓库配置均默认关闭。既有公开新闻接口、采集和研判链路不变，
-不新增 D1 表、不持久化原文、不自动发布。本次交付仅提交代码与 draft PR。
+dev 的仓库配置默认关闭，preview 已启用。既有公开新闻接口、采集和研判链路不变，
+翻译任务使用独立 D1 表暂存限长正文并由 preview 专用队列执行，不自动发布。
+本次交付仅提交代码与 draft PR，不创建远端资源、不部署。
 
 ## 生产启用硬门禁与 M1 威胁模型
 
@@ -33,7 +34,7 @@ compatible、NAT64 和 6to4 等特殊/转换地址也不会放行。此策略有
 
 DoH 只发送域名和记录类型，不携带正文、Cookie 或 Authorization；禁止跟随解析器
 重定向，不在应用或 HTTP 层缓存校验结果（递归解析器自身仍遵守 DNS TTL）。
-每组 A/AAAA 共用 3 秒期限，并受原请求 10 秒/翻译 15 秒总期限约束；每个响应上限
+每组 A/AAAA 共用 3 秒期限，并受原文请求 10 秒/每次 Magpie 尝试 120 秒期限约束；每个响应上限
 64 KiB、64 条记录、8 跳 CNAME。遇到非公网地址返回 `400 UNSAFE_URL`；
 超时、NXDOMAIN/SERVFAIL、无地址、截断、格式/HTTP/网络异常统一
 `502 DNS_RESOLUTION_FAILED`，不请求目标。DNS 校验失败直接结束翻译请求，
@@ -95,16 +96,17 @@ mock 仅允许 loopback 主机，按需加载虚构样稿，不调用外部模�
 |---|---|---|
 | `POST /api/v1/reader/preview` | `{articleId?, url?}`，至少一个，优先 articleId | `{markdown, images, sourceUrl, lang, title, byline, publishedTime, contentHash, attribution}` |
 | `GET /api/v1/reader/image?u=&s=` | 原图 URL 和 HMAC-SHA256 签名 | 支持的位图响应 |
-| `POST /api/v1/reader/translate` | `{markdown, targetLang, contentHash, sourceLang?}`，兼容 text 别名 | `{translated, lang, cached, provider}` |
+| `POST /api/v1/reader/translate` | `{markdown, targetLang, contentHash, sourceLang?, retry?}`，兼容 text 别名 | 202 `{jobId, status}`；缓存命中或已有终态为 200 |
+| `GET /api/v1/reader/translate/{jobId}` | Access 用户会话 | `{jobId, status, attemptCount, createdAt, updatedAt, startedAt, finishedAt}`；成功时附译文，失败时附 code/message/errorStatus |
 
-Preview/translate 要求 `Origin` 与请求 URL 完全同源，并且有有效的
+Preview/translate POST 要求 `Origin` 与请求 URL 完全同源，并且有有效的
 `CF_Authorization` 用户 Cookie（或 Access edge 提供的已签用户 assertion）。
 复用现有 `CF_ACCESS_AUD` / `CF_ACCESS_TEAM_DOMAIN` 验签配置；兼容已有
 `NEWS_SENTRY_ACCESS_*` 别名。服务 principal 和任意自造 Cookie 均不能授权。
 
 **现状裁定：** 既有 public GET API 是匿名接口，没有可复用的 public session。
 本旁路复用已有 Access 用户会话；测试使用临时 RSA 密钥和假的 JWKS，
-不关闭验签。接入时应只保护两个 POST 路径，图片路径保持由 HMAC 授权，
+不关闭验签。部署时保护两个 POST 路径和 translate 任务查询路径，图片路径保持由 HMAC 授权，
 避免 Access edge 在浏览器无 Cookie 时提前拦截图片。部署仍需单独安排。
 
 图片端点只信签名，Cookie 不授予访问权；签名错误时不请求上游。只转发
@@ -115,6 +117,52 @@ Cookie/Authorization。每次重定向重新检查 URL 和解析后的地址；�
 
 错误统一为 `{error, code, message}`，使用 400/403/404/422/429/502/503。
 无法提取正文返回 `422 EXTRACTION_FAILED`，message 保留原文链接供用户打开。
+
+### 异步翻译任务（2026-11-07）
+
+POST 仅校验、读取合法缓存、创建持久化任务并发送 Queue 消息，不等待模型。
+执行使用已有 Queues 产品的隔离队列 `news-sentry-reader-translate-preview`，
+preview 新增 producer `READER_TRANSLATE_QUEUE`；consumer batch size 1、
+batch timeout 1 秒、并发 2、`max_retries=0`。不新增 DO、DLQ 或 cron；
+生产配置不变。部署前需另行创建队列，并向 `ns-db-preview` 应用
+`frontend/cloudflare/db/migrations/20261107_reader_translation_jobs.sql`；
+该迁移与 `schema.sql` 保持一致，只有新增表和索引，不覆盖已有数据。
+若资源创建要求新增付费产品或套餐，停止部署。
+
+任务表 `reader_translation_jobs` 保存 Access `principal.id`、正文 hash、
+源/目标语言、最多 24000 字符正文、状态、错误、attempt_count、毫秒时间戳
+及最多 100000 字符的成功译文。KV 保留原 key/TTL；D1 保存结果快照，
+不因 KV 传播延迟或 7 天后过期而丢失已完成任务。不同用户的 jobId 和错误隔离；
+相同正文的合法 KV 译文允许共享，缓存命中也分配各自的任务记录。
+
+同用户、contentHash、targetLang、sourceLang 使用同一个 dedupe key；
+D1 原子 INSERT SELECT、`UNIQUE(dedupe_key, attempt_count)` 及非终态局部
+UNIQUE 索引处理并发。消费者 `UPDATE ... WHERE status='queued' RETURNING`
+只领取一次，重复 Queue 消息不重复调用模型。D1 操作使用 first-primary session。
+`queued → running → succeeded|failed|timed_out` 只反映真实状态；
+finish_reason 必须为 stop，非空、限长并保留 Markdown 链接/图片才算成功。
+上游 429/502、非法/空/截断结果明确记录 failed；没有自动模型重试。
+只有 failed/timed_out 后的 `retry:true` 创建新 jobId，attempt_count 加一。
+普通重复提交返回已有任务；对 queued/running/succeeded 的 retry 不新建任务。
+
+每次 Magpie 调用保留 120 秒期限；整个执行窗口 5 分钟。running 超过
+5 分钟或 queued 超过 10 分钟，GET/下次消费原子标记 timed_out。
+超时后的迟到结果不得覆盖终态。Queue send 失败记录
+`TRANSLATION_ENQUEUE_FAILED`；若 Worker 在 D1 插入与 send 之间终止，
+未投递任务按 queued 超时收敛并允许人工重试。该跨产品窗口不宣称对外部模型
+提供跨故障 exactly-once，不自动重放可能已经到达上游的请求。
+
+GET 按 `id AND owner` 查询，其他用户或未知 jobId 均为 404，无任务内容泄漏。
+浏览器同源 GET 允许缺省 Origin；存在不匹配的 Origin 或 cross-site 标记时拒绝。
+GET 从不调用 Magpie、Workers AI 或 Queue，只查询/标记过期任务。
+任务失败属于 HTTP 200 的终态 DTO，code/message/errorStatus 描述执行错误；
+鉴权、输入、资源不可用等 API 错误仍使用统一 HTTP 错误响应。
+
+前端以 sessionStorage 保存对应正文/语言的 jobId，刷新先查询同一任务。
+提交后按 1.5 秒到 5 秒退避轮询，没有客户端总超时，卸载仍取消请求和等待；
+显示真实排队/运行状态，失败/超时保留原文并提供显式重试。
+接口与前端需一起发布。回滚时 revert PR #88，并把 preview Worker
+回滚到 `4028f09c` 对应版本；迁移为 additive，保留新表即可。
 
 ## 提取与边界
 
@@ -204,13 +252,14 @@ npx wrangler secret put MAGPIE_API_KEY --name news-sentry-api-preview
 Magpie 调用使用兼容的 `POST /v1/chat/completions`：
 `model=显式免费组`、`stream=false`，附带
 `metadata={cost_policy:"free-only",allow_paid_fallback:false}` 和
-`X-News-Sentry-Cost-Policy: free-only`，每组请求期限 15 秒。
+`X-News-Sentry-Cost-Policy: free-only`，每次请求保持 120 秒 stuck guard，
+不再把该时限当作前端等待完成的保证。
 这些标记不是 Magpie 的计费强制机制：服务端两个组必须只含已确认的免费或
 闲置配额路由，禁止再落入任何付费组；未完成审核时保持 `MAGPIE_FREE_ONLY=0`。
 组名只接受 `group/...`，不使用默认模型、通用 provider chain 或 REST 付费凭据。
 
 缓存 key 固定 `tr:{contentHash}:{targetLang}`，targetLang 规范为 BCP 47 标签，
-TTL 为 7 天。KV 命中不请求 Magpie，免费/闲置组全失败后返回结构化错误。
+TTL 为 7 天。KV 命中不请求 Magpie，免费/闲置组全失败后记录结构化错误。
 空译文、未完整输出或变更图片/链接目标均不写缓存。损坏的 JSON 按未命中处理；
 KV 不可读时先返回 503，避免请求反复直达上游。
 
