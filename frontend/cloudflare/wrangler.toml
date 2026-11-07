@@ -111,10 +111,13 @@ READER_V1 = "1"
 MAGPIE_FREE_ONLY = "1"
 MAGPIE_FREE_GROUP = "group/translate-free"
 MAGPIE_BASE_URL = "https://magpie-preview.news-sentry.com"
+CF_ACCESS_AUD = "b46ad87af758b671959a38257700f2d6a9e11fd7bfe225c03a6736e5aa61dfb1,cb7fd65842ca3bf0d5d14650b34c5c9760beaa1c1b8f52d8ca8ce0bf8ec5ec48"
+CF_ACCESS_TEAM_DOMAIN = "xuyu-personal.cloudflareaccess.com"
+CF_ACCESS_SERVICE_TOKEN_IDS = "87acbe39a8397ae61b5873e8648d1ba8.access"
 # Access/API secrets: MAGPIE_CF_ACCESS_CLIENT_ID/SECRET + MAGPIE_API_KEY via
 # `wrangler secret put --name news-sentry-api-preview` (manual/pre-provisioned; deploy.yml
 # verifies with `wrangler secret list`, does not put). Not GitHub Environment secret inject.
-# Preview Access *inbound* canary vars stay in deploy.yml; Magpie *outbound* Client Secret is Worker-only.
+# Preview Access inbound 普通变量固定在本节；Magpie outbound Client Secret 仅存于 Worker secret。
 
 [[env.preview.kv_namespaces]]
 binding = "READER_TRANSLATIONS"

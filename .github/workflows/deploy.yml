@@ -189,9 +189,7 @@ jobs:
     name: Cloudflare D1 schema migration
     runs-on: ubuntu-latest
     needs: ci
-    if: >-
-      needs.ci.outputs.deployment_environment == 'preview' ||
-      needs.ci.outputs.deployment_environment == 'production'
+    if: needs.ci.outputs.deployment_environment == 'production'
     steps:
       - uses: actions/checkout@v4
 
@@ -780,7 +778,7 @@ jobs:
     name: Deploy Cloudflare preview Worker
     runs-on: ubuntu-latest
     needs: ci
-    if: needs.ci.outputs.deployment_environment == 'preview'
+    if: ${{ false }}
     environment: preview
     outputs:
       preview_api_url: ${{ steps.receipt.outputs.api_url }}
@@ -953,18 +951,9 @@ jobs:
     if: >-
       always() &&
       needs.ci.result == 'success' &&
-      (
-        (
-          needs.ci.outputs.deployment_environment == 'production' &&
-          needs.cloudflare-data.result == 'success' &&
-          needs.deploy-cloudflare-worker.result == 'success'
-        ) ||
-        (
-          needs.ci.outputs.deployment_environment == 'preview' &&
-          needs.cloudflare-data.result == 'success' &&
-          needs.deploy-cloudflare-preview-worker.result == 'success'
-        )
-      )
+      needs.ci.outputs.deployment_environment == 'production' &&
+      needs.cloudflare-data.result == 'success' &&
+      needs.deploy-cloudflare-worker.result == 'success'
     environment: ${{ needs.ci.outputs.deployment_environment }}
     outputs:
       pages_url: ${{ steps.deploy.outputs.pages_url }}
@@ -1138,13 +1127,7 @@ jobs:
     name: Verify preview
     runs-on: ubuntu-latest
     needs: [ci, deploy-cloudflare-pages, deploy-cloudflare-preview-worker, cloudflare-data]
-    if: >-
-      always() &&
-      needs.ci.result == 'success' &&
-      needs.deploy-cloudflare-pages.result == 'success' &&
-      needs.deploy-cloudflare-preview-worker.result == 'success' &&
-      needs.cloudflare-data.result == 'success' &&
-      needs.ci.outputs.deployment_environment == 'preview'
+    if: ${{ false }}
     environment: preview
     env:
       BASE_URL: https://preview.news-sentry.com

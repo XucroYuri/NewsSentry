@@ -53,6 +53,12 @@ def test_preview_worker_uses_isolated_state_and_no_active_runtime_bindings() -> 
         "MAGPIE_FREE_ONLY": "1",
         "MAGPIE_FREE_GROUP": "group/translate-free",
         "MAGPIE_BASE_URL": "https://magpie-preview.news-sentry.com",
+        "CF_ACCESS_AUD": (
+            "b46ad87af758b671959a38257700f2d6a9e11fd7bfe225c03a6736e5aa61dfb1,"
+            "cb7fd65842ca3bf0d5d14650b34c5c9760beaa1c1b8f52d8ca8ce0bf8ec5ec48"
+        ),
+        "CF_ACCESS_TEAM_DOMAIN": "xuyu-personal.cloudflareaccess.com",
+        "CF_ACCESS_SERVICE_TOKEN_IDS": "87acbe39a8397ae61b5873e8648d1ba8.access",  # noqa: S105
     }
     assert "MAGPIE_CF_ACCESS_CLIENT_ID" not in preview["vars"]
     assert "MAGPIE_CF_ACCESS_CLIENT_SECRET" not in preview["vars"]
@@ -76,6 +82,22 @@ def test_preview_worker_uses_isolated_state_and_no_active_runtime_bindings() -> 
     assert preview["secrets"] == {"required": []}
 
 
+def test_preview_access_vars_keep_two_complete_audiences_and_reader_isolation() -> None:
+    config = tomllib.loads(_read("wrangler.toml"))
+    preview = config["env"]["preview"]
+    preview_vars = preview["vars"]
+    audiences = preview_vars["CF_ACCESS_AUD"].split(",")
+
+    assert len(set(audiences)) == 2
+    assert all(re.fullmatch(r"[0-9a-f]{64}", audience) for audience in audiences)
+    assert "CF_ACCESS_TEAM" not in preview_vars
+    assert "NEWS_SENTRY_DEPLOY_COMMIT" not in preview_vars
+    assert "READER_WORKERS_AI" not in preview_vars
+    assert "READER_WORKERS_AI_FREE_ONLY" not in preview_vars
+    assert preview["version_metadata"] == {"binding": "CF_VERSION_METADATA"}
+    assert config["vars"]["READER_V1"] == "0"
+
+
 def test_preview_worker_config_keeps_access_secret_out_of_static_worker_vars() -> None:
     config = tomllib.loads(_read("wrangler.toml"))
     preview = config["env"]["preview"]
@@ -86,6 +108,7 @@ def test_preview_worker_config_keeps_access_secret_out_of_static_worker_vars() -
     assert "MAGPIE_CF_ACCESS_CLIENT_ID" not in preview_vars
     assert "MAGPIE_CF_ACCESS_CLIENT_SECRET" not in preview_vars
     assert "MAGPIE_API_KEY" not in preview_vars
+    assert "READER_IMAGE_SECRET" not in preview_vars
     assert preview["d1_databases"] == [
         {
             "binding": "DB",
