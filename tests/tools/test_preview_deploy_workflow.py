@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, cast
 
+import pytest
 import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -39,6 +40,29 @@ def _step_names(job_name: str) -> list[str]:
         str(step.get("name", step.get("uses", "")))
         for step in cast(list[dict[str, Any]], _job(job_name)["steps"])
     ]
+
+
+def _job_condition_matches(
+    job_name: str, *, environment: str, results: dict[str, str]
+) -> bool:
+    condition = str(_job(job_name).get("if", "true"))
+    condition = condition.removeprefix("${{").removesuffix("}}").strip()
+    condition = condition.replace("always()", "true")
+    condition = condition.replace("needs.ci.outputs.deployment_environment", f"'{environment}'")
+    condition = re.sub(
+        r"needs\.([\w-]+)\.result",
+        lambda match: f"'{results[match.group(1)]}'",
+        condition,
+    )
+    condition = re.sub(r"\b(true|false)\b", r"'\1' == 'true'", condition)
+    result = subprocess.run(  # noqa: S603 - evaluates repository-owned job conditions.
+        ["/bin/bash", "-c", f"[[ {' '.join(condition.split())} ]]"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode in (0, 1), result.stderr
+    return result.returncode == 0
 
 
 def _shell_tokens(script: str, pattern: str) -> list[str]:
@@ -219,7 +243,7 @@ def test_cloudflare_data_sync_is_bounded_to_four_canary_targets() -> None:
         assert "--canary-target-allowlist italy,germany,france,japan," not in script
 
 
-def test_preview_verification_requires_preview_worker_runtime_proof() -> None:
+def test_disabled_preview_verification_preserves_preview_worker_runtime_proof() -> None:
     workflow = _workflow_text()
     preview_job = workflow.split("  verify-preview:", 1)[1].split(
         "  verify-production:", 1
@@ -229,12 +253,7 @@ def test_preview_verification_requires_preview_worker_runtime_proof() -> None:
         "needs: [ci, deploy-cloudflare-pages, deploy-cloudflare-preview-worker, cloudflare-data]"
         in preview_job
     )
-    assert "always()" in preview_job
-    assert "needs.ci.result == 'success'" in preview_job
-    assert "needs.deploy-cloudflare-pages.result == 'success'" in preview_job
-    assert "needs.deploy-cloudflare-preview-worker.result == 'success'" in preview_job
-    assert "needs.cloudflare-data.result == 'success'" in preview_job
-    assert "needs.ci.outputs.deployment_environment == 'preview'" in preview_job
+    assert _job("verify-preview")["if"] == "${{ false }}"
     assert (
         "API_URL: ${{ needs.deploy-cloudflare-preview-worker.outputs.preview_api_url }}"
         in preview_job
@@ -327,13 +346,13 @@ def test_preview_verification_waits_for_ready_commit_before_public_probes() -> N
     )
 
 
-def test_preview_worker_deploy_job_is_isolated_and_exports_api_url() -> None:
+def test_disabled_preview_worker_deploy_is_isolated_and_exports_api_url() -> None:
     workflow = _workflow_text()
     preview_worker_job = workflow.split("  deploy-cloudflare-preview-worker:", 1)[1].split(
         "  deploy-cloudflare-pages:", 1
     )[0]
 
-    assert "needs.ci.outputs.deployment_environment == 'preview'" in preview_worker_job
+    assert _job("deploy-cloudflare-preview-worker")["if"] == "${{ false }}"
     assert "preview_api_url: ${{ steps.receipt.outputs.api_url }}" in preview_worker_job
     assert "node_modules/.bin/wrangler d1 list --json" in preview_worker_job
     assert "tools/cloudflare_preview_guard.py select-d1" in preview_worker_job
@@ -582,7 +601,7 @@ def test_preview_pages_api_is_wired_to_preview_worker_without_production_routes(
     assert 'branch="main"' in pages_job
 
 
-def test_pages_preview_build_uses_preview_worker_output_but_main_can_skip_it() -> None:
+def test_pages_production_build_can_skip_disabled_preview_worker() -> None:
     workflow = _workflow_text()
     pages_job = workflow.split("  deploy-cloudflare-pages:", 1)[1].split(
         "  verify-preview:", 1
@@ -594,7 +613,9 @@ def test_pages_preview_build_uses_preview_worker_output_but_main_can_skip_it() -
     )
     assert "always()" in pages_job
     assert "needs.ci.result == 'success'" in pages_job
-    assert "needs.deploy-cloudflare-preview-worker.result == 'success'" in pages_job
+    assert (
+        "needs.deploy-cloudflare-preview-worker.result" not in _job("deploy-cloudflare-pages")["if"]
+    )
     assert "needs.deploy-cloudflare-worker.result == 'success'" in pages_job
     assert "needs.cloudflare-data.result == 'success'" in pages_job
     assert "needs.ci.outputs.deployment_environment == 'preview'" in pages_job
@@ -656,6 +677,82 @@ def test_main_push_cannot_trigger_production_deployment() -> None:
     assert workflow["on"]["push"]["branches"] == ["preview"]
 
 
+@pytest.mark.parametrize(
+    ("event_name", "ref", "requested_environment"),
+    [
+        ("push", "refs/heads/preview", ""),
+        ("workflow_dispatch", "refs/heads/preview", "preview"),
+        ("workflow_dispatch", "refs/heads/main", "preview"),
+    ],
+)
+def test_preview_events_run_only_ci(
+    tmp_path: Path, event_name: str, ref: str, requested_environment: str
+) -> None:
+    result = _run_deployment_mode_script(
+        tmp_path,
+        event_name=event_name,
+        ref=ref,
+        sha="a" * 40,
+        requested_environment=requested_environment,
+        expected_commit="",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "github-output").read_text(encoding="utf-8") == "environment=preview\n"
+    jobs = _workflow()["jobs"]
+    results = dict.fromkeys(jobs, "success")
+    enabled_jobs = {
+        name
+        for name in jobs
+        if _job_condition_matches(name, environment="preview", results=results)
+    }
+    assert enabled_jobs == {"ci"}
+
+
+@pytest.mark.parametrize("preview_result", ["success", "failure", "skipped", "cancelled"])
+def test_production_jobs_ignore_disabled_preview_jobs(preview_result: str) -> None:
+    jobs = _workflow()["jobs"]
+    results = dict.fromkeys(jobs, "success")
+    results["deploy-cloudflare-preview-worker"] = preview_result
+    results["verify-preview"] = preview_result
+
+    enabled_jobs = {
+        name
+        for name in jobs
+        if _job_condition_matches(name, environment="production", results=results)
+    }
+    assert enabled_jobs == {
+        "ci",
+        "cloudflare-data",
+        "deploy-cloudflare-worker",
+        "deploy-cloudflare-pages",
+        "verify-production",
+    }
+
+
+@pytest.mark.parametrize("dependency", ["ci", "cloudflare-data", "deploy-cloudflare-worker"])
+@pytest.mark.parametrize("result", ["failure", "skipped", "cancelled"])
+def test_production_pages_requires_all_production_dependencies(
+    dependency: str, result: str
+) -> None:
+    results = dict.fromkeys(_workflow()["jobs"], "success")
+    results[dependency] = result
+
+    assert not _job_condition_matches(
+        "deploy-cloudflare-pages", environment="production", results=results
+    )
+
+
+def test_ci_preserves_production_config_dry_run() -> None:
+    step = _step("ci", "Cloudflare Worker dry run")
+
+    assert step["working-directory"] == "frontend/cloudflare"
+    assert step["run"] == (
+        'node_modules/.bin/wrangler deploy --env="" --dry-run '
+        "--outdir /tmp/ns-worker-dry-run --containers-rollout none"
+    )
+
+
 def test_production_dispatch_requires_exact_main_commit(tmp_path: Path) -> None:
     sha = "a" * 40
     wrong_sha = "b" * 40
@@ -694,20 +791,8 @@ def test_production_dispatch_requires_exact_main_commit(tmp_path: Path) -> None:
 
 
 def test_production_jobs_require_main_and_preview_dispatch_stays_nonproduction() -> None:
-    workflow = _workflow_text()
-    production_worker_job = workflow.split("  deploy-cloudflare-worker:", 1)[1].split(
-        "  deploy-cloudflare-preview-worker:", 1
-    )[0]
-    verify_production_job = workflow.split("  verify-production:", 1)[1]
-
-    for job in (production_worker_job, verify_production_job):
-        assert "needs.ci.outputs.deployment_environment == 'production'" in job
-
-    cloudflare_data_job = workflow.split("  cloudflare-data:", 1)[1].split(
-        "  deploy-cloudflare-worker:", 1
-    )[0]
-    assert "needs.ci.outputs.deployment_environment == 'preview'" in cloudflare_data_job
-    assert "needs.ci.outputs.deployment_environment == 'production'" in cloudflare_data_job
+    for name in ("deploy-cloudflare-worker", "verify-production", "cloudflare-data"):
+        assert _job(name)["if"] == "needs.ci.outputs.deployment_environment == 'production'"
 
 
 def test_cloudflare_data_dry_run_has_one_output_sql_argument() -> None:
